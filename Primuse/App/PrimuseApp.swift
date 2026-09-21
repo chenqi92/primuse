@@ -1957,6 +1957,8 @@ struct PrimuseApp: App {
                             )
                         }
                         playerService.handleAppDidBecomeActive()
+                        // 回到前台顺手对一次服务端歌单 /「喜欢」/ 电台, 自带冷却。
+                        AppServices.shared.serverMirrorRefresh.applicationDidBecomeActive()
                         Task { await appleMusicLibrary.refreshAfterAccountChange() }
                         Task { await updateChecker.checkForUpdate() }
                     @unknown default:

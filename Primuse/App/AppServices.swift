@@ -607,6 +607,7 @@ final class AppServices {
     let themeService: ThemeService
     let scanService: ScanService
     let serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
+    let serverMirrorRefresh: ServerMirrorRefreshCoordinator
     let alwaysDownload: AlwaysDownloadCoordinator
     #if os(iOS) || os(macOS)
     let localReferenceRefresh: LocalReferenceRefreshService
@@ -888,6 +889,37 @@ final class AppServices {
             await favoriteSync?.refresh(source: source, applyFence: applyFence)
             if applyFence() { ratingSync?.resume(sourceID: source.id) }
         }
+        // 扫描收尾之外的那一轮镜像刷新。顺序与收尾一致: 歌单 →「喜欢」/ 评分 →
+        // 电台, 每一步之前重新过闸, 源在半路被停用或被扫描接手就停下。
+        let serverMirrorRefresh = ServerMirrorRefreshCoordinator(
+            sourcesStore: store,
+            sourceManager: manager,
+            library: library,
+            scanService: scanService,
+            refreshMirrors: {
+                [weak manager, weak library, weak favoriteSync, weak ratingSync, weak radioStore]
+                source,
+                applyFence in
+                guard let manager, let library else { return }
+                await ServerPlaylistSyncService.sync(
+                    source: source,
+                    sourceManager: manager,
+                    library: library,
+                    applyFence: applyFence
+                )
+                guard applyFence() else { return }
+                await favoriteSync?.refresh(source: source, applyFence: applyFence)
+                guard applyFence() else { return }
+                ratingSync?.resume(sourceID: source.id)
+                guard let radioStore, applyFence() else { return }
+                await ServerRadioSyncService.sync(
+                    source: source,
+                    sourceManager: manager,
+                    store: radioStore,
+                    applyFence: applyFence
+                )
+            }
+        )
         library.serverRatingTargetProvider = { [weak ratingSync] song in ratingSync?.target(for: song) }
         library.ratingStateMutationHandler = { [weak ratingSync] review in ratingSync?.localRatingDidChange(review) }
         library.likedStateMutationHandler = { [weak favoriteSync] song, previous, desired in
@@ -899,6 +931,7 @@ final class AppServices {
         }
         self.scanService = scanService
         self.serverCatalogAutoRefresh = serverCatalogAutoRefresh
+        self.serverMirrorRefresh = serverMirrorRefresh
         self.alwaysDownload = alwaysDownload
         #if os(iOS) || os(macOS)
         self.localReferenceRefresh = LocalReferenceRefreshService(
@@ -1147,6 +1180,8 @@ final class AppServices {
         )
         alwaysDownload.start()
         serverCatalogAutoRefresh.startColdLaunchRefresh()
+        // 服务器上新建的歌单不该等到用户想起来去手动扫一次曲库才出现(#142)。
+        serverMirrorRefresh.startColdLaunchRefresh()
         #if os(iOS) || os(macOS)
         // 电台清单订阅：等启动忙完再查哪些到期了，别和首屏抢网络。
         RadioSubscriptionService.shared.startAfterLaunch()
