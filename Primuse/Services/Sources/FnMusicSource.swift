@@ -34,6 +34,10 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     private var albumArtistByGUID: [String: String] = [:]
     private var albumsWithoutArtist: Set<String> = []
     private static let albumDetailConcurrency = 6
+    private static let albumPageSize = 100
+    /// 整个源的专辑最多翻这么多页, 防住 total 不实时时的空转。
+    private static let albumPageLimit = 500
+    private var albumListPrimed = false
     /// 老版本飞牛没有专辑详情这个接口。一次成功都没有就别再撞了, 否则每页都要
     /// 白发一轮请求。取消不算失败, 每次扫描开始时重新给它一次机会。
     private static let albumDetailFailureLimit = 8
@@ -190,6 +194,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         try await connect()
         albumDetailFailures = 0
         albumDetailUnavailable = false
+        albumListPrimed = false
         return AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
@@ -223,6 +228,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                         }
 
                         received += result.rawCount
+                        await self.primeAlbumArtists()
                         let albumArtists = await self.albumArtistNames(for: result.tracks)
                         for track in result.tracks {
                             try Task.checkCancellation()
@@ -303,6 +309,39 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
             titleMetadataInspected: track.hasUsableCatalogTitle,
             folderLocation: libraryFolderLocation(for: track, albumArtistName: albumArtistName)
         )
+    }
+
+    /// 整个源的专辑艺术家一次翻完。`album/list` 每页就带回一批 `artists`,
+    /// 比一张张问详情省得多; 这条路走不通(老版本没有这个端点、或者列表项不带
+    /// artists)也不报错, 缺的专辑由下面按需问详情补上。每次扫描只做一次。
+    private func primeAlbumArtists() async {
+        guard !albumListPrimed else { return }
+        albumListPrimed = true
+        var page = 1
+        var received = 0
+        var expectedTotal: Int?
+        while page <= Self.albumPageLimit, !Task.isCancelled {
+            let result: FnMusicAlbumPage
+            do {
+                result = try await api.albumPage(page: page, size: Self.albumPageSize)
+            } catch {
+                return
+            }
+            guard result.rawCount > 0, result.rawCount <= Self.albumPageSize else { return }
+            if let expectedTotal, expectedTotal != result.total { return }
+            expectedTotal = result.total
+            // 只记有名字的。列表项万一根本不带 artists(端点变了、或者这一版
+            // 的列表是精简结构), 把空的记成「服务端就是没有」会连详情那条路
+            // 一起堵死 —— 那时这里什么都不填, 退化成逐张问详情而已。
+            for album in result.albums {
+                guard let name = album.artistName, albumArtistByGUID[album.guid] == nil else { continue }
+                albumArtistByGUID[album.guid] = name
+            }
+            received += result.rawCount
+            if let total = result.total, received >= total { return }
+            guard result.rawCount == Self.albumPageSize else { return }
+            page += 1
+        }
     }
 
     /// 专辑 GUID → 专辑艺术家, 只含这一页真的查到的。曲目自己带了专辑艺术家
