@@ -1073,14 +1073,27 @@ public enum SourceConnectionHandshakePolicy {
     /// Vendor relays (QuickConnect, FN Connect) negotiate the relay itself
     /// before the service handshake can even start.
     public static let vendorFallbackTimeout: TimeInterval = 25
+    /// A source with no alternative route has nothing to fall back to, so this is
+    /// not a fallback budget but a hang breaker. Without any deadline a peer that
+    /// accepts the TCP connection and then stalls in TLS or application login —
+    /// another device answering the same private address on a visited network —
+    /// leaves `connect()` awaiting for as long as the transport allows, and the
+    /// UI spins with no error to show. Wide enough for a cold NAS, a vendor relay
+    /// negotiation, or a user tapping through a certificate prompt; a granted
+    /// trust decision is persisted even if this attempt is abandoned, so the next
+    /// one no longer waits on it.
+    public static let soleRouteTimeout: TimeInterval = 45
 
     public static func timeout(
         for candidate: SourceConnectionCandidateKind,
         availableKinds: [SourceConnectionCandidateKind]
     ) -> TimeInterval? {
-        // Only a route that has somewhere to fall back to may be abandoned on a
-        // deadline; a single-route source must keep waiting for its own errors.
-        guard availableKinds.contains(where: { $0 != candidate }) else { return nil }
+        // Only a route that has somewhere to fall back to may be abandoned on its
+        // own short budget; a single-route source keeps waiting for its own
+        // errors, but not forever.
+        guard availableKinds.contains(where: { $0 != candidate }) else {
+            return soleRouteTimeout
+        }
         switch candidate {
         case .localAddress: return localFallbackTimeout
         case .publicAddress: return remoteFallbackTimeout

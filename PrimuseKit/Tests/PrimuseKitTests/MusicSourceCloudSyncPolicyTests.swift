@@ -62,7 +62,7 @@ struct MusicSourceCloudSyncPolicyTests {
         )
     }
 
-    @Test func handshakeGetsDeadlineOnlyWhenAFallbackExists() {
+    @Test func handshakeDeadlineIsShortWithAFallbackAndWideWithout() {
         #expect(
             SourceConnectionHandshakePolicy.timeout(
                 for: .localAddress,
@@ -79,7 +79,7 @@ struct MusicSourceCloudSyncPolicyTests {
             SourceConnectionHandshakePolicy.timeout(
                 for: .localAddress,
                 availableKinds: [.localAddress]
-            ) == nil
+            ) == SourceConnectionHandshakePolicy.soleRouteTimeout
         )
         // A public route that accepts the connection and then stalls used to have
         // no deadline at all, so the reachable LAN route was never reached.
@@ -89,11 +89,13 @@ struct MusicSourceCloudSyncPolicyTests {
                 availableKinds: [.localAddress, .publicAddress]
             ) == SourceConnectionHandshakePolicy.remoteFallbackTimeout
         )
+        // 只有一条路时不给它 fallback 预算,但仍然给一个宽的兜底上限 —— 对面接了
+        // TCP 再在 TLS 或登录上僵住时,要以超时收场而不是无限期等下去。
         #expect(
             SourceConnectionHandshakePolicy.timeout(
                 for: .publicAddress,
                 availableKinds: [.publicAddress]
-            ) == nil
+            ) == SourceConnectionHandshakePolicy.soleRouteTimeout
         )
     }
 }

@@ -218,8 +218,25 @@ struct ConnectionFlowView: View {
     }
     #endif
 
+    /// 只有**真的新拿到一次证书授权**才值得原地重连。
+    ///
+    /// `SSLTrustStore.requestTrust` 对已经信任过的域名直接返回 true 且不弹框
+    /// (`SSLTrustStore.swift` 里那句 "Already trusted — no need to ask")。三处
+    /// 调用点拿到 true 就用**同一条 candidate、同一份 `attemptedKinds`** 重连,
+    /// 于是域名早就信任过、却仍然持续回 TLS 失败时,连接页会永远停在转圈:
+    /// 每轮等一次登录超时,再原封不动来一遍,没有次数上限也没有退避。
+    ///
+    /// 外网撞上别人网段里占着同一个私网地址的设备就是这种情形 —— 它接了 TCP
+    /// 却不讲 DSM 的 TLS。这时缺的不是信任,该老老实实去换路由、进失败页。
     private func promptSSLTrust(domain: String) async -> Bool {
-        await SSLTrustStore.shared.requestTrust(domain: domain)
+        guard SSLTrustStore.shared.isTrusted(domain: domain) == false else {
+            plog(
+                "🔐 Connection flow: TLS failed on an already-trusted domain; not retrying "
+                    + "source=\(source.id.prefix(8))… domain=\(domain)"
+            )
+            return false
+        }
+        return await SSLTrustStore.shared.requestTrust(domain: domain)
     }
 
     private func promptInsecureHTTPTrust(host: String) async -> Bool {

@@ -160,9 +160,14 @@ import Testing
         #expect(SourceConnectionHandshakePolicy.timeout(
             for: .vendorRemote, availableKinds: [.localAddress, .vendorRemote]
         ) == SourceConnectionHandshakePolicy.vendorFallbackTimeout)
-        // A single-route source must keep waiting for its own errors.
-        #expect(SourceConnectionHandshakePolicy.timeout(for: .publicAddress, availableKinds: [.publicAddress]) == nil)
-        #expect(SourceConnectionHandshakePolicy.timeout(for: .localAddress, availableKinds: [.localAddress]) == nil)
+        // 单路由源没有可退的路,但也不能永远等:兜底上限比任何一条 fallback 预算都宽,
+        // 到点了以超时收场,而不是让界面一直转圈。
+        #expect(SourceConnectionHandshakePolicy.timeout(for: .publicAddress, availableKinds: [.publicAddress])
+            == SourceConnectionHandshakePolicy.soleRouteTimeout)
+        #expect(SourceConnectionHandshakePolicy.timeout(for: .localAddress, availableKinds: [.localAddress])
+            == SourceConnectionHandshakePolicy.soleRouteTimeout)
+        #expect(SourceConnectionHandshakePolicy.soleRouteTimeout
+            > SourceConnectionHandshakePolicy.vendorFallbackTimeout)
     }
 
     @Test func reachableRouteDoesNotWaitBehindAnotherRoutesTimeout() async {
