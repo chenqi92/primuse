@@ -11200,12 +11200,14 @@ final class MusicLibrary {
         )
     }
 
-    /// Candidates being inserted/replaced, judged against the folder siblings
-    /// they will sit next to. `replaceSong` runs on every playback start (the
+    /// Candidates being inserted/replaced, judged against the library rows they
+    /// will sit next to. `replaceSong` runs on every playback start (the
     /// duration correction), so the library is only pre-filtered by source and
-    /// album title here; the directory split and the policy run on the few
-    /// rows that share a scope, and directory authority stops at the second
-    /// distinct folder of a source.
+    /// album title here; the policy then splits by folder, or by album title
+    /// alone for a source whose paths carry none, and runs on the few rows that
+    /// share a scope. The album title is the wider of the two keys, so
+    /// pre-filtering by it feeds both splits. Directory authority still stops
+    /// at the second distinct folder of a source.
     nonisolated static func inferredAlbumArtists(
         for candidates: [Song],
         among library: [Song]
@@ -11220,16 +11222,11 @@ final class MusicLibrary {
 
         let candidateIDs = Set(candidates.map(\.id))
         let candidateTracks = candidates.map(albumArtistInferenceTrack)
-        var candidateScopeKeys: Set<String> = []
         var directoriesBySource: [String: Set<String>] = [:]
         var authoritative: Set<String> = []
         for track in candidateTracks {
-            if let key = albumArtistInferenceScopeKey(track) {
-                candidateScopeKeys.insert(key)
-            }
             directoriesBySource[track.sourceID, default: []].insert(track.directory)
         }
-        guard !candidateScopeKeys.isEmpty else { return [:] }
 
         var scoped: [AlbumArtistInferencePolicy.Track] = []
         for song in library where !candidateIDs.contains(song.id) {
@@ -11245,16 +11242,13 @@ final class MusicLibrary {
                     authoritative.insert(song.sourceID)
                 }
             }
-            if sharesTitle,
-               let key = albumArtistInferenceScopeKey(track),
-               candidateScopeKeys.contains(key) {
+            if sharesTitle {
                 scoped.append(track)
             }
         }
         for (sourceID, directories) in directoriesBySource where directories.count >= 2 {
             authoritative.insert(sourceID)
         }
-        guard !authoritative.isEmpty else { return [:] }
         scoped.append(contentsOf: candidateTracks)
 
         let inferred = AlbumArtistInferencePolicy.inferredAlbumArtists(
@@ -11268,14 +11262,6 @@ final class MusicLibrary {
         guard let title = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !title.isEmpty else { return nil }
         return title
-    }
-
-    /// 与 `AlbumArtistInferencePolicy` 内部的分组键一致: 源 + 目录 + 专辑名。
-    private nonisolated static func albumArtistInferenceScopeKey(
-        _ track: AlbumArtistInferencePolicy.Track
-    ) -> String? {
-        guard let albumTitle = albumArtistInferenceTitle(track.albumTitle) else { return nil }
-        return "\(track.sourceID)\u{1F}\(track.directory)\u{1F}\(albumTitle)"
     }
 
     /// 后台 derive albums / artists 集合。纯函数 ── 给定 songs 数组, 算出

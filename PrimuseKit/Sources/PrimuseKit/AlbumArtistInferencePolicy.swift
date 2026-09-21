@@ -6,9 +6,15 @@ import Foundation
 /// A folder of one album whose files lack an album-artist tag falls apart
 /// into one "album" per track artist: the OST folder where most files say
 /// "鸣潮先约电台" and a few name the individual composer becomes several
-/// same-titled albums. The folder is the missing signal. Only sources whose
-/// paths carry real folders take part; a media server that exposes every
-/// item under one synthetic directory keeps its server-provided grouping.
+/// same-titled albums. The folder is the missing signal, and a source whose
+/// paths carry real folders is judged folder by folder, majority included.
+///
+/// A source that addresses tracks by ID (fnOS Music, Subsonic, Audio Station,
+/// a media server) synthesises one flat path for every track, so it has no
+/// folder to judge by. It splits the same album all the same, whenever the
+/// server answers the album artist for some of its tracks and not the rest.
+/// Those sources are grouped by album title alone and only the unambiguous
+/// verdict is taken: one explicit tag in the album, everyone else untagged.
 public enum AlbumArtistInferencePolicy {
     public struct Track: Sendable, Equatable {
         public let id: String
@@ -65,6 +71,22 @@ public enum AlbumArtistInferencePolicy {
         for scope in scopes(for: tracks, restrictedTo: directoryAuthoritativeSourceIDs)
         where scope.count >= 2 {
             guard let target = target(for: scope) else { continue }
+            for track in scope where effective(track) != target {
+                result[track.id] = target
+            }
+        }
+
+        // Sources without real folders. Their scope spans a whole album title,
+        // so a majority vote would be free to rename a same-titled album by
+        // another artist; only an undisputed explicit tag may speak for them.
+        var synthetic: Set<String> = []
+        for track in tracks where !directoryAuthoritativeSourceIDs.contains(track.sourceID) {
+            synthetic.insert(track.sourceID)
+        }
+        guard !synthetic.isEmpty else { return result }
+        for scope in scopes(for: tracks, restrictedTo: synthetic, byDirectory: false)
+        where scope.count >= 2 {
+            guard let target = target(for: scope, explicitTagsOnly: true) else { continue }
             for track in scope where effective(track) != target {
                 result[track.id] = target
             }
@@ -141,7 +163,10 @@ public enum AlbumArtistInferencePolicy {
 
     /// The album artist the whole scope should use, or nil when the tracks do
     /// not agree strongly enough to overrule their own tags.
-    private static func target(for scope: [Track]) -> String? {
+    ///
+    /// `explicitTagsOnly` drops the majority vote, leaving only the verdict a
+    /// scope can reach without the folder having vouched for it.
+    private static func target(for scope: [Track], explicitTagsOnly: Bool = false) -> String? {
         // One tally over the whole scope: it decides both how strong a key is
         // and which spelling of that key the scope actually uses.
         var tally = Tally()
@@ -166,6 +191,7 @@ public enum AlbumArtistInferencePolicy {
         if explicitKeys.count > 1 {
             return nil
         }
+        guard !explicitTagsOnly else { return nil }
 
         guard let top = tally.dominantKeyIndex() else { return nil }
         guard tally.count(forKeyAt: top) * 2 > scope.count else { return nil }

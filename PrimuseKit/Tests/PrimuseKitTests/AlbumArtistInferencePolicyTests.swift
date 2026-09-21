@@ -103,7 +103,11 @@ struct AlbumArtistInferencePolicyTests {
         #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks).isEmpty)
     }
 
-    @Test func aSourceWithoutRealFoldersIsSkipped() {
+    /// A source without real folders gets no majority vote: its scope spans a
+    /// whole album title, where a majority could rename a same-titled album by
+    /// another artist. The same rows decide the majority once a second folder
+    /// makes the source directory-authoritative.
+    @Test func aSourceWithoutRealFoldersGetsNoMajorityVote() {
         let flat = [
             track("1", sourceID: "server", directory: "/songs", trackArtistName: "Host"),
             track("2", sourceID: "server", directory: "/songs", trackArtistName: "Host"),
@@ -119,6 +123,64 @@ struct AlbumArtistInferencePolicyTests {
             AlbumArtistInferencePolicy.directoryAuthoritativeSourceIDs(for: foldered) == ["server"]
         )
         #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: foldered) == ["3": "Host"])
+    }
+
+    /// fnOS Music addresses tracks by GUID, so every path is `/fnmusic/tracks`
+    /// and no folder ever vouches for the source. It still hands back the album
+    /// artist for only part of an album, which used to split that album into one
+    /// same-titled card per composer. The lone explicit tag now speaks for the
+    /// whole album title.
+    @Test func aFlatSourceAdoptsTheOnlyExplicitAlbumArtist() {
+        let ost = "游戏《Rewrite》原声带"
+        let tracks = [
+            track("1", sourceID: "fnmusic", directory: "/fnmusic/tracks", albumTitle: ost,
+                  albumArtistName: "Key Sounds Label", trackArtistName: "水谷瑠奈"),
+            track("2", sourceID: "fnmusic", directory: "/fnmusic/tracks", albumTitle: ost,
+                  albumArtistName: "Key Sounds Label", trackArtistName: "細井聡司"),
+            track("3", sourceID: "fnmusic", directory: "/fnmusic/tracks", albumTitle: ost,
+                  trackArtistName: "折戸伸治"),
+            track("4", sourceID: "fnmusic", directory: "/fnmusic/tracks", albumTitle: ost,
+                  trackArtistName: "麻枝准"),
+        ]
+
+        #expect(AlbumArtistInferencePolicy.directoryAuthoritativeSourceIDs(for: tracks).isEmpty)
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == [
+            "3": "Key Sounds Label",
+            "4": "Key Sounds Label",
+        ])
+    }
+
+    @Test func aFlatSourceLeavesConflictingExplicitTagsAlone() {
+        let tracks = [
+            track("1", sourceID: "server", directory: "/songs", albumTitle: "合辑",
+                  albumArtistName: "Label A", trackArtistName: "Composer A"),
+            track("2", sourceID: "server", directory: "/songs", albumTitle: "合辑",
+                  albumArtistName: "Label B", trackArtistName: "Composer B"),
+            track("3", sourceID: "server", directory: "/songs", albumTitle: "合辑",
+                  trackArtistName: "Composer C"),
+        ]
+
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks).isEmpty)
+    }
+
+    /// A flat source and a foldered one in one library keep their own rules.
+    @Test func aFlatSourceAndAFolderedSourceAreJudgedSeparately() {
+        let tracks = [
+            track("flat-1", sourceID: "fnmusic", directory: "/fnmusic/tracks",
+                  albumArtistName: "Label", trackArtistName: "Composer A"),
+            track("flat-2", sourceID: "fnmusic", directory: "/fnmusic/tracks",
+                  trackArtistName: "Composer B"),
+            track("disk-1", sourceID: "disk", trackArtistName: "Host"),
+            track("disk-2", sourceID: "disk", trackArtistName: "Host"),
+            track("disk-3", sourceID: "disk", trackArtistName: "Guest"),
+            track("disk-4", sourceID: "disk", directory: "/music/other",
+                  albumTitle: "别的专辑", trackArtistName: "别人"),
+        ]
+
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == [
+            "flat-2": "Label",
+            "disk-3": "Host",
+        ])
     }
 
     @Test func spellingVariantsOfOneKeyUnifyToTheMostFrequentSpelling() {
