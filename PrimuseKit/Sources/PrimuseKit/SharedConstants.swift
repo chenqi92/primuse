@@ -3284,7 +3284,23 @@ public enum MetadataReadingMode: String, CaseIterable, Sendable {
     /// "暂停自动读取"而停在零并发上。暂停在那里按最保守的读取档位执行。
     public var resolvedForExplicitWork: Self { self == .paused ? .energySaving : self }
 
-    public static func resolve(storedValue: String?, legacyFastEnabled: Bool) -> Self {
+    /// 档位选择只对要操心发热、耗电和后台配额的设备有意义。Mac 一直插着电、
+    /// 散热余量也够, 读取速度不该让用户自己权衡: 桌面端不显示这个选择, 固定
+    /// 按全速跑。播放中、高温和低电量下的自动降速仍然照常生效。
+    public static var offersUserSelection: Bool {
+        #if os(macOS)
+        false
+        #else
+        true
+        #endif
+    }
+
+    public static func resolve(
+        storedValue: String?,
+        legacyFastEnabled: Bool,
+        offersUserSelection: Bool = Self.offersUserSelection
+    ) -> Self {
+        guard offersUserSelection else { return .fast }
         if let storedValue, let mode = Self(rawValue: storedValue) { return mode }
         return legacyFastEnabled ? .fast : .automatic
     }

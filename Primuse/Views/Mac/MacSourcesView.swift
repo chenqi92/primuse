@@ -177,21 +177,6 @@ struct MacSourcesView: View {
                         .foregroundStyle(PMColor.text)
                 }
                 Spacer()
-                MetadataBackfillPerformanceButton { mode in
-                    Image(systemName: mode.symbol)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(mode == .fast ? Color.white : PMColor.textMuted)
-                        .frame(width: 32, height: 32)
-                        .background(
-                            mode == .fast ? theme.uiAccentColor : PMColor.matBtn,
-                            in: .rect(cornerRadius: 8)
-                        )
-                        .contentTransition(.symbolEffect(.replace))
-                        .pmAnimation(.control, value: mode)
-                }
-                .buttonStyle(.plain)
-                .help(MetadataReadingText.string("help"))
-
                 Button {
                     showAddSource = true
                 } label: {

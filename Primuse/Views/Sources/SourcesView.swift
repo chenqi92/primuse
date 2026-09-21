@@ -250,6 +250,8 @@ enum MetadataReadingText {
     }
 }
 
+/// 桌面端不提供这个选择 —— 见 `MetadataReadingMode.offersUserSelection`。
+#if !os(macOS)
 struct MetadataBackfillPerformanceButton<Label: View>: View {
     @AppStorage(MetadataBackfillExecutionPolicy.readingModeDefaultsKey)
     private var storedMode = ""
@@ -371,6 +373,7 @@ extension MetadataReadingMode {
         }
     }
 }
+#endif
 
 struct MetadataReadingStatusView: View {
     @Environment(MetadataBackfillService.self) private var backfill
@@ -494,10 +497,12 @@ struct SourcesContentView: View {
             }
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
+                    #if !os(macOS)
                     MetadataBackfillPerformanceButton { mode in
                         Image(systemName: mode.symbol)
                             .foregroundStyle(mode == .fast ? Color.orange : Color.primary)
                     }
+                    #endif
 
                     Button { showAddSource = true } label: { Image(systemName: "plus") }
                         .accessibilityIdentifier("sources.add")

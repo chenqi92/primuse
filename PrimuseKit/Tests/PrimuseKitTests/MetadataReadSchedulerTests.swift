@@ -151,6 +151,20 @@ struct MetadataReadSchedulerTests {
         #expect(MetadataReadingMode.resolve(storedValue: "energySaving", legacyFastEnabled: true) == .energySaving)
     }
 
+    /// 桌面端不显示档位选择, 所以早先版本在这台 Mac 上存下的任何档位
+    /// (包括暂停) 都不该让它慢下来或停下来。
+    @Test func desktopIgnoresStoredPreferenceAndRunsAtFullSpeed() {
+        let stored: [String?] = MetadataReadingMode.allCases.map(\.rawValue) + [nil]
+        for value in stored {
+            #expect(MetadataReadingMode.resolve(
+                storedValue: value, legacyFastEnabled: false, offersUserSelection: false
+            ) == .fast)
+            #expect(MetadataReadingMode.resolve(
+                storedValue: value, legacyFastEnabled: true, offersUserSelection: false
+            ) == .fast)
+        }
+    }
+
     @Test func foregroundEntrypointsShareTheSelectedBudget() {
         for preference in MetadataReadingMode.automaticCases {
             let scan = MetadataBackfillExecutionPolicy.limits(for: .foregroundAfterSourceScan, preference: preference)
