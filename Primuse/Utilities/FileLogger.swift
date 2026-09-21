@@ -462,7 +462,7 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     private typealias ProcPidRusage = @convention(c) (Int32, Int32, UnsafeMutableRawPointer?) -> Int32
 
     /// `proc_pid_rusage` 不在 iOS 的公开头文件里, 只在 Debug 构建里按符号名查找。
-    nonisolated(unsafe) private static let procPidRusage: ProcPidRusage? = {
+    private static let procPidRusage: ProcPidRusage? = {
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "proc_pid_rusage") else { return nil }
         return unsafeBitCast(symbol, to: ProcPidRusage.self)
     }()

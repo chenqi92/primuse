@@ -241,7 +241,7 @@ struct LibraryDetailActionButton: View {
 
     private var fillColor: Color {
         #if os(iOS)
-        if let tint { return emphasized ? .white : .white.opacity(0.16) }
+        if tint != nil { return emphasized ? .white : .white.opacity(0.16) }
         #endif
         return emphasized ? .accentColor : (onArtwork ? .white.opacity(0.18) : .accentColor.opacity(0.12))
     }
