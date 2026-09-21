@@ -619,6 +619,32 @@ struct SongRowView: View {
     /// 离线状态由调用方传进来：尾部菜单用的是行渲染时量到的那一份快照，
     /// 跟行上的徽标是同一个值。
     @ViewBuilder
+    /// 把一首歌在「音乐」和「有声内容」之间搬家。判定平时是推断出来的
+    /// (.m4b 容器、点名了类别的流派), 这里只记下与推断不同的那一次决定 ——
+    /// 改完标签或换了文件之后, 没被手动改过的歌仍然跟着文件走。
+    @ViewBuilder
+    private var spokenWordClassificationButton: some View {
+        let store = SpokenWordStore.shared
+        let isSpokenWord = store.isSpokenWord(song)
+        Button {
+            let next: ListeningContentKind = isSpokenWord ? .music : .spokenWord
+            let inferred = SpokenWordContentPolicy.classify(
+                filePath: song.filePath,
+                genre: song.genre
+            )
+            store.setKind(next == inferred ? nil : next, forSongIDs: [song.id])
+            library.refreshContentClassification()
+        } label: {
+            // 两条分支各写各的 key: 三元表达式里的文案提取不到,
+            // 会以键名原样上屏。
+            if isSpokenWord {
+                Label(String(localized: "mark_as_music"), systemImage: "music.note")
+            } else {
+                Label(String(localized: "mark_as_spoken_word"), systemImage: "books.vertical")
+            }
+        }
+    }
+
     private func songActionMenuContent(
         entryPoint: SingleSongScrapeEntryPoint,
         offline: OfflineAudioCacheSnapshot
@@ -672,6 +698,8 @@ struct SongRowView: View {
                 } label: {
                     Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
                 }
+
+                spokenWordClassificationButton
 
                 metadataRecoveryButtons()
             } label: {

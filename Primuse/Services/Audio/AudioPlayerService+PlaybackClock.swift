@@ -97,6 +97,17 @@ extension AudioPlayerService {
                             } ?? 0
                         )
                     }
+
+                    // Spoken word: land the resume seek as soon as audio is
+                    // really running, then keep the position and the chapter
+                    // readout current. All three no-op for music.
+                    if self.currentItemIsSpokenWord {
+                        self.applyPendingSpokenWordResumeIfNeeded()
+                        self.rememberSpokenWordPosition()
+                    }
+                    if !self.spokenWordChapters.isEmpty {
+                        self.refreshCurrentChapter()
+                    }
                 }
                 if !transitionWasActive {
                     await self.sampleDecodedBufferHealth(clockTicket: clockTicket)

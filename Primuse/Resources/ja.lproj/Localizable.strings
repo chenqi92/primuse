@@ -4255,3 +4255,16 @@
 "launch_aborted_hint" = "下のレポートにどこで止まったかが記録されています。開発者に送ってください。";
 "launch_diagnostics_copy" = "診断情報をコピー";
 "launch_diagnostics_files_hint" = "診断情報は「ファイル」→「この iPhone 内」→ Primuse → Diagnostics にも保存されています。";
+
+// MARK: - オーディオ作品
+"tab_spoken_word" = "オーディオ作品";
+"spoken_word_continue_section" = "続きから再生";
+"spoken_word_all_section" = "すべて";
+"spoken_word_empty_hint" = "オーディオブック、落語、ラジオドラマ、講演などがここに表示されます。";
+"spoken_word_remaining_format" = "残り %@";
+"spoken_word_clear_progress" = "再生位置を消去";
+"mark_as_spoken_word" = "オーディオ作品にする";
+"mark_as_music" = "音楽にする";
+"chapters_title" = "チャプター";
+"a11y_skip_backward" = "15秒戻る";
+"a11y_skip_forward" = "30秒進む";

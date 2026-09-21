@@ -4160,3 +4160,16 @@
 "launch_aborted_hint" = "नीचे दी गई रिपोर्ट बताती है कि यह कहाँ रुका। कृपया इसे डेवलपर को भेजें।";
 "launch_diagnostics_copy" = "डायग्नोस्टिक जानकारी कॉपी करें";
 "launch_diagnostics_files_hint" = "डायग्नोस्टिक जानकारी Files → मेरे iPhone पर → Primuse → Diagnostics में भी सहेजी गई है।";
+
+// MARK: - ऑडियो सामग्री
+"tab_spoken_word" = "ऑडियो सामग्री";
+"spoken_word_continue_section" = "सुनना जारी रखें";
+"spoken_word_all_section" = "सभी";
+"spoken_word_empty_hint" = "ऑडियोबुक, रेडियो नाटक, व्याख्यान और अन्य बोली गई रिकॉर्डिंग यहाँ दिखाई देंगी।";
+"spoken_word_remaining_format" = "%@ शेष";
+"spoken_word_clear_progress" = "सुनने की स्थिति मिटाएँ";
+"mark_as_spoken_word" = "ऑडियो सामग्री के रूप में चिह्नित करें";
+"mark_as_music" = "संगीत के रूप में चिह्नित करें";
+"chapters_title" = "अध्याय";
+"a11y_skip_backward" = "15 सेकंड पीछे";
+"a11y_skip_forward" = "30 सेकंड आगे";

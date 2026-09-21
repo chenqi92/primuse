@@ -4160,3 +4160,16 @@
 "launch_aborted_hint" = "รายงานด้านล่างแสดงว่าหยุดที่ขั้นตอนใด กรุณาส่งให้ผู้พัฒนา";
 "launch_diagnostics_copy" = "คัดลอกข้อมูลวินิจฉัย";
 "launch_diagnostics_files_hint" = "ข้อมูลวินิจฉัยถูกบันทึกไว้ใน ไฟล์ → บน iPhone ของฉัน → Primuse → Diagnostics ด้วย";
+
+// MARK: - เนื้อหาเสียงพูด
+"tab_spoken_word" = "เนื้อหาเสียงพูด";
+"spoken_word_continue_section" = "ฟังต่อ";
+"spoken_word_all_section" = "ทั้งหมด";
+"spoken_word_empty_hint" = "หนังสือเสียง ละครวิทยุ การบรรยาย และการบันทึกเสียงพูดอื่น ๆ จะแสดงที่นี่";
+"spoken_word_remaining_format" = "เหลือ %@";
+"spoken_word_clear_progress" = "ล้างตำแหน่งการฟัง";
+"mark_as_spoken_word" = "ทำเครื่องหมายเป็นเนื้อหาเสียงพูด";
+"mark_as_music" = "ทำเครื่องหมายเป็นเพลง";
+"chapters_title" = "บท";
+"a11y_skip_backward" = "ย้อนกลับ 15 วินาที";
+"a11y_skip_forward" = "ข้ามไป 30 วินาที";

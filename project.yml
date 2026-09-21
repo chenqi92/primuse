@@ -610,6 +610,9 @@ targets:
       - path: Primuse/Services/Library/ServerPlaylistMirror.swift
       - path: Primuse/Services/Library/LibraryDatabase.swift
       - path: Primuse/Services/Library/PlayHistoryStore.swift
+      # 有声内容的判定与收听位置。MusicLibrary 靠它把有声书从音乐聚合里分出来,
+      # 电视端的曲库是同一份代码, 少了它编不过。
+      - path: Primuse/Services/Library/SpokenWordStore.swift
       - path: Primuse/Services/Library/SmartPlaylistEngine.swift
       - path: Primuse/Services/Cloud/CloudKitSyncService.swift
       - path: Primuse/Services/Radio/RadioStationsStore.swift

@@ -3167,6 +3167,30 @@ final class MusicLibrary {
             LibraryArrayReclaimer.release(previous)
         }
     }
+    private var musicSongsReference = LibraryArrayReference<Song>()
+    /// `visibleSongs` minus the spoken-word items. The songs list, and every
+    /// music surface built from it, reads this so an audiobook or a long
+    /// 相声 series cannot bury the library. It is the same array as
+    /// `visibleSongs` when nothing is classified as spoken word.
+    private(set) var musicSongs: [Song] {
+        get { musicSongsReference.value }
+        set {
+            let previous = musicSongsReference
+            musicSongsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
+    }
+    private var spokenWordSongsReference = LibraryArrayReference<Song>()
+    /// The spoken-word items, in the same order they hold in `visibleSongs`.
+    private(set) var spokenWordSongs: [Song] {
+        get { spokenWordSongsReference.value }
+        set {
+            let previous = spokenWordSongsReference
+            spokenWordSongsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
+    }
+    @ObservationIgnored private(set) var spokenWordSongIDs: Set<String> = []
     private var visibleAlbumsReference = LibraryArrayReference<Album>()
     private(set) var visibleAlbums: [Album] {
         get { visibleAlbumsReference.value }
@@ -3252,6 +3276,12 @@ final class MusicLibrary {
 
     fileprivate struct PreparedVisibleCache: Sendable {
         let songs: [Song]
+        /// `songs` without the spoken-word items, which is what the music
+        /// surfaces (songs list, albums, artists, genres) are built from. It
+        /// is the same array instance when the library holds no spoken word.
+        let musicSongs: [Song]
+        let spokenWordSongs: [Song]
+        let spokenWordSongIDs: Set<String>
         let albums: [Album]
         let artists: [Artist]
         let genres: [LibraryGenre]
@@ -3552,6 +3582,14 @@ final class MusicLibrary {
         spotlightIndexRevision &+= 1
     }
 
+    /// Re-splits music from spoken word. Called when the listener corrects an
+    /// item's kind, and once after launch so the startup snapshot — which is
+    /// built before the corrections are loaded — picks them up.
+    func refreshContentClassification() {
+        guard !isPreparing else { return }
+        rebuildVisibleCache()
+    }
+
     func updateAppleMusicLibrarySyncEnabled(_ enabled: Bool) {
         guard appleMusicLibrarySyncEnabled != enabled else { return }
         appleMusicLibrarySyncEnabled = enabled
@@ -3581,6 +3619,7 @@ final class MusicLibrary {
             artists: artists,
             artistNameConfiguration: artistNameConfiguration,
             disabledSourceIDs: disabledSourceIDs,
+            spokenWordOverrides: SpokenWordStore.shared.overrideSnapshot,
             previousVisibleSongs: visibleSongs
         )
         applyPreparedVisibleCache(prepared)
@@ -3632,6 +3671,9 @@ final class MusicLibrary {
                     ]
                 )
         visibleSongs = prepared.songs
+        musicSongs = prepared.musicSongs
+        spokenWordSongs = prepared.spokenWordSongs
+        spokenWordSongIDs = prepared.spokenWordSongIDs
         visibleAlbums = prepared.albums
         visibleArtists = prepared.artists
         visibleGenres = prepared.genres
@@ -3688,6 +3730,7 @@ final class MusicLibrary {
         artists: [Artist],
         artistNameConfiguration: ArtistNameConfiguration,
         disabledSourceIDs: Set<String>,
+        spokenWordOverrides: [String: ListeningContentKind] = [:],
         previousVisibleSongs: [Song]
     ) -> PreparedVisibleCache {
         let nextVisibleSongs = disabledSourceIDs.isEmpty
@@ -3695,17 +3738,30 @@ final class MusicLibrary {
             : songs.filter { !disabledSourceIDs.contains($0.sourceID) }
         let lookups = makeVisibleLookups(
             songs: nextVisibleSongs,
-            artistNameConfiguration: artistNameConfiguration
+            artistNameConfiguration: artistNameConfiguration,
+            spokenWordOverrides: spokenWordOverrides
         )
+        // An audiobook or a 200-episode 评书 series would otherwise flood the
+        // album and artist grids it has nothing to do with. `visibleSongs`
+        // stays the whole library — search, playback, statistics and the
+        // per-source counts all depend on it — and only the music surfaces
+        // read the split-out array.
+        let spokenWordSongIDs = lookups.spokenWordSongIDs
+        let musicSongs = spokenWordSongIDs.isEmpty
+            ? nextVisibleSongs
+            : nextVisibleSongs.filter { !spokenWordSongIDs.contains($0.id) }
+        let spokenWordSongs = spokenWordSongIDs.isEmpty
+            ? []
+            : nextVisibleSongs.filter { spokenWordSongIDs.contains($0.id) }
         let nextVisibleAlbums: [Album]
         let candidateVisibleArtists: [Artist]
-        if disabledSourceIDs.isEmpty {
+        if disabledSourceIDs.isEmpty, spokenWordSongIDs.isEmpty {
             nextVisibleAlbums = albums
             candidateVisibleArtists = artists
         } else {
-            let visibleAlbumIDs = Set(nextVisibleSongs.compactMap(\.albumID))
+            let visibleAlbumIDs = Set(musicSongs.compactMap(\.albumID))
             nextVisibleAlbums = albums.filter { visibleAlbumIDs.contains($0.id) }
-            candidateVisibleArtists = artists.filter { lookups.songIDsByArtistID[$0.id] != nil }
+            candidateVisibleArtists = artists.filter { lookups.musicArtistIDs.contains($0.id) }
         }
         // Older derived-index caches may contain two display-name variants
         // that resolve to the same stable artist ID. Keep launch resilient
@@ -3719,9 +3775,12 @@ final class MusicLibrary {
         let allCounts = disabledSourceIDs.isEmpty
             ? lookups.countBySourceID
             : makeSongCountsBySourceID(songs)
-        let genreIndex = LibraryGenreIndexBuilder.build(from: nextVisibleSongs)
+        let genreIndex = LibraryGenreIndexBuilder.build(from: musicSongs)
         return PreparedVisibleCache(
             songs: nextVisibleSongs,
+            musicSongs: musicSongs,
+            spokenWordSongs: spokenWordSongs,
+            spokenWordSongIDs: spokenWordSongIDs,
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,
             genres: genreIndex.genres,
@@ -3757,7 +3816,8 @@ final class MusicLibrary {
 
     private nonisolated static func makeVisibleLookups(
         songs: [Song],
-        artistNameConfiguration: ArtistNameConfiguration
+        artistNameConfiguration: ArtistNameConfiguration,
+        spokenWordOverrides: [String: ListeningContentKind]
     ) -> (
         indexByID: [String: Int],
         songByID: [String: Song],
@@ -3765,7 +3825,9 @@ final class MusicLibrary {
         songsBySourceID: [String: [Song]],
         playableBySourceID: [String: [Song]],
         countBySourceID: [String: Int],
-        preferredArtworkSongIDByArtistID: [String: String]
+        preferredArtworkSongIDByArtistID: [String: String],
+        spokenWordSongIDs: Set<String>,
+        musicArtistIDs: Set<String>
     ) {
         var indexByID: [String: Int] = [:]
         var songByID: [String: Song] = [:]
@@ -3774,13 +3836,25 @@ final class MusicLibrary {
         var playableBySourceID: [String: [Song]] = [:]
         var countBySourceID: [String: Int] = [:]
         var preferredArtworkSongsByArtistID: [String: Song] = [:]
+        // Classifying inside this existing pass keeps the whole-library cost
+        // to one extension check plus one genre check per song; a separate
+        // filter over the library would walk every row a second time.
+        var spokenWordSongIDs: Set<String> = []
+        var musicArtistIDs: Set<String> = []
         for (index, song) in songs.enumerated() {
             indexByID[song.id] = index
             if songByID[song.id] == nil { songByID[song.id] = song }
+            let isSpokenWord = SpokenWordContentPolicy.classify(
+                filePath: song.filePath,
+                genre: song.genre,
+                userOverride: spokenWordOverrides[song.id]
+            ) == .spokenWord
+            if isSpokenWord { spokenWordSongIDs.insert(song.id) }
             let artistIDs = resolvedArtistIDs(
                 for: song,
                 configuration: artistNameConfiguration
             )
+            if !isSpokenWord { musicArtistIDs.formUnion(artistIDs) }
             for artistID in artistIDs {
                 songIDsByArtistID[artistID, default: []].append(song.id)
                 if let current = preferredArtworkSongsByArtistID[artistID] {
@@ -3804,7 +3878,9 @@ final class MusicLibrary {
             songsBySourceID,
             playableBySourceID,
             countBySourceID,
-            preferredArtworkSongsByArtistID.mapValues(\.id)
+            preferredArtworkSongsByArtistID.mapValues(\.id),
+            spokenWordSongIDs,
+            musicArtistIDs
         )
     }
 
@@ -8694,6 +8770,7 @@ final class MusicLibrary {
         let songs: [Song]
         let artistNameConfiguration: ArtistNameConfiguration
         let disabledSourceIDs: Set<String>
+        let spokenWordOverrides: [String: ListeningContentKind]
         let previousVisibleSongs: [Song]
     }
 
@@ -8818,6 +8895,7 @@ final class MusicLibrary {
             songs: songs,
             artistNameConfiguration: artistNameConfiguration,
             disabledSourceIDs: disabledSourceIDs,
+            spokenWordOverrides: SpokenWordStore.shared.overrideSnapshot,
             previousVisibleSongs: visibleSongs
         )
 
@@ -8867,6 +8945,7 @@ final class MusicLibrary {
                         artists: result.artists,
                         artistNameConfiguration: request.artistNameConfiguration,
                         disabledSourceIDs: request.disabledSourceIDs,
+                        spokenWordOverrides: request.spokenWordOverrides,
                         previousVisibleSongs: request.previousVisibleSongs
                     )
                     if !Task.isCancelled {
@@ -9107,6 +9186,10 @@ final class MusicLibrary {
         let songStore: IncrementalSongStore?
         var sourceIdentityPrefixes: [String: String] = [:]
         var previousVisibleSongs: [Song] = []
+        /// Empty during the startup snapshot: the corrections live in a
+        /// main-actor store that is not up yet. Inference still classifies
+        /// every row, and the first main-actor rebuild applies them.
+        var spokenWordOverrides: [String: ListeningContentKind] = [:]
         let songStoreSnapshotWriter: @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64
         var songs: [Song] = []
         var albums: [Album] = []
@@ -9194,6 +9277,7 @@ final class MusicLibrary {
                 songs: songs, albums: albums, artists: artists,
                 artistNameConfiguration: artistNameConfiguration,
                 disabledSourceIDs: disabledSourceIDs,
+                spokenWordOverrides: spokenWordOverrides,
                 previousVisibleSongs: previousVisibleSongs
             )
         }

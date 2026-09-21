@@ -4254,3 +4254,16 @@
 "launch_aborted_hint" = "Der folgende Bericht zeigt, wo er stehen geblieben ist. Bitte sende ihn an den Entwickler.";
 "launch_diagnostics_copy" = "Diagnose kopieren";
 "launch_diagnostics_files_hint" = "Die Diagnose wurde auch in „Dateien“ → „Auf meinem iPhone“ → Primuse → Diagnostics gesichert.";
+
+// MARK: - Hörinhalte
+"tab_spoken_word" = "Hörinhalte";
+"spoken_word_continue_section" = "Weiterhören";
+"spoken_word_all_section" = "Alle";
+"spoken_word_empty_hint" = "Hörbücher, Hörspiele, Vorträge und andere Sprachaufnahmen erscheinen hier.";
+"spoken_word_remaining_format" = "Noch %@";
+"spoken_word_clear_progress" = "Hörposition löschen";
+"mark_as_spoken_word" = "Als Hörinhalt markieren";
+"mark_as_music" = "Als Musik markieren";
+"chapters_title" = "Kapitel";
+"a11y_skip_backward" = "15 Sekunden zurück";
+"a11y_skip_forward" = "30 Sekunden vor";

@@ -520,6 +520,9 @@ final class AudioPlayerService {
             prepareLyricsForSystemSurfaces(previousSong: oldValue)
             #endif
             playbackMetadataSongDidChange(from: oldValue, to: currentSong)
+            if oldValue?.id != currentSong?.id {
+                handleSpokenWordItemChange(to: currentSong)
+            }
         }
     }
     var isPlaying = false {
@@ -965,6 +968,26 @@ final class AudioPlayerService {
         didSet { if sleepStopAfterSongID != oldValue { synchronizeAppleMusicQueue() } }
     }
     var isSleepTimerActive: Bool { sleepTimerEndDate != nil || sleepStopAfterSongID != nil }
+
+    // MARK: - Spoken word
+
+    /// Chapter marks for the current item, empty for everything without them.
+    /// Populated off the main actor after playback starts; see
+    /// `AudioPlayerService+SpokenWord`.
+    private(set) var spokenWordChapters: [MediaChapter] = []
+    /// Which of `spokenWordChapters` covers the play head, or nil before the
+    /// first mark. Refreshed on the playback clock.
+    private(set) var currentChapterIndex: Int?
+    /// True while the current item is spoken word, so the transport, the Now
+    /// Playing screen and the remote commands can offer skip intervals
+    /// instead of track changes without reclassifying on every access.
+    private(set) var currentItemIsSpokenWord = false
+    @ObservationIgnored var lastSpokenWordPositionSave: TimeInterval = 0
+    @ObservationIgnored var chapterLoadTask: Task<Void, Never>?
+    @ObservationIgnored var chapterLoadedSongID: String?
+    /// Set while a resume seek is in flight so the position writer cannot
+    /// store the zero the clock reports before the seek lands.
+    @ObservationIgnored var pendingSpokenWordResumeSongID: String?
 
     var displayLink: Timer?
     @ObservationIgnored var playbackClockTickGate = PlaybackClockTickGate()
@@ -3560,6 +3583,9 @@ final class AudioPlayerService {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
             return
         }
+        // Store where the outgoing item was left while its position is still
+        // the one on the clock; by the time `currentSong` changes it is not.
+        rememberSpokenWordPosition(force: true)
         preparePlaybackMetadataSelection(for: song)
         registerPlayIntent()
         if isLiveRadio {
@@ -4362,6 +4388,9 @@ final class AudioPlayerService {
         plog("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
         plog("▶️   URL: \(redactedURL(url))")
         plog("▶️   scheme=\(url.scheme ?? "nil") isFileURL=\(url.isFileURL) ext=\(url.pathExtension) format=\(song.fileFormat) duration=\(song.duration)")
+        // Chapter marks come from the file that is about to play, so a
+        // streamed item simply has none until it has been cached locally.
+        loadChaptersIfNeeded(for: song, fileURL: url.isFileURL ? url : nil)
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
         let isCloudStream = url.scheme == SourceManager.cloudStreamingScheme
         let requiresCurrentStreamEpoch = isRemoteURL || isCloudStream
@@ -6632,6 +6661,9 @@ final class AudioPlayerService {
     }
 
     func pause() {
+        // A paused audiobook is the most common way to leave one, so the
+        // position is written through before any route-specific early return.
+        flushSpokenWordPosition()
         // Record this before route-specific early returns so Apple Music,
         // radio, casting and MV all cancel a pending interruption resume.
         let wasPendingMusicVideo = pendingMusicVideoPlayID == playID

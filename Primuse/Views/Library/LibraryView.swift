@@ -2,7 +2,7 @@ import SwiftUI
 import PrimuseKit
 
 enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
-    case recommendations, favorites, playlists, artists, genres, albums, songs, folders, radio, statistics
+    case recommendations, favorites, playlists, artists, genres, albums, songs, spokenWord, folders, radio, statistics
 
     var id: String { rawValue }
 
@@ -17,6 +17,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return "tab_genres"
         case .albums: return "tab_albums"
         case .songs: return "tab_songs"
+        case .spokenWord: return "tab_spoken_word"
         case .radio: return "radio_title"
         }
     }
@@ -32,6 +33,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return "tag.fill"
         case .albums: return "square.stack.fill"
         case .songs: return "music.note"
+        case .spokenWord: return "books.vertical.fill"
         case .radio: return "radio.fill"
         }
     }
@@ -47,6 +49,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return .teal
         case .albums: return .purple
         case .songs: return .blue
+        case .spokenWord: return .brown
         case .radio: return .orange
         }
     }
@@ -62,6 +65,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return String(localized: "tab_genres")
         case .albums: return String(localized: "tab_albums")
         case .songs: return String(localized: "tab_songs")
+        case .spokenWord: return String(localized: "tab_spoken_word")
         case .radio: return String(localized: "radio_title")
         }
     }
@@ -78,6 +82,7 @@ enum LibraryDisplayConfiguration {
         .recommendations,
         .favorites,
         .songs,
+        .spokenWord,
         .albums,
         .artists,
         .genres,
@@ -400,6 +405,9 @@ struct LibraryView: View {
             orderRawValue: sectionOrderRawValue,
             hiddenRawValue: hiddenSectionsRawValue
         )
+        // 「有声内容」只在真的有的时候出现: 绝大多数曲库一本有声书也没有,
+        // 给它们摆一个永远空着的入口是噪音。
+        .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
     }
     private var artworkPreviewRevision: String {
         // 电台部分用存储里缓存的摘要：这个属性一次刷新要被求值好几遍，
@@ -911,6 +919,18 @@ struct LibraryView: View {
                     fileFormat: song.fileFormat
                 )
             }
+        case .spokenWord:
+            overlappingPreview(Array(library.spokenWordSongs.prefix(3))) { song in
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 36,
+                    cornerRadius: 7,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+            }
         case .albums:
             artworkPreview(
                 previewAlbums,
@@ -1320,6 +1340,8 @@ struct LibraryView: View {
             return String(localized: "library_recommendations_subtitle")
         case .songs:
             return countText(songs.count, unitKey: "songs_count")
+        case .spokenWord:
+            return countText(library.spokenWordSongs.count, unitKey: "songs_count")
         case .albums:
             return countText(albums.count, unitKey: "albums_count")
         case .artists:
@@ -1364,6 +1386,8 @@ struct LibraryView: View {
             AIRecommendationLibraryView()
         case .songs:
             SongListView(locationRequest: $songLocationRequest)
+        case .spokenWord:
+            SpokenWordLibraryView()
         case .albums:
             AlbumGridView()
         case .artists:

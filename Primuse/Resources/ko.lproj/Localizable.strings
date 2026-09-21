@@ -4254,3 +4254,16 @@
 "launch_aborted_hint" = "아래 보고서에 어디에서 멈췄는지 기록되어 있습니다. 개발자에게 보내 주세요.";
 "launch_diagnostics_copy" = "진단 정보 복사";
 "launch_diagnostics_files_hint" = "진단 정보는 파일 → 나의 iPhone → Primuse → Diagnostics 에도 저장되어 있습니다.";
+
+// MARK: - 오디오 콘텐츠
+"tab_spoken_word" = "오디오 콘텐츠";
+"spoken_word_continue_section" = "이어 듣기";
+"spoken_word_all_section" = "전체";
+"spoken_word_empty_hint" = "오디오북, 라디오 드라마, 강연 등의 음성 콘텐츠가 여기에 표시됩니다.";
+"spoken_word_remaining_format" = "%@ 남음";
+"spoken_word_clear_progress" = "재생 위치 지우기";
+"mark_as_spoken_word" = "오디오 콘텐츠로 표시";
+"mark_as_music" = "음악으로 표시";
+"chapters_title" = "챕터";
+"a11y_skip_backward" = "15초 뒤로";
+"a11y_skip_forward" = "30초 앞으로";

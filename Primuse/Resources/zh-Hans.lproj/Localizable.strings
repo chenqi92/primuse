@@ -4347,3 +4347,16 @@
 "launch_aborted_hint" = "下面这段说明它停在哪一步，请发给开发者。";
 "launch_diagnostics_copy" = "复制诊断信息";
 "launch_diagnostics_files_hint" = "诊断信息也已保存到「文件」App → 我的 iPhone → Primuse → Diagnostics。";
+
+// MARK: - 有声内容
+"tab_spoken_word" = "有声内容";
+"spoken_word_continue_section" = "继续收听";
+"spoken_word_all_section" = "全部";
+"spoken_word_empty_hint" = "有声书、相声、评书、广播剧这类内容会出现在这里。";
+"spoken_word_remaining_format" = "剩余 %@";
+"spoken_word_clear_progress" = "清除收听位置";
+"mark_as_spoken_word" = "标记为有声内容";
+"mark_as_music" = "标记为音乐";
+"chapters_title" = "章节";
+"a11y_skip_backward" = "后退 15 秒";
+"a11y_skip_forward" = "前进 30 秒";

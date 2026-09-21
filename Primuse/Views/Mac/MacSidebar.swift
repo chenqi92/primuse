@@ -26,6 +26,8 @@ struct MacSidebar: View {
             orderRawValue: librarySectionOrderRawValue,
             hiddenRawValue: hiddenLibrarySectionsRawValue
         )
+        // 没有有声内容时不摆这个入口。
+        .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
     }
 
     var body: some View {

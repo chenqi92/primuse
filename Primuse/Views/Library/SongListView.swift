@@ -1477,12 +1477,19 @@ struct SongListView: View {
         sourceSongListState?.replacedSongIDs ?? library.lastReplacedSongIDs
     }
 
+    /// 歌曲页是音乐的页面: 有声书、评书、相声在「有声内容」里, 否则一部
+    /// 二十小时的书会按章节把整份列表淹掉。按源看时同样成立 —— 那一页的
+    /// 「歌曲」与资料库里的「歌曲」是同一个概念。
     private var songs: [Song] {
         switch scope {
         case .library:
-            library.visibleSongs
+            library.musicSongs
         case .source(let sourceID):
-            library.visibleSongs(forSourceID: sourceID)
+            library.spokenWordSongIDs.isEmpty
+                ? library.visibleSongs(forSourceID: sourceID)
+                : library.visibleSongs(forSourceID: sourceID).filter {
+                    !library.spokenWordSongIDs.contains($0.id)
+                }
         }
     }
 

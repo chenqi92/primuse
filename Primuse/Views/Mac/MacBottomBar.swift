@@ -155,7 +155,12 @@ struct MacBottomBar: View {
                     }
                     .pmFadeTransition()
                 }
-                if !player.isLiveRadio || player.canSwitchRadioStation {
+                if player.currentItemIsSpokenWord, !player.isLiveRadio {
+                    transportBtn("gobackward.15", size: 13, help: "a11y_skip_backward") {
+                        player.skipSpokenWordBackward()
+                    }
+                    .pmFadeTransition()
+                } else if !player.isLiveRadio || player.canSwitchRadioStation {
                     transportBtn("backward.fill", size: 13, help: player.isLiveRadio ? "radio_previous_station" : "previous_song") {
                         Task { await player.previous() }
                     }
@@ -187,7 +192,12 @@ struct MacBottomBar: View {
                     ? "radio_stop"
                     : (player.isPlaying ? "pause" : "play")))
 
-                if !player.isLiveRadio || player.canSwitchRadioStation {
+                if player.currentItemIsSpokenWord, !player.isLiveRadio {
+                    transportBtn("goforward.30", size: 13, help: "a11y_skip_forward") {
+                        player.skipSpokenWordForward()
+                    }
+                    .pmFadeTransition()
+                } else if !player.isLiveRadio || player.canSwitchRadioStation {
                     transportBtn("forward.fill", size: 13, help: player.isLiveRadio ? "radio_next_station" : "next_song") {
                         Task { await player.next() }
                     }

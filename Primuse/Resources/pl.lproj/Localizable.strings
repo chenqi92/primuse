@@ -4160,3 +4160,16 @@
 "launch_aborted_hint" = "Poniższy raport pokazuje, gdzie się zatrzymało. Wyślij go do dewelopera.";
 "launch_diagnostics_copy" = "Skopiuj diagnostykę";
 "launch_diagnostics_files_hint" = "Diagnostyka została też zapisana w Pliki → Na moim iPhonie → Primuse → Diagnostics.";
+
+// MARK: - Treści mówione
+"tab_spoken_word" = "Treści mówione";
+"spoken_word_continue_section" = "Słuchaj dalej";
+"spoken_word_all_section" = "Wszystko";
+"spoken_word_empty_hint" = "Audiobooki, słuchowiska, wykłady i inne nagrania mówione pojawią się tutaj.";
+"spoken_word_remaining_format" = "Pozostało %@";
+"spoken_word_clear_progress" = "Wyczyść pozycję słuchania";
+"mark_as_spoken_word" = "Oznacz jako treść mówioną";
+"mark_as_music" = "Oznacz jako muzykę";
+"chapters_title" = "Rozdziały";
+"a11y_skip_backward" = "Cofnij o 15 sekund";
+"a11y_skip_forward" = "Przewiń o 30 sekund";

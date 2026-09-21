@@ -539,6 +539,7 @@ struct NowPlayingView: View {
     /// suspended until its entrance animation has actually completed.
     var isPresentationSettled = true
     var isPresentationActive = true
+    @State private var showChapterList = false
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
@@ -1448,6 +1449,11 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showChapterList) {
+            ChapterListView()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
         #if os(iOS)
         .sheet(
             item: $presentedAlbum,
@@ -2207,19 +2213,19 @@ struct NowPlayingView: View {
             Spacer(minLength: 0)
 
             compactLandscapeSkipButton(
-                symbol: "backward.fill",
-                label: "a11y_previous_track"
+                symbol: transportBackwardSymbol,
+                label: transportBackwardLabel
             ) {
-                Task { await player.previous() }
+                transportBackward()
             }
 
             compactLandscapePlayButton
 
             compactLandscapeSkipButton(
-                symbol: "forward.fill",
-                label: "a11y_next_track"
+                symbol: transportForwardSymbol,
+                label: transportForwardLabel
             ) {
-                Task { await player.next() }
+                transportForward()
             }
 
             Spacer(minLength: 0)
@@ -2236,9 +2242,54 @@ struct NowPlayingView: View {
         .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
     }
 
+    // MARK: - Transport: music vs spoken word
+
+    /// 有声书、评书、相声用「后退 15 秒 / 前进 30 秒」代替切曲。一整本书就是
+    /// 一个条目, 切到下一条目等于整本跳过; 真实需求是漏听一句往回倒。
+    /// 电台那套控件在另一处单独实现, 不受影响。
+    private var usesSpokenWordTransport: Bool {
+        player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
+    private var transportBackwardSymbol: String {
+        usesSpokenWordTransport ? "gobackward.15" : "backward.fill"
+    }
+
+    private var transportForwardSymbol: String {
+        usesSpokenWordTransport ? "goforward.30" : "forward.fill"
+    }
+
+    private var transportBackwardLabel: String {
+        usesSpokenWordTransport
+            ? String(localized: "a11y_skip_backward")
+            : String(localized: "a11y_previous_track")
+    }
+
+    private var transportForwardLabel: String {
+        usesSpokenWordTransport
+            ? String(localized: "a11y_skip_forward")
+            : String(localized: "a11y_next_track")
+    }
+
+    private func transportBackward() {
+        if usesSpokenWordTransport {
+            player.skipSpokenWordBackward()
+        } else {
+            Task { await player.previous() }
+        }
+    }
+
+    private func transportForward() {
+        if usesSpokenWordTransport {
+            player.skipSpokenWordForward()
+        } else {
+            Task { await player.next() }
+        }
+    }
+
     private func compactLandscapeSkipButton(
         symbol: String,
-        label: LocalizedStringKey,
+        label: String,
         action: @escaping () -> Void
     ) -> some View {
         let width = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.secondaryTransportWidth)
@@ -2484,11 +2535,13 @@ struct NowPlayingView: View {
                 Spacer()
                 ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
                 Spacer()
-                Button { Task { await player.previous() } } label: {
-                    Image(systemName: "backward.fill").font(.title).foregroundStyle(appearance.primary)
+                Button { transportBackward() } label: {
+                    Image(systemName: transportBackwardSymbol)
+                        .font(.title).foregroundStyle(appearance.primary)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .frame(width: 56, height: 56)
-                .accessibilityLabel("a11y_previous_track")
+                .accessibilityLabel(transportBackwardLabel)
                 Spacer()
                 Button { player.togglePlayPause() } label: {
                     ZStack {
@@ -2508,11 +2561,13 @@ struct NowPlayingView: View {
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play"))
                 Spacer()
-                Button { Task { await player.next() } } label: {
-                    Image(systemName: "forward.fill").font(.title).foregroundStyle(appearance.primary)
+                Button { transportForward() } label: {
+                    Image(systemName: transportForwardSymbol)
+                        .font(.title).foregroundStyle(appearance.primary)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .frame(width: 56, height: 56)
-                .accessibilityLabel("a11y_next_track")
+                .accessibilityLabel(transportForwardLabel)
                 Spacer()
                 ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
                     switch player.repeatMode {
@@ -2911,11 +2966,13 @@ struct NowPlayingView: View {
                         Spacer()
                         ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
                         Spacer()
-                        Button { Task { await player.previous() } } label: {
-                            Image(systemName: "backward.fill").font(.title).foregroundStyle(appearance.primary)
+                        Button { transportBackward() } label: {
+                            Image(systemName: transportBackwardSymbol)
+                                .font(.title).foregroundStyle(appearance.primary)
+                                .contentTransition(.symbolEffect(.replace))
                         }
                         .frame(width: 56, height: 56)
-                        .accessibilityLabel("a11y_previous_track")
+                        .accessibilityLabel(transportBackwardLabel)
                         Spacer()
                         Button { player.togglePlayPause() } label: {
                             ZStack {
@@ -2941,11 +2998,13 @@ struct NowPlayingView: View {
                             ? String(localized: "a11y_pause")
                             : String(localized: "a11y_play"))
                         Spacer()
-                        Button { Task { await player.next() } } label: {
-                            Image(systemName: "forward.fill").font(.title).foregroundStyle(appearance.primary)
+                        Button { transportForward() } label: {
+                            Image(systemName: transportForwardSymbol)
+                                .font(.title).foregroundStyle(appearance.primary)
+                                .contentTransition(.symbolEffect(.replace))
                         }
                         .frame(width: 56, height: 56)
-                        .accessibilityLabel("a11y_next_track")
+                        .accessibilityLabel(transportForwardLabel)
                         Spacer()
                         ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
                             switch player.repeatMode {
@@ -3116,11 +3175,12 @@ struct NowPlayingView: View {
             PlaybackProgressBar(fillTint: themedControlAccent)
 
             HStack(spacing: 34) {
-                Button { Task { await player.previous() } } label: {
-                    Image(systemName: "backward.fill")
+                Button { transportBackward() } label: {
+                    Image(systemName: transportBackwardSymbol)
                         .frame(width: 44, height: 36)
+                        .contentTransition(.symbolEffect(.replace))
                 }
-                .accessibilityLabel("a11y_previous_track")
+                .accessibilityLabel(transportBackwardLabel)
 
                 Button { player.togglePlayPause() } label: {
                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -3132,11 +3192,12 @@ struct NowPlayingView: View {
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play"))
 
-                Button { Task { await player.next() } } label: {
-                    Image(systemName: "forward.fill")
+                Button { transportForward() } label: {
+                    Image(systemName: transportForwardSymbol)
                         .frame(width: 44, height: 36)
+                        .contentTransition(.symbolEffect(.replace))
                 }
-                .accessibilityLabel("a11y_next_track")
+                .accessibilityLabel(transportForwardLabel)
             }
             .font(.title3)
             .foregroundStyle(appearance.primary)
@@ -3666,6 +3727,32 @@ struct NowPlayingView: View {
                 .fixedSize()
             }
             nowPlayingMetadataLinks(font: metadataFont)
+            nowPlayingChapterLink
+        }
+    }
+
+    /// 当前章节 —— 只在文件真的带章节时出现, 所以没有空状态。点开是跳转列表。
+    /// 放在这里而不是控件区: 三套布局共用这个头部, 章节因此在竖屏、横屏和
+    /// iPad 上都在同一个位置。
+    @ViewBuilder
+    private var nowPlayingChapterLink: some View {
+        if player.hasChapters {
+            Button { showChapterList = true } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "list.bullet.indent")
+                        .font(.caption2)
+                    Text(player.currentChapter?.title ?? String(localized: "chapters_title"))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                }
+                .font(.footnote)
+                .foregroundStyle(appearance.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+            .accessibilityLabel(Text("chapters_title"))
         }
     }
 

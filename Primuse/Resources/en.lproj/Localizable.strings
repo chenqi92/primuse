@@ -4032,3 +4032,16 @@
 "launch_aborted_hint" = "The report below shows where it stopped. Please send it to the developer.";
 "launch_diagnostics_copy" = "Copy Diagnostics";
 "launch_diagnostics_files_hint" = "The diagnostics were also saved to Files → On My iPhone → Primuse → Diagnostics.";
+
+// MARK: - Spoken word
+"tab_spoken_word" = "Spoken Word";
+"spoken_word_continue_section" = "Continue Listening";
+"spoken_word_all_section" = "All";
+"spoken_word_empty_hint" = "Audiobooks, radio drama, lectures and other spoken recordings appear here.";
+"spoken_word_remaining_format" = "%@ left";
+"spoken_word_clear_progress" = "Clear Listening Position";
+"mark_as_spoken_word" = "Mark as Spoken Word";
+"mark_as_music" = "Mark as Music";
+"chapters_title" = "Chapters";
+"a11y_skip_backward" = "Skip back 15 seconds";
+"a11y_skip_forward" = "Skip forward 30 seconds";

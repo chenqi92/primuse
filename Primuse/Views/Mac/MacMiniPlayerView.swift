@@ -446,13 +446,23 @@ struct MacMiniPlayerView: View {
             .pmPointingHand()
             .accessibilityValue(Text(player.shuffleEnabled ? "a11y_value_on" : "a11y_value_off"))
 
-            Button { Task { await player.previous() } } label: {
-                Image(systemName: "backward.end.fill")
+            Button {
+                if player.currentItemIsSpokenWord {
+                    player.skipSpokenWordBackward()
+                } else {
+                    Task { await player.previous() }
+                }
+            } label: {
+                Image(systemName: player.currentItemIsSpokenWord
+                    ? "gobackward.15"
+                    : "backward.end.fill")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(PMColor.text)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
             .pmPointingHand()
+            .help(Text(player.currentItemIsSpokenWord ? "a11y_skip_backward" : "previous_song"))
 
             // 播放/暂停 —— 实心强调色圆,设计稿里最醒目的粉色圆。
             Button { player.togglePlayPause() } label: {
@@ -476,13 +486,23 @@ struct MacMiniPlayerView: View {
             .pmPointingHand()
             .disabled(player.isLoading)
 
-            Button { Task { await player.next() } } label: {
-                Image(systemName: "forward.end.fill")
+            Button {
+                if player.currentItemIsSpokenWord {
+                    player.skipSpokenWordForward()
+                } else {
+                    Task { await player.next() }
+                }
+            } label: {
+                Image(systemName: player.currentItemIsSpokenWord
+                    ? "goforward.30"
+                    : "forward.end.fill")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(PMColor.text)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
             .pmPointingHand()
+            .help(Text(player.currentItemIsSpokenWord ? "a11y_skip_forward" : "next_song"))
 
             Button { cycleRepeat() } label: {
                 Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")

@@ -4160,3 +4160,16 @@
 "launch_aborted_hint" = "Отчёт ниже показывает, где он остановился. Отправьте его разработчику.";
 "launch_diagnostics_copy" = "Скопировать диагностику";
 "launch_diagnostics_files_hint" = "Диагностика также сохранена в «Файлы» → «На моём iPhone» → Primuse → Diagnostics.";
+
+// MARK: - Аудиокниги
+"tab_spoken_word" = "Аудиокниги";
+"spoken_word_continue_section" = "Продолжить прослушивание";
+"spoken_word_all_section" = "Все";
+"spoken_word_empty_hint" = "Здесь появятся аудиокниги, радиоспектакли, лекции и другие речевые записи.";
+"spoken_word_remaining_format" = "Осталось %@";
+"spoken_word_clear_progress" = "Сбросить позицию прослушивания";
+"mark_as_spoken_word" = "Отметить как аудиокнигу";
+"mark_as_music" = "Отметить как музыку";
+"chapters_title" = "Главы";
+"a11y_skip_backward" = "Назад на 15 секунд";
+"a11y_skip_forward" = "Вперёд на 30 секунд";

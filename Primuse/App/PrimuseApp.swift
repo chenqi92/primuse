@@ -1479,6 +1479,15 @@ struct PrimuseApp: App {
                         dlnaRenderer.start()
                     }
                     await AppServices.shared.completeDeferredStartup()
+                    // 启动快照是在「有声内容」的手动标记加载之前算的, 这里补一次:
+                    // 没有标记过的曲库不会有任何变化, 有标记的才重算一次分流。
+                    // 顺手把已经不存在的歌的标记与收听位置清掉。
+                    if !SpokenWordStore.shared.overrideSnapshot.isEmpty {
+                        musicLibrary.refreshContentClassification()
+                    }
+                    SpokenWordStore.shared.pruneMissingSongs(
+                        existingIDs: Set(musicLibrary.visibleSongs.map(\.id))
+                    )
                     // This task keeps the `scenePhase` copy captured when the
                     // scene was first built, which can still be `.inactive`
                     // from the launch transition even though the app became

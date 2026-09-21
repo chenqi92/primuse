@@ -4160,3 +4160,16 @@
 "launch_aborted_hint" = "Aşağıdaki rapor nerede durduğunu gösteriyor. Lütfen geliştiriciye gönder.";
 "launch_diagnostics_copy" = "Tanılamayı kopyala";
 "launch_diagnostics_files_hint" = "Tanılama bilgileri ayrıca Dosyalar → iPhone’umda → Primuse → Diagnostics içine kaydedildi.";
+
+// MARK: - Sesli İçerik
+"tab_spoken_word" = "Sesli İçerik";
+"spoken_word_continue_section" = "Dinlemeye Devam Et";
+"spoken_word_all_section" = "Tümü";
+"spoken_word_empty_hint" = "Sesli kitaplar, radyo tiyatroları, konferanslar ve diğer konuşma kayıtları burada görünür.";
+"spoken_word_remaining_format" = "%@ kaldı";
+"spoken_word_clear_progress" = "Dinleme Konumunu Sil";
+"mark_as_spoken_word" = "Sesli İçerik Olarak İşaretle";
+"mark_as_music" = "Müzik Olarak İşaretle";
+"chapters_title" = "Bölümler";
+"a11y_skip_backward" = "15 saniye geri";
+"a11y_skip_forward" = "30 saniye ileri";

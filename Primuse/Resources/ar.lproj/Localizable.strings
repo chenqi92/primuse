@@ -4160,3 +4160,16 @@
 "launch_aborted_hint" = "يوضّح التقرير أدناه أين توقّف. أرسله إلى المطوّر من فضلك.";
 "launch_diagnostics_copy" = "نسخ معلومات التشخيص";
 "launch_diagnostics_files_hint" = "حُفظت معلومات التشخيص أيضًا في «الملفات» ← «على الـ iPhone» ← Primuse ← Diagnostics.";
+
+// MARK: - المحتوى المسموع
+"tab_spoken_word" = "المحتوى المسموع";
+"spoken_word_continue_section" = "متابعة الاستماع";
+"spoken_word_all_section" = "الكل";
+"spoken_word_empty_hint" = "تظهر هنا الكتب الصوتية والتمثيليات الإذاعية والمحاضرات وغيرها من التسجيلات المنطوقة.";
+"spoken_word_remaining_format" = "يتبقى %@";
+"spoken_word_clear_progress" = "مسح موضع الاستماع";
+"mark_as_spoken_word" = "تمييز كمحتوى مسموع";
+"mark_as_music" = "تمييز كموسيقى";
+"chapters_title" = "الفصول";
+"a11y_skip_backward" = "الرجوع 15 ثانية";
+"a11y_skip_forward" = "التقدم 30 ثانية";

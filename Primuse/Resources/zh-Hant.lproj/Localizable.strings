@@ -4231,3 +4231,16 @@
 "launch_aborted_hint" = "下面這段說明它停在哪一步，請傳給開發者。";
 "launch_diagnostics_copy" = "拷貝診斷資訊";
 "launch_diagnostics_files_hint" = "診斷資訊也已儲存到「檔案」App → 我的 iPhone → Primuse → Diagnostics。";
+
+// MARK: - 有聲內容
+"tab_spoken_word" = "有聲內容";
+"spoken_word_continue_section" = "繼續收聽";
+"spoken_word_all_section" = "全部";
+"spoken_word_empty_hint" = "有聲書、相聲、評書、廣播劇這類內容會出現在這裡。";
+"spoken_word_remaining_format" = "剩餘 %@";
+"spoken_word_clear_progress" = "清除收聽位置";
+"mark_as_spoken_word" = "標記為有聲內容";
+"mark_as_music" = "標記為音樂";
+"chapters_title" = "章節";
+"a11y_skip_backward" = "後退 15 秒";
+"a11y_skip_forward" = "前進 30 秒";

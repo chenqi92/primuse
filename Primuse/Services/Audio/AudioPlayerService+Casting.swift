@@ -600,6 +600,7 @@ extension AudioPlayerService {
     }
 
     func stop() {
+        flushSpokenWordPosition()
         registerPauseOrStopIntent()
         // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并取消,
         // 否则被放弃的传输继续占用带宽和缓存配额。直播电台 / Apple Music
@@ -1728,6 +1729,9 @@ extension AudioPlayerService {
         updateNowPlayingInfo()
         // 退到后台后进程随时可能被挂起, 这一次会话快照必须在返回前落盘。
         updatePlaybackState(flushPlaybackSessionImmediately: true)
+        // 有声书的位置同理 —— 它是按条目记的, 挂起时丢掉就要从上次自动保存
+        // 的地方重听。
+        flushSpokenWordPosition()
         // AVFAudio can stop the graph before delivering its interruption
         // notification. Preserve the last backend-validated active publication
         // across that ordering window. Explicit Pause/Stop has already cleared
