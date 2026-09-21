@@ -74,6 +74,17 @@ public enum SourceServiceFingerprint {
             if case .responded = self { return true }
             return false
         }
+
+        /// 写进日志的短标记 —— 不是给用户看的文案,那一套在
+        /// `SourceAddressReadingText` 里。探测链路以前一行日志都没有,
+        /// 「正在确认连接方式」当时在试什么、对面回了什么,事后无从查证。
+        public var logTag: String {
+            switch self {
+            case .confirmed: return "confirmed"
+            case let .responded(statusCode): return "responded(\(statusCode))"
+            case let .unreachable(reason): return reason.rawValue
+            }
+        }
     }
 
     /// 正文读到这里就够判定了,也够界面显示一行原因。

@@ -968,6 +968,10 @@ struct TVSourceFormView: View {
                 )
             ).compactMap { row, needsProbe in needsProbe ? row.id : nil }
         )
+        plog(
+            "🔎 Source address submit type=\(type.rawValue) editing=\(editing != nil) "
+                + "rows=\(addressRows.count) probing=\(probing.count)"
+        )
         guard probing.isEmpty == false else {
             // 编辑已有源且地址没动过:已存的端口与协议本来就是明确的,原样留着。
             applyAddressPlan(reading, selected: [:])
@@ -990,14 +994,24 @@ struct TVSourceFormView: View {
                 sourceType: type,
                 probing: probing
             )
-            guard outcome.isCancelled == false, Task.isCancelled == false else { return }
+            guard outcome.isCancelled == false, Task.isCancelled == false else {
+                plog("🔎 Source address submit cancelled")
+                return
+            }
             // 内网地址在外网探不通是实话而不是错。只要还有一行给出了结论,这次
             // 保存就照常进行:探不通的那一行按它自己的解读存回去(没动过的行读
             // 回来只有一个候选,就是它原来那个端点)。
             //
             // 一行都没应答才停下来 —— 尝试清单已经内联列在地址下面了,让用户
             // 接着改,或者按「仍然保存」坚持用第一个候选,不弹全屏面板打断。
-            guard outcome.selected.isEmpty == false || outcome.unresolvedRowIDs.isEmpty else { return }
+            guard outcome.selected.isEmpty == false || outcome.unresolvedRowIDs.isEmpty else {
+                plog("🔎 Source address submit halted: no address responded rows=\(outcome.unresolvedRowIDs.count)")
+                return
+            }
+            plog(
+                "🔎 Source address submit saving resolved=\(outcome.selected.count) "
+                    + "unresolved=\(outcome.unresolvedRowIDs.count)"
+            )
             resolvedSelection = ResolvedAddressSelection(
                 signature: addressProbeSignature,
                 selected: outcome.selected
@@ -1020,6 +1034,7 @@ struct TVSourceFormView: View {
         guard reading.isSubmittable else { return }
         // `cancelAddressProbe` 会清掉控制器上的结论,先取出来再取消。
         let selected = addressProbe.selectedCandidates
+        plog("🔎 Source address saved without a full probe verdict resolved=\(selected.count)")
         cancelAddressProbe()
         applyAddressPlan(reading, selected: selected)
         commitSave()
@@ -1456,6 +1471,10 @@ final class TVSourceAddressProbeController {
         attempts = [:]
         verdicts = [:]
         selectedCandidates = [:]
+        plog(
+            "🔎 Address probe start type=\(sourceType.rawValue) rows=\(plans.count) "
+                + "candidates=\(plans.map(\.candidates.count))"
+        )
 
         let resolver = SourceEndpointResolver(load: session.loader())
         var resolutions: [UUID: SourceEndpointResolver.Resolution] = [:]
@@ -1490,16 +1509,26 @@ final class TVSourceAddressProbeController {
         var collectedAttempts: [UUID: [SourceEndpointResolver.Attempt]] = [:]
         var collectedVerdicts: [UUID: SourceServiceFingerprint.Verdict] = [:]
         // 按表单里的顺序收集,任务组的完成顺序不该泄漏到界面上。
-        for plan in plans {
+        for (index, plan) in plans.enumerated() {
+            // 试过哪些地址、对面回了什么,逐行记一条:这是「一直在确认连接方式」
+            // 之后唯一能回答「它到底试了什么」的东西。
+            let tried = (resolutions[plan.id]?.attempts ?? [])
+                .map { "\($0.url)→\($0.verdict.logTag)" }
+                .joined(separator: " ")
             guard let resolution = resolutions[plan.id], let candidate = resolution.selected else {
                 // 尝试清单只在这一行一个候选都没应答时才有意义 —— 定下来的那行
                 // 再列一遍"试过什么"只会让人以为它也没成。
                 collectedAttempts[plan.id] = resolutions[plan.id]?.attempts ?? []
                 outcome.unresolvedRowIDs.append(plan.id)
+                plog("🔎 Address probe row=\(index + 1) no response tried=[\(tried)]")
                 continue
             }
             outcome.selected[plan.id] = candidate
             collectedVerdicts[plan.id] = resolution.verdict
+            plog(
+                "🔎 Address probe row=\(index + 1) selected=\(candidate.httpScheme):\(candidate.port) "
+                    + "verdict=\(resolution.verdict?.logTag ?? "-") tried=[\(tried)]"
+            )
         }
 
         attempts = collectedAttempts

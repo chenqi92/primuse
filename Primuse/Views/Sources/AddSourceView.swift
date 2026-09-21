@@ -1398,6 +1398,10 @@ struct AddSourceView: View {
                 )
             ).compactMap { row, needsProbe in needsProbe ? row.id : nil }
         )
+        plog(
+            "🔎 Source address submit type=\(sourceType.rawValue) editing=\(editingSource != nil) "
+                + "rows=\(addressRows.count) probing=\(probing.count)"
+        )
         guard probing.isEmpty == false else {
             // 编辑已有源且地址没动过:已存的端口与协议本来就是明确的,原样留着。
             applyAddressPlan(reading, selected: [:])
@@ -1413,14 +1417,24 @@ struct AddSourceView: View {
                 sourceType: sourceType,
                 probing: probing
             )
-            guard outcome.isCancelled == false, Task.isCancelled == false else { return }
+            guard outcome.isCancelled == false, Task.isCancelled == false else {
+                plog("🔎 Source address submit cancelled")
+                return
+            }
             // 内网地址在外网探不通是实话而不是错。只要还有一行给出了结论,这次
             // 保存就照常进行:探不通的那一行按它自己的解读存回去(没动过的行读
             // 回来只有一个候选,就是它原来那个端点)。
             //
             // 一行都没应答才停下来 —— 尝试清单已经内联列在地址下面了,让用户
             // 接着改,或者按「仍然保存」坚持用第一个候选,不弹模态框打断。
-            guard outcome.selected.isEmpty == false || outcome.unresolvedRowIDs.isEmpty else { return }
+            guard outcome.selected.isEmpty == false || outcome.unresolvedRowIDs.isEmpty else {
+                plog("🔎 Source address submit halted: no address responded rows=\(outcome.unresolvedRowIDs.count)")
+                return
+            }
+            plog(
+                "🔎 Source address submit saving resolved=\(outcome.selected.count) "
+                    + "unresolved=\(outcome.unresolvedRowIDs.count)"
+            )
             applyAddressPlan(reading, selected: outcome.selected)
             saveSource()
         }
@@ -1432,6 +1446,7 @@ struct AddSourceView: View {
         guard reading.isSubmittable else { return }
         // `cancelAddressProbe` 会清掉控制器上的结论,先取出来再取消。
         let selected = addressProbe.selectedCandidates
+        plog("🔎 Source address saved without a full probe verdict resolved=\(selected.count)")
         cancelAddressProbe()
         applyAddressPlan(reading, selected: selected)
         saveSource()

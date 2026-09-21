@@ -134,6 +134,10 @@ final class SourceAddressProbeController {
         attempts = [:]
         verdicts = [:]
         selectedCandidates = [:]
+        plog(
+            "🔎 Address probe start type=\(sourceType.rawValue) rows=\(plans.count) "
+                + "candidates=\(plans.map(\.candidates.count))"
+        )
 
         let resolver = SourceEndpointResolver(load: session.loader())
         var resolutions: [UUID: SourceEndpointResolver.Resolution] = [:]
@@ -168,16 +172,26 @@ final class SourceAddressProbeController {
         var collectedAttempts: [UUID: [SourceEndpointResolver.Attempt]] = [:]
         var collectedVerdicts: [UUID: SourceServiceFingerprint.Verdict] = [:]
         // 按表单里的顺序收集,任务组的完成顺序不该泄漏到界面上。
-        for plan in plans {
+        for (index, plan) in plans.enumerated() {
+            // 试过哪些地址、对面回了什么,逐行记一条:这是「一直在确认连接方式」
+            // 之后唯一能回答「它到底试了什么」的东西。
+            let tried = (resolutions[plan.id]?.attempts ?? [])
+                .map { "\($0.url)→\($0.verdict.logTag)" }
+                .joined(separator: " ")
             guard let resolution = resolutions[plan.id], let candidate = resolution.selected else {
                 // 尝试清单只在这一行一个候选都没应答时才有意义 —— 定下来的那行
                 // 再列一遍"试过什么"只会让人以为它也没成。
                 collectedAttempts[plan.id] = resolutions[plan.id]?.attempts ?? []
                 outcome.unresolvedRowIDs.append(plan.id)
+                plog("🔎 Address probe row=\(index + 1) no response tried=[\(tried)]")
                 continue
             }
             outcome.selected[plan.id] = candidate
             collectedVerdicts[plan.id] = resolution.verdict
+            plog(
+                "🔎 Address probe row=\(index + 1) selected=\(candidate.httpScheme):\(candidate.port) "
+                    + "verdict=\(resolution.verdict?.logTag ?? "-") tried=[\(tried)]"
+            )
         }
 
         attempts = collectedAttempts
