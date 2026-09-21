@@ -36,7 +36,13 @@ final class CrashDiagnosticsService: NSObject {
     /// 否则同一份诊断会被两条路各写一遍。
     private var usesModernDiagnosticStream = false
     private var memoryPressureSource: DispatchSourceMemoryPressure?
-    private var memoryWarningObserver: NSObjectProtocol?
+    /// block-based observer 的令牌 —— 必须持有并在 deinit 注销,否则观察者永远
+    /// 留在 NotificationCenter 里。nonisolated(unsafe): 只有 `register()`
+    /// (MainActor) 写、deinit 读,没有并发竞争,而严格并发不允许 nonisolated
+    /// deinit 碰 MainActor 上的非 Sendable 状态(`removeObserver` 本身线程安全)。
+    /// 与 `DesktopLyricsInteraction.lockObserver`、`CloudKVSSync.observerToken`
+    /// 同一个写法。
+    private nonisolated(unsafe) var memoryWarningObserver: NSObjectProtocol?
     private var lastMemoryPressureHandledAt: Date?
     private let directoryOverride: URL?
 
