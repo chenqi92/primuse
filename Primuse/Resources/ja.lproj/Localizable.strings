@@ -4241,3 +4241,14 @@
 "apple_music_pick_adding" = "ライブラリに追加中…";
 "apple_music_pick_added" = "%d 曲を追加、同期中";
 "apple_music_pick_failed" = "ライブラリに追加できませんでした";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "セーフモード";
+"safe_mode_hint" = "起動が連続して失敗したため、以下の処理をスキップしました。診断情報を開発者に送ってください。";
+"safe_mode_skipped" = "・ホーム画面と表示アニメーション\n・前回の再生の復元\n・iCloud 同期とバックグラウンドスキャン\n・ライブラリ全体のおすすめとフォルダ索引";
+"safe_mode_exit" = "通常の起動に戻す";
+"safe_mode_exit_hint" = "次回の起動では通常どおりホーム画面が開きます。";
+"launch_aborted_title" = "前回の起動が完了しませんでした";
+"launch_aborted_hint" = "下のレポートにどこで止まったかが記録されています。開発者に送ってください。";
+"launch_diagnostics_copy" = "診断情報をコピー";
+"launch_diagnostics_files_hint" = "診断情報は「ファイル」→「この iPhone 内」→ Primuse → Diagnostics にも保存されています。";

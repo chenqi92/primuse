@@ -4240,3 +4240,14 @@
 "apple_music_pick_adding" = "Wird zur Mediathek hinzugefügt…";
 "apple_music_pick_added" = "%d hinzugefügt, wird synchronisiert";
 "apple_music_pick_failed" = "Hinzufügen zur Mediathek fehlgeschlagen";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Sicherheitsmodus";
+"safe_mode_hint" = "Der App-Start ist mehrmals hintereinander fehlgeschlagen, daher wurden diese Schritte übersprungen. Bitte sende die Diagnose an den Entwickler.";
+"safe_mode_skipped" = "· Startseite und Einblendanimationen\n· Wiederherstellen der letzten Wiedergabe\n· iCloud-Sync und Hintergrundsuche\n· Empfehlungen und Ordnerindex der gesamten Mediathek";
+"safe_mode_exit" = "Normalen Start wiederherstellen";
+"safe_mode_exit_hint" = "Beim nächsten Start wird die Startseite wie gewohnt geöffnet.";
+"launch_aborted_title" = "Der letzte Start wurde nicht abgeschlossen";
+"launch_aborted_hint" = "Der folgende Bericht zeigt, wo er stehen geblieben ist. Bitte sende ihn an den Entwickler.";
+"launch_diagnostics_copy" = "Diagnose kopieren";
+"launch_diagnostics_files_hint" = "Die Diagnose wurde auch in „Dateien“ → „Auf meinem iPhone“ → Primuse → Diagnostics gesichert.";

@@ -23,6 +23,9 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // 第一件事：先把上次没跑完的启动记下来，再给这次立哨兵。排在任何
+        // 可能崩的东西之前，否则这次启动自己就报不出来了。
+        LaunchDiagnostics.begin()
         application.registerForRemoteNotifications()
         BackgroundScanResumeTask.register()
         // 年度报告: 启动时把 PlayHistoryStore 按年份归档, 防止 5000 条 FIFO

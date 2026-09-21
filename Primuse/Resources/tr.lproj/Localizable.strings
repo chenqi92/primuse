@@ -4146,3 +4146,14 @@
 "apple_music_pick_adding" = "Kitaplığa ekleniyor…";
 "apple_music_pick_added" = "%d eklendi, eşitleniyor";
 "apple_music_pick_failed" = "Kitaplığa eklenemedi";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Güvenli mod";
+"safe_mode_hint" = "Uygulama arka arkaya birkaç kez açılamadı, bu yüzden şu adımlar atlandı. Lütfen tanılama bilgilerini geliştiriciye gönder.";
+"safe_mode_skipped" = "· Ana ekran ve giriş animasyonları\n· Son çalmayı geri yükleme\n· iCloud eşitleme ve arka planda tarama\n· Tüm kitaplık önerileri ve klasör dizini";
+"safe_mode_exit" = "Normal açılışa dön";
+"safe_mode_exit_hint" = "Sonraki açılışta ana ekran her zamanki gibi gelecek.";
+"launch_aborted_title" = "Son açılış tamamlanmadı";
+"launch_aborted_hint" = "Aşağıdaki rapor nerede durduğunu gösteriyor. Lütfen geliştiriciye gönder.";
+"launch_diagnostics_copy" = "Tanılamayı kopyala";
+"launch_diagnostics_files_hint" = "Tanılama bilgileri ayrıca Dosyalar → iPhone’umda → Primuse → Diagnostics içine kaydedildi.";

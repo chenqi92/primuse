@@ -92,6 +92,49 @@ final class LifecycleRegressionTests: XCTestCase {
     }
 
     #if os(iOS)
+    /// 安全模式的判定：门槛差一次就永远进不去，锁定解错就再也出不来，而这两种
+    /// 错只在打不开 app 的测试者手上才看得见。
+    @MainActor
+    func testSafeModeLatchesOnlyAfterConsecutiveAbortsAndNeverSelfUnlatches() {
+        typealias Decision = LaunchDiagnostics.Decision
+
+        // 上次启动正常：什么都不变。
+        XCTAssertEqual(
+            LaunchDiagnostics.decide(previousLaunchAborted: false, storedAborts: 0, latched: false),
+            Decision(consecutiveAborts: 0, latchSafeMode: false, safeModeActive: false)
+        )
+        // 第一次中止可能只是用户自己划掉的，还不进安全模式。
+        XCTAssertEqual(
+            LaunchDiagnostics.decide(previousLaunchAborted: true, storedAborts: 0, latched: false),
+            Decision(consecutiveAborts: 1, latchSafeMode: false, safeModeActive: false)
+        )
+        // 连着第二次才算模式。
+        XCTAssertEqual(
+            LaunchDiagnostics.decide(previousLaunchAborted: true, storedAborts: 1, latched: false),
+            Decision(consecutiveAborts: 2, latchSafeMode: true, safeModeActive: true)
+        )
+        // 安全模式活下来了也不自动解锁，否则会「安全一次、正常一次」来回震荡。
+        XCTAssertEqual(
+            LaunchDiagnostics.decide(previousLaunchAborted: false, storedAborts: 0, latched: true),
+            Decision(consecutiveAborts: 0, latchSafeMode: true, safeModeActive: true)
+        )
+        // 安全模式自己也崩了：继续计数、继续锁定。
+        XCTAssertEqual(
+            LaunchDiagnostics.decide(previousLaunchAborted: true, storedAborts: 2, latched: true),
+            Decision(consecutiveAborts: 3, latchSafeMode: true, safeModeActive: true)
+        )
+        // 用户点过「恢复正常启动」之后再崩一次，不会立刻又锁回去。
+        XCTAssertEqual(
+            LaunchDiagnostics.decide(previousLaunchAborted: true, storedAborts: 0, latched: false),
+            Decision(consecutiveAborts: 1, latchSafeMode: false, safeModeActive: false)
+        )
+        // 脏数据不能把门槛算错。
+        XCTAssertEqual(
+            LaunchDiagnostics.decide(previousLaunchAborted: true, storedAborts: -5, latched: false),
+            Decision(consecutiveAborts: 1, latchSafeMode: false, safeModeActive: false)
+        )
+    }
+
     @MainActor
     func testBackgroundPlaybackPreservesPendingSceneSettlement() async {
         let coordinator = BackgroundLibraryMaintenanceCoordinator(isApplicationInBackground: { true })

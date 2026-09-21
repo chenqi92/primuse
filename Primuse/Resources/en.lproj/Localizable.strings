@@ -4018,3 +4018,14 @@
 "apple_music_pick_adding" = "Adding to library…";
 "apple_music_pick_added" = "Added %d, syncing";
 "apple_music_pick_failed" = "Couldn’t add to library";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Safe Mode";
+"safe_mode_hint" = "The app failed to start several times in a row, so these steps were skipped. Please send the diagnostics to the developer.";
+"safe_mode_skipped" = "· Home screen and entrance animations\n· Restoring the last playback session\n· iCloud sync and background scanning\n· Library-wide recommendations and folder index";
+"safe_mode_exit" = "Resume Normal Launch";
+"safe_mode_exit_hint" = "The next launch will open the home screen as usual.";
+"launch_aborted_title" = "The last launch did not finish";
+"launch_aborted_hint" = "The report below shows where it stopped. Please send it to the developer.";
+"launch_diagnostics_copy" = "Copy Diagnostics";
+"launch_diagnostics_files_hint" = "The diagnostics were also saved to Files → On My iPhone → Primuse → Diagnostics.";

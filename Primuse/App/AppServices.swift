@@ -1050,6 +1050,16 @@ final class AppServices {
         // 全都读库。等发布完成再开工 —— 等待时间不计入下面的耗时统计, 这样
         // `🚀 deferred startup` 的含义与历史版本保持一致。
         await musicLibrary.whenReady()
+        #if os(iOS)
+        LaunchDiagnostics.mark(.deferredStartup)
+        // 安全模式：这条链里的每一件事(恢复播放、整库对账、剪枝、iCloud 同步、
+        // 后台扫描登记、预热)都在资料库发布那一瞬间同时开工, 也都是启动期闪退
+        // 的嫌疑人。连续启动失败两次之后先整条让开, 让人打得开、发得出报告。
+        if LaunchDiagnostics.isSafeModeActive {
+            plog("🛟 Safe mode: deferred startup skipped")
+            return
+        }
+        #endif
         serverRatingSync.resume()
         let startedAt = ProcessInfo.processInfo.systemUptime
 
@@ -1078,6 +1088,9 @@ final class AppServices {
             )
         }.value
         await playbackRestore
+        #if os(iOS)
+        LaunchDiagnostics.mark(.playbackRestored)
+        #endif
         let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
 
         let pruneThreshold = RecoverableDeletionPolicy.pruneThreshold()

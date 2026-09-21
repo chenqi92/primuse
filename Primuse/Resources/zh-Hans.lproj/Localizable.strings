@@ -4333,3 +4333,14 @@
 "apple_music_pick_adding" = "正在加入资料库…";
 "apple_music_pick_added" = "已加入 %d 首，正在同步";
 "apple_music_pick_failed" = "加入资料库失败";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "安全模式";
+"safe_mode_hint" = "上次启动连续失败，已跳过下面这些步骤。请把诊断信息发给开发者。";
+"safe_mode_skipped" = "· 首页与入场动画\n· 恢复上次播放\n· iCloud 同步与后台扫描\n· 整库推荐与文件夹索引";
+"safe_mode_exit" = "恢复正常启动";
+"safe_mode_exit_hint" = "下次启动会照常进入首页。";
+"launch_aborted_title" = "上次启动没有完成";
+"launch_aborted_hint" = "下面这段说明它停在哪一步，请发给开发者。";
+"launch_diagnostics_copy" = "复制诊断信息";
+"launch_diagnostics_files_hint" = "诊断信息也已保存到「文件」App → 我的 iPhone → Primuse → Diagnostics。";

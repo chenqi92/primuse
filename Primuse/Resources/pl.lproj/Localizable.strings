@@ -4146,3 +4146,14 @@
 "apple_music_pick_adding" = "Dodawanie do biblioteki…";
 "apple_music_pick_added" = "Dodano %d, synchronizowanie";
 "apple_music_pick_failed" = "Nie udało się dodać do biblioteki";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Tryb awaryjny";
+"safe_mode_hint" = "Uruchomienie kilka razy z rzędu się nie powiodło, więc te kroki zostały pominięte. Wyślij diagnostykę do dewelopera.";
+"safe_mode_skipped" = "· Ekran główny i animacje wejścia\n· Przywracanie ostatniego odtwarzania\n· Synchronizacja iCloud i skanowanie w tle\n· Rekomendacje z całej biblioteki i indeks folderów";
+"safe_mode_exit" = "Wróć do normalnego uruchamiania";
+"safe_mode_exit_hint" = "Następnym razem ekran główny otworzy się jak zwykle.";
+"launch_aborted_title" = "Ostatnie uruchomienie nie zostało ukończone";
+"launch_aborted_hint" = "Poniższy raport pokazuje, gdzie się zatrzymało. Wyślij go do dewelopera.";
+"launch_diagnostics_copy" = "Skopiuj diagnostykę";
+"launch_diagnostics_files_hint" = "Diagnostyka została też zapisana w Pliki → Na moim iPhonie → Primuse → Diagnostics.";

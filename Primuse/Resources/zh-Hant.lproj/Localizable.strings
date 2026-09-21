@@ -4217,3 +4217,14 @@
 "apple_music_pick_adding" = "正在加入資料庫…";
 "apple_music_pick_added" = "已加入 %d 首，正在同步";
 "apple_music_pick_failed" = "加入資料庫失敗";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "安全模式";
+"safe_mode_hint" = "上次啟動連續失敗，已略過下列步驟。請把診斷資訊傳給開發者。";
+"safe_mode_skipped" = "· 首頁與進場動畫\n· 恢復上次播放\n· iCloud 同步與背景掃描\n· 整個資料庫的推薦與資料夾索引";
+"safe_mode_exit" = "恢復正常啟動";
+"safe_mode_exit_hint" = "下次啟動會照常進入首頁。";
+"launch_aborted_title" = "上次啟動沒有完成";
+"launch_aborted_hint" = "下面這段說明它停在哪一步，請傳給開發者。";
+"launch_diagnostics_copy" = "拷貝診斷資訊";
+"launch_diagnostics_files_hint" = "診斷資訊也已儲存到「檔案」App → 我的 iPhone → Primuse → Diagnostics。";

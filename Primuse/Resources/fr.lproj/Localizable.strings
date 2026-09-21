@@ -4240,3 +4240,14 @@
 "apple_music_pick_adding" = "Ajout à la bibliothèque…";
 "apple_music_pick_added" = "%d ajoutés, synchronisation";
 "apple_music_pick_failed" = "Échec de l’ajout à la bibliothèque";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Mode sans échec";
+"safe_mode_hint" = "Le lancement a échoué plusieurs fois de suite ; ces étapes ont donc été ignorées. Merci d’envoyer le diagnostic au développeur.";
+"safe_mode_skipped" = "· Écran d’accueil et animations d’entrée\n· Restauration de la dernière lecture\n· Synchronisation iCloud et analyse en arrière-plan\n· Recommandations et index des dossiers de toute la bibliothèque";
+"safe_mode_exit" = "Reprendre le lancement normal";
+"safe_mode_exit_hint" = "Le prochain lancement ouvrira l’accueil comme d’habitude.";
+"launch_aborted_title" = "Le dernier lancement ne s’est pas terminé";
+"launch_aborted_hint" = "Le rapport ci-dessous indique où il s’est arrêté. Merci de l’envoyer au développeur.";
+"launch_diagnostics_copy" = "Copier le diagnostic";
+"launch_diagnostics_files_hint" = "Le diagnostic a aussi été enregistré dans Fichiers → Sur mon iPhone → Primuse → Diagnostics.";

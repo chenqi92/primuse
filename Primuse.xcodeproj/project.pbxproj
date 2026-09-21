@@ -1237,6 +1237,7 @@
 		E2810AAD4DBE00E55CB6203B /* PlayHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE1922E4E88CC38539151C4 /* PlayHistoryStore.swift */; };
 		E2915EA85132DB3DAB79C7D8 /* MusicScraperFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6255A91A1DE2B2C344A5491 /* MusicScraperFactory.swift */; };
 		E293F6D8D135A6B31AA861B2 /* MacTaskExceptionGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CC0F604B870A6D33CF5A868 /* MacTaskExceptionGuard.swift */; };
+		AFACCC8E36E146B5A2BC559E /* LaunchDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E8A6CF6AB94892AC5BC06C /* LaunchDiagnostics.swift */; };
 		E2AAEF7990A1A92CD2935EB2 /* UgreenAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACF669ECDE8745A546EE459 /* UgreenAPI.swift */; };
 		E3827C74776512E06FC6DFEF /* PlaybackSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */; };
 		E3900CCC1A7A9AEC7FAB20FE /* PMTitleBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC94F5ED881A05601F6B7D65 /* PMTitleBar.swift */; };
@@ -1249,6 +1250,7 @@
 		E530E6DA93BE55C2C68E7945 /* PlayMediaIntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52DC73F5A1DA3D173DB8D78E /* PlayMediaIntentHandler.swift */; };
 		E53402706649D330536FD06F /* ScraperSourceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8945701E14DEF0FF55A668F /* ScraperSourceConfig.swift */; };
 		E5B6825497256D6E4E20CC8B /* MacTaskExceptionGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CC0F604B870A6D33CF5A868 /* MacTaskExceptionGuard.swift */; };
+		FAAEC1625AB645188FDEC0F3 /* LaunchDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E8A6CF6AB94892AC5BC06C /* LaunchDiagnostics.swift */; };
 		E5E977ED575BFEE1288ACF3E /* SettingsActionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F07A220780BCFB3D8E6F4EF /* SettingsActionService.swift */; };
 		E62B2F6904E847DA7283445A /* MetadataBackfillPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 710DC680EC23ABF8F646BC21 /* MetadataBackfillPresentation.swift */; };
 		E63CCC13B3209DDE9ED60C8F /* SVGImageSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27289C451E5716F15CE941FB /* SVGImageSupport.swift */; };
@@ -2052,6 +2054,7 @@
 		6C0340425B4875EC8A446D0D /* MacVolumeSliderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacVolumeSliderTests.swift; sourceTree = "<group>"; };
 		6CB8B3B1BBF2A448B946AC9E /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/SettingsSearch.strings"; sourceTree = "<group>"; };
 		6CC0F604B870A6D33CF5A868 /* MacTaskExceptionGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTaskExceptionGuard.swift; sourceTree = "<group>"; };
+		E1E8A6CF6AB94892AC5BC06C /* LaunchDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchDiagnostics.swift; sourceTree = "<group>"; };
 		6D1D4EA9B393044C9B0711E5 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/Localizable.strings; sourceTree = "<group>"; };
 		6D84632D6A2887E8E174E87C /* LibraryScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryScanner.swift; sourceTree = "<group>"; };
 		6E5809517272330A25F8A87A /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -3394,6 +3397,7 @@
 				7C8D0CD987CACC83D845497B /* CarPlaySceneDelegate.swift */,
 				0A682DE882BF7C18268F9428 /* DesktopLyricsWindowController.swift */,
 				0D3CF7E2A5E7D4B7274BDB17 /* ExternalDisplaySceneDelegate.swift */,
+				E1E8A6CF6AB94892AC5BC06C /* LaunchDiagnostics.swift */,
 				1A3CA857E144784647DBFEC6 /* MacMenuBarController.swift */,
 				6CC0F604B870A6D33CF5A868 /* MacTaskExceptionGuard.swift */,
 				1F8BE745FB20EDEA78E90EEF /* MiniPlayerWindowController.swift */,
@@ -5311,6 +5315,7 @@
 				75E15015A39C26CB480FCCBA /* MacSidebar.swift in Sources */,
 				3A7DEFEE8A362F7AF55EB4EB /* MacSourcesView.swift in Sources */,
 				E5B6825497256D6E4E20CC8B /* MacTaskExceptionGuard.swift in Sources */,
+				FAAEC1625AB645188FDEC0F3 /* LaunchDiagnostics.swift in Sources */,
 				76B8AB80667DCE8120517D31 /* MacTrustedDomainsView.swift in Sources */,
 				9375310AF21537A3B67AEAF1 /* MediaDetailActionBar.swift in Sources */,
 				F1EBAF40EB0A4E54B91022F6 /* MediaServerBrowserView.swift in Sources */,
@@ -5846,6 +5851,7 @@
 				E52F27E3149107BA3772CBB7 /* MacSidebar.swift in Sources */,
 				C4568C96218F66C7E3141581 /* MacSourcesView.swift in Sources */,
 				E293F6D8D135A6B31AA861B2 /* MacTaskExceptionGuard.swift in Sources */,
+				AFACCC8E36E146B5A2BC559E /* LaunchDiagnostics.swift in Sources */,
 				52B5ED0289E6215A668C95CC /* MacTrustedDomainsView.swift in Sources */,
 				5059BBCF57B472D7E8BFE619 /* MediaDetailActionBar.swift in Sources */,
 				54051F580B31F92D4D4673AD /* MediaServerBrowserView.swift in Sources */,

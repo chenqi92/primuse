@@ -4240,3 +4240,14 @@
 "apple_music_pick_adding" = "보관함에 추가 중…";
 "apple_music_pick_added" = "%d곡 추가됨, 동기화 중";
 "apple_music_pick_failed" = "보관함에 추가하지 못했습니다";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "안전 모드";
+"safe_mode_hint" = "앱이 연속으로 실행에 실패해 아래 단계를 건너뛰었습니다. 진단 정보를 개발자에게 보내 주세요.";
+"safe_mode_skipped" = "· 홈 화면과 등장 애니메이션\n· 지난 재생 복원\n· iCloud 동기화와 백그라운드 스캔\n· 전체 보관함 추천과 폴더 색인";
+"safe_mode_exit" = "정상 실행으로 되돌리기";
+"safe_mode_exit_hint" = "다음 실행에서는 평소처럼 홈 화면이 열립니다.";
+"launch_aborted_title" = "지난 실행이 완료되지 않았습니다";
+"launch_aborted_hint" = "아래 보고서에 어디에서 멈췄는지 기록되어 있습니다. 개발자에게 보내 주세요.";
+"launch_diagnostics_copy" = "진단 정보 복사";
+"launch_diagnostics_files_hint" = "진단 정보는 파일 → 나의 iPhone → Primuse → Diagnostics 에도 저장되어 있습니다.";

@@ -1141,12 +1141,21 @@ struct ContentView: View {
         // 既不能闪 onboarding (它由 SourcesStore 驱动, 但入口在下面这棵树的
         // `.task` 里), 也不能闪"空资料库"状态。
         Group {
-            if library.isReady {
+            if LaunchDiagnostics.isSafeModeActive {
+                // 连续两次启动没跑完。这一支完全不碰首页、迷你播放条与入场
+                // 动画，落地页只有回执和发送入口，先保证他打得开。
+                LaunchSafeModeView()
+            } else if library.isReady {
                 mainContent
+                    .onAppear { LaunchDiagnostics.mark(.homeFirstFrame) }
             } else {
                 LibraryPreparingView()
+                    .onAppear { LaunchDiagnostics.mark(.preparingLibrary) }
             }
         }
+        // 上次启动没跑完时的回执。挂在这一层而不是 `mainContent` 里：占位页要
+        // 显示十秒, 弹在那上面比等首页出来再弹稳妥得多 —— 首页正是出事的地方。
+        .launchAbortReport()
         // 首页模型放进环境：设置里的界面编辑器要就地渲染真实首页，编辑的必须是
         // 同一份状态，另起一个实例会看到不一样的快照。
         .environment(homeModel)
