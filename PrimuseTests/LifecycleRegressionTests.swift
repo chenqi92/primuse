@@ -49,6 +49,48 @@ final class LifecycleRegressionTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: latest.url), newest)
     }
 
+    /// 指标载荷和崩溃报告分开记账: 它每天都来, 混进崩溃列表就会让"没有崩溃
+    /// 报告"的空状态永远不出现, 而发给开发者时又必须带上 —— 没有崩溃报告的
+    /// "闪退"(内存上限终止 / watchdog)只能从它里面认出来。
+    @MainActor
+    func testMetricPayloadsAreKeptApartFromCrashReports() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = CrashDiagnosticsService(directory: directory)
+        let crash = Data(#"{"crashDiagnostics":[{"exceptionType":1}]}"#.utf8)
+        let metric = Data(#"{"applicationExitMetrics":{"foregroundExitData":{}}}"#.utf8)
+
+        service.persistData(crash)
+        service.persistData(metric, prefix: CrashDiagnosticsService.metricFilePrefix)
+
+        XCTAssertEqual(service.reports().count, 1)
+        XCTAssertEqual(service.metricReports().count, 1)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(service.reports().first).url), crash)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(service.metricReports().first).url), metric)
+    }
+
+    /// 指标载荷有自己的上限。共用崩溃报告那一份上限的话, 两周的日常指标就会
+    /// 把真正的崩溃报告挤掉。
+    @MainActor
+    func testMetricPayloadRetentionDoesNotEvictCrashReports() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = CrashDiagnosticsService(directory: directory)
+        let crash = Data(#"{"crashDiagnostics":[{"exceptionType":1}]}"#.utf8)
+        service.persistData(crash)
+
+        for index in 0...CrashDiagnosticsService.maxMetricReports {
+            service.persistData(
+                Data("{\"index\":\(index)}".utf8),
+                prefix: CrashDiagnosticsService.metricFilePrefix
+            )
+        }
+
+        XCTAssertEqual(service.metricReports().count, CrashDiagnosticsService.maxMetricReports)
+        XCTAssertEqual(service.reports().count, 1)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(service.reports().first).url), crash)
+    }
+
     #if os(iOS)
     @MainActor
     func testBackgroundPlaybackPreservesPendingSceneSettlement() async {

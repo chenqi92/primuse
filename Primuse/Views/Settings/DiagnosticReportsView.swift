@@ -7,6 +7,9 @@ import PrimuseKit
 /// 填好,仍然要用户自己按发送。
 struct DiagnosticReportsView: View {
     @State private var reports: [DiagnosticReport] = []
+    /// 系统每天投递的指标载荷。不进列表(它不是崩溃), 但发给开发者时一起带上 ——
+    /// 没有崩溃报告的"闪退"只能从它的退出原因统计里认出来。
+    @State private var metricReports: [DiagnosticReport] = []
     @State private var showClearConfirm = false
     @State private var showComposer = false
     @State private var showSentPrompt = false
@@ -27,7 +30,7 @@ struct DiagnosticReportsView: View {
             failureMessage: $failureMessage,
             subject: mailSubject,
             messageBody: mailBody,
-            attachments: reports.map(\.url),
+            attachments: reports.map(\.url) + metricReports.map(\.url),
             onClearRequested: clearAll
         ))
         #else
@@ -52,6 +55,11 @@ struct DiagnosticReportsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
+                }
+                // 没崩过也可能有话要说: 被系统按内存上限回收、watchdog 终止
+                // 这类"闪退"不产生崩溃报告, 只记在指标载荷里, 得能发出去。
+                if !metricReports.isEmpty {
+                    sendSection
                 }
             } else {
                 sendSection
@@ -85,7 +93,7 @@ struct DiagnosticReportsView: View {
         .navigationTitle(String(localized: "diagnostics_title"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if !reports.isEmpty {
+            if !reports.isEmpty || !metricReports.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) {
                         showClearConfirm = true
@@ -145,8 +153,9 @@ struct DiagnosticReportsView: View {
     }
 
     #if os(iOS)
+    /// 按钮旁边这个大小说的是"这一发会带多少附件", 所以把指标载荷也算进去。
     private var totalSizeText: String {
-        let total = reports.reduce(0) { $0 + $1.sizeBytes }
+        let total = (reports + metricReports).reduce(0) { $0 + $1.sizeBytes }
         return ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file)
     }
 
@@ -175,6 +184,7 @@ struct DiagnosticReportsView: View {
 
     private func reload() {
         reports = service.reports()
+        metricReports = service.metricReports()
     }
 }
 
