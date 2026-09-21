@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 先看看功能说明 / Read the docs first
+    url: https://github.com/chenqi92/primuse#readme
+    about: README 里有各类音乐源的连接方式与功能范围，也许已经有答案
