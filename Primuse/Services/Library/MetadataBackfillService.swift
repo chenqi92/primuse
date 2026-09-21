@@ -203,14 +203,17 @@ private final class MetadataBackfillWorkerWaitLatch {
 @MainActor
 @Observable
 final class MetadataBackfillService {
-    /// Bytes to fetch from the start of an audio file. Big enough to cover
-    /// embedded artwork + ID3v2 + FLAC Vorbis comments + most M4A `moov`
-    /// headers. If a particular file's metadata isn't in this slice we may
-    /// need to retry with a tail-Range fetch (M4A with trailing moov).
-    private static let headBytes: Int64 = 256 * 1024
+    // 首段读多少字节由 `RemoteMetadataReadPolicy.backfillInitialHeadByteCount`
+    // 按格式和「要不要顺带取封面」决定: 取封面的仍然整段读 256 KB(封面多半就
+    // 在里面), 不取的只读 32 KB, 不够再按标签自己声明的长度补。
+
+    /// 一次性数据修复用的「文件大到头部读不完整」判据。原本写成 `headBytes * 2`,
+    /// 认的是当年那一版的读取大小 —— 这些修复要认的是当年那个数, 不该跟着现在
+    /// 的读取策略一起漂, 所以固化成字面量。
+    private static let legacyTruncatedDurationFileSizeFloor: Int64 = 512 * 1024
     /// A declared ID3 boundary may place both artwork and the first MPEG frame
-    /// beyond `headBytes`. Expansion stays capped so one outlier cannot turn a
-    /// library backfill into full-file downloads.
+    /// beyond the initial slice. Expansion stays capped so one outlier cannot
+    /// turn a library backfill into full-file downloads.
     private static let maxMetadataHeadBytes = RemoteMetadataReadPolicy.maximumHeadByteCount
     private static let defaultMP3Bitrate = RemoteMetadataReadPolicy.defaultMP3BitRateKbps
 
@@ -387,6 +390,9 @@ final class MetadataBackfillService {
     /// 会漏掉整整一类本地源。
     private let directFileSourceIDs: () -> Set<String>
     private let manuallyReadableSourceIDs: () -> Set<String>
+    /// 标签读取走 URLSession 每主机连接池的源。只有一轮里的源全在这个集合里,
+    /// 读取位才放宽 —— 见 `MusicSourceType.usesPooledHTTPMetadataRangeReads`。
+    private let pooledHTTPRangeSourceIDs: () -> Set<String>
     private let metadataService = MetadataService()
     private let failedURL: URL
     private let incompleteURL: URL
@@ -662,9 +668,15 @@ final class MetadataBackfillService {
         // 读取预算沿用原来的两个集合。directFileSourceIDs 只回答「能不能白读
         // 一次完整文件」, 不该顺带把文件夹书签源提升成免网络策略的沙盒副本。
         let localIDs = offlineReadableSourceIDs().union(localFileSourceIDs())
+        let offline = !sourceIDs.isEmpty && sourceIDs.isSubset(of: localIDs)
         return MetadataReadingEnvironment.current(
             playbackActive: playbackIsActive(),
-            offlineSource: !sourceIDs.isEmpty && sourceIDs.isSubset(of: localIDs)
+            offlineSource: offline,
+            // 多开读取位只对连接池型的源有意义, 而且要这一轮的源全都是 ——
+            // 混进一个 SMB, 多出来的位会一起堵在它那条串行会话上。
+            pooledHTTPRemoteSource: !offline
+                && !sourceIDs.isEmpty
+                && sourceIDs.isSubset(of: pooledHTTPRangeSourceIDs())
         )
     }
 
@@ -871,6 +883,7 @@ final class MetadataBackfillService {
         localFileSourceIDs: @escaping () -> Set<String> = { [] },
         directFileSourceIDs: @escaping () -> Set<String> = { [] },
         manuallyReadableSourceIDs: (() -> Set<String>)? = nil,
+        pooledHTTPRangeSourceIDs: @escaping () -> Set<String> = { [] },
         playbackIsActive: @escaping () -> Bool = { false }
     ) {
         self.playbackIsActive = playbackIsActive
@@ -882,6 +895,7 @@ final class MetadataBackfillService {
         self.localFileSourceIDs = localFileSourceIDs
         self.directFileSourceIDs = directFileSourceIDs
         self.manuallyReadableSourceIDs = manuallyReadableSourceIDs ?? backfillableSourceIDs
+        self.pooledHTTPRangeSourceIDs = pooledHTTPRangeSourceIDs
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1097,7 +1111,7 @@ final class MetadataBackfillService {
             var resetSongs: [Song] = []
             for song in library.songs {
                 guard let bitRate = song.bitRate, bitRate > 0,
-                      song.fileSize > Self.headBytes * 2,
+                      song.fileSize > Self.legacyTruncatedDurationFileSizeFloor,
                       song.duration > 0 else { continue }
                 let bytesPerSec = Double(bitRate) * 125.0
                 let estimatedFromFileSize = Double(song.fileSize) / bytesPerSec
@@ -1129,7 +1143,7 @@ final class MetadataBackfillService {
             for song in library.songs {
                 guard song.fileFormat == .mp3,
                       (song.bitRate ?? 0) <= 0,
-                      song.fileSize > Self.headBytes * 2,
+                      song.fileSize > Self.legacyTruncatedDurationFileSizeFloor,
                       song.duration > 0 else { continue }
                 let bytesPerSec = Double(Self.defaultMP3Bitrate) * 125.0
                 let estimatedFromFileSize = Double(song.fileSize) / bytesPerSec
@@ -1159,7 +1173,7 @@ final class MetadataBackfillService {
             var resetSongs: [Song] = []
             for song in library.songs {
                 guard song.fileFormat == .mp3,
-                      song.fileSize > Self.headBytes * 2,
+                      song.fileSize > Self.legacyTruncatedDurationFileSizeFloor,
                       song.duration > 0 else { continue }
                 let effectiveBitRate = (song.bitRate ?? 0) > 0 ? song.bitRate! : Self.defaultMP3Bitrate
                 let estimatedFromFileSize = Double(song.fileSize) / (Double(effectiveBitRate) * 125.0)
@@ -1233,7 +1247,7 @@ final class MetadataBackfillService {
             for song in library.songs {
                 guard sourceIDs.contains(song.sourceID),
                       song.fileFormat == .wav,
-                      song.fileSize > Self.headBytes * 2,
+                      song.fileSize > Self.legacyTruncatedDurationFileSizeFloor,
                       song.duration > 0,
                       song.duration < 1.5 else { continue }
                 var copy = song
@@ -1292,7 +1306,7 @@ final class MetadataBackfillService {
                 sourceIDs.contains($0.sourceID)
                     && $0.fileFormat == .mp3
                     && $0.duration <= 0
-                    && $0.fileSize > Self.headBytes * 2
+                    && $0.fileSize > Self.legacyTruncatedDurationFileSizeFloor
                     && ($0.bitRate ?? 0) > 0
             }.map(\.id))
             let resetIDs = failedSongIDs.intersection(retryIDs)
@@ -4407,7 +4421,14 @@ final class MetadataBackfillService {
             return data
         }
         let fetchStarted = Date()
-        let headData = try await fetchRange(offset: 0, length: Self.headBytes)
+        // 不用顺带取封面的歌只读一小段: 标签本身几 KB 就够, 整段读会白拉两百多
+        // KB。需要封面时仍然整段读 —— 封面多半就在里面, 一次取回比小段加补读
+        // 既少一次往返、总字节也更少。
+        let initialHeadBytes = Int64(RemoteMetadataReadPolicy.backfillInitialHeadByteCount(
+            declaredFileExtension: song.fileFormat.rawValue,
+            needsEmbeddedArtwork: Self.needsEmbeddedArtworkBackfill(song)
+        ))
+        let headData = try await fetchRange(offset: 0, length: initialHeadBytes)
         let fetchElapsed = Date().timeIntervalSince(fetchStarted)
 
         // Do not turn metadata backfill into a whole-library playback-cache

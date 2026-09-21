@@ -516,6 +516,19 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         supportsRangeStreaming && !isServerLibrary
     }
 
+    /// 标签读取跑在 URLSession 的每主机连接池上: 同一台服务器可以真并发发多个
+    /// Range 请求, 多开读取位只是多占几条 keep-alive 连接。
+    ///
+    /// 不含云盘 —— 同样是 HTTP, 但各家开放平台都按 QPS 限流, 多开读取位换来的
+    /// 是 429 和退让。也不含 SMB/FTP/SFTP/NFS: 它们的回填读取挤在一条后台会话
+    /// 上串行, 读取位加多少都只是在那条会话前面排队。
+    public var usesPooledHTTPMetadataRangeReads: Bool {
+        switch self {
+        case .webdav, .synology, .qnap, .ugreen, .fnos, .s3: return true
+        default: return false
+        }
+    }
+
     public var requiresOAuth: Bool {
         isCloudDrive
     }

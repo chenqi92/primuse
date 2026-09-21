@@ -3372,7 +3372,7 @@ public struct MetadataReadingDeviceProfile: Sendable, Equatable {
                     physicalMemory: ProcessInfo.processInfo.physicalMemory)
     }
 
-    public func maximumWorkers(offlineSource: Bool) -> Int {
+    public func maximumWorkers(offlineSource: Bool, pooledHTTPRemoteSource: Bool = false) -> Int {
         let gib: UInt64 = 1_024 * 1_024 * 1_024
         // These are conservative admission limits, not a CPU benchmark. Leave
         // room for rendering/playback and bound tag plus artwork allocations;
@@ -3397,7 +3397,12 @@ public struct MetadataReadingDeviceProfile: Sendable, Equatable {
         let processors = max(1, activeProcessorCount - reservedProcessors)
         let memory = max(1, Int(clamping: physicalMemory / memoryPerWorker))
         // Remote reads also compete for one source's connection/rate budget.
-        return min(platformLimit, processors, memory, offlineSource ? platformLimit : 4)
+        // 走 URLSession 连接池的源(WebDAV / NAS File Station / S3)例外: 每主机
+        // 备了 8 条 keep-alive 连接, 而标签读取绝大部分时间在等网络, 4 个位留了
+        // 太多空连接。云盘与单会话协议不走这条, 见
+        // `MusicSourceType.usesPooledHTTPMetadataRangeReads`。
+        let remoteLimit = pooledHTTPRemoteSource ? 6 : 4
+        return min(platformLimit, processors, memory, offlineSource ? platformLimit : remoteLimit)
     }
 }
 
@@ -3406,6 +3411,9 @@ public struct MetadataReadingEnvironment: Sendable {
     public var lowPowerMode: Bool
     public var playbackActive: Bool
     public var offlineSource: Bool
+    /// 这一轮要读的源**全部**走 URLSession 连接池。只要混进一个 SMB 之类的
+    /// 单会话源就不成立 —— 多开的读取位会一起堵在那条串行会话上。
+    public var pooledHTTPRemoteSource: Bool
     public var device: MetadataReadingDeviceProfile
 
     public init(
@@ -3413,16 +3421,22 @@ public struct MetadataReadingEnvironment: Sendable {
         lowPowerMode: Bool = false,
         playbackActive: Bool = false,
         offlineSource: Bool = false,
+        pooledHTTPRemoteSource: Bool = false,
         device: MetadataReadingDeviceProfile = .baseline
     ) {
         self.thermalState = thermalState
         self.lowPowerMode = lowPowerMode
         self.playbackActive = playbackActive
         self.offlineSource = offlineSource
+        self.pooledHTTPRemoteSource = pooledHTTPRemoteSource
         self.device = device
     }
 
-    public static func current(playbackActive: Bool, offlineSource: Bool) -> Self {
+    public static func current(
+        playbackActive: Bool,
+        offlineSource: Bool,
+        pooledHTTPRemoteSource: Bool = false
+    ) -> Self {
         let thermal: MetadataReadingThermalState = switch ProcessInfo.processInfo.thermalState {
         case .nominal: .nominal
         case .fair: .fair
@@ -3436,7 +3450,8 @@ public struct MetadataReadingEnvironment: Sendable {
         let lowPower = false
         #endif
         return Self(thermalState: thermal, lowPowerMode: lowPower,
-                    playbackActive: playbackActive, offlineSource: offlineSource, device: .current)
+                    playbackActive: playbackActive, offlineSource: offlineSource,
+                    pooledHTTPRemoteSource: pooledHTTPRemoteSource, device: .current)
     }
 }
 
@@ -3527,7 +3542,10 @@ public enum MetadataBackfillExecutionPolicy {
                 snapshotPassLimit: 0
             )
         }
-        let ceiling = environment.device.maximumWorkers(offlineSource: offline)
+        let ceiling = environment.device.maximumWorkers(
+            offlineSource: offline,
+            pooledHTTPRemoteSource: environment.pooledHTTPRemoteSource
+        )
         let automatic = offline ? min(4, (ceiling + 2) / 2) : min(3, (ceiling + 1) / 2)
         var workers = preference == .fast ? ceiling : min(ceiling, automatic)
         var delay: TimeInterval = 0

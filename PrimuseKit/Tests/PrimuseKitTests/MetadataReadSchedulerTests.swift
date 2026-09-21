@@ -721,6 +721,72 @@ struct MetadataReadSchedulerTests {
         #expect(reads == 0)
     }
 
+    // MARK: - 连接池型远端源的读取位
+
+    @Test func pooledHTTPRemoteSourcesGetMoreReadSlotsThanOtherRemotes() {
+        // 8 核 / 16 GB 的机器: 只有远端上限这一项会封顶, 其它几项都更宽。
+        for platform in [MetadataReadingDeviceProfile.Platform.mobile, .desktop] {
+            let profile = MetadataReadingDeviceProfile(
+                platform: platform, activeProcessorCount: 8, physicalMemory: 16 * 1024 * 1024 * 1024
+            )
+            let pooled = profile.maximumWorkers(offlineSource: false, pooledHTTPRemoteSource: true)
+            let other = profile.maximumWorkers(offlineSource: false, pooledHTTPRemoteSource: false)
+            #expect(other == 4)
+            #expect(pooled == 6)
+        }
+    }
+
+    @Test func pooledRemoteBudgetStillRespectsDeviceAndProtectionLimits() {
+        let television = MetadataReadingDeviceProfile(
+            platform: .television, activeProcessorCount: 8, physicalMemory: 16 * 1024 * 1024 * 1024
+        )
+        // 电视的平台上限是 4, 连接池不该把它顶上去。
+        #expect(television.maximumWorkers(offlineSource: false, pooledHTTPRemoteSource: true) == 4)
+
+        let tiny = MetadataReadingDeviceProfile(
+            platform: .mobile, activeProcessorCount: 2, physicalMemory: 2 * 1024 * 1024 * 1024
+        )
+        #expect(tiny.maximumWorkers(offlineSource: false, pooledHTTPRemoteSource: true) <= 2)
+
+        // 低电量、过热、后台这些保护档照常压到底, 与源的类型无关。
+        let profile = MetadataReadingDeviceProfile(
+            platform: .desktop, activeProcessorCount: 8, physicalMemory: 16 * 1024 * 1024 * 1024
+        )
+        let lowPower = MetadataBackfillExecutionPolicy.limits(
+            for: .standard,
+            preference: .fast,
+            environment: MetadataReadingEnvironment(
+                lowPowerMode: true, pooledHTTPRemoteSource: true, device: profile
+            )
+        )
+        #expect(lowPower.workerCount == 1)
+        let critical = MetadataBackfillExecutionPolicy.limits(
+            for: .standard,
+            preference: .fast,
+            environment: MetadataReadingEnvironment(
+                thermalState: .critical, pooledHTTPRemoteSource: true, device: profile
+            )
+        )
+        #expect(critical.workerCount == 0)
+    }
+
+    @Test func pooledRemoteRaisesBothAutomaticAndFastSlots() {
+        let profile = MetadataReadingDeviceProfile(
+            platform: .desktop, activeProcessorCount: 8, physicalMemory: 16 * 1024 * 1024 * 1024
+        )
+        func slots(pooled: Bool, preference: MetadataReadingMode) -> Int {
+            MetadataBackfillExecutionPolicy.limits(
+                for: .standard,
+                preference: preference,
+                environment: MetadataReadingEnvironment(
+                    pooledHTTPRemoteSource: pooled, device: profile
+                )
+            ).workerCount
+        }
+        #expect(slots(pooled: true, preference: .fast) > slots(pooled: false, preference: .fast))
+        #expect(slots(pooled: true, preference: .automatic) >= slots(pooled: false, preference: .automatic))
+    }
+
     @MainActor private func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition(), ContinuousClock.now < deadline {
