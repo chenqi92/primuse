@@ -10,9 +10,7 @@ struct AlbumArtistInferencePolicyTests {
         directory: String = "/music/ost",
         albumTitle: String? = "鸣潮 原声带",
         albumArtistName: String? = nil,
-        trackArtistName: String? = nil,
-        title: String? = nil,
-        duration: TimeInterval = 0
+        trackArtistName: String? = nil
     ) -> AlbumArtistInferencePolicy.Track {
         AlbumArtistInferencePolicy.Track(
             id: id,
@@ -20,35 +18,8 @@ struct AlbumArtistInferencePolicyTests {
             directory: directory,
             albumTitle: albumTitle,
             albumArtistName: albumArtistName,
-            trackArtistName: trackArtistName,
-            title: title,
-            duration: duration
+            trackArtistName: trackArtistName
         )
-    }
-
-    /// One song as three sources hold it: the two servers and the local folder
-    /// all carry the label, fnOS Music answers no album artist at all.
-    private func copies(
-        _ songTitle: String,
-        duration: TimeInterval,
-        composer: String,
-        album: String = "游戏《Rewrite》原声带",
-        label: String? = "Key Sounds Label"
-    ) -> [AlbumArtistInferencePolicy.Track] {
-        [
-            track("emby-\(songTitle)", sourceID: "emby", directory: "/songs", albumTitle: album,
-                  albumArtistName: label, trackArtistName: composer,
-                  title: songTitle, duration: duration),
-            track("navidrome-\(songTitle)", sourceID: "navidrome", directory: "/songs",
-                  albumTitle: album, albumArtistName: label, trackArtistName: composer,
-                  title: songTitle, duration: duration),
-            track("local-\(songTitle)", sourceID: "local", directory: "/music/rewrite",
-                  albumTitle: album, albumArtistName: label, trackArtistName: composer,
-                  title: songTitle, duration: duration),
-            track("fnmusic-\(songTitle)", sourceID: "fnmusic", directory: "/fnmusic/tracks",
-                  albumTitle: album, trackArtistName: composer,
-                  title: songTitle, duration: duration),
-        ]
     }
 
     /// A lone track in a second folder. It makes the source directory
@@ -309,107 +280,6 @@ struct AlbumArtistInferencePolicyTests {
         #expect(
             AlbumArtistInferencePolicy.directory(ofPath: "/x/y/")
                 == ("/x/y/" as NSString).deletingLastPathComponent
-        )
-    }
-
-    // MARK: - Across sources
-
-    /// The library holds one album in four sources. Only fnOS Music answers no
-    /// album artist, and it holds nothing else under that title, so neither
-    /// source-scoped pass can speak for it — yet its two rows belong on the
-    /// same card as the other nine.
-    @Test func aCopyWithoutATagTakesTheTagFromTheSameSongElsewhere() {
-        let tracks = copies("旅", duration: 114, composer: "麻枝准")
-            + copies("Fertilizer", duration: 169, composer: "折戸伸治")
-
-        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == [
-            "fnmusic-旅": "Key Sounds Label",
-            "fnmusic-Fertilizer": "Key Sounds Label",
-        ])
-    }
-
-    /// Two same-titled albums by different artists share the album title but no
-    /// track title, so the tagged one cannot rename the untagged one.
-    @Test func aSameTitledAlbumByAnotherArtistIsNotRenamed() {
-        let tracks = [
-            track("queen-1", sourceID: "emby", directory: "/songs", albumTitle: "Greatest Hits",
-                  albumArtistName: "Queen", trackArtistName: "Freddie Mercury",
-                  title: "Bohemian Rhapsody", duration: 355),
-            track("queen-2", sourceID: "emby", directory: "/songs", albumTitle: "Greatest Hits",
-                  albumArtistName: "Queen", trackArtistName: "Brian May",
-                  title: "We Will Rock You", duration: 122),
-            track("abba-1", sourceID: "fnmusic", directory: "/fnmusic/tracks",
-                  albumTitle: "Greatest Hits", trackArtistName: "ABBA",
-                  title: "Dancing Queen", duration: 230),
-        ]
-
-        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks).isEmpty)
-    }
-
-    @Test func copiesThatDisagreeAboutTheAlbumArtistSettleNothing() {
-        var tracks = copies("旅", duration: 114, composer: "麻枝准")
-        tracks[0] = track("emby-旅", sourceID: "emby", directory: "/songs",
-                          albumTitle: "游戏《Rewrite》原声带", albumArtistName: "Another Label",
-                          trackArtistName: "麻枝准", title: "旅", duration: 114)
-
-        #expect(AlbumArtistInferencePolicy.crossSourceAlbumArtists(for: tracks).isEmpty)
-    }
-
-    /// A different recording of the same title is a different song.
-    @Test func aCopyTooFarApartInLengthIsNotTheSameSong() {
-        let tracks = [
-            track("tagged", sourceID: "emby", directory: "/songs", albumTitle: "原声带",
-                  albumArtistName: "Label", trackArtistName: "作曲家甲",
-                  title: "旅", duration: 114),
-            track("short", sourceID: "fnmusic", directory: "/fnmusic/tracks", albumTitle: "原声带",
-                  trackArtistName: "作曲家乙", title: "旅", duration: 51),
-            track("near", sourceID: "fnmusic", directory: "/fnmusic/tracks", albumTitle: "原声带",
-                  trackArtistName: "作曲家丙", title: "旅", duration: 115.5),
-        ]
-
-        #expect(AlbumArtistInferencePolicy.crossSourceAlbumArtists(for: tracks) == [
-            "near": "Label",
-        ])
-    }
-
-    /// A row that carries its own explicit tag keeps it.
-    @Test func anExplicitlyTaggedCopyIsNeverOverwritten() {
-        var tracks = copies("旅", duration: 114, composer: "麻枝准")
-        tracks[3] = track("fnmusic-旅", sourceID: "fnmusic", directory: "/fnmusic/tracks",
-                          albumTitle: "游戏《Rewrite》原声带", albumArtistName: "Key Sounds Label 日本",
-                          trackArtistName: "麻枝准", title: "旅", duration: 114)
-
-        #expect(AlbumArtistInferencePolicy.crossSourceAlbumArtists(for: tracks).isEmpty)
-    }
-
-    /// A song without a title or a duration takes no part in the match.
-    @Test func aRowWithoutATitleOrADurationIsNotMatched() {
-        let tagged = track("tagged", sourceID: "emby", directory: "/songs", albumTitle: "原声带",
-                           albumArtistName: "Label", trackArtistName: "作曲家甲",
-                           title: "旅", duration: 114)
-        let untitled = track("untitled", sourceID: "fnmusic", directory: "/fnmusic/tracks",
-                             albumTitle: "原声带", trackArtistName: "作曲家乙", duration: 114)
-        let timeless = track("timeless", sourceID: "fnmusic", directory: "/fnmusic/tracks",
-                             albumTitle: "原声带", trackArtistName: "作曲家丙", title: "旅")
-
-        #expect(AlbumArtistInferencePolicy.crossSourceAlbumArtists(
-            for: [tagged, untitled, timeless]
-        ).isEmpty)
-    }
-
-    /// Rereading a streaming source costs a download, so a row a copy already
-    /// answers for must not be queued for one.
-    @Test func aRowAnsweredByACopyIsNotQueuedForAReread() {
-        let split = copies("旅", duration: 114, composer: "麻枝准")
-            + copies("Fertilizer", duration: 169, composer: "折戸伸治")
-        #expect(AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: split).isEmpty)
-
-        // No copy anywhere carries a tag: the files are the only way out.
-        let untagged = copies("旅", duration: 114, composer: "麻枝准", label: nil)
-            + copies("Fertilizer", duration: 169, composer: "折戸伸治", label: nil)
-        #expect(
-            AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(for: untagged).count
-                == untagged.count
         )
     }
 }

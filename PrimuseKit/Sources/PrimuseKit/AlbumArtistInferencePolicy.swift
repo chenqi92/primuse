@@ -15,11 +15,6 @@ import Foundation
 /// server answers the album artist for some of its tracks and not the rest.
 /// Those sources are grouped by album title alone and only the unambiguous
 /// verdict is taken: one explicit tag in the album, everyone else untagged.
-///
-/// Both of those read one source at a time, while album grouping spans them
-/// all, so an album held in two sources can still come apart: the source whose
-/// server never answered an album artist has nobody inside it to learn from.
-/// `crossSourceAlbumArtists` closes that last gap by matching the song itself.
 public enum AlbumArtistInferencePolicy {
     public struct Track: Sendable, Equatable {
         public let id: String
@@ -29,10 +24,6 @@ public enum AlbumArtistInferencePolicy {
         public let albumTitle: String?
         public let albumArtistName: String?
         public let trackArtistName: String?
-        /// Song title and duration recognise one song across sources; a track
-        /// missing either takes no part in that match.
-        public let title: String?
-        public let duration: TimeInterval
 
         public init(
             id: String,
@@ -40,9 +31,7 @@ public enum AlbumArtistInferencePolicy {
             directory: String,
             albumTitle: String?,
             albumArtistName: String?,
-            trackArtistName: String?,
-            title: String? = nil,
-            duration: TimeInterval = 0
+            trackArtistName: String?
         ) {
             self.id = id
             self.sourceID = sourceID
@@ -50,8 +39,6 @@ public enum AlbumArtistInferencePolicy {
             self.albumTitle = albumTitle
             self.albumArtistName = albumArtistName
             self.trackArtistName = trackArtistName
-            self.title = title
-            self.duration = duration
         }
     }
 
@@ -104,80 +91,6 @@ public enum AlbumArtistInferencePolicy {
                 result[track.id] = target
             }
         }
-
-        // Last, and only where the source-scoped passes above said nothing:
-        // the same song sitting in another source.
-        for (id, name) in crossSourceAlbumArtists(for: tracks) where result[id] == nil {
-            result[id] = name
-        }
-        return result
-    }
-
-    /// Track ID → the album artist a copy of the same song carries in another
-    /// source. Album grouping spans sources — `AlbumGroupingPolicy.identity`
-    /// has no source in it — while both passes above read one source at a
-    /// time. A library holding one album in fnOS Music and in Emby therefore
-    /// keeps the fnOS copy on a card of its own for good: no track inside that
-    /// source was ever tagged, so nothing in it can settle the album artist.
-    ///
-    /// Matching the song and not merely the album title is what makes this safe
-    /// to do across sources. Two same-titled albums by different artists share
-    /// no track title, so neither can rename the other; two encodings of one
-    /// song agree on the title and land within seconds of each other.
-    public static func crossSourceAlbumArtists(for tracks: [Track]) -> [String: String] {
-        // Nearly every album is all-tagged or all-untagged and can never
-        // produce a match, so the song titles — the folding, and the expensive
-        // half of this — are only keyed for albums holding both kinds of row.
-        var tagged: Set<String> = []
-        var untagged: Set<String> = []
-        for track in tracks where participates(track) {
-            guard let albumTitle = trimmed(track.albumTitle) else { continue }
-            if isExplicit(track) {
-                tagged.insert(albumTitle)
-            } else {
-                untagged.insert(albumTitle)
-            }
-        }
-        let mixed = tagged.intersection(untagged)
-        guard !mixed.isEmpty else { return [:] }
-
-        // Copies are collected in input order so the chosen spelling stays
-        // independent of Dictionary iteration order. The album title is
-        // compared the way `AlbumGroupingPolicy` compares it — trimmed, and
-        // nothing more — so this can never join two albums the library shows
-        // apart; only the song title is folded.
-        var grouped: [[Track]] = []
-        var indexByKey: [String: Int] = [:]
-        for track in tracks where participates(track) {
-            guard let albumTitle = trimmed(track.albumTitle), mixed.contains(albumTitle),
-                  let songTitle = trimmed(track.title) else { continue }
-            let key = "\(albumTitle)\u{1F}\(ArtistIdentityPolicy.groupingKey(songTitle))"
-            if let index = indexByKey[key] {
-                grouped[index].append(track)
-            } else {
-                indexByKey[key] = grouped.count
-                grouped.append([track])
-            }
-        }
-
-        var result: [String: String] = [:]
-        for copies in grouped where copies.count >= 2 {
-            var tally = Tally()
-            var taggedCopies: [Track] = []
-            for copy in copies where isExplicit(copy) {
-                guard let value = effective(copy) else { continue }
-                tally.add(value)
-                taggedCopies.append(copy)
-            }
-            // Copies that disagree about the album artist settle nothing.
-            guard tally.keyOrder.count == 1,
-                  let target = tally.spelling(forKeyAt: 0) else { continue }
-            for copy in copies where !isExplicit(copy) && effective(copy) != target {
-                guard taggedCopies.contains(where: { withinDurationTolerance($0, copy) })
-                else { continue }
-                result[copy.id] = target
-            }
-        }
         return result
     }
 
@@ -200,10 +113,6 @@ public enum AlbumArtistInferencePolicy {
     /// cannot change any grouping, and sweeping the whole library for that
     /// would cost one file read per song.
     public static func unconfirmedAlbumArtistTrackIDs(for tracks: [Track]) -> Set<String> {
-        // A copy of the same song elsewhere already answers for these rows.
-        // Rereading them would cost a download on a streaming source and learn
-        // nothing the library does not already know.
-        let settledByCopies = crossSourceAlbumArtists(for: tracks)
         var result: Set<String> = []
         // Every source takes part, and the folder is not part of the key.
         // Unlike an inference this only asks for the file to be read again, so
@@ -218,9 +127,7 @@ public enum AlbumArtistInferencePolicy {
                 keys.insert(ArtistIdentityPolicy.groupingKey(value))
             }
             guard keys.count >= 2, target(for: scope) == nil else { continue }
-            for track in scope where settledByCopies[track.id] == nil {
-                result.insert(track.id)
-            }
+            for track in scope { result.insert(track.id) }
         }
         return result
     }
@@ -351,19 +258,6 @@ public enum AlbumArtistInferencePolicy {
     }
 
     // MARK: - Track values
-
-    /// Two encodings of one song rarely agree to the millisecond; the same
-    /// tolerance `DuplicateDetector` uses to bucket them.
-    private static let durationTolerance: TimeInterval = 2
-
-    private static func withinDurationTolerance(_ lhs: Track, _ rhs: Track) -> Bool {
-        abs(lhs.duration - rhs.duration) <= durationTolerance
-    }
-
-    /// A row that can be recognised as one particular song.
-    private static func participates(_ track: Track) -> Bool {
-        trimmed(track.albumTitle) != nil && trimmed(track.title) != nil && track.duration > 0
-    }
 
     private static func trimmed(_ value: String?) -> String? {
         guard let value else { return nil }

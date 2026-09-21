@@ -11189,9 +11189,7 @@ final class MusicLibrary {
             directory: AlbumArtistInferencePolicy.directory(ofPath: song.filePath),
             albumTitle: song.albumTitle,
             albumArtistName: song.albumArtistName,
-            trackArtistName: song.artistName,
-            title: song.title,
-            duration: song.duration
+            trackArtistName: song.artistName
         )
     }
 
@@ -11204,27 +11202,23 @@ final class MusicLibrary {
 
     /// Candidates being inserted/replaced, judged against the library rows they
     /// will sit next to. `replaceSong` runs on every playback start (the
-    /// duration correction), so the library is only pre-filtered by album title
-    /// here; the policy then splits by folder, by album title alone for a
-    /// source whose paths carry none, and by the song itself across sources,
-    /// and runs on the few rows that share a scope. The album title is the
-    /// widest of those keys, so pre-filtering by it feeds all three — and it
-    /// must not be narrowed to the candidate's own source, because the copy
-    /// that carries the tag usually sits in a different one. Directory
-    /// authority still stops at the second distinct folder of a source.
+    /// duration correction), so the library is only pre-filtered by source and
+    /// album title here; the policy then splits by folder, or by album title
+    /// alone for a source whose paths carry none, and runs on the few rows that
+    /// share a scope. The album title is the wider of the two keys, so
+    /// pre-filtering by it feeds both splits. Directory authority still stops
+    /// at the second distinct folder of a source.
     nonisolated static func inferredAlbumArtists(
         for candidates: [Song],
         among library: [Song]
     ) -> [String: String] {
         guard !candidates.isEmpty else { return [:] }
         var titlesBySource: [String: Set<String>] = [:]
-        var candidateTitles: Set<String> = []
         for song in candidates {
             guard let title = albumArtistInferenceTitle(song.albumTitle) else { continue }
             titlesBySource[song.sourceID, default: []].insert(title)
-            candidateTitles.insert(title)
         }
-        guard !candidateTitles.isEmpty else { return [:] }
+        guard !titlesBySource.isEmpty else { return [:] }
 
         let candidateIDs = Set(candidates.map(\.id))
         let candidateTracks = candidates.map(albumArtistInferenceTrack)
@@ -11236,10 +11230,10 @@ final class MusicLibrary {
 
         var scoped: [AlbumArtistInferencePolicy.Track] = []
         for song in library where !candidateIDs.contains(song.id) {
-            let needsAuthority = titlesBySource[song.sourceID] != nil
-                && !authoritative.contains(song.sourceID)
+            guard let titles = titlesBySource[song.sourceID] else { continue }
+            let needsAuthority = !authoritative.contains(song.sourceID)
             let sharesTitle = albumArtistInferenceTitle(song.albumTitle)
-                .map { candidateTitles.contains($0) } ?? false
+                .map { titles.contains($0) } ?? false
             guard needsAuthority || sharesTitle else { continue }
             let track = albumArtistInferenceTrack(song)
             if needsAuthority {
