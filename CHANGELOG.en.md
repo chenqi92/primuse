@@ -4,9 +4,46 @@
 
 ---
 
-## [1.9.7] (build 73-74) - 2026-09-14
+## [1.9.8] (build 78) - 2026-09-21
 
-This release adds the Guangya Cloud music source and lyric poster sharing, brings Apple Music into the unified music source list, and fixes external network connections, playback queue reordering, and embedded artwork reading.
+This release redesigns key search and immersive-player interactions, expands Apple Music, music-source connection, and startup diagnostics, and fixes Mac full-screen playback, desktop lyrics, and several playback issues.
+
+### Added
+
+- **Editable search results** — reorder or hide song, album, artist, and other result sections; Mac lays sections out side by side, and opening Search focuses the field immediately (#145)
+- **Apple Music system picker** — add songs through the system picker, open the subscription flow when needed, and rematch tracks automatically after a storefront change
+- **Apple Music quality details** — show actual Lossless, Hi-Res Lossless, and Dolby Atmos availability instead of labeling every track AAC
+- **Startup recovery and diagnostics** — report the stage where startup stopped and enter safe mode after repeated failures; diagnostic reports now include system-exit reasons and connection candidates
+- **Dynamic detail backgrounds** — album, artist, and genre detail screens use a full-page tint derived from their artwork
+
+### Changed
+
+- **Music source addresses** — enter a Synology QuickConnect ID or Feiniu FN ID directly; Primuse resolves the port, TLS mode, and usable path, and an editable public source can be saved whenever its fallback address works
+- **Server playlist sync** — newly created server playlists sync automatically without waiting for a manual scan (#142)
+- **Tag reading schedule** — new tracks receive tags before full-library rechecks, WebDAV and NAS reads are faster, and desktop platforms use the fastest level supported by the device
+- **Immersive effect drawer** — tap outside the drawer to close it on iPhone; Mac now uses a right-side preview drawer with more reliable full-screen transitions and window restoration
+- **Desktop lyric interaction** — when the backing panel is hidden or locked, areas outside the lyrics pass clicks to the window behind, and the panel adapts to the display size (#149)
+
+### Fixed
+
+- **Apple Music system state** — fixed Lock Screen and CarPlay retaining the previous track after an automatic change, along with recovery, retry, and storefront-change issues
+- **Mac full-screen playback** — fixed a disabled effect panel, top controls moving out of bounds or shaking, windows returning off-screen, and the player not tracking its container size
+- **Mac search and app icons** — fixed stale counts after clearing search, the old Dock icon flashing at launch, and the default icon not being restored (#145 #146)
+- **Album grouping** — tracks from one album are no longer split by track artist, and multi-disc albums keep disc and track order
+- **Connection and startup feedback** — connections no longer spin forever on failure, startup and source setup report actionable causes, and server addresses and paths are redacted from logs
+- **Lyric editing** — write-permission checks no longer stall, and editing an M4A with grouping metadata preserves its embedded lyrics
+- **Memory pressure** — artwork caches are released first when memory is tight, reducing the chance of system termination
+
+### Performance
+
+- **Sources and Home** — faster WebDAV/NAS tag reading, smoother large radio libraries, and more responsive switching between Music and Radio on the Home screen
+- **Diagnostic privacy** — connection candidates and failure stages remain useful for troubleshooting while server addresses, paths, and other sensitive values are replaced by stable markers
+
+---
+
+## [1.9.7] (build 73-77) - 2026-09-19
+
+This release adds Guangya Cloud, Synology Audio Station, full radio organization, and more lyric formats, brings Apple Music into the unified music source list, and overhauls landscape layouts, Apple TV decoding, server synchronization, and cross-device transfer.
 
 ### Added
 
@@ -16,6 +53,12 @@ This release adds the Guangya Cloud music source and lyric poster sharing, bring
 - **Manual playlist ordering** — press and hold a track in a playlist to drag it into a new position
 - **Shuffle shortcut** — a shuffle button is now available at the top of the song list and the playback queue (#115)
 - **Diagnostic log export** — TestFlight builds can export runtime logs from Storage Management
+- **Radio folders, tags, and subscriptions** — organize stations with folders and tags, import grouped playlists, subscribe to playlist URLs, provide image URLs, and display SVG logos (#118 #119)
+- **Synology Audio Station** — add Synology Audio Station on iPhone, iPad, Mac, and Apple TV, with songs, playlists, favorites, and SHOUTcast stations synchronized
+- **More synchronized lyric formats** — ID3 SYLT, `.elrc`, `.lys`, `.yrc`, `.qrc`, `.vtt`, and `.srt`, preserving `offset`, duet, harmony, translation, and romanization data (#125 #128 #129 #130 #131)
+- **Embed lyrics in audio** — save edited synchronized lyrics only inside the audio file or alongside a sidecar, with a file-write warning before enabling it
+- **Network-adaptive quality** — Subsonic, Emby, and Jellyfin can use transcoded quality on mobile networks and support reverse-proxy path prefixes (#126 #135)
+- **New icons and interface motion** — added adaptive icon themes and a consistent motion system across navigation, cards, lists, artwork, and playback controls
 
 ### Changed
 
@@ -26,6 +69,12 @@ This release adds the Guangya Cloud music source and lyric poster sharing, bring
 - **Music source icon colors** — each music source icon now uses its own brand color
 - **Device transfer layout** — the primary action moved to the navigation bar, leaving more room for the list
 - **Lyric annotations and translations** — annotations and translations are laid out together with the original line, and foreign-language lines in mixed-language songs are highlighted again
+- **iPhone landscape layouts** — Home, Now Playing, lyrics, detail pages, grids, and settings panels adapt to landscape height while rotation and foldable transitions preserve the current page
+- **Apple TV compatibility decoding** — tvOS gained the FFmpeg path for WMA, DTS, TrueHD, and other formats unsupported by native decoders
+- **Incremental server synchronization** — media servers and Subsonic-family sources stream large catalogs into the library, resume after interruption, and synchronize server tags, artwork, ratings, and deletions
+- **Complete offline cache** — offline downloads include server lyrics and artwork, while cached tracks remain playable when their source is temporarily unreachable
+- **Chunked Apple TV transfer** — large library snapshots transfer in stages with visible progress, reducing attached artwork automatically when a payload would exceed the receiver limit
+- **More efficient iCloud sync** — large playlist and library batches no longer rewrite entire records one by one, and upgrades or restored backups avoid unnecessary full reuploads
 
 ### Fixed
 
@@ -37,6 +86,16 @@ This release adds the Guangya Cloud music source and lyric poster sharing, bring
 - **Quick favorites editing** — fixed slow opening and laggy input when editing quick favorites
 - **Playback speed** — fixed the playback speed control failing to open
 - **macOS window buttons** — fixed the window buttons in the top-left flickering while scrolling
+- **Playback stability** — fixed occasional crashes when starting playback, stale audio after resume or track changes, replaying a remote track waiting for a full download, and manual skips missing the configured fade
+- **Music source recovery** — fixed public sources being marked offline, reverse-proxied WebDAV folders failing to load, SMB timeouts crashing, and deleted then reimported local or remote tracks being unable to return (#111 #134)
+- **Artwork and posters** — artwork can be rebuilt after clearing its cache; lyric posters save to Photos again, with motion effects available in every poster style
+- **Apple TV and iCloud** — fixed overlapping intelligent-settings screens, iCloud failing to refresh more than once or still exchanging data after being disabled, and missing sync failure details (#123)
+
+### Performance
+
+- **Large server catalogs** — media servers and Plex use paged staging and resumable scans so large libraries no longer slow down as the scan progresses
+- **Radio and library** — optimized large station collections and Home switching while reducing repeated view recomputation
+- **App size and runtime memory** — reduced Year in Review and icon-preview assets, shared the database layer between the app and widgets, and avoided repeated full-library saves during startup, playback, and metadata backfill
 
 ---
 
@@ -561,6 +620,45 @@ This release consolidates changes made after 1.7.0 that had not yet been documen
 - **Scanning and cleanup** — batches song mutations and lowers checkpoint and UI publication frequency instead of persisting once per track
 - **Foreground batch work** — requests the finite iOS background-execution window only after the app actually backgrounds, eliminating long foreground-scrape warnings
 - **Lyrics and Now Playing** — reduces view recomputation from lyric scrolling and playback progress while keeping menus stable during high-frequency updates
+
+---
+
+## [1.7.2] (build 22-23) - 2026-07-25
+
+This release adds mixed-source queues, real deletion across music sources, and a persistent search index, while improving large-library startup, list refreshes, and background batch work.
+
+### Added
+
+- **Mixed-source queues** — local, NAS, cloud-drive, Subsonic, and media-server tracks can play continuously in one queue
+- **Real cross-source deletion** — duplicate cleanup deletes original files according to source capabilities, with batching, recovery, and retry support
+- **Persistent search index** — indexes titles, artists, albums, Pinyin, and lyrics for faster large-library lookup
+- **Remote notification foundation** — adds app registration and message-handling support for remote notifications
+
+### Changed
+
+- **App icons and cloud sync** — refreshed the icon system and reduced unnecessary synchronization and view updates
+- **Large-library work** — song-list refreshes, bulk cleanup, and background scraping now process changes in batches to reduce foreground stalls
+
+### Fixed
+
+- **Baidu Netdisk cleanup** — validates each batch deletion result and retries transient failures instead of reporting partial failures as success
+- **Malformed media and playback menus** — hardened damaged inputs and Now Playing menu state updates
+- **Audio session startup** — cold launch no longer interrupts audio already playing in another app
+
+---
+
+## [1.7.1] (build 21) - 2026-07-21
+
+This release reorganizes music-source management and folder selection, focusing on lower scanning-write and interface-refresh overhead.
+
+### Changed
+
+- **Music source management** — optimized source-state handling and remote metadata parsing, with folder selection moved into a dedicated session before scanning starts
+- **Batched scanning** — groups song mutations, checkpoint writes, and interface publication instead of persisting every item independently
+
+### Fixed
+
+- **FTP scan continuity** — transient read failures no longer abandon the entire folder scan, and remaining items continue after recovery
 
 ---
 

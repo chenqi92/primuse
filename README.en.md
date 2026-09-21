@@ -13,7 +13,7 @@
 
 > **Try the latest build:** [join the TestFlight beta](https://testflight.apple.com/join/AjbPukaF)
 
-Primuse is a native, multi-source music player for the Apple ecosystem. It brings local files, NAS devices, media servers, cloud drives, and Apple Music into one library and playback queue, with high-fidelity decoding, CUE track splitting, lyrics and metadata, cross-device sync, and system playback controls.
+Primuse is a native, multi-source music player for the Apple ecosystem. It brings local files, NAS devices, media servers, cloud drives, internet radio, and Apple Music into one library and playback queue, with high-fidelity decoding, CUE track splitting, word-timed lyrics, smart discovery, cross-device sync, and system playback controls.
 
 The stable release is available on the App Store. Search for “Primuse” or use the download button above.
 
@@ -22,31 +22,31 @@ The stable release is available on the App Store. Search for “Primuse” or us
 - [中文说明](README.md) · [English README](README.en.md)
 - [中文更新日志](CHANGELOG.md) · [English Changelog](CHANGELOG.en.md)
 - [Screenshots](#screenshots) · [macOS Desktop App](#macos-desktop-app) · [Apple TV App](#apple-tv-app) · [Apple Watch and System Integration](#apple-watch-and-system-integration)
-- [Music Sources](#music-sources) · [Playback and Formats](#playback-and-formats) · [Lyrics and Metadata](#lyrics-and-metadata) · [Library and Sync](#library-and-sync)
+- [Music Sources](#music-sources) · [Radio, Discovery, and Personalization](#radio-discovery-and-personalization) · [Playback and Formats](#playback-and-formats) · [Lyrics and Metadata](#lyrics-and-metadata) · [Library and Sync](#library-and-sync)
 - [Getting Started](#getting-started) · [Custom Scraping Sources](#custom-scraping-sources) · [Project Structure](#project-structure) · [Architecture](#architecture)
 
 ## iPhone and iPad
 
-- **Adaptive native UI** — tab-based navigation on iPhone, a split-view library and two-column landscape player on iPad, plus multiwindow scene support
-- **Complete mobile library** — import songs from the Files app, connect remote sources, scan folders, and search or manage playlists across local, NAS, and cloud content
-- **A full player on the go** — switch between artwork, lyrics, and the queue; inspect format details, tune speed and effects, choose an AirPlay output, and correct metadata manually
-- **Background and system control** — background audio, Lock Screen and Control Center controls, headset/Bluetooth buttons, and iPhone volume synchronized with the system output level
+- **Adaptive native UI** — tab-based navigation on iPhone with compact layouts for landscape, split-screen, and foldable cover displays; iPad adds a split-view library, two-column player, and multiwindow scenes
+- **Complete mobile library** — import songs from the Files app, connect remote sources, scan folders, and search or manage playlists and saved stations across local, NAS, server, and cloud content
+- **A full player on the go** — switch between artwork, lyrics, the queue, and multiple immersive scenes; inspect the actual audio quality, tune speed and effects, choose an AirPlay output, and correct metadata manually
+- **Background and system control** — background audio, Lock Screen and Control Center controls, and headset/Bluetooth buttons; the volume slider changes Primuse's own level without changing system output volume
 
 ## Screenshots
 
 <p align="center">
-  <img src="Docs/screenshots/ios/en-US/01-home.jpg" width="160" alt="Primuse Home"/>
-  <img src="Docs/screenshots/ios/en-US/02-appearance.jpg" width="160" alt="Light and dark appearance"/>
-  <img src="Docs/screenshots/ios/en-US/03-songs.jpg" width="160" alt="Songs library"/>
-  <img src="Docs/screenshots/ios/en-US/04-albums.jpg" width="160" alt="Album browsing"/>
-  <img src="Docs/screenshots/ios/en-US/05-playlists.jpg" width="160" alt="Playlists"/>
+  <img src="Docs/screenshots/ios/en-US/01-home.jpg" width="160" alt="Primuse across Apple devices"/>
+  <img src="Docs/screenshots/ios/en-US/02-appearance.jpg" width="160" alt="Local, NAS, and cloud sources"/>
+  <img src="Docs/screenshots/ios/en-US/03-songs.jpg" width="160" alt="Radio folders and tags"/>
+  <img src="Docs/screenshots/ios/en-US/04-albums.jpg" width="160" alt="CarPlay, Apple Watch, and Siri"/>
+  <img src="Docs/screenshots/ios/en-US/05-playlists.jpg" width="160" alt="Immersive landscape player"/>
 </p>
 <p align="center">
-  <img src="Docs/screenshots/ios/en-US/06-search.jpg" width="160" alt="Populated search results"/>
-  <img src="Docs/screenshots/ios/en-US/07-now-playing.jpg" width="160" alt="Now Playing"/>
-  <img src="Docs/screenshots/ios/en-US/08-lyrics.jpg" width="160" alt="Synchronized lyrics"/>
-  <img src="Docs/screenshots/ios/en-US/09-sources.jpg" width="160" alt="Music source management"/>
-  <img src="Docs/screenshots/ios/en-US/10-equalizer.jpg" width="160" alt="10-band equalizer"/>
+  <img src="Docs/screenshots/ios/en-US/06-search.jpg" width="160" alt="Lyric and tag editing"/>
+  <img src="Docs/screenshots/ios/en-US/07-now-playing.jpg" width="160" alt="Device transfer and iCloud sync"/>
+  <img src="Docs/screenshots/ios/en-US/08-lyrics.jpg" width="160" alt="Lyric poster sharing"/>
+  <img src="Docs/screenshots/ios/en-US/09-sources.jpg" width="160" alt="Smart recommendations and scene-based discovery"/>
+  <img src="Docs/screenshots/ios/en-US/10-equalizer.jpg" width="160" alt="Equalizer and audio effects"/>
 </p>
 
 ## macOS Desktop App
@@ -55,19 +55,19 @@ The Mac client uses a native desktop layout and shares its library, music source
 
 <table>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/en-US/01-home.jpg" width="420" alt="macOS Home"/><br/>Desktop Music Command Center</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/01-home.jpg" width="420" alt="macOS library"/><br/>Desktop Library and Playback</td>
     <td align="center"><img src="Docs/screenshots/macos/en-US/02-sources.jpg" width="420" alt="macOS Sources"/><br/>Source Management</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/en-US/03-songs.jpg" width="420" alt="macOS Songs Library"/><br/>Complete Songs Library</td>
-    <td align="center"><img src="Docs/screenshots/macos/en-US/04-now-playing.jpg" width="420" alt="macOS Now Playing"/><br/>Now Playing and Synced Lyrics</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/03-songs.jpg" width="420" alt="macOS radio library"/><br/>Radio Folders and Tags</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/04-now-playing.jpg" width="420" alt="macOS desktop playback tools"/><br/>Mini Player, Menu Bar, and Desktop Lyrics</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/macos/en-US/05-mini-player.jpg" width="420" alt="macOS Mini Player"/><br/>Mini Player</td>
-    <td align="center"><img src="Docs/screenshots/macos/en-US/06-desktop-lyrics.jpg" width="420" alt="macOS Desktop Lyrics"/><br/>Standalone Desktop Lyrics</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/05-mini-player.jpg" width="420" alt="macOS immersive player"/><br/>Full-Screen Artwork, Lyrics, and Immersive Scenes</td>
+    <td align="center"><img src="Docs/screenshots/macos/en-US/06-desktop-lyrics.jpg" width="420" alt="macOS lyric editor"/><br/>Lyric Editing and Word Timing</td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="Docs/screenshots/macos/en-US/07-menu-bar.jpg" width="860" alt="macOS Menu Bar Player"/><br/>Menu Bar Player and Quick Controls</td>
+    <td align="center" colspan="2"><img src="Docs/screenshots/macos/en-US/07-menu-bar.jpg" width="860" alt="macOS device transfer and iCloud sync"/><br/>Device Transfer and iCloud Sync</td>
   </tr>
 </table>
 
@@ -89,29 +89,29 @@ The Apple TV client can browse the full library, connect to multiple source type
 
 <table>
   <tr>
-    <td align="center"><img src="Docs/screenshots/tv/en-US/01-home.jpg" width="420" alt="Apple TV Home"/><br/>Home on the Big Screen</td>
-    <td align="center"><img src="Docs/screenshots/tv/en-US/02-library.jpg" width="420" alt="Apple TV Library"/><br/>Complete Library</td>
+    <td align="center"><img src="Docs/screenshots/tv/en-US/01-home.jpg" width="420" alt="Apple TV Home"/><br/>Your Music on Apple TV</td>
+    <td align="center"><img src="Docs/screenshots/tv/en-US/02-library.jpg" width="420" alt="Apple TV music sources"/><br/>Direct Sources and QR Transfer</td>
   </tr>
   <tr>
-    <td align="center"><img src="Docs/screenshots/tv/en-US/03-playlists.jpg" width="420" alt="Apple TV Playlists"/><br/>Playlists</td>
-    <td align="center"><img src="Docs/screenshots/tv/en-US/04-search.jpg" width="420" alt="Apple TV Search"/><br/>Search from the Sofa</td>
+    <td align="center"><img src="Docs/screenshots/tv/en-US/03-playlists.jpg" width="420" alt="Apple TV radio"/><br/>Saved Radio Stations</td>
+    <td align="center"><img src="Docs/screenshots/tv/en-US/04-search.jpg" width="420" alt="Apple TV synchronized lyrics"/><br/>Artwork and Synchronized Lyrics</td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="Docs/screenshots/tv/en-US/05-now-playing.jpg" width="860" alt="Apple TV Now Playing"/><br/>Now Playing and Synced Lyrics</td>
+    <td align="center" colspan="2"><img src="Docs/screenshots/tv/en-US/05-now-playing.jpg" width="860" alt="Apple TV immersive player"/><br/>Full-Screen Artwork and Immersive Scenes</td>
   </tr>
 </table>
 
 ### Apple TV-Specific Features
 
-- **Whole-library browsing** — browse albums, artists, songs, and playlists, with Play All, Shuffle All, and Siri Remote support
+- **Whole-library browsing** — browse albums, artists, songs, playlists, and radio, with Play All, Shuffle All, and Siri Remote support
 - **Direct sources and relays** — WebDAV, UPnP/DLNA, cloud drives, and server libraries use their own resolvers; SMB, NFS, and FTP can read on the TV itself, while some other sources can use the optional iPhone LAN relay
 - **QR-code configuration transfer** — Apple TV displays a one-time QR code so an iPhone can securely send a library snapshot, music sources, and encrypted credentials over the LAN, without requiring both devices to use the same Apple ID
 - **Credential management** — use iCloud sync, LAN pairing, or credentials entered directly on the TV for supported server types
 - **Synchronized lyrics** — load lyrics from the local cache, source sidecars, or a server, including line/word progress and translations
 - **Top Shelf** — publish recent items and albums on the tvOS Home screen, with deep links back into their content
-- **Seven-language UI** — English, Simplified and Traditional Chinese, German, French, Japanese, and Korean
+- **Multilingual interface** — 16 languages, including English, Simplified Chinese, and Traditional Chinese
 
-> Apple TV playback paths depend on the source type, available credentials, and relay configuration. FFmpeg-based DTS/DTS-CD compatibility decoding currently targets iPhone, iPad, and Mac only.
+> Apple TV playback paths depend on the source type, available credentials, and relay configuration. tvOS now includes the FFmpeg compatibility path for formats such as WMA, DTS, and TrueHD that the system decoder does not support natively.
 
 ## Apple Watch and System Integration
 
@@ -124,19 +124,29 @@ The Apple TV client can browse the full library, connect to multiple source type
 - **Spotlight** — index songs, albums, and artists so system search can open them directly
 - **System playback experience** — Lock Screen and Control Center media controls, headset/Bluetooth controls, AirPlay, external displays, and media keys
 
+## Radio, Discovery, and Personalization
+
+- **Internet radio library** — add stations manually, import M3U/PLS lists in bulk, or subscribe to a playlist URL, then organize stations with folders, tags, and custom ordering
+- **Logos and live metadata** — discover station logos and live program metadata automatically or provide an image URL; SVG logos and server-synced stations are supported
+- **Smart discovery** — switch the home screen between music and radio, with smart recommendations, scene-based picks, frequent listening, and visual listening charts
+- **Optional intelligence services** — configure providers for semantic search, recommendations, playlist assistance, and audio transcription; device-specific credentials are not synced through CloudKit
+- **Editable layouts** — rearrange sections, item counts, and layouts directly on the home screen, in search results, and in CarPlay, then save custom presets
+- **Personal appearance** — light and dark modes, artwork-derived colors, themes, multiple adaptive app icons, and a consistent motion system
+
 ## Music Sources
 
 | Category | Currently supported |
 |----------|---------------------|
 | NAS | Synology DSM, QNAP |
 | File protocols | SMB/CIFS, WebDAV, FTP, SFTP, NFS, S3, UPnP/DLNA |
-| Music servers | Subsonic, Navidrome, Airsonic, Gonic, Feiniu Music, DaoLiYu, Synology Audio Station |
+| Music servers | Subsonic, Navidrome, Airsonic, Gonic, Feiniu Music, DaoLiYu, Songloft, Synology Audio Station |
 | Media servers | Jellyfin, Emby, Plex |
-| Cloud drives | 123 Cloud Drive, 115, Baidu Netdisk, Aliyun Drive, Google Drive, OneDrive, Dropbox |
+| Cloud drives | 123 Cloud Drive, 115, Baidu Netdisk, Aliyun Drive, Google Drive, OneDrive, Dropbox, Drime, Guangya Cloud |
 | Apple and local | iPhone/iPad file import, local folders on Mac, Apple Music library and catalog |
 
-- **Unified scanning and browsing** — select folders for file-based sources or scan the complete catalog exposed by a server source, with background scans, resume support, incremental updates, and metadata backfill
-- **On-demand streaming and caching** — Range-capable sources stream while downloading, with configurable cache limits, queue prewarming, and automatic cleanup
+- **Unified connection, scanning, and browsing** — enter one server address and Primuse checks the usable port, TLS mode, and path automatically; Synology QuickConnect IDs and Feiniu FN IDs can be entered directly. Select folders for file-backed sources or scan a complete server library, with background scanning, resumable progress, incremental updates, and metadata backfill
+- **On-demand streaming and caching** — Range-capable sources stream while downloading, with configurable cache limits, queue prewarming, and automatic cleanup. Cached tracks remain playable while a source is temporarily offline, and offline downloads keep lyrics and artwork too
+- **Quality by network** — choose mobile-network transcoding quality for Subsonic, Emby, and Jellyfin; reverse-proxy prefixes, VPN, Tailscale, and IPv6 routes are handled by source routing
 - **Secure credentials** — passwords and OAuth tokens live in Keychain; source/account data and playback credentials move between platforms through iCloud or a secure LAN transfer where supported
 - **Trusted connections** — explicitly trust your own NAS TLS or HTTP host without globally disabling network security
 - **Read-only source protection** — Subsonic-family servers, Feiniu Music, DaoLiYu, UPnP, and Apple Music catalogs never delete remote audio; scraped data stays in the local cache
@@ -146,12 +156,12 @@ UGREEN UGOS and the legacy fnOS system-level file APIs are still waiting for sta
 
 ## Playback and Formats
 
-- **Dual decoding paths** — native SFBAudioEngine handles the high-fidelity path, while the FFmpeg compatibility path covers formats that native decoders do not handle reliably
+- **Dual decoding paths** — a native high-fidelity engine handles common formats, while the FFmpeg compatibility path on iPhone, iPad, Mac, and Apple TV covers formats that system decoders do not handle reliably
 - **Broad format support** — MP3, AAC/M4A, ALAC, FLAC, WAV/AIFF, APE, WavPack, OGG/Opus, WMA, TTA, TAK, Musepack, Shorten, Speex, QOA, DSF/DFF, AC-3, E-AC-3, MLP/TrueHD, and more
 - **CUE track splitting** — read UTF-8, UTF-16, and GB18030 `.cue` sheets and use `INDEX 01` entries to expand a continuous album image into virtual tracks with individual titles, numbers, time boundaries, and ReplayGain values
-- **DTS and DTS-CD** — iPhone, iPad, and Mac support `.dts` / DTS-HD and content-aware DTS-CD detection inside WAV containers through compatibility decoding
+- **DTS and DTS-CD** — iPhone, iPad, Mac, and Apple TV support `.dts` / DTS-HD and content-aware DTS-CD detection inside WAV containers through compatibility decoding
 - **DSD** — Automatic, PCM, and DoP playback modes, selected according to device capabilities and user preference
-- **Gapless and crossfade** — Gapless playback, 1–12 second crossfades, leading/trailing silence skipping, and next-track prewarming; Gapless and Crossfade are mutually exclusive settings
+- **Gapless and crossfade** — Gapless playback, 1–12 second crossfades, leading/trailing silence skipping, and next-track prewarming; when fading is enabled, manual track changes also use a short transition
 - **Playback tuning** — track/album ReplayGain, 0.5×–2.0× pitch-preserving speed, output sample-rate matching, a sleep timer, and configurable queue prefetching
 - **Effects chain** — a 10-band equalizer, Spatial Audio and head tracking, compression/limiting, reverb, and real-time visualization
 - **Music videos** — discover same-name MP4/M4V/MOV sidecars, or treat a video without a matching audio file as a standalone music video
@@ -159,10 +169,10 @@ UGREEN UGOS and the legacy fnOS system-level file APIs are still waiting for sta
 
 ## Lyrics and Metadata
 
-- **Embedded data and sidecars** — read audio tags, embedded artwork, same-name/folder artwork, `.lrc` lyrics, and same-name music videos
-- **Line- and word-synchronized lyrics** — standard LRC, enhanced word timestamps, tap-to-seek, manual browsing with automatic follow recovery, and display across iOS, macOS, tvOS, and Watch
+- **Embedded data and sidecars** — read audio tags, embedded artwork, same-name/folder artwork, ID3 SYLT synchronized lyrics, `.lrc` / `.elrc` / `.lys` / `.yrc` / `.qrc` / `.vtt` / `.srt` lyrics, and same-name music videos
+- **Line- and word-synchronized lyrics** — standard LRC, enhanced word timing, `offset`, duets, harmony lines, translations, and romanization, with tap to seek, automatic follow after manual browsing, and synchronized display across iOS, macOS, tvOS, and Watch
 - **Offline lyric translation** — use Apple's Translation framework and cache results locally, with configurable target languages and cache management
-- **Lyric poster sharing** — press and hold a line to pick a consecutive passage, apply one of several poster styles (aurora glass, magazine, vinyl, film, neon, instant photo, cassette), and export a still image or a Live Photo to Photos or any other app
+- **Lyric editing and sharing** — edit lyrics, time individual words, shift the whole timeline, and save to a sidecar or embed supported lyrics in the audio file; press and hold lyrics to create styled still posters or Live Photos and add your own note
 - **Built-in scrapers** — Apple Music/iTunes Search, MusicBrainz, and LRCLIB, each used according to its metadata, artwork, or lyrics capabilities
 - **Confidence-aware ranking** — rank candidates using title, artist, album, and duration; manual scraping reports uncertainty to reduce incorrect same-name matches
 - **Batch scraping feedback** — start confirmation, live progress, cancellation, completion statistics, and failure details for long-running library tasks
@@ -170,14 +180,15 @@ UGREEN UGOS and the legacy fnOS system-level file APIs are still waiting for sta
 
 ## Library and Sync
 
-- **Unified library** — browse by song, album, artist, genre, and source; search title, artist, album, Pinyin, full lyric text, and combined criteria
-- **Playlist system** — regular playlists, smart playlists, Quick Favorites, and M3U8 / Primuse JSON import/export, including automatic matching, manual correction, and unmatched-item CSV export
+- **Unified library** — browse by song, album, artist, genre, folder, and source, with multi-disc albums, ratings and reviews, Pinyin, full-text lyric, and compound-condition search
+- **Playlist system** — regular playlists, smart playlists, Quick Favorites, and M3U8 / Primuse JSON import/export; playlists can be dragged manually or sorted by name, artist, date added, and more, while imports support automatic matching, manual correction, and unmatched-item CSV export
 - **Maintenance tools** — duplicate detection, read-only source protection, Recently Deleted recovery, tag editing, and per-source rescanning
 - **Listening statistics** — recents, play counts, listening-time trends, music personality, and Year in Review, also available in widgets
 - **Scrobbling** — Last.fm and ListenBrainz, with retry support for failed submissions
 - **CloudKit sync** — independently sync playlists, smart playlists, music sources, cloud accounts, scraper settings, play history, listening statistics, and preferences
+- **LAN transfer and web management** — send selected tracks or offline cache between nearby devices and manage transfer files in a browser; Apple TV configuration uses chunked QR-code transfers with visible progress
 - **Family sharing** — share regular playlists, smart playlists, and family music sources through CloudKit while keeping personal favorites private
-- **Apple Music** — sync the user's library and playlists and search the Apple Music catalog; MusicKit plays subscription-backed content, while confirmed readable non-DRM local items on Mac do not require a subscription
+- **Apple Music** — sync the user's library and playlists, add tracks through the system picker, and search the Apple Music catalog; show actual Lossless, Hi-Res Lossless, and Dolby Atmos availability, and rematch tracks when the storefront changes. MusicKit plays subscription-backed content, while confirmed readable non-DRM local items on Mac do not require a subscription
 
 ## Requirements
 
@@ -337,17 +348,20 @@ primuse/
 ├── Primuse/                        # Shared iOS and macOS application code
 │   ├── App/                        # App entry, dependency wiring, CarPlay and external-display scenes
 │   ├── Services/
+│   │   ├── AI/                     # Optional intelligence providers, semantic search, and transcription
 │   │   ├── AppleMusic/             # MusicKit catalog, library, and mixed queues
 │   │   ├── Audio/                  # Playback, native/FFmpeg decoding, caching, and effects
 │   │   ├── Cloud/                  # CloudKit, family sharing, snapshots, and credential sync
 │   │   ├── DLNA/                   # UPnP/AV Renderer and casting
 │   │   ├── Library/                # GRDB library, scanning, Spotlight, and maintenance
 │   │   ├── Metadata/               # Tags, sidecars, scrapers, and lyric translation
+│   │   ├── Radio/                  # Internet radio, subscriptions, logos, and live metadata
 │   │   ├── Relay/                  # iPhone-to-Apple TV LAN relay
 │   │   ├── Sources/                # NAS, protocol, server, and cloud connectors
+│   │   ├── Transfer/               # LAN device transfer and browser file management
 │   │   └── Watch/                  # WatchConnectivity bridge
 │   ├── Views/                      # iOS and macOS interfaces
-│   └── Resources/                  # Seven localizations, assets, and privacy manifests
+│   └── Resources/                  # 16 localizations, assets, and privacy manifests
 ├── PrimuseKit/                     # Models, policies, and stream resolvers shared across iOS/macOS/tvOS
 ├── PrimuseTV/                      # Apple TV app
 ├── PrimuseTopShelf/                # tvOS Top Shelf extension
@@ -355,8 +369,7 @@ primuse/
 ├── PrimuseWatchShared/             # Models shared by the Watch app and complications
 ├── PrimuseWatchWidgets/            # Watch complications
 ├── PrimuseWidgetExtension/         # iOS/macOS widgets and Control Center widgets
-├── PrimuseActivityExtension/       # Live Activity layout target (not currently enabled by the main app)
-├── Frameworks/FFmpeg/              # iOS/macOS FFmpeg XCFrameworks
+├── Frameworks/FFmpeg/              # iOS/macOS/tvOS FFmpeg XCFrameworks
 ├── Config/                         # Entitlements, xcconfig, and Info configuration
 ├── scripts/                        # Build, install, signing, FFmpeg, and screenshot tools
 └── project.yml                     # XcodeGen project definition and unified version source
@@ -375,6 +388,7 @@ primuse/
 | [NFSKit](https://github.com/alexiscn/NFSKit) | NFS client |
 | [swift-crypto](https://github.com/apple/swift-crypto) | Cryptographic and signing operations |
 | [swift-nio](https://github.com/apple/swift-nio) | Asynchronous networking infrastructure |
+| [SwiftDraw](https://github.com/swhitty/SwiftDraw) | SVG station-logo and vector-image rendering |
 
 System frameworks include MusicKit, CloudKit, AVFoundation, MediaPlayer, CarPlay, WidgetKit, WatchConnectivity, App Intents, Core Spotlight, Translation, and Network.framework.
 
@@ -422,8 +436,8 @@ iPhone / iPad / Mac
 
 ### CI/CD
 
-- **Build** — a manually dispatched GitHub Actions workflow runs branding checks, resolves Swift packages, and builds for the iOS Simulator; when the version changes, it can also produce an unsigned IPA artifact
-- **Release** — manually archive, sign, and export the IPA, with an option to upload it to TestFlight
+- **Build** — GitHub Actions supports manual runs and also triggers when the marketing version or build number changes, running branding checks, dependency resolution, and an iOS Simulator build before producing an unsigned IPA artifact
+- **Release notes** — the workflow drafts and sanitizes bilingual changelog sections while preserving existing editorial content, commits the documentation, and creates or updates the matching GitHub Release
 
 ## Notes
 
