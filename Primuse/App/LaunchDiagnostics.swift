@@ -325,10 +325,10 @@ enum LaunchDiagnostics {
     private nonisolated static var deviceModelIdentifier: String {
         var info = utsname()
         uname(&info)
-        let identifier = withUnsafePointer(to: &info.machine) {
-            $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: info.machine)) {
-                String(cString: $0)
-            }
+        // 取字节副本读，别在 &info.machine 借出期间再去读 info.machine：
+        // Swift 6 的独占访问检查会直接判成重叠访问。
+        let identifier = withUnsafeBytes(of: info.machine) { raw in
+            String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
         }
         return identifier.isEmpty ? "?" : identifier
     }
