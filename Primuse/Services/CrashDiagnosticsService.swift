@@ -24,7 +24,8 @@ private let crashLog = Logger(subsystem: "com.welape.yuanyin", category: "Crash"
 /// 时就只剩猜。两份分开存、分开计数, 崩溃列表的空状态才仍然代表"没崩过"。
 @MainActor
 final class CrashDiagnosticsService: NSObject {
-    static let directoryName = "DiagnosticReports"
+    /// 启动哨兵在主执行器之外也要拼出这个目录, 所以它不跟着类型留在 MainActor 上。
+    nonisolated static let directoryName = "DiagnosticReports"
     static let maxReports = 50
     /// 指标载荷每天一份, 留两周足够回溯一次测试反馈。
     static let maxMetricReports = 14

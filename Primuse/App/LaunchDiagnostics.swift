@@ -235,9 +235,10 @@ enum LaunchDiagnostics {
     /// 他不用打开 app 就能发出来。
     ///
     /// 日志整份可能有几十兆（诊断模式下更大），只搬尾巴。
-    static var retrievalDirectoryName: String { "Diagnostics" }
-    static let logTailBytes = 2 * 1_024 * 1_024
-    static let exportedReportLimit = 8
+    /// 三个常量都 `nonisolated`：搬运整段跑在主线程之外。
+    nonisolated static var retrievalDirectoryName: String { "Diagnostics" }
+    nonisolated static let logTailBytes = 2 * 1_024 * 1_024
+    nonisolated static let exportedReportLimit = 8
 
     private static func exportDiagnosticsForRetrieval() {
         let summary = previousAbort?.details
