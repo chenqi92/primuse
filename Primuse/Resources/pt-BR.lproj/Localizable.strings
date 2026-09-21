@@ -1394,7 +1394,9 @@
 "genre_search_placeholder" = "Pesquisar gêneros";
 "genres_count" = "gêneros";
 "github_feedback" = "Sugestões e relatórios de problemas";
-"github_feedback_hint" = "Problemas GitHub ajudam o desenvolvedor a ver e acompanhar o feedback mais cedo. Você também pode deixar comentários em uma análise do App Store, embora possa demorar mais para chegar ao desenvolvedor.";
+"github_bug_report" = "Relatar um problema";
+"github_feature_request" = "Sugestão de recurso";
+"github_feedback_hint" = "Problemas GitHub ajudam o desenvolvedor a ver e acompanhar o feedback mais cedo. Você também pode deixar comentários em uma análise do App Store, embora possa demorar mais para chegar ao desenvolvedor. O link já vem com a versão e os dados do dispositivo preenchidos, e você pode editá-los antes de enviar.";
 "github_repository" = "Repositório GitHub";
 "go_to_album" = "Ir para o álbum";
 "go_to_artist" = "Ir para Artista";

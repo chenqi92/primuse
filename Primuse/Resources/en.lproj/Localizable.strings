@@ -369,7 +369,9 @@
 "licenses" = "Open Source Licenses";
 "github_repository" = "GitHub Repository";
 "github_feedback" = "Suggestions & Issue Reports";
-"github_feedback_hint" = "GitHub Issues helps the developer see and follow up on feedback sooner. You can also leave feedback in an App Store review, though it may take longer to reach the developer.";
+"github_bug_report" = "Report a Problem";
+"github_feature_request" = "Feature Request";
+"github_feedback_hint" = "GitHub Issues helps the developer see and follow up on feedback sooner. You can also leave feedback in an App Store review, though it may take longer to reach the developer. The link arrives with the version and device details already filled in, and you can edit them before submitting.";
 "open_source" = "Open Source Libraries";
 "gapless_playback" = "Gapless Playback";
 "gapless_desc" = "Seamlessly transition between tracks without any silence gap.";

@@ -357,7 +357,9 @@
 "licenses" = "開放原始碼授權";
 "github_repository" = "GitHub 儲存庫";
 "github_feedback" = "功能建議與問題回報";
-"github_feedback_hint" = "透過 GitHub Issues 回報，開發者可以更快看到並跟進。也可以在 App Store 評論中留言，但評論傳達可能有所延遲。";
+"github_bug_report" = "回報問題";
+"github_feature_request" = "功能建議";
+"github_feedback_hint" = "透過 GitHub Issues 回報，開發者可以更快看到並跟進。也可以在 App Store 評論中留言，但評論傳達可能有所延遲。連結會預先填好版本號與裝置資訊，送出前可以修改。";
 "open_source" = "開放原始碼程式庫";
 "gapless_playback" = "無縫播放";
 "gapless_desc" = "曲目之間無縫銜接，消除靜音間隙。";

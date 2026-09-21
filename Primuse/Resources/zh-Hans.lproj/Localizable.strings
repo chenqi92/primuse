@@ -369,7 +369,9 @@
 "licenses" = "开源许可";
 "github_repository" = "GitHub 仓库";
 "github_feedback" = "功能建议与问题反馈";
-"github_feedback_hint" = "通过 GitHub Issues 反馈，开发者可以更快看到并跟进。也可以在 App Store 评论中留言，但评论传达可能存在延迟。";
+"github_bug_report" = "报告问题";
+"github_feature_request" = "功能建议";
+"github_feedback_hint" = "通过 GitHub Issues 反馈，开发者可以更快看到并跟进。也可以在 App Store 评论中留言，但评论传达可能存在延迟。链接会预先填好版本号与设备信息，提交前可以修改。";
 "open_source" = "开源库";
 "gapless_playback" = "无缝播放";
 "gapless_desc" = "曲目之间无缝衔接，消除静音间隙。";

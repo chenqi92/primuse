@@ -1394,7 +1394,9 @@
 "genre_search_placeholder" = "Szukaj gatunków";
 "genres_count" = "gatunki";
 "github_feedback" = "Sugestie i raporty problemów";
-"github_feedback_hint" = "GitHub Issues pomaga programiście szybciej zobaczyć opinie i reagować na nie. Możesz także zostawić opinię w recenzji App Store, chociaż dotarcie do programisty może zająć więcej czasu.";
+"github_bug_report" = "Zgłoś problem";
+"github_feature_request" = "Propozycja funkcji";
+"github_feedback_hint" = "GitHub Issues pomaga programiście szybciej zobaczyć opinie i reagować na nie. Możesz także zostawić opinię w recenzji App Store, chociaż dotarcie do programisty może zająć więcej czasu. Link ma już wpisaną wersję i dane urządzenia, które możesz zmienić przed wysłaniem.";
 "github_repository" = "Repozytorium GitHub";
 "go_to_album" = "Przejdź do albumu";
 "go_to_artist" = "Przejdź do Artysty";

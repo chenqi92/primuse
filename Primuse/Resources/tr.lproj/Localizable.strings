@@ -1807,7 +1807,7 @@
 "lyrics_converter_no_timing_notice" = "Kaynakta zaman çizelgesi olmadığından dönüştürme zaman damgalarını otomatik olarak oluşturamaz.";
 "tag_editor_lyrics_format_empty" = "Boş sözler";
 "recent_searches" = "Son Aramalar";
-"github_feedback_hint" = "GitHub Sorunları, geliştiricinin geri bildirimleri daha erken görmesine ve takip etmesine yardımcı olur. Geliştiriciye ulaşmak daha uzun sürse de App Store incelemesine de geri bildirim bırakabilirsiniz.";
+"github_feedback_hint" = "GitHub Sorunları, geliştiricinin geri bildirimleri daha erken görmesine ve takip etmesine yardımcı olur. Geliştiriciye ulaşmak daha uzun sürse de App Store incelemesine de geri bildirim bırakabilirsiniz. Bağlantı sürüm ve cihaz bilgilerini önceden doldurur; göndermeden önce değiştirebilirsiniz.";
 "smart_sort_field_dateAdded" = "Eklenme Tarihi";
 "Vintage Vinyl" = "Vintage Vinil";
 "immersive_demo_lyric_04" = "Her nota kendi ışığını bulur";
@@ -3469,6 +3469,8 @@
 "add_to_playlist_ellipsis" = "Çalma Listesine Ekle…";
 "rg_mode_track" = "Parça";
 "github_feedback" = "Öneriler ve Sorun Raporları";
+"github_bug_report" = "Sorun bildir";
+"github_feature_request" = "Özellik isteği";
 "cat_nas" = "NAS";
 "cloud_authorizing_waiting" = "Sistem tarayıcısının yetkilendirme kodunu döndürmesi bekleniyor…";
 "songs_view_compact" = "Kompakt";

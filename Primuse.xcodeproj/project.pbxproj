@@ -951,6 +951,7 @@
 		AD8CD5AF66AE2A6B9D80B106 /* MediaServerSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D799C291E3FDAA06B4A33EBA /* MediaServerSource.swift */; };
 		AD9E45159D3B5AF9B75CC488 /* SpotlightIndexPlanning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A231BC160FFDDA890692D36A /* SpotlightIndexPlanning.swift */; };
 		ADCDB73D415E79D8A3C57EB9 /* MetadataAssetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A24F02124D01EC09135B0F9 /* MetadataAssetStore.swift */; };
+		AE15C27CF9FEABB94B8CF92E /* IssueFeedbackLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E9C33441CD9F05CDDC31DDB /* IssueFeedbackLink.swift */; };
 		AE1E0F179439B3421A49EBEA /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 311B669F71B39784F17F48DB /* NIOCore */; };
 		AF0477B123E1E458EE651D73 /* SmartPlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07ED3C52285096B184672237 /* SmartPlaylistDetailView.swift */; };
 		AF201CC110B79690BE4F987C /* MotionArtworkProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BADE3E47B952DDB0A1371635 /* MotionArtworkProvider.swift */; };
@@ -1113,6 +1114,7 @@
 		C745C034D5E10AB99280C4BD /* NowPlayingInteractionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2283C5F87BB4C24B484473 /* NowPlayingInteractionPolicy.swift */; };
 		C78883EEF4E8ECF986774E31 /* ScanTLSTrustRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A5E3854301A90D6807F3BEA /* ScanTLSTrustRetryPolicy.swift */; };
 		C7A5CC98F2538494E8CA2C62 /* SourceAddressFormPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3207E612EB152C51814B2DF3 /* SourceAddressFormPolicy.swift */; };
+		C7DD777BE265BD4E1B77F691 /* RunningAppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29C13ED3B5B397189BD35BD2 /* RunningAppEnvironment.swift */; };
 		C7EC780823A0FE47FF71BFFE /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 60849A3BA068DBB563EFA62E /* InfoPlist.strings */; };
 		C83D3E3D402A2494B21343D9 /* PrimuseWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FC0B19BA1149E4C3F22F6BF9 /* PrimuseWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C87A6A4DE1FD7B3D1C4CA8CB /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E8868307C8B45B391847C2B /* SettingsView.swift */; };
@@ -1769,6 +1771,7 @@
 		291FDF1C384E333B90E3337E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		29281CC03025CD5519BC481C /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneRelayServer.swift; sourceTree = "<group>"; };
+		29C13ED3B5B397189BD35BD2 /* RunningAppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningAppEnvironment.swift; sourceTree = "<group>"; };
 		29D19414C60A995E2BAE6B3F /* MacContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacContentView.swift; sourceTree = "<group>"; };
 		29F9F8326377915ECDB78628 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = ja; path = ja.lproj/AppIntentVocabulary.plist; sourceTree = "<group>"; };
 		2A0B5BE8B577AB5EBCBCFB9A /* FTPSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FTPSource.swift; sourceTree = "<group>"; };
@@ -2054,6 +2057,7 @@
 		6C0340425B4875EC8A446D0D /* MacVolumeSliderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacVolumeSliderTests.swift; sourceTree = "<group>"; };
 		6CB8B3B1BBF2A448B946AC9E /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/SettingsSearch.strings"; sourceTree = "<group>"; };
 		6CC0F604B870A6D33CF5A868 /* MacTaskExceptionGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTaskExceptionGuard.swift; sourceTree = "<group>"; };
+		9E9C33441CD9F05CDDC31DDB /* IssueFeedbackLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueFeedbackLink.swift; sourceTree = "<group>"; };
 		E1E8A6CF6AB94892AC5BC06C /* LaunchDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchDiagnostics.swift; sourceTree = "<group>"; };
 		6D1D4EA9B393044C9B0711E5 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/Localizable.strings; sourceTree = "<group>"; };
 		6D84632D6A2887E8E174E87C /* LibraryScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryScanner.swift; sourceTree = "<group>"; };
@@ -3007,11 +3011,13 @@
 				B8201B4D10F3B60D364411E9 /* AI */,
 				C161382065B391D1C54B9209 /* Import */,
 				38CBDB962B370140AC75A17D /* Internal */,
+				9E9C33441CD9F05CDDC31DDB /* IssueFeedbackLink.swift */,
 				CC568C1F987228DD17220D96 /* Library */,
 				AFC591E3A4BEE6456BA66E38 /* Metadata */,
 				6B4555C595F754161FB68F73 /* Models */,
 				AE8026A8E49A84C9F273845F /* Radio */,
 				D7B9A30E7467B10B25922382 /* Resources */,
+				29C13ED3B5B397189BD35BD2 /* RunningAppEnvironment.swift */,
 				1FA61E5EA3526337A1F7518F /* Sharing */,
 				982CFDD034CB574AA740A619 /* Storage */,
 				F49A5BE606706F898B5DEAC8 /* Streaming */,
@@ -4900,6 +4906,7 @@
 				0AA5FC01195AA39AA63D8C29 /* ImmersiveWaveformBarLayout.swift in Sources */,
 				5FB3BB3804C2565A4EDDF5C6 /* IncrementalSongStore.swift in Sources */,
 				5BCB2635C14EE8A1060D1EBE /* InsecureHTTPHostPolicy.swift in Sources */,
+				AE15C27CF9FEABB94B8CF92E /* IssueFeedbackLink.swift in Sources */,
 				8F095C75B71E55976268E94D /* KeyedRunRegistry.swift in Sources */,
 				72DE4A2D47DAEB67BBDB4492 /* LANSync.swift in Sources */,
 				3A447F9292183A2E25B9F7D5 /* LegacyAudioCacheMigrationPolicy.swift in Sources */,
@@ -5007,6 +5014,7 @@
 				17F49E86FA92CB0D1341670E /* RelayStreamResolver.swift in Sources */,
 				B4757F43F22197C6497DF963 /* RemoteGatewayBackoffPolicy.swift in Sources */,
 				074C490AB30D658DDDA8DED6 /* RemoteRendererTransportPolicy.swift in Sources */,
+				C7DD777BE265BD4E1B77F691 /* RunningAppEnvironment.swift in Sources */,
 				055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */,
 				12C7978BCBFE0B91090B8657 /* SSDPNetworkInterfaces.swift in Sources */,
 				4D3A4ACF3185CCECCC8DF8B7 /* STRMDescriptor.swift in Sources */,

@@ -7112,8 +7112,18 @@ private struct MacLogRow {
 private struct MacSTAboutView: View {
     @State private var showLicenses = false
 
-    private let repositoryURL = URL(string: "https://github.com/chenqi92/primuse")!
-    private let issuesURL = URL(string: "https://github.com/chenqi92/primuse/issues/new/choose")!
+    private let repositoryURL = IssueFeedbackLink.repositoryURL
+
+    /// The issue form opens with this build's version, device and system already
+    /// filled in. None of those fields are required by the form, so the user can
+    /// edit or clear them before submitting.
+    private func feedbackURL(for template: IssueFeedbackLink.Template) -> URL {
+        IssueFeedbackLink.url(
+            for: template,
+            environment: RunningAppEnvironment.diagnosticEnvironment(),
+            platform: RunningAppEnvironment.issuePlatform
+        )
+    }
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
@@ -7156,21 +7166,31 @@ private struct MacSTAboutView: View {
 
             HStack(spacing: 12) {
                 aboutLinkCard(
-                    title: String(localized: "github_repository"),
-                    detail: "github.com/chenqi92/primuse",
-                    systemImage: "chevron.left.forwardslash.chevron.right"
-                ) {
-                    NSWorkspace.shared.open(repositoryURL)
-                }
-
-                aboutLinkCard(
-                    title: String(localized: "github_feedback"),
+                    title: String(localized: "github_bug_report"),
                     detail: "GitHub Issues",
                     systemImage: "exclamationmark.bubble",
                     emphasized: true
                 ) {
-                    NSWorkspace.shared.open(issuesURL)
+                    NSWorkspace.shared.open(feedbackURL(for: .bugReport))
                 }
+                .settingsAnchor("about.bugReport")
+
+                aboutLinkCard(
+                    title: String(localized: "github_feature_request"),
+                    detail: "GitHub Issues",
+                    systemImage: "lightbulb"
+                ) {
+                    NSWorkspace.shared.open(feedbackURL(for: .featureRequest))
+                }
+                .settingsAnchor("about.featureRequest")
+            }
+
+            aboutLinkCard(
+                title: String(localized: "github_repository"),
+                detail: "github.com/chenqi92/primuse",
+                systemImage: "chevron.left.forwardslash.chevron.right"
+            ) {
+                NSWorkspace.shared.open(repositoryURL)
             }
             .settingsAnchor("about.repository")
 

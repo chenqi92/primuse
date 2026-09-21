@@ -23,6 +23,7 @@ This release redesigns key search and immersive-player interactions, expands App
 - **Tag reading schedule** — new tracks receive tags before full-library rechecks, WebDAV and NAS reads are faster, and desktop platforms use the fastest level supported by the device
 - **Immersive effect drawer** — tap outside the drawer to close it on iPhone; Mac now uses a right-side preview drawer with more reliable full-screen transitions and window restoration
 - **Desktop lyric interaction** — when the backing panel is hidden or locked, areas outside the lyrics pass clicks to the window behind, and the panel adapts to the display size (#149)
+- **Feedback entries** — About now offers separate "Report a Problem" and "Feature Request" links that open a form with the version, device model, and OS already filled in and editable; only the description is required
 
 ### Fixed
 

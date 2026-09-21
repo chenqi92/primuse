@@ -589,7 +589,9 @@
 "licenses" = "오픈 소스 라이선스";
 "github_repository" = "GitHub 저장소";
 "github_feedback" = "기능 제안 및 문제 신고";
-"github_feedback_hint" = "GitHub Issues로 남기면 개발자가 더 빨리 확인하고 후속 조치를 할 수 있습니다. App Store 리뷰로도 의견을 남길 수 있지만 전달이 지연될 수 있습니다.";
+"github_bug_report" = "문제 신고";
+"github_feature_request" = "기능 요청";
+"github_feedback_hint" = "GitHub Issues로 남기면 개발자가 더 빨리 확인하고 후속 조치를 할 수 있습니다. App Store 리뷰로도 의견을 남길 수 있지만 전달이 지연될 수 있습니다. 링크에는 버전과 기기 정보가 미리 입력되어 있으며, 제출 전에 수정할 수 있습니다.";
 "open_source" = "오픈 소스 라이브러리";
 "gapless_playback" = "갭리스 재생";
 "gapless_desc" = "무음 구간 없이 트랙 사이를 자연스럽게 전환합니다.";

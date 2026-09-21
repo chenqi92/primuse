@@ -37,6 +37,17 @@ struct SettingsView: View {
         #endif
     }
 
+    /// The issue form opens with this build's version, device and system
+    /// already filled in. None of those fields are required by the form, so the
+    /// user can edit or clear them before submitting.
+    private func feedbackURL(for template: IssueFeedbackLink.Template) -> URL {
+        IssueFeedbackLink.url(
+            for: template,
+            environment: RunningAppEnvironment.diagnosticEnvironment(),
+            platform: RunningAppEnvironment.issuePlatform
+        )
+    }
+
     private var recentItems: [SettingDefinition] {
         SettingsSearchHistory.shared.ids.compactMap { SettingsCatalog.byID[$0] }
             .filter { musicIntelligence.shouldExposeRemoteConfiguration || $0.page != .intelligence }
@@ -263,15 +274,20 @@ struct SettingsView: View {
             }
             .settingsAnchor("about.rate")
 
-            Link(destination: URL(string: "https://github.com/chenqi92/primuse")!) {
+            Link(destination: IssueFeedbackLink.repositoryURL) {
                 Label("github_repository", systemImage: "chevron.left.forwardslash.chevron.right")
             }
             .settingsAnchor("about.repository")
 
-            Link(destination: URL(string: "https://github.com/chenqi92/primuse/issues/new/choose")!) {
-                Label("github_feedback", systemImage: "exclamationmark.bubble")
+            Link(destination: feedbackURL(for: .bugReport)) {
+                Label("github_bug_report", systemImage: "exclamationmark.bubble")
             }
-            .settingsAnchor("about.feedback")
+            .settingsAnchor("about.bugReport")
+
+            Link(destination: feedbackURL(for: .featureRequest)) {
+                Label("github_feature_request", systemImage: "lightbulb")
+            }
+            .settingsAnchor("about.featureRequest")
         } header: {
             Text("about")
         }

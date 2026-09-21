@@ -589,7 +589,9 @@
 "licenses" = "Licences open source";
 "github_repository" = "Dépôt GitHub";
 "github_feedback" = "Suggestions et problèmes";
-"github_feedback_hint" = "GitHub Issues permet au développeur de voir et de suivre les retours plus rapidement. Vous pouvez aussi laisser un avis sur l’App Store, mais sa transmission peut prendre plus de temps.";
+"github_bug_report" = "Signaler un problème";
+"github_feature_request" = "Demande de fonctionnalité";
+"github_feedback_hint" = "GitHub Issues permet au développeur de voir et de suivre les retours plus rapidement. Vous pouvez aussi laisser un avis sur l’App Store, mais sa transmission peut prendre plus de temps. Le lien pré-remplit la version et les informations de l’appareil, que vous pouvez modifier avant l’envoi.";
 "open_source" = "Bibliothèques open source";
 "gapless_playback" = "Lecture sans interruption";
 "gapless_desc" = "Enchaînez les morceaux en continu, sans silence entre eux.";

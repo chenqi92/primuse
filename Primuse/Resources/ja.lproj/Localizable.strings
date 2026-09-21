@@ -590,7 +590,9 @@
 "licenses" = "オープンソースライセンス";
 "github_repository" = "GitHub リポジトリ";
 "github_feedback" = "機能提案・問題報告";
-"github_feedback_hint" = "GitHub Issues から報告すると、開発者がより早く確認して対応できます。App Store のレビューでも受け付けていますが、開発者に届くまで時間がかかる場合があります。";
+"github_bug_report" = "問題を報告";
+"github_feature_request" = "機能のリクエスト";
+"github_feedback_hint" = "GitHub Issues から報告すると、開発者がより早く確認して対応できます。App Store のレビューでも受け付けていますが、開発者に届くまで時間がかかる場合があります。 リンクにはバージョンとデバイス情報があらかじめ入力されており、送信前に編集できます。";
 "open_source" = "オープンソースライブラリ";
 "gapless_playback" = "ギャップレス再生";
 "gapless_desc" = "曲間の無音をなくし、トラック間をシームレスに切り替えます。";
