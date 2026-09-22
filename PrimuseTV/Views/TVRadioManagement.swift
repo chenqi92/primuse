@@ -36,6 +36,9 @@ enum TVRadioLogoLoader {
         if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: cacheID) {
             return cached
         }
+        // 目录 favicon 大约四成是坏的;失败过的地址一段时间内不再请求,
+        // 否则每次冷启动、每次 Top Shelf 发布都要把注定失败的请求再发一遍。
+        guard await failureLog.allowsAttempt(for: remote) else { return nil }
 
         // 首页电台那一排不是懒加载的,上千个台会同时要图;限住同时下载的数量。
         await fetchGate.acquire()
@@ -45,17 +48,42 @@ enum TVRadioLogoLoader {
         var request = URLRequest(url: url)
         request.timeoutInterval = 12
         request.setValue("Primuse/1.0", forHTTPHeaderField: "User-Agent")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse,
+        let fetched: (Data, URLResponse)
+        do {
+            fetched = try await URLSession.shared.data(for: request)
+        } catch {
+            // 取消、断网不算这个地址的错,下次照样可以再试。
+            if !Task.isCancelled, !isTransientNetworkFailure(error) {
+                await failureLog.recordFailure(for: remote)
+            }
+            return nil
+        }
+        let (data, response) = fetched
+        guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode),
               !data.isEmpty,
               data.count <= 4 * 1_024 * 1_024,
-              UIImage(data: data) != nil else { return nil }
+              UIImage(data: data) != nil else {
+            await failureLog.recordFailure(for: remote)
+            return nil
+        }
         await MetadataAssetStore.shared.cacheCover(data, forSongID: cacheID)
         return data
     }
 
     private static let fetchGate = TVRadioLogoFetchGate(limit: 4)
+    private static let failureLog = TVRadioLogoFailureLog(retryAfter: 6 * 60 * 60)
+
+    private static func isTransientNetworkFailure(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .cancelled, .notConnectedToInternet, .networkConnectionLost,
+             .dataNotAllowed, .internationalRoamingOff:
+            return true
+        default:
+            return false
+        }
+    }
 
     /// 跨进程启动稳定的短摘要(`hashValue` 每次启动都会变,不能进磁盘缓存键)。
     private static func stableDigest(_ value: String) -> String {
@@ -65,6 +93,25 @@ enum TVRadioLogoLoader {
             hash = hash &* 0x0000_0100_0000_01b3
         }
         return String(hash, radix: 16)
+    }
+}
+
+/// 台标地址的失败记录。只在本进程内有效,不落盘:换个启动、换个网络就重新给机会。
+private actor TVRadioLogoFailureLog {
+    private let retryAfter: TimeInterval
+    private var failedAt: [String: Date] = [:]
+
+    init(retryAfter: TimeInterval) { self.retryAfter = retryAfter }
+
+    func allowsAttempt(for address: String, now: Date = Date()) -> Bool {
+        guard let date = failedAt[address] else { return true }
+        if now.timeIntervalSince(date) < retryAfter { return false }
+        failedAt[address] = nil
+        return true
+    }
+
+    func recordFailure(for address: String, now: Date = Date()) {
+        failedAt[address] = now
     }
 }
 
@@ -93,9 +140,14 @@ private actor TVRadioLogoFetchGate {
     }
 }
 
-// MARK: - 首页「添加电台」卡片
+// MARK: - 首页电台排末尾的卡片
 
-struct TVRadioAddCard: View {
+/// 首页电台那一排末尾的功能卡片(「全部电台」「添加电台」),与电台卡片同尺寸。
+struct TVRadioTileCard: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    var dashed = true
     var width: CGFloat = 220
     let action: () -> Void
 
@@ -106,19 +158,24 @@ struct TVRadioAddCard: View {
                     RoundedRectangle(cornerRadius: TVRadius.cover, style: .continuous)
                         .fill(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
                     RoundedRectangle(cornerRadius: TVRadius.cover, style: .continuous)
-                        .strokeBorder(TVColor.cardBorder, style: StrokeStyle(lineWidth: 2, dash: [10, 8]))
-                    Image(systemName: "plus")
+                        .strokeBorder(
+                            TVColor.cardBorder,
+                            style: dashed
+                                ? StrokeStyle(lineWidth: 2, dash: [10, 8])
+                                : StrokeStyle(lineWidth: 2)
+                        )
+                    Image(systemName: icon)
                         .font(.system(size: width * 0.24, weight: .semibold))
                         .foregroundStyle(focused ? TVColor.brand : TVColor.textMuted)
                 }
                 .frame(width: width, height: width)
                 .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(PMString("ext.tv.radio.add"))
+                    Text(title)
                         .tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(2, reservesSpace: true)
-                    Text(PMString("ext.tv.radio.addSubtitle"))
+                    Text(subtitle)
                         .tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint)
                         .lineLimit(1)
@@ -129,7 +186,41 @@ struct TVRadioAddCard: View {
             }
             .frame(width: width, alignment: .leading)
         }
-        .accessibilityLabel(Text(PMString("ext.tv.radio.add")))
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(subtitle))
+    }
+}
+
+struct TVRadioAddCard: View {
+    var width: CGFloat = 220
+    let action: () -> Void
+
+    var body: some View {
+        TVRadioTileCard(
+            icon: "plus",
+            title: PMString("ext.tv.radio.add"),
+            subtitle: PMString("ext.tv.radio.addSubtitle"),
+            width: width,
+            action: action
+        )
+    }
+}
+
+/// 首页只放前几个台;台多时末尾给一张卡片跳到资料库的「电台」。
+struct TVRadioAllStationsCard: View {
+    let count: Int
+    var width: CGFloat = 220
+    let action: () -> Void
+
+    var body: some View {
+        TVRadioTileCard(
+            icon: "square.grid.2x2",
+            title: PMString("ext.tv.radio.allStations"),
+            subtitle: PMString("ext.tv.radio.stationCount", count),
+            dashed: false,
+            width: width,
+            action: action
+        )
     }
 }
 
@@ -159,6 +250,9 @@ struct TVRadioAddView: View {
     @State private var manualURL = ""
     @State private var manualError: String?
     @State private var notice: String?
+    @State private var popular: [RadioDirectoryClient.Result] = []
+    /// 热门电台所属地区的显示名;按全球取回时为 nil。
+    @State private var popularRegionName: String?
     @FocusState private var focusedField: Field?
 
     var body: some View {
@@ -171,6 +265,7 @@ struct TVRadioAddView: View {
         }
         .onExitCommand { dismiss() }
         .onDisappear { searchTask?.cancel() }
+        .task { await loadPopularStations() }
     }
 
     private var card: some View {
@@ -255,6 +350,18 @@ struct TVRadioAddView: View {
     @ViewBuilder
     private var searchResults: some View {
         switch searchState {
+        case .idle where !popular.isEmpty:
+            VStack(alignment: .leading, spacing: 8) {
+                Label(
+                    popularRegionName.map { PMString("ext.tv.radio.popularIn", $0) }
+                        ?? PMString("ext.tv.radio.popular"),
+                    systemImage: "flame"
+                )
+                .tvFont(.caption, weight: .semibold)
+                .foregroundStyle(TVColor.textMuted)
+                .padding(.horizontal, 8)
+                resultList(popular)
+            }
         case .idle:
             statusLine(PMString("ext.tv.radio.directoryNote"), icon: "globe")
         case .searching:
@@ -270,17 +377,42 @@ struct TVRadioAddView: View {
         case .finished where results.isEmpty:
             statusLine(PMString("ext.tv.radio.noResults"), icon: "radio")
         case .finished:
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(results) { result in
-                        resultRow(result)
-                    }
-                }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 8)
-            }
-            .focusSection()
+            resultList(results)
         }
+    }
+
+    private func resultList(_ items: [RadioDirectoryClient.Result]) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(items) { result in
+                    resultRow(result)
+                }
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
+        }
+        .focusSection()
+    }
+
+    /// 还没输入时先摆出本地区(取不到就全球)投票最多的台,遥控器打字太费劲。
+    /// 取不到就静默留在目录说明行。
+    private func loadPopularStations() async {
+        guard popular.isEmpty else { return }
+        let region = Locale.current.region?.identifier
+        let code = region.flatMap { $0.count == 2 && $0.allSatisfy(\.isLetter) ? $0.uppercased() : nil }
+        if let code,
+           let regional = try? await RadioDirectoryClient.topStations(countryCode: code),
+           !regional.isEmpty {
+            guard !Task.isCancelled else { return }
+            popularRegionName = Locale.current.localizedString(forRegionCode: code) ?? code
+            popular = regional
+            return
+        }
+        guard !Task.isCancelled,
+              let global = try? await RadioDirectoryClient.topStations(countryCode: nil),
+              !Task.isCancelled else { return }
+        popularRegionName = nil
+        popular = global
     }
 
     private func resultRow(_ result: RadioDirectoryClient.Result) -> some View {
@@ -505,7 +637,7 @@ struct TVRadioDeleteConfirmation: View {
                         store.removeRadioStation(id: station.id)
                         dismiss()
                     }
-                    TVPillButton(title: String(localized: "cancel"), systemImage: "xmark") {
+                    TVPillButton(title: PMString("ext.tv.sources.cancel"), systemImage: "xmark") {
                         dismiss()
                     }
                 }
@@ -516,6 +648,199 @@ struct TVRadioDeleteConfirmation: View {
             .tvPanel(radius: 22)
         }
         .onExitCommand { dismiss() }
+    }
+}
+// MARK: - 重命名
+
+/// 电台重命名。不这样的话用户只能删了重加,而删除会同步到所有设备。
+/// 订阅来的台名字归清单管,不走这里。
+struct TVRadioRenameView: View {
+    @Environment(TVStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let station: RadioStation
+    @State private var name: String
+    @FocusState private var fieldFocused: Bool
+
+    init(station: RadioStation) {
+        self.station = station
+        _name = State(initialValue: station.name)
+    }
+
+    private var normalizedName: String { RadioStationValidation.normalizedName(name) }
+
+    var body: some View {
+        ZStack {
+            TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.35)
+            TVColor.bg.opacity(0.5).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 24) {
+                    TVRadioArtworkView(station: station, size: 120, radius: 18)
+                    Text(PMString("ext.tv.radio.renameTitle"))
+                        .tvFont(.sectionTitle)
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(2)
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(PMString("ext.tv.radio.nameLabel"))
+                        .tvFont(.caption)
+                        .foregroundStyle(fieldFocused ? TVColor.text : TVColor.textFaint)
+                    TVTextFieldBox {
+                        TextField("", text: $name)
+                            .focused($fieldFocused)
+                            .submitLabel(.done)
+                            .onSubmit(save)
+                            .accessibilityLabel(Text(PMString("ext.tv.radio.nameLabel")))
+                    }
+                }
+                HStack(spacing: 18) {
+                    TVPillButton(
+                        title: PMString("ext.tv.sources.form.save"),
+                        systemImage: "checkmark",
+                        style: .solid,
+                        action: save
+                    )
+                    .disabled(normalizedName.isEmpty)
+                    TVPillButton(title: PMString("ext.tv.sources.cancel"), systemImage: "xmark") {
+                        dismiss()
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .padding(40)
+            .frame(width: 900, alignment: .leading)
+            .tvPanel(radius: 22)
+        }
+        .onExitCommand { dismiss() }
+    }
+
+    private func save() {
+        guard !normalizedName.isEmpty else { return }
+        if normalizedName != station.name {
+            store.renameRadioStation(id: station.id, to: normalizedName)
+        }
+        dismiss()
+    }
+}
+
+// MARK: - 资料库「电台」
+
+/// 资料库里的全部电台:按文件夹筛选的网格。首页那一排只放前几个台,台多的时候
+/// (音乐源镜像动辄上千个)来这里看全部 —— 网格是懒加载的。
+/// 文件夹只能在 iPhone / Mac 上整理,这里只读。
+struct TVRadioLibrarySection: View {
+    @Environment(TVStore.self) private var store
+    let columns: [GridItem]
+    let cell: CGFloat
+    let spacing: CGFloat
+    var openPlayer: () -> Void = {}
+    var onModalActivityChanged: (Bool) -> Void = { _ in }
+
+    private enum Selection: Hashable {
+        case all
+        case folder(String)   // 文件夹名的比较键
+        case ungrouped
+    }
+
+    @State private var selection: Selection = .all
+    @State private var showsAdd = false
+
+    /// 选中的文件夹被别的设备删掉或改名时回到「全部」。
+    private var effectiveSelection: Selection {
+        switch selection {
+        case .all:
+            return .all
+        case .folder(let key):
+            return store.radioStationsByFolderKey[key]?.isEmpty == false ? selection : .all
+        case .ungrouped:
+            return store.radioUngroupedCount > 0 ? .ungrouped : .all
+        }
+    }
+
+    private var stations: [RadioStation] {
+        switch effectiveSelection {
+        case .all: return store.radioStations
+        case .folder(let key): return store.radioStationsByFolderKey[key] ?? []
+        case .ungrouped: return store.radioStationsByFolderKey[""] ?? []
+        }
+    }
+
+    var body: some View {
+        Group {
+            if store.radioStations.isEmpty {
+                TVEmptyState(
+                    icon: "radio",
+                    title: PMString("ext.tv.radio.empty"),
+                    subtitle: PMString("ext.tv.radio.syncHint"),
+                    actionTitle: PMString("ext.tv.radio.add"),
+                    action: { showsAdd = true }
+                )
+                .frame(minHeight: 520)
+            } else {
+                VStack(alignment: .leading, spacing: 26) {
+                    chips
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
+                        ForEach(stations) { station in
+                            TVRadioStationCard(station: station, width: cell, action: openPlayer)
+                        }
+                    }
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showsAdd) {
+            TVRadioAddView().environment(store)
+        }
+        .onChange(of: showsAdd) { _, shows in onModalActivityChanged(shows) }
+        .onDisappear {
+            if showsAdd { onModalActivityChanged(false) }
+        }
+    }
+
+    private var chips: some View {
+        let current = effectiveSelection
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 14) {
+                chip(
+                    PMString("ext.tv.library.filter.all") + " · \(store.radioStations.count)",
+                    icon: "radio",
+                    target: .all,
+                    current: current
+                )
+                ForEach(store.radioFolders) { folder in
+                    chip(
+                        "\(folder.name) · \(folder.stationCount)",
+                        icon: "folder",
+                        target: .folder(RadioStationOrganization.comparisonKey(folder.name)),
+                        current: current
+                    )
+                }
+                if store.radioUngroupedCount > 0, !store.radioFolders.isEmpty {
+                    chip(
+                        PMString("ext.tv.radio.ungrouped") + " · \(store.radioUngroupedCount)",
+                        icon: "tray",
+                        target: .ungrouped,
+                        current: current
+                    )
+                }
+                TVPillButton(title: PMString("ext.tv.radio.add"), systemImage: "plus") {
+                    showsAdd = true
+                }
+                .padding(.leading, 18)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 12)
+        }
+        .focusSection()
+    }
+
+    private func chip(_ title: String, icon: String, target: Selection, current: Selection) -> some View {
+        TVPillButton(
+            title: title,
+            systemImage: icon,
+            style: current == target ? .solid : .glass,
+            isSelected: current == target
+        ) {
+            selection = target
+        }
     }
 }
 #endif

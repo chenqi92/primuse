@@ -505,10 +505,22 @@ final class TVStore {
     var playbackIssue: TVPlaybackIssue?   // 解析/播放受阻原因(展示用)
     var radioStations: [RadioStation] = [] {
         didSet {
+            rebuildRadioDerivedState()
             syncTrackNavigationCommands()
             NotificationCenter.default.post(name: .primuseTVSiriRadioCatalogDidChange, object: nil)
         }
     }
+    /// 以下由 `radioStations` 推出,列表一变整份重建,视图里直接读,不再逐台遍历。
+    /// 首尾电台:长按菜单据此决定显不显示「向前移 / 向后移」。
+    private(set) var firstRadioStationID: String?
+    private(set) var lastRadioStationID: String?
+    /// 电台里出现过的文件夹(资料库「电台」的筛选条)。文件夹只能在 iPhone / Mac 上建,电视端只读。
+    private(set) var radioFolders: [RadioStationFolderSummary] = []
+    private(set) var radioUngroupedCount = 0
+    /// 按文件夹比较键分好的电台,未分组的在 "" 下,顺序与 `radioStations` 一致。
+    private(set) var radioStationsByFolderKey: [String: [RadioStation]] = [:]
+    /// 全部电台的流判重键。搜索结果每一行都要问「加过没有」。
+    private var radioStreamIdentityKeys: Set<String> = []
     var isLiveRadio = false {
         didSet { syncTrackNavigationCommands() }
     }
@@ -2223,7 +2235,7 @@ final class TVStore {
                 decoded[index].lastPlayedAt = max(decoded[index].lastPlayedAt ?? .distantPast, legacy)
             }
         }
-        radioStations = RadioStationOrdering.sorted(
+        var visible = RadioStationOrdering.sorted(
             decoded.filter {
                 !$0.isDeleted
                     && RadioStationValidation.hasConsistentServerIdentity($0)
@@ -2235,6 +2247,14 @@ final class TVStore {
                     } ?? true)
             }
         )
+        #if DEBUG
+        if Self.showsDemoRadioStations {
+            let demo = Self.demoRadioStations
+            let demoIDs = Set(demo.map(\.id))
+            visible = demo + visible.filter { !demoIDs.contains($0.id) }
+        }
+        #endif
+        radioStations = visible
 
         if isLiveRadio,
            let currentRadioStationID,
@@ -2250,7 +2270,75 @@ final class TVStore {
             hasNowPlaying = false
         }
         publishTopShelf()
+        // 系统清掉缓存后电台要等 CloudKit 拉回来;这期间从 Top Shelf 点进来的电台深链
+        // 一直暂存着,列表到了就补一次。
+        if pendingDeepLink?.host == "radio", !radioStations.isEmpty {
+            flushPendingDeepLink()
+        }
     }
+
+    private func rebuildRadioDerivedState() {
+        let stations = radioStations
+        let first = stations.first?.id
+        let last = stations.last?.id
+        if firstRadioStationID != first { firstRadioStationID = first }
+        if lastRadioStationID != last { lastRadioStationID = last }
+
+        var byFolder: [String: [RadioStation]] = [:]
+        for station in stations {
+            let key = RadioStationOrganization.normalizedFolderName(station.folderName)
+                .map(RadioStationOrganization.comparisonKey) ?? ""
+            byFolder[key, default: []].append(station)
+        }
+        radioStationsByFolderKey = byFolder
+        let folders = RadioStationOrganization.folders(in: stations)
+        if radioFolders != folders { radioFolders = folders }
+        let ungrouped = byFolder[""]?.count ?? 0
+        if radioUngroupedCount != ungrouped { radioUngroupedCount = ungrouped }
+        let keys = Set(stations.compactMap { RadioImportParser.streamIdentityKey($0.streamURL) })
+        if radioStreamIdentityKeys != keys { radioStreamIdentityKeys = keys }
+    }
+
+    #if DEBUG
+    /// 截图用:`TV_DEMO_RADIO=1` 时在内存里的电台列表前面放几个演示台。
+    /// 只进 `radioStations`,不写电台存储,不会落盘也不会同步。
+    private static let showsDemoRadioStations =
+        ProcessInfo.processInfo.environment["TV_DEMO_RADIO"] == "1"
+
+    private static let demoRadioStations: [RadioStation] = {
+        let now = Date()
+        func demo(
+            _ index: Int,
+            _ name: String,
+            folder: String? = nil,
+            logo: String? = nil
+        ) -> RadioStation {
+            RadioStation(
+                id: "tv-demo-radio-\(index)",
+                name: name,
+                streamURL: "https://demo.primuse.invalid/radio/\(index)",
+                createdAt: now,
+                modifiedAt: now,
+                sortOrder: index,
+                remoteLogoURL: logo,
+                remoteLogoSource: logo == nil ? nil : .directoryFavicon,
+                folderName: folder
+            )
+        }
+        return [
+            demo(0, "Groove Salad", folder: "Music",
+                 logo: "https://somafm.com/img3/groovesalad-400.jpg"),
+            demo(1, "Drone Zone", folder: "Music",
+                 logo: "https://somafm.com/img3/dronezone-400.jpg"),
+            demo(2, "Morning News", folder: "News"),
+            demo(3, "World News Hour", folder: "News"),
+            demo(4, "City Jazz FM"),
+            demo(5, "Classic Rock 101"),
+            demo(6, "Lo-Fi Beats"),
+            demo(7, "Evening Talk"),
+        ]
+    }()
+    #endif
 
     // MARK: 电台管理(电视端添加 / 删除 / 置顶)
 
@@ -2262,7 +2350,7 @@ final class TVStore {
     /// 同一个流(不计 http/https、末尾斜杠)是否已经在电台列表里。
     func hasRadioStation(streamURL: String) -> Bool {
         guard let key = RadioImportParser.streamIdentityKey(streamURL) else { return false }
-        return radioStations.contains { RadioImportParser.streamIdentityKey($0.streamURL) == key }
+        return radioStreamIdentityKeys.contains(key)
     }
 
     /// 添加一个电台。写进与 iPhone / Mac 同一份电台存储,开着 iCloud 同步时
@@ -2290,13 +2378,62 @@ final class TVStore {
         radioStore.upsert(station)
         guard radioStore.station(id: station.id) != nil else { return nil }
         reloadRadioStations(fromDisk: false)
+        if logo == nil { lookUpDirectoryLogo(stationID: station.id, streamURL: station.streamURL) }
         return station
+    }
+
+    /// 手动输入地址的台没有台标;iPhone 端的台标自动发现不在电视上,至少拿流地址回查一次目录。
+    /// 查不到是常态,静默结束。
+    private func lookUpDirectoryLogo(stationID: String, streamURL: String) {
+        Task { @MainActor [weak self] in
+            guard let found = await RadioDirectoryClient.lookup(streamURL: streamURL),
+                  let logo = RadioLogoURLPolicy.normalized(found.faviconURL),
+                  let self,
+                  let current = self.radioStore.station(id: stationID),
+                  current.remoteLogoURL == nil else { return }
+            // 只补台标和缺失的主页;期间用户或别的设备自己设了图就作废。
+            self.radioStore.applyDiscoveredLogo(
+                id: stationID,
+                urlString: logo,
+                source: .directoryLookup,
+                homepageURL: found.homepageURL
+            )
+            self.reloadRadioStations(fromDisk: false)
+        }
     }
 
     func removeRadioStation(id: String) {
         guard let station = radioStations.first(where: { $0.id == id }),
               canManageRadioStation(station) else { return }
         radioStore.remove(id: id)
+        reloadRadioStations(fromDisk: false)
+    }
+
+    /// 在电视上看得到的台之间前后挪一格(`offset` 为负是往前)。排序与 iPhone / Mac 共用。
+    /// 只在可见的台之间换位置:停用音乐源的镜像台不显示,不能让它们吃掉一次挪动。
+    func moveRadioStation(id: String, by offset: Int) {
+        guard offset != 0 else { return }
+        let visibleIDs = Set(radioStations.map(\.id))
+        let visible = radioStore.stations.filter { visibleIDs.contains($0.id) }
+        guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
+        let target = max(0, min(visible.count - 1, index + offset))
+        guard target != index else { return }
+        radioStore.moveStations(
+            from: IndexSet(integer: index),
+            to: target > index ? target + 1 : target,
+            within: visible
+        )
+        reloadRadioStations(fromDisk: false)
+    }
+
+    /// 改电台名称。订阅来的台名字归清单管、镜像台归服务端管,都不走这里。
+    func renameRadioStation(id: String, to rawName: String) {
+        let name = RadioStationValidation.normalizedName(rawName)
+        guard !name.isEmpty,
+              let station = radioStations.first(where: { $0.id == id }),
+              canManageRadioStation(station),
+              !station.isSubscribed else { return }
+        radioStore.update(id) { $0.name = name }
         reloadRadioStations(fromDisk: false)
     }
 

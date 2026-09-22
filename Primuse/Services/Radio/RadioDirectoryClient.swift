@@ -52,14 +52,40 @@ enum RadioDirectoryClient {
         let query = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { throw Failure.emptyQuery }
 
-        var components = URLComponents(string: "\(host)/json/stations/search")
-        components?.queryItems = [
+        return try await searchStations(queryItems: [
             URLQueryItem(name: "name", value: query),
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "hidebroken", value: "true"),
             URLQueryItem(name: "order", value: "votes"),
             URLQueryItem(name: "reverse", value: "true"),
+        ])
+    }
+
+    /// 投票最多的台。`countryCode` 是 ISO 3166-1 两位地区码,传 nil 取全球。
+    /// 电视端添加电台时还没输入就先摆出来,遥控器打字太费劲。
+    static func topStations(countryCode: String?, limit: Int = 30) async throws -> [Result] {
+        var items = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "hidebroken", value: "true"),
+            URLQueryItem(name: "order", value: "votes"),
+            URLQueryItem(name: "reverse", value: "true"),
         ]
+        if let countryCode, !countryCode.isEmpty {
+            items.append(URLQueryItem(name: "countrycode", value: countryCode))
+        }
+        return try await searchStations(queryItems: items)
+    }
+
+    /// 目录里不少台的编码写的是 "UNKNOWN",显示出来只是噪音,当作没有。
+    private static func cleanedCodec(_ raw: String?) -> String? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty,
+              raw.caseInsensitiveCompare("unknown") != .orderedSame else { return nil }
+        return raw
+    }
+
+    private static func searchStations(queryItems: [URLQueryItem]) async throws -> [Result] {
+        var components = URLComponents(string: "\(host)/json/stations/search")
+        components?.queryItems = queryItems
         guard let url = components?.url else { throw Failure.badResponse }
 
         var request = URLRequest(url: url)
@@ -82,7 +108,7 @@ enum RadioDirectoryClient {
                 id: payload.stationuuid,
                 name: RadioStationValidation.normalizedName(payload.name),
                 streamURL: stream,
-                codec: payload.codec?.isEmpty == false ? payload.codec : nil,
+                codec: cleanedCodec(payload.codec),
                 bitrate: payload.bitrate.flatMap { $0 > 0 ? $0 : nil },
                 country: payload.country?.isEmpty == false ? payload.country : nil,
                 faviconURL: RadioLogoURLPolicy.normalized(payload.favicon),
@@ -129,7 +155,7 @@ enum RadioDirectoryClient {
                 id: payload.stationuuid,
                 name: RadioStationValidation.normalizedName(payload.name),
                 streamURL: payload.url_resolved?.isEmpty == false ? payload.url_resolved! : payload.url,
-                codec: payload.codec?.isEmpty == false ? payload.codec : nil,
+                codec: cleanedCodec(payload.codec),
                 bitrate: payload.bitrate.flatMap { $0 > 0 ? $0 : nil },
                 country: payload.country?.isEmpty == false ? payload.country : nil,
                 faviconURL: RadioLogoURLPolicy.normalized(payload.favicon),

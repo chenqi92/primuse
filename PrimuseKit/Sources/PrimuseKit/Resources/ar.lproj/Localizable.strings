@@ -249,6 +249,15 @@
 "ext.tv.radio.delete" = "حذف المحطة";
 "ext.tv.radio.deleteConfirm" = "هل تريد حذف ”%@“؟";
 "ext.tv.radio.deleteNote" = "عند تشغيل مزامنة iCloud، سيتم حذف هذه المحطة من أجهزتك الأخرى أيضًا.";
+"ext.tv.radio.moveEarlier" = "نقل إلى الأمام";
+"ext.tv.radio.moveLater" = "نقل إلى الخلف";
+"ext.tv.radio.rename" = "إعادة تسمية";
+"ext.tv.radio.renameTitle" = "إعادة تسمية المحطة";
+"ext.tv.radio.allStations" = "كل المحطات";
+"ext.tv.radio.ungrouped" = "بلا مجلد";
+"ext.tv.radio.empty" = "لا توجد محطات بعد";
+"ext.tv.radio.popular" = "المحطات الشائعة";
+"ext.tv.radio.popularIn" = "الشائعة في %@";
 "ext.tv.home.emptyWithRadio" = "زامن مكتبتك من iPhone أو Mac لعرض موسيقاك هنا، أو أضف محطات راديو الإنترنت مباشرة.";
 "ext.tv.radio.stationCount" = "%d محطة";
 "ext.tv.radio.stop" = "إيقاف";

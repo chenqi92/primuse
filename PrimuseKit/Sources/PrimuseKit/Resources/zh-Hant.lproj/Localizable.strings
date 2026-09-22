@@ -455,6 +455,15 @@
 "ext.tv.radio.delete" = "刪除電台";
 "ext.tv.radio.deleteConfirm" = "刪除「%@」？";
 "ext.tv.radio.deleteNote" = "開啟 iCloud 同步時，其他裝置上的這個電台也會一起刪除。";
+"ext.tv.radio.moveEarlier" = "向前移";
+"ext.tv.radio.moveLater" = "向後移";
+"ext.tv.radio.rename" = "重新命名";
+"ext.tv.radio.renameTitle" = "重新命名電台";
+"ext.tv.radio.allStations" = "全部電台";
+"ext.tv.radio.ungrouped" = "未分組";
+"ext.tv.radio.empty" = "還沒有電台";
+"ext.tv.radio.popular" = "熱門電台";
+"ext.tv.radio.popularIn" = "熱門電台 · %@";
 "ext.tv.home.emptyWithRadio" = "在 iPhone / Mac 上同步曲庫後，這裡會顯示你的音樂；也可以直接新增網路電台。";
 
 // MARK: - 音樂來源標籤與本地化執行階段錯誤

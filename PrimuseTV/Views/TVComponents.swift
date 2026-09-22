@@ -346,7 +346,12 @@ struct TVRadioStationCard: View {
     let station: RadioStation
     var width: CGFloat = 220
     var action: () -> Void = {}
-    @State private var showsDeleteConfirmation = false
+    @State private var panel: Panel?
+
+    private enum Panel: String, Identifiable {
+        case rename, delete
+        var id: String { rawValue }
+    }
 
     var body: some View {
         TVFocusButton(ring: false, action: play) { focused in
@@ -375,21 +380,53 @@ struct TVRadioStationCard: View {
                 Label(PMString("ext.tv.radio.play"), systemImage: "play.fill")
             }
             if store.canManageRadioStation(station) {
-                Button {
-                    store.moveRadioStationToTop(id: station.id)
-                } label: {
-                    Label(PMString("ext.tv.radio.moveToTop"), systemImage: "arrow.up.to.line")
+                let isFirst = store.firstRadioStationID == station.id
+                let isLast = store.lastRadioStationID == station.id
+                if !isFirst {
+                    Button {
+                        store.moveRadioStation(id: station.id, by: -1)
+                    } label: {
+                        Label(PMString("ext.tv.radio.moveEarlier"), systemImage: "arrow.backward")
+                    }
+                }
+                if !isLast {
+                    Button {
+                        store.moveRadioStation(id: station.id, by: 1)
+                    } label: {
+                        Label(PMString("ext.tv.radio.moveLater"), systemImage: "arrow.forward")
+                    }
+                }
+                if !isFirst {
+                    Button {
+                        store.moveRadioStationToTop(id: station.id)
+                    } label: {
+                        Label(PMString("ext.tv.radio.moveToTop"), systemImage: "arrow.up.to.line")
+                    }
+                }
+                // 订阅来的台名字归清单管,改了下次刷新也会被还原。
+                if !station.isSubscribed {
+                    Button {
+                        panel = .rename
+                    } label: {
+                        Label(PMString("ext.tv.radio.rename"), systemImage: "pencil")
+                    }
                 }
                 Button(role: .destructive) {
-                    showsDeleteConfirmation = true
+                    panel = .delete
                 } label: {
                     Label(PMString("ext.tv.radio.delete"), systemImage: "trash")
                 }
             }
         }
-        .fullScreenCover(isPresented: $showsDeleteConfirmation) {
-            TVRadioDeleteConfirmation(station: station)
-                .environment(store)
+        .fullScreenCover(item: $panel) { panel in
+            switch panel {
+            case .rename:
+                TVRadioRenameView(station: station)
+                    .environment(store)
+            case .delete:
+                TVRadioDeleteConfirmation(station: station)
+                    .environment(store)
+            }
         }
     }
 

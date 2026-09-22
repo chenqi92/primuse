@@ -149,6 +149,15 @@
 "ext.tv.radio.delete" = "Удалить станцию";
 "ext.tv.radio.deleteConfirm" = "Удалить «%@»?";
 "ext.tv.radio.deleteNote" = "Если включена синхронизация iCloud, станция удалится и на других ваших устройствах.";
+"ext.tv.radio.moveEarlier" = "Переместить вперёд";
+"ext.tv.radio.moveLater" = "Переместить назад";
+"ext.tv.radio.rename" = "Переименовать";
+"ext.tv.radio.renameTitle" = "Переименовать станцию";
+"ext.tv.radio.allStations" = "Все станции";
+"ext.tv.radio.ungrouped" = "Без папки";
+"ext.tv.radio.empty" = "Станций пока нет";
+"ext.tv.radio.popular" = "Популярные станции";
+"ext.tv.radio.popularIn" = "Популярное: %@";
 "ext.tv.home.emptyWithRadio" = "Синхронизируйте медиатеку с iPhone или Mac, чтобы видеть здесь музыку, или добавьте интернет-радиостанции напрямую.";
 "ext.tv.settings.notSynced" = "Еще не синхронизировано";
 "error.catalog.missingHTTPResponse" = "Сервер не вернул ответа HTTP.";

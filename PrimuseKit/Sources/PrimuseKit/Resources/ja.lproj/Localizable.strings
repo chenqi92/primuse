@@ -458,6 +458,15 @@
 "ext.tv.radio.delete" = "ステーションを削除";
 "ext.tv.radio.deleteConfirm" = "「%@」を削除しますか？";
 "ext.tv.radio.deleteNote" = "iCloud同期がオンの場合、ほかのデバイスからもこのステーションが削除されます。";
+"ext.tv.radio.moveEarlier" = "前へ移動";
+"ext.tv.radio.moveLater" = "後ろへ移動";
+"ext.tv.radio.rename" = "名前を変更";
+"ext.tv.radio.renameTitle" = "ステーション名を変更";
+"ext.tv.radio.allStations" = "すべてのステーション";
+"ext.tv.radio.ungrouped" = "未分類";
+"ext.tv.radio.empty" = "ステーションがありません";
+"ext.tv.radio.popular" = "人気のステーション";
+"ext.tv.radio.popularIn" = "%@で人気のステーション";
 "ext.tv.home.emptyWithRadio" = "iPhoneやMacからライブラリを同期するとここに音楽が表示されます。インターネットラジオを直接追加することもできます。";
 
 // MARK: - ソース名とローカライズ済みの実行時エラー

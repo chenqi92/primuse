@@ -249,6 +249,15 @@
 "ext.tv.radio.delete" = "Usuń stację";
 "ext.tv.radio.deleteConfirm" = "Usunąć „%@”?";
 "ext.tv.radio.deleteNote" = "Gdy synchronizacja iCloud jest włączona, ta stacja zostanie usunięta także na innych urządzeniach.";
+"ext.tv.radio.moveEarlier" = "Przenieś wcześniej";
+"ext.tv.radio.moveLater" = "Przenieś dalej";
+"ext.tv.radio.rename" = "Zmień nazwę";
+"ext.tv.radio.renameTitle" = "Zmień nazwę stacji";
+"ext.tv.radio.allStations" = "Wszystkie stacje";
+"ext.tv.radio.ungrouped" = "Bez folderu";
+"ext.tv.radio.empty" = "Brak stacji";
+"ext.tv.radio.popular" = "Popularne stacje";
+"ext.tv.radio.popularIn" = "Popularne: %@";
 "ext.tv.home.emptyWithRadio" = "Zsynchronizuj bibliotekę z iPhone’a lub Maca, aby zobaczyć tu muzykę, albo dodaj stacje radia internetowego bezpośrednio.";
 "ext.tv.radio.stationCount" = "Stacje %d";
 "ext.tv.radio.stop" = "Zatrzymaj";

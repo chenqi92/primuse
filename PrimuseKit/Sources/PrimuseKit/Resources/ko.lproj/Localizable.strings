@@ -458,6 +458,15 @@
 "ext.tv.radio.delete" = "방송국 삭제";
 "ext.tv.radio.deleteConfirm" = "‘%@’을(를) 삭제하겠습니까?";
 "ext.tv.radio.deleteNote" = "iCloud 동기화가 켜져 있으면 다른 기기에서도 이 방송국이 삭제됩니다.";
+"ext.tv.radio.moveEarlier" = "앞으로 이동";
+"ext.tv.radio.moveLater" = "뒤로 이동";
+"ext.tv.radio.rename" = "이름 변경";
+"ext.tv.radio.renameTitle" = "방송국 이름 변경";
+"ext.tv.radio.allStations" = "모든 방송국";
+"ext.tv.radio.ungrouped" = "그룹 없음";
+"ext.tv.radio.empty" = "아직 방송국이 없습니다";
+"ext.tv.radio.popular" = "인기 방송국";
+"ext.tv.radio.popularIn" = "%@ 인기 방송국";
 "ext.tv.home.emptyWithRadio" = "iPhone 또는 Mac에서 보관함을 동기화하면 여기에 음악이 표시됩니다. 인터넷 라디오 방송국을 직접 추가할 수도 있습니다.";
 
 // MARK: - 소스 이름과 현지화된 런타임 오류
