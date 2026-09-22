@@ -6,6 +6,71 @@ import Testing
 /// 覆盖到位就等于覆盖了两套布局共同的行为。
 struct SourceAddressFormPolicyTests {
 
+    @Test func selectingHTTPUpdatesDisplayedProbedAndSavedFNAddress() async throws {
+        var draft = SourceAddressFormPolicy.AddressDraft(address: "https://192.168.0.2:5666")
+        let baseline = draft
+        draft.selectTransport(false, sourceType: .fnMusic)
+        #expect(draft.address == "http://192.168.0.2:5666")
+        #expect(SourceAddressFormPolicy.rowsRequiringProbe(drafts: [draft], baseline: [baseline]) == [true])
+        let reading = SourceAddressFormPolicy.read([draft], sourceType: .fnMusic)
+        guard case let .endpoint(row) = reading.rows[0] else {
+            Issue.record("Expected an HTTP endpoint")
+            return
+        }
+        #expect(row.displayAddress == "http://192.168.0.2")
+        #expect(row.candidates.map(\.id) == ["plain:5666"])
+        let resolver = SourceEndpointResolver { probe in
+            #expect(probe.url.scheme == "http")
+            #expect(probe.url.port == 5666)
+            return SourceServiceFingerprint.ProbeResponse(statusCode: 200)
+        }
+        let resolution = try await resolver.resolve(for: row.input, sourceType: .fnMusic, candidates: row.candidates)
+        let selected = try #require(resolution.selected)
+        let saved = SourceConnectionCandidatePlanner.endpoint(for: row.input, candidate: selected)
+        #expect(saved.host == "192.168.0.2" && saved.port == 5666 && !saved.useSsl)
+    }
+
+    @Test func transportSelectionPreservesExplicitPortAndReverseProxyPath() {
+        var draft = SourceAddressFormPolicy.AddressDraft(address: "http://[fd00::2]:8080/music/a%20b")
+        draft.selectTransport(true, sourceType: .webdav)
+        #expect(draft.address == "https://[fd00::2]:8080/music/a%20b")
+        draft.selectTransport(false, sourceType: .webdav)
+        #expect(draft.address == "http://[fd00::2]:8080/music/a%20b")
+    }
+
+    @Test func transportSelectionDoesNotInventAPortOrRewriteVendorIDs() {
+        var host = SourceAddressFormPolicy.AddressDraft(address: "nas.example.com/music")
+        host.selectTransport(false, sourceType: .fnMusic)
+        #expect(host.address == "http://nas.example.com/music")
+        guard case let .endpoint(row) = SourceAddressFormPolicy.read([host], sourceType: .fnMusic).rows[0] else {
+            Issue.record("Expected an endpoint")
+            return
+        }
+        #expect(row.input.explicitPort == nil)
+        #expect(row.candidates.allSatisfy { !$0.useSsl })
+        var vendor = SourceAddressFormPolicy.AddressDraft(address: "mynas123")
+        vendor.selectTransport(false, sourceType: .fnMusic)
+        #expect(vendor.address == "mynas123")
+        #expect(SourceAddressFormPolicy.read([vendor], sourceType: .fnMusic).placement.vendorIndex == 0)
+    }
+
+    @Test func editingAddressUpdatesAnEarlierTransportSelection() {
+        var draft = SourceAddressFormPolicy.AddressDraft(address: "https://nas.example.com:5666")
+        draft.selectTransport(false, sourceType: .fnMusic)
+        draft.editAddress("https://other.example.com:5667", sourceType: .fnMusic)
+        #expect(draft.manualUseSsl == true)
+        draft.editAddress("other.example.com:5666", sourceType: .fnMusic)
+        #expect(draft.manualUseSsl == nil)
+    }
+
+    @Test func automaticTransportKeepsTheProtocolExplicitlyWrittenInAddress() {
+        var draft = SourceAddressFormPolicy.AddressDraft(address: "https://nas.example.com:5666")
+        draft.selectTransport(false, sourceType: .fnMusic)
+        draft.selectTransport(nil, sourceType: .fnMusic)
+        #expect(draft.manualUseSsl == nil)
+        #expect(draft.address == "http://nas.example.com:5666")
+    }
+
     private func draft(_ address: String) -> SourceAddressFormPolicy.AddressDraft {
         SourceAddressFormPolicy.AddressDraft(address: address)
     }

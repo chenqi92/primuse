@@ -62,6 +62,20 @@ struct SourceAddressRow: Identifiable, Equatable {
         )
     }
 
+    mutating func selectTransport(_ choice: SourceAddressTransportChoice, sourceType: MusicSourceType) {
+        var updated = draft
+        updated.selectTransport(choice.manualUseSsl, sourceType: sourceType)
+        address = updated.address
+        transport = choice
+    }
+
+    mutating func editAddress(_ value: String, sourceType: MusicSourceType) {
+        var updated = draft
+        updated.editAddress(value, sourceType: sourceType)
+        address = updated.address
+        transport = .choice(forUseSsl: updated.manualUseSsl)
+    }
+
     /// 从一个已存的端点/标识回显。高级选项留在「自动」—— 端口与协议已经写进
     /// 地址串里了,再在下面重复一遍会让用户以为有两个地方要改。
     init(draft: SourceAddressFormPolicy.AddressDraft) {
@@ -656,7 +670,7 @@ struct SourceAddressRowView: View {
         HStack(spacing: 10) {
             TextField(
                 SourceAddressReadingText.addressPlaceholder(for: sourceType),
-                text: $row.address
+                text: Binding(get: { row.address }, set: { row.editAddress($0, sourceType: sourceType) })
             )
                 .keyboardType(.URL)
                 .autocorrectionDisabled()
@@ -741,7 +755,9 @@ struct SourceAddressRowView: View {
     }
 
     private var transportPicker: some View {
-        Picker("source_address_transport", selection: $row.transport) {
+        Picker("source_address_transport", selection: Binding(
+            get: { row.transport }, set: { row.selectTransport($0, sourceType: sourceType) }
+        )) {
             Text("source_address_transport_automatic")
                 .tag(SourceAddressTransportChoice.automatic)
             Text(verbatim: "HTTP").tag(SourceAddressTransportChoice.cleartext)
@@ -818,7 +834,7 @@ struct MacSourceAddressRowView: View {
             // 用户根本不知道这里可以打字。
             TextField(
                 SourceAddressReadingText.addressPlaceholder(for: sourceType),
-                text: $row.address
+                text: Binding(get: { row.address }, set: { row.editAddress($0, sourceType: sourceType) })
             )
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
@@ -912,7 +928,9 @@ struct MacSourceAddressRowView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(PMColor.text)
             Spacer(minLength: 12)
-            Picker("", selection: $row.transport) {
+            Picker("", selection: Binding(
+                get: { row.transport }, set: { row.selectTransport($0, sourceType: sourceType) }
+            )) {
                 Text("source_address_transport_automatic")
                     .tag(SourceAddressTransportChoice.automatic)
                 Text(verbatim: "HTTP").tag(SourceAddressTransportChoice.cleartext)

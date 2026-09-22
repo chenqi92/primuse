@@ -4,6 +4,25 @@ import XCTest
 @testable import Primuse
 
 @MainActor
+final class SourceAddressFormTests: XCTestCase {
+    func testTransportSelectionChangesAddressWithoutReplacingTheRow() {
+        var row = SourceAddressRow(address: "https://192.168.0.2:5666")
+        row.showsAdvancedOptions = true
+        let id = row.id
+        let signature = row.draft.probeSignature
+        row.selectTransport(.cleartext, sourceType: .fnMusic)
+        XCTAssertEqual(row.id, id)
+        XCTAssertTrue(row.showsAdvancedOptions)
+        XCTAssertEqual(row.address, "http://192.168.0.2:5666")
+        XCTAssertEqual(row.transport, .cleartext)
+        XCTAssertNotEqual(row.draft.probeSignature, signature)
+        row.editAddress("https://192.168.0.2:5667", sourceType: .fnMusic)
+        XCTAssertEqual(row.transport, .secure)
+        XCTAssertEqual(row.draft.manualUseSsl, true)
+    }
+}
+
+@MainActor
 final class MediaServerSourceCreationTransactionTests: XCTestCase {
     func testPreflightPolicyAppliesOnlyToNewJellyfinAndEmbySources() {
         let preflightTypes: Set<MusicSourceType> = [.jellyfin, .emby]

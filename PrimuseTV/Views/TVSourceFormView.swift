@@ -1401,6 +1401,20 @@ struct TVSourceAddressRow: Identifiable, Equatable {
         )
     }
 
+    mutating func selectTransport(_ choice: TVSourceAddressTransportChoice, sourceType: MusicSourceType) {
+        var updated = draft
+        updated.selectTransport(choice.manualUseSsl, sourceType: sourceType)
+        address = updated.address
+        transport = choice
+    }
+
+    mutating func editAddress(_ value: String, sourceType: MusicSourceType) {
+        var updated = draft
+        updated.editAddress(value, sourceType: sourceType)
+        address = updated.address
+        transport = .choice(forUseSsl: updated.manualUseSsl)
+    }
+
     /// 从一个已存的端点/标识回显。高级选项留在「自动」—— 端口与协议已经写进
     /// 地址串里了,再在下面重复一遍会让用户以为有两个地方要改。
     init(draft: SourceAddressFormPolicy.AddressDraft) {
@@ -1741,7 +1755,9 @@ struct TVSourceAddressRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            TVFormField(label: label, text: $row.address, mono: true)
+            TVFormField(label: label, text: Binding(
+                get: { row.address }, set: { row.editAddress($0, sourceType: sourceType) }
+            ), mono: true)
             readingLine
             dotlessToggle
             advancedOptions
@@ -1840,7 +1856,9 @@ struct TVSourceAddressRowView: View {
     }
 
     private var transportPicker: some View {
-        Picker(PMString("source_address_transport"), selection: $row.transport) {
+        Picker(PMString("source_address_transport"), selection: Binding(
+            get: { row.transport }, set: { row.selectTransport($0, sourceType: sourceType) }
+        )) {
             Text(PMString("source_address_transport_automatic"))
                 .tag(TVSourceAddressTransportChoice.automatic)
             Text(verbatim: "HTTP").tag(TVSourceAddressTransportChoice.cleartext)

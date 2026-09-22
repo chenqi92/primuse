@@ -58,6 +58,33 @@ public enum SourceAddressFormPolicy {
 
         public var isEmpty: Bool { trimmedAddress.isEmpty }
 
+        public mutating func selectTransport(_ useSsl: Bool?, sourceType: MusicSourceType) {
+            manualUseSsl = useSsl
+            guard sourceType.usesHTTPTransport, let useSsl,
+                  case let .endpoint(input) = SourceAddressInputPolicy.interpret(
+                    address, sourceType: sourceType,
+                    treatDotlessTokenAsHostname: treatDotlessTokenAsHostname
+                  ) else { return }
+            // The address remains authoritative for probing and saving. A new
+            // explicit selection must therefore replace its previous scheme.
+            let scheme = useSsl ? "https" : "http"
+            let port = input.explicitPort.map { ":\($0)" } ?? ""
+            address = "\(scheme)://\(NetworkHostAuthority.urlHost(input.host))\(port)\(input.pathPrefix ?? "")"
+        }
+
+        public mutating func editAddress(_ value: String, sourceType: MusicSourceType) {
+            address = value
+            guard manualUseSsl != nil else { return }
+            if case let .endpoint(input) = SourceAddressInputPolicy.interpret(
+                value, sourceType: sourceType,
+                treatDotlessTokenAsHostname: treatDotlessTokenAsHostname
+            ) {
+                manualUseSsl = input.explicitUseSsl
+            } else {
+                manualUseSsl = nil
+            }
+        }
+
         /// 只有这几项会改变「该连到哪里」。判断编辑已有源要不要重新探测时
         /// 只比它 —— 改个名字、换个密码不该触发一轮联网。
         public var probeSignature: String {
