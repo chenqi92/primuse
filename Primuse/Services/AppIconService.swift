@@ -35,7 +35,7 @@ final class AppIconService {
 
     /// The newest design and the previous primary icon follow the current
     /// primary icon, then the retained alternatives in their existing order.
-    private static let themeOrder = [14, 15, 12, 6, 13]
+    private static let themeOrder = [16, 14, 15, 12, 6, 13]
 
     /// Themes that ship only a single visual variant (no dark counterpart in
     /// the asset catalog). Add a theme index here when no dark image exists.

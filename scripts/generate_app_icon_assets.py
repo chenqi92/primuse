@@ -33,6 +33,14 @@ EXACT_ICONS = [
         "00-splash-tinted.png",
     ),
     (
+        "16-nonoend",
+        "AppIcon16",
+        "AppIcon16Preview",
+        "16-nonoend.png",
+        "16-nonoend-dark.png",
+        "16-nonoend-tinted.png",
+    ),
+    (
         "14-letter-p",
         "AppIcon14",
         "AppIcon14Preview",
@@ -66,7 +74,7 @@ EXACT_ICONS = [
     ),
 ]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon14", "AppIcon15", "AppIcon12", "AppIcon6", "AppIcon13"]
+CATALOG_ORDER = ["AppIcon", "AppIcon16", "AppIcon14", "AppIcon15", "AppIcon12", "AppIcon6", "AppIcon13"]
 
 # In-app previews render at 60–100 pt (and 512 pt@2x for the macOS Dock icon).
 PREVIEW_SIDE = 512
