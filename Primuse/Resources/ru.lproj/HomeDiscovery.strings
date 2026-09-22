@@ -17,12 +17,17 @@
 "longest" = "Больше всего времени";
 "play_count" = "Прослушиваний: %d";
 "positions_gained" = "Рост на %d позиций";
+"positions_lost" = "Падение на %d позиций";
+"new_entry" = "НОВОЕ";
 "recent_albums" = "Недавно добавленные альбомы";
 "folder_display_count" = "Количество на главной";
 "manage_folders" = "Управление и порядок каталогов";
 "no_pinned_folders" = "Выберите каталоги в разделе «Показать все».";
 "folder_ranking_scope" = "Рейтинг каталогов включает треки с доступным каталогом.";
 "folder_as_playlist" = "Использовать как плейлист";
+"pin_folder_short" = "Закрепить";
+"unpin_folder_short" = "Открепить";
+"folder_as_playlist_short" = "Как плейлист";
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Показать топ-%d";
 "collapse_ranking" = "Show Less";

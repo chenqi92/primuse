@@ -2,7 +2,7 @@ import SwiftUI
 import PrimuseKit
 
 enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
-    case recommendations, favorites, playlists, artists, genres, albums, songs, folders, radio, statistics
+    case recommendations, favorites, playlists, artists, genres, albums, songs, spokenWord, folders, radio, statistics
 
     var id: String { rawValue }
 
@@ -17,6 +17,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return "tab_genres"
         case .albums: return "tab_albums"
         case .songs: return "tab_songs"
+        case .spokenWord: return "tab_spoken_word"
         case .radio: return "radio_title"
         }
     }
@@ -32,6 +33,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return "tag.fill"
         case .albums: return "square.stack.fill"
         case .songs: return "music.note"
+        case .spokenWord: return "books.vertical.fill"
         case .radio: return "radio.fill"
         }
     }
@@ -47,6 +49,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return .teal
         case .albums: return .purple
         case .songs: return .blue
+        case .spokenWord: return .brown
         case .radio: return .orange
         }
     }
@@ -62,6 +65,7 @@ enum LibrarySection: String, CaseIterable, Codable, Hashable, Identifiable, Send
         case .genres: return String(localized: "tab_genres")
         case .albums: return String(localized: "tab_albums")
         case .songs: return String(localized: "tab_songs")
+        case .spokenWord: return String(localized: "tab_spoken_word")
         case .radio: return String(localized: "radio_title")
         }
     }
@@ -78,6 +82,7 @@ enum LibraryDisplayConfiguration {
         .recommendations,
         .favorites,
         .songs,
+        .spokenWord,
         .albums,
         .artists,
         .genres,
@@ -400,16 +405,14 @@ struct LibraryView: View {
             orderRawValue: sectionOrderRawValue,
             hiddenRawValue: hiddenSectionsRawValue
         )
+        // 「有声内容」只在真的有的时候出现: 绝大多数曲库一本有声书也没有,
+        // 给它们摆一个永远空着的入口是噪音。
+        .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
     }
     private var artworkPreviewRevision: String {
-        let radioSignature = radioStationsStore.stations.map { station in
-            [
-                station.id,
-                station.logoFileName ?? "",
-                String(station.logoData?.count ?? 0),
-                String(station.modifiedAt.timeIntervalSinceReferenceDate),
-            ].joined(separator: "\u{1F}")
-        }.joined(separator: "\u{0}")
+        // 电台部分用存储里缓存的摘要：这个属性一次刷新要被求值好几遍，
+        // 原来每遍都把上千个台逐个拼成一长串，再拿长串去比较。
+        let radioSignature = radioStationsStore.artworkRevision
         return [
             String(library.visibleSongCollectionRevision),
             String(library.albumArtworkLookupRevision),
@@ -916,6 +919,18 @@ struct LibraryView: View {
                     fileFormat: song.fileFormat
                 )
             }
+        case .spokenWord:
+            overlappingPreview(Array(library.spokenWordSongs.prefix(3))) { song in
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 36,
+                    cornerRadius: 7,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+            }
         case .albums:
             artworkPreview(
                 previewAlbums,
@@ -1325,6 +1340,8 @@ struct LibraryView: View {
             return String(localized: "library_recommendations_subtitle")
         case .songs:
             return countText(songs.count, unitKey: "songs_count")
+        case .spokenWord:
+            return countText(library.spokenWordSongs.count, unitKey: "songs_count")
         case .albums:
             return countText(albums.count, unitKey: "albums_count")
         case .artists:
@@ -1369,6 +1386,8 @@ struct LibraryView: View {
             AIRecommendationLibraryView()
         case .songs:
             SongListView(locationRequest: $songLocationRequest)
+        case .spokenWord:
+            SpokenWordLibraryView()
         case .albums:
             AlbumGridView()
         case .artists:
@@ -2307,6 +2326,8 @@ private struct GenreDetailView: View {
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(CoverTintProvider.self) private var coverTints
+    @Environment(\.colorScheme) private var colorScheme
     #endif
     @Environment(\.skin) private var skin
     @Environment(AudioPlayerService.self) private var player
@@ -2328,6 +2349,29 @@ private struct GenreDetailView: View {
 
     private var songs: [Song] { library.songs(forGenre: genre.id) }
     private var playableSongs: [Song] { songs.filteredPlayable() }
+
+    #if os(iOS)
+    /// 风格没有自己的封面, 用它的第一首代表曲 —— 也就是马赛克里最上面那张。
+    private var artworkTintSong: Song? {
+        genre.representativeSongIDs.lazy.compactMap { library.visibleSong(id: $0) }.first
+            ?? songs.first
+    }
+
+    /// 取不到封面色时退回这个风格原来的固定配色, 风格之间仍然分得开。
+    private var tint: LibraryDetailTintStyle {
+        let artworkColor = artworkTintSong.flatMap { coverTints.tint(forSongID: $0.id) }
+        return .artwork(
+            artworkColor ?? GenreVisualStyle.palette(for: genre.id).leading,
+            colorScheme: colorScheme
+        )
+    }
+
+    /// 内容块的衬底只在经典这类不自己画底色的皮肤下跟封面色走;头图仍用上面那条色。
+    private var sectionTint: LibraryDetailTintStyle? {
+        skin.paintsPageBackground ? nil : tint
+    }
+    #endif
+
     private var albums: [Album] {
         library.albums(forGenre: genre.id).sorted { lhs, rhs in
             let lhsYear = lhs.year ?? Int.min
@@ -2371,6 +2415,7 @@ private struct GenreDetailView: View {
         }
         .toolbarTitleDisplayMode(.inline)
         #if os(iOS)
+        .libraryDetailTint(from: artworkTintSong)
         .minimalNavigationDetail()
         .librarySearchContext {
             LibrarySearchScope(title: genre.name, songIDs: Set(songs.map(\.id)), kind: .genre)
@@ -2387,7 +2432,6 @@ private struct GenreDetailView: View {
     /// 那 100 就白占了整块首屏。紧凑高度下顶部留白、标题字号、马赛克都降一档,
     /// hero 压到 170pt 以内, 专辑架和第一首歌才露得出来。结构不变。
     private func hero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        let palette = GenreVisualStyle.palette(for: genre.id)
         let compact = usesCompactHero
         let heroTopPadding: CGFloat = compact ? 28 : 100
         let heroBottomPadding: CGFloat = compact ? 14 : 28
@@ -2447,28 +2491,61 @@ private struct GenreDetailView: View {
         .padding(.bottom, heroBottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            LinearGradient(
-                colors: [palette.leading, palette.trailing],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+            heroBackdrop(
+                insets: insets,
+                mosaicWidth: mosaicWidth,
+                mosaicHeight: mosaicHeight,
+                mosaicArtworkSize: mosaicArtworkSize
             )
-            .overlay(alignment: .topTrailing) {
-                GenreArtworkMosaic(genre: genre, artworkSize: mosaicArtworkSize)
-                    .frame(width: mosaicWidth, height: mosaicHeight)
-                    .padding(.top, insets.top + 12)
-                    .padding(.trailing, insets.trailing + 16)
-                    .opacity(0.8)
-                    .accessibilityHidden(true)
-            }
-            .overlay {
-                LinearGradient(
-                    colors: [.black.opacity(0.05), .black.opacity(0.76)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
         }
         .clipped()
+    }
+
+    /// 头图底: 整页底色打底, 右上角压那叠代表封面, 再往下化进页面底色 ——
+    /// 接下去的专辑架和歌曲列表用的就是这个颜色, 所以看不出头图在哪儿结束。
+    private func heroBackdrop(
+        insets: ImmersiveLibraryDetailInsets,
+        mosaicWidth: CGFloat,
+        mosaicHeight: CGFloat,
+        mosaicArtworkSize: CGFloat
+    ) -> some View {
+        #if os(iOS)
+        let leading = tint.top
+        let trailing = tint.bottom
+        let fade = LinearGradient(
+            stops: [
+                .init(color: .black.opacity(0.05), location: 0),
+                .init(color: tint.top.opacity(0.42), location: 0.55),
+                .init(color: tint.top, location: 1),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        #else
+        let palette = GenreVisualStyle.palette(for: genre.id)
+        let leading = palette.leading
+        let trailing = palette.trailing
+        let fade = LinearGradient(
+            colors: [.black.opacity(0.05), .black.opacity(0.76)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        #endif
+
+        return LinearGradient(
+            colors: [leading, trailing],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay(alignment: .topTrailing) {
+            GenreArtworkMosaic(genre: genre, artworkSize: mosaicArtworkSize)
+                .frame(width: mosaicWidth, height: mosaicHeight)
+                .padding(.top, insets.top + 12)
+                .padding(.trailing, insets.trailing + 16)
+                .opacity(0.8)
+                .accessibilityHidden(true)
+        }
+        .overlay { fade }
     }
 
     private var albumShelf: some View {
@@ -2523,12 +2600,14 @@ private struct GenreDetailView: View {
             }
             #if os(iOS)
             .songRowColumnsContainer()
-            #endif
-            .background(skin.cardFill(classic: .background), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .libraryDetailSection(tint: sectionTint)
+            #else
+            .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.primary.opacity(0.06), lineWidth: 0.5)
             }
+            #endif
             .padding(.horizontal, 20)
         }
     }

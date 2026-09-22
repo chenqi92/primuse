@@ -253,7 +253,7 @@ struct TVRankingBrowser: View {
                         HStack(spacing: 20) {
                             Text(String(offset + 1)).tvFont(.sectionTitle).monospacedDigit().frame(width: 50)
                                 .foregroundStyle(offset < 3 ? TVColor.brand : TVColor.textMuted)
-                            if let id = rank.songIDs.first, let song = store.song(id) { TVBrowseSongArtwork(song: song, size: 74) }
+                            if let id = rank.artworkSongID ?? rank.songIDs.first, let song = store.song(id) { TVBrowseSongArtwork(song: song, size: 74) }
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(rank.title).tvFont(.cardTitle).lineLimit(2)
                                 Text(rank.subtitle).tvFont(.caption).foregroundStyle(TVColor.textMuted).lineLimit(1)

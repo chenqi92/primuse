@@ -17,12 +17,17 @@
 "longest" = "Längste Hörzeit";
 "play_count" = "%d Wiedergaben";
 "positions_gained" = "%d Plätze höher";
+"positions_lost" = "%d Plätze tiefer";
+"new_entry" = "NEU";
 "recent_albums" = "Zuletzt hinzugefügte Alben";
 "folder_display_count" = "Anzahl auf der Startseite";
 "manage_folders" = "Verzeichnisse verwalten und sortieren";
 "no_pinned_folders" = "Wähle unter „Alle anzeigen“ deine Verzeichnisse.";
 "folder_ranking_scope" = "Verzeichnis-Ranglisten enthalten Titel mit einem aktuellen Verzeichnis.";
 "folder_as_playlist" = "Als Wiedergabeliste verwenden";
+"pin_folder_short" = "Anheften";
+"unpin_folder_short" = "Lösen";
+"folder_as_playlist_short" = "Als Playlist";
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Top %d anzeigen";
 "collapse_ranking" = "Show Less";

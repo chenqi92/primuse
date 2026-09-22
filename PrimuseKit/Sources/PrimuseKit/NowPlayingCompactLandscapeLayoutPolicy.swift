@@ -231,6 +231,131 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
         )
     }
 
+    // MARK: - 歌词模式
+    //
+    // 歌词模式沿用同一副骨架：顶部圆钮排不动，右栏的进度条与传输键留在原位，
+    // 只是左边的大封面换成歌词、缩成右栏顶上的一张小封面。换模式时手指要按的
+    // 东西不挪位置，是这套构图的前提 —— 所以内边距、圆钮排、栏间距全部复用
+    // 上面那一组常量，这里只决定两栏怎么分宽、右栏放得下什么。
+
+    /// 歌词栏想占的内容宽度比例。歌词是这一屏的主角，比封面模式里的封面更宽。
+    public static let lyricsPaneWidthFraction: Double = 0.56
+    /// 为了摆下随机 / 循环而把右栏加宽时，歌词栏至少还要剩这么大比例。
+    public static let minimumLyricsPaneWidthFraction: Double = 0.52
+    /// 右栏宽度上限：再宽进度条就长得不成比例，多出来的给歌词。
+    public static let maximumLyricsDetailWidth: Double = 360
+    /// 右栏顶上那张小封面的边长，以及它与歌名之间的间距。
+    public static let lyricsThumbnailSize: Double = 60
+    public static let lyricsHeaderSpacing: Double = 12
+    /// 小封面旁的歌名按两行 `.title3` 粗体留白；限成一行时按一半算。
+    public static let lyricsTitleBlockHeight: Double = 52
+    public static let lyricsArtistRowHeight: Double = 20
+
+    public struct LyricsMetrics: Equatable, Sendable {
+        public let contentWidth: Double
+        public let availableContentHeight: Double
+        /// 左侧歌词栏宽度。
+        public let lyricsPaneWidth: Double
+        public let columnSpacing: Double
+        /// 右栏宽度。
+        public let detailColumnWidth: Double
+        public let thumbnailSize: Double
+        /// 小封面 + 歌名 / 艺人这一行的保守高度。
+        public let headerHeight: Double
+        /// 右栏按当前显示组合实际需要的高度。
+        public let detailStackHeight: Double
+        public let titleLineLimit: Int
+        public let showsEdgeToggles: Bool
+        public let showsVolumeBar: Bool
+    }
+
+    /// 参数含义与 `metrics` 相同，两边算出来的内边距也相同。
+    public static func lyricsMetrics(
+        viewportWidth: Double,
+        viewportHeight: Double,
+        safeAreaTop: Double,
+        safeAreaBottom: Double,
+        safeAreaLeading: Double,
+        safeAreaTrailing: Double,
+        prefersVolumeBar: Bool,
+        textScale: Double = 1
+    ) -> LyricsMetrics {
+        let scale = normalizedTextScale(textScale)
+
+        let leadingInset = sanitized(safeAreaLeading) + horizontalPadding
+        let trailingInset = sanitized(safeAreaTrailing) + horizontalPadding
+        let topInset = sanitized(safeAreaTop) + topPadding
+        let bottomInset = sanitized(safeAreaBottom) + bottomPadding
+
+        let contentWidth = max(0, sanitized(viewportWidth) - leadingInset - trailingInset)
+        let availableContentHeight = max(
+            0,
+            sanitized(viewportHeight) - topInset - bottomInset
+                - chromeButtonDiameter - chromeBottomSpacing
+        )
+
+        let splittable = max(0, contentWidth - columnSpacing)
+        let detailFloor = minimumTransportWidth(includesEdgeToggles: false)
+        let toggleWidth = minimumTransportWidth(includesEdgeToggles: true)
+        var detailColumnWidth = min(
+            max(splittable * (1 - lyricsPaneWidthFraction), detailFloor),
+            maximumLyricsDetailWidth
+        )
+        // 差一点就摆得下随机 / 循环时，宁可让歌词让出几十点，也不要把这两个键
+        // 赶进「更多」菜单 —— 前提是歌词栏仍然明显是大的那一半。
+        if detailColumnWidth < toggleWidth,
+           toggleWidth <= maximumLyricsDetailWidth,
+           splittable - toggleWidth >= contentWidth * minimumLyricsPaneWidthFraction {
+            detailColumnWidth = toggleWidth
+        }
+        detailColumnWidth = min(detailColumnWidth, splittable)
+        let lyricsPaneWidth = max(0, splittable - detailColumnWidth)
+        let showsEdgeToggles = detailColumnWidth >= toggleWidth
+
+        let titleScale = 1 + (scale - 1) * titleScaleDamping
+        let twoLineHeader = max(
+            lyricsThumbnailSize,
+            lyricsTitleBlockHeight * titleScale + lyricsArtistRowHeight * scale
+        )
+        let oneLineHeader = max(
+            lyricsThumbnailSize,
+            lyricsTitleBlockHeight * titleScale / 2 + lyricsArtistRowHeight * scale
+        )
+        let fixedHeight = progressTopSpacing + progressBarHeight
+            + transportTopSpacing + primaryTransportDiameter
+        let volumeBlockHeight = volumeTopSpacing + volumeRowHeight
+
+        let candidates: [(header: Double, lineLimit: Int, volume: Bool)] = [
+            (twoLineHeader, 2, prefersVolumeBar),
+            (twoLineHeader, 2, false),
+            (oneLineHeader, 1, false),
+        ]
+        var chosen = candidates[candidates.count - 1]
+        var chosenHeight = chosen.header + fixedHeight
+        for candidate in candidates {
+            var required = candidate.header + fixedHeight
+            if candidate.volume { required += volumeBlockHeight }
+            guard required <= availableContentHeight else { continue }
+            chosen = candidate
+            chosenHeight = required
+            break
+        }
+
+        return LyricsMetrics(
+            contentWidth: contentWidth,
+            availableContentHeight: availableContentHeight,
+            lyricsPaneWidth: lyricsPaneWidth,
+            columnSpacing: columnSpacing,
+            detailColumnWidth: detailColumnWidth,
+            thumbnailSize: lyricsThumbnailSize,
+            headerHeight: chosen.header,
+            detailStackHeight: chosenHeight,
+            titleLineLimit: chosen.lineLimit,
+            showsEdgeToggles: showsEdgeToggles,
+            showsVolumeBar: chosen.volume
+        )
+    }
+
     private static func normalizedTextScale(_ value: Double) -> Double {
         guard value.isFinite else { return 1 }
         return min(max(value, minimumTextScale), maximumTextScale)

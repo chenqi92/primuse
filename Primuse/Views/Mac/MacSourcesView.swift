@@ -177,21 +177,6 @@ struct MacSourcesView: View {
                         .foregroundStyle(PMColor.text)
                 }
                 Spacer()
-                MetadataBackfillPerformanceButton { mode in
-                    Image(systemName: mode.symbol)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(mode == .fast ? Color.white : PMColor.textMuted)
-                        .frame(width: 32, height: 32)
-                        .background(
-                            mode == .fast ? theme.uiAccentColor : PMColor.matBtn,
-                            in: .rect(cornerRadius: 8)
-                        )
-                        .contentTransition(.symbolEffect(.replace))
-                        .pmAnimation(.control, value: mode)
-                }
-                .buttonStyle(.plain)
-                .help(MetadataReadingText.string("help"))
-
                 Button {
                     showAddSource = true
                 } label: {
@@ -205,9 +190,11 @@ struct MacSourcesView: View {
                 .buttonStyle(.plain)
             }
 
-            Text(summaryText)
-                .font(.system(size: 13))
-                .foregroundStyle(PMColor.textMuted)
+            ScanStateScope {
+                Text(summaryText)
+                    .font(.system(size: 13))
+                    .foregroundStyle(PMColor.textMuted)
+            }
         }
         .padding(.horizontal, 36)
         .padding(.top, 28)
@@ -228,8 +215,10 @@ struct MacSourcesView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: PMSpace.m14) {
-                    if !attentionSources.isEmpty {
-                        attentionBanner
+                    ScanStateScope {
+                        if !attentionSources.isEmpty {
+                            attentionBanner
+                        }
                     }
 
                     MacSourceWaterfallLayout(
@@ -305,14 +294,10 @@ struct MacSourcesView: View {
         // 卡片是本视图的私有方法, 令牌在这里读到即可; 拼进 .id 会让任意一个源改名都销毁
         // 重建全部卡片, 卡片上的任何过渡也就无从谈起。
         _ = cloudDirectoryNameRefreshID
+        // 卡片主体刻意不读 `scanStates`: 扫描期间进度一秒发布好几次, 读一下就
+        // 意味着整张卡片连同长按菜单一起重建, 跟滚动抢主线程。跟着进度动的那
+        // 几块各自向下订阅。
         let dirs = source.scannedDirectories
-        let scanning = scanService.scanStates[source.id]
-        let state = runtimeState(source)
-        let displayedSongCount = if let scanning, scanning.isScanning || scanning.canResume {
-            scanning.scannedCount
-        } else {
-            source.songCount
-        }
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -344,7 +329,9 @@ struct MacSourcesView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 8)
-                statusBadge(state)
+                SourceScanStateReader(sourceID: source.id) { _ in
+                    statusBadge(runtimeState(source))
+                }
             }
 
             if source.connectionConfiguration != nil,
@@ -356,8 +343,18 @@ struct MacSourcesView: View {
                 )
             }
 
-            cardBody(source, scanning: scanning, displayedSongCount: displayedSongCount)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+            if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
+                SourceUnreachableNotice(source: source)
+            }
+
+            SourceScanStateReader(sourceID: source.id) { scanning in
+                cardBody(
+                    source,
+                    scanning: scanning,
+                    displayedSongCount: displayedSongCount(source, scanning: scanning)
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
 
             macLocalRemovalsButton(source)
 
@@ -367,7 +364,9 @@ struct MacSourcesView: View {
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
-            actionsRow(source, scanning: scanning, dirs: dirs)
+            SourceScanStateReader(sourceID: source.id) { scanning in
+                actionsRow(source, scanning: scanning, dirs: dirs)
+            }
         }
         .padding(14)
         .id(source.id)
@@ -394,7 +393,7 @@ struct MacSourcesView: View {
                 Button { runDeepScan(source) } label: {
                     Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
                 }
-                .disabled(scanning?.isScanning == true)
+                .disabled(scanService.scanningSourceIDs.contains(source.id))
             }
             Divider()
             Button(role: .destructive) {
@@ -471,6 +470,13 @@ struct MacSourcesView: View {
     }
 
     // MARK: - Card body
+
+    private func displayedSongCount(_ source: MusicSource, scanning: ScanService.ScanState?) -> Int {
+        if let scanning, scanning.isScanning || scanning.canResume {
+            return scanning.scannedCount
+        }
+        return source.songCount
+    }
 
     @ViewBuilder
     private func cardBody(_ source: MusicSource, scanning: ScanService.ScanState?, displayedSongCount: Int) -> some View {

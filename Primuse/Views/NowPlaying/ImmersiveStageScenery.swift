@@ -843,126 +843,6 @@ struct ImmersiveGlassActionButton: View {
     }
 }
 
-/// 全屏内的效果选择面板。显式面板替代层层嵌套的系统 Menu：宿主可以准确知道
-/// 面板是否仍在展示，并在此期间暂停浮动控件的自动隐藏计时。
-struct ImmersiveEffectPickerPanel: View {
-    var selected: FullscreenPlayerEffect
-    var palette: ImmersiveArtworkPalette = .fallback
-    var panelWidth: CGFloat = 340
-    var panelHeight: CGFloat = 500
-    var onSelect: (FullscreenPlayerEffect) -> Void
-
-    var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                ForEach(FullscreenEffectCollection.allCases) { collection in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(collection.title)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-
-                        ForEach(collection.effects) { candidate in
-                            Button {
-                                onSelect(candidate)
-                            } label: {
-                                HStack(alignment: .top, spacing: 12) {
-                                    Image(systemName: candidate.symbolName)
-                                        .font(.system(size: 17, weight: .semibold))
-                                        .frame(width: 24, height: 24)
-
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(candidate.localizedTitle)
-                                            .font(.subheadline.weight(.semibold))
-                                            .lineLimit(1)
-                                        Text(candidate.motionDescription)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                    }
-
-                                    Spacer(minLength: 8)
-
-                                    if candidate == selected {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 17, weight: .semibold))
-                                            .foregroundStyle(palette.primary)
-                                    }
-                                }
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(
-                                    candidate == selected
-                                        ? palette.primary.opacity(0.15)
-                                        : Color.primary.opacity(0.045),
-                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                )
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .strokeBorder(
-                                            candidate == selected
-                                                ? palette.primary.opacity(0.48)
-                                                : Color.primary.opacity(0.08),
-                                            lineWidth: 0.8
-                                        )
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            #if os(macOS)
-                            .pmPointingHand()
-                            #endif
-                        }
-                    }
-                }
-            }
-            .padding(16)
-        }
-        .frame(width: panelWidth, height: panelHeight)
-        .accessibilityElement(children: .contain)
-    }
-}
-
-/// 播放器内部承载效果列表的深色表面，避免 macOS NSPopover 自带的浅色外壳。
-struct ImmersiveEffectPickerSurface: View {
-    var selected: FullscreenPlayerEffect
-    var palette: ImmersiveArtworkPalette = .fallback
-    var panelWidth: CGFloat = 420
-    var panelHeight: CGFloat = 560
-    var onSelect: (FullscreenPlayerEffect) -> Void
-
-    var body: some View {
-        ImmersiveEffectPickerPanel(
-            selected: selected,
-            palette: palette,
-            panelWidth: panelWidth,
-            panelHeight: panelHeight,
-            onSelect: onSelect
-        )
-            .background {
-                ZStack {
-                    ImmersiveStagePalette.obsidian
-                    LinearGradient(
-                        colors: [
-                            palette.secondary.opacity(0.72),
-                            palette.primary.opacity(0.24),
-                            ImmersiveStagePalette.obsidian.opacity(0.96),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(ImmersiveStagePalette.ink.opacity(0.18), lineWidth: 0.8)
-            }
-            .shadow(color: .black.opacity(0.46), radius: 28, y: 14)
-            .environment(\.colorScheme, .dark)
-    }
-}
-
 /// Typography 的背景不再完全静止: 极慢的色相旋转和扫描线为长时间播放
 /// 提供持续但不抢歌词注意力的运动。Reduce Motion 时 TimelineView 会暂停。
 struct ImmersiveTypographyMotion: View {
@@ -1584,7 +1464,15 @@ struct ImmersiveContourBackdrop: View {
 /// 把「格式 + 采样率 + 位深」拼成展示屏用的规格串,例如 "hi-res 96/24 flac"。
 /// 采样率 ≥ 88.2kHz 或位深 ≥ 24 视为 Hi-Res,前面冠 "hi-res"。
 enum ImmersiveAudioSpec {
-    static func line(format: String, sampleRate: Int?, bitDepth: Int?) -> String {
+    /// - Parameter audioVariants: Apple Music 目录曲目**提供**的音质版本。有值时
+    ///   追加「无损 / 高解析度无损 / 杜比全景声」档位标，并且不再按采样率去猜
+    ///   hi-res —— 那两个字段对 Apple Music 曲目本来就是空的。
+    static func line(
+        format: String,
+        sampleRate: Int?,
+        bitDepth: Int?,
+        audioVariants: [AudioVariant]? = nil
+    ) -> String {
         var parts: [String] = []
 
         if let sampleRate, sampleRate > 0 {
@@ -1604,9 +1492,19 @@ enum ImmersiveAudioSpec {
             parts.append(trimmedFormat.lowercased())
         }
 
-        let isHiRes = (sampleRate ?? 0) >= 88_200 || (bitDepth ?? 0) >= 24
-        if isHiRes {
-            parts.insert("hi-res", at: 0)
+        if let audioVariants, !audioVariants.isEmpty {
+            // Apple Music 曲目:档位标由曲目自己提供的版本决定,不靠采样率推。
+            if let tier = audioVariants.bestLosslessTier {
+                parts.append(PMString(tier.localizationKey))
+            }
+            if audioVariants.offersDolbyAtmos {
+                parts.append(PMString(AudioVariant.dolbyAtmos.localizationKey))
+            }
+        } else {
+            let isHiRes = (sampleRate ?? 0) >= 88_200 || (bitDepth ?? 0) >= 24
+            if isHiRes {
+                parts.insert("hi-res", at: 0)
+            }
         }
 
         return parts.isEmpty ? "—" : parts.joined(separator: " ")

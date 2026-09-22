@@ -849,6 +849,7 @@
 "source_address_alternate_section" = "Adresse de secours";
 "source_address_section_footer" = "Laissez le port vide : Primuse le détermine à l’enregistrement.";
 "source_address_placeholder" = "Domaine, IP ou URL complète";
+"source_address_placeholder_vendor %@" = "Domaine, IP ou %@";
 "source_address_add_alternate" = "Ajouter une adresse de secours";
 "source_address_remove" = "Supprimer cette adresse";
 "source_address_advanced" = "Définir le port et le chiffrement manuellement";
@@ -885,3 +886,35 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "Paquet musical DSM · Bibliothèque, playlists, notes";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "Sources et identifiants";
+"send_to_tv_step_library" = "Bibliothèque";
+"send_to_tv_step_artwork" = "Illustrations";
+"send_to_tv_step_everything" = "Bibliothèque, sources et identifiants";
+"send_to_tv_progress_waiting" = "En attente";
+"send_to_tv_progress_done" = "Terminé";
+"send_to_tv_progress_failed" = "Non terminé";
+"send_to_tv_progress_preparing" = "Préparation…";
+"send_to_tv_progress_tv_saving" = "L’Apple TV enregistre…";
+"send_to_tv_progress_batch" = "Envoi du lot %1$@ sur %2$@";
+"send_to_tv_progress_sending" = "Envoi : %@";
+"send_to_tv_resume" = "Reprendre l’envoi";
+"send_to_tv_partial_saved" = "Les étapes terminées sont déjà enregistrées sur l’Apple TV. Reprenez l’envoi pour continuer là où il s’est arrêté.";
+"ext.tv.transfer.sources" = "Réception des sources et des identifiants…";
+"ext.tv.transfer.sourcesSaved" = "Sources enregistrées. En attente de la bibliothèque…";
+"ext.tv.transfer.library" = "Réception de la bibliothèque…";
+"ext.tv.transfer.libraryImporting" = "Importation de la bibliothèque…";
+"ext.tv.transfer.librarySaved" = "Bibliothèque importée. En attente des illustrations…";
+"ext.tv.transfer.artwork" = "Réception des illustrations (lot %1$@ sur %2$@)…";
+"ext.tv.transfer.finished" = "%@ morceaux transférés depuis l’iPhone";
+"ext.tv.transfer.failed" = "Le transfert n’est pas terminé. Réessayez depuis l’iPhone.";
+"audio_variant_lossy_stereo" = "Stéréo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Choisir depuis Apple Music…";
+"apple_music_pick_adding" = "Ajout à la bibliothèque…";
+"apple_music_pick_added" = "%d ajoutés, synchronisation";
+"apple_music_pick_failed" = "Échec de l’ajout à la bibliothèque";

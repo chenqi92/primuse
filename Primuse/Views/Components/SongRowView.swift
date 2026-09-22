@@ -75,6 +75,9 @@ struct SongRowView: View {
     @State private var showLocalRemovalConfirm = false
     @State private var localRemovalErrorMessage: String?
     @State private var sourceCheckMessage: String?
+    /// Title of the "this source cannot be reached" alert; nil while hidden.
+    @State private var unreachableSourceNoticeTitle: String?
+    @State private var isRetryingUnreachableSource = false
     @State private var tagReadMessage: String?
     @State private var presentedShareSong: Song?
     @State private var hasMountedPresentations = false
@@ -90,6 +93,20 @@ struct SongRowView: View {
     private var offlineSnapshot: OfflineAudioCacheSnapshot {
         guard supportsOfflineAudioCache else { return .notCached }
         return sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
+    }
+
+    /// Nothing can start this song right now: no address of its source
+    /// answers on this network and there is no complete local copy. The set is
+    /// empty on a network that reaches everything, so ordinary rows pay one
+    /// lookup.
+    private var isUnreachableNow: Bool {
+        guard sourceManager.unreachablePlaybackSourceIDs.contains(song.sourceID),
+              song.isPlayable,
+              !offlineSnapshot.isDownloaded else { return false }
+        // The offline badge only mirrors downloads it was told about. A song
+        // that finished caching while it streamed is known to the disk alone,
+        // and playback asks the disk, so the row has to ask it as well.
+        return !sourceManager.hasUsableCachedAudioForPlayback(song)
     }
 
     var body: some View {
@@ -111,72 +128,10 @@ struct SongRowView: View {
                 }
             }
 
-            // Group 1: Actions
-            Section {
-                Button {
-                    requestScrape(from: .songRowContextMenu)
-                } label: {
-                    Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
-                }
-
-                Button {
-                    showTagEditor = true
-                } label: {
-                    Label(String(localized: "tag_editor_menu"), systemImage: "tag")
-                }
-
-                Button {
-                    showLyricsEditor = true
-                } label: {
-                    Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
-                }
-
-                Button {
-                    showAddToPlaylist = true
-                } label: {
-                    Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
-                }
-
-                Button {
-                    showSimilarSongs = true
-                } label: {
-                    Label(String(localized: "similar_songs"), systemImage: "sparkles")
-                }
-
-                if supportsOfflineAudioCache {
-                    offlineActionButtons(snapshot: offlineSnapshot)
-                }
-
-                metadataRecoveryButtons()
-
-                Button {
-                    showSongInfo = true
-                } label: {
-                    Label(String(localized: "song_info"), systemImage: "info.circle")
-                }
-            }
-
-            // Group 2: Share
-            Section {
-                Button {
-                    presentedShareSong = song
-                } label: {
-                    Label(String(localized: "share"), systemImage: "square.and.arrow.up")
-                }
-            }
-
-            // Group 3: Destructive
-            Section {
-                removeFromPlaylistMenuButton
-                if canDeleteSourceFile {
-                    Button(role: .destructive) {
-                        showDeleteConfirm = true
-                    } label: {
-                        Label(String(localized: "delete_song"), systemImage: "trash")
-                    }
-                }
-                localRemovalMenuButton
-            }
+            songActionMenuContent(
+                entryPoint: .songRowContextMenu,
+                offline: offlineSnapshot
+            )
         }
         #if os(macOS)
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
@@ -195,6 +150,7 @@ struct SongRowView: View {
             || showLyricsEditor || showSimilarSongs || deleteErrorMessage != nil
             || showLocalRemovalConfirm || localRemovalErrorMessage != nil
             || sourceCheckMessage != nil || tagReadMessage != nil || presentedShareSong != nil
+            || unreachableSourceNoticeTitle != nil
     }
 
     // Untouched rows avoid building every presentation host during scrolling.
@@ -329,6 +285,17 @@ struct SongRowView: View {
             Text(sourceCheckMessage ?? "")
         }
         .alert(
+            unreachableSourceNoticeTitle ?? "",
+            isPresented: Binding(
+                get: { unreachableSourceNoticeTitle != nil },
+                set: { if !$0 { unreachableSourceNoticeTitle = nil } }
+            )
+        ) {
+            Button(String(localized: "done"), role: .cancel) {}
+        } message: {
+            Text("song_source_unreachable_alert_message")
+        }
+        .alert(
             String(localized: "reread_song_tags"),
             isPresented: Binding(
                 get: { tagReadMessage != nil },
@@ -363,6 +330,8 @@ struct SongRowView: View {
     @ViewBuilder
     private var rowContent: some View {
         let offline = offlineSnapshot
+        let unreachable = isUnreachableNow
+        let unreachableDimming: Double = unreachable ? 0.45 : 1
         // 够宽时专辑与时长从副标题里挪到 Spacer 之后的对齐列；两者只能出现一次。
         // 列在整份列表里要占同样的位置，所以读取中、时长还没回填的行也照样占位，
         // 只是内容为空——否则徽标与 ⋯ 会一行一个位置。
@@ -405,7 +374,7 @@ struct SongRowView: View {
                 }
             }
             .frame(width: 44, height: 44)
-            .opacity(isReadingDetails ? 0.65 : 1)
+            .opacity(isReadingDetails ? 0.65 : unreachableDimming)
 
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: 2) {
@@ -413,7 +382,7 @@ struct SongRowView: View {
                     .font(skin.font(.rowTitle))
                     .lineLimit(1)
                     .foregroundStyle(isPlaying ? skin.color(.accent) : skin.color(.textPrimary))
-                    .opacity(isReadingDetails ? 0.75 : 1)
+                    .opacity(isReadingDetails ? 0.75 : unreachableDimming)
 
                 HStack(spacing: 4) {
                     if showsDetailsStatus {
@@ -450,13 +419,24 @@ struct SongRowView: View {
                             Text(sourceName)
                         }
                     } else {
+                        if unreachable {
+                            if isRetryingUnreachableSource {
+                                ProgressView()
+                                    .scaleEffect(0.55)
+                                    .frame(width: 12, height: 12)
+                            } else {
+                                Image(systemName: "wifi.slash")
+                                    .font(.caption2)
+                            }
+                            Text("song_row_source_unreachable")
+                        }
                         if song.isStandaloneMusicVideo {
                             Image(systemName: "play.rectangle.fill")
                                 .font(.caption2)
                                 .accessibilityLabel(Text("music_video_badge"))
                         }
                         if let artist = library.artistDisplayName(for: song) {
-                            if song.isStandaloneMusicVideo { Text("·") }
+                            if song.isStandaloneMusicVideo || unreachable { Text("·") }
                             Text(artist)
                         }
                         if showAlbum, !showsAlbumColumn, let album = song.albumTitle {
@@ -511,72 +491,10 @@ struct SongRowView: View {
             #if !os(macOS)
             if showsActions {
                 Menu {
-                    // Group 1: Actions
-                    Section {
-                        Button {
-                            requestScrape(from: .songRowActionMenu)
-                        } label: {
-                            Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
-                        }
-
-                        Button {
-                            showTagEditor = true
-                        } label: {
-                            Label(String(localized: "tag_editor_menu"), systemImage: "tag")
-                        }
-
-                        Button {
-                            showLyricsEditor = true
-                        } label: {
-                            Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
-                        }
-
-                        Button {
-                            showAddToPlaylist = true
-                        } label: {
-                            Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
-                        }
-
-                        Button {
-                            showSimilarSongs = true
-                        } label: {
-                            Label(String(localized: "similar_songs"), systemImage: "sparkles")
-                        }
-
-                        if supportsOfflineAudioCache {
-                            offlineActionButtons(snapshot: offline)
-                        }
-
-                        metadataRecoveryButtons()
-
-                        Button {
-                            showSongInfo = true
-                        } label: {
-                            Label(String(localized: "song_info"), systemImage: "info.circle")
-                        }
-                    }
-
-                    // Group 2: Share
-                    Section {
-                        Button {
-                            presentedShareSong = song
-                        } label: {
-                            Label(String(localized: "share"), systemImage: "square.and.arrow.up")
-                        }
-                    }
-
-                    // Group 3: Destructive
-                    Section {
-                        removeFromPlaylistMenuButton
-                        if canDeleteSourceFile {
-                            Button(role: .destructive) {
-                                showDeleteConfirm = true
-                            } label: {
-                                Label(String(localized: "delete_song"), systemImage: "trash")
-                            }
-                        }
-                        localRemovalMenuButton
-                    }
+                    songActionMenuContent(
+                        entryPoint: .songRowActionMenu,
+                        offline: offline
+                    )
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.callout)
@@ -593,10 +511,8 @@ struct SongRowView: View {
         .pmAnimation(.control, value: isPlaying)
         .songRowSwipeActions(
             songID: song.id,
-            isEnabled: queueSwipeActionsEnabled
-                && song.isPlayable
-                && selection?.isActive != true,
-            onInsertNext: { player.insertNextInQueue([song]) },
+            isEnabled: allowsQueueActions,
+            onInsertNext: { insertNextInQueue() },
             onAppendToQueue: { player.appendToQueue([song]) }
         )
         .contentShape(Rectangle())
@@ -609,7 +525,11 @@ struct SongRowView: View {
         // 仍可通过 contextMenu 使用单曲操作。
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(
-            [song.title, library.artistDisplayName(for: song)]
+            [
+                song.title,
+                library.artistDisplayName(for: song),
+                unreachable ? String(localized: "song_row_source_unreachable") : nil
+            ]
                 .compactMap { $0 }
                 .joined(separator: " — ")
         ))
@@ -621,7 +541,48 @@ struct SongRowView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { showBareAlert = true }
+            } else if unreachable, selection?.isActive != true {
+                // Starting this song would stop the music only to fail. The
+                // tap asks the source again instead; the trailing menu stays
+                // outside the intercepted area.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { retryUnreachableSource() }
+                    .padding(.trailing, unreachableTapTrailingInset)
             }
+        }
+    }
+
+    /// Width of the trailing ⋯ button, which has to stay tappable.
+    private var unreachableTapTrailingInset: CGFloat {
+        #if os(macOS)
+        0
+        #else
+        showsActions ? 44 : 0
+        #endif
+    }
+
+    private func retryUnreachableSource() {
+        guard !isRetryingUnreachableSource else { return }
+        isRetryingUnreachableSource = true
+        Task {
+            let stillUnreachable = await sourceManager.playbackSourceIsUnavailable(
+                for: song, retryKnownUnavailable: true
+            )
+            isRetryingUnreachableSource = false
+            // Reachable again, or a local copy turned up: the row lights up
+            // and the next tap plays it. Bring the badge in line either way so
+            // a stale one can never keep swallowing taps.
+            guard stillUnreachable else {
+                await sourceManager.refreshOfflineAudioSnapshot(for: song)
+                return
+            }
+            let name = sourcesStore.sources
+                .first { $0.id == song.sourceID }?
+                .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            unreachableSourceNoticeTitle = name.isEmpty
+                ? String(localized: "song_row_source_unreachable")
+                : String(format: String(localized: "playback_error_source_unreachable_format"), name)
         }
     }
 
@@ -636,6 +597,145 @@ struct SongRowView: View {
         #else
         true
         #endif
+    }
+
+    /// 这首歌现在能不能入队：歌根本播不了、或者正在多选，都不给。
+    private var canQueueSong: Bool {
+        song.isPlayable && selection?.isActive != true
+    }
+
+    /// 左右滑手势另外还受列表开关管。搜索结果行关掉的只是滑动手势，
+    /// 不是「下一首播放」这件事，所以菜单里那一项不跟着消失。
+    private var allowsQueueActions: Bool {
+        queueSwipeActionsEnabled && canQueueSong
+    }
+
+    /// 入队走播放器的同一个调用，菜单和滑动手势不各留一份。
+    private func insertNextInQueue() {
+        player.insertNextInQueue([song])
+    }
+
+    /// 长按菜单和尾部 ⋯ 菜单共用这一份 —— 两个入口给的是同一组能力，
+    /// 不该有哪个少一项。`entryPoint` 只区分刮削的来路统计，内容两边一样。
+    ///
+    /// 离线状态由调用方传进来：尾部菜单用的是行渲染时量到的那一份快照，
+    /// 跟行上的徽标是同一个值。
+    /// 把一首歌在「音乐」和「有声内容」之间搬家。判定平时是推断出来的
+    /// (.m4b 容器、点名了类别的流派), 这里只记下与推断不同的那一次决定 ——
+    /// 改完标签或换了文件之后, 没被手动改过的歌仍然跟着文件走。
+    @ViewBuilder
+    private var spokenWordClassificationButton: some View {
+        let store = SpokenWordStore.shared
+        let isSpokenWord = store.isSpokenWord(song)
+        Button {
+            let next: ListeningContentKind = isSpokenWord ? .music : .spokenWord
+            let inferred = SpokenWordContentPolicy.classify(
+                filePath: song.filePath,
+                genre: song.genre
+            )
+            store.setKind(next == inferred ? nil : next, forSongIDs: [song.id])
+            library.refreshContentClassification()
+        } label: {
+            // 两条分支各写各的 key: 三元表达式里的文案提取不到,
+            // 会以键名原样上屏。
+            if isSpokenWord {
+                Label(String(localized: "mark_as_music"), systemImage: "music.note")
+            } else {
+                Label(String(localized: "mark_as_spoken_word"), systemImage: "books.vertical")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func songActionMenuContent(
+        entryPoint: SingleSongScrapeEntryPoint,
+        offline: OfflineAudioCacheSnapshot
+    ) -> some View {
+        // 最常用的三个排成顶部一行，图标在上、短文字在下。再多一个系统就只画
+        // 图标不画文字了，所以这一行的上限就是三个。
+        PMMenuQuickActions {
+            if canQueueSong {
+                PMMenuQuickActionButton(
+                    shortKey: "insert_next_short",
+                    fullKey: "insert_next",
+                    systemImage: "text.line.first.and.arrowtriangle.forward"
+                ) {
+                    insertNextInQueue()
+                }
+            }
+
+            PMMenuQuickActionButton(
+                shortKey: "add_to_playlist_short",
+                fullKey: "add_to_playlist",
+                systemImage: "text.badge.plus"
+            ) {
+                showAddToPlaylist = true
+            }
+
+            Button {
+                presentedShareSong = song
+            } label: {
+                Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+            }
+        }
+
+        Section {
+            // 改这首歌自身信息的几项收进一层子菜单：菜单平时短一半，
+            // 真要整理标签的人多点一下也还在原地。
+            Menu {
+                Button {
+                    requestScrape(from: entryPoint)
+                } label: {
+                    Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+                }
+
+                Button {
+                    showTagEditor = true
+                } label: {
+                    Label(String(localized: "tag_editor_menu"), systemImage: "tag")
+                }
+
+                Button {
+                    showLyricsEditor = true
+                } label: {
+                    Label(String(localized: "lyrics_editor_menu"), systemImage: "quote.bubble")
+                }
+
+                spokenWordClassificationButton
+
+                metadataRecoveryButtons()
+            } label: {
+                Label(String(localized: "edit"), systemImage: "pencil")
+            }
+
+            Button {
+                showSimilarSongs = true
+            } label: {
+                Label(String(localized: "similar_songs"), systemImage: "sparkles")
+            }
+
+            if supportsOfflineAudioCache {
+                SongOfflineActionButtons(song: song, snapshot: offline)
+            }
+
+            Button {
+                showSongInfo = true
+            } label: {
+                Label(String(localized: "song_info"), systemImage: "info.circle")
+            }
+        }
+
+        Section {
+            removeFromPlaylistMenuButton
+            if canDeleteSourceFile {
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Label(String(localized: "delete_song"), systemImage: "trash")
+                }
+            }
+            localRemovalMenuButton
+        }
     }
 
     private func requestScrape(from entryPoint: SingleSongScrapeEntryPoint) {
@@ -776,52 +876,6 @@ struct SongRowView: View {
         }
     }
 
-    @ViewBuilder
-    private func offlineActionButtons(snapshot: OfflineAudioCacheSnapshot) -> some View {
-        switch snapshot.state {
-        case .downloading:
-            Button {} label: {
-                Label(String(localized: "offline_downloading"), systemImage: "arrow.down.circle")
-            }
-            .disabled(true)
-        case .pinned:
-            Button(role: .destructive) {
-                sourceManager.removeOfflineDownload(song: song)
-            } label: {
-                Label(String(localized: "offline_remove_song_cache"), systemImage: "trash")
-            }
-        case .cached:
-            Button {
-                sourceManager.downloadForOffline(song: song)
-            } label: {
-                Label(String(localized: "offline_keep_cached"), systemImage: "pin")
-            }
-
-            Button(role: .destructive) {
-                sourceManager.removeOfflineDownload(song: song)
-            } label: {
-                Label(String(localized: "offline_remove_cached_file"), systemImage: "trash")
-            }
-        case .failed:
-            Button {
-                sourceManager.downloadForOffline(song: song)
-            } label: {
-                Label(String(localized: "offline_retry_download"), systemImage: "arrow.clockwise")
-            }
-
-            Button(role: .destructive) {
-                sourceManager.removeOfflineDownload(song: song)
-            } label: {
-                Label(String(localized: "offline_clear_failed_download"), systemImage: "trash")
-            }
-        case .notCached:
-            Button {
-                sourceManager.downloadForOffline(song: song)
-            } label: {
-                Label(String(localized: "offline_cache_song"), systemImage: "arrow.down.circle")
-            }
-        }
-    }
 
     private func deleteSong() {
         guard canDeleteSourceFile else { return }
@@ -851,9 +905,6 @@ struct SongRowView: View {
         }
     }
 
-    /// 长按菜单和尾部 ⋯ 菜单共用这一份 —— 两个入口给的是同一组能力，
-    /// 不该有哪个少一项。
-    ///
     /// 点下去这一行就从列表里消失，也就是承载菜单的子树在菜单收起过程中被拆掉。
     /// 这里跟电台长按菜单里的「删除」(`RadioStationsView.stationActions`)、
     /// 首页置顶文件夹的「取消置顶」(`HomeFoldersSection`) 一样直接改数据，不延后：
@@ -1831,5 +1882,58 @@ extension SongRowView {
         self.sourceIconName = context.sourceIconName
         self.detailsState = context.detailsState
         self.canDeleteSourceFile = context.canDeleteSourceFile
+    }
+}
+
+struct SongOfflineActionButtons: View {
+    let song: Song
+    let snapshot: OfflineAudioCacheSnapshot
+    @Environment(SourceManager.self) private var sourceManager
+
+    @ViewBuilder
+    var body: some View {
+        switch snapshot.state {
+        case .downloading:
+            Button {} label: {
+                Label(String(localized: "offline_downloading"), systemImage: "arrow.down.circle")
+            }
+            .disabled(true)
+        case .pinned:
+            Button(role: .destructive) {
+                sourceManager.removeOfflineDownload(song: song)
+            } label: {
+                Label(String(localized: "offline_remove_song_cache"), systemImage: "trash")
+            }
+        case .cached:
+            Button {
+                sourceManager.downloadForOffline(song: song)
+            } label: {
+                Label(String(localized: "offline_keep_cached"), systemImage: "pin")
+            }
+
+            Button(role: .destructive) {
+                sourceManager.removeOfflineDownload(song: song)
+            } label: {
+                Label(String(localized: "offline_remove_cached_file"), systemImage: "trash")
+            }
+        case .failed:
+            Button {
+                sourceManager.downloadForOffline(song: song)
+            } label: {
+                Label(String(localized: "offline_retry_download"), systemImage: "arrow.clockwise")
+            }
+
+            Button(role: .destructive) {
+                sourceManager.removeOfflineDownload(song: song)
+            } label: {
+                Label(String(localized: "offline_clear_failed_download"), systemImage: "trash")
+            }
+        case .notCached:
+            Button {
+                sourceManager.downloadForOffline(song: song)
+            } label: {
+                Label(String(localized: "offline_cache_song"), systemImage: "arrow.down.circle")
+            }
+        }
     }
 }

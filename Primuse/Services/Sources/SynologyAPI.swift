@@ -785,13 +785,11 @@ actor SynologyAPI {
         }
     }
 
+    /// 交给统一的脱敏策略折成标记。以前这里自己截头留尾(`nas….example.com`),
+    /// 把域名最要紧的那一截原样留在了日志里,而且与 `LogRedactionPolicy` 折出的
+    /// 标记对不上 —— 同一台机器在两种写法之间就串不起来了。
     private func redactedHost(_ host: String) -> String {
-        let parts = host.split(separator: ".")
-        if parts.count >= 3, let first = parts.first {
-            return "\(first.prefix(3))….\(parts.suffix(2).joined(separator: "."))"
-        }
-        guard !host.isEmpty else { return "(empty)" }
-        return "\(host.prefix(3))…"
+        LogRedactionPolicy.hostTag(host)
     }
 
     private func intValue(_ value: Any?) -> Int {

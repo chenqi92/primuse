@@ -203,14 +203,17 @@ private final class MetadataBackfillWorkerWaitLatch {
 @MainActor
 @Observable
 final class MetadataBackfillService {
-    /// Bytes to fetch from the start of an audio file. Big enough to cover
-    /// embedded artwork + ID3v2 + FLAC Vorbis comments + most M4A `moov`
-    /// headers. If a particular file's metadata isn't in this slice we may
-    /// need to retry with a tail-Range fetch (M4A with trailing moov).
-    private static let headBytes: Int64 = 256 * 1024
+    // 首段读多少字节由 `RemoteMetadataReadPolicy.backfillInitialHeadByteCount`
+    // 按格式和「要不要顺带取封面」决定: 取封面的仍然整段读 256 KB(封面多半就
+    // 在里面), 不取的只读 32 KB, 不够再按标签自己声明的长度补。
+
+    /// 一次性数据修复用的「文件大到头部读不完整」判据。原本写成 `headBytes * 2`,
+    /// 认的是当年那一版的读取大小 —— 这些修复要认的是当年那个数, 不该跟着现在
+    /// 的读取策略一起漂, 所以固化成字面量。
+    private static let legacyTruncatedDurationFileSizeFloor: Int64 = 512 * 1024
     /// A declared ID3 boundary may place both artwork and the first MPEG frame
-    /// beyond `headBytes`. Expansion stays capped so one outlier cannot turn a
-    /// library backfill into full-file downloads.
+    /// beyond the initial slice. Expansion stays capped so one outlier cannot
+    /// turn a library backfill into full-file downloads.
     private static let maxMetadataHeadBytes = RemoteMetadataReadPolicy.maximumHeadByteCount
     private static let defaultMP3Bitrate = RemoteMetadataReadPolicy.defaultMP3BitRateKbps
 
@@ -252,6 +255,22 @@ final class MetadataBackfillService {
     /// eligible forever whenever they have an album title.
     @ObservationIgnored private var albumArtistCheckedIDs: Set<String> = []
 
+    /// Songs already reread because the library-wide verdict said their stored
+    /// album artist settled nothing (see
+    /// `AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs`). That
+    /// verdict survives a reread whenever the file genuinely carries no
+    /// ALBUMARTIST, so without an independent marker the same folder would be
+    /// reread on every pass. Persisted, it stays a one-time repair.
+    @ObservationIgnored private var albumArtistRecheckedIDs: Set<String> = []
+
+    /// Current verdict: songs still holding an album artist that no neighbour
+    /// can confirm and that no earlier reread has settled. Folding the whole
+    /// library by folder costs one pass, so it is refreshed on its own slow
+    /// schedule off the main actor rather than with every reconciliation.
+    @ObservationIgnored private var albumArtistUnconfirmedIDs: Set<String> = []
+    @ObservationIgnored private var albumArtistVerdictSongGeneration: UInt64?
+    @ObservationIgnored private var albumArtistVerdictComputedAt = Date.distantPast
+
     /// Songs whose track-artist field has been inspected. Track artist is
     /// independent from duration and album artist: a valid FLAC STREAMINFO
     /// block can complete duration while a later Vorbis-comment block has not
@@ -288,6 +307,16 @@ final class MetadataBackfillService {
     /// Repeated snapshots indicate a state-application problem rather than a
     /// transport problem and must not be unparked by a network transition.
     @ObservationIgnored private var sessionStallParkedIDs: Set<String> = []
+
+    /// 上一个 worker 最后真正处理过的那一批 ID。
+    ///
+    /// 振荡守卫原来只在**一个 worker 的循环内**比较。可这一轮处理完的那几首
+    /// 还挂在 `pendingFlushSongIDs` 里(`selectBatch` 会跳过它们), 于是同一个
+    /// worker 第二次取快照拿到的是空的 → `break` 正常收尾 → 守卫一次都没比过。
+    /// 几秒后新 worker 起来, pendingFlush 已经清空, 同一批歌又变回裸行被选中。
+    /// 于是几首永远读不出时长/封面的歌每几秒重来一轮: 每轮重下一遍 head+tail,
+    /// 每轮整库发布一次。跨代次记住它, 守卫才看得见这个重复。
+    @ObservationIgnored private var lastProcessedSnapshotIDs: Set<String> = []
 
     /// Persisted marker for songs that still need another attempt after a
     /// transient transport failure. Unlike `sessionGivenUpIDs`, this set does
@@ -371,6 +400,10 @@ final class MetadataBackfillService {
     /// 会漏掉整整一类本地源。
     private let directFileSourceIDs: () -> Set<String>
     private let manuallyReadableSourceIDs: () -> Set<String>
+    /// 标签读取走 URLSession 每主机连接池的源。只有一轮里的源全在这个集合里,
+    /// 读取位才放宽 —— 见 `MusicSourceType.usesPooledHTTPMetadataRangeReads`。
+    private let pooledHTTPRangeSourceIDs: () -> Set<String>
+    private let sourceFileName: (Song) -> String?
     private let metadataService = MetadataService()
     private let failedURL: URL
     private let incompleteURL: URL
@@ -378,6 +411,7 @@ final class MetadataBackfillService {
     private let artworkGivenUpURL: URL
     private let titleCheckedURL: URL
     private let albumArtistCheckedURL: URL
+    private let albumArtistRecheckedURL: URL
     private let artistCheckedURL: URL
     private let deferredRetryURL: URL
     private let diagnosticsURL: URL
@@ -645,9 +679,15 @@ final class MetadataBackfillService {
         // 读取预算沿用原来的两个集合。directFileSourceIDs 只回答「能不能白读
         // 一次完整文件」, 不该顺带把文件夹书签源提升成免网络策略的沙盒副本。
         let localIDs = offlineReadableSourceIDs().union(localFileSourceIDs())
+        let offline = !sourceIDs.isEmpty && sourceIDs.isSubset(of: localIDs)
         return MetadataReadingEnvironment.current(
             playbackActive: playbackIsActive(),
-            offlineSource: !sourceIDs.isEmpty && sourceIDs.isSubset(of: localIDs)
+            offlineSource: offline,
+            // 多开读取位只对连接池型的源有意义, 而且要这一轮的源全都是 ——
+            // 混进一个 SMB, 多出来的位会一起堵在它那条串行会话上。
+            pooledHTTPRemoteSource: !offline
+                && !sourceIDs.isEmpty
+                && sourceIDs.isSubset(of: pooledHTTPRangeSourceIDs())
         )
     }
 
@@ -854,6 +894,8 @@ final class MetadataBackfillService {
         localFileSourceIDs: @escaping () -> Set<String> = { [] },
         directFileSourceIDs: @escaping () -> Set<String> = { [] },
         manuallyReadableSourceIDs: (() -> Set<String>)? = nil,
+        pooledHTTPRangeSourceIDs: @escaping () -> Set<String> = { [] },
+        sourceFileName: @escaping (Song) -> String? = { _ in nil },
         playbackIsActive: @escaping () -> Bool = { false }
     ) {
         self.playbackIsActive = playbackIsActive
@@ -865,6 +907,8 @@ final class MetadataBackfillService {
         self.localFileSourceIDs = localFileSourceIDs
         self.directFileSourceIDs = directFileSourceIDs
         self.manuallyReadableSourceIDs = manuallyReadableSourceIDs ?? backfillableSourceIDs
+        self.pooledHTTPRangeSourceIDs = pooledHTTPRangeSourceIDs
+        self.sourceFileName = sourceFileName
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -874,6 +918,9 @@ final class MetadataBackfillService {
         self.artworkGivenUpURL = directory.appendingPathComponent("backfill-artwork-givenup.json")
         self.titleCheckedURL = directory.appendingPathComponent("backfill-title-checked.json")
         self.albumArtistCheckedURL = directory.appendingPathComponent("backfill-album-artist-checked.json")
+        self.albumArtistRecheckedURL = directory.appendingPathComponent(
+            "backfill-album-artist-rechecked.json"
+        )
         self.artistCheckedURL = directory.appendingPathComponent("backfill-artist-checked.json")
         self.deferredRetryURL = directory.appendingPathComponent("backfill-deferred-retry.json")
         self.diagnosticsURL = directory.appendingPathComponent("backfill-diagnostics.json")
@@ -905,6 +952,7 @@ final class MetadataBackfillService {
         loadArtworkGivenUp()
         loadTitleChecked()
         loadAlbumArtistChecked()
+        loadAlbumArtistRechecked()
         loadArtistChecked()
         loadDeferredRetries()
         loadDiagnostics()
@@ -951,10 +999,12 @@ final class MetadataBackfillService {
                 self.sessionGivenUpIDs.subtract(ids)
                 self.sessionNetworkParkedIDs.subtract(ids)
                 self.sessionStallParkedIDs.subtract(ids)
+                self.lastProcessedSnapshotIDs.subtract(ids)
                 self.mutateDeferredRetries { $0.subtract(ids) }
                 for id in ids { self.diagnosticRecords[id] = nil }
                 self.titleCheckedIDs.subtract(ids)
                 self.albumArtistCheckedIDs.subtract(ids)
+                self.albumArtistRecheckedIDs.subtract(ids)
                 self.artistCheckedIDs.subtract(ids)
                 for id in ids { self.transientFailureCounts[id] = nil }
                 for sourceID in Set(songs.map(\.sourceID)) {
@@ -1075,7 +1125,7 @@ final class MetadataBackfillService {
             var resetSongs: [Song] = []
             for song in library.songs {
                 guard let bitRate = song.bitRate, bitRate > 0,
-                      song.fileSize > Self.headBytes * 2,
+                      song.fileSize > Self.legacyTruncatedDurationFileSizeFloor,
                       song.duration > 0 else { continue }
                 let bytesPerSec = Double(bitRate) * 125.0
                 let estimatedFromFileSize = Double(song.fileSize) / bytesPerSec
@@ -1107,7 +1157,7 @@ final class MetadataBackfillService {
             for song in library.songs {
                 guard song.fileFormat == .mp3,
                       (song.bitRate ?? 0) <= 0,
-                      song.fileSize > Self.headBytes * 2,
+                      song.fileSize > Self.legacyTruncatedDurationFileSizeFloor,
                       song.duration > 0 else { continue }
                 let bytesPerSec = Double(Self.defaultMP3Bitrate) * 125.0
                 let estimatedFromFileSize = Double(song.fileSize) / bytesPerSec
@@ -1137,7 +1187,7 @@ final class MetadataBackfillService {
             var resetSongs: [Song] = []
             for song in library.songs {
                 guard song.fileFormat == .mp3,
-                      song.fileSize > Self.headBytes * 2,
+                      song.fileSize > Self.legacyTruncatedDurationFileSizeFloor,
                       song.duration > 0 else { continue }
                 let effectiveBitRate = (song.bitRate ?? 0) > 0 ? song.bitRate! : Self.defaultMP3Bitrate
                 let estimatedFromFileSize = Double(song.fileSize) / (Double(effectiveBitRate) * 125.0)
@@ -1211,7 +1261,7 @@ final class MetadataBackfillService {
             for song in library.songs {
                 guard sourceIDs.contains(song.sourceID),
                       song.fileFormat == .wav,
-                      song.fileSize > Self.headBytes * 2,
+                      song.fileSize > Self.legacyTruncatedDurationFileSizeFloor,
                       song.duration > 0,
                       song.duration < 1.5 else { continue }
                 var copy = song
@@ -1270,7 +1320,7 @@ final class MetadataBackfillService {
                 sourceIDs.contains($0.sourceID)
                     && $0.fileFormat == .mp3
                     && $0.duration <= 0
-                    && $0.fileSize > Self.headBytes * 2
+                    && $0.fileSize > Self.legacyTruncatedDurationFileSizeFloor
                     && ($0.bitRate ?? 0) > 0
             }.map(\.id))
             let resetIDs = failedSongIDs.intersection(retryIDs)
@@ -1485,9 +1535,11 @@ final class MetadataBackfillService {
                 sessionGivenUpIDs.subtract(retryIDs)
                 sessionNetworkParkedIDs.subtract(retryIDs)
                 sessionStallParkedIDs.subtract(retryIDs)
+                lastProcessedSnapshotIDs.subtract(retryIDs)
                 mutateDeferredRetries { $0.subtract(retryIDs) }
                 titleCheckedIDs.subtract(retryIDs)
                 albumArtistCheckedIDs.subtract(retryIDs)
+                albumArtistRecheckedIDs.subtract(retryIDs)
                 artistCheckedIDs.subtract(retryIDs)
                 for id in retryIDs { transientFailureCounts[id] = nil }
                 saveFailed()
@@ -1526,6 +1578,7 @@ final class MetadataBackfillService {
                 sessionGivenUpIDs.subtract(retryIDs)
                 sessionNetworkParkedIDs.subtract(retryIDs)
                 sessionStallParkedIDs.subtract(retryIDs)
+                lastProcessedSnapshotIDs.subtract(retryIDs)
                 mutateDeferredRetries { $0.subtract(retryIDs) }
                 titleCheckedIDs.subtract(retryIDs)
                 for id in retryIDs { transientFailureCounts[id] = nil }
@@ -1971,6 +2024,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.subtract(songIDs)
         sessionNetworkParkedIDs.subtract(songIDs)
         sessionStallParkedIDs.subtract(songIDs)
+        lastProcessedSnapshotIDs.subtract(songIDs)
         for id in songIDs {
             switch diagnosticRecords[id]?.state {
             case .sourceUnavailable, .fileUnavailable, .retryPending, .stalled:
@@ -2140,10 +2194,12 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.subtract(songIDs)
         sessionNetworkParkedIDs.subtract(songIDs)
         sessionStallParkedIDs.subtract(songIDs)
+        lastProcessedSnapshotIDs.subtract(songIDs)
         mutateDeferredRetries { $0.subtract(songIDs) }
         for songID in songIDs { diagnosticRecords[songID] = nil }
         titleCheckedIDs.subtract(songIDs)
         albumArtistCheckedIDs.subtract(songIDs)
+        albumArtistRecheckedIDs.subtract(songIDs)
         artistCheckedIDs.subtract(songIDs)
         for id in songIDs { transientFailureCounts[id] = nil }
         for sourceID in sourceIDs {
@@ -2551,6 +2607,7 @@ final class MetadataBackfillService {
         let artworkGivenUpIDs: Set<String>
         let titleCheckedIDs: Set<String>
         let albumArtistCheckedIDs: Set<String>
+        let albumArtistUnconfirmedIDs: Set<String>
         let artistCheckedIDs: Set<String>
         let deferredRetrySongIDs: Set<String>
         let diagnosticRecords: [String: MetadataBackfillDiagnosticRecord]
@@ -2589,6 +2646,7 @@ final class MetadataBackfillService {
             artworkGivenUpIDs: artworkGivenUpIDs,
             titleCheckedIDs: titleCheckedIDs,
             albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: artistCheckedIDs,
             deferredRetrySongIDs: deferredRetrySongIDs,
             diagnosticRecords: diagnosticRecords,
@@ -2611,9 +2669,36 @@ final class MetadataBackfillService {
         applyRemainingCounts(Self.computeRemainingCounts(makeRemainingCountsInput()))
     }
 
+    /// 修复一批历史行是一次性的活, 不需要实时性: 库内容没动就不重算, 动过
+    /// 也最多这个间隔算一次。扫描期间每 1.5 s 发布一次库, 跟着代次走会让整
+    /// 场扫描每轮都白折一遍全库。
+    private static let albumArtistVerdictInterval: TimeInterval = 300
+
+    /// 整库才看得见同一目录里的兄弟文件, 所以「存着的专辑艺术家其实定不了
+    /// 案」只能折一遍全库得出。放在后台执行器上算, 主 actor 只收结果。
+    private func refreshAlbumArtistVerdictOffMain() async {
+        let generation = library.songMutationGenerationForMaintenance
+        let now = Date()
+        guard albumArtistVerdictSongGeneration != generation else { return }
+        guard albumArtistVerdictSongGeneration == nil
+                || now.timeIntervalSince(albumArtistVerdictComputedAt)
+                    >= Self.albumArtistVerdictInterval else { return }
+        let songs = library.songs
+        let rechecked = albumArtistRecheckedIDs
+        let verdict = await Task.detached(priority: .utility) {
+            AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(
+                for: songs.map { MusicLibrary.albumArtistInferenceTrack($0) }
+            ).subtracting(rechecked)
+        }.value
+        albumArtistUnconfirmedIDs = verdict
+        albumArtistVerdictSongGeneration = generation
+        albumArtistVerdictComputedAt = now
+    }
+
     private func refreshRemainingCountsOffMain(force: Bool = false) async {
         // 同 `refreshRemainingCounts`: 准备中的库不参与对账, 也不落盘。
         guard library.isReady else { return }
+        await refreshAlbumArtistVerdictOffMain()
         let now = Date()
         guard force
                 || now.timeIntervalSince(lastRemainingCountRefreshAt)
@@ -2712,6 +2797,7 @@ final class MetadataBackfillService {
                 hasAlbumTitle: Self.hasVisibleContent(song.albumTitle),
                 hasAlbumArtist: Self.hasVisibleContent(song.albumArtistName),
                 albumArtistChecked: input.albumArtistCheckedIDs.contains(song.id),
+                albumArtistUnconfirmed: input.albumArtistUnconfirmedIDs.contains(song.id),
                 hasArtist: Self.hasVisibleContent(song.artistName),
                 artistChecked: input.artistCheckedIDs.contains(song.id)
             )
@@ -2992,6 +3078,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.subtract(retryIDs)
         sessionNetworkParkedIDs.subtract(retryIDs)
         sessionStallParkedIDs.subtract(retryIDs)
+        lastProcessedSnapshotIDs.subtract(retryIDs)
         // An explicit retry reopens the affected rows as ordinary pending
         // inspection. Keeping every source-parked row in the deferred set would
         // recreate the misleading "hundreds of retries" count after one
@@ -3000,6 +3087,7 @@ final class MetadataBackfillService {
         artworkGivenUpIDs.subtract(retryIDs)
         titleCheckedIDs.subtract(retryIDs)
         albumArtistCheckedIDs.subtract(retryIDs)
+        albumArtistRecheckedIDs.subtract(retryIDs)
         artistCheckedIDs.subtract(retryIDs)
         for id in retryIDs { diagnosticRecords[id] = nil }
         for id in retryIDs { transientFailureCounts[id] = nil }
@@ -3281,10 +3369,12 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.remove(songID)
         sessionNetworkParkedIDs.remove(songID)
         sessionStallParkedIDs.remove(songID)
+        lastProcessedSnapshotIDs.remove(songID)
         mutateDeferredRetries { $0.insert(songID) }
         artworkGivenUpIDs.remove(songID)
         titleCheckedIDs.remove(songID)
         albumArtistCheckedIDs.remove(songID)
+        albumArtistRecheckedIDs.remove(songID)
         artistCheckedIDs.remove(songID)
         transientFailureCounts[songID] = nil
         clearDiagnostic(songID: songID)
@@ -3439,7 +3529,9 @@ final class MetadataBackfillService {
         // already-processed songs still look "bare" in the library and
         // would be picked again, causing duplicate Range fetches and a
         // weird-looking processedCount that grows past pendingCount.
-        var lastSnapshotIDs: Set<String> = []
+        // 上一个 worker 处理过的那一批也算"上一轮" —— 见
+        // `lastProcessedSnapshotIDs` 的说明。
+        var lastSnapshotIDs = lastProcessedSnapshotIDs
         var completedSnapshotPasses = 0
         while !Task.isCancelled {
             let (limits, allowedSourceIDs) = await MainActor.run { [self] in
@@ -3480,6 +3572,8 @@ final class MetadataBackfillService {
             ) {
                 sessionGivenUpIDs.formUnion(snapIDs)
                 sessionStallParkedIDs.formUnion(snapIDs)
+                // 已经登记成停滞, 不必再拿它和下一个 worker 比一次。
+                lastProcessedSnapshotIDs = []
                 let deferredIDs = MetadataBackfillDeferredRetryPolicy.idsToPersist(
                     failedSongID: nil,
                     snapshotSongIDs: snapIDs,
@@ -3495,6 +3589,7 @@ final class MetadataBackfillService {
 
             activeSourceIDs = Set(snapshot.map(\.sourceID))
             await processSnapshot(snapshot)
+            lastProcessedSnapshotIDs = snapIDs
             completedSnapshotPasses += 1
         }
         // 收尾这一批必须落地 —— 它横跨了好几个快照, 也可能是被 stop() 取消的。
@@ -3755,15 +3850,28 @@ final class MetadataBackfillService {
             libraryPublishDepth -= 1
             libraryPublishGeneration &+= 1
         }
-        let batch = pendingFlush.compactMap(backfillResultForApply)
-        let batchIDs = Set(batch.map(\.id))
+        let resolved = pendingFlush.compactMap(backfillResultForApply)
+        // 标记照旧按"已落地"记账 —— 逐字相同的行, 库里存的就是这个值,
+        // 不存在"标记写了而替换没落地"的空档。
+        let batchIDs = Set(resolved.map(\.id))
+        // 和库里那一行逐字相同的结果不必再整库发布一次: 一次发布的代价与整库
+        // 规模成正比(重发两个上万元素的可观察数组 + 首页/搜索/CarPlay 各一次
+        // 整库重算), 与这一批有几首无关。读不出时长又找不到封面的歌每轮都会
+        // 原样交回同一行, 这一条把那种空转的代价降到零。
+        let batch = resolved.filter { library.song(id: $0.id) != $0 }
         pendingFlush.removeAll(keepingCapacity: true)
         pendingFlushSongIDs.removeAll(keepingCapacity: true)
         lastFlushAt = Date()
-        if !batch.isEmpty {
-            await library.replaceSongsPreparedOffMain(batch, maintenance: .deferred)
-            clearDeferredRetries(in: batch)
-            plog("📥 \(isFinal ? "final flush" : "flushed") \(batch.count) songs to library")
+        if !resolved.isEmpty {
+            if !batch.isEmpty {
+                await library.replaceSongsPreparedOffMain(batch, maintenance: .deferred)
+            }
+            // 重试记账按"这一轮确实读过这些行"来清, 和过滤前一致。
+            clearDeferredRetries(in: resolved)
+            plog(
+                "📥 \(isFinal ? "final flush" : "flushed") \(batch.count) songs to library"
+                    + (resolved.count == batch.count ? "" : " (unchanged=\(resolved.count - batch.count))")
+            )
         }
         let artistIDsSafeToPersist = pendingArtistInspectionIDs
             .subtracting(artistInspectionIDsRequiringReplacement)
@@ -4351,7 +4459,14 @@ final class MetadataBackfillService {
             return data
         }
         let fetchStarted = Date()
-        let headData = try await fetchRange(offset: 0, length: Self.headBytes)
+        // 不用顺带取封面的歌只读一小段: 标签本身几 KB 就够, 整段读会白拉两百多
+        // KB。需要封面时仍然整段读 —— 封面多半就在里面, 一次取回比小段加补读
+        // 既少一次往返、总字节也更少。
+        let initialHeadBytes = Int64(RemoteMetadataReadPolicy.backfillInitialHeadByteCount(
+            declaredFileExtension: song.fileFormat.rawValue,
+            needsEmbeddedArtwork: Self.needsEmbeddedArtworkBackfill(song)
+        ))
+        let headData = try await fetchRange(offset: 0, length: initialHeadBytes)
         let fetchElapsed = Date().timeIntervalSince(fetchStarted)
 
         // Do not turn metadata backfill into a whole-library playback-cache
@@ -4934,8 +5049,21 @@ final class MetadataBackfillService {
         let rawStem = (component as NSString).deletingPathExtension
         let userEdited = song.userMetadataEditedAt != nil
         let mayInferFromFilename = hasVerifiedAudioEvidence(metadata)
+        let correctedTitle: String? = if !userEdited, !song.isCueTrack, mayInferFromFilename {
+            [sourceFileName(song).map { ($0 as NSString).deletingPathExtension }, rawStem, song.title]
+                .compactMap { stem in
+                    MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+                        title: metadata.embeddedTitle,
+                        artist: metadata.embeddedArtist,
+                        fileStem: stem
+                    )
+                }.first
+        } else {
+            nil
+        }
         return (
-            MetadataIdentityFallbackPolicy.resolve(
+            correctedTitle.map { MetadataResolvedText(value: $0, source: .filenameInference) }
+                ?? MetadataIdentityFallbackPolicy.resolve(
                 existing: song.title,
                 embedded: metadata.embeddedTitle,
                 filenameInference: mayInferFromFilename
@@ -5134,6 +5262,7 @@ final class MetadataBackfillService {
         let artworkGivenUpIDs: Set<String>
         let titleCheckedIDs: Set<String>
         let albumArtistCheckedIDs: Set<String>
+        let albumArtistUnconfirmedIDs: Set<String>
         let artistCheckedIDs: Set<String>
         let incompleteSongIDs: Set<String>
     }
@@ -5171,18 +5300,25 @@ final class MetadataBackfillService {
             artworkGivenUpIDs: artworkGivenUpIDs,
             titleCheckedIDs: titleCheckedIDs,
             albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: artistCheckedIDs,
             incompleteSongIDs: incompleteSongIDs
         )
     }
 
-    /// 与旧实现同序、同结果, 但显式循环只会对每行求值一次谓词 ——
-    /// `lazy.filter{}.prefix(n)` 先走一遍找结束下标, `Array(...)` 再走一遍。
-    /// 仍然从 index 0 开始扫, 所以 runWorker 里「同一批 ID 反复出现就停摆」
-    /// 的保护 (MetadataBackfillStallPolicy) 行为不变。
+    /// 显式循环只会对每行求值一次谓词 —— `lazy.filter{}.prefix(n)` 先走一遍
+    /// 找结束下标, `Array(...)` 再走一遍。仍然从 index 0 开始扫, 所以 runWorker
+    /// 里「同一批 ID 反复出现就停摆」的保护 (MetadataBackfillStallPolicy) 行为
+    /// 不变。
+    ///
+    /// 只差专辑艺术家复查的行排在最后。那是一次性的历史分组修复, 不影响歌能
+    /// 不能用; 而刚扫进来的新行既没时长也没标题, 用户就等着它。资料库按发现
+    /// 顺序追加, 新行天然在数组末尾, 所以没有这个分层的话, 一个上万首的源做
+    /// 一轮复查就会把刚加的几首歌饿死在队尾。
     nonisolated static func selectBatch(_ input: BatchSelectionInput) -> [Song] {
         let limit = max(1, input.limit)
         var selection: [Song] = []
+        var recheckOnly: [Song] = []
         selection.reserveCapacity(min(limit, input.songs.count))
         for song in input.songs {
             if let scopedSourceID = input.scopedSourceID, song.sourceID != scopedSourceID { continue }
@@ -5204,7 +5340,7 @@ final class MetadataBackfillService {
             ) else { continue }
             guard !input.disabledSourceIDs.contains(song.sourceID) else { continue }
             guard input.sourceIDs.contains(song.sourceID) else { continue }
-            guard Self.needsBackfill(
+            let reasons = Self.workReasons(
                 song,
                 restrictToBareRows: MetadataBackfillEligibilityPolicy.restrictsToBareRows(
                     sourceUsesBareInventory: input.bareOnlySourceIDs.contains(song.sourceID),
@@ -5214,10 +5350,20 @@ final class MetadataBackfillService {
                 titleCheckedIDs: input.titleCheckedIDs,
                 incompleteSongIDs: input.incompleteSongIDs,
                 albumArtistCheckedIDs: input.albumArtistCheckedIDs,
+                albumArtistUnconfirmedIDs: input.albumArtistUnconfirmedIDs,
                 artistCheckedIDs: input.artistCheckedIDs
-            ) else { continue }
+            )
+            guard !reasons.isEmpty else { continue }
+            guard reasons != [.albumArtist] else {
+                // 攒够一整批就不用再记了: 上层一次最多取 `limit` 行。
+                if recheckOnly.count < limit { recheckOnly.append(song) }
+                continue
+            }
             selection.append(song)
-            if selection.count == limit { break }
+            if selection.count == limit { return selection }
+        }
+        if selection.count < limit {
+            selection.append(contentsOf: recheckOnly.prefix(limit - selection.count))
         }
         return selection
     }
@@ -5323,6 +5469,7 @@ final class MetadataBackfillService {
             titleCheckedIDs: titleCheckedIDs,
             incompleteSongIDs: incompleteSongIDs,
             albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: artistCheckedIDs
         )
     }
@@ -5339,6 +5486,7 @@ final class MetadataBackfillService {
             hasAlbumTitle: !(song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             hasAlbumArtist: !(song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
+            albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id)
         )
@@ -5351,9 +5499,32 @@ final class MetadataBackfillService {
         titleCheckedIDs: Set<String>,
         incompleteSongIDs: Set<String>,
         albumArtistCheckedIDs: Set<String>,
+        albumArtistUnconfirmedIDs: Set<String>,
         artistCheckedIDs: Set<String>
     ) -> Bool {
         !workReasons(
+            song,
+            restrictToBareRows: restrictToBareRows,
+            artworkGivenUpIDs: artworkGivenUpIDs,
+            titleCheckedIDs: titleCheckedIDs,
+            incompleteSongIDs: incompleteSongIDs,
+            albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
+            artistCheckedIDs: artistCheckedIDs
+        ).isEmpty
+    }
+
+    private nonisolated static func workReasons(
+        _ song: Song,
+        restrictToBareRows: Bool,
+        artworkGivenUpIDs: Set<String>,
+        titleCheckedIDs: Set<String>,
+        incompleteSongIDs: Set<String>,
+        albumArtistCheckedIDs: Set<String>,
+        albumArtistUnconfirmedIDs: Set<String>,
+        artistCheckedIDs: Set<String>
+    ) -> MetadataBackfillWorkReasons {
+        workReasons(
             restrictToBareRows: restrictToBareRows,
             duration: song.duration,
             format: song.fileFormat,
@@ -5364,9 +5535,10 @@ final class MetadataBackfillService {
             hasAlbumTitle: !(song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             hasAlbumArtist: !(song.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             albumArtistChecked: albumArtistCheckedIDs.contains(song.id),
+            albumArtistUnconfirmed: albumArtistUnconfirmedIDs.contains(song.id),
             hasArtist: !(song.artistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
             artistChecked: artistCheckedIDs.contains(song.id)
-        ).isEmpty
+        )
     }
 
     private nonisolated static func workReasons(
@@ -5380,6 +5552,7 @@ final class MetadataBackfillService {
         hasAlbumTitle: Bool,
         hasAlbumArtist: Bool,
         albumArtistChecked: Bool,
+        albumArtistUnconfirmed: Bool,
         hasArtist: Bool,
         artistChecked: Bool
     ) -> MetadataBackfillWorkReasons {
@@ -5394,6 +5567,7 @@ final class MetadataBackfillService {
             hasAlbumTitle: hasAlbumTitle,
             hasAlbumArtist: hasAlbumArtist,
             albumArtistChecked: albumArtistChecked,
+            albumArtistUnconfirmed: albumArtistUnconfirmed,
             hasArtist: hasArtist,
             artistChecked: artistChecked
         )
@@ -5450,6 +5624,12 @@ final class MetadataBackfillService {
         guard let data = try? Data(contentsOf: albumArtistCheckedURL),
               let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
         albumArtistCheckedIDs = Set(decoded)
+    }
+
+    private func loadAlbumArtistRechecked() {
+        guard let data = try? Data(contentsOf: albumArtistRecheckedURL),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else { return }
+        albumArtistRecheckedIDs = Set(decoded)
     }
 
     private func loadArtistChecked() {
@@ -5534,10 +5714,16 @@ final class MetadataBackfillService {
         guard !songIDs.isEmpty else { return }
         let previousTitleCount = titleCheckedIDs.count
         let previousAlbumArtistCount = albumArtistCheckedIDs.count
+        let previousRecheckedCount = albumArtistRecheckedIDs.count
         titleCheckedIDs.formUnion(songIDs)
         albumArtistCheckedIDs.formUnion(songIDs)
+        // 文件真的没有 ALBUMARTIST 时, 读完判定依旧成立。没有这一笔登记,
+        // 同一个目录每轮对账都会被重新排队。
+        albumArtistRecheckedIDs.formUnion(songIDs)
+        albumArtistUnconfirmedIDs.subtract(songIDs)
         if titleCheckedIDs.count != previousTitleCount
-            || albumArtistCheckedIDs.count != previousAlbumArtistCount {
+            || albumArtistCheckedIDs.count != previousAlbumArtistCount
+            || albumArtistRecheckedIDs.count != previousRecheckedCount {
             saveInspectionState()
         }
     }
@@ -5562,6 +5748,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.remove(songID)
         sessionNetworkParkedIDs.remove(songID)
         sessionStallParkedIDs.remove(songID)
+        lastProcessedSnapshotIDs.remove(songID)
         let songCountRemoved = transientFailureCounts.removeValue(forKey: songID) != nil
         let sourceCountRemoved = sourceTransientFailureCounts.removeValue(forKey: sourceID) != nil
         if songCountRemoved || sourceCountRemoved {
@@ -5618,6 +5805,7 @@ final class MetadataBackfillService {
                 let artworkGivenUp = self.artworkGivenUpIDs
                 let titleChecked = self.titleCheckedIDs
                 let albumArtistChecked = self.albumArtistCheckedIDs
+                let albumArtistRechecked = self.albumArtistRecheckedIDs
                 let artistChecked = self.artistCheckedIDs
                 let deferredRetries = self.deferredRetrySongIDs
                 let diagnostics = self.diagnosticRecords
@@ -5629,6 +5817,7 @@ final class MetadataBackfillService {
                 let artworkURL = self.artworkGivenUpURL
                 let titleURL = self.titleCheckedURL
                 let albumArtistURL = self.albumArtistCheckedURL
+                let albumArtistRecheckURL = self.albumArtistRecheckedURL
                 let artistURL = self.artistCheckedURL
                 let deferredRetryURL = self.deferredRetryURL
                 let diagnosticsURL = self.diagnosticsURL
@@ -5642,6 +5831,7 @@ final class MetadataBackfillService {
                     Self.writeIDSet(artworkGivenUp, to: artworkURL)
                     Self.writeIDSet(titleChecked, to: titleURL)
                     Self.writeIDSet(albumArtistChecked, to: albumArtistURL)
+                    Self.writeIDSet(albumArtistRechecked, to: albumArtistRecheckURL)
                     Self.writeIDSet(artistChecked, to: artistURL)
                     Self.writeIDSet(deferredRetries, to: deferredRetryURL)
                     Self.writeDiagnostics(diagnostics, to: diagnosticsURL)

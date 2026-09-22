@@ -122,19 +122,36 @@ enum LyricPosterLivePhotoWriter {
         writer.startSession(atSourceTime: .zero)
 
         // 静帧标记必须指向视频里的某个时刻, 否则系统只当成一段普通视频。
-        let stillTime = CMTime(
-            value: CMTimeValue(plan.stillFrameIndex),
+        // 这一段还必须完整落在视频里: 元数据轨比视频轨长的 mov, 相册在
+        // 配对时会判成无效资源。
+        let frameCount = plan.frameCount
+        let lastFrameTime = CMTime(
+            value: CMTimeValue(max(frameCount - 1, 0)),
             timescale: CMTimeScale(plan.frameRate)
         )
-        metadataAdaptor.append(
+        let stillIndex = min(plan.stillFrameIndex, max(frameCount - 1, 0))
+        let stillTime = CMTime(
+            value: CMTimeValue(stillIndex),
+            timescale: CMTimeScale(plan.frameRate)
+        )
+        let remaining = CMTimeSubtract(lastFrameTime, stillTime)
+        let markerDuration = CMTimeMinimum(stillImageTimeWindow, CMTimeMaximum(remaining, .zero))
+        while !metadataInput.isReadyForMoreMediaData {
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
+        guard metadataAdaptor.append(
             AVTimedMetadataGroup(
                 items: [stillImageTimeItem()],
-                timeRange: CMTimeRange(start: stillTime, duration: stillImageTimeWindow)
+                timeRange: CMTimeRange(start: stillTime, duration: markerDuration)
             )
-        )
+        ) else {
+            writer.cancelWriting()
+            throw LyricPosterLivePhotoError.videoWriteFailed(
+                writer.error?.localizedDescription ?? ""
+            )
+        }
         metadataInput.markAsFinished()
 
-        let frameCount = plan.frameCount
         for index in 0..<frameCount {
             if Task.isCancelled {
                 writer.cancelWriting()
@@ -174,12 +191,22 @@ enum LyricPosterLivePhotoWriter {
                 writer.error?.localizedDescription ?? ""
             )
         }
+        // 交给相册之前先确认两份资源都真的落了盘: 空文件送进 PhotoKit
+        // 只会换回一句含糊的"无效资源"。
+        guard fileIsUsable(stillURL), fileIsUsable(videoURL) else {
+            throw LyricPosterLivePhotoError.stillWriteFailed
+        }
 
         return LyricPosterLivePhotoBundle(
             stillURL: stillURL,
             videoURL: videoURL,
             assetIdentifier: assetIdentifier
         )
+    }
+
+    private static func fileIsUsable(_ url: URL) -> Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil
+        return (size ?? 0) > 0
     }
 
     // MARK: - 文件写出
@@ -361,8 +388,22 @@ enum LyricPosterPhotoLibrary {
                 request.addResource(with: .pairedVideo, fileURL: videoURL, options: options)
             }
         } catch {
+            // 相册回的是一句泛泛的"未能完成操作"加一个错误号。把号码和两份
+            // 资源的实际大小记下来, 下次再被拒才有得查。
+            let code = (error as NSError).code
+            plog(String(
+                format: "📸 Live Photo rejected by Photos code=%d still=%lldB video=%lldB",
+                code,
+                fileSize(stillURL),
+                fileSize(videoURL)
+            ))
             throw LyricPosterPhotoLibraryError.saveFailed(error.localizedDescription)
         }
+    }
+
+    private static func fileSize(_ url: URL) -> Int64 {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes?[.size] as? NSNumber)?.int64Value ?? 0
     }
 
     private static func requirePermission() async throws {

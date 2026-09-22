@@ -16,6 +16,19 @@ public enum LegacyAudioCacheMigrationDecision: Equatable, Sendable {
 /// location changes, so it is remembered instead of rescanned on every cache
 /// URL resolution.
 public enum LegacyAudioCacheMigrationPolicy {
+    /// Current cache files are named after a 32-digit lowercase hex digest
+    /// (`<digest>.flac`, `<digest>.flac.partial`). Anything else in a source's
+    /// cache directory may predate that naming. Nothing writes the old names
+    /// any more, so a directory without one never needs a per-song legacy
+    /// lookup again.
+    public static func mayBeLegacyFileName(_ fileName: String) -> Bool {
+        guard !fileName.isEmpty, !fileName.hasPrefix(".") else { return false }
+        let stem = fileName.prefix { $0 != "." }
+        let isDigest = stem.count == 32
+            && stem.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+        return !isDigest
+    }
+
     /// Legacy adoption tolerates small sidecar/tag rewrites: 1 % of the
     /// expected size, never less than 4 KB.
     public static func sizeTolerance(expectedSize: Int64) -> Int64 {

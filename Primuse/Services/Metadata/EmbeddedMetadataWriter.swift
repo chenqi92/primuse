@@ -1,16 +1,40 @@
 import AVFoundation
 import Foundation
+import PrimuseKit
 import SFBAudioEngine
 
+/// What a save does to the lyrics stored inside the audio file.
+enum EmbeddedLyricsEdit: Sendable, Equatable {
+    /// Leave whatever the file carries exactly as it is.
+    case keep
+    /// Store this text as the file's unsynchronised lyrics (LRC text included).
+    case set(String)
+    case remove
+
+    var logName: String {
+        switch self {
+        case .keep: return "keep"
+        case .set: return "set"
+        case .remove: return "remove"
+        }
+    }
+}
+
 struct EmbeddedMetadataEdits: Sendable, Equatable {
-    let title: String
-    let artist: String?
-    let albumTitle: String?
-    let genre: String?
-    let year: Int?
-    let trackNumber: Int?
-    let discNumber: Int?
+    struct Tags: Sendable, Equatable {
+        let title: String
+        let artist: String?
+        let albumTitle: String?
+        let genre: String?
+        let year: Int?
+        let trackNumber: Int?
+        let discNumber: Int?
+    }
+
+    /// `nil` leaves the file's text tags alone, for saves that only touch lyrics.
+    let tags: Tags?
     let coverData: Data?
+    let lyrics: EmbeddedLyricsEdit
 }
 
 struct EmbeddedMetadataVerification: Sendable, Equatable {
@@ -55,19 +79,67 @@ enum EmbeddedMetadataWriter {
 
         let audioFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
         let metadata = audioFile.metadata
-        metadata.title = edits.title
-        metadata.artist = edits.artist
-        metadata.albumTitle = edits.albumTitle
-        metadata.genre = edits.genre
-        // SFBAudioEngine 0.12.1 validates MP3 TDRC values through
-        // NSISO8601DateFormatter and silently drops a year-only string.
-        // A full ISO-8601 value preserves the editor's year in ID3; FLAC and
-        // MP4 accept the intended year-only representation directly.
-        metadata.releaseDate = edits.year.map { year in
-            fileExtension == "mp3" ? String(format: "%04d-01-01T00:00:00Z", year) : String(year)
+        if let tags = edits.tags {
+            metadata.title = tags.title
+            metadata.artist = tags.artist
+            metadata.albumTitle = tags.albumTitle
+            metadata.genre = tags.genre
+            // SFBAudioEngine 0.12.1 validates MP3 TDRC values through
+            // NSISO8601DateFormatter and silently drops a year-only string.
+            // A full ISO-8601 value preserves the editor's year in ID3; FLAC and
+            // MP4 accept the intended year-only representation directly.
+            metadata.releaseDate = tags.year.map { year in
+                fileExtension == "mp3" ? String(format: "%04d-01-01T00:00:00Z", year) : String(year)
+            }
+            metadata.trackNumber = tags.trackNumber
+            metadata.discNumber = tags.discNumber
         }
-        metadata.trackNumber = edits.trackNumber
-        metadata.discNumber = edits.discNumber
+
+        // SFBAudioEngine 0.12.1 loads the MP4 grouping item (`©grp`) into
+        // `lyrics` and never into `grouping`. Saving that model replaces the
+        // file's embedded lyrics with the grouping text and deletes the
+        // grouping, so both are restored from the file's own atoms first.
+        var verifiesStoredM4ALyrics = edits.lyrics != .keep
+        var expectedM4ALyrics: String?
+        if fileExtension == "m4a" {
+            let stored = ISOBaseMediaLyricsParser.storedITunesTextItems(
+                in: try Data(contentsOf: fileURL, options: .mappedIfSafe)
+            )
+            if let grouping = stored.grouping {
+                // Lyrics that cannot be read back cannot be restored either;
+                // leave the file untouched rather than overwrite them.
+                try require(
+                    edits.lyrics != .keep || !stored.hasUndecodableLyrics,
+                    field: "lyrics"
+                )
+                metadata.lyrics = stored.lyrics
+                metadata.grouping = grouping
+                expectedM4ALyrics = stored.lyrics
+                verifiesStoredM4ALyrics = true
+            }
+        }
+
+        // The library rebuilds ID3 lyrics from the first `USLT` frame alone and
+        // drops its language and descriptor. When this save is not about
+        // lyrics, the frames are put back afterwards exactly as they were.
+        var preservedID3LyricsFrames: [Data]?
+        if fileExtension == "mp3", edits.lyrics == .keep,
+           let frames = ID3LyricsFramePreservation.lyricsFrameBodies(
+               in: try Data(contentsOf: fileURL, options: .mappedIfSafe)
+           ), !frames.isEmpty {
+            preservedID3LyricsFrames = frames
+        }
+
+        switch edits.lyrics {
+        case .keep:
+            break
+        case .set(let text):
+            metadata.lyrics = text
+            expectedM4ALyrics = text
+        case .remove:
+            metadata.lyrics = nil
+            expectedM4ALyrics = nil
+        }
 
         if let coverData = edits.coverData {
             if fileExtension == "m4a" {
@@ -92,23 +164,89 @@ enum EmbeddedMetadataWriter {
             }
         }
 
-        if fileExtension == "m4a" {
-            try await rewriteM4AAlbum(edits.albumTitle, at: fileURL)
+        var restoredID3LyricsFrames = false
+        if let preservedID3LyricsFrames {
+            restoredID3LyricsFrames = try restoreID3LyricsFrames(
+                preservedID3LyricsFrames,
+                at: fileURL
+            )
+        }
+
+        if fileExtension == "m4a", let tags = edits.tags {
+            try await rewriteM4AAlbum(tags.albumTitle, at: fileURL)
         }
 
         let verifiedFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
         let verified = verification(from: verifiedFile.metadata)
-        try require(verified.title == edits.title, field: "title")
-        try require(normalized(verified.artist) == normalized(edits.artist), field: "artist")
-        try require(normalized(verified.albumTitle) == normalized(edits.albumTitle), field: "album")
-        try require(normalized(verified.genre) == normalized(edits.genre), field: "genre")
-        try require(verified.year == edits.year, field: "year")
-        try require(verified.trackNumber == edits.trackNumber, field: "track number")
-        try require(verified.discNumber == edits.discNumber, field: "disc number")
+        if let tags = edits.tags {
+            try require(verified.title == tags.title, field: "title")
+            try require(normalized(verified.artist) == normalized(tags.artist), field: "artist")
+            try require(normalized(verified.albumTitle) == normalized(tags.albumTitle), field: "album")
+            try require(normalized(verified.genre) == normalized(tags.genre), field: "genre")
+            try require(verified.year == tags.year, field: "year")
+            try require(verified.trackNumber == tags.trackNumber, field: "track number")
+            try require(verified.discNumber == tags.discNumber, field: "disc number")
+        }
         if let coverData = edits.coverData {
             try require(verified.coverData == coverData, field: "cover artwork")
         }
+
+        if fileExtension == "m4a" {
+            // The library's own reading of MP4 lyrics is the faulty one, so the
+            // result is checked against the atoms in the file.
+            if verifiesStoredM4ALyrics {
+                let written = ISOBaseMediaLyricsParser.storedITunesTextItems(
+                    in: try Data(contentsOf: fileURL, options: .mappedIfSafe)
+                )
+                try require(
+                    comparableLyrics(written.lyrics) == comparableLyrics(expectedM4ALyrics),
+                    field: "lyrics"
+                )
+            }
+        } else {
+            switch edits.lyrics {
+            case .keep:
+                if restoredID3LyricsFrames {
+                    let written = ID3LyricsFramePreservation.lyricsFrameBodies(
+                        in: try Data(contentsOf: fileURL, options: .mappedIfSafe)
+                    )
+                    try require(written == preservedID3LyricsFrames, field: "lyrics")
+                }
+            case .set(let text):
+                try require(
+                    comparableLyrics(verifiedFile.metadata.lyrics) == comparableLyrics(text),
+                    field: "lyrics"
+                )
+            case .remove:
+                try require(comparableLyrics(verifiedFile.metadata.lyrics) == nil, field: "lyrics")
+            }
+        }
         return verified
+    }
+
+    /// Returns whether the file was rewritten. A saved tag in a shape this code
+    /// does not restructure is left as the library wrote it.
+    private static func restoreID3LyricsFrames(_ frames: [Data], at fileURL: URL) throws -> Bool {
+        let saved = try Data(contentsOf: fileURL)
+        guard ID3LyricsFramePreservation.lyricsFrameBodies(in: saved) != frames,
+              let restored = ID3LyricsFramePreservation.replacingLyricsFrames(
+                  in: saved,
+                  with: frames
+              ) else {
+            return false
+        }
+        try restored.write(to: fileURL, options: .atomic)
+        return true
+    }
+
+    /// Line endings and outer whitespace are not part of what was asked for.
+    private static func comparableLyrics(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let unified = value
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return unified.isEmpty ? nil : unified
     }
 
     /// SFBAudioEngine 0.12.1 writes the MP4 album atom as `©ALB` instead of

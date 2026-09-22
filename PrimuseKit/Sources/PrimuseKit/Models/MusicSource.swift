@@ -516,6 +516,19 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         supportsRangeStreaming && !isServerLibrary
     }
 
+    /// 标签读取跑在 URLSession 的每主机连接池上: 同一台服务器可以真并发发多个
+    /// Range 请求, 多开读取位只是多占几条 keep-alive 连接。
+    ///
+    /// 不含云盘 —— 同样是 HTTP, 但各家开放平台都按 QPS 限流, 多开读取位换来的
+    /// 是 429 和退让。也不含 SMB/FTP/SFTP/NFS: 它们的回填读取挤在一条后台会话
+    /// 上串行, 读取位加多少都只是在那条会话前面排队。
+    public var usesPooledHTTPMetadataRangeReads: Bool {
+        switch self {
+        case .webdav, .synology, .qnap, .ugreen, .fnos, .s3: return true
+        default: return false
+        }
+    }
+
     public var requiresOAuth: Bool {
         isCloudDrive
     }
@@ -1073,14 +1086,27 @@ public enum SourceConnectionHandshakePolicy {
     /// Vendor relays (QuickConnect, FN Connect) negotiate the relay itself
     /// before the service handshake can even start.
     public static let vendorFallbackTimeout: TimeInterval = 25
+    /// A source with no alternative route has nothing to fall back to, so this is
+    /// not a fallback budget but a hang breaker. Without any deadline a peer that
+    /// accepts the TCP connection and then stalls in TLS or application login —
+    /// another device answering the same private address on a visited network —
+    /// leaves `connect()` awaiting for as long as the transport allows, and the
+    /// UI spins with no error to show. Wide enough for a cold NAS, a vendor relay
+    /// negotiation, or a user tapping through a certificate prompt; a granted
+    /// trust decision is persisted even if this attempt is abandoned, so the next
+    /// one no longer waits on it.
+    public static let soleRouteTimeout: TimeInterval = 45
 
     public static func timeout(
         for candidate: SourceConnectionCandidateKind,
         availableKinds: [SourceConnectionCandidateKind]
     ) -> TimeInterval? {
-        // Only a route that has somewhere to fall back to may be abandoned on a
-        // deadline; a single-route source must keep waiting for its own errors.
-        guard availableKinds.contains(where: { $0 != candidate }) else { return nil }
+        // Only a route that has somewhere to fall back to may be abandoned on its
+        // own short budget; a single-route source keeps waiting for its own
+        // errors, but not forever.
+        guard availableKinds.contains(where: { $0 != candidate }) else {
+            return soleRouteTimeout
+        }
         switch candidate {
         case .localAddress: return localFallbackTimeout
         case .publicAddress: return remoteFallbackTimeout
@@ -1765,6 +1791,25 @@ public extension MusicSource {
         case nil:
             return [local, remote].compactMap { $0 }
         }
+    }
+
+    /// Diagnostics inspect every configured method, including saved alternatives
+    /// that normal routing does not currently select.
+    var diagnosticConnectionCandidates: [SourceConnectionCandidate] {
+        guard let configuration = effectiveConnectionConfiguration else { return [] }
+        var candidates: [SourceConnectionCandidate] = []
+        if let endpoint = configuration.localEndpoint {
+            candidates.append(SourceConnectionCandidate(kind: .localAddress, endpoint: endpoint.normalized))
+        }
+        if let endpoint = configuration.publicEndpoint {
+            candidates.append(SourceConnectionCandidate(kind: .publicAddress, endpoint: endpoint.normalized))
+        }
+        if type.supportsVendorRemoteAccess,
+           let identifier = configuration.vendorIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !identifier.isEmpty {
+            candidates.append(SourceConnectionCandidate(kind: .vendorRemote, vendorIdentifier: identifier))
+        }
+        return candidates
     }
 
     /// Applies one candidate to the legacy fields consumed by existing source

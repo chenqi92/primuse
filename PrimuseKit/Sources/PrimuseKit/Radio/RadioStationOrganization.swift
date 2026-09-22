@@ -337,3 +337,38 @@ public enum RadioStationOrganization {
         return Int(hash % UInt64(paletteSize))
     }
 }
+
+/// 服务端电台镜像落在哪个文件夹。服务端自己把台分了文件夹的(Audio Station 的
+/// 「我的最爱」与自己添加的台),镜像放进「源名 / 服务端文件夹」—— 电台页的文件夹
+/// 只有一层,两层靠名字拼起来。
+public enum ServerRadioFolderPolicy {
+    public static let separator = " / "
+
+    public static func folderName(sourceName: String, serverFolderName: String?) -> String? {
+        guard let folder = RadioStationOrganization.normalizedFolderName(serverFolderName) else { return nil }
+        guard let source = RadioStationOrganization.normalizedFolderName(sourceName) else { return folder }
+        // 超长时截源名,保住服务端文件夹那一段:同一个源下的几个文件夹靠它区分。
+        let room = RadioStationOrganization.maximumFolderNameLength - separator.count - folder.count
+        let prefix = String(source.prefix(max(0, room))).trimmingCharacters(in: .whitespaces)
+        guard !prefix.isEmpty else { return folder }
+        return RadioStationOrganization.normalizedFolderName(prefix + separator + folder)
+    }
+
+    /// 文件夹归用户整理。新镜像用同步给的文件夹;已有的只在还停在同步给过的某个
+    /// 文件夹里(用户没挪过)时,跟着服务端换到新的那个,挪走或移出文件夹的都不动。
+    public static func reconciledFolderName(
+        current: String?,
+        isNewMirror: Bool,
+        assigned: String?,
+        syncManagedFolderNames: [String]
+    ) -> String? {
+        if isNewMirror { return assigned }
+        guard let currentName = RadioStationOrganization.normalizedFolderName(current),
+              let assigned,
+              !RadioStationOrganization.isSameName(currentName, assigned),
+              syncManagedFolderNames.contains(where: { RadioStationOrganization.isSameName($0, currentName) }) else {
+            return current
+        }
+        return assigned
+    }
+}

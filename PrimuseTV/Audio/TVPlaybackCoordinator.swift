@@ -24,6 +24,39 @@ struct TVResolvedRadioStream: Equatable, Sendable {
     let headers: [String: String]
 }
 
+/// 取电台的 `.pls` / `.m3u` 包装清单。电视上没有明文主机的信任询问,没被信任过的
+/// 明文地址直接跳过(`RadioImportParser.wrapperFetchURLs` 会先给出 https 的写法)。
+private enum TVRadioPlaylistFetcher {
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 40
+        return URLSession(configuration: configuration)
+    }()
+
+    static func text(at urlString: String) async throws -> String {
+        guard let url = URL(string: urlString) else { throw StreamResolveError.cannotBuildURL }
+        if TrustedHTTPTransport.requiresPlainSocket(for: url) {
+            guard let target = TrustedHTTPTransport.trustTarget(for: url),
+                  SSLTrustStore.allowsInsecureHTTPHostSync(domain: target) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+        }
+        let (data, response) = try await TrustedHTTPTransport.data(
+            for: URLRequest(url: url),
+            session: session,
+            maxBytes: RadioPlaylistText.maximumBytes
+        )
+        guard (response as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? true,
+              let text = RadioPlaylistText.decode(data) else {
+            throw StreamResolveError.cannotBuildURL
+        }
+        return text
+    }
+}
+
 private enum TVDecodedDownloadError: Error, LocalizedError, Sendable {
     case invalidContentLength(Int64)
     case incomplete(expected: Int64, actual: Int64)
@@ -150,7 +183,18 @@ final class TVPlaybackCoordinator {
 
         if !station.requiresSourceStreamResolution {
             guard let url = station.url else { throw StreamResolveError.cannotBuildURL }
-            return TVResolvedRadioStream(url: url, headers: [:])
+            guard RadioImportParser.isPlaylistWrapper(station.streamURL) else {
+                return TVResolvedRadioStream(url: url, headers: [:])
+            }
+            // SHOUTcast 这类 `.pls` / `.m3u` 包装播放器不认,取回清单拆出真实流地址。
+            guard let stream = try await RadioImportParser.unwrappedStreamURL(
+                station.streamURL,
+                fetch: { try await TVRadioPlaylistFetcher.text(at: $0) }
+            ), let streamURL = URL(string: stream) else {
+                throw StreamResolveError.cannotBuildURL
+            }
+            try ensureCurrent(requestID, store: store)
+            return TVResolvedRadioStream(url: streamURL, headers: [:])
         }
 
         guard let sourceID = station.sourceID,
@@ -295,13 +339,14 @@ final class TVPlaybackCoordinator {
             wavProbeOutcome: wavProbeOutcome
         )
 
-        if case .decodedTemporaryFile(let decoderExtension, let inspectWAV) = delivery {
-            plog("🎬 TV play: decoded '\(decoderExtension)' → complete local file")
+        if case .decodedTemporaryFile(let decoderExtension, let decoder, let inspectWAV) = delivery {
+            plog("🎬 TV play: decoded '\(decoderExtension)' via \(decoder) → complete local file")
             await playNonNative(
                 song: playbackSong,
                 source: source,
                 credential: credential,
                 ext: decoderExtension,
+                decoder: decoder,
                 directStream: asset.directStream,
                 inspectWAVAfterDownload: inspectWAV,
                 requestID: requestID,
@@ -1040,6 +1085,7 @@ final class TVPlaybackCoordinator {
         source: MusicSource,
         credential: SourceCredential?,
         ext: String,
+        decoder: TVLocalDecoder,
         directStream: ResolvedStream? = nil,
         inspectWAVAfterDownload: Bool,
         requestID: UUID,
@@ -1058,7 +1104,7 @@ final class TVPlaybackCoordinator {
             }
         }
         do {
-            var tempURL = try await downloadToTemp(
+            let tempURL = try await downloadToTemp(
                 song: song,
                 source: source,
                 credential: credential,
@@ -1066,15 +1112,17 @@ final class TVPlaybackCoordinator {
                 directStream: directStream,
                 requestID: requestID
             )
-            if inspectWAVAfterDownload {
-                tempURL = try await decoderURLAfterWAVInspection(tempURL)
-            }
             downloadedTempURL = tempURL
+            var decoder = decoder
+            if inspectWAVAfterDownload {
+                decoder = try await decoderAfterWAVInspection(tempURL)
+            }
             try ensureCurrent(requestID, store: store)
             guard isCurrent(requestID, store: store) else { return }
             let displayArtistName = store.library.artistDisplayName(for: song) ?? ""
             try engine.loadDecoded(
                 fileURL: tempURL,
+                decoder: decoder,
                 title: song.title,
                 artist: displayArtistName,
                 album: song.albumTitle ?? "",
@@ -1282,21 +1330,15 @@ final class TVPlaybackCoordinator {
         }
     }
 
-    private func decoderURLAfterWAVInspection(_ fileURL: URL) async throws -> URL {
+    /// 文件保持 `.wav` 名:FFmpeg 桥接层只在 `.wav` 文件里找 DTS 载体并强制走 DTS 解复用。
+    private func decoderAfterWAVInspection(_ fileURL: URL) async throws -> TVLocalDecoder {
         let signature = try await Task.detached(priority: .userInitiated) {
             let handle = try FileHandle(forReadingFrom: fileURL)
             defer { try? handle.close() }
             let data = try handle.read(upToCount: 4 * 1_024 * 1_024) ?? Data()
             return AudioFileSignaturePolicy.inspect(data)
         }.value
-        guard signature == .dtsInWave || signature == .dts else { return fileURL }
-
-        let destination = TVDecodedTemporaryFilePolicy.makeURL(
-            in: fileURL.deletingLastPathComponent(),
-            fileExtension: AudioFormat.dts.rawValue
-        )
-        try FileManager.default.moveItem(at: fileURL, to: destination)
-        return destination
+        return TVPlaybackFormatRoutingPolicy.decoderAfterWAVInspection(signature)
     }
 
     /// 按源类型构造直连协议读取器(非 HTTP)。返回 nil 表示该类型不直连(走 resolveStream)。

@@ -40,6 +40,17 @@ struct SettingsView: View {
         #endif
     }
 
+    /// The issue form opens with this build's version, device and system
+    /// already filled in. None of those fields are required by the form, so the
+    /// user can edit or clear them before submitting.
+    private func feedbackURL(for template: IssueFeedbackLink.Template) -> URL {
+        IssueFeedbackLink.url(
+            for: template,
+            environment: RunningAppEnvironment.diagnosticEnvironment(),
+            platform: RunningAppEnvironment.issuePlatform
+        )
+    }
+
     private var recentItems: [SettingDefinition] {
         SettingsSearchHistory.shared.ids.compactMap { SettingsCatalog.byID[$0] }
             .filter { musicIntelligence.shouldExposeRemoteConfiguration || $0.page != .intelligence }
@@ -469,18 +480,10 @@ struct SettingsView: View {
             HStack {
                 Label("version", systemImage: "number")
                 Spacer()
-                Text(Bundle.main.appVersion)
+                Text("\(Bundle.main.appVersion) (\(Bundle.main.appBuildNumber))")
                     .foregroundStyle(.secondary)
             }
             .settingsAnchor("about.version")
-
-            HStack {
-                Label("build", systemImage: "hammer")
-                Spacer()
-                Text(Bundle.main.appBuildNumber)
-                    .foregroundStyle(.secondary)
-            }
-            .settingsAnchor("about.build")
 
             CheckForUpdateRow()
 
@@ -493,25 +496,21 @@ struct SettingsView: View {
             }
 
             Button {
-                // The only rating signal the app ever gets: StoreKit stays
-                // silent about the system sheet, so remember this one and stop
-                // asking automatically.
-                AppReviewPromptCoordinator.shared.recordManualReviewVisit()
                 openURL(PrimuseAppStore.reviewURL)
             } label: {
                 Label("rate_on_app_store", systemImage: "star.bubble")
             }
             .settingsAnchor("about.rate")
 
-            Link(destination: URL(string: "https://github.com/chenqi92/primuse")!) {
-                Label("github_repository", systemImage: "chevron.left.forwardslash.chevron.right")
+            Link(destination: feedbackURL(for: .bugReport)) {
+                Label("github_bug_report", systemImage: "exclamationmark.bubble")
             }
-            .settingsAnchor("about.repository")
+            .settingsAnchor("about.bugReport")
 
-            Link(destination: URL(string: "https://github.com/chenqi92/primuse/issues/new/choose")!) {
-                Label("github_feedback", systemImage: "exclamationmark.bubble")
+            Link(destination: feedbackURL(for: .featureRequest)) {
+                Label("github_feature_request", systemImage: "lightbulb")
             }
-            .settingsAnchor("about.feedback")
+            .settingsAnchor("about.featureRequest")
         } header: {
             if showsHeader {
                 Text("about")
@@ -1271,6 +1270,7 @@ private struct CheckForUpdateRow: View {
                 Spacer()
                 accessory
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(status == .checking)
@@ -1344,6 +1344,8 @@ struct MetadataScrapingView: View {
     @State private var editingConfigSource: ScraperSourceConfig?
     @State private var editingConfigJSON = ""
     @State private var isReordering = false
+    @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
+    @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
 
 
     var body: some View {
@@ -1471,6 +1473,19 @@ struct MetadataScrapingView: View {
             }
 
             Section {
+                Picker("lyrics_embed_copy_title", selection: lyricsEmbeddingSelection) {
+                    ForEach(LyricsEmbeddingMode.allCases, id: \.self) { mode in
+                        Text(mode.settingsTitle).tag(mode)
+                    }
+                }
+                .settingsAnchor("scraping.embedLyrics")
+            } header: {
+                Text("lyrics_embed_copy_header")
+            } footer: {
+                Text("lyrics_embed_copy_footer")
+            }
+
+            Section {
                 if scraperService.isScraping {
                     VStack(alignment: .leading, spacing: 10) {
                         ProgressView(value: scraperService.progress)
@@ -1547,6 +1562,47 @@ struct MetadataScrapingView: View {
         .sheet(item: $shareTarget) { target in
             ShareSheet(items: [target.url])
         }
+        // 挂在页面上而不是那一节上：Form 的节是懒加载的，滚出屏幕时挂在上面的弹框会失效。
+        .alert(
+            "lyrics_embed_confirm_title",
+            isPresented: Binding(
+                get: { pendingLyricsEmbeddingMode != nil },
+                set: { if !$0 { pendingLyricsEmbeddingMode = nil } }
+            ),
+            presenting: pendingLyricsEmbeddingMode
+        ) { mode in
+            Button("cancel", role: .cancel) {}
+            Button("enable") { applyLyricsEmbeddingMode(mode) }
+        } message: { mode in
+            Text(verbatim: mode.confirmationMessage)
+        }
+    }
+
+    /// 空字符串表示还没选过：交给策略读，它认得第一版留下的开关。
+    private var currentLyricsEmbeddingMode: LyricsEmbeddingMode {
+        LyricsEmbeddingMode(rawValue: lyricsEmbeddingModeRaw) ?? EmbeddedLyricsCopyPolicy.mode()
+    }
+
+    /// 嵌入要改写用户的音频文件。往更深处走（开启、或改成只嵌入）之前先把代价摆出来，
+    /// 确认过再切；往回退不用问。
+    private var lyricsEmbeddingSelection: Binding<LyricsEmbeddingMode> {
+        Binding(
+            get: { currentLyricsEmbeddingMode },
+            set: { newValue in
+                let current = currentLyricsEmbeddingMode
+                guard newValue != current else { return }
+                if EmbeddedLyricsCopyPolicy.requiresConfirmation(from: current, to: newValue) {
+                    pendingLyricsEmbeddingMode = newValue
+                } else {
+                    applyLyricsEmbeddingMode(newValue)
+                }
+            }
+        )
+    }
+
+    private func applyLyricsEmbeddingMode(_ mode: LyricsEmbeddingMode) {
+        EmbeddedLyricsCopyPolicy.setMode(mode)
+        lyricsEmbeddingModeRaw = mode.rawValue
     }
 
     /// 把指定源的 ScraperConfig（含 secrets）写入临时文件返回 URL，供 ShareSheet 使用。
@@ -1882,9 +1938,11 @@ struct PlaybackSettingsView: View {
             } header: {
                 Text("audio_output_section")
             } footer: {
-                Text(settings.outputMode == .highFidelity
-                     ? "output_mode_high_fidelity_desc"
-                     : "output_mode_effects_desc")
+                if settings.outputMode == .highFidelity {
+                    Text(verbatim: AudioOutputMode.highFidelityExplanation)
+                } else {
+                    Text("output_mode_effects_desc")
+                }
             }
 
             Section {
@@ -1964,6 +2022,8 @@ struct PlaybackSettingsView: View {
                     }
                     .pmFadeTransition()
                 }
+            } footer: {
+                Text("crossfade_footer")
             }
             .disabled(settings.outputMode == .highFidelity)
 
@@ -2058,7 +2118,7 @@ struct PlaybackSettingsView: View {
             Button("cancel", role: .cancel) {}
             Button("enable") { playbackSettings.outputMode = .highFidelity }
         } message: {
-            Text("output_mode_high_fidelity_desc")
+            Text(verbatim: AudioOutputMode.highFidelityExplanation)
         }
     }
 }
@@ -2264,12 +2324,6 @@ struct StorageManagementView: View {
     @State private var isClearingOrphans = false
     /// 清理结果提示 — 失败时让用户知道为什么没全清掉 (通常是当前正在播放的歌)。
     @State private var cacheActionToast: String?
-    @State private var logShareItem: LogShareItem?
-
-    struct LogShareItem: Identifiable {
-        let id = UUID()
-        let url: URL
-    }
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -2449,28 +2503,6 @@ struct StorageManagementView: View {
                 Text("metadata_clear_footer")
             }
 
-            // Debug 与 TestFlight 才有这个入口。测试用户报障时得能把日志交出来,
-            // 否则只能靠口述复现; App Store 正式版仍然不显示 —— 详见
-            // DiagnosticLogExportPolicy。
-            if DiagnosticLogExportPolicy.exposesExportEntry(
-                channel: Bundle.main.distributionChannel
-            ) {
-                Section {
-                    Button {
-                        logShareItem = LogShareItem(url: FileLogger.shared.logFileURL)
-                    } label: {
-                        Label("storage_export_log", systemImage: "square.and.arrow.up.on.square")
-                    }
-                    .settingsAnchor("storage.exportLog")
-                } header: {
-                    Text("diagnostics_title")
-                } footer: {
-                    Text("storage_export_log_footer")
-                }
-            }
-        }
-        .sheet(item: $logShareItem) { item in
-            ShareSheet(items: [item.url])
         }
         .navigationTitle("storage_management")
         #if os(iOS)
@@ -2853,6 +2885,14 @@ struct LicensesView: View {
         .navigationTitle("licenses")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Link(destination: IssueFeedbackLink.repositoryURL) {
+                    Label("github_repository", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                .settingsAnchor("about.repository")
+            }
+        }
         #endif
     }
 

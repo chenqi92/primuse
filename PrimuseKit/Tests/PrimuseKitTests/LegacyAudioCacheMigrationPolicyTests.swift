@@ -108,4 +108,19 @@ struct LegacyAudioCacheMigrationPolicyTests {
             alreadyResolved: false
         ) == .move)
     }
+
+    @Test("Only names that are not a digest can be left over from older builds")
+    func legacyFileNameRecognition() {
+        let digest = "0123456789abcdef0123456789abcdef"
+        #expect(!LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName("\(digest).flac"))
+        #expect(!LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName("\(digest).flac.partial"))
+        #expect(!LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName(digest))
+        #expect(!LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName(".DS_Store"))
+        #expect(!LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName(""))
+
+        #expect(LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName("_music_Album_01 Song.flac"))
+        #expect(LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName("0123456789ABCDEF0123456789ABCDEF.flac"))
+        #expect(LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName("0123456789abcdef.flac"))
+        #expect(LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName("0123456789abcdef0123456789abcdeg.mp3"))
+    }
 }

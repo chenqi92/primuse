@@ -43,6 +43,111 @@ struct HomeListeningRankingTests {
         #expect(all.allSatisfy { $0.positionsGained == nil })
     }
 
+    @Test func trendsSeparateClimbersFallersAndNewEntriesFromAnEmptyPreviousPeriod() {
+        // 上周: a×2、b×1；本周: b×3、a×1、c×1。
+        let events = [event("a", day: 28, month: 8), event("a", day: 29, month: 8), event("b", day: 30, month: 8),
+                      event("b", day: 1), event("b", day: 2), event("b", day: 3), event("c", day: 4), event("a", day: 4)]
+        let songs = Dictionary(uniqueKeysWithValues: ["a", "b", "c"].map { ($0, song($0)) })
+        let ranks = HomeListeningRanking.ranks(events: events, songs: songs, folders: nil, period: .week, category: .songs, now: date(5), calendar: calendar)
+        let trends = Dictionary(uniqueKeysWithValues: ranks.map { ($0.title, $0.trend) })
+        #expect(trends["b"] == .up(1))
+        #expect(trends["a"] == .down(1))
+        #expect(trends["c"] == .newEntry)
+
+        // 上一个周期整段空白：谁都不算新上榜。
+        let fresh = HomeListeningRanking.ranks(events: [event("a", day: 1), event("b", day: 2)], songs: songs, folders: nil,
+                                               period: .week, category: .songs, now: date(5), calendar: calendar)
+        #expect(fresh.count == 2)
+        #expect(fresh.allSatisfy { $0.trend == nil })
+
+        let all = HomeListeningRanking.ranks(events: events, songs: songs, folders: nil, period: .all, category: .songs, now: date(5), calendar: calendar)
+        #expect(all.allSatisfy { $0.trend == nil })
+
+        let steady = HomeListeningRanking.ranks(events: [event("a", day: 28, month: 8), event("a", day: 1)], songs: songs, folders: nil,
+                                                period: .week, category: .songs, now: date(5), calendar: calendar)
+        #expect(steady.first?.trend == .steady)
+    }
+
+    @Test func artworkComesFromTheMostPlayedSongOfTheGroupRegardlessOfInputOrder() {
+        let songs = Dictionary(uniqueKeysWithValues: ["a", "m", "z"].map { ($0, song($0, artist: "Band")) })
+        // z 听得最多；a 与 m 并列，m 更近。
+        let events = [event("a", day: 1), event("z", day: 1), event("z", day: 2), event("z", day: 3), event("m", day: 4)]
+        for input in [events, Array(events.reversed())] {
+            let artists = HomeListeningRanking.ranks(events: input, songs: songs, folders: nil, period: .all, category: .artists, now: date(5), calendar: calendar)
+            #expect(artists.count == 1)
+            #expect(artists.first?.songIDs == ["a", "m", "z"])
+            #expect(artists.first?.artworkSongID == "z")
+        }
+        let tied = [event("a", day: 1), event("m", day: 4)]
+        for input in [tied, Array(tied.reversed())] {
+            let artists = HomeListeningRanking.ranks(events: input, songs: songs, folders: nil, period: .all, category: .artists, now: date(5), calendar: calendar)
+            #expect(artists.first?.artworkSongID == "m")
+        }
+        let sameMoment = [event("m", day: 2), event("a", day: 2)]
+        let artists = HomeListeningRanking.ranks(events: sameMoment, songs: songs, folders: nil, period: .all, category: .artists, now: date(5), calendar: calendar)
+        #expect(artists.first?.artworkSongID == "a")
+    }
+
+    @Test func podiumPlacesTheChampionInTheMiddleAndShrinksWithFewerEntries() {
+        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 0).isEmpty)
+        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 1) == [0])
+        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 2) == [1, 0])
+        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 3) == [1, 0, 2])
+        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: 20) == [1, 0, 2])
+        #expect(HomeListeningRankBoardPolicy.podiumOrder(count: -1).isEmpty)
+        let champion = HomeListeningRankBoardPolicy.stepHeightFraction(place: 0)
+        let second = HomeListeningRankBoardPolicy.stepHeightFraction(place: 1)
+        let third = HomeListeningRankBoardPolicy.stepHeightFraction(place: 2)
+        #expect(champion == 1)
+        #expect(champion > second)
+        #expect(second > third)
+        #expect(third > 0)
+    }
+
+    @Test func boardShowsFiveUntilExpandedAndTheShelfNeverDropsBelowFive() {
+        typealias Policy = HomeListeningRankBoardPolicy
+        #expect(Policy.visibleCount(total: 30, expandedLimit: 20, isExpanded: false) == 5)
+        #expect(Policy.visibleCount(total: 30, expandedLimit: 20, isExpanded: true) == 20)
+        #expect(Policy.visibleCount(total: 12, expandedLimit: 20, isExpanded: true) == 12)
+        #expect(Policy.visibleCount(total: 2, expandedLimit: 20, isExpanded: false) == 2)
+        #expect(Policy.visibleCount(total: 0, expandedLimit: 20, isExpanded: true) == 0)
+        // 设置调到 5 及以下：不提供展开，残留的展开状态也不能把榜单缩到 5 名以下。
+        #expect(!Policy.offersExpansion(total: 30, expandedLimit: 5))
+        #expect(!Policy.offersExpansion(total: 30, expandedLimit: 0))
+        #expect(!Policy.offersExpansion(total: 5, expandedLimit: 20))
+        #expect(Policy.offersExpansion(total: 6, expandedLimit: 6))
+        #expect(Policy.visibleCount(total: 30, expandedLimit: 0, isExpanded: true) == 5)
+        #expect(Policy.visibleCount(total: 30, expandedLimit: 3, isExpanded: true) == 5)
+
+        #expect(Policy.shelfCount(total: 30, expandedLimit: 20) == 20)
+        #expect(Policy.shelfCount(total: 30, expandedLimit: 0) == 5)
+        #expect(Policy.shelfCount(total: 3, expandedLimit: 20) == 3)
+        #expect(Policy.shelfCount(total: 0, expandedLimit: 20) == 0)
+    }
+
+    @Test func playShareIsRelativeToTheLeaderAndStaysInsideTheRow() {
+        typealias Policy = HomeListeningRankBoardPolicy
+        #expect(Policy.share(playCount: 10, leaderPlayCount: 10) == 1)
+        #expect(Policy.share(playCount: 5, leaderPlayCount: 10) == 0.5)
+        #expect(Policy.share(playCount: 12, leaderPlayCount: 10) == 1)
+        #expect(Policy.share(playCount: 0, leaderPlayCount: 10) == 0)
+        #expect(Policy.share(playCount: 3, leaderPlayCount: 0) == 0)
+    }
+
+    @Test func rankingOffersTheBoardAndTheShelfButNoStackedShelfRows() {
+        #expect(HomeSectionLayoutPolicy.supportedStyles(for: .listeningRanking) == [.list, .carousel])
+        #expect(HomeSectionLayoutPolicy.defaultStyle(for: .listeningRanking) == .list)
+        #expect(HomeSectionLayoutPolicy.rowsRange(for: .listeningRanking, style: .carousel) == nil)
+        #expect(HomeSectionLayoutPolicy.rowsRange(for: .recentlyAdded, style: .carousel) == 1...3)
+        var configuration = HomeSectionLayoutConfiguration()
+        configuration.advanceStyle(for: .listeningRanking)
+        #expect(configuration.style(for: .listeningRanking) == .carousel)
+        #expect(configuration.rowCount(for: .listeningRanking) == 1)
+        configuration.advanceStyle(for: .listeningRanking)
+        #expect(configuration.style(for: .listeningRanking) == .list)
+        #expect(configuration.styles.isEmpty)
+    }
+
     @Test func tiesAreStableRegardlessOfInputOrderAndAlbumKeysDoNotCollide() {
         let songs = ["a": song("a", artist: "b|c", album: "a"), "b": song("b", artist: "c", album: "a|b")]
         let events = [event("b", day: 1), event("a", day: 2)]

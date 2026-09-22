@@ -6,9 +6,15 @@ import Foundation
 /// A folder of one album whose files lack an album-artist tag falls apart
 /// into one "album" per track artist: the OST folder where most files say
 /// "鸣潮先约电台" and a few name the individual composer becomes several
-/// same-titled albums. The folder is the missing signal. Only sources whose
-/// paths carry real folders take part; a media server that exposes every
-/// item under one synthetic directory keeps its server-provided grouping.
+/// same-titled albums. The folder is the missing signal, and a source whose
+/// paths carry real folders is judged folder by folder, majority included.
+///
+/// A source that addresses tracks by ID (fnOS Music, Subsonic, Audio Station,
+/// a media server) synthesises one flat path for every track, so it has no
+/// folder to judge by. It splits the same album all the same, whenever the
+/// server answers the album artist for some of its tracks and not the rest.
+/// Those sources are grouped by album title alone and only the unambiguous
+/// verdict is taken: one explicit tag in the album, everyone else untagged.
 public enum AlbumArtistInferencePolicy {
     public struct Track: Sendable, Equatable {
         public let id: String
@@ -61,28 +67,26 @@ public enum AlbumArtistInferencePolicy {
         for tracks: [Track],
         directoryAuthoritativeSourceIDs: Set<String>
     ) -> [String: String] {
-        // Scopes are collected in input order so the chosen spelling and every
-        // tie-break stay independent of Dictionary iteration order.
-        var scopeOrder: [String] = []
-        var scopeIndexByKey: [String: Int] = [:]
-        var scopedTracks: [[Track]] = []
-
-        for track in tracks {
-            guard directoryAuthoritativeSourceIDs.contains(track.sourceID),
-                  let albumTitle = trimmed(track.albumTitle) else { continue }
-            let key = "\(track.sourceID)\u{1F}\(track.directory)\u{1F}\(albumTitle)"
-            if let index = scopeIndexByKey[key] {
-                scopedTracks[index].append(track)
-            } else {
-                scopeIndexByKey[key] = scopedTracks.count
-                scopeOrder.append(key)
-                scopedTracks.append([track])
+        var result: [String: String] = [:]
+        for scope in scopes(for: tracks, restrictedTo: directoryAuthoritativeSourceIDs)
+        where scope.count >= 2 {
+            guard let target = target(for: scope) else { continue }
+            for track in scope where effective(track) != target {
+                result[track.id] = target
             }
         }
 
-        var result: [String: String] = [:]
-        for scope in scopedTracks where scope.count >= 2 {
-            guard let target = target(for: scope) else { continue }
+        // Sources without real folders. Their scope spans a whole album title,
+        // so a majority vote would be free to rename a same-titled album by
+        // another artist; only an undisputed explicit tag may speak for them.
+        var synthetic: Set<String> = []
+        for track in tracks where !directoryAuthoritativeSourceIDs.contains(track.sourceID) {
+            synthetic.insert(track.sourceID)
+        }
+        guard !synthetic.isEmpty else { return result }
+        for scope in scopes(for: tracks, restrictedTo: synthetic, byDirectory: false)
+        where scope.count >= 2 {
+            guard let target = target(for: scope, explicitTagsOnly: true) else { continue }
             for track in scope where effective(track) != target {
                 result[track.id] = target
             }
@@ -97,11 +101,72 @@ public enum AlbumArtistInferencePolicy {
         )
     }
 
+    /// Tracks whose stored album artist carries no information: nobody in the
+    /// folder tagged one, so every value is the per-track fallback, and those
+    /// fallbacks disagree, which also denies `inferredAlbumArtists` a majority.
+    /// The stored value then says nothing about what the file contains — an
+    /// OST folder in this state stays split into one same-titled album per
+    /// composer forever, because every later pass sees a non-empty album
+    /// artist and leaves it alone. Reading the file once is the only way out.
+    ///
+    /// Folders whose fallbacks already agree are left out: rereading them
+    /// cannot change any grouping, and sweeping the whole library for that
+    /// would cost one file read per song.
+    public static func unconfirmedAlbumArtistTrackIDs(for tracks: [Track]) -> Set<String> {
+        var result: Set<String> = []
+        // Every source takes part, and the folder is not part of the key.
+        // Unlike an inference this only asks for the file to be read again, so
+        // it is scoped the way albums themselves are grouped — two tracks with
+        // one album title are one album whether or not they sit side by side.
+        for scope in scopes(for: tracks, restrictedTo: nil, byDirectory: false)
+        where scope.count >= 2 {
+            guard !scope.contains(where: isExplicit) else { continue }
+            var keys: Set<String> = []
+            for track in scope {
+                guard let value = effective(track) else { continue }
+                keys.insert(ArtistIdentityPolicy.groupingKey(value))
+            }
+            guard keys.count >= 2, target(for: scope) == nil else { continue }
+            for track in scope { result.insert(track.id) }
+        }
+        return result
+    }
+
+    /// Tracks grouped by source, album title and — for an inference, which
+    /// rewrites grouping and must stay conservative — the folder too. Input
+    /// order is preserved so the chosen spelling and every tie-break stay
+    /// independent of Dictionary iteration order.
+    private static func scopes(
+        for tracks: [Track],
+        restrictedTo sourceIDs: Set<String>?,
+        byDirectory: Bool = true
+    ) -> [[Track]] {
+        var scopeIndexByKey: [String: Int] = [:]
+        var scopedTracks: [[Track]] = []
+
+        for track in tracks {
+            if let sourceIDs, !sourceIDs.contains(track.sourceID) { continue }
+            guard let albumTitle = trimmed(track.albumTitle) else { continue }
+            let directory = byDirectory ? track.directory : ""
+            let key = "\(track.sourceID)\u{1F}\(directory)\u{1F}\(albumTitle)"
+            if let index = scopeIndexByKey[key] {
+                scopedTracks[index].append(track)
+            } else {
+                scopeIndexByKey[key] = scopedTracks.count
+                scopedTracks.append([track])
+            }
+        }
+        return scopedTracks
+    }
+
     // MARK: - Scope resolution
 
     /// The album artist the whole scope should use, or nil when the tracks do
     /// not agree strongly enough to overrule their own tags.
-    private static func target(for scope: [Track]) -> String? {
+    ///
+    /// `explicitTagsOnly` drops the majority vote, leaving only the verdict a
+    /// scope can reach without the folder having vouched for it.
+    private static func target(for scope: [Track], explicitTagsOnly: Bool = false) -> String? {
         // One tally over the whole scope: it decides both how strong a key is
         // and which spelling of that key the scope actually uses.
         var tally = Tally()
@@ -126,6 +191,7 @@ public enum AlbumArtistInferencePolicy {
         if explicitKeys.count > 1 {
             return nil
         }
+        guard !explicitTagsOnly else { return nil }
 
         guard let top = tally.dominantKeyIndex() else { return nil }
         guard tally.count(forKeyAt: top) * 2 > scope.count else { return nil }

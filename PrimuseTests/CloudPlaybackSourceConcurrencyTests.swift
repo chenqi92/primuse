@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 import Network
 import PrimuseKit
@@ -927,7 +928,8 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             sourceManager: manager,
             backfillableSourceIDs: { [sourceID] },
             offlineReadableSourceIDs: { [sourceID] },
-            localFileSourceIDs: { [sourceID] }
+            localFileSourceIDs: { [sourceID] },
+            directFileSourceIDs: { [sourceID] }
         )
         defer { backfill.stop() }
         backfill.refreshStatusSnapshot()
@@ -959,6 +961,173 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             1,
             "A confirmed complete-file artwork miss must remain in artworkGivenUpIDs"
         )
+    }
+
+    @MainActor
+    func testOpaqueCloudFileTitleSurvivesFirstReadAndRepeatedTagReads() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceID = "cloud-title-\(UUID().uuidString)"
+        let source = MusicSource(id: sourceID, name: "Cloud title fixture", type: .pan123)
+        let fileName = "走在冷风中 (Live) - 刘思涵.mp3"
+        let payload = Self.duplicatedArtistTitleFixture()
+        let localURL = directory.appendingPathComponent("cached.mp3")
+        try payload.write(to: localURL)
+        let connector = CompleteArtworkFixtureConnector(
+            sourceID: sourceID, payloads: ["12345678": payload], localURLs: ["12345678": localURL]
+        )
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        let song = Song(
+            id: "title-\(UUID().uuidString)", title: "走在冷风中 (Live) - 刘思涵",
+            fileFormat: .mp3, filePath: "12345678", sourceID: sourceID, fileSize: Int64(payload.count)
+        )
+        library.addSongs([song], affectedSourceIDs: [sourceID])
+        await library.waitForPendingIndex()
+        var indexedFileName: String?
+        let defaults = UserDefaults.standard
+        let readingModeKey = MetadataBackfillExecutionPolicy.readingModeDefaultsKey
+        let previousReadingMode = defaults.object(forKey: readingModeKey)
+        defaults.set(MetadataReadingMode.automatic.rawValue, forKey: readingModeKey)
+        defer {
+            if let previousReadingMode {
+                defaults.set(previousReadingMode, forKey: readingModeKey)
+            } else {
+                defaults.removeObject(forKey: readingModeKey)
+            }
+        }
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+            offlineReadableSourceIDs: { [sourceID] }, sourceFileName: { _ in indexedFileName }
+        )
+        defer { backfill.stop() }
+        // The initial inventory row can be read before its directory index is committed.
+        backfill.start()
+        await backfill.waitUntilIdle()
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.song(id: song.id)?.title, "走在冷风中 (Live)")
+        XCTAssertEqual(library.song(id: song.id)?.artistName, "刘思涵")
+
+        indexedFileName = fileName
+        var previouslyMisread = try XCTUnwrap(library.song(id: song.id))
+        previouslyMisread.title = "刘思涵"
+        library.addSongs([previouslyMisread], affectedSourceIDs: [sourceID])
+        await library.waitForPendingIndex()
+        for _ in 0..<2 {
+            let result = await backfill.rereadTags(songID: song.id, expectedSourceID: sourceID)
+            guard case .completed = result else { return XCTFail("Tag read did not complete: \(result)") }
+            XCTAssertEqual(library.song(id: song.id)?.title, "走在冷风中 (Live)")
+            XCTAssertEqual(library.song(id: song.id)?.filePath, "12345678")
+        }
+        XCTAssertEqual(try Data(contentsOf: localURL), payload)
+        await library.waitForPendingIndex()
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Title corrections must finish persistence")
+        }
+    }
+
+    @MainActor
+    func testScrapingKeepsCorrectedTitleAcrossLocalAndRemoteReads() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileName = "走在冷风中 (Live) - 刘思涵.mp3"
+        let expectedTitle = "走在冷风中 (Live)"
+        let payload = Self.duplicatedArtistTitleFixture()
+        let localURL = directory.appendingPathComponent("cached.mp3")
+        try payload.write(to: localURL)
+
+        let defaults = UserDefaults.standard
+        let previousSettings = defaults.object(forKey: ScraperSettings.defaultsKey)
+        defer {
+            if let previousSettings {
+                defaults.set(previousSettings, forKey: ScraperSettings.defaultsKey)
+            } else {
+                defaults.removeObject(forKey: ScraperSettings.defaultsKey)
+            }
+        }
+        var settings = ScraperSettings.load()
+        for index in settings.sources.indices { settings.sources[index].isEnabled = false }
+        settings.save()
+        XCTAssertTrue(ScraperSettings.load().enabledSources.isEmpty)
+
+        let metadataService = MetadataService()
+        let local = await metadataService.loadMetadata(
+            for: localURL, allowOnlineFetch: false, trustedSource: false,
+            fallbackTitle: (fileName as NSString).deletingPathExtension, discoverSidecars: false
+        )
+        let remote = await metadataService.loadEmbeddedMetadata(
+            from: payload, fileExtension: "mp3", fallbackTitle: (fileName as NSString).deletingPathExtension
+        )
+        for metadata in [local, remote] {
+            XCTAssertEqual(metadata.title, expectedTitle)
+            XCTAssertEqual(metadata.artist, "刘思涵")
+            XCTAssertEqual(metadata.embeddedTitle, "刘思涵", "Filename inference must not become an embedded tag")
+        }
+
+        // Local and streaming URLs enter the same branches used by cached and uncached cloud songs.
+        for sourceType in [MusicSourceType.local, .pan123] {
+            let sourceID = "scrape-title-\(UUID().uuidString)"
+            let source = MusicSource(id: sourceID, name: "Title fixture", type: sourceType)
+            let connector = CompleteArtworkFixtureConnector(
+                sourceID: sourceID, payloads: ["12345678": payload], localURLs: ["12345678": localURL]
+            )
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+            let scraper = MusicScraperService(sourceManager: manager, sourceFileName: { _ in fileName })
+            var song = Song(
+                id: "title-\(UUID().uuidString)", title: expectedTitle, artistName: "刘思涵",
+                fileFormat: .mp3, filePath: "12345678", sourceID: sourceID, fileSize: Int64(payload.count)
+            )
+            let fallback = await scraper.suggestedScrapeTitle(for: song)
+            let query = await scraper.suggestedSearchQuery(for: song)
+            XCTAssertEqual(fallback, "走在冷风中 (Live) - 刘思涵")
+            XCTAssertEqual(query, "走在冷风中 刘思涵")
+
+            for onlyFillMissing in [true, false] {
+                settings.onlyFillMissingFields = onlyFillMissing
+                settings.save()
+                for forceRescrape in [false, true] {
+                    song.title = expectedTitle
+                    let result = try await scraper.processedSongWithAssets(
+                        song, forceRescrape: forceRescrape, storeAssets: false
+                    )
+                    XCTAssertEqual(result?.song.title, expectedTitle)
+                    XCTAssertEqual(result?.song.artistName, "刘思涵")
+                    if forceRescrape || !onlyFillMissing {
+                        song.title = "刘思涵"
+                        let repaired = try await scraper.processedSongWithAssets(
+                            song, forceRescrape: forceRescrape, storeAssets: false
+                        )
+                        XCTAssertEqual(repaired?.song.title, expectedTitle)
+                        XCTAssertEqual(repaired?.song.filePath, song.filePath)
+                        let manualQuery = await scraper.suggestedSearchQuery(for: song)
+                        XCTAssertEqual(manualQuery, "走在冷风中 刘思涵")
+                    }
+                }
+            }
+            let localReads = await connector.localURLRequestCount(for: song.filePath)
+            if sourceType == .pan123 {
+                XCTAssertEqual(localReads, 0, "Remote scraping must not download audio to repair its title")
+            } else {
+                XCTAssertGreaterThan(localReads, 0)
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: localURL), payload)
+    }
+
+    fileprivate static func duplicatedArtistTitleFixture() -> Data {
+        var body = Data()
+        for (key, value) in [("TIT2", "刘思涵"), ("TPE1", "刘思涵"), ("TALB", "拥抱你")] {
+            let text = Data([1]) + value.data(using: .utf16)!
+            body += Data(key.utf8)
+            body += Data([24, 16, 8, 0].map { UInt8((text.count >> $0) & 0xFF) })
+            body += Data([0, 0]) + text
+        }
+        let size = Data([21, 14, 7, 0].map { UInt8((body.count >> $0) & 0x7F) })
+        var payload = Data([0x49, 0x44, 0x33, 3, 0, 0]) + size + body
+        for _ in 0..<100 {
+            payload += Data([0xFF, 0xFB, 0x90, 0x64]) + Data(repeating: 0, count: 413)
+        }
+        return payload
     }
 
     func testLocalLyricsCreateAndReplaceThroughCanonicalRoot() async throws {
@@ -1280,6 +1449,89 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         )
     }
 
+    /// 只差专辑艺术家复查的行必须让位给刚扫进来的裸行。资料库按发现顺序
+    /// 追加, 新行永远在数组末尾, 所以没有这一层分级, 一整轮全库复查就会把
+    /// 用户刚加的那几首歌饿死在队尾。
+    func testBackfillBatchSelectionDefersAlbumArtistRecheckBehindRealWork() {
+        var songs: [Song] = []
+        for index in 0..<30 {
+            songs.append(
+                Song(
+                    id: "recheck-\(index)",
+                    title: "Recheck \(index)",
+                    albumTitle: "Compilation",
+                    artistName: "Artist \(index)",
+                    albumArtistName: "Artist \(index)",
+                    duration: 200,
+                    fileFormat: .flac,
+                    filePath: "/recheck-\(index).flac",
+                    sourceID: "remote"
+                )
+            )
+        }
+        // 扫描刚提交的新行: 没时长, 排在资料库数组的最后。
+        songs.append(
+            Song(
+                id: "fresh-0",
+                title: "Fresh",
+                duration: 0,
+                fileFormat: .flac,
+                filePath: "/fresh-0.flac",
+                sourceID: "remote"
+            )
+        )
+        let input = Self.makeSelectionInput(
+            songs: songs,
+            limit: 4,
+            bareOnlySourceIDs: ["remote"],
+            failedSongIDs: [],
+            titleCheckedIDs: Set((0..<30).map { "recheck-\($0)" }),
+            albumArtistCheckedIDs: Set((0..<30).map { "recheck-\($0)" }),
+            albumArtistUnconfirmedIDs: Set((0..<30).map { "recheck-\($0)" })
+        )
+
+        let selection = MetadataBackfillService.selectBatch(input)
+        XCTAssertEqual(selection.first?.id, "fresh-0")
+        XCTAssertEqual(
+            selection.map(\.id),
+            ["fresh-0", "recheck-0", "recheck-1", "recheck-2"]
+        )
+    }
+
+    /// 队列里只剩复查行时仍然按资料库顺序取满一批 —— runWorker 的停摆保护
+    /// 依赖这个顺序。
+    func testBackfillBatchSelectionStillDrainsAlbumArtistRechecksWhenAlone() {
+        var songs: [Song] = []
+        for index in 0..<10 {
+            songs.append(
+                Song(
+                    id: "recheck-\(index)",
+                    title: "Recheck \(index)",
+                    albumTitle: "Compilation",
+                    artistName: "Artist \(index)",
+                    albumArtistName: "Artist \(index)",
+                    duration: 200,
+                    fileFormat: .flac,
+                    filePath: "/recheck-\(index).flac",
+                    sourceID: "remote"
+                )
+            )
+        }
+        let input = Self.makeSelectionInput(
+            songs: songs,
+            limit: 3,
+            bareOnlySourceIDs: ["remote"],
+            failedSongIDs: [],
+            titleCheckedIDs: Set((0..<10).map { "recheck-\($0)" }),
+            albumArtistCheckedIDs: Set((0..<10).map { "recheck-\($0)" }),
+            albumArtistUnconfirmedIDs: Set((0..<10).map { "recheck-\($0)" })
+        )
+        XCTAssertEqual(
+            MetadataBackfillService.selectBatch(input).map(\.id),
+            ["recheck-0", "recheck-1", "recheck-2"]
+        )
+    }
+
     /// 前 40 行被 failedSongIDs 排除, 后 10 行是可处理的空元数据行。
     private static func makeSelectionFixtureSongs() -> [Song] {
         var songs: [Song] = []
@@ -1314,7 +1566,12 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         songs: [Song],
         limit: Int,
         allowedSourceIDs: Set<String>? = nil,
-        disabledSourceIDs: Set<String> = []
+        disabledSourceIDs: Set<String> = [],
+        bareOnlySourceIDs: Set<String> = [],
+        failedSongIDs: Set<String> = Set((0..<40).map { "skip-\($0)" }),
+        titleCheckedIDs: Set<String> = [],
+        albumArtistCheckedIDs: Set<String> = [],
+        albumArtistUnconfirmedIDs: Set<String> = []
     ) -> MetadataBackfillService.BatchSelectionInput {
         MetadataBackfillService.BatchSelectionInput(
             songs: songs,
@@ -1322,18 +1579,19 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
             scopedSourceID: nil,
             allowedSourceIDs: allowedSourceIDs,
             sourceIDs: ["remote"],
-            bareOnlySourceIDs: [],
+            bareOnlySourceIDs: bareOnlySourceIDs,
             disabledSourceIDs: disabledSourceIDs,
             manuallyReadingSongIDs: [],
             pendingFlushSongIDs: [],
-            failedSongIDs: Set((0..<40).map { "skip-\($0)" }),
+            failedSongIDs: failedSongIDs,
             sourceIssueSongIDs: [],
             sessionGivenUpIDs: [],
             transientFailureCounts: [:],
             sourceTransientFailureCounts: [:],
             artworkGivenUpIDs: [],
-            titleCheckedIDs: [],
-            albumArtistCheckedIDs: [],
+            titleCheckedIDs: titleCheckedIDs,
+            albumArtistCheckedIDs: albumArtistCheckedIDs,
+            albumArtistUnconfirmedIDs: albumArtistUnconfirmedIDs,
             artistCheckedIDs: [],
             incompleteSongIDs: []
         )
@@ -1737,4 +1995,466 @@ private final class WebDAVLifecycleHTTPServer: @unchecked Sendable {
         response.append(body)
         connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
     }
+}
+
+
+final class Pan123MetadataWritebackTests: XCTestCase {
+    func testChunkedAndReusedUploadsPreserveNameAndReturnCommittedIdentity() async throws {
+        for mode in [Pan123MetadataHTTPFixture.Mode.chunked, .reuse, .sameID, .lostComplete] {
+            let fixture = Pan123MetadataHTTPFixture(mode: mode)
+            let (connector, session) = fixture.connector()
+            defer { session.invalidateAndCancel(); fixture.remove() }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: url) }
+            try fixture.payload.write(to: url)
+            let expected = try await connector.metadataWritebackState(for: "42")
+            let path = try await connector.replaceMetadataFileReturningPath(at: "42", with: url, expected: expected)
+            XCTAssertEqual(path, mode == .sameID ? "42" : "99")
+            XCTAssertEqual(fixture.createCount, 1)
+            XCTAssertEqual(fixture.completeCount, mode == .reuse ? 0 : 1)
+            if mode != .reuse { XCTAssertEqual(fixture.receivedSlices, fixture.payload) }
+        }
+    }
+
+    func testConflictingAndAmbiguousFilesAreNeverCommitted() async throws {
+        for mode in [Pan123MetadataHTTPFixture.Mode.changedDuringUpload, .ambiguousName] {
+            let fixture = Pan123MetadataHTTPFixture(mode: mode)
+            let (connector, session) = fixture.connector()
+            defer { session.invalidateAndCancel(); fixture.remove() }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: url) }
+            try fixture.payload.write(to: url)
+            let expected = try await connector.metadataWritebackState(for: "42")
+            do {
+                _ = try await connector.replaceMetadataFileReturningPath(at: "42", with: url, expected: expected)
+                XCTFail("A conflicting source must not be replaced")
+            } catch EmbeddedMetadataWritebackSourceError.conflict { }
+            XCTAssertEqual(fixture.completeCount, 0)
+            if mode == .ambiguousName { XCTAssertEqual(fixture.createCount, 0) }
+        }
+    }
+
+    func testCommittedIDSurvivesFailedProviderVerification() async throws {
+        let fixture = Pan123MetadataHTTPFixture(mode: .wrongReadback)
+        let (connector, session) = fixture.connector()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try fixture.payload.write(to: url)
+        let expected = try await connector.metadataWritebackState(for: "42")
+        do {
+            _ = try await connector.replaceMetadataFileReturningPath(at: "42", with: url, expected: expected)
+            XCTFail("A mismatched remote file must fail verification")
+        } catch let error as EmbeddedMetadataReplacementReadbackError {
+            XCTAssertEqual(error.filePath, "99")
+        }
+    }
+
+    @MainActor
+    func testTagAndLyricsWritebackRetargetExistingSongEvenWhenReadbackFails() async throws {
+        for failReadback in [false, true] {
+            for lyricsOnly in [false, true] {
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: directory) }
+                let url = directory.appendingPathComponent("original.mp3")
+                let payload = CloudPlaybackSourceConcurrencyTests.duplicatedArtistTitleFixture()
+                try payload.write(to: url)
+                let connector = RelocatingMetadataFixture(sourceURL: url, failReadback: failReadback)
+                let source = MusicSource(id: connector.sourceID, name: "123 fixture", type: .pan123)
+                let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+                let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+                let scan = ScanService(fileManager: MetadataWritebackTestFileManager(root: directory))
+                let song = Song(id: "kept-song", title: "Original", artistName: "Artist", fileFormat: .mp3,
+                                filePath: "42", sourceID: source.id, fileSize: Int64(payload.count), revision: "before")
+                var requested = song
+                requested.title = "Corrected"
+                library.addSongs([song], affectedSourceIDs: [source.id])
+                await library.waitForPendingIndex()
+                manager.metadataFileReplacementHandler = { original, updated in
+                    try await scan.recordMetadataFileReplacement(original: original, updated: updated, in: library)
+                }
+                if lyricsOnly {
+                    do {
+                        let updated = try await manager.writeEmbeddedLyrics(.keep, for: song)
+                        XCTAssertFalse(failReadback)
+                        XCTAssertEqual(updated.filePath, "99")
+                    } catch {
+                        XCTAssertTrue(failReadback, "Unexpected error: \(error)")
+                    }
+                } else {
+                    let report = try await manager.writeTagMetadata(original: song, updated: requested, coverData: nil)
+                    XCTAssertEqual(report.hasFailures, failReadback)
+                    XCTAssertEqual(report.shouldAbortLocalSave, failReadback)
+                    if !failReadback { XCTAssertEqual(report.updatedSong.filePath, "99") }
+                }
+                XCTAssertEqual(library.song(id: song.id)?.filePath, "99")
+                // Location persistence must not prematurely apply requested tags.
+                XCTAssertEqual(library.song(id: song.id)?.title, "Original")
+                XCTAssertEqual(library.songs.count, 1)
+                let reads = await connector.readPaths
+                XCTAssertEqual(reads, ["42", "99"])
+                try await library.persistIncrementalNowAndWait().get()
+            }
+        }
+    }
+}
+
+private final class MetadataWritebackTestFileManager: FileManager, @unchecked Sendable {
+    let root: URL
+    init(root: URL) { self.root = root; super.init() }
+    override func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
+}
+
+private actor RelocatingMetadataFixture: EmbeddedMetadataWritebackAdapter {
+    nonisolated let sourceID = "relocating-fixture"
+    let sourceURL: URL
+    let failReadback: Bool
+    var replacedURL: URL?
+    private(set) var readPaths: [String] = []
+    init(sourceURL: URL, failReadback: Bool) { self.sourceURL = sourceURL; self.failReadback = failReadback }
+    func connect() async throws { }
+    func disconnect() async { }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+    func localURL(for path: String) async throws -> URL {
+        readPaths.append(path)
+        if path == "99", failReadback { throw URLError(.networkConnectionLost) }
+        return path == "42" ? sourceURL : replacedURL!
+    }
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        let url = path == "42" ? sourceURL : replacedURL!
+        return .init(fileSize: Int64(try Data(contentsOf: url).count), modifiedDate: nil, revision: path == "42" ? "before" : "after")
+    }
+    func replaceMetadataFile(at path: String, with localURL: URL, expected: EmbeddedMetadataRemoteFileState) async throws {
+        XCTFail("Coordinator must use the returned location")
+    }
+    func replaceMetadataFileReturningPath(at path: String, with localURL: URL, expected: EmbeddedMetadataRemoteFileState) async throws -> String {
+        let destination = sourceURL.deletingLastPathComponent().appendingPathComponent("replaced.mp3")
+        try FileManager.default.copyItem(at: localURL, to: destination)
+        replacedURL = destination
+        return "99"
+    }
+}
+
+private final class Pan123MetadataHTTPFixture: @unchecked Sendable {
+    enum Mode { case chunked, reuse, sameID, lostComplete, changedDuringUpload, ambiguousName, wrongReadback }
+    let mode: Mode
+    let token = UUID().uuidString
+    let payload = Data("audio-tag-replacement-contents".utf8)
+    var createCount = 0
+    var completeCount = 0
+    var receivedSlices = Data()
+    private var committed = false
+    private var editedMD5 = ""
+    private var editedSize = 0
+    private let lock = NSLock()
+    init(mode: Mode) { self.mode = mode }
+    func connector() -> (Pan123Source, URLSession) {
+        Pan123MetadataURLProtocol.register(self)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [Pan123MetadataURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        return (Pan123Source(sourceID: token, session: session, tokenProvider: { [token] in token }), session)
+    }
+    func remove() { Pan123MetadataURLProtocol.remove(token) }
+    func response(_ request: URLRequest) throws -> Data {
+        try lock.withLock {
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Platform"), "open_platform")
+            let oldMD5 = String(repeating: mode == .changedDuringUpload && !receivedSlices.isEmpty ? "b" : "a", count: 32)
+            let id = committed && mode != .sameID ? 99 : 42
+            let md5 = committed ? (mode == .wrongReadback ? String(repeating: "c", count: 32) : editedMD5) : oldMD5
+            let size = committed ? editedSize : 123
+            func file() -> [String: Any] {
+                ["fileID": id, "fileId": id, "filename": "Song - Artist.mp3", "parentFileID": 7,
+                 "type": 0, "trashed": 0, "size": size, "etag": md5]
+            }
+            let data: [String: Any]
+            switch url.path {
+            case "/api/v1/file/detail": data = file()
+            case "/api/v2/file/list":
+                data = ["fileList": mode == .ambiguousName ? [file(), file()] : [file()], "lastFileId": -1]
+            case "/upload/v2/file/create":
+                createCount += 1
+                let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: Self.body(request)) as? [String: Any])
+                XCTAssertEqual(body["filename"] as? String, "Song - Artist.mp3")
+                XCTAssertEqual(body["parentFileID"] as? Int, 7)
+                XCTAssertEqual(body["duplicate"] as? Int, 2)
+                editedMD5 = try XCTUnwrap(body["etag"] as? String)
+                editedSize = try XCTUnwrap(body["size"] as? Int)
+                XCTAssertEqual(editedMD5, Insecure.MD5.hash(data: payload).map { String(format: "%02x", $0) }.joined())
+                if mode == .reuse { committed = true; data = ["reuse": true, "fileID": 99] }
+                else { data = ["reuse": false, "preuploadID": "fixture-upload", "sliceSize": 7, "servers": ["https://upload.example.test"]] }
+            case "/upload/v2/file/slice":
+                let body = try Self.body(request)
+                let marker = Data("Content-Type: application/octet-stream\r\n\r\n".utf8)
+                let start = try XCTUnwrap(body.range(of: marker)).upperBound
+                let end = try XCTUnwrap(body.range(of: Data("\r\n--".utf8), in: start..<body.endIndex)).lowerBound
+                let slice = body.subdata(in: start..<end)
+                let hash = Insecure.MD5.hash(data: slice).map { String(format: "%02x", $0) }.joined()
+                XCTAssertTrue(String(decoding: body, as: UTF8.self).contains("name=\"sliceMD5\"\r\n\r\n\(hash)\r\n"))
+                XCTAssertLessThanOrEqual(slice.count, 7)
+                receivedSlices.append(slice)
+                data = [:]
+            case "/upload/v2/file/upload_complete":
+                completeCount += 1
+                XCTAssertEqual(receivedSlices, payload)
+                committed = true
+                if mode == .lostComplete { throw URLError(.networkConnectionLost) }
+                data = ["completed": true, "fileID": mode == .sameID ? 42 : 99]
+            default: throw URLError(.unsupportedURL)
+            }
+            return try JSONSerialization.data(withJSONObject: ["code": 0, "data": data])
+        }
+    }
+    fileprivate static func body(_ request: URLRequest) throws -> Data {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count < 0 { throw stream.streamError ?? URLError(.unknown) }
+            if count == 0 { return data }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+    }
+}
+
+private final class Pan123MetadataURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var fixtures: [String: Pan123MetadataHTTPFixture] = [:]
+    static func register(_ fixture: Pan123MetadataHTTPFixture) { lock.withLock { fixtures[fixture.token] = fixture } }
+    static func remove(_ token: String) { _ = lock.withLock { fixtures.removeValue(forKey: token) } }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        do {
+            let token = String((request.value(forHTTPHeaderField: "Authorization") ?? "").dropFirst(7))
+            let fixture = try XCTUnwrap(Self.lock.withLock { Self.fixtures[token] })
+            let data = try fixture.response(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    override func stopLoading() { }
+}
+
+
+final class DrimeMetadataWritebackTests: XCTestCase {
+    func testReplacementStreamsChunksAndVerifiesBeforeRetiringOriginal() async throws {
+        for size in [37, DrimeAPIProtocol.multipartPartSize + 17] {
+            let fixture = DrimeMetadataHTTPFixture(mode: .success, size: size)
+            try await exercise(fixture) { connector, url, expected in
+                let path = try await connector.replaceMetadataFileReturningPath(at: "42", with: url, expected: expected)
+                XCTAssertEqual(path, "99")
+                XCTAssertTrue(fixture.oldTrashed)
+                XCTAssertFalse(fixture.stagedTrashed)
+                XCTAssertEqual(fixture.stageName, "Song - Artist.mp3")
+                XCTAssertEqual(fixture.uploaded, fixture.payload)
+                XCTAssertEqual(fixture.parts.count, size > DrimeAPIProtocol.multipartPartSize ? 2 : 1)
+                XCTAssertLessThanOrEqual(fixture.parts.map(\.count).max() ?? 0, DrimeAPIProtocol.multipartPartSize)
+            }
+        }
+    }
+
+    func testConflictOrBadUploadNeverRemovesOriginal() async throws {
+        for mode in [DrimeMetadataHTTPFixture.Mode.conflict, .badUpload] {
+            let fixture = DrimeMetadataHTTPFixture(mode: mode)
+            try await exercise(fixture) { connector, url, expected in
+                do {
+                    _ = try await connector.replaceMetadataFileReturningPath(at: "42", with: url, expected: expected)
+                    XCTFail("Conflicting or corrupt replacement must fail")
+                } catch {
+                    XCTAssertFalse(error is EmbeddedMetadataReplacementReadbackError)
+                }
+                XCTAssertFalse(fixture.oldTrashed)
+                XCTAssertTrue(fixture.stagedTrashed)
+                XCTAssertEqual(fixture.originalDeleteAttempts, 0)
+            }
+        }
+    }
+
+    func testFailedRenameRestoresOriginalAndLostResponseResolvesCommittedFile() async throws {
+        for mode in [DrimeMetadataHTTPFixture.Mode.renameFailure, .lostRename, .trashFailure] {
+            let fixture = DrimeMetadataHTTPFixture(mode: mode)
+            try await exercise(fixture) { connector, url, expected in
+                do {
+                    let path = try await connector.replaceMetadataFileReturningPath(at: "42", with: url, expected: expected)
+                    XCTAssertEqual(mode, .lostRename)
+                    XCTAssertEqual(path, "99")
+                    XCTAssertEqual(fixture.stageName, "Song - Artist.mp3")
+                } catch { XCTAssertNotEqual(mode, .lostRename) }
+                if mode != .lostRename {
+                    XCTAssertFalse(fixture.oldTrashed)
+                    XCTAssertTrue(fixture.stagedTrashed)
+                }
+            }
+        }
+    }
+
+    func testFailedRestoreRetainsVerifiedReplacementAndReturnsItsLocation() async throws {
+        let fixture = DrimeMetadataHTTPFixture(mode: .restoreFailure)
+        try await exercise(fixture) { connector, url, expected in
+            do {
+                _ = try await connector.replaceMetadataFileReturningPath(at: "42", with: url, expected: expected)
+                XCTFail("A failed restoration must be reported")
+            } catch let error as EmbeddedMetadataReplacementReadbackError {
+                XCTAssertEqual(error.filePath, "99")
+                XCTAssertEqual(error.fileSize, Int64(fixture.payload.count))
+            }
+            XCTAssertTrue(fixture.verified)
+            XCTAssertTrue(fixture.oldTrashed)
+            XCTAssertFalse(fixture.stagedTrashed, "Keep the verified copy reachable if restoration fails")
+        }
+    }
+
+    private func exercise(
+        _ fixture: DrimeMetadataHTTPFixture,
+        operation: (DrimeSource, URL, EmbeddedMetadataRemoteFileState) async throws -> Void
+    ) async throws {
+        let (connector, session) = fixture.connector()
+        defer { session.invalidateAndCancel(); fixture.remove() }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try fixture.payload.write(to: url)
+        let expected = try await connector.metadataWritebackState(for: "42")
+        try await operation(connector, url, expected)
+    }
+}
+
+private final class DrimeMetadataHTTPFixture: @unchecked Sendable {
+    enum Mode { case success, conflict, badUpload, renameFailure, lostRename, trashFailure, restoreFailure }
+    let mode: Mode
+    let token = UUID().uuidString.lowercased()
+    let payload: Data
+    private let lock = NSLock()
+    var oldTrashed = false
+    var stagedTrashed = false
+    var stageName = ""
+    var parts: [Data] = []
+    var uploaded = Data()
+    var verified = false
+    var originalDeleteAttempts = 0
+    private var registered = false
+    private var originalChanged = false
+    init(mode: Mode, size: Int = 37) { self.mode = mode; payload = Data(repeating: 0x57, count: size) }
+    func connector() -> (DrimeSource, URLSession) {
+        DrimeMetadataURLProtocol.register(self)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DrimeMetadataURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        return (DrimeSource(sourceID: token, session: session, tokenProvider: { [token] in token }), session)
+    }
+    func remove() { DrimeMetadataURLProtocol.remove(token) }
+    func response(_ request: URLRequest) throws -> Data {
+        try lock.withLock {
+            let url = try XCTUnwrap(request.url)
+            if url.host?.hasSuffix(".uploads.example.test") != true {
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(token)")
+            } else {
+                XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"), "S3 presigned PUT must not receive the account token")
+            }
+            func entry(_ id: Int, _ name: String, _ size: Int) -> [String: Any] {
+                ["id": id, "name": name, "file_size": size, "parent_id": 7, "type": "audio",
+                 "file_hash": String(repeating: id == 42 ? (originalChanged ? "b" : "a") : "c", count: 64),
+                 "updated_at": "2026-09-22T00:00:00.000Z", "url": "/api/v1/file-entries/\(id)"]
+            }
+            let body = try Pan123MetadataHTTPFixture.body(request)
+            let json = body.isEmpty ? [:] : (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+            var result: [String: Any] = ["status": "success"]
+            switch url.path {
+            case "/api/v1/drive/file-entries":
+                let parent = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "parentIds" }?.value
+                var entries: [[String: Any]] = []
+                if parent == nil { entries = [["id": 7, "name": "Music", "type": "folder"]] }
+                else {
+                    if !oldTrashed { entries.append(entry(42, "Song - Artist.mp3", 123)) }
+                    if registered && !stagedTrashed { entries.append(entry(99, stageName, payload.count)) }
+                }
+                result = ["data": entries, "current_page": 1, "last_page": 1]
+            case "/api/v1/s3/multipart/create":
+                stageName = try XCTUnwrap(json["filename"] as? String)
+                XCTAssertTrue(stageName.hasSuffix(".tmp"))
+                XCTAssertEqual(json["mime"] as? String, "audio/mpeg")
+                XCTAssertEqual(json["extension"] as? String, "mp3")
+                result.merge(["key": "uploads/object-storage-name", "uploadId": "upload-fixture"]) { _, new in new }
+            case "/api/v1/s3/multipart/batch-sign-part-urls":
+                let numbers = try XCTUnwrap(json["partNumbers"] as? [Int])
+                result["urls"] = numbers.map { ["partNumber": $0, "url": "https://\(token).uploads.example.test/part/\($0)"] as [String: Any] }
+            case let path where path.hasPrefix("/part/"):
+                parts.append(body)
+                uploaded.append(body)
+            case "/api/v1/s3/multipart/complete":
+                XCTAssertEqual(uploaded, payload)
+            case "/api/v1/s3/entries":
+                registered = true
+                XCTAssertEqual(json["clientName"] as? String, stageName)
+                XCTAssertEqual(json["clientExtension"] as? String, "mp3")
+                XCTAssertEqual(json["parentId"] as? String, "7")
+                result["fileEntry"] = entry(99, stageName, payload.count)
+            case "/api/v1/file-entries/99/verify-integrity":
+                let hash = SHA256.hash(data: uploaded).map { String(format: "%02x", $0) }.joined()
+                XCTAssertEqual(json["sha256"] as? String, hash)
+                verified = mode != .badUpload
+                result["verified"] = verified
+                result["serverHash"] = hash
+                if mode == .conflict { originalChanged = true }
+            case "/api/v1/file-entries/delete":
+                let ids = try XCTUnwrap(json["entryIds"] as? [String])
+                XCTAssertEqual(json["deleteForever"] as? Bool, false)
+                if ids.contains("42") {
+                    originalDeleteAttempts += 1
+                    XCTAssertTrue(verified, "Never remove the original before verifying replacement bytes")
+                    if mode == .trashFailure { throw URLError(.cannotConnectToHost) }
+                    oldTrashed = true
+                }
+                if ids.contains("99") { stagedTrashed = true }
+            case "/api/v1/file-entries/restore":
+                if mode == .restoreFailure { throw URLError(.cannotConnectToHost) }
+                oldTrashed = false
+            case "/api/v1/file-entries/99":
+                XCTAssertEqual(request.httpMethod, "PUT")
+                if mode == .renameFailure || mode == .restoreFailure { throw URLError(.cannotConnectToHost) }
+                stageName = try XCTUnwrap(json["name"] as? String)
+                if mode == .lostRename { throw URLError(.networkConnectionLost) }
+                result["fileEntry"] = entry(99, stageName, payload.count)
+            case "/api/v1/s3/multipart/abort": break
+            default: throw URLError(.unsupportedURL)
+            }
+            return try JSONSerialization.data(withJSONObject: result)
+        }
+    }
+}
+
+private final class DrimeMetadataURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var fixtures: [String: DrimeMetadataHTTPFixture] = [:]
+    static func register(_ fixture: DrimeMetadataHTTPFixture) { lock.withLock { fixtures[fixture.token] = fixture } }
+    static func remove(_ token: String) { _ = lock.withLock { fixtures.removeValue(forKey: token) } }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        do {
+            let token = String((request.value(forHTTPHeaderField: "Authorization") ?? "").dropFirst(7))
+            let fixture = try XCTUnwrap(Self.lock.withLock {
+                Self.fixtures[token] ?? request.url?.host.flatMap { host in
+                    guard host.hasSuffix(".uploads.example.test") else { return nil }
+                    return Self.fixtures[String(host.dropLast(".uploads.example.test".count))]
+                }
+            })
+            let data = try fixture.response(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["ETag": "fixture-part-hash"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    override func stopLoading() { }
 }

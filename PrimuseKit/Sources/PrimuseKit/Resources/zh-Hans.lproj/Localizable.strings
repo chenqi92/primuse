@@ -846,6 +846,7 @@
 "source_address_alternate_section" = "备用地址";
 "source_address_section_footer" = "端口留空，保存时 Primuse 会自己试出来。";
 "source_address_placeholder" = "域名、IP 或完整网址";
+"source_address_placeholder_vendor %@" = "域名、IP 或 %@";
 "source_address_add_alternate" = "添加备用地址";
 "source_address_remove" = "移除这个地址";
 "source_address_advanced" = "手动设置端口与加密";
@@ -882,3 +883,35 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "DSM 音乐套件 · 曲库、歌单、评分";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "音乐源和登录信息";
+"send_to_tv_step_library" = "曲库";
+"send_to_tv_step_artwork" = "封面";
+"send_to_tv_step_everything" = "曲库、音乐源和登录信息";
+"send_to_tv_progress_waiting" = "等待中";
+"send_to_tv_progress_done" = "已完成";
+"send_to_tv_progress_failed" = "未完成";
+"send_to_tv_progress_preparing" = "正在准备…";
+"send_to_tv_progress_tv_saving" = "Apple TV 正在保存…";
+"send_to_tv_progress_batch" = "正在发送第 %1$@ 批，共 %2$@ 批";
+"send_to_tv_progress_sending" = "正在发送 %@";
+"send_to_tv_resume" = "继续发送";
+"send_to_tv_partial_saved" = "已完成的部分已保存在 Apple TV 上，继续发送会从中断处接着传。";
+"ext.tv.transfer.sources" = "正在接收音乐源和登录信息…";
+"ext.tv.transfer.sourcesSaved" = "音乐源已保存，正在等待曲库…";
+"ext.tv.transfer.library" = "正在接收曲库…";
+"ext.tv.transfer.libraryImporting" = "正在导入曲库…";
+"ext.tv.transfer.librarySaved" = "曲库已导入，正在等待封面…";
+"ext.tv.transfer.artwork" = "正在接收封面（第 %1$@ 批，共 %2$@ 批）";
+"ext.tv.transfer.finished" = "已从 iPhone 传入 %@ 首歌曲";
+"ext.tv.transfer.failed" = "传输没有完成，请在 iPhone 上重试。";
+"audio_variant_lossy_stereo" = "立体声";
+"audio_variant_lossless" = "无损";
+"audio_variant_hi_res_lossless" = "高解析度无损";
+"audio_variant_dolby_atmos" = "杜比全景声";
+"audio_variant_dolby_audio" = "杜比音频";
+"apple_music_pick_from_catalog" = "从 Apple Music 选取…";
+"apple_music_pick_adding" = "正在加入资料库…";
+"apple_music_pick_added" = "已加入 %d 首，正在同步";
+"apple_music_pick_failed" = "加入资料库失败";

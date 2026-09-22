@@ -957,10 +957,22 @@ struct TVSourceFormView: View {
         let reading = addressReading
         guard reading.isSubmittable else { return }
 
-        guard SourceAddressFormPolicy.requiresProbe(
-            drafts: addressRows.map(\.draft),
-            baseline: addressBaseline
-        ) else {
+        // 逐行判断要不要探:编辑已有源时没动过的那几行原样留着 —— 否则在外网
+        // 给源补一条备用地址,会连带去探那条此刻动不了的内网地址。
+        let probing = Set(
+            zip(
+                addressRows,
+                SourceAddressFormPolicy.rowsRequiringProbe(
+                    drafts: addressRows.map(\.draft),
+                    baseline: addressBaseline
+                )
+            ).compactMap { row, needsProbe in needsProbe ? row.id : nil }
+        )
+        plog(
+            "🔎 Source address submit type=\(type.rawValue) editing=\(editing != nil) "
+                + "rows=\(addressRows.count) probing=\(probing.count)"
+        )
+        guard probing.isEmpty == false else {
             // 编辑已有源且地址没动过:已存的端口与协议本来就是明确的,原样留着。
             applyAddressPlan(reading, selected: [:])
             perform(intent)
@@ -979,12 +991,27 @@ struct TVSourceFormView: View {
             let outcome = await addressProbe.probe(
                 rows: addressRows,
                 reading: reading,
-                sourceType: type
+                sourceType: type,
+                probing: probing
             )
-            guard outcome.isCancelled == false, Task.isCancelled == false else { return }
-            // 一个候选都没应答:尝试清单已经内联列在地址下面了。让用户接着改,
-            // 或者按「仍然保存」坚持用第一个候选 —— 不弹全屏面板打断。
-            guard outcome.unresolvedRowIDs.isEmpty else { return }
+            guard outcome.isCancelled == false, Task.isCancelled == false else {
+                plog("🔎 Source address submit cancelled")
+                return
+            }
+            // 内网地址在外网探不通是实话而不是错。只要还有一行给出了结论,这次
+            // 保存就照常进行:探不通的那一行按它自己的解读存回去(没动过的行读
+            // 回来只有一个候选,就是它原来那个端点)。
+            //
+            // 一行都没应答才停下来 —— 尝试清单已经内联列在地址下面了,让用户
+            // 接着改,或者按「仍然保存」坚持用第一个候选,不弹全屏面板打断。
+            guard outcome.selected.isEmpty == false || outcome.unresolvedRowIDs.isEmpty else {
+                plog("🔎 Source address submit halted: no address responded rows=\(outcome.unresolvedRowIDs.count)")
+                return
+            }
+            plog(
+                "🔎 Source address submit saving resolved=\(outcome.selected.count) "
+                    + "unresolved=\(outcome.unresolvedRowIDs.count)"
+            )
             resolvedSelection = ResolvedAddressSelection(
                 signature: addressProbeSignature,
                 selected: outcome.selected
@@ -1001,12 +1028,15 @@ struct TVSourceFormView: View {
         }
     }
 
-    /// 探测不通也要存:取每一行的第一个候选。
+    /// 探测不通也要存:已经探到的行用它探到的候选,没应答的行用第一个候选。
     private func saveWithoutProbing() {
         let reading = addressReading
         guard reading.isSubmittable else { return }
+        // `cancelAddressProbe` 会清掉控制器上的结论,先取出来再取消。
+        let selected = addressProbe.selectedCandidates
+        plog("🔎 Source address saved without a full probe verdict resolved=\(selected.count)")
         cancelAddressProbe()
-        applyAddressPlan(reading, selected: [:])
+        applyAddressPlan(reading, selected: selected)
         commitSave()
     }
 
@@ -1371,6 +1401,20 @@ struct TVSourceAddressRow: Identifiable, Equatable {
         )
     }
 
+    mutating func selectTransport(_ choice: TVSourceAddressTransportChoice, sourceType: MusicSourceType) {
+        var updated = draft
+        updated.selectTransport(choice.manualUseSsl, sourceType: sourceType)
+        address = updated.address
+        transport = choice
+    }
+
+    mutating func editAddress(_ value: String, sourceType: MusicSourceType) {
+        var updated = draft
+        updated.editAddress(value, sourceType: sourceType)
+        address = updated.address
+        transport = .choice(forUseSsl: updated.manualUseSsl)
+    }
+
     /// 从一个已存的端点/标识回显。高级选项留在「自动」—— 端口与协议已经写进
     /// 地址串里了,再在下面重复一遍会让用户以为有两个地方要改。
     init(draft: SourceAddressFormPolicy.AddressDraft) {
@@ -1407,6 +1451,9 @@ final class TVSourceAddressProbeController {
     private(set) var phase: Phase = .idle
     private(set) var attempts: [UUID: [SourceEndpointResolver.Attempt]] = [:]
     private(set) var verdicts: [UUID: SourceServiceFingerprint.Verdict] = [:]
+    /// 这一轮里定下来的候选,按行 id 存。「仍然保存」要用它 —— 已经探到的行
+    /// 没有理由退回去猜第一个候选。
+    private(set) var selectedCandidates: [UUID: SourceConnectionCandidatePlanner.Candidate] = [:]
 
     /// 会话活到控制器被释放为止:一次提交可能要发四五个请求,每次都新建会话
     /// 等于每次都重建连接池。
@@ -1416,29 +1463,38 @@ final class TVSourceAddressProbeController {
 
     /// 地址一改就把上一轮的结论清掉 —— 留着会让用户以为新地址也试过了。
     func invalidate() {
-        guard phase != .idle || attempts.isEmpty == false else { return }
+        guard phase != .idle || attempts.isEmpty == false || selectedCandidates.isEmpty == false else {
+            return
+        }
         phase = .idle
         attempts = [:]
         verdicts = [:]
+        selectedCandidates = [:]
     }
 
     func probe(
         rows: [TVSourceAddressRow],
         reading: SourceAddressFormPolicy.FormReading,
-        sourceType: MusicSourceType
+        sourceType: MusicSourceType,
+        probing: Set<UUID>
     ) async -> Outcome {
-        let plans = Self.plans(rows: rows, reading: reading)
+        let plans = Self.plans(rows: rows, reading: reading, probing: probing)
         guard plans.isEmpty == false else { return Outcome() }
 
         phase = .probing
         attempts = [:]
         verdicts = [:]
+        selectedCandidates = [:]
+        plog(
+            "🔎 Address probe start type=\(sourceType.rawValue) rows=\(plans.count) "
+                + "candidates=\(plans.map(\.candidates.count))"
+        )
 
         let resolver = SourceEndpointResolver(load: session.loader())
         var resolutions: [UUID: SourceEndpointResolver.Resolution] = [:]
         await withTaskGroup(of: (UUID, SourceEndpointResolver.Resolution?).self) { group in
-            // 两行地址并发探,而不是一行等完再探下一行:每一轮本身就有十几秒的
-            // 上限,串起来用户要等一倍。捕获的都是单个 Sendable 值,不带整个计划
+            // 两行地址并发探,而不是一行等完再探下一行:每一轮最长要二十几秒,
+            // 串起来用户要等一倍。捕获的都是单个 Sendable 值,不带整个计划
             // 结构进任务里。
             for plan in plans {
                 let id = plan.id
@@ -1467,20 +1523,31 @@ final class TVSourceAddressProbeController {
         var collectedAttempts: [UUID: [SourceEndpointResolver.Attempt]] = [:]
         var collectedVerdicts: [UUID: SourceServiceFingerprint.Verdict] = [:]
         // 按表单里的顺序收集,任务组的完成顺序不该泄漏到界面上。
-        for plan in plans {
+        for (index, plan) in plans.enumerated() {
+            // 试过哪些地址、对面回了什么,逐行记一条:这是「一直在确认连接方式」
+            // 之后唯一能回答「它到底试了什么」的东西。
+            let tried = (resolutions[plan.id]?.attempts ?? [])
+                .map { "\($0.url)→\($0.verdict.logTag)" }
+                .joined(separator: " ")
             guard let resolution = resolutions[plan.id], let candidate = resolution.selected else {
                 // 尝试清单只在这一行一个候选都没应答时才有意义 —— 定下来的那行
                 // 再列一遍"试过什么"只会让人以为它也没成。
                 collectedAttempts[plan.id] = resolutions[plan.id]?.attempts ?? []
                 outcome.unresolvedRowIDs.append(plan.id)
+                plog("🔎 Address probe row=\(index + 1) no response tried=[\(tried)]")
                 continue
             }
             outcome.selected[plan.id] = candidate
             collectedVerdicts[plan.id] = resolution.verdict
+            plog(
+                "🔎 Address probe row=\(index + 1) selected=\(candidate.httpScheme):\(candidate.port) "
+                    + "verdict=\(resolution.verdict?.logTag ?? "-") tried=[\(tried)]"
+            )
         }
 
         attempts = collectedAttempts
         verdicts = collectedVerdicts
+        selectedCandidates = outcome.selected
         phase = outcome.unresolvedRowIDs.isEmpty ? .idle : .unresolved
         return outcome
     }
@@ -1492,14 +1559,17 @@ final class TVSourceAddressProbeController {
     }
 
     /// 只探要真正存下来的端点行。厂商标识不用探(它不是一个地址),没抢到槽位的
-    /// 那一行也不用探(存不进去)。
+    /// 那一行也不用探(存不进去),编辑时没动过的那一行也不用探(协议与端口
+    /// 已经写死在里面,`SourceAddressFormPolicy.rowsRequiringProbe`)。
     private static func plans(
         rows: [TVSourceAddressRow],
-        reading: SourceAddressFormPolicy.FormReading
+        reading: SourceAddressFormPolicy.FormReading,
+        probing: Set<UUID>
     ) -> [Plan] {
         var plans: [Plan] = []
         for (index, row) in rows.enumerated() where index < reading.rows.count {
-            guard case let .endpoint(endpoint) = reading.rows[index],
+            guard probing.contains(row.id),
+                  case let .endpoint(endpoint) = reading.rows[index],
                   endpoint.slot != nil else {
                 continue
             }
@@ -1512,6 +1582,20 @@ final class TVSourceAddressProbeController {
 /// 结构化的解读结果翻成人话。电视端的文案键与 iPhone 端同名同义 —— 同一个概念
 /// 在两端不该叫两个名字,只是这里要从 PrimuseKit 自己那 16 张表里取。
 enum TVSourceAddressReadingText {
+
+    /// 空地址时那一行提示。群晖 / 飞牛的地址框还认厂商远程接入标识,而「连接方式」
+    /// 分段选择器已经不在了 —— 这里是唯一能把「也能填 ID」说出来又不多占一行的地方。
+    static func addressPlaceholder(for sourceType: MusicSourceType) -> String {
+        guard sourceType.supportsVendorRemoteAccess else {
+            return PMString("source_address_placeholder")
+        }
+        return PMString(
+            "source_address_placeholder_vendor %@",
+            PMString(sourceType.usesSynologyConnectionMode
+                ? "synology_quickconnect_id"
+                : "fnmusic_fnid")
+        )
+    }
 
     /// 地址框下面那一行。nil 表示这一行还没什么可说的(空输入)。
     static func line(
@@ -1671,7 +1755,9 @@ struct TVSourceAddressRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            TVFormField(label: label, text: $row.address, mono: true)
+            TVFormField(label: label, text: Binding(
+                get: { row.address }, set: { row.editAddress($0, sourceType: sourceType) }
+            ), mono: true)
             readingLine
             dotlessToggle
             advancedOptions
@@ -1699,7 +1785,7 @@ struct TVSourceAddressRowView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 720, alignment: .leading)
         } else {
-            Text(PMString("source_address_placeholder"))
+            Text(TVSourceAddressReadingText.addressPlaceholder(for: sourceType))
                 .tvFont(.meta)
                 .foregroundStyle(TVColor.textGhost)
                 .frame(maxWidth: 720, alignment: .leading)
@@ -1770,7 +1856,9 @@ struct TVSourceAddressRowView: View {
     }
 
     private var transportPicker: some View {
-        Picker(PMString("source_address_transport"), selection: $row.transport) {
+        Picker(PMString("source_address_transport"), selection: Binding(
+            get: { row.transport }, set: { row.selectTransport($0, sourceType: sourceType) }
+        )) {
             Text(PMString("source_address_transport_automatic"))
                 .tag(TVSourceAddressTransportChoice.automatic)
             Text(verbatim: "HTTP").tag(TVSourceAddressTransportChoice.cleartext)

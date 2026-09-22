@@ -285,6 +285,14 @@ HAN_LITERAL_ALLOWLIST = {
     /"\[音乐\]", "\[音樂\]"/,
     /"\[掌声\]"/
   ],
+  # Genre spellings matched against file tags to tell spoken word from music.
+  # They are data, never shown as UI copy.
+  "PrimuseKit/Sources/PrimuseKit/SpokenWordContentPolicy.swift" => [
+    /有声书|有声小说|有声读物|有声故事|广播剧|播客/,
+    /评书|相声|快板|小品|曲艺|说书|单口|对口/,
+    /脱口秀|讲座|演讲|朗读|朗诵|故事会|儿童故事/,
+    /朗読|落語/
+  ],
   "PrimuseKit/Sources/PrimuseKit/SharedConstants.swift" => [
     /未知|未知标题|未知標題|未知歌曲|无标题|無標題/
   ],

@@ -80,6 +80,10 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     /// scans and metadata backfill may still refresh technical fields, but must
     /// preserve the user-controlled identity fields while this marker exists.
     public var userMetadataEditedAt: Date?
+    /// Apple Music 目录曲目提供的音质版本（无损 / 高解析度无损 / 杜比全景声…）。
+    /// nil = 不是 Apple Music 曲目，或者还没查到。标的是「提供哪些版本」而不是
+    /// 「正在播什么」，详见 [AudioVariant]。
+    public var audioVariants: [AudioVariant]?
 
     public init(
         id: String,
@@ -121,7 +125,8 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         artistPinyin: String? = nil,
         albumPinyin: String? = nil,
         lyricsText: String? = nil,
-        userMetadataEditedAt: Date? = nil
+        userMetadataEditedAt: Date? = nil,
+        audioVariants: [AudioVariant]? = nil
     ) {
         self.id = id
         self.title = title
@@ -163,6 +168,7 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.albumPinyin = albumPinyin
         self.lyricsText = lyricsText
         self.userMetadataEditedAt = userMetadataEditedAt
+        self.audioVariants = audioVariants
     }
 }
 
@@ -276,6 +282,20 @@ public enum AlbumGroupingPolicy {
             return normalized(updatedTrackArtistName)
         }
         return existing
+    }
+
+    /// Whether a stored album artist is only the per-track fallback this type
+    /// writes when the source supplied no album artist at all. Such a value
+    /// stands for no tag, so a later pass that can read one must be allowed to
+    /// replace it; treating it as an answer is what keeps one album split into
+    /// one entry per track artist.
+    public static func isTrackArtistFallback(
+        albumArtistName: String?,
+        trackArtistName: String?
+    ) -> Bool {
+        guard let albumArtist = normalized(albumArtistName),
+              let trackArtist = normalized(trackArtistName) else { return false }
+        return albumArtist.caseInsensitiveCompare(trackArtist) == .orderedSame
     }
 
     public static func identity(

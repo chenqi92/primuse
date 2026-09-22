@@ -66,6 +66,42 @@ private struct SourceCacheEstimate {
     let remainingSongIDs: Set<String>
 }
 
+/// Shown on a source card while none of its addresses answers on the current
+/// network. A source that only has a local address also gets the one piece of
+/// advice that would have prevented the outage.
+struct SourceUnreachableNotice: View {
+    let source: MusicSource
+
+    var body: some View {
+        let guidance = PlaybackSourceOutageGuidance.resolve(
+            routeHosts: source.connectionCandidates.map { $0.endpoint?.host }
+        )
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("source_card_unreachable")
+                if guidance == .addRemoteRoute {
+                    Text("source_card_unreachable_add_route_hint")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            Color.orange.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Presents adaptive routes as distinct, comparable endpoints instead of one
 /// long subtitle. The highlighted segment is device-local runtime state and is
 /// never persisted or synced with the source configuration.
@@ -214,6 +250,8 @@ enum MetadataReadingText {
     }
 }
 
+/// 桌面端不提供这个选择 —— 见 `MetadataReadingMode.offersUserSelection`。
+#if !os(macOS)
 struct MetadataBackfillPerformanceButton<Label: View>: View {
     @AppStorage(MetadataBackfillExecutionPolicy.readingModeDefaultsKey)
     private var storedMode = ""
@@ -335,6 +373,7 @@ extension MetadataReadingMode {
         }
     }
 }
+#endif
 
 struct MetadataReadingStatusView: View {
     @Environment(MetadataBackfillService.self) private var backfill
@@ -458,10 +497,12 @@ struct SourcesContentView: View {
             }
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
+                    #if !os(macOS)
                     MetadataBackfillPerformanceButton { mode in
                         Image(systemName: mode.symbol)
                             .foregroundStyle(mode == .fast ? Color.orange : Color.primary)
                     }
+                    #endif
 
                     Button { showAddSource = true } label: { Image(systemName: "plus") }
                         .accessibilityIdentifier("sources.add")
@@ -696,13 +737,10 @@ struct SourcesContentView: View {
         activeSourceCacheIDs: Set<String>
     ) -> some View {
         let dirs = source.scannedDirectories
-        let scanning = scanService.scanStates[source.id]
-        let displayedSongCount = if let scanning, scanning.isScanning || scanning.canResume {
-            scanning.scannedCount
-        } else {
-            source.songCount
-        }
-        let sourceSongs = playableSongs(for: source)
+        // 卡片主体刻意不读 `scanStates`, 也不读整库引用 —— 这两样在扫描期间每秒
+        // 都在变, 读一下就意味着整张卡片(连同长按菜单和滑动操作)跟着重建。真正
+        // 跟着动的几小块各自向下订阅, 整源歌曲清单等到按下去那一刻再取。
+        let hasPlayableSongs = library.sourceIDsWithPlayableSongs.contains(source.id)
         let cachePresentation = SourceCachePresentationPolicy.resolve(
             sourceID: source.id,
             preparingSourceID: preparingCacheSourceID,
@@ -754,12 +792,7 @@ struct SourcesContentView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    if displayedSongCount > 0 {
-                        Text("\(displayedSongCount)")
-                            .font(.caption).fontWeight(.semibold).monospacedDigit()
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(.quaternary).clipShape(Capsule())
-                    }
+                    SourceSongCountBadge(sourceID: source.id, settledCount: source.songCount)
                     if let size = sourceSizes[source.id], size > 0 {
                         Text(cacheSizeDescription(knownBytes: size, unknownCount: 0))
                             .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
@@ -774,6 +807,10 @@ struct SourcesContentView: View {
                     activeKind: sourceManager.activeConnectionRoutes[source.id],
                     lastSuccessfulKind: sourceManager.lastSuccessfulConnectionRoutes[source.id]
                 )
+            }
+
+            if sourceManager.unreachablePlaybackSourceIDs.contains(source.id) {
+                SourceUnreachableNotice(source: source)
             }
 
             if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
@@ -796,7 +833,7 @@ struct SourcesContentView: View {
                             // 刚选完目录的用户就停在这张卡片上，按文件夹听歌的
                             // 入口原本只在资料库那一侧，这里把它接回来。来源
                             // 还没扫出歌时点进去只会是空列表，保持静态。
-                            if sourceSongs.isEmpty {
+                            if !hasPlayableSongs {
                                 chip
                             } else {
                                 Button { browsingFoldersSource = source } label: { chip }
@@ -807,100 +844,106 @@ struct SourcesContentView: View {
                 }
             }
 
-            if let failureMessage = scanning?.failureMessage, !failureMessage.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 8) {
-                        Label("notify_scan_failed_title", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.red)
-                        Spacer(minLength: 8)
-                        if source.type == .synologyAudioStation {
-                            // 设备令牌失效后后台登录会卡在两步验证上,只有这里能再输一次验证码。
+            SourceScanStateReader(sourceID: source.id) { scanning in
+                if let failureMessage = scanning?.failureMessage, !failureMessage.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 8) {
+                            Label("notify_scan_failed_title", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.red)
+                            Spacer(minLength: 8)
+                            if source.type == .synologyAudioStation {
+                                // 设备令牌失效后后台登录会卡在两步验证上,只有这里能再输一次验证码。
+                                Button {
+                                    connectingSource = source
+                                } label: {
+                                    Label("audio_station_sign_in", systemImage: "person.badge.key")
+                                        .font(.caption2.weight(.semibold))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(Color.accentColor)
+                            }
                             Button {
-                                connectingSource = source
+                                diagnosingSource = source
                             } label: {
-                                Label("audio_station_sign_in", systemImage: "person.badge.key")
+                                Label("source_diagnostics_short", systemImage: "stethoscope")
                                     .font(.caption2.weight(.semibold))
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(Color.accentColor)
                         }
-                        Button {
-                            diagnosingSource = source
-                        } label: {
-                            Label("source_diagnostics_short", systemImage: "stethoscope")
-                                .font(.caption2.weight(.semibold))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Color.accentColor)
+                        Text(failureMessage)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(failureMessage)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(Color.red.opacity(0.14), lineWidth: 0.8)
+                    }
+                    .pmFadeTransition(motion: .list)
                 }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.red.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(Color.red.opacity(0.14), lineWidth: 0.8)
-                }
-                .pmFadeTransition(motion: .list)
             }
 
-            if let reconciliationMessage = scanning?.reconciliationMessage,
-               !reconciliationMessage.isEmpty {
-                Label {
-                    Text(reconciliationMessage)
-                        .font(.caption2)
-                        .fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "checkmark.shield.fill")
+            SourceScanStateReader(sourceID: source.id) { scanning in
+                if let reconciliationMessage = scanning?.reconciliationMessage,
+                   !reconciliationMessage.isEmpty {
+                    Label {
+                        Text(reconciliationMessage)
+                            .font(.caption2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "checkmark.shield.fill")
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                    .pmFadeTransition(motion: .list)
                 }
-                .foregroundStyle(.orange)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-                .pmFadeTransition(motion: .list)
             }
 
-            if let scan = scanning, scan.isScanning || scan.canResume {
-                VStack(alignment: .leading, spacing: 4) {
-                    if scan.totalCount > 0 {
-                        ProgressView(value: min(scan.progress, 1.0)).tint(.accentColor)
-                        HStack {
-                            Text(scan.isScanning ? scan.currentFile : String(localized: "scan_resume_hint"))
-                                .lineLimit(1).truncationMode(.middle)
-                            Spacer(minLength: 8)
-                            Text("\(scan.scannedCount)/\(scan.totalCount)").monospacedDigit()
+            SourceScanStateReader(sourceID: source.id) { scanning in
+                if let scan = scanning, scan.isScanning || scan.canResume {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if scan.totalCount > 0 {
+                            ProgressView(value: min(scan.progress, 1.0)).tint(.accentColor)
+                            HStack {
+                                Text(scan.isScanning ? scan.currentFile : String(localized: "scan_resume_hint"))
+                                    .lineLimit(1).truncationMode(.middle)
+                                Spacer(minLength: 8)
+                                Text("\(scan.scannedCount)/\(scan.totalCount)").monospacedDigit()
+                            }
+                            .font(.caption2).foregroundStyle(.secondary)
+                        } else {
+                            // An indeterminate spinner on its own row left the
+                            // trailing count stranded on the next line. Keep the
+                            // spinner, the current file and the count on one row.
+                            HStack(spacing: 8) {
+                                ProgressView().scaleEffect(0.7).tint(.accentColor)
+                                Text(scan.isScanning ? scan.currentFile : String(localized: "scan_resume_hint"))
+                                    .lineLimit(1).truncationMode(.middle)
+                                Spacer(minLength: 8)
+                                Text(String(format: String(localized: "new_songs_added"), scan.addedCount))
+                                    .monospacedDigit()
+                            }
+                            .font(.caption2).foregroundStyle(.secondary)
                         }
-                        .font(.caption2).foregroundStyle(.secondary)
-                    } else {
-                        // An indeterminate spinner on its own row left the
-                        // trailing count stranded on the next line. Keep the
-                        // spinner, the current file and the count on one row.
-                        HStack(spacing: 8) {
-                            ProgressView().scaleEffect(0.7).tint(.accentColor)
-                            Text(scan.isScanning ? scan.currentFile : String(localized: "scan_resume_hint"))
-                                .lineLimit(1).truncationMode(.middle)
-                            Spacer(minLength: 8)
-                            Text(String(format: String(localized: "new_songs_added"), scan.addedCount))
-                                .monospacedDigit()
-                        }
-                        .font(.caption2).foregroundStyle(.secondary)
                     }
-                }
-            } else if scanning?.failureMessage == nil,
-                      scanning?.reconciliationMessage == nil {
-                // Phase A finished. Surface every unresolved background tag
-                // inspection for this source, including work parked behind a
-                // source circuit breaker, without implying every row issued a
-                // failed request.
-                let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
-                if metadataSummary.affectedCount > 0 {
-                    metadataStatusButton(source, summary: metadataSummary)
+                } else if scanning?.failureMessage == nil,
+                          scanning?.reconciliationMessage == nil {
+                    // Phase A finished. Surface every unresolved background tag
+                    // inspection for this source, including work parked behind a
+                    // source circuit breaker, without implying every row issued a
+                    // failed request.
+                    let metadataSummary = backfill.sourceStatusSummary(forSource: source.id)
+                    if metadataSummary.affectedCount > 0 {
+                        metadataStatusButton(source, summary: metadataSummary)
+                    }
                 }
             }
 
@@ -925,6 +968,16 @@ struct SourcesContentView: View {
                 // 设置搜索里搜 "Apple Music" 落到这儿 —— 授权与同步都在这一行上,
                 // iOS 不再有单独的 Apple Music 设置页可跳。
                 appleMusicSyncStatus.settingsAnchor("sources.appleMusic")
+                #if os(iOS)
+                if appleMusic.authState == .authorized, source.isEnabled {
+                    // 系统选歌器能浏览整个 Apple Music 目录,比 Primuse 自己的搜索
+                    // 覆盖面大。选中的歌先进用户的 Apple Music 资料库,再走正常同步。
+                    // macOS 上没有这个入口:`musicPicker` 在 Mac 被标成 unavailable。
+                    AppleMusicCatalogPickerButton {
+                        appleMusicLibrary.sync()
+                    }
+                }
+                #endif
             }
 
             HStack(spacing: 10) {
@@ -963,13 +1016,15 @@ struct SourcesContentView: View {
                     }
                     #endif
 
-                    sourceActionButton(
-                        scanning?.canResume == true ? "resume_scan" : "scan",
-                        systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
-                        prominence: .success,
-                        isDisabled: scanning?.isScanning == true
-                    ) {
-                        startSourceScan(source)
+                    SourceScanStateReader(sourceID: source.id) { scanning in
+                        sourceActionButton(
+                            scanning?.canResume == true ? "resume_scan" : "scan",
+                            systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
+                            prominence: .success,
+                            isDisabled: scanning?.isScanning == true
+                        ) {
+                            startSourceScan(source)
+                        }
                     }
                 } else if source.type.scansEntireLibrary {
                     // 整库来源直接扫描，无需再选目录。macOS Local 的范围已由
@@ -979,18 +1034,20 @@ struct SourcesContentView: View {
                         systemImage: "arrow.down.circle",
                         prominence: .accent,
                         isLoading: isSourceCacheBusy,
-                        isDisabled: isSourceCacheBusy || sourceSongs.isEmpty || isAnotherSourceCaching
+                        isDisabled: isSourceCacheBusy || !hasPlayableSongs || isAnotherSourceCaching
                     ) {
-                        presentCacheConfirmation(for: source, songs: sourceSongs)
+                        presentCacheConfirmation(for: source, songs: playableSongs(for: source))
                     }
 
-                    sourceActionButton(
-                        scanning?.canResume == true ? "resume_scan" : "scan",
-                        systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
-                        prominence: .success,
-                        isDisabled: scanning?.isScanning == true
-                    ) {
-                        startSourceScan(source)
+                    SourceScanStateReader(sourceID: source.id) { scanning in
+                        sourceActionButton(
+                            scanning?.canResume == true ? "resume_scan" : "scan",
+                            systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
+                            prominence: .success,
+                            isDisabled: scanning?.isScanning == true
+                        ) {
+                            startSourceScan(source)
+                        }
                     }
                 } else {
                     sourceActionButton(
@@ -1006,19 +1063,21 @@ struct SourcesContentView: View {
                         systemImage: "arrow.down.circle",
                         prominence: .accent,
                         isLoading: isSourceCacheBusy,
-                        isDisabled: isSourceCacheBusy || sourceSongs.isEmpty || isAnotherSourceCaching
+                        isDisabled: isSourceCacheBusy || !hasPlayableSongs || isAnotherSourceCaching
                     ) {
-                        presentCacheConfirmation(for: source, songs: sourceSongs)
+                        presentCacheConfirmation(for: source, songs: playableSongs(for: source))
                     }
 
                     if !dirs.isEmpty {
-                        sourceActionButton(
-                            scanning?.canResume == true ? "resume_scan" : "scan",
-                            systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
-                            prominence: .success,
-                            isDisabled: scanning?.isScanning == true
-                        ) {
-                            startSourceScan(source)
+                        SourceScanStateReader(sourceID: source.id) { scanning in
+                            sourceActionButton(
+                                scanning?.canResume == true ? "resume_scan" : "scan",
+                                systemImage: scanning?.canResume == true ? "arrow.clockwise.circle" : "waveform.badge.magnifyingglass",
+                                prominence: .success,
+                                isDisabled: scanning?.isScanning == true
+                            ) {
+                                startSourceScan(source)
+                            }
                         }
                     }
                 }
@@ -1028,40 +1087,56 @@ struct SourcesContentView: View {
         .id(source.id)
         .opacity(source.isEnabled ? 1.0 : 0.55)
         .contextMenu {
-            if !sourceSongs.isEmpty {
-                Button { browsingFoldersSource = source } label: {
-                    Label("library_browse_folder", systemImage: "folder")
-                }
-            }
-            Button {
-                toggleSourceEnabled(source)
-            } label: {
-                Label(
-                    source.isEnabled ? String(localized: "disable") : String(localized: "enable"),
-                    systemImage: source.isEnabled ? "eye.slash" : "eye"
-                )
-            }
             // Apple Music 没有 edit / diagnose 概念 ── 两者都依赖 connector。
             // 但它跟其它音乐源一样可以移除:移除即取消授权同步并清掉同步产物。
-            if source.id != AppleMusicLibraryService.systemSourceID {
-                Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
-                if source.type == .synologyAudioStation {
-                    Button { connectingSource = source } label: {
-                        Label("audio_station_sign_in", systemImage: "person.badge.key")
+            let isSystemSource = source.id == AppleMusicLibraryService.systemSourceID
+            let canBrowseFolders = hasPlayableSongs
+            // 「禁用/启用」永远在, 另外两个各有条件; 只剩它一个时横排会变成
+            // 一个键占满整行, 那还不如老老实实排一行。
+            let usesQuickRow = canBrowseFolders || !isSystemSource
+
+            if usesQuickRow {
+                PMMenuQuickActions {
+                    if canBrowseFolders {
+                        Button { browsingFoldersSource = source } label: {
+                            Label("library_browse_folder", systemImage: "folder")
+                        }
                     }
+                    if !isSystemSource {
+                        Button { editingSource = source } label: { Label("edit", systemImage: "pencil") }
+                    }
+                    sourceEnableToggleButton(source)
                 }
-                Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
-                if source.type.scansEntireLibrary || !dirs.isEmpty {
-                    Button {
-                        startSourceScan(source, mode: .deep)
-                    } label: {
-                        Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+            } else {
+                sourceEnableToggleButton(source)
+            }
+
+            if !isSystemSource {
+                Section {
+                    if source.type == .synologyAudioStation {
+                        Button { connectingSource = source } label: {
+                            Label("audio_station_sign_in", systemImage: "person.badge.key")
+                        }
                     }
-                    .disabled(scanning?.isScanning == true)
+                    Button { diagnosingSource = source } label: { Label("source_diagnostics", systemImage: "stethoscope") }
+                    if source.type.scansEntireLibrary || !dirs.isEmpty {
+                        Button {
+                            startSourceScan(source, mode: .deep)
+                        } label: {
+                            Label("source_deep_scan", systemImage: "arrow.triangle.2.circlepath.circle")
+                        }
+                        // 长按菜单是独立宿主, 不往里塞读 `@Environment` 的子视图;
+                        // 这份集合只在"开始扫/扫完"时翻面, 读它不会把卡片拖进
+                        // 每帧进度的重算里。
+                        .disabled(scanService.scanningSourceIDs.contains(source.id))
+                    }
                 }
             }
-            Divider()
-            Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
+
+            // 破坏性动作单独成段落在最后。
+            Section {
+                Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
+            }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { requestDelete(source) } label: { Label("delete", systemImage: "trash") }
@@ -1078,6 +1153,19 @@ struct SourcesContentView: View {
                 )
             }
             .tint(source.isEnabled ? .gray : .green)
+        }
+    }
+
+    /// 长按菜单里的「禁用/启用」。横排和退回来的普通行都要它，所以抽出来一份。
+    @ViewBuilder
+    private func sourceEnableToggleButton(_ source: MusicSource) -> some View {
+        Button {
+            toggleSourceEnabled(source)
+        } label: {
+            Label(
+                source.isEnabled ? String(localized: "disable") : String(localized: "enable"),
+                systemImage: source.isEnabled ? "eye.slash" : "eye"
+            )
         }
     }
 
@@ -2489,6 +2577,8 @@ struct SourceDiagnosticsView: View {
     let source: MusicSource
     @State private var report: SourceDiagnosticReport?
     @State private var isRunning = false
+    @State private var progress = SourceDiagnosticProgress()
+    @State private var runID = UUID()
 
     @ViewBuilder
     var body: some View {
@@ -2505,7 +2595,7 @@ struct SourceDiagnosticsView: View {
                 }
                 Spacer()
                 Button {
-                    Task { await runDiagnostics() }
+                    runID = UUID()
                 } label: {
                     Label("source_diag_run_again", systemImage: "arrow.clockwise")
                 }
@@ -2538,7 +2628,7 @@ struct SourceDiagnosticsView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        Task { await runDiagnostics() }
+                        runID = UUID()
                     } label: {
                         Label("source_diag_run_again", systemImage: "arrow.clockwise")
                     }
@@ -2551,34 +2641,36 @@ struct SourceDiagnosticsView: View {
 
     private var diagnosticsList: some View {
         List {
-            Section {
-                if isRunning {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text("source_diag_running")
-                            .font(.body)
+            if isRunning {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(String(format: String(localized: "source_diag_progress_format"),
+                                    progress.completedChecks, progress.totalChecks))
+                        ProgressView(value: Double(progress.completedChecks), total: Double(max(1, progress.totalChecks)))
                     }
                     .padding(.vertical, 4)
-                } else if let report {
-                    summaryRow(report)
                 }
             }
 
-            if let report {
+            if !progress.checks.isEmpty {
                 Section("source_diag_checks") {
-                    ForEach(report.checks) { check in
+                    ForEach(progress.checks) { check in
                         diagnosticRow(check)
                     }
                 }
             }
-        }
-        .task {
-            if report == nil {
-                await runDiagnostics()
+            if let report, !isRunning {
+                Section {
+                    summaryRow(report)
+                }
             }
         }
-        .refreshable {
+        .task(id: runID) {
             await runDiagnostics()
+        }
+        .refreshable {
+            guard !isRunning else { return }
+            runID = UUID()
         }
     }
 
@@ -2590,8 +2682,20 @@ struct SourceDiagnosticsView: View {
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(summaryTitle(for: report.summaryStatus))
+                Text(report.wasCancelled ? String(localized: "source_diag_cancelled") : summaryTitle(for: report.summaryStatus))
                     .font(.headline)
+                if !report.connections.isEmpty {
+                    Text(String(format: String(localized: "source_diag_routes_format"),
+                                report.connections.filter(\.isAvailable).count, report.connections.count))
+                        .font(.subheadline)
+                }
+                Text(String(format: String(localized: "source_diag_check_counts_format"),
+                            report.checks.filter { $0.status == .passed }.count,
+                            report.checks.filter { $0.status == .warning }.count,
+                            report.checks.filter { $0.status == .failed }.count,
+                            report.checks.filter { $0.status == .skipped }.count))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text(String(format: String(localized: "source_diag_summary_detail_format"), report.sourceName, elapsedText(report)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -2602,11 +2706,17 @@ struct SourceDiagnosticsView: View {
 
     private func diagnosticRow(_ check: SourceDiagnosticCheck) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: iconName(for: check.status))
-                .font(.body)
-                .foregroundStyle(tint(for: check.status))
-                .frame(width: 24)
-                .padding(.top, 1)
+            Group {
+                if check.status == .running {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: iconName(for: check.status))
+                        .font(.body)
+                        .foregroundStyle(tint(for: check.status))
+                }
+            }
+            .frame(width: 24)
+            .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(check.title)
@@ -2626,9 +2736,14 @@ struct SourceDiagnosticsView: View {
     }
 
     private func runDiagnostics() async {
+        guard !isRunning else { return }
         isRunning = true
+        report = nil
+        progress = SourceDiagnosticProgress()
         defer { isRunning = false }
-        report = await sourceManager.diagnose(source: source)
+        let result = await sourceManager.diagnoseAllConnections(source: source) { progress = $0 }
+        guard !Task.isCancelled else { return }
+        report = result
     }
 
     private func elapsedText(_ report: SourceDiagnosticReport) -> String {
@@ -2638,6 +2753,8 @@ struct SourceDiagnosticsView: View {
 
     private func summaryTitle(for status: SourceDiagnosticStatus) -> String {
         switch status {
+        case .running: String(localized: "source_diag_running")
+        case .skipped: String(localized: "source_diag_skipped")
         case .passed: String(localized: "source_diag_summary_ok")
         case .warning: String(localized: "source_diag_summary_warning")
         case .failed: String(localized: "source_diag_summary_failed")
@@ -2646,6 +2763,8 @@ struct SourceDiagnosticsView: View {
 
     private func iconName(for status: SourceDiagnosticStatus) -> String {
         switch status {
+        case .running: "circle.dotted"
+        case .skipped: "minus.circle"
         case .passed: "checkmark.circle.fill"
         case .warning: "exclamationmark.triangle.fill"
         case .failed: "xmark.octagon.fill"
@@ -2654,9 +2773,66 @@ struct SourceDiagnosticsView: View {
 
     private func tint(for status: SourceDiagnosticStatus) -> Color {
         switch status {
+        case .running: .accentColor
+        case .skipped: .secondary
         case .passed: .green
         case .warning: .orange
         case .failed: .red
         }
+    }
+}
+
+/// 把"读扫描状态"这件事关在一小块视图里。
+///
+/// 扫描期间 `ScanService.scanStates` 一秒要发布好几次, 而 Observation 的粒度是
+/// 整个字典 —— 来源卡片主体只要读它一下, 每一次进度更新就会把整张卡片连同长按
+/// 菜单、滑动操作和整排按钮重新构造一遍, 正好跟列表滑动抢主线程, 于是"一边扫描
+/// 一边滑音乐源页"必然掉帧。真正跟着进度动的只有几小块, 让它们各自订阅, 卡片
+/// 主体就不必跟着重算了。
+struct SourceScanStateReader<Content: View>: View {
+    let sourceID: String
+    @ViewBuilder let content: (ScanService.ScanState?) -> Content
+
+    @Environment(ScanService.self) private var scanService
+
+    var body: some View {
+        content(scanService.scanStates[sourceID])
+    }
+}
+
+/// 扫描中显示已扫到的首数, 扫完回到来源自己记的那个总数。
+private struct SourceSongCountBadge: View {
+    let sourceID: String
+    let settledCount: Int
+
+    @Environment(ScanService.self) private var scanService
+
+    var body: some View {
+        let scanning = scanService.scanStates[sourceID]
+        let count = if let scanning, scanning.isScanning || scanning.canResume {
+            scanning.scannedCount
+        } else {
+            settledCount
+        }
+        if count > 0 {
+            Text("\(count)")
+                .font(.caption).fontWeight(.semibold).monospacedDigit()
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(.quaternary).clipShape(Capsule())
+        }
+    }
+}
+
+/// 整页汇总(几个源在扫、哪些要处理)要看所有源的扫描状态, 但这份订阅不该留在
+/// 页面主体上 —— 留在那里, 每一帧进度都会把整张来源列表重建一遍。把它关进这
+/// 一小块里, 外面就只管布局。
+struct ScanStateScope<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    @Environment(ScanService.self) private var scanService
+
+    var body: some View {
+        let _ = scanService.scanStates
+        content()
     }
 }

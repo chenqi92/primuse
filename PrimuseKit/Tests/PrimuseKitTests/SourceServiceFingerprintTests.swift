@@ -189,6 +189,26 @@ private let nginxNotFoundBody = """
     #expect(SourceServiceFingerprint.evaluate(response, sourceType: .songloft) == .responded(statusCode: 401))
 }
 
+@Test func identityConfirmationListMatchesWhatTheEvaluatorCanConfirm() {
+    // 一份把所有类型的认证标记都塞进去的响应:能认出身份的类型对它必然给
+    // confirmed,认不出的永远只到 responded。两边清单漂了,探测的提前收尾就会
+    // 对某个类型要么干等、要么把只会跳转的端口当成终点。
+    let everyMarker = SourceServiceFingerprint.ProbeResponse(
+        statusCode: 200,
+        headerFields: ["DAV": "1, 2"],
+        bodyPrefix: "{\"ServerName\":\"x\",\"Version\":\"1\",\"Id\":\"1\"} machineIdentifier "
+            + "subsonic-response SYNO.API.Auth SYNO.AudioStation.Info"
+    )
+    for sourceType in MusicSourceType.allCases {
+        let confirmed = SourceServiceFingerprint.probeRequest(for: sourceType) != nil
+            && SourceServiceFingerprint.evaluate(everyMarker, sourceType: sourceType).isConfirmed
+        #expect(
+            SourceServiceFingerprint.canConfirmIdentity(of: sourceType) == confirmed,
+            "\(sourceType.rawValue)"
+        )
+    }
+}
+
 @Test func probeResponseHeaderLookupIgnoresCase() {
     let response = SourceServiceFingerprint.ProbeResponse(
         statusCode: 200,

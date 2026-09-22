@@ -520,6 +520,9 @@ final class AudioPlayerService {
             prepareLyricsForSystemSurfaces(previousSong: oldValue)
             #endif
             playbackMetadataSongDidChange(from: oldValue, to: currentSong)
+            if oldValue?.id != currentSong?.id {
+                handleSpokenWordItemChange(to: currentSong)
+            }
         }
     }
     var isPlaying = false {
@@ -829,6 +832,9 @@ final class AudioPlayerService {
     /// still resume once after `stopAppleMusic()` mutates the observed state.
     private var appleMusicMirrorGeneration: UInt64 = 0
     private var rescuedAppleMusicLyricsAliases: Set<String> = []
+    /// 托管队列下 MusicKit 当前 entry 查不到对应队列行时记一次。镜像因此
+    /// 两条分支都不收养, currentSong 会停在上一首 —— 每次跃迁只打一行。
+    @ObservationIgnored private var didLogUnmappedAppleMusicEntry = false
     private var musicVideoTimeObserver: Any?
     private var musicVideoEndObserver: NSObjectProtocol?
     private var musicVideoStatusObservation: NSKeyValueObservation?
@@ -901,6 +907,10 @@ final class AudioPlayerService {
     @ObservationIgnored var pendingNextShuffleIndices: [Int]?
     /// Invalidates prepared gapless transitions when queue order changes.
     var queueGeneration = 0
+    /// The successor the last prefetch planned for. A reachability verdict
+    /// only matters to the transport when it changes this slot.
+    @ObservationIgnored var plannedSuccessorEntryID: UUID?
+    @ObservationIgnored private var isSuccessorReplanScheduled = false
 
     // MARK: - Decoder Tracking (for seek)
     /// Tracks which decoder pipeline produced the currently-playing audio
@@ -925,6 +935,23 @@ final class AudioPlayerService {
         case activePlayback
         case preserveCachedProgress
     }
+    /// Which queue neighbour a crossfade attempt is heading for. The automatic
+    /// boundary follows repeat and shuffle exactly like track end; a manual
+    /// skip uses the traversal of the hard-cut `next()` / `previous()`, so the
+    /// blended skip and the cut always land on the same song.
+    enum CrossfadeSuccessorRule: Equatable {
+        case automatic
+        case manualNext
+        case manualPrevious
+    }
+    /// A manual skip whose neighbour is still being prepared. Until it commits
+    /// the queue position has not moved, so a second skip has to account for
+    /// this one before it looks for its own neighbour.
+    struct PendingManualSkipCrossfade {
+        let attemptID: UUID
+        let target: QueueTraversalTarget
+        let queueGeneration: Int
+    }
     var activeDecoderKind: DecoderKind = .native
     var activeDSDPlaybackMode: DSDPlaybackMode = .pcm
     /// 当前这首歌的取流计划。一次播放内固定不变, 换歌时由 `playFromURL`
@@ -941,6 +968,26 @@ final class AudioPlayerService {
         didSet { if sleepStopAfterSongID != oldValue { synchronizeAppleMusicQueue() } }
     }
     var isSleepTimerActive: Bool { sleepTimerEndDate != nil || sleepStopAfterSongID != nil }
+
+    // MARK: - Spoken word
+
+    /// Chapter marks for the current item, empty for everything without them.
+    /// Populated off the main actor after playback starts; see
+    /// `AudioPlayerService+SpokenWord`.
+    var spokenWordChapters: [MediaChapter] = []
+    /// Which of `spokenWordChapters` covers the play head, or nil before the
+    /// first mark. Refreshed on the playback clock.
+    var currentChapterIndex: Int?
+    /// True while the current item is spoken word, so the transport, the Now
+    /// Playing screen and the remote commands can offer skip intervals
+    /// instead of track changes without reclassifying on every access.
+    var currentItemIsSpokenWord = false
+    @ObservationIgnored var lastSpokenWordPositionSave: TimeInterval = 0
+    @ObservationIgnored var chapterLoadTask: Task<Void, Never>?
+    @ObservationIgnored var chapterLoadedSongID: String?
+    /// Set while a resume seek is in flight so the position writer cannot
+    /// store the zero the clock reports before the seek lands.
+    @ObservationIgnored var pendingSpokenWordResumeSongID: String?
 
     var displayLink: Timer?
     @ObservationIgnored var playbackClockTickGate = PlaybackClockTickGate()
@@ -1003,6 +1050,11 @@ final class AudioPlayerService {
     var crossfadeStartupTask: Task<Void, Never>?
     var crossfadeDecodingTask: Task<Void, Never>?
     var crossfadeAttemptID: UUID?
+    @ObservationIgnored var pendingManualSkipCrossfade: PendingManualSkipCrossfade?
+    /// Marks left by the two funnels every `startCrossfade` exit passes
+    /// through; `ManualSkipCrossfadePolicy.outcome` reads them back.
+    @ObservationIgnored var lastCommittedCrossfadeAttemptID: UUID?
+    @ObservationIgnored var lastFailedCrossfadeAttemptID: UUID?
     var committedCrossfade: CommittedCrossfade? {
         didSet { syncPumpLease() }
     }
@@ -3531,6 +3583,9 @@ final class AudioPlayerService {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
             return
         }
+        // Store where the outgoing item was left while its position is still
+        // the one on the clock; by the time `currentSong` changes it is not.
+        rememberSpokenWordPosition(force: true)
         preparePlaybackMetadataSelection(for: song)
         registerPlayIntent()
         if isLiveRadio {
@@ -3780,7 +3835,9 @@ final class AudioPlayerService {
             guard playID == id else { return }
             if sourceUnavailable {
                 plog("⏭️ Source-wide playback failure; skipping unavailable entries from source \(song.sourceID.prefix(8))")
+                let outageIsKnown = sourceManager?.isSourceKnownUnavailableForPlayback(song.sourceID) == true
                 await autoAdvanceAfterFailure(skippingSourceID: song.sourceID)
+                if outageIsKnown { await announceSkippedUnreachableSource(song.sourceID) }
                 return
             }
             await autoAdvanceAfterFailure()
@@ -4062,13 +4119,21 @@ final class AudioPlayerService {
              isLoading = false
              isPlaying = am.isAppleMusicPlaying
          }
-         if previousPlayingState != isPlaying || previousLoadingState != isLoading {
-             updateNowPlayingInfo()
-             updatePlaybackState()
+         // 这一拍可能同时换了歌: 先记下运输状态变化, 等 currentSong /
+         // currentTime / duration 都落定之后再发布一次完整快照。在这里就发
+         // 会把上一首的标题、封面和时长写进系统「正在播放」。
+         let transportStateChanged = previousPlayingState != isPlaying
+             || previousLoadingState != isLoading
+         guard let nps = am.nowPlayingSong else {
+             if transportStateChanged {
+                 updateNowPlayingInfo()
+                 updatePlaybackState()
+             }
+             return
          }
-         guard let nps = am.nowPlayingSong else { return }
          isMirroringFromAppleMusic = true
          defer { isMirroringFromAppleMusic = false }
+         var didPublishNowPlayingSnapshot = false
 
          // Adopt only a known occurrence in this queue. A native segment must
          // never replace the canonical mixed queue or collapse duplicate songs.
@@ -4093,8 +4158,28 @@ final class AudioPlayerService {
              updateNowPlayingInfo()
              updateNowPlayingArtworkIfNeeded()
              updatePlaybackState()
+             didPublishNowPlayingSnapshot = true
              synchronizeAppleMusicQueue()
              plog("Apple Music native transition adopted index=\(index) queueCount=\(queueEntries.count)")
+         }
+         // 托管标记为真, 但 MusicKit 当前 entry 查不到队列行。段落投影为空时
+         // 起播会退回不带 entry 映射的队列(见 playAppleMusicSong), 此后系统
+         // 自己换的歌上面那段收养不了, 下面的原生分支又被托管标记挡住 ——
+         // currentSong 就停在上一首, 而声音已经换了。这种时候按歌曲身份收养。
+         let managedEntryIsMapped = am.nowPlayingQueueEntryID
+             .map { entryID in queueEntries.contains { $0.id == entryID } } ?? false
+         let managedQueueLostEntryMapping = isPrimuseManagingAppleMusicQueue && !managedEntryIsMapped
+         if managedQueueLostEntryMapping {
+             if !didLogUnmappedAppleMusicEntry {
+                 didLogUnmappedAppleMusicEntry = true
+                 plog(
+                     "⚠️ Apple Music managed entry unmapped "
+                         + "entry=\(am.nowPlayingQueueEntryID?.uuidString.prefix(8) ?? "nil") "
+                         + "queueCount=\(queueEntries.count) index=\(currentIndex)"
+                 )
+             }
+         } else {
+             didLogUnmappedAppleMusicEntry = false
          }
          let pSong = AppServices.shared.appleMusicLibrary.canonicalPrimuseSong(for: nps)
          if let rawSongID = am.nowPlayingRawSongID, rawSongID != pSong.id {
@@ -4108,8 +4193,31 @@ final class AudioPlayerService {
                  }
              }
          }
-         if !isPrimuseManagingAppleMusicQueue, pSong.id != currentSong?.id {
+         var didAdoptNativeSong = false
+         if !isPrimuseManagingAppleMusicQueue || managedQueueLostEntryMapping,
+            pSong.id != currentSong?.id {
              currentSong = pSong
+             isAtTrackEnd = false
+             didAdoptNativeSong = true
+             // 失去映射的托管队列仍是 Primuse 自己的队列: 这首歌在队列里只
+             // 出现一次时把索引对齐, 「下一首」和播放队列才不会停在旧位置。
+             // 有重复出现就只换显示, 不猜是哪一次 —— 猜错会改掉遍历顺序。
+             if managedQueueLostEntryMapping,
+                queueEntries.indices.contains(currentIndex),
+                queueEntries[currentIndex].song.id != pSong.id {
+                 let occurrences = queueEntries.indices.filter {
+                     queueEntries[$0].song.id == pSong.id
+                 }
+                 // 这里只对齐显示与索引, 不记播放次数: 规范化 id 在前几拍可能
+                 // 从 catalog 版跳到资料库版, 那不是换歌, 记了会让统计虚高。
+                 if occurrences.count == 1 {
+                     currentIndex = occurrences[0]
+                     if usesManagedShuffleOrder,
+                        let position = shuffledIndices.firstIndex(of: occurrences[0]) {
+                         shufflePosition = position
+                     }
+                 }
+             }
          }
          isPlaying = am.isAppleMusicPlaying
          if isPlaying, needsPlaybackRecovery {
@@ -4125,6 +4233,17 @@ final class AudioPlayerService {
              currentTime = restored.time
              pendingAppleMusicRestoredPosition = nil
              clearPendingPlaybackRecovery()
+         }
+         // MusicKit 自己换的歌只经过上面的镜像写入。不在这里补发的话, 锁屏 /
+         // 灵动岛 / CarPlay 会一直停在上一首, 直到别的事件(暂停、歌词载入完)
+         // 顺手发布一次 —— 表现就是系统侧显示与真正在放的那首对不上。
+         if didAdoptNativeSong {
+             updateNowPlayingInfo()
+             updateNowPlayingArtworkIfNeeded()
+             updatePlaybackState()
+         } else if transportStateChanged, !didPublishNowPlayingSnapshot {
+             updateNowPlayingInfo()
+             updatePlaybackState()
          }
          // A MusicKit queue can only describe Apple Music entries. Mirroring
          // it over a mixed queue used to discard thousands of local songs as
@@ -4269,6 +4388,9 @@ final class AudioPlayerService {
         plog("▶️ playFromURL(song: \(song.title)) playID=\(id.uuidString.prefix(8))")
         plog("▶️   URL: \(redactedURL(url))")
         plog("▶️   scheme=\(url.scheme ?? "nil") isFileURL=\(url.isFileURL) ext=\(url.pathExtension) format=\(song.fileFormat) duration=\(song.duration)")
+        // Chapter marks come from the file that is about to play, so a
+        // streamed item simply has none until it has been cached locally.
+        loadChaptersIfNeeded(for: song, fileURL: url.isFileURL ? url : nil)
         let isRemoteURL = url.scheme == "http" || url.scheme == "https"
         let isCloudStream = url.scheme == SourceManager.cloudStreamingScheme
         let requiresCurrentStreamEpoch = isRemoteURL || isCloudStream
@@ -6014,6 +6136,12 @@ final class AudioPlayerService {
     func prefetchNextSong() {
         synchronizeAppleMusicQueue()
         prefetchTask?.cancel()
+        plannedSuccessorEntryID = nextQueueEntryInQueue()?.id
+        // Learn now whether the sources further down the queue can be reached,
+        // so traversal steps over them instead of failing on each one.
+        sourceManager?.discoverPlaybackSourceAvailability(
+            for: Set(queueEntries.map(\.song.sourceID))
+        )
         // Prefetch 接下来几首,而不是只 1 首 —— 用户连续 next 切歌时
         // (4-5s/次), 单首 prefetch chain 来不及, 第 2、3 首切到时 partial
         // 还是空, SFB 现拉 1MB chunk 卡 2-3s。数量由 ST-01 设置页控制。
@@ -6413,7 +6541,6 @@ final class AudioPlayerService {
         playID id: UUID,
         advanceTicket: PlaybackAdvanceTicket
     ) {
-        let settings = playbackSettings.snapshot()
         plog("📍 scheduleLastBuffer for playID=\(id.uuidString.prefix(8)) frames=\(buffer.frameLength)")
 
         // Standard and crossfade modes both use completion callback for track-end detection
@@ -6424,8 +6551,18 @@ final class AudioPlayerService {
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
                 plog("🔔 lastBuffer dataPlayedBack fired playID=\(id.uuidString.prefix(8))")
-                // In crossfade mode, only handle track end if crossfade wasn't triggered
-                if self.shouldUseCrossfade(settings) && self.crossfadeTriggered { return }
+                // 只有**已提交**的淡入淡出才接管这个边界 —— 它会换掉 playID,
+                // 所以上一行的 guard 已经把那种情况挡掉了。仅仅「触发过」的
+                // 尝试不能吞掉曲末:它还可能解析失败、被换走或判成过期
+                // (`crossfadeTriggered` 留在 true 时更是永远不会自己清掉),
+                // 那样这一首播完就再没有任何人推进队列 —— 用户看到的就是
+                // 「开了淡入淡出,歌播完直接停住,下一首不播」。
+                if self.isCrossfading, self.committedCrossfade != nil { return }
+                // 还在准备中的尝试已经赶不上这个边界了,撤掉它再按普通方式续播。
+                if self.crossfadeAttemptID != nil || self.crossfadeTriggered {
+                    plog("🎚️ Crossfade attempt abandoned at track end; advancing normally")
+                    self.cancelCrossfadeAttempt()
+                }
                 await self.handleTrackEnd(
                     advanceTicket: advanceTicket,
                     trigger: "final-buffer"
@@ -6481,6 +6618,30 @@ final class AudioPlayerService {
         }
     }
 
+    /// A source became reachable or unreachable. Verdicts are published while
+    /// playback code is mid-flight (URL resolution produces one), so the
+    /// successor is re-planned on the next turn and only when it really moved.
+    func playbackSourceAvailabilityDidChange() {
+        guard !isSuccessorReplanScheduled else { return }
+        isSuccessorReplanScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.isSuccessorReplanScheduled = false
+            // A paused player has nothing prepared worth replacing, and
+            // prefetching for it would start transfers nobody asked for. The
+            // boundary check still rejects a stale successor after resuming.
+            guard self.isPlaybackActuallyActive,
+                  self.currentSong != nil,
+                  !self.queueEntries.isEmpty,
+                  !self.isLiveRadio,
+                  !(self.isAppleMusicMode && !self.isPrimuseManagingAppleMusicQueue),
+                  self.nextQueueEntryInQueue()?.id != self.plannedSuccessorEntryID else { return }
+            plog("🔀 Source availability moved the queue successor; re-planning")
+            self.cancelPreparedQueueSuccessor()
+            self.prefetchNextSong()
+        }
+    }
+
     /// Traversal-only changes must discard the prepared successor without
     /// invalidating the current track's completion ticket or rebuilding its
     /// decoder. A loop that a gapless boundary promoted to the current track's
@@ -6509,6 +6670,9 @@ final class AudioPlayerService {
     }
 
     func pause() {
+        // A paused audiobook is the most common way to leave one, so the
+        // position is written through before any route-specific early return.
+        flushSpokenWordPosition()
         // Record this before route-specific early returns so Apple Music,
         // radio, casting and MV all cancel a pending interruption resume.
         let wasPendingMusicVideo = pendingMusicVideoPlayID == playID

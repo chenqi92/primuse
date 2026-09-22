@@ -564,17 +564,20 @@ private struct MacSTGroup<Content: View>: View {
 private struct MacSTRow<Content: View>: View {
     let label: String
     let hint: String?
+    let hintLineLimit: Int
     let divider: Bool
     let block: Bool
     private let content: Content
 
     init(_ label: String,
          hint: String? = nil,
+         hintLineLimit: Int = 2,
          divider: Bool = true,
          block: Bool = false,
          @ViewBuilder content: () -> Content) {
         self.label = label
         self.hint = hint
+        self.hintLineLimit = hintLineLimit
         self.divider = divider
         self.block = block
         self.content = content()
@@ -622,7 +625,7 @@ private struct MacSTRow<Content: View>: View {
                     Text(verbatim: visibleHint)
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
-                        .lineLimit(2)
+                        .lineLimit(hintLineLimit)
                 }
             }
         }
@@ -1546,7 +1549,7 @@ private struct MacSTPlaybackView: View {
             Button("cancel", role: .cancel) {}
             Button("enable") { store.outputMode = .highFidelity }
         } message: {
-            Text("output_mode_high_fidelity_desc")
+            Text(verbatim: AudioOutputMode.highFidelityExplanation)
         }
 
         MacSTSection(Lz("Playback Rate & Quality")) {
@@ -1615,7 +1618,12 @@ private struct MacSTPlaybackView: View {
                         .accessibilityHint(Text(verbatim: Lz("P-16 · On by Default")))
                 }
                 .settingsAnchor("playback.gapless")
-                MacSTRow(String(localized: "crossfade")) {
+                // 三句话的说明在英文等语言下要占四五行, 默认的两行会把后半截截掉。
+                MacSTRow(
+                    String(localized: "crossfade"),
+                    hint: String(localized: "crossfade_footer"),
+                    hintLineLimit: 5
+                ) {
                     MacSTToggle(isOn: $s.crossfadeEnabled.pmAnimated())
                         .accessibilityHint(Text(verbatim: Lz("Mutually exclusive with Gapless")))
                 }
@@ -2562,6 +2570,8 @@ private struct MacSTScrapingView: View {
     @AppStorage(MusicScraperService.sidecarCoverWriteEnabledKey) private var sidecarCoverWriteEnabled = true
     @AppStorage(MusicScraperService.sidecarLyricsWriteEnabledKey) private var sidecarLyricsWriteEnabled = true
     @AppStorage(MusicScraperService.sidecarWriteTimeoutKey) private var sidecarWriteTimeout = 30.0
+    @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
+    @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
 
     var body: some View {
         MacSTSection(Lz("Scraping Sources"), hint: Lz("META-01 · Drag to Reorder · Higher Items Take Priority")) {
@@ -2620,6 +2630,14 @@ private struct MacSTScrapingView: View {
                     MacSTToggle(isOn: $sidecarLyricsWriteEnabled)
                 }
                 .settingsAnchor("scraping.writeLyrics")
+                MacSTRow(Lz("lyrics_embed_copy_title"), hint: Lz("lyrics_embed_copy_hint")) {
+                    MacSTPicker(
+                        selection: lyricsEmbeddingSelection,
+                        options: LyricsEmbeddingMode.allCases.map { ($0, $0.settingsTitle) },
+                        width: 200
+                    )
+                }
+                .settingsAnchor("scraping.embedLyrics")
                 MacSTRow(Lz("Write Timeout"), hint: Lz("Network sidecar write timeout")) {
                     MacSTSlider(
                         value: $sidecarWriteTimeout,
@@ -2629,6 +2647,19 @@ private struct MacSTScrapingView: View {
                 }
                 .settingsAnchor("scraping.writeTimeout")
             }
+        }
+        .alert(
+            "lyrics_embed_confirm_title",
+            isPresented: Binding(
+                get: { pendingLyricsEmbeddingMode != nil },
+                set: { if !$0 { pendingLyricsEmbeddingMode = nil } }
+            ),
+            presenting: pendingLyricsEmbeddingMode
+        ) { mode in
+            Button("cancel", role: .cancel) {}
+            Button("enable") { applyLyricsEmbeddingMode(mode) }
+        } message: { mode in
+            Text(verbatim: mode.confirmationMessage)
         }
 
         MacSTSection(Lz("Batch Scraping")) {
@@ -2661,6 +2692,33 @@ private struct MacSTScrapingView: View {
         .sheet(isPresented: $showImportSheet) {
             importScraperSheet
         }
+    }
+
+    /// 空字符串表示还没选过：交给策略读，它认得第一版留下的开关。
+    private var currentLyricsEmbeddingMode: LyricsEmbeddingMode {
+        LyricsEmbeddingMode(rawValue: lyricsEmbeddingModeRaw) ?? EmbeddedLyricsCopyPolicy.mode()
+    }
+
+    /// 嵌入要改写用户的音频文件。往更深处走（开启、或改成只嵌入）之前先把代价摆出来，
+    /// 确认过再切；往回退不用问。
+    private var lyricsEmbeddingSelection: Binding<LyricsEmbeddingMode> {
+        Binding(
+            get: { currentLyricsEmbeddingMode },
+            set: { newValue in
+                let current = currentLyricsEmbeddingMode
+                guard newValue != current else { return }
+                if EmbeddedLyricsCopyPolicy.requiresConfirmation(from: current, to: newValue) {
+                    pendingLyricsEmbeddingMode = newValue
+                } else {
+                    applyLyricsEmbeddingMode(newValue)
+                }
+            }
+        )
+    }
+
+    private func applyLyricsEmbeddingMode(_ mode: LyricsEmbeddingMode) {
+        EmbeddedLyricsCopyPolicy.setMode(mode)
+        lyricsEmbeddingModeRaw = mode.rawValue
     }
 
     private func sourceEnabledBinding(_ source: ScraperSourceConfig) -> Binding<Bool> {
@@ -4840,7 +4898,6 @@ private struct MacSTThemeView: View {
     private var motionArtworkServiceEnabled = PlayerAppearancePreferences.motionArtworkServiceEnabledByDefault
     @AppStorage(PlayerAppearancePreferences.motionArtworkServiceEndpointKey)
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
-
     private var swatches: [(hex: String, name: String, sub: String, color: Color)] {
         AppThemePreferences.swatches.map { swatch in
             (
@@ -5115,7 +5172,8 @@ private struct MacSTThemeView: View {
             }
         }
 
-        MacSTSection(String(localized: "app_icon")) {
+        MacSTSection(String(localized: "app_icon"),
+                     hint: String(localized: "app_icon_dock_hint")) {
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4),
                 spacing: 16
@@ -6624,6 +6682,13 @@ private struct MacLicensesPanel: View {
                         .foregroundStyle(PMColor.textMuted)
                 }
                 Spacer()
+                Link(destination: IssueFeedbackLink.repositoryURL) {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .frame(width: 26, height: 26)
+                }
+                .help(Text("github_repository"))
+                .accessibilityLabel(Text("github_repository"))
+                .accessibilityIdentifier("about.repository")
                 if selected != nil {
                     Button {
                         selected = nil
@@ -6698,6 +6763,7 @@ private struct MacLicensesPanel: View {
                                         Rectangle().fill(PMColor.divider).frame(height: 0.5)
                                     }
                                 }
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
@@ -7053,8 +7119,16 @@ private struct MacLogRow {
 private struct MacSTAboutView: View {
     @State private var showLicenses = false
 
-    private let repositoryURL = URL(string: "https://github.com/chenqi92/primuse")!
-    private let issuesURL = URL(string: "https://github.com/chenqi92/primuse/issues/new/choose")!
+    /// The issue form opens with this build's version, device and system already
+    /// filled in. None of those fields are required by the form, so the user can
+    /// edit or clear them before submitting.
+    private func feedbackURL(for template: IssueFeedbackLink.Template) -> URL {
+        IssueFeedbackLink.url(
+            for: template,
+            environment: RunningAppEnvironment.diagnosticEnvironment(),
+            platform: RunningAppEnvironment.issuePlatform
+        )
+    }
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
@@ -7097,23 +7171,24 @@ private struct MacSTAboutView: View {
 
             HStack(spacing: 12) {
                 aboutLinkCard(
-                    title: String(localized: "github_repository"),
-                    detail: "github.com/chenqi92/primuse",
-                    systemImage: "chevron.left.forwardslash.chevron.right"
-                ) {
-                    NSWorkspace.shared.open(repositoryURL)
-                }
-
-                aboutLinkCard(
-                    title: String(localized: "github_feedback"),
+                    title: String(localized: "github_bug_report"),
                     detail: "GitHub Issues",
                     systemImage: "exclamationmark.bubble",
                     emphasized: true
                 ) {
-                    NSWorkspace.shared.open(issuesURL)
+                    NSWorkspace.shared.open(feedbackURL(for: .bugReport))
                 }
+                .settingsAnchor("about.bugReport")
+
+                aboutLinkCard(
+                    title: String(localized: "github_feature_request"),
+                    detail: "GitHub Issues",
+                    systemImage: "lightbulb"
+                ) {
+                    NSWorkspace.shared.open(feedbackURL(for: .featureRequest))
+                }
+                .settingsAnchor("about.featureRequest")
             }
-            .settingsAnchor("about.repository")
 
             HStack(alignment: .top, spacing: 7) {
                 Image(systemName: "info.circle")
@@ -7138,10 +7213,6 @@ private struct MacSTAboutView: View {
                     title: String(localized: "rate_on_app_store"),
                     systemImage: "star.bubble"
                 ) {
-                    // The only rating signal the app ever gets: StoreKit stays
-                    // silent about the system sheet, so remember this one and
-                    // stop asking automatically.
-                    AppReviewPromptCoordinator.shared.recordManualReviewVisit()
                     NSWorkspace.shared.open(PrimuseAppStore.reviewURL)
                 }
                 aboutUtilityButton(

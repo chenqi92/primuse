@@ -19,9 +19,9 @@ import PrimuseKit
 /// 请求侧用空串代表它。文件夹层级只能靠 `RemoteFileItem.parentPath` 重建,那里
 /// 填的是调用方用来定位本目录的标识,不是请求参数。
 ///
-/// 开放平台目前只有读接口(列目录 / 详情 / 直链 / 用户信息),没有上传与删除,
-/// 所以刮削的封面与歌词不回写光鸭,留在 Primuse 本地元数据缓存里
-/// (`MusicSourceType.supportsSidecarWriting` / `supportsFileDeletion` 均为 false)。
+/// 当前连接器使用开放平台的读取接口。OpenAPI v1.3 增加了需单独开通的上传能力,
+/// 但尚无已落盘文件的覆盖 / 删除契约，不能据此替换原音频或更新已有 sidecar。
+/// 封面、歌词和标签编辑因此仍保存在 Primuse 本地。
 actor GuangYaSource: MusicSourceConnector, OAuthCloudSource {
     let sourceID: String
     private let helper: CloudDriveHelper

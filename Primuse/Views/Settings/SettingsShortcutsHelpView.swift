@@ -25,6 +25,7 @@ struct SettingsShortcutsHelpView: View {
                                 Image(systemName: "chevron.right").foregroundStyle(.secondary)
                             }
                             .padding(.vertical, 6)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }

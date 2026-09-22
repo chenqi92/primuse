@@ -35,7 +35,11 @@ struct TVPlaybackPipelinePolicyTests {
             for: .opus,
             isVideo: false,
             serverTranscodesWMA: false
-        ) == .decodedTemporaryFile(fileExtension: "opus", inspectWAVAfterDownload: false))
+        ) == .decodedTemporaryFile(
+            fileExtension: "opus",
+            decoder: .sfbAudioEngine,
+            inspectWAVAfterDownload: false
+        ))
         #expect(TVPlaybackFormatRoutingPolicy.delivery(
             for: .au,
             isVideo: false,
@@ -48,6 +52,48 @@ struct TVPlaybackPipelinePolicyTests {
         ) == .avPlayer(fileExtension: "mp3"))
     }
 
+    @Test("Formats SFBAudioEngine cannot decode are handed to FFmpeg")
+    func ffmpegRouting() {
+        #expect(TVPlaybackFormatRoutingPolicy.delivery(
+            for: .wma,
+            isVideo: false,
+            serverTranscodesWMA: false
+        ) == .decodedTemporaryFile(
+            fileExtension: "wma",
+            decoder: .ffmpeg,
+            inspectWAVAfterDownload: false
+        ))
+        for format in [AudioFormat.dts, .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .qoa, .tta] {
+            let delivery = TVPlaybackFormatRoutingPolicy.delivery(
+                for: format,
+                isVideo: false,
+                serverTranscodesWMA: false
+            )
+            #expect(delivery == .decodedTemporaryFile(
+                fileExtension: format.rawValue,
+                decoder: .ffmpeg,
+                inspectWAVAfterDownload: false
+            ))
+        }
+        for format in [AudioFormat.ape, .dsf, .dff, .ogg, .opus, .wv, .mpc, .shn, .speex] {
+            #expect(TVLocalDecoder(format: format) == .sfbAudioEngine)
+        }
+    }
+
+    @Test("Only decoded formats and raw AAC prefer FFmpeg")
+    func ffmpegPreferenceStaysInsideDecodedFormats() {
+        for format in AudioFormat.allCases where format.prefersFFmpegDecoder {
+            #expect(format.requiresFFmpeg || format == .aac)
+        }
+        // tvOS plays raw AAC through AVPlayer; the preference only matters
+        // once a format is already off the native path.
+        #expect(TVPlaybackFormatRoutingPolicy.delivery(
+            for: .aac,
+            isVideo: false,
+            serverTranscodesWMA: false
+        ) == .avPlayer(fileExtension: "aac"))
+    }
+
     @Test("DTS-in-WAV never enters native range playback")
     func dtsWAVRouting() {
         #expect(TVPlaybackFormatRoutingPolicy.delivery(
@@ -55,13 +101,27 @@ struct TVPlaybackPipelinePolicyTests {
             isVideo: false,
             serverTranscodesWMA: false,
             wavProbeOutcome: .dts
-        ) == .decodedTemporaryFile(fileExtension: "dts", inspectWAVAfterDownload: false))
+        ) == .decodedTemporaryFile(
+            fileExtension: "wav",
+            decoder: .ffmpeg,
+            inspectWAVAfterDownload: false
+        ))
         #expect(TVPlaybackFormatRoutingPolicy.delivery(
             for: .wav,
             isVideo: false,
             serverTranscodesWMA: false,
             wavProbeOutcome: .unavailable
-        ) == .decodedTemporaryFile(fileExtension: "wav", inspectWAVAfterDownload: true))
+        ) == .decodedTemporaryFile(
+            fileExtension: "wav",
+            decoder: .sfbAudioEngine,
+            inspectWAVAfterDownload: true
+        ))
+        let dtsInWave = TVPlaybackFormatRoutingPolicy.decoderAfterWAVInspection(.dtsInWave)
+        let rawDTS = TVPlaybackFormatRoutingPolicy.decoderAfterWAVInspection(.dts)
+        let pcmWave = TVPlaybackFormatRoutingPolicy.decoderAfterWAVInspection(.riffWave)
+        #expect(dtsInWave == .ffmpeg)
+        #expect(rawDTS == .ffmpeg)
+        #expect(pcmWave == .sfbAudioEngine)
     }
 
     @Test("Range responses must match the requested physical window")

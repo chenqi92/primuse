@@ -1065,6 +1065,8 @@ private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDeleg
 }
 
 enum SourceDiagnosticStatus: Sendable {
+    case running
+    case skipped
     case passed
     case warning
     case failed
@@ -1077,14 +1079,34 @@ struct SourceDiagnosticCheck: Identifiable, Sendable {
     let message: String
     let suggestion: String
 
-    init(status: SourceDiagnosticStatus, title: String, message: String, suggestion: String = "") {
-        self.id = UUID()
+    init(id: UUID = UUID(), status: SourceDiagnosticStatus, title: String, message: String, suggestion: String = "") {
+        self.id = id
         self.status = status
         self.title = title
         self.message = message
         self.suggestion = suggestion
     }
 }
+
+struct SourceDiagnosticProgress: Sendable {
+    var checks: [SourceDiagnosticCheck] = []
+    var totalChecks: Int = 0
+
+    var completedChecks: Int { checks.filter { $0.status != .running }.count }
+}
+
+struct SourceDiagnosticConnectionResult: Sendable {
+    let title: String
+    let isAvailable: Bool
+}
+
+protocol SourceDiagnosticConnectionPreparing: MusicSourceConnector {
+    func prepareDiagnosticConnection() async throws
+}
+
+extension FnMusicSource: SourceDiagnosticConnectionPreparing {}
+extension SynologySource: SourceDiagnosticConnectionPreparing {}
+extension SynologyAudioStationSource: SourceDiagnosticConnectionPreparing {}
 
 struct SourceDiagnosticReport: Identifiable, Sendable {
     let id: UUID
@@ -1094,12 +1116,14 @@ struct SourceDiagnosticReport: Identifiable, Sendable {
     let finishedAt: Date
     let checks: [SourceDiagnosticCheck]
     let wasCancelled: Bool
+    let connections: [SourceDiagnosticConnectionResult]
 
     init(
         source: MusicSource,
         startedAt: Date,
         checks: [SourceDiagnosticCheck],
-        wasCancelled: Bool = false
+        wasCancelled: Bool = false,
+        connections: [SourceDiagnosticConnectionResult] = []
     ) {
         self.id = UUID()
         self.sourceID = source.id
@@ -1108,6 +1132,7 @@ struct SourceDiagnosticReport: Identifiable, Sendable {
         self.finishedAt = Date()
         self.checks = checks
         self.wasCancelled = wasCancelled
+        self.connections = connections
     }
 
     var blockingFailure: SourceDiagnosticCheck? {
@@ -1115,6 +1140,11 @@ struct SourceDiagnosticReport: Identifiable, Sendable {
     }
 
     var summaryStatus: SourceDiagnosticStatus {
+        if wasCancelled { return .warning }
+        if !connections.isEmpty {
+            guard connections.contains(where: \.isAvailable) else { return .failed }
+            if connections.contains(where: { !$0.isAvailable }) { return .warning }
+        }
         if checks.contains(where: { $0.status == .failed }) { return .failed }
         if checks.contains(where: { $0.status == .warning }) { return .warning }
         return .passed
@@ -1703,13 +1733,17 @@ private extension RoutedConnectorProxy {
     func writeEmbeddedMetadata(
         original: Song,
         updated: Song,
-        coverData: Data?
+        coverData: Data?,
+        lyrics: EmbeddedLyricsEdit,
+        writesTextTags: Bool
     ) async throws -> EmbeddedMetadataWritebackResult {
         try await routing.withMutation {
             try await $0.writeEmbeddedMetadata(
                 original: original,
                 updated: updated,
-                coverData: coverData
+                coverData: coverData,
+                lyrics: lyrics,
+                writesTextTags: writesTextTags
             )
         }
     }
@@ -2224,7 +2258,7 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 /// 那项功能就会在「内网 + QuickConnect」这种配置下静默失效 —— 与
 /// `SynologyAudioStationSource` 遵循的协议逐一对应。
 private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector {
+    ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2262,6 +2296,13 @@ private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, Refres
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerRadioConnector else { return nil }
+            return try await provider.fetchServerRadioStations()
         }
     }
 
@@ -2514,6 +2555,19 @@ final class SourceManager {
     @ObservationIgnored private var connectorScopeValidationPendingSourceIDs: Set<String> = []
     @ObservationIgnored private var connectorScopeValidationGenerationBySourceID: [String: Int] = [:]
     @ObservationIgnored private var playbackSourceAvailability = PlaybackSourceAvailabilityPolicy()
+    /// Sources whose every configured address failed an independent probe on
+    /// the current network path. Views read this to mark songs that cannot
+    /// start right now. Traversal asks the policy instead, which already knows
+    /// about a path change before this projection is republished.
+    private(set) var unreachablePlaybackSourceIDs: Set<String> = []
+    /// The player re-plans its successor when the projection above changes.
+    @ObservationIgnored var onPlaybackSourceAvailabilityChange: (@MainActor () -> Void)?
+    @ObservationIgnored private var isMonitoringPlaybackSourceAvailability = false
+    @ObservationIgnored private var playbackAvailabilityProbesInFlight: Set<String> = []
+    @ObservationIgnored private var playbackAvailabilityDiscoveryRequests: Set<String> = []
+    @ObservationIgnored private var playbackAvailabilityPassCount = 0
+    @ObservationIgnored private var playbackAvailabilityPathTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackAvailabilityRecheckTask: Task<Void, Never>?
     private struct UnavailableConnectorCacheEntry {
         let connector: any MusicSourceConnector
         let capturedAt: Date
@@ -2543,6 +2597,9 @@ final class SourceManager {
     private let sourcesProvider: @Sendable () async throws -> [MusicSource]
     private let songsProvider: @MainActor () -> [Song]
     @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
+    @ObservationIgnored private var offlineAudioSnapshotVersions: [String: UInt64] = [:]
+    @ObservationIgnored private var pendingOfflineAudioCachePaths: Set<String> = []
+    @ObservationIgnored private var offlineAudioCacheRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var offlineAudioSnapshotEntries: [String: OfflineAudioSnapshotEntry] = [:]
     /// Lightweight aggregate used by the source cards. Download progress does
     /// not mutate this set; only entering/leaving the downloading state does.
@@ -2565,6 +2622,7 @@ final class SourceManager {
     /// misleading selected/unselected flash during automatic retries.
     private(set) var lastSuccessfulConnectionRoutes: [String: SourceConnectionCandidateKind] = [:]
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
+    @ObservationIgnored var metadataFileReplacementHandler: ((Song, Song) async throws -> Void)?
     @ObservationIgnored var automaticOfflineDownloadRemovedHandler: ((String) -> Void)?
     @ObservationIgnored private var automaticPlaylistPinnedSongsByID: [String: Song] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
@@ -2576,6 +2634,11 @@ final class SourceManager {
     /// 已经处理过 (采纳或拒绝) 的旧版缓存文件名, 按源分组。拒绝同样要记住,
     /// 否则每次解析缓存路径都会重新走一遍全库比对。
     @ObservationIgnored private var resolvedLegacyAudioCacheNames: [String: Set<String>] = [:]
+    /// Whether a source's cache directory still holds files from before the
+    /// digest naming, and which songs own one. Queue traversal consults these
+    /// so it never has to list a directory or scan the library twice.
+    @ObservationIgnored private var legacyAudioCachePresenceBySourceID: [String: Bool] = [:]
+    @ObservationIgnored private var adoptableLegacyAudioCacheBySourceID: [String: [String: Bool]] = [:]
     /// 路径迁移的串行链: 相继两次位置变更通知必须按顺序落盘。
     @ObservationIgnored private var pathKeyedReconcileTask: Task<Void, Never>?
     /// 当前迁移批次占用的目标相对路径。迁移会连带删掉目标旁边的
@@ -2656,6 +2719,17 @@ final class SourceManager {
     }
 
     private func observeLibraryInvalidations() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseAudioCacheFilesDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] note in
+            guard let paths = note.userInfo?["paths"] as? [String] else { return }
+            Task { @MainActor [weak self] in
+                self?.enqueueOfflineAudioCacheRefresh(paths: paths)
+            }
+        }
+
         NotificationCenter.default.addObserver(
             forName: .primuseSourcesDidChange,
             object: nil,
@@ -2770,7 +2844,11 @@ final class SourceManager {
         return try await provider.requestServerCatalogScan()
     }
 
-    private func connector(for source: MusicSource, cache: Bool) -> any MusicSourceConnector {
+    private func connector(
+        for source: MusicSource,
+        cache: Bool,
+        diagnosticCandidate: SourceConnectionCandidate? = nil
+    ) -> any MusicSourceConnector {
         let scopeFingerprint = Self.audioCacheScopeSignature(for: source)
         guard !credentialChangesInProgress.contains(source.id),
               !MusicSourceSecurityRevision.hasPendingChange(for: source.id) else {
@@ -2841,7 +2919,17 @@ final class SourceManager {
             retireConnectorAsynchronously(unavailable.connector)
         }
 
-        let build = routedConnector(for: source)
+        let build: RoutedConnectorBuild
+        if let diagnosticCandidate {
+            // Validate the original source's credential scope, then pin this
+            // temporary connector to exactly one route without publishing it.
+            build = RoutedConnectorBuild(
+                connector: directConnector(for: source.applyingConnectionCandidate(diagnosticCandidate)),
+                routeOwner: nil
+            )
+        } else {
+            build = routedConnector(for: source)
+        }
         let connector = build.connector
         if cache {
             if connector is CredentialUnavailableSourceConnector {
@@ -3233,6 +3321,191 @@ final class SourceManager {
         return connector
     }
 
+    /// Interactive diagnostics own their connections; scan preflight below keeps
+    /// its fast, reusable route selection and its existing blocking semantics.
+    func diagnoseAllConnections(
+        source: MusicSource,
+        endpointProbe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check,
+        onProgress: @MainActor (SourceDiagnosticProgress) -> Void
+    ) async -> SourceDiagnosticReport {
+        let startedAt = Date()
+        let configuration = configurationChecks(for: source, explicitDirectories: nil, allConnections: true)
+        let candidates: [SourceConnectionCandidate?] = source.type.supportsAdaptiveConnections
+            ? source.diagnosticConnectionCandidates.map { Optional($0) }
+            : [nil]
+        let roots = source.type.scansEntireLibrary ? ["/"] : diagnosticProbeRoots(for: source, explicitDirectories: nil)
+        var progress = SourceDiagnosticProgress(totalChecks: configuration.count + candidates.reduce(0) {
+            $0 + ($1?.endpoint == nil ? 0 : 1) + ($1?.kind == .vendorRemote ? 1 : 0) + 1 + roots.count
+        })
+        var connections: [SourceDiagnosticConnectionResult] = []
+        var wasCancelled = false
+
+        func publish() async {
+            onProgress(progress)
+            await Task.yield()
+        }
+
+        func skip(_ title: String) async {
+            progress.checks.append(SourceDiagnosticCheck(
+                status: .skipped, title: title, message: String(localized: "source_diag_skipped")
+            ))
+            await publish()
+        }
+
+        func perform(
+            _ title: String,
+            operation: @Sendable () async throws -> SourceDiagnosticCheck
+        ) async -> Bool {
+            let id = UUID()
+            let index = progress.checks.count
+            progress.checks.append(SourceDiagnosticCheck(
+                id: id, status: .running, title: title, message: String(localized: "source_diag_waiting")
+            ))
+            await publish()
+            let result: SourceDiagnosticCheck
+            do {
+                try Task.checkCancellation()
+                let completed = try await operation()
+                try Task.checkCancellation()
+                result = completed
+            } catch {
+                wasCancelled = OperationCancellationPolicy.isCancellation(error)
+                result = wasCancelled
+                    ? SourceDiagnosticCheck(status: .skipped, title: title, message: String(localized: "source_diag_cancelled"))
+                    : diagnosticCheck(for: error, source: source, title: title)
+            }
+            progress.checks[index] = SourceDiagnosticCheck(
+                id: id, status: result.status, title: title, message: result.message, suggestion: result.suggestion
+            )
+            await publish()
+            return result.status == .passed || result.status == .warning
+        }
+
+        for check in configuration {
+            guard !Task.isCancelled else { wasCancelled = true; break }
+            progress.checks.append(check)
+            await publish()
+        }
+        let configurationPassed = !configuration.contains { $0.status == .failed }
+
+        for candidate in candidates {
+            guard !Task.isCancelled, !wasCancelled else { wasCancelled = true; break }
+            let routeTitle: String
+            switch candidate?.kind {
+            case .localAddress: routeTitle = String(localized: "source_connection_local")
+            case .publicAddress: routeTitle = String(localized: "source_connection_public_direct")
+            case .vendorRemote:
+                routeTitle = source.type == .fnMusic ? "FN Connect" : "QuickConnect"
+            case nil: routeTitle = source.type.displayName
+            }
+            func title(_ stage: String) -> String { "\(routeTitle) · \(stage)" }
+            var available = configurationPassed
+            if let endpoint = candidate?.endpoint {
+                let stageTitle = title(String(localized: "source_diag_reachability_title"))
+                // Reachability remains useful even when the saved credential is missing.
+                let reachable = await perform(stageTitle) {
+                    try await endpointProbe(endpoint)
+                    return SourceDiagnosticCheck(
+                        status: .passed, title: stageTitle, message: String(localized: "source_diag_reachability_ok")
+                    )
+                }
+                available = available && reachable
+            }
+            if wasCancelled || Task.isCancelled { wasCancelled = true; break }
+
+            let loginTitle = title(String(localized: "source_diag_login_title"))
+            let connector: (any MusicSourceConnector)?
+            if available {
+                let temporary = self.connector(for: source, cache: false, diagnosticCandidate: candidate)
+                connector = temporary
+                let timeout: TimeInterval
+                switch source.type {
+                case .fnMusic: timeout = FnMusicSource.connectionTimeout + 5
+                case .synology, .synologyAudioStation: timeout = SynologyAudioStationSource.connectionTimeout + 5
+                default: timeout = 15
+                }
+                if candidate?.kind == .vendorRemote {
+                    let resolutionTitle = title(String(localized: "source_diag_resolution_title"))
+                    available = await perform(resolutionTitle) {
+                        try await Self.withTimeout(seconds: timeout) {
+                            if let preparing = temporary as? any SourceDiagnosticConnectionPreparing {
+                                try await preparing.prepareDiagnosticConnection()
+                            } else {
+                                // Fail-closed credential/scope connectors retain their error.
+                                try await temporary.connect()
+                            }
+                        }
+                        return SourceDiagnosticCheck(
+                            status: .passed, title: resolutionTitle, message: String(localized: "source_diag_resolution_ok")
+                        )
+                    }
+                }
+                if available && !Task.isCancelled && !wasCancelled {
+                    available = await perform(loginTitle) {
+                        do {
+                            try await Self.withTimeout(seconds: timeout) { try await temporary.connect() }
+                        } catch {
+                            guard !OperationCancellationPolicy.isCancellation(error),
+                                  await SSLTrustStore.shared.handleSSLErrorIfNeeded(error) else { throw error }
+                            try Task.checkCancellation()
+                            try await Self.withTimeout(seconds: timeout) { try await temporary.connect() }
+                        }
+                        return SourceDiagnosticCheck(
+                            status: .passed, title: loginTitle, message: String(localized: "source_diag_connection_ok")
+                        )
+                    }
+                } else if !wasCancelled && !Task.isCancelled {
+                    await skip(loginTitle)
+                }
+            } else {
+                connector = nil
+                if candidate?.kind == .vendorRemote {
+                    await skip(title(String(localized: "source_diag_resolution_title")))
+                }
+                await skip(loginTitle)
+            }
+            // These instances are never put in the playback/scan cache.
+            defer { if let connector { retireConnectorAsynchronously(connector) } }
+            if wasCancelled || Task.isCancelled { wasCancelled = true; break }
+
+            let connected = available
+            for root in roots {
+                guard !Task.isCancelled, !wasCancelled else { wasCancelled = true; break }
+                let stage = source.type.scansEntireLibrary
+                    ? String(localized: "source_diag_library_title")
+                    : String(localized: "source_diag_directory_title")
+                let directory = SourceDirectoryLabelPolicy.readableFallback(path: root, sourceType: source.type)
+                let detail = source.type.scansEntireLibrary ? stage : directory.map { "\(stage) · \($0)" } ?? stage
+                let stageTitle = title(detail)
+                guard connected, let connector else { await skip(stageTitle); continue }
+                let readable = await perform(stageTitle) {
+                    let count = try await Self.withTimeout(seconds: 20) {
+                        if let audioStation = connector as? SynologyAudioStationSource {
+                            return try await audioStation.diagnosticLibraryItemCount()
+                        }
+                        return try await connector.listFiles(at: root).count
+                    }
+                    return SourceDiagnosticCheck(
+                        status: count == 0 ? .warning : .passed,
+                        title: stageTitle,
+                        message: count > 0 && source.type.scansEntireLibrary
+                            ? String(localized: "source_diag_library_ok")
+                            : String(format: String(localized: count == 0
+                                ? "source_diag_directory_empty_format" : "source_diag_directory_ok_format"), count),
+                        suggestion: count == 0 ? String(localized: "source_diag_directory_empty_suggestion") : ""
+                    )
+                }
+                available = available && readable
+            }
+            if wasCancelled || Task.isCancelled { wasCancelled = true; break }
+            connections.append(SourceDiagnosticConnectionResult(title: routeTitle, isAvailable: available))
+        }
+        return SourceDiagnosticReport(
+            source: source, startedAt: startedAt, checks: progress.checks,
+            wasCancelled: wasCancelled || Task.isCancelled, connections: connections
+        )
+    }
+
     func diagnose(source: MusicSource, directories explicitDirectories: [String]? = nil) async -> SourceDiagnosticReport {
         let startedAt = Date()
         var checks = configurationChecks(for: source, explicitDirectories: explicitDirectories)
@@ -3464,13 +3737,14 @@ final class SourceManager {
 
     private func configurationChecks(
         for source: MusicSource,
-        explicitDirectories: [String]?
+        explicitDirectories: [String]?,
+        allConnections: Bool = false
     ) -> [SourceDiagnosticCheck] {
         var checks: [SourceDiagnosticCheck] = []
 
         let hasUsableConnection = source.type.supportsAdaptiveConnections
             && source.connectionConfiguration != nil
-            ? source.connectionCandidates.isEmpty == false
+            ? (allConnections ? source.diagnosticConnectionCandidates : source.connectionCandidates).isEmpty == false
             : trimmed(source.host).isEmpty == false
         if source.type.requiresHost, hasUsableConnection == false {
             checks.append(SourceDiagnosticCheck(
@@ -5539,6 +5813,7 @@ final class SourceManager {
         _ sourceIDs: Set<String>,
         scheduleValidation: Bool = true
     ) {
+        playbackSourceConfigurationChanged(sourceIDs)
         for sourceID in sourceIDs {
             playbackSourceAvailability.invalidate(sourceID: sourceID)
             CloudPlaybackSource.cancelSessions(sourceID: sourceID)
@@ -5551,6 +5826,7 @@ final class SourceManager {
             connectorConstructionSignatures[sourceID] = nil
             sidecarConnectorConstructionSignatures[sourceID] = nil
             resolvedLegacyAudioCacheNames[sourceID] = nil
+            forgetLegacyAudioCacheLookups(sourceID: sourceID)
 
             if let connector = connectors.removeValue(forKey: sourceID) {
                 retireConnectorAsynchronously(connector)
@@ -5980,6 +6256,59 @@ final class SourceManager {
         }
     }
 
+    private func forgetLegacyAudioCacheLookups(sourceID: String) {
+        legacyAudioCachePresenceBySourceID[sourceID] = nil
+        adoptableLegacyAudioCacheBySourceID[sourceID] = nil
+    }
+
+    /// Listed once per source: nothing writes the old names any more, so a
+    /// directory without one stays that way, and almost every library has
+    /// none.
+    private func mayHoldLegacyAudioCache(sourceID: String) -> Bool {
+        if let known = legacyAudioCachePresenceBySourceID[sourceID] { return known }
+        let names = (try? FileManager.default.contentsOfDirectory(
+            atPath: audioCacheDirectory(for: sourceID).path
+        )) ?? []
+        let present = names.contains { LegacyAudioCacheMigrationPolicy.mayBeLegacyFileName($0) }
+        legacyAudioCachePresenceBySourceID[sourceID] = present
+        return present
+    }
+
+    /// Read-only twin of `migrateLegacyAudioCacheIfUnambiguous`: would
+    /// `cachedURL` adopt an old-name file for this song? Traversal must not
+    /// move files, but it must not call a song unplayable that playback would
+    /// find on disk either.
+    private func hasAdoptableLegacyAudioCache(for song: Song) -> Bool {
+        guard mayHoldLegacyAudioCache(sourceID: song.sourceID) else { return false }
+        let legacyName = legacyAudioCacheFileName(for: song)
+        guard resolvedLegacyAudioCacheNames[song.sourceID]?.contains(legacyName) != true else {
+            return false
+        }
+        if let known = adoptableLegacyAudioCacheBySourceID[song.sourceID]?[song.id] {
+            return known
+        }
+        let legacyURL = audioCacheDirectory(for: song.sourceID).appendingPathComponent(legacyName)
+        var adoptable = false
+        if FileManager.default.fileExists(atPath: legacyURL.path) {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: legacyURL.path)
+            let byteCount = (attributes?[.size] as? NSNumber)?.int64Value
+            adoptable = LegacyAudioCacheMigrationPolicy.decision(
+                destinationExists: false,
+                legacyExists: true,
+                matchCount: legacyAudioCacheMatchCount(
+                    legacyName: legacyName,
+                    sourceID: song.sourceID,
+                    stoppingAfter: 2
+                ),
+                legacyByteCount: byteCount,
+                expectedSize: song.fileSize,
+                alreadyResolved: false
+            ) == .move
+        }
+        adoptableLegacyAudioCacheBySourceID[song.sourceID, default: [:]][song.id] = adoptable
+        return adoptable
+    }
+
     func cachedURL(for song: Song) -> URL? {
         let sanitized = cacheFileName(for: song)
         let relativePath = "\(song.sourceID)/\(sanitized)"
@@ -6025,10 +6354,13 @@ final class SourceManager {
         let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
             || contentChangeProtectionPendingPaths.contains(relativePath)
             || (activePlaybackAudioCachePaths[relativePath] ?? 0) > 0
-        return Self.isUsableCacheFile(
+        if Self.isUsableCacheFile(
             at: cacheURL(for: song),
             expectedSize: preservesExistingArtifact ? 0 : song.fileSize
-        )
+        ) { return true }
+        // Playback adopts a file cached under the old naming the moment it
+        // resolves the song. Answer the same way here, without moving it.
+        return hasAdoptableLegacyAudioCache(for: song)
     }
 
     /// A sparse range cache is excellent for linear playback, but some
@@ -6362,6 +6694,7 @@ final class SourceManager {
         _ snapshot: OfflineAudioCacheSnapshot,
         for songID: String
     ) {
+        offlineAudioSnapshotVersions[songID, default: 0] &+= 1
         let previousSnapshot = offlineAudioSnapshots[songID]
         guard previousSnapshot != snapshot else { return }
         offlineAudioSnapshots[songID] = snapshot
@@ -6380,6 +6713,7 @@ final class SourceManager {
     }
 
     private func removeOfflineAudioSnapshot(for songID: String) {
+        offlineAudioSnapshotVersions[songID, default: 0] &+= 1
         let wasDownloaded = offlineAudioSnapshots[songID]?.isDownloaded == true
         offlineAudioSnapshots.removeValue(forKey: songID)
         offlineAudioSnapshotEntries[songID]?.update(.notCached)
@@ -6397,6 +6731,7 @@ final class SourceManager {
         guard !songIDs.isEmpty else { return }
         var removedDownloadedSong = false
         for songID in songIDs {
+            offlineAudioSnapshotVersions[songID, default: 0] &+= 1
             removedDownloadedSong = removedDownloadedSong
                 || offlineAudioSnapshots[songID]?.isDownloaded == true
             offlineAudioSnapshots.removeValue(forKey: songID)
@@ -6433,8 +6768,34 @@ final class SourceManager {
         setOfflineAudioSnapshot(snapshot, for: song.id)
     }
 
+    private func enqueueOfflineAudioCacheRefresh(paths: [String]) {
+        pendingOfflineAudioCachePaths.formUnion(paths)
+        guard offlineAudioCacheRefreshTask == nil else { return }
+        offlineAudioCacheRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Serialize probes so a removal that arrives during a completion
+            // refresh is read afterwards rather than losing its invalidation.
+            while !pendingOfflineAudioCachePaths.isEmpty {
+                let changedPaths = pendingOfflineAudioCachePaths
+                pendingOfflineAudioCachePaths.removeAll(keepingCapacity: true)
+                let songs = songsProvider().filter {
+                    offlineAudioSnapshots[$0.id] != nil
+                        && changedPaths.contains(audioCacheRelativePath(for: $0))
+                }
+                for song in songs {
+                    guard offlineAudioSnapshots[song.id]?.isDownloading != true else { continue }
+                    await refreshOfflineAudioSnapshot(for: song)
+                }
+            }
+            offlineAudioCacheRefreshTask = nil
+        }
+    }
+
     func refreshOfflineAudioSnapshot(for song: Song) async {
-        guard await ensureAudioCacheScopeValidated(for: song.sourceID) else {
+        let version = offlineAudioSnapshotVersions[song.id, default: 0]
+        let scopeValidated = await ensureAudioCacheScopeValidated(for: song.sourceID)
+        guard offlineAudioSnapshotVersions[song.id, default: 0] == version else { return }
+        guard scopeValidated else {
             setOfflineAudioSnapshot(.notCached, for: song.id)
             return
         }
@@ -6442,6 +6803,7 @@ final class SourceManager {
         let info = await Task.detached(priority: .utility) {
             Self.offlineFileInfo(at: url, expectedSize: song.fileSize)
         }.value
+        guard offlineAudioSnapshotVersions[song.id, default: 0] == version else { return }
         guard audioCacheReadsAreAllowed(for: song.sourceID) else {
             setOfflineAudioSnapshot(.notCached, for: song.id)
             return
@@ -6451,6 +6813,9 @@ final class SourceManager {
             fileExists: info.exists,
             byteCount: info.byteCount
         )
+        // A newer download, removal or source invalidation owns the row now.
+        guard audioCacheReadsAreAllowed(for: song.sourceID),
+              offlineAudioSnapshotVersions[song.id, default: 0] == version else { return }
         setOfflineAudioSnapshot(snapshot, for: song.id)
     }
 
@@ -8557,6 +8922,7 @@ final class SourceManager {
 
             // 改了位置的源, 旧文件名比对结果不再可信。
             resolvedLegacyAudioCacheNames[previous.sourceID] = nil
+            forgetLegacyAudioCacheLookups(sourceID: previous.sourceID)
 
             let previousTaskKey = audioCacheRelativePath(for: previous)
             offlineDownloadTasks[previousTaskKey]?.task.cancel()
@@ -9093,6 +9459,7 @@ final class SourceManager {
         guard !sourceIDs.isEmpty else { return }
         for sourceID in sourceIDs {
             resolvedLegacyAudioCacheNames[sourceID] = nil
+            forgetLegacyAudioCacheLookups(sourceID: sourceID)
         }
         preservingAutomaticRefreshPaths = preservingAutomaticRefreshPaths.filter { path in
             !sourceIDs.contains(Self.sourceID(in: path, separator: "/"))
@@ -10492,12 +10859,18 @@ final class SourceManager {
     }
 
     func isSourceKnownUnavailableForPlayback(_ sourceID: String) -> Bool {
-        playbackSourceAvailability.cachedUnavailability(
+        playbackSourceStanding(sourceID).skipsUncachedSongs
+    }
+
+    func playbackSourceStanding(
+        _ sourceID: String
+    ) -> PlaybackSourceAvailabilityPolicy.Standing {
+        playbackSourceAvailability.standing(
             sourceID: sourceID,
             networkGeneration: NetworkMonitor.shared.pathGeneration,
             sourceGeneration: connectorScopeValidationGenerationBySourceID[sourceID] ?? 0,
             now: ProcessInfo.processInfo.systemUptime
-        ) == true
+        )
     }
 
     func playbackSourceIsUnavailable(for song: Song, retryKnownUnavailable: Bool = false) async -> Bool {
@@ -10538,6 +10911,12 @@ final class SourceManager {
             now: ProcessInfo.processInfo.systemUptime
         ) { return cached }
 
+        // An outage makes every uncached song of this source ineligible at
+        // once, and right after launch "is it cached" has no answer until the
+        // source's cache trust is established. Settle that before an outage
+        // can be recorded, so a downloaded song is never stepped over.
+        _ = await ensureAudioCacheScopeValidated(for: source.id)
+
         let preferredKind = activeConnectionRoutes[source.id]
             ?? (NetworkMonitor.shared.prefersLocalConnections ? .localAddress : .publicAddress)
         let candidates = source.connectionCandidates.sorted { lhs, rhs in
@@ -10561,7 +10940,212 @@ final class SourceManager {
         if unavailable {
             plog("Playback source unavailable source=\(source.id.prefix(8)) type=\(source.type.rawValue) networkGeneration=\(networkGeneration) endpointProbe=all-unreachable")
         }
+        publishPlaybackSourceAvailability()
+        schedulePlaybackAvailabilityRecheck()
         return unavailable
+    }
+
+    // MARK: Playback source availability monitoring
+
+    /// Learns which sources this network can reach before playback runs into
+    /// them, and keeps asking about the ones that cannot be reached. Opt-in so
+    /// a manager built for a test never opens connections on its own.
+    func startMonitoringPlaybackSourceAvailability() {
+        guard !isMonitoringPlaybackSourceAvailability else { return }
+        isMonitoringPlaybackSourceAvailability = true
+        observePlaybackNetworkPath()
+        // Before the first path arrives there is nothing to key a verdict to;
+        // that first callback starts the pass instead.
+        if NetworkMonitor.shared.hasDeterminedPath {
+            schedulePlaybackAvailabilityPathPass()
+        }
+    }
+
+    /// Asks about sources that have no verdict on this path yet. The queue
+    /// calls this with the sources it is about to need.
+    func discoverPlaybackSourceAvailability(for sourceIDs: Set<String>) {
+        guard isMonitoringPlaybackSourceAvailability else { return }
+        let pending = sourceIDs.filter {
+            !playbackAvailabilityProbesInFlight.contains($0)
+                && !playbackAvailabilityDiscoveryRequests.contains($0)
+                && playbackSourceStanding($0).wantsProbe
+        }
+        guard !pending.isEmpty else { return }
+        // Queue edits call this in bursts; remember what is already asked for.
+        playbackAvailabilityDiscoveryRequests.formUnion(pending)
+        Task { @MainActor [weak self] in
+            await self?.runPlaybackAvailabilityPass(sourceIDs: pending)
+            self?.playbackAvailabilityDiscoveryRequests.subtract(pending)
+        }
+    }
+
+    /// The listener just ran into this outage. Ask now instead of waiting for
+    /// the schedule, so songs that came back light up again promptly.
+    func recheckPlaybackSourceNow(_ sourceID: String) {
+        guard isMonitoringPlaybackSourceAvailability,
+              !playbackAvailabilityProbesInFlight.contains(sourceID) else { return }
+        Task { @MainActor [weak self] in
+            _ = await self?.playbackSourceEndpointsAreUnavailable(sourceID: sourceID, refresh: true)
+        }
+    }
+
+    /// "Cannot connect to source" does not say which of several sources, or
+    /// that the network is the reason. Name it.
+    func playbackSourceUnreachableMessage(sourceID: String, skippedSongs: Bool) async -> String {
+        let name = (try? await sourcesProvider())?
+            .first { $0.id == sourceID && !$0.isDeleted }?
+            .name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else { return String(localized: "playback_error_connection") }
+        let format = skippedSongs
+            ? String(localized: "playback_error_source_unreachable_skipped_format")
+            : String(localized: "playback_error_source_unreachable_format")
+        return String(format: format, name)
+    }
+
+    private func observePlaybackNetworkPath() {
+        withObservationTracking {
+            _ = NetworkMonitor.shared.pathGeneration
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.isMonitoringPlaybackSourceAvailability else { return }
+                self.schedulePlaybackAvailabilityPathPass()
+                self.observePlaybackNetworkPath()
+            }
+        }
+    }
+
+    /// Path callbacks arrive in bursts and can precede a usable route. A probe
+    /// sent into that gap reports an outage that does not exist, so wait for
+    /// the burst to end and then ask every source once.
+    private func schedulePlaybackAvailabilityPathPass() {
+        playbackAvailabilityPathTask?.cancel()
+        playbackAvailabilityPathTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            await self?.runPlaybackAvailabilityPass(sourceIDs: nil)
+        }
+    }
+
+    private func runPlaybackAvailabilityPass(sourceIDs requested: Set<String>?) async {
+        guard let sources = try? await sourcesProvider(), !Task.isCancelled else {
+            postponeUnansweredPlaybackRechecks(requested)
+            return
+        }
+        var targets: [MusicSource] = []
+        var liveSourceIDs = Set<String>()
+        for source in sources where !source.isDeleted {
+            guard requested?.contains(source.id) ?? true else { continue }
+            liveSourceIDs.insert(source.id)
+            guard !playbackAvailabilityProbesInFlight.contains(source.id),
+                  playbackSourceStanding(source.id).wantsProbe else { continue }
+            targets.append(source)
+        }
+        // Apple Music, a cast target or a removed source has no address to
+        // probe. There is no evidence of an outage, and saying so stops the
+        // queue from asking again on every track.
+        let networkGeneration = NetworkMonitor.shared.pathGeneration
+        for sourceID in (requested ?? []).subtracting(liveSourceIDs) {
+            playbackSourceAvailability.record(
+                isUnreachable: false,
+                sourceID: sourceID,
+                networkGeneration: networkGeneration,
+                sourceGeneration: connectorScopeValidationGenerationBySourceID[sourceID] ?? 0,
+                now: ProcessInfo.processInfo.systemUptime
+            )
+        }
+
+        // Publish once per pass. Publishing per probe would show every song of
+        // a slow source as playable until its own answer arrived.
+        if !targets.isEmpty {
+            plog("Playback source availability pass probing=\(targets.count) networkGeneration=\(networkGeneration)")
+        }
+        playbackAvailabilityPassCount += 1
+        playbackAvailabilityProbesInFlight.formUnion(targets.map(\.id))
+        await withTaskGroup(of: Void.self) { group in
+            for source in targets {
+                group.addTask {
+                    _ = await self.playbackSourceEndpointsAreUnavailable(for: source)
+                }
+            }
+        }
+        playbackAvailabilityProbesInFlight.subtract(targets.map(\.id))
+        playbackAvailabilityPassCount -= 1
+        // A superseded pass leaves publishing to the pass that replaced it.
+        guard !Task.isCancelled else { return }
+        postponeUnansweredPlaybackRechecks(Set(targets.map(\.id)))
+        publishPlaybackSourceAvailability()
+        schedulePlaybackAvailabilityRecheck()
+    }
+
+    private func postponeUnansweredPlaybackRechecks(_ sourceIDs: Set<String>?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let awaiting = playbackSourceAvailability.sourceIDsAwaitingRecheck(
+            networkGeneration: NetworkMonitor.shared.pathGeneration,
+            sourceGeneration: { [self] in connectorScopeValidationGenerationBySourceID[$0] ?? 0 },
+            now: now
+        )
+        for sourceID in awaiting where sourceIDs?.contains(sourceID) ?? true {
+            playbackSourceAvailability.postponeRecheck(sourceID: sourceID, now: now)
+        }
+    }
+
+    private func publishPlaybackSourceAvailability() {
+        guard playbackAvailabilityPassCount == 0 else { return }
+        let unreachable = playbackSourceAvailability.unreachableSourceIDs(
+            networkGeneration: NetworkMonitor.shared.pathGeneration,
+            sourceGeneration: { [self] in connectorScopeValidationGenerationBySourceID[$0] ?? 0 }
+        )
+        guard unreachable != unreachablePlaybackSourceIDs else { return }
+        unreachablePlaybackSourceIDs = unreachable
+        plog("Playback source availability changed unreachable=\(unreachable.count)")
+        onPlaybackSourceAvailabilityChange?()
+    }
+
+    /// A source edit runs inside a store notification, and views that read the
+    /// projection may be evaluating. Publish and ask again on the next turn,
+    /// when the edit's new generation is in place.
+    private func playbackSourceConfigurationChanged(_ sourceIDs: Set<String>) {
+        guard !sourceIDs.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.publishPlaybackSourceAvailability()
+            self.discoverPlaybackSourceAvailability(for: sourceIDs)
+        }
+    }
+
+    /// One loop serves every outage: sleep until the earliest recheck is due,
+    /// ask, repeat, and end once nothing on this path is unreachable. A
+    /// suspended app stops it and resuming continues it, so a device that
+    /// comes back to the foreground asks again without its own trigger.
+    private func schedulePlaybackAvailabilityRecheck() {
+        guard isMonitoringPlaybackSourceAvailability,
+              playbackAvailabilityRecheckTask == nil,
+              nextPlaybackAvailabilityRecheckDelay() != nil else { return }
+        playbackAvailabilityRecheckTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled,
+                  let delay = self?.nextPlaybackAvailabilityRecheckDelay() {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let due = self?.playbackSourceIDsDueForRecheck() else { break }
+                guard !due.isEmpty else { continue }
+                await self?.runPlaybackAvailabilityPass(sourceIDs: due)
+            }
+            self?.playbackAvailabilityRecheckTask = nil
+        }
+    }
+
+    private func nextPlaybackAvailabilityRecheckDelay() -> Double? {
+        playbackSourceAvailability.nextRecheckTime(
+            networkGeneration: NetworkMonitor.shared.pathGeneration,
+            sourceGeneration: { [self] in connectorScopeValidationGenerationBySourceID[$0] ?? 0 }
+        ).map { max(1, $0 - ProcessInfo.processInfo.systemUptime) }
+    }
+
+    private func playbackSourceIDsDueForRecheck() -> Set<String> {
+        playbackSourceAvailability.sourceIDsAwaitingRecheck(
+            networkGeneration: NetworkMonitor.shared.pathGeneration,
+            sourceGeneration: { [self] in connectorScopeValidationGenerationBySourceID[$0] ?? 0 },
+            now: ProcessInfo.processInfo.systemUptime
+        )
     }
 
     func metadataSourceEndpointsAreUnavailable(sourceID: String) async -> Bool {
@@ -11355,11 +11939,20 @@ final class SourceManager {
             updated: updated,
             coverData: coverData
         )
-        if mode == .embedded {
+        var writesServerAudio = false
+        if mode == .serverAPI {
+            let type = (try? await sourcesProvider())?.first(where: { $0.id == original.sourceID })?.type
+            writesServerAudio = type == .airsonic || type == .fnMusic || type == .synologyAudioStation
+        }
+        if mode == .embedded || writesServerAudio {
             // The file may already have reached the replace stage even when a
             // mandatory readback later reports an error. Never retain bytes
             // cached under the pre-write revision in either outcome.
             deleteAudioCache(for: original)
+        }
+        let relocated = report.replacementAfterFailedVerification ?? report.updatedSong
+        if relocated.filePath != original.filePath {
+            try await metadataFileReplacementHandler?(original, relocated)
         }
         if report.remoteMutationOccurred {
             let writtenFields = report.fields.compactMap { result -> String? in
@@ -11374,6 +11967,64 @@ final class SourceManager {
         return report
     }
 
+    /// Where saved lyrics go for this song: the user's choice, narrowed to
+    /// `.off` unless the source and format take part in the guarded
+    /// whole-file replacement.
+    func lyricsEmbeddingMode(for song: Song) async -> LyricsEmbeddingMode {
+        let mode = EmbeddedLyricsCopyPolicy.mode()
+        guard mode != .off,
+              let sources = try? await sourcesProvider(),
+              let source = sources.first(where: { $0.id == song.sourceID }) else {
+            return .off
+        }
+        return EmbeddedLyricsCopyPolicy.effectiveMode(
+            mode,
+            sourceType: source.type,
+            format: song.fileFormat,
+            isCueTrack: song.isCueTrack,
+            isStreamDescriptor: song.isStreamDescriptor
+        )
+    }
+
+    /// Stores or removes the lyrics inside the audio file and leaves every
+    /// other tag alone. Returns the song with the replaced file's identity so
+    /// the next scan and the next edit still recognise it.
+    func writeEmbeddedLyrics(_ lyrics: EmbeddedLyricsEdit, for song: Song) async throws -> Song {
+        let connector = try await connectorForSong(song)
+        // The file may already have reached the replace stage when a later
+        // step fails, so cached bytes are dropped in either outcome.
+        defer { deleteAudioCache(for: song) }
+        do {
+            let result = try await connector.writeEmbeddedMetadata(
+                original: song,
+                updated: song,
+                coverData: nil,
+                lyrics: lyrics,
+                writesTextTags: false
+            )
+            var updated = song
+            updated.filePath = result.filePath ?? song.filePath
+            updated.fileSize = result.fileSize
+            updated.lastModified = result.modifiedDate
+            updated.revision = result.revision
+            if updated.filePath != song.filePath {
+                deleteAudioCache(for: song)
+                try await metadataFileReplacementHandler?(song, updated)
+            }
+            plog("Embedded lyrics writeback completed for songID=\(song.id) edit=\(lyrics.logName)")
+            return updated
+        } catch let error as EmbeddedMetadataReplacementReadbackError {
+            var relocated = song
+            relocated.filePath = error.filePath
+            relocated.fileSize = error.fileSize
+            relocated.lastModified = nil
+            relocated.revision = nil
+            deleteAudioCache(for: song)
+            try await metadataFileReplacementHandler?(song, relocated)
+            throw error
+        }
+    }
+
     func supportsMediaServerWriteback(for song: Song) async -> Bool {
         guard let sources = try? await sourcesProvider(),
               let source = sources.first(where: { $0.id == song.sourceID }) else {
@@ -11383,6 +12034,8 @@ final class SourceManager {
         case .jellyfin, .emby, .plex:
             return true
         default:
+            // Airsonic's native editor changes audio files. Keep it on the
+            // manual tag-save path; bulk scraping never embeds tags.
             return false
         }
     }
@@ -11624,6 +12277,7 @@ final class SourceManager {
         lastSuccessfulConnectionRoutes.removeAll()
         connectionRouteOwners.removeAll()
         playbackSourceAvailability = PlaybackSourceAvailabilityPolicy()
+        playbackSourceConfigurationChanged(Set(unreachablePlaybackSourceIDs))
     }
 
     private func setActiveConnectionRoute(
@@ -11638,9 +12292,15 @@ final class SourceManager {
             currentOwner: connectionRouteOwners[sourceID]
         ) else { return }
         if let kind {
+            // 路由没换就别写。Observation 不比较新旧值, 而音乐源卡片读着这两张
+            // 表 —— 一轮扫描里连接器反复报同一条路由, 照写就会让整张来源列表
+            // 一次次重建。
+            guard activeConnectionRoutes[sourceID] != kind
+                || lastSuccessfulConnectionRoutes[sourceID] != kind else { return }
             activeConnectionRoutes[sourceID] = kind
             lastSuccessfulConnectionRoutes[sourceID] = kind
         } else {
+            guard activeConnectionRoutes[sourceID] != nil else { return }
             activeConnectionRoutes.removeValue(forKey: sourceID)
         }
     }

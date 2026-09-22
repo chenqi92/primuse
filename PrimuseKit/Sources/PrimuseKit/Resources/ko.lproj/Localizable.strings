@@ -849,6 +849,7 @@
 "source_address_alternate_section" = "예비 주소";
 "source_address_section_footer" = "포트를 비워 두면 저장할 때 Primuse가 알아서 찾습니다.";
 "source_address_placeholder" = "도메인, IP 또는 전체 URL";
+"source_address_placeholder_vendor %@" = "도메인, IP 또는 %@";
 "source_address_add_alternate" = "예비 주소 추가";
 "source_address_remove" = "이 주소 삭제";
 "source_address_advanced" = "포트와 암호화 직접 설정";
@@ -885,3 +886,35 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "DSM 음악 패키지 · 보관함, 재생목록, 별점";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "소스 및 로그인 정보";
+"send_to_tv_step_library" = "보관함";
+"send_to_tv_step_artwork" = "아트워크";
+"send_to_tv_step_everything" = "보관함, 소스 및 로그인 정보";
+"send_to_tv_progress_waiting" = "대기 중";
+"send_to_tv_progress_done" = "완료";
+"send_to_tv_progress_failed" = "완료되지 않음";
+"send_to_tv_progress_preparing" = "준비 중…";
+"send_to_tv_progress_tv_saving" = "Apple TV에서 저장 중…";
+"send_to_tv_progress_batch" = "%2$@개 중 %1$@번째 묶음 전송 중";
+"send_to_tv_progress_sending" = "전송 중 %@";
+"send_to_tv_resume" = "계속 전송";
+"send_to_tv_partial_saved" = "완료된 단계는 이미 Apple TV에 저장되었습니다. 계속 전송하면 중단된 곳부터 이어서 보냅니다.";
+"ext.tv.transfer.sources" = "소스 및 로그인 정보를 받는 중…";
+"ext.tv.transfer.sourcesSaved" = "소스를 저장했습니다. 보관함을 기다리는 중…";
+"ext.tv.transfer.library" = "보관함을 받는 중…";
+"ext.tv.transfer.libraryImporting" = "보관함 가져오는 중…";
+"ext.tv.transfer.librarySaved" = "보관함을 가져왔습니다. 아트워크를 기다리는 중…";
+"ext.tv.transfer.artwork" = "아트워크 받는 중(%2$@개 중 %1$@번째 묶음)…";
+"ext.tv.transfer.finished" = "iPhone에서 %@곡을 전송했습니다";
+"ext.tv.transfer.failed" = "전송이 완료되지 않았습니다. iPhone에서 다시 시도하십시오.";
+"audio_variant_lossy_stereo" = "스테레오";
+"audio_variant_lossless" = "무손실";
+"audio_variant_hi_res_lossless" = "고해상도 무손실";
+"audio_variant_dolby_atmos" = "돌비 애트모스";
+"audio_variant_dolby_audio" = "돌비 오디오";
+"apple_music_pick_from_catalog" = "Apple Music에서 선택…";
+"apple_music_pick_adding" = "보관함에 추가 중…";
+"apple_music_pick_added" = "%d곡 추가됨, 동기화 중";
+"apple_music_pick_failed" = "보관함에 추가하지 못했습니다";

@@ -326,6 +326,52 @@ struct RemoteMetadataReadPolicyTests {
             500_000,
         ])
     }
+
+    // MARK: - 回填首段大小
+
+    @Test("不取封面时首段只读 32 KB")
+    func backfillReadsACompactHeadWhenArtworkIsNotWanted() {
+        // 标签自带长度声明、回填侧有按需扩展路径的格式。
+        for ext in ["mp3", "MP3", "flac", "ogg", "oga", "opus", "spx", "speex", "wma"] {
+            #expect(RemoteMetadataReadPolicy.backfillInitialHeadByteCount(
+                declaredFileExtension: ext, needsEmbeddedArtwork: false
+            ) == 32 * 1024)
+        }
+    }
+
+    @Test("还要取封面时保持整段 256 KB")
+    func backfillKeepsTheFullHeadWhenArtworkIsStillNeeded() {
+        // 封面多半就落在前 256 KB 里: 一次取回比小段加补读少一次往返,
+        // 总字节也更少。
+        for ext in ["mp3", "flac", "ogg", "opus", "wma"] {
+            #expect(RemoteMetadataReadPolicy.backfillInitialHeadByteCount(
+                declaredFileExtension: ext, needsEmbeddedArtwork: true
+            ) == 256 * 1024)
+        }
+    }
+
+    @Test("头部没有长度声明的格式保持整段 256 KB")
+    func backfillKeepsTheFullHeadForFormatsWithoutADeclaredHeadTagLength() {
+        // M4A 的 moov 可能整个在尾部, APE/WAV 头部没有可依赖的长度声明 ——
+        // 缩小首段只会把一次读取拆成一次读取加一次兜底。
+        for ext in ["m4a", "mp4", "alac", "ape", "wav", "aiff", "dsf", ""] {
+            #expect(RemoteMetadataReadPolicy.backfillInitialHeadByteCount(
+                declaredFileExtension: ext, needsEmbeddedArtwork: false
+            ) == 256 * 1024)
+        }
+    }
+
+    @Test("小首段遇到超长 ID3 仍按声明补齐, 不退回 4 MB 顶格")
+    func compactHeadStillLetsATruncatedID3ExpandToItsDeclaredLength() {
+        let declared = 200 * 1024
+        let expanded = RemoteMetadataReadPolicy.expandedReadSize(
+            fileSize: 8_000_000,
+            currentByteCount: 32 * 1024,
+            declaredID3ByteCount: declared,
+            metadataInsufficient: false
+        )
+        #expect(expanded == declared + RemoteMetadataReadPolicy.mp3FrameProbeByteCount)
+    }
 }
 
 @Suite("MPEG frame header parser")

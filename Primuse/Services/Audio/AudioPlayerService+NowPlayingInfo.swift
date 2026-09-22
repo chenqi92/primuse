@@ -216,6 +216,11 @@ extension AudioPlayerService {
         let changePlaybackPosition: Bool
         let nextTrack: Bool
         let previousTrack: Bool
+        /// Spoken word replaces the track buttons with skip intervals. iOS
+        /// gives both pairs the same two control slots, so they are decided
+        /// together here rather than by two writers that could both enable.
+        let skipForward: Bool
+        let skipBackward: Bool
         let like: Bool
         let likeIsActive: Bool
     }
@@ -232,13 +237,16 @@ extension AudioPlayerService {
         let canLikeCurrentSong = false
         let likeIsActive = false
         #endif
+        let offersSkipIntervals = currentItemIsSpokenWord && !isLiveRadio && currentSong != nil
         let availability = RemoteCommandAvailability(
             play: projection.playCommandEnabled,
             pause: projection.pauseCommandEnabled,
             togglePlayPause: currentSong != nil,
             changePlaybackPosition: playbackCapabilities.canSeek,
-            nextTrack: !isLiveRadio || radioStationOrder.count > 1,
-            previousTrack: !isLiveRadio || radioStationOrder.count > 1,
+            nextTrack: (!isLiveRadio || radioStationOrder.count > 1) && !offersSkipIntervals,
+            previousTrack: (!isLiveRadio || radioStationOrder.count > 1) && !offersSkipIntervals,
+            skipForward: offersSkipIntervals,
+            skipBackward: offersSkipIntervals,
             like: canLikeCurrentSong,
             likeIsActive: likeIsActive
         )
@@ -254,6 +262,8 @@ extension AudioPlayerService {
         center.changePlaybackPositionCommand.isEnabled = availability.changePlaybackPosition
         center.nextTrackCommand.isEnabled = availability.nextTrack
         center.previousTrackCommand.isEnabled = availability.previousTrack
+        center.skipForwardCommand.isEnabled = availability.skipForward
+        center.skipBackwardCommand.isEnabled = availability.skipBackward
         #if os(iOS)
         center.likeCommand.isEnabled = availability.like
         center.likeCommand.isActive = availability.likeIsActive

@@ -613,6 +613,7 @@ final class AppServices {
     #endif
     let scanService: ScanService
     let serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
+    let serverMirrorRefresh: ServerMirrorRefreshCoordinator
     let alwaysDownload: AlwaysDownloadCoordinator
     #if os(iOS) || os(macOS)
     let localReferenceRefresh: LocalReferenceRefreshService
@@ -736,13 +737,25 @@ final class AppServices {
             library.songs
         })
         let scraperSettings = ScraperSettingsStore()
-        let scraper = MusicScraperService(sourceManager: manager)
+        let scanService = ScanService()
+        manager.metadataFileReplacementHandler = { [weak scanService, weak library] original, updated in
+            guard let scanService, let library else { throw CancellationError() }
+            try await scanService.recordMetadataFileReplacement(original: original, updated: updated, in: library)
+        }
+        let scraper = MusicScraperService(
+            sourceManager: manager,
+            sourceFileName: { [weak scanService] song in scanService?.sourceFileName(for: song) }
+        )
         let playbackSettings = PlaybackSettingsStore()
         manager.setAutomaticAudioCachingEnabled(playbackSettings.audioCacheEnabled)
         playbackSettings.audioCacheEnabledDidChange = { [weak manager] enabled in
             manager?.setAutomaticAudioCachingEnabled(enabled)
         }
         let player = AudioPlayerService(sourceManager: manager, library: library, playbackSettings: playbackSettings)
+        manager.onPlaybackSourceAvailabilityChange = { [weak player] in
+            player?.playbackSourceAvailabilityDidChange()
+        }
+        manager.startMonitoringPlaybackSourceAvailability()
         let favoriteSync = ServerFavoriteSyncService(
             sourceManager: manager,
             sourcesStore: store,
@@ -790,7 +803,6 @@ final class AppServices {
         self.skinUnlockStore = skinUnlockStore
         skinUnlockStore.start()
         #endif
-        let scanService = ScanService()
         let metadataBackfill = MetadataBackfillService(
             library: library,
             sourceManager: manager,
@@ -840,6 +852,14 @@ final class AppServices {
                     $0.isEnabled
                         && ($0.type.supportsEmbeddedMetadataBackfill || $0.type == .local)
                 }.map(\.id))
+            },
+            pooledHTTPRangeSourceIDs: {
+                Set(store.sources.filter {
+                    $0.isEnabled && $0.type.usesPooledHTTPMetadataRangeReads
+                }.map(\.id))
+            },
+            sourceFileName: { [weak scanService] song in
+                scanService?.sourceFileName(for: song)
             },
             playbackIsActive: { player.isPlaybackActive }
         )
@@ -897,6 +917,37 @@ final class AppServices {
             await favoriteSync?.refresh(source: source, applyFence: applyFence)
             if applyFence() { ratingSync?.resume(sourceID: source.id) }
         }
+        // 扫描收尾之外的那一轮镜像刷新。顺序与收尾一致: 歌单 →「喜欢」/ 评分 →
+        // 电台, 每一步之前重新过闸, 源在半路被停用或被扫描接手就停下。
+        let serverMirrorRefresh = ServerMirrorRefreshCoordinator(
+            sourcesStore: store,
+            sourceManager: manager,
+            library: library,
+            scanService: scanService,
+            refreshMirrors: {
+                [weak manager, weak library, weak favoriteSync, weak ratingSync, weak radioStore]
+                source,
+                applyFence in
+                guard let manager, let library else { return }
+                await ServerPlaylistSyncService.sync(
+                    source: source,
+                    sourceManager: manager,
+                    library: library,
+                    applyFence: applyFence
+                )
+                guard applyFence() else { return }
+                await favoriteSync?.refresh(source: source, applyFence: applyFence)
+                guard applyFence() else { return }
+                ratingSync?.resume(sourceID: source.id)
+                guard let radioStore, applyFence() else { return }
+                await ServerRadioSyncService.sync(
+                    source: source,
+                    sourceManager: manager,
+                    store: radioStore,
+                    applyFence: applyFence
+                )
+            }
+        )
         library.serverRatingTargetProvider = { [weak ratingSync] song in ratingSync?.target(for: song) }
         library.ratingStateMutationHandler = { [weak ratingSync] review in ratingSync?.localRatingDidChange(review) }
         library.likedStateMutationHandler = { [weak favoriteSync] song, previous, desired in
@@ -908,6 +959,7 @@ final class AppServices {
         }
         self.scanService = scanService
         self.serverCatalogAutoRefresh = serverCatalogAutoRefresh
+        self.serverMirrorRefresh = serverMirrorRefresh
         self.alwaysDownload = alwaysDownload
         #if os(iOS) || os(macOS)
         self.localReferenceRefresh = LocalReferenceRefreshService(
@@ -1059,6 +1111,16 @@ final class AppServices {
         // 全都读库。等发布完成再开工 —— 等待时间不计入下面的耗时统计, 这样
         // `🚀 deferred startup` 的含义与历史版本保持一致。
         await musicLibrary.whenReady()
+        #if os(iOS)
+        LaunchDiagnostics.mark(.deferredStartup)
+        // 安全模式：这条链里的每一件事(恢复播放、整库对账、剪枝、iCloud 同步、
+        // 后台扫描登记、预热)都在资料库发布那一瞬间同时开工, 也都是启动期闪退
+        // 的嫌疑人。连续启动失败两次之后先整条让开, 让人打得开、发得出报告。
+        if LaunchDiagnostics.isSafeModeActive {
+            plog("🛟 Safe mode: deferred startup skipped")
+            return
+        }
+        #endif
         serverRatingSync.resume()
         let startedAt = ProcessInfo.processInfo.systemUptime
 
@@ -1087,6 +1149,9 @@ final class AppServices {
             )
         }.value
         await playbackRestore
+        #if os(iOS)
+        LaunchDiagnostics.mark(.playbackRestored)
+        #endif
         let restoreFinishedAt = ProcessInfo.processInfo.systemUptime
 
         let pruneThreshold = RecoverableDeletionPolicy.pruneThreshold()
@@ -1131,7 +1196,6 @@ final class AppServices {
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationIntents) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationHiddenPresets) { }
         CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
-        AppReviewPromptCoordinator.shared.startCloudSync()
         _ = ArtistNameSettingsStore.shared
 
         // Phase 3: Apple TV relay is opt-in. Starting its listeners after the
@@ -1143,6 +1207,8 @@ final class AppServices {
         )
         alwaysDownload.start()
         serverCatalogAutoRefresh.startColdLaunchRefresh()
+        // 服务器上新建的歌单不该等到用户想起来去手动扫一次曲库才出现(#142)。
+        serverMirrorRefresh.startColdLaunchRefresh()
         #if os(iOS) || os(macOS)
         // 电台清单订阅：等启动忙完再查哪些到期了，别和首屏抢网络。
         RadioSubscriptionService.shared.startAfterLaunch()
@@ -1845,13 +1911,15 @@ final class AppServices {
         withObservationTracking {
             _ = library.spotlightIndexRevision
             _ = library.playlistCollectionRevision
-        } onChange: { [weak library, weak index] in
+        // self 必须写进外层捕获列表:内层 Task 单独写 [weak self] 只管住了 Task,
+        // 外层这个 onChange 闭包仍然隐式强引用 self,等于观察链把 AppServices 钉住。
+        } onChange: { [weak self, weak library, weak index] in
             SpotlightIndexService.persistLibraryChangePending()
-            Task { @MainActor [weak self] in
-                guard let library, let index else { return }
+            Task { @MainActor in
+                guard let self, let library, let index else { return }
                 index.scheduleSynchronization(library: library)
-                self?.scheduleSourceSongCountReconciliation()
-                self?.observeSpotlightLibraryToken(library: library, index: index)
+                self.scheduleSourceSongCountReconciliation()
+                self.observeSpotlightLibraryToken(library: library, index: index)
             }
         }
     }
@@ -1880,7 +1948,14 @@ final class AppServices {
         }
 
         bridge.playSong = { [self] title, artist in
-            await awaitLibraryForIntent()
+            // 空歌名不是"库里没有这首歌"。快捷指令把 Title 留空跑一次就会走到
+            // 这里,原先照样回"No matching song in your library.",用户根本看不
+            // 出是自己没给歌名。
+            guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .missingTitle
+            }
+            let libraryIsReady = await awaitLibraryForIntent()
+            let songs = library.visibleSongs
             let query = SiriMediaSearchQuery(
                 kind: .song,
                 mediaName: title,
@@ -1888,25 +1963,29 @@ final class AppServices {
             )
             guard let match = SiriMediaSearchResolver.resolve(
                 query: query,
-                songs: library.visibleSongs
+                songs: songs
             ), let song = match.queue.first else {
-                return nil
+                guard !songs.isEmpty else {
+                    // 冷启动时被 Siri 唤起、资料库还没装完,报"库里没有"是假话。
+                    return libraryIsReady ? .libraryEmpty : .libraryNotReady
+                }
+                return .notFound
             }
             // A named selection is an exact request. Keeping a one-item queue
             // prevents the player's failure auto-advance from silently playing
             // an unrelated library song when that source is temporarily down.
-            guard startIntentQueue([song]) != nil else { return nil }
+            guard startIntentQueue([song]) != nil else { return .notFound }
             if let artist = library.artistDisplayName(for: song), !artist.isEmpty {
-                return String(
+                return .playing(description: String(
                     format: String(localized: "intent_playing_song_by_format"),
                     song.title,
                     artist
-                )
+                ))
             }
-            return String(
+            return .playing(description: String(
                 format: String(localized: "intent_playing_song_format"),
                 song.title
-            )
+            ))
         }
 
         bridge.playAlbum = { [self] title, artist in
@@ -2085,8 +2164,11 @@ final class AppServices {
     /// Stage 2: 冷启动时资料库可能还在主线程之外装载, 而 Widget / Shortcuts /
     /// 控制中心的 intent 随时会到。与 SiriKit 同样的有界等待(Intents 的预算
     /// 约 10 秒), 超时后按今天的路径继续 —— 空库自然返回"没找到"。
-    private func awaitLibraryForIntent() async {
-        _ = await musicLibrary.whenReady(timeout: .seconds(8))
+    /// 返回"等到就绪了吗" —— 超时后按今天的路径继续,但调用方要能把
+    /// "库还在装载"和"库里真的没有"分开回话。
+    @discardableResult
+    private func awaitLibraryForIntent() async -> Bool {
+        await musicLibrary.whenReady(timeout: .seconds(8))
     }
 
     /// Queue acceptance is synchronous; remote URL resolution and first-buffer

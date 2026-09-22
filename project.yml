@@ -16,8 +16,8 @@ settings:
     SWIFT_VERSION: "6.0"
     # 全平台唯一版本号来源:iOS / macOS / tvOS / watchOS 及各扩展统一继承这里,
     # 各 target 不再单独覆盖,发版只改这一处,避免漏改导致版本不一致。
-    MARKETING_VERSION: "1.9.7"
-    CURRENT_PROJECT_VERSION: "76"
+    MARKETING_VERSION: "1.9.8"
+    CURRENT_PROJECT_VERSION: "81"
     DEVELOPMENT_TEAM: "2U97K3U27A"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES
@@ -292,7 +292,7 @@ targets:
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon6 AppIcon9 AppIcon12 AppIcon13 AppIcon14 AppIcon15"
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon12 AppIcon13 AppIcon14 AppIcon15 AppIcon16 AppIcon17"
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_EMIT_LOC_STRINGS: YES
@@ -610,6 +610,9 @@ targets:
       - path: Primuse/Services/Library/ServerPlaylistMirror.swift
       - path: Primuse/Services/Library/LibraryDatabase.swift
       - path: Primuse/Services/Library/PlayHistoryStore.swift
+      # 有声内容的判定与收听位置。MusicLibrary 靠它把有声书从音乐聚合里分出来,
+      # 电视端的曲库是同一份代码, 少了它编不过。
+      - path: Primuse/Services/Library/SpokenWordStore.swift
       - path: Primuse/Services/Library/SmartPlaylistEngine.swift
       - path: Primuse/Services/Cloud/CloudKitSyncService.swift
       - path: Primuse/Services/Radio/RadioStationsStore.swift
@@ -673,6 +676,8 @@ targets:
       - path: Primuse/Services/Radio/RadioLiveStreamSource.swift
       - path: Primuse/Services/Radio/RadioFLACAudioDecoder.swift
       - path: Primuse/Services/Radio/RadioFLACDecoderBridge.m
+      # FFmpeg 桥接层:与 iOS / macOS 同一份,由 PrimuseTV/Audio/TVFFmpegPCMDecoder 接进 SFBAudioEngine 播放器
+      - path: Primuse/Services/Audio/FFmpegDecoderBridge.m
       # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
       - path: Primuse/Services/Sources/NetworkDiscoveryService.swift
       - path: Primuse/Utilities/FileLogger.swift
@@ -691,6 +696,8 @@ targets:
           - "**/HomeDiscovery.strings"
           - "**/WiFiTransfer.strings"
           - "**/InfoPlist.strings"
+          # 随包附带的 FFmpeg LGPL 许可文本,与 iOS / macOS 一致
+          - "FFmpeg-LGPL-2.1.txt"
         buildPhase: resources
     dependencies:
       - sdk: DeviceCheck.framework
@@ -720,6 +727,16 @@ targets:
       # 非 AVFoundation 原生格式(APE/WavPack/OGG/DSD 等)在 TV 本机解码。
       - package: SFBAudioEngine
         product: SFBAudioEngine
+      # SFBAudioEngine 没有解码器的 WMA/DTS/TrueHD/ATRAC/TAK 等交给 FFmpeg,
+      # 与 iOS / macOS 同一套 xcframework(scripts/build-ffmpeg-apple.sh 产出 tvOS 切片)。
+      - framework: Frameworks/FFmpeg/libavutil.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libswresample.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libavcodec.xcframework
+        embed: true
+      - framework: Frameworks/FFmpeg/libavformat.xcframework
+        embed: true
     info:
       path: PrimuseTV/Info.plist
       properties:

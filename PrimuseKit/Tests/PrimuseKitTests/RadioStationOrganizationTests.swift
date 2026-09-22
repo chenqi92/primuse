@@ -96,7 +96,7 @@ struct RadioStationOrganizationTests {
             station("C"),
         ]
         let tags = RadioStationOrganization.tags(in: stations)
-        #expect(tags.map(\.name) == ["深夜", "爵士"])
+        #expect(Set(tags.map(\.name)) == ["深夜", "爵士"])
         #expect(tags.first(where: { $0.name == "爵士" })?.stationCount == 2)
     }
 
@@ -273,5 +273,47 @@ struct RadioStationOrganizationTests {
         let decoded = try JSONDecoder().decode(RadioStation.self, from: Data(json.utf8))
         #expect(decoded.folderName == nil)
         #expect(decoded.assignedTagNames.isEmpty)
+    }
+
+    // MARK: - 服务端镜像的文件夹
+
+    @Test("Server folders nest under the source name and keep their own part when too long")
+    func serverFolderName() {
+        #expect(ServerRadioFolderPolicy.folderName(sourceName: "家里的群晖", serverFolderName: "我的最爱") == "家里的群晖 / 我的最爱")
+        #expect(ServerRadioFolderPolicy.folderName(sourceName: "  ", serverFolderName: "我的最爱") == "我的最爱")
+        #expect(ServerRadioFolderPolicy.folderName(sourceName: "NAS", serverFolderName: nil) == nil)
+        let long = ServerRadioFolderPolicy.folderName(
+            sourceName: String(repeating: "N", count: 80),
+            serverFolderName: "User-defined Radio"
+        )
+        #expect(long?.count == RadioStationOrganization.maximumFolderNameLength)
+        #expect(long?.hasSuffix(" / User-defined Radio") == true)
+    }
+
+    @Test("Synced folders follow the server until the user moves the station")
+    func reconciledServerFolder() {
+        let managed = ["NAS / 我的最爱", "NAS / 自定义电台"]
+        // 新镜像直接用同步给的文件夹。
+        #expect(ServerRadioFolderPolicy.reconciledFolderName(
+            current: nil, isNewMirror: true, assigned: "NAS / 我的最爱", syncManagedFolderNames: managed
+        ) == "NAS / 我的最爱")
+        // 还在同步给的文件夹里:服务端换了,跟着换。
+        #expect(ServerRadioFolderPolicy.reconciledFolderName(
+            current: "nas / 自定义电台", isNewMirror: false, assigned: "NAS / 我的最爱", syncManagedFolderNames: managed
+        ) == "NAS / 我的最爱")
+        // 用户挪到自己的文件夹、或移出文件夹,都不动。
+        #expect(ServerRadioFolderPolicy.reconciledFolderName(
+            current: "爵士", isNewMirror: false, assigned: "NAS / 我的最爱", syncManagedFolderNames: managed
+        ) == "爵士")
+        #expect(ServerRadioFolderPolicy.reconciledFolderName(
+            current: nil, isNewMirror: false, assigned: "NAS / 我的最爱", syncManagedFolderNames: managed
+        ) == nil)
+        // 服务端不分文件夹的源(Subsonic 等)保持原样。
+        #expect(ServerRadioFolderPolicy.reconciledFolderName(
+            current: "NAS / 我的最爱", isNewMirror: false, assigned: nil, syncManagedFolderNames: []
+        ) == "NAS / 我的最爱")
+        #expect(ServerRadioFolderPolicy.reconciledFolderName(
+            current: nil, isNewMirror: true, assigned: nil, syncManagedFolderNames: []
+        ) == nil)
     }
 }

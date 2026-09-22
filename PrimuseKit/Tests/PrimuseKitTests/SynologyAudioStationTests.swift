@@ -29,6 +29,7 @@ struct SynologyAudioStationTests {
             .stream: ("AudioStation/stream.cgi", 2),
             .cover: ("AudioStation/cover.cgi", 3),
             .lyrics: ("AudioStation/lyrics.cgi", 2),
+            .radio: ("AudioStation/radio.cgi", 1),
         ]
         for (interface, value) in expected {
             let endpoint = try catalog.endpoint(for: interface)
@@ -52,6 +53,7 @@ struct SynologyAudioStationTests {
             try older.endpoint(for: .lyrics)
         }
         #expect(throws: SynologyAudioStationError.apiNotFound(code: 102)) { try older.endpoint(for: .playlist) }
+        #expect(throws: SynologyAudioStationError.apiNotFound(code: 102)) { try older.endpoint(for: .radio) }
         // 必需接口协商不了,整个音乐源不可用。
         #expect(throws: SynologyAudioStationError.unsupportedVersion(api: "SYNO.AudioStation.Stream")) {
             try negotiate(#"{"data":{"SYNO.AudioStation.Song":{"maxVersion":3,"minVersion":1,"path":"AudioStation/song.cgi"},"SYNO.AudioStation.Stream":{"maxVersion":4,"minVersion":3,"path":"AudioStation/stream.cgi"}},"success":true}"#)
@@ -456,6 +458,18 @@ struct SynologyAudioStationTests {
 
     // MARK: - 客户端(注入传输层)
 
+    @Test func diagnosticPreparationDiscoversServiceBeforeLoginAndReusesIt() async throws {
+        let fixture = AudioStationFixture()
+        let client = fixture.client()
+        try await client.prepareConnection()
+        #expect(await fixture.logins == 0)
+        #expect(await fixture.requests.count == 1)
+        _ = try await client.info()
+        #expect(await fixture.logins == 1)
+        let discoveryRequests = await fixture.requests.filter { $0.url?.path.hasSuffix("/query.cgi") == true }
+        #expect(discoveryRequests.count == 1)
+    }
+
     @Test func loginSendsProductionParametersWithAudioStationSession() async throws {
         let fixture = AudioStationFixture(deviceID: "did-old")
         let client = fixture.client(deviceName: "Primuse-iOS")
@@ -593,6 +607,143 @@ struct SynologyAudioStationTests {
         await #expect(throws: SynologyAudioStationError.invalidResponse) {
             try await client.playlistTrackIDs(id: "playlist_personal_normal/坏掉", pageSize: 2)
         }
+    }
+
+    /// 镜像 id 已经落在用户设备上,换算方式一变,现有镜像就会被当成服务端已删除。
+    @Test func playlistMirrorIDsStayPinned() {
+        #expect(SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: "playlist_personal_normal/开车")
+            == "as-d4b060dbc3d0aa6ecdd0f9194ff41a3d")
+        #expect(SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: "playlist_shared_normal/1")
+            == "as-fdc9211b4b5575782687f7ca644bcb1a")
+    }
+
+    @Test func playlistMirrorSnapshotDropsUnindexedEntries() async throws {
+        let snapshot = try await AudioStationFixture().client().playlistMirrorSnapshot()
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.playlists.map(\.name) == ["开车", "放松", "欢快周杰伦", "粤语", "热门", "ぐされ"])
+        let drive = try #require(snapshot.playlists.first)
+        #expect(drive.id == "as-d4b060dbc3d0aa6ecdd0f9194ff41a3d")
+        #expect(drive.trackIDs == ["music_6906", "music_6906"])
+    }
+
+    @Test func playlistMirrorSnapshotKeepsFailedPlaylistsApart() async throws {
+        let listed = try JSONDecoder().decode([SynologyAudioStationPlaylist].self, from: Data("""
+            [{"id":"playlist_personal_normal/好","name":"好"},{"id":"playlist_personal_normal/坏","name":"坏"}]
+            """.utf8))
+        let snapshot = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+            playlists: { listed },
+            trackIDs: { id in
+                guard id.hasSuffix("好") else { throw SynologyAudioStationError.invalidResponse }
+                return ["music_1", "music_/volume1/a.flac", "music_v_2"]
+            }
+        )
+        #expect(snapshot.playlists.map(\.name) == ["好"])
+        #expect(snapshot.playlists.first?.trackIDs == ["music_1", "music_v_2"])
+        #expect(snapshot.failedPlaylistIDs == [
+            SynologyAudioStationPlaylistMirrorSnapshot.mirrorID(for: "playlist_personal_normal/坏")
+        ])
+
+        await #expect(throws: CancellationError.self) {
+            try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+                playlists: { listed },
+                trackIDs: { _ in throw CancellationError() }
+            )
+        }
+        await #expect(throws: SynologyAudioStationError.invalidResponse) {
+            try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+                playlists: { throw SynologyAudioStationError.invalidResponse },
+                trackIDs: { _ in [] }
+            )
+        }
+    }
+
+    // MARK: - 电台
+
+    @Test func radioContainersPageInServerOrder() async throws {
+        let fixture = AudioStationFixture()
+        let client = fixture.client()
+        let favorites = try await client.radios(in: .favorite, pageSize: 2)
+        #expect(favorites.map(\.title) == ["SmoothJazz.com Global", "Groove Salad", "Folder"])
+        #expect(favorites.map(\.isContainer) == [false, false, true])
+        let pages = await fixture.requests.filter { $0.url?.path.hasSuffix("/radio.cgi") == true }
+            .map { formDecode($0.url?.query ?? "") }
+        #expect(pages.map { $0["offset"] ?? "" } == ["0", "2"])
+        #expect(pages.allSatisfy {
+            $0["method"] == "list" && $0["version"] == "1" && $0["container"] == "Favorite" && $0["limit"] == "2"
+        })
+
+        await #expect(throws: SynologyAudioStationError.invalidResponse) {
+            try await AudioStationFixture(mode: .radioTotalChanges).client().radios(in: .favorite, pageSize: 2)
+        }
+    }
+
+    @Test func radioMirrorsFollowServerFoldersAndSkipDuplicates() async throws {
+        let fixture = AudioStationFixture()
+        let mirrors = try await fixture.client().radioMirrors()
+        #expect(mirrors.map(\.name) == [
+            "SmoothJazz.com Global", "Groove Salad", "Stream", "新闻台", "Radio Paradise", "Dark Edge Radio",
+        ])
+        #expect(mirrors.map(\.folder) == [
+            .favorite, .favorite, .userDefined, .userDefined, .genre("Easy Listening"), .genre("Rock"),
+        ])
+        #expect(mirrors.map(\.url) == [
+            "http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271",
+            "https://ice5.somafm.com/groovesalad-128",
+            "http://46.105.100.126:8000/stream",
+            "https://e.test/news/index.m3u8",
+            "http://yp.shoutcast.com/sbin/tunein-station.pls?id=1234",
+            "http://yp.shoutcast.com/sbin/tunein-station.pls?id=99180336",
+        ])
+        #expect(mirrors.map(\.id) == mirrors.map { SynologyAudioStationRadioMirror.mirrorID(forStationURL: $0.url) })
+        // 流派按服务端给的 id 读,名字里的空格原样带上。
+        let containers = await fixture.requests.filter { $0.url?.path.hasSuffix("/radio.cgi") == true }
+            .compactMap { formDecode($0.url?.query ?? "")["container"] }
+        #expect(Set(containers) == [
+            "Favorite", "UserDefined", "SHOUTcast", "SHOUTcast_genre_Easy Listening", "SHOUTcast_genre_Rock",
+            "SHOUTcast_genre_Holiday",
+        ])
+
+        await #expect(throws: SynologyAudioStationError.apiNotFound(code: 102)) {
+            try await AudioStationFixture(mode: .noRadioAPI).client().radioMirrors()
+        }
+        // 一个流派取不到,整份快照作废。
+        await #expect(throws: SynologyAudioStationError.server(code: 400)) {
+            try await AudioStationFixture(mode: .radioGenreFails).client().radioMirrors()
+        }
+    }
+
+    /// 镜像 id 已经落在用户设备上,换算方式一变,现有镜像就会被当成服务端已删除。
+    @Test func radioMirrorIDsFollowTheAddressNotTheName() {
+        let id = SynologyAudioStationRadioMirror.mirrorID(forStationURL: "http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271")
+        #expect(id == "as-73ad281432064170b9ed82a03971c1f5")
+        #expect(SynologyAudioStationRadioMirror.mirrorID(forStationURL: "https://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271") == id)
+        #expect(SynologyAudioStationRadioMirror.mirrorID(forStationURL: "not a url") == nil)
+    }
+
+    @Test func radioMirrorsFailAsAWhole() async {
+        await #expect(throws: SynologyAudioStationError.invalidResponse) {
+            try await SynologyAudioStationRadioMirror.collect(radios: { container in
+                guard container == "Favorite" else { throw SynologyAudioStationError.invalidResponse }
+                return []
+            })
+        }
+    }
+
+    /// 流派并发读取,结果仍按服务端给的流派顺序排。
+    @Test func radioGenresKeepServerOrderWhenReadConcurrently() async throws {
+        let genres = (0..<9).map { #"{"id":"SHOUTcast_genre_G\#($0)","title":"G\#($0)","type":"container"}"# }
+        let listed = try JSONDecoder().decode([SynologyAudioStationRadio].self, from: Data("[\(genres.joined(separator: ","))]".utf8))
+        let mirrors = try await SynologyAudioStationRadioMirror.collect(radios: { container in
+            if container == "SHOUTcast" { return listed }
+            guard let index = Int(container.dropFirst("SHOUTcast_genre_G".count)) else { return [] }
+            // 越靠前的流派越慢返回。
+            try await Task.sleep(for: .milliseconds(5 * (9 - index)))
+            return try JSONDecoder().decode([SynologyAudioStationRadio].self, from: Data(
+                #"[{"id":"r","title":"S\#(index)","type":"station","url":"https://e.test/\#(index)"}]"#.utf8
+            ))
+        })
+        #expect(mirrors.map(\.name) == (0..<9).map { "S\($0)" })
+        #expect(mirrors.map(\.folder) == (0..<9).map { SynologyAudioStationRadioFolder.genre("G\($0)") })
     }
 
     @Test func playlistWritesUsePOSTAndRefuseSmartPlaylists() async throws {
@@ -751,6 +902,7 @@ private actor AudioStationFixture {
     enum Mode: Sendable {
         case normal, twoFactor, expiredFirstSession, alwaysExpired, noPermission, catalogGrows, stringified
         case rangeIgnored, wrongRange, htmlAudio, coverMissing, coverNotImage, coverHTTP404, ratingIgnored
+        case radioTotalChanges, noRadioAPI, radioGenreFails
     }
 
     static let password = "p@ss&w=rd+ 中"
@@ -792,7 +944,11 @@ private actor AudioStationFixture {
         guard url.path.hasPrefix("/proxy/webapi/") else { throw URLError(.unsupportedURL) }
         let endpoint = String(url.path.dropFirst("/proxy/webapi/".count))
 
-        if endpoint == "query.cgi" { return json(url, Fixtures.apiInfo) }
+        if endpoint == "query.cgi" {
+            return json(url, mode == .noRadioAPI
+                ? Fixtures.apiInfo.replacingOccurrences(of: #""SYNO.AudioStation.Radio":{"maxVersion":2,"minVersion":1,"path":"AudioStation/radio.cgi"},"#, with: "")
+                : Fixtures.apiInfo)
+        }
         if endpoint == "auth.cgi" {
             if params["method"] == "logout" { return json(url, #"{"success":true}"#) }
             logins += 1
@@ -820,6 +976,8 @@ private actor AudioStationFixture {
             return songReply(url, params)
         case "AudioStation/playlist.cgi":
             return playlistReply(url, params)
+        case "AudioStation/radio.cgi":
+            return radioReply(url, params)
         case "AudioStation/lyrics.cgi":
             return json(url, params["id"] == "music_6906" ? #"{"data":{"lyrics":"[00:01.00]Hello"},"success":true}"# : #"{"data":{"lyrics":"  "},"success":true}"#)
         case "AudioStation/stream.cgi":
@@ -895,6 +1053,57 @@ private actor AudioStationFixture {
         }
     }
 
+    /// 响应形状按 open-audio-server 与 streamish/music-server 两份独立的接口复刻:
+    /// `radios` 数组 + `total`,条目的 `id` 由名字和地址拼成。
+    /// 响应形状按 open-audio-server 与 streamish/music-server 两份独立的接口复刻:
+    /// `radios` 数组 + `total`,台的 `id` 由名字和地址拼成,SHOUTcast 下面是 `SHOUTcast_genre_<流派>` 目录。
+    private func radioReply(_ url: URL, _ params: [String: String]) -> (Data, URLResponse) {
+        guard params["method"] == "list" else { return json(url, #"{"success":false,"error":{"code":103}}"#) }
+        let entries: [String]
+        switch params["container"] {
+        case "Favorite":
+            entries = [
+                #"{"desc":"MP3 (128 kbps)","id":"radio_SmoothJazz.com Global http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271","title":"SmoothJazz.com Global","type":"station","url":"http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271"}"#,
+                #"{"desc":"","id":"radio_Groove Salad https://ice5.somafm.com/groovesalad-128","title":"Groove Salad","type":"station","url":"https://ice5.somafm.com/groovesalad-128"}"#,
+                #"{"desc":"","id":"Favorite_folder","title":"Folder","type":"container","url":""}"#,
+            ]
+        case "UserDefined":
+            entries = [
+                // 与「我收藏的广播」里那台是同一个流,只差协议和末尾斜杠。
+                #"{"desc":"","id":"radio_GS http://ice5.somafm.com/groovesalad-128/","title":"GS","type":"station","url":"http://ice5.somafm.com/groovesalad-128/"}"#,
+                #"{"desc":"","id":"radio_ http://46.105.100.126:8000/stream","title":"  ","type":"station","url":"http://46.105.100.126:8000/stream"}"#,
+                #"{"desc":"","id":"radio_坏 rtsp://e.test/live","title":"坏","type":"station","url":"rtsp://e.test/live"}"#,
+                #"{"desc":"","id":"radio_新闻台 https://e.test/news/index.m3u8","title":"新闻台","type":"station","url":"https://e.test/news/index.m3u8"}"#,
+            ]
+        case "SHOUTcast":
+            entries = [
+                #"{"desc":"","id":"SHOUTcast_genre_Easy Listening","title":"Easy Listening","type":"container","url":""}"#,
+                #"{"desc":"","id":"SHOUTcast_genre_Rock","title":"Rock","type":"container","url":""}"#,
+                #"{"desc":"","id":"SHOUTcast_genre_Holiday","title":"Holiday","type":"container","url":""}"#,
+            ]
+        case "SHOUTcast_genre_Easy Listening":
+            entries = [
+                #"{"desc":"MP3 (192 kbps)","id":"radio_Radio Paradise http://yp.shoutcast.com/sbin/tunein-station.pls?id=1234","title":"Radio Paradise","type":"station","url":"http://yp.shoutcast.com/sbin/tunein-station.pls?id=1234"}"#,
+                // 收藏里已经有的台,不再出现第二次。
+                #"{"desc":"MP3 (128 kbps)","id":"radio_SmoothJazz.com Global http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271","title":"SmoothJazz.com Global","type":"station","url":"http://yp.shoutcast.com/sbin/tunein-station.pls?id=1477271"}"#,
+            ]
+        case "SHOUTcast_genre_Rock":
+            if mode == .radioGenreFails { return json(url, #"{"success":false,"error":{"code":400}}"#) }
+            entries = [
+                #"{"desc":"MP3 (128 kbps)","id":"radio_Dark Edge Radio http://yp.shoutcast.com/sbin/tunein-station.pls?id=99180336","title":"Dark Edge Radio","type":"station","url":"http://yp.shoutcast.com/sbin/tunein-station.pls?id=99180336"}"#,
+            ]
+        case "SHOUTcast_genre_Holiday":
+            entries = []
+        default:
+            return json(url, #"{"success":false,"error":{"code":101}}"#)
+        }
+        let offset = Int(params["offset"] ?? "") ?? 0
+        let limit = Int(params["limit"] ?? "") ?? 0
+        let total = mode == .radioTotalChanges && offset > 0 ? entries.count + 1 : entries.count
+        let page = entries.dropFirst(offset).prefix(limit).joined(separator: ",")
+        return json(url, #"{"data":{"offset":\#(offset),"radios":[\#(page)],"total":\#(total)},"success":true}"#)
+    }
+
     private func json(_ url: URL, _ body: String) -> (Data, URLResponse) {
         (Data(body.utf8), response(url, 200, ["Content-Type": "application/json; charset=utf-8"]))
     }
@@ -908,7 +1117,7 @@ private actor AudioStationFixture {
 private enum Fixtures {
     static let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01])
 
-    static let apiInfo = #"{"data":{"SYNO.API.Auth":{"maxVersion":7,"minVersion":1,"path":"entry.cgi"},"SYNO.API.Info":{"maxVersion":1,"minVersion":1,"path":"entry.cgi","requestFormat":"JSON"},"SYNO.AudioStation.Album":{"maxVersion":3,"minVersion":1,"path":"AudioStation/album.cgi"},"SYNO.AudioStation.Cover":{"maxVersion":3,"minVersion":1,"path":"AudioStation/cover.cgi"},"SYNO.AudioStation.Download":{"maxVersion":1,"minVersion":1,"path":"AudioStation/download.cgi"},"SYNO.AudioStation.Info":{"maxVersion":6,"minVersion":1,"path":"AudioStation/info.cgi"},"SYNO.AudioStation.Lyrics":{"maxVersion":2,"minVersion":1,"path":"AudioStation/lyrics.cgi"},"SYNO.AudioStation.Pin":{"maxVersion":1,"minVersion":1,"path":"entry.cgi","requestFormat":"JSON"},"SYNO.AudioStation.Playlist":{"maxVersion":3,"minVersion":1,"path":"AudioStation/playlist.cgi"},"SYNO.AudioStation.Search":{"maxVersion":1,"minVersion":1,"path":"AudioStation/search.cgi"},"SYNO.AudioStation.Song":{"maxVersion":3,"minVersion":1,"path":"AudioStation/song.cgi"},"SYNO.AudioStation.Stream":{"maxVersion":2,"minVersion":1,"path":"AudioStation/stream.cgi"}},"success":true}"#
+    static let apiInfo = #"{"data":{"SYNO.API.Auth":{"maxVersion":7,"minVersion":1,"path":"entry.cgi"},"SYNO.API.Info":{"maxVersion":1,"minVersion":1,"path":"entry.cgi","requestFormat":"JSON"},"SYNO.AudioStation.Album":{"maxVersion":3,"minVersion":1,"path":"AudioStation/album.cgi"},"SYNO.AudioStation.Cover":{"maxVersion":3,"minVersion":1,"path":"AudioStation/cover.cgi"},"SYNO.AudioStation.Download":{"maxVersion":1,"minVersion":1,"path":"AudioStation/download.cgi"},"SYNO.AudioStation.Info":{"maxVersion":6,"minVersion":1,"path":"AudioStation/info.cgi"},"SYNO.AudioStation.Lyrics":{"maxVersion":2,"minVersion":1,"path":"AudioStation/lyrics.cgi"},"SYNO.AudioStation.Pin":{"maxVersion":1,"minVersion":1,"path":"entry.cgi","requestFormat":"JSON"},"SYNO.AudioStation.Playlist":{"maxVersion":3,"minVersion":1,"path":"AudioStation/playlist.cgi"},"SYNO.AudioStation.Radio":{"maxVersion":2,"minVersion":1,"path":"AudioStation/radio.cgi"},"SYNO.AudioStation.Search":{"maxVersion":1,"minVersion":1,"path":"AudioStation/search.cgi"},"SYNO.AudioStation.Song":{"maxVersion":3,"minVersion":1,"path":"AudioStation/song.cgi"},"SYNO.AudioStation.Stream":{"maxVersion":2,"minVersion":1,"path":"AudioStation/stream.cgi"}},"success":true}"#
 
     static let info = #"{"data":{"ame_status":{"ame_major_version":4,"has_aac":false,"has_license":true,"is_aac_activated":false,"is_ame_broken":false,"is_ame_install":true,"need_aac_transcoding":false},"browse_personal_library":"all","dsd_decode_capability":true,"enable_equalizer":false,"enable_personal_library":false,"enable_user_home":true,"has_music_share":true,"is_manager":true,"playing_queue_max":8192,"privilege":{"playlist_edit":true,"remote_player":true,"sharing":true,"tag_edit":true,"upnp_browse":true},"remote_controller":false,"same_subnet":true,"serial_number":"0000000000000","settings":{"audio_show_virtual_library":true,"disable_upnp":false,"enable_download":true,"prefer_using_html5":true,"transcode_to_mp3":true},"sid":"FAKE-SID","support_bluetooth":false,"support_usb":false,"support_virtual_library":true,"transcode_capability":["wav","mp3"],"version":5516,"version_string":"7.2.0-5516"},"success":true}"#
 

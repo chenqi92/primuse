@@ -17,12 +17,17 @@
 "longest" = "En uzun dinlenen";
 "play_count" = "%d kez çalındı";
 "positions_gained" = "%d sıra yükseldi";
+"positions_lost" = "%d sıra düştü";
+"new_entry" = "YENİ";
 "recent_albums" = "Son eklenen albümler";
 "folder_display_count" = "Ana sayfada gösterilen sayı";
 "manage_folders" = "Dizinleri yönet ve sırala";
 "no_pinned_folders" = "Tümünü Gör bölümünden dizinlerinizi seçin.";
 "folder_ranking_scope" = "Dizin sıralamaları, geçerli bir dizini olan şarkıları içerir.";
 "folder_as_playlist" = "Çalma listesi olarak kullan";
+"pin_folder_short" = "Sabitle";
+"unpin_folder_short" = "Kaldır";
+"folder_as_playlist_short" = "Liste Yap";
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "İlk %d’i göster";
 "collapse_ranking" = "Show Less";

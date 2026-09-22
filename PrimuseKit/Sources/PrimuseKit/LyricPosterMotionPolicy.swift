@@ -83,11 +83,10 @@ public struct LyricPosterMotionPlan: Hashable, Sendable {
 /// short enough that iOS keeps it pairable as a Live Photo.
 public enum LyricPosterMotionPolicy {
     public static let frameRate = 30
-    /// iOS plays roughly three seconds of a Live Photo; a longer paired video
-    /// is accepted but its tail is never seen, so posters stay inside a range
-    /// that actually plays back.
+    /// 上限对齐系统实况照片的长度: 相册在配对时对这段视频是有脾气的,
+    /// 超出系统自己拍出来的量级容易被判成无效资源, 而且尾巴本来也播不到。
     public static let minimumDuration: TimeInterval = 2.4
-    public static let maximumDuration: TimeInterval = 5.6
+    public static let maximumDuration: TimeInterval = 3.0
     /// Still moment before the first row appears.
     public static let leadIn: TimeInterval = 0.28
     /// Held tail after the last row completes, so the passage can be read.

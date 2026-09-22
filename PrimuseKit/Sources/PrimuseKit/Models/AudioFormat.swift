@@ -55,6 +55,21 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Formats that go straight to FFmpeg instead of SFBAudioEngine. SFB has
+    /// no decoder for most of them (WMA, DTS, TrueHD, ATRAC, TAK, QOA); raw
+    /// ADTS AAC reports a short frame count through it, and its packed 24-bit
+    /// True Audio path crashes while releasing PCM buffers.
+    /// iOS, macOS and tvOS all route by this one list.
+    public var prefersFFmpegDecoder: Bool {
+        switch self {
+        case .aac, .dts, .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .wma, .qoa, .tta:
+            return true
+        case .mp3, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf,
+             .ape, .dsf, .dff, .ogg, .opus, .wv, .mpc, .shn, .speex:
+            return false
+        }
+    }
+
     public var displayName: String {
         switch self {
         case .mp3: return "MP3"
@@ -106,6 +121,10 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     public static func from(fileExtension ext: String) -> AudioFormat? {
         switch ext.lowercased() {
         case "asf": return .wma
+        // Audiobook/spoken-word MP4. Same container as `.m4a`, and mapping it
+        // here keeps scan and backfill on one value: the ISO base-media
+        // signature also resolves to `m4a`, so the two can never disagree.
+        case "m4b": return .m4a
         case "oga": return .ogg
         case "wave": return .wav
         case "awb": return .amr
@@ -176,10 +195,8 @@ public enum AudioMetadataWritebackPolicy {
     /// writer: ID3v2/APIC, FLAC Vorbis comments/PICTURE, and MP4 `ilst`/`covr`.
     public static let embeddedFormats: Set<AudioFormat> = [.mp3, .flac, .m4a]
 
-    /// File-addressed sources whose connectors implement the common guarded
-    /// replace transaction. Providers that replace an object by assigning a
-    /// new opaque ID are intentionally excluded until their library identity
-    /// can be migrated atomically with the remote object.
+    /// Sources whose connectors implement guarded replacement and readback,
+    /// including relocation when a provider assigns a new file ID.
     public static let embeddedSourceTypes: Set<MusicSourceType> = [
         .local,
         .synology,
@@ -191,6 +208,8 @@ public enum AudioMetadataWritebackPolicy {
         .nfs,
         .s3,
         .baiduPan,
+        .pan123,
+        .drime,
         .aliyunDrive,
         .googleDrive,
         .oneDrive,
@@ -201,6 +220,9 @@ public enum AudioMetadataWritebackPolicy {
         .jellyfin,
         .emby,
         .plex,
+        .airsonic,
+        .fnMusic,
+        .synologyAudioStation,
     ]
 
     public static func capability(
@@ -217,6 +239,107 @@ public enum AudioMetadataWritebackPolicy {
             return .sidecarOnly
         }
         return .localOnly
+    }
+}
+
+/// Where saved lyrics go for songs whose audio file can take them.
+///
+/// The sidecar is the lossless copy: a few kilobytes, word timing and
+/// translation tracks intact, and the media object is never touched. The
+/// embedded copy travels with the file to players that only read tags, at the
+/// price of downloading, rewriting and re-uploading the whole song on every
+/// save — so it is opt-in, and library-wide scraping never embeds.
+public enum LyricsEmbeddingMode: String, CaseIterable, Sendable {
+    /// Lyrics file only. The default, and the only behaviour before embedding.
+    case off
+    /// Lyrics file, plus a line-timed copy inside the audio file.
+    case alongside
+    /// Inside the audio file only: no new lyrics file is created. A lyrics
+    /// document that already sits beside the song is still kept up to date,
+    /// otherwise its stale text would win on the paths that read files first.
+    case embedOnly
+
+    /// Order of how far a mode reaches into the user's files. Moving up needs
+    /// the user to confirm what that costs; moving down never does.
+    var invasiveness: Int {
+        switch self {
+        case .off: return 0
+        case .alongside: return 1
+        case .embedOnly: return 2
+        }
+    }
+}
+
+public enum EmbeddedLyricsCopyPolicy {
+    public static let modeDefaultsKey = "primuse.lyrics.embedMode"
+    /// The first build of this feature stored an on/off switch, which meant
+    /// "lyrics file and audio file".
+    static let legacyEnabledDefaultsKey = "primuse.lyrics.embedCopyEnabled"
+
+    public static func mode(defaults: UserDefaults = .standard) -> LyricsEmbeddingMode {
+        if let raw = defaults.string(forKey: modeDefaultsKey),
+           let mode = LyricsEmbeddingMode(rawValue: raw) {
+            return mode
+        }
+        return defaults.bool(forKey: legacyEnabledDefaultsKey) ? .alongside : .off
+    }
+
+    public static func setMode(_ mode: LyricsEmbeddingMode, defaults: UserDefaults = .standard) {
+        defaults.set(mode.rawValue, forKey: modeDefaultsKey)
+        defaults.removeObject(forKey: legacyEnabledDefaultsKey)
+    }
+
+    public static func requiresConfirmation(
+        from current: LyricsEmbeddingMode,
+        to requested: LyricsEmbeddingMode
+    ) -> Bool {
+        requested.invasiveness > current.invasiveness
+    }
+
+    /// Same sources and formats as embedded tag editing: the copy goes through
+    /// the identical guarded replacement of the media object. Songs outside
+    /// this set keep writing lyrics files whatever the mode says.
+    public static func canEmbed(
+        sourceType: MusicSourceType,
+        format: AudioFormat,
+        isCueTrack: Bool,
+        isStreamDescriptor: Bool
+    ) -> Bool {
+        guard !isCueTrack, !isStreamDescriptor else { return false }
+        return AudioMetadataWritebackPolicy.capability(
+            sourceType: sourceType,
+            format: format
+        ) == .embedded
+    }
+
+    /// The mode that applies to one song: `.off` whenever its file cannot be
+    /// embedded into.
+    public static func effectiveMode(
+        _ mode: LyricsEmbeddingMode,
+        sourceType: MusicSourceType,
+        format: AudioFormat,
+        isCueTrack: Bool,
+        isStreamDescriptor: Bool
+    ) -> LyricsEmbeddingMode {
+        guard mode != .off,
+              canEmbed(
+                  sourceType: sourceType,
+                  format: format,
+                  isCueTrack: isCueTrack,
+                  isStreamDescriptor: isStreamDescriptor
+              ) else {
+            return .off
+        }
+        return mode
+    }
+
+    /// Whether a save may leave the lyrics file out. Only embed-only mode does,
+    /// and only while no lyrics document of any kind sits beside the song.
+    public static func skipsLyricsFile(
+        _ effectiveMode: LyricsEmbeddingMode,
+        lyricsDocumentExists: Bool
+    ) -> Bool {
+        effectiveMode == .embedOnly && !lyricsDocumentExists
     }
 }
 

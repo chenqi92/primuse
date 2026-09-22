@@ -5,7 +5,7 @@ import PrimuseKit
 import SwiftUI
 import UIKit
 
-/// One-tap delivery of the locally stored MetricKit reports to the developer.
+/// Prepares the user-selected reports and logs in a system mail draft.
 ///
 /// Nothing here ever sends by itself. The user taps a button, the system mail
 /// composer opens with the recipient, subject, body and attachments already
@@ -13,6 +13,20 @@ import UIKit
 /// the message as actually sent does the app offer to clear the local copies.
 @MainActor
 enum DiagnosticReportMailer {
+    struct Attachment: Sendable {
+        let data: Data
+        let mimeType: String
+        let fileName: String
+    }
+
+    struct Draft: Identifiable {
+        let id = UUID()
+        let subject: String
+        let messageBody: String
+        let attachments: [Attachment]
+        let reportCount: Int
+    }
+
     enum Outcome: Equatable {
         case sent
         case cancelled
@@ -23,6 +37,57 @@ enum DiagnosticReportMailer {
     /// UI points at the per-report share button instead.
     static var canSendMail: Bool {
         MFMailComposeViewController.canSendMail()
+    }
+
+    static func prepare(
+        selection: DiagnosticReportMail.Selection,
+        reportURLs: [URL],
+        message: String = ""
+    ) async throws -> Draft {
+        if selection == .none {
+            return Draft(
+                subject: DiagnosticReportMail.subject(environment: environment(), isFeedback: true),
+                messageBody: message,
+                attachments: [],
+                reportCount: 0
+            )
+        }
+        let files = DiagnosticReportMail.attachments(
+            selection: selection,
+            reportURLs: reportURLs,
+            logURL: FileLogger.shared.logFileURL
+        )
+        let logData = selection.includesLogs ? try await FileLogger.shared.exportData() : nil
+        let attachments = try await Task.detached(priority: .userInitiated) {
+            try files.map { file in
+                let data = file.mimeType == "text/plain"
+                    ? logData! : try Data(contentsOf: file.url)
+                return Attachment(data: data, mimeType: file.mimeType, fileName: file.fileName)
+            }
+        }.value
+        let reportCount = selection.includesReports ? reportURLs.count : 0
+        let size = attachments.reduce(0) { $0 + $1.data.count }
+        let intro: String
+        switch selection {
+        case .all: intro = String(localized: "diagnostics_send_all")
+        case .reports: intro = String(localized: "diagnostics_send_reports_only")
+        case .logs: intro = String(localized: "diagnostics_send_logs_only")
+        case .none: intro = ""
+        }
+        return Draft(
+            subject: DiagnosticReportMail.subject(environment: environment()),
+            messageBody: DiagnosticReportMail.body(
+                intro: intro,
+                privacyNote: String(localized: "diagnostics_send_privacy"),
+                environment: environment(),
+                reportCount: reportCount,
+                formattedSize: ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file),
+                includesLogs: selection.includesLogs,
+                message: message
+            ),
+            attachments: attachments,
+            reportCount: reportCount
+        )
     }
 
     static func environment() -> DiagnosticReportMail.Environment {
@@ -54,7 +119,7 @@ struct DiagnosticMailComposer: UIViewControllerRepresentable {
     /// Not named `body`: that is the SwiftUI `View` requirement this type
     /// already satisfies through the representable default.
     let messageBody: String
-    let attachments: [URL]
+    let attachments: [DiagnosticReportMailer.Attachment]
     let onFinish: (DiagnosticReportMailer.Outcome) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -67,15 +132,11 @@ struct DiagnosticMailComposer: UIViewControllerRepresentable {
         controller.setToRecipients([DiagnosticReportMail.recipient])
         controller.setSubject(subject)
         controller.setMessageBody(messageBody, isHTML: false)
-        for (index, url) in attachments.enumerated() {
-            guard let data = try? Data(contentsOf: url) else { continue }
+        for attachment in attachments {
             controller.addAttachmentData(
-                data,
-                mimeType: "application/json",
-                fileName: DiagnosticReportMail.attachmentName(
-                    index: index,
-                    of: attachments.count
-                )
+                attachment.data,
+                mimeType: attachment.mimeType,
+                fileName: attachment.fileName
             )
         }
         return controller

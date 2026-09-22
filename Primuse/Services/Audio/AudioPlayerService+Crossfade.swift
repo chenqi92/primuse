@@ -49,22 +49,51 @@ extension AudioPlayerService {
         return true
     }
 
+    /// The manual rules mirror `next()` / `previous()`: a manual next steps
+    /// past repeat-one and wraps a multi-song queue even with repeat off.
+    func manualNextTraversalTarget() -> QueueTraversalTarget? {
+        nextQueueTraversalTarget(
+            respectsRepeatOne: queue.count == 1,
+            wrapsAtEnd: queue.count > 1 || repeatMode == .all
+        )
+    }
+
+    private func crossfadeSuccessorTarget(
+        _ rule: CrossfadeSuccessorRule
+    ) -> QueueTraversalTarget? {
+        switch rule {
+        case .automatic: nextQueueTraversalTarget()
+        case .manualNext: manualNextTraversalTarget()
+        case .manualPrevious: previousQueueTraversalTarget()
+        }
+    }
+
+    private func crossfadeSuccessorEntry(
+        _ rule: CrossfadeSuccessorRule
+    ) -> QueueEntry? {
+        guard let target = crossfadeSuccessorTarget(rule),
+              queueEntries.indices.contains(target.queueIndex) else { return nil }
+        return queueEntries[target.queueIndex]
+    }
+
     private func isCurrentCrossfadeAttempt(
         _ attemptID: UUID,
         sourcePlayID: UUID,
         queueGeneration sourceQueueGeneration: Int,
-        nextEntryID: UUID
+        nextEntryID: UUID,
+        successorRule: CrossfadeSuccessorRule
     ) -> Bool {
         !Task.isCancelled
             && isPlaying
             && crossfadeAttemptID == attemptID
             && playID == sourcePlayID
             && queueGeneration == sourceQueueGeneration
-            && nextQueueEntryInQueue()?.id == nextEntryID
+            && crossfadeSuccessorEntry(successorRule)?.id == nextEntryID
     }
 
     private func failCrossfadeAttempt(_ attemptID: UUID) {
         guard crossfadeAttemptID == attemptID else { return }
+        lastFailedCrossfadeAttemptID = attemptID
         let hadAudibleTransition = isCrossfading || crossfadeTimer != nil
         crossfadeAttemptID = nil
         committedCrossfade = nil
@@ -199,6 +228,110 @@ extension AudioPlayerService {
         }
     }
 
+    // MARK: - Manual skip
+
+    /// An earlier skip is still preparing its neighbour and the queue position
+    /// has not moved yet. Whoever calls this takes that attempt over: it is
+    /// cancelled here, and its target is handed back so a second skip can count
+    /// the first one instead of landing on the same song twice.
+    func takePendingManualSkipCrossfade() -> QueueTraversalTarget? {
+        guard let pending = pendingManualSkipCrossfade else { return nil }
+        pendingManualSkipCrossfade = nil
+        guard crossfadeAttemptID == pending.attemptID,
+              lastCommittedCrossfadeAttemptID != pending.attemptID else { return nil }
+        cancelCrossfadeAttempt()
+        guard pending.queueGeneration == queueGeneration else { return nil }
+        return pending.target
+    }
+
+    /// Runs a user skip through the crossfade commit and swap instead of
+    /// cutting the audible song off. Returns nil when the skip is not eligible
+    /// and nothing was touched; the caller then cuts exactly as before.
+    func crossfadeToManualNeighbour(
+        _ target: QueueTraversalTarget,
+        rule: CrossfadeSuccessorRule
+    ) async -> ManualSkipCrossfadePolicy.Outcome? {
+        guard queueEntries.indices.contains(target.queueIndex),
+              let sourcePlayID = playID else { return nil }
+        let entry = queueEntries[target.queueIndex]
+        let song = entry.song
+        let hasLocalAudio = playbackMetadataSourceType?(song.sourceID) == .local
+            || sourceManager?.hasUsableCachedAudioForPlayback(song) == true
+        guard ManualSkipCrossfadePolicy.isEligible(.init(
+            crossfadeIsEnabled: shouldUseCrossfade(playbackSettings.snapshot()),
+            localEngineIsRendering: isPlaying
+                && !isLoading
+                && !isAppleMusicMode
+                && !isLiveRadio
+                && !isCastingMode
+                && castingController == nil
+                && !isSystemMediaPlaybackActive
+                && audioEngine.isActuallyPlaying,
+            hasActiveCrossfadeAttempt: crossfadeAttemptID != nil
+                || crossfadeTriggered
+                || isCrossfading
+                || crossfadeTimer != nil,
+            hasPendingTransportWork: needsPlaybackRecovery
+                || seekTask != nil
+                || activeStreamingDownloadPreparation != nil,
+            neighbourIsCurrentSong: song.id == currentSong?.id,
+            neighbourBypassesContinuousAudio: shouldBypassContinuousAudioTransition(for: song),
+            neighbourHasLocalAudio: hasLocalAudio
+        )) else { return nil }
+
+        // The same bookkeeping `play(song:)` does for an explicit track change.
+        registerPlayIntent()
+        beginPlaybackErrorScope()
+        if let lockedID = sleepStopAfterSongID, lockedID != song.id {
+            plog("🌙 Sleep-at-track-end cancelled by explicit track change")
+            sleepStopAfterSongID = nil
+        }
+        sourceManager?.cancelMusicVideoDownloads(keeping: song)
+
+        let attemptID = UUID()
+        let sourceQueueGeneration = queueGeneration
+        crossfadeAttemptID = attemptID
+        crossfadeTriggered = true
+        pendingManualSkipCrossfade = PendingManualSkipCrossfade(
+            attemptID: attemptID,
+            target: target,
+            queueGeneration: sourceQueueGeneration
+        )
+        plog("🎚️ Manual skip crossfade → '\(song.title)'")
+        crossfadeStartupTask?.cancel()
+        let startup = Task {
+            await startCrossfade(
+                duration: ManualSkipCrossfadePolicy.overlapDuration,
+                attemptID: attemptID,
+                sourcePlayID: sourcePlayID,
+                queueGeneration: sourceQueueGeneration,
+                nextEntryID: entry.id,
+                successorRule: rule,
+                preparationTimeout: ManualSkipCrossfadePolicy.preparationTimeout
+            )
+        }
+        crossfadeStartupTask = startup
+        await startup.value
+
+        if pendingManualSkipCrossfade?.attemptID == attemptID {
+            pendingManualSkipCrossfade = nil
+        }
+        let outcome = ManualSkipCrossfadePolicy.outcome(
+            attemptID: attemptID,
+            lastCommittedAttemptID: lastCommittedCrossfadeAttemptID,
+            lastFailedAttemptID: lastFailedCrossfadeAttemptID
+        )
+        // A stale exit leaves the attempt's flags behind. Nothing else will
+        // clear them for this song, and they would block its automatic fade.
+        if outcome == .superseded, crossfadeAttemptID == attemptID {
+            cancelCrossfadeAttempt()
+        }
+        if outcome != .committed {
+            plog("🎚️ Manual skip crossfade \(outcome) for '\(song.title)'")
+        }
+        return outcome
+    }
+
     func checkCrossfade() {
         // This runs on every playback progress tick. Avoid copying the full
         // settings payload in the overwhelmingly common disabled case.
@@ -270,6 +403,15 @@ extension AudioPlayerService {
                 queueGeneration: sourceQueueGeneration,
                 nextEntryID: nextEntry.id
             )
+            // 过期退出(暂停、别的播放请求、后继歌曲变了)不会走 failCrossfadeAttempt,
+            // 这一尝试的标记就留在了原地。没人会再清它: `crossfadeTriggered` 挡住
+            // 本首后面的重试, `isCrossfading` 会同时关掉曲末看门狗与每拍的
+            // checkCrossfade。手动切歌那条路早就补了这一步(见 crossfadeToManualNeighbour),
+            // 自动这条一直漏着。
+            guard crossfadeAttemptID == attemptID,
+                  lastCommittedCrossfadeAttemptID != attemptID else { return }
+            plog("🎚️ Crossfade attempt superseded; clearing its flags")
+            cancelCrossfadeAttempt()
         }
     }
 
@@ -278,19 +420,23 @@ extension AudioPlayerService {
         attemptID: UUID,
         sourcePlayID: UUID,
         queueGeneration sourceQueueGeneration: Int,
-        nextEntryID: UUID
+        nextEntryID: UUID,
+        successorRule: CrossfadeSuccessorRule = .automatic,
+        preparationTimeout: TimeInterval = TimeInterval(AudioPlayerService.firstBufferTimeoutSeconds)
     ) async {
         guard isCurrentCrossfadeAttempt(
             attemptID,
             sourcePlayID: sourcePlayID,
             queueGeneration: sourceQueueGeneration,
-            nextEntryID: nextEntryID
+            nextEntryID: nextEntryID,
+            successorRule: successorRule
         ) else { return }
         guard shouldUseCrossfade(playbackSettings.snapshot()) else {
             failCrossfadeAttempt(attemptID)
             return
         }
-        guard let nextEntry = nextQueueEntryInQueue(), nextEntry.id == nextEntryID else {
+        guard let nextEntry = crossfadeSuccessorEntry(successorRule),
+              nextEntry.id == nextEntryID else {
             failCrossfadeAttempt(attemptID)
             return
         }
@@ -303,7 +449,7 @@ extension AudioPlayerService {
             sourceID: nextSong.sourceID
         )
 
-        let preparationDeadline = Date().addingTimeInterval(Double(Self.firstBufferTimeoutSeconds))
+        let preparationDeadline = Date().addingTimeInterval(preparationTimeout)
         do {
             let nextURL = try await resolvedURL(
                 for: nextSong,
@@ -314,7 +460,8 @@ extension AudioPlayerService {
                 attemptID,
                 sourcePlayID: sourcePlayID,
                 queueGeneration: sourceQueueGeneration,
-                nextEntryID: nextEntryID
+                nextEntryID: nextEntryID,
+                successorRule: successorRule
             ) else { return }
             guard nextDecoderKind == .native
                     || nextDecoderKind == .ffmpeg,
@@ -374,7 +521,8 @@ extension AudioPlayerService {
                 attemptID,
                 sourcePlayID: sourcePlayID,
                 queueGeneration: sourceQueueGeneration,
-                nextEntryID: nextEntryID
+                nextEntryID: nextEntryID,
+                successorRule: successorRule
             ) else { return }
             // Hold one decoded buffer back so EOF is known before scheduling
             // the physical last buffer. This gives unknown-duration cloud
@@ -393,7 +541,8 @@ extension AudioPlayerService {
                 attemptID,
                 sourcePlayID: sourcePlayID,
                 queueGeneration: sourceQueueGeneration,
-                nextEntryID: nextEntryID
+                nextEntryID: nextEntryID,
+                successorRule: successorRule
             ) else { return }
             // Settings and the sleep lock can change while remote resolution
             // or prefetch is in flight. Revalidate at the commit boundary.
@@ -403,6 +552,7 @@ extension AudioPlayerService {
                 return
             }
             isCrossfading = true
+            lastCommittedCrossfadeAttemptID = attemptID
             let nextPlayID = UUID()
             let activatedSong = songRefreshingLatestDuration(nextSong)
             committedCrossfade = CommittedCrossfade(
@@ -425,7 +575,9 @@ extension AudioPlayerService {
             if let previous = currentSong {
                 sourceManager?.finalizeStreamingSession(for: previous)
             }
-            advanceToNextIndex()
+            if let target = crossfadeSuccessorTarget(successorRule) {
+                applyQueueTraversalTarget(target)
+            }
             currentSong = activatedSong
             currentTime = 0
             duration = activatedSong.duration.sanitizedDuration
@@ -436,6 +588,9 @@ extension AudioPlayerService {
             updateNowPlayingInfo()
             updateNowPlayingArtworkIfNeeded()
             updatePlaybackState()
+            // 淡入淡出只接受已经在本机的下一首。这里不接着预取的话, 起播时那一批
+            // 预取用完之后, 远端音乐源上的转场就再也不会发生, 每次都退回硬切。
+            prefetchNextSong()
 
             let gate = DecodedBufferGate(
                 maxBufferedDuration: Self.decodedAudioLookahead,

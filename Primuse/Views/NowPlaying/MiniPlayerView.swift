@@ -74,7 +74,15 @@ struct MiniPlayerSwipeContent: View {
                         .foregroundStyle(.skin(.textPrimary))
                         .contentTransition(.opacity)
 
-                    if showsSubtitle,
+                    if showsSubtitle, let error = player.lastPlaybackError {
+                        // A song picked from a list can fail with the player
+                        // closed; this line is the only place left to say why.
+                        Text(verbatim: error)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .foregroundStyle(.orange)
+                            .contentTransition(.opacity)
+                    } else if showsSubtitle,
                        let song = player.currentSong,
                        let artist = library.artistDisplayName(for: song),
                        !artist.isEmpty {
@@ -127,6 +135,9 @@ struct MiniPlayerSwipeContent: View {
             String(localized: "now_playing"),
             player.currentSong?.title ?? ""
         ]
+        if showsSubtitle, let error = player.lastPlaybackError {
+            return (parts + [error]).filter { !$0.isEmpty }.joined(separator: ": ")
+        }
         if showsSubtitle,
            let song = player.currentSong,
            let artist = library.artistDisplayName(for: song),
@@ -241,7 +252,20 @@ struct MiniPlayerTransportControls: View {
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play")))
 
-            if showsNextButton && (!player.isLiveRadio || player.canSwitchRadioStation) {
+            // 有声内容按「前进 30 秒」用: 下一条目是另一本书或另一集,
+            // 在迷你播放器上误触的代价比漏听一段大得多。
+            if player.currentItemIsSpokenWord, !player.isLiveRadio {
+                Button {
+                    player.skipSpokenWordForward()
+                } label: {
+                    Image(systemName: "goforward.30")
+                        .font(iconFont)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .accessibilityLabel(String(localized: "a11y_skip_forward"))
+            } else if showsNextButton && (!player.isLiveRadio || player.canSwitchRadioStation) {
                 Button {
                     Task { await player.next() }
                 } label: {

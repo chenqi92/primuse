@@ -20,6 +20,47 @@ public struct EmbeddedTitleCandidate: Equatable, Sendable {
 }
 
 public enum MetadataTitleResolutionPolicy {
+    /// A duplicated artist tag is not enough evidence by itself: the filename
+    /// must independently identify that artist at one end of a separated pair.
+    public static func titleCorrectingDuplicatedArtist(
+        title: String?,
+        artist: String?,
+        fileStem: String?
+    ) -> String? {
+        guard let title = MediaMetadataTextRepair.repaired(title),
+              let artist = MediaMetadataTextRepair.repaired(artist),
+              let stem = MediaMetadataTextRepair.repaired(fileStem),
+              !artist.isEmpty,
+              equivalent(title, artist),
+              !MediaMetadataTextRepair.isSuspicious(artist),
+              !MediaMetadataTextRepair.isSuspicious(stem) else { return nil }
+
+        let separators = stem.ranges(of: /\s+[-–—_]\s+/)
+        for separator in separators {
+            let left = String(stem[..<separator.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let right = String(stem[separator.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let candidate: String
+            if equivalent(left, artist) {
+                candidate = right
+            } else if equivalent(right, artist) {
+                candidate = left
+            } else {
+                continue
+            }
+            guard !candidate.isEmpty,
+                  !candidate.allSatisfy(\.isNumber),
+                  !equivalent(candidate, artist) else { continue }
+            return candidate
+        }
+        return nil
+    }
+
+    private static func equivalent(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.compare(rhs, options: [.caseInsensitive, .widthInsensitive]) == .orderedSame
+    }
+
     public static func preferredEmbeddedTitle(
         from candidates: [EmbeddedTitleCandidate]
     ) -> String? {

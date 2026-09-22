@@ -296,6 +296,15 @@ actor LibraryDatabase {
             try PlaylistDatabaseMigration.migrate(db)
         }
 
+        // Apple Music 目录曲目提供的音质版本（JSON 数组，如 ["lossless",
+        // "dolbyAtmos"]）。nil 表示不是 Apple Music 曲目或还没查到 —— 和
+        // 「查过、但这首只有有损版」是两回事，所以不能用空数组当默认值。
+        migrator.registerMigration("v17_song_audio_variants") { db in
+            try db.alter(table: "songs") { t in
+                t.add(column: "audioVariants", .text)
+            }
+        }
+
         // Run every registered migration, not just v1 — pinning to
         // `upTo: "v1_initial"` would silently skip later versions on
         // upgrade and reintroduce schema drift.

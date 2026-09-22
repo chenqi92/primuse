@@ -600,6 +600,7 @@ extension AudioPlayerService {
     }
 
     func stop() {
+        flushSpokenWordPosition()
         registerPauseOrStopIntent()
         // 拖动进度触发的整文件物化会一直下到底, 切歌 / 停止时必须一并取消,
         // 否则被放弃的传输继续占用带宽和缓存配额。直播电台 / Apple Music
@@ -814,6 +815,7 @@ extension AudioPlayerService {
     @discardableResult
     func next(
         context: QueueAdvanceContext = .userInitiated,
+        isAutomaticAdvance: Bool = false,
         caller: String = #fileID,
         callerLine: Int = #line
     ) async -> Bool {
@@ -835,23 +837,53 @@ extension AudioPlayerService {
         guard !queue.isEmpty else { return false }
         let callerFile = (caller as NSString).lastPathComponent
         plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queue.count)")
+        // Track end and failure recovery arrive here with the default context
+        // too, so a real press is told apart by `isAutomaticAdvance`: by then
+        // the outgoing node has nothing left to blend out of.
+        let isManualSkip = !isAutomaticAdvance && context == .userInitiated
+        // An earlier skip is still preparing its short crossfade and has not
+        // moved the queue yet. A second press counts that one first and then
+        // cuts, so two presses still travel two songs; track end arriving in
+        // that window simply replaces it.
+        var countedPendingSkip = false
+        if let pendingTarget = takePendingManualSkipCrossfade(), isManualSkip {
+            applyQueueTraversalTarget(pendingTarget)
+            countedPendingSkip = true
+        }
         if queue.count == 1, shuffleEnabled, repeatMode == .off {
             _ = extendExhaustedShuffleFromLibrary()
         }
         // A manual next skips past repeat-one when there is another queue
         // entry, matching the existing transport controls. A true one-song
         // repeat-one queue may still intentionally restart itself.
-        let respectsRepeatOne = queue.count == 1
-        let successor = nextQueueTraversalTarget(
-            respectsRepeatOne: respectsRepeatOne,
-            wrapsAtEnd: queue.count > 1 || repeatMode == .all
-        )
+        var successor = manualNextTraversalTarget()
+        if isManualSkip, !countedPendingSkip, let candidate = successor,
+           queueEntries.indices.contains(candidate.queueIndex),
+           !skipsAdjacentDuplicate(queueEntries[candidate.queueIndex].song, context: context) {
+            let sourcePlayID = playID
+            switch await crossfadeToManualNeighbour(candidate, rule: .manualNext) {
+            case .committed?, .superseded?:
+                return true
+            case .failed?:
+                // Whoever changed the transport while the neighbour was being
+                // prepared owns playback now; otherwise cut as usual.
+                guard playID == sourcePlayID else { return true }
+                successor = manualNextTraversalTarget()
+            case nil:
+                break
+            }
+        }
         guard ManualQueueAdvancePolicy.shouldAdvance(
             queueCount: queue.count,
             repeatMode: repeatMode,
             shuffleEnabled: shuffleEnabled,
             hasSuccessor: successor != nil
         ), let successor else {
+            if countedPendingSkip, queue.indices.contains(currentIndex) {
+                // The counted skip already moved the queue position.
+                await play(song: queue[currentIndex])
+                return true
+            }
             plog("⏭️ next: no enabled successor; keeping current playback")
             return false
         }
@@ -860,27 +892,27 @@ extension AudioPlayerService {
         // (mp3 + flac, 不同目录) scan 后是不同 song.id, 但用户看就是同一首,
         // 自动 next 跳到 "下一首是自己" 体验很怪。最多跳 1 次, 防止整个
         // queue 全是同一首时死循环。
-        if let cur = currentSong {
-            let candidate = queue[currentIndex]
-            if QueueAdjacentDuplicatePolicy.shouldSkipCandidate(
-                queueCount: queue.count,
-                currentTitle: cur.title,
-                currentArtist: cur.artistName,
-                candidateTitle: candidate.title,
-                candidateArtist: candidate.artistName,
-                context: context
-            ) {
-                plog("⏭️ next: skipping duplicate '\(candidate.title)' (same title+artist as current)")
-                if let following = nextQueueTraversalTarget(
-                    respectsRepeatOne: respectsRepeatOne,
-                    wrapsAtEnd: queue.count > 1 || repeatMode == .all
-                ) {
-                    applyQueueTraversalTarget(following)
-                }
+        let candidate = queue[currentIndex]
+        if skipsAdjacentDuplicate(candidate, context: context) {
+            plog("⏭️ next: skipping duplicate '\(candidate.title)' (same title+artist as current)")
+            if let following = manualNextTraversalTarget() {
+                applyQueueTraversalTarget(following)
             }
         }
         await play(song: queue[currentIndex])
         return true
+    }
+
+    private func skipsAdjacentDuplicate(_ candidate: Song, context: QueueAdvanceContext) -> Bool {
+        guard let cur = currentSong else { return false }
+        return QueueAdjacentDuplicatePolicy.shouldSkipCandidate(
+            queueCount: queue.count,
+            currentTitle: cur.title,
+            currentArtist: cur.artistName,
+            candidateTitle: candidate.title,
+            candidateArtist: candidate.artistName,
+            context: context
+        )
     }
 
     @discardableResult
@@ -908,7 +940,18 @@ extension AudioPlayerService {
             seek(to: 0)
             return true
         }
-        guard let predecessor = previousQueueTraversalTarget() else { return false }
+        guard var predecessor = previousQueueTraversalTarget() else { return false }
+        let sourcePlayID = playID
+        switch await crossfadeToManualNeighbour(predecessor, rule: .manualPrevious) {
+        case .committed?, .superseded?:
+            return true
+        case .failed?:
+            guard playID == sourcePlayID,
+                  let current = previousQueueTraversalTarget() else { return true }
+            predecessor = current
+        case nil:
+            break
+        }
         applyQueueTraversalTarget(predecessor)
         await play(song: queue[currentIndex])
         return true
@@ -1205,8 +1248,8 @@ extension AudioPlayerService {
 
                 // Use the same decoder that was used for initial playback.
                 // For streaming, require the cached local file — can't seek in remote streams.
-                var seekURL: URL
-                var seekDecoderKind = activeDecoderKind
+                let seekURL: URL
+                let seekDecoderKind = activeDecoderKind
                 if activeDecoderKind == .streaming {
                     var cached = completedFullDownloadURL(for: song)
                     if cached == nil, isRecovery, !isColdSessionRestore {
@@ -1233,28 +1276,6 @@ extension AudioPlayerService {
                     seekURL = url
                 }
 
-                // Range-backed cloud/HTTP InputSources can expose byte seeking
-                // while a format decoder still rejects PCM seeking. Never fall
-                // back to decoding millions of frames just to reach a large
-                // target. Complete the normal LRU cache once, then seek the
-                // local file with FFmpeg/native random access.
-                if (activeDecoderKind == .cloudStream || activeDecoderKind == .httpStream),
-                   RemoteSeekPreparationPolicy.decision(
-                       hasCachedFile: sourceManager?.cachedURL(for: song) != nil,
-                       cacheEnabled: playbackSettings.audioCacheEnabled,
-                       isColdSessionRestore: isColdSessionRestore
-                   ) == .materializeCompleteFile,
-                   let cached = await materializeCachedURLForPlaybackRecovery(
-                       song,
-                       trigger: "remote-seek"
-                   ) {
-                    guard !Task.isCancelled, playID == id else { return }
-                    seekURL = cached
-                    seekDecoderKind = await ffmpegCanDecodeOffMain(cached) ? .ffmpeg : .native
-                    guard !Task.isCancelled, playID == id else { return }
-                    activeDecoderKind = seekDecoderKind
-                    plog("📍 Seek materialized remote audio to local cache; decoder=\(seekDecoderKind)")
-                }
                 let rawStream: AudioBufferStream
                 let onResolveLength = makeResolveLengthCallback(for: song)
                 var decoderPerformedSeek = false
@@ -1418,18 +1439,73 @@ extension AudioPlayerService {
                 audioEngine.sampleTimeOffset = -progressSeekSamples
 
                 // Skip buffers until seek position, then schedule first playable buffer before play()
-                let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
+                var iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
                 var firstPlayableBuffer: AVAudioPCMBuffer?
+                var rangeSeekRejected = false
 
-                while let buffer = try await iteratorBox.next() {
-                    guard !Task.isCancelled, playID == id else { return }
-                    let bufferSamples = Int64(buffer.frameLength)
-                    if samplesSkipped + bufferSamples <= seekSamples {
-                        samplesSkipped += bufferSamples
-                        continue
+                firstBufferSearch: while true {
+                    do {
+                        while let buffer = try await iteratorBox.next() {
+                            guard !Task.isCancelled, playID == id else { return }
+                            let bufferSamples = Int64(buffer.frameLength)
+                            if samplesSkipped + bufferSamples <= seekSamples {
+                                samplesSkipped += bufferSamples
+                                continue
+                            }
+                            firstPlayableBuffer = buffer
+                            break
+                        }
+                        break firstBufferSearch
+                    } catch AudioDecoderError.seekUnavailable
+                        where !rangeSeekRejected
+                            && (seekDecoderKind == .cloudStream || seekDecoderKind == .httpStream) {
+                        // Range-backed cloud/HTTP InputSources can expose byte
+                        // seeking while a format decoder still rejects PCM
+                        // seeking; the decoder then refuses rather than decoding
+                        // millions of frames to reach the target. Only now
+                        // complete the normal LRU cache once and seek the local
+                        // file with FFmpeg/native random access.
+                        rangeSeekRejected = true
+                        guard RemoteSeekPreparationPolicy.afterRangeSeekRejected(
+                                  cacheEnabled: playbackSettings.audioCacheEnabled,
+                                  isColdSessionRestore: isColdSessionRestore
+                              ) == .materializeCompleteFile,
+                              let cached = await materializeCachedURLForPlaybackRecovery(
+                                  song,
+                                  trigger: "remote-seek"
+                              ) else {
+                            throw AudioDecoderError.seekUnavailable
+                        }
+                        guard !Task.isCancelled, playID == id else { return }
+                        let localDecoderKind: DecoderKind = await ffmpegCanDecodeOffMain(cached)
+                            ? .ffmpeg
+                            : .native
+                        guard !Task.isCancelled, playID == id else { return }
+                        activeDecoderKind = localDecoderKind
+                        plog("📍 Range seek rejected; materialized remote audio to local cache, decoder=\(localDecoderKind)")
+                        let localStream = localDecoderKind == .ffmpeg
+                            ? ffmpegDecoder.decode(
+                                from: cached,
+                                outputFormat: outputFormat,
+                                startingAt: physicalSeekTime,
+                                onResolveSourceLength: onResolveLength
+                            )
+                            : nativeDecoder.decode(
+                                from: cached,
+                                outputFormat: outputFormat,
+                                dsdMode: activeDSDPlaybackMode,
+                                startingAt: physicalSeekTime,
+                                onResolveSourceLength: onResolveLength
+                            )
+                        iteratorBox = BufferIteratorBox(
+                            segmented(
+                                localStream,
+                                for: song,
+                                sourceStartTime: physicalSeekTime
+                            ).makeAsyncIterator()
+                        )
+                        samplesSkipped = 0
                     }
-                    firstPlayableBuffer = buffer
-                    break
                 }
 
                 guard let firstBuffer = firstPlayableBuffer else {
@@ -1653,6 +1729,9 @@ extension AudioPlayerService {
         updateNowPlayingInfo()
         // 退到后台后进程随时可能被挂起, 这一次会话快照必须在返回前落盘。
         updatePlaybackState(flushPlaybackSessionImmediately: true)
+        // 有声书的位置同理 —— 它是按条目记的, 挂起时丢掉就要从上次自动保存
+        // 的地方重听。
+        flushSpokenWordPosition()
         // AVFAudio can stop the graph before delivering its interruption
         // notification. Preserve the last backend-validated active publication
         // across that ordering window. Explicit Pause/Stop has already cleared
@@ -1709,7 +1788,24 @@ extension AudioPlayerService {
             clearQueue()
             return
         }
-        let selectedIndex = max(0, min(index, songs.count - 1))
+        var selectedIndex = max(0, min(index, songs.count - 1))
+        var skippedSourceID: String?
+        // The requested start cannot play on this network. Begin at the first
+        // song that can instead of stopping the music to fail on this one; the
+        // queue keeps every song in place for when its source returns.
+        if isSongBlockedByUnreachableSource(songs[selectedIndex]),
+           let playableIndex = QueueTraversalPolicy.nextAvailableIndex(
+               queueCount: songs.count,
+               after: selectedIndex,
+               wraps: true,
+               isAvailable: { isSongAvailableForNewPlayback(songs[$0]) }
+           ) {
+            plog("⏭️ Queue start moved past unreachable source \(songs[selectedIndex].sourceID.prefix(8)) index=\(selectedIndex)→\(playableIndex)")
+            skippedSourceID = songs[selectedIndex].sourceID
+            // Picking the song was also a request to try again.
+            sourceManager?.recheckPlaybackSourceNow(songs[selectedIndex].sourceID)
+            selectedIndex = playableIndex
+        }
         let selectedSong = songs[selectedIndex]
         let transportCanBePreserved = !isAppleMusicMode || isPrimuseManagingAppleMusicQueue
         let decision = QueueSelectionPlaybackPolicy.decision(
@@ -1728,9 +1824,11 @@ extension AudioPlayerService {
         )
         guard decision == .startSelectedItem else {
             plog("🎶 queue selection reused active transport for '\(selectedSong.title)'")
+            if let skippedSourceID { await announceSkippedUnreachableSource(skippedSourceID) }
             return
         }
         await play(song: selectedSong, caller: caller, callerLine: callerLine)
+        if let skippedSourceID { await announceSkippedUnreachableSource(skippedSourceID) }
     }
 
     func setQueue(_ songs: [Song], startAt index: Int = 0) {
@@ -2158,12 +2256,21 @@ extension AudioPlayerService {
     /// `shuffleEnabled` (which reshuffles the whole round), this only swaps the
     /// tapped index into the current shuffle position, leaving the *rest* of the
     /// round's order untouched so Up Next stays stable.
-    func playFromQueue(at index: Int) async {
-        guard queueEntries.indices.contains(index) else { return }
+    func playFromQueue(at requestedIndex: Int) async {
+        guard queueEntries.indices.contains(requestedIndex) else { return }
+        var index = requestedIndex
         let song = queueEntries[index].song
         guard isSourceEnabledForPlayback(song.sourceID) else {
             showPlaybackError(String(localized: "playback_error_source_disabled"))
             return
+        }
+        if isSongBlockedByUnreachableSource(song) {
+            // The queue can change while the source is asked again; find the
+            // tapped slot by identity afterwards.
+            let entryID = queueEntries[index].id
+            guard await confirmSourceReachableForSelection(of: song),
+                  let relocatedIndex = queueEntries.firstIndex(where: { $0.id == entryID }) else { return }
+            index = relocatedIndex
         }
 
         if usesManagedShuffleOrder, !isMirroringFromAppleMusic {

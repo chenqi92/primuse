@@ -5,6 +5,118 @@ import XCTest
 
 @MainActor
 final class FolderPlaylistTests: XCTestCase {
+    func testRescanRepairsArtistDuplicatedTitleWithoutChangingFileOrUserEdits() async throws {
+        let item = RemoteFileItem(
+            name: "走在冷风中 (Live) - 刘思涵.mp3", path: "12345678",
+            isDirectory: false, size: 9765573, modifiedDate: nil, providerID: "12345678",
+            parentPath: "0"
+        )
+        let connector = FolderPlaylistTestConnector(missingPaths: [], listings: ["0": [item]])
+        let scanner = ConnectorScanner(connector: connector, sourceID: "source")
+        var initial: [Song] = []
+        for try await update in await scanner.scan(directories: ["0"]) {
+            initial = update.songs
+        }
+        var original = try XCTUnwrap(initial.first)
+        let index = await scanner.syncIndexSnapshot()
+        original.title = "刘思涵"
+        original.artistName = "刘思涵"
+        original.duration = 214.9
+        original.titlePinyin = "liu si han"
+        for userEdited in [false, true] {
+            original.userMetadataEditedAt = userEdited ? Date() : nil
+            var rescanned: [Song] = []
+            for try await update in await scanner.scan(
+                directories: ["0"], existingSongs: [original], identityIndex: index
+            ) {
+                rescanned = update.songs
+            }
+            let song = try XCTUnwrap(rescanned.first)
+            XCTAssertEqual(song.title, userEdited ? "刘思涵" : "走在冷风中 (Live)")
+            XCTAssertEqual(song.artistName, "刘思涵")
+            XCTAssertEqual(song.id, original.id)
+            XCTAssertEqual(song.filePath, "12345678")
+            if !userEdited { XCTAssertNil(song.titlePinyin) }
+        }
+        original.userMetadataEditedAt = nil
+        let incremental = try await scanner.reconcileChangedDirectories(
+            ["0"], deletedStableKeys: [], existingSongs: [original], existingIndex: index,
+            scanEpoch: 1
+        )
+        let updated = try XCTUnwrap(incremental.songs.first)
+        XCTAssertEqual(updated.title, "走在冷风中 (Live)")
+        XCTAssertEqual(updated.artistName, "刘思涵")
+        XCTAssertEqual(updated.duration, 214.9)
+        XCTAssertEqual(updated.id, original.id)
+    }
+
+    func testRescanRetainsSongIDAfterCloudFileReplacementWithoutCommittedIndex() async throws {
+        let item = RemoteFileItem(name: "Track.mp3", path: "99", isDirectory: false,
+                                  size: 456, modifiedDate: nil, revision: "new", providerID: "99", parentPath: "0")
+        let connector = FolderPlaylistTestConnector(missingPaths: [], listings: ["0": [item]])
+        let scanner = ConnectorScanner(connector: connector, sourceID: "source")
+        var original = Song(id: "original-id", title: "Edited title", fileFormat: .mp3,
+                            filePath: "99", sourceID: "source", fileSize: 456, revision: "new")
+        original.userMetadataEditedAt = Date()
+        let stale = SourceSyncIndexedItem(stableKey: "42", path: "42", displayName: "Track.mp3",
+                                          parentPath: "0", isDirectory: false, songIDs: [original.id],
+                                          size: 123, modifiedDate: nil, revision: "old")
+        for index in [[:], ["42": stale]] {
+            var final: [Song] = []
+            for try await update in await scanner.scan(directories: ["0"], existingSongs: [original], identityIndex: index) {
+                final = update.songs
+            }
+            XCTAssertEqual(final.map(\.id), [original.id])
+            XCTAssertEqual(final.first?.filePath, "99")
+            XCTAssertEqual(final.first?.title, "Edited title")
+            let incremental = try await scanner.reconcileChangedDirectories(
+                ["0"], deletedStableKeys: [], existingSongs: [original], existingIndex: index, scanEpoch: 1
+            )
+            XCTAssertEqual(incremental.songs.map(\.id), [original.id])
+            XCTAssertEqual(incremental.songs.first?.filePath, "99")
+        }
+    }
+
+    func testMetadataReplacementPersistsIndexAndDiscardsOldScanCheckpoint() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = root.appendingPathComponent("Primuse")
+        try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        let original = Song(id: "kept-id", title: "Original", fileFormat: .mp3,
+                            filePath: "42", sourceID: "source", fileSize: 123, revision: "before")
+        let other = song("other")
+        let index = SourceSyncIndexedItem(stableKey: "42", path: "42", displayName: "Song.mp3",
+                                         parentPath: "0", isDirectory: false, songIDs: [original.id],
+                                         size: 123, modifiedDate: nil, revision: "before")
+        let state = SourceSyncState(sourceID: "source", scopeFingerprint: "fixture", index: ["42": index])
+        let checkpoint = ScanCheckpoint(phase: .scanning, intent: .fullScan, directories: ["0"],
+                                        songs: [original], totalCount: 1, currentFile: "Song.mp3", updatedAt: Date())
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(["source": state]).write(to: storage.appendingPathComponent("source-sync-states.json"))
+        try encoder.encode(["source": checkpoint]).write(to: storage.appendingPathComponent("scan-checkpoints.json"))
+        let fileManager = FolderPlaylistTestFileManager(root: root)
+        let scan = ScanService(fileManager: fileManager)
+        XCTAssertTrue(scan.hasResumableScanWork)
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        library.addSongs([original, other], affectedSourceIDs: ["source"])
+        await library.waitForPendingIndex()
+        var updated = original
+        updated.filePath = "99"
+        updated.fileSize = 456
+        updated.revision = "after"
+        try await scan.recordMetadataFileReplacement(original: original, updated: updated, in: library)
+        XCTAssertEqual(library.song(id: original.id)?.filePath, "99")
+        XCTAssertNotNil(library.song(id: other.id), "Retargeting one row must not prune the source")
+        let reopened = ScanService(fileManager: fileManager)
+        XCTAssertFalse(reopened.hasResumableScanWork)
+        let persistedIndex = reopened.libraryFolderSyncIndex(for: "source")
+        XCTAssertNil(persistedIndex["42"])
+        XCTAssertEqual(persistedIndex["99"]?.songIDs, [original.id])
+        XCTAssertEqual(persistedIndex["99"]?.displayName, "Song.mp3")
+        XCTAssertEqual(persistedIndex["99"]?.revision, "after")
+    }
+
     func testMissingChildPreservesSongsWithoutCompleteIdentityIndex() async throws {
         let directory = SourceSyncIndexedItem(
             stableKey: "path:/Music/Live", path: "/Music/Live", parentPath: "/Music",

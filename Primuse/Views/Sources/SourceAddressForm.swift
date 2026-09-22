@@ -62,6 +62,20 @@ struct SourceAddressRow: Identifiable, Equatable {
         )
     }
 
+    mutating func selectTransport(_ choice: SourceAddressTransportChoice, sourceType: MusicSourceType) {
+        var updated = draft
+        updated.selectTransport(choice.manualUseSsl, sourceType: sourceType)
+        address = updated.address
+        transport = choice
+    }
+
+    mutating func editAddress(_ value: String, sourceType: MusicSourceType) {
+        var updated = draft
+        updated.editAddress(value, sourceType: sourceType)
+        address = updated.address
+        transport = .choice(forUseSsl: updated.manualUseSsl)
+    }
+
     /// 从一个已存的端点/标识回显。高级选项留在「自动」—— 端口与协议已经写进
     /// 地址串里了,再在下面重复一遍会让用户以为有两个地方要改。
     init(draft: SourceAddressFormPolicy.AddressDraft) {
@@ -100,6 +114,9 @@ final class SourceAddressProbeController {
     private(set) var phase: Phase = .idle
     private(set) var attempts: [UUID: [SourceEndpointResolver.Attempt]] = [:]
     private(set) var verdicts: [UUID: SourceServiceFingerprint.Verdict] = [:]
+    /// 这一轮里定下来的候选,按行 id 存。「仍然保存」要用它 —— 已经探到的行
+    /// 没有理由退回去猜第一个候选。
+    private(set) var selectedCandidates: [UUID: SourceConnectionCandidatePlanner.Candidate] = [:]
 
     /// 会话活到控制器被释放为止:一次提交可能要发四五个请求,每次都新建会话
     /// 等于每次都重建连接池。
@@ -109,29 +126,38 @@ final class SourceAddressProbeController {
 
     /// 地址一改就把上一轮的结论清掉 —— 留着会让用户以为新地址也试过了。
     func invalidate() {
-        guard phase != .idle || attempts.isEmpty == false else { return }
+        guard phase != .idle || attempts.isEmpty == false || selectedCandidates.isEmpty == false else {
+            return
+        }
         phase = .idle
         attempts = [:]
         verdicts = [:]
+        selectedCandidates = [:]
     }
 
     func probe(
         rows: [SourceAddressRow],
         reading: SourceAddressFormPolicy.FormReading,
-        sourceType: MusicSourceType
+        sourceType: MusicSourceType,
+        probing: Set<UUID>
     ) async -> Outcome {
-        let plans = Self.plans(rows: rows, reading: reading)
+        let plans = Self.plans(rows: rows, reading: reading, probing: probing)
         guard plans.isEmpty == false else { return Outcome() }
 
         phase = .probing
         attempts = [:]
         verdicts = [:]
+        selectedCandidates = [:]
+        plog(
+            "🔎 Address probe start type=\(sourceType.rawValue) rows=\(plans.count) "
+                + "candidates=\(plans.map(\.candidates.count))"
+        )
 
         let resolver = SourceEndpointResolver(load: session.loader())
         var resolutions: [UUID: SourceEndpointResolver.Resolution] = [:]
         await withTaskGroup(of: (UUID, SourceEndpointResolver.Resolution?).self) { group in
-            // 两行地址并发探,而不是一行等完再探下一行:每一轮本身就有十几秒的
-            // 上限,串起来用户要等一倍。捕获的都是单个 Sendable 值,不带整个计划
+            // 两行地址并发探,而不是一行等完再探下一行:每一轮最长要二十几秒,
+            // 串起来用户要等一倍。捕获的都是单个 Sendable 值,不带整个计划
             // 结构进任务里。
             for plan in plans {
                 let id = plan.id
@@ -160,20 +186,31 @@ final class SourceAddressProbeController {
         var collectedAttempts: [UUID: [SourceEndpointResolver.Attempt]] = [:]
         var collectedVerdicts: [UUID: SourceServiceFingerprint.Verdict] = [:]
         // 按表单里的顺序收集,任务组的完成顺序不该泄漏到界面上。
-        for plan in plans {
+        for (index, plan) in plans.enumerated() {
+            // 试过哪些地址、对面回了什么,逐行记一条:这是「一直在确认连接方式」
+            // 之后唯一能回答「它到底试了什么」的东西。
+            let tried = (resolutions[plan.id]?.attempts ?? [])
+                .map { "\($0.url)→\($0.verdict.logTag)" }
+                .joined(separator: " ")
             guard let resolution = resolutions[plan.id], let candidate = resolution.selected else {
                 // 尝试清单只在这一行一个候选都没应答时才有意义 —— 定下来的那行
                 // 再列一遍"试过什么"只会让人以为它也没成。
                 collectedAttempts[plan.id] = resolutions[plan.id]?.attempts ?? []
                 outcome.unresolvedRowIDs.append(plan.id)
+                plog("🔎 Address probe row=\(index + 1) no response tried=[\(tried)]")
                 continue
             }
             outcome.selected[plan.id] = candidate
             collectedVerdicts[plan.id] = resolution.verdict
+            plog(
+                "🔎 Address probe row=\(index + 1) selected=\(candidate.httpScheme):\(candidate.port) "
+                    + "verdict=\(resolution.verdict?.logTag ?? "-") tried=[\(tried)]"
+            )
         }
 
         attempts = collectedAttempts
         verdicts = collectedVerdicts
+        selectedCandidates = outcome.selected
         phase = outcome.unresolvedRowIDs.isEmpty ? .idle : .unresolved
         return outcome
     }
@@ -185,14 +222,17 @@ final class SourceAddressProbeController {
     }
 
     /// 只探要真正存下来的端点行。厂商标识不用探(它不是一个地址),没抢到槽位的
-    /// 那一行也不用探(存不进去)。
+    /// 那一行也不用探(存不进去),编辑时没动过的那一行也不用探(协议与端口
+    /// 已经写死在里面,`SourceAddressFormPolicy.rowsRequiringProbe`)。
     private static func plans(
         rows: [SourceAddressRow],
-        reading: SourceAddressFormPolicy.FormReading
+        reading: SourceAddressFormPolicy.FormReading,
+        probing: Set<UUID>
     ) -> [Plan] {
         var plans: [Plan] = []
         for (index, row) in rows.enumerated() where index < reading.rows.count {
-            guard case let .endpoint(endpoint) = reading.rows[index],
+            guard probing.contains(row.id),
+                  case let .endpoint(endpoint) = reading.rows[index],
                   endpoint.slot != nil else {
                 continue
             }
@@ -207,6 +247,24 @@ final class SourceAddressProbeController {
 /// 结构化的解读结果翻成人话。两套布局共用这一份,免得 iOS 与 macOS 慢慢说成
 /// 两种话。返回的都是已经本地化好的字符串,调用方直接 `Text(...)`。
 enum SourceAddressReadingText {
+
+    /// 地址框里的占位串。群晖 / 飞牛的地址框还认厂商远程接入标识,而「连接方式」
+    /// 分段选择器已经不在了 —— 占位串是唯一能把「这里也能填 ID」说出来又不多占
+    /// 一行提示的地方。
+    static func addressPlaceholder(for sourceType: MusicSourceType) -> String {
+        guard sourceType.supportsVendorRemoteAccess else {
+            return String(localized: "source_address_placeholder")
+        }
+        let identifier = String(
+            localized: sourceType.usesSynologyConnectionMode
+                ? "synology_quickconnect_id"
+                : "fnmusic_fnid"
+        )
+        return String(
+            format: String(localized: "source_address_placeholder_vendor %@"),
+            identifier
+        )
+    }
 
     /// 地址框下面那一行。nil 表示这一行还没什么可说的(空输入)。
     static func line(
@@ -610,7 +668,10 @@ struct SourceAddressRowView: View {
 
     private var addressField: some View {
         HStack(spacing: 10) {
-            TextField("source_address_placeholder", text: $row.address)
+            TextField(
+                SourceAddressReadingText.addressPlaceholder(for: sourceType),
+                text: Binding(get: { row.address }, set: { row.editAddress($0, sourceType: sourceType) })
+            )
                 .keyboardType(.URL)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -694,7 +755,9 @@ struct SourceAddressRowView: View {
     }
 
     private var transportPicker: some View {
-        Picker("source_address_transport", selection: $row.transport) {
+        Picker("source_address_transport", selection: Binding(
+            get: { row.transport }, set: { row.selectTransport($0, sourceType: sourceType) }
+        )) {
             Text("source_address_transport_automatic")
                 .tag(SourceAddressTransportChoice.automatic)
             Text(verbatim: "HTTP").tag(SourceAddressTransportChoice.cleartext)
@@ -767,9 +830,17 @@ struct MacSourceAddressRowView: View {
 
     private var addressField: some View {
         HStack(spacing: 10) {
-            TextField("source_address_placeholder", text: $row.address)
+            // 这一行没有左侧标题,不给个框的话占位串看起来就是一句说明文字,
+            // 用户根本不知道这里可以打字。
+            TextField(
+                SourceAddressReadingText.addressPlaceholder(for: sourceType),
+                text: Binding(get: { row.address }, set: { row.editAddress($0, sourceType: sourceType) })
+            )
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(PMColor.rowHover, in: .rect(cornerRadius: 6))
             if canRemove {
                 Button(action: onRemove) {
                     Image(systemName: "minus.circle")
@@ -849,16 +920,26 @@ struct MacSourceAddressRowView: View {
         String(sourceType.defaultPort(useSsl: row.transport.manualUseSsl ?? sourceType.defaultSSL))
     }
 
+    /// 与「端口」同一个行式:标题在左、控件靠右。分段控件自己左贴一列的话,
+    /// 在这套标题—值的表单里看起来像是脱了行。
     private var transportPicker: some View {
-        Picker("", selection: $row.transport) {
-            Text("source_address_transport_automatic")
-                .tag(SourceAddressTransportChoice.automatic)
-            Text(verbatim: "HTTP").tag(SourceAddressTransportChoice.cleartext)
-            Text(verbatim: "HTTPS").tag(SourceAddressTransportChoice.secure)
+        HStack(spacing: 12) {
+            Text("source_address_transport")
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.text)
+            Spacer(minLength: 12)
+            Picker("", selection: Binding(
+                get: { row.transport }, set: { row.selectTransport($0, sourceType: sourceType) }
+            )) {
+                Text("source_address_transport_automatic")
+                    .tag(SourceAddressTransportChoice.automatic)
+                Text(verbatim: "HTTP").tag(SourceAddressTransportChoice.cleartext)
+                Text(verbatim: "HTTPS").tag(SourceAddressTransportChoice.secure)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 220)
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: 260)
     }
 
     @ViewBuilder

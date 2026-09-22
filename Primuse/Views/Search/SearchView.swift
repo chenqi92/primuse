@@ -203,17 +203,52 @@ struct SearchScopeSwitchButton: View {
 #if os(iOS)
 struct SearchScopeCard: View {
     let scope: LibrarySearchScope
+    /// 卡片右侧的关闭键: 直接撤掉这个范围回到全局搜索, 不必再去菜单里切。
+    var onClear: (() -> Void)? = nil
 
     /// 这张卡排在结果区外面、不参与滚动。手机横屏时结果区本来就只剩两百多点,
     /// 再顶掉一百多点就只看得到一行半歌, 所以紧凑高度下压成一条: 图标 + 范围名。
     @Environment(\.pmHeightClass) private var heightClass
 
     var body: some View {
-        let iconSide = heightClass.value(44, compact: 28)
-        let iconCorner = heightClass.value(12, compact: 8)
         let cardCorner = heightClass.value(18, compact: 12)
         let rowAlignment: VerticalAlignment = heightClass.pick(.top, compact: .center)
-        HStack(alignment: rowAlignment, spacing: 12) {
+        HStack(alignment: rowAlignment, spacing: 8) {
+            scopeSummary(rowAlignment: rowAlignment)
+            if let onClear {
+                clearButton(onClear)
+            }
+        }
+        .padding(heightClass.value(14, compact: 8))
+        .background(scope.kind.color.opacity(0.08), in: RoundedRectangle(cornerRadius: cardCorner))
+        .overlay {
+            RoundedRectangle(cornerRadius: cardCorner)
+                .strokeBorder(scope.kind.color.opacity(0.24), lineWidth: 1)
+        }
+    }
+
+    /// 关闭键不能并进卡片的合并无障碍元素里, 否则读屏时按不到它。
+    private func clearButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: heightClass.value(22, compact: 18)))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // 紧凑高度下卡片只有 28 点高的一条, 点按区域照旧 44 点, 但不把卡片撑高。
+        .padding(.vertical, heightClass.value(0, compact: -8))
+        .padding(.trailing, -6)
+        .accessibilityLabel(Text("search_global"))
+        .accessibilityIdentifier("search.scope.clear")
+    }
+
+    private func scopeSummary(rowAlignment: VerticalAlignment) -> some View {
+        let iconSide = heightClass.value(44, compact: 28)
+        let iconCorner = heightClass.value(12, compact: 8)
+        return HStack(alignment: rowAlignment, spacing: 12) {
             Image(systemName: scope.kind.systemImage)
                 .font(.system(size: heightClass.value(20, compact: 13), weight: .semibold))
                 .foregroundStyle(scope.kind.color)
@@ -247,12 +282,6 @@ struct SearchScopeCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(heightClass.value(14, compact: 8))
-        .background(scope.kind.color.opacity(0.08), in: RoundedRectangle(cornerRadius: cardCorner))
-        .overlay {
-            RoundedRectangle(cornerRadius: cardCorner)
-                .strokeBorder(scope.kind.color.opacity(0.24), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("search.scope.card")
@@ -408,6 +437,11 @@ struct SearchView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey)
     private var appleMusicCatalogSearchEnabled = true
+    @AppStorage(SearchResultSectionLayout.orderKey)
+    private var resultSectionOrderRawValue = ""
+    @AppStorage(SearchResultSectionLayout.hiddenKey)
+    private var hiddenResultSectionsRawValue = ""
+    @State private var showsResultLayoutEditor = false
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     #endif
@@ -415,8 +449,13 @@ struct SearchView: View {
     @Environment(\.pmHeightClass) private var heightClass
     @Binding var searchText: String
     @Binding private var scope: LibrarySearchScope?
+    /// 用户刚点了搜索入口(底部标签 / iPad 侧栏)。消费掉就置回 false,
+    /// 视图重建时不会再弹一次键盘。
+    @Binding private var activatesSearchField: Bool
+    @State private var isSearchFieldPresented = false
+    /// 极简导航的自绘顶栏上点了「调整搜索结果」。同样消费掉就置回 false。
+    @Binding private var requestsResultLayoutEditor: Bool
     private let contextualScope: LibrarySearchScope?
-    private let showsMacQuerySummary: Bool
     let onShowInLibrary: (PrimuseKit.Song) -> Void
     @State private var searchResults: [LibrarySearchResult] = []
     @State private var matchingAlbums: [PrimuseKit.Album] = []
@@ -439,19 +478,24 @@ struct SearchView: View {
     @State private var selection = SongSelectionModel()
     #if os(macOS)
     @State private var macResultFilter: MacSearchResultFilter = .all
+    /// 「全部」页结果区的宽度, 决定并排几栏、一排放几张封面。先给一个常见值,
+    /// 量到真实宽度后再排一次。
+    @State private var macResultsWidth: CGFloat = 960
     #endif
 
     init(
         searchText: Binding<String>,
         scope: Binding<LibrarySearchScope?> = .constant(nil),
+        activatesSearchField: Binding<Bool> = .constant(false),
+        requestsResultLayoutEditor: Binding<Bool> = .constant(false),
         contextualScope: LibrarySearchScope? = nil,
-        showsMacQuerySummary: Bool = true,
         onShowInLibrary: @escaping (PrimuseKit.Song) -> Void = { _ in }
     ) {
         self._searchText = searchText
         self._scope = scope
+        self._activatesSearchField = activatesSearchField
+        self._requestsResultLayoutEditor = requestsResultLayoutEditor
         self.contextualScope = contextualScope
-        self.showsMacQuerySummary = showsMacQuerySummary
         self.onShowInLibrary = onShowInLibrary
     }
 
@@ -498,10 +542,36 @@ struct SearchView: View {
         appleMusicSearchEnabled ? appleMusic.searchResults : []
     }
 
-    /// “全选”只圈用户在当前筛选下真正看得到的本地歌曲。Apple Music 在线结果
-    /// 不是本地曲库条目，不参与多选。
+    private var resultLayout: SearchResultLayout {
+        SearchResultLayout(
+            orderRawValue: resultSectionOrderRawValue,
+            hiddenRawValue: hiddenResultSectionsRawValue
+        )
+    }
+
+    /// 结果区按用户排的顺序出场的块。Apple Music 另看曲库搜索开关与源是否可用。
+    private var orderedResultSections: [SearchResultSection] {
+        let layout = resultLayout
+        return layout.order.filter { section in
+            section == .appleMusic ? appleMusicSearchEnabled : layout.shows(section)
+        }
+    }
+
+    private var resultLayoutEditor: SearchResultLayoutEditor {
+        SearchResultLayoutEditor(
+            showsIntelligentRow: intelligence.isSemanticSearchConfigured,
+            showsAppleMusicRow: AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
+                catalogSearchEnabled: true,
+                sourceInstalled: library.appleMusicSourceInstalled,
+                disabledSourceIDs: library.disabledSourceIDs
+            )
+        )
+    }
+
+    /// “全选”只圈用户在当前筛选下真正看得到的本地歌曲，顺序跟屏幕上一致。
+    /// Apple Music 在线结果不是本地曲库条目，不参与多选。
     private var selectableSongIDs: [String] {
-        let kinds: [LibrarySearchMatchKind] = [.metadata, .path, .lyrics, .fuzzy]
+        let sections = orderedResultSections
         #if os(macOS)
         switch macResultFilter {
         case .albums, .artists, .appleMusic:
@@ -511,26 +581,29 @@ struct SearchView: View {
                 .filter { $0.matchKind == .lyrics }
                 .map(\.song.id)
         case .songs:
-            let directIDs = kinds.flatMap { kind in
-                searchResults
-                    .filter { $0.matchKind == kind }
-                    .map(\.song.id)
+            return sections.flatMap { section -> [String] in
+                if let kind = section.libraryMatchKind {
+                    return searchResults
+                        .filter { $0.matchKind == kind }
+                        .map(\.song.id)
+                }
+                return section == .intelligent
+                    ? visibleSemanticResults.prefix(40).map(\.song.id)
+                    : []
             }
-            return directIDs + visibleSemanticResults.prefix(40).map(\.song.id)
         case .all:
-            let directIDs = kinds.flatMap { kind -> [String] in
-                let bucket = searchResults.filter { $0.matchKind == kind }
-                return bucket.prefix(kind == .lyrics ? 3 : 6).map(\.song.id)
-            }
-            return directIDs + visibleSemanticResults.prefix(6).map(\.song.id)
+            return macAllShownSongIDs
         }
         #else
-        let directIDs = kinds.flatMap { kind -> [String] in
-            let bucket = searchResults.filter { $0.matchKind == kind }
-            return bucket.prefix(scope == nil ? 40 : bucket.count).map(\.song.id)
+        return sections.flatMap { section -> [String] in
+            if let kind = section.libraryMatchKind {
+                let bucket = searchResults.filter { $0.matchKind == kind }
+                return bucket.prefix(scope == nil ? 40 : bucket.count).map(\.song.id)
+            }
+            return section == .intelligent
+                ? visibleSemanticResults.prefix(40).map(\.song.id)
+                : []
         }
-        let semanticIDs = visibleSemanticResults.prefix(40).map(\.song.id)
-        return directIDs + semanticIDs
         #endif
     }
 
@@ -563,6 +636,11 @@ struct SearchView: View {
         }
         .onAppear {
             loadRecentSearches()
+            if searchText.isEmpty {
+                // 搜索词可能是在别的页面清掉的, 这时本页收不到变化;
+                // Apple Music 的结果存在共享服务里, 不清就会带着上一轮的计数。
+                appleMusic.clearCatalogSearchResults()
+            }
             resumeSearchIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: CloudKVSSync.externalChangeNotification)) { note in
@@ -586,6 +664,10 @@ struct SearchView: View {
         .onChange(of: searchText) { _, newValue in
             performSearch(query: newValue)
             performAppleMusicSearch(query: newValue)
+        }
+        .onChange(of: hiddenResultSectionsRawValue) { _, _ in
+            // 关掉的块不再查、也不再占歌; 重搜一遍, 歌才会落回还开着的那几块。
+            performSearch(query: searchText)
         }
         .onChange(of: appleMusicSearchEnabled) { _, isEnabled in
             if isEnabled {
@@ -616,9 +698,20 @@ struct SearchView: View {
                 .floatingInputPanelClearance()
         } else {
             iosSearchContent
-                .searchable(text: $searchText, prompt: Text(searchPrompt))
+                .searchable(
+                    text: $searchText,
+                    isPresented: $isSearchFieldPresented,
+                    prompt: Text(searchPrompt)
+                )
                 .onSubmit(of: .search) { addRecentSearch(searchText) }
                 .floatingInputPanelClearance()
+                .onChange(of: activatesSearchField, initial: true) { _, requested in
+                    guard requested else { return }
+                    activatesSearchField = false
+                    // 点进搜索就直接弹出键盘。刚切过来的这一帧搜索框还没挂上,
+                    // 当场设 true 会被忽略, 所以放到下一轮主线程再激活。
+                    Task { @MainActor in isSearchFieldPresented = true }
+                }
         }
     }
 
@@ -626,7 +719,8 @@ struct SearchView: View {
         VStack(spacing: 0) {
             #if os(iOS)
             if let scope {
-                SearchScopeCard(scope: scope)
+                // 与范围菜单里选「全局搜索」走同一条路: 不带动画, 结果表整批换掉。
+                SearchScopeCard(scope: scope) { self.scope = nil }
                     .padding(.horizontal, 16)
                     .padding(.vertical, heightClass.value(10, compact: 4))
             }
@@ -645,6 +739,20 @@ struct SearchView: View {
                         .labelStyle(.iconOnly)
                 }
             }
+            // 放在最后, 始终贴着右边缘; 有范围按钮时它排在左边。
+            if !usesMinimalNavigation {
+                ToolbarItem(placement: .topBarTrailing) {
+                    SearchResultLayoutButton { showsResultLayoutEditor = true }
+                }
+            }
+        }
+        .sheet(isPresented: $showsResultLayoutEditor) {
+            resultLayoutEditor
+        }
+        .onChange(of: requestsResultLayoutEditor) { _, requested in
+            guard requested else { return }
+            requestsResultLayoutEditor = false
+            showsResultLayoutEditor = true
         }
         #endif
         .navigationDestination(for: PrimuseKit.Album.self) {
@@ -732,94 +840,71 @@ struct SearchView: View {
                 macResultFilter = .all
             }
         }
+        .onChange(of: hiddenResultSectionsRawValue) { _, _ in
+            if !macFilterIsAvailable(macResultFilter) {
+                macResultFilter = .all
+            }
+        }
         // 注意: Album/Artist 的 navigationDestination 由 MacDetailContainer 的
         // NavigationStack 统一注册, 这里不再重复声明 (否则会重复 destination)。
     }
 
-    /// 顶部 48pt 圆角搜索框 + 过滤芯片。搜索框其实绑在主窗口 PMTitleBar 上, 这里
-    /// 仅展示当前查询并提供快速清除入口, 视觉上跟设计稿 S-01 对齐。
+    /// 过滤芯片 + 右端的「调整搜索结果」。输入框只有标题栏上那一个, 页面里不再
+    /// 摆一个只能看、不能打字的仿制品。没有搜索词时芯片上的计数没有意义, 只留按钮。
     private var macSearchHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if showsMacQuerySummary {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(PMColor.brand)
-
-                    if searchText.isEmpty {
-                        Text(appleMusicSearchEnabled
-                             ? String(localized: "search_placeholder_universal")
-                             : String(localized: "search_prompt"))
-                            .font(.system(size: 14))
-                            .foregroundStyle(PMColor.textFaint)
-                    } else {
-                        Text(verbatim: searchText)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(PMColor.text)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    Text(appleMusicSearchEnabled
-                         ? String(localized: "search_scope_local_apple_music")
-                         : String(localized: "search_chip_local"))
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(PMColor.textMuted)
-                        .padding(.horizontal, 9)
-                        .frame(height: 24)
-                        .background(PMColor.glassBtn, in: Capsule())
-                        .overlay { Capsule().strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
-
-                    if !searchText.isEmpty {
-                        Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(PMColor.textFaint)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 48)
-                .pmCard(cornerRadius: 12)
+        HStack(spacing: 8) {
+            if searchText.isEmpty {
+                Spacer(minLength: 0)
+            } else {
+                macFilterChips
             }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    macFilterChip(
-                        .all,
-                        title: "\(String(localized: "search_chip_all")) · \(macTotalResultCount)"
-                    )
-                    macFilterChip(
-                        .songs,
-                        title: "\(String(localized: "tab_songs")) · \(macSongResultCount)"
-                    )
-                    macFilterChip(
-                        .albums,
-                        title: "\(String(localized: "tab_albums")) · \(matchingAlbums.count)"
-                    )
-                    macFilterChip(
-                        .artists,
-                        title: "\(String(localized: "tab_artists")) · \(matchingArtists.count)"
-                    )
-                    macFilterChip(.lyrics, title: String(
-                        format: String(localized: "search_lyrics_hits_format"),
-                        searchResults.filter { $0.matchKind == .lyrics }.count
-                    ))
-                    if appleMusicSearchEnabled {
-                        macFilterChip(
-                            .appleMusic,
-                            title: "Apple Music · \(visibleAppleMusicSearchResults.count)"
-                        )
-                    }
-                }
-                .padding(.vertical, 1)
-            }
+            macResultLayoutButton
         }
         .padding(.horizontal, PMSpace.xxxl)
         .padding(.top, PMSpace.l)
         .padding(.bottom, PMSpace.m)
+    }
+
+    private var macFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                macFilterChip(
+                    .all,
+                    title: "\(String(localized: "search_chip_all")) · \(macTotalResultCount)"
+                )
+                if macFilterIsAvailable(.songs) {
+                    macFilterChip(
+                        .songs,
+                        title: "\(String(localized: "tab_songs")) · \(macSongResultCount)"
+                    )
+                }
+                if macFilterIsAvailable(.albums) {
+                    macFilterChip(
+                        .albums,
+                        title: "\(String(localized: "tab_albums")) · \(matchingAlbums.count)"
+                    )
+                }
+                if macFilterIsAvailable(.artists) {
+                    macFilterChip(
+                        .artists,
+                        title: "\(String(localized: "tab_artists")) · \(matchingArtists.count)"
+                    )
+                }
+                if macFilterIsAvailable(.lyrics) {
+                    macFilterChip(.lyrics, title: String(
+                        format: String(localized: "search_lyrics_hits_format"),
+                        searchResults.filter { $0.matchKind == .lyrics }.count
+                    ))
+                }
+                if macFilterIsAvailable(.appleMusic) {
+                    macFilterChip(
+                        .appleMusic,
+                        title: "Apple Music · \(visibleAppleMusicSearchResults.count)"
+                    )
+                }
+            }
+            .padding(.vertical, 1)
+        }
     }
 
     @ViewBuilder
@@ -911,33 +996,722 @@ struct SearchView: View {
         }
     }
 
+    /// 「全部」页。第一排是最佳匹配大卡, 旁边放用户排在最前、且有结果的那一块;
+    /// 往下专辑、艺术家、Apple Music 各占一整排封面, 歌曲类的几块按宽度并排成栏。
+    /// 排法见 `SearchResultPageLayout`, 「全选」圈的歌也按同一份计划取。
     private var macAllSearchResultsView: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(alignment: .leading, spacing: 28) {
-                macTopMatchSection
-                    .frame(maxWidth: 680)
-                macAlbumsSection()
-                if !matchingArtists.isEmpty {
-                    macArtistsSection(showsAllResults: false)
-                }
-                VStack(alignment: .leading, spacing: 14) {
-                    macSongBucket(kind: .metadata, title: "search_section_metadata")
-                    macSongBucket(kind: .path, title: "search_section_path")
-                    macSongBucket(kind: .lyrics, title: "search_section_lyrics")
-                    macSongBucket(kind: .fuzzy, title: "search_section_fuzzy")
-                    macSemanticSection()
-                }
-                .frame(maxWidth: 900, alignment: .leading)
-                if appleMusicSearchEnabled {
-                    macAppleMusicSection()
-                        .frame(maxWidth: 900, alignment: .leading)
+        let model = macAllResultsModel
+        return ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 30) {
+                macTopRow(model)
+                ForEach(model.plan.rows) { row in
+                    macResultRow(row, model: model)
                 }
                 macRecentSearchInlineSection
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.width.rounded()
+            } action: { width in
+                macResultsWidth = width
             }
             .padding(.horizontal, PMSpace.xxxl)
             .padding(.bottom, 100)
         }
         .background(PMColor.bg)
+    }
+
+    /// 最佳匹配: 名字和搜索词完全一样的艺术家、专辑优先, 其次是排第一的歌。
+    private enum MacTopMatch {
+        case artist(PrimuseKit.Artist)
+        case album(PrimuseKit.Album)
+        case song(LibrarySearchResult)
+
+        var artistID: String? {
+            if case .artist(let artist) = self { return artist.id }
+            return nil
+        }
+
+        var albumID: String? {
+            if case .album(let album) = self { return album.id }
+            return nil
+        }
+
+        var songID: String? {
+            if case .song(let result) = self { return result.song.id }
+            return nil
+        }
+    }
+
+    /// 一次渲染里要反复用到的东西只算一次: matchingArtists 每读一次都要把整库艺术家过一遍。
+    private struct MacAllResultsModel {
+        let artists: [PrimuseKit.Artist]
+        let topMatch: MacTopMatch?
+        let plan: SearchResultPageLayout.Plan
+        let width: CGFloat
+    }
+
+    private var macAllResultsModel: MacAllResultsModel {
+        let artists = matchingArtists
+        let topMatch = macTopMatch(artists: artists)
+        var present = Set<SearchResultSection>()
+        var withItems = Set<SearchResultSection>()
+        for section in orderedResultSections {
+            if macItemCount(section, artists: artists, excluding: nil) > 0 {
+                present.insert(section)
+            } else if section == .appleMusic
+                        || (section == .intelligent && semanticSearchFeedback.isVisible) {
+                // Apple Music 没结果时有一张状态卡, 智能补充有进度/失败提示。
+                present.insert(section)
+            }
+            // 放到最佳匹配旁边的那块, 扣掉最佳匹配本身之后还得有东西。
+            if macItemCount(section, artists: artists, excluding: topMatch) > 0 {
+                withItems.insert(section)
+            }
+        }
+        let plan = SearchResultPageLayout.plan(
+            order: orderedResultSections,
+            present: present,
+            withItems: withItems,
+            hasTopMatch: topMatch != nil,
+            width: Double(macResultsWidth)
+        )
+        return MacAllResultsModel(artists: artists, topMatch: topMatch, plan: plan, width: macResultsWidth)
+    }
+
+    private func macTopMatch(artists: [PrimuseKit.Artist]) -> MacTopMatch? {
+        let query = renderedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return nil }
+        func matchesQuery(_ text: String) -> Bool {
+            text.compare(query, options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]) == .orderedSame
+        }
+        if let artist = artists.first(where: { matchesQuery($0.name) }) { return .artist(artist) }
+        if let album = matchingAlbums.first(where: { matchesQuery($0.title) }) { return .album(album) }
+        if let result = searchResults.first { return .song(result) }
+        if let album = matchingAlbums.first { return .album(album) }
+        if let artist = artists.first { return .artist(artist) }
+        return nil
+    }
+
+    private func macItemCount(
+        _ section: SearchResultSection,
+        artists: [PrimuseKit.Artist],
+        excluding topMatch: MacTopMatch?
+    ) -> Int {
+        switch section {
+        case .albums:
+            return matchingAlbums.filter { $0.id != topMatch?.albumID }.count
+        case .artists:
+            return artists.filter { $0.id != topMatch?.artistID }.count
+        case .metadata, .path, .lyrics, .fuzzy:
+            return searchResults.filter {
+                $0.matchKind == section.libraryMatchKind && $0.song.id != topMatch?.songID
+            }.count
+        case .intelligent:
+            return visibleSemanticResults.filter { $0.song.id != topMatch?.songID }.count
+        case .appleMusic:
+            return visibleAppleMusicSearchResults.count
+        }
+    }
+
+    /// 某一块在「全部」页实际露出来的歌。渲染和「全选」都从这里取, 两边对得上。
+    private func macShownSearchResults(
+        _ section: SearchResultSection,
+        width: CGFloat,
+        besideTopMatch: Bool,
+        excluding topMatch: MacTopMatch?
+    ) -> (shown: [LibrarySearchResult], total: Int, columns: Int) {
+        guard let kind = section.libraryMatchKind else { return ([], 0, 1) }
+        let matches = searchResults.filter {
+            $0.matchKind == kind && $0.song.id != topMatch?.songID
+        }
+        let columns = SearchResultPageLayout.columnCount(for: Double(width))
+        let limit = SearchResultPageLayout.previewCount(
+            for: section,
+            innerColumns: columns,
+            besideTopMatch: besideTopMatch
+        )
+        return (Array(matches.prefix(limit)), matches.count, columns)
+    }
+
+    private func macShownSemanticResults(
+        width: CGFloat,
+        besideTopMatch: Bool,
+        excluding topMatch: MacTopMatch?
+    ) -> (shown: [SemanticLibrarySearchResult], total: Int, columns: Int) {
+        let results = visibleSemanticResults.filter { $0.song.id != topMatch?.songID }
+        let columns = SearchResultPageLayout.columnCount(for: Double(width))
+        let limit = SearchResultPageLayout.previewCount(
+            for: .intelligent,
+            innerColumns: columns,
+            besideTopMatch: besideTopMatch
+        )
+        return (Array(results.prefix(limit)), results.count, columns)
+    }
+
+    /// 「全部」页上看得到的本地歌曲, 按屏幕上的先后。
+    private var macAllShownSongIDs: [String] {
+        let model = macAllResultsModel
+        var ids: [String] = []
+        func collect(_ section: SearchResultSection, width: CGFloat, besideTopMatch: Bool) {
+            let excluded = besideTopMatch ? model.topMatch : nil
+            if section == .intelligent {
+                ids += macShownSemanticResults(
+                    width: width,
+                    besideTopMatch: besideTopMatch,
+                    excluding: excluded
+                ).shown.map(\.song.id)
+            } else {
+                ids += macShownSearchResults(
+                    section,
+                    width: width,
+                    besideTopMatch: besideTopMatch,
+                    excluding: excluded
+                ).shown.map(\.song.id)
+            }
+        }
+        if let neighbor = model.plan.heroNeighbor {
+            collect(
+                neighbor,
+                width: CGFloat(SearchResultPageLayout.heroNeighborWidth(totalWidth: Double(model.width))),
+                besideTopMatch: true
+            )
+        }
+        for row in model.plan.rows {
+            let width = CGFloat(SearchResultPageLayout.blockWidth(
+                totalWidth: Double(model.width),
+                blocksInRow: row.sections.count
+            ))
+            for section in row.sections {
+                collect(section, width: width, besideTopMatch: false)
+            }
+        }
+        return ids
+    }
+
+    @ViewBuilder
+    private func macTopRow(_ model: MacAllResultsModel) -> some View {
+        if let topMatch = model.topMatch {
+            if Double(model.width) >= SearchResultPageLayout.heroMinimumWidth {
+                HStack(alignment: .top, spacing: CGFloat(SearchResultPageLayout.columnSpacing)) {
+                    macHeroCard(topMatch)
+                        .frame(width: CGFloat(SearchResultPageLayout.heroCardWidth))
+                    if let neighbor = model.plan.heroNeighbor {
+                        macResultBlock(
+                            neighbor,
+                            width: CGFloat(SearchResultPageLayout.heroNeighborWidth(
+                                totalWidth: Double(model.width)
+                            )),
+                            besideTopMatch: true,
+                            model: model
+                        )
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
+                }
+            } else {
+                macCompactTopMatch(topMatch)
+                    .frame(maxWidth: 680, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macResultRow(_ row: SearchResultPageLayout.Row, model: MacAllResultsModel) -> some View {
+        let width = CGFloat(SearchResultPageLayout.blockWidth(
+            totalWidth: Double(model.width),
+            blocksInRow: row.sections.count
+        ))
+        if row.sections.count == 1, let section = row.sections.first {
+            macResultBlock(section, width: width, besideTopMatch: false, model: model)
+        } else {
+            HStack(alignment: .top, spacing: CGFloat(SearchResultPageLayout.columnSpacing)) {
+                ForEach(row.sections) { section in
+                    macResultBlock(section, width: width, besideTopMatch: false, model: model)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macResultBlock(
+        _ section: SearchResultSection,
+        width: CGFloat,
+        besideTopMatch: Bool,
+        model: MacAllResultsModel
+    ) -> some View {
+        let excluded = besideTopMatch ? model.topMatch : nil
+        switch section {
+        case .albums:
+            macAlbumShelf(width: width, excluding: excluded)
+        case .artists:
+            macArtistShelf(model.artists, width: width, excluding: excluded)
+        case .appleMusic:
+            macAppleMusicShelf(width: width)
+        case .metadata, .path, .lyrics, .fuzzy:
+            macSongBlock(section, width: width, besideTopMatch: besideTopMatch, excluding: excluded)
+        case .intelligent:
+            macSemanticBlock(width: width, besideTopMatch: besideTopMatch, excluding: excluded)
+        }
+    }
+
+    private func macBlockHeader(
+        _ title: LocalizedStringKey,
+        systemImage: String? = nil,
+        seeAll: MacSearchResultFilter?
+    ) -> some View {
+        HStack(spacing: 6) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+            }
+            macSectionLabel(title)
+            Spacer(minLength: 8)
+            if let seeAll {
+                Button("see_all") { macResultFilter = seeAll }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+            }
+        }
+        .frame(height: 16)
+    }
+
+    /// 把条目按栏竖着排; 条目不够时空栏也占位, 栏宽和别的行对齐。
+    private func macColumns<Item: Identifiable, Content: View>(
+        _ items: [Item],
+        columns: Int,
+        spacing: CGFloat,
+        rowSpacing: CGFloat,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        let chunks = SearchResultPageLayout.columnMajorChunks(items, columns: columns)
+        return HStack(alignment: .top, spacing: spacing) {
+            ForEach(0..<max(columns, 1), id: \.self) { index in
+                VStack(spacing: rowSpacing) {
+                    if chunks.indices.contains(index) {
+                        ForEach(chunks[index]) { item in
+                            content(item)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .top)
+            }
+        }
+    }
+
+    // MARK: 最佳匹配
+
+    @ViewBuilder
+    private func macHeroCard(_ match: MacTopMatch) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            macBlockHeader("search_top_match", seeAll: nil)
+            switch match {
+            case .artist(let artist):
+                NavigationLink(value: artist) { macHeroCardBody(match) }
+                    .buttonStyle(.plain)
+            case .album(let album):
+                NavigationLink(value: album) { macHeroCardBody(match) }
+                    .buttonStyle(.plain)
+            case .song(let result):
+                Button {
+                    playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
+                } label: {
+                    macHeroCardBody(match)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    showInLibraryButton(for: result.song)
+                }
+            }
+        }
+    }
+
+    private func macHeroCardBody(_ match: MacTopMatch) -> some View {
+        let title: String
+        let subtitle: String
+        let kind: LocalizedStringKey
+        switch match {
+        case .artist(let artist):
+            title = artist.name
+            subtitle = "\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))"
+            kind = "search_top_match_kind_artist"
+        case .album(let album):
+            title = album.title
+            subtitle = [album.artistName, album.year.map(String.init)]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
+            kind = "search_top_match_kind_album"
+        case .song(let result):
+            title = result.song.title
+            subtitle = library.artistDisplayName(for: result.song) ?? ""
+            kind = "search_top_match_kind_song"
+        }
+        let isSong = match.songID != nil
+
+        return VStack(alignment: .leading, spacing: 16) {
+            macHeroArtwork(match)
+                .shadow(color: Color.black.opacity(0.28), radius: 12, y: 5)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(verbatim: title)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(2)
+                HStack(spacing: 8) {
+                    Text(kind)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                        .padding(.horizontal, 8)
+                        .frame(height: 20)
+                        .background(PMColor.glassBtn, in: Capsule())
+                        .overlay { Capsule().strokeBorder(PMColor.cardBorder, lineWidth: 0.5) }
+                    if !subtitle.isEmpty {
+                        Text(verbatim: subtitle)
+                            .font(.system(size: 12))
+                            .foregroundStyle(PMColor.textMuted)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            // 给右下角的圆形按钮让出位置。
+            .padding(.trailing, 44)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottomTrailing) {
+            Image(systemName: isSong ? "play.fill" : "chevron.right")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(PMColor.brand, in: Circle())
+                .shadow(color: PMColor.brand.opacity(0.35), radius: 8, y: 3)
+                .padding(16)
+        }
+        .pmCard(cornerRadius: 14)
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .pmHoverLift(cornerRadius: 14)
+    }
+
+    @ViewBuilder
+    private func macHeroArtwork(_ match: MacTopMatch) -> some View {
+        switch match {
+        case .artist(let artist):
+            ArtistArtworkView(artist: artist, size: 112, cornerRadius: 56)
+        case .album(let album):
+            AlbumArtworkView(album: album, size: 112, cornerRadius: 10)
+        case .song(let result):
+            CachedArtworkView(
+                coverRef: result.song.coverArtFileName,
+                songID: result.song.id,
+                size: 112,
+                cornerRadius: 10,
+                sourceID: result.song.sourceID,
+                filePath: result.song.filePath,
+                fileFormat: result.song.fileFormat
+            )
+        }
+    }
+
+    /// 窄窗口下最佳匹配旁边放不下别的块, 退回横向的一条。
+    @ViewBuilder
+    private func macCompactTopMatch(_ match: MacTopMatch) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            macBlockHeader("search_top_match", seeAll: nil)
+            switch match {
+            case .artist(let artist):
+                NavigationLink(value: artist) {
+                    macTopCard(
+                        title: artist.name,
+                        subtitle: "\(artist.songCount) \(String(localized: "songs_count"))",
+                        systemImage: "music.mic",
+                        artist: artist
+                    )
+                }
+                .buttonStyle(.plain)
+            case .album(let album):
+                NavigationLink(value: album) {
+                    macTopCard(
+                        title: album.title,
+                        subtitle: "\(album.artistName ?? "") · \(String(localized: "tab_albums"))",
+                        systemImage: "square.stack",
+                        album: album
+                    )
+                }
+                .buttonStyle(.plain)
+            case .song(let result):
+                Button {
+                    playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
+                } label: {
+                    macTopCard(
+                        title: result.song.title,
+                        subtitle: library.artistDisplayName(for: result.song) ?? "",
+                        systemImage: "music.note",
+                        song: result.song
+                    )
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    showInLibraryButton(for: result.song)
+                }
+            }
+        }
+    }
+
+    // MARK: 整排封面
+
+    /// 专辑、艺术家、Apple Music 封面的最小宽度与间距。一排放得下几个就放几个, 不留半排。
+    private static let macShelfItemMinimumWidth: CGFloat = 146
+    private static let macShelfSpacing: CGFloat = 20
+
+    private func macShelfColumns(for width: CGFloat) -> Int {
+        SearchResultPageLayout.shelfItemCount(
+            width: Double(width),
+            minimumItemWidth: Double(Self.macShelfItemMinimumWidth),
+            spacing: Double(Self.macShelfSpacing)
+        )
+    }
+
+    private func macShelfGrid(columns: Int) -> [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(), spacing: Self.macShelfSpacing, alignment: .top),
+            count: max(columns, 1)
+        )
+    }
+
+    @ViewBuilder
+    private func macAlbumShelf(width: CGFloat, excluding topMatch: MacTopMatch?) -> some View {
+        let albums = matchingAlbums.filter { $0.id != topMatch?.albumID }
+        let columns = macShelfColumns(for: width)
+        let shown = Array(albums.prefix(columns))
+        if !shown.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                macBlockHeader("tab_albums", seeAll: albums.count > shown.count ? .albums : nil)
+                LazyVGrid(columns: macShelfGrid(columns: columns), alignment: .leading, spacing: 22) {
+                    ForEach(shown) { album in
+                        macAlbumCard(album)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macArtistShelf(
+        _ artists: [PrimuseKit.Artist],
+        width: CGFloat,
+        excluding topMatch: MacTopMatch?
+    ) -> some View {
+        let candidates = artists.filter { $0.id != topMatch?.artistID }
+        let columns = macShelfColumns(for: width)
+        let shown = Array(candidates.prefix(columns))
+        if !shown.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                macBlockHeader("tab_artists", seeAll: candidates.count > shown.count ? .artists : nil)
+                LazyVGrid(columns: macShelfGrid(columns: columns), alignment: .leading, spacing: 14) {
+                    ForEach(shown) { artist in
+                        macArtistCard(artist)
+                    }
+                }
+            }
+        }
+    }
+
+    private func macAppleMusicShelf(width: CGFloat) -> some View {
+        let songs = visibleAppleMusicSearchResults
+        let columns = macShelfColumns(for: width)
+        let shown = Array(songs.prefix(columns))
+        return VStack(alignment: .leading, spacing: 12) {
+            macBlockHeader(
+                "search_apple_music_catalog_section",
+                systemImage: "applelogo",
+                seeAll: songs.count > shown.count ? .appleMusic : nil
+            )
+            if shown.isEmpty {
+                // 未授权、搜索中、出错或真没结果时, 这张状态卡说明原因。
+                HStack(spacing: 10) {
+                    macAppleMusicBadge(size: 20)
+                    Text(appleMusicStatusText)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                    Spacer()
+                }
+                .padding(14)
+                .pmCard(cornerRadius: 10)
+                .frame(maxWidth: 680, alignment: .leading)
+            } else {
+                LazyVGrid(columns: macShelfGrid(columns: columns), alignment: .leading, spacing: 22) {
+                    ForEach(shown, id: \.id) { song in
+                        macAppleMusicCard(song)
+                    }
+                }
+            }
+            if let error = appleMusic.lastPlaybackError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.red)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .pmRowBackground(cornerRadius: 6)
+            }
+        }
+    }
+
+    private func macAppleMusicBadge(size: CGFloat) -> some View {
+        Image(systemName: "applelogo")
+            .font(.system(size: size * 0.55, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(Color(red: 0.98, green: 0.14, blue: 0.23), in: .rect(cornerRadius: size * 0.22))
+    }
+
+    private func macAppleMusicCard(_ song: MusicKit.Song) -> some View {
+        Button {
+            Task { await appleMusic.play(song) }
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                Color.clear
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        AsyncImage(url: song.artwork?.url(width: 300, height: 300)) { phase in
+                            if let image = phase.image {
+                                image.resizable().aspectRatio(contentMode: .fill)
+                                    .pmFadeTransition(motion: .contentAppear)
+                            } else {
+                                RoundedRectangle(cornerRadius: 10).fill(PMColor.rowHover)
+                            }
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(alignment: .bottomTrailing) {
+                        macAppleMusicBadge(size: 18)
+                            .padding(6)
+                    }
+                Text(song.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text(song.artistName)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pmHoverLift()
+    }
+
+    // MARK: 歌曲类的几块
+
+    @ViewBuilder
+    private func macSongBlock(
+        _ section: SearchResultSection,
+        width: CGFloat,
+        besideTopMatch: Bool,
+        excluding topMatch: MacTopMatch?
+    ) -> some View {
+        let result = macShownSearchResults(
+            section,
+            width: width,
+            besideTopMatch: besideTopMatch,
+            excluding: topMatch
+        )
+        if !result.shown.isEmpty {
+            let isLyrics = section == .lyrics
+            VStack(alignment: .leading, spacing: 10) {
+                macBlockHeader(
+                    section.title,
+                    seeAll: result.total > result.shown.count ? (isLyrics ? .lyrics : .songs) : nil
+                )
+                macColumns(
+                    result.shown,
+                    columns: result.columns,
+                    spacing: isLyrics ? 12 : 16,
+                    rowSpacing: isLyrics ? 12 : 4
+                ) { item in
+                    macSongBlockItem(item)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macSemanticBlock(
+        width: CGFloat,
+        besideTopMatch: Bool,
+        excluding topMatch: MacTopMatch?
+    ) -> some View {
+        let result = macShownSemanticResults(
+            width: width,
+            besideTopMatch: besideTopMatch,
+            excluding: topMatch
+        )
+        if semanticSearchFeedback.isVisible || !result.shown.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                macBlockHeader(
+                    "search_ai_section",
+                    systemImage: "sparkles",
+                    seeAll: result.total > result.shown.count ? .songs : nil
+                )
+                semanticFeedbackRow
+                    .padding(.horizontal, 10)
+                macColumns(result.shown, columns: result.columns, spacing: 16, rowSpacing: 4) { item in
+                    macSemanticResultRow(item)
+                        .songSelectable(
+                            songID: item.song.id,
+                            selection: selection,
+                            orderedIDs: { selectableSongIDs },
+                            defaultAction: { playSong(item.song) }
+                        )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macSongBlockItem(_ result: LibrarySearchResult) -> some View {
+        if result.matchKind == .lyrics, let snippet = result.lyricSnippet {
+            macLyricsResultCard(result: result, snippet: snippet)
+                .songSelectable(
+                    songID: result.song.id,
+                    selection: selection,
+                    orderedIDs: { selectableSongIDs },
+                    defaultAction: {
+                        playSong(result.song, lyricsHint: snippet, matchKind: result.matchKind)
+                    }
+                )
+        } else {
+            macSongResultRow(result)
+                .songSelectable(
+                    songID: result.song.id,
+                    selection: selection,
+                    orderedIDs: { selectableSongIDs },
+                    defaultAction: {
+                        playSong(result.song, matchKind: result.matchKind)
+                    }
+                )
+        }
+    }
+
+    /// 一组歌曲结果。「全部」页每组只露几条, 「歌曲」筛选下全部列出。
+    @ViewBuilder
+    private func macSongSection(_ section: SearchResultSection, showsAllResults: Bool) -> some View {
+        switch section {
+        case .metadata:
+            macSongBucket(kind: .metadata, title: "search_section_metadata", showsAllResults: showsAllResults)
+        case .path:
+            macSongBucket(kind: .path, title: "search_section_path", showsAllResults: showsAllResults)
+        case .lyrics:
+            macSongBucket(kind: .lyrics, title: "search_section_lyrics", showsAllResults: showsAllResults)
+        case .fuzzy:
+            macSongBucket(kind: .fuzzy, title: "search_section_fuzzy", showsAllResults: showsAllResults)
+        case .intelligent:
+            macSemanticSection(limit: showsAllResults ? 40 : 6)
+        case .albums, .artists, .appleMusic:
+            EmptyView()
+        }
     }
 
     private var macFilteredSearchResultsView: some View {
@@ -946,27 +1720,9 @@ struct SearchView: View {
                 switch macResultFilter {
                 case .songs:
                     LazyVStack(alignment: .leading, spacing: 14) {
-                        macSongBucket(
-                            kind: .metadata,
-                            title: "search_section_metadata",
-                            showsAllResults: true
-                        )
-                        macSongBucket(
-                            kind: .path,
-                            title: "search_section_path",
-                            showsAllResults: true
-                        )
-                        macSongBucket(
-                            kind: .lyrics,
-                            title: "search_section_lyrics",
-                            showsAllResults: true
-                        )
-                        macSongBucket(
-                            kind: .fuzzy,
-                            title: "search_section_fuzzy",
-                            showsAllResults: true
-                        )
-                        macSemanticSection(limit: 40)
+                        ForEach(orderedResultSections) { section in
+                            macSongSection(section, showsAllResults: true)
+                        }
                     }
                     .frame(maxWidth: 900, alignment: .leading)
                 case .albums:
@@ -1007,34 +1763,6 @@ struct SearchView: View {
         .background(PMColor.bg)
     }
 
-    private var macTopMatchSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            macSectionLabelText(String(localized: "search_top_match"))
-            if let album = matchingAlbums.first {
-                NavigationLink(value: album) {
-                    macTopCard(title: album.title,
-                               subtitle: "\(album.artistName ?? "") · \(String(localized: "tab_albums"))",
-                               systemImage: "square.stack",
-                               album: album)
-                }
-                .buttonStyle(.plain)
-            } else if let result = searchResults.first {
-                Button {
-                    playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
-                } label: {
-                    macTopCard(title: result.song.title,
-                               subtitle: library.artistDisplayName(for: result.song) ?? "",
-                               systemImage: "music.note",
-                               song: result.song)
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    showInLibraryButton(for: result.song)
-                }
-            }
-        }
-    }
-
     @ViewBuilder
     private func macAlbumsSection(showsAllResults: Bool = false) -> some View {
         if !matchingAlbums.isEmpty {
@@ -1053,29 +1781,7 @@ struct SearchView: View {
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 146, maximum: 210), spacing: 20)], alignment: .leading, spacing: 22) {
                     ForEach(albums) { album in
-                        NavigationLink(value: album) {
-                            VStack(alignment: .leading, spacing: 7) {
-                                AlbumArtworkView(album: album, cornerRadius: 10)
-                                    .aspectRatio(1, contentMode: .fit)
-                                Text(album.title)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(PMColor.text)
-                                    .lineLimit(1)
-                                Text(album.artistName ?? "")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(PMColor.textFaint)
-                                    .lineLimit(1)
-                                Text(verbatim: [
-                                    album.year.map(String.init),
-                                    "\(album.songCount) \(String(localized: "songs_count"))"
-                                ].compactMap { $0 }.joined(separator: " · "))
-                                .font(.system(size: 11))
-                                .foregroundStyle(PMColor.textMuted)
-                                .lineLimit(1)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .pmHoverLift()
+                        macAlbumCard(album)
                     }
                 }
             }
@@ -1210,27 +1916,7 @@ struct SearchView: View {
             VStack(alignment: .leading, spacing: 6) {
                 macSectionLabel(title)
                 ForEach(bucket) { result in
-                    if kind == .lyrics, let snippet = result.lyricSnippet {
-                        macLyricsResultCard(result: result, snippet: snippet)
-                            .songSelectable(
-                                songID: result.song.id,
-                                selection: selection,
-                                orderedIDs: { selectableSongIDs },
-                                defaultAction: {
-                                    playSong(result.song, lyricsHint: snippet, matchKind: result.matchKind)
-                                }
-                            )
-                    } else {
-                        macSongResultRow(result)
-                            .songSelectable(
-                                songID: result.song.id,
-                                selection: selection,
-                                orderedIDs: { selectableSongIDs },
-                                defaultAction: {
-                                    playSong(result.song, matchKind: result.matchKind)
-                                }
-                            )
-                    }
+                    macSongBlockItem(result)
                 }
             }
         }
@@ -1278,30 +1964,60 @@ struct SearchView: View {
                 spacing: 14
             ) {
                 ForEach(showsAllResults ? matchingArtists : Array(matchingArtists.prefix(6))) { artist in
-                    NavigationLink(value: artist) {
-                        VStack(alignment: .leading, spacing: 7) {
-                            ArtistArtworkView(
-                                artist: artist,
-                                cornerRadius: 999
-                            )
-                            .aspectRatio(1, contentMode: .fit)
-                            Text(artist.name)
-                                .font(.system(size: 11.5, weight: .medium))
-                                .foregroundStyle(PMColor.text)
-                                .lineLimit(1)
-                            Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(PMColor.textFaint)
-                                .lineLimit(1)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    // hover 记在修饰符里, 卡片 body 不会重算 —— matchingArtists
-                    // 是没有缓存的整库计算属性, 划过时绝不能触发重新求值。
-                    .pmHoverLift()
+                    macArtistCard(artist)
                 }
             }
         }
+    }
+
+    private func macAlbumCard(_ album: PrimuseKit.Album) -> some View {
+        NavigationLink(value: album) {
+            VStack(alignment: .leading, spacing: 7) {
+                AlbumArtworkView(album: album, cornerRadius: 10)
+                    .aspectRatio(1, contentMode: .fit)
+                Text(album.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text(album.artistName ?? "")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+                Text(verbatim: [
+                    album.year.map(String.init),
+                    "\(album.songCount) \(String(localized: "songs_count"))"
+                ].compactMap { $0 }.joined(separator: " · "))
+                .font(.system(size: 11))
+                .foregroundStyle(PMColor.textMuted)
+                .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .pmHoverLift()
+    }
+
+    private func macArtistCard(_ artist: PrimuseKit.Artist) -> some View {
+        NavigationLink(value: artist) {
+            VStack(alignment: .leading, spacing: 7) {
+                ArtistArtworkView(
+                    artist: artist,
+                    cornerRadius: 999
+                )
+                .aspectRatio(1, contentMode: .fit)
+                Text(artist.name)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text("\(artist.albumCount) \(String(localized: "albums_count")) · \(artist.songCount) \(String(localized: "songs_count"))")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        // hover 记在修饰符里, 卡片 body 不会重算 —— matchingArtists
+        // 是没有缓存的整库计算属性, 划过时绝不能触发重新求值。
+        .pmHoverLift()
     }
 
     private func macSemanticResultRow(_ result: SemanticLibrarySearchResult) -> some View {
@@ -1351,10 +2067,13 @@ struct SearchView: View {
                             subtitle: String,
                             systemImage: String,
                             album: PrimuseKit.Album? = nil,
-                            song: PrimuseKit.Song? = nil) -> some View {
+                            song: PrimuseKit.Song? = nil,
+                            artist: PrimuseKit.Artist? = nil) -> some View {
         HStack(spacing: 16) {
             Group {
-                if let song {
+                if let artist {
+                    ArtistArtworkView(artist: artist, size: 80, cornerRadius: 40)
+                } else if let song {
                     CachedArtworkView(coverRef: song.coverArtFileName,
                                       songID: song.id,
                                       size: 80,
@@ -1386,7 +2105,7 @@ struct SearchView: View {
                 }
             }
             Spacer()
-            Image(systemName: album == nil ? "play.fill" : "chevron.right")
+            Image(systemName: album == nil && artist == nil ? "play.fill" : "chevron.right")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
@@ -1441,37 +2160,61 @@ struct SearchView: View {
         }
     }
 
+    /// 歌词命中做成引文卡: 摘句在前, 歌名在后, 一眼能看出是哪一句对上了。
     private func macLyricsResultCard(result: LibrarySearchResult, snippet: String) -> some View {
         Button {
             playSong(result.song, lyricsHint: snippet, matchKind: .lyrics)
         } label: {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(result.song.title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(PMColor.text)
-                    .lineLimit(1)
-                searchResultPath(for: result.song)
-                Text(snippet)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(PMColor.textMuted)
-                    .lineLimit(2)
-                Text("search_jump_to_lyrics_context")
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(PMColor.textFaint)
-                if let timestamp = result.lyricTimestamp {
-                    Text(verbatim: String(
-                        format: String(localized: "search_match_time_format"),
-                        formatSearchTime(timestamp)
-                    ))
-                        .font(.system(size: 10.5, design: .monospaced))
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "quote.opening")
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(PMColor.brand)
+                    Spacer(minLength: 8)
+                    if let timestamp = result.lyricTimestamp {
+                        Text(verbatim: String(
+                            format: String(localized: "search_match_time_format"),
+                            formatSearchTime(timestamp)
+                        ))
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(PMColor.brand)
+                    }
+                }
+                Text(snippet)
+                    .font(.system(size: 13))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    CachedArtworkView(
+                        coverRef: result.song.coverArtFileName,
+                        songID: result.song.id,
+                        size: 26,
+                        cornerRadius: 4,
+                        sourceID: result.song.sourceID,
+                        filePath: result.song.filePath,
+                        fileFormat: result.song.fileFormat
+                    )
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(result.song.title)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .foregroundStyle(PMColor.text)
+                            .lineLimit(1)
+                        Text(library.artistDisplayName(for: result.song) ?? "")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
+                        searchResultPath(for: result.song)
+                    }
                 }
             }
-            .padding(12)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(PMColor.rowHover, in: .rect(cornerRadius: 8))
+            .background(PMColor.rowHover, in: .rect(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
+        .help(Text("search_jump_to_lyrics_context"))
         .contextMenu {
             showInLibraryButton(for: result.song)
             Divider()
@@ -1515,6 +2258,57 @@ struct SearchView: View {
             .tracking(0.8)
             .textCase(.uppercase)
             .foregroundStyle(PMColor.textFaint)
+    }
+
+    /// 筛选按钮对应的那几块还开着没有。关掉的块不再单独给一个筛选按钮。
+    private func macFilterIsAvailable(_ filter: MacSearchResultFilter) -> Bool {
+        let layout = resultLayout
+        switch filter {
+        case .all:
+            return true
+        case .songs:
+            let songSections: [SearchResultSection] = [.metadata, .path, .lyrics, .fuzzy, .intelligent]
+            return songSections.contains(where: layout.shows)
+        case .albums:
+            return layout.shows(.albums)
+        case .artists:
+            return layout.shows(.artists)
+        case .lyrics:
+            return layout.shows(.lyrics)
+        case .appleMusic:
+            return appleMusicSearchEnabled
+        }
+    }
+
+    private var macResultLayoutButton: some View {
+        Button {
+            showsResultLayoutEditor.toggle()
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(showsResultLayoutEditor ? .white : PMColor.textMuted)
+                .frame(width: 32, height: 26)
+                .background(
+                    showsResultLayoutEditor
+                        ? AnyShapeStyle(PMColor.brand)
+                        : AnyShapeStyle(PMColor.glassBtn),
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule().strokeBorder(
+                        showsResultLayoutEditor ? .clear : PMColor.cardBorder,
+                        lineWidth: 0.5
+                    )
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(Text("search_layout_title"))
+        .accessibilityLabel(Text("search_layout_title"))
+        .accessibilityIdentifier("search.layout.button")
+        .popover(isPresented: $showsResultLayoutEditor, arrowEdge: .bottom) {
+            resultLayoutEditor
+        }
     }
 
     private func chipText(_ title: String, active: Bool) -> some View {
@@ -1580,7 +2374,7 @@ struct SearchView: View {
     private var appleMusicStatusText: String {
         switch appleMusic.authState {
         case .notDetermined:
-            return String(localized: "apple_music_notice_notDetermined")
+            return AppleMusicAuthorizationGuidance.searchNotDeterminedNotice
         case .denied, .restricted:
             return String(localized: "apple_music_notice_denied")
         case .authorized:
@@ -1604,7 +2398,7 @@ struct SearchView: View {
 
     private var matchingArtists: [PrimuseKit.Artist] {
         let query = renderedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard scope == nil, !query.isEmpty else { return [] }
+        guard scope == nil, !query.isEmpty, resultLayout.shows(.artists) else { return [] }
         var artists = library.visibleArtists.filter {
             $0.name.localizedCaseInsensitiveContains(query)
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -1732,72 +2526,8 @@ struct SearchView: View {
                 }
             }
 
-            if !matchingAlbums.isEmpty {
-                Section {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        // 卡宽决定整条专辑架的高度(封面是正方形), 紧凑高度下收一档,
-                        // 免得这一条就把结果区吃掉大半。
-                        let albumCardWidth = heightClass.value(142, compact: 104)
-                        LazyHStack(alignment: .top, spacing: 14) {
-                            ForEach(matchingAlbums.prefix(8)) { album in
-                                NavigationLink(value: album) {
-                                    AlbumCardView(album: album).frame(width: albumCardWidth)
-                                }
-                                .buttonStyle(.plain)
-                                .mediaZoomSource(.album, id: album.id)
-                            }
-                        }
-                        .padding(.vertical, heightClass.value(8, compact: 4))
-                    }
-                    .listRowSeparator(.hidden)
-                } header: {
-                    HStack {
-                        Text("tab_albums")
-                        Spacer()
-                        #if os(iOS)
-                        NavigationLink("see_all", value: SearchCatalogDestination.albums)
-                        .textCase(nil)
-                        #endif
-                    }
-                }
-            }
-
-            if !matchingArtists.isEmpty {
-                Section("tab_artists") {
-                    ForEach(matchingArtists.prefix(3)) { artist in
-                        NavigationLink(value: artist) {
-                            HStack(spacing: 12) {
-                                ArtistArtworkView(artist: artist, size: 44, cornerRadius: 22)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(artist.name).font(.subheadline).lineLimit(1)
-                                    Text("\(artist.songCount) \(String(localized: "songs_count"))")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .mediaZoomSource(.artist, id: artist.id)
-                    }
-                    if matchingArtists.count > 3 {
-                        #if os(iOS)
-                        NavigationLink("see_all", value: SearchCatalogDestination.artists)
-                        #endif
-                    }
-                }
-            }
-
-            // Songs grouped by match kind — 用户能一眼区分"标题/艺术家命中"、
-            // "路径命中"、"歌词命中"和"拼音/模糊命中"。
-            // 每组限 40 条 (worker 整体也限 120), 防止单组撑满屏。
-            songSection(kind: .metadata, titleKey: "search_section_metadata")
-            songSection(kind: .path, titleKey: "search_section_path")
-            songSection(kind: .lyrics, titleKey: "search_section_lyrics")
-            songSection(kind: .fuzzy, titleKey: "search_section_fuzzy")
-            semanticSongSection
-
-            // Apple Music 启用时即使没结果也显示 section 标题, 让用户一眼看到
-            // "为什么没有 Apple Music 推荐" (未授权 / 搜索失败 / 真没结果)。
-            if appleMusicSearchEnabled {
-                appleMusicSection
+            ForEach(orderedResultSections) { section in
+                resultSection(section)
             }
         }
         .listStyle(.plain)
@@ -1805,12 +2535,101 @@ struct SearchView: View {
         .songRowColumnsContainer()
     }
 
+    /// 结果表里的一块。先后与显隐由右上角的「调整搜索结果」决定。
+    @ViewBuilder
+    private func resultSection(_ section: SearchResultSection) -> some View {
+        switch section {
+        case .albums:
+            albumShelfSection
+        case .artists:
+            artistsSection
+        case .metadata:
+            // Songs grouped by match kind — 用户能一眼区分"标题/艺术家命中"、
+            // "路径命中"、"歌词命中"和"拼音/模糊命中"。
+            // 每组限 40 条 (worker 整体也限 120), 防止单组撑满屏。
+            songSection(kind: .metadata, titleKey: "search_section_metadata")
+        case .path:
+            songSection(kind: .path, titleKey: "search_section_path")
+        case .lyrics:
+            songSection(kind: .lyrics, titleKey: "search_section_lyrics")
+        case .fuzzy:
+            songSection(kind: .fuzzy, titleKey: "search_section_fuzzy")
+        case .intelligent:
+            semanticSongSection
+        case .appleMusic:
+            // Apple Music 启用时即使没结果也显示 section 标题, 让用户一眼看到
+            // "为什么没有 Apple Music 推荐" (未授权 / 搜索失败 / 真没结果)。
+            appleMusicSection
+        }
+    }
+
+    @ViewBuilder
+    private var albumShelfSection: some View {
+        if !matchingAlbums.isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    // 卡宽决定整条专辑架的高度(封面是正方形), 紧凑高度下收一档,
+                    // 免得这一条就把结果区吃掉大半。
+                    let albumCardWidth = heightClass.value(142, compact: 104)
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(matchingAlbums.prefix(8)) { album in
+                            NavigationLink(value: album) {
+                                AlbumCardView(album: album).frame(width: albumCardWidth)
+                            }
+                            .buttonStyle(.plain)
+                            .mediaZoomSource(.album, id: album.id)
+                        }
+                    }
+                    .padding(.vertical, heightClass.value(8, compact: 4))
+                }
+                .listRowSeparator(.hidden)
+            } header: {
+                HStack {
+                    Text("tab_albums")
+                    Spacer()
+                    #if os(iOS)
+                    NavigationLink("see_all", value: SearchCatalogDestination.albums)
+                    .textCase(nil)
+                    #endif
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var artistsSection: some View {
+        // matchingArtists 每次读都要把全部艺术家过一遍, 这一块只算一次。
+        let artists = matchingArtists
+        if !artists.isEmpty {
+            Section("tab_artists") {
+                ForEach(artists.prefix(3)) { artist in
+                    NavigationLink(value: artist) {
+                        HStack(spacing: 12) {
+                            ArtistArtworkView(artist: artist, size: 44, cornerRadius: 22)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(artist.name).font(.subheadline).lineLimit(1)
+                                Text("\(artist.songCount) \(String(localized: "songs_count"))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .mediaZoomSource(.artist, id: artist.id)
+                }
+                if artists.count > 3 {
+                    #if os(iOS)
+                    NavigationLink("see_all", value: SearchCatalogDestination.artists)
+                    #endif
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var appleMusicSection: some View {
         Section {
             switch appleMusic.authState {
             case .notDetermined:
-                Label("apple_music_notice_notDetermined", systemImage: "person.crop.circle.badge.exclamationmark")
+                Label(AppleMusicAuthorizationGuidance.searchNotDeterminedNotice, systemImage: "person.crop.circle.badge.exclamationmark")
                     .font(.caption).foregroundStyle(.secondary)
             case .denied, .restricted:
                 Label("apple_music_notice_denied", systemImage: "lock.circle")
@@ -1995,6 +2814,7 @@ struct SearchView: View {
                 Spacer()
                 Image(systemName: "applelogo").font(.caption2).foregroundStyle(.tertiary)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -2062,8 +2882,10 @@ struct SearchView: View {
         }
 
         let scopedSearch = scope != nil
+        let layout = resultLayout
+        let matchKinds = layout.matchKinds
         let songsSnapshot = scope?.songs(in: library.visibleSongs) ?? library.visibleSongs
-        let albumsSnapshot = scopedSearch ? [] : library.visibleAlbums
+        let albumsSnapshot = scopedSearch || !layout.shows(.albums) ? [] : library.visibleAlbums
         let cacheSnapshot = workCoordinator.lyricsCache
         let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
 
@@ -2101,7 +2923,8 @@ struct SearchView: View {
                     query: query,
                     songs: songsSnapshot,
                     albums: albumsSnapshot,
-                    metadataRevisionKey: metadataRevisionKey
+                    metadataRevisionKey: metadataRevisionKey,
+                    matchKinds: matchKinds
                 )
             }
             guard !Task.isCancelled else { return }
@@ -2112,7 +2935,7 @@ struct SearchView: View {
                 // Until it has examined the current song set, merge only the
                 // old literal-lyrics path (no metadata/pinyin ICU scan) so the
                 // feature remains complete during migration.
-                if !indexed.lyricsIndexComplete {
+                if !indexed.lyricsIndexComplete, matchKinds.contains(.lyrics) {
                     let fallbackWorker = Task.detached(priority: .utility) {
                         LibrarySearchWorker.compute(
                             query: query,
@@ -2145,6 +2968,7 @@ struct SearchView: View {
                         songs: songsSnapshot,
                         albums: albumsSnapshot,
                         cache: cacheSnapshot,
+                        matchKinds: matchKinds,
                         songLimit: scopedSearch ? songsSnapshot.count : 120
                     )
                 }
@@ -2182,7 +3006,10 @@ struct SearchView: View {
         metadataRevisionKey: String,
         generation: Int
     ) {
-        guard scope == nil, intelligence.isSemanticSearchConfigured else {
+        // 智能补充这块关掉了就不去问 AI, 省下一次联网。
+        guard scope == nil,
+              resultLayout.shows(.intelligent),
+              intelligence.isSemanticSearchConfigured else {
             semanticResults = []
             intelligenceRenderedQuery = query
             isIntelligenceSearching = false

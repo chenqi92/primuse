@@ -129,7 +129,6 @@ final class PlayHistoryStore {
         }
         scheduleSave()
         notifyChanged()
-        NotificationCenter.default.post(name: .primuseQualifiedPlaybackDidRecord, object: nil)
     }
 
     func clearAll() {
@@ -254,6 +253,8 @@ final class PlayHistoryStore {
         let subtitle: String
         let playCount: Int
         let totalSec: TimeInterval
+        /// 封面取哪首歌的：这一项里听得最多的那首。
+        var artworkSongID: String? = nil
     }
 
     func topSongs(in range: Range, limit: Int = 20) -> [RankedItem] {
@@ -280,7 +281,8 @@ final class PlayHistoryStore {
                     ? String(format: String(localized: "stats_unique_songs_format"), rank.songIDs.count)
                     : rank.subtitle,
                 playCount: rank.playCount,
-                totalSec: rank.listenedSeconds
+                totalSec: rank.listenedSeconds,
+                artworkSongID: rank.artworkSongID
             )
         }
     }
@@ -391,5 +393,4 @@ final class PlayHistoryStore {
 
 extension Notification.Name {
     static let primuseListeningStatsDidChange = Notification.Name("primuse.listeningStatsDidChange")
-    static let primuseQualifiedPlaybackDidRecord = Notification.Name("primuse.qualifiedPlaybackDidRecord")
 }

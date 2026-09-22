@@ -324,7 +324,7 @@ actor MetadataAssetStore {
         do {
             let data = try Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName))
             let lines = try decoder.decode([LyricLine].self, from: data)
-            return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: lines)
+            return Self.normalizedCachedLyrics(lines)
         } catch {
             if (error as NSError).domain == NSCocoaErrorDomain,
                (error as NSError).code == NSFileReadNoSuchFileError { return nil }
@@ -487,7 +487,13 @@ actor MetadataAssetStore {
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         guard let data = try? Data(contentsOf: lyricsDirectory.appendingPathComponent(fileName)) else { return nil }
         guard let lines = try? decoder.decode([LyricLine].self, from: data) else { return nil }
-        return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: lines)
+        return Self.normalizedCachedLyrics(lines)
+    }
+
+    nonisolated private static func normalizedCachedLyrics(_ lines: [LyricLine]) -> [LyricLine] {
+        LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(
+            in: LyricBilingualPairingPolicy.normalizingCachedLines(lines)
+        )
     }
 
     /// Preserve lyrics written while MusicKit exposed a catalog-derived song

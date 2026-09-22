@@ -17,12 +17,17 @@
 "longest" = "Más tiempo escuchado";
 "play_count" = "%d reproducciones";
 "positions_gained" = "Subió %d puestos";
+"positions_lost" = "Bajó %d puestos";
+"new_entry" = "NUEVO";
 "recent_albums" = "Álbumes agregados recientemente";
 "folder_display_count" = "Cantidad en Inicio";
 "manage_folders" = "Administrar y ordenar directorios";
 "no_pinned_folders" = "Elige tus directorios en Ver todo.";
 "folder_ranking_scope" = "La clasificación de directorios incluye canciones con un directorio actual.";
 "folder_as_playlist" = "Usar como playlist";
+"pin_folder_short" = "Fijar";
+"unpin_folder_short" = "Quitar";
+"folder_as_playlist_short" = "Como playlist";
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "Ver el top %d";
 "collapse_ranking" = "Show Less";

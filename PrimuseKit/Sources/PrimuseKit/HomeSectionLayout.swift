@@ -71,9 +71,9 @@ public enum HomeSectionLayoutStyle: String, Codable, CaseIterable, Identifiable,
 public enum HomeSectionLayoutPolicy {
     /// 哪几块能换方案,以及各自换得动哪些。
     ///
-    /// 不是每块都该给选择:统计概览是一张固定卡片,文件夹与听歌排行有自己的
-    /// 条目数设置,硬塞一个「网格」只会做出难看的东西。给不出第二种像样排布的
-    /// 区域就返回空数组 —— 编辑态据此不显示方案按钮。
+    /// 不是每块都该给选择:统计概览是一张固定卡片,硬塞一个「网格」只会做出
+    /// 难看的东西。给不出第二种像样排布的区域就返回空数组 —— 编辑态据此不显示
+    /// 方案按钮。听歌排行的两种是「领奖台 + 名次榜」和「大数字封面货架」。
     public static func supportedStyles(for section: HomeSectionKind) -> [HomeSectionLayoutStyle] {
         switch section {
         case .continueListening: [.carousel, .list]
@@ -83,7 +83,8 @@ public enum HomeSectionLayoutPolicy {
         case .recentlyAdded: [.grid, .carousel, .list]
         case .quickAccess: [.grid, .carousel]
         case .folders: [.list, .grid, .carousel]
-        case .radio, .listeningRanking, .stats: []
+        case .listeningRanking: [.list, .carousel]
+        case .radio, .stats: []
         }
     }
 
@@ -102,6 +103,8 @@ public enum HomeSectionLayoutPolicy {
         style: HomeSectionLayoutStyle
     ) -> ClosedRange<Int>? {
         guard style == .carousel, supportedStyles(for: section).contains(.carousel) else { return nil }
+        // 排行的货架靠大数字读名次,叠成多行之后名次是先横着数还是先竖着数就说不清了。
+        guard section != .listeningRanking else { return nil }
         return 1...3
     }
 
@@ -135,7 +138,7 @@ public enum HomeSectionLayoutPolicy {
         case .topArtists: 4...20
         case .recentlyAdded: 4...24
         case .forYou: 3...12
-        // 展开后最多列到第几名。调到 0 就是不提供展开。
+        // 列表:展开后最多列到第几名,调到 5 及以下就是不提供展开。横排:货架铺到第几名。
         case .listeningRanking: 0...20
         case .quickAccess, .folders, .stats, .radio: nil
         }

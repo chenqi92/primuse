@@ -34,6 +34,8 @@ struct LyricPosterShareSheet: View {
     @State private var statusMessage: String?
     @State private var exportTask: Task<Void, Never>?
     @State private var isShareChoicePresented = false
+    /// 实况照片被相册拒了、改存了静态图。用来把结果如实说给用户。
+    @State private var didFallBackToStill = false
     /// 预览动画的起点。切风格 / 换选句时重置, 让动效从头演一遍。
     @State private var previewEpoch = Date()
     @State private var section: EditorSection = .style
@@ -808,10 +810,16 @@ struct LyricPosterShareSheet: View {
                 .progressViewStyle(.linear)
                 .pmAppearFade(.control)
             } else if let statusMessage {
-                Label(statusMessage, systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-                    .pmAppearFade(.control)
+                Label(
+                    statusMessage,
+                    systemImage: didFallBackToStill
+                        ? "exclamationmark.circle.fill"
+                        : "checkmark.circle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(didFallBackToStill ? Color.orange : Color.green)
+                .multilineTextAlignment(.center)
+                .pmAppearFade(.control)
             }
 
             HStack(spacing: 12) {
@@ -906,19 +914,29 @@ struct LyricPosterShareSheet: View {
     private func saveToPhotos() {
         let motion = canExportMotion
         let direction = layoutDirection
+        didFallBackToStill = false
         runExport { composer in
             if motion {
                 let bundle = try await composer.exportLivePhoto(inheritedLayoutDirection: direction)
-                try await LyricPosterPhotoLibrary.save(livePhoto: bundle)
-                return .image(bundle.stillURL)
+                do {
+                    try await LyricPosterPhotoLibrary.save(livePhoto: bundle)
+                    return .image(bundle.stillURL)
+                } catch LyricPosterPhotoLibraryError.saveFailed {
+                    // 相册收不收这对资源是它自己说了算的。被拒时用户要的
+                    // 仍然是"海报存下来了"，所以退一步存静态图，再如实
+                    // 告诉他动的那半没成。
+                    didFallBackToStill = true
+                }
             }
             let url = try await composer.exportStillImage(inheritedLayoutDirection: direction)
             try await LyricPosterPhotoLibrary.save(image: url)
             return .image(url)
         } completion: { _ in
-            statusMessage = String(localized: "lyric_poster_saved")
+            statusMessage = String(
+                localized: didFallBackToStill ? "lyric_poster_live_fallback" : "lyric_poster_saved"
+            )
             Task {
-                try? await Task.sleep(nanoseconds: 2_400_000_000)
+                try? await Task.sleep(nanoseconds: 3_200_000_000)
                 statusMessage = nil
             }
         }

@@ -73,3 +73,90 @@ public struct LogDuplicateCoalescer: Sendable {
         "（上一行重复 \(count) 次）"
     }
 }
+
+/// 诊断日志模式: 开发时由脚本打开, 在有效期内放大日志容量, 并让 App 定时记录
+/// 运行状态, 用来事后排查界面上看不出来的后台线程、卡顿、发热与写盘问题。
+///
+/// 开关走环境变量 `PRIMUSE_DIAGNOSTIC_LOGGING`(`scripts/primuse-dev.sh diag-on`):
+/// "off" / "0" 关闭; 正整数 = 开启多少小时(最多 `maximumHours`); 其它非空值 =
+/// 默认 `defaultHours` 小时。有效期会存下来, 期间 App 被系统或手动重新启动也继续
+/// 记录, 到期后自动回到常规模式。
+public enum DiagnosticLoggingPolicy {
+    public static let environmentKey = "PRIMUSE_DIAGNOSTIC_LOGGING"
+    public static let defaultHours = 24
+    public static let maximumHours = 72
+
+    public enum Change: Equatable, Sendable {
+        case unchanged
+        case enabled(until: Date)
+        case disabled
+        case expired
+    }
+
+    public struct Resolution: Equatable, Sendable {
+        /// 诊断模式生效到什么时候; nil 表示常规模式。
+        public var expiresAt: Date?
+        /// 这次启动相对上次的变化, 调用方据此改写存下来的有效期并记一行日志。
+        public var change: Change
+
+        public var isActive: Bool { expiresAt != nil }
+    }
+
+    public static func resolve(request: String?, storedExpiry: Date?, now: Date) -> Resolution {
+        let value = (request ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if value == "off" || value == "0" {
+            return Resolution(expiresAt: nil, change: storedExpiry == nil ? .unchanged : .disabled)
+        }
+        if !value.isEmpty {
+            let hours = Int(value).map { min(max($0, 1), maximumHours) } ?? defaultHours
+            let until = now.addingTimeInterval(TimeInterval(hours) * 3600)
+            return Resolution(expiresAt: until, change: .enabled(until: until))
+        }
+        guard let storedExpiry else { return Resolution(expiresAt: nil, change: .unchanged) }
+        if storedExpiry > now {
+            return Resolution(expiresAt: storedExpiry, change: .unchanged)
+        }
+        return Resolution(expiresAt: nil, change: .expired)
+    }
+
+    public struct Limits: Equatable, Sendable {
+        /// 单个日志文件写到多大就轮转。
+        public var maxFileBytes: Int
+        /// 轮转保留的历史代数: `.1` 最新, `.N` 最老。
+        public var rotatedGenerations: Int
+        /// 写盘队列最多积压多少条, 超出的直接丢弃并记数。
+        public var backlogLimit: Int
+    }
+
+    /// 常规模式与改动前完全一致: 10MB 一个文件、保留一代、积压 2000 条。
+    public static let standardLimits = Limits(
+        maxFileBytes: 10_000_000,
+        rotatedGenerations: 1,
+        backlogLimit: LogBacklogPolicy.maximumPendingEntries
+    )
+
+    /// 诊断模式: 25MB × (当前 + 4 代) ≈ 125MB, 够记录一整天的操作过程;
+    /// 积压上限放宽十倍, 突发时尽量不丢行。
+    public static let diagnosticLimits = Limits(
+        maxFileBytes: 25_000_000,
+        rotatedGenerations: 4,
+        backlogLimit: 20_000
+    )
+
+    public static func limits(isActive: Bool) -> Limits {
+        isActive ? diagnosticLimits : standardLimits
+    }
+
+    /// 轮转要做的改名, 按顺序执行。0 表示当前文件, k 表示 `.k`。
+    /// 调用方先删掉第 `generations` 代, 再从最老的一代往前挪, 例如 3 代:
+    /// `.2 → .3`、`.1 → .2`、当前 → `.1`。
+    public struct RotationMove: Equatable, Sendable {
+        public var from: Int
+        public var to: Int
+    }
+
+    public static func rotationMoves(generations: Int) -> [RotationMove] {
+        let count = max(1, generations)
+        return stride(from: count - 1, through: 0, by: -1).map { RotationMove(from: $0, to: $0 + 1) }
+    }
+}

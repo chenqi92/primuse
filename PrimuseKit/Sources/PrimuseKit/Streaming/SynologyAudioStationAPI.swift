@@ -363,6 +363,20 @@ public enum SynologyAudioStationAPI {
         return SynologyAudioStationCall(interface: .playlist, method: "updatesongs", parameters: parameters, usesPOST: true)
     }
 
+    /// 列出一个电台容器里的条目。`container` 是固定容器名,或 SHOUTcast 流派条目的
+    /// `id`(`SHOUTcast_genre_Jazz`)。
+    public static func radioListCall(
+        container: String,
+        offset: Int,
+        limit: Int
+    ) -> SynologyAudioStationCall {
+        SynologyAudioStationCall(interface: .radio, method: "list", parameters: [
+            SynologyAudioStationParameter("container", container),
+            SynologyAudioStationParameter("offset", String(offset)),
+            SynologyAudioStationParameter("limit", String(limit)),
+        ])
+    }
+
     public static func lyricsCall(id: String) -> SynologyAudioStationCall {
         SynologyAudioStationCall(interface: .lyrics, method: "getlyrics", parameters: [
             SynologyAudioStationParameter("id", id),
@@ -617,6 +631,7 @@ public enum SynologyAudioStationInterface: String, CaseIterable, Sendable {
     case stream = "SYNO.AudioStation.Stream"
     case cover = "SYNO.AudioStation.Cover"
     case lyrics = "SYNO.AudioStation.Lyrics"
+    case radio = "SYNO.AudioStation.Radio"
 
     /// 我们按哪个版本写的请求与解码。
     public var preferredVersion: Int {
@@ -627,6 +642,8 @@ public enum SynologyAudioStationInterface: String, CaseIterable, Sendable {
         case .info: 6
         case .song, .playlist, .cover: 3
         case .stream, .lyrics: 2
+        // v2 只比 v1 多一个 `search` 方法,`list` 按 v1 的形状写。
+        case .radio: 1
         }
     }
 
@@ -1232,6 +1249,63 @@ public struct SynologyAudioStationPlaylistPagination: Sendable {
         if offset == page.songsTotal { return true }
         guard page.songs.count == requestedLimit else { throw SynologyAudioStationError.invalidResponse }
         return false
+    }
+}
+
+/// 「INTERNET 广播」下的三个固定容器。
+public enum SynologyAudioStationRadioContainer: String, CaseIterable, Sendable {
+    /// 「我收藏的广播」:多半是从 SHOUTcast 收藏的台,地址是 `tunein-station.pls` 包装。
+    case favorite = "Favorite"
+    /// 「用户定义的广播」:按地址自己加的台。
+    case userDefined = "UserDefined"
+    /// SHOUTcast 目录:下面一层是流派子目录(每个流派最多约 200 台),台在流派里。
+    case shoutcast = "SHOUTcast"
+}
+
+/// 镜像电台在服务端所在的文件夹。
+public enum SynologyAudioStationRadioFolder: Hashable, Sendable {
+    case favorite
+    case userDefined
+    /// SHOUTcast 的一个流派,值是服务端给的流派名。
+    case genre(String)
+}
+
+/// 容器里的一条。`type` 为 `station` 或 `container`(子目录,例如 SHOUTcast 的流派)。
+/// 服务端的 `id` 由名字和地址拼成(`radio_<名字> <地址>`),改名就会变,不拿它当身份。
+public struct SynologyAudioStationRadio: Decodable, Equatable, Sendable {
+    public let id: String?
+    public let title: String?
+    public let type: String?
+    public let url: String?
+    public let desc: String?
+
+    private enum CodingKeys: String, CodingKey { case id, title, type, url, desc }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = container.audioStationString(.id)
+        title = container.audioStationString(.title)
+        type = container.audioStationString(.type)
+        url = container.audioStationString(.url)
+        desc = container.audioStationString(.desc)
+    }
+
+    public var isContainer: Bool { type?.lowercased() == "container" }
+}
+
+public struct SynologyAudioStationRadioPage: Decodable, Sendable {
+    public let radios: [SynologyAudioStationRadio]
+    public let total: Int
+    public let offset: Int?
+
+    private enum CodingKeys: String, CodingKey { case radios, total, offset }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        radios = try container.decodeIfPresent([SynologyAudioStationRadio].self, forKey: .radios) ?? []
+        // 不带 `total` 的实现一次给完全部。
+        total = container.audioStationInt(.total) ?? radios.count
+        offset = container.audioStationInt(.offset)
     }
 }
 

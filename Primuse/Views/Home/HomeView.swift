@@ -208,21 +208,22 @@ private struct HomeSectionDragPreview: View {
     }
 }
 
+/// 首页翻面的转场：横向压成一条再展开，看起来像绕竖轴翻过去。
+///
+/// 挂在滚动内容上，不能挂到 ScrollView 本身：它背后是 UIScrollView，导航栏与滚动边缘
+/// 效果要换算它的几何，挂过一版整页透视变换，切到电台时在布局提交里抛异常闪退。
+/// 也不用 rotation3DEffect：透视按被变换内容的尺寸算，电台上千个时内容有十几万点高，
+/// 早已压成平面，看起来与横向压扁无异，却要系统对整块内容做 3D 合成、再反推可见区。
+/// 纵向不缩放，可见区才不会被推出内容。
 private struct HomeFaceFlipModifier: ViewModifier {
-    let angle: Double
+    /// 横向宽度比例，1 是正面。
+    let widthScale: CGFloat
     let opacity: Double
-    let scale: CGFloat
 
     func body(content: Content) -> some View {
         content
             .opacity(opacity)
-            .scaleEffect(scale)
-            .rotation3DEffect(
-                .degrees(angle),
-                axis: (x: 0, y: 1, z: 0),
-                anchor: .center,
-                perspective: 0.68
-            )
+            .scaleEffect(x: widthScale, y: 1, anchor: .center)
     }
 }
 
@@ -232,6 +233,221 @@ private struct HomeModeFlipButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.58 : 1)
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .animation(PMMotion.press.animation, value: configuration.isPressed)
+    }
+}
+
+private struct HomeRadioStationsPage: View {
+    var body: some View {
+        RadioStationsView()
+            #if os(iOS)
+            .minimalNavigationDetail()
+            #endif
+    }
+}
+
+/// 首页电台态的「我的电台」墙，全部电台都在这里。
+///
+/// 照歌曲列表的做法拆成单独的视图并按电台清单判等：清单不变，首页因为播放
+/// 状态、资料库刷新而重算时，这面墙不跟着重新描述；播放状态由每张卡片自己
+/// 观察。音乐源镜像进来的台可能上千个，懒加载网格只建可见区里的卡片。
+private struct HomeRadioWall: View, @MainActor Equatable {
+    let stations: [RadioStation]
+    let cardSurface: Color
+    let onSelect: (RadioStation) -> Void
+    let onAdd: () -> Void
+
+    @Environment(\.pmHeightClass) private var heightClass
+
+    /// 电台清单来自电台存储的排序缓存，没变化时是同一块数组存储，这里的比较
+    /// 不会逐个比电台。
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.stations == rhs.stations && lhs.cardSurface == rhs.cardSurface
+    }
+
+    private static let regularLayout = RadioStationArtworkGridLayout()
+
+    /// 手机横屏下同样的列宽会让一排封面吃掉大半个视口。放低最小列宽让一排多放
+    /// 两张，再给列宽封顶，一屏就能看全一整排还露出下一排的开头。
+    private static let compactHeightLayout = RadioStationArtworkGridLayout(
+        minimumItemWidth: 116,
+        maximumItemWidth: 150
+    )
+
+    /// 标题始终预留两行，副标题再占一行。这样长台名可以自然换行，
+    /// 短台名也不会把下一排封面提高。手机横屏留不下两行标题，收成一行。
+    private var captionHeight: CGFloat {
+        heightClass.value(59, compact: 42)
+    }
+
+    private var titleLineLimit: Int {
+        heightClass.pick(2, compact: 1)
+    }
+
+    var body: some View {
+        let layout = heightClass.pick(Self.regularLayout, compact: Self.compactHeightLayout)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("home_radio_wall_title")
+                    .font(.title3.weight(.bold))
+                Spacer()
+                NavigationLink {
+                    HomeRadioStationsPage()
+                } label: {
+                    Text(String(
+                        format: String(localized: "home_radio_wall_manage %lld"),
+                        stations.count
+                    ))
+                    .font(.subheadline.weight(.medium))
+                }
+            }
+            .padding(.horizontal, 20)
+
+            // 竖屏手机纵向有的是空间，横向反而最窄。原来做成横滑一排，
+            // 结果是下面大片留白、电台却挤在一条窄带里还看不全名字。
+            // 改成网格：手机通常排 2 列，宽屏自动扩展更多列并向下自然延伸。
+            LazyVGrid(
+                columns: [GridItem(
+                    .adaptive(
+                        minimum: CGFloat(layout.minimumItemWidth),
+                        maximum: CGFloat(layout.maximumItemWidth)
+                    ),
+                    spacing: CGFloat(layout.spacing)
+                )],
+                alignment: .leading,
+                spacing: 16
+            ) {
+                ForEach(stations) { station in
+                    HomeRadioWallCard(
+                        station: station,
+                        captionHeight: captionHeight,
+                        titleLineLimit: titleLineLimit,
+                        onSelect: onSelect
+                    )
+                }
+                addCard
+            }
+            .padding(.horizontal, CGFloat(layout.horizontalPadding))
+        }
+    }
+
+    private var addCard: some View {
+        Button {
+            onAdd()
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(cardSurface)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(
+                                    .primary.opacity(0.12),
+                                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                                )
+                        }
+
+                    VStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 24, weight: .medium))
+                        Text("radio_batch_add_title")
+                            .font(.caption)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .aspectRatio(1, contentMode: .fit)
+
+                Color.clear
+                    .frame(height: captionHeight)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.pmPressable)
+    }
+}
+
+/// 电台墙上的一张卡。播放状态在卡片自己的 body 里读：换台只重画新旧两张，
+/// 节目标题更新只重画正在播的那张，而不是整面墙。
+private struct HomeRadioWallCard: View {
+    let station: RadioStation
+    let captionHeight: CGFloat
+    let titleLineLimit: Int
+    let onSelect: (RadioStation) -> Void
+
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        let isCurrent = player.currentRadioStation?.id == station.id
+        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+
+        Button {
+            onSelect(station)
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                // 用空白容器决定几何尺寸，避免长图的原始宽高比反过来撑大网格列。
+                // 台标是 logo 而不是照片，完整显示比填满后裁掉文字更重要。
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay {
+                        RadioStationArtworkContent(
+                            station: station,
+                            decodeSize: 320,
+                            contentMode: .fit
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(alignment: .topLeading) {
+                        Text(isPlaying ? String(localized: "live_badge") : String(localized: "radio_title"))
+                            .font(.system(size: 9.5, weight: .bold))
+                            .tracking(0.8)
+                            .contentTransition(.opacity)
+                            .foregroundStyle(isPlaying ? .white : .white.opacity(0.85))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                (isPlaying ? Color.red.opacity(0.9) : Color.black.opacity(0.35)),
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
+                            .padding(9)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(isCurrent ? Color.accentColor : .clear, lineWidth: 2)
+                    }
+                    // 选中描边看 isCurrent, 徽标看 isPlaying —— 暂停当前台时只有
+                    // 后者会变, 两个值各挂一次才不会有一边硬切。
+                    .pmAnimation(.hover, value: isCurrent)
+                    .pmAnimation(.hover, value: isPlaying)
+
+                // 名字长短不一，固定文字区高度让同一行的卡底边齐平。
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(station.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(titleLineLimit, reservesSpace: true)
+                        .multilineTextAlignment(.leading)
+
+                    Text(isCurrent
+                         ? (player.radioMetadataTitle ?? station.playbackSubtitle)
+                         : station.playbackSubtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: captionHeight,
+                    maxHeight: captionHeight,
+                    alignment: .topLeading
+                )
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.pmPressable)
     }
 }
 
@@ -1186,15 +1402,9 @@ struct HomeView: View {
 
     private var homeFaceTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
-        return .asymmetric(
-            insertion: .modifier(
-                active: HomeFaceFlipModifier(angle: -78, opacity: 0, scale: 0.96),
-                identity: HomeFaceFlipModifier(angle: 0, opacity: 1, scale: 1)
-            ),
-            removal: .modifier(
-                active: HomeFaceFlipModifier(angle: 78, opacity: 0, scale: 0.96),
-                identity: HomeFaceFlipModifier(angle: 0, opacity: 1, scale: 1)
-            )
+        return .modifier(
+            active: HomeFaceFlipModifier(widthScale: 0.2, opacity: 0),
+            identity: HomeFaceFlipModifier(widthScale: 1, opacity: 1)
         )
     }
 
@@ -1250,11 +1460,14 @@ struct HomeView: View {
 
     /// 电台态整页：正在直播的大卡 + 我的电台墙。跟音乐态互斥，切过来时
     /// 用户面对的只有电台这一件事。
+    ///
+    /// 外层是普通 VStack：电台墙自己就是懒加载网格，外面再套一层懒加载容器，
+    /// 内层网格能不能只建可见区里的卡片就取决于系统怎么量外层了。
     @ViewBuilder
     private var radioModeContent: some View {
         let stations = radioStationsStore.stations
 
-        LazyVStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 24) {
             if stations.isEmpty {
                 radioModeEmptyState
             } else {
@@ -1263,7 +1476,16 @@ struct HomeView: View {
                         .padding(.horizontal, 16)
                 }
 
-                radioWallSection(stations)
+                HomeRadioWall(
+                    stations: stations,
+                    cardSurface: homeCardSurface,
+                    onSelect: { station in
+                        selectedHomeRadioID = station.id
+                        toggleHomeRadio(station)
+                    },
+                    onAdd: { showRadioBatchAdd = true }
+                )
+                .equatable()
             }
         }
         .onChange(of: player.currentRadioStation?.id) { _, stationID in
@@ -1271,180 +1493,6 @@ struct HomeView: View {
                   radioStationsStore.stations.contains(where: { $0.id == stationID }) else { return }
             selectedHomeRadioID = stationID
         }
-    }
-
-    private func radioWallSection(_ stations: [RadioStation]) -> some View {
-        let layout = heightClass.pick(Self.radioWallLayout, compact: Self.radioWallCompactHeightLayout)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("home_radio_wall_title")
-                    .font(.title3.weight(.bold))
-                Spacer()
-                NavigationLink {
-                    RadioStationsView()
-                        #if os(iOS)
-                        .minimalNavigationDetail()
-                        #endif
-                } label: {
-                    Text(String(
-                        format: String(localized: "home_radio_wall_manage %lld"),
-                        stations.count
-                    ))
-                    .font(.subheadline.weight(.medium))
-                }
-            }
-            .padding(.horizontal, 20)
-
-            // 竖屏手机纵向有的是空间，横向反而最窄。原来做成横滑一排，
-            // 结果是下面大片留白、电台却挤在一条窄带里还看不全名字。
-            // 改成网格：手机通常排 2 列，宽屏自动扩展更多列并向下自然延伸。
-            LazyVGrid(
-                columns: [GridItem(
-                    .adaptive(
-                        minimum: CGFloat(layout.minimumItemWidth),
-                        maximum: CGFloat(layout.maximumItemWidth)
-                    ),
-                    spacing: CGFloat(layout.spacing)
-                )],
-                alignment: .leading,
-                spacing: 16
-            ) {
-                ForEach(stations) { station in
-                    radioWallCard(station)
-                }
-                radioWallAddCard
-            }
-            .padding(.horizontal, CGFloat(layout.horizontalPadding))
-        }
-    }
-
-    private static let radioWallLayout = RadioStationArtworkGridLayout()
-
-    /// 手机横屏下同样的列宽会让一排封面吃掉大半个视口。放低最小列宽让一排多放
-    /// 两张，再给列宽封顶，一屏就能看全一整排还露出下一排的开头。
-    private static let radioWallCompactHeightLayout = RadioStationArtworkGridLayout(
-        minimumItemWidth: 116,
-        maximumItemWidth: 150
-    )
-
-    /// 标题始终预留两行，副标题再占一行。这样长台名可以自然换行，
-    /// 短台名也不会把下一排封面提高。手机横屏留不下两行标题，收成一行。
-    private var radioWallCaptionHeight: CGFloat {
-        heightClass.value(59, compact: 42)
-    }
-
-    private var radioWallTitleLineLimit: Int {
-        heightClass.pick(2, compact: 1)
-    }
-
-    private var radioWallAddCard: some View {
-        Button {
-            showRadioBatchAdd = true
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(homeCardSurface)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(
-                                    .primary.opacity(0.12),
-                                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-                                )
-                        }
-
-                    VStack(spacing: 8) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 24, weight: .medium))
-                        Text("radio_batch_add_title")
-                            .font(.caption)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .aspectRatio(1, contentMode: .fit)
-
-                Color.clear
-                    .frame(height: radioWallCaptionHeight)
-            }
-            .contentShape(.rect)
-        }
-        .buttonStyle(.pmPressable)
-    }
-
-    private func radioWallCard(_ station: RadioStation) -> some View {
-        let isCurrent = player.currentRadioStation?.id == station.id
-        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
-
-        return Button {
-            selectedHomeRadioID = station.id
-            toggleHomeRadio(station)
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                // 用空白容器决定几何尺寸，避免长图的原始宽高比反过来撑大网格列。
-                // 台标是 logo 而不是照片，完整显示比填满后裁掉文字更重要。
-                Color.clear
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(1, contentMode: .fit)
-                    .overlay {
-                        RadioStationArtworkContent(
-                            station: station,
-                            decodeSize: 320,
-                            contentMode: .fit
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(alignment: .topLeading) {
-                        Text(isPlaying ? String(localized: "live_badge") : String(localized: "radio_title"))
-                            .font(.system(size: 9.5, weight: .bold))
-                            .tracking(0.8)
-                            .contentTransition(.opacity)
-                            .foregroundStyle(isPlaying ? .white : .white.opacity(0.85))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(
-                                (isPlaying ? Color.red.opacity(0.9) : Color.black.opacity(0.35)),
-                                in: RoundedRectangle(cornerRadius: 5)
-                            )
-                            .padding(9)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(isCurrent ? Color.accentColor : .clear, lineWidth: 2)
-                    }
-                    // 选中描边看 isCurrent, 徽标看 isPlaying —— 暂停当前台时只有
-                    // 后者会变, 两个值各挂一次才不会有一边硬切。
-                    .pmAnimation(.hover, value: isCurrent)
-                    .pmAnimation(.hover, value: isPlaying)
-
-                // 名字长短不一，固定文字区高度让同一行的卡底边齐平。
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(station.name)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(radioWallTitleLineLimit, reservesSpace: true)
-                        .multilineTextAlignment(.leading)
-
-                    Text(isCurrent
-                         ? (player.radioMetadataTitle ?? station.playbackSubtitle)
-                         : station.playbackSubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(
-                    maxWidth: .infinity,
-                    minHeight: radioWallCaptionHeight,
-                    maxHeight: radioWallCaptionHeight,
-                    alignment: .topLeading
-                )
-            }
-            .contentShape(.rect)
-        }
-        .buttonStyle(.pmPressable)
     }
 
     private var radioModeEmptyState: some View {
@@ -1470,10 +1518,7 @@ struct HomeView: View {
                 .padding(.horizontal, 40)
 
             NavigationLink {
-                RadioStationsView()
-                    #if os(iOS)
-                    .minimalNavigationDetail()
-                    #endif
+                HomeRadioStationsPage()
             } label: {
                 Text("radio_manage")
                     .fontWeight(.medium)

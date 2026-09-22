@@ -17,12 +17,17 @@
 "longest" = "聆听最久";
 "play_count" = "%d 次";
 "positions_gained" = "上升 %d 位";
+"positions_lost" = "下降 %d 位";
+"new_entry" = "新上榜";
 "recent_albums" = "最近添加专辑";
 "folder_display_count" = "首页显示数量";
 "manage_folders" = "管理与排序目录";
 "no_pinned_folders" = "在“查看全部”中添加常听的目录。";
 "folder_ranking_scope" = "目录排行仅统计当前可定位目录的歌曲。";
 "folder_as_playlist" = "用作歌单";
+"pin_folder_short" = "添加到首页";
+"unpin_folder_short" = "从首页移除";
+"folder_as_playlist_short" = "用作歌单";
 "expand_top_20" = "展开前 20 名";
 "expand_top_n" = "展开前 %d 名";
 "collapse_ranking" = "收起排行";

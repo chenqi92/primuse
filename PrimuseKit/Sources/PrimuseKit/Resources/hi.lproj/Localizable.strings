@@ -796,6 +796,7 @@
 "source_address_alternate_section" = "वैकल्पिक पता";
 "source_address_section_footer" = "पोर्ट खाली छोड़ दें, सहेजते समय Primuse खुद पता लगा लेगा।";
 "source_address_placeholder" = "डोमेन, IP या पूरा URL";
+"source_address_placeholder_vendor %@" = "डोमेन, IP या %@";
 "source_address_add_alternate" = "वैकल्पिक पता जोड़ें";
 "source_address_remove" = "यह पता हटाएँ";
 "source_address_advanced" = "पोर्ट और एन्क्रिप्शन खुद सेट करें";
@@ -832,3 +833,35 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "DSM संगीत पैकेज · लाइब्रेरी, प्लेलिस्ट, रेटिंग";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "स्रोत और साइन-इन जानकारी";
+"send_to_tv_step_library" = "लाइब्रेरी";
+"send_to_tv_step_artwork" = "कवर आर्ट";
+"send_to_tv_step_everything" = "लाइब्रेरी, स्रोत और साइन-इन जानकारी";
+"send_to_tv_progress_waiting" = "प्रतीक्षा में";
+"send_to_tv_progress_done" = "पूरा हुआ";
+"send_to_tv_progress_failed" = "पूरा नहीं हुआ";
+"send_to_tv_progress_preparing" = "तैयार किया जा रहा है…";
+"send_to_tv_progress_tv_saving" = "Apple TV सहेज रहा है…";
+"send_to_tv_progress_batch" = "%2$@ में से बैच %1$@ भेजा जा रहा है";
+"send_to_tv_progress_sending" = "भेजा जा रहा है %@";
+"send_to_tv_resume" = "भेजना जारी रखें";
+"send_to_tv_partial_saved" = "पूरे हो चुके चरण Apple TV पर पहले से सहेजे गए हैं। जहाँ रुका था वहीं से जारी रखने के लिए भेजना जारी रखें।";
+"ext.tv.transfer.sources" = "स्रोत और साइन-इन जानकारी प्राप्त की जा रही है…";
+"ext.tv.transfer.sourcesSaved" = "स्रोत सहेजे गए। लाइब्रेरी की प्रतीक्षा है…";
+"ext.tv.transfer.library" = "लाइब्रेरी प्राप्त की जा रही है…";
+"ext.tv.transfer.libraryImporting" = "लाइब्रेरी आयात की जा रही है…";
+"ext.tv.transfer.librarySaved" = "लाइब्रेरी आयात हो गई। कवर आर्ट की प्रतीक्षा है…";
+"ext.tv.transfer.artwork" = "कवर आर्ट प्राप्त किया जा रहा है (%2$@ में से बैच %1$@)…";
+"ext.tv.transfer.finished" = "iPhone से %@ गाने ट्रांसफर किए गए";
+"ext.tv.transfer.failed" = "ट्रांसफर पूरा नहीं हुआ। iPhone पर फिर से कोशिश करें।";
+"audio_variant_lossy_stereo" = "स्टीरियो";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Apple Music से चुनें…";
+"apple_music_pick_adding" = "लाइब्रेरी में जोड़ा जा रहा है…";
+"apple_music_pick_added" = "%d जोड़े गए, सिंक हो रहा है";
+"apple_music_pick_failed" = "लाइब्रेरी में नहीं जोड़ा जा सका";

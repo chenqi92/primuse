@@ -32,7 +32,10 @@ extension AudioPlayerService {
                 "⚠️ Radio URL resolution failed sourceBacked="
                     + "\(station.requiresSourceStreamResolution) errorType=\(String(reflecting: type(of: error)))"
             )
-            showPlaybackError(String(localized: station.requiresSourceStreamResolution
+            // 包装清单取不到多半是网络问题,不是地址写错了。
+            let needsNetworkToResolve = station.requiresSourceStreamResolution
+                || RadioImportParser.isPlaylistWrapper(station.streamURL)
+            showPlaybackError(String(localized: needsNetworkToResolve
                 ? "playback_error_connection"
                 : "radio_invalid_url"))
             return false
@@ -51,9 +54,20 @@ extension AudioPlayerService {
         if TrustedHTTPTransport.requiresPlainSocket(for: url),
            let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
            !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
-            pendingRadioResolutionID = nil
-            showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), trustTarget))
-            return false
+            // `.pls` 包装拆出来的真实流主机,电台页起播前看不见(它只看得见包装地址),
+            // 只能在这里问用户。
+            guard RadioImportParser.isPlaylistWrapper(station.streamURL) else {
+                pendingRadioResolutionID = nil
+                showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), trustTarget))
+                return false
+            }
+            let approved = await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: trustTarget)
+            guard pendingRadioResolutionID == resolutionID,
+                  playbackAdvancePolicy.generation == resolutionGeneration else { return false }
+            guard approved else {
+                pendingRadioResolutionID = nil
+                return false
+            }
         }
         registerPlayIntent()
         pendingRadioResolutionID = resolutionID
@@ -647,7 +661,15 @@ extension AudioPlayerService {
         guard let url = station.url else {
             throw SourceError.fileNotFound(station.streamURL)
         }
-        return url
+        guard RadioImportParser.isPlaylistWrapper(station.streamURL) else { return url }
+        // SHOUTcast 这类 `.pls` / `.m3u` 包装播放器不认,取回清单拆出真实流地址。
+        guard let stream = try await RadioImportParser.unwrappedStreamURL(
+            station.streamURL,
+            fetch: { try await RadioPlaylistDownloader.fetch($0) }
+        ), let streamURL = URL(string: stream) else {
+            throw SourceError.fileNotFound(station.streamURL)
+        }
+        return streamURL
     }
 
     func refreshRadioStationOrder() {

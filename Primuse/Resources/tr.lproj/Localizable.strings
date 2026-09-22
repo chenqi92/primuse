@@ -219,6 +219,9 @@
 "radio_batch_paste_hint" = "Hat başına bir akış URL. “Ad, URL” de işe yarar.";
 "current" = "Güncel";
 "playlist_import_create_matched_only_format" = "Yalnızca Eşleşenler Oluştur (%d)";
+"playlist_import_destination_header" = "Şuraya Aktar";
+"playlist_import_liked_footer_format" = "Eşleşen şarkılar “%@” listesine eklenir. Zaten listede olanlar yeniden eklenmez.";
+"playlist_import_add_matched_only_format" = "Yalnızca Eşleşenleri Ekle (%d)";
 "metadata_status_state_file_unavailable" = "Dosya Mevcut Değil";
 "intent_playing_album_format" = "%@ albümü çalınıyor.";
 "metadata_writeback_stage_inspect" = "kaynak revizyon kontrolü";
@@ -447,6 +450,9 @@
 "yearly_sub_genres" = "Tür profili";
 "metadata_status_no_retryable_work" = "Artık hiçbir şarkı tekrar sıraya alınamaz. Yine de tek bir satırı yeniden okuyabilirsiniz.";
 "radio_manage_pin_top" = "Başa Sabitle";
+"radio_manage_pin_top_short" = "Başa Sabitle";
+"select_all_short" = "Tümünü Seç";
+"deselect_all_short" = "Hiçbiri";
 "SSL Trusted Domains" = "SSL Güvenilir Etki Alanları";
 "no_songs_desc" = "Başlamak için bir müzik kaynağı ekleyin";
 "Update Available" = "Güncelleme Mevcut";
@@ -482,6 +488,14 @@
 "source_diag_running" = "Bağlantı ve tarama hazırlığı kontrol ediliyor...";
 "similar_empty_hint" = "Last.fm'nin önerilerinin hiçbiri arşivinizla eşleşmedi.";
 "playback_error_source_disabled" = "Bu müzik kaynağı devre dışı bırakıldı";
+"playback_error_source_unreachable_format" = "Bu ağda “%@” kaynağına ulaşılamıyor";
+"playback_error_source_unreachable_skipped_format" = "Bu ağda “%@” kaynağına ulaşılamıyor. Bu kaynaktaki şarkılar atlandı.";
+"song_row_source_unreachable" = "Bu ağda ulaşılamıyor";
+"song_source_unreachable_alert_message" = "Bu müzik kaynağına mevcut ağda ulaşılamıyor. Bağlantı geri geldiğinde şarkıları yeniden çalınabilir olur. Bu cihaza indirilmiş şarkılar etkilenmez.";
+"source_card_unreachable" = "Bu kaynağa mevcut ağda ulaşılamıyor. Bu cihaza indirilmemiş şarkılar şimdilik çalınamıyor.";
+"source_card_unreachable_add_route_hint" = "Bu kaynak için yalnızca yerel ağ adresi ayarlanmış. Düzenleyip genel bir adres eklerseniz o ağın dışındayken de dinleyebilirsiniz.";
+"playlist_unreachable_notice" = "Bazı şarkılar mevcut ağda ulaşılamayan bir kaynaktan geliyor. Bu cihaza indirilmemiş olanlar şimdilik çalınamıyor.";
+"playlist_unreachable_offline_hint_format" = "“%@” seçeneğini açın; kaynak erişilebilir olduğunda şarkılar otomatik olarak indirilir ve her ağda çalınabilir.";
 "error_download_failed %@" = "İndirme başarısız oldu: %@";
 "search_match_fuzzy" = "Bulanık eşleşme";
 "compressor_limiter" = "Kompresör / Sınırlayıcı";
@@ -558,6 +572,9 @@
 "tag_editor_field_location" = "Dosya Konumu";
 "ai_fetch_models" = "Modelleri Getir";
 "lyrics_translation_on" = "Şarkı sözü çevirisini göster";
+"mac_launch_aborted_title" = "Primuse geçen sefer açılışını tamamlayamadı";
+"mac_launch_aborted_hint" = "Nedeni bulmaya yardımcı olmak için aşağıdaki bilgileri geliştiriciye gönderin.";
+"mac_launch_copy_diagnostics" = "Bilgileri Kopyala";
 "mac_sidebar_tools" = "Araçlar";
 "smart_sort_field" = "Sıralama ölçütü";
 "Music Sources · Small" = "Müzik Kaynakları · Küçük";
@@ -735,6 +752,10 @@
 "Last 30 Days + Top" = "Son 30 Gün + En İyi";
 "Scraping Sources" = "üst veri alma Kaynakları";
 "add_to_playlist" = "Çalma Listesine Ekle";
+"add_to_playlist_short" = "Listeye Ekle";
+"insert_next_short" = "Sıradaki";
+"add_to_queue_short" = "Sıraya Ekle";
+"full_screen_short" = "Tam ekran";
 "keyboard_shortcuts_recorder_idle_hint" = "Kaydı başlatmak için bir kısayol alanı seçin.";
 "source_name" = "İsim";
 "ai_model_manual_placeholder" = "Bir model seçin veya girin";
@@ -870,14 +891,14 @@
 "immersive_demo_lyric_09" = "Uzak bir ritim şehri uyanık tutuyor";
 "Scrape Entire Library" = "Tüm arşivin üst verilerini bul";
 "diagnostics_clear_confirm" = "Tüm raporlar silinsin mi?";
-"diagnostics_send_button" = "Raporları geliştiriciye e-postayla gönder";
-"diagnostics_send_privacy" = "Yalnızca program iş parçacığı kayıtları gönderilir: sistemin topladığı çökme ve donma çağrı yığınları ile uygulama sürümü, cihaz modeli ve sistem sürümü. Hesap bilgisi, müzik arşivi, dinleme geçmişi, dosya adı veya başka kişisel veri gönderilmez.";
+"diagnostics_send_button" = "Geliştiriciye gönder";
+"diagnostics_send_privacy" = "E-postaya seçtiğiniz raporlar veya günlükler eklenir. Göndermeden önce gözden geçirin.";
 "diagnostics_send_mail_intro %lld" = "Ekte %lld Primuse tanılama raporu var.";
 "diagnostics_send_sent_title" = "Rapor gönderildi";
 "diagnostics_send_sent_message" = "Teşekkürler. Bu cihazda saklanan raporları şimdi silmek ister misin?";
 "diagnostics_send_keep" = "Sakla";
 "diagnostics_send_unavailable_title" = "E-posta gönderilemiyor";
-"diagnostics_send_unavailable_message %@" = "Bu cihazda kurulu bir e-posta hesabı yok. Raporu paylaş düğmesiyle %@ adresine gönderebilirsin.";
+"diagnostics_send_unavailable_message %@" = "Bu cihazda e-posta hesabı ayarlanmamış. Bir rapor paylaşabilir veya günlükleri dışa aktarıp %@ adresine gönderebilirsiniz.";
 "diagnostics_send_failed_title" = "Gönderilemedi";
 "diagnostics_send_failed_message" = "Mail uygulaması iletiyi gönderemedi. Raporların bu cihazda duruyor.";
 "ai_playlist_create" = "Çalma Listesi Oluştur";
@@ -924,6 +945,7 @@
 "Unknown halls of heaven" = "Cennetin bilinmeyen salonları";
 "output_mode_high_fidelity_desc" = "En kısa sinyal yolu: EQ, dinamikler, yankı, uzamsal ses, ReplayGain, hız değişikliği ve çapraz geçiş atlanır; örnekleme hızı otomatik eşleşir. Ses düzeyi yine ayarlanabilir, DSD doğrudan çıkışı hariç.";
 "output_mode_high_fidelity_confirm_title" = "Yüksek doğruluklu doğrudan oynatma açılsın mı?";
+"output_mode_high_fidelity_hardware_note" = "Bu mod esas olarak harici bir DAC veya kulaklık amplifikatörüyle anlam kazanır. Bluetooth'ta veya dahili hoparlörlerde ses zaten yeniden işlendiği için fark neredeyse duyulmaz.";
 "metadata_status_state_source_unavailable" = "Kaynak Mevcut Değil";
 "ai_primuse_relay_diagnostic_credential_detail" = "Yerel cihaz kimlik bilgisi okunamadı veya kaydedilemedi. Primuse bir sonraki testte onu yeniden oluşturacak; Bu devam ederse Anahtarlık erişiminin mevcut olduğunu onaylayın.";
 "lyrics_editor_empty_live" = "Dinlerken yaz";
@@ -991,6 +1013,8 @@
 "icon_theme_13" = "Chris’s Muse";
 "icon_theme_14" = "P Harfi";
 "icon_theme_15" = "Katlanmış Nota";
+"icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "Sıçrama";
 "lyrics_editor_paste_redo" = "Yeniden Başla";
 "ai_recommendation_intent_description_label" = "Odak Açıklaması";
 "META-03 · Custom Source JSON" = "META-03 · Özel Kaynak JSON";
@@ -1065,7 +1089,6 @@
 "carplay_search_no_results" = "Sonuç yok";
 "intent_playing_similar_format" = "%@'ye benzer şarkıları çalma.";
 "source_diag_summary_failed" = "Dikkat edilmesi gerekiyor";
-"icon_theme_6" = "Yumuşak nota";
 "batch_scrape_start_failed" = "Toplu üst veri alımı başlatılamadı. Kısa süre sonra tekrar deneyin.";
 "yearly_meta_closing_sub" = "Devam edin · raporunuzu paylaşın";
 "greeting_evening" = "İyi Akşamlar";
@@ -1312,6 +1335,7 @@
 "apple_music_library_done_format" = "%d şarkılar · %@";
 "error_file_not_found %@" = "Dosya bulunamadı: %@";
 "apple_music_library_not_authorized" = "Apple Music yetkili değil. Ayarlar → Apple Music bölümünden etkinleştirin.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music yetkili değil. “Kaynakları Yönet” bölümündeki Apple Music kaynağından bağlayın.";
 "offline_remove_download" = "İndirilen dosyayı kaldır";
 "a11y_repeat" = "Tekrarla";
 "lyrics_editor_timing_redo" = "Satırı yeniden yap";
@@ -1322,6 +1346,7 @@
 "This Month's Listening" = "Bu Ayın Dinlemeleri";
 "synology_error_invalid_url" = "Geçersiz adres";
 "apple_music_notice_notDetermined" = "Apple Music henüz bağlanmadı. Katalog aramayı etkinleştirmek için Ayarlar → Apple Music seçeneğine gidin.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music henüz bağlanmadı. Katalog aramayı etkinleştirmek için “Kaynakları Yönet” bölümündeki Apple Music kaynağından bağlayın.";
 "relay_share_qr_accessibility" = "Bağlantıyı paylaş QR kodu";
 "yearly_card_exploration_subtitle" = "Keşfiniz";
 "spotlight_playlist_subtitle_format" = "Primuse çalma listesi · %d parçalar";
@@ -1379,6 +1404,7 @@
 "onboarding_guide_player_queue" = "Sıra: basılı tutup sürükleyerek sıradaki şarkıların sırasını değiştirin";
 "onboarding_guide_player_more" = "Diğer: DLNA cihazlarına yayınlayın, uyku zamanlayıcısı kurun veya şarkı sözü posteri paylaşın";
 "app_icon" = "Uygulama Simgesi";
+"app_icon_dock_hint" = "macOS, Dock simgesini yalnızca Primuse çalışırken değiştirebilir; uygulamadan çıkınca Dock, uygulama paketindeki simgeye döner.";
 "audio_output_error_set_device %d" = "Ses çıkış cihazı seçilemedi (durum=%d).";
 "ai_recommendation_scene_automatic" = "Şu Anda";
 "lyrics_transcription_model" = "Transkripsiyon Modeli";
@@ -1760,6 +1786,7 @@
 "cloud_err_token_save_failed" = "Yetkilendirme jetonu kaydedilemedi";
 "tag_editor_lyrics_empty_error" = "Mevcut şarkı sözlerinin kaldırılıp kaldırılmayacağını onaylayın.";
 "crossfade_max_duration" = "Maksimum Geçiş Süresi";
+"crossfade_footer" = "Bir parça sonuna kadar çaldığında çapraz solma yukarıda ayarlanan süre kadar sürer; sonraki veya önceki parçaya elle geçtiğinizde yaklaşık bir saniyelik kısa bir solma uygulanır. Parça henüz bu aygıtta veya önbellekte değilse solma olmadan başlar. Boşluksuz oynatmayla birlikte kullanılamaz.";
 "ST-09 · Includes Connection Credentials" = "ST-09 · Bağlantı Kimlik Bilgilerini İçerir";
 "offline_download" = "İndir";
 "theme_color_indigo" = "İndigo";
@@ -1784,7 +1811,7 @@
 "lyrics_converter_no_timing_notice" = "Kaynakta zaman çizelgesi olmadığından dönüştürme zaman damgalarını otomatik olarak oluşturamaz.";
 "tag_editor_lyrics_format_empty" = "Boş sözler";
 "recent_searches" = "Son Aramalar";
-"github_feedback_hint" = "GitHub Sorunları, geliştiricinin geri bildirimleri daha erken görmesine ve takip etmesine yardımcı olur. Geliştiriciye ulaşmak daha uzun sürse de App Store incelemesine de geri bildirim bırakabilirsiniz.";
+"github_feedback_hint" = "GitHub Sorunları, geliştiricinin geri bildirimleri daha erken görmesine ve takip etmesine yardımcı olur. Geliştiriciye ulaşmak daha uzun sürse de App Store incelemesine de geri bildirim bırakabilirsiniz. Bağlantı sürüm ve cihaz bilgilerini önceden doldurur; göndermeden önce değiştirebilirsiniz.";
 "smart_sort_field_dateAdded" = "Eklenme Tarihi";
 "Vintage Vinyl" = "Vintage Vinil";
 "immersive_demo_lyric_04" = "Her nota kendi ışığını bulur";
@@ -1855,6 +1882,10 @@
 "tag_editor_cover_revert" = "Orijinal kapağını saklayın";
 "apple_music_library_idle" = "Henüz senkronize edilmedi";
 "No matching song in your library." = "Arşivinizde eşleşen şarkı yok.";
+"Which song? Tell Siri the song title." = "Hangi şarkı? Siri'ye şarkının adını söyle.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse kitaplığını hâlâ yüklüyor. Birazdan yeniden dene.";
+"Your Primuse library is empty." = "Primuse kitaplığın boş.";
+"Open Primuse once, then try again." = "Primuse'u bir kez aç, sonra yeniden dene.";
 "smart_field_sourceID" = "Kaynak";
 "songs_column_rating" = "Değerlendirme";
 "local_import_progress_preparing" = "İçe aktarma hazırlanıyor…";
@@ -1883,6 +1914,7 @@
 "Every Minute" = "Her Dakika";
 "Play Playlist" = "Çalma Listesini Oynat";
 "batch_delete_source_files" = "Kaynak Dosyaları Sil";
+"batch_remove_group" = "Kaldır ve Sil";
 "ai_audio_transcription_editor_detail" = "Şarkı sözlerini ve zamanlamasını tanımak için şarkıyı yükleyin. Sonuçlar ilk önce incelenmek üzere burada açılır.";
 "intent_set_liked_title" = "Beğenilenleri Ayarla";
 "Repeat One" = "Birini tekrarla";
@@ -1930,6 +1962,8 @@
 "reread_song_tags_failed" = "Dosya etiketleri okunamıyor. Şarkı kaynağını veya dosya formatını kontrol edin.";
 "relay_share_access_mode" = "Erişim";
 "radio_priority_move_down" = "Düşük Öncelik";
+"radio_priority_move_up_short" = "Yukarı";
+"radio_priority_move_down_short" = "Aşağı";
 "error_oauth_missing_callback" = "Hiçbir yetkilendirme geri araması alınmadı.";
 "library_cleanup_dup_count_format" = "İncelenecek %d grupları";
 "Resuming playback." = "Oynatmaya devam ediliyor.";
@@ -2431,7 +2465,7 @@
 "share_choose_primuse_relay" = "Primuse Paylaşım Hizmetini Seçin";
 "fullscreen_effect_flowing_lines_subtitle" = "Gelişen konturlar, üç şarkı sözü çizgisiyle sanat eserinin yörüngesinde dönüyor";
 "lyrics_converter_error_title" = "Şarkı Sözü Dönüştürme Başarısız";
-"settings_push_to_tv_footer" = "Apple TV cihazınıza Primuse'yi yükleyin ve arşivinizi ve kaynaklarınızı burada görmek için aynı iCloud hesabıyla oturum açın - kimlik bilgileri (şifreler / belirteçler) dahildir, yeniden girilecek bir şey yoktur. Primuse arka planda otomatik olarak yüklenir; hemen güncellemek için “Şimdi Apple TV'ye gönder”e dokunun. NAS, WebDAV, medya sunucuları ve bulut sürücülerine Apple TV kendi başına bağlanır. Aşağıdaki Röle yalnızca bu telefonda saklanan müzik için gerekir; onu buradan aynı Wi-Fi üzerinden aktarır. Bu müzik iCloud ile eşitlenmediğinden, Apple TV'deki “iPhone'den Arşivi Aktarın” ile gönderin.";
+"settings_push_to_tv_footer" = "Bu arşivi ve kaynaklarını şifreleriyle birlikte görmek için Apple TV'de aynı iCloud hesabıyla oturum açın. NAS, medya sunucuları ve bulut sürücülerine Apple TV kendi başına bağlanır; röle yalnızca bu telefonda saklanan müzik ve NFSv4 kaynakları için gerekir.";
 "library_stats_plays_suffix" = "çalış";
 "Fill Missing Fields Only" = "Yalnızca Eksik Alanları Doldurun";
 "playlist_import_match_results" = "Maç Sonuçları";
@@ -3455,7 +3489,7 @@
 "immersive_demo_lyric_07" = "En sessiz yankı hâlâ odanın içinden geçebilir";
 "lyrics_editor_live_hint" = "Satır sonu tuşu satırı geçerli zamandan başlatır";
 "scrobble_overall_footer" = "Dinleme geçmişini Last.fm / ListenBrainz'ye gönderin. 50% or 4 dakika oynandıktan sonra sayılır.";
-"settings_relay_footer" = "Açık olduğunda, Apple TV'niz bu telefonda saklanan müziği bu cihaz üzerinden aktarılarak çalabilir (NFSv4 olarak ayarlanmış NFS kaynakları da buradan geçer). Primuse'yi ön planda açık tutun ve her iki cihazı da aynı Wi-Fi üzerinde tutun.";
+"settings_relay_footer" = "Primuse'yi ön planda açık tutun ve her iki cihazı da aynı Wi-Fi üzerinde tutun. Bu telefonda saklanan müziğin ayrıca Apple TV'deki “iPhone'den Arşivi Aktarın” ile gönderilmesi gerekir.";
 "search_section_path" = "Yol eşleşmeleri";
 "reread_song_tags_completed" = "Dosya etiketleri tekrar okundu.";
 "scrobble_mac_session_saved" = "Oturum kaydedildi";
@@ -3465,6 +3499,8 @@
 "add_to_playlist_ellipsis" = "Çalma Listesine Ekle…";
 "rg_mode_track" = "Parça";
 "github_feedback" = "Öneriler ve Sorun Raporları";
+"github_bug_report" = "Sorun bildir";
+"github_feature_request" = "Özellik isteği";
 "cat_nas" = "NAS";
 "cloud_authorizing_waiting" = "Sistem tarayıcısının yetkilendirme kodunu döndürmesi bekleniyor…";
 "songs_view_compact" = "Kompakt";
@@ -3512,7 +3548,7 @@
 "metadata_status_state_unreadable" = "Etiketler Okunamıyor";
 "ai_primuse_relay_diagnostic_region_detail" = "Yerleşik hizmet mevcut vitrin bölgesi için kullanılamadığından geçiş isteği gönderilmedi.";
 "Metadata Scraping" = "Üst veri alma";
-"source_diag_advice_server_suggestion" = "Sunucu durumunu kontrol edin ve yeniden deneyin. Başarısız olmaya devam ederse günlükleri Depolama'dan dışa aktarın.";
+"source_diag_advice_server_suggestion" = "Sunucu durumunu kontrol edip tekrar deneyin. Sorun sürerse Tanılama Raporları bölümünden günlükleri dışa aktarın.";
 "Listening Stats" = "Dinleme İstatistikleri";
 "4 Recent Covers" = "4 Yeni Kapak";
 "URL recognized" = "URL tanındı";
@@ -3548,7 +3584,6 @@
 "ai_primuse_relay_test_running" = "Yerleşik hizmet doğrulanıyor…";
 "scraper_warn_includes_cookie" = "Bu yapılandırma Cookie verisi içeriyor. Yalnızca güvendiğiniz kişilerin yapılandırmalarını içe aktarın.";
 "fullscreen_effect_typography_subtitle" = "Parça üst verilerinden oluşturulmuş bir kompozisyon";
-"icon_theme_9" = "Klasik Simge";
 "yearly_sub_closing" = "Teşekkürler ve elveda";
 "Not checked yet" = "Henüz kontrol edilmedi";
 "playlist_reorder" = "Yeniden sırala";
@@ -3557,7 +3592,7 @@
 "share_song_information_action" = "Şarkı Bilgilerini Paylaş";
 "source_remove_confirm_title" = "Bu Müzik Kaynağı Kaldırılsın mı?";
 "dup_keep_newest" = "En Yeniyi Tut";
-"icon_default" = "Sıçrama";
+"icon_default" = "Yumuşak nota";
 "relay_share_action" = "Özel Aktarma ile Bağlantı Oluşturun";
 "dup_mac_cleanup_action" = "Kopyaları Temizle (Son Silinenlere Taşı)";
 "save_then_scan_library_hint" = "Önce kaydedin, ardından bağlanmak ve sunucu kataloğunun tamamını taramak için kaynağa dokunun";
@@ -4023,6 +4058,7 @@
 "source_address_alternate_section" = "Yedek adres";
 "source_address_section_footer" = "Bağlantı noktasını boş bırakın, Primuse kaydederken kendisi bulur.";
 "source_address_placeholder" = "Alan adı, IP veya tam URL";
+"source_address_placeholder_vendor %@" = "Alan adı, IP veya %@";
 "source_address_add_alternate" = "Yedek adres ekle";
 "source_address_remove" = "Bu adresi kaldır";
 "source_address_advanced" = "Bağlantı noktasını ve şifrelemeyi elle ayarla";
@@ -4108,3 +4144,84 @@
 "audio_station_error_api_not_found_format" = "Audio Station gerekli bir arayüzü sağlamıyor (hata %d).";
 "audio_station_error_server_format" = "Audio Station bir hata döndürdü (kod %d).";
 "audio_station_error_two_factor_required" = "Bu hesap iki adımlı doğrulama kullanıyor. Bu Audio Station kaynağında yeniden oturum açın ve bir doğrulama kodu girin.";
+"audio_station_radio_folder_favorite" = "Favorilerim";
+"audio_station_radio_folder_user_defined" = "Kullanıcı tanımlı radyolar";
+
+"lyric_poster_live_fallback" = "Fotoğraflar Live Photo'yu kabul etmedi; bunun yerine sabit görsel kaydedildi";
+
+"lyrics_embed_copy_header" = "Gömülü Şarkı Sözleri";
+"lyrics_embed_copy_title" = "Şarkı Sözlerini Kaydetme Yeri";
+"lyrics_embed_copy_hint" = "MP3, FLAC ve M4A · Şarkı sözleri her kaydedildiğinde şarkının tamamı yeniden yüklenir";
+"lyrics_embed_copy_footer" = "Gömülü şarkı sözleri ses dosyasıyla birlikte taşınır; böylece diğer oynatıcılar ve cihazlar da onları görür. Yalnızca Primuse’un dosyalarını değiştirebildiği kaynaklardaki MP3, FLAC ve M4A dosyalarında çalışır; diğer şarkılar söz dosyalarını kullanmaya devam eder. Her kayıtta şarkının tamamı yeniden yüklenir. “Yalnızca ses dosyası” seçiliyken yeni söz dosyası oluşturulmaz ve bir şarkının yanında zaten bulunan söz dosyası güncellenmeye devam eder. Tüm kitaplık için yapılan veri çekme işlemi hiçbir zaman söz gömmez.";
+"lyrics_embed_copy_failed_format" = "Şarkı sözleri kaydedildi, ancak ses dosyasına gömülemedi: %@";
+"lyrics_embed_mode_off" = "Yalnızca söz dosyası";
+"lyrics_embed_mode_alongside" = "Söz dosyası ve ses dosyası";
+"lyrics_embed_mode_embed_only" = "Yalnızca ses dosyası";
+"lyrics_embed_confirm_title" = "Şarkı sözleri ses dosyalarına yazılsın mı?";
+"lyrics_embed_confirm_message" = "· Şarkı sözleri her kaydedildiğinde şarkının tamamı indirilir, yeniden yazılır ve tekrar yüklenir. Büyük dosyalarda ve bulut depolamada belirgin şekilde yavaştır ve daha fazla veri kullanır.\n· Ses dosyasının değiştirilme tarihi ve içeriği değişir; bu yüzden eşitleme klasörleri, yedekleme araçları ve medya sunucuları onu yeni bir dosya olarak görür.\n· Primuse yazmadan önce dosyanın başka bir yerde değiştirilmediğini denetler ve yazdıktan sonra geri okur, ancak ses dosyalarını yeniden yazmanın yine de riski vardır. Önce kitaplığınızı yedekleyin.\n· Gömülen kopya satır satır zamanlanmış metindir. Bir MP3’e önceden gömülmüş çok dilli sözlerin yerini alır.";
+"lyrics_embed_confirm_message_embed_only" = "· “Yalnızca ses dosyası” seçiliyken şarkının yanında söz dosyası oluşturulmaz ve kelime kelime zamanlama yalnızca Primuse’ta kalır. Şarkının yanında zaten bulunan söz dosyası güncellenmeye devam eder.\n· Tüm kitaplık için veri çekme işlemi söz gömmez ve söz dosyası oluşturmaz; bulunan sözler yalnızca Primuse’ta kalır.";
+"tag_editor_lyrics_writeback_embedded" = "Hedef kontrol edildi. Şarkı sözleri ses dosyasına gömülecek; söz dosyası oluşturulmayacak.";
+"tag_editor_lyrics_writeback_also_embedded" = "Ses dosyasına da gömülecek.";
+"search_layout_title" = "Arama sonuçlarını düzenle";
+"search_layout_footer" = "Kapattığınız bölümler gizlenir ve aramada atlanır.";
+"search_layout_restore_default" = "Varsayılanlara dön";
+"search_layout_move_up" = "Yukarı taşı";
+"search_layout_move_down" = "Aşağı taşı";
+"search_top_match_kind_artist" = "Sanatçı";
+"search_top_match_kind_album" = "Albüm";
+"search_top_match_kind_song" = "Şarkı";
+"audio_variant_lossy_stereo" = "Stereo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Apple Music’ten seç…";
+"apple_music_pick_adding" = "Kitaplığa ekleniyor…";
+"apple_music_pick_added" = "%d eklendi, eşitleniyor";
+"apple_music_pick_failed" = "Kitaplığa eklenemedi";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Güvenli mod";
+"safe_mode_hint" = "Uygulama arka arkaya birkaç kez açılamadı, bu yüzden şu adımlar atlandı. Lütfen tanılama bilgilerini geliştiriciye gönder.";
+"safe_mode_skipped" = "· Ana ekran ve giriş animasyonları\n· Son çalmayı geri yükleme\n· iCloud eşitleme ve arka planda tarama\n· Tüm kitaplık önerileri ve klasör dizini";
+"safe_mode_exit" = "Normal açılışa dön";
+"safe_mode_exit_hint" = "Sonraki açılışta ana ekran her zamanki gibi gelecek.";
+"launch_aborted_title" = "Son açılış tamamlanmadı";
+"launch_aborted_hint" = "Aşağıdaki rapor nerede durduğunu gösteriyor. Lütfen geliştiriciye gönder.";
+"launch_diagnostics_copy" = "Tanılamayı kopyala";
+"launch_diagnostics_files_hint" = "Tanılama bilgileri ayrıca Dosyalar → iPhone’umda → Primuse → Diagnostics içine kaydedildi.";
+
+// MARK: - Sesli İçerik
+"tab_spoken_word" = "Sesli İçerik";
+"spoken_word_continue_section" = "Dinlemeye Devam Et";
+"spoken_word_all_section" = "Tümü";
+"spoken_word_empty_hint" = "Sesli kitaplar, radyo tiyatroları, konferanslar ve diğer konuşma kayıtları burada görünür.";
+"spoken_word_remaining_format" = "%@ kaldı";
+"spoken_word_clear_progress" = "Dinleme Konumunu Sil";
+"mark_as_spoken_word" = "Sesli İçerik Olarak İşaretle";
+"mark_as_music" = "Müzik Olarak İşaretle";
+"chapters_title" = "Bölümler";
+"a11y_skip_backward" = "15 saniye geri";
+"a11y_skip_forward" = "30 saniye ileri";
+
+"source_diag_reachability_title" = "Adres erişilebilirliği";
+"source_diag_reachability_ok" = "Sunucuya ve bağlantı noktasına erişilebiliyor.";
+"source_diag_login_title" = "Hizmete giriş";
+"source_diag_library_title" = "Arşive erişim";
+"source_diag_waiting" = "Denetleniyor…";
+"source_diag_skipped" = "Önceki bir denetim başarısız olduğu için çalıştırılmadı.";
+"source_diag_progress_format" = "%2$d denetimden %1$d tamamlandı";
+"source_diag_routes_format" = "Bu ağdaki kullanılabilir bağlantılar: %1$d / %2$d";
+"source_diag_cancelled" = "Denetim iptal edildi";
+"source_diag_check_counts_format" = "%1$d başarılı · %2$d uyarı · %3$d başarısız · %4$d atlandı";
+"source_diag_resolution_title" = "Adres çözümleme";
+"source_diag_resolution_ok" = "Hizmet adresi çözümlendi.";
+"source_diag_library_ok" = "Arşive erişim başarılı.";
+
+"diagnostics_send_all" = "Raporlar ve günlükler";
+"diagnostics_send_reports_only" = "Yalnızca raporlar";
+"diagnostics_send_logs_only" = "Yalnızca günlükler";
+"diagnostics_feedback_attachments" = "Ekler (isteğe bağlı)";
+"diagnostics_feedback_message" = "İstekler veya öneriler";
+"diagnostics_feedback_compose" = "Postayı aç";
+"diagnostics_logs_title" = "Günlükler";

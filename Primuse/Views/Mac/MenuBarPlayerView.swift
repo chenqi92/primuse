@@ -150,7 +150,18 @@ struct MenuBarPlayerView: View {
     private var transport: some View {
         HStack(spacing: 12) {
             Spacer()
-            if !player.isLiveRadio || player.canSwitchRadioStation {
+            if player.currentItemIsSpokenWord, !player.isLiveRadio {
+                Button { player.skipSpokenWordBackward() } label: {
+                    Image(systemName: "gobackward.15")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pmPointingHand()
+                .help(Text("a11y_skip_backward"))
+            } else if !player.isLiveRadio || player.canSwitchRadioStation {
                 Button { Task { await player.previous() } } label: {
                     Image(systemName: "backward.fill")
                         .font(.system(size: 13, weight: .semibold))
@@ -191,7 +202,18 @@ struct MenuBarPlayerView: View {
                 ? "radio_stop"
                 : (player.isPlaying ? "pause" : "play")))
 
-            if !player.isLiveRadio || player.canSwitchRadioStation {
+            if player.currentItemIsSpokenWord, !player.isLiveRadio {
+                Button { player.skipSpokenWordForward() } label: {
+                    Image(systemName: "goforward.30")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pmPointingHand()
+                .help(Text("a11y_skip_forward"))
+            } else if !player.isLiveRadio || player.canSwitchRadioStation {
                 Button { Task { await player.next() } } label: {
                     Image(systemName: "forward.fill")
                         .font(.system(size: 13, weight: .semibold))

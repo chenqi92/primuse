@@ -7,6 +7,24 @@ public enum PrimuseRadioIntentOutcome: Sendable, Equatable {
     case unavailable
 }
 
+/// 按名字点歌的结果。区分这几种情况是有意的:原先它们全都回同一句
+/// "No matching song in your library.",用户空着歌名跑一次快捷指令、或者在
+/// 资料库还没装载完时被 Siri 唤起,都会被告知"库里没有这首歌",无从下手。
+public enum PrimuseSongIntentOutcome: Sendable, Equatable {
+    /// 已开播,描述用于 Siri 回话。
+    case playing(description: String)
+    /// 没给歌名(参数留空或只有空白)。
+    case missingTitle
+    /// 资料库还在装载 —— 不能断言库里没有。
+    case libraryNotReady
+    /// 资料库是空的。
+    case libraryEmpty
+    /// 库里确实没有匹配的歌。
+    case notFound
+    /// 没有注入实现:app 还没完成接线,或 intent 落在了拿不到播放器的进程里。
+    case unavailable
+}
+
 /// Intent <-> 主 app 服务的解耦层。
 ///
 /// 为什么需要这层:
@@ -33,8 +51,9 @@ public final class PrimuseIntentBridge {
     /// Resumes the retained song or live station. Returns false when no
     /// resumable playback session exists.
     public var resumePlayback: @MainActor () async -> Bool = { false }
-    /// 返回找到并已经开播的歌曲描述(用于 Siri 的回话),没找到时返回 nil。
-    public var playSong: @MainActor (_ title: String, _ artist: String?) async -> String? = { _, _ in nil }
+    /// 按歌名(可选艺术家)点歌。结果区分"没给歌名""库还没装载""确实没有",
+    /// 未注入时是 `.unavailable` —— 不能把这些都说成"库里没有这首歌"。
+    public var playSong: @MainActor (_ title: String, _ artist: String?) async -> PrimuseSongIntentOutcome = { _, _ in .unavailable }
     public var playAlbum: @MainActor (_ title: String, _ artist: String?) async -> String? = { _, _ in nil }
     public var playArtist: @MainActor (_ name: String) async -> String? = { _ in nil }
     public var playGenre: @MainActor (_ name: String) async -> String? = { _ in nil }

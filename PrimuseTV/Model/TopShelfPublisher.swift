@@ -10,6 +10,7 @@ import PrimuseKit
 /// 扩展是独立进程,读不到主 app 私有的曲库快照,也没有源凭据。所以由主 app 侧在
 /// 曲库刷新后,把「最近播放 / 资料库专辑」连同封面缩略图一次性写到共享容器,扩展
 /// 直接读本地文件秒开。封面复用 `TVArtworkLoader`(本地缓存 → iTunes 在线取)。
+/// 电台用自带的台标;只听电台、没有曲库的用户也能在主屏看到内容。
 enum TopShelfPublisher {
     struct Draft: Sendable {
         let id: String
@@ -23,7 +24,15 @@ enum TopShelfPublisher {
         let playURL: String
     }
 
-    static func publish(recent: [Draft], albums: [Draft]) async {
+    struct RadioDraft: Sendable {
+        let id: String
+        let title: String
+        let subtitle: String
+        let logoData: Data?
+        let playURL: String
+    }
+
+    static func publish(recent: [Draft], radio: [RadioDraft], albums: [Draft]) async {
         // 没配 App Group(旧版 / 未签 entitlement)时 containerURL 为 nil,直接跳过。
         guard !Task.isCancelled, TopShelfStore.containerURL != nil else { return }
         pruneStaleCovers()
@@ -32,6 +41,10 @@ enum TopShelfPublisher {
         let recentItems = await items(from: recent)
         if !recentItems.isEmpty {
             sections.append(TopShelfSection(id: "recent", title: PMString("ext.tv.topShelf.recent"), items: recentItems))
+        }
+        let radioItems = radioItems(from: radio)
+        if !radioItems.isEmpty {
+            sections.append(TopShelfSection(id: "radio", title: PMString("ext.tv.radio.title"), items: radioItems))
         }
         let albumItems = await items(from: albums)
         if !albumItems.isEmpty {
@@ -61,6 +74,38 @@ enum TopShelfPublisher {
         return out
     }
 
+    private static func radioItems(from drafts: [RadioDraft]) -> [TopShelfItem] {
+        var out: [TopShelfItem] = []
+        for d in drafts {
+            guard !Task.isCancelled else { return [] }
+            let output = d.logoData.flatMap(radioLogoCover)
+                ?? placeholderCover(seed: d.id, symbolName: "radio.fill")
+            out.append(TopShelfItem(id: d.id, title: d.title, subtitle: d.subtitle,
+                                    imageFileName: output.flatMap { writeCover($0, key: d.id) },
+                                    playURL: d.playURL))
+        }
+        return out
+    }
+
+    /// 台标尺寸五花八门(常见几十像素的 favicon、透明底 PNG),统一铺满到深色方形底上,
+    /// 与 app 内电台卡片的 scaledToFill 裁切一致。
+    private static func radioLogoCover(_ data: Data) -> Data? {
+        guard let logo = UIImage(data: data), logo.size.width > 0, logo.size.height > 0 else { return nil }
+        let side: CGFloat = 608
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { rc in
+            UIColor(white: 0.11, alpha: 1).setFill()
+            rc.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            let scale = max(side / logo.size.width, side / logo.size.height)
+            let w = logo.size.width * scale
+            let h = logo.size.height * scale
+            logo.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
+        }
+        return image.jpegData(compressionQuality: 0.9)
+    }
+
     /// 取封面写入 App Group 封面目录,返回文件名。优先准确的本地专辑/歌曲封面,
     /// 最后才尝试在线专辑搜索；全部取不到时画一张与 app 内卡片一致的品牌音乐占位,
     /// 保证 Top Shelf 不出现空白方块。
@@ -72,7 +117,7 @@ enum TopShelfPublisher {
         artist: String,
         album: String
     ) async -> String? {
-        guard let dir = TopShelfStore.coversDirectory, !key.isEmpty else { return nil }
+        guard TopShelfStore.coversDirectory != nil, !key.isEmpty else { return nil }
         var data: Data? = nil
         if !coverKey.isEmpty {
             if let cached = await MetadataAssetStore.shared.cachedAlbumCover(
@@ -98,7 +143,11 @@ enum TopShelfPublisher {
         guard !Task.isCancelled,
               let output = data.flatMap({ $0.isEmpty ? nil : $0 })
                 ?? placeholderCover(seed: key) else { return nil }
+        return writeCover(output, key: key)
+    }
 
+    private static func writeCover(_ output: Data, key: String) -> String? {
+        guard let dir = TopShelfStore.coversDirectory, !key.isEmpty else { return nil }
         // 把实际图像内容纳入 URL：占位后来被真实封面替换时，tvOS 不会继续命中旧图缓存。
         let imageDigest = SHA256.hash(data: output).prefix(12)
             .map { String(format: "%02x", $0) }.joined()
@@ -149,7 +198,7 @@ enum TopShelfPublisher {
                 UIColor(hue: hue, saturation: 0.30, brightness: 0.22, alpha: 1))
     }
 
-    private static func placeholderCover(seed: String) -> Data? {
+    private static func placeholderCover(seed: String, symbolName: String? = nil) -> Data? {
         // 1216px 可同时覆盖 Top Shelf 方形内容的 1x/2x 聚焦放大需求。
         let side: CGFloat = 1216
         let size = CGSize(width: side, height: side)
@@ -192,9 +241,10 @@ enum TopShelfPublisher {
             ctx.setLineWidth(side * 0.004)
             ctx.strokeEllipse(in: discRect.insetBy(dx: side * 0.002, dy: side * 0.002))
 
-            let icon = UIImage(named: "BrandGlyph")
-                ?? UIImage(systemName: "music.note", withConfiguration:
-                    UIImage.SymbolConfiguration(pointSize: side * 0.23, weight: .semibold))
+            let symbolConfig = UIImage.SymbolConfiguration(pointSize: side * 0.23, weight: .semibold)
+            let icon = symbolName.flatMap { UIImage(systemName: $0, withConfiguration: symbolConfig) }
+                ?? UIImage(named: "BrandGlyph")
+                ?? UIImage(systemName: "music.note", withConfiguration: symbolConfig)
             if let icon {
                 let rendered = icon.withTintColor(
                     UIColor.white.withAlphaComponent(0.88),

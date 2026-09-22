@@ -12,7 +12,8 @@ Primuse uses the dynamic FFmpeg libraries `libavformat`, `libavcodec`,
 
 The build disables GPL and non-free code, encoders, muxers, filters, devices,
 the FFmpeg network stack, and video decoders. It keeps all native audio
-decoders and demuxers and produces dynamic XCFrameworks for iOS and macOS.
+decoders and demuxers and produces dynamic XCFrameworks for iOS, macOS and
+tvOS.
 
 The exact unmodified source corresponding to the shipped binaries is
 available from the upstream repository at the commit above. Release builds

@@ -309,6 +309,8 @@ struct ThemeColorSections: View {
                         .foregroundStyle(themeService.uiAccentColor)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(settings.mode == mode ? [.isButton, .isSelected] : .isButton)
@@ -348,6 +350,8 @@ struct ThemeColorSections: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         // 挂在单个色块上：勾与描边只跟这一块的选中态走, 换色时两块各自动各自的。

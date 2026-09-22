@@ -255,6 +255,12 @@ struct PMCard: ViewModifier {
     @Environment(\.pmAppearance) private var mode
     var cornerRadius: CGFloat = PMRadius.l
     var padding: CGFloat? = nil
+    /// 背板本身就不透明时(弹框、抽屉里那种铺在 `PMColor.bg` 上的卡片)玻璃
+    /// 没有可吸的底 —— `ultraThinMaterial` 只剩每帧的模糊开销,几张卡片叠在
+    /// 一个 `ScrollView` 里滑起来就会掉帧。这种位置明确要不透明填充。
+    var overOpaqueBackground = false
+
+    private var usesMaterial: Bool { mode == .glass && overOpaqueBackground == false }
 
     func body(content: Content) -> some View {
         Group {
@@ -267,7 +273,7 @@ struct PMCard: ViewModifier {
         .background {
             ZStack {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(mode == .glass
+                    .fill(usesMaterial
                           ? AnyShapeStyle(Material.ultraThinMaterial)
                           : AnyShapeStyle(PMColor.bgElev))
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -287,9 +293,20 @@ extension View {
         modifier(PMGlass(cornerRadius: cornerRadius, stroke: stroke))
     }
 
-    /// 卡片背景。
-    func pmCard(cornerRadius: CGFloat = PMRadius.l, padding: CGFloat? = nil) -> some View {
-        modifier(PMCard(cornerRadius: cornerRadius, padding: padding))
+    /// 卡片背景。`overOpaqueBackground` 给铺在不透明底上的卡片用(弹框、抽屉):
+    /// 那里玻璃没有可吸的底,省掉模糊既不改观感又省掉每帧开销。
+    func pmCard(
+        cornerRadius: CGFloat = PMRadius.l,
+        padding: CGFloat? = nil,
+        overOpaqueBackground: Bool = false
+    ) -> some View {
+        modifier(
+            PMCard(
+                cornerRadius: cornerRadius,
+                padding: padding,
+                overOpaqueBackground: overOpaqueBackground
+            )
+        )
     }
 
     /// 圆形 / 胶囊控件的玻璃背景。macOS 26 起用系统 Liquid Glass, 更早的系统
@@ -611,6 +628,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
             // scrolls, which drags the standard window buttons with it.
             // `PMTitleBar` draws its own hairline, so no system separator.
             window.titlebarSeparatorStyle = .none
+            #if DEBUG
+            PMWindowChromeDiagnostics.note("separator")
+            #endif
         }
         suppressInjectedToolbar(in: window)
         if window.backgroundColor.alphaComponent > 0.001 {
@@ -641,6 +661,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
     private static func suppressInjectedToolbar(in window: NSWindow) {
         guard let toolbar = window.toolbar, toolbar.isVisible else { return }
         toolbar.isVisible = false
+        #if DEBUG
+        PMWindowChromeDiagnostics.note("toolbar")
+        #endif
     }
 
     private static func standardWindowButtonContainerNeedsRepair(in window: NSWindow) -> Bool {
@@ -680,6 +703,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
                 return
             }
             button.isHidden = false
+            #if DEBUG
+            PMWindowChromeDiagnostics.note("buttonHidden")
+            #endif
         }
 
         var ancestor = closeButton.superview
@@ -694,6 +720,9 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
             // the whole repair again and redrew the buttons.
             if view.alphaValue <= 0.001 {
                 view.alphaValue = 1
+                #if DEBUG
+                PMWindowChromeDiagnostics.note("containerAlpha")
+                #endif
             }
             ancestor = view.superview
         }
@@ -811,11 +840,22 @@ struct PMWindowChromeConfigurator: NSViewRepresentable {
                 isFullScreenTransitioning = false
                 PMStandardWindowButtonAlignment.setSuspended(false, in: window)
                 requestRepair(force: true)
+                #if DEBUG
+                PMWindowFrameGuard.logGeometry(window, label: "enter-fullscreen")
+                #endif
 
             case NSWindow.didExitFullScreenNotification:
                 isFullScreenTransitioning = false
                 PMStandardWindowButtonAlignment.setSuspended(false, in: window)
                 requestRepair(force: true)
+                #if DEBUG
+                PMWindowFrameGuard.logGeometry(window, label: "exit-fullscreen")
+                #endif
+                // 恢复 frame 由 AppKit 在这一轮里完成,收回动作排到它之后。
+                DispatchQueue.main.async { [weak window] in
+                    guard let window else { return }
+                    PMWindowFrameGuard.clampToVisibleFrame(window)
+                }
 
             case NSWindow.didUpdateNotification:
                 guard !isApplyingRepair else { return }
@@ -905,6 +945,9 @@ private enum PMStandardWindowButtonAlignment {
             else { return }
 
             button.setFrameOrigin(NSPoint(x: button.frame.origin.x, y: originY))
+            #if DEBUG
+            PMWindowChromeDiagnostics.note("buttonOrigin")
+            #endif
         }
     }
 
@@ -1057,6 +1100,125 @@ private enum PMWindowZoomController {
             height: height
         )
     }
+}
+
+#if DEBUG
+/// 自定义标题栏与 AppKit 抢同一批窗口属性时，红绿灯会抖甚至整排消失。这里按秒汇总
+/// 每一项被我们改回去的次数：界面静止时应该一行都不出现，某一项每秒几十次就说明是
+/// 它在跟系统拉锯 —— 拿着这行日志才好判断该让谁。只在 Debug 构建里存在。
+@MainActor
+enum PMWindowChromeDiagnostics {
+    private static var counts: [String: Int] = [:]
+    private static var lastLogged = Date.distantPast
+
+    static func note(_ item: String) {
+        counts[item, default: 0] += 1
+        let now = Date()
+        guard now.timeIntervalSince(lastLogged) >= 1 else { return }
+        lastLogged = now
+        let summary = counts
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
+        counts.removeAll(keepingCapacity: true)
+        plog("🚦 窗口标题栏被改回: \(summary)")
+    }
+}
+#endif
+
+extension View {
+    /// Debug 构建里把这层在窗口坐标系里的位置记进日志；正式构建原样返回。
+    ///
+    /// NSWindow 那侧的 `🖼` 诊断只看得到窗口和 contentView，看不到 SwiftUI 树自己
+    /// 有没有被某一层撑出容器 —— 顶部控件只剩半截时要看的就是这个。
+    func pmLogFrame(_ label: String) -> some View {
+        #if DEBUG
+        return background(PMFrameProbe(label: label))
+        #else
+        return self
+        #endif
+    }
+}
+
+#if DEBUG
+/// 限流到每秒一行，动画期间不至于刷屏。
+@MainActor
+enum PMFrameProbeThrottle {
+    private static var lastLogged: [String: Date] = [:]
+
+    static func shouldLog(_ label: String) -> Bool {
+        let now = Date()
+        if let last = lastLogged[label], now.timeIntervalSince(last) < 1 { return false }
+        lastLogged[label] = now
+        return true
+    }
+}
+
+struct PMFrameProbe: View {
+    let label: String
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { record(proxy) }
+                .onChange(of: proxy.frame(in: .global)) { _, _ in record(proxy) }
+        }
+    }
+
+    private func record(_ proxy: GeometryProxy) {
+        guard PMFrameProbeThrottle.shouldLog(label) else { return }
+        plog("📐 \(label): frame=\(proxy.frame(in: .global)) safeArea=\(proxy.safeAreaInsets)")
+    }
+}
+#endif
+
+/// 窗口尺寸的兜底。
+///
+/// SwiftUI 会把内容树的最小高度报成窗口的 `contentMinSize`。一旦某层把这棵树撑得比
+/// 屏幕还高（沉浸播放页干过这事），窗口就会被撑到那个高度并且退出全屏后保持不变 ——
+/// 顶部内容被顶出上边界，底部的播放条落到 Dock 底下。这里在窗口态把下限和 frame
+/// 一起收回屏幕可见区域；全屏时不插手，那是 AppKit 的地盘。
+@MainActor
+enum PMWindowFrameGuard {
+    static func clampToVisibleFrame(_ window: NSWindow) {
+        guard !window.styleMask.contains(.fullScreen),
+              let visible = (window.screen ?? NSScreen.main)?.visibleFrame,
+              visible.width > 0, visible.height > 0
+        else { return }
+
+        // 先松开被内容撑大的下限,否则 setFrame 会被它顶回去。
+        let clampedMin = NSSize(
+            width: min(window.contentMinSize.width, visible.width),
+            height: min(window.contentMinSize.height, visible.height)
+        )
+        if clampedMin != window.contentMinSize {
+            window.contentMinSize = clampedMin
+        }
+
+        var frame = window.frame
+        let needsResize = frame.height > visible.height || frame.width > visible.width
+        let needsMove = frame.maxY > visible.maxY || frame.minY < visible.minY
+            || frame.maxX > visible.maxX || frame.minX < visible.minX
+        guard needsResize || needsMove else { return }
+
+        frame.size.height = min(frame.height, visible.height)
+        frame.size.width = min(frame.width, visible.width)
+        frame.origin.y = max(visible.minY, min(frame.origin.y, visible.maxY - frame.height))
+        frame.origin.x = max(visible.minX, min(frame.origin.x, visible.maxX - frame.width))
+        window.setFrame(frame, display: true)
+        #if DEBUG
+        plog("🖼 窗口收回可见区: frame=\(frame) visible=\(visible) minSize=\(window.contentMinSize)")
+        #endif
+    }
+
+    #if DEBUG
+    /// 全屏进出时记一次几何,用来判断窗口是什么时候、被撑到多大的。
+    static func logGeometry(_ window: NSWindow, label: String) {
+        let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        let content = window.contentView?.frame.size ?? .zero
+        plog("🖼 \(label): frame=\(window.frame) content=\(content) minSize=\(window.contentMinSize) maxSize=\(window.contentMaxSize) visible=\(visible)")
+    }
+    #endif
 }
 
 struct PMWindowResolver: NSViewRepresentable {
@@ -1612,12 +1774,12 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
 
     /// 可选图标与 iOS 顺序一致，跟资源目录里的预览资源一一对应。
     static let all: [MacAppIcon] = [
-        MacAppIcon(id: "",         previewAsset: "AppIconPreview",  nameKey: "icon_default", tint: Color(red: 0.812, green: 0.137, blue: 0.455)),
+        MacAppIcon(id: "",         previewAsset: "AppIconPreview",  nameKey: "icon_default", tint: Color(red: 0.251, green: 0.835, blue: 0.784)),
+        MacAppIcon(id: "AppIcon16", previewAsset: "AppIcon16Preview", nameKey: "icon_theme_16", tint: Color(red: 0.784, green: 0.431, blue: 0.843)),
+        MacAppIcon(id: "AppIcon17", previewAsset: "AppIcon17Preview", nameKey: "icon_theme_17", tint: Color(red: 0.812, green: 0.137, blue: 0.455)),
         MacAppIcon(id: "AppIcon14", previewAsset: "AppIcon14Preview", nameKey: "icon_theme_14", tint: Color(red: 0.122, green: 0.310, blue: 0.847)),
         MacAppIcon(id: "AppIcon15", previewAsset: "AppIcon15Preview", nameKey: "icon_theme_15", tint: Color(red: 0.914, green: 0.314, blue: 0.263)),
-        MacAppIcon(id: "AppIcon9", previewAsset: "AppIcon9Preview", nameKey: "icon_theme_9", tint: Color(red: 0.078, green: 0.490, blue: 0.541)),
         MacAppIcon(id: "AppIcon12", previewAsset: "AppIcon12Preview", nameKey: "icon_theme_12", tint: Color(red: 0.965, green: 0.251, blue: 0.424)),
-        MacAppIcon(id: "AppIcon6", previewAsset: "AppIcon6Preview", nameKey: "icon_theme_6", tint: Color(red: 0.251, green: 0.835, blue: 0.784)),
         MacAppIcon(id: "AppIcon13", previewAsset: "AppIcon13Preview", nameKey: "icon_theme_13", tint: Color(red: 1, green: 0.059, blue: 0.267)),
     ]
 
@@ -1810,8 +1972,15 @@ final class MacUIPreferences {
         }
     }
 
-    /// 换运行时 Dock 图标。默认与备选图标都从带 luminosity 变体的预览资源
-    /// 渲染，因此切换系统明暗时不会退回静态 bundle 图标。
+    /// 换运行时 Dock 图标。**包括默认图标在内，一律用预览资源渲染后覆盖。**
+    ///
+    /// 试过「选默认图标时就不覆盖、让 Dock 用 App 包自带的那张」，实测 Dock 会显示一张
+    /// 过期的图标：包里那张要经系统的图标缓存和 macOS 26 起的图标遮罩再走一道，
+    /// 结果跟运行时渲染的不是一回事，而且开发构建上缓存经常不刷新。覆盖这条路没有这个问题，
+    /// 图标是什么就画什么。启动瞬间的那一下由 `applicationWillFinishLaunching` 里提早调用来压缩。
+    ///
+    /// 渲染而不是直接取 bundle 图标还有一个原因:预览资源带 luminosity 变体，
+    /// 切换系统明暗时不会退回静态的浅色版。
     func applyAppIcon() {
         let asset = MacAppIcon.option(for: appIconID).previewAsset
         if let shaped = MacAppIcon.dockIconImage(previewAsset: asset) {

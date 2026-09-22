@@ -146,9 +146,29 @@ struct MetadataReadSchedulerTests {
     }
 
     @Test func preferencesMigrateWithoutOverridingExplicitSelection() {
-        #expect(MetadataReadingMode.resolve(storedValue: nil, legacyFastEnabled: false) == .automatic)
-        #expect(MetadataReadingMode.resolve(storedValue: nil, legacyFastEnabled: true) == .fast)
-        #expect(MetadataReadingMode.resolve(storedValue: "energySaving", legacyFastEnabled: true) == .energySaving)
+        #expect(MetadataReadingMode.resolve(
+            storedValue: nil, legacyFastEnabled: false, offersUserSelection: true
+        ) == .automatic)
+        #expect(MetadataReadingMode.resolve(
+            storedValue: nil, legacyFastEnabled: true, offersUserSelection: true
+        ) == .fast)
+        #expect(MetadataReadingMode.resolve(
+            storedValue: "energySaving", legacyFastEnabled: true, offersUserSelection: true
+        ) == .energySaving)
+    }
+
+    /// 桌面端不显示档位选择, 所以早先版本在这台 Mac 上存下的任何档位
+    /// (包括暂停) 都不该让它慢下来或停下来。
+    @Test func desktopIgnoresStoredPreferenceAndRunsAtFullSpeed() {
+        let stored: [String?] = MetadataReadingMode.allCases.map(\.rawValue) + [nil]
+        for value in stored {
+            #expect(MetadataReadingMode.resolve(
+                storedValue: value, legacyFastEnabled: false, offersUserSelection: false
+            ) == .fast)
+            #expect(MetadataReadingMode.resolve(
+                storedValue: value, legacyFastEnabled: true, offersUserSelection: false
+            ) == .fast)
+        }
     }
 
     @Test func foregroundEntrypointsShareTheSelectedBudget() {
@@ -386,7 +406,9 @@ struct MetadataReadSchedulerTests {
             #expect(preference.readsAutomatically)
             #expect(preference.resolvedForExplicitWork == preference)
         }
-        #expect(MetadataReadingMode.resolve(storedValue: "paused", legacyFastEnabled: true) == .paused)
+        #expect(MetadataReadingMode.resolve(
+            storedValue: "paused", legacyFastEnabled: true, offersUserSelection: true
+        ) == .paused)
 
         let modes: [MetadataBackfillExecutionMode] = [
             .standard, .userInitiated, .foregroundDeviceLocal, .foregroundAfterSourceScan,
@@ -705,6 +727,72 @@ struct MetadataReadSchedulerTests {
         valid = false
         await task.value
         #expect(reads == 0)
+    }
+
+    // MARK: - 连接池型远端源的读取位
+
+    @Test func pooledHTTPRemoteSourcesGetMoreReadSlotsThanOtherRemotes() {
+        // 8 核 / 16 GB 的机器: 只有远端上限这一项会封顶, 其它几项都更宽。
+        for platform in [MetadataReadingDeviceProfile.Platform.mobile, .desktop] {
+            let profile = MetadataReadingDeviceProfile(
+                platform: platform, activeProcessorCount: 8, physicalMemory: 16 * 1024 * 1024 * 1024
+            )
+            let pooled = profile.maximumWorkers(offlineSource: false, pooledHTTPRemoteSource: true)
+            let other = profile.maximumWorkers(offlineSource: false, pooledHTTPRemoteSource: false)
+            #expect(other == 4)
+            #expect(pooled == 6)
+        }
+    }
+
+    @Test func pooledRemoteBudgetStillRespectsDeviceAndProtectionLimits() {
+        let television = MetadataReadingDeviceProfile(
+            platform: .television, activeProcessorCount: 8, physicalMemory: 16 * 1024 * 1024 * 1024
+        )
+        // 电视的平台上限是 4, 连接池不该把它顶上去。
+        #expect(television.maximumWorkers(offlineSource: false, pooledHTTPRemoteSource: true) == 4)
+
+        let tiny = MetadataReadingDeviceProfile(
+            platform: .mobile, activeProcessorCount: 2, physicalMemory: 2 * 1024 * 1024 * 1024
+        )
+        #expect(tiny.maximumWorkers(offlineSource: false, pooledHTTPRemoteSource: true) <= 2)
+
+        // 低电量、过热、后台这些保护档照常压到底, 与源的类型无关。
+        let profile = MetadataReadingDeviceProfile(
+            platform: .desktop, activeProcessorCount: 8, physicalMemory: 16 * 1024 * 1024 * 1024
+        )
+        let lowPower = MetadataBackfillExecutionPolicy.limits(
+            for: .standard,
+            preference: .fast,
+            environment: MetadataReadingEnvironment(
+                lowPowerMode: true, pooledHTTPRemoteSource: true, device: profile
+            )
+        )
+        #expect(lowPower.workerCount == 1)
+        let critical = MetadataBackfillExecutionPolicy.limits(
+            for: .standard,
+            preference: .fast,
+            environment: MetadataReadingEnvironment(
+                thermalState: .critical, pooledHTTPRemoteSource: true, device: profile
+            )
+        )
+        #expect(critical.workerCount == 0)
+    }
+
+    @Test func pooledRemoteRaisesBothAutomaticAndFastSlots() {
+        let profile = MetadataReadingDeviceProfile(
+            platform: .desktop, activeProcessorCount: 8, physicalMemory: 16 * 1024 * 1024 * 1024
+        )
+        func slots(pooled: Bool, preference: MetadataReadingMode) -> Int {
+            MetadataBackfillExecutionPolicy.limits(
+                for: .standard,
+                preference: preference,
+                environment: MetadataReadingEnvironment(
+                    pooledHTTPRemoteSource: pooled, device: profile
+                )
+            ).workerCount
+        }
+        #expect(slots(pooled: true, preference: .fast) > slots(pooled: false, preference: .fast))
+        #expect(slots(pooled: true, preference: .automatic) >= slots(pooled: false, preference: .automatic))
     }
 
     @MainActor private func waitUntil(_ condition: () -> Bool) async throws {

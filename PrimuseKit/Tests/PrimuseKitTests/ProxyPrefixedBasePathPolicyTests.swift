@@ -106,7 +106,7 @@ struct ProxyPrefixedBasePathPolicyTests {
     @Test(arguments: [
         "/music", "music", "music/", "/music/", "navidrome", "a/b/c",
         "my music", "音乐", "a%20b", "a%b", "a+b", "a&b", "a?b", "a#b",
-        "foo:bar", "x:y/z:w", "a//b", "/", "", "   ",
+        "a//b", "/", "", "   ",
     ])
     func ordinaryBasePathIsByteIdentical(_ basePath: String) {
         for host in ["nav.example.com", "https://nav.example.com", "fd00::1",
@@ -129,6 +129,10 @@ struct ProxyPrefixedBasePathPolicyTests {
         #expect(
             baseURL(host: "nav.example.com", basePath: "foo:bar")?.absoluteString
                 == "https://nav.example.com/foo%3Abar"
+        )
+        #expect(
+            baseURL(host: "nav.example.com", basePath: "x:y/z:w")?.absoluteString
+                == "https://nav.example.com/x%3Ay/z:w"
         )
         #expect(
             baseURL(host: "nav.example.com", basePath: "my music")?.absoluteString

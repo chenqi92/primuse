@@ -526,6 +526,7 @@ struct LibraryFolderIndexTests {
             "drime-file-id",
             "115-pick-code",
             "123-file-id",
+            "guangya-file-id",
         ]
         let songs = sources.enumerated().map { index, source in
             testSong(

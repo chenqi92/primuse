@@ -769,7 +769,9 @@ struct MacRadioStationsView: View {
     // MARK: - Actions
 
     private func toggle(_ station: RadioStation) {
-        if let url = station.url,
+        // `.pls` 包装先放行:它拆出来的真实流主机由播放器在起播时再问。
+        if !RadioImportParser.isPlaylistWrapper(station.streamURL),
+           let url = station.url,
            TrustedHTTPTransport.requiresPlainSocket(for: url),
            let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
            !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {

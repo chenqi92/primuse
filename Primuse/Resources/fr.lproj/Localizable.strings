@@ -66,6 +66,10 @@
 
 // NowPlaying / Player
 "add_to_playlist" = "Ajouter à la liste de lecture";
+"add_to_playlist_short" = "Playlist";
+"insert_next_short" = "Lire ensuite";
+"add_to_queue_short" = "À la file";
+"full_screen_short" = "Plein écran";
 "scrape_song" = "Récupérer les métadonnées";
 "song_info" = "Informations du morceau";
 "delete_song" = "Supprimer le morceau";
@@ -383,15 +387,16 @@
 "theme_color_brightness" = "Luminosité";
 "theme_color_hex" = "Valeur";
 "app_icon" = "Icône de l'app";
-"icon_default" = "Splash";
+"app_icon_dock_hint" = "macOS ne peut remplacer l’icône du Dock que pendant l’exécution de Primuse ; une fois l’app quittée, le Dock réaffiche l’icône incluse dans le paquet.";
+"icon_default" = "Note douce";
 "icon_appearance_gray" = "Gris";
 "icon_appearance_hint" = "L’icône suit l’apparence de l’écran d’accueil. Maintenez l’écran d’accueil, puis choisissez Modifier → Personnaliser → Automatique.";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_13" = "Chris’s Muse";
 "icon_theme_14" = "Lettre P";
 "icon_theme_15" = "Note pliée";
-"icon_theme_6" = "Note douce";
-"icon_theme_9" = "Icône classique";
+"icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "Splash";
 "queue_title" = "File de lecture";
 "queue_empty" = "File vide";
 "queue_empty_desc" = "Ajoutez des morceaux à la file de lecture";
@@ -585,7 +590,9 @@
 "licenses" = "Licences open source";
 "github_repository" = "Dépôt GitHub";
 "github_feedback" = "Suggestions et problèmes";
-"github_feedback_hint" = "GitHub Issues permet au développeur de voir et de suivre les retours plus rapidement. Vous pouvez aussi laisser un avis sur l’App Store, mais sa transmission peut prendre plus de temps.";
+"github_bug_report" = "Signaler un problème";
+"github_feature_request" = "Demande de fonctionnalité";
+"github_feedback_hint" = "GitHub Issues permet au développeur de voir et de suivre les retours plus rapidement. Vous pouvez aussi laisser un avis sur l’App Store, mais sa transmission peut prendre plus de temps. Le lien pré-remplit la version et les informations de l’appareil, que vous pouvez modifier avant l’envoi.";
 "open_source" = "Bibliothèques open source";
 "gapless_playback" = "Lecture sans interruption";
 "gapless_desc" = "Enchaînez les morceaux en continu, sans silence entre eux.";
@@ -596,6 +603,7 @@
 "crossfade_mode_fixed" = "Fixe";
 "crossfade_mode_smart" = "Intelligent";
 "crossfade_max_duration" = "Durée maximale de transition";
+"crossfade_footer" = "Lorsqu'un morceau est lu jusqu'à la fin, le fondu dure le temps réglé ci-dessus ; en passant manuellement au morceau suivant ou précédent, un court fondu d'environ une seconde est appliqué. Si le morceau n'est pas encore sur cet appareil ou en cache, il démarre sans fondu. Incompatible avec la lecture sans interruption.";
 "skip_leading_silence" = "Ignorer le silence au début";
 "skip_trailing_silence" = "Ignorer le silence à la fin";
 "silence_skipping_desc" = "Les transitions intelligentes analysent automatiquement les limites audibles. Ces options ignorent aussi les silences en lecture normale. Le mode haute fidélité ne modifie pas les limites audio.";
@@ -635,6 +643,7 @@
 "apple_music_needs_subscription" = "Un abonnement Apple Music actif est requis pour lire ce morceau dans Primuse. Abonnez-vous dans l'app Apple Music, puis réessayez.";
 "apple_music_unavailable" = "La lecture en streaming Apple Music n'est pas disponible pour ce compte ou cette région.";
 "apple_music_notice_notDetermined" = "Apple Music n'est pas encore connecté. Accédez à Réglages → Apple Music pour activer la recherche dans le catalogue.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music n'est pas encore connecté. Connectez-le depuis la source Apple Music dans « Gérer les sources » pour activer la recherche dans le catalogue.";
 "apple_music_notice_denied" = "L'accès à Apple Music a été refusé. Réactivez-le dans Réglages Système → Confidentialité → Médias et Apple Music.";
 "apple_music_notice_no_results" = "Aucun résultat Apple Music (cette boutique ne propose peut-être pas ce titre).";
 "apple_music_open_in_app" = "Ouvrir dans Apple Music";
@@ -854,6 +863,14 @@
 "security" = "Sécurité";
 "playback_error_connection" = "Connexion à la source impossible";
 "playback_error_source_disabled" = "Cette source musicale est désactivée";
+"playback_error_source_unreachable_format" = "Impossible de joindre « %@ » sur ce réseau";
+"playback_error_source_unreachable_skipped_format" = "Impossible de joindre « %@ » sur ce réseau. Ses morceaux ont été ignorés.";
+"song_row_source_unreachable" = "Injoignable sur ce réseau";
+"song_source_unreachable_alert_message" = "Cette source musicale est injoignable sur le réseau actuel. Ses morceaux redeviendront lisibles dès le retour de la connexion. Les morceaux déjà téléchargés sur cet appareil ne sont pas concernés.";
+"source_card_unreachable" = "Cette source est injoignable sur le réseau actuel. Les morceaux non téléchargés sur cet appareil ne peuvent pas être lus pour le moment.";
+"source_card_unreachable_add_route_hint" = "Seule une adresse du réseau local est renseignée pour cette source. Modifiez-la et ajoutez une adresse publique pour continuer à écouter en dehors de ce réseau.";
+"playlist_unreachable_notice" = "Certains morceaux proviennent d’une source injoignable sur le réseau actuel. Ceux qui ne sont pas téléchargés sur cet appareil ne peuvent pas être lus pour le moment.";
+"playlist_unreachable_offline_hint_format" = "Activez « %@ » : les morceaux seront téléchargés automatiquement dès que la source sera joignable et pourront être lus sur n’importe quel réseau.";
 "playback_error_decode" = "Lecture de ce morceau impossible";
 "playback_error_format" = "Format audio non pris en charge";
 "playback_error_apple_music_generic" = "Apple Music ne peut pas lancer la lecture pour le moment. Réessayez dans un instant. Si le problème persiste, vérifiez que le morceau peut être lu dans l’app Musique.";
@@ -971,6 +988,9 @@
 "playlist_import_export_unmatched_csv" = "Exporter les non-associés → CSV";
 "playlist_import_change_file" = "Changer de fichier";
 "playlist_import_create_matched_only_format" = "Créer uniquement les associés (%d)";
+"playlist_import_destination_header" = "Importer dans";
+"playlist_import_liked_footer_format" = "Les morceaux associés sont ajoutés à « %@ ». Ceux qui s’y trouvent déjà ne sont pas ajoutés deux fois.";
+"playlist_import_add_matched_only_format" = "Ajouter uniquement les associés (%d)";
 "playlist_import_manual_match" = "Correspondance manuelle…";
 "playlist_import_manual_match_title" = "Correspondance manuelle";
 "playlist_import_search_library" = "Rechercher des morceaux de la bibliothèque";
@@ -1321,11 +1341,11 @@
 "settings_dlna_keepalive_footer" = "Lorsque cette option est activée, Primuse continue d'accepter les envois d'autres appareils même en arrière-plan et sans lecture en cours. Compromis : l'écran verrouillé / le centre de contrôle indiquera que Primuse est en lecture, et la consommation de batterie augmentera légèrement.";
 "settings_relay_section" = "Relais Apple TV";
 "settings_relay_enable" = "Autoriser l'Apple TV à lire via cet appareil";
-"settings_relay_footer" = "Lorsque cette option est activée, votre Apple TV peut lire la musique stockée sur ce téléphone, relayée par cet appareil (les sources NFS réglées sur NFSv4 passent aussi par là). Gardez Primuse ouvert au premier plan et les deux appareils sur le même Wi-Fi.";
+"settings_relay_footer" = "Gardez Primuse ouvert au premier plan et les deux appareils sur le même Wi-Fi. La musique stockée sur ce téléphone doit aussi être envoyée avec « Transférer la bibliothèque depuis l’iPhone » sur l'Apple TV.";
 "settings_relay_waiting" = "Obtention de l'adresse réseau local… (vérifiez que le Wi-Fi est connecté)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "Envoyer à l'Apple TV maintenant";
-"settings_push_to_tv_footer" = "Installez Primuse sur votre Apple TV et connectez-vous avec le même compte iCloud pour retrouver votre bibliothèque et vos sources ici — identifiants (mots de passe / jetons) inclus, rien à ressaisir. Primuse les envoie automatiquement en arrière-plan ; touchez « Envoyer à l'Apple TV maintenant » pour mettre à jour immédiatement. Les NAS, WebDAV, serveurs multimédias et espaces de stockage en ligne, l'Apple TV les atteint tout seul. Seule la musique stockée sur ce téléphone a besoin du relais ci-dessous, qui la diffuse d'ici sur le même Wi-Fi ; elle ne passe jamais par iCloud, envoyez-la donc avec « Transférer la bibliothèque depuis l’iPhone » sur l'Apple TV.";
+"settings_push_to_tv_footer" = "Connectez-vous au même compte iCloud sur votre Apple TV pour y retrouver cette bibliothèque et ses sources, mots de passe inclus. L'Apple TV atteint tout seul les NAS, serveurs multimédias et espaces de stockage en ligne ; seules la musique stockée sur ce téléphone et les sources NFSv4 ont besoin du relais.";
 "settings_push_to_tv_done" = "Envoyé";
 "settings_push_to_tv_failed" = "Échec de l'envoi";
 "send_to_tv_title" = "Envoyer à l'Apple TV";
@@ -1379,14 +1399,14 @@
 "diagnostics_footer" = "Les rapports restent sur cet appareil. Touchez pour les partager avec le développeur par e-mail ou AirDrop.";
 "diagnostics_clear" = "Effacer tous les rapports";
 "diagnostics_clear_confirm" = "Supprimer tous les rapports ?";
-"diagnostics_send_button" = "Envoyer les rapports au développeur par e-mail";
-"diagnostics_send_privacy" = "Seuls les enregistrements des threads du programme sont envoyés : les piles d'appels de plantage et de blocage collectées par le système, ainsi que la version de l'app, le modèle de l'appareil et la version du système. Aucune donnée de compte, bibliothèque musicale, historique d'écoute, nom de fichier ni autre donnée personnelle.";
+"diagnostics_send_button" = "Envoyer à l’auteur";
+"diagnostics_send_privacy" = "L’e-mail contient les rapports ou journaux sélectionnés. Vérifiez-le avant de l’envoyer.";
 "diagnostics_send_mail_intro %lld" = "%lld rapports de diagnostic Primuse sont joints.";
 "diagnostics_send_sent_title" = "Rapport envoyé";
 "diagnostics_send_sent_message" = "Merci. Voulez-vous effacer maintenant les rapports enregistrés sur cet appareil ?";
 "diagnostics_send_keep" = "Conserver";
 "diagnostics_send_unavailable_title" = "Impossible d'envoyer l'e-mail";
-"diagnostics_send_unavailable_message %@" = "Aucun compte e-mail n'est configuré sur cet appareil. Vous pouvez toujours utiliser le bouton de partage d'un rapport pour l'envoyer à %@.";
+"diagnostics_send_unavailable_message %@" = "Aucun compte de messagerie n’est configuré sur cet appareil. Partagez un rapport ou exportez les journaux et envoyez-les à %@.";
 "diagnostics_send_failed_title" = "Échec de l'envoi";
 "diagnostics_send_failed_message" = "L'app Mail n'a pas pu envoyer le message. Vos rapports restent sur cet appareil.";
 "source_diagnostics" = "Diagnostic de la source";
@@ -1452,7 +1472,7 @@
 "source_diag_advice_certificate_message" = "Le certificat HTTPS n'a pas pu être approuvé.";
 "source_diag_advice_certificate_suggestion" = "Vérifiez le certificat, puis approuvez-le uniquement s'il appartient à votre serveur.";
 "source_diag_advice_server_title" = "Erreur de réponse de la source";
-"source_diag_advice_server_suggestion" = "Vérifiez l'état du serveur et réessayez. Si l'échec persiste, exportez les journaux depuis Stockage.";
+"source_diag_advice_server_suggestion" = "Vérifiez l’état du serveur et réessayez. Si le problème persiste, exportez les journaux depuis Rapports de diagnostic.";
 "source_diag_advice_invalid_response" = "La source a renvoyé une réponse illisible.";
 "settings_menu_item" = "Réglages…";
 "playback_menu" = "Lecture";
@@ -1481,6 +1501,9 @@
 "home_empty_mac_hint" = "Ajoutez un NAS ou un service cloud depuis Sources à gauche, ou autorisez Apple Music pour commencer.";
 "player_empty_title" = "Choisissez un morceau à lire";
 "player_empty_message" = "Choisissez-en un dans la bibliothèque ou la recherche à gauche.";
+"mac_launch_aborted_title" = "Primuse n'a pas terminé son démarrage la dernière fois";
+"mac_launch_aborted_hint" = "Envoyez les informations ci-dessous au développeur pour aider à identifier la cause.";
+"mac_launch_copy_diagnostics" = "Copier les informations";
 "mac_sidebar_tools" = "Outils";
 "desktop_widgets" = "Widgets de bureau";
 "keychain_sync_hint_title" = "Synchronisation du trousseau";
@@ -2374,6 +2397,7 @@
 "output_mode_effects" = "Effets et traitement";
 "output_mode_high_fidelity_desc" = "Chemin du signal le plus court : contourne l’égaliseur, la dynamique, la réverbération, l’audio spatial, ReplayGain, la vitesse de lecture et le fondu enchaîné, avec adaptation automatique de la fréquence d’échantillonnage. Le volume reste réglable, sauf en sortie directe DSD.";
 "output_mode_high_fidelity_confirm_title" = "Activer la haute fidélité directe ?";
+"output_mode_high_fidelity_hardware_note" = "Ce mode est surtout utile avec un DAC externe ou un ampli casque. En Bluetooth ou avec les haut-parleurs intégrés, l'audio est de toute façon retraité et la différence est rarement audible.";
 "output_mode_effects_desc" = "Utilise toute la chaîne de traitement : égaliseur, dynamique, réverbération, audio spatial, ReplayGain, vitesse, fondu et visualisation.";
 "volume_high_fidelity_system_hint" = "Le mode Haute fidélité directe utilise un gain unitaire. Réglez le volume avec les commandes système.";
 "volume_output_device_hint" = "Règle le volume du périphérique de sortie ; le trajet direct reste bit-perfect.";
@@ -2455,6 +2479,8 @@
 "radio_priority_sort_by_name" = "Trier par nom";
 "radio_priority_move_up" = "Augmenter la priorité";
 "radio_priority_move_down" = "Réduire la priorité";
+"radio_priority_move_up_short" = "Monter";
+"radio_priority_move_down_short" = "Descendre";
 "radio_previous_station" = "Station précédente";
 "radio_next_station" = "Station suivante";
 "radio_home_visibility" = "Afficher la radio sur l’accueil";
@@ -2658,6 +2684,7 @@
 "weekday_friday_short" = "V";
 "weekday_saturday_short" = "S";
 "apple_music_library_not_authorized" = "Apple Music n’est pas autorisé. Activez-le dans Réglages → Apple Music.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music n’est pas autorisé. Connectez-le depuis la source Apple Music dans « Gérer les sources ».";
 "apple_music_library_sync_timeout" = "La synchronisation Apple Music a expiré. Vérifiez les autorisations Musique ou réessayez plus tard.";
 "apple_music_library_access_failed_format" = "Impossible d’accéder à la bibliothèque Apple Music : %@";
 "yearly_unknown_source" = "Source musicale inconnue";
@@ -2741,6 +2768,10 @@
 "Artist" = "Artiste";
 "Optional, narrows the match if multiple songs share a title." = "Facultatif ; précise la recherche si plusieurs morceaux ont le même titre.";
 "No matching song in your library." = "Aucun morceau correspondant dans votre bibliothèque.";
+"Which song? Tell Siri the song title." = "Quel morceau ? Indiquez le titre à Siri.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse charge encore votre bibliothèque. Réessayez dans un instant.";
+"Your Primuse library is empty." = "Votre bibliothèque Primuse est vide.";
+"Open Primuse once, then try again." = "Ouvrez Primuse une fois, puis réessayez.";
 "Play Playlist" = "Lire une playlist";
 "Find a playlist by name and play it." = "Rechercher une playlist par son nom et la lire.";
 "Name" = "Nom";
@@ -2815,6 +2846,9 @@
 /* MARK: - Radio : gestion */
 "radio_manage_footer" = "Glissez pour réordonner. Balayez une ligne pour renommer, épingler ou supprimer.";
 "radio_manage_pin_top" = "Épingler en haut";
+"radio_manage_pin_top_short" = "En haut";
+"select_all_short" = "Tout";
+"deselect_all_short" = "Aucun";
 "radio_manage_export" = "Exporter";
 "radio_manage_deselect_all" = "Tout désélectionner";
 "radio_manage_delete_confirm_title" = "Supprimer les stations sélectionnées ?";
@@ -2960,6 +2994,7 @@
 "batch_remove_from_library" = "Retirer de la bibliothèque";
 "batch_remove_from_library_message_format" = "%d titres seront retirés de la bibliothèque. Leurs fichiers source sont conservés, mais ils ne seront pas réajoutés lors de la prochaine analyse.";
 "batch_delete_source_files" = "Supprimer les fichiers source";
+"batch_remove_group" = "Retirer et supprimer";
 "batch_delete_source_files_message_format" = "Les fichiers source de %d titres seront définitivement supprimés et les titres retirés de la bibliothèque. Cette action est irréversible.";
 "batch_delete_skipped_format" = "%d ignorés — leur source musicale ne prend pas en charge la suppression";
 "batch_delete_progress_format" = "Suppression %1$d / %2$d";
@@ -4117,6 +4152,7 @@
 "source_address_alternate_section" = "Adresse de secours";
 "source_address_section_footer" = "Laissez le port vide : Primuse le détermine à l’enregistrement.";
 "source_address_placeholder" = "Domaine, IP ou URL complète";
+"source_address_placeholder_vendor %@" = "Domaine, IP ou %@";
 "source_address_add_alternate" = "Ajouter une adresse de secours";
 "source_address_remove" = "Supprimer cette adresse";
 "source_address_advanced" = "Définir le port et le chiffrement manuellement";
@@ -4202,3 +4238,84 @@
 "audio_station_error_api_not_found_format" = "Audio Station ne fournit pas une interface nécessaire (erreur %d).";
 "audio_station_error_server_format" = "Audio Station a renvoyé une erreur (code %d).";
 "audio_station_error_two_factor_required" = "Ce compte utilise l’authentification à deux facteurs. Reconnectez-vous à cette source Audio Station et saisissez un code de vérification.";
+"audio_station_radio_folder_favorite" = "Mes favoris";
+"audio_station_radio_folder_user_defined" = "Radios personnalisées";
+
+"lyric_poster_live_fallback" = "Photos a refusé la photo Live — l'image fixe a été enregistrée à la place";
+
+"lyrics_embed_copy_header" = "Paroles intégrées";
+"lyrics_embed_copy_title" = "Enregistrer les paroles dans";
+"lyrics_embed_copy_hint" = "MP3, FLAC et M4A · Renvoie le morceau entier à chaque enregistrement des paroles";
+"lyrics_embed_copy_footer" = "Les paroles intégrées suivent le fichier audio : les autres lecteurs et appareils les voient aussi. Cela ne fonctionne que pour les MP3, FLAC et M4A des sources dont Primuse peut remplacer les fichiers ; les autres morceaux continuent d’utiliser des fichiers de paroles. Chaque enregistrement renvoie le morceau entier. Avec « Fichier audio uniquement », aucun nouveau fichier de paroles n’est créé, et un fichier de paroles déjà présent à côté d’un morceau reste tenu à jour. La récupération pour toute la bibliothèque n’intègre jamais rien.";
+"lyrics_embed_copy_failed_format" = "Les paroles ont été enregistrées, mais n’ont pas pu être intégrées au fichier audio : %@";
+"lyrics_embed_mode_off" = "Fichier de paroles uniquement";
+"lyrics_embed_mode_alongside" = "Fichier de paroles et fichier audio";
+"lyrics_embed_mode_embed_only" = "Fichier audio uniquement";
+"lyrics_embed_confirm_title" = "Écrire les paroles dans les fichiers audio ?";
+"lyrics_embed_confirm_message" = "· Chaque enregistrement de paroles télécharge le morceau entier, le réécrit puis le renvoie. C’est nettement plus lent pour les gros fichiers et les stockages en ligne, et cela consomme plus de données.\n· La date de modification et le contenu du fichier audio changent : les dossiers synchronisés, outils de sauvegarde et serveurs multimédias le traitent comme un nouveau fichier.\n· Primuse vérifie avant l’écriture que le fichier n’a pas été modifié ailleurs et le relit ensuite, mais réécrire des fichiers audio reste risqué. Sauvegardez d’abord votre bibliothèque.\n· La copie intégrée est un texte synchronisé ligne par ligne. Les paroles multilingues déjà intégrées à un MP3 sont remplacées par celle-ci.";
+"lyrics_embed_confirm_message_embed_only" = "· Avec « Fichier audio uniquement », aucun fichier de paroles n’est créé à côté du morceau, et la synchronisation mot à mot n’est conservée que dans Primuse. Un fichier de paroles déjà présent à côté du morceau reste tenu à jour.\n· La récupération pour toute la bibliothèque n’intègre rien et ne crée aucun fichier de paroles ; les paroles récupérées ne sont conservées que dans Primuse.";
+"tag_editor_lyrics_writeback_embedded" = "Cible vérifiée. Les paroles seront intégrées au fichier audio ; aucun fichier de paroles ne sera créé.";
+"tag_editor_lyrics_writeback_also_embedded" = "Elles seront aussi intégrées au fichier audio.";
+"search_layout_title" = "Organiser les résultats";
+"search_layout_footer" = "Les sections désactivées sont masquées et ignorées lors de la recherche.";
+"search_layout_restore_default" = "Rétablir les réglages par défaut";
+"search_layout_move_up" = "Monter";
+"search_layout_move_down" = "Descendre";
+"search_top_match_kind_artist" = "Artiste";
+"search_top_match_kind_album" = "Album";
+"search_top_match_kind_song" = "Morceau";
+"audio_variant_lossy_stereo" = "Stéréo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Choisir depuis Apple Music…";
+"apple_music_pick_adding" = "Ajout à la bibliothèque…";
+"apple_music_pick_added" = "%d ajoutés, synchronisation";
+"apple_music_pick_failed" = "Échec de l’ajout à la bibliothèque";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Mode sans échec";
+"safe_mode_hint" = "Le lancement a échoué plusieurs fois de suite ; ces étapes ont donc été ignorées. Merci d’envoyer le diagnostic au développeur.";
+"safe_mode_skipped" = "· Écran d’accueil et animations d’entrée\n· Restauration de la dernière lecture\n· Synchronisation iCloud et analyse en arrière-plan\n· Recommandations et index des dossiers de toute la bibliothèque";
+"safe_mode_exit" = "Reprendre le lancement normal";
+"safe_mode_exit_hint" = "Le prochain lancement ouvrira l’accueil comme d’habitude.";
+"launch_aborted_title" = "Le dernier lancement ne s’est pas terminé";
+"launch_aborted_hint" = "Le rapport ci-dessous indique où il s’est arrêté. Merci de l’envoyer au développeur.";
+"launch_diagnostics_copy" = "Copier le diagnostic";
+"launch_diagnostics_files_hint" = "Le diagnostic a aussi été enregistré dans Fichiers → Sur mon iPhone → Primuse → Diagnostics.";
+
+// MARK: - Contenu parlé
+"tab_spoken_word" = "Contenu parlé";
+"spoken_word_continue_section" = "Reprendre l’écoute";
+"spoken_word_all_section" = "Tout";
+"spoken_word_empty_hint" = "Les livres audio, fictions radiophoniques, conférences et autres enregistrements parlés apparaissent ici.";
+"spoken_word_remaining_format" = "%@ restant";
+"spoken_word_clear_progress" = "Effacer la position d’écoute";
+"mark_as_spoken_word" = "Marquer comme contenu parlé";
+"mark_as_music" = "Marquer comme musique";
+"chapters_title" = "Chapitres";
+"a11y_skip_backward" = "Reculer de 15 secondes";
+"a11y_skip_forward" = "Avancer de 30 secondes";
+
+"source_diag_reachability_title" = "Accessibilité de l’adresse";
+"source_diag_reachability_ok" = "L’hôte et le port sont accessibles.";
+"source_diag_login_title" = "Connexion au service";
+"source_diag_library_title" = "Accès à la bibliothèque";
+"source_diag_waiting" = "Vérification…";
+"source_diag_skipped" = "Non exécuté car une vérification préalable a échoué.";
+"source_diag_progress_format" = "%1$d vérifications sur %2$d terminées";
+"source_diag_routes_format" = "Connexions disponibles sur ce réseau : %1$d sur %2$d";
+"source_diag_cancelled" = "Vérification annulée";
+"source_diag_check_counts_format" = "%1$d réussies · %2$d avertissements · %3$d échecs · %4$d ignorées";
+"source_diag_resolution_title" = "Résolution de l’adresse";
+"source_diag_resolution_ok" = "L’adresse du service a été résolue.";
+"source_diag_library_ok" = "Accès à la bibliothèque réussi.";
+
+"diagnostics_send_all" = "Rapports et journaux";
+"diagnostics_send_reports_only" = "Rapports uniquement";
+"diagnostics_send_logs_only" = "Journaux uniquement";
+"diagnostics_feedback_attachments" = "Pièces jointes (facultatif)";
+"diagnostics_feedback_message" = "Demandes ou suggestions";
+"diagnostics_feedback_compose" = "Ouvrir Mail";
+"diagnostics_logs_title" = "Journaux";

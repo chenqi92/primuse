@@ -849,6 +849,7 @@
 "source_address_alternate_section" = "予備のアドレス";
 "source_address_section_footer" = "ポートを空けておけば、保存時に Primuse が自動で見つけます。";
 "source_address_placeholder" = "ドメイン、IP、または URL";
+"source_address_placeholder_vendor %@" = "ドメイン、IP、または %@";
 "source_address_add_alternate" = "予備のアドレスを追加";
 "source_address_remove" = "このアドレスを削除";
 "source_address_advanced" = "ポートと暗号化を手動で設定";
@@ -885,3 +886,35 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "DSM の音楽パッケージ · ライブラリ・プレイリスト・評価";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "ソースとサインイン情報";
+"send_to_tv_step_library" = "ライブラリ";
+"send_to_tv_step_artwork" = "アートワーク";
+"send_to_tv_step_everything" = "ライブラリ、ソース、サインイン情報";
+"send_to_tv_progress_waiting" = "待機中";
+"send_to_tv_progress_done" = "完了";
+"send_to_tv_progress_failed" = "未完了";
+"send_to_tv_progress_preparing" = "準備中…";
+"send_to_tv_progress_tv_saving" = "Apple TV が保存中…";
+"send_to_tv_progress_batch" = "%2$@ 回中 %1$@ 回目を送信中";
+"send_to_tv_progress_sending" = "送信中 %@";
+"send_to_tv_resume" = "送信を続ける";
+"send_to_tv_partial_saved" = "完了した部分は Apple TV に保存済みです。送信を続けると中断したところから再開します。";
+"ext.tv.transfer.sources" = "ソースとサインイン情報を受信中…";
+"ext.tv.transfer.sourcesSaved" = "ソースを保存しました。ライブラリを待っています…";
+"ext.tv.transfer.library" = "ライブラリを受信中…";
+"ext.tv.transfer.libraryImporting" = "ライブラリを読み込み中…";
+"ext.tv.transfer.librarySaved" = "ライブラリを読み込みました。アートワークを待っています…";
+"ext.tv.transfer.artwork" = "アートワークを受信中（%2$@ 回中 %1$@ 回目）…";
+"ext.tv.transfer.finished" = "iPhone から %@ 曲を転送しました";
+"ext.tv.transfer.failed" = "転送が完了しませんでした。iPhone でもう一度お試しください。";
+"audio_variant_lossy_stereo" = "ステレオ";
+"audio_variant_lossless" = "ロスレス";
+"audio_variant_hi_res_lossless" = "ハイレゾロスレス";
+"audio_variant_dolby_atmos" = "ドルビーアトモス";
+"audio_variant_dolby_audio" = "ドルビーオーディオ";
+"apple_music_pick_from_catalog" = "Apple Music から選択…";
+"apple_music_pick_adding" = "ライブラリに追加中…";
+"apple_music_pick_added" = "%d 曲を追加、同期中";
+"apple_music_pick_failed" = "ライブラリに追加できませんでした";

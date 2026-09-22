@@ -177,11 +177,17 @@ struct MacRadioStationEditorView: View {
         HStack(spacing: PMSpace.m14) {
             Group {
                 if let logoData, let image = NSImage(data: logoData) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 72, height: 72)
-                        .clipShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
+                    // 选图失败时会原样留下用户挑的文件，那张图可能带透明通道；
+                    // 垫一块由台标自己定色的底，别让它直接压在弹框背景上。
+                    let backdrop = RadioLogoBackdropSampler.backdrop(for: image.platformCGImage)
+                    ZStack {
+                        backdrop.color
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    }
+                    .frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: PMRadius.l, style: .continuous))
                 } else if let previewURL = normalizedLogoURL {
                     // 走和列表同一套加载器，矢量台标在这里也能预览；
                     // 加载不出来时它自己会显示默认台标。

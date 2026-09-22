@@ -102,6 +102,16 @@ actor ConnectorScanner {
         var changedCount: Int
     }
 
+    private func uniqueSongIDsByPath(_ songs: [Song]) -> [String: String] {
+        var result: [String: String] = [:]
+        var ambiguous: Set<String> = []
+        for song in songs where song.sourceID == sourceID && !song.isCueTrack {
+            if result.updateValue(song.id, forKey: song.filePath) != nil { ambiguous.insert(song.filePath) }
+        }
+        for path in ambiguous { result.removeValue(forKey: path) }
+        return result
+    }
+
     /// Reconciles only provider directories named by a native change feed.
     /// Each directory listing is authoritative for that directory, while the
     /// rest of the source snapshot is carried forward unchanged.
@@ -123,6 +133,7 @@ actor ConnectorScanner {
             existingSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
         var index = existingIndex
         var changedCount = 0
         // Keep the pre-deletion identity baseline. If an item reappears between
@@ -321,13 +332,18 @@ actor ConnectorScanner {
                     continue
                 }
 
-                let preferredID = oldEntry?.songIDs.count == 1
-                    ? oldEntry?.songIDs.first
-                    : nil
+                let preferredID = (oldEntry?.songIDs.count == 1 ? oldEntry?.songIDs.first : nil)
+                    ?? existingIDsByPath[item.path]
                 let songID = preferredID ?? generatedSongID(for: item)
                 let incoming = buildBareSong(from: item, songID: songID)
                 if var old = preferredID.flatMap({ id in existingSongs.first { $0.id == id } }) {
-                    if !songContentChanged(existing: old, incoming: incoming) {
+                    let previousTitle = old.title
+                    if !ServerSongCatalogMergePolicy.contentChanged(existing: old, incoming: incoming) {
+                        refreshSuspiciousSourceTitle(in: &old, from: item)
+                    }
+                    // A corrected title still differs from the bare filename;
+                    // that difference must not discard the verified tags.
+                    if old.title != previousTitle || !songContentChanged(existing: old, incoming: incoming) {
                         old.filePath = item.path
                         old.fileSize = item.size
                         old.lastModified = item.modifiedDate ?? old.lastModified
@@ -451,6 +467,7 @@ actor ConnectorScanner {
                     // on large cloud trees).
                     let totalCount = 0
                     var allSongs = existingSongs
+                    let existingIDsByPath = uniqueSongIDsByPath(existingSongs)
                     var existingByID: [String: Song] = [:]
                     existingByID.reserveCapacity(existingSongs.count)
                     for song in existingSongs { existingByID[song.id] = song }
@@ -802,7 +819,7 @@ actor ConnectorScanner {
                                 let preferredSongID: String? = {
                                     guard priorEntry?.songIDs.count == 1,
                                           let candidate = priorEntry?.songIDs.first,
-                                          existingByID[candidate] != nil else { return nil }
+                                          existingByID[candidate] != nil else { return existingIDsByPath[item.path] }
                                     return candidate
                                 }()
                                 let songID = preferredSongID ?? generatedSongID(for: item)
@@ -1467,8 +1484,15 @@ actor ConnectorScanner {
             refreshed.albumTitle = incoming.albumTitle
             refreshed.albumID = incoming.albumID
         }
+        // 一个只是回退成曲目艺术家的旧值不是服务端给过的答案, 必须让这次
+        // 列表里真正的专辑艺术家覆盖它 —— 否则同一张专辑会一直按各自的曲目
+        // 艺术家散成多张同名专辑。
         if (existing.albumArtistName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
-            || MediaMetadataTextRepair.isSuspicious(existing.albumArtistName)),
+            || MediaMetadataTextRepair.isSuspicious(existing.albumArtistName)
+            || AlbumGroupingPolicy.isTrackArtistFallback(
+                albumArtistName: existing.albumArtistName,
+                trackArtistName: existing.artistName
+            )),
            existing.albumArtistName != incoming.albumArtistName {
             refreshed.albumArtistName = incoming.albumArtistName
             refreshed.albumID = incoming.albumID
@@ -1620,10 +1644,17 @@ actor ConnectorScanner {
         in song: inout Song,
         from item: RemoteFileItem
     ) {
-        guard song.userMetadataEditedAt == nil,
-              MediaMetadataTextRepair.isSuspicious(song.title) else {
+        guard song.userMetadataEditedAt == nil, !song.isCueTrack else { return }
+        if let corrected = MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+            title: song.title,
+            artist: song.artistName,
+            fileStem: sourceTitle(from: item)
+        ) {
+            song.title = corrected
+            song.titlePinyin = nil
             return
         }
+        guard MediaMetadataTextRepair.isSuspicious(song.title) else { return }
         let candidate = sourceTitle(from: item)
         guard !MediaMetadataTextRepair.isSuspicious(candidate) else { return }
         song.title = candidate

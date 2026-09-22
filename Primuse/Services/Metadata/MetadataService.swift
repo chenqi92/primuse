@@ -97,8 +97,11 @@ actor MetadataService {
             return embedded.title
         }()
 
+        let correctedTitle = MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+            title: trustedEmbeddedTitle, artist: embedded.artist, fileStem: titleFallback
+        )
         var result = SongMetadata(
-            title: trustedEmbeddedTitle ?? titleFallback,
+            title: correctedTitle ?? trustedEmbeddedTitle ?? titleFallback,
             artist: embedded.artist,
             embeddedTitle: MediaMetadataTextRepair.repaired(trustedEmbeddedTitle),
             embeddedArtist: MediaMetadataTextRepair.repaired(embedded.artist),
@@ -238,7 +241,10 @@ actor MetadataService {
             embedded.fillMissing(from: tailMetadata)
         }
         let repairedFallback = FileMetadataReader.repairLegacyChineseMojibake(fallbackTitle)
-        let preferredTitle = MediaMetadataTextRepair.preferred(
+        let correctedTitle = MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+            title: embedded.title, artist: embedded.artist, fileStem: repairedFallback
+        )
+        let preferredTitle = correctedTitle ?? MediaMetadataTextRepair.preferred(
             embedded: embedded.title,
             fromFileName: repairedFallback
         ) ?? repairedFallback

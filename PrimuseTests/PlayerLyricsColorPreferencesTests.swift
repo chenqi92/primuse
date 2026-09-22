@@ -388,3 +388,52 @@ final class PlaybackSettingsLockScreenLyricsTests: XCTestCase {
         XCTAssertFalse(PlaybackSettings.load(defaults: defaults).lockScreenLyricsEnabled)
     }
 }
+
+final class PlaybackSettingsCrossfadeDurationTests: XCTestCase {
+    func testNewPlaybackSettingsUseCurrentDefaultDuration() {
+        XCTAssertEqual(PlaybackSettings().crossfadeDuration, PlaybackSettings.defaultCrossfadeDuration)
+    }
+
+    func testRolloutMovesUnusedLegacyDefaultOnlyOnce() throws {
+        let suiteName = "PlaybackSettingsCrossfadeDurationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var existing = PlaybackSettings()
+        existing.crossfadeDuration = PlaybackSettings.legacyDefaultCrossfadeDuration
+        existing.save(defaults: defaults)
+
+        XCTAssertTrue(PlaybackSettings.applyCrossfadeDurationRolloutIfNeeded(defaults: defaults))
+        XCTAssertEqual(
+            PlaybackSettings.load(defaults: defaults).crossfadeDuration,
+            PlaybackSettings.defaultCrossfadeDuration
+        )
+
+        var chosen = PlaybackSettings.load(defaults: defaults)
+        chosen.crossfadeDuration = PlaybackSettings.legacyDefaultCrossfadeDuration
+        chosen.save(defaults: defaults)
+
+        XCTAssertFalse(PlaybackSettings.applyCrossfadeDurationRolloutIfNeeded(defaults: defaults))
+        XCTAssertEqual(
+            PlaybackSettings.load(defaults: defaults).crossfadeDuration,
+            PlaybackSettings.legacyDefaultCrossfadeDuration
+        )
+    }
+
+    func testRolloutKeepsDurationChosenWhileCrossfadeIsOn() throws {
+        let suiteName = "PlaybackSettingsCrossfadeDurationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var existing = PlaybackSettings()
+        existing.crossfadeEnabled = true
+        existing.crossfadeDuration = PlaybackSettings.legacyDefaultCrossfadeDuration
+        existing.save(defaults: defaults)
+
+        XCTAssertFalse(PlaybackSettings.applyCrossfadeDurationRolloutIfNeeded(defaults: defaults))
+        XCTAssertEqual(
+            PlaybackSettings.load(defaults: defaults).crossfadeDuration,
+            PlaybackSettings.legacyDefaultCrossfadeDuration
+        )
+    }
+}

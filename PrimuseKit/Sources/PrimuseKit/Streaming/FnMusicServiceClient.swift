@@ -190,7 +190,9 @@ public struct FnMusicCatalogTrack: Sendable {
     /// Builds the same stable Primuse song record on every platform. The
     /// synthetic path contains only the Feiniu track GUID; it is never treated
     /// as a path in the fnOS filesystem.
-    public func makeSong(sourceID: String) -> Song? {
+    /// `albumArtistName` 覆盖曲目自带的值: 飞牛的曲目接口从不给专辑艺术家,
+    /// 扫描方从专辑详情补上后经这里传入。
+    public func makeSong(sourceID: String, albumArtistName albumArtistOverride: String? = nil) -> Song? {
         let suffix = fileExtension ?? ""
         guard let format = AudioFormat.from(fileExtension: suffix) else { return nil }
         let path = FnMusicAPIProtocol.trackPath(guid: guid, fileExtension: suffix)
@@ -212,7 +214,7 @@ public struct FnMusicCatalogTrack: Sendable {
             albumTitle: albumName,
             artistName: artistName,
             albumArtistName: AlbumGroupingPolicy.resolvedAlbumArtistName(
-                albumArtistName: albumArtistName,
+                albumArtistName: albumArtistOverride ?? albumArtistName,
                 trackArtistName: artistName
             ),
             trackNumber: trackNumber,

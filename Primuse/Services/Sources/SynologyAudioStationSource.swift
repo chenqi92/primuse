@@ -1,8 +1,7 @@
-import CryptoKit
 import Foundation
 import PrimuseKit
 
-/// 群晖 Audio Station 音乐源:整库曲目、歌单(只读镜像)、评分、歌词、封面与播放。
+/// 群晖 Audio Station 音乐源:整库曲目、歌单与电台(只读镜像)、评分、歌词、封面与播放。
 ///
 /// 与群晖直连(`SynologySource`,经 File Station 浏览文件夹)是两种源 —— 这里连的
 /// 是 DSM 上的音乐套件本身。协议、会话续期与翻页都在 PrimuseKit 的
@@ -13,7 +12,7 @@ import PrimuseKit
 /// (回 200),改成整曲下载一次再切片,之后同一个连接器都走本地文件。整轨切出来的
 /// 虚拟音轨(`music_v_`)没有独立文件,只能拿服务端现转的 mp3。
 actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
-    ServerPlaylistConnector, ServerRatingConnector {
+    ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector, MediaServerWritebackConnector {
     /// 诊断里「连接」这一步的上限。QuickConnect 要先解析中转,比直连地址慢。
     static let connectionTimeout: TimeInterval = 30
 
@@ -79,6 +78,10 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
 
     // MARK: - 连接
 
+    func prepareDiagnosticConnection() async throws {
+        try await client.prepareConnection()
+    }
+
     /// 登录并确认这个账号能用 Audio Station。`info()` 会在需要时自动登录;
     /// 没有权限时 DSM 在登录(402)或这一步(105)就会说出来。
     func connect() async throws {
@@ -137,6 +140,12 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     ]
 
     // MARK: - 曲库
+
+    func diagnosticLibraryItemCount() async throws -> Int {
+        try await connect()
+        // The synthetic directory root does not verify song-read permission.
+        return try await perform { try await $0.songPage(offset: 0, limit: 1).songs.count }
+    }
 
     /// 整库源没有目录可选,给诊断一个代表整库的合成根。
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
@@ -449,39 +458,53 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     // MARK: - 歌单
 
     /// 只读镜像:个人与共享歌单(客户端已滤掉系统内部歌单),智能歌单也照样镜像。
-    /// 尚未入库的条目(id 是 NAS 路径)匹配不到任何一首歌,在这里就去掉,
-    /// 自报数量随之按目录曲目计,不会让镜像被当成「被截断」而一直不更新。
+    /// 镜像 id 与曲目筛选是和电视端共用的 `SynologyAudioStationPlaylistMirrorSnapshot`。
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
         try await connect()
-        let listed = try await perform { try await $0.playlists() }
-        var playlists: [ServerPlaylist] = []
-        var failed: Set<String> = []
-        for playlist in listed {
-            try Task.checkCancellation()
-            let mirrorID = Self.mirrorPlaylistID(for: playlist.id)
-            do {
-                let trackIDs = try await perform { try await $0.playlistTrackIDs(id: playlist.id) }
-                    .filter(SynologyAudioStationAPI.isCatalogSongID)
-                playlists.append(ServerPlaylist(
-                    id: mirrorID,
-                    name: playlist.name,
-                    trackIDs: trackIDs,
-                    reportedTrackCount: trackIDs.count
-                ))
-            } catch let error where OperationCancellationPolicy.isCancellation(error) {
-                throw CancellationError()
-            } catch {
-                failed.insert(mirrorID)
-            }
-        }
-        return ServerPlaylistSnapshot(playlists: playlists, failedPlaylistIDs: failed)
+        let snapshot = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+            playlists: { try await self.perform { try await $0.playlists() } },
+            trackIDs: { id in try await self.perform { try await $0.playlistTrackIDs(id: id) } }
+        )
+        return ServerPlaylistSnapshot(snapshot)
     }
 
-    /// Audio Station 的歌单 id 里带着名字与斜杠(`playlist_personal_normal/开车`)。
-    /// 镜像身份只用它的摘要,本地歌单 id 里不出现任意文字。
-    static func mirrorPlaylistID(for serverPlaylistID: String) -> String {
-        let digest = SHA256.hash(data: Data(serverPlaylistID.utf8))
-        return "as-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    // MARK: - 电台
+
+    /// 「INTERNET 广播」里收藏的、自己添加的,以及 SHOUTcast 各流派的台,按服务端的文件夹
+    /// 归类。播放直连电台自己的地址,不经 NAS 转发:镜像里不带 `_sid`,NAS 不在线也能听。
+    /// SHOUTcast 的地址是 `.pls` 包装,几千个台不在同步时逐个去拆,播放时再拆。
+    func fetchServerRadioStations() async throws -> ServerRadioStationSnapshot? {
+        try await connect()
+        let mirrors: [SynologyAudioStationRadioMirror]
+        do {
+            mirrors = try await perform { try await $0.radioMirrors() }
+        } catch let error as SynologyAudioStationError {
+            switch error {
+            // 套件没有电台接口:能力缺失,已有镜像原样保留。
+            case .apiNotFound, .unsupportedVersion: return nil
+            default: throw error
+            }
+        }
+        return ServerRadioStationSnapshot(
+            stations: mirrors.map { mirror in
+                ServerRadioStation(
+                    id: mirror.id,
+                    name: mirror.name,
+                    streamURL: mirror.url,
+                    streamFormat: URL(string: mirror.url).map { RadioStreamFormat.inferred(from: $0) } ?? .automatic,
+                    serverFolderName: Self.radioFolderName(mirror.folder)
+                )
+            },
+            serverFolderNames: [Self.radioFolderName(.favorite), Self.radioFolderName(.userDefined)]
+        )
+    }
+
+    private static func radioFolderName(_ folder: SynologyAudioStationRadioFolder) -> String {
+        switch folder {
+        case .favorite: String(localized: "audio_station_radio_folder_favorite")
+        case .userDefined: String(localized: "audio_station_radio_folder_user_defined")
+        case .genre(let name): name
+        }
     }
 
     // MARK: - 评分
@@ -496,6 +519,61 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     func setServerRating(itemID: String, rating: Int?) async throws -> Int? {
         guard SynologyAudioStationAPI.isCatalogSongID(itemID) else { throw SourceError.fileNotFound(itemID) }
         return try await perform { try await $0.setRating(id: itemID, rating: rating) }
+    }
+
+    // MARK: - 文件标签写回
+
+    func writeScrapedMetadata(original: Song, updated: Song, coverData: Data?, lyricsLines: [LyricLine]?, lyricsContent: String?) async -> MediaServerWritebackResult {
+        let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: coverData?.isEmpty == false)
+        let id = SynologyAudioStationAPI.songID(fromTrackPath: original.filePath)
+        let supported = id.map { !SynologyAudioStationAPI.isVirtualTrackID($0) } == true
+            && !original.isCueTrack && !original.isStreamDescriptor
+            && ["mp3", "m4a", "m4b", "ogg", "flac", "aif", "aiff"].contains((original.filePath as NSString).pathExtension.lowercased())
+        let writable = supported ? changed.intersection(TagMetadataWritebackField.metadataFields) : []
+        let unsupported = changed.subtracting(writable)
+        let detail = String(localized: "metadata_writeback_error_unsupported")
+        var result = MediaServerWritebackResult()
+        result.fieldResults = unsupported.map { .init(field: $0, disposition: .unsupported(detail)) }
+        if !unsupported.isEmpty || lyricsLines != nil || lyricsContent != nil { result.unsupported.append(detail) }
+        guard let id, !writable.isEmpty else { return result }
+        let mapping: [TagMetadataWritebackField: (key: String, value: String)] = [
+            .title: ("title", updated.title), .artist: ("artist", updated.artistName ?? ""),
+            .album: ("album", updated.albumTitle ?? ""), .genre: ("genre", updated.genre ?? ""),
+            .year: ("year", updated.year.map(String.init) ?? "0"),
+            .trackNumber: ("track", updated.trackNumber.map(String.init) ?? "0"),
+            .discNumber: ("disc", updated.discNumber.map(String.init) ?? "0"),
+        ]
+        let values = Dictionary(uniqueKeysWithValues: writable.compactMap { mapping[$0] }.map { ($0.key, $0.value) })
+        // apply 可能已成功而回读失败；两种结果都必须淘汰旧音频字节。
+        defer { invalidateTagAudioCache(path: original.filePath) }
+        do {
+            let confirmed = try await perform { try await $0.setTags(id: id, values: values) }
+            let failure = SynologyAudioStationError.invalidResponse.localizedDescription
+            for field in writable {
+                guard let expected = mapping[field] else { continue }
+                let matched = confirmed[expected.key] == expected.value
+                result.fieldResults.append(.init(field: field, disposition: matched ? .written : .failed(failure)))
+                if matched { result.metadataWritten = true }
+                else if !result.errors.contains(failure) { result.errors.append(failure) }
+            }
+        } catch {
+            let message = error.localizedDescription
+            result.errors.append(message)
+            result.fieldResults += writable.map { .init(field: $0, disposition: .failed(message)) }
+        }
+        return result
+    }
+
+    func removeLyrics(for song: Song) async -> MediaServerWritebackResult {
+        MediaServerWritebackResult(unsupported: [String(localized: "metadata_writeback_error_unsupported")])
+    }
+
+    private func invalidateTagAudioCache(path: String) {
+        completeFileDownloads.removeValue(forKey: path)?.task.cancel()
+        let cache = audioCacheDirectory.appendingPathComponent(
+            CacheFileNamePolicy.make(path: path, preferredExtension: (path as NSString).pathExtension)
+        )
+        try? FileManager.default.removeItem(at: cache)
     }
 
     // MARK: - 工具

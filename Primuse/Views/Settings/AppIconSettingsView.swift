@@ -56,6 +56,7 @@ struct AppIconPickerGrid: View {
                     .foregroundStyle(isSelected ? Color.accentColor : .primary)
                     .lineLimit(1)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         // 挂在单个格子上：选中描边与文字颜色只跟这一格的选中态走。

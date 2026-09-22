@@ -322,6 +322,11 @@ struct PlaylistDetailView: View {
                 )
                 .padding(.horizontal)
 
+                if hasSongsFromUnreachableSources {
+                    unreachableSongsNotice
+                        .padding(.horizontal)
+                }
+
                 if supportsAlwaysDownload {
                     alwaysDownloadControl
                         .padding(.horizontal)
@@ -383,80 +388,94 @@ struct PlaylistDetailView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button {
-                        showArtworkEditor = true
-                    } label: {
-                        Label("artwork_edit", systemImage: "photo.badge.plus")
+                    // 最常用的三个排成顶部一行。队列两项用同一份可播放曲目,
+                    // 文案跟歌曲行保持一致(`insert_next`,不是更长的 `up_next`)。
+                    PMMenuQuickActions {
+                        PMMenuQuickActionButton(
+                            shortKey: "insert_next_short",
+                            fullKey: "insert_next",
+                            systemImage: "text.line.first.and.arrowtriangle.forward"
+                        ) {
+                            player.insertNextInQueue(songs.filteredPlayable())
+                        }
+                        .disabled(songs.filteredPlayable().isEmpty)
+
+                        PMMenuQuickActionButton(
+                            shortKey: "add_to_queue_short",
+                            fullKey: "add_to_queue",
+                            systemImage: "text.line.last.and.arrowtriangle.forward"
+                        ) {
+                            player.appendToQueue(songs.filteredPlayable())
+                        }
+                        .disabled(songs.filteredPlayable().isEmpty)
+
+                        Button {
+                            if selection.isActive {
+                                selection.deactivate()
+                            } else {
+                                selection.activate()
+                            }
+                        } label: {
+                            Label(selection.isActive ? "done" : "batch_select",
+                                  systemImage: "checkmark.circle")
+                        }
+                        .disabled(songs.isEmpty)
                     }
 
-                    Button {
-                        if selection.isActive {
-                            selection.deactivate()
-                        } else {
-                            selection.activate()
+                    Section {
+                        // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
+                        // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
+                        if allowsPlaylistRemoval {
+                            Button {
+                                // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
+                                // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
+                                displaySortRawValue = ""
+                                showReorderSheet = true
+                            } label: {
+                                Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
+                            }
+                            .disabled(songs.count < 2)
                         }
-                    } label: {
-                        Label(selection.isActive ? "done" : "batch_select",
-                              systemImage: "checkmark.circle")
+                        Button {
+                            showArtworkEditor = true
+                        } label: {
+                            Label("artwork_edit", systemImage: "photo.badge.plus")
+                        }
+                        Button {
+                            startPlaylistScrape()
+                        } label: {
+                            Label("scrape_missing_metadata", systemImage: "wand.and.stars")
+                        }
+                        .disabled(songs.isEmpty || scraperService.isScraping)
+                        if let target = playlistServerMediaShareTarget {
+                            Button {
+                                serverMediaShareTarget = target
+                            } label: {
+                                Label("server_share_action", systemImage: "link.badge.plus")
+                            }
+                        }
+                        Button {
+                            showExportFormats = true
+                        } label: {
+                            Label("export", systemImage: "square.and.arrow.up")
+                        }
                     }
-                    .disabled(songs.isEmpty)
 
-                    // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
-                    // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
-                    if allowsPlaylistRemoval {
-                        Button {
-                            // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
-                            // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
-                            displaySortRawValue = ""
-                            showReorderSheet = true
-                        } label: {
-                            Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
-                        }
-                        .disabled(songs.count < 2)
-                    }
-                    Button {
-                        player.appendToQueue(songs.filteredPlayable())
-                    } label: {
-                        Label("add_to_queue", systemImage: "text.line.last.and.arrowtriangle.forward")
-                    }
-                    .disabled(songs.filteredPlayable().isEmpty)
-                    Button {
-                        player.insertNextInQueue(songs.filteredPlayable())
-                    } label: {
-                        Label("up_next", systemImage: "text.line.first.and.arrowtriangle.forward")
-                    }
-                    .disabled(songs.filteredPlayable().isEmpty)
-                    Button {
-                        startPlaylistScrape()
-                    } label: {
-                        Label("scrape_missing_metadata", systemImage: "wand.and.stars")
-                    }
-                    .disabled(songs.isEmpty || scraperService.isScraping)
-                    if let target = playlistServerMediaShareTarget {
-                        Button {
-                            serverMediaShareTarget = target
-                        } label: {
-                            Label("server_share_action", systemImage: "link.badge.plus")
-                        }
-                    }
-                    Button {
-                        showExportFormats = true
-                    } label: {
-                        Label("export", systemImage: "square.and.arrow.up")
-                    }
                     if canDeletePlaylist(playlist.id) {
-                        Divider()
-                        Button(role: .destructive) {
-                            deleteCurrentPlaylist()
-                        } label: {
-                            Label("delete_playlist", systemImage: "trash")
+                        Section {
+                            Button(role: .destructive) {
+                                deleteCurrentPlaylist()
+                            } label: {
+                                Label("delete_playlist", systemImage: "trash")
+                            }
                         }
                     } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
-                        Divider()
-                        Button {
-                            hideCurrentPlaylist()
-                        } label: {
-                            Label("hide_playlist_from_primuse", systemImage: "eye.slash")
+                        Section {
+                            Button {
+                                hideCurrentPlaylist()
+                            } label: {
+                                Label("hide_playlist_from_primuse", systemImage: "eye.slash")
+                            }
                         }
                     }
                 } label: {
@@ -574,6 +593,44 @@ struct PlaylistDetailView: View {
             .disabled(songs.filteredPlayable().isEmpty)
             .accessibilityLabel(Text("offline_download"))
         }
+    }
+
+    /// The set is empty on a network that reaches everything, so the scan only
+    /// runs during an outage.
+    private var hasSongsFromUnreachableSources: Bool {
+        let unreachable = sourceManager.unreachablePlaybackSourceIDs
+        guard !unreachable.isEmpty else { return false }
+        return storedSongs.contains { unreachable.contains($0.sourceID) }
+    }
+
+    private var unreachableSongsNotice: some View {
+        let offersOfflineHint = supportsAlwaysDownload
+            && !AppServices.shared.alwaysDownload.isEnabled(for: playlist.id)
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "wifi.slash")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("playlist_unreachable_notice")
+                if offersOfflineHint {
+                    Text(verbatim: String(
+                        format: String(localized: "playlist_unreachable_offline_hint_format"),
+                        String(localized: "playlist_always_download")
+                    ))
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(
+            Color.orange.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .accessibilityElement(children: .combine)
     }
 
     private var alwaysDownloadControl: some View {
@@ -748,6 +805,10 @@ struct PlaylistDetailView: View {
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {
                     LibraryReviewSection(subject: .playlist(playlist.id))
+
+                    if hasSongsFromUnreachableSources {
+                        unreachableSongsNotice
+                    }
 
                     if supportsAlwaysDownload {
                         alwaysDownloadControl

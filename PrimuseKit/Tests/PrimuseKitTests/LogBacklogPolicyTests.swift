@@ -94,3 +94,69 @@ struct LogDuplicateCoalescerTests {
         #expect(coalescer.flush().isEmpty)
     }
 }
+
+@Suite("Diagnostic logging policy")
+struct DiagnosticLoggingPolicyTests {
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    @Test("Turning on stores an expiry, clamped to the allowed hours")
+    func enabling() {
+        let hours = DiagnosticLoggingPolicy.resolve(request: "6", storedExpiry: nil, now: now)
+        #expect(hours.isActive)
+        #expect(hours.change == .enabled(until: now.addingTimeInterval(6 * 3600)))
+
+        let fallback = DiagnosticLoggingPolicy.resolve(request: "on", storedExpiry: nil, now: now)
+        #expect(fallback.expiresAt == now.addingTimeInterval(24 * 3600))
+
+        let clamped = DiagnosticLoggingPolicy.resolve(request: "999", storedExpiry: nil, now: now)
+        #expect(clamped.expiresAt == now.addingTimeInterval(72 * 3600))
+        let floor = DiagnosticLoggingPolicy.resolve(request: "-5", storedExpiry: nil, now: now)
+        #expect(floor.expiresAt == now.addingTimeInterval(3600))
+    }
+
+    @Test("A stored window survives relaunches until it expires")
+    func storedWindow() {
+        let later = now.addingTimeInterval(3600)
+        let running = DiagnosticLoggingPolicy.resolve(request: nil, storedExpiry: later, now: now)
+        #expect(running.isActive)
+        #expect(running.change == .unchanged)
+
+        let expired = DiagnosticLoggingPolicy.resolve(request: "", storedExpiry: now, now: now)
+        #expect(!expired.isActive)
+        #expect(expired.change == .expired)
+    }
+
+    @Test("Turning off only reports a change when something was on")
+    func disabling() {
+        let later = now.addingTimeInterval(3600)
+        #expect(DiagnosticLoggingPolicy.resolve(request: "off", storedExpiry: later, now: now)
+            == .init(expiresAt: nil, change: .disabled))
+        #expect(DiagnosticLoggingPolicy.resolve(request: " OFF ", storedExpiry: nil, now: now)
+            == .init(expiresAt: nil, change: .unchanged))
+        #expect(!DiagnosticLoggingPolicy.resolve(request: "0", storedExpiry: later, now: now).isActive)
+        #expect(DiagnosticLoggingPolicy.resolve(request: nil, storedExpiry: nil, now: now)
+            == .init(expiresAt: nil, change: .unchanged))
+    }
+
+    @Test("Standard limits keep the previous behaviour; diagnostic limits are larger")
+    func limits() {
+        let standard = DiagnosticLoggingPolicy.limits(isActive: false)
+        #expect(standard.maxFileBytes == 10_000_000)
+        #expect(standard.rotatedGenerations == 1)
+        #expect(standard.backlogLimit == LogBacklogPolicy.maximumPendingEntries)
+        let diagnostic = DiagnosticLoggingPolicy.limits(isActive: true)
+        #expect(diagnostic.maxFileBytes > standard.maxFileBytes)
+        #expect(diagnostic.rotatedGenerations > standard.rotatedGenerations)
+        #expect(diagnostic.backlogLimit > standard.backlogLimit)
+    }
+
+    @Test("Rotation shifts from the oldest generation towards the current file")
+    func rotationMoves() {
+        let one = DiagnosticLoggingPolicy.rotationMoves(generations: 1)
+        #expect(one == [.init(from: 0, to: 1)])
+        let three = DiagnosticLoggingPolicy.rotationMoves(generations: 3)
+        #expect(three == [.init(from: 2, to: 3), .init(from: 1, to: 2), .init(from: 0, to: 1)])
+        let zero = DiagnosticLoggingPolicy.rotationMoves(generations: 0)
+        #expect(zero == one)
+    }
+}

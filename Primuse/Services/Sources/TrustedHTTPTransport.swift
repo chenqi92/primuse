@@ -19,6 +19,19 @@ enum TrustedHTTPTransportError: LocalizedError, Equatable {
 /// for public hosts the user explicitly approved. Local HTTP and all HTTPS
 /// requests remain on URLSession.
 enum TrustedHTTPTransport {
+    /// Login protocols must capture every Set-Cookie before following a
+    /// redirect. The supplied session must also reject automatic redirects.
+    static func dataWithoutRedirects(
+        for request: URLRequest, session: URLSession, maxBytes: Int
+    ) async throws -> (Data, URLResponse) {
+        guard let url = request.url else { throw URLError(.badURL) }
+        if requiresPlainSocket(for: url) {
+            _ = try await trustedPublicHTTPHost(for: url)
+            return try await PlainHTTPClient.data(for: request, maxBytes: maxBytes)
+        }
+        return try await boundedSessionData(for: request, session: session, maxBytes: maxBytes)
+    }
+
     static func requiresPlainSocket(for url: URL) -> Bool {
         InsecureHTTPHostPolicy.requiresExplicitTrust(for: url)
     }

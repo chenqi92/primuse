@@ -1532,8 +1532,14 @@ public enum PrimuseConstants {
     /// extracted-from-video files with non-standard atom layout). Audio
     /// MP4 files should use `.m4a`. Including `.mp4` here led to mid-stream
     /// PCM decode errors that auto-skipped 25%+ of cloud-drive scans.
+    ///
+    /// `.m4b` is the same ISO base-media container as `.m4a` — audiobooks and
+    /// spoken-word recordings are simply tagged with it — so it is carried as
+    /// an `AudioFormat.m4a` alias rather than as a format of its own. Every
+    /// decoder, cache-name and metadata-parser decision then keeps using the
+    /// extension that is already proven on all three platforms.
     public static let supportedAudioExtensions: Set<String> = [
-        "mp3", "aac", "m4a", "flac", "wav", "wave", "aiff", "aif", "au", "snd", "caf", "alac",
+        "mp3", "aac", "m4a", "m4b", "flac", "wav", "wave", "aiff", "aif", "au", "snd", "caf", "alac",
         "ape", "dsf", "dff", "ogg", "oga", "opus", "wma", "asf", "wv", "dts", "dtshd", "dts-hd",
         "ac3", "eac3", "ec3", "mlp", "truehd", "thd", "amr", "awb",
         "atrac", "oma", "aa3", "at3", "tak", "tta", "mpc", "mpp", "shn", "speex", "spx", "qoa"
@@ -1731,6 +1737,16 @@ public enum ServerRadioReconciliationPolicy {
                     serverStationID: serverStationID
                 ))
             }
+    }
+
+    /// 服务端下架的镜像留墓碑挡住快照复活,但不必永远留:镜像每次对账都从服务端
+    /// 重新推出来,真被旧快照带回来也会在下一次对账时再被删掉。SHOUTcast 这种按收听
+    /// 人数排的目录天天有台进出,墓碑不清就一直涨。
+    public static let mirrorTombstoneRetention: TimeInterval = 30 * 24 * 60 * 60
+
+    public static func shouldPurgeMirrorTombstone(deletedAt: Date?, now: Date) -> Bool {
+        guard let deletedAt else { return false }
+        return now.timeIntervalSince(deletedAt) > mirrorTombstoneRetention
     }
 }
 
@@ -3127,11 +3143,14 @@ public enum MetadataBackfillEligibilityPolicy {
         hasAlbumTitle: Bool = false,
         hasAlbumArtist: Bool = true,
         albumArtistChecked: Bool = true,
+        albumArtistUnconfirmed: Bool = false,
         hasArtist: Bool = true,
         artistChecked: Bool = true
     ) -> MetadataBackfillWorkReasons {
         if restrictToBareRows, duration > 0 || durationInspectionComplete {
-            return []
+            // 裸行源读完一遍就收手 —— 唯独整库判定说这一行的专辑艺术家定不了
+            // 案时例外。那一笔带自己的一次性登记, 不会把裸行源拖回每轮重读。
+            return hasAlbumTitle && albumArtistUnconfirmed ? [.albumArtist] : []
         }
         var reasons: MetadataBackfillWorkReasons = []
         if duration <= 0 && !durationInspectionComplete {
@@ -3143,7 +3162,13 @@ public enum MetadataBackfillEligibilityPolicy {
         if !titleChecked {
             reasons.insert(.title)
         }
-        if hasAlbumTitle && !hasAlbumArtist && !albumArtistChecked {
+        // A stored album artist can be the per-track fallback rather than a tag
+        // the source ever supplied, and `albumArtistChecked` is set by any pass
+        // that read the file for some other reason. Together they make one pass
+        // that missed ALBUMARTIST permanent. `albumArtistUnconfirmed` is the
+        // caller's library-wide verdict that this row's value settles nothing;
+        // it carries its own one-shot marker, so it cannot loop.
+        if hasAlbumTitle && ((!hasAlbumArtist && !albumArtistChecked) || albumArtistUnconfirmed) {
             reasons.insert(.albumArtist)
         }
         if !hasArtist && !artistChecked {
@@ -3163,6 +3188,7 @@ public enum MetadataBackfillEligibilityPolicy {
         hasAlbumTitle: Bool = false,
         hasAlbumArtist: Bool = true,
         albumArtistChecked: Bool = true,
+        albumArtistUnconfirmed: Bool = false,
         hasArtist: Bool = true,
         artistChecked: Bool = true
     ) -> Bool {
@@ -3177,6 +3203,7 @@ public enum MetadataBackfillEligibilityPolicy {
             hasAlbumTitle: hasAlbumTitle,
             hasAlbumArtist: hasAlbumArtist,
             albumArtistChecked: albumArtistChecked,
+            albumArtistUnconfirmed: albumArtistUnconfirmed,
             hasArtist: hasArtist,
             artistChecked: artistChecked
         ).isEmpty
@@ -3263,7 +3290,23 @@ public enum MetadataReadingMode: String, CaseIterable, Sendable {
     /// "暂停自动读取"而停在零并发上。暂停在那里按最保守的读取档位执行。
     public var resolvedForExplicitWork: Self { self == .paused ? .energySaving : self }
 
-    public static func resolve(storedValue: String?, legacyFastEnabled: Bool) -> Self {
+    /// 档位选择只对要操心发热、耗电和后台配额的设备有意义。Mac 一直插着电、
+    /// 散热余量也够, 读取速度不该让用户自己权衡: 桌面端不显示这个选择, 固定
+    /// 按全速跑。播放中、高温和低电量下的自动降速仍然照常生效。
+    public static var offersUserSelection: Bool {
+        #if os(macOS)
+        false
+        #else
+        true
+        #endif
+    }
+
+    public static func resolve(
+        storedValue: String?,
+        legacyFastEnabled: Bool,
+        offersUserSelection: Bool = Self.offersUserSelection
+    ) -> Self {
+        guard offersUserSelection else { return .fast }
         if let storedValue, let mode = Self(rawValue: storedValue) { return mode }
         return legacyFastEnabled ? .fast : .automatic
     }
@@ -3335,7 +3378,7 @@ public struct MetadataReadingDeviceProfile: Sendable, Equatable {
                     physicalMemory: ProcessInfo.processInfo.physicalMemory)
     }
 
-    public func maximumWorkers(offlineSource: Bool) -> Int {
+    public func maximumWorkers(offlineSource: Bool, pooledHTTPRemoteSource: Bool = false) -> Int {
         let gib: UInt64 = 1_024 * 1_024 * 1_024
         // These are conservative admission limits, not a CPU benchmark. Leave
         // room for rendering/playback and bound tag plus artwork allocations;
@@ -3360,7 +3403,12 @@ public struct MetadataReadingDeviceProfile: Sendable, Equatable {
         let processors = max(1, activeProcessorCount - reservedProcessors)
         let memory = max(1, Int(clamping: physicalMemory / memoryPerWorker))
         // Remote reads also compete for one source's connection/rate budget.
-        return min(platformLimit, processors, memory, offlineSource ? platformLimit : 4)
+        // 走 URLSession 连接池的源(WebDAV / NAS File Station / S3)例外: 每主机
+        // 备了 8 条 keep-alive 连接, 而标签读取绝大部分时间在等网络, 4 个位留了
+        // 太多空连接。云盘与单会话协议不走这条, 见
+        // `MusicSourceType.usesPooledHTTPMetadataRangeReads`。
+        let remoteLimit = pooledHTTPRemoteSource ? 6 : 4
+        return min(platformLimit, processors, memory, offlineSource ? platformLimit : remoteLimit)
     }
 }
 
@@ -3369,6 +3417,9 @@ public struct MetadataReadingEnvironment: Sendable {
     public var lowPowerMode: Bool
     public var playbackActive: Bool
     public var offlineSource: Bool
+    /// 这一轮要读的源**全部**走 URLSession 连接池。只要混进一个 SMB 之类的
+    /// 单会话源就不成立 —— 多开的读取位会一起堵在那条串行会话上。
+    public var pooledHTTPRemoteSource: Bool
     public var device: MetadataReadingDeviceProfile
 
     public init(
@@ -3376,16 +3427,22 @@ public struct MetadataReadingEnvironment: Sendable {
         lowPowerMode: Bool = false,
         playbackActive: Bool = false,
         offlineSource: Bool = false,
+        pooledHTTPRemoteSource: Bool = false,
         device: MetadataReadingDeviceProfile = .baseline
     ) {
         self.thermalState = thermalState
         self.lowPowerMode = lowPowerMode
         self.playbackActive = playbackActive
         self.offlineSource = offlineSource
+        self.pooledHTTPRemoteSource = pooledHTTPRemoteSource
         self.device = device
     }
 
-    public static func current(playbackActive: Bool, offlineSource: Bool) -> Self {
+    public static func current(
+        playbackActive: Bool,
+        offlineSource: Bool,
+        pooledHTTPRemoteSource: Bool = false
+    ) -> Self {
         let thermal: MetadataReadingThermalState = switch ProcessInfo.processInfo.thermalState {
         case .nominal: .nominal
         case .fair: .fair
@@ -3399,7 +3456,8 @@ public struct MetadataReadingEnvironment: Sendable {
         let lowPower = false
         #endif
         return Self(thermalState: thermal, lowPowerMode: lowPower,
-                    playbackActive: playbackActive, offlineSource: offlineSource, device: .current)
+                    playbackActive: playbackActive, offlineSource: offlineSource,
+                    pooledHTTPRemoteSource: pooledHTTPRemoteSource, device: .current)
     }
 }
 
@@ -3490,7 +3548,10 @@ public enum MetadataBackfillExecutionPolicy {
                 snapshotPassLimit: 0
             )
         }
-        let ceiling = environment.device.maximumWorkers(offlineSource: offline)
+        let ceiling = environment.device.maximumWorkers(
+            offlineSource: offline,
+            pooledHTTPRemoteSource: environment.pooledHTTPRemoteSource
+        )
         let automatic = offline ? min(4, (ceiling + 2) / 2) : min(3, (ceiling + 1) / 2)
         var workers = preference == .fast ? ceiling : min(ceiling, automatic)
         var delay: TimeInterval = 0
@@ -5263,6 +5324,17 @@ public enum NowPlayingPlayerLayoutMode: Equatable, Sendable {
 /// layout; squeezing the portrait stack below a phone's short edge clips the
 /// volume/footer rows and places metadata under the sensor housing.
 public enum NowPlayingPlayerLayoutPolicy {
+    /// Plus/Pro Max phones report a regular width class in landscape, so the
+    /// width class alone sends them into the iPad two-column composition that
+    /// is laid out for a full-height canvas. The height class is what actually
+    /// separates a phone in landscape from a tablet.
+    public static func prefersWideColumns(
+        isRegularWidth: Bool,
+        isCompactHeight: Bool
+    ) -> Bool {
+        isRegularWidth && !isCompactHeight
+    }
+
     public static func mode(
         viewportWidth: Double,
         viewportHeight: Double,

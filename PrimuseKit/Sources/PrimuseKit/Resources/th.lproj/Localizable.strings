@@ -796,6 +796,7 @@
 "source_address_alternate_section" = "ที่อยู่สำรอง";
 "source_address_section_footer" = "เว้นพอร์ตไว้ว่าง แล้ว Primuse จะหาให้เองตอนบันทึก";
 "source_address_placeholder" = "โดเมน IP หรือ URL เต็ม";
+"source_address_placeholder_vendor %@" = "โดเมน IP หรือ %@";
 "source_address_add_alternate" = "เพิ่มที่อยู่สำรอง";
 "source_address_remove" = "ลบที่อยู่นี้";
 "source_address_advanced" = "ตั้งค่าพอร์ตและการเข้ารหัสเอง";
@@ -832,3 +833,35 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "แพ็กเกจเพลงของ DSM · คลังเพลง เพลย์ลิสต์ คะแนน";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "แหล่งเพลงและข้อมูลการลงชื่อเข้าใช้";
+"send_to_tv_step_library" = "คลังเพลง";
+"send_to_tv_step_artwork" = "ภาพปก";
+"send_to_tv_step_everything" = "คลังเพลง แหล่งเพลง และข้อมูลการลงชื่อเข้าใช้";
+"send_to_tv_progress_waiting" = "กำลังรอ";
+"send_to_tv_progress_done" = "เสร็จแล้ว";
+"send_to_tv_progress_failed" = "ยังไม่เสร็จ";
+"send_to_tv_progress_preparing" = "กำลังเตรียม…";
+"send_to_tv_progress_tv_saving" = "Apple TV กำลังบันทึก…";
+"send_to_tv_progress_batch" = "กำลังส่งชุดที่ %1$@ จาก %2$@";
+"send_to_tv_progress_sending" = "กำลังส่ง %@";
+"send_to_tv_resume" = "ส่งต่อ";
+"send_to_tv_partial_saved" = "ขั้นตอนที่เสร็จแล้วบันทึกไว้ใน Apple TV แล้ว ส่งต่อเพื่อทำต่อจากจุดที่หยุดไว้";
+"ext.tv.transfer.sources" = "กำลังรับแหล่งเพลงและข้อมูลการลงชื่อเข้าใช้…";
+"ext.tv.transfer.sourcesSaved" = "บันทึกแหล่งเพลงแล้ว กำลังรอคลังเพลง…";
+"ext.tv.transfer.library" = "กำลังรับคลังเพลง…";
+"ext.tv.transfer.libraryImporting" = "กำลังนำเข้าคลังเพลง…";
+"ext.tv.transfer.librarySaved" = "นำเข้าคลังเพลงแล้ว กำลังรอภาพปก…";
+"ext.tv.transfer.artwork" = "กำลังรับภาพปก (ชุดที่ %1$@ จาก %2$@)…";
+"ext.tv.transfer.finished" = "ถ่ายโอน %@ เพลงจาก iPhone แล้ว";
+"ext.tv.transfer.failed" = "การถ่ายโอนไม่เสร็จสมบูรณ์ ลองอีกครั้งบน iPhone";
+"audio_variant_lossy_stereo" = "สเตอริโอ";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "เลือกจาก Apple Music…";
+"apple_music_pick_adding" = "กำลังเพิ่มลงคลัง…";
+"apple_music_pick_added" = "เพิ่มแล้ว %d เพลง กำลังซิงค์";
+"apple_music_pick_failed" = "เพิ่มลงคลังไม่สำเร็จ";

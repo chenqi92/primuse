@@ -219,6 +219,9 @@
 "radio_batch_paste_hint" = "Один поток URL на строку. «Имя, URL» также работает.";
 "current" = "Текущий";
 "playlist_import_create_matched_only_format" = "Создать только совпадающие (%d)";
+"playlist_import_destination_header" = "Импортировать в";
+"playlist_import_liked_footer_format" = "Совпавшие треки добавляются в «%@». Те, что уже там есть, повторно не добавляются.";
+"playlist_import_add_matched_only_format" = "Добавить только совпадающие (%d)";
 "metadata_status_state_file_unavailable" = "Файл недоступен";
 "intent_playing_album_format" = "Воспроизводю альбом %@.";
 "metadata_writeback_stage_inspect" = "проверка исходной версии";
@@ -447,6 +450,9 @@
 "yearly_sub_genres" = "Жанровый профиль";
 "metadata_status_no_retryable_work" = "Теперь песни нельзя снова поставить в очередь. Вы все равно можете перечитать отдельную строку.";
 "radio_manage_pin_top" = "Закрепить вверху";
+"radio_manage_pin_top_short" = "Наверх";
+"select_all_short" = "Выбрать все";
+"deselect_all_short" = "Снять выбор";
 "SSL Trusted Domains" = "SSL Доверенные домены";
 "no_songs_desc" = "Чтобы начать, добавьте источник музыки.";
 "Update Available" = "Доступно обновление";
@@ -482,6 +488,14 @@
 "source_diag_running" = "Проверяем соединение и готовность к сканированию...";
 "similar_empty_hint" = "Ни одна из рекомендаций Last.fm не соответствует вашей медиатеке.";
 "playback_error_source_disabled" = "Этот источник музыки отключен.";
+"playback_error_source_unreachable_format" = "«%@» недоступен в этой сети";
+"playback_error_source_unreachable_skipped_format" = "«%@» недоступен в этой сети. Его треки пропущены.";
+"song_row_source_unreachable" = "Недоступно в этой сети";
+"song_source_unreachable_alert_message" = "Этот источник музыки недоступен в текущей сети. Его треки снова можно будет воспроизвести, как только соединение восстановится. На треки, уже загруженные на это устройство, это не влияет.";
+"source_card_unreachable" = "Этот источник недоступен в текущей сети. Треки, не загруженные на это устройство, пока нельзя воспроизвести.";
+"source_card_unreachable_add_route_hint" = "Для этого источника указан только адрес в локальной сети. Отредактируйте его и добавьте публичный адрес, чтобы слушать музыку и за пределами этой сети.";
+"playlist_unreachable_notice" = "Часть треков относится к источнику, недоступному в текущей сети. Те, что не загружены на это устройство, пока нельзя воспроизвести.";
+"playlist_unreachable_offline_hint_format" = "Включите «%@»: треки загрузятся автоматически, как только источник станет доступен, и будут воспроизводиться в любой сети.";
 "error_download_failed %@" = "Не удалось загрузить: %@.";
 "search_match_fuzzy" = "Нечеткое совпадение";
 "compressor_limiter" = "Компрессор/лимитер";
@@ -558,6 +572,9 @@
 "tag_editor_field_location" = "Расположение файла";
 "ai_fetch_models" = "Выбор моделей";
 "lyrics_translation_on" = "Показывать перевод текста";
+"mac_launch_aborted_title" = "В прошлый раз запуск не завершился";
+"mac_launch_aborted_hint" = "Отправьте сведения ниже разработчику, чтобы помочь найти причину.";
+"mac_launch_copy_diagnostics" = "Скопировать сведения";
 "mac_sidebar_tools" = "Инструменты";
 "smart_sort_field" = "Сортировать по";
 "Music Sources · Small" = "Музыкальные источники · Маленькие";
@@ -735,6 +752,10 @@
 "Last 30 Days + Top" = "Последние 30 дней + Топ";
 "Scraping Sources" = "Источники поиска метаданных";
 "add_to_playlist" = "Добавить в плейлист";
+"add_to_playlist_short" = "Плейлист";
+"insert_next_short" = "Играть дальше";
+"add_to_queue_short" = "В очередь";
+"full_screen_short" = "Полный экран";
 "keyboard_shortcuts_recorder_idle_hint" = "Выберите поле ярлыка, чтобы начать запись.";
 "source_name" = "Имя";
 "ai_model_manual_placeholder" = "Выберите или введите модель.";
@@ -870,14 +891,14 @@
 "immersive_demo_lyric_09" = "Далёкий ритм не дает городу уснуть.";
 "Scrape Entire Library" = "Найти метаданные всей медиатеки";
 "diagnostics_clear_confirm" = "Удалить все отчеты?";
-"diagnostics_send_button" = "Отправить отчёты разработчику по почте";
-"diagnostics_send_privacy" = "Отправляются только записи потоков программы: собранные системой стеки вызовов при сбоях и зависаниях, а также версия приложения, модель устройства и версия системы. Никаких данных учётной записи, медиатеки, истории прослушивания, имён файлов и других личных данных.";
+"diagnostics_send_button" = "Отправить автору";
+"diagnostics_send_privacy" = "К письму будут прикреплены выбранные отчёты или журналы. Проверьте письмо перед отправкой.";
 "diagnostics_send_mail_intro %lld" = "Вложено отчётов диагностики Primuse: %lld.";
 "diagnostics_send_sent_title" = "Отчёт отправлен";
 "diagnostics_send_sent_message" = "Спасибо. Очистить отчёты, сохранённые на этом устройстве?";
 "diagnostics_send_keep" = "Оставить";
 "diagnostics_send_unavailable_title" = "Не удаётся отправить письмо";
-"diagnostics_send_unavailable_message %@" = "На этом устройстве не настроена учётная запись почты. Отчёт можно отправить на %@ кнопкой «Поделиться».";
+"diagnostics_send_unavailable_message %@" = "На устройстве не настроена почта. Поделитесь отчётом или экспортируйте журналы и отправьте их на %@.";
 "diagnostics_send_failed_title" = "Не отправлено";
 "diagnostics_send_failed_message" = "Приложению «Почта» не удалось отправить письмо. Отчёты остались на устройстве.";
 "ai_playlist_create" = "Создать плейлист";
@@ -924,6 +945,7 @@
 "Unknown halls of heaven" = "Неизвестные небесные залы";
 "output_mode_high_fidelity_desc" = "Кратчайший путь сигнала: обходит эквалайзер, динамику, реверберацию, пространственное аудио, ReplayGain, изменение скорости и кроссфейд; частота дискретизации подстраивается автоматически. Громкость по-прежнему регулируется, кроме прямого вывода DSD.";
 "output_mode_high_fidelity_confirm_title" = "Включить прямое воспроизведение высокой точности?";
+"output_mode_high_fidelity_hardware_note" = "Этот режим имеет смысл в основном с внешним ЦАП или усилителем для наушников. По Bluetooth и через встроенные динамики звук всё равно обрабатывается повторно, поэтому разница почти не слышна.";
 "metadata_status_state_source_unavailable" = "Источник недоступен";
 "ai_primuse_relay_diagnostic_credential_detail" = "Не удалось прочитать или сохранить учетные данные локального устройства. Primuse воссоздаст его в следующем тесте; подтвердите, что доступ к связке ключей доступен, если это продолжится.";
 "lyrics_editor_empty_live" = "Вводить во время прослушивания";
@@ -991,6 +1013,8 @@
 "icon_theme_13" = "Chris’s Muse";
 "icon_theme_14" = "Буква P";
 "icon_theme_15" = "Сложенная нота";
+"icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "Всплеск";
 "lyrics_editor_paste_redo" = "Начать сначала";
 "ai_recommendation_intent_description_label" = "Описание фокуса";
 "META-03 · Custom Source JSON" = "МЕТА-03 · Пользовательский источник JSON";
@@ -1065,7 +1089,6 @@
 "carplay_search_no_results" = "Нет результатов";
 "intent_playing_similar_format" = "Воспроизведение песен, похожих на %@.";
 "source_diag_summary_failed" = "Требует внимания";
-"icon_theme_6" = "Мягкая нота";
 "batch_scrape_start_failed" = "Не удалось запустить пакетное получение метаданных. Повторите попытку через некоторое время.";
 "yearly_meta_closing_sub" = "Продолжайте в том же духе · поделитесь своим отчетом";
 "greeting_evening" = "Добрый вечер";
@@ -1312,6 +1335,7 @@
 "apple_music_library_done_format" = "Песни %d · %@";
 "error_file_not_found %@" = "Файл не найден: %@";
 "apple_music_library_not_authorized" = "Apple Music не авторизован. Включите его в Настройках → Apple Music.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music не авторизован. Подключите его в источнике Apple Music в разделе «Управление источниками».";
 "offline_remove_download" = "Удалить загрузку";
 "a11y_repeat" = "Повторить";
 "lyrics_editor_timing_redo" = "Повторить строку";
@@ -1322,6 +1346,7 @@
 "This Month's Listening" = "Слушания этого месяца";
 "synology_error_invalid_url" = "Неверный адрес.";
 "apple_music_notice_notDetermined" = "Apple Music еще не подключен. Перейдите в Настройки → Apple Music, чтобы включить поиск по каталогу.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music еще не подключен. Подключите его в источнике Apple Music в разделе «Управление источниками», чтобы включить поиск по каталогу.";
 "relay_share_qr_accessibility" = "Поделиться QR-кодом ссылки";
 "yearly_card_exploration_subtitle" = "Ваше исследование";
 "spotlight_playlist_subtitle_format" = "Плейлист Primuse · Треки %d";
@@ -1379,6 +1404,7 @@
 "onboarding_guide_player_queue" = "Очередь: нажмите и удерживайте, затем перетащите, чтобы изменить порядок";
 "onboarding_guide_player_more" = "Ещё: трансляция на DLNA-устройства, таймер сна или постер с текстом песни";
 "app_icon" = "Значок приложения";
+"app_icon_dock_hint" = "macOS меняет значок в Dock только пока Primuse запущено — после выхода Dock снова показывает значок из пакета приложения.";
 "audio_output_error_set_device %d" = "Не удалось выбрать устройство вывода звука (статус = %d).";
 "ai_recommendation_scene_automatic" = "Прямо сейчас";
 "lyrics_transcription_model" = "Модель транскрипции";
@@ -1760,6 +1786,7 @@
 "cloud_err_token_save_failed" = "Не удалось сохранить токен авторизации.";
 "tag_editor_lyrics_empty_error" = "Подтвердите, следует ли удалить существующие тексты песен.";
 "crossfade_max_duration" = "Максимальная продолжительность перехода";
+"crossfade_footer" = "Когда трек доигрывает до конца, кроссфейд длится заданное выше время; при ручном переходе к следующему или предыдущему треку применяется короткий переход примерно в одну секунду. Если трек ещё не на этом устройстве и не в кэше, он начнётся без перехода. Нельзя использовать вместе с воспроизведением без пауз.";
 "ST-09 · Includes Connection Credentials" = "ST-09 · Включает учетные данные для подключения";
 "offline_download" = "Скачать";
 "theme_color_indigo" = "Индиго";
@@ -1784,7 +1811,7 @@
 "lyrics_converter_no_timing_notice" = "В исходном тексте нет временных меток, поэтому преобразование не сможет создать их автоматически.";
 "tag_editor_lyrics_format_empty" = "Пустой текст";
 "recent_searches" = "Недавние поиски";
-"github_feedback_hint" = "GitHub Issues помогает разработчику быстрее увидеть отзывы и принять меры по ним. Вы также можете оставить отзыв в обзоре App Store, хотя доставка разработчику может занять больше времени.";
+"github_feedback_hint" = "GitHub Issues помогает разработчику быстрее увидеть отзывы и принять меры по ним. Вы также можете оставить отзыв в обзоре App Store, хотя доставка разработчику может занять больше времени. В ссылке уже указаны версия и сведения об устройстве — их можно изменить перед отправкой.";
 "smart_sort_field_dateAdded" = "Дата добавления";
 "Vintage Vinyl" = "Винтажный винил";
 "immersive_demo_lyric_04" = "Каждая нота находит свой свет";
@@ -1855,6 +1882,10 @@
 "tag_editor_cover_revert" = "Сохраните оригинальную обложку.";
 "apple_music_library_idle" = "Еще не синхронизировано";
 "No matching song in your library." = "В вашей медиатеке нет подходящей песни.";
+"Which song? Tell Siri the song title." = "Какая песня? Назовите Siri название трека.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse ещё загружает медиатеку. Повторите попытку чуть позже.";
+"Your Primuse library is empty." = "Медиатека Primuse пуста.";
+"Open Primuse once, then try again." = "Откройте Primuse один раз и повторите попытку.";
 "smart_field_sourceID" = "Источник";
 "songs_column_rating" = "Рейтинг";
 "local_import_progress_preparing" = "Подготовка импорта…";
@@ -1883,6 +1914,7 @@
 "Every Minute" = "Каждую минуту";
 "Play Playlist" = "Воспроизвести плейлист";
 "batch_delete_source_files" = "Удалить исходные файлы";
+"batch_remove_group" = "Убрать и удалить";
 "ai_audio_transcription_editor_detail" = "Загрузите песню, чтобы распознать текст и время. Результаты открываются здесь для просмотра в первую очередь.";
 "intent_set_liked_title" = "Установить Понравилось";
 "Repeat One" = "Повтор одной песни";
@@ -1930,6 +1962,8 @@
 "reread_song_tags_failed" = "Невозможно прочитать теги файлов. Проверьте источник песни или формат файла.";
 "relay_share_access_mode" = "Доступ";
 "radio_priority_move_down" = "Низкий приоритет";
+"radio_priority_move_up_short" = "Вверх";
+"radio_priority_move_down_short" = "Вниз";
 "error_oauth_missing_callback" = "Обратный вызов для авторизации не получен.";
 "library_cleanup_dup_count_format" = "%d группы для проверки";
 "Resuming playback." = "Возобновление воспроизведения.";
@@ -2431,7 +2465,7 @@
 "share_choose_primuse_relay" = "Выберите службу общего доступа Primuse.";
 "fullscreen_effect_flowing_lines_subtitle" = "Развивающиеся контуры окружают произведение искусства тремя лирическими линиями.";
 "lyrics_converter_error_title" = "Ошибка преобразования текста";
-"settings_push_to_tv_footer" = "Установите Primuse на свой Apple TV и войдите в систему с той же учетной записью iCloud, чтобы увидеть здесь свою медиатеку и источники — учетные данные (пароли/токены) включены, повторно вводить нечего. Primuse загружается автоматически в фоновом режиме; нажмите «Отправьте на Apple TV прямо сейчас», чтобы обновить немедленно. К NAS, WebDAV, медиасерверам и облачным дискам Apple TV подключается сам. Реле ниже нужно только для музыки, которая хранится на этом телефоне: оно передает ее отсюда по тому же Wi-Fi. Через iCloud такая музыка не синхронизируется — отправьте ее с помощью «Перенос медиатеки из iPhone» на Apple TV.";
+"settings_push_to_tv_footer" = "Войдите на Apple TV в ту же учетную запись iCloud, чтобы увидеть эту медиатеку и ее источники — вместе с паролями. К NAS, медиасерверам и облачным дискам Apple TV подключается сам; реле нужно только для музыки на этом телефоне и источников NFSv4.";
 "library_stats_plays_suffix" = "играет";
 "Fill Missing Fields Only" = "Заполните только недостающие поля";
 "playlist_import_match_results" = "Результаты матча";
@@ -3455,7 +3489,7 @@
 "immersive_demo_lyric_07" = "Самое тихое эхо все еще может разноситься по комнате.";
 "lyrics_editor_live_hint" = "Enter привязывает начало строки к текущему времени";
 "scrobble_overall_footer" = "Отправьте историю прослушивания на Last.fm / ListenBrainz. Засчитывается после 50% or 4 сыгранных минут.";
-"settings_relay_footer" = "Если этот параметр включен, Apple TV может воспроизводить музыку, которая хранится на этом телефоне, — она ретранслируется через это устройство (источники NFS с версией NFSv4 тоже идут этим путем). Держите Primuse открытым на переднем плане и оба устройства на одном Wi-Fi.";
+"settings_relay_footer" = "Держите Primuse открытым на переднем плане и оба устройства на одном Wi-Fi. Музыку с этого телефона нужно также отправить с помощью «Перенос медиатеки из iPhone» на Apple TV.";
 "search_section_path" = "Соответствие пути";
 "reread_song_tags_completed" = "Теги файлов были прочитаны снова.";
 "scrobble_mac_session_saved" = "Сессия сохранена.";
@@ -3465,6 +3499,8 @@
 "add_to_playlist_ellipsis" = "Добавить в плейлист…";
 "rg_mode_track" = "Трек";
 "github_feedback" = "Предложения и отчеты о проблемах";
+"github_bug_report" = "Сообщить о проблеме";
+"github_feature_request" = "Запрос функции";
 "cat_nas" = "NAS";
 "cloud_authorizing_waiting" = "Ожидание, пока системный браузер вернет код авторизации…";
 "songs_view_compact" = "Компактный";
@@ -3512,7 +3548,7 @@
 "metadata_status_state_unreadable" = "Теги нечитабельны";
 "ai_primuse_relay_diagnostic_region_detail" = "Встроенный сервис недоступен для текущего региона витрины, поэтому запрос на ретрансляцию не был отправлен.";
 "Metadata Scraping" = "Поиск метаданных";
-"source_diag_advice_server_suggestion" = "Проверьте состояние сервера и повторите попытку. Если ошибка продолжает возникать, экспортируйте журналы из хранилища.";
+"source_diag_advice_server_suggestion" = "Проверьте состояние сервера и повторите попытку. Если проблема сохранится, экспортируйте журналы в разделе диагностических отчётов.";
 "Listening Stats" = "Статистика прослушивания";
 "4 Recent Covers" = "4 последних кавера";
 "URL recognized" = "URL распознан";
@@ -3548,7 +3584,6 @@
 "ai_primuse_relay_test_running" = "Проверка встроенной службы…";
 "scraper_warn_includes_cookie" = "Эта конфигурация содержит данные Cookie. Импортируйте конфигурации только от тех, кому доверяете.";
 "fullscreen_effect_typography_subtitle" = "Композиция, построенная на основе метаданных трека.";
-"icon_theme_9" = "Классический значок";
 "yearly_sub_closing" = "Спасибо и до свидания";
 "Not checked yet" = "Еще не проверено";
 "playlist_reorder" = "Изменить порядок";
@@ -3557,7 +3592,7 @@
 "share_song_information_action" = "Поделиться информацией о песне";
 "source_remove_confirm_title" = "Удалить этот источник музыки?";
 "dup_keep_newest" = "Будьте в курсе последних новостей";
-"icon_default" = "Всплеск";
+"icon_default" = "Мягкая нота";
 "relay_share_action" = "Создать ссылку с помощью Private Relay";
 "dup_mac_cleanup_action" = "Очистить дубликаты (перейти к недавно удаленным)";
 "save_then_scan_library_hint" = "Сначала сохраните, затем коснитесь источника, чтобы подключиться и отсканировать весь каталог сервера.";
@@ -4023,6 +4058,7 @@
 "source_address_alternate_section" = "Запасной адрес";
 "source_address_section_footer" = "Оставьте порт пустым — Primuse определит его при сохранении.";
 "source_address_placeholder" = "Домен, IP или полный адрес";
+"source_address_placeholder_vendor %@" = "Домен, IP или %@";
 "source_address_add_alternate" = "Добавить запасной адрес";
 "source_address_remove" = "Удалить этот адрес";
 "source_address_advanced" = "Указать порт и шифрование вручную";
@@ -4108,3 +4144,84 @@
 "audio_station_error_api_not_found_format" = "В Audio Station нет нужного интерфейса (ошибка %d).";
 "audio_station_error_server_format" = "Audio Station вернул ошибку (код %d).";
 "audio_station_error_two_factor_required" = "Для этой учётной записи включена двухэтапная проверка. Войдите в этот источник Audio Station снова и введите код подтверждения.";
+"audio_station_radio_folder_favorite" = "Избранное";
+"audio_station_radio_folder_user_defined" = "Свои радиостанции";
+
+"lyric_poster_live_fallback" = "«Фото» не приняли Live Photo — сохранено обычное изображение";
+
+"lyrics_embed_copy_header" = "Встроенные тексты песен";
+"lyrics_embed_copy_title" = "Сохранять тексты";
+"lyrics_embed_copy_hint" = "MP3, FLAC и M4A · При каждом сохранении текста песня загружается заново целиком";
+"lyrics_embed_copy_footer" = "Встроенные тексты переносятся вместе с аудиофайлом, поэтому их видят и другие плееры и устройства. Работает только для MP3, FLAC и M4A в источниках, файлы которых Primuse может заменять; для остальных песен по-прежнему используются файлы с текстом. При каждом сохранении песня загружается заново целиком. В режиме «Только в аудиофайл» новые файлы с текстом не создаются, а файл с текстом, уже лежащий рядом с песней, продолжает обновляться. При поиске метаданных для всей медиатеки тексты не встраиваются.";
+"lyrics_embed_copy_failed_format" = "Текст сохранён, но встроить его в аудиофайл не удалось: %@";
+"lyrics_embed_mode_off" = "Только в файл с текстом";
+"lyrics_embed_mode_alongside" = "В файл с текстом и аудиофайл";
+"lyrics_embed_mode_embed_only" = "Только в аудиофайл";
+"lyrics_embed_confirm_title" = "Записывать тексты в аудиофайлы?";
+"lyrics_embed_confirm_message" = "· При каждом сохранении текста песня целиком скачивается, перезаписывается и загружается обратно. Для больших файлов и облачных дисков это заметно медленнее и расходует больше трафика.\n· Дата изменения и содержимое аудиофайла меняются, поэтому папки синхронизации, программы резервного копирования и медиасерверы считают его новым файлом.\n· Перед записью Primuse проверяет, что файл не изменён в другом месте, а после записи читает его обратно, но перезапись аудиофайлов всё равно связана с риском. Сначала сделайте резервную копию медиатеки.\n· Встраивается текст с построчной синхронизацией. Многоязычные тексты, уже встроенные в MP3, заменяются им.";
+"lyrics_embed_confirm_message_embed_only" = "· В режиме «Только в аудиофайл» файл с текстом рядом с песней не создаётся, а пословная синхронизация хранится только в Primuse. Файл с текстом, уже лежащий рядом с песней, продолжает обновляться.\n· Поиск метаданных для всей медиатеки не встраивает тексты и не создаёт файлы с текстом; найденные тексты хранятся только в Primuse.";
+"tag_editor_lyrics_writeback_embedded" = "Цель проверена. Текст будет встроен в аудиофайл; файл с текстом создан не будет.";
+"tag_editor_lyrics_writeback_also_embedded" = "Текст также будет встроен в аудиофайл.";
+"search_layout_title" = "Порядок результатов поиска";
+"search_layout_footer" = "Отключённые разделы скрываются и не участвуют в поиске.";
+"search_layout_restore_default" = "Восстановить по умолчанию";
+"search_layout_move_up" = "Вверх";
+"search_layout_move_down" = "Вниз";
+"search_top_match_kind_artist" = "Исполнитель";
+"search_top_match_kind_album" = "Альбом";
+"search_top_match_kind_song" = "Песня";
+"audio_variant_lossy_stereo" = "Стерео";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Выбрать из Apple Music…";
+"apple_music_pick_adding" = "Добавление в медиатеку…";
+"apple_music_pick_added" = "Добавлено: %d, синхронизация";
+"apple_music_pick_failed" = "Не удалось добавить в медиатеку";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Безопасный режим";
+"safe_mode_hint" = "Запуск несколько раз подряд завершался сбоем, поэтому эти шаги пропущены. Отправьте диагностику разработчику.";
+"safe_mode_skipped" = "· Главный экран и анимации появления\n· Восстановление последнего воспроизведения\n· Синхронизация iCloud и фоновое сканирование\n· Рекомендации по всей медиатеке и индекс папок";
+"safe_mode_exit" = "Вернуть обычный запуск";
+"safe_mode_exit_hint" = "При следующем запуске главный экран откроется как обычно.";
+"launch_aborted_title" = "Прошлый запуск не завершился";
+"launch_aborted_hint" = "Отчёт ниже показывает, где он остановился. Отправьте его разработчику.";
+"launch_diagnostics_copy" = "Скопировать диагностику";
+"launch_diagnostics_files_hint" = "Диагностика также сохранена в «Файлы» → «На моём iPhone» → Primuse → Diagnostics.";
+
+// MARK: - Аудиокниги
+"tab_spoken_word" = "Аудиокниги";
+"spoken_word_continue_section" = "Продолжить прослушивание";
+"spoken_word_all_section" = "Все";
+"spoken_word_empty_hint" = "Здесь появятся аудиокниги, радиоспектакли, лекции и другие речевые записи.";
+"spoken_word_remaining_format" = "Осталось %@";
+"spoken_word_clear_progress" = "Сбросить позицию прослушивания";
+"mark_as_spoken_word" = "Отметить как аудиокнигу";
+"mark_as_music" = "Отметить как музыку";
+"chapters_title" = "Главы";
+"a11y_skip_backward" = "Назад на 15 секунд";
+"a11y_skip_forward" = "Вперёд на 30 секунд";
+
+"source_diag_reachability_title" = "Доступность адреса";
+"source_diag_reachability_ok" = "Узел и порт доступны.";
+"source_diag_login_title" = "Вход в службу";
+"source_diag_library_title" = "Доступ к медиатеке";
+"source_diag_waiting" = "Проверка…";
+"source_diag_skipped" = "Не выполнено из-за ошибки предыдущей проверки.";
+"source_diag_progress_format" = "Завершено проверок: %1$d из %2$d";
+"source_diag_routes_format" = "Доступные подключения в этой сети: %1$d из %2$d";
+"source_diag_cancelled" = "Проверка отменена";
+"source_diag_check_counts_format" = "Успешно: %1$d · Предупреждений: %2$d · Ошибок: %3$d · Пропущено: %4$d";
+"source_diag_resolution_title" = "Определение адреса";
+"source_diag_resolution_ok" = "Адрес службы определён.";
+"source_diag_library_ok" = "Доступ к медиатеке получен.";
+
+"diagnostics_send_all" = "Отчёты и журналы";
+"diagnostics_send_reports_only" = "Только отчёты";
+"diagnostics_send_logs_only" = "Только журналы";
+"diagnostics_feedback_attachments" = "Вложения (необязательно)";
+"diagnostics_feedback_message" = "Пожелания или предложения";
+"diagnostics_feedback_compose" = "Открыть почту";
+"diagnostics_logs_title" = "Журналы";

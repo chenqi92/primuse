@@ -1,4 +1,5 @@
 import CryptoKit
+import CoreFoundation
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -204,6 +205,11 @@ public actor SynologyAudioStationClient {
         case .failure(let failure):
             throw SynologyAudioStationAPI.error(for: failure, call: call)
         }
+    }
+
+    /// Resolve the route and discover the service before starting authentication.
+    public func prepareConnection() async throws {
+        _ = try await apiContext()
     }
 
     /// 基址与接口表在重登之间复用;只有 `invalidateSession` 才会让它们重新发现。
@@ -462,6 +468,145 @@ public actor SynologyAudioStationClient {
         guard !SynologyAudioStationAPI.isSmartPlaylistID(id) else { throw SynologyAudioStationError.operationNotPermitted }
     }
 
+    // MARK: - 电台
+
+    public func radios(
+        in container: SynologyAudioStationRadioContainer,
+        pageSize: Int = SynologyAudioStationAPI.pageSize
+    ) async throws -> [SynologyAudioStationRadio] {
+        try await radios(inContainer: container.rawValue, pageSize: pageSize)
+    }
+
+    /// 一个电台容器(或 SHOUTcast 流派)里的全部条目,按服务端顺序。总数对不上就整体失败,
+    /// 调用方不能据此删镜像。
+    public func radios(
+        inContainer container: String,
+        pageSize: Int = SynologyAudioStationAPI.pageSize
+    ) async throws -> [SynologyAudioStationRadio] {
+        guard pageSize > 0 else { throw SynologyAudioStationError.invalidResponse }
+        var values: [SynologyAudioStationRadio] = []
+        var expectedTotal: Int?
+        while true {
+            try Task.checkCancellation()
+            let page: SynologyAudioStationRadioPage = try await perform(
+                SynologyAudioStationAPI.radioListCall(container: container, offset: values.count, limit: pageSize)
+            )
+            guard page.total >= 0, page.offset == nil || page.offset == values.count,
+                  expectedTotal == nil || expectedTotal == page.total,
+                  page.radios.count <= page.total - values.count else {
+                throw SynologyAudioStationError.invalidResponse
+            }
+            expectedTotal = page.total
+            values.append(contentsOf: page.radios)
+            if values.count == page.total { return values }
+            guard page.radios.count == pageSize else { throw SynologyAudioStationError.invalidResponse }
+        }
+    }
+
+    // MARK: - 文件标签
+
+    /// Audio Station 的网页编辑器使用独立 CGI；SYNO.AudioStation.Tag 只有读取方法。
+    /// 先读取文件标签，保留未修改的字段及歌词，再从同一文件回读，避免目录索引延迟造成误判。
+    public func setTags(id: String, values: [String: String]) async throws -> [String: String] {
+        let textKeys = ["title", "artist", "album", "album_artist", "composer", "genre", "comment"]
+        let numberKeys = ["year", "track", "disc"]
+        let editable = Set(["title", "artist", "album", "genre"] + numberKeys)
+        guard SynologyAudioStationAPI.isCatalogSongID(id),
+              !SynologyAudioStationAPI.isVirtualTrackID(id),
+              !values.isEmpty, Set(values.keys).isSubset(of: editable),
+              numberKeys.allSatisfy({ key in
+                  guard let value = values[key], !value.isEmpty else { return true }
+                  return Int(value).map { $0 >= 0 } == true
+              }) else { throw SynologyAudioStationError.operationNotPermitted }
+        guard try await info().canEditTags == true else {
+            throw SynologyAudioStationError.operationNotPermitted
+        }
+        let info: SynologyAudioStationSongInfo = try await perform(SynologyAudioStationAPI.songInfoCall(id: id))
+        guard info.songs.count == 1, let song = info.songs.first, song.id == id,
+              let path = song.path, path.hasPrefix("/"), !path.contains("\0"),
+              !path.split(separator: "/").contains(".."),
+              ["mp3", "m4a", "m4b", "ogg", "flac", "aif", "aiff"].contains((path as NSString).pathExtension.lowercased()) else {
+            throw SynologyAudioStationError.operationNotPermitted
+        }
+        let audioInfos = String(decoding: try JSONSerialization.data(withJSONObject: [["path": path]]), as: UTF8.self)
+        let load = [SynologyAudioStationParameter("action", "load"), .init("audioInfos", audioInfos)]
+        let loaded = try Self.tagEditorResponse(try await tagEditorRequest(load), path: path, applying: false)
+        guard let files = loaded["files"] as? [[String: Any]], let original = files.first,
+              let lyrics = loaded["lyrics"] as? String else { throw SynologyAudioStationError.invalidResponse }
+        var payload: [String: Any] = [
+            "audioInfos": files, "lyrics": lyrics, "codePage": "SYNO_NO_CODE_PAGE_CONVERT",
+            "coverType": "original_image", "coverPath": "",
+        ]
+        for key in textKeys {
+            guard let value = original[key] as? String else { throw SynologyAudioStationError.invalidResponse }
+            payload[key] = values[key] ?? value
+        }
+        for key in numberKeys {
+            guard let value = Self.tagNumber(original[key]) else { throw SynologyAudioStationError.invalidResponse }
+            payload[key] = values[key] ?? value
+        }
+        let encoded = String(decoding: try JSONSerialization.data(withJSONObject: [payload]), as: UTF8.self)
+        _ = try Self.tagEditorResponse(try await tagEditorRequest([
+            .init("action", "apply"), .init("data", encoded),
+        ]), path: path, applying: true)
+        let confirmed = try Self.tagEditorResponse(try await tagEditorRequest(load), path: path, applying: false)
+        guard let file = (confirmed["files"] as? [[String: Any]])?.first else {
+            throw SynologyAudioStationError.invalidResponse
+        }
+        var result: [String: String] = [:]
+        for key in values.keys {
+            guard let value = numberKeys.contains(key) ? Self.tagNumber(file[key]) : file[key] as? String else {
+                throw SynologyAudioStationError.invalidResponse
+            }
+            result[key] = value
+        }
+        return result
+    }
+
+    private static func tagNumber(_ value: Any?) -> String? {
+        if let text = value as? String {
+            if text.isEmpty { return "0" }
+            return Int(text).map(String.init)
+        }
+        if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+            return number.stringValue
+        }
+        return nil
+    }
+
+    private static func tagEditorResponse(_ body: Data, path: String, applying: Bool) throws -> [String: Any] {
+        guard let json = try JSONSerialization.jsonObject(with: SynologyAudioStationAPI.normalizedBody(body)) as? [String: Any],
+              json["success"] as? Bool == true,
+              tagNumber(json["read_fail_count"]) == "0",
+              let files = json["files"] as? [[String: Any]], files.count == 1,
+              files[0]["path"] as? String == path else { throw SynologyAudioStationError.invalidResponse }
+        if applying {
+            guard let failures = json["write_fail_files"] as? [Any] else { throw SynologyAudioStationError.invalidResponse }
+            if !failures.isEmpty { throw SynologyAudioStationError.operationNotPermitted }
+        }
+        return json
+    }
+
+    private func tagEditorRequest(_ parameters: [SynologyAudioStationParameter]) async throws -> Data {
+        let session = try await currentSession()
+        let url = ProxyPrefixedBasePathPolicy.appending(
+            "webman/3rdparty/AudioStation/tagEditorUI/tag_editor.cgi", to: session.context.baseURL
+        )
+        guard let encoded = SynologyAudioStationAPI.formEncoded(parameters + [.init("_sid", session.sid)]) else {
+            throw SynologyAudioStationError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = Data(encoded.utf8)
+        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("Primuse/1.0", forHTTPHeaderField: "User-Agent")
+        // 不重放结果不明的 apply，避免再次覆盖服务端刚发生的编辑。
+        let (body, response) = try await transport.data(request)
+        try Task.checkCancellation()
+        try Self.validateStatus(response)
+        return body
+    }
+
     // MARK: - 评分与歌词
 
     /// nil 表示没评分(服务端的 0)。
@@ -648,5 +793,150 @@ extension SynologyAudioStationSong {
 
     private static func digest(_ value: String) -> String {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+// MARK: - 歌单镜像
+
+/// 一份服务端歌单在本地只读镜像里的样子。iPhone、Mac 的连接器与电视端共用这一份
+/// 规则,同一份服务端歌单在三端得出同样的镜像 id 与曲目。
+public struct SynologyAudioStationPlaylistMirror: Equatable, Sendable {
+    public let id: String
+    public let name: String
+    /// 服务端顺序;尚未入库的条目(id 是 NAS 路径)匹配不到任何一首歌,已经去掉。
+    public let trackIDs: [String]
+}
+
+public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
+    public let playlists: [SynologyAudioStationPlaylistMirror]
+    /// 出现在歌单列表里、但这次没能取全曲目的歌单(镜像 id)。调用方要保留它们
+    /// 已有的镜像,不能当成服务端已删除。
+    public let failedPlaylistIDs: Set<String>
+
+    /// Audio Station 的歌单 id 里带着名字与斜杠(`playlist_personal_normal/开车`)。
+    /// 镜像身份只用它的摘要,本地歌单 id 里不出现任意文字。
+    public static func mirrorID(for serverPlaylistID: String) -> String {
+        let digest = SHA256.hash(data: Data(serverPlaylistID.utf8))
+        return "as-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 歌单列表取不到就整体失败;某一份歌单的曲目取不到只记进 `failedPlaylistIDs`,
+    /// 不影响其他歌单。取数由调用方传入:iPhone 端的每次请求要经过自己的
+    /// QuickConnect 路线失效处理。
+    public static func collect(
+        playlists: @Sendable () async throws -> [SynologyAudioStationPlaylist],
+        trackIDs: @Sendable (String) async throws -> [String]
+    ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
+        var mirrors: [SynologyAudioStationPlaylistMirror] = []
+        var failed: Set<String> = []
+        for playlist in try await playlists() {
+            try Task.checkCancellation()
+            let mirrorID = mirrorID(for: playlist.id)
+            do {
+                let ids = try await trackIDs(playlist.id).filter(SynologyAudioStationAPI.isCatalogSongID)
+                mirrors.append(SynologyAudioStationPlaylistMirror(id: mirrorID, name: playlist.name, trackIDs: ids))
+            } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                throw CancellationError()
+            } catch {
+                failed.insert(mirrorID)
+            }
+        }
+        return SynologyAudioStationPlaylistMirrorSnapshot(playlists: mirrors, failedPlaylistIDs: failed)
+    }
+}
+
+extension SynologyAudioStationClient {
+    /// 直接用这个客户端取数的镜像快照(电视端)。
+    public func playlistMirrorSnapshot() async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
+        try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+            playlists: { try await self.playlists() },
+            trackIDs: { try await self.playlistTrackIDs(id: $0) }
+        )
+    }
+
+    public func radioMirrors() async throws -> [SynologyAudioStationRadioMirror] {
+        try await SynologyAudioStationRadioMirror.collect(radios: { try await self.radios(inContainer: $0) })
+    }
+}
+
+// MARK: - 电台镜像
+
+/// Audio Station「INTERNET 广播」里的一个台:收藏的、自己添加的,或 SHOUTcast 某个流派里的。
+public struct SynologyAudioStationRadioMirror: Equatable, Sendable {
+    /// 由 NAS 上存的地址派生:服务端 id 里带着名字,改名就会变。
+    public let id: String
+    public let name: String
+    /// NAS 上存的地址,SHOUTcast 的台是 `.pls` 包装,播放时再拆。
+    public let url: String
+    public let folder: SynologyAudioStationRadioFolder
+
+    /// 流派并发读取的上限:DSM 每读一个流派都要现去问 SHOUTcast,逐个读要几十秒。
+    static let genreConcurrency = 4
+
+    public static func mirrorID(forStationURL url: String) -> String? {
+        guard let key = RadioImportParser.streamIdentityKey(url) else { return nil }
+        let digest = SHA256.hash(data: Data(key.utf8))
+        return "as-" + digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 依次收集「我收藏的广播」「用户定义的广播」与 SHOUTcast 各流派(服务端顺序);
+    /// 同一个地址出现多次时只留第一次。没有可用地址的条目、流派里再套的目录跳过。
+    /// 任何一个容器或流派取不到就整体失败 —— 残缺的列表会让缺掉的那部分被当成服务端已删。
+    public static func collect(
+        radios: @escaping @Sendable (String) async throws -> [SynologyAudioStationRadio]
+    ) async throws -> [SynologyAudioStationRadioMirror] {
+        var groups: [(folder: SynologyAudioStationRadioFolder, radios: [SynologyAudioStationRadio])] = [
+            (.favorite, try await radios(SynologyAudioStationRadioContainer.favorite.rawValue)),
+            (.userDefined, try await radios(SynologyAudioStationRadioContainer.userDefined.rawValue)),
+        ]
+        let genres = try await radios(SynologyAudioStationRadioContainer.shoutcast.rawValue).compactMap { entry
+            -> (id: String, name: String)? in
+            guard entry.isContainer, let id = entry.id, !id.isEmpty else { return nil }
+            let name = RadioStationValidation.normalizedName(entry.title ?? "")
+            return (id, name.isEmpty ? id : name)
+        }
+        let genreRadios = try await withThrowingTaskGroup(
+            of: (index: Int, radios: [SynologyAudioStationRadio]).self
+        ) { group -> [[SynologyAudioStationRadio]] in
+            var results = Array(repeating: [SynologyAudioStationRadio](), count: genres.count)
+            var next = 0
+            while next < min(genreConcurrency, genres.count) {
+                let index = next
+                group.addTask { (index, try await radios(genres[index].id)) }
+                next += 1
+            }
+            while let finished = try await group.next() {
+                results[finished.index] = finished.radios
+                if next < genres.count {
+                    let index = next
+                    group.addTask { (index, try await radios(genres[index].id)) }
+                    next += 1
+                }
+            }
+            return results
+        }
+        for (genre, entries) in zip(genres, genreRadios) {
+            groups.append((.genre(genre.name), entries))
+        }
+
+        var mirrors: [SynologyAudioStationRadioMirror] = []
+        var seen: Set<String> = []
+        for group in groups {
+            for radio in group.radios {
+                try Task.checkCancellation()
+                guard !radio.isContainer,
+                      let url = radio.url.flatMap(RadioStationValidation.normalizedURLString),
+                      let id = mirrorID(forStationURL: url),
+                      seen.insert(id).inserted else { continue }
+                let title = RadioStationValidation.normalizedName(radio.title ?? "")
+                mirrors.append(SynologyAudioStationRadioMirror(
+                    id: id,
+                    name: title.isEmpty ? RadioImportParser.suggestedName(for: url) : title,
+                    url: url,
+                    folder: group.folder
+                ))
+            }
+        }
+        return mirrors
     }
 }

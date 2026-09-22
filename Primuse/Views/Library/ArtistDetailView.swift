@@ -18,6 +18,8 @@ struct ArtistDetailView: View {
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(CoverTintProvider.self) private var coverTints
+    @Environment(\.colorScheme) private var colorScheme
     #endif
 
     let artist: Artist
@@ -35,6 +37,22 @@ struct ArtistDetailView: View {
 
     private var songs: [Song] { library.songs(forArtist: artist.id) }
     private var playableSongs: [Song] { songs.filteredPlayable() }
+
+    #if os(iOS)
+    /// 整页底色取自艺术家头像 —— 跟头像视图回退到的是同一首歌。
+    private var artworkTintSong: Song? {
+        library.preferredArtworkSong(forArtistID: artist.id) ?? songs.first
+    }
+
+    /// 自己画页面底色的皮肤下为 nil —— 页面用皮肤的底色，不再叠封面色。
+    private var tint: LibraryDetailTintStyle? {
+        guard !skin.paintsPageBackground else { return nil }
+        return .artwork(
+            artworkTintSong.flatMap { coverTints.tint(forSongID: $0.id) },
+            colorScheme: colorScheme
+        )
+    }
+    #endif
 
     private var releaseAlbums: [Album] {
         library.visibleAlbums.filter(isPrimaryArtistAlbum).sorted(by: albumOrder)
@@ -117,6 +135,7 @@ struct ArtistDetailView: View {
             #endif
         }
         #if os(iOS)
+        .libraryDetailTint(from: artworkTintSong)
         .minimalNavigationDetail()
         .librarySearchContext {
             LibrarySearchScope(title: displayArtistName, songIDs: Set(songs.map(\.id)), kind: .artist)
@@ -294,6 +313,8 @@ struct ArtistDetailView: View {
         let heroBottomPadding = heightClass.value(24, compact: 14)
         let nameFont = heightClass.pick(Font.title2, compact: .title3)
         let nameLineLimit: Int? = heightClass.isCompact ? 2 : nil
+        // 没有封面底色(自己画底色的皮肤)时头图照旧收进黑色。
+        let heroBase = tint?.top ?? .black
 
         return VStack(alignment: .leading, spacing: blockSpacing) {
             identityLayout {
@@ -357,14 +378,20 @@ struct ArtistDetailView: View {
                 )
                 .blur(radius: 24)
                 .scaleEffect(1.16)
-                .opacity(0.72)
+                .opacity(0.78)
                 .frame(width: geometry.size.width, height: geometry.size.height)
             }
-            .background(.black)
+            .background(heroBase)
             .accessibilityHidden(true)
             .overlay {
+                // 头图往下化进整页底色, 而不是收在一块黑里 —— 页面接下去就是这个颜色,
+                // 所以看不出头图在哪儿结束。
                 LinearGradient(
-                    colors: [.black.opacity(0.12), .black.opacity(0.28), .black.opacity(0.92)],
+                    stops: [
+                        .init(color: .black.opacity(0.16), location: 0),
+                        .init(color: heroBase.opacity(0.42), location: 0.5),
+                        .init(color: heroBase, location: 1),
+                    ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -408,11 +435,7 @@ struct ArtistDetailView: View {
                 }
             }
             .songRowColumnsContainer()
-            .background(skin.cardFill(classic: .background), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(.primary.opacity(0.06), lineWidth: 0.5)
-            }
+            .libraryDetailSection(tint: tint)
             .padding(.horizontal, 20)
         }
     }
@@ -717,7 +740,12 @@ struct ArtistDetailView: View {
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 44, height: 44)
+                    #if os(iOS)
+                    // 主题色跟着正在播放的歌走, 压在本页底色上容易撞色。
+                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+                    #else
                     .background(Color.accentColor.gradient, in: RoundedRectangle(cornerRadius: 12))
+                    #endif
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("all_songs_section").font(.headline)
@@ -732,11 +760,15 @@ struct ArtistDetailView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(14)
-            .background(skin.cardFill(classic: .background), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            #if os(iOS)
+            .libraryDetailSection(tint: tint)
+            #else
+            .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.primary.opacity(0.07), lineWidth: 0.5)
             }
+            #endif
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)

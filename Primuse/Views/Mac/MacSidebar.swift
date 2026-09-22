@@ -26,6 +26,8 @@ struct MacSidebar: View {
             orderRawValue: librarySectionOrderRawValue,
             hiddenRawValue: hiddenLibrarySectionsRawValue
         )
+        // 没有有声内容时不摆这个入口。
+        .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
     }
 
     var body: some View {
@@ -123,6 +125,13 @@ struct MacSidebar: View {
                 icon: section.icon,
                 title: "sidebar_all_songs",
                 trailing: countLabel(library.visibleSongs.count)
+            )
+        case .spokenWord:
+            item(
+                route: .section(.spokenWord),
+                icon: section.icon,
+                title: section.title,
+                trailing: countLabel(library.spokenWordSongs.count)
             )
         case .albums:
             item(

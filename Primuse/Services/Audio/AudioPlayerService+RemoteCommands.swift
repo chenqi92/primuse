@@ -57,6 +57,7 @@ extension AudioPlayerService {
             return self.handleRemoteLikeCommand(event)
         }
         #endif
+        setupSpokenWordRemoteCommands()
         updateNowPlayingInfo()
     }
 

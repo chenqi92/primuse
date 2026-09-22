@@ -7,6 +7,13 @@ import PrimuseKit
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
+    /// 是否由这层自己忽略窗口安全区。
+    ///
+    /// 作为播放页里的一层时必须交给宿主（传 false）：在这里再忽略一次，扩出来的
+    /// 尺寸会被共用的 ZStack 吸收，整棵内容树跟着比窗口还高 —— 顶部那排按钮被顶出
+    /// 上边界只剩半截，底栏被推到 Dock 底下，而且回到常规全屏也不会自己复原。
+    /// 只有把这份视图当成窗口根内容用时（截图取证那条路径）才需要自己忽略。
+    var ignoresWindowSafeArea = true
     /// 退出 macOS 全屏
     var onExitFullScreen: () -> Void
     var onToggleQueue: () -> Void
@@ -86,20 +93,36 @@ struct MacImmersivePlayerView: View {
                     entrySurface(metrics: metrics)
                 }
 
-                if showsEffectPicker {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(.easeOut(duration: 0.16)) {
-                                showsEffectPicker = false
-                            }
-                        }
-                        .accessibilityHidden(true)
-                }
-
                 if showsChrome {
                     chrome(metrics: metrics)
                         .transition(.opacity)
+                }
+
+                // 遮罩压在顶栏之上：面板一开就接管整块界面，点面板之外的任何地方
+                // （包括顶栏那排按钮）都只是把它收起来。
+                if showsEffectPicker {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { closeEffectPicker() }
+                        .accessibilityHidden(true)
+
+                    // 面板贴着顶栏左边那个效果按钮展开。
+                    MacImmersiveEffectPicker(
+                        selected: effect,
+                        effects: FullscreenPlayerEffect.allCases,
+                        palette: artworkPalette,
+                        onSelect: { candidate in
+                            closeEffectPicker()
+                            selectEffect(candidate)
+                        },
+                        onClose: { closeEffectPicker() }
+                    )
+                    .padding(.top, 64)
+                    .padding(.leading, 26)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(
+                        .scale(scale: 0.96, anchor: .topLeading).combined(with: .opacity)
+                    )
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: showsChrome)
@@ -109,7 +132,7 @@ struct MacImmersivePlayerView: View {
                 if case .active = phase { revealChrome() }
             }
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: ignoresWindowSafeArea ? .all : [])
         .macPlaybackErrorFeedback()
         .environment(\.colorScheme, presentationEffect.prefersLightContent ? .light : .dark)
         .animation(.easeInOut(duration: 0.5), value: theme.colorID)
@@ -120,9 +143,7 @@ struct MacImmersivePlayerView: View {
         }
         .onExitCommand {
             if showsEffectPicker {
-                withAnimation(.easeOut(duration: 0.16)) {
-                    showsEffectPicker = false
-                }
+                closeEffectPicker()
             } else {
                 beginExitFullScreen()
             }
@@ -411,17 +432,88 @@ struct MacImmersivePlayerView: View {
         }
     }
 
+    /// 展示型效果 (标题墙 / 封面流 / 星空…) 右下角那块浮动控件。
+    ///
+    /// 排成一行而不是"进度条上、按钮下"两行:`ImmersiveGlassPill` 的底是
+    /// `Capsule`,圆角等于高度的一半,套在两行内容上两端就会鼓成两个大半圆,
+    /// 看着像一块突兀的厚板。一行之后胶囊的形状才成立,按钮也跟着 metrics
+    /// 缩放,不会在 4K 屏上显得又小又散。
     @ViewBuilder
     private func macShowcaseControlSurface(metrics: ImmersiveStageMetrics) -> some View {
         ImmersiveGlassPill(
-            horizontalPadding: metrics.s(18),
-            verticalPadding: metrics.s(8)
+            horizontalPadding: metrics.s(22),
+            verticalPadding: metrics.s(10)
         ) {
-            VStack(spacing: 0) {
-                seekBar
-                transportStrip
+            HStack(spacing: metrics.s(16)) {
+                showcaseTransport(metrics: metrics)
+
+                Text((scrubPreview ?? player.currentTime).formattedDuration)
+                    .font(.system(size: metrics.s(11), weight: .medium, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(chromeInk.opacity(0.52))
+
+                MacImmersiveScrubber(accent: seekTint) { fraction in
+                    revealChrome()
+                    player.seek(to: fraction * player.duration)
+                }
+                .frame(minWidth: metrics.s(120))
+
+                Text(player.duration.formattedDuration)
+                    .font(.system(size: metrics.s(11), weight: .medium, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(chromeInk.opacity(0.52))
             }
-            .frame(width: min(metrics.s(360), metrics.size.width * 0.36))
+            .frame(width: min(metrics.s(520), metrics.size.width * 0.44))
+        }
+    }
+
+    /// 展示型效果专用的传输键 —— 比 `transportStrip` 小一号,且尺寸跟着
+    /// metrics 走,好让它在一行胶囊里不至于把高度撑起来。
+    private func showcaseTransport(metrics: ImmersiveStageMetrics) -> some View {
+        HStack(spacing: metrics.s(10)) {
+            transportButton(
+                "backward.fill",
+                size: metrics.s(14),
+                diameter: metrics.s(34),
+                label: "a11y_previous_track"
+            ) {
+                Task { await player.previous() }
+            }
+
+            Button {
+                revealChrome()
+                player.togglePlayPause()
+            } label: {
+                ZStack {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: metrics.s(17), weight: .medium))
+                        .contentTransition(.symbolEffect(.replace))
+                        .opacity(player.isLoading ? 0 : 1)
+                    if player.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(chromeInk)
+                    }
+                }
+                .foregroundStyle(chromeInk)
+                .frame(width: metrics.s(42), height: metrics.s(42))
+                .overlay {
+                    Circle().strokeBorder(chromeInk.opacity(0.64), lineWidth: metrics.f(1.2))
+                }
+            }
+            .buttonStyle(.plain)
+            .pmPointingHand()
+            .disabled(player.isLoading)
+            .help(Text(player.isPlaying ? "a11y_pause" : "a11y_play"))
+
+            transportButton(
+                "forward.fill",
+                size: metrics.s(14),
+                diameter: metrics.s(34),
+                label: "a11y_next_track"
+            ) {
+                Task { await player.next() }
+            }
         }
     }
 
@@ -488,7 +580,7 @@ struct MacImmersivePlayerView: View {
     private var effectMenu: some View {
         Button {
             chromeTask?.cancel()
-            withAnimation(.easeOut(duration: 0.18)) {
+            pmWithAnimation(.panel) {
                 showsEffectPicker.toggle()
             }
         } label: {
@@ -506,18 +598,13 @@ struct MacImmersivePlayerView: View {
         .buttonStyle(.plain)
         .pmPointingHand()
         .fixedSize()
-        .overlay(alignment: .topLeading) {
-            if showsEffectPicker {
-                ImmersiveEffectPickerSurface(selected: effect, palette: artworkPalette) { candidate in
-                    showsEffectPicker = false
-                    selectEffect(candidate)
-                }
-                .offset(y: 42)
-                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .topLeading)))
-            }
-        }
-        .zIndex(showsEffectPicker ? 20 : 0)
         .help(Text("fullscreen_effect_settings_title"))
+    }
+
+    private func closeEffectPicker() {
+        pmWithAnimation(.panel) {
+            showsEffectPicker = false
+        }
     }
 
     private var seekBar: some View {
@@ -941,7 +1028,8 @@ struct MacImmersivePlayerView: View {
         return ImmersiveAudioSpec.line(
             format: song.fileFormat.displayName,
             sampleRate: song.sampleRate,
-            bitDepth: song.bitDepth
+            bitDepth: song.bitDepth,
+            audioVariants: song.audioVariants
         )
     }
 

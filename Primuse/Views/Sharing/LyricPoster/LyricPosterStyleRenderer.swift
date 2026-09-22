@@ -191,6 +191,12 @@ struct LyricPosterRenderContext {
 
     var showsParticles: Bool { activeEffect == .particles }
     var showsWaveform: Bool { activeEffect == .waveform }
+
+    /// 叠加装饰的颜色。浅色版面上用主色, 深色版面上用白 —— 白点子落在
+    /// 牛皮纸上是看不见的。
+    var motionDecorationTint: Color {
+        palette.isLight ? palette.accent : .white
+    }
 }
 
 // MARK: - 风格适配器
@@ -498,7 +504,7 @@ struct LyricPosterArtworkBackdrop: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     // 略微放大再缓推: 预模糊的图边缘已经发散, 不放大会露出画布底色。
-                    .scaleEffect(CGFloat(1.12 + 0.08 * context.entrance))
+                    .scaleEffect(backdropScale(context))
                     .blur(radius: context.scaled(blurRadius * 0.25), opaque: true)
                     .overlay(context.palette.deep.opacity(overlayOpacity))
             } else {
@@ -509,6 +515,12 @@ struct LyricPosterArtworkBackdrop: View {
         .frame(width: context.size.width, height: context.size.height)
         .clipped()
     }
+}
+
+/// 背景封面的缩放。入场的那一点推近之外, 再乘上"专辑缩放"动效。
+private func backdropScale(_ context: LyricPosterRenderContext) -> CGFloat {
+    let entrance = CGFloat(1.12 + 0.08 * context.entrance)
+    return entrance * context.artworkMotionScale
 }
 
 /// 颗粒质感。纯色渐变在大画布上会有明显色带, 叠一层极淡噪点就消失了。

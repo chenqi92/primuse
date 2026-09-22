@@ -151,6 +151,15 @@ struct RadioStationTests {
         #expect(!first.hasPrefix(ServerRadioStationIdentity.stationIDPrefix(sourceID: "src-b")))
     }
 
+    @Test("Server mirror tombstones are dropped after the retention window")
+    func purgesOldMirrorTombstones() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let day: TimeInterval = 24 * 60 * 60
+        #expect(!ServerRadioReconciliationPolicy.shouldPurgeMirrorTombstone(deletedAt: now - 29 * day, now: now))
+        #expect(ServerRadioReconciliationPolicy.shouldPurgeMirrorTombstone(deletedAt: now - 31 * day, now: now))
+        #expect(!ServerRadioReconciliationPolicy.shouldPurgeMirrorTombstone(deletedAt: nil, now: now))
+    }
+
     @Test("Playback state remains compatible with pre-radio snapshots")
     func decodesLegacyPlaybackState() throws {
         let data = try #require("""

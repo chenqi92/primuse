@@ -196,11 +196,11 @@ create_framework() {
   local old_dependency
   local minimum_version
 
-  if [[ "${platform}" == "MacOSX" ]]; then
-    minimum_version="14.0"
-  else
-    minimum_version="18.0"
-  fi
+  case "${platform}" in
+    MacOSX) minimum_version="14.0" ;;
+    AppleTVOS | AppleTVSimulator) minimum_version="17.0" ;;
+    *) minimum_version="18.0" ;;
+  esac
 
   rm -rf "${framework_root}"
   if [[ "${platform}" == "MacOSX" ]]; then
@@ -311,13 +311,20 @@ package_xcframeworks() {
     create_framework ios-simulator-x86_64 iPhoneSimulator "${library}"
     create_framework macos-arm64 MacOSX "${library}"
     create_framework macos-x86_64 MacOSX "${library}"
+    create_framework tvos-arm64 AppleTVOS "${library}"
+    create_framework tvos-simulator-arm64 AppleTVSimulator "${library}"
+    create_framework tvos-simulator-x86_64 AppleTVSimulator "${library}"
     merge_frameworks \
       ios-simulator-arm64 ios-simulator-x86_64 ios-simulator-universal "${library}"
     merge_frameworks macos-arm64 macos-x86_64 macos-universal "${library}"
+    merge_frameworks \
+      tvos-simulator-arm64 tvos-simulator-x86_64 tvos-simulator-universal "${library}"
 
     create_dsym ios-arm64 "${library}"
     create_dsym ios-simulator-universal "${library}"
     create_dsym macos-universal "${library}"
+    create_dsym tvos-arm64 "${library}"
+    create_dsym tvos-simulator-universal "${library}"
 
     xcodebuild -create-xcframework \
       -framework "${BUILD_ROOT}/frameworks/ios-arm64/${library}.framework" \
@@ -326,6 +333,10 @@ package_xcframeworks() {
       -debug-symbols "${BUILD_ROOT}/dSYMs/ios-simulator-universal/${library}.framework.dSYM" \
       -framework "${BUILD_ROOT}/frameworks/macos-universal/${library}.framework" \
       -debug-symbols "${BUILD_ROOT}/dSYMs/macos-universal/${library}.framework.dSYM" \
+      -framework "${BUILD_ROOT}/frameworks/tvos-arm64/${library}.framework" \
+      -debug-symbols "${BUILD_ROOT}/dSYMs/tvos-arm64/${library}.framework.dSYM" \
+      -framework "${BUILD_ROOT}/frameworks/tvos-simulator-universal/${library}.framework" \
+      -debug-symbols "${BUILD_ROOT}/dSYMs/tvos-simulator-universal/${library}.framework.dSYM" \
       -output "${OUTPUT_DIR}/${library}.xcframework"
   done
 }
@@ -337,6 +348,11 @@ main() {
   configure_and_build ios-simulator-x86_64 iphonesimulator x86_64 -mios-simulator-version-min=18.0
   configure_and_build macos-arm64 macosx arm64 -mmacosx-version-min=14.0
   configure_and_build macos-x86_64 macosx x86_64 -mmacosx-version-min=14.0
+  # Apple TV has no system decoder for WMA, DTS, TrueHD, ATRAC and friends
+  # either, so the tvOS app links the same LGPL runtime.
+  configure_and_build tvos-arm64 appletvos arm64 -mtvos-version-min=17.0
+  configure_and_build tvos-simulator-arm64 appletvsimulator arm64 -mtvos-simulator-version-min=17.0
+  configure_and_build tvos-simulator-x86_64 appletvsimulator x86_64 -mtvos-simulator-version-min=17.0
   package_xcframeworks
   cp "${SOURCE_DIR}/COPYING.LGPLv2.1" \
     "${PROJECT_DIR}/Primuse/ThirdParty/FFmpeg/COPYING.LGPLv2.1"

@@ -17,12 +17,17 @@
 "longest" = "최장 감상";
 "play_count" = "%d회 재생";
 "positions_gained" = "%d위 상승";
+"positions_lost" = "%d위 하락";
+"new_entry" = "신규";
 "recent_albums" = "최근 추가한 앨범";
 "folder_display_count" = "홈에 표시할 개수";
 "manage_folders" = "디렉터리 관리 및 순서 변경";
 "no_pinned_folders" = "모두 보기에서 즐겨 듣는 디렉터리를 선택하세요.";
 "folder_ranking_scope" = "디렉터리 순위에는 현재 디렉터리가 있는 곡이 포함됩니다.";
 "folder_as_playlist" = "재생목록으로 사용";
+"pin_folder_short" = "고정";
+"unpin_folder_short" = "고정 해제";
+"folder_as_playlist_short" = "재생목록으로";
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "상위 %d위 보기";
 "collapse_ranking" = "Show Less";

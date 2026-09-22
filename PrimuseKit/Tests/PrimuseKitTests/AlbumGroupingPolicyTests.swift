@@ -100,4 +100,22 @@ struct AlbumGroupingPolicyTests {
 
         #expect(song.albumArtistName == nil)
     }
+
+    /// 源从没给过专辑艺术家时 `resolvedAlbumArtistName` 会落回曲目艺术家。
+    /// 那个值不代表任何标签, 认得出它, 后面的通道才敢把它换掉。
+    @Test("回退成曲目艺术家的专辑艺术家认得出来")
+    func fallbackAlbumArtistIsRecognized() {
+        #expect(AlbumGroupingPolicy.isTrackArtistFallback(
+            albumArtistName: "abc", trackArtistName: "ABC"
+        ))
+        #expect(!AlbumGroupingPolicy.isTrackArtistFallback(
+            albumArtistName: "Key Sounds Label", trackArtistName: "折戸伸治"
+        ))
+        #expect(!AlbumGroupingPolicy.isTrackArtistFallback(
+            albumArtistName: nil, trackArtistName: "ABC"
+        ))
+        #expect(!AlbumGroupingPolicy.isTrackArtistFallback(
+            albumArtistName: "ABC", trackArtistName: nil
+        ))
+    }
 }

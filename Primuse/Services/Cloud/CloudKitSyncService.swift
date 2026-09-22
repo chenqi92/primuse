@@ -333,7 +333,9 @@ final class CloudKitSyncService {
         // Deletion evidence must be re-seeded on every start, independently of
         // the once-per-install initial-upload flag. A delete can be created
         // while sync or the sources channel is disabled.
-        sourcesChanged(ids: sourcesStore.sourceDeletionIDs)
+        // 只补传服务器还没确认过的那一次删除: 已确认的也每次重传, 任何一台设备
+        // 启动一次, 其它设备就得把全部墓碑(实测 40 条)再收一遍。
+        sourcesChanged(ids: unacknowledgedSourceDeletionIDs())
 
         // Push existing local state once after install so the engine has a
         // baseline. After that CKSyncEngine's persisted state tracks per-record
@@ -1095,8 +1097,13 @@ final class CloudKitSyncService {
     private func enqueueRadioStationRecords(ids: [String]) {
         var active: [String] = []
         var deleted: [String] = []
+        // 服务端目录一次对账就能改动几千个台,逐个 id 线性查找是平方级的。
+        let stationsByID = Dictionary(
+            radioStationsStore.allStations.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         for id in Set(ids) {
-            guard let station = radioStationsStore.allStations.first(where: { $0.id == id }) else { continue }
+            guard let station = stationsByID[id] else { continue }
             // 订阅的排除标记虽然是墓碑，却要作为一条普通记录保存出去 —— 它得在
             // 每台设备上一直挡着清单里那一条，删掉记录就等于撤销了用户的删除。
             if station.isDeleted && !station.isSubscriptionExclusionMarker {
@@ -1714,6 +1721,9 @@ final class CloudKitSyncService {
     }
 
     private func clearSystemFieldsCache() {
+        // 服务器那边的状态不再可信(退出登录/换账号/zone 被删), 墓碑确认记录一并作废,
+        // 下次启动全部补传。
+        acknowledgedSourceTombstones = [:]
         // 待写的旧内容作废: 清空的语义是文件也一起消失, 不能被延迟写回来。
         systemFieldsPersistTask?.cancel()
         systemFieldsPersistTask = nil
@@ -1906,34 +1916,65 @@ final class CloudKitSyncService {
 
     /// 本地这条待传记录与服务器上的已逐字段相同就撤掉待传。
     private func dropPendingSaveIfServerMatches(_ server: CKRecord, syncEngine: CKSyncEngine) {
-        guard let rebuilt = makeRecord(for: server.recordID),
-              Self.recordFieldsMatch(rebuilt, server) else { return }
+        let stillPending = syncEngine.state.pendingRecordZoneChanges.contains { change in
+            guard case .saveRecord(let recordID) = change else { return false }
+            return Self.sameRecordID(recordID, server.recordID)
+        }
+        guard stillPending, let rebuilt = makeRecord(for: server.recordID) else { return }
+        let differing = Self.differingRecordKeys(rebuilt, server)
+        guard differing.isEmpty else {
+            // 只记字段名不记值: 下次抓日志就能看出是哪一类字段让重传撤不掉。
+            plog(
+                "☁️ CloudKitSync: kept pending \(server.recordType) save, "
+                    + "differing keys=\(differing.sorted().joined(separator: ","))"
+            )
+            return
+        }
         syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(server.recordID)])
     }
 
+    /// 本地记录与服务器上的有哪些字段不同; 空数组就是相同。
     /// 只比本地会写入或清空的字段, 忽略每次构造都会刷新的 `updatedAt`;
-    /// 带附件或任何一处不同都算不相同, 保留待传, 行为与原来一致。
-    nonisolated static func recordFieldsMatch(_ local: CKRecord, _ server: CKRecord) -> Bool {
+    /// 带附件算不同(保留待传, 行为与原来一致)。JSON 数据按内容比, 不看键的顺序 ——
+    /// 编码器不保证两次输出的键序一致, 逐字节比会把内容相同的记录判成不同。
+    nonisolated static func differingRecordKeys(_ local: CKRecord, _ server: CKRecord) -> [String] {
         let keys = Set(local.allKeys())
             .union(local.changedKeys())
             .subtracting(["updatedAt"])
-        guard !keys.isEmpty else { return false }
-        for key in keys {
-            let localValue = local[key]
-            let serverValue = server[key]
-            if localValue is CKAsset || serverValue is CKAsset { return false }
-            switch (localValue, serverValue) {
-            case (nil, nil):
-                continue
-            case let (lhs?, rhs?):
-                guard let lhsObject = lhs as? NSObject,
-                      let rhsObject = rhs as? NSObject,
-                      lhsObject.isEqual(rhsObject) else { return false }
-            default:
+        guard !keys.isEmpty else { return ["<no fields>"] }
+        return keys.filter { key in
+            !recordValuesMatch(local[key], server[key])
+        }
+    }
+
+    private nonisolated static func recordValuesMatch(
+        _ localValue: (any CKRecordValue)?,
+        _ serverValue: (any CKRecordValue)?
+    ) -> Bool {
+        if localValue is CKAsset || serverValue is CKAsset { return false }
+        switch (localValue, serverValue) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            if let lhsData = lhs as? Data, let rhsData = rhs as? Data {
+                return jsonDataMatch(lhsData, rhsData)
+            }
+            guard let lhsObject = lhs as? NSObject, let rhsObject = rhs as? NSObject else {
                 return false
             }
+            return lhsObject.isEqual(rhsObject)
+        default:
+            return false
         }
-        return true
+    }
+
+    private nonisolated static func jsonDataMatch(_ lhs: Data, _ rhs: Data) -> Bool {
+        if lhs == rhs { return true }
+        guard let lhsObject = try? JSONSerialization.jsonObject(with: lhs, options: [.fragmentsAllowed]) as? NSObject,
+              let rhsObject = try? JSONSerialization.jsonObject(with: rhs, options: [.fragmentsAllowed]) as? NSObject else {
+            return false
+        }
+        return lhsObject.isEqual(rhsObject)
     }
 
     fileprivate func applyRemoteDeletion(
@@ -2669,11 +2710,36 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         }
     }
 
+    /// 服务器已确认保存过的音乐源墓碑: 源 id → 那一次删除的 deletedAt。
+    private static let acknowledgedSourceTombstonesKey = "primuse.cloudSync.acknowledgedSourceTombstones"
+
+    private var acknowledgedSourceTombstones: [String: Double] {
+        get {
+            (UserDefaults.standard.dictionary(forKey: Self.acknowledgedSourceTombstonesKey) as? [String: Double]) ?? [:]
+        }
+        set { UserDefaults.standard.set(newValue, forKey: Self.acknowledgedSourceTombstonesKey) }
+    }
+
+    /// 本机的删除记录里, 哪些还没被服务器确认过「这一次」删除。重新删除(先恢复再删)
+    /// 会换一个 deletedAt, 所以同一个 id 的新删除仍会补传。
+    private func unacknowledgedSourceDeletionIDs() -> [String] {
+        let acknowledged = acknowledgedSourceTombstones
+        return sourcesStore.sourceDeletionRecords.compactMap { record in
+            guard let confirmed = acknowledged[record.id],
+                  abs(confirmed - record.deletedAt.timeIntervalSinceReferenceDate) < 1 else {
+                return record.id
+            }
+            return nil
+        }
+    }
+
     private func acknowledgeSavedSourceTombstone(_ record: CKRecord) {
         guard record.recordType == RecordType.musicSource,
               let source = decodedSource(from: record),
               MusicSourceCloudSyncPolicy.isEligible(source),
               source.isDeleted else { return }
+        acknowledgedSourceTombstones[source.id] =
+            (source.deletedAt ?? source.modifiedAt).timeIntervalSinceReferenceDate
         NotificationCenter.default.post(
             name: .primuseSourceTombstoneDidSync,
             object: nil,

@@ -1452,7 +1452,10 @@ extension CarPlaySceneDelegate {
     private func radioStationsSection() -> CPListSection {
         let stations = AppServices.shared.radioStationsStore.stations
         let player = AppServices.shared.playerService
-        let items = stations.enumerated().map { index, station -> CPListItem in
+        // 服务端目录(Audio Station 的 SHOUTcast)能镜像几千个台,列表只放得下车机允许的条数;
+        // 按优先级顺序截,用户自己排在前面的台总在。切台仍按完整顺序走。
+        let listed = stations.prefix(CPListTemplate.maximumItemCount)
+        let items = listed.enumerated().map { index, station -> CPListItem in
             let isCurrent = player.isLiveRadio && player.currentRadioStation?.id == station.id
             let detail = isCurrent
                 ? (player.radioMetadataTitle ?? station.playbackSubtitle)

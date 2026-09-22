@@ -25,12 +25,20 @@ EXACT_ICONS = [
         "13-chris-muse-tinted.png",
     ),
     (
-        "00-splash",
+        "00-soft-note",
         "AppIcon",
         "AppIconPreview",
-        "00-splash.png",
-        "00-splash-dark.png",
-        "00-splash-tinted.png",
+        "00-soft-note.png",
+        "00-soft-note-dark.png",
+        "00-soft-note-tinted.png",
+    ),
+    (
+        "16-nonoend",
+        "AppIcon16",
+        "AppIcon16Preview",
+        "16-nonoend.png",
+        "16-nonoend-dark.png",
+        "16-nonoend-tinted.png",
     ),
     (
         "14-letter-p",
@@ -57,24 +65,16 @@ EXACT_ICONS = [
         "12-pikaqiu-tinted.png",
     ),
     (
-        "06-soft-note",
-        "AppIcon6",
-        "AppIcon6Preview",
-        "06-soft-note.png",
-        "06-soft-note-dark.png",
-        "06-soft-note-tinted.png",
-    ),
-    (
-        "09-classic-record",
-        "AppIcon9",
-        "AppIcon9Preview",
-        "09-classic-record.png",
-        "09-classic-record-dark.png",
-        "09-classic-record-tinted.png",
+        "17-splash",
+        "AppIcon17",
+        "AppIcon17Preview",
+        "17-splash.png",
+        "17-splash-dark.png",
+        "17-splash-tinted.png",
     ),
 ]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon14", "AppIcon15", "AppIcon9", "AppIcon12", "AppIcon6", "AppIcon13"]
+CATALOG_ORDER = ["AppIcon", "AppIcon16", "AppIcon17", "AppIcon14", "AppIcon15", "AppIcon12", "AppIcon13"]
 
 # In-app previews render at 60–100 pt (and 512 pt@2x for the macOS Dock icon).
 PREVIEW_SIDE = 512

@@ -1116,62 +1116,6 @@ struct ListeningStatsView: View {
         plog("stats range=\(range.rawValue) days=\(timeline.dailyStats.count) activeDays=\(timeline.dailyStats.filter { $0.count > 0 }.count)")
     }
 
-    private func rankingSection(snapshot: StatsSnapshot) -> some View {
-        Section {
-            Picker("rank_by", selection: $rankTab) {
-                ForEach(RankTab.allCases, id: \.self) { tab in
-                    Text(tab.label).tag(tab)
-                }
-            }
-            .settingsAnchor("stats.rank")
-            .pickerStyle(.segmented)
-
-            let items = rankItems(snapshot: snapshot)
-            if items.isEmpty {
-                Text("stats_rank_empty").foregroundStyle(.secondary)
-            } else {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    rankingRow(rank: index + 1, item: item)
-                }
-            }
-        } header: {
-            Text("stats_top_header")
-        }
-    }
-
-    private func rankItems(snapshot: StatsSnapshot) -> [PlayHistoryStore.RankedItem] {
-        switch rankTab {
-        case .songs: return snapshot.topSongs
-        case .artists: return snapshot.topArtists
-        case .albums: return snapshot.topAlbums
-        }
-    }
-
-    private func rankingRow(rank: Int, item: PlayHistoryStore.RankedItem) -> some View {
-        HStack(spacing: 12) {
-            Text("\(rank)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(rank <= 3 ? Color.accentColor : .secondary)
-                .frame(width: 24, alignment: .leading)
-                .monospacedDigit()
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(.subheadline).lineLimit(1)
-                if !item.subtitle.isEmpty {
-                    Text(item.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(String(format: String(localized: "stats_play_count_format"), item.playCount))
-                    .font(.caption.weight(.medium))
-                    .monospacedDigit()
-                Text(formatHours(item.totalSec))
-                    .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
     private var clearSection: some View {
         Section {
             Button(role: .destructive) {
@@ -1210,6 +1154,41 @@ struct ListeningStatsView: View {
 
 #if !os(macOS)
 private extension ListeningStatsView {
+    func rankingSection(snapshot: StatsSnapshot) -> some View {
+        Section {
+            Picker("rank_by", selection: $rankTab) {
+                ForEach(RankTab.allCases, id: \.self) { tab in
+                    Text(tab.label).tag(tab)
+                }
+            }
+            .settingsAnchor("stats.rank")
+            .pickerStyle(.segmented)
+
+            let items = rankItems(snapshot: snapshot)
+            if items.isEmpty {
+                Text("stats_rank_empty").foregroundStyle(.secondary)
+            } else {
+                // 榜单的画法与首页的听歌排行共用（ListeningRankBoard.swift）。它要读曲库取
+                // 封面，而 Mac 的渲染冒烟测试是拿这个文件单独编译的，所以只在这一侧引用。
+                ListeningStatsRankList(
+                    items: items,
+                    isArtistRanking: rankTab == .artists,
+                    identity: rankTab.rawValue + "." + range.rawValue
+                )
+            }
+        } header: {
+            Text("stats_top_header")
+        }
+    }
+
+    func rankItems(snapshot: StatsSnapshot) -> [PlayHistoryStore.RankedItem] {
+        switch rankTab {
+        case .songs: return snapshot.topSongs
+        case .artists: return snapshot.topArtists
+        case .albums: return snapshot.topAlbums
+        }
+    }
+
     enum MobileActivityChart: String, CaseIterable {
         case duration, hourly
 

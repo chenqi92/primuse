@@ -796,6 +796,7 @@
 "source_address_alternate_section" = "Yedek adres";
 "source_address_section_footer" = "Bağlantı noktasını boş bırakın, Primuse kaydederken kendisi bulur.";
 "source_address_placeholder" = "Alan adı, IP veya tam URL";
+"source_address_placeholder_vendor %@" = "Alan adı, IP veya %@";
 "source_address_add_alternate" = "Yedek adres ekle";
 "source_address_remove" = "Bu adresi kaldır";
 "source_address_advanced" = "Bağlantı noktasını ve şifrelemeyi elle ayarla";
@@ -832,3 +833,35 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "DSM müzik paketi · Arşiv, çalma listeleri, puanlar";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "Kaynaklar ve oturum açma bilgileri";
+"send_to_tv_step_library" = "Arşiv";
+"send_to_tv_step_artwork" = "Kapak görselleri";
+"send_to_tv_step_everything" = "Arşiv, kaynaklar ve oturum açma bilgileri";
+"send_to_tv_progress_waiting" = "Bekliyor";
+"send_to_tv_progress_done" = "Tamamlandı";
+"send_to_tv_progress_failed" = "Tamamlanmadı";
+"send_to_tv_progress_preparing" = "Hazırlanıyor…";
+"send_to_tv_progress_tv_saving" = "Apple TV kaydediyor…";
+"send_to_tv_progress_batch" = "%2$@ gruptan %1$@. grup gönderiliyor";
+"send_to_tv_progress_sending" = "Gönderiliyor: %@";
+"send_to_tv_resume" = "Göndermeye Devam Et";
+"send_to_tv_partial_saved" = "Tamamlanan adımlar Apple TV'ye zaten kaydedildi. Kaldığı yerden sürdürmek için göndermeye devam edin.";
+"ext.tv.transfer.sources" = "Kaynaklar ve oturum açma bilgileri alınıyor…";
+"ext.tv.transfer.sourcesSaved" = "Kaynaklar kaydedildi. Arşiv bekleniyor…";
+"ext.tv.transfer.library" = "Arşiv alınıyor…";
+"ext.tv.transfer.libraryImporting" = "Arşiv içe aktarılıyor…";
+"ext.tv.transfer.librarySaved" = "Arşiv içe aktarıldı. Kapak görselleri bekleniyor…";
+"ext.tv.transfer.artwork" = "Kapak görselleri alınıyor (%2$@ gruptan %1$@.)…";
+"ext.tv.transfer.finished" = "iPhone'dan %@ şarkı aktarıldı";
+"ext.tv.transfer.failed" = "Aktarım tamamlanmadı. iPhone'da yeniden deneyin.";
+"audio_variant_lossy_stereo" = "Stereo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Apple Music’ten seç…";
+"apple_music_pick_adding" = "Kitaplığa ekleniyor…";
+"apple_music_pick_added" = "%d eklendi, eşitleniyor";
+"apple_music_pick_failed" = "Kitaplığa eklenemedi";

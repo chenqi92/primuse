@@ -6,6 +6,71 @@ import Testing
 /// 覆盖到位就等于覆盖了两套布局共同的行为。
 struct SourceAddressFormPolicyTests {
 
+    @Test func selectingHTTPUpdatesDisplayedProbedAndSavedFNAddress() async throws {
+        var draft = SourceAddressFormPolicy.AddressDraft(address: "https://192.168.0.2:5666")
+        let baseline = draft
+        draft.selectTransport(false, sourceType: .fnMusic)
+        #expect(draft.address == "http://192.168.0.2:5666")
+        #expect(SourceAddressFormPolicy.rowsRequiringProbe(drafts: [draft], baseline: [baseline]) == [true])
+        let reading = SourceAddressFormPolicy.read([draft], sourceType: .fnMusic)
+        guard case let .endpoint(row) = reading.rows[0] else {
+            Issue.record("Expected an HTTP endpoint")
+            return
+        }
+        #expect(row.displayAddress == "http://192.168.0.2")
+        #expect(row.candidates.map(\.id) == ["plain:5666"])
+        let resolver = SourceEndpointResolver { probe in
+            #expect(probe.url.scheme == "http")
+            #expect(probe.url.port == 5666)
+            return SourceServiceFingerprint.ProbeResponse(statusCode: 200)
+        }
+        let resolution = try await resolver.resolve(for: row.input, sourceType: .fnMusic, candidates: row.candidates)
+        let selected = try #require(resolution.selected)
+        let saved = SourceConnectionCandidatePlanner.endpoint(for: row.input, candidate: selected)
+        #expect(saved.host == "192.168.0.2" && saved.port == 5666 && !saved.useSsl)
+    }
+
+    @Test func transportSelectionPreservesExplicitPortAndReverseProxyPath() {
+        var draft = SourceAddressFormPolicy.AddressDraft(address: "http://[fd00::2]:8080/music/a%20b")
+        draft.selectTransport(true, sourceType: .webdav)
+        #expect(draft.address == "https://[fd00::2]:8080/music/a%20b")
+        draft.selectTransport(false, sourceType: .webdav)
+        #expect(draft.address == "http://[fd00::2]:8080/music/a%20b")
+    }
+
+    @Test func transportSelectionDoesNotInventAPortOrRewriteVendorIDs() {
+        var host = SourceAddressFormPolicy.AddressDraft(address: "nas.example.com/music")
+        host.selectTransport(false, sourceType: .fnMusic)
+        #expect(host.address == "http://nas.example.com/music")
+        guard case let .endpoint(row) = SourceAddressFormPolicy.read([host], sourceType: .fnMusic).rows[0] else {
+            Issue.record("Expected an endpoint")
+            return
+        }
+        #expect(row.input.explicitPort == nil)
+        #expect(row.candidates.allSatisfy { !$0.useSsl })
+        var vendor = SourceAddressFormPolicy.AddressDraft(address: "mynas123")
+        vendor.selectTransport(false, sourceType: .fnMusic)
+        #expect(vendor.address == "mynas123")
+        #expect(SourceAddressFormPolicy.read([vendor], sourceType: .fnMusic).placement.vendorIndex == 0)
+    }
+
+    @Test func editingAddressUpdatesAnEarlierTransportSelection() {
+        var draft = SourceAddressFormPolicy.AddressDraft(address: "https://nas.example.com:5666")
+        draft.selectTransport(false, sourceType: .fnMusic)
+        draft.editAddress("https://other.example.com:5667", sourceType: .fnMusic)
+        #expect(draft.manualUseSsl == true)
+        draft.editAddress("other.example.com:5666", sourceType: .fnMusic)
+        #expect(draft.manualUseSsl == nil)
+    }
+
+    @Test func automaticTransportKeepsTheProtocolExplicitlyWrittenInAddress() {
+        var draft = SourceAddressFormPolicy.AddressDraft(address: "https://nas.example.com:5666")
+        draft.selectTransport(false, sourceType: .fnMusic)
+        draft.selectTransport(nil, sourceType: .fnMusic)
+        #expect(draft.manualUseSsl == nil)
+        #expect(draft.address == "http://nas.example.com:5666")
+    }
+
     private func draft(_ address: String) -> SourceAddressFormPolicy.AddressDraft {
         SourceAddressFormPolicy.AddressDraft(address: address)
     }
@@ -247,6 +312,63 @@ struct SourceAddressFormPolicyTests {
         let baseline = [draft("nas.example.com")]
         let edited = [draft("nas.example.com"), draft("192.168.1.9")]
         #expect(SourceAddressFormPolicy.requiresProbe(drafts: edited, baseline: baseline))
+    }
+
+    // MARK: - 哪几行需要重新探测
+
+    /// 在外网给源补一条备用地址:动过的那一行要探,没动过的内网地址不跟着探。
+    /// 它在外网必然探不通,而那一轮既让用户白等,又会让整次保存失败。
+    @Test func onlyTheEditedRowIsProbed() {
+        let baseline = [draft("https://192.168.1.9:5001"), draft("https://old.example.com:5001")]
+        let edited = [draft("https://192.168.1.9:5001"), draft("https://nas.example.com")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: edited, baseline: baseline)
+                == [false, true]
+        )
+    }
+
+    @Test func aNewSourceProbesEveryRow() {
+        let drafts = [draft("192.168.1.9"), draft("nas.example.com")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: drafts, baseline: nil)
+                == [true, true]
+        )
+    }
+
+    /// 按签名配对而不是按下标:加一行、删一行、换顺序都不该让别的行变成「动过」。
+    @Test func rowIdentityFollowsTheAddressNotThePosition() {
+        let baseline = [draft("https://192.168.1.9:5001"), draft("https://nas.example.com:443")]
+        let appended = [
+            draft("https://192.168.1.9:5001"),
+            draft("https://nas.example.com:443"),
+            draft("mynas.example.com")
+        ]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: appended, baseline: baseline)
+                == [false, false, true]
+        )
+
+        let removed = [draft("https://nas.example.com:443")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: removed, baseline: baseline)
+                == [false]
+        )
+
+        let reordered = [draft("https://nas.example.com:443"), draft("https://192.168.1.9:5001")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: reordered, baseline: baseline)
+                == [false, false]
+        )
+    }
+
+    /// 两行写成同一个地址时只有一行算「没动过」—— 另一行确实是新填的。
+    @Test func aDuplicateRowStillCountsAsEdited() {
+        let baseline = [draft("https://nas.example.com:443")]
+        let duplicated = [draft("https://nas.example.com:443"), draft("https://nas.example.com:443")]
+        #expect(
+            SourceAddressFormPolicy.rowsRequiringProbe(drafts: duplicated, baseline: baseline)
+                == [false, true]
+        )
     }
 
     // MARK: - 回显

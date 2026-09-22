@@ -539,6 +539,7 @@ struct NowPlayingView: View {
     /// suspended until its entrance animation has actually completed.
     var isPresentationSettled = true
     var isPresentationActive = true
+    @State private var showChapterList = false
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
@@ -548,6 +549,7 @@ struct NowPlayingView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -613,6 +615,9 @@ struct NowPlayingView: View {
     @State private var scrapeTargetSong: Song?
     @State private var showAddToPlaylist = false
     @State private var shareSong: Song?
+    /// 分享页里点了「分享歌词」。海报是播放页自己的一层 sheet，要等分享页收完再弹，
+    /// 两层同时在场后一层会被系统直接丢掉。
+    @State private var presentsLyricPosterAfterShare = false
     @State private var showCastPicker = false
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
@@ -993,7 +998,18 @@ struct NowPlayingView: View {
         onMinimize?()
     }
 
-    /// 打开歌词海报。`anchorLineID` 来自长按的那一句; 从"更多"菜单进入时
+    /// 分享页打开期间可能已经换歌：海报取的是当前这首的歌词，只在分享的还是它时才给入口。
+    private func canShareLyricPoster(for song: Song) -> Bool {
+        player.currentSong?.id == song.id && !lyrics.isEmpty
+    }
+
+    private func presentLyricPosterRequestedFromShare() {
+        guard presentsLyricPosterAfterShare else { return }
+        presentsLyricPosterAfterShare = false
+        presentLyricPoster(anchorLineID: nil)
+    }
+
+    /// 打开歌词海报。`anchorLineID` 来自长按的那一句; 从分享页进入时
     /// 为 nil, 由策略按当前播放位置定位。
     /// 手选过款式就用手选的;从没选过时,用当前界面皮肤带来的那一款。
     private var initialLyricPosterStyleID: LyricPosterStyleID? {
@@ -1159,7 +1175,12 @@ struct NowPlayingView: View {
     /// 右常驻歌词。其它(iPhone / iPad 竖屏 / 分屏小窗 compact)还走原来的
     /// 上下结构,showLyrics 切歌词 / 封面模式。
     private func shouldUseWideLayout(geo: GeometryProxy) -> Bool {
-        sizeClass == .regular && geo.size.width > geo.size.height
+        // Plus / Pro Max 横屏也是常规宽度，只看宽度等级会把手机横屏送进 iPad 的
+        // 两栏布局——那套尺寸是按整屏高度标定的，落在三四百点的高度上就是压扁的旧样子。
+        NowPlayingPlayerLayoutPolicy.prefersWideColumns(
+            isRegularWidth: sizeClass == .regular,
+            isCompactHeight: heightClass.isCompact
+        ) && geo.size.width > geo.size.height
     }
 
     private func playerMinimizeDragGesture(
@@ -1275,6 +1296,11 @@ struct NowPlayingView: View {
                 viewportHeight: Double(geo.size.height),
                 prefersWideColumns: shouldUseWideLayout(geo: geo)
             )
+            // 手机横屏的封面模式与歌词模式共用一副骨架：放在同一个分支里，切歌词时
+            // 顶部圆钮排、进度条、传输键都保持同一个视图身份、留在原位，只有左栏换内容。
+            // 分到 switch 的两个 case 里，整页会被当成两棵树换掉。
+            let usesCompactLandscapeSkeleton = playerLayoutMode == .compactLandscape
+                && (landscapeMode == .none || landscapeMode == .standardLyrics)
 
             ZStack {
                 #if os(iOS)
@@ -1298,6 +1324,13 @@ struct NowPlayingView: View {
                         if player.isLiveRadio {
                             NowPlayingDeferredContent {
                                 liveRadioLayout(geo: geo, safeInsets: safeInsets)
+                            }
+                        } else if usesCompactLandscapeSkeleton {
+                            NowPlayingDeferredContent {
+                                compactLandscapePlayerLayout(
+                                    geo: geo,
+                                    safeInsets: safeInsets
+                                )
                             }
                         } else {
                             switch landscapeMode {
@@ -1446,6 +1479,11 @@ struct NowPlayingView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showChapterList) {
+            ChapterListView()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
         #if os(iOS)
         .sheet(
             item: $presentedAlbum,
@@ -1473,8 +1511,13 @@ struct NowPlayingView: View {
                     .presentationDragIndicator(.visible)
             }
         }
-        .sheet(item: $shareSong) { song in
-            SongShareSheet(song: song)
+        .sheet(item: $shareSong, onDismiss: { presentLyricPosterRequestedFromShare() }) { song in
+            SongShareSheet(
+                song: song,
+                onShareLyricPoster: canShareLyricPoster(for: song)
+                    ? { presentsLyricPosterAfterShare = true }
+                    : nil
+            )
         }
         .sheet(isPresented: $showSongInfo) {
             if let song = player.currentSong {
@@ -1886,11 +1929,20 @@ struct NowPlayingView: View {
     /// 竖屏那套控件直接压进右栏会把封面挤到只剩两百来点、字号全压到 `.headline`，
     /// 所以这里换成独立构图。所有几何都由 `NowPlayingCompactLandscapeLayoutPolicy`
     /// 给出，视图层不再自己散着算。
+    ///
+    /// 歌词模式是同一副骨架：左栏的大封面换成歌词、缩成右栏顶上的小封面，圆钮排、
+    /// 进度条和传输键原地不动。原先歌词模式另起一套顶栏，再用一块悬浮面板放进度条
+    /// 和传输键 —— 面板压在歌词上，圆钮排里的锁定 / 队列 / 投放 / 全屏也都没了。
     private func compactLandscapePlayerLayout(
         geo: GeometryProxy,
         safeInsets: EdgeInsets
     ) -> some View {
         let metrics = compactLandscapeMetrics(geo: geo, safeInsets: safeInsets)
+        let lyricsMetrics = compactLandscapeLyricsMetrics(geo: geo, safeInsets: safeInsets)
+        // 两端的随机 / 循环摆不摆得下，两种模式的右栏宽度不同，各算各的。
+        let showsEdgeToggles = showLyrics
+            ? lyricsMetrics.showsEdgeToggles
+            : metrics.showsEdgeToggles
 
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
@@ -1899,7 +1951,7 @@ struct NowPlayingView: View {
                 Color.clear
                     .frame(height: CGFloat(metrics.chromeRowHeight + metrics.chromeBottomSpacing))
 
-                compactLandscapeColumns(metrics: metrics)
+                compactLandscapeColumns(metrics: metrics, lyricsMetrics: lyricsMetrics)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(!isCompactLandscapeLocked)
@@ -1910,11 +1962,11 @@ struct NowPlayingView: View {
         .padding(.trailing, CGFloat(metrics.trailingInset))
         .padding(.top, CGFloat(metrics.topInset))
         .padding(.bottom, CGFloat(metrics.bottomInset))
-        .onChange(of: metrics.showsEdgeToggles, initial: true) { _, showsToggles in
+        .onChange(of: showsEdgeToggles, initial: true) { _, showsToggles in
             compactLandscapeHidesModeToggles = !showsToggles
         }
         .onDisappear {
-            // 转回竖屏、进歌词、进全屏效果、播放页收起都会走到这里。
+            // 转回竖屏、进沉浸歌词、进全屏效果、播放页收起都会走到这里。
             isCompactLandscapeLocked = false
             compactLandscapeHidesModeToggles = false
         }
@@ -1925,6 +1977,22 @@ struct NowPlayingView: View {
         safeInsets: EdgeInsets
     ) -> NowPlayingCompactLandscapeLayoutPolicy.Metrics {
         NowPlayingCompactLandscapeLayoutPolicy.metrics(
+            viewportWidth: Double(geo.size.width),
+            viewportHeight: Double(geo.size.height),
+            safeAreaTop: Double(safeInsets.top),
+            safeAreaBottom: Double(safeInsets.bottom),
+            safeAreaLeading: Double(safeInsets.leading),
+            safeAreaTrailing: Double(safeInsets.trailing),
+            prefersVolumeBar: showsPlayerVolumeBar,
+            textScale: compactLandscapeTextScale
+        )
+    }
+
+    private func compactLandscapeLyricsMetrics(
+        geo: GeometryProxy,
+        safeInsets: EdgeInsets
+    ) -> NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics {
+        NowPlayingCompactLandscapeLayoutPolicy.lyricsMetrics(
             viewportWidth: Double(geo.size.width),
             viewportHeight: Double(geo.size.height),
             safeAreaTop: Double(safeInsets.top),
@@ -1951,11 +2019,28 @@ struct NowPlayingView: View {
     }
 
     private func compactLandscapeColumns(
-        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
+        lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
     ) -> some View {
-        HStack(alignment: .center, spacing: CGFloat(metrics.columnSpacing)) {
-            compactLandscapeArtwork(metrics: metrics)
-            compactLandscapeDetailColumn(metrics: metrics)
+        let leftColumnWidth = CGFloat(
+            showLyrics ? lyricsMetrics.lyricsPaneWidth : metrics.artworkColumnWidth
+        )
+        return HStack(alignment: .center, spacing: CGFloat(metrics.columnSpacing)) {
+            // 封面和歌词叠在同一个定宽槽位里换场。直接并排放进 HStack 的话，过渡期间
+            // 两个都在，右栏会被挤到只剩几个点再弹回来。
+            ZStack {
+                if showLyrics {
+                    compactLandscapeLyricsPane(metrics: lyricsMetrics)
+                        .transition(lyricsPanelTransition)
+                } else {
+                    compactLandscapeArtwork(metrics: metrics)
+                        .transition(playerArtworkTransition)
+                }
+            }
+            .frame(width: leftColumnWidth)
+            .frame(maxHeight: .infinity)
+
+            compactLandscapeDetailColumn(metrics: metrics, lyricsMetrics: lyricsMetrics)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1975,8 +2060,67 @@ struct NowPlayingView: View {
             .frame(width: CGFloat(metrics.artworkColumnWidth))
     }
 
+    /// 歌词栏。滚动、淡出遮罩、点空白处回封面都是 `LyricsScrollView` 自己的，
+    /// 这里只给它一块不会被任何控件压住的地方。
+    private func compactLandscapeLyricsPane(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+    ) -> some View {
+        wakeManagedLyricsFullView(isVisible: showLyrics && isLyricsWakeSurfaceExposed)
+            .frame(width: CGFloat(metrics.lyricsPaneWidth))
+            .frame(maxHeight: .infinity)
+    }
+
     @ViewBuilder
     private func compactLandscapeDetailColumn(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
+        lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+    ) -> some View {
+        let showsEdgeToggles = showLyrics
+            ? lyricsMetrics.showsEdgeToggles
+            : metrics.showsEdgeToggles
+        let showsVolumeBar = showLyrics
+            ? lyricsMetrics.showsVolumeBar
+            : metrics.showsVolumeBar
+
+        VStack(alignment: .leading, spacing: 0) {
+            // 两种模式只有这一块不同。叠在 ZStack 里换场，下面的进度条和传输键
+            // 不会因为过渡期间多出一块而被顶下去。
+            ZStack(alignment: .topLeading) {
+                if showLyrics {
+                    compactLandscapeLyricsHeader(metrics: lyricsMetrics)
+                        .transition(lyricsHeaderTransition)
+                } else {
+                    compactLandscapeCoverHeading(metrics: metrics)
+                        .transition(.opacity)
+                }
+            }
+
+            PlaybackProgressBar(fillTint: themedControlAccent)
+                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
+
+            compactLandscapeTransportRow(showsEdgeToggles: showsEdgeToggles)
+                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
+                // 锁上时控件留在原位只是不再显示，右栏不会因为少一行而整体上移。
+                .opacity(isCompactLandscapeLocked ? 0 : 1)
+                .accessibilityHidden(isCompactLandscapeLocked)
+                .pmAnimation(.control, value: isCompactLandscapeLocked)
+
+            if showsVolumeBar {
+                playerVolumeRow
+                    .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.volumeTopSpacing))
+                    .opacity(isCompactLandscapeLocked ? 0 : 1)
+                    .accessibilityHidden(isCompactLandscapeLocked)
+                    .pmAnimation(.control, value: isCompactLandscapeLocked)
+            }
+        }
+        // 左栏是定宽的，右栏吃掉剩下的空间：策略算出来的 detailColumnWidth
+        // 正好是这个余量，这样写不会因为浮点余数差那么零点几点而被挤压。
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 封面模式右栏的上半截：大歌名、艺人 / 专辑、当前歌词行。
+    @ViewBuilder
+    private func compactLandscapeCoverHeading(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1989,28 +2133,61 @@ struct NowPlayingView: View {
                 compactLandscapeLyricLine(metrics: metrics)
                     .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricLineTopSpacing))
             }
-
-            PlaybackProgressBar(fillTint: themedControlAccent)
-                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
-
-            compactLandscapeTransportRow(metrics: metrics)
-                .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
-                // 锁上时控件留在原位只是不再显示，右栏不会因为少一行而整体上移。
-                .opacity(isCompactLandscapeLocked ? 0 : 1)
-                .accessibilityHidden(isCompactLandscapeLocked)
-                .pmAnimation(.control, value: isCompactLandscapeLocked)
-
-            if metrics.showsVolumeBar {
-                playerVolumeRow
-                    .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.volumeTopSpacing))
-                    .opacity(isCompactLandscapeLocked ? 0 : 1)
-                    .accessibilityHidden(isCompactLandscapeLocked)
-                    .pmAnimation(.control, value: isCompactLandscapeLocked)
-            }
         }
-        // 封面列是定宽的，右栏吃掉剩下的空间：策略算出来的 detailColumnWidth
-        // 正好是这个余量，这样写不会因为浮点余数差那么零点几点而被挤压。
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 歌词模式右栏的上半截：小封面 + 歌名 / 艺人，整块点一下回封面模式。
+    /// 大封面经 matchedGeometryEffect 缩到这张小封面的位置，和竖屏歌词头部是同一套。
+    private func compactLandscapeLyricsHeader(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+    ) -> some View {
+        let thumbnail = CGFloat(metrics.thumbnailSize)
+        return Button { setStandardLyricsVisible(false) } label: {
+            HStack(
+                alignment: .center,
+                spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricsHeaderSpacing)
+            ) {
+                CachedArtworkView(
+                    coverRef: player.currentSong?.coverArtFileName,
+                    songID: player.currentSong?.id ?? "",
+                    size: thumbnail,
+                    cornerRadius: 12,
+                    sourceID: player.currentSong?.sourceID,
+                    filePath: player.currentSong?.filePath,
+                    fileFormat: player.currentSong?.fileFormat,
+                    fillsProposedSize: true,
+                    revisionToken: player.coverRevision
+                )
+                .artworkCrossfade()
+                .matchedGeometryEffect(
+                    id: lyricsArtworkTransitionID,
+                    in: lyricsArtworkNamespace,
+                    isSource: isLyricsCompactArtworkVisible
+                )
+                .frame(width: thumbnail, height: thumbnail)
+                .shadow(color: .black.opacity(0.22), radius: 10, y: 5)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(player.currentSong?.title ?? "")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(appearance.primary)
+                        .lineLimit(metrics.titleLineLimit)
+                        .minimumScaleFactor(0.8)
+                        .multilineTextAlignment(.leading)
+                        .contentTransition(.opacity)
+                        .pmAnimation(.trackChange, value: player.currentSong?.id)
+
+                    Text(currentArtistDisplayName)
+                        .font(.subheadline)
+                        .foregroundStyle(appearance.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("a11y_close_lyrics"))
     }
 
     private func compactLandscapeTitle(lineLimit: Int) -> some View {
@@ -2055,11 +2232,9 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func compactLandscapeTransportRow(
-        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
-    ) -> some View {
+    private func compactLandscapeTransportRow(showsEdgeToggles: Bool) -> some View {
         HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
-            if metrics.showsEdgeToggles {
+            if showsEdgeToggles {
                 ctrlBtn("shuffle", active: player.shuffleEnabled) {
                     player.shuffleEnabled.toggle()
                 }
@@ -2068,24 +2243,24 @@ struct NowPlayingView: View {
             Spacer(minLength: 0)
 
             compactLandscapeSkipButton(
-                symbol: "backward.fill",
-                label: "a11y_previous_track"
+                symbol: transportBackwardSymbol,
+                label: transportBackwardLabel
             ) {
-                Task { await player.previous() }
+                transportBackward()
             }
 
             compactLandscapePlayButton
 
             compactLandscapeSkipButton(
-                symbol: "forward.fill",
-                label: "a11y_next_track"
+                symbol: transportForwardSymbol,
+                label: transportForwardLabel
             ) {
-                Task { await player.next() }
+                transportForward()
             }
 
             Spacer(minLength: 0)
 
-            if metrics.showsEdgeToggles {
+            if showsEdgeToggles {
                 ctrlBtn(
                     player.repeatMode == .one ? "repeat.1" : "repeat",
                     active: player.repeatMode != .off
@@ -2097,9 +2272,54 @@ struct NowPlayingView: View {
         .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
     }
 
+    // MARK: - Transport: music vs spoken word
+
+    /// 有声书、评书、相声用「后退 15 秒 / 前进 30 秒」代替切曲。一整本书就是
+    /// 一个条目, 切到下一条目等于整本跳过; 真实需求是漏听一句往回倒。
+    /// 电台那套控件在另一处单独实现, 不受影响。
+    private var usesSpokenWordTransport: Bool {
+        player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
+    private var transportBackwardSymbol: String {
+        usesSpokenWordTransport ? "gobackward.15" : "backward.fill"
+    }
+
+    private var transportForwardSymbol: String {
+        usesSpokenWordTransport ? "goforward.30" : "forward.fill"
+    }
+
+    private var transportBackwardLabel: String {
+        usesSpokenWordTransport
+            ? String(localized: "a11y_skip_backward")
+            : String(localized: "a11y_previous_track")
+    }
+
+    private var transportForwardLabel: String {
+        usesSpokenWordTransport
+            ? String(localized: "a11y_skip_forward")
+            : String(localized: "a11y_next_track")
+    }
+
+    private func transportBackward() {
+        if usesSpokenWordTransport {
+            player.skipSpokenWordBackward()
+        } else {
+            Task { await player.previous() }
+        }
+    }
+
+    private func transportForward() {
+        if usesSpokenWordTransport {
+            player.skipSpokenWordForward()
+        } else {
+            Task { await player.next() }
+        }
+    }
+
     private func compactLandscapeSkipButton(
         symbol: String,
-        label: LocalizedStringKey,
+        label: String,
         action: @escaping () -> Void
     ) -> some View {
         let width = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.secondaryTransportWidth)
@@ -2345,11 +2565,13 @@ struct NowPlayingView: View {
                 Spacer()
                 ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
                 Spacer()
-                Button { Task { await player.previous() } } label: {
-                    Image(systemName: "backward.fill").font(.title).foregroundStyle(appearance.primary)
+                Button { transportBackward() } label: {
+                    Image(systemName: transportBackwardSymbol)
+                        .font(.title).foregroundStyle(appearance.primary)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .frame(width: 56, height: 56)
-                .accessibilityLabel("a11y_previous_track")
+                .accessibilityLabel(transportBackwardLabel)
                 Spacer()
                 Button { player.togglePlayPause() } label: {
                     ZStack {
@@ -2369,11 +2591,13 @@ struct NowPlayingView: View {
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play"))
                 Spacer()
-                Button { Task { await player.next() } } label: {
-                    Image(systemName: "forward.fill").font(.title).foregroundStyle(appearance.primary)
+                Button { transportForward() } label: {
+                    Image(systemName: transportForwardSymbol)
+                        .font(.title).foregroundStyle(appearance.primary)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .frame(width: 56, height: 56)
-                .accessibilityLabel("a11y_next_track")
+                .accessibilityLabel(transportForwardLabel)
                 Spacer()
                 ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
                     switch player.repeatMode {
@@ -2772,11 +2996,13 @@ struct NowPlayingView: View {
                         Spacer()
                         ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
                         Spacer()
-                        Button { Task { await player.previous() } } label: {
-                            Image(systemName: "backward.fill").font(.title).foregroundStyle(appearance.primary)
+                        Button { transportBackward() } label: {
+                            Image(systemName: transportBackwardSymbol)
+                                .font(.title).foregroundStyle(appearance.primary)
+                                .contentTransition(.symbolEffect(.replace))
                         }
                         .frame(width: 56, height: 56)
-                        .accessibilityLabel("a11y_previous_track")
+                        .accessibilityLabel(transportBackwardLabel)
                         Spacer()
                         Button { player.togglePlayPause() } label: {
                             ZStack {
@@ -2802,11 +3028,13 @@ struct NowPlayingView: View {
                             ? String(localized: "a11y_pause")
                             : String(localized: "a11y_play"))
                         Spacer()
-                        Button { Task { await player.next() } } label: {
-                            Image(systemName: "forward.fill").font(.title).foregroundStyle(appearance.primary)
+                        Button { transportForward() } label: {
+                            Image(systemName: transportForwardSymbol)
+                                .font(.title).foregroundStyle(appearance.primary)
+                                .contentTransition(.symbolEffect(.replace))
                         }
                         .frame(width: 56, height: 56)
-                        .accessibilityLabel("a11y_next_track")
+                        .accessibilityLabel(transportForwardLabel)
                         Spacer()
                         ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
                             switch player.repeatMode {
@@ -2977,11 +3205,12 @@ struct NowPlayingView: View {
             PlaybackProgressBar(fillTint: themedControlAccent)
 
             HStack(spacing: 34) {
-                Button { Task { await player.previous() } } label: {
-                    Image(systemName: "backward.fill")
+                Button { transportBackward() } label: {
+                    Image(systemName: transportBackwardSymbol)
                         .frame(width: 44, height: 36)
+                        .contentTransition(.symbolEffect(.replace))
                 }
-                .accessibilityLabel("a11y_previous_track")
+                .accessibilityLabel(transportBackwardLabel)
 
                 Button { player.togglePlayPause() } label: {
                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -2993,11 +3222,12 @@ struct NowPlayingView: View {
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play"))
 
-                Button { Task { await player.next() } } label: {
-                    Image(systemName: "forward.fill")
+                Button { transportForward() } label: {
+                    Image(systemName: transportForwardSymbol)
                         .frame(width: 44, height: 36)
+                        .contentTransition(.symbolEffect(.replace))
                 }
-                .accessibilityLabel("a11y_next_track")
+                .accessibilityLabel(transportForwardLabel)
             }
             .font(.title3)
             .foregroundStyle(appearance.primary)
@@ -3301,7 +3531,6 @@ struct NowPlayingView: View {
             canOpenAlbum: canOpenCurrentAlbum,
             canOpenArtist: currentArtist != nil && onOpenArtist != nil,
             canShare: player.currentSong != nil,
-            canShareLyrics: player.currentSong != nil && !lyrics.isEmpty,
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
@@ -3354,7 +3583,6 @@ struct NowPlayingView: View {
                 openURL(url)
             },
             onShare: { shareSong = player.currentSong },
-            onShareLyrics: { presentLyricPoster(anchorLineID: nil) },
             onShowCastPicker: { showCastPicker = true },
             onToggleLyricsTranslation: {
                 LyricsTranslationSettingsStore.shared.isEnabled.toggle()
@@ -3529,6 +3757,32 @@ struct NowPlayingView: View {
                 .fixedSize()
             }
             nowPlayingMetadataLinks(font: metadataFont)
+            nowPlayingChapterLink
+        }
+    }
+
+    /// 当前章节 —— 只在文件真的带章节时出现, 所以没有空状态。点开是跳转列表。
+    /// 放在这里而不是控件区: 三套布局共用这个头部, 章节因此在竖屏、横屏和
+    /// iPad 上都在同一个位置。
+    @ViewBuilder
+    private var nowPlayingChapterLink: some View {
+        if player.hasChapters {
+            Button { showChapterList = true } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "list.bullet.indent")
+                        .font(.caption2)
+                    Text(player.currentChapter?.title ?? String(localized: "chapters_title"))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                }
+                .font(.footnote)
+                .foregroundStyle(appearance.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+            .accessibilityLabel(Text("chapters_title"))
         }
     }
 
@@ -5499,6 +5753,7 @@ struct AddToPlaylistSheet: View {
                     .font(.title3)
                     .foregroundStyle(isAdded ? Color.accentColor : .secondary)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -5567,7 +5822,6 @@ struct NowPlayingMoreMenuSnapshot: Equatable {
     let canOpenAlbum: Bool
     let canOpenArtist: Bool
     let canShare: Bool
-    let canShareLyrics: Bool
     let castingRendererName: String?
     let isSleepTimerActive: Bool
     let lyricsFontScale: Double
@@ -5613,7 +5867,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenArtist: () -> Void
     let onOpenInAppleMusic: () -> Void
     let onShare: () -> Void
-    let onShareLyrics: () -> Void
     let onShowCastPicker: () -> Void
     let onToggleLyricsTranslation: () -> Void
     let onShowSleepTimer: () -> Void
@@ -5641,6 +5894,35 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
         case .off: return "repeat"
         case .all: return "repeat.circle.fill"
         case .one: return "repeat.1.circle.fill"
+        }
+    }
+
+    /// 横排里除「添加到歌单」之外能凑出几个键。不足三个时把「添加到歌单」也提上来，
+    /// 免得一行只剩孤零零一个键；够三个时它留在下面的列表里，横排不挤成四个小字。
+    private var quickActionCount: Int {
+        [snapshot.showsFullScreenAction, snapshot.canShare, snapshot.canDeleteSourceFile]
+            .filter { $0 }
+            .count
+    }
+
+    private var promotesAddToPlaylist: Bool { quickActionCount < 3 }
+
+    /// 留在列表里时用完整说法，提到横排里时用短的那条。
+    @ViewBuilder
+    private func addToPlaylistButton(inQuickRow: Bool) -> some View {
+        if inQuickRow {
+            PMMenuQuickActionButton(
+                shortKey: "add_to_playlist_short",
+                fullKey: "add_to_playlist",
+                systemImage: "text.badge.plus",
+                action: onAddToPlaylist
+            )
+            .disabled(!snapshot.hasSong)
+        } else {
+            Button(action: onAddToPlaylist) {
+                Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+            }
+            .disabled(!snapshot.hasSong)
         }
     }
 
@@ -5710,10 +5992,33 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
     private var nativeMenu: some View {
         Menu {
-            if snapshot.showsFullScreenAction {
-                Section {
-                    Button(action: onEnterFullScreen) {
-                        Label(String(localized: "full_screen_player"), systemImage: "viewfinder.rectangular")
+            // 最常用的几个操作排成一行，不用往下翻就够得着。文字取短的那一版，
+            // 长了会被截断；键数与平台差异见 `PMMenuQuickActions`。
+            PMMenuQuickActions {
+                if snapshot.showsFullScreenAction {
+                    PMMenuQuickActionButton(
+                        shortKey: "full_screen_short",
+                        fullKey: "full_screen_player",
+                        systemImage: "viewfinder.rectangular",
+                        action: onEnterFullScreen
+                    )
+                    .disabled(!snapshot.hasSong)
+                }
+
+                if snapshot.canShare {
+                    // 歌词海报也从这里进：分享页里有一项「分享歌词」。
+                    Button(action: onShare) {
+                        Label(String(localized: "share"), systemImage: "square.and.arrow.up")
+                    }
+                }
+
+                if promotesAddToPlaylist {
+                    addToPlaylistButton(inQuickRow: true)
+                }
+
+                if snapshot.canDeleteSourceFile {
+                    Button(role: .destructive, action: onDelete) {
+                        Label(String(localized: "delete"), systemImage: "trash")
                     }
                     .disabled(!snapshot.hasSong)
                 }
@@ -5738,10 +6043,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
 
             Section {
-                Button(action: onAddToPlaylist) {
-                    Label(String(localized: "add_to_playlist"), systemImage: "text.badge.plus")
+                if !promotesAddToPlaylist {
+                    addToPlaylistButton(inQuickRow: false)
                 }
-                .disabled(!snapshot.hasSong)
 
                 Button(action: onScrape) {
                     Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
@@ -5803,16 +6107,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                 }
 
-                if snapshot.canShare {
-                    Button(action: onShare) {
-                        Label(String(localized: "share"), systemImage: "square.and.arrow.up")
-                    }
-                }
-
-                Button(action: onShareLyrics) {
-                    Label(String(localized: "lyric_poster_menu"), systemImage: "text.below.photo")
-                }
-                .disabled(!snapshot.canShareLyrics)
             }
 
             Section {
@@ -5897,15 +6191,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     }
                     .pickerStyle(.menu)
                     .disabled(!snapshot.canChangePlaybackRate)
-                }
-            }
-
-            if snapshot.canDeleteSourceFile {
-                Section {
-                    Button(role: .destructive, action: onDelete) {
-                        Label(String(localized: "delete_song"), systemImage: "trash")
-                    }
-                    .disabled(!snapshot.hasSong)
                 }
             }
         } label: {
@@ -7325,10 +7610,12 @@ struct LyricsScrollView: View {
     }
 
     private func wordLevelDeactivationTime(for index: Int) -> TimeInterval? {
-        guard hasWordLevelLyrics, lyrics.indices.contains(index + 1) else { return nil }
-        let currentStart = lyrics[index].timestamp
-        let nextTakeover = lyrics[index + 1].timestamp - Self.wordLevelLineLookahead
-        return max(currentStart, nextTakeover)
+        guard hasWordLevelLyrics else { return nil }
+        return LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics,
+            afterLine: index,
+            lookahead: Self.wordLevelLineLookahead
+        )
     }
 
     /// 行级歌词 LRC 文件的 timestamp 通常是「演唱开始那一刻」,但 LRC 制作过程
@@ -8367,6 +8654,7 @@ struct CastDevicePickerSheet: View {
                                     .foregroundStyle(.tint)
                             }
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -8417,6 +8705,7 @@ struct CastDevicePickerSheet: View {
                                             .foregroundStyle(.tint)
                                     }
                                 }
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }

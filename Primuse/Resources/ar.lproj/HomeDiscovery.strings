@@ -17,12 +17,17 @@
 "longest" = "أطول مدة استماع";
 "play_count" = "%d مرات تشغيل";
 "positions_gained" = "صعود %d مراكز";
+"positions_lost" = "هبوط %d مراكز";
+"new_entry" = "جديد";
 "recent_albums" = "الألبومات المضافة مؤخرًا";
 "folder_display_count" = "العدد المعروض في الرئيسية";
 "manage_folders" = "إدارة الأدلة وترتيبها";
 "no_pinned_folders" = "اختر الأدلة المفضلة من عرض الكل.";
 "folder_ranking_scope" = "يتضمن ترتيب الأدلة الأغاني التي لها دليل حالي.";
 "folder_as_playlist" = "استخدام كقائمة تشغيل";
+"pin_folder_short" = "تثبيت";
+"unpin_folder_short" = "إزالة";
+"folder_as_playlist_short" = "كقائمة تشغيل";
 "expand_top_20" = "Show Top 20";
 "expand_top_n" = "عرض أفضل %d";
 "collapse_ranking" = "Show Less";

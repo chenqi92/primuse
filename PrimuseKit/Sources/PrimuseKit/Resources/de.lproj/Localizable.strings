@@ -849,6 +849,7 @@
 "source_address_alternate_section" = "Alternative Adresse";
 "source_address_section_footer" = "Lassen Sie den Port leer – Primuse ermittelt ihn beim Speichern.";
 "source_address_placeholder" = "Domain, IP oder vollständige URL";
+"source_address_placeholder_vendor %@" = "Domain, IP oder %@";
 "source_address_add_alternate" = "Alternative Adresse hinzufügen";
 "source_address_remove" = "Diese Adresse entfernen";
 "source_address_advanced" = "Port und Verschlüsselung manuell festlegen";
@@ -885,3 +886,35 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "DSM-Musikpaket · Mediathek, Playlists, Bewertungen";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "Quellen und Anmeldedaten";
+"send_to_tv_step_library" = "Mediathek";
+"send_to_tv_step_artwork" = "Cover";
+"send_to_tv_step_everything" = "Mediathek, Quellen und Anmeldedaten";
+"send_to_tv_progress_waiting" = "Wartet";
+"send_to_tv_progress_done" = "Fertig";
+"send_to_tv_progress_failed" = "Nicht abgeschlossen";
+"send_to_tv_progress_preparing" = "Wird vorbereitet …";
+"send_to_tv_progress_tv_saving" = "Apple TV speichert …";
+"send_to_tv_progress_batch" = "Paket %1$@ von %2$@ wird gesendet";
+"send_to_tv_progress_sending" = "Wird gesendet: %@";
+"send_to_tv_resume" = "Senden fortsetzen";
+"send_to_tv_partial_saved" = "Die abgeschlossenen Schritte sind bereits auf dem Apple TV gespeichert. Beim Fortsetzen geht es dort weiter, wo die Übertragung angehalten hat.";
+"ext.tv.transfer.sources" = "Quellen und Anmeldedaten werden empfangen …";
+"ext.tv.transfer.sourcesSaved" = "Quellen gespeichert. Warten auf die Mediathek …";
+"ext.tv.transfer.library" = "Mediathek wird empfangen …";
+"ext.tv.transfer.libraryImporting" = "Mediathek wird importiert …";
+"ext.tv.transfer.librarySaved" = "Mediathek importiert. Warten auf Cover …";
+"ext.tv.transfer.artwork" = "Cover werden empfangen (Paket %1$@ von %2$@) …";
+"ext.tv.transfer.finished" = "%@ Titel vom iPhone übertragen";
+"ext.tv.transfer.failed" = "Die Übertragung wurde nicht abgeschlossen. Versuche es auf dem iPhone erneut.";
+"audio_variant_lossy_stereo" = "Stereo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Aus Apple Music wählen…";
+"apple_music_pick_adding" = "Wird zur Mediathek hinzugefügt…";
+"apple_music_pick_added" = "%d hinzugefügt, wird synchronisiert";
+"apple_music_pick_failed" = "Hinzufügen zur Mediathek fehlgeschlagen";

@@ -132,7 +132,12 @@ struct PrimusePlaySongIntent: AudioPlaybackIntent {
         "Find a song by title (and optional artist) and play it."
     )
 
-    @Parameter(title: "Title")
+    /// `requestValueDialog` 让系统在没值时自己问一句;短语 "Play a song in
+    /// Primuse" 本身不带参数占位,不给这句提示时 Siri 只会甩一个通用问法。
+    @Parameter(
+        title: "Title",
+        requestValueDialog: IntentDialog("Which song? Tell Siri the song title.")
+    )
     var query: String
 
     @Parameter(title: "Artist", description: "Optional, narrows the match if multiple songs share a title.")
@@ -142,11 +147,31 @@ struct PrimusePlaySongIntent: AudioPlaybackIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let description = await PrimuseIntentBridge.shared.playSong(query, artist)
-        guard let description else {
-            return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: "No matching song in your library.")))
+        let outcome = await PrimuseIntentBridge.shared.playSong(query, artist)
+        return .result(dialog: IntentDialog(
+            LocalizedStringResource(stringLiteral: PrimuseSongIntentDialog.text(for: outcome))
+        ))
+    }
+}
+
+/// 把点歌结果翻成一句给 Siri 念的话。键沿用整句英文:这份文件也编进小组件
+/// 进程,那里查不到本地化表时至少还能念出一句能读懂的英文,而不是键名。
+enum PrimuseSongIntentDialog {
+    static func text(for outcome: PrimuseSongIntentOutcome) -> String {
+        switch outcome {
+        case .playing(let description):
+            return description
+        case .missingTitle:
+            return String(localized: "Which song? Tell Siri the song title.")
+        case .libraryNotReady:
+            return String(localized: "Primuse is still loading your library. Try again in a moment.")
+        case .libraryEmpty:
+            return String(localized: "Your Primuse library is empty.")
+        case .notFound:
+            return String(localized: "No matching song in your library.")
+        case .unavailable:
+            return String(localized: "Open Primuse once, then try again.")
         }
-        return .result(dialog: IntentDialog(LocalizedStringResource(stringLiteral: description)))
     }
 }
 

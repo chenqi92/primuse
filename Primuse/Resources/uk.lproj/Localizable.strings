@@ -219,6 +219,9 @@
 "radio_batch_paste_hint" = "Один потік URL на рядок. «Назва, URL» також працює.";
 "current" = "Поточний";
 "playlist_import_create_matched_only_format" = "Створити тільки відповідні (%d)";
+"playlist_import_destination_header" = "Імпортувати до";
+"playlist_import_liked_footer_format" = "Відповідні треки додаються до «%@». Ті, що вже там є, повторно не додаються.";
+"playlist_import_add_matched_only_format" = "Додати тільки відповідні (%d)";
 "metadata_status_state_file_unavailable" = "Файл недоступний";
 "intent_playing_album_format" = "Відтворення альбому %@.";
 "metadata_writeback_stage_inspect" = "перевірка вихідної версії";
@@ -447,6 +450,9 @@
 "yearly_sub_genres" = "Профіль жанру";
 "metadata_status_no_retryable_work" = "Зараз жодну пісню не можна знову поставити в чергу. Ви все ще можете перечитати окремий рядок.";
 "radio_manage_pin_top" = "Закріпити вгорі";
+"radio_manage_pin_top_short" = "Нагору";
+"select_all_short" = "Вибрати все";
+"deselect_all_short" = "Зняти вибір";
 "SSL Trusted Domains" = "SSL Довірені домени";
 "no_songs_desc" = "Щоб почати, додайте джерело музики";
 "Update Available" = "Доступне оновлення";
@@ -482,6 +488,14 @@
 "source_diag_running" = "Перевірка підключення та готовності до сканування...";
 "similar_empty_hint" = "Жодна з рекомендацій Last.fm не відповідає вашій бібліотеці.";
 "playback_error_source_disabled" = "Це джерело музики вимкнено";
+"playback_error_source_unreachable_format" = "«%@» недоступне в цій мережі";
+"playback_error_source_unreachable_skipped_format" = "«%@» недоступне в цій мережі. Його треки пропущено.";
+"song_row_source_unreachable" = "Недоступно в цій мережі";
+"song_source_unreachable_alert_message" = "Це джерело музики недоступне в поточній мережі. Його треки знову можна буде відтворити, щойно з’єднання відновиться. Треків, уже завантажених на цей пристрій, це не стосується.";
+"source_card_unreachable" = "Це джерело недоступне в поточній мережі. Треки, не завантажені на цей пристрій, поки що не можна відтворити.";
+"source_card_unreachable_add_route_hint" = "Для цього джерела вказано лише адресу в локальній мережі. Відредагуйте його й додайте публічну адресу, щоб слухати музику й поза цією мережею.";
+"playlist_unreachable_notice" = "Частина треків належить до джерела, недоступного в поточній мережі. Ті, що не завантажені на цей пристрій, поки що не можна відтворити.";
+"playlist_unreachable_offline_hint_format" = "Увімкніть «%@»: треки завантажаться автоматично, щойно джерело стане доступним, і відтворюватимуться в будь-якій мережі.";
 "error_download_failed %@" = "Помилка завантаження: %@";
 "search_match_fuzzy" = "Нечіткий збіг";
 "compressor_limiter" = "Компресор / Лімітер";
@@ -558,6 +572,9 @@
 "tag_editor_field_location" = "Розташування файлу";
 "ai_fetch_models" = "Отримати моделі";
 "lyrics_translation_on" = "Показувати переклад тексту";
+"mac_launch_aborted_title" = "Минулого разу запуск не завершився";
+"mac_launch_aborted_hint" = "Надішліть наведені нижче відомості розробнику, щоб допомогти знайти причину.";
+"mac_launch_copy_diagnostics" = "Скопіювати відомості";
 "mac_sidebar_tools" = "Інструменти";
 "smart_sort_field" = "Сортувати за";
 "Music Sources · Small" = "Джерела музики · Мал";
@@ -735,6 +752,10 @@
 "Last 30 Days + Top" = "Останні 30 днів + Топ";
 "Scraping Sources" = "джерела отримання метаданих";
 "add_to_playlist" = "Додати до списку відтворення";
+"add_to_playlist_short" = "Плейліст";
+"insert_next_short" = "Грати далі";
+"add_to_queue_short" = "До черги";
+"full_screen_short" = "Весь екран";
 "keyboard_shortcuts_recorder_idle_hint" = "Виберіть поле швидкого доступу, щоб почати запис.";
 "source_name" = "Ім'я";
 "ai_model_manual_placeholder" = "Виберіть або введіть модель";
@@ -870,14 +891,14 @@
 "immersive_demo_lyric_09" = "Далекий ритм не дає спати місту";
 "Scrape Entire Library" = "Знайти метадані всієї медіатеки";
 "diagnostics_clear_confirm" = "Видалити всі звіти?";
-"diagnostics_send_button" = "Надіслати звіти розробнику електронною поштою";
-"diagnostics_send_privacy" = "Надсилаються лише записи потоків програми: зібрані системою стеки викликів під час збоїв і зависань, а також версія програми, модель пристрою та версія системи. Жодних даних облікового запису, медіатеки, історії прослуховування, імен файлів чи інших особистих даних.";
+"diagnostics_send_button" = "Надіслати автору";
+"diagnostics_send_privacy" = "До листа буде додано вибрані звіти або журнали. Перевірте його перед надсиланням.";
 "diagnostics_send_mail_intro %lld" = "Долучено звітів діагностики Primuse: %lld.";
 "diagnostics_send_sent_title" = "Звіт надіслано";
 "diagnostics_send_sent_message" = "Дякуємо. Очистити звіти, збережені на цьому пристрої?";
 "diagnostics_send_keep" = "Залишити";
 "diagnostics_send_unavailable_title" = "Не вдається надіслати лист";
-"diagnostics_send_unavailable_message %@" = "На цьому пристрої не налаштовано поштовий обліковий запис. Звіт можна надіслати на %@ кнопкою «Поділитися».";
+"diagnostics_send_unavailable_message %@" = "На пристрої не налаштовано пошту. Поділіться звітом або експортуйте журнали й надішліть їх на %@.";
 "diagnostics_send_failed_title" = "Не надіслано";
 "diagnostics_send_failed_message" = "Програмі «Пошта» не вдалося надіслати лист. Ваші звіти залишилися на пристрої.";
 "ai_playlist_create" = "Створити список відтворення";
@@ -924,6 +945,7 @@
 "Unknown halls of heaven" = "Невідомі зали раю";
 "output_mode_high_fidelity_desc" = "Найкоротший шлях сигналу: обходить еквалайзер, динаміку, реверберацію, просторове аудіо, ReplayGain, зміну швидкості та кросфейд; частота дискретизації узгоджується автоматично. Гучність і далі регулюється, окрім прямого виводу DSD.";
 "output_mode_high_fidelity_confirm_title" = "Увімкнути пряме відтворення високої точності?";
+"output_mode_high_fidelity_hardware_note" = "Цей режим має сенс переважно із зовнішнім ЦАП або підсилювачем для навушників. Через Bluetooth і вбудовані динаміки звук однаково обробляється повторно, тож різницю майже не чути.";
 "metadata_status_state_source_unavailable" = "Джерело недоступне";
 "ai_primuse_relay_diagnostic_credential_detail" = "Не вдалося прочитати або зберегти облікові дані локального пристрою. Primuse відтворить його під час наступного тесту; підтвердьте, що доступ до Keychain доступний, якщо це продовжується.";
 "lyrics_editor_empty_live" = "Вводити під час прослуховування";
@@ -991,6 +1013,8 @@
 "icon_theme_13" = "Chris’s Muse";
 "icon_theme_14" = "Літера P";
 "icon_theme_15" = "Складена нота";
+"icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "Сплеск";
 "lyrics_editor_paste_redo" = "Почніть спочатку";
 "ai_recommendation_intent_description_label" = "Опис фокусу";
 "META-03 · Custom Source JSON" = "META-03 · Спеціальне джерело JSON";
@@ -1065,7 +1089,6 @@
 "carplay_search_no_results" = "Немає результатів";
 "intent_playing_similar_format" = "Відтворення пісень, схожих на %@.";
 "source_diag_summary_failed" = "Потребує уваги";
-"icon_theme_6" = "М'яка нота";
 "batch_scrape_start_failed" = "Не вдалося розпочати пакетне отримання метаданих. Повторіть спробу незабаром.";
 "yearly_meta_closing_sub" = "Так тримати · поділіться своїм звітом";
 "greeting_evening" = "Доброго вечора";
@@ -1312,6 +1335,7 @@
 "apple_music_library_done_format" = "%d пісні · %@";
 "error_file_not_found %@" = "Файл не знайдено: %@";
 "apple_music_library_not_authorized" = "Apple Music не авторизовано. Увімкніть його в Налаштуваннях → Apple Music.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music не авторизовано. Підключіть його в джерелі Apple Music у розділі «Керування джерелами».";
 "offline_remove_download" = "Видалити завантаження";
 "a11y_repeat" = "Повторіть";
 "lyrics_editor_timing_redo" = "Повторити рядок";
@@ -1322,6 +1346,7 @@
 "This Month's Listening" = "Прослуховування цього місяця";
 "synology_error_invalid_url" = "Недійсна адреса";
 "apple_music_notice_notDetermined" = "Apple Music ще не підключено. Перейдіть до Налаштування → Apple Music, щоб увімкнути пошук по каталогу.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music ще не підключено. Підключіть його в джерелі Apple Music у розділі «Керування джерелами», щоб увімкнути пошук по каталогу.";
 "relay_share_qr_accessibility" = "Поділіться QR-кодом посилання";
 "yearly_card_exploration_subtitle" = "Ваше дослідження";
 "spotlight_playlist_subtitle_format" = "Список відтворення Primuse · треки %d";
@@ -1379,6 +1404,7 @@
 "onboarding_guide_player_queue" = "Черга: утримуйте й перетягніть, щоб змінити порядок наступних пісень";
 "onboarding_guide_player_more" = "Більше: трансляція на DLNA-пристрої, таймер сну або постер із текстом пісні";
 "app_icon" = "Значок програми";
+"app_icon_dock_hint" = "macOS змінює значок у Dock лише поки Primuse запущено — після виходу Dock знову показує значок із пакета програми.";
 "audio_output_error_set_device %d" = "Не вдалося вибрати вихідний аудіопристрій (статус=%d).";
 "ai_recommendation_scene_automatic" = "Прямо зараз";
 "lyrics_transcription_model" = "Модель транскрипції";
@@ -1760,6 +1786,7 @@
 "cloud_err_token_save_failed" = "Не вдалося зберегти маркер авторизації";
 "tag_editor_lyrics_empty_error" = "Підтвердьте, чи потрібно видалити наявний текст.";
 "crossfade_max_duration" = "Максимальна тривалість переходу";
+"crossfade_footer" = "Коли трек дограє до кінця, кроссфейд триває заданий вище час; під час ручного переходу до наступного або попереднього треку застосовується короткий перехід тривалістю близько секунди. Якщо трек ще не на цьому пристрої й не в кеші, він почнеться без переходу. Не можна використовувати разом із безперервним відтворенням.";
 "ST-09 · Includes Connection Credentials" = "ST-09 · Включає облікові дані для підключення";
 "offline_download" = "Завантажити";
 "theme_color_indigo" = "Індиго";
@@ -1784,7 +1811,7 @@
 "lyrics_converter_no_timing_notice" = "У вихідному тексті немає часових міток, тому перетворення не зможе створити їх автоматично.";
 "tag_editor_lyrics_format_empty" = "Порожній текст";
 "recent_searches" = "Останні пошуки";
-"github_feedback_hint" = "GitHub Issues допомагає розробнику швидше бачити відгуки та реагувати на них. Ви також можете залишити відгук у огляді App Store, хоча зв’язок із розробником може зайняти більше часу.";
+"github_feedback_hint" = "GitHub Issues допомагає розробнику швидше бачити відгуки та реагувати на них. Ви також можете залишити відгук у огляді App Store, хоча зв’язок із розробником може зайняти більше часу. У посиланні вже заповнені версія та відомості про пристрій — їх можна змінити перед надсиланням.";
 "smart_sort_field_dateAdded" = "Дата додавання";
 "Vintage Vinyl" = "Вінтажний вініл";
 "immersive_demo_lyric_04" = "Кожна нота знаходить своє світло";
@@ -1855,6 +1882,10 @@
 "tag_editor_cover_revert" = "Зберігайте оригінальну обкладинку";
 "apple_music_library_idle" = "Ще не синхронізовано";
 "No matching song in your library." = "У вашій бібліотеці немає відповідної пісні.";
+"Which song? Tell Siri the song title." = "Яка пісня? Назвіть Siri назву треку.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse ще завантажує медіатеку. Спробуйте ще раз трохи пізніше.";
+"Your Primuse library is empty." = "Медіатека Primuse порожня.";
+"Open Primuse once, then try again." = "Відкрийте Primuse один раз і повторіть спробу.";
 "smart_field_sourceID" = "Джерело";
 "songs_column_rating" = "Рейтинг";
 "local_import_progress_preparing" = "Підготовка імпорту…";
@@ -1883,6 +1914,7 @@
 "Every Minute" = "Кожну хвилину";
 "Play Playlist" = "Відтворити список відтворення";
 "batch_delete_source_files" = "Видалити вихідні файли";
+"batch_remove_group" = "Прибрати й видалити";
 "ai_audio_transcription_editor_detail" = "Завантажте пісню, щоб розпізнати текст і час. Результати спочатку відкриваються тут для перегляду.";
 "intent_set_liked_title" = "Набір сподобався";
 "Repeat One" = "Повтор однієї пісні";
@@ -1930,6 +1962,8 @@
 "reread_song_tags_failed" = "Неможливо прочитати теги файлів. Перевірте джерело пісні або формат файлу.";
 "relay_share_access_mode" = "Доступ";
 "radio_priority_move_down" = "Нижчий пріоритет";
+"radio_priority_move_up_short" = "Вгору";
+"radio_priority_move_down_short" = "Вниз";
 "error_oauth_missing_callback" = "Зворотний дзвінок авторизації не отримано.";
 "library_cleanup_dup_count_format" = "%d групи для перегляду";
 "Resuming playback." = "Відновлення відтворення.";
@@ -2431,7 +2465,7 @@
 "share_choose_primuse_relay" = "Виберіть Primuse Share Service";
 "fullscreen_effect_flowing_lines_subtitle" = "Контури, що розвиваються, охоплюють твір мистецтва трьома ліричними лініями";
 "lyrics_converter_error_title" = "Помилка перетворення тексту";
-"settings_push_to_tv_footer" = "Установіть Primuse на свій Apple TV і ввійдіть, використовуючи той самий обліковий запис iCloud, щоб побачити свою медіатеку та джерела тут — облікові дані (паролі/токени) включено, не потрібно вводити повторно. Primuse автоматично завантажує у фоновому режимі; натисніть «Надіслати на Apple TV зараз», щоб негайно оновити. До NAS, WebDAV, медіасерверів і хмарних дисків Apple TV під’єднується самостійно. Реле нижче потрібне лише для музики, що зберігається на цьому телефоні: воно передає її звідси через той самий Wi-Fi. Через iCloud така музика не синхронізується — надішліть її за допомогою «Перенести медіатеку з iPhone» на Apple TV.";
+"settings_push_to_tv_footer" = "Увійдіть на Apple TV у той самий обліковий запис iCloud, щоб побачити цю медіатеку та її джерела — разом із паролями. До NAS, медіасерверів і хмарних дисків Apple TV під’єднується самостійно; реле потрібне лише для музики на цьому телефоні та джерел NFSv4.";
 "library_stats_plays_suffix" = "грає";
 "Fill Missing Fields Only" = "Заповніть лише відсутні поля";
 "playlist_import_match_results" = "Результати матчу";
@@ -3455,7 +3489,7 @@
 "immersive_demo_lyric_07" = "Найтихіше відлуння все ще може перетинати кімнату";
 "lyrics_editor_live_hint" = "Enter прив'язує початок рядка до поточного часу";
 "scrobble_overall_footer" = "Надішліть історію прослуховування на Last.fm / ListenBrainz. Відраховується після 50% or 4 хвилин гри.";
-"settings_relay_footer" = "Коли ввімкнено, Apple TV може відтворювати музику, що зберігається на цьому телефоні, — вона передається через цей пристрій (джерела NFS із версією NFSv4 теж ідуть цим шляхом). Тримайте Primuse відкритим на передньому плані, а обидва пристрої – на одному Wi-Fi.";
+"settings_relay_footer" = "Тримайте Primuse відкритим на передньому плані, а обидва пристрої – на одному Wi-Fi. Музику з цього телефона також потрібно надіслати за допомогою «Перенести медіатеку з iPhone» на Apple TV.";
 "search_section_path" = "Шлях збігається";
 "reread_song_tags_completed" = "Теги файлів було прочитано знову.";
 "scrobble_mac_session_saved" = "Сеанс збережено";
@@ -3465,6 +3499,8 @@
 "add_to_playlist_ellipsis" = "Додати до списку відтворення…";
 "rg_mode_track" = "Трек";
 "github_feedback" = "Пропозиції та звіти про проблеми";
+"github_bug_report" = "Повідомити про проблему";
+"github_feature_request" = "Запит функції";
 "cat_nas" = "NAS";
 "cloud_authorizing_waiting" = "Очікування, поки системний браузер поверне код авторизації…";
 "songs_view_compact" = "Компактний";
@@ -3512,7 +3548,7 @@
 "metadata_status_state_unreadable" = "Теги не читаються";
 "ai_primuse_relay_diagnostic_region_detail" = "Вбудована служба недоступна для поточного регіону вітрини, тому запит на ретрансляцію не надіслано.";
 "Metadata Scraping" = "Пошук метаданих";
-"source_diag_advice_server_suggestion" = "Перевірте статус сервера та повторіть спробу. Якщо збій продовжується, експортуйте журнали зі сховища.";
+"source_diag_advice_server_suggestion" = "Перевірте стан сервера та спробуйте знову. Якщо проблема не зникне, експортуйте журнали в розділі діагностичних звітів.";
 "Listening Stats" = "Статистика прослуховування";
 "4 Recent Covers" = "4 останні обкладинки";
 "URL recognized" = "URL розпізнано";
@@ -3548,7 +3584,6 @@
 "ai_primuse_relay_test_running" = "Перевірка вбудованої служби…";
 "scraper_warn_includes_cookie" = "Ця конфігурація містить дані Cookie. Імпортуйте конфігурації лише від тих, кому довіряєте.";
 "fullscreen_effect_typography_subtitle" = "Композиція, створена з метаданих треку";
-"icon_theme_9" = "Класичний значок";
 "yearly_sub_closing" = "Дякую та до побачення";
 "Not checked yet" = "Ще не перевірено";
 "playlist_reorder" = "Змінити замовлення";
@@ -3557,7 +3592,7 @@
 "share_song_information_action" = "Поділіться інформацією про пісню";
 "source_remove_confirm_title" = "Видалити це музичне джерело?";
 "dup_keep_newest" = "Зберігати найновіші";
-"icon_default" = "Сплеск";
+"icon_default" = "М'яка нота";
 "relay_share_action" = "Створити зв’язок із приватним ретранслятором";
 "dup_mac_cleanup_action" = "Очистити дублікати (перемістити до нещодавно видалених)";
 "save_then_scan_library_hint" = "Спочатку збережіть, потім торкніться джерела, щоб підключитися та відсканувати повний каталог сервера";
@@ -4023,6 +4058,7 @@
 "source_address_alternate_section" = "Запасна адреса";
 "source_address_section_footer" = "Залиште порт порожнім — Primuse визначить його під час збереження.";
 "source_address_placeholder" = "Домен, IP або повна адреса";
+"source_address_placeholder_vendor %@" = "Домен, IP або %@";
 "source_address_add_alternate" = "Додати запасну адресу";
 "source_address_remove" = "Видалити цю адресу";
 "source_address_advanced" = "Указати порт і шифрування вручну";
@@ -4108,3 +4144,84 @@
 "audio_station_error_api_not_found_format" = "Audio Station не надає потрібного інтерфейсу (помилка %d).";
 "audio_station_error_server_format" = "Audio Station повернув помилку (код %d).";
 "audio_station_error_two_factor_required" = "Для цього облікового запису ввімкнено двоетапну перевірку. Увійдіть у це джерело Audio Station знову й введіть код підтвердження.";
+"audio_station_radio_folder_favorite" = "Обране";
+"audio_station_radio_folder_user_defined" = "Власні радіостанції";
+
+"lyric_poster_live_fallback" = "«Фото» не прийняли Live Photo — збережено звичайне зображення";
+
+"lyrics_embed_copy_header" = "Вбудовані тексти пісень";
+"lyrics_embed_copy_title" = "Зберігати тексти";
+"lyrics_embed_copy_hint" = "MP3, FLAC і M4A · Під час кожного збереження тексту пісня вивантажується заново повністю";
+"lyrics_embed_copy_footer" = "Вбудовані тексти переносяться разом з аудіофайлом, тож їх бачать й інші програвачі та пристрої. Працює лише для MP3, FLAC і M4A в джерелах, файли яких Primuse може замінювати; для решти пісень і далі використовуються файли з текстом. Під час кожного збереження пісня вивантажується заново повністю. У режимі «Лише в аудіофайл» нові файли з текстом не створюються, а файл із текстом, що вже лежить поруч із піснею, і далі оновлюється. Під час пошуку метаданих для всієї медіатеки тексти не вбудовуються.";
+"lyrics_embed_copy_failed_format" = "Текст збережено, але вбудувати його в аудіофайл не вдалося: %@";
+"lyrics_embed_mode_off" = "Лише у файл із текстом";
+"lyrics_embed_mode_alongside" = "У файл із текстом і аудіофайл";
+"lyrics_embed_mode_embed_only" = "Лише в аудіофайл";
+"lyrics_embed_confirm_title" = "Записувати тексти в аудіофайли?";
+"lyrics_embed_confirm_message" = "· Під час кожного збереження тексту пісня повністю завантажується, перезаписується й вивантажується назад. Для великих файлів і хмарних дисків це помітно повільніше й витрачає більше трафіку.\n· Дата змінення та вміст аудіофайлу змінюються, тому папки синхронізації, програми резервного копіювання й медіасервери вважають його новим файлом.\n· Перед записом Primuse перевіряє, що файл не змінено деінде, а після запису читає його назад, але перезапис аудіофайлів однаково пов’язаний із ризиком. Спершу зробіть резервну копію медіатеки.\n· Вбудовується текст із порядковою синхронізацією. Багатомовні тексти, уже вбудовані в MP3, замінюються ним.";
+"lyrics_embed_confirm_message_embed_only" = "· У режимі «Лише в аудіофайл» файл із текстом поруч із піснею не створюється, а синхронізація за словами зберігається лише в Primuse. Файл із текстом, що вже лежить поруч із піснею, і далі оновлюється.\n· Пошук метаданих для всієї медіатеки не вбудовує тексти й не створює файлів із текстом; знайдені тексти зберігаються лише в Primuse.";
+"tag_editor_lyrics_writeback_embedded" = "Ціль перевірено. Текст буде вбудовано в аудіофайл; файл із текстом не створюватиметься.";
+"tag_editor_lyrics_writeback_also_embedded" = "Текст також буде вбудовано в аудіофайл.";
+"search_layout_title" = "Порядок результатів пошуку";
+"search_layout_footer" = "Вимкнені розділи приховуються й не беруть участі в пошуку.";
+"search_layout_restore_default" = "Відновити типові";
+"search_layout_move_up" = "Вгору";
+"search_layout_move_down" = "Вниз";
+"search_top_match_kind_artist" = "Виконавець";
+"search_top_match_kind_album" = "Альбом";
+"search_top_match_kind_song" = "Пісня";
+"audio_variant_lossy_stereo" = "Стерео";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Вибрати з Apple Music…";
+"apple_music_pick_adding" = "Додавання до медіатеки…";
+"apple_music_pick_added" = "Додано: %d, синхронізація";
+"apple_music_pick_failed" = "Не вдалося додати до медіатеки";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Безпечний режим";
+"safe_mode_hint" = "Запуск кілька разів поспіль завершувався збоєм, тому ці кроки пропущено. Надішліть діагностику розробнику.";
+"safe_mode_skipped" = "· Головний екран і анімації появи\n· Відновлення останнього відтворення\n· Синхронізація iCloud і фонове сканування\n· Рекомендації для всієї медіатеки та індекс папок";
+"safe_mode_exit" = "Повернути звичайний запуск";
+"safe_mode_exit_hint" = "Наступного разу головний екран відкриється як завжди.";
+"launch_aborted_title" = "Минулий запуск не завершився";
+"launch_aborted_hint" = "Звіт нижче показує, де він зупинився. Надішліть його розробнику.";
+"launch_diagnostics_copy" = "Скопіювати діагностику";
+"launch_diagnostics_files_hint" = "Діагностику також збережено у «Файли» → «На моєму iPhone» → Primuse → Diagnostics.";
+
+// MARK: - Аудіокниги
+"tab_spoken_word" = "Аудіокниги";
+"spoken_word_continue_section" = "Продовжити слухати";
+"spoken_word_all_section" = "Усі";
+"spoken_word_empty_hint" = "Тут з’являться аудіокниги, радіовистави, лекції та інші мовні записи.";
+"spoken_word_remaining_format" = "Залишилось %@";
+"spoken_word_clear_progress" = "Скинути позицію прослуховування";
+"mark_as_spoken_word" = "Позначити як аудіокнигу";
+"mark_as_music" = "Позначити як музику";
+"chapters_title" = "Розділи";
+"a11y_skip_backward" = "Назад на 15 секунд";
+"a11y_skip_forward" = "Вперед на 30 секунд";
+
+"source_diag_reachability_title" = "Доступність адреси";
+"source_diag_reachability_ok" = "Вузол і порт доступні.";
+"source_diag_login_title" = "Вхід до служби";
+"source_diag_library_title" = "Доступ до медіатеки";
+"source_diag_waiting" = "Перевірка…";
+"source_diag_skipped" = "Не виконано через помилку попередньої перевірки.";
+"source_diag_progress_format" = "Завершено перевірок: %1$d із %2$d";
+"source_diag_routes_format" = "Доступні підключення в цій мережі: %1$d із %2$d";
+"source_diag_cancelled" = "Перевірку скасовано";
+"source_diag_check_counts_format" = "Успішно: %1$d · Попереджень: %2$d · Помилок: %3$d · Пропущено: %4$d";
+"source_diag_resolution_title" = "Визначення адреси";
+"source_diag_resolution_ok" = "Адресу служби визначено.";
+"source_diag_library_ok" = "Доступ до медіатеки отримано.";
+
+"diagnostics_send_all" = "Звіти та журнали";
+"diagnostics_send_reports_only" = "Лише звіти";
+"diagnostics_send_logs_only" = "Лише журнали";
+"diagnostics_feedback_attachments" = "Вкладення (необов’язково)";
+"diagnostics_feedback_message" = "Побажання або пропозиції";
+"diagnostics_feedback_compose" = "Відкрити пошту";
+"diagnostics_logs_title" = "Журнали";

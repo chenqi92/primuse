@@ -90,6 +90,8 @@ struct MacContentView: View {
     @State private var showNoScraperSourceAlert = false
     /// 当前打开的工具弹框 (nil = 没开)。侧栏「工具」区点击设置它, sheet 关掉清空。
     @State private var activeTool: MacTool?
+    /// 底栏那个「全屏效果」入口开出来的抽屉。全屏播放页自己带一份,这里只服务窗口态。
+    @State private var showsFullscreenEffectPicker = false
 
     @Environment(\.openWindow) private var openWindow
     @Environment(AudioPlayerService.self) private var player
@@ -98,9 +100,12 @@ struct MacContentView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(ThemeService.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("primuse.hasSeenOnboarding") private var hasSeenOnboarding = false
     @AppStorage("primuse.navigation.macRoute.v1") private var persistedRouteID = "home"
+    @AppStorage(FullscreenPlayerEffect.storageKey)
+    private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
 
     @MainActor
     private func enqueuePlaybackReconciliation(removing songIDs: Set<String>) {
@@ -194,6 +199,37 @@ struct MacContentView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .zIndex(1)
                     }
+
+                    if showsFullscreenEffectPicker {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { closeFullscreenEffectPicker() }
+                            .accessibilityHidden(true)
+                            .zIndex(2)
+
+                        // 面板从底栏那个入口上方展开,跟着按钮走。
+                        MacImmersiveEffectPicker(
+                            selected: fullscreenPlayerEffect,
+                            effects: FullscreenPlayerEffect.allCases,
+                            palette: ImmersiveArtworkPalette(
+                                primary: theme.accentColor,
+                                secondary: theme.secondaryDarkAccent
+                            ),
+                            onSelect: { candidate in
+                                closeFullscreenEffectPicker()
+                                fullscreenPlayerEffectRawValue = candidate.rawValue
+                                FullscreenPlayerEffectSync.shared.select(candidate)
+                            },
+                            onClose: { closeFullscreenEffectPicker() }
+                        )
+                        .padding(.trailing, 92)
+                        .padding(.bottom, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .transition(
+                            .scale(scale: 0.96, anchor: .bottomTrailing).combined(with: .opacity)
+                        )
+                        .zIndex(3)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -243,17 +279,29 @@ struct MacContentView: View {
                         },
                         onFullScreen: {
                             PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
-                        }
+                        },
+                        onPickFullscreenEffect: {
+                            pmWithAnimation(.panel) {
+                                showsFullscreenEffectPicker.toggle()
+                            }
+                        },
+                        isFullscreenEffectPickerShown: showsFullscreenEffectPicker
                     )
                 }
             }
         }
         .songBatchRemovalFeedback()
         .macPlaybackErrorFeedback()
+        .appleMusicSubscriptionOffer()
         .environment(\.pmAppearance, preferences.appearance)
         .background(PMColor.bg.ignoresSafeArea())
         .background(PMWindowChromeConfigurator())
-        .ignoresSafeArea(.container, edges: .top)
+        // 窗口态要把自绘的标题栏顶到窗口最上沿,所以忽略顶部安全区;全屏时不能再忽略。
+        // 全屏窗口的内容区比屏幕矮一条菜单栏(诊断日志 🖼 enter-fullscreen:
+        // content=1512×949 而屏幕 982),再往上扩展内容就比窗口高,顶部那排浮动按钮
+        // 会被顶出上边界只剩半截 —— 被裁掉的正好是这 33 点。
+        .ignoresSafeArea(.container, edges: isWindowFullScreen ? [] : .top)
+        .pmLogFrame("root")
         .sheet(isPresented: $showInitialOnboarding) {
             OnboardingView()
                 .frame(minWidth: 720, minHeight: 560)
@@ -377,6 +425,8 @@ struct MacContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
             guard let window = note.object as? NSWindow, window === hostWindow else { return }
             isWindowFullScreen = true
+            // 底栏连同它的效果入口在全屏里就消失了,抽屉不能留在屏幕上。
+            showsFullscreenEffectPicker = false
             savedSidebarCollapsed = sidebarCollapsed
             pmWithAnimation(.panel) {
                 sidebarCollapsed = true
@@ -411,6 +461,16 @@ struct MacContentView: View {
 
     private var isFullScreenNowPlaying: Bool {
         isWindowFullScreen && nowPlayingPresented
+    }
+
+    private var fullscreenPlayerEffect: FullscreenPlayerEffect {
+        FullscreenPlayerEffect(rawValue: fullscreenPlayerEffectRawValue) ?? .defaultValue
+    }
+
+    private func closeFullscreenEffectPicker() {
+        pmWithAnimation(.panel) {
+            showsFullscreenEffectPicker = false
+        }
     }
 
     private func startCurrentSongLyricsScrape() {

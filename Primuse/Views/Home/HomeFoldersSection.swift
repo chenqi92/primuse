@@ -49,11 +49,12 @@ struct HomeFoldersSection: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(HomeDiscoveryText.string("folders"))
-                    .font(.title2.bold())
+                    .font(.title3.bold())
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
                 NavigationLink {
                     HomeFolderBrowser(showsInlineBack: true)
+                        .environment(model)
                         #if os(iOS)
                         .minimalNavigationDetail()
                         #endif
@@ -406,7 +407,6 @@ struct HomeFolderBrowser: View {
                     searchText: $macSearchText,
                     scope: $macSearchScope,
                     contextualScope: context,
-                    showsMacQuerySummary: false,
                     onShowInLibrary: { song in macShowInLibrary?(song) }
                 )
             } else if let currentNodeID {
@@ -1027,6 +1027,8 @@ struct FolderPlaylistMenuButton: View {
     let index: LibraryFolderIndex?
     let library: MusicLibrary
     let source: MusicSource?
+    /// 放在菜单顶部那一行快捷键里时，画出来的文字换成短的那条（见 `PMMenuQuickActionButton`）。
+    var isInQuickRow = false
 
     static func supports(_ node: LibraryFolderNode) -> Bool {
         (node.kind == .folder || node.kind == .scanRoot || node.kind == .source)
@@ -1037,8 +1039,9 @@ struct FolderPlaylistMenuButton: View {
         if Self.supports(node), let source {
             let binding = PlaylistFolderBinding(nodeID: node.id, cloudAccountID: source.cloudAccountID)
             let exists = library.playlists.contains { $0.folderBinding == binding }
-            Button(
-                HomeDiscoveryText.string("folder_as_playlist"),
+            PMMenuQuickActionButton(
+                short: HomeDiscoveryText.string(isInQuickRow ? "folder_as_playlist_short" : "folder_as_playlist"),
+                full: HomeDiscoveryText.string("folder_as_playlist"),
                 systemImage: exists ? "checkmark" : "music.note.list"
             ) {
                 guard let index, index.node(withID: node.id) != nil else { return }

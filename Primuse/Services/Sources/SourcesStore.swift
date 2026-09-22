@@ -295,7 +295,14 @@ final class SourcesStore {
     /// foreground all force the write through.
     func updateLocalCoalesced(_ sourceID: String, mutate: (inout MusicSource) -> Void) {
         guard let index = allSources.firstIndex(where: { $0.id == sourceID }) else { return }
-        mutate(&allSources[index])
+        // 改在副本上再比一次: 重扫一个没有变动的来源时每次 flush 都会把同一个
+        // 计数写回来, 而 Observation 不看新旧值 —— 照写就会让音乐源页整张列表
+        // (连同每张卡片的长按菜单和滑动操作)重建一遍, 跟滑动抢主线程。没有变化
+        // 也就没有要落盘的东西, 一并省掉。
+        var updated = allSources[index]
+        mutate(&updated)
+        guard updated != allSources[index] else { return }
+        allSources[index] = updated
         guard !SourcePersistCoalescingPolicy.shouldPersistNow(
             isFinalCommit: false,
             isBackgrounded: isSceneBackgrounded,

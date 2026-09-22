@@ -22,28 +22,29 @@ public enum FullDownloadSeekPolicy {
     }
 }
 
-public enum RemoteSeekPreparationDecision: Sendable, Equatable {
-    case useExistingFile
-    case tryRangeWithoutMaterialization
+public enum RemoteRangeSeekRejectionDecision: Sendable, Equatable {
     case materializeCompleteFile
+    case reportSeekUnavailable
 }
 
+/// Every remote seek without a complete cache file first asks the decoder to
+/// seek through its Range InputSource. A seekable format reaches the target
+/// after a few range reads, whereas completing a large lossless download
+/// first keeps interruption recovery silent for tens of seconds. The Range
+/// decoder never decodes and discards up to a remote target; it rejects the
+/// seek instead, and only then is the complete file worth waiting for.
+///
 /// Cold-process restoration has no live decoder or audible position to
-/// protect. It may seek through a Range InputSource, but blocking the first
-/// Play on a complete remote download is worse than restarting at the
-/// beginning if that decoder cannot seek. Runtime recovery and explicit seek
-/// retain the complete-file path when caching is enabled.
+/// protect, so blocking the first Play on a complete download is worse than
+/// restarting at the beginning. A disabled cache never persists a complete
+/// file behind the user's back.
 public enum RemoteSeekPreparationPolicy {
-    public static func decision(
-        hasCachedFile: Bool,
+    public static func afterRangeSeekRejected(
         cacheEnabled: Bool,
         isColdSessionRestore: Bool
-    ) -> RemoteSeekPreparationDecision {
-        if hasCachedFile {
-            return .useExistingFile
-        }
+    ) -> RemoteRangeSeekRejectionDecision {
         if isColdSessionRestore || !cacheEnabled {
-            return .tryRangeWithoutMaterialization
+            return .reportSeekUnavailable
         }
         return .materializeCompleteFile
     }

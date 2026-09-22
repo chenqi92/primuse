@@ -45,6 +45,11 @@ struct RadioStationsView: View {
         RadioStationLayoutMode(rawValue: layoutModeRaw) ?? .list
     }
 
+    /// 工具栏那个切版式的按钮要显示「点了会变成哪种」，这里就是那一种。
+    private var alternateLayoutMode: RadioStationLayoutMode {
+        layoutMode == .cover ? .list : .cover
+    }
+
     /// 列表版一行一个宽卡片；封面版是方格台标墙，一屏能放下三四倍的台。
     /// 列表版在手机横屏下本来就会排成两列、不必再收；封面版的格子跟着高度收一档。
     private var columns: [GridItem] {
@@ -426,24 +431,34 @@ struct RadioStationsView: View {
             // 都会被盖住(mini player 是 zIndex overlay，不贡献安全区)。
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Section {
-                        Button {
-                            if selection == visibleStationIDs {
-                                selection = []
-                            } else {
-                                selection = visibleStationIDs
-                            }
-                        } label: {
-                            Label(
-                                selection == visibleStationIDs
-                                    ? String(localized: "radio_manage_deselect_all")
-                                    : String(localized: "select_all"),
-                                systemImage: selection == visibleStationIDs
-                                    ? "circle"
-                                    : "checkmark.circle"
-                            )
+                    // 批量操作里用得最多的三件事排成一行。这三个键在任何选中
+                    // 状态下都在，只是会变灰，所以这一行不会塌成一个键。
+                    PMMenuQuickActions {
+                        let allSelected = selection == visibleStationIDs
+                        PMMenuQuickActionButton(
+                            shortKey: allSelected ? "deselect_all_short" : "select_all_short",
+                            fullKey: allSelected ? "radio_manage_deselect_all" : "select_all",
+                            systemImage: allSelected ? "circle" : "checkmark.circle"
+                        ) {
+                            selection = allSelected ? [] : visibleStationIDs
                         }
                         .disabled(visibleStationIDs.isEmpty)
+
+                        PMMenuQuickActionButton(
+                            shortKey: "radio_manage_pin_top_short",
+                            fullKey: "radio_manage_pin_top",
+                            systemImage: "arrow.up.to.line"
+                        ) {
+                            moveToTop(selection)
+                        }
+                        .disabled(selectedStations.isEmpty)
+
+                        Button {
+                            exportSelected()
+                        } label: {
+                            Label("radio_manage_export", systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(selectedStations.isEmpty)
                     }
 
                     Section {
@@ -460,15 +475,6 @@ struct RadioStationsView: View {
                             Label("radio_tags", systemImage: "tag")
                         }
                         .disabled(selectedIDs.isEmpty)
-                    }
-
-                    Section {
-                        Button {
-                            moveToTop(selection)
-                        } label: {
-                            Label("radio_manage_pin_top", systemImage: "arrow.up.to.line")
-                        }
-                        .disabled(selectedStations.isEmpty)
 
                         Button {
                             guard let station = selectedStations.first else { return }
@@ -478,13 +484,6 @@ struct RadioStationsView: View {
                         }
                         // 编辑是单条操作，多选时没有明确目标。
                         .disabled(selectedStations.count != 1)
-
-                        Button {
-                            exportSelected()
-                        } label: {
-                            Label("radio_manage_export", systemImage: "square.and.arrow.up")
-                        }
-                        .disabled(selectedStations.isEmpty)
                     }
 
                     Section {
@@ -509,17 +508,16 @@ struct RadioStationsView: View {
                     }
                 }
 
-                Menu {
-                    Picker("radio_layout", selection: $layoutModeRaw) {
-                        ForEach(RadioStationLayoutMode.allCases) { mode in
-                            Label(String(localized: mode.titleKey), systemImage: mode.icon)
-                                .tag(mode.rawValue)
-                        }
-                    }
-                    .pickerStyle(.inline)
+                // 版式一共就两种，展开一个菜单去点其中一个不如按一下直接换。
+                // 图标画的是「点下去会变成的那种」，当前是哪种交给旁白报。
+                Button {
+                    layoutModeRaw = alternateLayoutMode.rawValue
                 } label: {
-                    Label("radio_layout", systemImage: layoutMode.icon)
+                    Image(systemName: alternateLayoutMode.icon)
                 }
+                .accessibilityLabel(Text(String(localized: alternateLayoutMode.titleKey)))
+                .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
+                .accessibilityIdentifier("radioLayoutMode.toggle")
 
                 Menu {
                     Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
@@ -627,14 +625,10 @@ struct RadioStationsView: View {
         }
     }
 
-    /// 卡片上的 `#N` 是电台在**全局**优先级里的位次，不随筛选变化 ——
-    /// 上一台/下一台、CarPlay、电视端用的都是这份全局顺序。
-    private var priorityByID: [String: Int] {
-        Dictionary(uniqueKeysWithValues: store.stations.enumerated().map { ($1.id, $0 + 1) })
-    }
-
     private var stationGrid: some View {
-        let priorities = priorityByID
+        // 卡片上的 `#N` 是电台在**全局**优先级里的位次，不随筛选变化 ——
+        // 上一台/下一台、CarPlay、电视端用的都是这份全局顺序。
+        let priorities = store.priorityByID
         let total = store.stations.count
         return ScrollView {
             LazyVGrid(
@@ -644,7 +638,8 @@ struct RadioStationsView: View {
                 pinnedViews: [.sectionHeaders]
             ) {
                 if showsFolderSections {
-                    ForEach(RadioStationOrganization.grouped(visibleStations)) { group in
+                    // 分段只在没筛选时出现，这时可见的就是全部电台，直接用存储里分好的。
+                    ForEach(store.folderGroups) { group in
                         Section {
                             ForEach(group.stations) { station in
                                 stationItem(
@@ -667,34 +662,18 @@ struct RadioStationsView: View {
         }
     }
 
-    @ViewBuilder
     private func stationItem(
         _ station: RadioStation,
         priority: Int,
         total: Int
     ) -> some View {
-        let isCurrent = player.currentRadioStation?.id == station.id
-        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
-        switch layoutMode {
-        case .list:
-            RadioStationCard(
-                station: station,
-                priority: priority,
-                isCurrent: isCurrent,
-                isPlaying: isPlaying,
-                metadataTitle: isCurrent ? player.radioMetadataTitle : nil,
-                onPlay: { toggle(station) },
-                actions: { stationActions(for: station, priority: priority, total: total) }
-            )
-        case .cover:
-            RadioStationCoverTile(
-                station: station,
-                isCurrent: isCurrent,
-                isPlaying: isPlaying,
-                onPlay: { toggle(station) },
-                actions: { stationActions(for: station, priority: priority, total: total) }
-            )
-        }
+        RadioStationGridItem(
+            station: station,
+            layoutMode: layoutMode,
+            priority: priority,
+            onPlay: { toggle(station) },
+            actions: { stationActions(for: station, priority: priority, total: total) }
+        )
     }
 
     /// 一条电台的全部单条操作。列表卡片的 ⋯ 菜单和封面格的长按菜单共用这一份 ——
@@ -705,44 +684,63 @@ struct RadioStationsView: View {
         priority: Int,
         total: Int
     ) -> some View {
-        if station.isServerMirror {
-            Label(station.displayEndpoint, systemImage: "server.rack")
-                .foregroundStyle(.secondary)
-        } else {
-            Button("edit", systemImage: "pencil") { editingStation = station }
+        // 最常用的三件事排成一行。服务器镜像改不了名字和地址，那一行就只剩
+        // 调序两个键 —— 仍然是两个，不会出现一个键占满整行的样子。
+        PMMenuQuickActions {
+            if !station.isServerMirror {
+                Button("edit", systemImage: "pencil") { editingStation = station }
+            }
+
+            PMMenuQuickActionButton(
+                shortKey: "radio_priority_move_up_short",
+                fullKey: "radio_priority_move_up",
+                systemImage: "arrow.up"
+            ) {
+                store.moveStation(id: station.id, by: -1)
+            }
+            .disabled(priority <= 1)
+
+            PMMenuQuickActionButton(
+                shortKey: "radio_priority_move_down_short",
+                fullKey: "radio_priority_move_down",
+                systemImage: "arrow.down"
+            ) {
+                store.moveStation(id: station.id, by: 1)
+            }
+            .disabled(priority >= total)
         }
 
-        organizeMenu(for: station)
+        Section {
+            // 镜像电台没有可编辑的地址，把它摆在这里至少能认出这条是哪台服务器给的。
+            if station.isServerMirror {
+                Label(station.displayEndpoint, systemImage: "server.rack")
+                    .foregroundStyle(.secondary)
+            }
 
-        Button("radio_priority_move_up", systemImage: "arrow.up") {
-            store.moveStation(id: station.id, by: -1)
-        }
-        .disabled(priority <= 1)
+            organizeMenu(for: station)
 
-        Button("radio_priority_move_down", systemImage: "arrow.down") {
-            store.moveStation(id: station.id, by: 1)
-        }
-        .disabled(priority >= total)
-
-        // 自动发现失败过的台在退避期里不会再自己去找，这里给用户一个
-        // 「现在就再试一次」的出口。用户自己选过图或填过链接的不提供 ——
-        // 那会覆盖他的选择。
-        if !station.isServerMirror,
-           station.logoData == nil,
-           station.logoFileName == nil,
-           station.remoteLogoSource?.isUserProvided != true {
-            Button("radio_logo_fetch", systemImage: "photo.badge.arrow.down") {
-                RadioLogoDiscoveryService.shared.discoverNow(for: station)
+            // 自动发现失败过的台在退避期里不会再自己去找，这里给用户一个
+            // 「现在就再试一次」的出口。用户自己选过图或填过链接的不提供 ——
+            // 那会覆盖他的选择。
+            if !station.isServerMirror,
+               station.logoData == nil,
+               station.logoFileName == nil,
+               station.remoteLogoSource?.isUserProvided != true {
+                Button("radio_logo_fetch", systemImage: "photo.badge.arrow.down") {
+                    RadioLogoDiscoveryService.shared.discoverNow(for: station)
+                }
             }
         }
 
         if !station.isServerMirror {
-            Divider()
-            Button("delete", systemImage: "trash", role: .destructive) {
-                if station.isSubscribed {
-                    subscribedStationToDelete = station
-                } else {
-                    store.remove(id: station.id)
+            // 破坏性动作单独成段落在最后，跟上面隔开。
+            Section {
+                Button("delete", systemImage: "trash", role: .destructive) {
+                    if station.isSubscribed {
+                        subscribedStationToDelete = station
+                    } else {
+                        store.remove(id: station.id)
+                    }
                 }
             }
         }
@@ -878,7 +876,9 @@ struct RadioStationsView: View {
     }
 
     private func toggle(_ station: RadioStation) {
-        if let url = station.url,
+        // `.pls` 包装先放行:它拆出来的真实流主机由播放器在起播时再问。
+        if !RadioImportParser.isPlaylistWrapper(station.streamURL),
+           let url = station.url,
            TrustedHTTPTransport.requiresPlainSocket(for: url),
            let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
            !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
@@ -948,6 +948,43 @@ extension UTType {
     }
 }
 
+
+/// 电台页的一格。播放状态在这里读，而不是在整页的 body 里读：节目标题每更新一次、
+/// 换一次台，只重画相关的一两张卡，整页的筛选、分组不跟着重算。
+private struct RadioStationGridItem<Actions: View>: View {
+    let station: RadioStation
+    let layoutMode: RadioStationLayoutMode
+    let priority: Int
+    let onPlay: () -> Void
+    @ViewBuilder let actions: () -> Actions
+
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        let isCurrent = player.currentRadioStation?.id == station.id
+        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
+        switch layoutMode {
+        case .list:
+            RadioStationCard(
+                station: station,
+                priority: priority,
+                isCurrent: isCurrent,
+                isPlaying: isPlaying,
+                metadataTitle: isCurrent ? player.radioMetadataTitle : nil,
+                onPlay: onPlay,
+                actions: actions
+            )
+        case .cover:
+            RadioStationCoverTile(
+                station: station,
+                isCurrent: isCurrent,
+                isPlaying: isPlaying,
+                onPlay: onPlay,
+                actions: actions
+            )
+        }
+    }
+}
 
 private struct RadioStationCard<Actions: View>: View {
     let station: RadioStation
@@ -1139,8 +1176,46 @@ private struct RadioStationCoverTile<Actions: View>: View {
     }
 }
 
-private struct SendableRadioArtworkCGImage: @unchecked Sendable {
+struct SendableRadioArtworkCGImage: @unchecked Sendable {
     let value: CGImage?
+}
+
+/// 把台标缩成一张小位图读像素，交给 `RadioLogoBackdropPolicy` 定衬底颜色。
+///
+/// 电台列表、批量添加候选、两端编辑页都要垫同一块底，取样只写这一份。
+enum RadioLogoBackdropSampler {
+    static func backdrop(for image: CGImage?) -> RadioLogoBackdrop {
+        guard let image else { return RadioLogoBackdropPolicy.light }
+        let side = RadioLogoBackdropPolicy.sampleSide
+        guard side > 0,
+              let context = CGContext(
+                  data: nil,
+                  width: side,
+                  height: side,
+                  bitsPerComponent: 8,
+                  bytesPerRow: side * 4,
+                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return RadioLogoBackdropPolicy.light
+        }
+        // 非正方形台标在这里会被拉成正方形，但最外一圈仍旧是原图的边缘，判色不受影响。
+        context.interpolationQuality = .low
+        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let buffer = context.data else { return RadioLogoBackdropPolicy.light }
+        let pixels = Array(UnsafeBufferPointer(
+            start: buffer.assumingMemoryBound(to: UInt8.self),
+            count: side * side * 4
+        ))
+        return RadioLogoBackdropPolicy.backdrop(pixels: pixels, width: side, height: side)
+    }
+}
+
+extension RadioLogoBackdrop {
+    /// 衬底故意不带平台颜色类型，画之前在这里转一次。
+    var color: Color {
+        Color(.sRGB, red: red, green: green, blue: blue)
+    }
 }
 
 @MainActor
@@ -1277,6 +1352,7 @@ struct RadioStationArtworkContent: View {
 
     @Environment(SourceManager.self) private var sourceManager
     @State private var image: PlatformRadioImage?
+    @State private var backdrop: RadioLogoBackdrop?
     @State private var resolvedIdentity: RadioStationArtworkResolutionIdentity?
     @State private var cacheRevision: UInt64 = 0
 
@@ -1309,12 +1385,18 @@ struct RadioStationArtworkContent: View {
         let currentLoadKey = loadKey
 
         ZStack {
-            RadioStationPlaceholderArtwork()
-            if resolvedIdentity == currentPlan.identity, let image {
+            // 占位图是渐变加同心环,台标一旦带透明通道、或者按 .fit 摆放留出两侧
+            // 空白,那个图案就会透出来。有台标时改垫一块由台标自己定色的纯底。
+            if resolvedIdentity == currentPlan.identity, let image, let backdrop {
+                // 台标由 .task 裸赋值,调用点包不了事务,曲线附在过渡上。
+                backdrop.color
+                    .pmFadeTransition(motion: .contentAppear)
                 Image(platformRadioImage: image)
                     .resizable()
                     .aspectRatio(contentMode: contentMode)
-                    // 台标由 .task 裸赋值,调用点包不了事务,曲线附在过渡上。
+                    .pmFadeTransition(motion: .contentAppear)
+            } else {
+                RadioStationPlaceholderArtwork()
                     .pmFadeTransition(motion: .contentAppear)
             }
         }
@@ -1322,6 +1404,7 @@ struct RadioStationArtworkContent: View {
             let capturedIdentity = currentPlan.identity
             if resolvedIdentity != capturedIdentity {
                 image = nil
+                backdrop = nil
                 resolvedIdentity = nil
             }
             let resolved = await RadioStationArtworkResourceResolver.resolve(
@@ -1336,7 +1419,26 @@ struct RadioStationArtworkContent: View {
                 displayedIdentity: plan.identity,
                 isCancelled: Task.isCancelled
             ) else { return }
-            image = resolved?.value
+            guard let logo = resolved?.value else {
+                image = nil
+                backdrop = nil
+                resolvedIdentity = capturedIdentity
+                return
+            }
+            let sampled = SendableRadioArtworkCGImage(value: logo.platformCGImage)
+            let sampling = Task.detached(priority: .utility) {
+                RadioLogoBackdropSampler.backdrop(for: sampled.value)
+            }
+            let logoBackdrop = await sampling.value
+            // 取样这段时间里电台可能已经换了,回到主线程要再判一次身份。
+            guard RadioStationArtworkResultPolicy.shouldApply(
+                completedIdentity: capturedIdentity,
+                displayedIdentity: plan.identity,
+                isCancelled: Task.isCancelled
+            ) else { return }
+            // 台标和衬底必须同一次赋值,否则会先露一帧没垫底的台标。
+            image = logo
+            backdrop = logoBackdrop
             resolvedIdentity = capturedIdentity
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
@@ -1726,11 +1828,17 @@ private struct RadioEditorArtwork: View {
     var body: some View {
         Group {
             if let data, let image = PlatformRadioImage(data: data) {
-                Image(platformRadioImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 84, height: 84)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                // 别的设备同步过来的 logoData 不保证是不透明的 JPEG,垫一块由台标
+                // 自己定色的底,免得透明台标直接压在弹框背景上。
+                let backdrop = RadioLogoBackdropSampler.backdrop(for: image.platformCGImage)
+                ZStack {
+                    backdrop.color
+                    Image(platformRadioImage: image)
+                        .resizable()
+                        .scaledToFill()
+                }
+                .frame(width: 84, height: 84)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else if let remoteURLString {
                 // 走和列表同一套加载器，矢量台标在这里也能预览；
                 // 加载不出来时它自己会显示默认台标。

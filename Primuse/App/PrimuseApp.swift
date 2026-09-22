@@ -23,6 +23,9 @@ final class PrimuseAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // 第一件事：先把上次没跑完的启动记下来，再给这次立哨兵。排在任何
+        // 可能崩的东西之前，否则这次启动自己就报不出来了。
+        LaunchDiagnostics.begin()
         application.registerForRemoteNotifications()
         BackgroundScanResumeTask.register()
         // 年度报告: 启动时把 PlayHistoryStore 按年份归档, 防止 5000 条 FIFO
@@ -497,6 +500,14 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         MacTaskExceptionGuard.install()
+        // 紧跟在防护后面：上次启动要是没活下来，先把原因摆出来再继续，
+        // 免得这次也崩在同一个地方、用户永远看不到。
+        MacLaunchDiagnostics.begin()
+        // 明暗模式和 Dock 图标越早重放越好，而且必须同步做。放在
+        // didFinishLaunching 的 Task 里要等一次调度，Dock 会先把 App 包自带的
+        // 图标显示出来再被换掉，看起来就是启动时图标"跳"了一下。
+        // willFinishLaunching 是 AppKit 给的最早时机，这时 NSApp 已经在了。
+        MacUIPreferences.shared.applyOnLaunch()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -504,8 +515,10 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             Self.shared = self
 
-            // 重放持久化的明暗模式 + Dock 图标 (didSet 在 init 期不触发)。
-            MacUIPreferences.shared.applyOnLaunch()
+            // 再放一次 Dock 图标。willFinishLaunching 那次是为了把启动瞬间的
+            // 图标跳变压到最短，但那个时机 Dock tile 还没建好，系统未必认账；
+            // 这里补一次兜底。重复设同一张图没有副作用。
+            MacUIPreferences.shared.applyAppIcon()
 
             let bar = MacMenuBarController()
             bar.install()
@@ -1199,7 +1212,7 @@ private struct SourceAuthenticationPresentationModifier: ViewModifier {
                     title: Text("source_auth_failed_title"),
                     message: Text("\(prompt.source.name) — \(detail)"),
                     primaryButton: .default(Text("source_auth_failed_re_enter")) {
-                        let source = prompt.source
+                        let source = sourcesStore.source(id: prompt.source.id) ?? prompt.source
                         alerts[prompt.id] = nil
                         AppAlertCoordinator.shared.finish(
                             .sourceAuthentication(prompt.id),
@@ -1218,11 +1231,22 @@ private struct SourceAuthenticationPresentationModifier: ViewModifier {
                 item: $reauthSource,
                 onDismiss: { AppAlertCoordinator.shared.resumeAfterModal() }
             ) { source in
-                AddSourceView(sourceType: source.type, editingSource: source) { updated in
-                    sourcesStore.update(updated.id) { $0 = updated }
-                    scanService.removeSynologyAPI(for: updated.id)
-                    Task { await sourceManager.refreshConnector(for: updated.id) }
-                    SourceAuthAlert.clear(sourceID: updated.id)
+                if source.type.usesSynologyConnectionMode {
+                    SynologyCredentialRecoveryView(source: source) { updated in
+                        sourcesStore.update(updated.id) {
+                            $0.rememberDevice = updated.rememberDevice
+                            $0.deviceId = updated.deviceId
+                        }
+                        scanService.removeSynologyAPI(for: updated.id)
+                        Task { await sourceManager.refreshConnector(for: updated.id, force: true) }
+                    }
+                } else {
+                    AddSourceView(sourceType: source.type, editingSource: source) { updated in
+                        sourcesStore.update(updated.id) { $0 = updated }
+                        scanService.removeSynologyAPI(for: updated.id)
+                        Task { await sourceManager.refreshConnector(for: updated.id) }
+                        SourceAuthAlert.clear(sourceID: updated.id)
+                    }
                 }
             }
     }
@@ -1275,8 +1299,7 @@ struct PrimuseApp: App {
     #endif
     @Environment(\.scenePhase) private var scenePhase
 
-    /// 后台 connect() 失败时弹的 "登录失败" 提示。点 "重新输入" 后会把 source
-    /// 存到 reauthSource 触发 AddSourceView sheet。
+    /// 后台认证失败后，由来源类型选择对应的凭据恢复界面。
     @State private var sourceAuthenticationAlerts: [String: SourceAuthenticationAlert] = [:]
     @State private var reauthSource: MusicSource?
     /// Apple TV 上的二维码扫码后(primuse://add-source)触发的"添加音乐源" sheet。
@@ -1417,7 +1440,6 @@ struct PrimuseApp: App {
             .preferredColorScheme(iOSAppearance.colorScheme)
             .modifier(IOSWindowAppearanceModifier(preference: iOSAppearance))
             .modifier(ExternalDisplaySceneAccessoryModifier())
-            .automaticAppReviewPrompt()
     }
     #else
     @ViewBuilder private var macPlatformRootContent: some View {
@@ -1432,11 +1454,9 @@ struct PrimuseApp: App {
             )
         } else {
             MacContentView()
-                .automaticAppReviewPrompt()
         }
         #else
         MacContentView()
-            .automaticAppReviewPrompt()
         #endif
     }
     #endif
@@ -1490,6 +1510,15 @@ struct PrimuseApp: App {
                         dlnaRenderer.start()
                     }
                     await AppServices.shared.completeDeferredStartup()
+                    // 启动快照是在「有声内容」的手动标记加载之前算的, 这里补一次:
+                    // 没有标记过的曲库不会有任何变化, 有标记的才重算一次分流。
+                    // 顺手把已经不存在的歌的标记与收听位置清掉。
+                    if !SpokenWordStore.shared.overrideSnapshot.isEmpty {
+                        musicLibrary.refreshContentClassification()
+                    }
+                    SpokenWordStore.shared.pruneMissingSongs(
+                        existingIDs: Set(musicLibrary.visibleSongs.map(\.id))
+                    )
                     // This task keeps the `scenePhase` copy captured when the
                     // scene was first built, which can still be `.inactive`
                     // from the launch transition even though the app became
@@ -1968,6 +1997,8 @@ struct PrimuseApp: App {
                             )
                         }
                         playerService.handleAppDidBecomeActive()
+                        // 回到前台顺手对一次服务端歌单 /「喜欢」/ 电台, 自带冷却。
+                        AppServices.shared.serverMirrorRefresh.applicationDidBecomeActive()
                         Task { await appleMusicLibrary.refreshAfterAccountChange() }
                         Task { await updateChecker.checkForUpdate() }
                     @unknown default:

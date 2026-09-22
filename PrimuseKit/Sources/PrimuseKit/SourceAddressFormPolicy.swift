@@ -58,6 +58,33 @@ public enum SourceAddressFormPolicy {
 
         public var isEmpty: Bool { trimmedAddress.isEmpty }
 
+        public mutating func selectTransport(_ useSsl: Bool?, sourceType: MusicSourceType) {
+            manualUseSsl = useSsl
+            guard sourceType.usesHTTPTransport, let useSsl,
+                  case let .endpoint(input) = SourceAddressInputPolicy.interpret(
+                    address, sourceType: sourceType,
+                    treatDotlessTokenAsHostname: treatDotlessTokenAsHostname
+                  ) else { return }
+            // The address remains authoritative for probing and saving. A new
+            // explicit selection must therefore replace its previous scheme.
+            let scheme = useSsl ? "https" : "http"
+            let port = input.explicitPort.map { ":\($0)" } ?? ""
+            address = "\(scheme)://\(NetworkHostAuthority.urlHost(input.host))\(port)\(input.pathPrefix ?? "")"
+        }
+
+        public mutating func editAddress(_ value: String, sourceType: MusicSourceType) {
+            address = value
+            guard manualUseSsl != nil else { return }
+            if case let .endpoint(input) = SourceAddressInputPolicy.interpret(
+                value, sourceType: sourceType,
+                treatDotlessTokenAsHostname: treatDotlessTokenAsHostname
+            ) {
+                manualUseSsl = input.explicitUseSsl
+            } else {
+                manualUseSsl = nil
+            }
+        }
+
         /// 只有这几项会改变「该连到哪里」。判断编辑已有源要不要重新探测时
         /// 只比它 —— 改个名字、换个密码不该触发一轮联网。
         public var probeSignature: String {
@@ -420,13 +447,30 @@ public enum SourceAddressFormPolicy {
         drafts: [AddressDraft],
         baseline: [AddressDraft]?
     ) -> Bool {
-        guard let baseline else { return true }
-        guard baseline.count == drafts.count else { return true }
-        for (draft, original) in zip(drafts, baseline)
-        where draft.probeSignature != original.probeSignature {
-            return true
+        rowsRequiringProbe(drafts: drafts, baseline: baseline).contains(true)
+    }
+
+    /// 上面那条道理对**每一行分别**成立。在外网给源补一条备用地址时,没动过的
+    /// 内网地址不该跟着被探一遍:它在外网必然探不通,那个结论既让用户白等一轮
+    /// 耐心,又会把整次保存拖下水(见 `AddSourceView.submit`)。
+    ///
+    /// 按签名配对而不是按下标:加一行、删一行、换顺序都不该让别的行变成「动过」。
+    /// 已存的行渲染回地址框时协议与端口都写在里面,读回来只剩一个候选,所以
+    /// 不探它并不会丢掉任何选择 —— 存进去的就是它原来那个端点。
+    public static func rowsRequiringProbe(
+        drafts: [AddressDraft],
+        baseline: [AddressDraft]?
+    ) -> [Bool] {
+        guard let baseline else { return Array(repeating: true, count: drafts.count) }
+        var unmatched: [String: Int] = [:]
+        for original in baseline {
+            unmatched[original.probeSignature, default: 0] += 1
         }
-        return false
+        return drafts.map { draft in
+            guard let remaining = unmatched[draft.probeSignature], remaining > 0 else { return true }
+            unmatched[draft.probeSignature] = remaining - 1
+            return false
+        }
     }
 
     // MARK: - 回显

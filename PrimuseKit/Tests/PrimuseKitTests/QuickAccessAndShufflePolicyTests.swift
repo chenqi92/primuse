@@ -243,6 +243,77 @@ struct MetadataBackfillEligibilityPolicyTests {
         ))
     }
 
+    @Test("An album artist no neighbour can confirm is reread once")
+    func unconfirmedAlbumArtistIsReread() {
+        // 早先为了补标题读过一次文件, 于是这一腿被当成检查完了; 存着的值只是
+        // 回退成曲目艺术家。整库判定说它定不了案, 就该再读一次。
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            hasAlbumTitle: true,
+            hasAlbumArtist: true,
+            albumArtistChecked: true,
+            albumArtistUnconfirmed: true
+        ) == [.albumArtist])
+
+        // 读完以后调用方会记下这一笔, 判定不再成立, 不会每轮重排。
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            hasAlbumTitle: true,
+            hasAlbumArtist: true,
+            albumArtistChecked: true,
+            albumArtistUnconfirmed: false
+        ))
+
+        // 没有专辑名就无从谈专辑归属, 判定也不该把它拉进队列。
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            hasAlbumTitle: false,
+            hasAlbumArtist: true,
+            albumArtistChecked: true,
+            albumArtistUnconfirmed: true
+        ))
+
+        // 本机与群晖是裸行源, 读完一遍就不再读。这一条要是把它们也挡在外面,
+        // 修的就正好不是出问题的那类库。
+        #expect(MetadataBackfillEligibilityPolicy.reasons(
+            duration: 180,
+            format: .flac,
+            hasCoverArt: true,
+            artworkGivenUp: false,
+            titleChecked: true,
+            restrictToBareRows: true,
+            hasAlbumTitle: true,
+            hasAlbumArtist: true,
+            albumArtistChecked: true,
+            albumArtistUnconfirmed: true
+        ) == [.albumArtist])
+
+        // 判定不成立时, 裸行源照旧一行都不重读。
+        #expect(!MetadataBackfillEligibilityPolicy.needsBackfill(
+            duration: 180,
+            format: .mp3,
+            hasCoverArt: false,
+            artworkGivenUp: false,
+            titleChecked: false,
+            restrictToBareRows: true,
+            hasAlbumTitle: true,
+            hasAlbumArtist: false,
+            albumArtistChecked: false
+        ))
+    }
+
     @Test("A missing track artist gets one independent inspection")
     func missingTrackArtistDoesNotLoop() {
         #expect(MetadataBackfillEligibilityPolicy.reasons(

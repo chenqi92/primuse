@@ -67,6 +67,10 @@
 
 // NowPlaying / Player
 "add_to_playlist" = "プレイリストに追加";
+"add_to_playlist_short" = "プレイリスト";
+"insert_next_short" = "次に再生";
+"add_to_queue_short" = "キューに追加";
+"full_screen_short" = "全画面";
 "scrape_song" = "メタデータを取得";
 "song_info" = "曲の情報";
 "delete_song" = "曲を削除";
@@ -384,15 +388,16 @@
 "theme_color_brightness" = "明度";
 "theme_color_hex" = "カラー値";
 "app_icon" = "App アイコン";
-"icon_default" = "スプラッシュ";
+"app_icon_dock_hint" = "macOS は Primuse の実行中しか Dock アイコンを差し替えられません。終了すると Dock はアプリバンドル内のアイコンに戻ります。";
+"icon_default" = "やわらかな音符";
 "icon_appearance_gray" = "グレー";
 "icon_appearance_hint" = "アイコンはホーム画面の外観に合わせて切り替わります。ホーム画面を長押しして、「編集」→「カスタマイズ」→「自動」を選択してください。";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_13" = "Chris’s Muse";
 "icon_theme_14" = "文字 P";
 "icon_theme_15" = "折り返し音符";
-"icon_theme_6" = "ソフトノート";
-"icon_theme_9" = "クラシックアイコン";
+"icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "スプラッシュ";
 "queue_title" = "再生キュー";
 "queue_empty" = "キューが空です";
 "queue_empty_desc" = "キューに曲を追加してください";
@@ -586,7 +591,9 @@
 "licenses" = "オープンソースライセンス";
 "github_repository" = "GitHub リポジトリ";
 "github_feedback" = "機能提案・問題報告";
-"github_feedback_hint" = "GitHub Issues から報告すると、開発者がより早く確認して対応できます。App Store のレビューでも受け付けていますが、開発者に届くまで時間がかかる場合があります。";
+"github_bug_report" = "問題を報告";
+"github_feature_request" = "機能のリクエスト";
+"github_feedback_hint" = "GitHub Issues から報告すると、開発者がより早く確認して対応できます。App Store のレビューでも受け付けていますが、開発者に届くまで時間がかかる場合があります。 リンクにはバージョンとデバイス情報があらかじめ入力されており、送信前に編集できます。";
 "open_source" = "オープンソースライブラリ";
 "gapless_playback" = "ギャップレス再生";
 "gapless_desc" = "曲間の無音をなくし、トラック間をシームレスに切り替えます。";
@@ -597,6 +604,7 @@
 "crossfade_mode_fixed" = "固定";
 "crossfade_mode_smart" = "スマート";
 "crossfade_max_duration" = "最大トランジション時間";
+"crossfade_footer" = "曲が最後まで再生されたときは上の時間でクロスフェードし、前の曲・次の曲へ手動で切り替えたときは約1秒の短いフェードになります。再生する曲がこのデバイスにない、またはまだキャッシュされていない場合は、フェードなしで切り替わります。ギャップレス再生とは同時に使えません。";
 "skip_leading_silence" = "冒頭の無音をスキップ";
 "skip_trailing_silence" = "末尾の無音をスキップ";
 "silence_skipping_desc" = "スマートトランジションは可聴境界を自動分析します。これらの設定は通常再生でも前後の無音をスキップします。高音質モードでは音声境界を変更しません。";
@@ -636,6 +644,7 @@
 "apple_music_needs_subscription" = "この曲を Primuse で再生するには、有効な Apple Music のサブスクリプションが必要です。Apple Music アプリで登録してからもう一度お試しください。";
 "apple_music_unavailable" = "このアカウントまたは地域では Apple Music のストリーミングを利用できません。";
 "apple_music_notice_notDetermined" = "Apple Music はまだ接続されていません。カタログ検索を有効にするには「設定」→「Apple Music」に移動してください。";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music はまだ接続されていません。カタログ検索を有効にするには「ソースを管理」の Apple Music ソースで接続してください。";
 "apple_music_notice_denied" = "Apple Music へのアクセスが拒否されました。「システム設定」→「プライバシー」→「メディアと Apple Music」で再度有効にしてください。";
 "apple_music_notice_no_results" = "Apple Music の検索結果がありません（このストアではこのタイトルを取り扱っていない可能性があります）。";
 "apple_music_open_in_app" = "Apple Music で開く";
@@ -855,6 +864,14 @@
 "security" = "セキュリティ";
 "playback_error_connection" = "ソースに接続できません";
 "playback_error_source_disabled" = "この音楽ソースは無効です";
+"playback_error_source_unreachable_format" = "このネットワークでは「%@」に接続できません";
+"playback_error_source_unreachable_skipped_format" = "このネットワークでは「%@」に接続できないため、その曲をスキップしました";
+"song_row_source_unreachable" = "このネットワークでは接続できません";
+"song_source_unreachable_alert_message" = "この音楽ソースは現在のネットワークでは接続できません。接続が回復すると自動的に再生できるようになります。このデバイスにダウンロード済みの曲には影響しません。";
+"source_card_unreachable" = "現在のネットワークではこのソースに接続できません。このデバイスにダウンロードしていない曲は一時的に再生できません。";
+"source_card_unreachable_add_route_hint" = "このソースには LAN のアドレスしか設定されていません。編集して公開アドレスを追加すると、そのネットワークの外でも再生できます。";
+"playlist_unreachable_notice" = "一部の曲は、現在のネットワークでは接続できないソースのものです。このデバイスにダウンロードしていない曲は一時的に再生できません。";
+"playlist_unreachable_offline_hint_format" = "「%@」をオンにすると、ソースに接続できたときに自動でダウンロードされ、どのネットワークでも再生できるようになります。";
 "playback_error_decode" = "この曲を再生できません";
 "playback_error_format" = "サポートされていないオーディオフォーマット";
 "playback_error_apple_music_generic" = "Apple Music で現在再生を開始できません。しばらくしてからもう一度お試しください。問題が続く場合は、ミュージックアプリで曲を再生できるか確認してください。";
@@ -972,6 +989,9 @@
 "playlist_import_export_unmatched_csv" = "不一致を書き出す → CSV";
 "playlist_import_change_file" = "ファイルを変更";
 "playlist_import_create_matched_only_format" = "一致した曲のみ作成（%d）";
+"playlist_import_destination_header" = "読み込み先";
+"playlist_import_liked_footer_format" = "一致した曲は「%@」に追加されます。すでに入っている曲が重複して追加されることはありません。";
+"playlist_import_add_matched_only_format" = "一致した曲のみ追加（%d）";
 "playlist_import_manual_match" = "手動でマッチング…";
 "playlist_import_manual_match_title" = "手動でマッチング";
 "playlist_import_search_library" = "ライブラリの曲を検索";
@@ -1322,11 +1342,11 @@
 "settings_dlna_keepalive_footer" = "オンにすると、Primuse がバックグラウンドにあり音楽を再生していないときでも、ほかのデバイスからの送信を受け入れ続けます。トレードオフ: ロック画面／コントロールセンターには Primuse が再生中と表示され、バッテリー消費がわずかに増えます。";
 "settings_relay_section" = "Apple TV リレー";
 "settings_relay_enable" = "このデバイス経由で Apple TV から再生を許可";
-"settings_relay_footer" = "オンにすると、Apple TV はこのデバイスを経由して、この iPhone の中にある音楽を再生できます（NFS バージョンを NFSv4 にしたソースもこの経路です）。Primuse を前面で開いたままにし、両方のデバイスを同じ Wi-Fi に接続してください。";
+"settings_relay_footer" = "Primuse を前面で開いたままにし、両方のデバイスを同じ Wi-Fi に接続してください。この iPhone の中にある音楽は、Apple TV の「iPhoneからライブラリを転送」で送っておく必要もあります。";
 "settings_relay_waiting" = "LAN アドレスを取得中…（Wi-Fi に接続されているか確認してください）";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "今すぐ Apple TV に送信";
-"settings_push_to_tv_footer" = "Apple TV に Primuse をインストールし、同じ iCloud アカウントでサインインすると、ここにあるライブラリとソースが表示されます。認証情報（パスワード／トークン）も含まれるため、再入力は不要です。Primuse はバックグラウンドで自動的にアップロードします。「今すぐ Apple TV に送信」をタップするとすぐに更新できます。NAS、WebDAV、メディアサーバー、クラウドドライブには Apple TV が自分で接続できます。下のリレーが必要なのは、この iPhone の中にある音楽だけで、同じ Wi-Fi 経由でこの iPhone から再生されます。この音楽は iCloud では同期されないため、Apple TV の「iPhoneからライブラリを転送」でコードを読み取って送ってください。";
+"settings_push_to_tv_footer" = "Apple TV で同じ iCloud アカウントにサインインすると、このライブラリとソースがパスワードごと表示されます。NAS、メディアサーバー、クラウドドライブには Apple TV が自分で接続でき、リレーが必要なのはこの iPhone の中にある音楽と NFSv4 のソースだけです。";
 "settings_push_to_tv_done" = "送信しました";
 "settings_push_to_tv_failed" = "送信に失敗しました";
 "send_to_tv_title" = "Apple TV に送信";
@@ -1380,14 +1400,14 @@
 "diagnostics_footer" = "レポートはこのデバイスに保存されます。タップしてメールまたは AirDrop で開発者と共有できます。";
 "diagnostics_clear" = "すべてのレポートを消去";
 "diagnostics_clear_confirm" = "すべてのレポートを削除しますか？";
-"diagnostics_send_button" = "レポートを開発者にメールで送る";
-"diagnostics_send_privacy" = "送信されるのはプログラムのスレッド記録だけです。システムが収集したクラッシュとハングのコールスタック、アプリのバージョン、デバイスの機種、システムバージョンのみで、アカウント情報、ミュージックライブラリ、再生履歴、ファイル名などの個人データは含まれません。";
+"diagnostics_send_button" = "作者に送信";
+"diagnostics_send_privacy" = "選択した診断レポートやログをメールに添付します。内容を確認してから送信してください。";
 "diagnostics_send_mail_intro %lld" = "Primuse の診断レポート %lld 件を添付しました。";
 "diagnostics_send_sent_title" = "レポートを送信しました";
 "diagnostics_send_sent_message" = "ありがとうございます。この端末に保存されているレポートを今すぐ消去しますか？";
 "diagnostics_send_keep" = "残す";
 "diagnostics_send_unavailable_title" = "メールを送信できません";
-"diagnostics_send_unavailable_message %@" = "この端末にはメールアカウントが設定されていません。レポートの共有ボタンから %@ に送ることもできます。";
+"diagnostics_send_unavailable_message %@" = "このデバイスにはメールアカウントが設定されていません。診断レポートの共有やログの書き出しで、%@ に送信できます。";
 "diagnostics_send_failed_title" = "送信できませんでした";
 "diagnostics_send_failed_message" = "メールAppがメッセージを送信できませんでした。レポートはこの端末に残っています。";
 "source_diagnostics" = "ソースの診断";
@@ -1453,7 +1473,7 @@
 "source_diag_advice_certificate_message" = "HTTPS 証明書を信頼できませんでした。";
 "source_diag_advice_certificate_suggestion" = "証明書を確認し、ご自身のサーバーのものである場合にのみ信頼してください。";
 "source_diag_advice_server_title" = "ソースの応答エラー";
-"source_diag_advice_server_suggestion" = "サーバーの状態を確認してから再試行してください。失敗が続く場合は、ストレージからログを書き出してください。";
+"source_diag_advice_server_suggestion" = "サーバーの状態を確認して再試行してください。問題が続く場合は、診断レポートからログを書き出してください。";
 "source_diag_advice_invalid_response" = "ソースから解析できない応答が返されました。";
 "settings_menu_item" = "設定…";
 "playback_menu" = "再生";
@@ -1482,6 +1502,9 @@
 "home_empty_mac_hint" = "左側のソースから NAS やクラウドドライブを追加するか、Apple Music を認証して始めましょう。";
 "player_empty_title" = "再生する曲を選択";
 "player_empty_message" = "左側のライブラリまたは検索から選んでください。";
+"mac_launch_aborted_title" = "前回の起動が完了しませんでした";
+"mac_launch_aborted_hint" = "以下の情報を開発者に送ると原因の特定に役立ちます。";
+"mac_launch_copy_diagnostics" = "情報をコピー";
 "mac_sidebar_tools" = "ツール";
 "desktop_widgets" = "デスクトップウィジェット";
 "keychain_sync_hint_title" = "キーチェーン同期";
@@ -2375,6 +2398,7 @@
 "output_mode_effects" = "エフェクト処理";
 "output_mode_high_fidelity_desc" = "最短の信号経路で再生し、EQ・ダイナミクス・リバーブ・空間オーディオ・ReplayGain・速度変更・クロスフェードをバイパスして、サンプルレートを自動で合わせます。音量は引き続き調整できます（DSD ダイレクト出力時を除く）。";
 "output_mode_high_fidelity_confirm_title" = "高音質ダイレクトをオンにしますか？";
+"output_mode_high_fidelity_hardware_note" = "このモードは主に外付け DAC やヘッドフォンアンプで効果があります。Bluetooth や内蔵スピーカーでは音声が再度処理されるため、違いはほとんど聞き取れません。";
 "output_mode_effects_desc" = "EQ、ダイナミクス、リバーブ、空間オーディオ、ReplayGain、速度、クロスフェード、ビジュアライザーを使用します。";
 "volume_high_fidelity_system_hint" = "高音質ダイレクトではユニティゲインを使用します。音量はシステム側で調整してください。";
 "volume_output_device_hint" = "出力デバイスの音量を調整します。ダイレクト信号はビットパーフェクトのままです。";
@@ -2456,6 +2480,8 @@
 "radio_priority_sort_by_name" = "名前順に並べ替え";
 "radio_priority_move_up" = "優先順位を上げる";
 "radio_priority_move_down" = "優先順位を下げる";
+"radio_priority_move_up_short" = "上へ";
+"radio_priority_move_down_short" = "下へ";
 "radio_previous_station" = "前のラジオ局";
 "radio_next_station" = "次のラジオ局";
 "radio_home_visibility" = "ホームにラジオを表示";
@@ -2659,6 +2685,7 @@
 "weekday_friday_short" = "金";
 "weekday_saturday_short" = "土";
 "apple_music_library_not_authorized" = "Apple Music が許可されていません。設定 → Apple Music で有効にしてください。";
+"apple_music_library_not_authorized_in_sources" = "Apple Music が許可されていません。「ソースを管理」の Apple Music ソースで接続してください。";
 "apple_music_library_sync_timeout" = "Apple Music の同期がタイムアウトしました。ミュージックの権限を確認するか、後でもう一度お試しください。";
 "apple_music_library_access_failed_format" = "Apple Music ライブラリにアクセスできません：%@";
 "yearly_unknown_source" = "不明な音楽ソース";
@@ -2742,6 +2769,10 @@
 "Artist" = "アーティスト";
 "Optional, narrows the match if multiple songs share a title." = "任意。同名の曲が複数ある場合に絞り込みます。";
 "No matching song in your library." = "ライブラリに一致する曲がありません。";
+"Which song? Tell Siri the song title." = "どの曲ですか？曲名をSiriに伝えてください。";
+"Primuse is still loading your library. Try again in a moment." = "Primuseはライブラリを読み込み中です。少ししてからもう一度お試しください。";
+"Your Primuse library is empty." = "Primuseのライブラリは空です。";
+"Open Primuse once, then try again." = "Primuseを一度開いてから、もう一度お試しください。";
 "Play Playlist" = "プレイリストを再生";
 "Find a playlist by name and play it." = "名前でプレイリストを検索して再生します。";
 "Name" = "名前";
@@ -2816,6 +2847,9 @@
 /* MARK: - Radio manage */
 "radio_manage_footer" = "ドラッグで並べ替え。行をスワイプで名称変更・先頭固定・削除。";
 "radio_manage_pin_top" = "先頭に固定";
+"radio_manage_pin_top_short" = "先頭に固定";
+"select_all_short" = "すべて選択";
+"deselect_all_short" = "選択を解除";
 "radio_manage_export" = "書き出す";
 "radio_manage_deselect_all" = "選択を解除";
 "radio_manage_delete_confirm_title" = "選択した局を削除しますか？";
@@ -2961,6 +2995,7 @@
 "batch_remove_from_library" = "ライブラリから削除";
 "batch_remove_from_library_message_format" = "%d 曲をライブラリから削除します。元のファイルは残りますが、次回のスキャンでは追加されません。";
 "batch_delete_source_files" = "元のファイルを削除";
+"batch_remove_group" = "取り除く・削除";
 "batch_delete_source_files_message_format" = "%d 曲の元のファイルを完全に削除し、ライブラリからも削除します。この操作は取り消せません。";
 "batch_delete_skipped_format" = "%d 曲は音楽ソースが削除に対応していないためスキップしました";
 "batch_delete_progress_format" = "削除中 %1$d / %2$d";
@@ -4118,6 +4153,7 @@
 "source_address_alternate_section" = "予備のアドレス";
 "source_address_section_footer" = "ポートを空けておけば、保存時に Primuse が自動で見つけます。";
 "source_address_placeholder" = "ドメイン、IP、または URL";
+"source_address_placeholder_vendor %@" = "ドメイン、IP、または %@";
 "source_address_add_alternate" = "予備のアドレスを追加";
 "source_address_remove" = "このアドレスを削除";
 "source_address_advanced" = "ポートと暗号化を手動で設定";
@@ -4203,3 +4239,84 @@
 "audio_station_error_api_not_found_format" = "Audio Station に必要なインターフェイスがありません（エラー %d）。";
 "audio_station_error_server_format" = "Audio Station がエラーを返しました（コード %d）。";
 "audio_station_error_two_factor_required" = "このアカウントは 2 段階認証を使用しています。この Audio Station ソースに再ログインして確認コードを入力してください。";
+"audio_station_radio_folder_favorite" = "お気に入り";
+"audio_station_radio_folder_user_defined" = "ユーザー定義のラジオ";
+
+"lyric_poster_live_fallback" = "写真アプリが Live Photos を受け付けませんでした。静止画として保存しました";
+
+"lyrics_embed_copy_header" = "歌詞の埋め込み";
+"lyrics_embed_copy_title" = "歌詞の保存先";
+"lyrics_embed_copy_hint" = "MP3・FLAC・M4A · 歌詞を保存するたびに曲全体を再アップロードします";
+"lyrics_embed_copy_footer" = "埋め込んだ歌詞はオーディオファイルと一緒に移動するので、ほかのプレーヤーやデバイスでも表示されます。Primuse がファイルを置き換えられる音楽ソース上の MP3・FLAC・M4A でのみ有効で、それ以外の曲はこれまでどおり歌詞ファイルに保存します。保存のたびに曲全体を再アップロードします。「オーディオファイルのみ」では新しい歌詞ファイルは作成せず、曲の隣にすでにある歌詞ファイルは引き続き更新します。ライブラリ全体のスクレイピングでは埋め込みません。";
+"lyrics_embed_copy_failed_format" = "歌詞は保存されましたが、オーディオファイルには埋め込めませんでした：%@";
+"lyrics_embed_mode_off" = "歌詞ファイルのみ";
+"lyrics_embed_mode_alongside" = "歌詞ファイルとオーディオファイル";
+"lyrics_embed_mode_embed_only" = "オーディオファイルのみ";
+"lyrics_embed_confirm_title" = "歌詞をオーディオファイルに書き込みますか？";
+"lyrics_embed_confirm_message" = "· 歌詞を保存するたびに曲全体をダウンロードして書き換え、再アップロードします。大きなファイルやクラウドドライブでは目に見えて遅くなり、通信量も増えます。\n· オーディオファイルの更新日時と内容が変わるため、同期フォルダ、バックアップツール、メディアサーバーは新しいファイルとして扱います。\n· 書き込む前にほかで変更されていないかを確認し、書き込み後に読み戻して照合しますが、オーディオファイルの書き換えにはリスクがあります。先にライブラリをバックアップしてください。\n· 埋め込まれるのは行単位のタイムスタンプ付き歌詞です。MP3 にすでに埋め込まれている多言語の歌詞は置き換えられます。";
+"lyrics_embed_confirm_message_embed_only" = "· 「オーディオファイルのみ」では曲の隣に歌詞ファイルを作成せず、単語ごとのタイミングは Primuse にだけ保存されます。曲の隣にすでにある歌詞ファイルは引き続き更新します。\n· ライブラリ全体のスクレイピングでは埋め込みも歌詞ファイルの作成も行わず、取得した歌詞は Primuse にだけ保存されます。";
+"tag_editor_lyrics_writeback_embedded" = "保存先を確認しました。歌詞はオーディオファイルに埋め込み、歌詞ファイルは作成しません。";
+"tag_editor_lyrics_writeback_also_embedded" = "オーディオファイルにも埋め込みます。";
+"search_layout_title" = "検索結果の表示を調整";
+"search_layout_footer" = "オフにしたセクションは表示されず、検索も行われません。";
+"search_layout_restore_default" = "デフォルトに戻す";
+"search_layout_move_up" = "上へ移動";
+"search_layout_move_down" = "下へ移動";
+"search_top_match_kind_artist" = "アーティスト";
+"search_top_match_kind_album" = "アルバム";
+"search_top_match_kind_song" = "曲";
+"audio_variant_lossy_stereo" = "ステレオ";
+"audio_variant_lossless" = "ロスレス";
+"audio_variant_hi_res_lossless" = "ハイレゾロスレス";
+"audio_variant_dolby_atmos" = "ドルビーアトモス";
+"audio_variant_dolby_audio" = "ドルビーオーディオ";
+"apple_music_pick_from_catalog" = "Apple Music から選択…";
+"apple_music_pick_adding" = "ライブラリに追加中…";
+"apple_music_pick_added" = "%d 曲を追加、同期中";
+"apple_music_pick_failed" = "ライブラリに追加できませんでした";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "セーフモード";
+"safe_mode_hint" = "起動が連続して失敗したため、以下の処理をスキップしました。診断情報を開発者に送ってください。";
+"safe_mode_skipped" = "・ホーム画面と表示アニメーション\n・前回の再生の復元\n・iCloud 同期とバックグラウンドスキャン\n・ライブラリ全体のおすすめとフォルダ索引";
+"safe_mode_exit" = "通常の起動に戻す";
+"safe_mode_exit_hint" = "次回の起動では通常どおりホーム画面が開きます。";
+"launch_aborted_title" = "前回の起動が完了しませんでした";
+"launch_aborted_hint" = "下のレポートにどこで止まったかが記録されています。開発者に送ってください。";
+"launch_diagnostics_copy" = "診断情報をコピー";
+"launch_diagnostics_files_hint" = "診断情報は「ファイル」→「この iPhone 内」→ Primuse → Diagnostics にも保存されています。";
+
+// MARK: - オーディオ作品
+"tab_spoken_word" = "オーディオ作品";
+"spoken_word_continue_section" = "続きから再生";
+"spoken_word_all_section" = "すべて";
+"spoken_word_empty_hint" = "オーディオブック、落語、ラジオドラマ、講演などがここに表示されます。";
+"spoken_word_remaining_format" = "残り %@";
+"spoken_word_clear_progress" = "再生位置を消去";
+"mark_as_spoken_word" = "オーディオ作品にする";
+"mark_as_music" = "音楽にする";
+"chapters_title" = "チャプター";
+"a11y_skip_backward" = "15秒戻る";
+"a11y_skip_forward" = "30秒進む";
+
+"source_diag_reachability_title" = "アドレスへの接続";
+"source_diag_reachability_ok" = "ホストとポートに接続できます。";
+"source_diag_login_title" = "サービスへのログイン";
+"source_diag_library_title" = "ライブラリへのアクセス";
+"source_diag_waiting" = "確認中…";
+"source_diag_skipped" = "前の確認が失敗したため実行されませんでした。";
+"source_diag_progress_format" = "%2$d 項目中 %1$d 項目完了";
+"source_diag_routes_format" = "現在のネットワークで利用可能な接続：%1$d / %2$d";
+"source_diag_cancelled" = "確認をキャンセルしました";
+"source_diag_check_counts_format" = "成功 %1$d · 警告 %2$d · 失敗 %3$d · 未実行 %4$d";
+"source_diag_resolution_title" = "アドレス解決";
+"source_diag_resolution_ok" = "サービスのアドレスを取得しました。";
+"source_diag_library_ok" = "ライブラリにアクセスできました。";
+
+"diagnostics_send_all" = "診断レポートとログ";
+"diagnostics_send_reports_only" = "診断レポートのみ";
+"diagnostics_send_logs_only" = "ログのみ";
+"diagnostics_feedback_attachments" = "添付ファイル（任意）";
+"diagnostics_feedback_message" = "要望や提案";
+"diagnostics_feedback_compose" = "メールを開く";
+"diagnostics_logs_title" = "ログ";

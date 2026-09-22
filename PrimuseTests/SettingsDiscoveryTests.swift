@@ -9,7 +9,7 @@ final class SettingsDiscoveryTests: XCTestCase {
         #if os(iOS)
         XCTAssertNil(SettingsCatalog.byID["keyboard.playPause"])
         XCTAssertEqual(SettingsCatalog.byID["lyrics.lockScreen"]?.page, .playback)
-        XCTAssertEqual(SettingsCatalog.byID["lyrics.colorMode"]?.page, .player)
+        XCTAssertEqual(SettingsCatalog.byID["lyrics.colorMode"]?.page, .lyrics)
         XCTAssertEqual(SettingsCatalog.byID["storage.wifiOnly"]?.page, .storage)
         XCTAssertEqual(SettingsCatalog.byID["library.recommendationDirections"]?.page, .libraryDisplay)
         #endif
@@ -17,9 +17,21 @@ final class SettingsDiscoveryTests: XCTestCase {
 
     func testSearchIncludesFunctionalAliasesAndHidesUnavailableIntelligence() {
         XCTAssertEqual(SettingsCatalog.search("锁屏没歌词").first?.id, "lyrics.lockScreen")
-        XCTAssertEqual(SettingsCatalog.search("省流量").first?.id, "storage.wifiOnly")
+        let dataSavingResults = Set(SettingsCatalog.search("省流量").map(\.id))
+        XCTAssertTrue(dataSavingResults.contains("storage.wifiOnly"))
+        XCTAssertTrue(dataSavingResults.contains("playback.wifiStreamQuality"))
         XCTAssertFalse(SettingsCatalog.search("AI", showsIntelligence: false).contains { $0.page == .intelligence })
         XCTAssertFalse(SettingsCatalog.available.contains { $0.title.contains("%d") || $0.title.contains("%@") })
+    }
+
+    func testAboutAndDiagnosticSearchFollowMovedEntries() {
+        XCTAssertEqual(SettingsCatalog.byID["about.build"]?.anchorID, "about.version")
+        XCTAssertNil(SettingsCatalog.byID["about.contact"])
+        #if os(iOS)
+        XCTAssertEqual(SettingsCatalog.search("hi@yzs.ai").first?.id, "diagnostics.sendReports")
+        XCTAssertEqual(SettingsCatalog.byID["about.repository"]?.page, .licenses)
+        XCTAssertEqual(SettingsCatalog.byID["storage.exportLog"]?.page, .diagnostics)
+        #endif
     }
 
     @MainActor
@@ -214,3 +226,21 @@ final class SettingsDiscoveryTests: XCTestCase {
         try body(SettingsActionService(playback: store, defaults: defaults), store, defaults)
     }
 }
+
+#if os(iOS)
+@MainActor
+final class DiagnosticFeedbackTests: XCTestCase {
+    func testFeedbackWithoutAttachmentsDoesNotReadReportsAndKeepsMessage() async throws {
+        let message = "希望支持新的播放方式。\n\n建议保留快捷入口。"
+        let draft = try await DiagnosticReportMailer.prepare(
+            selection: .none,
+            reportURLs: [URL(fileURLWithPath: "/missing/diagnostic-report.json")],
+            message: message
+        )
+        XCTAssertTrue(draft.attachments.isEmpty)
+        XCTAssertEqual(draft.reportCount, 0)
+        XCTAssertEqual(draft.messageBody, message)
+        XCTAssertTrue(draft.subject.hasPrefix("Primuse feedback"))
+    }
+}
+#endif

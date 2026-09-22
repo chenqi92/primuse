@@ -1,0 +1,91 @@
+name: 功能建议 Feature request
+description: 提新功能，或者对现有功能的改进想法
+title: "【feat】"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        只有第一项是必填，其余按你知道的填就行。
+
+        _Only the first field is required._
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: 想解决什么问题 / What would you like
+      description: 说清楚现在哪里不顺手，比直接给方案更有用
+      placeholder: |
+        例如：歌单里的歌只能按添加顺序排列，想按专辑或年份排。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的做法 / Proposed behaviour
+      description: 如果已经想好界面或交互，可以写在这里；有参考截图更好
+    validations:
+      required: false
+
+  - type: input
+    id: app-version
+    attributes:
+      label: 当前使用的版本 / App version
+      description: 在「设置 → 关于」里能看到；填了可以确认这个功能是不是新版已经有了
+      placeholder: 例如 1.9.7 (77)
+    validations:
+      required: false
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 希望用在哪个端 / Platform
+      description: 可多选
+      multiple: true
+      options:
+        - iPhone
+        - iPad
+        - Mac
+        - Apple TV
+        - CarPlay
+        - 小组件 / Widget
+        - Apple Watch
+        - 全部端
+    validations:
+      required: false
+
+  - type: dropdown
+    id: music-source
+    attributes:
+      label: 相关音乐源 / Music source
+      description: 如果这个建议只跟某类连接源有关，选一下；无关就跳过
+      multiple: true
+      options:
+        - 本机文件 / 本地导入
+        - Apple Music
+        - Mac「音乐」App 资料库
+        - "NAS：群晖 / 威联通 / 绿联 / 飞牛"
+        - 群晖 Audio Station
+        - WebDAV
+        - SMB
+        - FTP / SFTP
+        - NFS
+        - UPnP / DLNA
+        - S3
+        - Jellyfin / Emby / Plex
+        - Navidrome / Subsonic / Airsonic / Gonic
+        - 飞牛音乐 / 道理鱼 / Songloft
+        - "网盘：百度 / 阿里 / 115 / 123 / 光鸭 / Google Drive / OneDrive / Dropbox / Drime"
+        - 网络电台
+        - 不涉及音乐源
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 补充说明 / Anything else
+      description: 别的 App 是怎么做的、相关文档或协议链接等
+    validations:
+      required: false

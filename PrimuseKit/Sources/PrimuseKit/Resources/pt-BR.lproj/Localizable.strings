@@ -796,6 +796,7 @@
 "source_address_alternate_section" = "Endereço alternativo";
 "source_address_section_footer" = "Deixe a porta em branco e o Primuse descobre ao salvar.";
 "source_address_placeholder" = "Domínio, IP ou URL completa";
+"source_address_placeholder_vendor %@" = "Domínio, IP ou %@";
 "source_address_add_alternate" = "Adicionar endereço alternativo";
 "source_address_remove" = "Remover este endereço";
 "source_address_advanced" = "Definir porta e criptografia manualmente";
@@ -832,3 +833,35 @@
 
 /* Synology Audio Station */
 "src.subtitle.synologyAudioStation" = "Pacote de música do DSM · Biblioteca, playlists, avaliações";
+
+/* Apple TV 分段直传 */
+"send_to_tv_step_sources" = "Fontes e credenciais";
+"send_to_tv_step_library" = "Biblioteca";
+"send_to_tv_step_artwork" = "Capas";
+"send_to_tv_step_everything" = "Biblioteca, fontes e credenciais";
+"send_to_tv_progress_waiting" = "Aguardando";
+"send_to_tv_progress_done" = "Concluído";
+"send_to_tv_progress_failed" = "Não concluído";
+"send_to_tv_progress_preparing" = "Preparando…";
+"send_to_tv_progress_tv_saving" = "O Apple TV está salvando…";
+"send_to_tv_progress_batch" = "Enviando lote %1$@ de %2$@";
+"send_to_tv_progress_sending" = "Enviando %@";
+"send_to_tv_resume" = "Continuar envio";
+"send_to_tv_partial_saved" = "As etapas concluídas já foram salvas no Apple TV. Continue o envio para retomar de onde parou.";
+"ext.tv.transfer.sources" = "Recebendo fontes e credenciais…";
+"ext.tv.transfer.sourcesSaved" = "Fontes salvas. Aguardando a biblioteca…";
+"ext.tv.transfer.library" = "Recebendo biblioteca…";
+"ext.tv.transfer.libraryImporting" = "Importando biblioteca…";
+"ext.tv.transfer.librarySaved" = "Biblioteca importada. Aguardando capas…";
+"ext.tv.transfer.artwork" = "Recebendo capas (lote %1$@ de %2$@)…";
+"ext.tv.transfer.finished" = "%@ músicas transferidas do iPhone";
+"ext.tv.transfer.failed" = "A transferência não terminou. Tente novamente pelo iPhone.";
+"audio_variant_lossy_stereo" = "Estéreo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Escolher do Apple Music…";
+"apple_music_pick_adding" = "Adicionando à biblioteca…";
+"apple_music_pick_added" = "%d adicionadas, sincronizando";
+"apple_music_pick_failed" = "Não foi possível adicionar à biblioteca";

@@ -148,15 +148,16 @@
 "theme_color_brightness" = "明度";
 "theme_color_hex" = "色值";
 "app_icon" = "App 圖示";
-"icon_default" = "音浪";
+"app_icon_dock_hint" = "macOS 只能在 Primuse 執行時替換 Dock 圖示，結束後 Dock 會顯示 App 套件內建的圖示。";
+"icon_default" = "清新音符";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "圖示會跟隨主畫面外觀切換。請長按主畫面空白處，然後選擇「編輯」→「自訂」→「自動」。";
 "icon_theme_12" = "皮卡丘";
 "icon_theme_13" = "Chris’s Muse";
 "icon_theme_14" = "字母 P";
 "icon_theme_15" = "折頁音符";
-"icon_theme_6" = "清新音符";
-"icon_theme_9" = "經典圖示";
+"icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "音浪";
 "queue_title" = "播放佇列";
 "queue_empty" = "佇列為空";
 "queue_empty_desc" = "加入歌曲到佇列";
@@ -357,7 +358,9 @@
 "licenses" = "開放原始碼授權";
 "github_repository" = "GitHub 儲存庫";
 "github_feedback" = "功能建議與問題回報";
-"github_feedback_hint" = "透過 GitHub Issues 回報，開發者可以更快看到並跟進。也可以在 App Store 評論中留言，但評論傳達可能有所延遲。";
+"github_bug_report" = "回報問題";
+"github_feature_request" = "功能建議";
+"github_feedback_hint" = "透過 GitHub Issues 回報，開發者可以更快看到並跟進。也可以在 App Store 評論中留言，但評論傳達可能有所延遲。連結會預先填好版本號與裝置資訊，送出前可以修改。";
 "open_source" = "開放原始碼程式庫";
 "gapless_playback" = "無縫播放";
 "gapless_desc" = "曲目之間無縫銜接，消除靜音間隙。";
@@ -368,6 +371,7 @@
 "crossfade_mode_fixed" = "固定";
 "crossfade_mode_smart" = "智慧";
 "crossfade_max_duration" = "最長轉場時長";
+"crossfade_footer" = "歌曲自然播完時依上方的時長過渡；手動切到上一首、下一首時使用約 1 秒的短過渡。要播放的歌曲尚未快取到本機時會直接切換。無法與無縫播放同時開啟。";
 "skip_leading_silence" = "略過開頭靜音";
 "skip_trailing_silence" = "略過結尾靜音";
 "silence_skipping_desc" = "智慧轉場會自動分析可聽邊界；這些開關也會在一般播放時略過首尾靜音。高傳真模式不會修改音訊邊界。";
@@ -407,6 +411,7 @@
 "apple_music_needs_subscription" = "需要 Apple Music 訂閱才能在 Primuse 裡播放，可以去 Apple Music App 開通後再試。";
 "apple_music_unavailable" = "當前帳戶或地區不支援 Apple Music 訂閱播放。";
 "apple_music_notice_notDetermined" = "Apple Music 尚未授權，去 設定 → Apple Music 啟用後可同步顯示曲庫搜尋結果。";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music 尚未授權，在「音樂來源管理」的 Apple Music 上連接後，這裡會顯示曲庫搜尋結果。";
 "apple_music_notice_denied" = "Apple Music 權限被拒絕，去系統 設定 → 隱私權 → 媒體與 Apple Music 重新開啟。";
 "apple_music_notice_no_results" = "Apple Music 沒有相符的結果（可能是地區曲庫沒有這首歌）。";
 "apple_music_open_in_app" = "在 Apple Music 中開啟";
@@ -571,6 +576,10 @@
 "cloud_oauth_config" = "雲端硬碟授權";
 "cloud_oauth_hint" = "請在對應雲端硬碟開放平台註冊應用程式取得 Client ID。儲存後進入 OAuth 登入授權。";
 "add_to_playlist" = "加入播放清單";
+"add_to_playlist_short" = "播放清單";
+"insert_next_short" = "下一首播放";
+"add_to_queue_short" = "加入佇列";
+"full_screen_short" = "全螢幕播放";
 "add_to_queue" = "加入播放佇列";
 "playlists_title" = "播放清單";
 "sleep_timer" = "睡眠定時器";
@@ -629,6 +638,14 @@
 "security" = "安全性";
 "playback_error_connection" = "無法連線到來源";
 "playback_error_source_disabled" = "該音樂來源已停用";
+"playback_error_source_unreachable_format" = "目前的網路無法連線「%@」";
+"playback_error_source_unreachable_skipped_format" = "目前的網路無法連線「%@」，已略過它的歌曲";
+"song_row_source_unreachable" = "目前的網路無法連線";
+"song_source_unreachable_alert_message" = "這個音樂來源在目前的網路下無法連線，連線恢復後歌曲會自動變為可播放。已下載到本機的歌曲不受影響。";
+"source_card_unreachable" = "目前的網路無法連線這個音樂來源，沒有下載到本機的歌曲暫時無法播放。";
+"source_card_unreachable_add_route_hint" = "這個音樂來源只填了內網位址。編輯它並加入公網位址後，離開內網也能播放。";
+"playlist_unreachable_notice" = "部分歌曲來自目前網路無法連線的音樂來源，沒有下載到本機的暫時無法播放。";
+"playlist_unreachable_offline_hint_format" = "開啟「%@」，連上之後會自動下載，以後在任何網路都能播放。";
 "playback_error_decode" = "無法播放此曲目";
 "playback_error_format" = "不支援的音訊格式";
 "playback_error_apple_music_generic" = "Apple Music 暫時無法播放，請稍後再試。若問題持續，請在「音樂」App 中確認該歌曲可以播放。";
@@ -746,6 +763,9 @@
 "playlist_import_export_unmatched_csv" = "匯出未比對 → CSV";
 "playlist_import_change_file" = "更換檔案";
 "playlist_import_create_matched_only_format" = "僅建立已比對 (%d)";
+"playlist_import_destination_header" = "匯入到";
+"playlist_import_liked_footer_format" = "比對到的歌曲會加入「%@」，已經在裡面的不會重複加入。";
+"playlist_import_add_matched_only_format" = "僅加入已比對 (%d)";
 "playlist_import_manual_match" = "手動比對…";
 "playlist_import_manual_match_title" = "手動比對";
 "playlist_import_search_library" = "搜尋資料庫歌曲";
@@ -1264,11 +1284,11 @@
 "settings_dlna_keepalive_footer" = "開啟後即使 Primuse 退到背景、沒有正在播放音樂,也能持續接收 LAN 內其他裝置推過來的音訊。代價: 鎖定畫面 / 控制中心會顯示 Primuse 正在播放,耗電略增。";
 "settings_relay_section" = "Apple TV 中繼";
 "settings_relay_enable" = "允許 Apple TV 經本機播放";
-"settings_relay_footer" = "開啟後,Apple TV 可以經這台裝置播放存在這台手機裡的音樂(NFS 版本設為 NFSv4 的音樂來源也走這裡)。需保持 Primuse 在前景執行,且兩台裝置處於同一 Wi-Fi。";
+"settings_relay_footer" = "需保持 Primuse 在前景,且兩台裝置在同一 Wi-Fi。手機裡的音樂還要在 Apple TV 的「從 iPhone 傳入資料庫」裡掃碼傳過去。";
 "settings_relay_waiting" = "正在取得區域網路位址…(請確認已連接 Wi-Fi)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "立即推送到 Apple TV";
-"settings_push_to_tv_footer" = "在 Apple TV 上安裝 Primuse 並登入同一 iCloud 帳號,即可看到這裡的曲庫與音樂來源——含密碼 / token,無需重新輸入。平時退到背景會自動上傳,點「立即推送」可馬上更新。NAS、WebDAV、媒體伺服器和雲端硬碟這些,Apple TV 自己就能連。只有存在這台手機裡的音樂需要開啟下方的「中繼」,由這台手機在同一 Wi-Fi 下轉發播放;這些音樂不隨 iCloud 同步,要在 Apple TV 的「從 iPhone 傳入資料庫」裡掃碼傳過去。";
+"settings_push_to_tv_footer" = "Apple TV 登入同一 iCloud 帳號,就能看到這裡的曲庫和音樂來源,密碼無需重輸。NAS、媒體伺服器和雲端硬碟它自己能連;只有存在這台手機裡的音樂和 NFSv4 音樂來源要開中繼。";
 "settings_push_to_tv_done" = "已推送";
 "settings_push_to_tv_failed" = "推送失敗";
 "send_to_tv_title" = "傳送到 Apple TV";
@@ -1322,14 +1342,14 @@
 "diagnostics_footer" = "報告僅保存在本機。點擊透過郵件 / AirDrop 分享給開發者。";
 "diagnostics_clear" = "清空全部報告";
 "diagnostics_clear_confirm" = "確定要刪除所有報告嗎？";
-"diagnostics_send_button" = "將報告以電子郵件寄給開發者";
-"diagnostics_send_privacy" = "只會寄出程式執行緒記錄：系統收集的當機與卡頓呼叫堆疊，以及 App 版本、裝置型號和系統版本。不含帳號資訊、音樂庫、聆聽記錄、檔案名稱等任何個人資料。";
+"diagnostics_send_button" = "傳送給作者";
+"diagnostics_send_privacy" = "郵件將附上你選擇的診斷報告或日誌，由你確認後傳送。";
 "diagnostics_send_mail_intro %lld" = "隨附 Primuse 診斷報告 %lld 份。";
 "diagnostics_send_sent_title" = "報告已寄出";
 "diagnostics_send_sent_message" = "感謝回報。現在要清除本機儲存的報告嗎？";
 "diagnostics_send_keep" = "保留";
 "diagnostics_send_unavailable_title" = "無法寄送郵件";
-"diagnostics_send_unavailable_message %@" = "這台裝置尚未設定郵件帳號。你仍可以用報告右側的分享按鈕，將它寄到 %@。";
+"diagnostics_send_unavailable_message %@" = "這部裝置尚未設定郵件帳號。你可以分享診斷報告或匯出日誌，傳送至 %@。";
 "diagnostics_send_failed_title" = "寄送失敗";
 "diagnostics_send_failed_message" = "郵件 App 未能寄出這封郵件。你的報告仍保存在本機。";
 "source_diagnostics" = "音樂來源健檢";
@@ -1395,7 +1415,7 @@
 "source_diag_advice_certificate_message" = "HTTPS 憑證無法被信任。";
 "source_diag_advice_certificate_suggestion" = "先確認這是你自己的伺服器憑證，再決定是否信任。";
 "source_diag_advice_server_title" = "音樂源回應異常";
-"source_diag_advice_server_suggestion" = "檢查伺服器狀態後重試；如果持續失敗，可以在儲存管理裡匯出記錄檔。";
+"source_diag_advice_server_suggestion" = "檢查伺服器狀態後重試；如果持續失敗，可以在診斷報告中匯出日誌。";
 "source_diag_advice_invalid_response" = "音樂源回傳了無法解析的回應。";
 "settings_menu_item" = "設定…";
 "playback_menu" = "播放";
@@ -1424,6 +1444,9 @@
 "home_empty_mac_hint" = "從左側「音樂源」新增 NAS 或雲端硬碟，或在「Apple Music」裡授權後開始使用。";
 "player_empty_title" = "選一首歌開始播放";
 "player_empty_message" = "在左側資料庫或搜尋裡選一首歌。";
+"mac_launch_aborted_title" = "上次啟動沒能完成";
+"mac_launch_aborted_hint" = "把下面的資訊傳給開發者，可以協助找出原因。";
+"mac_launch_copy_diagnostics" = "拷貝資訊";
 "mac_sidebar_tools" = "工具";
 "desktop_widgets" = "桌面小工具";
 "keychain_sync_hint_title" = "鑰匙圈同步";
@@ -2359,6 +2382,7 @@
 "output_mode_effects" = "音效處理";
 "output_mode_high_fidelity_desc" = "使用最短訊號路徑，略過等化器、動態處理、殘響、空間音訊、ReplayGain、變速與淡入淡出，並自動匹配取樣率。音量仍可調整，DSD 直通時除外。";
 "output_mode_high_fidelity_confirm_title" = "開啟高傳真直通？";
+"output_mode_high_fidelity_hardware_note" = "這個模式主要對外接 DAC、耳機擴大機有意義。使用藍牙耳機或內建揚聲器時，音訊還會再經過處理，基本上聽不出差別。";
 "output_mode_effects_desc" = "使用完整處理鏈，支援等化器、動態處理、殘響、空間音訊、ReplayGain、變速、淡入淡出、App 音量與視覺化。";
 "volume_high_fidelity_system_hint" = "高傳真直通使用單位增益，請使用系統音量調整。";
 "volume_output_device_hint" = "調整輸出裝置音量，直通訊號維持逐位元精確。";
@@ -2440,6 +2464,8 @@
 "radio_priority_sort_by_name" = "依名稱排序";
 "radio_priority_move_up" = "提高優先順序";
 "radio_priority_move_down" = "降低優先順序";
+"radio_priority_move_up_short" = "上移";
+"radio_priority_move_down_short" = "下移";
 "radio_previous_station" = "上一個電台";
 "radio_next_station" = "下一個電台";
 "radio_home_visibility" = "在首頁顯示電台";
@@ -2580,7 +2606,7 @@
 "search_scope_includes_subfolders" = "包含子目錄";
 "playlist_export_choose_format" = "選擇匯出格式";
 "search_lyrics_hits_format" = "歌詞命中 · %d";
-"search_top_match" = "頂部配對";
+"search_top_match" = "最佳配對";
 "search_jump_to_lyrics_context" = "跳到歌詞上下文";
 "search_match_time_format" = "命中 %@";
 "search_apple_music_catalog_disabled" = "Apple Music · 目錄搜尋已關閉";
@@ -2643,6 +2669,7 @@
 "weekday_friday_short" = "五";
 "weekday_saturday_short" = "六";
 "apple_music_library_not_authorized" = "Apple Music 未授權，請前往設定 → Apple Music 啟用。";
+"apple_music_library_not_authorized_in_sources" = "Apple Music 未授權，請在「音樂來源管理」的 Apple Music 上點「連接 Apple Music」。";
 "apple_music_library_sync_timeout" = "Apple Music 同步逾時，請檢查音樂權限或稍後再試。";
 "apple_music_library_access_failed_format" = "無法存取 Apple Music 資料庫：%@";
 "yearly_unknown_source" = "未知音樂來源";
@@ -2726,6 +2753,10 @@
 "Artist" = "藝人";
 "Optional, narrows the match if multiple songs share a title." = "選填；多首歌曲同名時用於縮小配對範圍。";
 "No matching song in your library." = "資料庫中沒有符合的歌曲。";
+"Which song? Tell Siri the song title." = "想聽哪首歌？把歌名告訴 Siri。";
+"Primuse is still loading your library. Try again in a moment." = "Primuse 還在載入資料庫，請稍後再試。";
+"Your Primuse library is empty." = "Primuse 資料庫還是空的。";
+"Open Primuse once, then try again." = "請先打開 Primuse，然後重試。";
 "Play Playlist" = "播放播放列表";
 "Find a playlist by name and play it." = "按名稱尋找並播放播放列表。";
 "Name" = "名稱";
@@ -2800,6 +2831,9 @@
 /* MARK: - 電台管理 */
 "radio_manage_footer" = "拖動可調整順序，左右滑動單列可重新命名、置頂或刪除。";
 "radio_manage_pin_top" = "置頂";
+"radio_manage_pin_top_short" = "置頂";
+"select_all_short" = "全選";
+"deselect_all_short" = "取消全選";
 "radio_manage_export" = "匯出";
 "radio_manage_deselect_all" = "取消全選";
 "radio_manage_delete_confirm_title" = "刪除選取的電台？";
@@ -2945,6 +2979,7 @@
 "batch_remove_from_library" = "從資料庫移除";
 "batch_remove_from_library_message_format" = "將從資料庫移除 %d 首歌曲。原始檔案不會被刪除，但重新掃描時不會再被加回。";
 "batch_delete_source_files" = "刪除原始檔案";
+"batch_remove_group" = "移除與刪除";
 "batch_delete_source_files_message_format" = "將永久刪除 %d 首歌曲的原始檔案，並從資料庫移除。此操作無法復原。";
 "batch_delete_skipped_format" = "%d 首所在的音樂來源不支援刪除，已略過";
 "batch_delete_progress_format" = "正在刪除 %1$d / %2$d";
@@ -4094,6 +4129,7 @@
 "source_address_alternate_section" = "備用位址";
 "source_address_section_footer" = "連接埠留空，儲存時 Primuse 會自己試出來。";
 "source_address_placeholder" = "網域、IP 或完整網址";
+"source_address_placeholder_vendor %@" = "網域、IP 或 %@";
 "source_address_add_alternate" = "加入備用位址";
 "source_address_remove" = "移除這個位址";
 "source_address_advanced" = "手動設定連接埠與加密";
@@ -4179,3 +4215,84 @@
 "audio_station_error_api_not_found_format" = "Audio Station 缺少所需的介面（錯誤碼 %d）。";
 "audio_station_error_server_format" = "Audio Station 傳回錯誤（錯誤碼 %d）。";
 "audio_station_error_two_factor_required" = "此帳號已啟用兩步驟驗證，請重新登入這個 Audio Station 音樂來源並輸入驗證碼。";
+"audio_station_radio_folder_favorite" = "我收藏的廣播";
+"audio_station_radio_folder_user_defined" = "使用者定義的廣播";
+
+"lyric_poster_live_fallback" = "相簿沒有接受這張實況照片，已改存靜態圖";
+
+"lyrics_embed_copy_header" = "歌詞嵌入";
+"lyrics_embed_copy_title" = "歌詞儲存到";
+"lyrics_embed_copy_hint" = "MP3、FLAC、M4A · 每次儲存歌詞都會整首重新上傳";
+"lyrics_embed_copy_footer" = "嵌入的歌詞跟著音訊檔案走，換播放器或拷走檔案都還在。只對可替換檔案的音樂來源裡的 MP3、FLAC、M4A 生效，其他歌曲照常寫歌詞檔；每次儲存都會整首重新上傳。選「只嵌入音訊檔案」時不新建歌詞檔，歌曲旁已有的歌詞檔仍會同步更新。整庫刮削不會嵌入。";
+"lyrics_embed_copy_failed_format" = "歌詞已儲存，但無法嵌入音訊檔案：%@";
+"lyrics_embed_mode_off" = "只寫歌詞檔";
+"lyrics_embed_mode_alongside" = "歌詞檔並嵌入音訊";
+"lyrics_embed_mode_embed_only" = "只嵌入音訊檔案";
+"lyrics_embed_confirm_title" = "要把歌詞寫進音訊檔案嗎？";
+"lyrics_embed_confirm_message" = "· 每次儲存歌詞都要把整首歌下載、改寫後重新上傳，大檔案和雲端硬碟會明顯變慢，也更耗流量。\n· 音訊檔案的修改時間和內容會改變，同步資料夾、備份工具和媒體伺服器會把它當成新檔案。\n· 寫入前會確認檔案沒被別處改過，寫完會讀回核對，但改寫音訊檔案本身仍有風險，建議先備份音樂庫。\n· 嵌入的是帶行時間軸的歌詞；MP3 裡原有的多語言內嵌歌詞會被這份歌詞取代。";
+"lyrics_embed_confirm_message_embed_only" = "· 只嵌入時不在歌曲旁新建歌詞檔，逐字時間軸只儲存在 Primuse 裡；歌曲旁已有的歌詞檔仍會同步更新。\n· 整庫刮削不嵌入，也不新建歌詞檔，刮到的歌詞只儲存在 Primuse 裡。";
+"tag_editor_lyrics_writeback_embedded" = "已檢查目標，歌詞將嵌入音訊檔案，不新建歌詞檔。";
+"tag_editor_lyrics_writeback_also_embedded" = "同時嵌入音訊檔案。";
+"search_layout_title" = "調整搜尋結果";
+"search_layout_footer" = "關閉的部分不再顯示，搜尋時也會略過。";
+"search_layout_restore_default" = "恢復預設";
+"search_layout_move_up" = "上移";
+"search_layout_move_down" = "下移";
+"search_top_match_kind_artist" = "演出者";
+"search_top_match_kind_album" = "專輯";
+"search_top_match_kind_song" = "歌曲";
+"audio_variant_lossy_stereo" = "立體聲";
+"audio_variant_lossless" = "無損";
+"audio_variant_hi_res_lossless" = "高解析度無損";
+"audio_variant_dolby_atmos" = "杜比全景聲";
+"audio_variant_dolby_audio" = "杜比音訊";
+"apple_music_pick_from_catalog" = "從 Apple Music 選取…";
+"apple_music_pick_adding" = "正在加入資料庫…";
+"apple_music_pick_added" = "已加入 %d 首，正在同步";
+"apple_music_pick_failed" = "加入資料庫失敗";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "安全模式";
+"safe_mode_hint" = "上次啟動連續失敗，已略過下列步驟。請把診斷資訊傳給開發者。";
+"safe_mode_skipped" = "· 首頁與進場動畫\n· 恢復上次播放\n· iCloud 同步與背景掃描\n· 整個資料庫的推薦與資料夾索引";
+"safe_mode_exit" = "恢復正常啟動";
+"safe_mode_exit_hint" = "下次啟動會照常進入首頁。";
+"launch_aborted_title" = "上次啟動沒有完成";
+"launch_aborted_hint" = "下面這段說明它停在哪一步，請傳給開發者。";
+"launch_diagnostics_copy" = "拷貝診斷資訊";
+"launch_diagnostics_files_hint" = "診斷資訊也已儲存到「檔案」App → 我的 iPhone → Primuse → Diagnostics。";
+
+// MARK: - 有聲內容
+"tab_spoken_word" = "有聲內容";
+"spoken_word_continue_section" = "繼續收聽";
+"spoken_word_all_section" = "全部";
+"spoken_word_empty_hint" = "有聲書、相聲、評書、廣播劇這類內容會出現在這裡。";
+"spoken_word_remaining_format" = "剩餘 %@";
+"spoken_word_clear_progress" = "清除收聽位置";
+"mark_as_spoken_word" = "標記為有聲內容";
+"mark_as_music" = "標記為音樂";
+"chapters_title" = "章節";
+"a11y_skip_backward" = "後退 15 秒";
+"a11y_skip_forward" = "前進 30 秒";
+
+"source_diag_reachability_title" = "位址連通性";
+"source_diag_reachability_ok" = "主機和連接埠可以連線。";
+"source_diag_login_title" = "服務登入";
+"source_diag_library_title" = "曲庫讀取";
+"source_diag_waiting" = "正在檢查…";
+"source_diag_skipped" = "前序檢查未通過，未執行。";
+"source_diag_progress_format" = "已完成 %1$d / %2$d 項";
+"source_diag_routes_format" = "目前網路可用連線：%1$d / %2$d";
+"source_diag_cancelled" = "檢查已取消";
+"source_diag_check_counts_format" = "%1$d 項通過 · %2$d 項提醒 · %3$d 項失敗 · %4$d 項未執行";
+"source_diag_resolution_title" = "位址解析";
+"source_diag_resolution_ok" = "已解析到服務位址。";
+"source_diag_library_ok" = "曲庫讀取成功。";
+
+"diagnostics_send_all" = "診斷報告與日誌";
+"diagnostics_send_reports_only" = "僅診斷報告";
+"diagnostics_send_logs_only" = "僅日誌";
+"diagnostics_feedback_attachments" = "附件（可選）";
+"diagnostics_feedback_message" = "需求或建議";
+"diagnostics_feedback_compose" = "開啟郵件";
+"diagnostics_logs_title" = "日誌";

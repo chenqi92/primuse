@@ -352,6 +352,7 @@ struct VinylPosterStyle: LyricPosterStyleRendering {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: size * 0.40, height: size * 0.40)
+                    .scaleEffect(context.artworkMotionScale)
                     .clipShape(Circle())
             }
 

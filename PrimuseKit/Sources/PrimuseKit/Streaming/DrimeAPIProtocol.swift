@@ -170,6 +170,9 @@ public enum DrimeAPIProtocol {
         case "lrc", "txt": mimeType = "text/plain; charset=utf-8"
         case "ttml": mimeType = "application/ttml+xml"
         case "png": mimeType = "image/png"
+        case "mp3": mimeType = "audio/mpeg"
+        case "flac": mimeType = "audio/flac"
+        case "m4a", "m4b": mimeType = "audio/mp4"
         default: mimeType = "application/octet-stream"
         }
         return DrimeUploadMetadata(

@@ -12,8 +12,8 @@ import Foundation
 /// 接入方信息(client_id / project_id / sign_secret)由平台分配,构建期经
 /// xcconfig 注入 Info.plist,不落在源码里。
 ///
-/// 该开放平台目前只提供只读能力:列目录、取文件详情、取加签直链、读用户信息。
-/// 没有上传 / 删除接口 —— 所以 `.guangya` 不参与 sidecar 回写与源文件删除。
+/// 此处实现列目录、文件详情、加签直链和用户信息。OpenAPI v1.3 的上传接口
+/// 需要平台单独开通，且未定义覆盖 / 删除已落盘文件，尚不能用于原文件写回。
 public enum GuangYaAPIProtocol {
 
     // MARK: - 环境

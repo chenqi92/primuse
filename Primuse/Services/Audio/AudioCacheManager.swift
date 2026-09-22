@@ -219,6 +219,10 @@ struct OfflineAudioCacheSnapshot: Sendable, Equatable {
     var isDownloaded: Bool { state == .cached || state == .pinned }
 }
 
+extension Notification.Name {
+    static let primuseAudioCacheFilesDidChange = Notification.Name("primuse.audioCacheFilesDidChange")
+}
+
 /// LRU cache manager for audio files. Enforces the configured disk size limit
 /// by evicting least-recently-accessed files when the cache grows too large.
 actor AudioCacheManager {
@@ -248,6 +252,8 @@ actor AudioCacheManager {
     private let quarantineBasePath: URL
     private var persistTask: Task<Void, Never>?
     private var manifestPersistTask: Task<Void, Never>?
+    private var changedCompletePaths: Set<String> = []
+    private var cacheChangeNotificationTask: Task<Void, Never>?
 
     private struct OfflineManifestEntry: Codable, Sendable {
         var isManuallyPinned: Bool
@@ -980,9 +986,8 @@ actor AudioCacheManager {
                   (leasedPathCounts[cand.relativePath] ?? 0) == 0 else { continue }
             do {
                 try FileManager.default.removeItem(at: basePath.appendingPathComponent(cand.relativePath))
-                let removedSize = trackedFileSizes.removeValue(forKey: cand.relativePath) ?? cand.size
-                trackedFileModificationDates.removeValue(forKey: cand.relativePath)
-                trackedTotalSize = max(0, trackedTotalSize - removedSize)
+                let removedSize = trackedFileSizes[cand.relativePath] ?? cand.size
+                removeTrackedPath(cand.relativePath)
                 freed += removedSize
                 accessLog[cand.relativePath] = nil
             } catch {
@@ -1136,18 +1141,47 @@ actor AudioCacheManager {
             return
         }
         let newSize = Int64(values.totalFileAllocatedSize ?? 0)
+        let modifiedAt = values.contentModificationDate ?? Date()
+        let changed = trackedFileSizes[relativePath] != newSize
+            || trackedFileModificationDates[relativePath] != modifiedAt
         let oldSize = trackedFileSizes[relativePath] ?? 0
         trackedFileSizes[relativePath] = newSize
-        trackedFileModificationDates[relativePath] = values.contentModificationDate ?? Date()
+        trackedFileModificationDates[relativePath] = modifiedAt
         trackedTotalSize = max(0, trackedTotalSize - oldSize + newSize)
+        if changed { scheduleCacheFileChange(relativePath) }
     }
 
     private func removeTrackedPath(_ relativePath: String) {
+        let existed = trackedFileSizes[relativePath] != nil
         trackedTotalSize = max(
             0,
             trackedTotalSize - (trackedFileSizes.removeValue(forKey: relativePath) ?? 0)
         )
         trackedFileModificationDates.removeValue(forKey: relativePath)
+        if existed { scheduleCacheFileChange(relativePath) }
+    }
+
+    private func scheduleCacheFileChange(_ path: String) {
+        // Temporary transfer artifacts never represent a playable download.
+        guard ![".partial", ".offline", ".refresh", ".installing",
+                CloudPlaybackSource.prewarmMarkerSuffix].contains(where: path.hasSuffix) else { return }
+        changedCompletePaths.insert(path)
+        guard cacheChangeNotificationTask == nil else { return }
+        cacheChangeNotificationTask = Task {
+            try? await Task.sleep(for: .milliseconds(50))
+            publishCacheFileChanges()
+        }
+    }
+
+    private func publishCacheFileChanges() {
+        let paths = Array(changedCompletePaths)
+        changedCompletePaths.removeAll(keepingCapacity: true)
+        cacheChangeNotificationTask = nil
+        NotificationCenter.default.post(
+            name: .primuseAudioCacheFilesDidChange,
+            object: nil,
+            userInfo: ["paths": paths]
+        )
     }
 
     private func protectedRelativePaths() -> Set<String> {

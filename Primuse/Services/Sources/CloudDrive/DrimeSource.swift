@@ -4,14 +4,16 @@ import PrimuseKit
 /// Drime Cloud source using a user-created API token.
 ///
 /// Supports authenticated browsing, Range playback, recoverable deletion, and
-/// sidecar uploads beside ID-addressed source audio files.
+/// sidecar uploads and guarded audio metadata replacement for ID-addressed files.
 actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayNameProviding,
-    LyricsSidecarTargetResolving {
+    LyricsSidecarTargetResolving, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true
     nonisolated var preferredDeleteBatchSize: Int { 100 }
 
     private let helper: CloudDriveHelper
+    private let session: URLSession
+    private let tokenProvider: (@Sendable () async throws -> String)?
     private var entriesByID: [String: DrimeFileEntry] = [:]
     private var sidecarContextsBySourceID: [String: SidecarContext] = [:]
     private var validatedToken: String?
@@ -22,9 +24,12 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         let parentID: String?
     }
 
-    init(sourceID: String) {
+    init(sourceID: String, session: URLSession = .shared,
+         tokenProvider: (@Sendable () async throws -> String)? = nil) {
         self.sourceID = sourceID
         self.helper = CloudDriveHelper(sourceID: sourceID)
+        self.session = session
+        self.tokenProvider = tokenProvider
     }
 
     func connect() async throws {
@@ -70,7 +75,7 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
             guard let url = DrimeAPIProtocol.listingURL(folderID: folderID, page: page) else {
                 throw CloudDriveError.invalidResponse
             }
-            let (data, http) = try await helper.makeAuthorizedRequest(url: url, accessToken: token)
+            let (data, http) = try await authorizedRequest(url: url, accessToken: token)
             try Self.requireHTTPStatus(data: data, http: http, permission: .fileRead)
             let listing: DrimeFileListing
             do {
@@ -115,6 +120,151 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         helper.scanAudioFiles(from: path) { [self] path in
             try await listFiles(at: path)
         }
+    }
+
+    private func freshMetadataEntry(for path: String, token: String) async throws -> DrimeFileEntry {
+        let cached = entriesByID[path]
+        entriesByID.removeValue(forKey: path)
+        // A cached parent is a lookup hint only; conflict checks always use a
+        // fresh listing. Cold IDs retain the existing tree-discovery fallback.
+        if let cached {
+            guard let current = try await fileEntries(in: cached.parentID, token: token)
+                .first(where: { $0.id == path }) else { throw CloudDriveError.fileNotFound(path) }
+            return current
+        }
+        return try await fileEntry(for: path, token: token)
+    }
+
+    private func metadataState(_ entry: DrimeFileEntry) throws -> EmbeddedMetadataRemoteFileState {
+        guard !entry.isDirectory, entry.fileSize > 0,
+              entry.revision != nil, entry.modifiedDate != nil else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        return EmbeddedMetadataRemoteFileState(
+            fileSize: entry.fileSize, modifiedDate: entry.modifiedDate, revision: entry.revision,
+            replacementToken: "\(entry.parentID ?? "/")/\(entry.name)\u{0}\(entry.fileSize)\u{0}\(entry.updatedAt ?? "")"
+        )
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        let token = try await accessToken()
+        return try metadataState(try await freshMetadataEntry(for: path, token: token))
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        helper.invalidateCachedFile(path: path)
+        sidecarContextsBySourceID.removeValue(forKey: path)
+    }
+
+    private func unchangedMetadataEntry(
+        at path: String, expected: EmbeddedMetadataRemoteFileState, token: String
+    ) async throws -> DrimeFileEntry {
+        let entry = try await freshMetadataEntry(for: path, token: token)
+        let siblings = try await fileEntries(in: entry.parentID, token: token)
+        let matches = siblings.filter { $0.name == entry.name }
+        guard matches.count == 1, let current = matches.first, current.id == path,
+              expected.matches(try metadataState(current)) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        try Task.checkCancellation()
+        return current
+    }
+
+    func replaceMetadataFile(at path: String, with localURL: URL, expected: EmbeddedMetadataRemoteFileState) async throws {
+        _ = try await replaceMetadataFileReturningPath(at: path, with: localURL, expected: expected)
+    }
+
+    func replaceMetadataFileReturningPath(
+        at path: String, with localURL: URL, expected: EmbeddedMetadataRemoteFileState
+    ) async throws -> String {
+        let token = try await accessToken()
+        let original = try await unchangedMetadataEntry(at: path, expected: expected, token: token)
+        guard let metadata = DrimeAPIProtocol.uploadMetadata(for: original.name) else {
+            throw CloudDriveError.invalidResponse
+        }
+        let size = Int64(try localURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+        let digest = try await Task.detached(priority: .utility) {
+            try SHA256FileDigest.hexDigest(at: localURL)
+        }.value
+        try Task.checkCancellation()
+        // A non-audio temporary name stays out of concurrent music scans and
+        // avoids Drime's same-name overwrite before the new bytes are verified.
+        let stagedMetadata = DrimeUploadMetadata(
+            fileName: ".primuse-\(UUID().uuidString).tmp",
+            fileExtension: metadata.fileExtension, mimeType: metadata.mimeType
+        )
+        let input = try FileHandle(forReadingFrom: localURL)
+        defer { try? input.close() }
+        let staged = try await multipartUpload(
+            size: size, metadata: stagedMetadata, parentID: original.parentID, token: token
+        ) { offset, count in
+            try input.seek(toOffset: UInt64(offset))
+            return try input.read(upToCount: count) ?? Data()
+        }
+        guard staged.id != original.id else { throw CloudDriveError.invalidResponse }
+        entriesByID[staged.id] = staged
+        var removalAttempted = false
+        do {
+            guard staged.fileSize == size,
+                  DrimeAPIProtocol.normalizedEntryID(staged.parentID)
+                    == DrimeAPIProtocol.normalizedEntryID(original.parentID),
+                  let url = DrimeAPIProtocol.entryURL(id: staged.id) else {
+                throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+            }
+            let verified = try await postJSON(
+                url: DrimeAPIProtocol.apiBaseURL.appending(path: "file-entries/\(staged.id)/verify-integrity"),
+                object: ["sha256": digest], token: token, operation: "Drime file verification"
+            )
+            guard verified["verified"] as? Bool == true,
+                  (verified["serverHash"] as? String)?.lowercased() == digest else {
+                throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+            }
+            _ = try await unchangedMetadataEntry(at: path, expected: expected, token: token)
+            removalAttempted = true
+            try await deleteEntryIDs([path], token: token)
+            let (data, http) = try await authorizedRequest(
+                url: url, method: "PUT",
+                body: SafeJSONSerialization.data(withJSONObject: ["name": original.name]),
+                contentType: "application/json", accessToken: token
+            )
+            try Self.requireSuccess(data: data, http: http, operation: "Drime replacement rename", permission: .fileWrite)
+            let current = try await fileEntries(in: original.parentID, token: token)
+            guard current.contains(where: { $0.id == staged.id && $0.name == original.name && $0.fileSize == size }),
+                  !current.contains(where: { $0.id == original.id }) else {
+                throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+            }
+        } catch {
+            if removalAttempted {
+                // A rename response can be lost after it has committed. Resolve
+                // the known IDs before deciding whether a rollback is needed.
+                let observed = try? await fileEntries(in: original.parentID, token: token)
+                if let current = observed,
+                   current.contains(where: { $0.id == staged.id && $0.name == original.name && $0.fileSize == size }),
+                   !current.contains(where: { $0.id == original.id }) {
+                    await invalidateMetadataWritebackCache(for: path)
+                    await invalidateMetadataWritebackCache(for: staged.id)
+                    return staged.id
+                }
+                if observed?.contains(where: { $0.id == original.id }) != true {
+                    try? await restoreEntryIDs([original.id], token: token)
+                    let restored = try? await fileEntries(in: original.parentID, token: token)
+                    guard restored?.contains(where: { $0.id == original.id }) == true else {
+                        // Keep the already-verified replacement reachable when
+                        // restoration cannot be confirmed; never delete both copies.
+                        await invalidateMetadataWritebackCache(for: path)
+                        await invalidateMetadataWritebackCache(for: staged.id)
+                        throw EmbeddedMetadataReplacementReadbackError(
+                            filePath: staged.id, fileSize: size, detail: error.localizedDescription
+                        )
+                    }
+                }
+            }
+            try? await deleteEntryIDs([staged.id], token: token)
+            throw error
+        }
+        await invalidateMetadataWritebackCache(for: path)
+        await invalidateMetadataWritebackCache(for: staged.id)
+        return staged.id
     }
 
     func writeFile(data: Data, to path: String) async throws {
@@ -410,7 +560,7 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
             "entryIds": uniqueIDs,
             "deleteForever": false,
         ])
-        let (data, http) = try await helper.makeAuthorizedRequest(
+        let (data, http) = try await authorizedRequest(
             url: DrimeAPIProtocol.deleteEntriesURL,
             method: "POST",
             body: body,
@@ -437,7 +587,7 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         let uniqueIDs = Array(Set(entryIDs)).sorted()
         guard !uniqueIDs.isEmpty else { return }
         let body = try SafeJSONSerialization.data(withJSONObject: ["entryIds": uniqueIDs])
-        let (data, http) = try await helper.makeAuthorizedRequest(
+        let (data, http) = try await authorizedRequest(
             url: DrimeAPIProtocol.restoreEntriesURL,
             method: "POST",
             body: body,
@@ -513,7 +663,7 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 300
-        let (responseData, response) = try await URLSession.shared.upload(for: request, from: body)
+        let (responseData, response) = try await session.upload(for: request, from: body)
         guard let http = response as? HTTPURLResponse else {
             throw CloudDriveError.invalidResponse
         }
@@ -532,8 +682,23 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         parentID: String?,
         token: String
     ) async throws -> DrimeFileEntry {
+        try await multipartUpload(size: Int64(data.count), metadata: metadata, parentID: parentID, token: token) { offset, count in
+            data.subdata(in: Int(offset)..<(Int(offset) + count))
+        }
+    }
+
+    private func multipartUpload(
+        size: Int64,
+        metadata: DrimeUploadMetadata,
+        parentID: String?,
+        token: String,
+        readChunk: (Int64, Int) throws -> Data
+    ) async throws -> DrimeFileEntry {
         let partSize = DrimeAPIProtocol.multipartPartSize
-        let partCount = (data.count + partSize - 1) / partSize
+        guard size > 0, size <= Int64(partSize) * Int64(DrimeAPIProtocol.maximumMultipartPartCount) else {
+            throw CloudDriveError.invalidResponse
+        }
+        let partCount = Int((size + Int64(partSize) - 1) / Int64(partSize))
         guard partCount > 0, partCount <= DrimeAPIProtocol.maximumMultipartPartCount else {
             throw CloudDriveError.invalidResponse
         }
@@ -541,7 +706,7 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         var createBody: [String: Any] = [
             "filename": metadata.fileName,
             "mime": metadata.mimeType,
-            "size": data.count,
+            "size": size,
             "extension": metadata.fileExtension,
             "relativePath": metadata.fileName,
             "workspaceId": DrimeAPIProtocol.defaultWorkspaceID,
@@ -597,14 +762,16 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
             completedParts.reserveCapacity(partCount)
             for number in 1...partCount {
                 guard let url = signedURLs[number] else { throw CloudDriveError.invalidResponse }
-                let lowerBound = (number - 1) * partSize
-                let upperBound = min(lowerBound + partSize, data.count)
-                let chunk = data.subdata(in: lowerBound..<upperBound)
+                try Task.checkCancellation()
+                let lowerBound = Int64(number - 1) * Int64(partSize)
+                let count = Int(min(Int64(partSize), size - lowerBound))
+                let chunk = try readChunk(lowerBound, count)
+                guard chunk.count == count else { throw CloudDriveError.invalidResponse }
                 var request = URLRequest(url: url)
                 request.httpMethod = "PUT"
                 request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
                 request.timeoutInterval = 300
-                let (_, response) = try await URLSession.shared.upload(for: request, from: chunk)
+                let (_, response) = try await session.upload(for: request, from: chunk)
                 guard let http = response as? HTTPURLResponse,
                       (200...299).contains(http.statusCode),
                       let etag = http.value(forHTTPHeaderField: "ETag"),
@@ -630,7 +797,7 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
             }
             var registration: [String: Any] = [
                 "filename": storageName,
-                "size": data.count,
+                "size": size,
                 "clientName": metadata.fileName,
                 "clientMime": metadata.mimeType,
                 "clientExtension": metadata.fileExtension,
@@ -685,7 +852,7 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         operation: String
     ) async throws -> Data {
         let body = try SafeJSONSerialization.data(withJSONObject: object)
-        let (data, http) = try await helper.makeAuthorizedRequest(
+        let (data, http) = try await authorizedRequest(
             url: url,
             method: "POST",
             body: body,
@@ -701,7 +868,18 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
         return data
     }
 
+    private func authorizedRequest(
+        url: URL, method: String = "GET", body: Data? = nil,
+        contentType: String? = nil, accessToken: String
+    ) async throws -> (Data, HTTPURLResponse) {
+        try await helper.makeAuthorizedRequest(
+            url: url, method: method, body: body, contentType: contentType,
+            accessToken: accessToken, session: session
+        )
+    }
+
     private func accessToken() async throws -> String {
+        if let tokenProvider { return try await tokenProvider() }
         let tokens = try await helper.tokenManager.requireTokens()
         let token = tokens.accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { throw CloudDriveError.notAuthenticated }
@@ -709,7 +887,7 @@ actor DrimeSource: MusicSourceConnector, OAuthCloudSource, RemoteFileDisplayName
     }
 
     private func loggedUser(token: String) async throws -> DrimeUser {
-        let (data, http) = try await helper.makeAuthorizedRequest(
+        let (data, http) = try await authorizedRequest(
             url: DrimeAPIProtocol.loggedUserURL,
             accessToken: token
         )

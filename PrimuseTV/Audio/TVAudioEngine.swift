@@ -226,6 +226,9 @@ final class TVAudioEngine {
         let subtitle: String
         let format: String
         let streamFormat: RadioStreamFormat
+        /// 源内电台的流地址由音乐源解析出来,可能带鉴权头、也可能落在自签证书
+        /// 的私有主机上,只有这类才需要自定义 scheme 的 resource loader。
+        let isSourceBacked: Bool
     }
     private var liveRequest: LiveRequest?
 
@@ -416,7 +419,8 @@ final class TVAudioEngine {
         title: String,
         subtitle: String,
         format: String,
-        streamFormat: RadioStreamFormat
+        streamFormat: RadioStreamFormat,
+        isSourceBacked: Bool = false
     ) {
         let request = LiveRequest(
             id: UUID(),
@@ -425,7 +429,8 @@ final class TVAudioEngine {
             title: title,
             subtitle: subtitle,
             format: format,
-            streamFormat: streamFormat
+            streamFormat: streamFormat,
+            isSourceBacked: isSourceBacked
         )
         let urlKey = url.absoluteString
         let knownDecoded = streamFormat == .flac
@@ -478,7 +483,15 @@ final class TVAudioEngine {
         }
 
         let item: AVPlayerItem
-        if (request.url.scheme == "https" || request.url.scheme == "http"),
+        // 只有需要自定义 HTTP 头的源内电台才走 resource loader。公网电台必须把
+        // 真实地址交给 AVPlayer 自己的媒体加载器 —— iPhone / Mac 一直是这么做的
+        // (`RadioPlaybackController`),自定义 scheme 那条通道是按 Range 取字节的
+        // 文件通道:直播流没有 Content-Length、不支持 Range,内容信息里拿不到
+        // contentType、长度是 0,AVFoundation 于是把这个地址判成
+        // 「unsupported URL」;明文台还要在 loader 队列里等一个弹不出来的信任
+        // 确认,并被那条 HTTP 通道的绝对超时掐断。
+        if request.isSourceBacked || !request.headers.isEmpty,
+           (request.url.scheme == "https" || request.url.scheme == "http"),
            let masked = TVStreamResourceLoader.maskedURL(from: request.url) {
             let loader = TVStreamResourceLoader(
                 realURL: request.url,
@@ -742,9 +755,10 @@ final class TVAudioEngine {
         updateNowPlayingInfo()
     }
 
-    /// 非原生格式:用 SFBAudioEngine 解码播放已下载到本地的文件(AVPlayer 解不了的格式)。
+    /// 非原生格式:用 SFBAudioEngine 或 FFmpeg 解码播放已下载到本地的文件(AVPlayer 解不了的格式)。
     func loadDecoded(
         fileURL: URL,
+        decoder: TVLocalDecoder,
         title: String,
         artist: String,
         album: String,
@@ -775,11 +789,11 @@ final class TVAudioEngine {
         usingSFB = true
         startSFBPolling()
         do {
-            activeSFBGeneration = try sfb.play(url: fileURL)
+            activeSFBGeneration = try sfb.play(url: fileURL, decoder: decoder)
             if spectrumAnalysisEnabled { installSFBSpectrumTap() }
             isPlaying = true
             status = .playing
-            plog("📺 TV engine.loadDecoded(SFB) \(fileURL.lastPathComponent) dur=\(duration)")
+            plog("📺 TV engine.loadDecoded(\(decoder)) \(fileURL.lastPathComponent) dur=\(duration)")
         } catch {
             activeSFBGeneration = nil
             sfb.stop()

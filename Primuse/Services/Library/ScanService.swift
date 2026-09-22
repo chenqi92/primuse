@@ -400,7 +400,35 @@ final class ScanService {
         }
     }
 
-    private(set) var scanStates: [String: ScanState] = [:]
+    /// 真正被观察的那一份。写入一律经过下面的 `scanStates`。
+    private var scanStateStorage: [String: ScanState] = [:]
+
+    /// 扫描期间目录对账、变更清点这些回调一秒能来几十次, 而 Observation 从不
+    /// 比较新旧值 —— 哪怕写进去的和上一次一模一样, 来源页整张列表也会跟着重算
+    /// 一遍, 在主线程上跟滑动抢帧。内容没变的写入在这里就挡掉。
+    private(set) var scanStates: [String: ScanState] {
+        get { scanStateStorage }
+        set {
+            guard newValue != scanStateStorage else { return }
+            scanStateStorage = newValue
+            refreshScanningSourceIDs()
+        }
+    }
+
+    /// 哪些源此刻在扫。进度一秒变好几次, 但"在不在扫"一轮通常只翻两次 ——
+    /// 只需要这个判定的地方(按钮禁用态、长按菜单项)读它, 就不必跟着每一帧
+    /// 进度重算。长按菜单在 SwiftUI 里是独立宿主, 那里也不适合再挂一层读
+    /// `@Environment` 的子视图。
+    private(set) var scanningSourceIDs: Set<String> = []
+
+    private func refreshScanningSourceIDs() {
+        var next: Set<String> = []
+        for (sourceID, state) in scanStateStorage where state.isScanning {
+            next.insert(sourceID)
+        }
+        guard next != scanningSourceIDs else { return }
+        scanningSourceIDs = next
+    }
     var synologyAPIs: [String: SynologyAPI] = [:]
     private var activeTasks: [String: Task<Void, Never>] = [:]
     /// Monotonic token bumped on every `scanSource` launch and every
@@ -679,6 +707,64 @@ final class ScanService {
         syncStates[sourceID]?.index ?? [:]
     }
 
+    func recordMetadataFileReplacement(original: Song, updated: Song, in library: MusicLibrary) async throws {
+        guard original.id == updated.id, original.sourceID == updated.sourceID,
+              original.filePath != updated.filePath else { return }
+        let sourceID = original.sourceID
+        // An in-flight scan still holds the old remote ID. Fence its pending
+        // snapshot before publishing the replacement under the existing Song ID.
+        cancelScan(for: sourceID)
+        removeCheckpoint(for: sourceID)
+        if let syncStateStore {
+            _ = try await syncStateStore.advanceMutationEpoch(
+                sourceID: sourceID, mutationEpoch: syncStateMutationEpochs[sourceID, default: 0]
+            )
+        }
+        guard let previous = library.song(id: original.id) else { return }
+        var relocated = previous
+        relocated.filePath = updated.filePath
+        relocated.fileSize = updated.fileSize
+        relocated.lastModified = updated.lastModified
+        relocated.revision = updated.revision
+        // A single-row replacement refreshes the visible lookup immediately;
+        // scan batch merging leaves that lookup on its previous async snapshot.
+        library.replaceSong(relocated)
+        NotificationCenter.default.post(
+            name: .primuseSongLocationChanged, object: nil,
+            userInfo: ["previousSongs": [previous], "songs": [relocated]]
+        )
+        try await library.persistIncrementalNowAndWait().get()
+        try await waitForCheckpointPersistence()
+        guard var state = syncStates[sourceID],
+              var entry = state.index[original.filePath],
+              !entry.isDirectory, entry.songIDs == [original.id] else { return }
+        state.index.removeValue(forKey: original.filePath)
+        entry.stableKey = updated.filePath
+        entry.path = updated.filePath
+        entry.size = updated.fileSize
+        entry.modifiedDate = updated.lastModified
+        entry.revision = updated.revision
+        state.index[updated.filePath] = entry
+        state.identityAliases[original.filePath] = updated.filePath
+        state.missingStableKeys.removeValue(forKey: original.filePath)
+        state.missingStableKeys.removeValue(forKey: updated.filePath)
+        try await persistSyncState(state)
+    }
+
+    func sourceFileName(for song: Song) -> String? {
+        guard let index = syncStates[song.sourceID]?.index else { return nil }
+        // Opaque file-ID providers use the ID as their stable key. Path-based
+        // providers use the scanner's normalized path key instead.
+        for key in [song.filePath, "path:\(song.filePath.lowercased())"] {
+            guard let item = index[key],
+                  !item.isDirectory, item.path == song.filePath,
+                  item.songIDs.contains(song.id),
+                  let name = item.displayName, !name.isEmpty else { continue }
+            return name
+        }
+        return nil
+    }
+
     func startFolderTopologyRebuildsIfNeeded(
         sourceManager: SourceManager,
         library: MusicLibrary,
@@ -880,6 +966,7 @@ final class ScanService {
             sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
         }
 
+        lastProgressFrameBySourceID[source.id] = nil
         scanStates[source.id] = ScanState(
             isScanning: true,
             currentFile: String(localized: "source_diag_preparing_scan"),
@@ -1263,6 +1350,22 @@ final class ScanService {
 
     private var currentProgressPublishInterval: TimeInterval {
         ScanExecutionProfilePolicy.progressPublishInterval(for: currentExecutionProfile)
+    }
+
+    /// 进度帧的发布闸门。`publishScanProgress` 自己带节流, 而按页/按目录驱动的
+    /// 那两路回调原本一次不漏地写进 `scanStates` —— 连接器快起来一秒几十次,
+    /// 每一次都让来源页整张列表重算。收尾帧不受限, 否则进度条会停在中途。
+    private var lastProgressFrameBySourceID: [String: Date] = [:]
+
+    private func allowsProgressFrame(for sourceID: String, isFinal: Bool = false) -> Bool {
+        let now = Date()
+        if !isFinal,
+           let last = lastProgressFrameBySourceID[sourceID],
+           now.timeIntervalSince(last) < currentProgressPublishInterval {
+            return false
+        }
+        lastProgressFrameBySourceID[sourceID] = now
+        return true
     }
 
     /// Re-launch any source whose scan was interrupted (has a checkpoint with
@@ -2991,6 +3094,8 @@ final class ScanService {
         totalCount: Int? = nil
     ) {
         guard var state = scanStates[sourceID], state.isScanning else { return }
+        let isFinalFrame = checkedCount != nil && checkedCount == totalCount
+        guard allowsProgressFrame(for: sourceID, isFinal: isFinalFrame) else { return }
         state.currentFile = String(localized: "source_diag_checking_changes")
         // Counts arrive only once the id listing starts. Until then the card
         // keeps whatever a resumed scan already put there rather than dropping
@@ -4344,6 +4449,8 @@ final class ScanService {
         totalDirectoryCount: Int,
         currentDirectory: String
     ) {
+        let isFinalFrame = completedDirectoryCount >= totalDirectoryCount
+        guard allowsProgressFrame(for: sourceID, isFinal: isFinalFrame) else { return }
         var state = scanStates[sourceID] ?? ScanState(isScanning: true)
         state.isScanning = true
         state.scannedCount = snapshotWorkCount + completedDirectoryCount

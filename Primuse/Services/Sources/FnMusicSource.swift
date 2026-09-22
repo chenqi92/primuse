@@ -5,7 +5,7 @@ import PrimuseKit
 /// The legacy `.fnos` NAS placeholder remains separate so old source records
 /// are never reinterpreted as a server-side music library.
 actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, ServerScrobblingConnector,
-    ServerPlaylistConnector, ServerFavoriteConnector {
+    ServerPlaylistConnector, ServerFavoriteConnector, MediaServerWritebackConnector {
     let sourceID: String
 
     private let api: FnMusicAPI
@@ -28,6 +28,29 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     }
 
     private static let pageSize = 50
+    /// 飞牛的曲目接口不返回专辑艺术家, 只有 `album/detail` 的 `artists` 有。
+    /// 少了它同一张专辑会按每首歌各自的艺术家散成多张同名专辑, 所以扫描时
+    /// 按专辑补一次。一张专辑只问一次, 整次扫描共用这两张表。
+    private var albumArtistByGUID: [String: String] = [:]
+    private var albumsWithoutArtist: Set<String> = []
+    private static let albumDetailConcurrency = 6
+    private static let albumPageSize = 100
+    /// 整个源的专辑最多翻这么多页, 防住 total 不实时时的空转。
+    private static let albumPageLimit = 500
+    private var albumListPrimed = false
+    /// 老版本飞牛没有专辑详情这个接口。一次成功都没有就别再撞了, 否则每页都要
+    /// 白发一轮请求。取消不算失败, 每次扫描开始时重新给它一次机会。
+    private static let albumDetailFailureLimit = 8
+    private var albumDetailFailures = 0
+    private var albumDetailSucceeded = false
+    private var albumDetailUnavailable = false
+
+    /// `.resolved` 的 name 为 nil 表示这张专辑问过了、服务端就是没有专辑艺术家。
+    private enum AlbumArtistLookup: Sendable {
+        case resolved(guid: String, name: String?)
+        case failed
+        case cancelled
+    }
 
     init(
         sourceID: String,
@@ -75,6 +98,10 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     }
 
     // MARK: - Connection
+
+    func prepareDiagnosticConnection() async throws {
+        try await api.prepareConnection()
+    }
 
     func connect() async throws {
         try Task.checkCancellation()
@@ -169,6 +196,9 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
 
     func scanSongs(from path: String) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         try await connect()
+        albumDetailFailures = 0
+        albumDetailUnavailable = false
+        albumListPrimed = false
         return AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
@@ -202,12 +232,17 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                         }
 
                         received += result.rawCount
+                        await self.primeAlbumArtists()
+                        let albumArtists = await self.albumArtistNames(for: result.tracks)
                         for track in result.tracks {
                             try Task.checkCancellation()
                             guard seenTrackGUIDs.insert(track.guid).inserted else {
                                 throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
                             }
-                            let scanned = try self.scannedSong(from: track)
+                            let scanned = try self.scannedSong(
+                                from: track,
+                                albumArtistName: track.albumGUID.flatMap { albumArtists[$0] }
+                            )
                             continuation.yield(scanned)
                         }
 
@@ -261,23 +296,125 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         }
     }
 
-    private func scannedSong(from track: FnMusicTrack) throws -> ConnectorScannedSong {
+    private func scannedSong(
+        from track: FnMusicTrack,
+        albumArtistName: String?
+    ) throws -> ConnectorScannedSong {
         let suffix = track.fileExtension ?? ""
-        guard let song = track.makeSong(sourceID: sourceID) else {
+        guard let song = track.makeSong(
+            sourceID: sourceID,
+            albumArtistName: albumArtistName
+        ) else {
             throw SourceError.connectionFailed(PMString("error.catalog.trackMissingFormat", track.title))
         }
         return ConnectorScannedSong(
             song: song,
             displayName: "\(track.title).\(suffix)",
             titleMetadataInspected: track.hasUsableCatalogTitle,
-            folderLocation: libraryFolderLocation(for: track)
+            folderLocation: libraryFolderLocation(for: track, albumArtistName: albumArtistName)
         )
     }
 
+    /// 整个源的专辑艺术家一次翻完。`album/list` 每页就带回一批 `artists`,
+    /// 比一张张问详情省得多; 这条路走不通(老版本没有这个端点、或者列表项不带
+    /// artists)也不报错, 缺的专辑由下面按需问详情补上。每次扫描只做一次。
+    private func primeAlbumArtists() async {
+        guard !albumListPrimed else { return }
+        albumListPrimed = true
+        var page = 1
+        var received = 0
+        var expectedTotal: Int?
+        while page <= Self.albumPageLimit, !Task.isCancelled {
+            let result: FnMusicAlbumPage
+            do {
+                result = try await api.albumPage(page: page, size: Self.albumPageSize)
+            } catch {
+                return
+            }
+            guard result.rawCount > 0, result.rawCount <= Self.albumPageSize else { return }
+            if let expectedTotal, expectedTotal != result.total { return }
+            expectedTotal = result.total
+            // 只记有名字的。列表项万一根本不带 artists(端点变了、或者这一版
+            // 的列表是精简结构), 把空的记成「服务端就是没有」会连详情那条路
+            // 一起堵死 —— 那时这里什么都不填, 退化成逐张问详情而已。
+            for album in result.albums {
+                guard let name = album.artistName, albumArtistByGUID[album.guid] == nil else { continue }
+                albumArtistByGUID[album.guid] = name
+            }
+            received += result.rawCount
+            if let total = result.total, received >= total { return }
+            guard result.rawCount == Self.albumPageSize else { return }
+            page += 1
+        }
+    }
+
+    /// 专辑 GUID → 专辑艺术家, 只含这一页真的查到的。曲目自己带了专辑艺术家
+    /// (飞牛哪天开始给了)就不问, 问过没有的也不再问。一个专辑详情取不到不该
+    /// 让整次扫描失败, 那一张这轮就按曲目艺术家走。
+    private func albumArtistNames(for tracks: [FnMusicTrack]) async -> [String: String] {
+        var pending: [String] = []
+        if !albumDetailUnavailable {
+            for track in tracks {
+                guard track.albumArtistName == nil, let guid = track.albumGUID,
+                      albumArtistByGUID[guid] == nil, !albumsWithoutArtist.contains(guid),
+                      !pending.contains(guid) else { continue }
+                pending.append(guid)
+            }
+        }
+        var offset = 0
+        while offset < pending.count, !Task.isCancelled, !albumDetailUnavailable {
+            let slice = Array(pending[offset..<min(offset + Self.albumDetailConcurrency, pending.count)])
+            offset += slice.count
+            await withTaskGroup(of: AlbumArtistLookup.self) { group in
+                for guid in slice {
+                    group.addTask { [api] in
+                        do {
+                            return .resolved(
+                                guid: guid,
+                                name: try await api.albumArtistName(albumGUID: guid)
+                            )
+                        } catch {
+                            return OperationCancellationPolicy.isCancellation(error)
+                                ? .cancelled
+                                : .failed
+                        }
+                    }
+                }
+                for await lookup in group {
+                    switch lookup {
+                    case .resolved(let guid, let name):
+                        albumDetailSucceeded = true
+                        albumDetailFailures = 0
+                        if let name {
+                            albumArtistByGUID[guid] = name
+                        } else {
+                            albumsWithoutArtist.insert(guid)
+                        }
+                    case .failed:
+                        albumDetailFailures += 1
+                    case .cancelled:
+                        break
+                    }
+                }
+            }
+            if !albumDetailSucceeded, albumDetailFailures >= Self.albumDetailFailureLimit {
+                albumDetailUnavailable = true
+                plog("FN Music album detail unavailable source=\(sourceID.prefix(8)) failures=\(albumDetailFailures)")
+            }
+        }
+        var names: [String: String] = [:]
+        for track in tracks {
+            guard let guid = track.albumGUID, let name = albumArtistByGUID[guid] else { continue }
+            names[guid] = name
+        }
+        return names
+    }
+
     private func libraryFolderLocation(
-        for track: FnMusicTrack
+        for track: FnMusicTrack,
+        albumArtistName: String?
     ) -> ConnectorLibraryFolderLocation {
-        let albumArtistName = track.albumArtistName
+        let albumArtistName = albumArtistName ?? track.albumArtistName
         let trackArtistName = track.artistNames.isEmpty
             ? nil
             : track.artistNames.joined(separator: ", ")
@@ -502,4 +639,36 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         }
     }
 
+}
+
+extension FnMusicSource {
+    func writeScrapedMetadata(original: Song, updated: Song, coverData: Data?, lyricsLines: [LyricLine]?, lyricsContent: String?) async -> MediaServerWritebackResult {
+        let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: coverData?.isEmpty == false)
+        let writable = changed.intersection(TagMetadataWritebackField.metadataFields)
+        let unsupported = changed.subtracting(writable)
+        var result = MediaServerWritebackResult()
+        if !writable.isEmpty {
+            do {
+                try await connect()
+                let suffix = (original.filePath as NSString).pathExtension
+                let cache = audioCacheDirectory.appendingPathComponent(CacheFileNamePolicy.make(
+                    path: original.filePath, preferredExtension: suffix.isEmpty ? "bin" : suffix))
+                defer { try? FileManager.default.removeItem(at: cache) }
+                result = try await api.updateTrackMetadata(original: original, updated: updated, fields: writable)
+                albumArtistByGUID.removeAll()
+                albumsWithoutArtist.removeAll()
+            } catch {
+                result.errors.append(error.localizedDescription)
+                result.fieldResults = writable.map { TagMetadataFieldWritebackResult(field: $0, disposition: .failed(error.localizedDescription)) }
+            }
+        }
+        let detail = String(localized: "metadata_writeback_error_unsupported")
+        result.fieldResults.append(contentsOf: unsupported.map { TagMetadataFieldWritebackResult(field: $0, disposition: .unsupported(detail)) })
+        if !unsupported.isEmpty || lyricsLines != nil || lyricsContent != nil { result.unsupported.append(detail) }
+        return result
+    }
+
+    func removeLyrics(for song: Song) async -> MediaServerWritebackResult {
+        MediaServerWritebackResult(unsupported: [String(localized: "metadata_writeback_error_unsupported")])
+    }
 }

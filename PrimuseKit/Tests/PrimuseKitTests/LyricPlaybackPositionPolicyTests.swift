@@ -3,6 +3,61 @@ import Testing
 
 @Suite("Lyric playback positioning")
 struct LyricPlaybackPositionPolicyTests {
+    @Test("Companion rows do not deactivate the source word timeline")
+    func deactivationSkipsTheCurrentTimestampGroup() throws {
+        let lyrics = [
+            LyricLine(timestamp: 61.364, text: "Source"),
+            LyricLine(timestamp: 61.364, text: "Reading"),
+            LyricLine(timestamp: 61.365, text: "Translation"),
+            LyricLine(timestamp: 64.166, text: "Next"),
+        ]
+        let end = try #require(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics, afterLine: 0, lookahead: 0.1
+        ))
+        #expect(abs(end - 64.066) < 0.000001)
+        #expect(63.0 < end)
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics, at: 63, lookahead: 0.1
+        ) == 0)
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics, at: end + 0.001, lookahead: 0.1
+        ) == 3)
+    }
+
+    @Test("A final timestamp group has no next-line deactivation")
+    func finalGroupKeepsItsWordTimeline() {
+        let lyrics = [
+            LyricLine(timestamp: 88.507, text: "Source"),
+            LyricLine(timestamp: 88.507, text: "Reading"),
+            LyricLine(timestamp: 88.507, text: "Translation"),
+        ]
+        for index in lyrics.indices {
+            #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+                in: lyrics, afterLine: index, lookahead: 0.1
+            ) == nil)
+        }
+        #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics, afterLine: -1
+        ) == nil)
+        #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: [], afterLine: 0
+        ) == nil)
+    }
+
+    @Test("Ordinary line takeovers retain lookahead and the current start bound")
+    func deactivationPreservesOrdinaryTakeovers() {
+        let lyrics = [
+            LyricLine(timestamp: 1, text: "First"),
+            LyricLine(timestamp: 1.05, text: "Second"),
+        ]
+        #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics, afterLine: 0, lookahead: 0.1
+        ) == 1)
+        #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics, afterLine: 0, lookahead: -1
+        ) == 1.05)
+    }
+
     @Test("Lyrics loaded in the middle of playback select the current row")
     func selectsCurrentRowAfterDelayedLoad() {
         let lyrics = [
@@ -174,6 +229,40 @@ struct LyricPlaybackPositionPolicyTests {
             in: lyrics,
             at: 40
         ) == .line(1))
+    }
+
+    /// refs #152 —— 配对不成立时（多声部，或结构本身就说不清的文件）同一个
+    /// 时间戳上会留着好几行。高亮落在最后一行等于把译文当成正在唱的那一句：
+    /// 原文反而是灰的。唱的是第一行。
+    @Test("同一时间戳的多行高亮落在第一行")
+    func picksTheFirstRowOfATimestampCluster() {
+        let lyrics = [
+            LyricLine(id: "source", timestamp: 12, text: "두고 봐 Babe"),
+            LyricLine(id: "roman", timestamp: 12, text: "du go bwa Babe"),
+            LyricLine(id: "translation", timestamp: 12, text: "走着瞧吧 宝贝"),
+            LyricLine(id: "next", timestamp: 20, text: "Next"),
+        ]
+
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(in: lyrics, at: 15) == 0)
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(in: lyrics, at: 15) == .line(0))
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(in: lyrics, at: 21) == 3)
+    }
+
+    /// 同一时间戳上的兄弟行不是「下一句」：拿它们当下一句，每一段间奏的时长
+    /// 都会算成 0，间奏标记就永远不出现。
+    @Test("间奏判定跳过同一时间戳的兄弟行")
+    func interludeLooksPastSiblingRows() {
+        let lyrics = [
+            LyricLine(id: "source", timestamp: 0, text: "First"),
+            LyricLine(id: "translation", timestamp: 0, text: "第一句"),
+            LyricLine(id: "next", timestamp: 40, text: "Second"),
+        ]
+
+        #expect(LyricPlaybackPositionPolicy.hasLongInterlude(afterLine: 0, in: lyrics))
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 26
+        ) == .interlude(afterLine: 0))
     }
 
     @Test("Now Playing metadata uses the active synchronized lyric")

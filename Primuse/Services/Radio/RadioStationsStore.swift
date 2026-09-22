@@ -16,10 +16,72 @@ struct ServerRadioSyncResult: Sendable {
 @MainActor
 @Observable
 final class RadioStationsStore {
-    private(set) var allStations: [RadioStation]
+    private(set) var allStations: [RadioStation] {
+        didSet { derived = DerivedCache() }
+    }
+
+    /// 由电台清单推出来的几样东西，清单一变整份作废。
+    ///
+    /// 音乐源镜像进来的台一多（群晖 SHOUTcast 目录上千个），每一样都是逐台排序、
+    /// 清洗文件夹名、折叠比较，一次几十毫秒；首页、资料库、CarPlay 一次刷新要读好几遍，
+    /// 电台页每张卡片的菜单还各要读一遍文件夹和标签 —— 不缓存就是卡片数乘以电台数。
+    private struct DerivedCache {
+        var stations: [RadioStation]?
+        var artworkRevision: String?
+        var folders: [RadioStationFolderSummary]?
+        var tags: [RadioStationTagSummary]?
+        var ungroupedCount: Int?
+        var folderGroups: [RadioStationFolderGroup]?
+        var priorityByID: [String: Int]?
+    }
+
+    @ObservationIgnored private var derived = DerivedCache()
 
     var stations: [RadioStation] {
-        RadioStationOrdering.sorted(allStations.filter { !$0.isDeleted })
+        // 先读 allStations，观察者照旧挂在它上面，清单一变就会重新取值。
+        let all = allStations
+        if let cached = derived.stations { return cached }
+        let sorted = RadioStationOrdering.sorted(all.filter { !$0.isDeleted })
+        derived.stations = sorted
+        return sorted
+    }
+
+    /// 台标预览的变化标记：顺序、id、台标与修改时间任何一项变了它就变。
+    /// 只在本次运行内可比，不能写盘。
+    var artworkRevision: String {
+        let visible = stations
+        if let cached = derived.artworkRevision { return cached }
+        var hasher = Hasher()
+        for station in visible {
+            hasher.combine(station.id)
+            hasher.combine(station.logoFileName)
+            hasher.combine(station.logoData?.count)
+            hasher.combine(station.modifiedAt)
+        }
+        let revision = "\(visible.count)-\(hasher.finalize())"
+        derived.artworkRevision = revision
+        return revision
+    }
+
+    /// 全部电台按文件夹分好的段，未分组的在最后。电台页不筛选时按它分段。
+    var folderGroups: [RadioStationFolderGroup] {
+        let visible = stations
+        if let cached = derived.folderGroups { return cached }
+        let groups = RadioStationOrganization.grouped(visible)
+        derived.folderGroups = groups
+        return groups
+    }
+
+    /// 每个电台在全局优先级里的位次，从 1 起。
+    var priorityByID: [String: Int] {
+        let visible = stations
+        if let cached = derived.priorityByID { return cached }
+        let positions = Dictionary(
+            visible.enumerated().map { ($1.id, $0 + 1) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        derived.priorityByID = positions
+        return positions
     }
 
     private let storeURL: URL
@@ -28,7 +90,9 @@ final class RadioStationsStore {
     /// 需要一个地方记住这个名字。它只属于本机，不进 CloudKit 也不进快照 ——
     /// 文件夹一旦装进第一个电台，别的设备自然就看见它了。
     private let folderPlaceholdersURL: URL
-    private var folderPlaceholders: [String] = []
+    private var folderPlaceholders: [String] = [] {
+        didSet { derived.folders = nil }
+    }
     /// 远端写入攒着还没写盘（见 `upsertFromRemote`）。
     @ObservationIgnored private var remotePersistPending = false
     @ObservationIgnored private var remotePersistTask: Task<Void, Never>?
@@ -184,17 +248,30 @@ final class RadioStationsStore {
 
     /// 现有文件夹，含本机记下的空文件夹。
     var folders: [RadioStationFolderSummary] {
-        RadioStationOrganization.folders(in: stations, additionalNames: folderPlaceholders)
+        let visible = stations
+        let placeholders = folderPlaceholders
+        if let cached = derived.folders { return cached }
+        let summaries = RadioStationOrganization.folders(in: visible, additionalNames: placeholders)
+        derived.folders = summaries
+        return summaries
     }
 
     /// 没有归入任何文件夹的电台数量。
     var ungroupedStationCount: Int {
-        RadioStationOrganization.ungroupedCount(in: stations)
+        let visible = stations
+        if let cached = derived.ungroupedCount { return cached }
+        let count = RadioStationOrganization.ungroupedCount(in: visible)
+        derived.ungroupedCount = count
+        return count
     }
 
     /// 现有标签，按名称排序。
     var tags: [RadioStationTagSummary] {
-        RadioStationOrganization.tags(in: stations)
+        let visible = stations
+        if let cached = derived.tags { return cached }
+        let summaries = RadioStationOrganization.tags(in: visible)
+        derived.tags = summaries
+        return summaries
     }
 
     /// 建一个还没有电台的文件夹。它先只活在本机，装进第一个电台后才跟着同步走。
@@ -632,11 +709,20 @@ final class RadioStationsStore {
             },
             failedServerStationIDs: snapshot.failedStationIDs
         )
+        let syncManagedFolderNames = (snapshot.serverFolderNames + snapshot.stations.compactMap(\.serverFolderName))
+            .compactMap { ServerRadioFolderPolicy.folderName(sourceName: source.name, serverFolderName: $0) }
+        // 一个源可能镜像几千个台(Audio Station 的 SHOUTcast 目录):在副本上按 id 索引改完
+        // 再整体写回,不逐台线性查找,也不逐台触发观察通知。
+        var stations = allStations
+        var indexByID: [String: Int] = [:]
+        for (index, station) in stations.enumerated() where indexByID[station.id] == nil {
+            indexByID[station.id] = index
+        }
         var changedIDs: [String] = []
         var seenServerIDs = Set<String>()
-        var nextSortOrder: Int? = allStations.contains(where: {
+        var nextSortOrder: Int? = stations.contains(where: {
             !$0.isDeleted && $0.sortOrder != nil
-        }) ? (allStations.compactMap(\.sortOrder).max() ?? -1) + 1 : nil
+        }) ? (stations.compactMap(\.sortOrder).max() ?? -1) + 1 : nil
 
         for serverStation in snapshot.stations {
             let serverID = serverStation.id.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -661,12 +747,12 @@ final class RadioStationsStore {
                 sourceID: source.id,
                 serverStationID: serverID
             )
-            let index = allStations.firstIndex(where: { $0.id == localID })
-            if let index, !allStations[index].isServerMirror {
+            let index = indexByID[localID]
+            if let index, !stations[index].isServerMirror {
                 continue
             }
 
-            let existing = index.map { allStations[$0] }
+            let existing = index.map { stations[$0] }
             var updated = RadioStation(
                 id: localID,
                 name: name,
@@ -684,9 +770,18 @@ final class RadioStationsStore {
                 sourceName: source.name,
                 sourcePlaybackPath: normalizedPlaybackPath,
                 homepageURL: normalizedHTTPURLString(serverStation.homepageURL),
-                // 文件夹和标签是用户在本地整理出来的，服务器不知道也管不着 ——
-                // 每次对账都得原样带回去，否则一刷新就被清空。
-                folderName: existing?.folderName,
+                // 文件夹和标签是用户在本地整理出来的，每次对账都得原样带回去，
+                // 否则一刷新就被清空。服务端自己分了文件夹的，新镜像放进对应文件夹，
+                // 用户没挪过的跟着服务端换。
+                folderName: ServerRadioFolderPolicy.reconciledFolderName(
+                    current: existing?.folderName,
+                    isNewMirror: existing == nil,
+                    assigned: ServerRadioFolderPolicy.folderName(
+                        sourceName: source.name,
+                        serverFolderName: serverStation.serverFolderName
+                    ),
+                    syncManagedFolderNames: syncManagedFolderNames
+                ),
                 tagNames: existing?.tagNames
             )
             if existing == nil, nextSortOrder != nil {
@@ -698,29 +793,39 @@ final class RadioStationsStore {
             }
             updated.modifiedAt = now
             if let index {
-                allStations[index] = updated
+                stations[index] = updated
             } else {
-                allStations.append(updated)
+                indexByID[localID] = stations.count
+                stations.append(updated)
             }
             changedIDs.append(localID)
             result.synchronizedCount += 1
         }
 
         let prefix = ServerRadioStationIdentity.stationIDPrefix(sourceID: source.id)
-        for index in allStations.indices where
-            allStations[index].id.hasPrefix(prefix)
-                && !allStations[index].isDeleted
-                && !keepIDs.contains(allStations[index].id) {
-            allStations[index].isDeleted = true
-            allStations[index].deletedAt = now
-            allStations[index].modifiedAt = now
-            changedIDs.append(allStations[index].id)
+        for index in stations.indices where
+            stations[index].id.hasPrefix(prefix)
+                && !stations[index].isDeleted
+                && !keepIDs.contains(stations[index].id) {
+            stations[index].isDeleted = true
+            stations[index].deletedAt = now
+            stations[index].modifiedAt = now
+            changedIDs.append(stations[index].id)
             result.removedCount += 1
         }
 
-        guard !changedIDs.isEmpty else { return result }
+        // 过了保留期的镜像墓碑直接丢掉。CloudKit 记录在变成墓碑时已经删了,这里只动本地。
+        let countBeforePurge = stations.count
+        stations.removeAll {
+            $0.id.hasPrefix(prefix) && $0.isDeleted
+                && ServerRadioReconciliationPolicy.shouldPurgeMirrorTombstone(deletedAt: $0.deletedAt, now: now)
+        }
+        let purgedTombstones = stations.count != countBeforePurge
+
+        guard !changedIDs.isEmpty || purgedTombstones else { return result }
+        allStations = stations
         persist()
-        notifyChanged(ids: changedIDs)
+        if !changedIDs.isEmpty { notifyChanged(ids: changedIDs) }
         return result
     }
 

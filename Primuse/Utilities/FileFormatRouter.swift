@@ -27,16 +27,12 @@ enum FileFormatRouter {
     }
 
     static func decoder(for format: AudioFormat) -> PrimuseAudioDecoder {
-        switch format {
         // Raw ADTS AAC can report a short, incorrect frame count through SFB
         // and may then fail before the first PCM buffer. FFmpeg parses its
         // complete packet timeline and keeps both playback and persisted
         // duration authoritative. M4A/MP4 AAC remains on the native path.
-        case .aac, .dts, .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .wma, .qoa, .tta:
-            return ffmpegDecoder
-        default:
-            return nativeDecoder
-        }
+        // The list is shared with the tvOS player.
+        format.prefersFFmpegDecoder ? ffmpegDecoder : nativeDecoder
     }
 
     /// Formats that cannot use the generic SFB `InputSource` range path.

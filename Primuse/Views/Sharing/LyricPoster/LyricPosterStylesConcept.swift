@@ -75,7 +75,6 @@ struct RetroLetterPosterStyle: LyricPosterStyleRendering {
                 postmark(context: context, metrics: metrics)
 
                 LyricPosterGrainOverlay(context: context, opacity: 0.16)
-                LyricPosterMotionDecorations(context: context, tint: stampRed.opacity(0.7))
             }
             .frame(width: context.size.width, height: context.size.height)
         )
@@ -365,7 +364,6 @@ struct SpotlightPosterStyle: LyricPosterStyleRendering {
                 .padding(.horizontal, margin)
                 .padding(.vertical, context.scaled(96))
 
-                LyricPosterMotionDecorations(context: context, tint: accent)
             }
             .frame(width: context.size.width, height: context.size.height)
         )
@@ -501,7 +499,6 @@ struct MotionCardPosterStyle: LyricPosterStyleRendering {
                 }
                 .padding(.vertical, context.scaled(80))
 
-                LyricPosterMotionDecorations(context: context, tint: .white)
             }
             .frame(width: context.size.width, height: context.size.height)
         )

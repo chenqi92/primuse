@@ -37,7 +37,15 @@ enum ServerPlaylistSyncService {
         // nil = 该源类型没有歌单能力, 不要动本地任何东西。
         guard let snapshot, applyFence() else { return result }
 
-        return ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
+        result = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
+        // 服务端一个歌单都没返回时下面一条日志都不会有, 与"请求失败"和"歌单里的
+        // 歌在本地一首都对不上"分不开。这一行把三种结果区分开。
+        plog("""
+            🎵 Server playlists '\(source.name)': listed \(snapshot.playlists.count), \
+            mirrored \(result.syncedPlaylistCount), unresolved \(result.unresolvedPlaylistCount), \
+            detail failed \(snapshot.failedPlaylistIDs.count)
+            """)
+        return result
     }
 }
 
@@ -530,5 +538,116 @@ final class ServerFavoriteSyncService {
             format: String(localized: "server_favorite_update_failed_message"),
             error.localizedDescription
         ))
+    }
+}
+
+/// 把服务端镜像(歌单 /「喜欢」/ 电台)的刷新从曲库扫描里拆出来。
+///
+/// 这三样原本只在 `ScanService` 的扫描收尾里跑。媒体服务器这类源又没有任何自动
+/// 重扫 —— 目录探针只认 Subsonic 系(`ServerCatalogAutoRefreshPolicy`), 周期
+/// 同步只认三家网盘(`SourcePeriodicSyncPolicy`), 启动只续接断了的扫描 —— 于是
+/// 用户在 Emby 上新建的歌单要等他自己想起来去「音乐源」里手动扫一次才会出现;
+/// Subsonic 系则要等到曲库真的多了歌、探针判定需要重扫才捎带上(#142)。
+///
+/// 曲库没变也该能看到服务器上新建的歌单, 所以这里按源单独刷一次: 冷启动一次,
+/// 回到前台且过了冷却再一次。只发歌单 / 收藏 / 电台这几个小请求, 不遍历曲库,
+/// 也不改任何扫描状态。
+@MainActor
+final class ServerMirrorRefreshCoordinator {
+    /// 一次刷新要按歌单逐个拉明细, 比目录探针的一个请求贵, 冷却也给得更长。
+    static let cooldown: TimeInterval = 30 * 60
+    /// 与目录探针一样避开首屏: 启动这几秒的网络留给正在播的那首歌。
+    private static let launchDelay: Duration = .seconds(6)
+
+    private let sourcesStore: SourcesStore
+    private let sourceManager: SourceManager
+    private let library: MusicLibrary
+    private let scanService: ScanService
+    private let refreshMirrors: (MusicSource, ServerMirrorApplyFence) async -> Void
+
+    /// 发起时间, 不是成功时间: 连不上的服务器也要按冷却退避, 否则每次切回前台
+    /// 都要在超时上等一轮。
+    private var lastRefreshStartedAt: [String: Date] = [:]
+    private var runningTask: Task<Void, Never>?
+    private var didScheduleColdLaunch = false
+
+    init(
+        sourcesStore: SourcesStore,
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        scanService: ScanService,
+        refreshMirrors: @escaping (MusicSource, ServerMirrorApplyFence) async -> Void
+    ) {
+        self.sourcesStore = sourcesStore
+        self.sourceManager = sourceManager
+        self.library = library
+        self.scanService = scanService
+        self.refreshMirrors = refreshMirrors
+    }
+
+    func startColdLaunchRefresh() {
+        guard !didScheduleColdLaunch else { return }
+        didScheduleColdLaunch = true
+        start(after: Self.launchDelay)
+    }
+
+    func applicationDidBecomeActive() {
+        // 冷启动那一轮还没排上就别插队, 它自己会跑。
+        guard didScheduleColdLaunch else { return }
+        start(after: .zero)
+    }
+
+    private func start(after delay: Duration) {
+        guard runningTask == nil else { return }
+        runningTask = Task { @MainActor [weak self] in
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+            }
+            guard let self else { return }
+            // 清干净再返回: 漏掉一次就再也没有下一轮了。
+            defer { self.runningTask = nil }
+            guard !Task.isCancelled else { return }
+            // 库还在准备时 `library.songs` 是空的, 服务端歌单会被整份判成
+            // "一首都对不上"而不建 —— 等发布完再对。
+            await self.library.whenReady()
+            await self.refreshDueSources()
+        }
+    }
+
+    private func refreshDueSources() async {
+        for source in sourcesStore.sources {
+            guard !Task.isCancelled else { return }
+            let now = Date()
+            guard isDue(source, now: now) else { continue }
+            lastRefreshStartedAt[source.id] = now
+
+            // 刷新期间源被停用 / 删除 / 改了凭据, 或者扫描接手了这个源, 拿回来的
+            // 快照就不该再落地 —— 与扫描收尾用的是同一道闸。
+            let scopeFingerprint = MusicSourceSecurityRevision.scopedFingerprint(for: source)
+            let sourceID = source.id
+            let applyFence: ServerMirrorApplyFence = { [weak self] in
+                guard let self,
+                      let current = self.sourcesStore.source(id: sourceID),
+                      current.isEnabled,
+                      !current.isDeleted,
+                      MusicSourceSecurityRevision.scopedFingerprint(for: current) == scopeFingerprint,
+                      self.scanService.scanStates[sourceID]?.isScanning != true else { return false }
+                return true
+            }
+            guard applyFence() else { continue }
+            await refreshMirrors(source, applyFence)
+        }
+    }
+
+    private func isDue(_ source: MusicSource, now: Date) -> Bool {
+        guard source.type.isServerLibrary, source.isEnabled, !source.isDeleted else { return false }
+        // 还没扫过的源本地没有歌可对, 歌单只会被判成"对不上"而不建。等它先扫一次。
+        guard source.lastScannedAt != nil || source.songCount > 0 else { return false }
+        // 扫描收尾会做同一件事, 别和它抢。
+        guard scanService.scanStates[source.id]?.isScanning != true else { return false }
+        // 当前网络路径下这个源的每个地址都探测失败过, 现在去连只会白等一轮超时。
+        guard !sourceManager.unreachablePlaybackSourceIDs.contains(source.id) else { return false }
+        guard let last = lastRefreshStartedAt[source.id] else { return true }
+        return now.timeIntervalSince(last) >= Self.cooldown
     }
 }

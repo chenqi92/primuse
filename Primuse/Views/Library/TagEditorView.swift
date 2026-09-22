@@ -45,6 +45,7 @@ struct TagEditorView: View {
     @State private var lyricsCacheSnapshot: LyricsDocumentFingerprint?
     @State private var lyricsLoading = true
     @State private var lyricsWritebackMode: LyricsWriteback.Mode = .checking
+    @State private var lyricsEmbeddingMode: LyricsEmbeddingMode = .off
     @State private var tagMetadataPersistenceMode: TagMetadataPersistenceMode?
     @State private var lyricsErrorMessage: String?
     @State private var writebackErrorMessage: String?
@@ -1177,14 +1178,28 @@ struct TagEditorView: View {
             Label(String(localized: "tag_editor_lyrics_writeback_checking"), systemImage: "hourglass")
                 .foregroundStyle(.secondary)
         case .sidecar(let target):
-            let template = target.replacesExistingFile
-                ? String(localized: "tag_editor_lyrics_writeback_sidecar_replace")
-                : String(localized: "tag_editor_lyrics_writeback_sidecar_new")
-            Label(
-                String(format: template, target.fileName),
-                systemImage: "externaldrive.badge.checkmark"
-            )
-                .foregroundStyle(.secondary)
+            if EmbeddedLyricsCopyPolicy.skipsLyricsFile(
+                lyricsEmbeddingMode,
+                lyricsDocumentExists: target.hasLyricsDocument
+            ) {
+                Label(
+                    String(localized: "tag_editor_lyrics_writeback_embedded"),
+                    systemImage: "externaldrive.badge.checkmark"
+                )
+                    .foregroundStyle(.secondary)
+            } else {
+                let template = target.replacesExistingFile
+                    ? String(localized: "tag_editor_lyrics_writeback_sidecar_replace")
+                    : String(localized: "tag_editor_lyrics_writeback_sidecar_new")
+                let fileLine = String(format: template, target.fileName)
+                Label(
+                    lyricsEmbeddingMode == .off
+                        ? fileLine
+                        : fileLine + "\n" + String(localized: "tag_editor_lyrics_writeback_also_embedded"),
+                    systemImage: "externaldrive.badge.checkmark"
+                )
+                    .foregroundStyle(.secondary)
+            }
         case .mediaServer:
             Label(String(localized: "tag_editor_lyrics_writeback_server"), systemImage: "server.rack")
                 .foregroundStyle(.secondary)
@@ -1512,7 +1527,10 @@ struct TagEditorView: View {
         let lyricsChanged = hasLyricsChanges
         var needsLibraryReplace = true
         if lyricsChanged {
-            let mode = await resolveLyricsWritebackMode()
+            // Lyrics persistence merges into the latest library row. Publish
+            // verified tags first so that merge retains this editor's changes.
+            if sourceMutationOccurred { library.replaceSong(updated) }
+            let mode = await resolveLyricsWritebackMode(for: updated)
             let outcome = await LyricsWriteback.save(
                 text: lyricsText,
                 for: updated,
@@ -1529,6 +1547,12 @@ struct TagEditorView: View {
                 // Keep the library aligned with that verified source state even
                 // if the independent lyrics sidecar operation failed afterward.
                 if sourceMutationOccurred {
+                    if let latest = library.song(id: updated.id) {
+                        updated.filePath = latest.filePath
+                        updated.fileSize = latest.fileSize
+                        updated.lastModified = latest.lastModified
+                        updated.revision = latest.revision
+                    }
                     library.replaceSong(updated)
                     invalidateSelectedCoverIfNeeded()
                 }
@@ -1540,6 +1564,15 @@ struct TagEditorView: View {
             if outcome.persistence == .localOnly {
                 let lyricsNotice = String(localized: "tag_editor_lyrics_writeback_read_only")
                 metadataWritebackNotice = [metadataWritebackNotice, lyricsNotice]
+                    .compactMap { $0 }
+                    .joined(separator: "\n")
+            }
+            if let embeddedCopyError = outcome.embeddedCopyError {
+                let embedNotice = String(
+                    format: String(localized: "lyrics_embed_copy_failed_format"),
+                    embeddedCopyError
+                )
+                metadataWritebackNotice = [metadataWritebackNotice, embedNotice]
                     .compactMap { $0 }
                     .joined(separator: "\n")
             }
@@ -1575,17 +1608,28 @@ struct TagEditorView: View {
         let requestedSong = song
         let requestedSongID = requestedSong.id
         lyricsLoading = true
+        lyricsWritebackMode = .checking
+        // 读歌词和探测写回目标互不依赖，各自还都要列一次歌曲所在目录；
+        // 排成一条线走等于让用户多等一整轮网络往返。
+        let probe = Task { @MainActor in
+            await LyricsWriteback.resolveMode(
+                for: requestedSong,
+                sourceManager: sourceManager,
+                sourcesStore: sourcesStore
+            )
+        }
         let payload = await LyricsWriteback.loadEditablePayload(
             for: requestedSong,
             sourceManager: sourceManager
         )
+        guard !Task.isCancelled, song.id == requestedSongID else {
+            probe.cancel()
+            return
+        }
+        let mode = await probe.value.protectingSourceConflict(payload.hasSourceConflict)
+        let embeddingMode = await sourceManager.lyricsEmbeddingMode(for: requestedSong)
         guard !Task.isCancelled, song.id == requestedSongID else { return }
-        let mode = await LyricsWriteback.resolveMode(
-            for: requestedSong,
-            sourceManager: sourceManager,
-            sourcesStore: sourcesStore
-        ).protectingSourceConflict(payload.hasSourceConflict)
-        guard !Task.isCancelled, song.id == requestedSongID else { return }
+        lyricsEmbeddingMode = embeddingMode
         lyricsHaveSourceConflict = payload.hasSourceConflict
         lyricsSourceSnapshot = payload.sourceSnapshot
         lyricsCacheSnapshot = payload.cacheSnapshot
@@ -1598,12 +1642,13 @@ struct TagEditorView: View {
     }
 
     @MainActor
-    private func resolveLyricsWritebackMode() async -> LyricsWriteback.Mode {
+    private func resolveLyricsWritebackMode(for target: Song) async -> LyricsWriteback.Mode {
         let mode = await LyricsWriteback.resolveMode(
-            for: song,
+            for: target,
             sourceManager: sourceManager,
             sourcesStore: sourcesStore
         ).protectingSourceConflict(lyricsHaveSourceConflict)
+        lyricsEmbeddingMode = await sourceManager.lyricsEmbeddingMode(for: target)
         lyricsWritebackMode = mode
         return mode
     }

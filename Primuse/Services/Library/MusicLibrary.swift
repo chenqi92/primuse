@@ -174,11 +174,13 @@ private final class DisplacedLibraryLookups: Sendable {
     }
 }
 
-enum LibrarySearchMatchKind: Sendable {
+enum LibrarySearchMatchKind: CaseIterable, Sendable {
     case metadata
     case path
     case lyrics
     case fuzzy
+
+    static let all = Set(allCases)
 }
 
 struct LibrarySearchResult: Identifiable, Sendable {
@@ -384,6 +386,7 @@ enum LibrarySearchWorker {
         cache: LibrarySearchCache,
         includeMetadata: Bool = true,
         includeLyrics: Bool = true,
+        matchKinds: Set<LibrarySearchMatchKind> = LibrarySearchMatchKind.all,
         songLimit: Int = 120,
         albumLimit: Int = 10
     ) -> LibrarySearchOutput {
@@ -393,7 +396,9 @@ enum LibrarySearchWorker {
         }
 
         var cache = cache
-        let shouldSearchLyrics = includeLyrics && matcher.normalizedLength >= minimumLyricsQueryLength
+        let shouldSearchLyrics = includeLyrics
+            && matchKinds.contains(.lyrics)
+            && matcher.normalizedLength >= minimumLyricsQueryLength
 
         var rankedSongs: [LibrarySearchResult] = []
         rankedSongs.reserveCapacity(min(songs.count, songLimit * 2))
@@ -411,10 +416,13 @@ enum LibrarySearchWorker {
             ) {
                 guard let candidate,
                       let match = matcher.score(candidate: candidate) else { return }
+                // 用户关掉的那类命中不占这首歌, 让它还能落进开着的那类。
+                let kind = matchKindOverride ?? match.kind
+                guard matchKinds.contains(kind) else { return }
                 let score = match.score + boost
                 if score > bestScore {
                     bestScore = score
-                    bestKind = matchKindOverride ?? match.kind
+                    bestKind = kind
                 }
             }
 
@@ -1042,6 +1050,7 @@ actor LibrarySearchIndex {
         songs: [Song],
         albums: [Album],
         metadataRevisionKey: String,
+        matchKinds: Set<LibrarySearchMatchKind> = LibrarySearchMatchKind.all,
         songLimit: Int = 120,
         albumLimit: Int = 10
     ) async -> LibraryIndexedSearchOutput? {
@@ -1118,7 +1127,8 @@ actor LibrarySearchIndex {
                 }
             }
 
-            if trimmed.count >= 3 {
+            let searchesPaths = matchKinds.contains(.path)
+            if searchesPaths, trimmed.count >= 3 {
                 let ids = try Self.matchingSongIDs(
                     pool: pool,
                     ftsTable: "metadataPathFts",
@@ -1127,7 +1137,7 @@ actor LibrarySearchIndex {
                     limit: songLimit * 2
                 )
                 Self.appendUnique(ids, to: &pathIDs, seen: &seenPaths)
-            } else {
+            } else if searchesPaths {
                 let ids = songs.lazy
                     .filter { Self.pathContainsLiteral($0, query: trimmed) }
                     .prefix(songLimit * 2)
@@ -1137,7 +1147,7 @@ actor LibrarySearchIndex {
 
             var lyricHits: [LyricsHit] = []
             var seenLyrics = Set<String>()
-            if trimmed.count >= Self.lyricQueryMinimumLength {
+            if matchKinds.contains(.lyrics), trimmed.count >= Self.lyricQueryMinimumLength {
                 let originalIDs = try Self.matchingLyricsIDs(
                     pool: pool,
                     ftsTable: "lyricsOriginalFts",
@@ -1199,9 +1209,12 @@ actor LibrarySearchIndex {
             for (offset, id) in metadataIDs.enumerated() {
                 guard let song = songByID[id] else { continue }
                 let literal = Self.metadataContainsLiteral(song, query: trimmed)
+                let kind: LibrarySearchMatchKind = literal ? .metadata : .fuzzy
+                // 用户关掉的那类命中不占这首歌, 让它还能落进路径或歌词命中。
+                guard matchKinds.contains(kind) else { continue }
                 ranked.append(LibrarySearchResult(
                     song: song,
-                    matchKind: literal ? .metadata : .fuzzy,
+                    matchKind: kind,
                     score: max(100, 220 - offset),
                     lyricSnippet: nil,
                     lyricTimestamp: nil
@@ -3154,6 +3167,30 @@ final class MusicLibrary {
             LibraryArrayReclaimer.release(previous)
         }
     }
+    private var musicSongsReference = LibraryArrayReference<Song>()
+    /// `visibleSongs` minus the spoken-word items. The songs list, and every
+    /// music surface built from it, reads this so an audiobook or a long
+    /// 相声 series cannot bury the library. It is the same array as
+    /// `visibleSongs` when nothing is classified as spoken word.
+    private(set) var musicSongs: [Song] {
+        get { musicSongsReference.value }
+        set {
+            let previous = musicSongsReference
+            musicSongsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
+    }
+    private var spokenWordSongsReference = LibraryArrayReference<Song>()
+    /// The spoken-word items, in the same order they hold in `visibleSongs`.
+    private(set) var spokenWordSongs: [Song] {
+        get { spokenWordSongsReference.value }
+        set {
+            let previous = spokenWordSongsReference
+            spokenWordSongsReference = LibraryArrayReference(newValue)
+            LibraryArrayReclaimer.release(previous)
+        }
+    }
+    @ObservationIgnored private(set) var spokenWordSongIDs: Set<String> = []
     private var visibleAlbumsReference = LibraryArrayReference<Album>()
     private(set) var visibleAlbums: [Album] {
         get { visibleAlbumsReference.value }
@@ -3198,6 +3235,11 @@ final class MusicLibrary {
     /// Keep the source grouping beside the other visible caches so those
     /// renders don't filter a 10K+ song array once per card per frame.
     @ObservationIgnored private var visiblePlayableSongsBySourceID: [String: [Song]] = [:]
+    /// 哪些源此刻至少有一首能播的歌。来源页只要这个判定, 可上面那份缓存不被
+    /// 观察, 卡片原本只能顺手读一下整库引用才收得到更新 —— 于是扫描每 flush
+    /// 一次, 整张来源列表连同长按菜单、滑动操作全部重建。这份集合只在结果真的
+    /// 变了才写, 一轮扫描里通常只翻一次。
+    private(set) var sourceIDsWithPlayableSongs: Set<String> = []
     /// Sidebar counters need all visible songs, not just playable ones. Keeping
     /// counts here avoids one full-library filter per source on every sidebar
     /// body evaluation.
@@ -3234,6 +3276,12 @@ final class MusicLibrary {
 
     fileprivate struct PreparedVisibleCache: Sendable {
         let songs: [Song]
+        /// `songs` without the spoken-word items, which is what the music
+        /// surfaces (songs list, albums, artists, genres) are built from. It
+        /// is the same array instance when the library holds no spoken word.
+        let musicSongs: [Song]
+        let spokenWordSongs: [Song]
+        let spokenWordSongIDs: Set<String>
         let albums: [Album]
         let artists: [Artist]
         let genres: [LibraryGenre]
@@ -3534,6 +3582,14 @@ final class MusicLibrary {
         spotlightIndexRevision &+= 1
     }
 
+    /// Re-splits music from spoken word. Called when the listener corrects an
+    /// item's kind, and once after launch so the startup snapshot — which is
+    /// built before the corrections are loaded — picks them up.
+    func refreshContentClassification() {
+        guard !isPreparing else { return }
+        rebuildVisibleCache()
+    }
+
     func updateAppleMusicLibrarySyncEnabled(_ enabled: Bool) {
         guard appleMusicLibrarySyncEnabled != enabled else { return }
         appleMusicLibrarySyncEnabled = enabled
@@ -3563,6 +3619,7 @@ final class MusicLibrary {
             artists: artists,
             artistNameConfiguration: artistNameConfiguration,
             disabledSourceIDs: disabledSourceIDs,
+            spokenWordOverrides: SpokenWordStore.shared.overrideSnapshot,
             previousVisibleSongs: visibleSongs
         )
         applyPreparedVisibleCache(prepared)
@@ -3614,6 +3671,9 @@ final class MusicLibrary {
                     ]
                 )
         visibleSongs = prepared.songs
+        musicSongs = prepared.musicSongs
+        spokenWordSongs = prepared.spokenWordSongs
+        spokenWordSongIDs = prepared.spokenWordSongIDs
         visibleAlbums = prepared.albums
         visibleArtists = prepared.artists
         visibleGenres = prepared.genres
@@ -3630,6 +3690,7 @@ final class MusicLibrary {
             state.publish(prepared.songsBySourceID[sourceID] ?? [], replacedIDs: nil)
         }
         visiblePlayableSongsBySourceID = prepared.playableBySourceID
+        refreshSourceIDsWithPlayableSongs()
         visibleSongCountBySourceID = prepared.countBySourceID
         songCountBySourceID = prepared.allCountBySourceID
         preferredArtworkSongIDByAlbumID = prepared.preferredArtworkSongIDByAlbumID
@@ -3669,6 +3730,7 @@ final class MusicLibrary {
         artists: [Artist],
         artistNameConfiguration: ArtistNameConfiguration,
         disabledSourceIDs: Set<String>,
+        spokenWordOverrides: [String: ListeningContentKind] = [:],
         previousVisibleSongs: [Song]
     ) -> PreparedVisibleCache {
         let nextVisibleSongs = disabledSourceIDs.isEmpty
@@ -3676,17 +3738,30 @@ final class MusicLibrary {
             : songs.filter { !disabledSourceIDs.contains($0.sourceID) }
         let lookups = makeVisibleLookups(
             songs: nextVisibleSongs,
-            artistNameConfiguration: artistNameConfiguration
+            artistNameConfiguration: artistNameConfiguration,
+            spokenWordOverrides: spokenWordOverrides
         )
+        // An audiobook or a 200-episode 评书 series would otherwise flood the
+        // album and artist grids it has nothing to do with. `visibleSongs`
+        // stays the whole library — search, playback, statistics and the
+        // per-source counts all depend on it — and only the music surfaces
+        // read the split-out array.
+        let spokenWordSongIDs = lookups.spokenWordSongIDs
+        let musicSongs = spokenWordSongIDs.isEmpty
+            ? nextVisibleSongs
+            : nextVisibleSongs.filter { !spokenWordSongIDs.contains($0.id) }
+        let spokenWordSongs = spokenWordSongIDs.isEmpty
+            ? []
+            : nextVisibleSongs.filter { spokenWordSongIDs.contains($0.id) }
         let nextVisibleAlbums: [Album]
         let candidateVisibleArtists: [Artist]
-        if disabledSourceIDs.isEmpty {
+        if disabledSourceIDs.isEmpty, spokenWordSongIDs.isEmpty {
             nextVisibleAlbums = albums
             candidateVisibleArtists = artists
         } else {
-            let visibleAlbumIDs = Set(nextVisibleSongs.compactMap(\.albumID))
+            let visibleAlbumIDs = Set(musicSongs.compactMap(\.albumID))
             nextVisibleAlbums = albums.filter { visibleAlbumIDs.contains($0.id) }
-            candidateVisibleArtists = artists.filter { lookups.songIDsByArtistID[$0.id] != nil }
+            candidateVisibleArtists = artists.filter { lookups.musicArtistIDs.contains($0.id) }
         }
         // Older derived-index caches may contain two display-name variants
         // that resolve to the same stable artist ID. Keep launch resilient
@@ -3700,9 +3775,12 @@ final class MusicLibrary {
         let allCounts = disabledSourceIDs.isEmpty
             ? lookups.countBySourceID
             : makeSongCountsBySourceID(songs)
-        let genreIndex = LibraryGenreIndexBuilder.build(from: nextVisibleSongs)
+        let genreIndex = LibraryGenreIndexBuilder.build(from: musicSongs)
         return PreparedVisibleCache(
             songs: nextVisibleSongs,
+            musicSongs: musicSongs,
+            spokenWordSongs: spokenWordSongs,
+            spokenWordSongIDs: spokenWordSongIDs,
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,
             genres: genreIndex.genres,
@@ -3738,7 +3816,8 @@ final class MusicLibrary {
 
     private nonisolated static func makeVisibleLookups(
         songs: [Song],
-        artistNameConfiguration: ArtistNameConfiguration
+        artistNameConfiguration: ArtistNameConfiguration,
+        spokenWordOverrides: [String: ListeningContentKind]
     ) -> (
         indexByID: [String: Int],
         songByID: [String: Song],
@@ -3746,7 +3825,9 @@ final class MusicLibrary {
         songsBySourceID: [String: [Song]],
         playableBySourceID: [String: [Song]],
         countBySourceID: [String: Int],
-        preferredArtworkSongIDByArtistID: [String: String]
+        preferredArtworkSongIDByArtistID: [String: String],
+        spokenWordSongIDs: Set<String>,
+        musicArtistIDs: Set<String>
     ) {
         var indexByID: [String: Int] = [:]
         var songByID: [String: Song] = [:]
@@ -3755,13 +3836,25 @@ final class MusicLibrary {
         var playableBySourceID: [String: [Song]] = [:]
         var countBySourceID: [String: Int] = [:]
         var preferredArtworkSongsByArtistID: [String: Song] = [:]
+        // Classifying inside this existing pass keeps the whole-library cost
+        // to one extension check plus one genre check per song; a separate
+        // filter over the library would walk every row a second time.
+        var spokenWordSongIDs: Set<String> = []
+        var musicArtistIDs: Set<String> = []
         for (index, song) in songs.enumerated() {
             indexByID[song.id] = index
             if songByID[song.id] == nil { songByID[song.id] = song }
+            let isSpokenWord = SpokenWordContentPolicy.classify(
+                filePath: song.filePath,
+                genre: song.genre,
+                userOverride: spokenWordOverrides[song.id]
+            ) == .spokenWord
+            if isSpokenWord { spokenWordSongIDs.insert(song.id) }
             let artistIDs = resolvedArtistIDs(
                 for: song,
                 configuration: artistNameConfiguration
             )
+            if !isSpokenWord { musicArtistIDs.formUnion(artistIDs) }
             for artistID in artistIDs {
                 songIDsByArtistID[artistID, default: []].append(song.id)
                 if let current = preferredArtworkSongsByArtistID[artistID] {
@@ -3785,7 +3878,9 @@ final class MusicLibrary {
             songsBySourceID,
             playableBySourceID,
             countBySourceID,
-            preferredArtworkSongsByArtistID.mapValues(\.id)
+            preferredArtworkSongsByArtistID.mapValues(\.id),
+            spokenWordSongIDs,
+            musicArtistIDs
         )
     }
 
@@ -5044,6 +5139,7 @@ final class MusicLibrary {
             } else {
                 visiblePlayableSongsBySourceID[sourceID] = retainedPlayable
             }
+            refreshSourceIDsWithPlayableSongs()
             // `replacedIDs: nil` = 成员发生变化, 与整组重建的发布形状一致。
             sourceSongListStates[sourceID]?.publish(retained, replacedIDs: nil)
         }
@@ -5694,6 +5790,14 @@ final class MusicLibrary {
         return visiblePlayableSongsBySourceID[sourceID] ?? []
     }
 
+    /// 空的源在那份缓存里是"没有这个键", 所以键集合就是答案。写之前先比,
+    /// 内容一样就不惊动观察者。
+    private func refreshSourceIDsWithPlayableSongs() {
+        let next = Set(visiblePlayableSongsBySourceID.keys)
+        guard next != sourceIDsWithPlayableSongs else { return }
+        sourceIDsWithPlayableSongs = next
+    }
+
     /// Cached source slice for song-list routes. Avoids re-filtering the full
     /// visible library every time a macOS source detail view is invalidated.
     func visibleSongs(forSourceID sourceID: String) -> [Song] {
@@ -5716,6 +5820,7 @@ final class MusicLibrary {
     ) {
         visibleSongsBySourceID[sourceID] = songs
         visiblePlayableSongsBySourceID[sourceID] = playableSongs
+        refreshSourceIDsWithPlayableSongs()
         sourceSongListStates[sourceID]?.publish(songs, replacedIDs: replacedIDs, invalidatesSort: invalidatesSort)
     }
 
@@ -6457,7 +6562,9 @@ final class MusicLibrary {
             recentPlaybackSongIDs.removeLast(recentPlaybackSongIDs.count - 100)
         }
 
-        persistSnapshot()
+        // 每首歌都整库落盘会把几十 MB 的快照一天重写上百次; 最近播放不值这个价,
+        // 走低优先级间隔, 由其它写入、进后台或导出顺带落盘。
+        persistSnapshot(after: Self.lowPriorityPortableSnapshotDelay)
         NotificationCenter.default.post(name: .primusePlaybackHistoryDidChange, object: nil)
     }
 
@@ -6878,8 +6985,9 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.permanentlyDeletePlaylists(ids: ids)
         }) { return }
+        // 已经清除过的墓碑不再重清: 重清会推进版本、整库落盘并同步给所有设备。
         let targetIDs = Set(allPlaylists.lazy.filter {
-            ids.contains($0.id) && $0.isDeleted
+            ids.contains($0.id) && $0.isDeleted && !$0.isPurged
         }.map(\.id))
         guard !targetIDs.isEmpty else { return }
 
@@ -6908,7 +7016,11 @@ final class MusicLibrary {
         if deferringUntilReady({ [weak self] in
             self?.prunePlaylists(deletedBefore: threshold)
         }) { return }
-        let toPrune = allPlaylists.filter { $0.isDeleted && ($0.deletedAt ?? .distantFuture) < threshold }
+        // 清除后墓碑会留下(`isPurged`), 它的 deletedAt 永远早于阈值; 不排除它们,
+        // 每次启动都会把同一批墓碑重清一遍、整库落盘再推给所有设备。
+        let toPrune = allPlaylists.filter {
+            $0.isDeleted && !$0.isPurged && ($0.deletedAt ?? .distantFuture) < threshold
+        }
         guard !toPrune.isEmpty else { return }
         for playlist in toPrune {
             permanentlyDeletePlaylist(id: playlist.id)
@@ -7203,6 +7315,18 @@ final class MusicLibrary {
             id: Self.likedSongsPlaylistID,
             name: String(localized: "playlist_liked_name")
         )
+    }
+
+    /// Likes many songs with a single publication of the liked list, for a
+    /// liked list brought over from another device. Every newly liked song
+    /// still reaches its server the way a tap on the heart does; without that
+    /// the next server sync would take the imported likes away again.
+    func likeSongs(_ songIDs: [String]) {
+        // S2: 「我喜欢」歌单与歌曲行都要等发布之后才在库里。
+        if deferringUntilReady({ [weak self] in self?.likeSongs(songIDs) }) { return }
+        guard !songIDs.isEmpty else { return }
+        ensureLikedPlaylist()
+        add(songIDs: songIDs, toPlaylist: Self.likedSongsPlaylistID)
     }
 
     func toggleLiked(songID: String) {
@@ -7632,11 +7756,16 @@ final class MusicLibrary {
                 additionalIdentities: additionalIdentities
             )
         }) { return }
+        let previousSongIDs = recentPlaybackSongIDs
+        let previousPending = pendingHistoryIdentities
         let (resolved, unresolved) = resolveIdentitiesPartitioned(additionalIdentities)
         var seen = Set<String>()
         let merged = (baseSongIDs + resolved).filter { seen.insert($0).inserted }
         recentPlaybackSongIDs = Array(merged.prefix(100))
         updatePendingHistoryIdentities(with: unresolved)
+        // 合并结果与本机相同(全量重拉时的常态)就不必整库落盘。
+        guard recentPlaybackSongIDs != previousSongIDs
+            || pendingHistoryIdentities != previousPending else { return }
         persistSnapshot()
     }
 
@@ -8641,6 +8770,7 @@ final class MusicLibrary {
         let songs: [Song]
         let artistNameConfiguration: ArtistNameConfiguration
         let disabledSourceIDs: Set<String>
+        let spokenWordOverrides: [String: ListeningContentKind]
         let previousVisibleSongs: [Song]
     }
 
@@ -8765,6 +8895,7 @@ final class MusicLibrary {
             songs: songs,
             artistNameConfiguration: artistNameConfiguration,
             disabledSourceIDs: disabledSourceIDs,
+            spokenWordOverrides: SpokenWordStore.shared.overrideSnapshot,
             previousVisibleSongs: visibleSongs
         )
 
@@ -8814,6 +8945,7 @@ final class MusicLibrary {
                         artists: result.artists,
                         artistNameConfiguration: request.artistNameConfiguration,
                         disabledSourceIDs: request.disabledSourceIDs,
+                        spokenWordOverrides: request.spokenWordOverrides,
                         previousVisibleSongs: request.previousVisibleSongs
                     )
                     if !Task.isCancelled {
@@ -9054,6 +9186,10 @@ final class MusicLibrary {
         let songStore: IncrementalSongStore?
         var sourceIdentityPrefixes: [String: String] = [:]
         var previousVisibleSongs: [Song] = []
+        /// Empty during the startup snapshot: the corrections live in a
+        /// main-actor store that is not up yet. Inference still classifies
+        /// every row, and the first main-actor rebuild applies them.
+        var spokenWordOverrides: [String: ListeningContentKind] = [:]
         let songStoreSnapshotWriter: @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64
         var songs: [Song] = []
         var albums: [Album] = []
@@ -9141,6 +9277,7 @@ final class MusicLibrary {
                 songs: songs, albums: albums, artists: artists,
                 artistNameConfiguration: artistNameConfiguration,
                 disabledSourceIDs: disabledSourceIDs,
+                spokenWordOverrides: spokenWordOverrides,
                 previousVisibleSongs: previousVisibleSongs
             )
         }
@@ -10162,10 +10299,17 @@ final class MusicLibrary {
         if needsPromptCompatibilitySnapshot || songStore == nil {
             delay = 2
         } else {
-            delay = 30
+            delay = Self.lowPriorityPortableSnapshotDelay
         }
         persistSnapshot(after: delay)
     }
+
+    /// 只影响可移植快照新鲜度的改动(歌曲已进 SQLite 的元数据批次、最近播放)
+    /// 最多隔这么久整库落一次盘。整库快照是 O(整库) 字节 —— 4 万首约 35MB JSON
+    /// 加 16MB 启动缓存 —— 原先 30 秒一次(回填时)或每首歌一次(播放时),
+    /// 一天就能写出好几 GB。进后台、导出到 iCloud / Apple TV 之前都会先强制落盘,
+    /// 启动时 SQLite 也比 JSON 权威, 所以这里放宽只影响崩溃时丢几分钟的「最近播放」。
+    static let lowPriorityPortableSnapshotDelay: TimeInterval = 600
 
     private func persistSnapshot(
         after delay: TimeInterval = 2,
@@ -10634,6 +10778,9 @@ final class MusicLibrary {
         /// overwrite a shared cloud snapshot use this to refuse an automatic
         /// upload that would replace a real library with an empty one.
         let eligibleSongCount: Int
+        /// Raw cover bytes embedded in `data`. A transport that must fit a
+        /// size limit shrinks the next attempt's budget from this figure.
+        let artworkBytes: Int
         /// True when the payload's source list still carries at least one
         /// cloud-sync-eligible source. A library assembled only from device-local
         /// imports and the Apple Music Library always filters down to zero
@@ -10642,13 +10789,15 @@ final class MusicLibrary {
         let hasCloudEligibleSources: Bool
     }
 
+    nonisolated static let portableArtworkBudgetBytes = 24 * 1024 * 1024
+
     /// The local snapshot stays metadata-only. Transport copies include bounded,
     /// content-deduplicated covers so tvOS can display artwork without the sender's cache.
     nonisolated static func preparePortableSnapshotDataIncludingArtworkAssets(
         _ data: Data,
         cloudSources: [MusicSource]? = nil,
         assetStore: MetadataAssetStore = .shared,
-        maximumArtworkBytes: Int = 24 * 1024 * 1024
+        maximumArtworkBytes: Int = portableArtworkBudgetBytes
     ) async -> PortableSnapshotTransferData? {
         guard !Task.isCancelled else { return nil }
         let decoder = JSONDecoder()
@@ -10700,10 +10849,91 @@ final class MusicLibrary {
         let maximumEncodedSnapshotBytes = 60 * 1024 * 1024
         let availableEncodedBytes = max(0, maximumEncodedSnapshotBytes - data.count - 512)
         let maximumRawArtworkBytes = min(max(0, maximumArtworkBytes), availableEncodedBytes * 3 / 4)
+        guard let artwork = await collectPortableArtwork(
+            songs: snapshot.songs,
+            artworkOverrides: snapshot.artworkOverrides,
+            assetStore: assetStore,
+            maximumRawBytes: maximumRawArtworkBytes,
+            maximumEncodedBytes: availableEncodedBytes
+        ) else { return nil }
+        snapshot.artworkAssets = artwork.customAssets.isEmpty ? nil : artwork.customAssets
+        snapshot.cachedArtworkAssets = artwork.cachedAssets.isEmpty ? nil : artwork.cachedAssets
+        snapshot.artworkCacheReferences = artwork.references.isEmpty ? nil : artwork.references
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        if let encoded = try? encoder.encode(snapshot),
+           encoded.count <= maximumEncodedSnapshotBytes {
+            return PortableSnapshotTransferData(
+                data: encoded,
+                eligibleLyricsFileNames: eligibleLyricsFileNames,
+                eligibleSongCount: snapshot.songs.count,
+                artworkBytes: artwork.rawBytes,
+                hasCloudEligibleSources: hasCloudEligibleSources
+            )
+        }
+
+        // Artwork is optional. Never fall back to the unfiltered raw snapshot
+        // for CloudKit, because that would reintroduce device-local songs.
+        snapshot.artworkAssets = nil
+        snapshot.cachedArtworkAssets = nil
+        snapshot.artworkCacheReferences = nil
+        guard let encoded = try? encoder.encode(snapshot),
+              encoded.count <= 64 * 1024 * 1024 else { return nil }
+        return PortableSnapshotTransferData(
+            data: encoded,
+            eligibleLyricsFileNames: eligibleLyricsFileNames,
+            eligibleSongCount: snapshot.songs.count,
+            artworkBytes: 0,
+            hasCloudEligibleSources: hasCloudEligibleSources
+        )
+    }
+
+    struct PortableArtworkCollection: Sendable {
+        /// User-uploaded covers keyed by content ID.
+        var customAssets: [String: Data] = [:]
+        /// Cached covers keyed by content ID.
+        var cachedAssets: [String: Data] = [:]
+        /// Cache file name → content ID.
+        var references: [String: String] = [:]
+        var rawBytes = 0
+    }
+
+    /// LAN pairing sends the library first and its covers afterwards in
+    /// batches, so the covers are gathered on their own here with only a raw
+    /// byte budget. Returns nil when the snapshot is unreadable or the task is
+    /// cancelled.
+    nonisolated static func collectPortableArtwork(
+        fromSnapshotData data: Data,
+        assetStore: MetadataAssetStore = .shared,
+        maximumRawBytes: Int = portableArtworkBudgetBytes
+    ) async -> PortableArtworkCollection? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let snapshot = try? decoder.decode(Snapshot.self, from: data) else { return nil }
+        return await collectPortableArtwork(
+            songs: snapshot.songs,
+            artworkOverrides: snapshot.artworkOverrides,
+            assetStore: assetStore,
+            maximumRawBytes: maximumRawBytes,
+            maximumEncodedBytes: Int.max / 4
+        )
+    }
+
+    /// Bounded, content-deduplicated covers for a transport copy. The encoded
+    /// budget counts the base64 text the covers become inside snapshot JSON.
+    private nonisolated static func collectPortableArtwork(
+        songs: [Song],
+        artworkOverrides: [LibraryArtworkOverride]?,
+        assetStore: MetadataAssetStore,
+        maximumRawBytes: Int,
+        maximumEncodedBytes: Int
+    ) async -> PortableArtworkCollection? {
         var usedBytes = 0
         var usedEncodedBytes = 0
         var assets: [String: Data] = [:]
-        let uploaded = (snapshot.artworkOverrides ?? [])
+        let uploaded = (artworkOverrides ?? [])
             .filter { $0.mode == .uploaded }
             .sorted { $0.updatedAt > $1.updatedAt }
         for value in uploaded {
@@ -10712,16 +10942,15 @@ final class MusicLibrary {
                   let artworkData = assetStore.customArtworkData(
                     contentID: contentID
                   ),
-                  usedBytes <= maximumRawArtworkBytes - artworkData.count else {
+                  usedBytes <= maximumRawBytes - artworkData.count else {
                 continue
             }
             let encodedBytes = ((artworkData.count + 2) / 3) * 4 + contentID.utf8.count + 6
-            guard encodedBytes <= availableEncodedBytes - usedEncodedBytes else { continue }
+            guard encodedBytes <= maximumEncodedBytes - usedEncodedBytes else { continue }
             assets[contentID] = artworkData
             usedBytes += artworkData.count
             usedEncodedBytes += encodedBytes
         }
-        snapshot.artworkAssets = assets.isEmpty ? nil : assets
 
         var cachedAssets: [String: Data] = [:]
         var references: [String: String] = [:]
@@ -10735,7 +10964,7 @@ final class MusicLibrary {
                   let cacheIdentity = assetStore.coverContentIdentifier(named: sourceName) else { return }
             let sourceID = cacheIdentity.hasPrefix("sha256:") ? cacheIdentity : sourceName + ":" + cacheIdentity
             let referenceBytes = destinationName.utf8.count + 64 + 6
-            guard referenceBytes <= availableEncodedBytes - usedEncodedBytes else { return }
+            guard referenceBytes <= maximumEncodedBytes - usedEncodedBytes else { return }
             if let contentID = preparedContent[sourceID] {
                 references[destinationName] = contentID
                 usedEncodedBytes += referenceBytes
@@ -10744,7 +10973,7 @@ final class MusicLibrary {
             // A cover that cannot fit the remaining budget must not be
             // decoded again for every track on the same album.
             guard !artworkBudgetExhausted,
-                  usedBytes < maximumRawArtworkBytes,
+                  usedBytes < maximumRawBytes,
                   attemptedContent.insert(sourceID).inserted else { return }
             let startedAt = ContinuousClock.now
             guard let cover = assetStore.preparePortableCover(
@@ -10762,8 +10991,8 @@ final class MusicLibrary {
             let contentID = SHA256.hash(data: image).map { String(format: "%02x", $0) }.joined()
             if cachedAssets[contentID] == nil {
                 let encodedBytes = ((image.count + 2) / 3) * 4 + contentID.utf8.count + 6
-                guard image.count <= maximumRawArtworkBytes - usedBytes,
-                      encodedBytes + referenceBytes <= availableEncodedBytes - usedEncodedBytes else {
+                guard image.count <= maximumRawBytes - usedBytes,
+                      encodedBytes + referenceBytes <= maximumEncodedBytes - usedEncodedBytes else {
                     artworkBudgetExhausted = true
                     return
                 }
@@ -10777,7 +11006,7 @@ final class MusicLibrary {
         }
         // Iterate only retained songs: CloudKit excludes device-local media and
         // must also exclude the ordinary covers belonging solely to that media.
-        for song in snapshot.songs {
+        for song in songs {
             if withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) { return nil }
             if let albumID = song.albumID, !albumID.isEmpty {
                 let name = "album/" + assetStore.expectedCoverFileName(for: "album_\(albumID)")
@@ -10794,39 +11023,16 @@ final class MusicLibrary {
             }
             await includeCachedCover(named: sourceName, as: name)
         }
-        for name in portableArtistCacheNames(songs: snapshot.songs, assetStore: assetStore).sorted() {
+        for name in portableArtistCacheNames(songs: songs, assetStore: assetStore).sorted() {
             guard !Task.isCancelled else { return nil }
             await includeCachedCover(named: name, as: name)
         }
         guard !Task.isCancelled else { return nil }
-        snapshot.cachedArtworkAssets = cachedAssets.isEmpty ? nil : cachedAssets
-        snapshot.artworkCacheReferences = references.isEmpty ? nil : references
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        if let encoded = try? encoder.encode(snapshot),
-           encoded.count <= maximumEncodedSnapshotBytes {
-            return PortableSnapshotTransferData(
-                data: encoded,
-                eligibleLyricsFileNames: eligibleLyricsFileNames,
-                eligibleSongCount: snapshot.songs.count,
-                hasCloudEligibleSources: hasCloudEligibleSources
-            )
-        }
-
-        // Artwork is optional. Never fall back to the unfiltered raw snapshot
-        // for CloudKit, because that would reintroduce device-local songs.
-        snapshot.artworkAssets = nil
-        snapshot.cachedArtworkAssets = nil
-        snapshot.artworkCacheReferences = nil
-        guard let encoded = try? encoder.encode(snapshot),
-              encoded.count <= 64 * 1024 * 1024 else { return nil }
-        return PortableSnapshotTransferData(
-            data: encoded,
-            eligibleLyricsFileNames: eligibleLyricsFileNames,
-            eligibleSongCount: snapshot.songs.count,
-            hasCloudEligibleSources: hasCloudEligibleSources
+        return PortableArtworkCollection(
+            customAssets: assets,
+            cachedAssets: cachedAssets,
+            references: references,
+            rawBytes: usedBytes
         )
     }
 
@@ -10845,16 +11051,6 @@ final class MusicLibrary {
         return names
     }
 
-    nonisolated static func portableSnapshotDataIncludingArtworkAssets(
-        _ data: Data,
-        cloudSources: [MusicSource]? = nil
-    ) async -> Data? {
-        await preparePortableSnapshotDataIncludingArtworkAssets(
-            data,
-            cloudSources: cloudSources
-        )?.data
-    }
-
     nonisolated static func restorePortableArtworkAssets(
         from data: Data,
         assetStore: MetadataAssetStore
@@ -10869,32 +11065,65 @@ final class MusicLibrary {
         _ snapshot: Snapshot,
         assetStore: MetadataAssetStore
     ) {
-        for (contentID, data) in snapshot.artworkAssets ?? [:] {
-            _ = assetStore.storeCustomArtworkSync(data, expectedContentID: contentID)
+        let hasCachedArtwork = snapshot.artworkCacheReferences != nil && snapshot.cachedArtworkAssets != nil
+        let restored = restorePortableArtwork(
+            customAssets: snapshot.artworkAssets ?? [:],
+            cachedAssets: snapshot.cachedArtworkAssets ?? [:],
+            references: snapshot.artworkCacheReferences ?? [:],
+            eligibleNames: hasCachedArtwork
+                ? portableArtworkEligibleNames(songs: snapshot.songs, assetStore: assetStore)
+                : [],
+            assetStore: assetStore
+        )
+        if restored.cached > 0 {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .primuseArtworkDidCache, object: nil, userInfo: ["all": true])
+            }
         }
-        guard let references = snapshot.artworkCacheReferences,
-              let assets = snapshot.cachedArtworkAssets else { return }
+    }
+
+    /// Cache names a portable cover may be installed under: each song's own
+    /// cover plus its album and artist covers. Other references are ignored.
+    nonisolated static func portableArtworkEligibleNames(
+        songs: [Song],
+        assetStore: MetadataAssetStore
+    ) -> Set<String> {
         var eligibleNames = Set<String>()
-        for song in snapshot.songs {
+        for song in songs {
             eligibleNames.insert(assetStore.expectedCoverFileName(for: song.id))
             if let albumID = song.albumID, !albumID.isEmpty {
                 eligibleNames.insert("album/" + assetStore.expectedCoverFileName(for: "album_\(albumID)"))
             }
         }
-        eligibleNames.formUnion(portableArtistCacheNames(songs: snapshot.songs, assetStore: assetStore))
+        eligibleNames.formUnion(portableArtistCacheNames(songs: songs, assetStore: assetStore))
+        return eligibleNames
+    }
+
+    /// Installs transported covers. Returns how many custom and cached covers
+    /// were written; the caller decides when to announce them.
+    @discardableResult
+    nonisolated static func restorePortableArtwork(
+        customAssets: [String: Data],
+        cachedAssets: [String: Data],
+        references: [String: String],
+        eligibleNames: Set<String>,
+        assetStore: MetadataAssetStore
+    ) -> (custom: Int, cached: Int) {
+        var custom = 0
+        for (contentID, data) in customAssets {
+            if assetStore.storeCustomArtworkSync(data, expectedContentID: contentID) != nil {
+                custom += 1
+            }
+        }
         let byContent = Dictionary(grouping: references.filter { eligibleNames.contains($0.key) }, by: \.value)
-        var installed = false
+        var cached = 0
         for (contentID, entries) in byContent {
-            guard let data = assets[contentID] else { continue }
+            guard let data = cachedAssets[contentID] else { continue }
             if assetStore.installPortableCachedArtwork(data, contentID: contentID, referenceFileNames: entries.map(\.key)) {
-                installed = true
+                cached += 1
             }
         }
-        if installed {
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .primuseArtworkDidCache, object: nil, userInfo: ["all": true])
-            }
-        }
+        return (custom, cached)
     }
 
     private func sortPlaylists() {
@@ -11071,12 +11300,14 @@ final class MusicLibrary {
         )
     }
 
-    /// Candidates being inserted/replaced, judged against the folder siblings
-    /// they will sit next to. `replaceSong` runs on every playback start (the
+    /// Candidates being inserted/replaced, judged against the library rows they
+    /// will sit next to. `replaceSong` runs on every playback start (the
     /// duration correction), so the library is only pre-filtered by source and
-    /// album title here; the directory split and the policy run on the few
-    /// rows that share a scope, and directory authority stops at the second
-    /// distinct folder of a source.
+    /// album title here; the policy then splits by folder, or by album title
+    /// alone for a source whose paths carry none, and runs on the few rows that
+    /// share a scope. The album title is the wider of the two keys, so
+    /// pre-filtering by it feeds both splits. Directory authority still stops
+    /// at the second distinct folder of a source.
     nonisolated static func inferredAlbumArtists(
         for candidates: [Song],
         among library: [Song]
@@ -11091,16 +11322,11 @@ final class MusicLibrary {
 
         let candidateIDs = Set(candidates.map(\.id))
         let candidateTracks = candidates.map(albumArtistInferenceTrack)
-        var candidateScopeKeys: Set<String> = []
         var directoriesBySource: [String: Set<String>] = [:]
         var authoritative: Set<String> = []
         for track in candidateTracks {
-            if let key = albumArtistInferenceScopeKey(track) {
-                candidateScopeKeys.insert(key)
-            }
             directoriesBySource[track.sourceID, default: []].insert(track.directory)
         }
-        guard !candidateScopeKeys.isEmpty else { return [:] }
 
         var scoped: [AlbumArtistInferencePolicy.Track] = []
         for song in library where !candidateIDs.contains(song.id) {
@@ -11116,16 +11342,13 @@ final class MusicLibrary {
                     authoritative.insert(song.sourceID)
                 }
             }
-            if sharesTitle,
-               let key = albumArtistInferenceScopeKey(track),
-               candidateScopeKeys.contains(key) {
+            if sharesTitle {
                 scoped.append(track)
             }
         }
         for (sourceID, directories) in directoriesBySource where directories.count >= 2 {
             authoritative.insert(sourceID)
         }
-        guard !authoritative.isEmpty else { return [:] }
         scoped.append(contentsOf: candidateTracks)
 
         let inferred = AlbumArtistInferencePolicy.inferredAlbumArtists(
@@ -11139,14 +11362,6 @@ final class MusicLibrary {
         guard let title = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !title.isEmpty else { return nil }
         return title
-    }
-
-    /// 与 `AlbumArtistInferencePolicy` 内部的分组键一致: 源 + 目录 + 专辑名。
-    private nonisolated static func albumArtistInferenceScopeKey(
-        _ track: AlbumArtistInferencePolicy.Track
-    ) -> String? {
-        guard let albumTitle = albumArtistInferenceTitle(track.albumTitle) else { return nil }
-        return "\(track.sourceID)\u{1F}\(track.directory)\u{1F}\(albumTitle)"
     }
 
     /// 后台 derive albums / artists 集合。纯函数 ── 给定 songs 数组, 算出

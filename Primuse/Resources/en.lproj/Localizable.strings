@@ -156,15 +156,16 @@
 "theme_color_brightness" = "Brightness";
 "theme_color_hex" = "Value";
 "app_icon" = "App Icon";
-"icon_default" = "Splash";
+"app_icon_dock_hint" = "macOS can only swap the Dock icon while Primuse is running — once it quits, the Dock falls back to the icon inside the app bundle.";
+"icon_default" = "Soft Note";
 "icon_appearance_gray" = "Gray";
 "icon_appearance_hint" = "The icon follows the Home Screen appearance. Touch and hold the Home Screen, then choose Edit → Customize → Automatic.";
 "icon_theme_12" = "pikaqiu";
 "icon_theme_13" = "Chris’s Muse";
 "icon_theme_14" = "Letter P";
 "icon_theme_15" = "Folded Note";
-"icon_theme_6" = "Soft Note";
-"icon_theme_9" = "Classic Icon";
+"icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "Splash";
 "queue_title" = "Queue";
 "queue_empty" = "Queue Empty";
 "queue_empty_desc" = "Add songs to the queue";
@@ -369,7 +370,9 @@
 "licenses" = "Open Source Licenses";
 "github_repository" = "GitHub Repository";
 "github_feedback" = "Suggestions & Issue Reports";
-"github_feedback_hint" = "GitHub Issues helps the developer see and follow up on feedback sooner. You can also leave feedback in an App Store review, though it may take longer to reach the developer.";
+"github_bug_report" = "Report a Problem";
+"github_feature_request" = "Feature Request";
+"github_feedback_hint" = "GitHub Issues helps the developer see and follow up on feedback sooner. You can also leave feedback in an App Store review, though it may take longer to reach the developer. The link arrives with the version and device details already filled in, and you can edit them before submitting.";
 "open_source" = "Open Source Libraries";
 "gapless_playback" = "Gapless Playback";
 "gapless_desc" = "Seamlessly transition between tracks without any silence gap.";
@@ -380,6 +383,7 @@
 "crossfade_mode_fixed" = "Fixed";
 "crossfade_mode_smart" = "Smart";
 "crossfade_max_duration" = "Maximum Transition Duration";
+"crossfade_footer" = "Songs blend over the duration above when one plays through to its end; skipping to the next or previous song uses a short fade of about a second. A song that isn't on this device or cached yet starts without a fade. Can't be used together with gapless playback.";
 "skip_leading_silence" = "Skip leading silence";
 "skip_trailing_silence" = "Skip trailing silence";
 "silence_skipping_desc" = "Smart transitions analyze audible boundaries automatically. These switches also skip boundary silence during ordinary playback. High Fidelity mode leaves audio boundaries unchanged.";
@@ -418,6 +422,7 @@
 "apple_music_needs_subscription" = "An active Apple Music subscription is required to play this track in Primuse. Subscribe in the Apple Music app and try again.";
 "apple_music_unavailable" = "Apple Music streaming isn't available for this account or region.";
 "apple_music_notice_notDetermined" = "Apple Music isn't connected yet. Go to Settings → Apple Music to enable catalog search.";
+"apple_music_notice_notDetermined_in_sources" = "Apple Music isn't connected yet. Connect it on the Apple Music source in Manage Sources to enable catalog search.";
 "apple_music_notice_denied" = "Apple Music access was denied. Re-enable it in System Settings → Privacy → Media & Apple Music.";
 "apple_music_notice_no_results" = "No Apple Music results (this storefront may not carry this title).";
 "apple_music_open_in_app" = "Open in Apple Music";
@@ -602,6 +607,10 @@
 
 // MARK: - Player More Features
 "add_to_playlist" = "Add to Playlist";
+"add_to_playlist_short" = "Playlist";
+"insert_next_short" = "Play Next";
+"add_to_queue_short" = "Add to Queue";
+"full_screen_short" = "Full Screen";
 "add_to_queue" = "Add to Queue";
 "playlists_title" = "Playlists";
 "sleep_timer" = "Sleep Timer";
@@ -665,6 +674,14 @@
 // MARK: - Playback Errors
 "playback_error_connection" = "Cannot connect to source";
 "playback_error_source_disabled" = "This music source is disabled";
+"playback_error_source_unreachable_format" = "Can’t reach “%@” on this network";
+"playback_error_source_unreachable_skipped_format" = "Can’t reach “%@” on this network. Its songs were skipped.";
+"song_row_source_unreachable" = "Unreachable on this network";
+"song_source_unreachable_alert_message" = "This music source can’t be reached on the current network. Its songs become playable again as soon as the connection returns. Songs already downloaded to this device are not affected.";
+"source_card_unreachable" = "This source can’t be reached on the current network. Songs that aren’t downloaded to this device can’t play for now.";
+"source_card_unreachable_add_route_hint" = "Only a LAN address is set for this source. Edit it and add a public address to keep playing when you’re away from that network.";
+"playlist_unreachable_notice" = "Some songs come from a source that can’t be reached on the current network. Those not downloaded to this device can’t play for now.";
+"playlist_unreachable_offline_hint_format" = "Turn on “%@” and the songs download automatically once the source is reachable, so they play on any network.";
 "playback_error_decode" = "Cannot play this track";
 "playback_error_format" = "Unsupported audio format";
 "playback_error_apple_music_generic" = "Apple Music couldn't start playback right now. Try again shortly. If the problem persists, check that the song plays in the Music app.";
@@ -797,6 +814,9 @@
 "playlist_import_export_unmatched_csv" = "Export Unmatched → CSV";
 "playlist_import_change_file" = "Change File";
 "playlist_import_create_matched_only_format" = "Create Matched Only (%d)";
+"playlist_import_destination_header" = "Import To";
+"playlist_import_liked_footer_format" = "Matched songs are added to “%@”. Songs that are already in it are not added twice.";
+"playlist_import_add_matched_only_format" = "Add Matched Only (%d)";
 "playlist_import_manual_match" = "Manual Match…";
 "playlist_import_manual_match_title" = "Manual Match";
 "playlist_import_search_library" = "Search library songs";
@@ -1344,11 +1364,11 @@
 "settings_dlna_keepalive_footer" = "When enabled, Primuse keeps accepting pushes from other devices even when it's in the background and not playing music. Trade-off: the lock screen / Control Center will show Primuse as playing, and battery use rises slightly.";
 "settings_relay_section" = "Apple TV Relay";
 "settings_relay_enable" = "Let Apple TV play via this device";
-"settings_relay_footer" = "When on, your Apple TV can play music stored on this phone, relayed through this device (NFS sources set to NFSv4 come through here too). Keep Primuse open in the foreground and both devices on the same Wi-Fi.";
+"settings_relay_footer" = "Keep Primuse open in the foreground and both devices on the same Wi-Fi. Music stored on this phone also has to be sent with “Transfer Library from iPhone” on the Apple TV.";
 "settings_relay_waiting" = "Getting LAN address… (make sure Wi-Fi is connected)";
 "settings_appletv_section" = "Apple TV";
 "settings_push_to_tv" = "Send to Apple TV now";
-"settings_push_to_tv_footer" = "Install Primuse on your Apple TV and sign in with the same iCloud account to see your library and sources here — credentials (passwords / tokens) included, nothing to re-enter. Primuse uploads automatically in the background; tap “Send to Apple TV now” to update immediately. NAS drives, WebDAV, media servers and cloud drives are all reached by the Apple TV on its own. Only music stored on this phone needs the Relay below, which streams it from here over the same Wi-Fi; that music never travels through iCloud, so send it across with “Transfer Library from iPhone” on the Apple TV.";
+"settings_push_to_tv_footer" = "Sign in to the same iCloud account on your Apple TV to see this library and its sources, passwords included. The Apple TV reaches NAS drives, media servers and cloud drives on its own; only music stored on this phone and NFSv4 sources need the relay.";
 "settings_push_to_tv_done" = "Sent";
 "settings_push_to_tv_failed" = "Send failed";
 "send_to_tv_title" = "Send to Apple TV";
@@ -1402,14 +1422,14 @@
 "diagnostics_footer" = "Reports stay on this device. Tap to share with the developer via email or AirDrop.";
 "diagnostics_clear" = "Clear all reports";
 "diagnostics_clear_confirm" = "Delete all reports?";
-"diagnostics_send_button" = "Email reports to the developer";
-"diagnostics_send_privacy" = "Only program thread records are sent: the crash and hang call stacks the system collects, plus the app version, device model and system version. No account details, music library, listening history, file names or other personal data.";
+"diagnostics_send_button" = "Send to the author";
+"diagnostics_send_privacy" = "Your email includes the reports or logs you select. Review it before sending.";
 "diagnostics_send_mail_intro %lld" = "Primuse diagnostic reports attached: %lld.";
 "diagnostics_send_sent_title" = "Report sent";
 "diagnostics_send_sent_message" = "Thanks. Do you want to clear the reports stored on this device now?";
 "diagnostics_send_keep" = "Keep";
 "diagnostics_send_unavailable_title" = "Can't send mail";
-"diagnostics_send_unavailable_message %@" = "This device has no mail account set up. You can still use the share button on a report to send it to %@.";
+"diagnostics_send_unavailable_message %@" = "No mail account is set up on this device. You can share a report or export logs and send them to %@.";
 "diagnostics_send_failed_title" = "Couldn't send";
 "diagnostics_send_failed_message" = "The Mail app couldn't send the message. Your reports are still on this device.";
 "source_diagnostics" = "Source Diagnostics";
@@ -1475,7 +1495,7 @@
 "source_diag_advice_certificate_message" = "The HTTPS certificate could not be trusted.";
 "source_diag_advice_certificate_suggestion" = "Verify the certificate, then trust it only if it belongs to your server.";
 "source_diag_advice_server_title" = "Source response error";
-"source_diag_advice_server_suggestion" = "Check the server status and retry. If it keeps failing, export logs from Storage.";
+"source_diag_advice_server_suggestion" = "Check the server status and try again. If the problem persists, export logs from Diagnostic Reports.";
 "source_diag_advice_invalid_response" = "The source returned an unreadable response.";
 
 // MARK: - macOS Playback menu
@@ -1508,6 +1528,9 @@
 "home_empty_mac_hint" = "Add a NAS or cloud drive from Sources on the left, or authorize Apple Music to start.";
 "player_empty_title" = "Pick a song to play";
 "player_empty_message" = "Choose one from the library or search on the left.";
+"mac_launch_aborted_title" = "Primuse didn't finish launching last time";
+"mac_launch_aborted_hint" = "Send the details below to the developer to help pin down the cause.";
+"mac_launch_copy_diagnostics" = "Copy Details";
 "mac_sidebar_tools" = "Tools";
 "desktop_widgets" = "Desktop widgets";
 "keychain_sync_hint_title" = "Keychain sync";
@@ -2200,6 +2223,7 @@
 "output_mode_effects" = "Effects & Processing";
 "output_mode_high_fidelity_desc" = "Shortest signal path: bypasses EQ, dynamics, reverb, spatial audio, ReplayGain, speed changes and crossfade, and matches the sample rate automatically. Volume still works, except during DSD direct output.";
 "output_mode_high_fidelity_confirm_title" = "Turn on High Fidelity Direct?";
+"output_mode_high_fidelity_hardware_note" = "This mode mainly matters with an external DAC or headphone amplifier. Over Bluetooth or the built-in speakers the audio is processed again anyway, so the difference is rarely audible.";
 "output_mode_effects_desc" = "Uses the full processing graph for EQ, dynamics, reverb, spatial audio, ReplayGain, playback speed, crossfade, app volume, and visualization.";
 "volume_high_fidelity_system_hint" = "High Fidelity Direct uses unity gain. Adjust volume with the system controls.";
 "volume_output_device_hint" = "Adjusts the output device volume, keeping the direct signal path bit-perfect.";
@@ -2281,6 +2305,8 @@
 "radio_priority_sort_by_name" = "Sort by Name";
 "radio_priority_move_up" = "Raise Priority";
 "radio_priority_move_down" = "Lower Priority";
+"radio_priority_move_up_short" = "Up";
+"radio_priority_move_down_short" = "Down";
 "radio_previous_station" = "Previous Station";
 "radio_next_station" = "Next Station";
 "radio_home_visibility" = "Show Radio on Home";
@@ -2484,6 +2510,7 @@
 "weekday_friday_short" = "F";
 "weekday_saturday_short" = "S";
 "apple_music_library_not_authorized" = "Apple Music is not authorized. Enable it in Settings → Apple Music.";
+"apple_music_library_not_authorized_in_sources" = "Apple Music is not authorized. Connect it on the Apple Music source in Manage Sources.";
 "apple_music_library_sync_timeout" = "Apple Music sync timed out. Check Music permissions or try again later.";
 "apple_music_library_access_failed_format" = "Unable to access the Apple Music library: %@";
 "yearly_unknown_source" = "Unknown music source";
@@ -2567,6 +2594,10 @@
 "Artist" = "Artist";
 "Optional, narrows the match if multiple songs share a title." = "Optional, narrows the match if multiple songs share a title.";
 "No matching song in your library." = "No matching song in your library.";
+"Which song? Tell Siri the song title." = "Which song? Tell Siri the song title.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse is still loading your library. Try again in a moment.";
+"Your Primuse library is empty." = "Your Primuse library is empty.";
+"Open Primuse once, then try again." = "Open Primuse once, then try again.";
 "Play Playlist" = "Play Playlist";
 "Find a playlist by name and play it." = "Find a playlist by name and play it.";
 "Name" = "Name";
@@ -2641,6 +2672,9 @@
 /* MARK: - Radio manage */
 "radio_manage_footer" = "Drag to reorder. Swipe a row to rename, pin, or delete it.";
 "radio_manage_pin_top" = "Pin to Top";
+"radio_manage_pin_top_short" = "Pin to Top";
+"select_all_short" = "Select All";
+"deselect_all_short" = "Deselect";
 "radio_manage_export" = "Export";
 "radio_manage_deselect_all" = "Deselect All";
 "radio_manage_delete_confirm_title" = "Delete Selected Stations?";
@@ -2745,6 +2779,7 @@
 "batch_remove_from_library" = "Remove from Library";
 "batch_remove_from_library_message_format" = "%d songs will be removed from the library. Their source files are kept, but they won't be added back on the next scan.";
 "batch_delete_source_files" = "Delete Source Files";
+"batch_remove_group" = "Remove & Delete";
 "batch_delete_source_files_message_format" = "The source files of %d songs will be permanently deleted and the songs removed from the library. This cannot be undone.";
 "batch_delete_skipped_format" = "%d skipped — their music source doesn't support deletion";
 "batch_delete_progress_format" = "Deleting %1$d / %2$d";
@@ -3895,6 +3930,7 @@
 "source_address_alternate_section" = "Alternate Address";
 "source_address_section_footer" = "Leave the port blank and Primuse works it out when you save.";
 "source_address_placeholder" = "Domain, IP, or full URL";
+"source_address_placeholder_vendor %@" = "Domain, IP, or %@";
 "source_address_add_alternate" = "Add an alternate address";
 "source_address_remove" = "Remove this address";
 "source_address_advanced" = "Set the port and encryption manually";
@@ -3980,3 +4016,84 @@
 "audio_station_error_api_not_found_format" = "Audio Station doesn't provide a required interface (error %d).";
 "audio_station_error_server_format" = "Audio Station returned an error (code %d).";
 "audio_station_error_two_factor_required" = "This account uses two-factor authentication. Sign in to this Audio Station source again and enter a verification code.";
+"audio_station_radio_folder_favorite" = "My Favorites";
+"audio_station_radio_folder_user_defined" = "User-defined Radio";
+
+"lyric_poster_live_fallback" = "Photos wouldn't take the Live Photo — saved the still image instead";
+
+"lyrics_embed_copy_header" = "Embedded Lyrics";
+"lyrics_embed_copy_title" = "Save Lyrics To";
+"lyrics_embed_copy_hint" = "MP3, FLAC and M4A · Re-uploads the whole song each time lyrics are saved";
+"lyrics_embed_copy_footer" = "Embedded lyrics travel with the audio file, so other players and devices see them too. This works only for MP3, FLAC and M4A on sources whose files Primuse can replace; other songs keep using lyrics files. Every save re-uploads the whole song. With “Audio File Only”, no new lyrics file is created, and a lyrics file already next to a song is still kept up to date. Library-wide scraping never embeds.";
+"lyrics_embed_copy_failed_format" = "Lyrics were saved, but could not be embedded in the audio file: %@";
+"lyrics_embed_mode_off" = "Lyrics File Only";
+"lyrics_embed_mode_alongside" = "Lyrics File and Audio File";
+"lyrics_embed_mode_embed_only" = "Audio File Only";
+"lyrics_embed_confirm_title" = "Write Lyrics into Audio Files?";
+"lyrics_embed_confirm_message" = "· Every lyrics save downloads the whole song, rewrites it and uploads it again. Large files and cloud drives get noticeably slower, and it uses more data.\n· The audio file’s modification date and contents change, so sync folders, backup tools and media servers treat it as a new file.\n· Primuse checks that the file has not been changed elsewhere before writing and reads it back afterwards, but rewriting audio files still carries risk. Back up your library first.\n· The embedded copy is line-timed text. Multi-language lyrics already embedded in an MP3 are replaced by it.";
+"lyrics_embed_confirm_message_embed_only" = "· With “Audio File Only”, no lyrics file is created next to the song, and word-by-word timing is kept only in Primuse. A lyrics file already next to the song is still kept up to date.\n· Library-wide scraping neither embeds nor creates lyrics files; scraped lyrics are kept only in Primuse.";
+"tag_editor_lyrics_writeback_embedded" = "Target checked. The lyrics will be embedded in the audio file; no lyrics file will be created.";
+"tag_editor_lyrics_writeback_also_embedded" = "They will also be embedded in the audio file.";
+"search_layout_title" = "Arrange Search Results";
+"search_layout_footer" = "Sections you turn off are hidden and skipped when searching.";
+"search_layout_restore_default" = "Restore Defaults";
+"search_layout_move_up" = "Move Up";
+"search_layout_move_down" = "Move Down";
+"search_top_match_kind_artist" = "Artist";
+"search_top_match_kind_album" = "Album";
+"search_top_match_kind_song" = "Song";
+"audio_variant_lossy_stereo" = "Stereo";
+"audio_variant_lossless" = "Lossless";
+"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_dolby_atmos" = "Dolby Atmos";
+"audio_variant_dolby_audio" = "Dolby Audio";
+"apple_music_pick_from_catalog" = "Pick from Apple Music…";
+"apple_music_pick_adding" = "Adding to library…";
+"apple_music_pick_added" = "Added %d, syncing";
+"apple_music_pick_failed" = "Couldn’t add to library";
+
+/* 启动诊断与安全模式 */
+"safe_mode_title" = "Safe Mode";
+"safe_mode_hint" = "The app failed to start several times in a row, so these steps were skipped. Please send the diagnostics to the developer.";
+"safe_mode_skipped" = "· Home screen and entrance animations\n· Restoring the last playback session\n· iCloud sync and background scanning\n· Library-wide recommendations and folder index";
+"safe_mode_exit" = "Resume Normal Launch";
+"safe_mode_exit_hint" = "The next launch will open the home screen as usual.";
+"launch_aborted_title" = "The last launch did not finish";
+"launch_aborted_hint" = "The report below shows where it stopped. Please send it to the developer.";
+"launch_diagnostics_copy" = "Copy Diagnostics";
+"launch_diagnostics_files_hint" = "The diagnostics were also saved to Files → On My iPhone → Primuse → Diagnostics.";
+
+// MARK: - Spoken word
+"tab_spoken_word" = "Spoken Word";
+"spoken_word_continue_section" = "Continue Listening";
+"spoken_word_all_section" = "All";
+"spoken_word_empty_hint" = "Audiobooks, radio drama, lectures and other spoken recordings appear here.";
+"spoken_word_remaining_format" = "%@ left";
+"spoken_word_clear_progress" = "Clear Listening Position";
+"mark_as_spoken_word" = "Mark as Spoken Word";
+"mark_as_music" = "Mark as Music";
+"chapters_title" = "Chapters";
+"a11y_skip_backward" = "Skip back 15 seconds";
+"a11y_skip_forward" = "Skip forward 30 seconds";
+
+"source_diag_reachability_title" = "Address reachability";
+"source_diag_reachability_ok" = "The host and port are reachable.";
+"source_diag_login_title" = "Service sign-in";
+"source_diag_library_title" = "Library access";
+"source_diag_waiting" = "Checking…";
+"source_diag_skipped" = "Not run because a prerequisite check failed.";
+"source_diag_progress_format" = "Completed %1$d of %2$d checks";
+"source_diag_routes_format" = "Connections available on this network: %1$d of %2$d";
+"source_diag_cancelled" = "Check cancelled";
+"source_diag_check_counts_format" = "%1$d passed · %2$d warnings · %3$d failed · %4$d skipped";
+"source_diag_resolution_title" = "Address resolution";
+"source_diag_resolution_ok" = "The service address was resolved.";
+"source_diag_library_ok" = "Library access succeeded.";
+
+"diagnostics_send_all" = "Reports and logs";
+"diagnostics_send_reports_only" = "Reports only";
+"diagnostics_send_logs_only" = "Logs only";
+"diagnostics_feedback_attachments" = "Attachments (optional)";
+"diagnostics_feedback_message" = "Requests or suggestions";
+"diagnostics_feedback_compose" = "Open Mail";
+"diagnostics_logs_title" = "Logs";

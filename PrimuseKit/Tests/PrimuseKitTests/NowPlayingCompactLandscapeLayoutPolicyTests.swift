@@ -309,4 +309,155 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
         #expect(!degenerate.showsLyricLine)
         #expect(!degenerate.showsVolumeBar)
     }
+    // MARK: - 歌词模式
+
+    private typealias LyricsMetrics = NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+
+    private struct Viewport {
+        let name: String
+        let width: Double
+        let height: Double
+        let bottom: Double
+        let leading: Double
+        let trailing: Double
+    }
+
+    /// 与上面四个封面模式的目标视口一一对应。
+    private var lyricsViewports: [Viewport] {
+        [
+            Viewport(name: "SE", width: 667, height: 375, bottom: 0, leading: 0, trailing: 0),
+            Viewport(name: "15", width: 852, height: 393, bottom: 21, leading: 59, trailing: 59),
+            Viewport(name: "16 Pro Max", width: 956, height: 440, bottom: 21, leading: 62, trailing: 62),
+            Viewport(name: "Duo cover", width: 678, height: 466, bottom: 21, leading: 20, trailing: 0),
+        ]
+    }
+
+    private func lyricsMetrics(
+        _ viewport: Viewport, prefersVolumeBar: Bool = true, textScale: Double = 1
+    ) -> LyricsMetrics {
+        Policy.lyricsMetrics(
+            viewportWidth: viewport.width,
+            viewportHeight: viewport.height,
+            safeAreaTop: 0,
+            safeAreaBottom: viewport.bottom,
+            safeAreaLeading: viewport.leading,
+            safeAreaTrailing: viewport.trailing,
+            prefersVolumeBar: prefersVolumeBar,
+            textScale: textScale
+        )
+    }
+
+    private func coverMetrics(_ viewport: Viewport) -> Metrics {
+        Policy.metrics(
+            viewportWidth: viewport.width,
+            viewportHeight: viewport.height,
+            safeAreaTop: 0,
+            safeAreaBottom: viewport.bottom,
+            safeAreaLeading: viewport.leading,
+            safeAreaTrailing: viewport.trailing,
+            prefersVolumeBar: true
+        )
+    }
+
+    @Test("歌词模式与封面模式共用同一块内容区，换模式时圆钮排和内边距不动")
+    func lyricsModeSharesTheContentBoxWithCoverMode() {
+        for viewport in lyricsViewports {
+            let lyrics = lyricsMetrics(viewport)
+            let cover = coverMetrics(viewport)
+            #expect(lyrics.contentWidth == cover.contentWidth, "\(viewport.name)")
+            #expect(lyrics.availableContentHeight == cover.availableContentHeight, "\(viewport.name)")
+            #expect(lyrics.columnSpacing == cover.columnSpacing, "\(viewport.name)")
+        }
+    }
+
+    @Test("歌词模式两栏加间距正好铺满内容宽度，歌词是大的那一半")
+    func lyricsColumnsFillTheContentWidth() {
+        for viewport in lyricsViewports {
+            let metrics = lyricsMetrics(viewport)
+            let total = metrics.lyricsPaneWidth + metrics.columnSpacing + metrics.detailColumnWidth
+            #expect(abs(total - metrics.contentWidth) < 0.001, "\(viewport.name)")
+            #expect(metrics.lyricsPaneWidth > metrics.detailColumnWidth, "\(viewport.name)")
+            let floor = metrics.contentWidth * Policy.minimumLyricsPaneWidthFraction
+            #expect(metrics.lyricsPaneWidth >= floor - 0.001, "\(viewport.name)")
+        }
+    }
+
+    @Test("歌词模式右栏放得下判定为显示的那套传输键，且不超过宽度上限")
+    func lyricsDetailColumnFitsResolvedTransportRow() {
+        for viewport in lyricsViewports {
+            let metrics = lyricsMetrics(viewport)
+            let required = Policy.minimumTransportWidth(includesEdgeToggles: metrics.showsEdgeToggles)
+            #expect(metrics.detailColumnWidth >= required, "\(viewport.name)")
+            #expect(metrics.detailColumnWidth <= Policy.maximumLyricsDetailWidth, "\(viewport.name)")
+        }
+    }
+
+    @Test("Pro Max 为随机 / 循环把右栏加宽，15 与 SE 让它们进更多菜单")
+    func edgeTogglesOnlyWhereLyricsStayTheLargerHalf() {
+        let viewports = lyricsViewports
+        let se = lyricsMetrics(viewports[0])
+        let fifteen = lyricsMetrics(viewports[1])
+        let proMax = lyricsMetrics(viewports[2])
+        #expect(!se.showsEdgeToggles)
+        #expect(!fifteen.showsEdgeToggles)
+        #expect(proMax.showsEdgeToggles)
+        let toggleWidth = Policy.minimumTransportWidth(includesEdgeToggles: true)
+        #expect(proMax.detailColumnWidth == toggleWidth)
+    }
+
+    @Test("歌词模式纵向各块之和不超过可用高度，默认字号下歌名都能占两行")
+    func lyricsVerticalBudgetFitsEveryViewport() {
+        for viewport in lyricsViewports {
+            let metrics = lyricsMetrics(viewport)
+            #expect(metrics.detailStackHeight <= metrics.availableContentHeight, "\(viewport.name)")
+            #expect(metrics.titleLineLimit == 2, "\(viewport.name)")
+            #expect(metrics.headerHeight >= metrics.thumbnailSize, "\(viewport.name)")
+        }
+    }
+
+    @Test("歌词模式右栏比封面模式矮，四个目标视口都放得下音量条；设置关掉就不显示")
+    func lyricsVolumeBarFollowsHeightAndSetting() {
+        for viewport in lyricsViewports {
+            #expect(lyricsMetrics(viewport).showsVolumeBar, "\(viewport.name)")
+            #expect(!lyricsMetrics(viewport, prefersVolumeBar: false).showsVolumeBar, "\(viewport.name)")
+        }
+    }
+
+    @Test("字号放大时歌词模式先丢音量条、再把歌名收成一行，始终不超高")
+    func lyricsLadderConcedesUnderLargeText() {
+        let se = lyricsViewports[0]
+        var previousHeight = 0.0
+        for scale in [1.0, 1.35, 1.65, 2.0] {
+            let metrics = lyricsMetrics(se, textScale: scale)
+            let fits = metrics.detailStackHeight <= metrics.availableContentHeight
+            #expect(fits, "scale \(scale)")
+            #expect(metrics.headerHeight >= previousHeight || metrics.titleLineLimit == 1, "scale \(scale)")
+            previousHeight = metrics.headerHeight
+        }
+        let short = Policy.lyricsMetrics(
+            viewportWidth: 568, viewportHeight: 300,
+            safeAreaTop: 0, safeAreaBottom: 0, safeAreaLeading: 0, safeAreaTrailing: 0,
+            prefersVolumeBar: true
+        )
+        #expect(!short.showsVolumeBar)
+    }
+
+    @Test("歌词模式异常输入不会算出负数")
+    func lyricsDegenerateInputStaysNonNegative() {
+        let degenerate = Policy.lyricsMetrics(
+            viewportWidth: 0,
+            viewportHeight: 0,
+            safeAreaTop: .nan,
+            safeAreaBottom: -40,
+            safeAreaLeading: .infinity,
+            safeAreaTrailing: 0,
+            prefersVolumeBar: true,
+            textScale: .nan
+        )
+        #expect(degenerate.contentWidth == 0)
+        #expect(degenerate.lyricsPaneWidth == 0)
+        #expect(degenerate.detailColumnWidth == 0)
+        #expect(!degenerate.showsEdgeToggles)
+        #expect(!degenerate.showsVolumeBar)
+    }
 }

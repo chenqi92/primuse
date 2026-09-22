@@ -1946,6 +1946,16 @@ struct CachedArtworkView: View {
         postArtworkInvalidation(token: nil, userInfo: ["all": true])
     }
 
+    /// 系统内存告警时丢掉已解码的封面。和 `clearMemoryCache()` 的区别是不发
+    /// `.primuseArtworkDidInvalidate`: 盘上的图没有变, 广播会让每个在屏封面
+    /// 立刻重新读盘解码一遍 —— 正好是内存告警时最不该做的事。这里只是把缓存
+    /// 交还给系统, 之后谁滚进视野谁再解码。
+    /// `failedLoadCache` 只存几百个日期, 留着, 免得压力过后满屏重试读不到的封面。
+    static func purgeDecodedImageCache() {
+        memoryCache.removeAllObjects()
+        animationDescriptorCache.removeAllObjects()
+    }
+
     private static func postArtworkInvalidation(token: String?, userInfo: [AnyHashable: Any] = [:]) {
         if Thread.isMainThread {
             NotificationCenter.default.post(

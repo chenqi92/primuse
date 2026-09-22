@@ -77,6 +77,60 @@ public enum ISOBaseMediaLyricsParser {
         return result.isEmpty ? nil : result
     }
 
+    /// The iTunes-style `©lyr` and `©grp` items as the file itself stores them.
+    public struct StoredITunesTextItems: Equatable, Sendable {
+        public var lyrics: String?
+        public var grouping: String?
+        /// A `©lyr` item is present but its data atom could not be decoded, so
+        /// `lyrics == nil` does not mean the file has no lyrics to lose.
+        public var hasUndecodableLyrics: Bool
+
+        public init(
+            lyrics: String? = nil,
+            grouping: String? = nil,
+            hasUndecodableLyrics: Bool = false
+        ) {
+            self.lyrics = lyrics
+            self.grouping = grouping
+            self.hasUndecodableLyrics = hasUndecodableLyrics
+        }
+    }
+
+    /// Reads `©lyr` and `©grp` independently of the tagging library.
+    ///
+    /// SFBAudioEngine 0.12.1 loads the grouping item into its lyrics field and
+    /// never into its grouping field. Writing that model back replaces the
+    /// file's lyrics with the grouping text and deletes the grouping, so the
+    /// embedded tag writer restores both from this reading before it saves.
+    public static func storedITunesTextItems(in data: Data) -> StoredITunesTextItems {
+        var result = StoredITunesTextItems()
+        var sawLyricsItem = false
+        for moov in atoms(in: data, range: data.startIndex..<data.endIndex)
+            where moov.type == AtomType.moov {
+            for metadata in metadataAtoms(in: data, moov: moov) {
+                guard metadata.payload.count >= 4 else { continue }
+                let childrenRange =
+                    (metadata.payload.lowerBound + 4)..<metadata.payload.upperBound
+                for list in atoms(in: data, range: childrenRange)
+                    where list.type == AtomType.ilst {
+                    for item in atoms(in: data, range: list.payload) {
+                        switch item.type {
+                        case AtomType.iTunesLyrics:
+                            sawLyricsItem = true
+                            result.lyrics = result.lyrics ?? decodedItem(in: data, item: item)
+                        case AtomType.iTunesGrouping:
+                            result.grouping = result.grouping ?? decodedItem(in: data, item: item)
+                        default:
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        result.hasUndecodableLyrics = sawLyricsItem && result.lyrics == nil
+        return result
+    }
+
     private struct Atom {
         let type: UInt32
         let payload: Range<Int>
@@ -92,6 +146,7 @@ public enum ISOBaseMediaLyricsParser {
         static let freeform = fourCC(0x2D, 0x2D, 0x2D, 0x2D)
         static let name = fourCC(0x6E, 0x61, 0x6D, 0x65)
         static let iTunesLyrics: UInt32 = 0xA96C7972
+        static let iTunesGrouping: UInt32 = 0xA9677270
 
         private static func fourCC(
             _ a: UInt32,

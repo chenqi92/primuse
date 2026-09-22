@@ -55,8 +55,12 @@ struct AddSourceView: View {
     @State private var autoConnect = false
     @State private var rememberDevice = false
     @State private var isInitialized = false
+    /// 编辑已有源时钥匙串里到底有没有存过密钥。初始化时读一次就够 ——
+    /// 这个答案在表单打开期间不会变,而 `canSave` 是被 body 反复求值的。
+    @State private var editingSourceHasStoredSecret = false
     @State private var showCredentialSaveError = false
-    @State private var showSynologyPasswordValidationInfo = false
+    @State private var credentialValidationSource: MusicSource?
+    @State private var validatedCredentialSource: MusicSource?
     @State private var mediaServerCreationTransaction = MediaServerSourceCreationTransaction()
     /// 用户填的那一到两行地址。上面那组 host/port/useSsl/publicHost/… 仍然是
     /// 保存路径唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
@@ -128,6 +132,28 @@ struct AddSourceView: View {
             : remoteUsesVendor
     }
 
+    /// 钥匙串里有没有这个源的密钥。**不要在 body 里直接查钥匙串** ——
+    /// `SecItemCopyMatching` 是一次同步的 securityd 往返(读不到时还要查两遍,
+    /// 并且不进内存缓存),而这个判断被 `canSave` 带进每一次界面更新里:
+    /// 编辑页上敲一个字、动一下焦点就要敲好几次钥匙串。
+    private func storedSecretExists(for source: MusicSource) -> Bool {
+        guard isInitialized else { return Self.readStoredSecretExists(for: source.id) }
+        return editingSourceHasStoredSecret
+    }
+
+    private static func readStoredSecretExists(for sourceID: String) -> Bool {
+        switch KeychainService.passwordLookup(for: sourceID) {
+        case .found(let secret):
+            return secret.isEmpty == false
+        case .notFound:
+            return false
+        case .temporarilyUnavailable, .failed:
+            // Preserve an existing edit without forcing the user to
+            // overwrite a credential that is merely unreadable right now.
+            return true
+        }
+    }
+
     private var canSave: Bool {
         if sourceType.requiresHost {
             if supportsAdaptiveConnections {
@@ -151,16 +177,7 @@ struct AddSourceView: View {
 
         let hasStoredSecret: Bool
         if let editingSource, editingSource.authType == authType {
-            switch KeychainService.passwordLookup(for: editingSource.id) {
-            case .found(let secret):
-                hasStoredSecret = !secret.isEmpty
-            case .notFound:
-                hasStoredSecret = false
-            case .temporarilyUnavailable, .failed:
-                // Preserve an existing edit without forcing the user to
-                // overwrite a credential that is merely unreadable right now.
-                hasStoredSecret = true
-            }
+            hasStoredSecret = storedSecretExists(for: editingSource)
         } else {
             hasStoredSecret = false
         }
@@ -237,13 +254,10 @@ struct AddSourceView: View {
         } message: {
             Text("credential_save_failed_message")
         }
-        .alert(
-            String(localized: "synology_password_edit_validation_title"),
-            isPresented: $showSynologyPasswordValidationInfo
-        ) {
-            Button("ok", role: .cancel) {}
-        } message: {
-            Text("synology_password_edit_validation_hint")
+        .sheet(item: $credentialValidationSource, onDismiss: finishCredentialValidation) { source in
+            SynologyCredentialRecoveryView(source: source, initialPassword: password) { updated in
+                validatedCredentialSource = updated
+            }
         }
         .alert(
             mediaServerCreationTransaction.failure?.title ?? String(localized: "connection_failed"),
@@ -520,7 +534,6 @@ struct AddSourceView: View {
                         RevealableSecureField(title: authType == .apiKey ? "api_key" : "password", text: $password)
                             .focused($focusedField, equals: .password)
                             .frame(maxWidth: 280)
-                            .disabled(sourceType == .synology && isEditing)
                     }
                 }
 
@@ -540,7 +553,7 @@ struct AddSourceView: View {
                 }
 
                 if isEditing && authType != .none {
-                    macInfoRow(credentialEditHint)
+                    macInfoRow("password_edit_hint")
                 }
             }
         }
@@ -773,7 +786,7 @@ struct AddSourceView: View {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .pmCard(cornerRadius: 10)
+            .pmCard(cornerRadius: 10, overOpaqueBackground: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -950,7 +963,6 @@ struct AddSourceView: View {
                         .focused($focusedField, equals: .password)
                         .submitLabel(.done)
                         .onSubmit { focusedField = nil }
-                        .disabled(sourceType == .synology && isEditing)
                 }
                 if sourceType == .fnMusic {
                     Text("fnmusic_account_hint")
@@ -968,7 +980,7 @@ struct AddSourceView: View {
                     }
                 }
                 if isEditing && authType != .none {
-                    Text(credentialEditHint)
+                    Text("password_edit_hint")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1234,6 +1246,7 @@ struct AddSourceView: View {
                 }
             }
             ftpEncryption = s.ftpEncryption ?? .none; nfsVersion = s.nfsVersion ?? .auto
+            editingSourceHasStoredSecret = Self.readStoredSecretExists(for: s.id)
         } else if let device = prefillDevice {
             name = device.name
             host = device.host
@@ -1387,10 +1400,22 @@ struct AddSourceView: View {
         let reading = addressReading
         guard reading.isSubmittable else { return }
 
-        guard SourceAddressFormPolicy.requiresProbe(
-            drafts: addressRows.map(\.draft),
-            baseline: addressBaseline
-        ) else {
+        // 逐行判断要不要探:编辑已有源时没动过的那几行原样留着 —— 否则在外网
+        // 给源补一条备用地址,会连带去探那条此刻动不了的内网地址。
+        let probing = Set(
+            zip(
+                addressRows,
+                SourceAddressFormPolicy.rowsRequiringProbe(
+                    drafts: addressRows.map(\.draft),
+                    baseline: addressBaseline
+                )
+            ).compactMap { row, needsProbe in needsProbe ? row.id : nil }
+        )
+        plog(
+            "🔎 Source address submit type=\(sourceType.rawValue) editing=\(editingSource != nil) "
+                + "rows=\(addressRows.count) probing=\(probing.count)"
+        )
+        guard probing.isEmpty == false else {
             // 编辑已有源且地址没动过:已存的端口与协议本来就是明确的,原样留着。
             applyAddressPlan(reading, selected: [:])
             saveSource()
@@ -1402,23 +1427,41 @@ struct AddSourceView: View {
             let outcome = await addressProbe.probe(
                 rows: addressRows,
                 reading: reading,
-                sourceType: sourceType
+                sourceType: sourceType,
+                probing: probing
             )
-            guard outcome.isCancelled == false, Task.isCancelled == false else { return }
-            // 一个候选都没应答:尝试清单已经内联列在地址下面了。让用户接着改,
-            // 或者按「仍然保存」坚持用第一个候选 —— 不弹模态框打断。
-            guard outcome.unresolvedRowIDs.isEmpty else { return }
+            guard outcome.isCancelled == false, Task.isCancelled == false else {
+                plog("🔎 Source address submit cancelled")
+                return
+            }
+            // 内网地址在外网探不通是实话而不是错。只要还有一行给出了结论,这次
+            // 保存就照常进行:探不通的那一行按它自己的解读存回去(没动过的行读
+            // 回来只有一个候选,就是它原来那个端点)。
+            //
+            // 一行都没应答才停下来 —— 尝试清单已经内联列在地址下面了,让用户
+            // 接着改,或者按「仍然保存」坚持用第一个候选,不弹模态框打断。
+            guard outcome.selected.isEmpty == false || outcome.unresolvedRowIDs.isEmpty else {
+                plog("🔎 Source address submit halted: no address responded rows=\(outcome.unresolvedRowIDs.count)")
+                return
+            }
+            plog(
+                "🔎 Source address submit saving resolved=\(outcome.selected.count) "
+                    + "unresolved=\(outcome.unresolvedRowIDs.count)"
+            )
             applyAddressPlan(reading, selected: outcome.selected)
             saveSource()
         }
     }
 
-    /// 探测不通也要存:取每一行的第一个候选。
+    /// 探测不通也要存:已经探到的行用它探到的候选,没应答的行用第一个候选。
     private func saveWithoutProbing() {
         let reading = addressReading
         guard reading.isSubmittable else { return }
+        // `cancelAddressProbe` 会清掉控制器上的结论,先取出来再取消。
+        let selected = addressProbe.selectedCandidates
+        plog("🔎 Source address saved without a full probe verdict resolved=\(selected.count)")
         cancelAddressProbe()
-        applyAddressPlan(reading, selected: [:])
+        applyAddressPlan(reading, selected: selected)
         saveSource()
     }
 
@@ -1518,15 +1561,6 @@ struct AddSourceView: View {
         let username = self.username.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = self.password
 
-        // An edited Synology source already has a last known-good credential.
-        // Replacing it from this form would bypass DSM login/2FA/SSL validation.
-        // Credential rotation therefore happens only through ConnectionFlowView.
-        if sourceType == .synology, editingSource != nil, !password.isEmpty {
-            self.password = ""
-            showSynologyPasswordValidationInfo = true
-            return
-        }
-
         // S3 special mapping: host=endpoint, basePath=bucket, shareName→basePath,
         // extraConfig=JSON{region, dirs} (region + scanned-directory list).
         let finalHost: String?
@@ -1624,6 +1658,14 @@ struct AddSourceView: View {
         )
         if supportsAdaptiveConnections {
             source = source.projectingPreferredConnectionForLegacy()
+        }
+
+        // Validate against the edited address and account before replacing the
+        // stored password. The shared flow also handles DSM two-step sign-in.
+        if sourceType.usesSynologyConnectionMode, isEditing, !password.isEmpty {
+            validatedCredentialSource = nil
+            credentialValidationSource = source
+            return
         }
 
         if requiresAuthenticatedMediaServerPreflight {
@@ -1862,6 +1904,13 @@ struct AddSourceView: View {
         }
     }
 
+    private func finishCredentialValidation() {
+        guard let source = validatedCredentialSource else { return }
+        validatedCredentialSource = nil
+        password = ""
+        completeSave(source)
+    }
+
     private func makeAdaptiveConnectionConfiguration() -> SourceConnectionConfiguration? {
         guard supportsAdaptiveConnections else { return nil }
 
@@ -1917,12 +1966,6 @@ struct AddSourceView: View {
     private func normalizedOptionalPath(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private var credentialEditHint: LocalizedStringKey {
-        sourceType == .synology
-            ? "synology_password_edit_validation_hint"
-            : "password_edit_hint"
     }
 
     #if os(macOS)

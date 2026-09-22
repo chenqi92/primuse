@@ -92,7 +92,8 @@ struct MacQueuePanel: View {
                                         roundOffset: entry.id.roundOffset
                                     ),
                                     allowsRemoval: player.canRemoveUpcomingQueueEntries
-                                        && entry.id.queueEntryID != currentEntryID
+                                        && entry.id.queueEntryID != currentEntryID,
+                                    unreachable: isUnreachable(entry.entry.song)
                                 )
                             }
                         }
@@ -151,7 +152,8 @@ struct MacQueuePanel: View {
                           isPlaying: Bool = false,
                           dimmed: Bool = false,
                           reorderID: QueueReorderOccurrenceID? = nil,
-                          allowsRemoval: Bool = false) -> some View {
+                          allowsRemoval: Bool = false,
+                          unreachable: Bool = false) -> some View {
         let song = displayedSong ?? entry.song
         let isDropTarget = dropTarget == reorderID && reorderID != nil
         let accessibilityLabel = [song.title, library.artistDisplayName(for: song)]
@@ -173,10 +175,18 @@ struct MacQueuePanel: View {
                     .font(.system(size: 12, weight: isPlaying ? .semibold : .medium))
                     .foregroundStyle(isPlaying ? PMColor.brand : PMColor.text)
                     .lineLimit(1)
-                Text(library.artistDisplayName(for: song) ?? "")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(PMColor.textFaint)
-                    .lineLimit(1)
+                if unreachable {
+                    // Playback steps over this entry until its source answers.
+                    Label("song_row_source_unreachable", systemImage: "wifi.slash")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                } else {
+                    Text(library.artistDisplayName(for: song) ?? "")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(PMColor.textFaint)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 8)
@@ -223,7 +233,7 @@ struct MacQueuePanel: View {
             y: isDropTarget ? 2 : 0
         )
         .pmAnimation(.list, value: isDropTarget)
-        .opacity(dimmed ? 0.52 : 1)
+        .opacity(dimmed || unreachable ? 0.52 : 1)
         .contentShape(Rectangle())
         .onTapGesture { playEntry(entry) }
         // 拖起这一行时渲染进独立的拖拽预览宿主, 那里不继承按类型注入的可观察
@@ -306,6 +316,13 @@ struct MacQueuePanel: View {
     }
 
     // MARK: - Actions
+
+    /// Read here, in the list body, and handed to the row as a value: a row
+    /// lifted into a drag preview has no environment to read it from.
+    private func isUnreachable(_ song: Song) -> Bool {
+        sourceManager.unreachablePlaybackSourceIDs.contains(song.sourceID)
+            && player.isSongBlockedByUnreachableSource(song)
+    }
 
     private func playEntry(_ entry: QueueEntry) {
         guard let index = player.queueEntries.firstIndex(where: { $0.id == entry.id }) else { return }

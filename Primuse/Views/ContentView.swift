@@ -215,7 +215,11 @@ private struct MinimalNavigationBarsEnvironmentKey: EnvironmentKey {
 
 private struct MinimalNavigationDetailTransitionHandlerEnvironmentKey: EnvironmentKey {
     static let defaultValue:
-        (@MainActor (UUID, MinimalNavigationDetailScope, Bool) -> Void)? = nil
+        (@MainActor (
+            UUID,
+            MinimalNavigationDetailScope,
+            MinimalNavigationDetailTransitionEvent
+        ) -> Void)? = nil
 }
 
 private struct MinimalNavigationDetailScopesPreferenceKey: PreferenceKey {
@@ -251,7 +255,11 @@ extension EnvironmentValues {
     }
 
     var minimalNavigationDetailTransitionHandler:
-        (@MainActor (UUID, MinimalNavigationDetailScope, Bool) -> Void)? {
+        (@MainActor (
+            UUID,
+            MinimalNavigationDetailScope,
+            MinimalNavigationDetailTransitionEvent
+        ) -> Void)? {
         get { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] }
         set { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] = newValue }
     }
@@ -427,8 +435,8 @@ private struct MinimalNavigationDetailModifier: ViewModifier {
                     value: Set([detailScope])
                 )
                 .background {
-                    MinimalNavigationDetailTransitionReporter { isVisible in
-                        transitionHandler?(transitionID, detailScope, isVisible)
+                    MinimalNavigationDetailTransitionReporter { event in
+                        transitionHandler?(transitionID, detailScope, event)
                     }
                     .frame(width: 0, height: 0)
                 }
@@ -442,26 +450,37 @@ private struct MinimalNavigationDetailModifier: ViewModifier {
 }
 
 private struct MinimalNavigationDetailTransitionReporter: UIViewControllerRepresentable {
-    let onVisibilityChange: @MainActor (Bool) -> Void
+    let onTransition: @MainActor (MinimalNavigationDetailTransitionEvent) -> Void
 
     func makeUIViewController(context: Context) -> ReporterViewController {
-        ReporterViewController(onVisibilityChange: onVisibilityChange)
+        ReporterViewController(onTransition: onTransition)
     }
 
     func updateUIViewController(
         _ uiViewController: ReporterViewController,
         context: Context
     ) {
-        uiViewController.onVisibilityChange = onVisibilityChange
+        uiViewController.onTransition = onTransition
+    }
+
+    static func dismantleUIViewController(
+        _ uiViewController: ReporterViewController,
+        coordinator: ()
+    ) {
+        uiViewController.retire()
     }
 
     @MainActor
     final class ReporterViewController: UIViewController {
-        var onVisibilityChange: @MainActor (Bool) -> Void
+        var onTransition: @MainActor (MinimalNavigationDetailTransitionEvent) -> Void
         private var reportsVisible = false
+        private var popGeneration: UInt64 = 0
+        private var isRetired = false
 
-        init(onVisibilityChange: @escaping @MainActor (Bool) -> Void) {
-            self.onVisibilityChange = onVisibilityChange
+        init(
+            onTransition: @escaping @MainActor (MinimalNavigationDetailTransitionEvent) -> Void
+        ) {
+            self.onTransition = onTransition
             super.init(nibName: nil, bundle: nil)
         }
 
@@ -484,20 +503,63 @@ private struct MinimalNavigationDetailTransitionReporter: UIViewControllerRepres
 
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
-            guard let coordinator = navigationPopCoordinator() else { return }
+            guard !isRetired, let coordinator = navigationPopCoordinator() else { return }
 
+            popGeneration &+= 1
+            let generation = popGeneration
             reportsVisible = false
-            onVisibilityChange(false)
+            onTransition(.popping)
             coordinator.animate(alongsideTransition: nil) { [weak self] context in
                 guard context.isCancelled else { return }
-                self?.reportVisible()
+                self?.restoreAfterCancelledPop(generation: generation)
             }
         }
 
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            // 被上层详情页、页签切换或全屏封面盖住时这一页还在导航栈里,登记要留着。
+            // 已经不在栈里才是真的走了 —— 包括系统没走一次认得出的返回转场的情况。
+            guard !isRetired, !isInNavigationStack else { return }
+            reportsVisible = false
+            onTransition(.removed)
+        }
+
+        /// SwiftUI 拆掉这张详情页时的最后一次汇报,此后迟到的转场回调一律不再理会。
+        func retire() {
+            guard !isRetired else { return }
+            isRetired = true
+            reportsVisible = false
+            let onTransition = onTransition
+            // dismantle 发生在 SwiftUI 的视图更新当中,状态改动放到这次更新之后。
+            Task { @MainActor in
+                onTransition(.removed)
+            }
+        }
+
+        /// 卡片放大转场的拖拽返回可以中途换一只手势接管(先向右、再向下):先开始的那次
+        /// 返回以「已取消」收尾,而页面正被后一次返回带走。只有最近一次返回被取消,才算
+        /// 回到了详情页。
+        private func restoreAfterCancelledPop(generation: UInt64) {
+            guard generation == popGeneration else { return }
+            reportVisible()
+        }
+
         private func reportVisible() {
-            guard !reportsVisible else { return }
+            guard !isRetired, !reportsVisible else { return }
             reportsVisible = true
-            onVisibilityChange(true)
+            onTransition(.appearing)
+        }
+
+        private var isInNavigationStack: Bool {
+            var ancestor = parent
+            while let viewController = ancestor {
+                if let navigationController = viewController.navigationController,
+                   navigationController.viewControllers.contains(where: { $0 === viewController }) {
+                    return true
+                }
+                ancestor = viewController.parent
+            }
+            return false
         }
 
         private func navigationPopCoordinator() -> UIViewControllerTransitionCoordinator? {
@@ -559,6 +621,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     case libraryFolders
     case libraryStatistics
     case librarySongs
+    case librarySpokenWord
     case libraryAlbums
     case libraryArtists
     case libraryGenres
@@ -574,7 +637,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     var rawValueTab: Int {
         switch self {
         case .home: return 0
-        case .library, .libraryRecommendations, .librarySongs, .libraryAlbums,
+        case .library, .libraryRecommendations, .librarySongs, .librarySpokenWord, .libraryAlbums,
                 .libraryArtists, .libraryGenres, .libraryPlaylists, .libraryRadio,
                 .libraryFavorites, .libraryFolders, .libraryStatistics:
             return 1
@@ -592,6 +655,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .folders: return .libraryFolders
         case .statistics: return .libraryStatistics
         case .songs: return .librarySongs
+        case .spokenWord: return .librarySpokenWord
         case .albums: return .libraryAlbums
         case .artists: return .libraryArtists
         case .genres: return .libraryGenres
@@ -609,6 +673,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .libraryFolders: return "library_browse_folder"
         case .libraryStatistics: return "stats_title"
         case .librarySongs: return "tab_songs"
+        case .librarySpokenWord: return "tab_spoken_word"
         case .libraryAlbums: return "tab_albums"
         case .libraryArtists: return "tab_artists"
         case .libraryGenres: return "tab_genres"
@@ -628,6 +693,7 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
         case .libraryFolders: return "folder.fill"
         case .libraryStatistics: return "chart.bar.fill"
         case .librarySongs: return "music.note"
+        case .librarySpokenWord: return "books.vertical.fill"
         case .libraryAlbums: return "square.stack.fill"
         case .libraryArtists: return "music.mic"
         case .libraryGenres: return "tag.fill"
@@ -698,6 +764,10 @@ struct ContentView: View {
     @State private var searchNavigation = LibrarySearchNavigation()
     @State private var searchScope: LibrarySearchScope?
     @State private var searchContext: LibrarySearchScope?
+    /// 用户刚点了搜索入口, 搜索页据此直接弹出键盘。
+    @State private var searchFieldActivationRequested = false
+    /// 极简导航没有系统导航栏, 「调整搜索结果」的入口在自绘顶栏里, 由搜索页负责弹出。
+    @State private var searchLayoutEditorRequested = false
     @State private var settingsSearch = SettingsSearchState()
     @State private var showNowPlaying = false
     @State private var nowPlayingPresentationID = UUID()
@@ -710,11 +780,8 @@ struct ContentView: View {
     @State private var isReconcilingPlaybackRemovals = false
     @State private var libraryDeepLink: LibraryDeepLink?
     @State private var minimalLibrarySection: LibrarySection?
-    @State private var minimalDetailScopes: Set<MinimalNavigationDetailScope> = []
-    @State private var minimalPresentedDetailScopes:
-        [UUID: MinimalNavigationDetailScope] = [:]
-    @State private var minimalReturningDetailScopes:
-        Set<MinimalNavigationDetailScope> = []
+    @State private var minimalDetailLedger =
+        MinimalNavigationDetailLedger<MinimalNavigationDetailScope>()
     @State private var minimalNavigationCategoriesCollapsed = false
     /// 手机横屏下的分类行折叠状态,与竖屏那一份分开记。横屏的静止状态是收起,竖屏保留
     /// 用户自己滚出来的状态;两边各记各的,来回旋转不会把横屏的收起带进竖屏。
@@ -775,6 +842,8 @@ struct ContentView: View {
             orderRawValue: librarySectionOrderRawValue,
             hiddenRawValue: hiddenLibrarySectionsRawValue
         )
+        // 没有有声内容时不摆这个入口。
+        .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
     }
 
     private var minimalCollapsibleChromeHeight: CGFloat {
@@ -796,13 +865,11 @@ struct ContentView: View {
     }
 
     private var minimalTopNavigationHidden: Bool {
-        var effectiveDetailScopes = minimalDetailScopes
-        effectiveDetailScopes.formUnion(minimalPresentedDetailScopes.values)
-        return MinimalNavigationChromePolicy.hidesTopNavigation(
+        MinimalNavigationChromePolicy.hidesTopNavigation(
             mode: navigationMode,
             selectedTab: selectedTab,
-            detailScopes: effectiveDetailScopes,
-            returningScopes: minimalReturningDetailScopes
+            detailScopes: minimalDetailLedger.detailScopes,
+            returningScopes: minimalDetailLedger.returning
         )
     }
 
@@ -850,6 +917,8 @@ struct ContentView: View {
             Tab(String(localized: "search_title"), systemImage: "magnifyingglass",
                 value: 2, role: searchTabRole) {
                 SearchView(searchText: $searchText, scope: $searchScope,
+                           activatesSearchField: $searchFieldActivationRequested,
+                           requestsResultLayoutEditor: $searchLayoutEditorRequested,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
                     .id("primuse.tab.search")
                     .environment(\.minimalNavigationDetailScope, .search)
@@ -864,11 +933,11 @@ struct ContentView: View {
         }
         .softNavigationScrollEdges()
         .environment(\.minimalNavigationDetailTransitionHandler) {
-            transitionID, detailScope, isVisible in
+            transitionID, detailScope, event in
             updateMinimalNavigationDetailTransition(
                 id: transitionID,
                 scope: detailScope,
-                isVisible: isVisible
+                event: event
             )
         }
     }
@@ -902,8 +971,7 @@ struct ContentView: View {
                     )
             }
             .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
-                minimalDetailScopes = scopes
-                minimalReturningDetailScopes.formIntersection(scopes)
+                minimalDetailLedger.updateMounted(scopes)
             }
     }
 
@@ -957,7 +1025,8 @@ struct ContentView: View {
                     showsHome: minimalShowsHome
                 ),
                 onSelect: selectMinimalPage,
-                onSubmitSearch: submitMinimalSearch
+                onSubmitSearch: submitMinimalSearch,
+                onEditSearchLayout: { searchLayoutEditorRequested = true }
             )
             .opacity(
                 minimalTopNavigationHidden
@@ -1010,6 +1079,10 @@ struct ContentView: View {
             let selection = Binding<SidebarItem?>(
                 get: { sidebarSelection },
                 set: { if let v = $0 {
+                    // 从侧栏点「搜索」进来就直接弹出键盘。
+                    if v == .search, sidebarSelection != .search {
+                        searchFieldActivationRequested = true
+                    }
                     selectTab(v.rawValueTab)
                     sidebarSelection = v
                 } }
@@ -1075,6 +1148,8 @@ struct ContentView: View {
             librarySubpane(title: "stats_title") { ListeningStatsView() }
         case .librarySongs:
             librarySubpane(title: "tab_songs") { SongListView() }
+        case .librarySpokenWord:
+            librarySubpane(title: "tab_spoken_word") { SpokenWordLibraryView() }
         case .libraryAlbums:
             librarySubpane(title: "tab_albums") { AlbumGridView() }
         case .libraryArtists:
@@ -1087,6 +1162,7 @@ struct ContentView: View {
             librarySubpane(title: "radio_title") { RadioStationsView() }
         case .search:
             SearchView(searchText: $searchText, scope: $searchScope,
+                           activatesSearchField: $searchFieldActivationRequested,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
         case .settings:
             SettingsView(scraperSettingsRoute: $scraperSettingsRoute)
@@ -1124,12 +1200,21 @@ struct ContentView: View {
         // 既不能闪 onboarding (它由 SourcesStore 驱动, 但入口在下面这棵树的
         // `.task` 里), 也不能闪"空资料库"状态。
         Group {
-            if library.isReady {
+            if LaunchDiagnostics.isSafeModeActive {
+                // 连续两次启动没跑完。这一支完全不碰首页、迷你播放条与入场
+                // 动画，落地页只有回执和发送入口，先保证他打得开。
+                LaunchSafeModeView()
+            } else if library.isReady {
                 mainContent
+                    .onAppear { LaunchDiagnostics.mark(.homeFirstFrame) }
             } else {
                 LibraryPreparingView()
+                    .onAppear { LaunchDiagnostics.mark(.preparingLibrary) }
             }
         }
+        // 上次启动没跑完时的回执。挂在这一层而不是 `mainContent` 里：占位页要
+        // 显示十秒, 弹在那上面比等首页出来再弹稳妥得多 —— 首页正是出事的地方。
+        .launchAbortReport()
         // 首页模型放进环境：设置里的界面编辑器要就地渲染真实首页，编辑的必须是
         // 同一份状态，另起一个实例会看到不一样的快照。
         .environment(homeModel)
@@ -1200,6 +1285,7 @@ struct ContentView: View {
         .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
         .onPreferenceChange(CarPlayEditorActivePreferenceKey.self) { carPlayEditorActive = $0 }
         .songBatchRemovalFeedback()
+        .appleMusicSubscriptionOffer()
         .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { isActive in
             batchSelectionActive = isActive
         }
@@ -1343,7 +1429,17 @@ struct ContentView: View {
 
     private var searchAwareTabSelection: Binding<Int> {
         // TabView validates its first selection before the restoration task runs.
-        Binding(get: { AppTabSelectionPolicy.resolve(selectedTab) }, set: { selectTab($0) })
+        Binding(
+            get: { AppTabSelectionPolicy.resolve(selectedTab) },
+            set: { tab in
+                // 点底部「搜索」进来就直接弹出键盘, 不必再点一次搜索框。
+                // 只认真的切换: 启动时恢复到搜索页不该自己弹键盘。
+                if AppTabSelectionPolicy.resolve(tab) == 2, selectedTab != 2 {
+                    searchFieldActivationRequested = true
+                }
+                selectTab(tab)
+            }
+        )
     }
 
     private func selectTab(_ tab: Int) {
@@ -1563,18 +1659,14 @@ struct ContentView: View {
     private func updateMinimalNavigationDetailTransition(
         id: UUID,
         scope: MinimalNavigationDetailScope,
-        isVisible: Bool
+        event: MinimalNavigationDetailTransitionEvent
     ) {
-        if isVisible {
-            minimalPresentedDetailScopes[id] = scope
-            minimalReturningDetailScopes.remove(scope)
-            return
-        }
-
-        minimalPresentedDetailScopes[id] = nil
-        if !minimalPresentedDetailScopes.values.contains(scope) {
-            minimalReturningDetailScopes.insert(scope)
-        }
+        var ledger = minimalDetailLedger
+        ledger.record(event, id: id, scope: scope)
+        // 一张详情页离开时 removed 会到两次(离开导航栈、被拆掉),没变化就不写回,
+        // 免得根视图白白重算一遍。
+        guard ledger != minimalDetailLedger else { return }
+        minimalDetailLedger = ledger
     }
 }
 
@@ -1907,6 +1999,7 @@ private struct MinimalTopNavigationBar: View {
     let selection: MinimalNavigationPage
     let onSelect: (MinimalNavigationPage) -> Void
     let onSubmitSearch: () -> Void
+    let onEditSearchLayout: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.skin) private var skin
@@ -1977,6 +2070,10 @@ private struct MinimalTopNavigationBar: View {
                         .foregroundStyle(skin.color(.accent))
                         .fixedSize(horizontal: true, vertical: false)
                         .background(skin.color(.accentSoft), in: Circle())
+                }
+
+                if selection == .search {
+                    searchLayoutButton
                 }
 
                 actionButton(
@@ -2140,38 +2237,52 @@ private struct MinimalTopNavigationBar: View {
         return Button {
             select(page)
         } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                // 经典样式里这个键一直是强调色;自己画底色的样式里,只有选中时才点亮。
-                .foregroundStyle(
-                    usesCanvasChrome && !isSelected ? skin.color(.chromeItem) : skin.color(.accent)
-                )
-                .frame(width: actionButtonSize, height: actionButtonSize)
-                .contentShape(Rectangle())
-                .background {
-                    if usesCanvasChrome {
-                        Circle().fill(isSelected ? skin.color(.chipSelected) : skin.color(.surface))
-                    } else {
-                        ZStack {
-                            Circle().fill(.thinMaterial)
-                            Circle().fill(skin.color(.accent).opacity(isSelected ? 0.2 : 0.14))
-                        }
-                    }
-                }
-                .overlay {
-                    Circle()
-                        .strokeBorder(
-                            usesCanvasChrome && !isSelected
-                                ? skin.color(.surfaceBorder)
-                                : skin.color(.accent).opacity(usesCanvasChrome ? 0.42 : 0.32),
-                            lineWidth: usesCanvasChrome ? 1 : 0.5
-                        )
-                }
-                .shadow(color: controlShadow, radius: 5, y: 2)
+            actionButtonLabel(systemImage: systemImage, isSelected: isSelected)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(title))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// 搜索页的「调整搜索结果」。极简导航没有系统导航栏, 入口放在设置按钮左边。
+    private var searchLayoutButton: some View {
+        Button(action: onEditSearchLayout) {
+            actionButtonLabel(systemImage: "slider.horizontal.3", isSelected: false)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("search_layout_title"))
+        .accessibilityIdentifier("search.layout.button")
+    }
+
+    private func actionButtonLabel(systemImage: String, isSelected: Bool) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 16, weight: .semibold))
+            // 经典样式里这个键一直是强调色;自己画底色的样式里,只有选中时才点亮。
+            .foregroundStyle(
+                usesCanvasChrome && !isSelected ? skin.color(.chromeItem) : skin.color(.accent)
+            )
+            .frame(width: actionButtonSize, height: actionButtonSize)
+            .contentShape(Rectangle())
+            .background {
+                if usesCanvasChrome {
+                    Circle().fill(isSelected ? skin.color(.chipSelected) : skin.color(.surface))
+                } else {
+                    ZStack {
+                        Circle().fill(.thinMaterial)
+                        Circle().fill(skin.color(.accent).opacity(isSelected ? 0.2 : 0.14))
+                    }
+                }
+            }
+            .overlay {
+                Circle()
+                    .strokeBorder(
+                        usesCanvasChrome && !isSelected
+                            ? skin.color(.surfaceBorder)
+                            : skin.color(.accent).opacity(usesCanvasChrome ? 0.42 : 0.32),
+                        lineWidth: usesCanvasChrome ? 1 : 0.5
+                    )
+            }
+            .shadow(color: controlShadow, radius: 5, y: 2)
     }
 
     private func libraryButton(_ page: MinimalNavigationPage) -> some View {

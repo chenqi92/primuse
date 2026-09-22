@@ -479,6 +479,36 @@ public enum RemoteMetadataReadPolicy {
     public static let initialContainerTailByteCount = 256 * 1024
     public static let defaultMP3BitRateKbps = 192
 
+    /// 不必连嵌入封面一起取时的首段大小。标签本身(标题/艺人/专辑)加上定位第一
+    /// 个音频帧所需的字节远小于这个数, 32 KB 足够, 也对齐常见的 IO 块大小。
+    public static let compactInitialHeadByteCount = 32 * 1024
+
+    /// 首段读多少字节。
+    ///
+    /// 还要顺带取嵌入封面的歌保持整段读: 封面通常就落在前 256 KB 里, 一次取回
+    /// 比"先小段拿到标签声明的长度、再按长度补第二段"少一次往返, 字节数也更少。
+    /// 不取封面时反过来——绝大多数歌的标签只有几 KB, 整段读等于白拉 200 多 KB。
+    ///
+    /// 小首段只给头部标签自带长度声明、且回填侧已有按需扩展路径的格式:
+    /// MP3 的 ID3 头写着整个 tag 的长度, FLAC 每个 metadata block 的 header 带
+    /// 24-bit 长度, Ogg/Opus/Speex 按页边界、WMA 按 header object 声明扩展。
+    /// M4A(moov 可能在尾部)、APE、WAV 这些头部没有可依赖的声明, 缩小首段只会把
+    /// 一次读取拆成一次读取加一次兜底。
+    public static func backfillInitialHeadByteCount(
+        declaredFileExtension: String,
+        needsEmbeddedArtwork: Bool
+    ) -> Int {
+        guard !needsEmbeddedArtwork,
+              formatsWithDeclaredHeadTagLength.contains(declaredFileExtension.lowercased())
+        else { return initialHeadByteCount }
+        return compactInitialHeadByteCount
+    }
+
+    /// 头部标签自带长度声明, 回填可以按声明补齐的格式。
+    private static let formatsWithDeclaredHeadTagLength: Set<String> = [
+        "mp3", "flac", "ogg", "oga", "opus", "spx", "speex", "wma"
+    ]
+
     public static func initialReadSize(fileSize: Int64) -> Int {
         guard fileSize > 0 else { return 0 }
         return min(Int(clamping: fileSize), initialHeadByteCount)

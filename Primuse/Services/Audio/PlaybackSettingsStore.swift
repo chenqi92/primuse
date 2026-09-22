@@ -11,6 +11,15 @@ enum AudioOutputMode: String, Codable, Sendable, CaseIterable {
         case .effects: String(localized: "output_mode_effects")
         }
     }
+
+    /// What high-fidelity direct bypasses, then the hardware it takes to hear
+    /// the difference at all. Shown before the mode is switched on and under
+    /// the picker while it is on.
+    static var highFidelityExplanation: String {
+        String(localized: "output_mode_high_fidelity_desc")
+            + "\n\n"
+            + String(localized: "output_mode_high_fidelity_hardware_note")
+    }
 }
 
 enum DSDPlaybackMode: String, Codable, Sendable, CaseIterable {
@@ -67,6 +76,13 @@ extension StreamQualityPreference {
 struct PlaybackSettings: Codable, Sendable {
     static let defaultsKey = "primuse_playback_settings_v1"
     static let lockScreenLyricsRolloutKey = "primuse_lock_screen_lyrics_default_enabled_v1"
+    static let crossfadeDurationRolloutKey = "primuse_crossfade_default_duration_v2"
+
+    /// Three seconds mostly overlapped the recorded fade-out at the end of a
+    /// file, so an enabled crossfade was hard to hear at all. Five seconds is
+    /// long enough to be audible without stepping on the next song's intro.
+    static let defaultCrossfadeDuration: Double = 5.0
+    static let legacyDefaultCrossfadeDuration: Double = 3.0
 
     /// New installs start on the full processing graph. High-fidelity direct
     /// bypasses EQ, playback speed, crossfade, spatial audio and ReplayGain —
@@ -80,7 +96,7 @@ struct PlaybackSettings: Codable, Sendable {
     /// New installs use energy-aware boundaries. Persisted payloads from
     /// earlier builds decode as `.fixed` below to preserve their exact sound.
     var crossfadeMode: CrossfadeMode = .smart
-    var crossfadeDuration: Double = 3.0
+    var crossfadeDuration: Double = PlaybackSettings.defaultCrossfadeDuration
     var replayGainEnabled: Bool = false
     var replayGainMode: ReplayGainMode = .track
     var spatialAudioEnabled: Bool = false
@@ -132,7 +148,8 @@ struct PlaybackSettings: Codable, Sendable {
         gaplessEnabled = try c.decodeIfPresent(Bool.self, forKey: .gaplessEnabled) ?? false
         crossfadeEnabled = try c.decodeIfPresent(Bool.self, forKey: .crossfadeEnabled) ?? false
         crossfadeMode = try c.decodeIfPresent(CrossfadeMode.self, forKey: .crossfadeMode) ?? .fixed
-        crossfadeDuration = try c.decodeIfPresent(Double.self, forKey: .crossfadeDuration) ?? 3.0
+        crossfadeDuration = try c.decodeIfPresent(Double.self, forKey: .crossfadeDuration)
+            ?? Self.defaultCrossfadeDuration
         replayGainEnabled = try c.decodeIfPresent(Bool.self, forKey: .replayGainEnabled) ?? false
         replayGainMode = try c.decodeIfPresent(ReplayGainMode.self, forKey: .replayGainMode) ?? .track
         spatialAudioEnabled = try c.decodeIfPresent(Bool.self, forKey: .spatialAudioEnabled) ?? false
@@ -169,7 +186,7 @@ struct PlaybackSettings: Codable, Sendable {
         gaplessEnabled: Bool = false,
         crossfadeEnabled: Bool = false,
         crossfadeMode: CrossfadeMode = .smart,
-        crossfadeDuration: Double = 3.0,
+        crossfadeDuration: Double = PlaybackSettings.defaultCrossfadeDuration,
         replayGainEnabled: Bool = false,
         replayGainMode: ReplayGainMode = .track,
         spatialAudioEnabled: Bool = false,
@@ -258,6 +275,29 @@ struct PlaybackSettings: Codable, Sendable {
         settings.lockScreenLyricsEnabled = true
         settings.save(defaults: defaults)
         defaults.set(true, forKey: lockScreenLyricsRolloutKey)
+        return true
+    }
+
+    /// The whole payload is persisted on first launch, so the old three-second
+    /// value is frozen into existing installs even when crossfade was never used.
+    /// Move those to the current default once; a duration picked while
+    /// crossfade is on, or any value other than the old default, is a choice
+    /// and stays as it is.
+    @discardableResult
+    static func applyCrossfadeDurationRolloutIfNeeded(
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard defaults.object(forKey: crossfadeDurationRolloutKey) == nil else {
+            return false
+        }
+        defaults.set(true, forKey: crossfadeDurationRolloutKey)
+        var settings = load(defaults: defaults)
+        guard !settings.crossfadeEnabled,
+              settings.crossfadeDuration == legacyDefaultCrossfadeDuration else {
+            return false
+        }
+        settings.crossfadeDuration = defaultCrossfadeDuration
+        settings.save(defaults: defaults)
         return true
     }
 }
@@ -398,7 +438,9 @@ final class PlaybackSettingsStore {
         CloudKVSSync.shared.register(key: PlaybackSettings.defaultsKey) { [weak self] in
             self?.reloadFromDefaults()
         }
-        if PlaybackSettings.applyLockScreenLyricsRolloutIfNeeded(defaults: defaults) {
+        let lyricsRolledOut = PlaybackSettings.applyLockScreenLyricsRolloutIfNeeded(defaults: defaults)
+        let crossfadeRolledOut = PlaybackSettings.applyCrossfadeDurationRolloutIfNeeded(defaults: defaults)
+        if lyricsRolledOut || crossfadeRolledOut {
             reloadFromDefaults()
             CloudKVSSync.shared.markChanged(key: PlaybackSettings.defaultsKey)
         }

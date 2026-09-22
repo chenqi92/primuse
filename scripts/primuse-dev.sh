@@ -19,6 +19,8 @@ DEVICE_DISCOVERY_TIMEOUT="${DEVICE_DISCOVERY_TIMEOUT:-15}"
 APP_GROUP_ID="${APP_GROUP_ID:-group.com.welape.yuanyin}"
 LOG_OUTPUT_DIR="${LOG_OUTPUT_DIR:-$ROOT_DIR/logs}"
 SYNC_TEST_WAIT="${SYNC_TEST_WAIT:-180}"
+# 设备上日志轮转最多保留几代（与 App 里 DiagnosticLoggingPolicy.diagnosticLimits 一致）。
+LOG_GENERATIONS=4
 
 IOS_DERIVED_DATA="${IOS_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/iOS}"
 MAC_DERIVED_DATA="${MAC_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/macOS}"
@@ -44,48 +46,35 @@ SIMULATOR_WINDOW_SHOWN=""
 usage() {
     cat <<'EOF'
 用法：
-  scripts/primuse-dev.sh
-  scripts/primuse-dev.sh install
-  scripts/primuse-dev.sh ios-clean
-  scripts/primuse-dev.sh ios-overwrite
-  scripts/primuse-dev.sh iphone-clean
-  scripts/primuse-dev.sh iphone-overwrite
-  scripts/primuse-dev.sh devices
-  scripts/primuse-dev.sh sim
-  scripts/primuse-dev.sh sim-install
-  scripts/primuse-dev.sh sim-clean
-  scripts/primuse-dev.sh sim-overwrite
-  scripts/primuse-dev.sh sim-devices
-  scripts/primuse-dev.sh tv
-  scripts/primuse-dev.sh tv-install
-  scripts/primuse-dev.sh tv-clean
-  scripts/primuse-dev.sh tv-overwrite
-  scripts/primuse-dev.sh tv-devices
-  scripts/primuse-dev.sh mac
-  scripts/primuse-dev.sh sync-test
-  scripts/primuse-dev.sh pull-logs
+  scripts/primuse-dev.sh              不带参数时显示交互菜单
+  scripts/primuse-dev.sh <操作> [参数]
 
-操作：
-  install           先选择 iPhone/iPad，再交互选择安装方式
-  ios-clean         编译后卸载并重新安装到 iPhone/iPad，会清除 App 本地数据
-  ios-overwrite     编译后直接覆盖安装到 iPhone/iPad，保留 App 本地数据
-  iphone-clean      ios-clean 的兼容别名
-  iphone-overwrite  ios-overwrite 的兼容别名
-  devices           检查当前可用于开发的 iPhone/iPad
-  sim               编译、覆盖安装并启动到 iOS 模拟器
-  sim-install       选择 iOS 模拟器，再交互选择安装方式
+安装与运行
+  install           选择 iPhone/iPad，再选覆盖安装或完全重装
+  ios-overwrite     编译并覆盖安装到 iPhone/iPad，保留 App 本地数据（别名 iphone-overwrite）
+  ios-clean         编译后卸载重装到 iPhone/iPad，会清除 App 本地数据（别名 iphone-clean）
+  sim-install       选择 iOS 模拟器，再选安装方式
+  sim               编译、覆盖安装并启动到 iOS 模拟器（别名 sim-overwrite）
   sim-clean         编译后完全重装到 iOS 模拟器，会清除 App 本地数据
-  sim-overwrite     sim 的明确别名，覆盖安装并保留 App 本地数据
-  sim-devices       列出 iOS 模拟器及能否运行 App
-  tv                编译、覆盖安装并启动 tvOS App（模拟器或真机）
-  tv-install        选择 tvOS 模拟器或真机，再交互选择安装方式
+  tv-install        选择 tvOS 模拟器或 Apple TV 真机，再选安装方式
+  tv                编译、覆盖安装并启动 tvOS App（别名 tv-overwrite）
   tv-clean          编译后完全重装 tvOS App，会清除 App 本地数据
-  tv-overwrite      tv 的明确别名，覆盖安装并保留 App 本地数据
-  tv-devices        扫描可用的 tvOS 模拟器和已配对 Apple TV 真机
   mac               编译并启动 macOS App
+
+检查设备
+  devices           检查可用于开发的 iPhone/iPad
+  sim-devices       列出 iOS 模拟器及能否运行 App
+  tv-devices        扫描 tvOS 模拟器和已配对的 Apple TV 真机
+
+诊断与测试（iPhone/iPad，需 Debug 构建；日志拉到 logs/）
+  diag              诊断日志模式菜单：开启 / 关闭 / 拉取日志
+  diag-on [小时]    开启诊断日志模式并重启 App，默认 24 小时（1–72）：
+                    日志单文件 25MB、保留 4 代，每 10 秒记录 CPU、线程、内存、磁盘读写、
+                    唤醒、主线程卡顿和发热，用来事后查看界面上看不出来的后台问题
+  diag-off          关闭诊断日志模式并重启 App
   sync-test         iCloud 同步测试场景：模拟升级/恢复后首次同步、全新安装、正常冷启动，
-                    跑完自动把调试日志和诊断报告拉到 logs/ 并打印同步摘要（需 Debug 构建）
-  pull-logs         选择 iPhone/iPad，只拉取调试日志和 MetricKit 诊断报告到 logs/
+                    跑完自动拉取日志并打印同步摘要
+  pull-logs         只拉取调试日志（含轮转的历史代）和 MetricKit 诊断报告，并打印摘要
 
 可选环境变量：
   DEVICE_ID               目标设备名称、CoreDevice ID 或 UDID；未设置时自动发现
@@ -103,6 +92,24 @@ usage() {
   LOG_OUTPUT_DIR          拉取日志的存放目录，默认仓库下的 logs/
   APP_GROUP_ID            诊断报告所在的 App Group，默认 group.com.welape.yuanyin
 EOF
+}
+
+# 破坏性操作前的确认：只有输入 DELETE 才返回 0，其余一律视为取消。
+confirm_delete() {
+    local warning="$1"
+
+    echo
+    echo "$warning"
+    printf "输入 DELETE 继续："
+    local confirmation=""
+    if ! IFS= read -r confirmation; then
+        echo
+    fi
+    if [[ "$confirmation" == "DELETE" ]]; then
+        return 0
+    fi
+    echo "未确认删除，操作已取消；现有 App 和数据未变更。"
+    return 1
 }
 
 require_command() {
@@ -512,19 +519,7 @@ ensure_ios_device_selected() {
 ios_clean_install() {
     ensure_ios_device_selected
 
-    echo
-    echo "警告：下一步会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 上的全部本地数据。"
-    printf "输入 DELETE 继续完全重装："
-    local confirmation
-    if ! IFS= read -r confirmation; then
-        echo
-        echo "未确认删除，操作已取消；现有 App 和数据未变更。"
-        return
-    fi
-    if [[ "$confirmation" != "DELETE" ]]; then
-        echo "未确认删除，操作已取消；现有 App 和数据未变更。"
-        return
-    fi
+    confirm_delete "警告：下一步会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 上的全部本地数据。" || return 0
 
     ios_clean_install_confirmed
 }
@@ -604,12 +599,16 @@ interactive_ios_install() {
 # 以拉回的日志里有没有 🧪 行为准。
 # ---------------------------------------------------------------------------
 
-launch_ios_with_scenario() {
-    local scenario="$1"
+# 启动 iPhone/iPad 上的 App，并把 KEY=VALUE 形式的环境变量传给它（可以不传）。
+# 同时走 --environment-variables 和 DEVICECTL_CHILD_ 前缀两条路，第一条失败再只用第二条；
+# 参数有没有真的传进 App，以拉回的日志为准（同步测试有 🧪 行，诊断模式有 🩺 行）。
+launch_ios_with_env() {
+    local description="$1"
+    shift
 
     echo
-    if [[ -z "$scenario" ]]; then
-        echo "正在正常启动 ${DEVICE_NAME} 上的 App……"
+    echo "正在启动 ${DEVICE_NAME} 上的 App（${description}）……"
+    if [[ $# -eq 0 ]]; then
         if xcrun devicectl device process launch \
             --device "$DEVICE_CORE_ID" \
             --timeout "$DEVICE_TIMEOUT" \
@@ -621,18 +620,30 @@ launch_ios_with_scenario() {
         return 1
     fi
 
-    echo "正在以测试场景「${scenario}」启动 ${DEVICE_NAME} 上的 App……"
-    if DEVICECTL_CHILD_PRIMUSE_SYNC_TEST_SCENARIO="$scenario" xcrun devicectl device process launch \
+    local json="{" pair key value
+    local child_env=()
+    for pair in "$@"; do
+        key="${pair%%=*}"
+        value="${pair#*=}"
+        if [[ "$json" != "{" ]]; then
+            json="${json},"
+        fi
+        json="${json}\"${key}\":\"${value}\""
+        child_env+=("DEVICECTL_CHILD_${key}=${value}")
+    done
+    json="${json}}"
+
+    if env "${child_env[@]}" xcrun devicectl device process launch \
         --device "$DEVICE_CORE_ID" \
         --timeout "$DEVICE_TIMEOUT" \
         --terminate-existing \
-        --environment-variables "{\"PRIMUSE_SYNC_TEST_SCENARIO\":\"${scenario}\"}" \
+        --environment-variables "$json" \
         "$BUNDLE_ID"; then
         return 0
     fi
 
     echo "带 --environment-variables 启动失败，改为只用 DEVICECTL_CHILD_ 前缀再试一次……" >&2
-    if DEVICECTL_CHILD_PRIMUSE_SYNC_TEST_SCENARIO="$scenario" xcrun devicectl device process launch \
+    if env "${child_env[@]}" xcrun devicectl device process launch \
         --device "$DEVICE_CORE_ID" \
         --timeout "$DEVICE_TIMEOUT" \
         --terminate-existing \
@@ -642,6 +653,16 @@ launch_ios_with_scenario() {
 
     echo "App 启动失败。请解锁 ${DEVICE_NAME} 后重试。" >&2
     return 1
+}
+
+launch_ios_with_scenario() {
+    local scenario="$1"
+
+    if [[ -z "$scenario" ]]; then
+        launch_ios_with_env "正常启动"
+    else
+        launch_ios_with_env "测试场景 ${scenario}" "PRIMUSE_SYNC_TEST_SCENARIO=${scenario}"
+    fi
 }
 
 wait_for_sync_test() {
@@ -679,6 +700,7 @@ sum_log_field() {
 summarize_sync_log() {
     local log="$1"
     local session="$2"
+    local label="${3:-}"
 
     local start_line
     start_line="$(grep -n 'SESSION START' "$log" 2>/dev/null | tail -n 1 | cut -d: -f1 || true)"
@@ -710,7 +732,9 @@ summarize_sync_log() {
 
     echo
     echo "—— 本次启动的同步摘要（${session#$ROOT_DIR/}）——"
-    echo "测试场景已生效：$([[ "${scenario_confirmed:-0}" -gt 0 ]] && echo 是 || echo 否)"
+    if [[ "$label" == "upgrade-reset" ]]; then
+        echo "测试场景已生效：$([[ "${scenario_confirmed:-0}" -gt 0 ]] && echo 是 || echo 否（环境变量没传进 App）)"
+    fi
     echo "全量重拉触发：${refetch_count:-0} 次"
     echo "首次上传重排：${reseed_line:-无}"
     echo "CloudKit 拉取：${fetched_batches} 批，共 ${fetched_records} 条"
@@ -739,21 +763,22 @@ pull_ios_logs() {
 
     echo
     echo "正在从 ${DEVICE_NAME} 拉取调试日志到 ${dest#$ROOT_DIR/} ……"
-    local name copied_logs=0
-    for name in primuse_debug.log primuse_debug.log.1; do
-        if xcrun devicectl device copy from \
-            --device "$DEVICE_CORE_ID" \
-            --timeout "$DEVICE_TIMEOUT" \
-            --domain-type appDataContainer \
-            --domain-identifier "$BUNDLE_ID" \
-            --source "Library/Caches/$name" \
-            --destination "$dest/$name" >>"$errors" 2>&1; then
-            copied_logs=$((copied_logs + 1))
-        fi
-    done
-    if [[ ! -f "$dest/primuse_debug.log" ]]; then
+    local copied_logs=0
+    if copy_ios_app_file "Library/Caches/primuse_debug.log" "$dest/primuse_debug.log" "$errors"; then
+        copied_logs=1
+    else
         echo "没拉到 primuse_debug.log（详情见 ${errors#$ROOT_DIR/}）。可在 App 的设置里手动导出日志。" >&2
     fi
+    # 轮转出来的历史代：常规模式只有 .1，诊断模式最多到 .4。缺了哪一代就不再往后找。
+    local generation=1
+    while [[ "$generation" -le "$LOG_GENERATIONS" ]]; do
+        if ! copy_ios_app_file "Library/Caches/primuse_debug.log.${generation}" \
+            "$dest/primuse_debug.log.${generation}" /dev/null; then
+            break
+        fi
+        copied_logs=$((copied_logs + 1))
+        generation=$((generation + 1))
+    done
 
     echo "正在拉取 MetricKit 诊断报告……"
     local listing="$dest/.diagnostic-listing.json" report copied_reports=0
@@ -794,10 +819,95 @@ pull_ios_logs() {
     echo "已拉取：调试日志 ${copied_logs} 个，诊断报告 ${copied_reports} 份。"
     echo "（MetricKit 报告由系统延后投递，常见在下次启动或 24 小时内出现，没有不代表没问题。）"
     if [[ -f "$dest/primuse_debug.log" ]]; then
-        summarize_sync_log "$dest/primuse_debug.log" "$dest/last-session.log"
+        local combined="$dest/primuse_debug.log"
+        if [[ "$copied_logs" -gt 1 ]]; then
+            # 按时间顺序拼起来：最老的一代在前，当前文件在最后。
+            combined="$dest/primuse_debug.all.log"
+            : > "$combined"
+            generation=$((copied_logs - 1))
+            while [[ "$generation" -ge 1 ]]; do
+                cat "$dest/primuse_debug.log.${generation}" >> "$combined"
+                generation=$((generation - 1))
+            done
+            cat "$dest/primuse_debug.log" >> "$combined"
+        fi
+        summarize_sync_log "$combined" "$dest/last-session.log" "$label"
+        summarize_diagnostics "$combined"
     fi
     echo
     echo "日志目录：${dest#$ROOT_DIR/}"
+}
+
+# 从 App 数据容器拷一个文件回来；失败信息写进 $3（可以是 /dev/null）。
+copy_ios_app_file() {
+    local source="$1"
+    local destination="$2"
+    local errors="$3"
+
+    xcrun devicectl device copy from \
+        --device "$DEVICE_CORE_ID" \
+        --timeout "$DEVICE_TIMEOUT" \
+        --domain-type appDataContainer \
+        --domain-identifier "$BUNDLE_ID" \
+        --source "$source" \
+        --destination "$destination" >>"$errors" 2>&1
+}
+
+# 诊断日志模式留下的 🩺 采样汇总（整份日志，不只最后一段会话：诊断模式往往跨好几次启动）。
+summarize_diagnostics() {
+    local log="$1"
+
+    local samples
+    samples="$(count_log_matches '🩺 cpu=' "$log")"
+    if [[ "${samples:-0}" -eq 0 ]]; then
+        return
+    fi
+
+    echo
+    echo "—— 运行状态（诊断日志模式，🩺 采样 ${samples} 次，约每 10 秒一次）——"
+    awk '
+        /🩺 cpu=/ {
+            for (i = 1; i <= NF; i++) {
+                split($i, kv, "=")
+                value = kv[2]
+                if (kv[1] == "cpu") { sub(/%/, "", value); cpu_sum += value; cpu_n++; if (value + 0 > cpu_max) cpu_max = value + 0 }
+                else if (kv[1] == "threads") { if (value + 0 > threads_max) threads_max = value + 0 }
+                else if (kv[1] == "footprint") { sub(/MB/, "", value); if (value + 0 > mem_max) mem_max = value + 0 }
+                else if (kv[1] == "diskW") { sub(/^\+/, "", value); sub(/MB/, "", value); disk_sum += value }
+                else if (kv[1] == "wakeups") { sub(/\/s/, "", value); if (value + 0 > wake_max) wake_max = value + 0 }
+                else if (kv[1] == "mainMax") { sub(/ms/, "", value); if (value + 0 > main_max) main_max = value + 0 }
+                else if (kv[1] == "thermal") { thermal[value]++ }
+            }
+        }
+        /🩺 main thread blocked for/ {
+            stalls++
+            value = $NF; sub(/s$/, "", value)
+            if (value + 0 > stall_max) stall_max = value + 0
+        }
+        END {
+            if (cpu_n > 0) printf "CPU：平均 %.0f%%，峰值 %.0f%%\n", cpu_sum / cpu_n, cpu_max
+            printf "线程数峰值：%d；内存峰值：%.1f MB\n", threads_max, mem_max
+            printf "进程磁盘写入（采样累加）：%.1f MB；唤醒峰值：%.0f 次/秒（含诊断探测约 2 次/秒）\n", disk_sum, wake_max
+            printf "主线程：最长延迟 %.0f ms；卡住 1 秒以上 %d 次", main_max, stalls
+            if (stalls > 0) printf "（最长 %.2f 秒）", stall_max
+            printf "\n"
+            line = ""
+            for (state in thermal) line = line state "×" thermal[state] " "
+            if (line != "") printf "发热等级：%s\n", line
+        }
+    ' "$log"
+
+    local busy
+    busy="$(grep -o 'top=\[[^]]*\]' "$log" 2>/dev/null \
+        | sed -e 's/^top=\[//' -e 's/\]$//' \
+        | tr ',' '\n' \
+        | sed -E -e 's/^ +//' -e 's/ [0-9]+%$//' \
+        | sort | uniq -c | sort -rn | head -n 5 \
+        | awk '{ count = $1; $1 = ""; sub(/^ /, ""); printf "  %s 次  %s\n", count, $0 }' || true)"
+    if [[ -n "$busy" ]]; then
+        echo "CPU 偏高时最常出现的繁忙线程："
+        printf '%s\n' "$busy"
+    fi
 }
 
 sync_test_offer_build() {
@@ -838,14 +948,7 @@ sync_test_fresh_install() {
 
     echo
     echo "场景：模拟全新安装的新设备（真实的卸载重装）。"
-    echo "警告：会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 上的全部本地数据"
-    echo "（本机曲库索引、下载和缓存、未同步的设置）。iCloud 上的数据不受影响。"
-    printf "输入 DELETE 继续："
-    local confirmation=""
-    if ! IFS= read -r confirmation || [[ "$confirmation" != "DELETE" ]]; then
-        echo "未确认删除，场景已取消；现有 App 和数据未变更。"
-        return
-    fi
+    confirm_delete "警告：会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 上的全部本地数据（本机曲库索引、下载和缓存、未同步的设置）。iCloud 上的数据不受影响。" || return 0
 
     ios_clean_install_confirmed
     wait_for_sync_test "$SYNC_TEST_WAIT"
@@ -894,6 +997,82 @@ interactive_sync_test() {
             1) sync_test_upgrade_reset ;;
             2) sync_test_fresh_install ;;
             3) sync_test_baseline ;;
+            4) pull_ios_logs "manual" ;;
+            d|D) select_ios_device ;;
+            q|Q) return ;;
+            *) echo "无效选项：${selection}" >&2 ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------------------
+# 诊断日志模式
+#
+# App 只在 Debug 构建里读取 PRIMUSE_DIAGNOSTIC_LOGGING（见 FileLogger / DiagnosticLoggingPolicy）：
+# 开启后有效期内日志单文件 25MB、保留 4 代，并每 10 秒记录一行 🩺 运行状态。
+# 有效期存在 App 里，期间被系统或手动重启也继续记录，到期自动恢复常规。
+# ---------------------------------------------------------------------------
+
+diag_enable() {
+    local hours="${1:-24}"
+    ensure_ios_device_selected
+
+    if ! [[ "$hours" =~ ^[0-9]+$ ]] || [[ "$hours" -lt 1 || "$hours" -gt 72 ]]; then
+        echo "开启时长要在 1–72 小时之间：${hours}" >&2
+        return 1
+    fi
+
+    echo
+    echo "诊断日志模式：开启 ${hours} 小时。"
+    echo "  · 日志单文件 25MB、保留 4 代（最多约 125MB），写入积压上限 20000 条；"
+    echo "  · 每 10 秒记录 CPU、线程数、内存、磁盘读写、唤醒次数、主线程延迟和发热；"
+    echo "    CPU 偏高时带上最忙的线程，主线程卡住 1 秒以上会单独记一行；"
+    echo "  · 有效期内 App 被系统或手动重新启动也会继续记录，到期自动恢复常规；"
+    echo "  · 只在 Debug 构建里生效；诊断探测本身每秒约多 2 次主线程唤醒。"
+    sync_test_offer_build
+    launch_ios_with_env "开启诊断日志 ${hours} 小时" "PRIMUSE_DIAGNOSTIC_LOGGING=${hours}"
+    echo
+    echo "已开启。照常使用 App、复现要排查的操作，结束后选「拉取日志」取回。"
+}
+
+diag_disable() {
+    ensure_ios_device_selected
+
+    launch_ios_with_env "关闭诊断日志" "PRIMUSE_DIAGNOSTIC_LOGGING=off"
+    echo
+    echo "已关闭。诊断期间多出来的旧日志文件会保留 72 小时，期间仍可拉取。"
+}
+
+interactive_diag() {
+    select_ios_device
+
+    while true; do
+        echo
+        echo "诊断日志模式 —— 当前设备：${DEVICE_NAME}（需 Debug 构建）"
+        echo "1) 开启 24 小时（会重新启动 App）"
+        echo "2) 开启指定小时数（1–72）"
+        echo "3) 关闭（会重新启动 App）"
+        echo "4) 拉取这台设备的调试日志和诊断报告"
+        echo "d) 换一台设备"
+        echo "q) 返回"
+        echo
+        printf "请选择："
+
+        local selection hours
+        if ! IFS= read -r selection; then
+            echo
+            return
+        fi
+
+        case "$selection" in
+            1) diag_enable 24 ;;
+            2)
+                printf "开启多少小时（1–72）："
+                hours=""
+                IFS= read -r hours || true
+                diag_enable "$hours" || true
+                ;;
+            3) diag_disable ;;
             4) pull_ios_logs "manual" ;;
             d|D) select_ios_device ;;
             q|Q) return ;;
@@ -1204,19 +1383,7 @@ ensure_ios_simulator_selected() {
 sim_clean_install() {
     ensure_ios_simulator_selected
 
-    echo
-    echo "警告：下一步会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 模拟器上的全部本地数据。"
-    printf "输入 DELETE 继续完全重装："
-    local confirmation
-    if ! IFS= read -r confirmation; then
-        echo
-        echo "未确认删除，操作已取消；现有 App 和数据未变更。"
-        return
-    fi
-    if [[ "$confirmation" != "DELETE" ]]; then
-        echo "未确认删除，操作已取消；现有 App 和数据未变更。"
-        return
-    fi
+    confirm_delete "警告：下一步会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 模拟器上的全部本地数据。" || return 0
 
     build_ios_simulator
 
@@ -1747,19 +1914,7 @@ ensure_tv_device_selected() {
 tv_clean_install() {
     ensure_tv_device_selected
 
-    echo
-    echo "警告：下一步会卸载 ${TV_BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 上的全部本地数据。"
-    printf "输入 DELETE 继续完全重装："
-    local confirmation
-    if ! IFS= read -r confirmation; then
-        echo
-        echo "未确认删除，操作已取消；现有 App 和数据未变更。"
-        return
-    fi
-    if [[ "$confirmation" != "DELETE" ]]; then
-        echo "未确认删除，操作已取消；现有 App 和数据未变更。"
-        return
-    fi
+    confirm_delete "警告：下一步会卸载 ${TV_BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 上的全部本地数据。" || return 0
 
     build_tv
 
@@ -1855,15 +2010,19 @@ build_and_launch_mac() {
 interactive_action() {
     echo "Primuse 开发工具"
     echo
-    echo "1) 选择 iPhone/iPad 并安装"
-    echo "2) 选择 tvOS 模拟器或 Apple TV 真机并安装"
-    echo "3) 编译并启动 macOS"
-    echo "4) 检查 iPhone/iPad 连接状态"
-    echo "5) 检查 tvOS 模拟器和 Apple TV 真机"
-    echo "6) 选择 iOS 模拟器并安装"
-    echo "7) 检查 iOS 模拟器"
-    echo "8) iCloud 同步测试场景（跑完自动拉取日志）"
-    echo "9) 拉取 iPhone/iPad 的调试日志和诊断报告"
+    echo "安装与运行"
+    echo "  1) iPhone/iPad：选择设备，覆盖安装或完全重装"
+    echo "  2) iOS 模拟器：选择模拟器并安装"
+    echo "  3) Apple TV：选择模拟器或真机并安装"
+    echo "  4) macOS：编译并启动"
+    echo "检查设备"
+    echo "  5) iPhone/iPad 连接状态"
+    echo "  6) iOS 模拟器"
+    echo "  7) tvOS 模拟器和 Apple TV 真机"
+    echo "诊断与测试（iPhone/iPad，需 Debug 构建）"
+    echo "  8) 诊断日志模式：开启后日志更大，并定时记录 CPU、线程、内存、写盘、卡顿"
+    echo "  9) iCloud 同步测试场景（跑完自动拉取日志）"
+    echo "  10) 拉取调试日志和诊断报告"
     echo "q) 退出"
     echo
     printf "请选择操作："
@@ -1877,14 +2036,15 @@ interactive_action() {
 
     case "$selection" in
         1) SELECTED_ACTION="install" ;;
-        2) SELECTED_ACTION="tv-install" ;;
-        3) SELECTED_ACTION="mac" ;;
-        4) SELECTED_ACTION="devices" ;;
-        5) SELECTED_ACTION="tv-devices" ;;
-        6) SELECTED_ACTION="sim-install" ;;
-        7) SELECTED_ACTION="sim-devices" ;;
-        8) SELECTED_ACTION="sync-test" ;;
-        9) SELECTED_ACTION="pull-logs" ;;
+        2) SELECTED_ACTION="sim-install" ;;
+        3) SELECTED_ACTION="tv-install" ;;
+        4) SELECTED_ACTION="mac" ;;
+        5) SELECTED_ACTION="devices" ;;
+        6) SELECTED_ACTION="sim-devices" ;;
+        7) SELECTED_ACTION="tv-devices" ;;
+        8) SELECTED_ACTION="diag" ;;
+        9) SELECTED_ACTION="sync-test" ;;
+        10) SELECTED_ACTION="pull-logs" ;;
         q|Q) SELECTED_ACTION="quit" ;;
         *)
             echo "无效选项：$selection" >&2
@@ -1901,7 +2061,8 @@ main() {
         return
     fi
 
-    if [[ $# -gt 1 ]]; then
+    # 只有 diag-on 接受第二个参数（开启多少小时）。
+    if [[ $# -gt 2 || ( $# -eq 2 && "$action" != "diag-on" ) ]]; then
         usage >&2
         exit 1
     fi
@@ -1989,6 +2150,21 @@ main() {
             require_command xcrun
             require_command plutil
             pull_logs_action
+            ;;
+        diag)
+            require_command xcrun
+            require_command plutil
+            interactive_diag
+            ;;
+        diag-on)
+            require_command xcrun
+            require_command plutil
+            diag_enable "${2:-24}"
+            ;;
+        diag-off)
+            require_command xcrun
+            require_command plutil
+            diag_disable
             ;;
         *)
             echo "未知操作：$action" >&2

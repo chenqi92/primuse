@@ -80,10 +80,15 @@ extension AudioPlayerService {
         // The user can switch Crossfade on after the gapless final buffer
         // has already been scheduled. In that race, the crossfade path owns
         // the transition and will swap nodes; do not also advance here.
-        if shouldUseCrossfade(settings), crossfadeTriggered {
+        // 同 scheduleLastBuffer:只有**已提交**的转场才算真的接管了边界,
+        // 还在准备中的尝试不能把这一首的续播吞掉。
+        if shouldUseCrossfade(settings), isCrossfading, committedCrossfade != nil {
             transition.shouldCancelPreparation = true
             cancelGaplessPreparation()
             return
+        }
+        if shouldUseCrossfade(settings), crossfadeAttemptID != nil || crossfadeTriggered {
+            cancelCrossfadeAttempt()
         }
 
         if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {

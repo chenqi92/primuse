@@ -32,35 +32,31 @@ struct FullDownloadSeekPolicyTests {
     }
 
     @Test("Cold remote restoration never blocks first Play on a complete download")
-    func coldRestorePrefersRangeRecovery() {
-        #expect(RemoteSeekPreparationPolicy.decision(
-            hasCachedFile: false,
+    func coldRestoreNeverMaterializes() {
+        #expect(RemoteSeekPreparationPolicy.afterRangeSeekRejected(
             cacheEnabled: true,
             isColdSessionRestore: true
-        ) == .tryRangeWithoutMaterialization)
+        ) == .reportSeekUnavailable)
     }
 
-    @Test("Runtime recovery retains exact complete-file materialization")
-    func runtimeRecoveryRetainsMaterialization() {
-        #expect(RemoteSeekPreparationPolicy.decision(
-            hasCachedFile: false,
+    @Test("Runtime recovery completes the file only after the Range seek is rejected")
+    func runtimeRecoveryMaterializesAfterRejection() {
+        #expect(RemoteSeekPreparationPolicy.afterRangeSeekRejected(
             cacheEnabled: true,
             isColdSessionRestore: false
         ) == .materializeCompleteFile)
     }
 
-    @Test("A cached file and disabled cache keep their direct paths")
-    func cachedAndNonCachingPathsRemainStable() {
-        #expect(RemoteSeekPreparationPolicy.decision(
-            hasCachedFile: true,
-            cacheEnabled: true,
-            isColdSessionRestore: true
-        ) == .useExistingFile)
-        #expect(RemoteSeekPreparationPolicy.decision(
-            hasCachedFile: false,
+    @Test("A disabled cache never persists a complete file for seeking")
+    func disabledCacheNeverMaterializes() {
+        #expect(RemoteSeekPreparationPolicy.afterRangeSeekRejected(
             cacheEnabled: false,
             isColdSessionRestore: false
-        ) == .tryRangeWithoutMaterialization)
+        ) == .reportSeekUnavailable)
+        #expect(RemoteSeekPreparationPolicy.afterRangeSeekRejected(
+            cacheEnabled: false,
+            isColdSessionRestore: true
+        ) == .reportSeekUnavailable)
     }
 }
 

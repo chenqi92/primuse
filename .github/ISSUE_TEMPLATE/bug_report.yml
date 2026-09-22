@@ -1,0 +1,126 @@
+name: 问题反馈 Bug report
+description: 反馈崩溃、报错或功能不正常
+title: "【Bug】"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        除「问题描述」外，下面都不是必填。能填的尽量填一下，定位会快很多；
+        一时找不到的直接留空提交就行。
+
+        _Only the description is required. Everything else is optional — fill in what you can._
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 问题描述 / What happened
+      description: 发生了什么，以及你期望的结果是什么
+      placeholder: |
+        例如：点击某个歌单里的歌曲后一直转圈，不开始播放；期望是直接播放。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 按顺序写下操作；如果是偶发，说明大概多久出现一次也有帮助
+      placeholder: |
+        1. 打开「我的音乐」
+        2. ...
+        3. ...
+    validations:
+      required: false
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App 版本与构建号 / App version and build
+      description: 在「设置 → 关于」里能看到「版本」和「构建号」两行。知道问题出在哪个版本，才能判断是否已经修过。
+      placeholder: 例如 1.9.7 (77)
+    validations:
+      required: false
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 设备端 / Platform
+      description: 可多选
+      multiple: true
+      options:
+        - iPhone
+        - iPad
+        - Mac
+        - Apple TV
+        - CarPlay
+        - 小组件 / Widget
+        - Apple Watch
+    validations:
+      required: false
+
+  - type: input
+    id: system-version
+    attributes:
+      label: 机型与系统版本 / Device and OS version
+      placeholder: 例如 iPhone 15 Pro，iOS 27.0 / MacBook Pro (M1)，macOS 26.1
+    validations:
+      required: false
+
+  - type: dropdown
+    id: music-source
+    attributes:
+      label: 相关音乐源 / Music source
+      description: 问题发生在哪个连接源上。可多选；不确定就选「不确定」或直接跳过。
+      multiple: true
+      options:
+        - 本机文件 / 本地导入
+        - Apple Music
+        - Mac「音乐」App 资料库
+        - "NAS：群晖 / 威联通 / 绿联 / 飞牛"
+        - 群晖 Audio Station
+        - WebDAV
+        - SMB
+        - FTP / SFTP
+        - NFS
+        - UPnP / DLNA
+        - S3
+        - Jellyfin / Emby / Plex
+        - Navidrome / Subsonic / Airsonic / Gonic
+        - 飞牛音乐 / 道理鱼 / Songloft
+        - "网盘：百度 / 阿里 / 115 / 123 / 光鸭 / Google Drive / OneDrive / Dropbox / Drime"
+        - 网络电台
+        - 不涉及音乐源
+        - 不确定 / 记不清
+    validations:
+      required: false
+
+  - type: input
+    id: source-detail
+    attributes:
+      label: 音乐源的具体信息 / Source details
+      description: 服务端软件与版本、连接方式等；不用写地址和账号
+      placeholder: 例如 Navidrome 0.53.3 / 群晖 DSM 7.2 File Station / 阿里云盘
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志、截图或录屏 / Logs, screenshots
+      description: |
+        iPhone、iPad：设置 → 关于 → 诊断 → 导出日志。
+        Mac：设置 → 关于 → 诊断日志… → 导出日志。
+        贴出前请自己扫一眼，确认里面没有账号、密码或不想公开的地址。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 补充确认 / Optional checks
+      options:
+        - label: 已经升级到最新版本，问题仍然存在
+          required: false
+        - label: 搜过已有 issue，没找到相同的问题
+          required: false
