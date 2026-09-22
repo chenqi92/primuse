@@ -16,7 +16,6 @@ struct NowPlayingMoreActions {
     let openArtist: () -> Void
     let openInAppleMusic: () -> Void
     let share: () -> Void
-    let shareLyrics: () -> Void
     let showCastPicker: () -> Void
     let toggleLyricsTranslation: () -> Void
     let showSleepTimer: () -> Void
@@ -65,7 +64,6 @@ struct NowPlayingActionsPanel: View {
                 LazyVGrid(columns: columns, spacing: 8) {
                     cell("add_to_playlist", "text.badge.plus", enabled: snapshot.hasSong, actions.addToPlaylist)
                     cell("similar_songs", "sparkles", enabled: snapshot.hasSong, actions.showSimilarSongs)
-                    cell("lyric_poster_menu", "text.below.photo", enabled: snapshot.canShareLyrics, actions.shareLyrics)
                     if snapshot.canShare {
                         cell("share", "square.and.arrow.up", enabled: true, actions.share)
                     }

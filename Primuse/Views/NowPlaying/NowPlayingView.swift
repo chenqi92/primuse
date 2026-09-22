@@ -5967,7 +5967,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     openArtist: onOpenArtist,
                     openInAppleMusic: onOpenInAppleMusic,
                     share: onShare,
-                    shareLyrics: onShareLyrics,
                     showCastPicker: onShowCastPicker,
                     toggleLyricsTranslation: onToggleLyricsTranslation,
                     showSleepTimer: onShowSleepTimer,
