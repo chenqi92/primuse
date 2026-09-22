@@ -2252,6 +2252,62 @@ final class TVStore {
         publishTopShelf()
     }
 
+    // MARK: 电台管理(电视端添加 / 删除 / 置顶)
+
+    /// 音乐源镜像的台由服务端管,电视端只能播,不能改。
+    func canManageRadioStation(_ station: RadioStation) -> Bool {
+        !station.isServerMirror
+    }
+
+    /// 同一个流(不计 http/https、末尾斜杠)是否已经在电台列表里。
+    func hasRadioStation(streamURL: String) -> Bool {
+        guard let key = RadioImportParser.streamIdentityKey(streamURL) else { return false }
+        return radioStations.contains { RadioImportParser.streamIdentityKey($0.streamURL) == key }
+    }
+
+    /// 添加一个电台。写进与 iPhone / Mac 同一份电台存储,开着 iCloud 同步时
+    /// 会同步到其他设备。返回新电台;名称或地址无效、流已存在时返回 nil。
+    @discardableResult
+    func addRadioStation(
+        name: String,
+        streamURL: String,
+        homepageURL: String? = nil,
+        logoURL: String? = nil,
+        logoSource: RadioLogoSource? = nil
+    ) -> RadioStation? {
+        guard RadioStationValidation.isValid(name: name, urlString: streamURL),
+              !hasRadioStation(streamURL: streamURL) else { return nil }
+        let logo = RadioLogoURLPolicy.normalized(logoURL)
+        let station = RadioStation(
+            name: name,
+            streamURL: streamURL,
+            streamFormat: URL(string: streamURL)
+                .map { RadioStreamFormat.inferred(from: $0) } ?? .automatic,
+            homepageURL: RadioLogoURLPolicy.normalized(homepageURL),
+            remoteLogoURL: logo,
+            remoteLogoSource: logo == nil ? nil : logoSource
+        )
+        radioStore.upsert(station)
+        guard radioStore.station(id: station.id) != nil else { return nil }
+        reloadRadioStations(fromDisk: false)
+        return station
+    }
+
+    func removeRadioStation(id: String) {
+        guard let station = radioStations.first(where: { $0.id == id }),
+              canManageRadioStation(station) else { return }
+        radioStore.remove(id: id)
+        reloadRadioStations(fromDisk: false)
+    }
+
+    /// 移到电台列表最前面。排序与 iPhone / Mac 共用,会一起同步过去。
+    func moveRadioStationToTop(id: String) {
+        let ordered = radioStore.stations.map(\.id)
+        guard ordered.contains(id), ordered.first != id else { return }
+        radioStore.applyOrder([id] + ordered.filter { $0 != id })
+        reloadRadioStations(fromDisk: false)
+    }
+
     private func markRadioPlayed(_ id: String) {
         let now = Date()
         radioStore.markPlayed(id, at: now)
@@ -2392,8 +2448,7 @@ final class TVStore {
         let playedIDs = Set(playedStations.map(\.id))
         let stationList = playedStations + radioStations.filter { !playedIDs.contains($0.id) }
         let radio: [TopShelfPublisher.RadioDraft] = stationList.prefix(10).map { station in
-            .init(id: station.id, title: station.name, subtitle: station.playbackSubtitle,
-                  logoData: station.logoData,
+            .init(station: station,
                   playURL: Self.topShelfLink(host: "radio", key: "id", station.id))
         }
         let albumList = recentlyAddedAlbums.isEmpty ? albums : recentlyAddedAlbums

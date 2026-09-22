@@ -17,6 +17,7 @@ struct TVHomeView: View {
     @State private var aiRecommendation = AIRecommendationViewModel()
     @State private var recommendationHistoryRevision = 0
     @State private var recommendationClockRevision = 0
+    @State private var showsRadioAdd = false
     var openPlayer: () -> Void = {}
 
     private var candidateAlbum: TVAlbum? {
@@ -107,7 +108,13 @@ struct TVHomeView: View {
             .ignoresSafeArea()
 
             if !store.hasRealLibrary && store.radioStations.isEmpty {
-                TVEmptyState(icon: "music.note.house", title: PMString("ext.tv.home.empty")).tvPage()
+                TVEmptyState(
+                    icon: "music.note.house",
+                    title: PMString("ext.tv.home.empty"),
+                    subtitle: PMString("ext.tv.home.emptyWithRadio"),
+                    actionTitle: PMString("ext.tv.radio.add"),
+                    action: { showsRadioAdd = true }
+                ).tvPage()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 30) {
@@ -127,15 +134,17 @@ struct TVHomeView: View {
                             }
                         }
                     }
-                    if !store.radioStations.isEmpty {
-                        TVRow(
-                            label: PMString("ext.tv.radio.title"),
-                            sub: PMString("ext.tv.radio.stationCount", store.radioStations.count)
-                        ) {
-                            ForEach(store.radioStations) { station in
-                                TVRadioStationCard(station: station, action: openPlayer)
-                            }
+                    // 有曲库没电台时也留着这一排,末尾的卡片就是电视端添加电台的入口。
+                    TVRow(
+                        label: PMString("ext.tv.radio.title"),
+                        sub: store.radioStations.isEmpty
+                            ? nil
+                            : PMString("ext.tv.radio.stationCount", store.radioStations.count)
+                    ) {
+                        ForEach(store.radioStations) { station in
+                            TVRadioStationCard(station: station, action: openPlayer)
                         }
+                        TVRadioAddCard { showsRadioAdd = true }
                     }
                     if !store.recentlyAddedAlbums.isEmpty {
                         TVRow(label: PMString("ext.tv.home.recentlyAdded")) {
@@ -158,6 +167,9 @@ struct TVHomeView: View {
                 .tvPage()
             }
             }
+        }
+        .fullScreenCover(isPresented: $showsRadioAdd) {
+            TVRadioAddView().environment(store)
         }
         .task(id: recommendationCandidateRefreshKey) {
             guard intelligence.settingsStore.recommendationsEnabled else {

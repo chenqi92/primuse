@@ -445,6 +445,29 @@
 "ext.tv.radio.live" = "라이브";
 "ext.tv.radio.stop" = "정지";
 "ext.tv.radio.play" = "재생";
+"ext.tv.radio.add" = "방송국 추가";
+"ext.tv.radio.addSubtitle" = "검색하거나 URL 입력";
+"ext.tv.radio.modeSearch" = "방송국 검색";
+"ext.tv.radio.modeManual" = "URL 입력";
+"ext.tv.radio.searchLabel" = "방송국 이름";
+"ext.tv.radio.searchButton" = "검색";
+"ext.tv.radio.searching" = "검색 중…";
+"ext.tv.radio.noResults" = "방송국을 찾을 수 없습니다";
+"ext.tv.radio.searchFailed" = "검색에 실패했습니다. 네트워크를 확인한 후 다시 시도하십시오.";
+"ext.tv.radio.directoryNote" = "방송국 목록은 커뮤니티가 운영하는 radio-browser.info에서 제공합니다";
+"ext.tv.radio.nameLabel" = "이름";
+"ext.tv.radio.urlLabel" = "스트림 URL(http:// 또는 https://)";
+"ext.tv.radio.addButton" = "추가";
+"ext.tv.radio.added" = "추가됨";
+"ext.tv.radio.invalidInput" = "이름과 http:// 또는 https://로 시작하는 스트림 URL을 입력하십시오";
+"ext.tv.radio.duplicate" = "이 방송국은 이미 목록에 있습니다";
+"ext.tv.radio.addedNotice" = "‘%@’ 추가됨";
+"ext.tv.radio.syncHint" = "iPhone 또는 Mac에서 추가한 방송국도 iCloud를 통해 여기에 동기화됩니다";
+"ext.tv.radio.moveToTop" = "맨 앞으로 이동";
+"ext.tv.radio.delete" = "방송국 삭제";
+"ext.tv.radio.deleteConfirm" = "‘%@’을(를) 삭제하겠습니까?";
+"ext.tv.radio.deleteNote" = "iCloud 동기화가 켜져 있으면 다른 기기에서도 이 방송국이 삭제됩니다.";
+"ext.tv.home.emptyWithRadio" = "iPhone 또는 Mac에서 보관함을 동기화하면 여기에 음악이 표시됩니다. 인터넷 라디오 방송국을 직접 추가할 수도 있습니다.";
 
 // MARK: - 소스 이름과 현지화된 런타임 오류
 "src.category.protocol" = "프로토콜";
