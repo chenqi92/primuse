@@ -37,16 +37,23 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
     private static let downloadURLTTL: TimeInterval = 20 * 60
     private var cachedUploadDomain: (value: String, expiresAt: Date)?
     private static let uploadDomainTTL: TimeInterval = 30 * 60
+    /// 分片上传 `upload_complete` 的轮询上限与间隔(见 replaceMetadataFileReturningPath)。
+    private let uploadCompletionPollLimit: Int
+    private let uploadCompletionPollInterval: Duration
 
     init(
         sourceID: String,
         session: URLSession = .shared,
-        tokenProvider: (@Sendable () async throws -> String)? = nil
+        tokenProvider: (@Sendable () async throws -> String)? = nil,
+        uploadCompletionPollLimit: Int = 60,
+        uploadCompletionPollInterval: Duration = .seconds(1)
     ) {
         self.sourceID = sourceID
         self.helper = CloudDriveHelper(sourceID: sourceID)
         self.session = session
         self.tokenProvider = tokenProvider
+        self.uploadCompletionPollLimit = max(1, uploadCompletionPollLimit)
+        self.uploadCompletionPollInterval = uploadCompletionPollInterval
     }
 
     func connect() async throws { _ = try await getToken() }
@@ -250,15 +257,7 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
                 // Like Baidu, this API has no If-Match. Recheck immediately
                 // before committing the detached chunks, including name/parent.
                 _ = try await unchangedMetadataFile(at: path, expected: expected)
-                let complete = try await authedRequest(
-                    "/upload/v2/file/upload_complete", method: "POST",
-                    body: JSONSerialization.data(withJSONObject: ["preuploadID": uploadID])
-                )
-                guard let result = complete["data"] as? [String: Any],
-                      Self.intValue(result["completed"]) == 1 else {
-                    throw CloudDriveError.invalidResponse
-                }
-                replacementPath = try Self.uploadedFileID(result)
+                replacementPath = try await completeMetadataUpload(uploadID)
             }
         } catch {
             // A lost create/complete response may hide a successful commit.
@@ -284,6 +283,35 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
             )
         }
         return replacementPath
+    }
+
+    /// 123 开放平台的 `upload_complete` 返回 `completed=false` 表示服务端仍在合并分片,
+    /// 不是失败;需用同一个 preuploadID 重新调用直到 `completed && fileID != 0`
+    /// (OpenList 123_open 驱动同样最多轮询 60 次、每次间隔 1 秒)。轮询用尽仍未完成时
+    /// 抛 `Pan123UploadMergePendingError`,由调用方按名字/大小/md5 列目录恢复。
+    /// POST 不走传输层重试,轮询只在这里做。
+    private func completeMetadataUpload(_ uploadID: String) async throws -> String {
+        let body = try JSONSerialization.data(withJSONObject: ["preuploadID": uploadID])
+        var attempt = 0
+        while true {
+            try Task.checkCancellation()
+            attempt += 1
+            let complete = try await authedRequest(
+                "/upload/v2/file/upload_complete", method: "POST", body: body
+            )
+            guard let result = complete["data"] as? [String: Any] else {
+                throw CloudDriveError.invalidResponse
+            }
+            if Self.intValue(result["completed"]) == 1,
+               let fileID = Self.intValue(result["fileID"] ?? result["fileId"]), fileID > 0 {
+                return String(fileID)
+            }
+            guard attempt < uploadCompletionPollLimit else {
+                throw Pan123UploadMergePendingError(attempts: attempt)
+            }
+            try Task.checkCancellation()
+            try await Task.sleep(for: uploadCompletionPollInterval)
+        }
     }
 
     private static func uploadedFileID(_ data: [String: Any]) throws -> String {
@@ -843,5 +871,18 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
         if let n = v as? NSNumber { return n.stringValue }
         if let s = v as? String { return s }
         return String(describing: v)
+    }
+}
+
+/// 123 云盘分片上传在轮询上限内一直没有确认合并完成(`upload_complete` 始终 `completed=false`)。
+struct Pan123UploadMergePendingError: LocalizedError {
+    let attempts: Int
+    // 复用已本地化的 API 错误框架;文案点明是合并未完成,而非响应无效。
+    var errorDescription: String? {
+        String(
+            format: String(localized: "error_api %@ %@"),
+            "upload_complete",
+            "completed=false ×\(attempts) (merge pending)"
+        )
     }
 }

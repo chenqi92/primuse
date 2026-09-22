@@ -2016,6 +2016,23 @@ final class Pan123MetadataWritebackTests: XCTestCase {
         }
     }
 
+    func testPendingMergeIsPolledOrRecoveredFromListing() async throws {
+        for mode in [Pan123MetadataHTTPFixture.Mode.deferredComplete, .completeNeverConfirms] {
+            let fixture = Pan123MetadataHTTPFixture(mode: mode)
+            let (connector, session) = fixture.connector(pollLimit: 3, pollInterval: .milliseconds(1))
+            defer { session.invalidateAndCancel(); fixture.remove() }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: url) }
+            try fixture.payload.write(to: url)
+            let expected = try await connector.metadataWritebackState(for: "42")
+            let path = try await connector.replaceMetadataFileReturningPath(at: "42", with: url, expected: expected)
+            XCTAssertEqual(path, "99")
+            XCTAssertEqual(fixture.createCount, 1)
+            XCTAssertEqual(fixture.completeCount, 3)
+            XCTAssertEqual(fixture.receivedSlices, fixture.payload)
+        }
+    }
+
     func testConflictingAndAmbiguousFilesAreNeverCommitted() async throws {
         for mode in [Pan123MetadataHTTPFixture.Mode.changedDuringUpload, .ambiguousName] {
             let fixture = Pan123MetadataHTTPFixture(mode: mode)
@@ -2139,7 +2156,13 @@ private actor RelocatingMetadataFixture: EmbeddedMetadataWritebackAdapter {
 }
 
 private final class Pan123MetadataHTTPFixture: @unchecked Sendable {
-    enum Mode { case chunked, reuse, sameID, lostComplete, changedDuringUpload, ambiguousName, wrongReadback }
+    enum Mode {
+        case chunked, reuse, sameID, lostComplete, changedDuringUpload, ambiguousName, wrongReadback
+        /// upload_complete 前两次报合并中,第三次才完成。
+        case deferredComplete
+        /// upload_complete 始终报合并中,但服务端其实已合并完成(列目录可见)。
+        case completeNeverConfirms
+    }
     let mode: Mode
     let token = UUID().uuidString
     let payload = Data("audio-tag-replacement-contents".utf8)
@@ -2151,12 +2174,19 @@ private final class Pan123MetadataHTTPFixture: @unchecked Sendable {
     private var editedSize = 0
     private let lock = NSLock()
     init(mode: Mode) { self.mode = mode }
-    func connector() -> (Pan123Source, URLSession) {
+    func connector(pollLimit: Int? = nil, pollInterval: Duration = .milliseconds(1)) -> (Pan123Source, URLSession) {
         Pan123MetadataURLProtocol.register(self)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [Pan123MetadataURLProtocol.self]
         let session = URLSession(configuration: configuration)
-        return (Pan123Source(sourceID: token, session: session, tokenProvider: { [token] in token }), session)
+        guard let pollLimit else {
+            return (Pan123Source(sourceID: token, session: session, tokenProvider: { [token] in token }), session)
+        }
+        let source = Pan123Source(
+            sourceID: token, session: session, tokenProvider: { [token] in token },
+            uploadCompletionPollLimit: pollLimit, uploadCompletionPollInterval: pollInterval
+        )
+        return (source, session)
     }
     func remove() { Pan123MetadataURLProtocol.remove(token) }
     func response(_ request: URLRequest) throws -> Data {
@@ -2201,9 +2231,16 @@ private final class Pan123MetadataHTTPFixture: @unchecked Sendable {
             case "/upload/v2/file/upload_complete":
                 completeCount += 1
                 XCTAssertEqual(receivedSlices, payload)
-                committed = true
-                if mode == .lostComplete { throw URLError(.networkConnectionLost) }
-                data = ["completed": true, "fileID": mode == .sameID ? 42 : 99]
+                if mode == .deferredComplete && completeCount < 3 {
+                    data = ["completed": false]
+                } else if mode == .completeNeverConfirms {
+                    committed = true
+                    data = ["completed": false]
+                } else {
+                    committed = true
+                    if mode == .lostComplete { throw URLError(.networkConnectionLost) }
+                    data = ["completed": true, "fileID": mode == .sameID ? 42 : 99]
+                }
             default: throw URLError(.unsupportedURL)
             }
             return try JSONSerialization.data(withJSONObject: ["code": 0, "data": data])
