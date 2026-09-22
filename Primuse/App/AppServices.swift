@@ -731,7 +731,15 @@ final class AppServices {
             library.songs
         })
         let scraperSettings = ScraperSettingsStore()
-        let scraper = MusicScraperService(sourceManager: manager)
+        let scanService = ScanService()
+        manager.metadataFileReplacementHandler = { [weak scanService, weak library] original, updated in
+            guard let scanService, let library else { throw CancellationError() }
+            try await scanService.recordMetadataFileReplacement(original: original, updated: updated, in: library)
+        }
+        let scraper = MusicScraperService(
+            sourceManager: manager,
+            sourceFileName: { [weak scanService] song in scanService?.sourceFileName(for: song) }
+        )
         let playbackSettings = PlaybackSettingsStore()
         manager.setAutomaticAudioCachingEnabled(playbackSettings.audioCacheEnabled)
         playbackSettings.audioCacheEnabledDidChange = { [weak manager] enabled in
@@ -782,7 +790,6 @@ final class AppServices {
         theme.setCoverDrivenAmbient(MacUIPreferences.shared.coverDrivenAmbient, animated: false)
         #endif
         self.themeService = theme
-        let scanService = ScanService()
         let metadataBackfill = MetadataBackfillService(
             library: library,
             sourceManager: manager,
@@ -837,6 +844,9 @@ final class AppServices {
                 Set(store.sources.filter {
                     $0.isEnabled && $0.type.usesPooledHTTPMetadataRangeReads
                 }.map(\.id))
+            },
+            sourceFileName: { [weak scanService] song in
+                scanService?.sourceFileName(for: song)
             },
             playbackIsActive: { player.isPlaybackActive }
         )

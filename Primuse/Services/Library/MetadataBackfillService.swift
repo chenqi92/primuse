@@ -403,6 +403,7 @@ final class MetadataBackfillService {
     /// 标签读取走 URLSession 每主机连接池的源。只有一轮里的源全在这个集合里,
     /// 读取位才放宽 —— 见 `MusicSourceType.usesPooledHTTPMetadataRangeReads`。
     private let pooledHTTPRangeSourceIDs: () -> Set<String>
+    private let sourceFileName: (Song) -> String?
     private let metadataService = MetadataService()
     private let failedURL: URL
     private let incompleteURL: URL
@@ -894,6 +895,7 @@ final class MetadataBackfillService {
         directFileSourceIDs: @escaping () -> Set<String> = { [] },
         manuallyReadableSourceIDs: (() -> Set<String>)? = nil,
         pooledHTTPRangeSourceIDs: @escaping () -> Set<String> = { [] },
+        sourceFileName: @escaping (Song) -> String? = { _ in nil },
         playbackIsActive: @escaping () -> Bool = { false }
     ) {
         self.playbackIsActive = playbackIsActive
@@ -906,6 +908,7 @@ final class MetadataBackfillService {
         self.directFileSourceIDs = directFileSourceIDs
         self.manuallyReadableSourceIDs = manuallyReadableSourceIDs ?? backfillableSourceIDs
         self.pooledHTTPRangeSourceIDs = pooledHTTPRangeSourceIDs
+        self.sourceFileName = sourceFileName
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -5046,8 +5049,21 @@ final class MetadataBackfillService {
         let rawStem = (component as NSString).deletingPathExtension
         let userEdited = song.userMetadataEditedAt != nil
         let mayInferFromFilename = hasVerifiedAudioEvidence(metadata)
+        let correctedTitle: String? = if !userEdited, !song.isCueTrack, mayInferFromFilename {
+            [sourceFileName(song).map { ($0 as NSString).deletingPathExtension }, rawStem, song.title]
+                .compactMap { stem in
+                    MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+                        title: metadata.embeddedTitle,
+                        artist: metadata.embeddedArtist,
+                        fileStem: stem
+                    )
+                }.first
+        } else {
+            nil
+        }
         return (
-            MetadataIdentityFallbackPolicy.resolve(
+            correctedTitle.map { MetadataResolvedText(value: $0, source: .filenameInference) }
+                ?? MetadataIdentityFallbackPolicy.resolve(
                 existing: song.title,
                 embedded: metadata.embeddedTitle,
                 filenameInference: mayInferFromFilename

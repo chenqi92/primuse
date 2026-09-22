@@ -195,10 +195,8 @@ public enum AudioMetadataWritebackPolicy {
     /// writer: ID3v2/APIC, FLAC Vorbis comments/PICTURE, and MP4 `ilst`/`covr`.
     public static let embeddedFormats: Set<AudioFormat> = [.mp3, .flac, .m4a]
 
-    /// File-addressed sources whose connectors implement the common guarded
-    /// replace transaction. Providers that replace an object by assigning a
-    /// new opaque ID are intentionally excluded until their library identity
-    /// can be migrated atomically with the remote object.
+    /// Sources whose connectors implement guarded replacement and readback,
+    /// including relocation when a provider assigns a new file ID.
     public static let embeddedSourceTypes: Set<MusicSourceType> = [
         .local,
         .synology,
@@ -210,6 +208,8 @@ public enum AudioMetadataWritebackPolicy {
         .nfs,
         .s3,
         .baiduPan,
+        .pan123,
+        .drime,
         .aliyunDrive,
         .googleDrive,
         .oneDrive,
@@ -220,6 +220,9 @@ public enum AudioMetadataWritebackPolicy {
         .jellyfin,
         .emby,
         .plex,
+        .airsonic,
+        .fnMusic,
+        .synologyAudioStation,
     ]
 
     public static func capability(

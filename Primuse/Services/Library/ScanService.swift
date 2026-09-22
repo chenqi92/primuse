@@ -707,6 +707,64 @@ final class ScanService {
         syncStates[sourceID]?.index ?? [:]
     }
 
+    func recordMetadataFileReplacement(original: Song, updated: Song, in library: MusicLibrary) async throws {
+        guard original.id == updated.id, original.sourceID == updated.sourceID,
+              original.filePath != updated.filePath else { return }
+        let sourceID = original.sourceID
+        // An in-flight scan still holds the old remote ID. Fence its pending
+        // snapshot before publishing the replacement under the existing Song ID.
+        cancelScan(for: sourceID)
+        removeCheckpoint(for: sourceID)
+        if let syncStateStore {
+            _ = try await syncStateStore.advanceMutationEpoch(
+                sourceID: sourceID, mutationEpoch: syncStateMutationEpochs[sourceID, default: 0]
+            )
+        }
+        guard let previous = library.song(id: original.id) else { return }
+        var relocated = previous
+        relocated.filePath = updated.filePath
+        relocated.fileSize = updated.fileSize
+        relocated.lastModified = updated.lastModified
+        relocated.revision = updated.revision
+        // A single-row replacement refreshes the visible lookup immediately;
+        // scan batch merging leaves that lookup on its previous async snapshot.
+        library.replaceSong(relocated)
+        NotificationCenter.default.post(
+            name: .primuseSongLocationChanged, object: nil,
+            userInfo: ["previousSongs": [previous], "songs": [relocated]]
+        )
+        try await library.persistIncrementalNowAndWait().get()
+        try await waitForCheckpointPersistence()
+        guard var state = syncStates[sourceID],
+              var entry = state.index[original.filePath],
+              !entry.isDirectory, entry.songIDs == [original.id] else { return }
+        state.index.removeValue(forKey: original.filePath)
+        entry.stableKey = updated.filePath
+        entry.path = updated.filePath
+        entry.size = updated.fileSize
+        entry.modifiedDate = updated.lastModified
+        entry.revision = updated.revision
+        state.index[updated.filePath] = entry
+        state.identityAliases[original.filePath] = updated.filePath
+        state.missingStableKeys.removeValue(forKey: original.filePath)
+        state.missingStableKeys.removeValue(forKey: updated.filePath)
+        try await persistSyncState(state)
+    }
+
+    func sourceFileName(for song: Song) -> String? {
+        guard let index = syncStates[song.sourceID]?.index else { return nil }
+        // Opaque file-ID providers use the ID as their stable key. Path-based
+        // providers use the scanner's normalized path key instead.
+        for key in [song.filePath, "path:\(song.filePath.lowercased())"] {
+            guard let item = index[key],
+                  !item.isDirectory, item.path == song.filePath,
+                  item.songIDs.contains(song.id),
+                  let name = item.displayName, !name.isEmpty else { continue }
+            return name
+        }
+        return nil
+    }
+
     func startFolderTopologyRebuildsIfNeeded(
         sourceManager: SourceManager,
         library: MusicLibrary,

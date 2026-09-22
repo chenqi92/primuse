@@ -722,3 +722,166 @@ private func intValue(_ value: Any?) -> Int? {
     if let value = value as? String { return Int(value.trimmingCharacters(in: .whitespacesAndNewlines)) }
     return nil
 }
+
+extension FnMusicAPI {
+    /// The native editor accepts a complete metadata object, including entity
+    /// IDs. Always obtain those IDs from fresh server data before changing it.
+    func updateTrackMetadata(original: Song, updated: Song, fields: Set<TagMetadataWritebackField>) async throws -> MediaServerWritebackResult {
+        guard let guid = FnMusicAPIProtocol.trackGUID(from: original.filePath),
+              original.sourceID == sourceID, updated.sourceID == sourceID,
+              original.filePath == updated.filePath else { throw SourceError.fileNotFound(original.filePath) }
+        let current = try await editableTrack(guid: guid)
+        var writable = fields
+        var result = MediaServerWritebackResult()
+        let originalArtists = try entityIDs(current["artists"])
+        let originalGenres = try entityIDs(current["genres"])
+        let album = current["album"] as? [String: Any]
+        var body: [String: Any] = [
+            "guid": guid, "title": stringValue(current["title"]) ?? "",
+            "album": stringValue(album?["name"]) ?? "",
+            "artistGUIDs": originalArtists, "genreGUIDs": originalGenres,
+            "year": intValue(current["year"]).map { $0 as Any } ?? NSNull(),
+            "trackNo": intValue(current["trackNo"]).map { $0 as Any } ?? NSNull(),
+            "discNo": intValue(current["discNo"]).map { $0 as Any } ?? NSNull(),
+        ]
+        if let albumID = stringValue(album?["guid"]), !albumID.isEmpty { body["albumGUID"] = albumID }
+        if let cover = stringValue(current["coverId"]), !cover.isEmpty {
+            body["coverId"] = cover
+            let prefixes = ["track_", "album_", "artist_", "playlist_"]
+            body["coverGUID"] = prefixes.first(where: { cover.hasPrefix($0) }).map { String(cover.dropFirst($0.count)) } ?? cover
+        }
+        if fields.contains(.title) { body["title"] = updated.title }
+        if fields.contains(.year) { body["year"] = updated.year.map { $0 as Any } ?? NSNull() }
+        if fields.contains(.trackNumber) { body["trackNo"] = updated.trackNumber.map { $0 as Any } ?? NSNull() }
+        if fields.contains(.discNumber) { body["discNo"] = updated.discNumber.map { $0 as Any } ?? NSNull() }
+        if fields.contains(.album) {
+            let name = (updated.albumTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            body["album"] = name
+            body.removeValue(forKey: "albumGUID")
+            if !name.isEmpty {
+                let albums = try await metadataEntities(path: "/album/list-all")
+                if let existing = try uniqueEntity(named: name, in: albums) { body["albumGUID"] = existing }
+            }
+        }
+        if fields.contains(.genre) {
+            let name = (updated.genre ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.isEmpty { body["genreGUIDs"] = [String]() }
+            else if let genreID = try await metadataGenreID(named: name) { body["genreGUIDs"] = [genreID] }
+            else {
+                writable.remove(.genre)
+                let detail = String(localized: "metadata_writeback_error_unsupported")
+                result.unsupported.append(detail)
+                result.fieldResults.append(TagMetadataFieldWritebackResult(field: .genre, disposition: .unsupported(detail)))
+            }
+        }
+        if fields.contains(.artist) {
+            let name = (updated.artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.isEmpty { body["artistGUIDs"] = [String]() }
+            else {
+                let artists = try await metadataEntities(path: "/artist/list-all")
+                let artistID: String
+                if let existing = try uniqueEntity(named: name, in: artists) { artistID = existing }
+                else {
+                    // Creation is not idempotent. A lost reply must not cause
+                    // an automatic replay through another FN Connect route.
+                    let created = try await requestJSONOnce(method: "POST", path: "/artist/create", queryItems: [],
+                        body: ["name": name, "coverId": NSNull()], includeCookie: true, cookieToken: nil)
+                    guard let entity = created as? [String: Any], let id = stringValue(entity["guid"]), !id.isEmpty else {
+                        throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+                    }
+                    artistID = id
+                }
+                body["artistGUIDs"] = [artistID]
+            }
+        }
+        guard !writable.isEmpty else { return result }
+        try Task.checkCancellation()
+        _ = try await requestJSONOnce(method: "POST", path: "/track/metadata", queryItems: [], body: body, includeCookie: true, cookieToken: nil)
+        let readback = try await editableTrack(guid: guid)
+        let readbackAlbum = readback["album"] as? [String: Any]
+        for field in writable {
+            let matches: Bool
+            switch field {
+            case .title: matches = stringValue(readback["title"]) == body["title"] as? String
+            case .artist:
+                matches = Set(try entityIDs(readback["artists"])) == Set(body["artistGUIDs"] as? [String] ?? [])
+                    && entityNames(readback["artists"]) == [(updated.artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }
+            case .album:
+                matches = (stringValue(readbackAlbum?["name"]) ?? "") == body["album"] as? String
+                    && ((body["albumGUID"] as? String).map { stringValue(readbackAlbum?["guid"]) == $0 } ?? true)
+            case .genre:
+                matches = Set(try entityIDs(readback["genres"])) == Set(body["genreGUIDs"] as? [String] ?? [])
+                    && entityNames(readback["genres"]) == [(updated.genre ?? "").trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }
+            case .year: matches = intValue(readback["year"]) == intValue(body["year"])
+            case .trackNumber: matches = intValue(readback["trackNo"]) == intValue(body["trackNo"])
+            case .discNumber: matches = intValue(readback["discNo"]) == intValue(body["discNo"])
+            case .cover: matches = false
+            }
+            let detail = String(localized: "metadata_writeback_media_readback_mismatch")
+            result.fieldResults.append(TagMetadataFieldWritebackResult(field: field, disposition: matches ? .written : .failed(detail)))
+            if matches { result.metadataWritten = true }
+            else if !result.errors.contains(detail) { result.errors.append(detail) }
+        }
+        return result
+    }
+
+    private func editableTrack(guid: String) async throws -> [String: Any] {
+        let payload = try await requestJSON(method: "GET", path: "/track/metadata", queryItems: [URLQueryItem(name: "guid", value: guid)])
+        guard let data = payload as? [String: Any], let track = data["track"] as? [String: Any],
+              stringValue(track["guid"]) == guid, track["title"] is String else {
+            throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+        }
+        return track
+    }
+
+    private func metadataEntities(path: String) async throws -> [[String: Any]] {
+        let payload = try await requestJSON(method: "GET", path: path)
+        guard let data = payload as? [String: Any], let list = data["list"] as? [[String: Any]] else {
+            throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+        }
+        return list
+    }
+
+    private func entityIDs(_ value: Any?) throws -> [String] {
+        guard let entities = value as? [[String: Any]] else {
+            throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+        }
+        return try entities.map {
+            guard let id = stringValue($0["guid"]), !id.isEmpty else {
+                throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+            }
+            return id
+        }
+    }
+
+    private func entityNames(_ value: Any?) -> [String] {
+        (value as? [[String: Any]] ?? []).compactMap { stringValue($0["name"]) }
+    }
+
+    private func uniqueEntity(named name: String, in entities: [[String: Any]]) throws -> String? {
+        let matches = entities.filter { stringValue($0["name"]) == name }
+        guard matches.count <= 1 else { throw EmbeddedMetadataWritebackSourceError.conflict }
+        guard let match = matches.first else { return nil }
+        guard let guid = stringValue(match["guid"]), !guid.isEmpty else {
+            throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+        }
+        return guid
+    }
+
+    private func metadataGenreID(named name: String) async throws -> String? {
+        var genres: [[String: Any]] = []
+        for page in 1...100 {
+            let payload = try await requestJSON(method: "GET", path: "/genre/list", queryItems: [
+                URLQueryItem(name: "page", value: String(page)), URLQueryItem(name: "size", value: "200"),
+            ])
+            guard let data = payload as? [String: Any], let list = data["list"] as? [[String: Any]] else {
+                throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+            }
+            genres.append(contentsOf: list)
+            if list.count < 200 || intValue(data["total"]).map({ genres.count >= $0 }) == true {
+                return try uniqueEntity(named: name, in: genres)
+            }
+        }
+        throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+    }
+}

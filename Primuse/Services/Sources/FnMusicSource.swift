@@ -5,7 +5,7 @@ import PrimuseKit
 /// The legacy `.fnos` NAS placeholder remains separate so old source records
 /// are never reinterpreted as a server-side music library.
 actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, ServerScrobblingConnector,
-    ServerPlaylistConnector, ServerFavoriteConnector {
+    ServerPlaylistConnector, ServerFavoriteConnector, MediaServerWritebackConnector {
     let sourceID: String
 
     private let api: FnMusicAPI
@@ -639,4 +639,36 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         }
     }
 
+}
+
+extension FnMusicSource {
+    func writeScrapedMetadata(original: Song, updated: Song, coverData: Data?, lyricsLines: [LyricLine]?, lyricsContent: String?) async -> MediaServerWritebackResult {
+        let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: coverData?.isEmpty == false)
+        let writable = changed.intersection(TagMetadataWritebackField.metadataFields)
+        let unsupported = changed.subtracting(writable)
+        var result = MediaServerWritebackResult()
+        if !writable.isEmpty {
+            do {
+                try await connect()
+                let suffix = (original.filePath as NSString).pathExtension
+                let cache = audioCacheDirectory.appendingPathComponent(CacheFileNamePolicy.make(
+                    path: original.filePath, preferredExtension: suffix.isEmpty ? "bin" : suffix))
+                defer { try? FileManager.default.removeItem(at: cache) }
+                result = try await api.updateTrackMetadata(original: original, updated: updated, fields: writable)
+                albumArtistByGUID.removeAll()
+                albumsWithoutArtist.removeAll()
+            } catch {
+                result.errors.append(error.localizedDescription)
+                result.fieldResults = writable.map { TagMetadataFieldWritebackResult(field: $0, disposition: .failed(error.localizedDescription)) }
+            }
+        }
+        let detail = String(localized: "metadata_writeback_error_unsupported")
+        result.fieldResults.append(contentsOf: unsupported.map { TagMetadataFieldWritebackResult(field: $0, disposition: .unsupported(detail)) })
+        if !unsupported.isEmpty || lyricsLines != nil || lyricsContent != nil { result.unsupported.append(detail) }
+        return result
+    }
+
+    func removeLyrics(for song: Song) async -> MediaServerWritebackResult {
+        MediaServerWritebackResult(unsupported: [String(localized: "metadata_writeback_error_unsupported")])
+    }
 }

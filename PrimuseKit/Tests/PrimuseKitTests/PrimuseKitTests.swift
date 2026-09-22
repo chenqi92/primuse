@@ -236,7 +236,7 @@ import Testing
     let readOnly: Set<MusicSourceType> = [
         .upnp, .subsonic, .navidrome, .airsonic, .gonic, .fnos, .fnMusic, .daoliyu, .songloft,
         .synologyAudioStation,
-        // 光鸭开放平台只有读接口,没有删除 / 上传能力。
+        // 光鸭开放平台未提供删除已落盘文件的接口。
         .guangya, .appleMusic, .appleMusicLibrary,
     ]
 
@@ -261,7 +261,7 @@ import Testing
 @Test func embeddedMetadataWritebackCapabilityCoversVerifiedFormats() {
     let expectedEmbeddedSources: Set<MusicSourceType> = [
         .local, .synology, .qnap, .webdav, .smb, .ftp, .sftp, .nfs, .s3,
-        .baiduPan, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
+        .baiduPan, .pan123, .drime, .aliyunDrive, .googleDrive, .oneDrive, .dropbox,
     ]
     #expect(AudioMetadataWritebackPolicy.embeddedSourceTypes == expectedEmbeddedSources)
 
@@ -277,8 +277,10 @@ import Testing
     }
 
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .webdav, format: .wav) == .sidecarOnly)
-    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .pan123, format: .mp3) == .sidecarOnly)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .pan123, format: .mp3) == .embedded)
     #expect(AudioMetadataWritebackPolicy.capability(sourceType: .upnp, format: .mp3) == .localOnly)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .synologyAudioStation, format: .flac) == .serverAPI)
+    #expect(AudioMetadataWritebackPolicy.capability(sourceType: .guangya, format: .mp3) == .localOnly)
 }
 
 @Test func embeddedLyricsCopyIsOptInAndFollowsEmbeddedTagWriteback() throws {
@@ -300,7 +302,7 @@ import Testing
     #expect(canEmbed(.local, .mp3))
     #expect(canEmbed(.oneDrive, .m4a))
     #expect(!canEmbed(.smb, .wav))
-    #expect(!canEmbed(.pan123, .mp3))
+    #expect(canEmbed(.pan123, .mp3))
     #expect(!canEmbed(.jellyfin, .mp3))
     #expect(!canEmbed(.navidrome, .flac))
     #expect(!canEmbed(.smb, .flac, cue: true))
@@ -339,7 +341,7 @@ import Testing
     #expect(effective(.alongside, .webdav, .mp3) == .alongside)
     // Songs that cannot take an embedded copy keep their lyrics files.
     #expect(effective(.embedOnly, .smb, .wav) == .off)
-    #expect(effective(.embedOnly, .pan123, .mp3) == .off)
+    #expect(effective(.embedOnly, .pan123, .mp3) == .embedOnly)
     #expect(
         EmbeddedLyricsCopyPolicy.effectiveMode(
             .embedOnly,

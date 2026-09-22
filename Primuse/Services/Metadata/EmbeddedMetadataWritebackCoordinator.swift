@@ -136,11 +136,35 @@ protocol EmbeddedMetadataWritebackAdapter: MusicSourceConnector {
         with localURL: URL,
         expected: EmbeddedMetadataRemoteFileState
     ) async throws
+    func replaceMetadataFileReturningPath(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws -> String
     func invalidateMetadataWritebackCache(for path: String) async
+}
+
+/// A replacement may commit before its verification download fails. Preserve
+/// the new address even then, without treating unverified tags as a saved edit.
+struct EmbeddedMetadataReplacementReadbackError: LocalizedError {
+    let filePath: String
+    let fileSize: Int64
+    let detail: String
+
+    var errorDescription: String? { detail }
 }
 
 extension EmbeddedMetadataWritebackAdapter {
     func invalidateMetadataWritebackCache(for path: String) async {}
+
+    func replaceMetadataFileReturningPath(
+        at path: String,
+        with localURL: URL,
+        expected: EmbeddedMetadataRemoteFileState
+    ) async throws -> String {
+        try await replaceMetadataFile(at: path, with: localURL, expected: expected)
+        return path
+    }
 
     func writeEmbeddedMetadata(
         original: Song,
@@ -263,8 +287,8 @@ enum EmbeddedMetadataWritebackCoordinator {
             throw EmbeddedMetadataCoordinatedWritebackError.conflict
         }
 
-        try await run(source: sourceName, stage: .replace) {
-            try await adapter.replaceMetadataFile(
+        let replacementPath = try await run(source: sourceName, stage: .replace) {
+            try await adapter.replaceMetadataFileReturningPath(
                 at: original.filePath,
                 with: workingURL,
                 expected: initialState
@@ -272,28 +296,40 @@ enum EmbeddedMetadataWritebackCoordinator {
         }
 
         await adapter.invalidateMetadataWritebackCache(for: original.filePath)
-        let finalState = try await run(source: sourceName, stage: .readback) {
-            try await adapter.metadataWritebackState(for: original.filePath)
-        }
-        let readbackURL = try await run(source: sourceName, stage: .readback) {
-            try await adapter.localURL(for: original.filePath)
-        }
-        let readbackSHA256 = try await run(source: sourceName, stage: .readback) {
-            try SHA256FileDigest.hexDigest(at: readbackURL)
-        }
-        guard readbackSHA256 == editedSHA256 else {
-            throw EmbeddedMetadataCoordinatedWritebackError.remoteVerificationFailed(
-                source: sourceName
+        await adapter.invalidateMetadataWritebackCache(for: replacementPath)
+        do {
+            let finalState = try await run(source: sourceName, stage: .readback) {
+                try await adapter.metadataWritebackState(for: replacementPath)
+            }
+            let readbackURL = try await run(source: sourceName, stage: .readback) {
+                try await adapter.localURL(for: replacementPath)
+            }
+            let readbackSHA256 = try await run(source: sourceName, stage: .readback) {
+                try SHA256FileDigest.hexDigest(at: readbackURL)
+            }
+            guard readbackSHA256 == editedSHA256 else {
+                throw EmbeddedMetadataCoordinatedWritebackError.remoteVerificationFailed(
+                    source: sourceName
+                )
+            }
+
+            return EmbeddedMetadataWritebackResult(
+                fileSize: finalState.fileSize,
+                modifiedDate: finalState.modifiedDate,
+                revision: finalState.revision,
+                fileSHA256: readbackSHA256,
+                verification: verification,
+                filePath: replacementPath
+            )
+        } catch {
+            guard replacementPath != original.filePath else { throw error }
+            let size = try? workingURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            throw EmbeddedMetadataReplacementReadbackError(
+                filePath: replacementPath,
+                fileSize: Int64(size ?? 0),
+                detail: error.localizedDescription
             )
         }
-
-        return EmbeddedMetadataWritebackResult(
-            fileSize: finalState.fileSize,
-            modifiedDate: finalState.modifiedDate,
-            revision: finalState.revision,
-            fileSHA256: readbackSHA256,
-            verification: verification
-        )
     }
 
     private static func run<Value>(
@@ -303,6 +339,8 @@ enum EmbeddedMetadataWritebackCoordinator {
     ) async throws -> Value {
         do {
             return try await operation()
+        } catch let error as EmbeddedMetadataReplacementReadbackError {
+            throw error
         } catch let error as EmbeddedMetadataCoordinatedWritebackError {
             throw error
         } catch EmbeddedMetadataWritebackSourceError.conflict {
@@ -328,6 +366,8 @@ enum EmbeddedMetadataWritebackCoordinator {
         case "NFSSource": return MusicSourceType.nfs.displayName
         case "S3Source": return MusicSourceType.s3.displayName
         case "BaiduPanSource": return MusicSourceType.baiduPan.displayName
+        case "Pan123Source": return MusicSourceType.pan123.displayName
+        case "DrimeSource": return MusicSourceType.drime.displayName
         case "AliyunDriveSource": return MusicSourceType.aliyunDrive.displayName
         case "GoogleDriveSource": return MusicSourceType.googleDrive.displayName
         case "OneDriveSource": return MusicSourceType.oneDrive.displayName

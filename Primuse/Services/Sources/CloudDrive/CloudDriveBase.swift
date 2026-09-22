@@ -345,7 +345,7 @@ struct CloudDriveHelper: Sendable {
     func makeAuthorizedRequest(
         url: URL, method: String = "GET", body: Data? = nil,
         contentType: String? = nil, accessToken: String,
-        isIdempotent: Bool? = nil
+        isIdempotent: Bool? = nil, session: URLSession = .shared
     ) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -362,7 +362,7 @@ struct CloudDriveHelper: Sendable {
         var delay: TimeInterval = 0.75
         while true {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
                     throw CloudDriveError.invalidResponse
                 }

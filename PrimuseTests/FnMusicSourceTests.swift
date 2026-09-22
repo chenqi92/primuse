@@ -965,3 +965,213 @@ private actor DuplicateDeletionFixtureConnector: MusicSourceConnector {
         for path in paths { try await deleteFile(at: path) }
     }
 }
+
+final class FnMusicMetadataWritebackTests: XCTestCase {
+    func testNativeMetadataWritePreservesRemoteArraysAlbumAndCover() async {
+        XCTAssertEqual(AudioMetadataWritebackPolicy.capability(sourceType: .fnMusic, format: .mp3), .serverAPI)
+        let fixture = FnMusicTagHTTPFixture()
+        let source = makeSource(fixture)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        var original = song(fixture)
+        original.albumTitle = "Stale local album"
+        var updated = original
+        updated.title = "正确歌名"
+        updated.year = nil
+        updated.trackNumber = 4
+        updated.discNumber = 2
+        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: nil, lyricsLines: nil, lyricsContent: nil)
+        XCTAssertTrue(result.errors.isEmpty, result.errors.description)
+        XCTAssertEqual(result.fieldResults.filter { $0.disposition == .written }.count, 4)
+        let body = fixture.written
+        XCTAssertEqual(body["title"] as? String, "正确歌名")
+        XCTAssertEqual(body["album"] as? String, "Remote album")
+        XCTAssertEqual(body["albumGUID"] as? String, "old-album")
+        XCTAssertEqual(body["artistGUIDs"] as? [String], ["artist-a", "artist-b"])
+        XCTAssertEqual(body["genreGUIDs"] as? [String], ["rock"])
+        XCTAssertEqual(body["coverId"] as? String, "track_original-cover")
+        XCTAssertEqual(body["coverGUID"] as? String, "original-cover")
+        XCTAssertTrue(body["year"] is NSNull)
+        XCTAssertEqual(fixture.readCount, 2)
+        XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
+    }
+
+    func testArtistAndAlbumNamesResolveWithoutReusingOldAlbumIdentity() async {
+        for existing in [false, true] {
+            let fixture = FnMusicTagHTTPFixture(mode: existing ? .existingEntities : .success)
+            let source = makeSource(fixture)
+            defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+            let original = song(fixture)
+            var updated = original
+            updated.artistName = "New artist"
+            updated.albumTitle = "New album"
+            updated.genre = "Jazz"
+            let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: nil, lyricsLines: nil, lyricsContent: nil)
+            XCTAssertTrue(result.errors.isEmpty, result.errors.description)
+            XCTAssertEqual(result.fieldResults.filter { $0.disposition == .written }.count, 3)
+            XCTAssertEqual(fixture.written["artistGUIDs"] as? [String], ["new-artist"])
+            XCTAssertEqual(fixture.written["genreGUIDs"] as? [String], ["jazz"])
+            XCTAssertEqual(fixture.written["albumGUID"] as? String, existing ? "new-album" : nil)
+            XCTAssertEqual(fixture.artistCreations, existing ? 0 : 1)
+            XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
+        }
+    }
+
+    func testUnsupportedCustomGenreAndCoverDoNotPreventVerifiedTitleSave() async {
+        let fixture = FnMusicTagHTTPFixture()
+        let source = makeSource(fixture)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.title = "New title"
+        updated.genre = "Uncatalogued genre"
+        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: Data([1]), lyricsLines: nil, lyricsContent: nil)
+        XCTAssertTrue(result.metadataWritten)
+        XCTAssertTrue(result.errors.isEmpty)
+        XCTAssertEqual(fixture.written["genreGUIDs"] as? [String], ["rock"])
+        XCTAssertEqual(result.fieldResults.filter { if case .unsupported = $0.disposition { return true }; return false }.count, 2)
+    }
+
+    func testInvalidMetadataPermissionAndReadbackCannotReportSuccess() async {
+        for mode in [FnMusicTagHTTPFixture.Mode.missingIDs, .wrongTrack, .permissionDenied, .businessError, .mismatchedReadback] {
+            let fixture = FnMusicTagHTTPFixture(mode: mode)
+            let source = makeSource(fixture)
+            defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+            let original = song(fixture)
+            var updated = original
+            updated.title = "New title"
+            let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: nil, lyricsLines: nil, lyricsContent: nil)
+            XCTAssertFalse(result.metadataWritten, "\(mode)")
+            XCTAssertFalse(result.errors.isEmpty, "\(mode)")
+            if mode == .missingIDs || mode == .wrongTrack { XCTAssertEqual(fixture.writeCount, 0) }
+        }
+    }
+
+    func testAmbiguousEntityNamesStopBeforeMutation() async {
+        let fixture = FnMusicTagHTTPFixture(mode: .ambiguousEntities)
+        let source = makeSource(fixture)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.albumTitle = "New album"
+        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: nil, lyricsLines: nil, lyricsContent: nil)
+        XCTAssertFalse(result.errors.isEmpty)
+        XCTAssertEqual(fixture.writeCount, 0)
+        XCTAssertEqual(fixture.artistCreations, 0)
+    }
+
+    private func song(_ fixture: FnMusicTagHTTPFixture) -> Song {
+        Song(id: "song", title: "Old title", albumTitle: "Remote album", artistName: "Artist A, Artist B",
+            trackNumber: 1, discNumber: 1, fileFormat: .mp3, filePath: FnMusicAPIProtocol.trackPath(guid: "track-guid", fileExtension: "mp3"),
+            sourceID: fixture.host, fileSize: 100, genre: "Rock", year: 2020)
+    }
+
+    private func makeSource(_ fixture: FnMusicTagHTTPFixture) -> FnMusicSource {
+        FnMusicTagHTTPProtocol.register(fixture)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [FnMusicTagHTTPProtocol.self]
+        return FnMusicSource(sourceID: fixture.host, host: fixture.host, port: nil, useSSL: true,
+            basePath: "/music", connectionMode: .address, accessCode: nil, username: "editor", password: "password",
+            session: URLSession(configuration: config))
+    }
+}
+
+private final class FnMusicTagHTTPFixture: @unchecked Sendable {
+    enum Mode { case success, existingEntities, missingIDs, wrongTrack, permissionDenied, businessError, mismatchedReadback, ambiguousEntities }
+    let host = "fnmusic-tags-\(UUID().uuidString.lowercased()).invalid"
+    let mode: Mode
+    private let lock = NSLock()
+    private var body: [String: Any] = [:]
+    private var reads = 0
+    private var writes = 0
+    private var creations = 0
+    private var failures: [String] = []
+    var written: [String: Any] { lock.withLock { body } }
+    var readCount: Int { lock.withLock { reads } }
+    var writeCount: Int { lock.withLock { writes } }
+    var artistCreations: Int { lock.withLock { creations } }
+    var problems: [String] { lock.withLock { failures } }
+    init(mode: Mode = .success) { self.mode = mode }
+
+    func response(_ request: URLRequest) throws -> (Int, Data) {
+        try lock.withLock {
+            let path = request.url!.path
+            func response(_ payload: Any, code: Int = 0, status: Int = 200) throws -> (Int, Data) {
+                (status, try JSONSerialization.data(withJSONObject: ["code": code, "data": payload]))
+            }
+            if path.hasSuffix("/user/password-login") { return try response(["userToken": "editor-token"]) }
+            if path.hasSuffix("/config") { return try response([String: String]()) }
+            if request.value(forHTTPHeaderField: "Cookie")?.contains("music-token=editor-token") != true { failures.append("Missing native auth cookie") }
+            if request.value(forHTTPHeaderField: "authx") == nil { failures.append("Missing Authx signature") }
+            switch path {
+            case "/music/api/v1/artist/list-all":
+                return try response(["list": mode == .existingEntities ? [["guid": "new-artist", "name": "New artist"]] : []])
+            case "/music/api/v1/album/list-all":
+                let albums = mode == .existingEntities ? [["guid": "new-album", "name": "New album"]] :
+                    (mode == .ambiguousEntities ? [["guid": "one", "name": "New album"], ["guid": "two", "name": "New album"]] : [])
+                return try response(["list": albums])
+            case "/music/api/v1/genre/list": return try response(["list": [["guid": "rock", "name": "Rock"], ["guid": "jazz", "name": "Jazz"]], "total": 2])
+            case "/music/api/v1/artist/create":
+                creations += 1
+                let value = try JSONSerialization.jsonObject(with: Self.requestBody(request)) as! [String: Any]
+                if value["name"] as? String != "New artist" || !(value["coverId"] is NSNull) { failures.append("Artist creation payload") }
+                return try response(["guid": "new-artist", "name": "New artist"])
+            case "/music/api/v1/track/metadata":
+                if request.httpMethod == "POST" {
+                    writes += 1
+                    if mode == .permissionDenied { return try response([String: String](), code: 403, status: 403) }
+                    if mode == .businessError { return try response([String: String](), code: 50001) }
+                    body = try JSONSerialization.jsonObject(with: Self.requestBody(request)) as! [String: Any]
+                    if body["guid"] as? String != "track-guid" { failures.append("Wrong mutation identity") }
+                    return try response(NSNull())
+                }
+                reads += 1
+                var track: [String: Any] = ["guid": mode == .wrongTrack ? "wrong" : "track-guid", "title": "Old title", "coverId": "track_original-cover",
+                    "album": ["guid": "old-album", "name": "Remote album"], "artists": [["guid": "artist-a", "name": "Artist A"], ["guid": "artist-b", "name": "Artist B"]],
+                    "genres": [["guid": "rock", "name": "Rock"]], "year": 2020, "trackNo": 1, "discNo": 1]
+                if mode == .missingIDs { track["artists"] = [["name": "Artist A"]] }
+                if !body.isEmpty && mode != .mismatchedReadback {
+                    for key in ["title", "year", "trackNo", "discNo"] { track[key] = body[key] }
+                    track["album"] = ["guid": body["albumGUID"] as? String ?? "created-album", "name": body["album"] as? String ?? ""]
+                    track["artists"] = (body["artistGUIDs"] as? [String] ?? []).map { ["guid": $0, "name": ["new-artist": "New artist", "artist-a": "Artist A", "artist-b": "Artist B"][$0] ?? $0] }
+                    track["genres"] = (body["genreGUIDs"] as? [String] ?? []).map { ["guid": $0, "name": ["rock": "Rock", "jazz": "Jazz"][$0] ?? $0] }
+                }
+                return try response(["track": track, "audioSpec": [:]])
+            default: throw URLError(.badURL)
+            }
+        }
+    }
+
+    private static func requestBody(_ request: URLRequest) -> Data {
+        if let data = request.httpBody { return data }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            result.append(buffer, count: count)
+        }
+        return result
+    }
+}
+
+private final class FnMusicTagHTTPProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var fixtures: [String: FnMusicTagHTTPFixture] = [:]
+    static func register(_ fixture: FnMusicTagHTTPFixture) { lock.withLock { fixtures[fixture.host] = fixture } }
+    static func remove(host: String) { _ = lock.withLock { fixtures.removeValue(forKey: host) } }
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host?.hasPrefix("fnmusic-tags-") == true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url, let fixture = Self.lock.withLock({ Self.fixtures[url.host ?? ""] }) else { return }
+        do {
+            let (status, data) = try fixture.response(request)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+    override func stopLoading() {}
+}

@@ -19,12 +19,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
     ServerPlaylistConnector, ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
-    ServerListeningStatsConnector, ServerRatingConnector {
+    ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector {
     let sourceID: String
 
     private let sourceType: MusicSourceType
     private let baseURL: URL          // 形如 https://host:4533 (+ basePath), 不含 /rest
     private let username: String
+    private let webPassword: String
+    private let alternateTLSValidationHostname: String?
     private let salt: String
     private let token: String         // md5(password + salt)
     private let apiVersion: String
@@ -184,6 +186,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         self.sourceType = sourceType
         self.baseURL = Self.makeBaseURL(host: host, port: port, useSsl: useSsl, basePath: basePath)
         self.username = username
+        self.webPassword = password
+        self.alternateTLSValidationHostname = alternateTLSValidationHostname
         self.apiVersion = sourceType == .airsonic
             ? Self.airsonicAPIVersion
             : Self.defaultAPIVersion
@@ -2006,4 +2010,266 @@ private struct LyricsContainer: SubsonicResponseContainer {
 
 private struct LyricsList: Decodable {
     let structuredLyrics: [OpenSubsonicLyricsConverter.Track]?
+}
+
+/// Airsonic's editor uses a separate web session from its REST API. Keep
+/// cookies source-local and capture login redirects before following them.
+private actor AirsonicTagEditorClient {
+    private let baseURL: URL
+    private let username: String
+    private let password: String
+    private let session: URLSession
+    private var cookies: [String: String] = [:]
+
+    init(baseURL: URL, username: String, password: String, session: URLSession?, tlsHostname: String?) {
+        self.baseURL = baseURL
+        self.username = username
+        self.password = password
+        let configuration = session?.configuration ?? .ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60
+        self.session = URLSession(configuration: configuration, delegate: AirsonicWebSessionDelegate(
+            trust: SmartSSLDelegate(redirectPolicy: .sameEndpoint,
+                alternateServerTrustHostname: tlsHostname,
+                alternateServerTrustEndpoint: NetworkEndpointIdentity(url: baseURL))
+        ), delegateQueue: nil)
+    }
+
+    deinit { session.invalidateAndCancel() }
+
+    func edit(mediaFileID: Int, values: AirsonicTagValues) async throws {
+        cookies.removeAll()
+        let login = try await request("login")
+        guard let csrf = AirsonicTagEditingProtocol.csrf(in: login) else {
+            throw SourceError.authenticationFailed
+        }
+        _ = try await request("login", body: AirsonicTagEditingProtocol.form([
+            "j_username": username, "j_password": password, csrf.parameter: csrf.token,
+        ]), contentType: "application/x-www-form-urlencoded")
+        let page = try await request("editTags", query: [URLQueryItem(name: "id", value: String(mediaFileID))])
+        if page.contains("tagService.setTags") {
+            try await editDWR(mediaFileID: mediaFileID, values: values)
+        } else if page.contains("/app/tags/edit") {
+            let index = try await request("index")
+            guard let csrf = AirsonicTagEditingProtocol.csrf(in: index) else { throw SourceError.authenticationFailed }
+            try await editAdvanced(mediaFileID: mediaFileID, values: values, csrfHeader: csrf.header, csrfToken: csrf.token)
+        } else {
+            throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_unsupported"))
+        }
+    }
+
+    private func request(
+        _ route: String, query: [URLQueryItem] = [], body: Data? = nil,
+        contentType: String? = nil
+    ) async throws -> String {
+        let url = ProxyPrefixedBasePathPolicy.appending(route, to: baseURL)
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
+        if !query.isEmpty { components.queryItems = query }
+        guard let target = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: target)
+        request.httpMethod = body == nil ? "GET" : "POST"
+        request.httpBody = body
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Referer")
+        request.timeoutInterval = 30
+        for _ in 0..<6 {
+            try Task.checkCancellation()
+            let root = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard let currentURL = request.url,
+                  HTTPRedirectSecurityPolicy.allows(from: baseURL, to: currentURL),
+                  root.isEmpty || currentURL.path == "/" + root || currentURL.path.hasPrefix("/" + root + "/") else {
+                throw SourceError.authenticationFailed
+            }
+            request.httpShouldHandleCookies = false
+            request.setValue(cookies.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; "), forHTTPHeaderField: "Cookie")
+            let (data, response) = try await TrustedHTTPTransport.dataWithoutRedirects(
+                for: request, session: session, maxBytes: 2 * 1_024 * 1_024
+            )
+            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            let headers = Dictionary(http.allHeaderFields.compactMap { key, value -> (String, String)? in
+                guard let key = key as? String, let value = value as? String else { return nil }
+                return (key, value)
+            }, uniquingKeysWith: { _, last in last })
+            for cookie in HTTPCookie.cookies(withResponseHeaderFields: headers, for: currentURL) {
+                cookies[cookie.name] = cookie.value
+            }
+            if let next = HTTPRedirectRequestPolicy.redirectedRequest(from: request, response: http) {
+                request = next
+                continue
+            }
+            guard (200...299).contains(http.statusCode) else {
+                if http.statusCode == 401 { throw SourceError.authenticationFailed }
+                if http.statusCode == 403 { throw SourceError.connectionFailed(String(localized: "auth_permission_denied")) }
+                throw SourceError.connectionFailed("HTTP \(http.statusCode)")
+            }
+            return String(decoding: data, as: UTF8.self)
+        }
+        throw URLError(.httpTooManyRedirects)
+    }
+
+    private func editAdvanced(mediaFileID: Int, values: AirsonicTagValues, csrfHeader: String, csrfToken: String) async throws {
+        let route = "websocket/000/\(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())"
+        let opened = try await request(route + "/xhr", body: Data())
+        guard opened.trimmingCharacters(in: .whitespacesAndNewlines) == "o" else { throw URLError(.cannotParseResponse) }
+        let connect = AirsonicTagEditingProtocol.stomp("CONNECT", headers: [
+            "accept-version": "1.2,1.1", "heart-beat": "0,0", csrfHeader: csrfToken,
+        ])
+        _ = try await request(route + "/xhr_send", body: AirsonicTagEditingProtocol.sockJSBody([connect]), contentType: "application/json; charset=UTF-8")
+        _ = try await poll(route: route, command: "CONNECTED")
+        let subscribe = AirsonicTagEditingProtocol.stomp("SUBSCRIBE", headers: [
+            "id": "primuse-tags", "destination": "/user/queue/tags/edit", "ack": "auto",
+        ])
+        let payload = try values.advancedPayload(mediaFileID: mediaFileID)
+        let edit = AirsonicTagEditingProtocol.stomp("SEND", headers: [
+            "destination": "/app/tags/edit", "content-type": "application/json",
+            "content-length": String(payload.utf8.count),
+        ], body: payload)
+        _ = try await request(route + "/xhr_send", body: AirsonicTagEditingProtocol.sockJSBody([subscribe, edit]), contentType: "application/json; charset=UTF-8")
+        let result = try await poll(route: route, command: "MESSAGE")
+        let disconnect = AirsonicTagEditingProtocol.stomp("DISCONNECT", headers: [:])
+        _ = try? await request(route + "/xhr_send", body: AirsonicTagEditingProtocol.sockJSBody([disconnect]), contentType: "application/json; charset=UTF-8")
+        guard result == "UPDATED" || result == "SKIPPED" else {
+            throw SourceError.connectionFailed(result.isEmpty ? String(localized: "metadata_writeback_error_invalid_state") : result)
+        }
+    }
+
+    private func editDWR(mediaFileID: Int, values: AirsonicTagValues) async throws {
+        let page = ProxyPrefixedBasePathPolicy.appending("editTags", to: baseURL).path + "?id=\(mediaFileID)"
+        let handshake = try await request("dwr/call/plaincall/__System.pageLoaded.dwr", body:
+            AirsonicTagEditingProtocol.dwrBody(batch: 0, page: page, httpSessionID: cookies["JSESSIONID"] ?? "", scriptSessionID: nil),
+            contentType: "text/plain; charset=UTF-8")
+        let scriptSession = try AirsonicTagEditingProtocol.dwrScriptSession(handshake)
+        let response = try await request("dwr/call/plaincall/tagService.setTags.dwr", body:
+            AirsonicTagEditingProtocol.dwrBody(batch: 1, page: page, httpSessionID: cookies["JSESSIONID"] ?? "", scriptSessionID: scriptSession,
+                mediaFileID: mediaFileID, values: values), contentType: "text/plain; charset=UTF-8")
+        let result = try AirsonicTagEditingProtocol.dwrResult(response, batch: 1)
+        guard result == "UPDATED" || result == "SKIPPED" else {
+            throw SourceError.connectionFailed(result.isEmpty ? String(localized: "metadata_writeback_error_invalid_state") : result)
+        }
+    }
+
+    private func poll(route: String, command: String) async throws -> String {
+        var buffered = ""
+        for _ in 0..<3 {
+            let response = try await request(route + "/xhr", body: Data())
+            for chunk in try AirsonicTagEditingProtocol.sockJSMessages(response) {
+                buffered += chunk
+                guard buffered.utf8.count <= 1_024 * 1_024 else { throw URLError(.dataLengthExceedsMaximum) }
+                while let end = buffered.firstIndex(of: "\0") {
+                    let frame = String(buffered[...end])
+                    buffered.removeSubrange(...end)
+                    let parsed = try AirsonicTagEditingProtocol.stompResponse(frame)
+                    if parsed.command == "ERROR" { throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state")) }
+                    if parsed.command == command,
+                       command != "MESSAGE" || parsed.headers["subscription"] == "primuse-tags" {
+                        return parsed.body
+                    }
+                }
+            }
+        }
+        throw URLError(.timedOut)
+    }
+}
+
+private final class AirsonicWebSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    let trust: SmartSSLDelegate
+    init(trust: SmartSSLDelegate) { self.trust = trust }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest) async -> URLRequest? { nil }
+
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await trust.urlSession(session, didReceive: challenge)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await trust.urlSession(session, task: task, didReceive: challenge)
+    }
+}
+
+extension SubsonicSource {
+    func writeScrapedMetadata(
+        original: Song, updated: Song, coverData: Data?,
+        lyricsLines: [LyricLine]?, lyricsContent: String?
+    ) async -> MediaServerWritebackResult {
+        let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: coverData?.isEmpty == false)
+        let supported: Set<TagMetadataWritebackField> = [.title, .artist, .album, .genre, .year, .trackNumber]
+        let writable = sourceType == .airsonic ? changed.intersection(supported) : []
+        let unavailable = String(localized: "metadata_writeback_error_unsupported")
+        var result = MediaServerWritebackResult()
+        result.fieldResults = changed.subtracting(writable).map {
+            TagMetadataFieldWritebackResult(field: $0, disposition: .unsupported(unavailable))
+        }
+        if !changed.subtracting(writable).isEmpty || lyricsContent != nil || lyricsLines != nil {
+            result.unsupported.append(unavailable)
+        }
+        guard !writable.isEmpty else { return result }
+        do {
+            try await connect()
+            let user: TagEditorUserContainer = try await requestJSON("getUser", query: [URLQueryItem(name: "username", value: username)])
+            guard user.user?.coverArtRole == true else { throw SourceError.connectionFailed(String(localized: "auth_permission_denied")) }
+            guard original.sourceID == sourceID, original.sourceID == updated.sourceID, original.filePath == updated.filePath,
+                  let id = songID(from: original.filePath), let numericID = Int(id), numericID > 0 else {
+                throw SourceError.fileNotFound(original.filePath)
+            }
+            let before: GetSongContainer = try await requestJSON("getSong", query: [URLQueryItem(name: "id", value: id)])
+            guard let current = before.song, current.id == id else { throw SourceError.fileNotFound(original.filePath) }
+            // Both native protocols replace all six fields. Preserve fresh
+            // server values for fields the user did not edit.
+            var values = AirsonicTagValues(title: current.title ?? "", artist: current.artist ?? "",
+                album: current.album ?? "", genre: current.genre ?? "", year: current.year, track: current.track)
+            if writable.contains(.title) { values.title = updated.title }
+            if writable.contains(.artist) { values.artist = updated.artistName ?? "" }
+            if writable.contains(.album) { values.album = updated.albumTitle ?? "" }
+            if writable.contains(.genre) { values.genre = updated.genre ?? "" }
+            if writable.contains(.year) { values.year = updated.year }
+            if writable.contains(.trackNumber) { values.track = updated.trackNumber }
+            let editor = AirsonicTagEditorClient(baseURL: baseURL, username: username, password: webPassword,
+                session: session, tlsHostname: alternateTLSValidationHostname)
+            let ext = (original.filePath as NSString).pathExtension
+            let cache = cacheDirectory.appendingPathComponent("\(id).\(ext.isEmpty ? "bin" : ext)")
+            // A lost response can follow a successful audio-file mutation.
+            defer { try? FileManager.default.removeItem(at: cache) }
+            try await editor.edit(mediaFileID: numericID, values: values)
+            let after: GetSongContainer = try await requestJSON("getSong", query: [URLQueryItem(name: "id", value: id)])
+            guard let readback = after.song, readback.id == id else { throw URLError(.cannotParseResponse) }
+            for field in writable {
+                let matches: Bool
+                switch field {
+                case .title: matches = (readback.title ?? "") == values.title
+                case .artist: matches = (readback.artist ?? "") == values.artist
+                case .album: matches = (readback.album ?? "") == values.album
+                case .genre: matches = (readback.genre ?? "") == values.genre
+                case .year: matches = readback.year == values.year
+                case .trackNumber: matches = readback.track == values.track
+                case .discNumber, .cover: matches = false
+                }
+                let detail = String(localized: "metadata_writeback_media_readback_mismatch")
+                result.fieldResults.append(TagMetadataFieldWritebackResult(field: field, disposition: matches ? .written : .failed(detail)))
+                if matches { result.metadataWritten = true }
+                else if !result.errors.contains(detail) { result.errors.append(detail) }
+            }
+        } catch {
+            result.errors.append(error.localizedDescription)
+            result.fieldResults.append(contentsOf: writable.map { TagMetadataFieldWritebackResult(field: $0, disposition: .failed(error.localizedDescription)) })
+        }
+        return result
+    }
+
+    func removeLyrics(for song: Song) async -> MediaServerWritebackResult {
+        MediaServerWritebackResult(unsupported: [String(localized: "metadata_writeback_error_unsupported")])
+    }
+}
+
+private struct TagEditorUserContainer: SubsonicResponseContainer {
+    let status: String
+    let error: SubsonicError?
+    let user: TagEditorUser?
+}
+
+private struct TagEditorUser: Decodable {
+    let coverArtRole: Bool?
 }

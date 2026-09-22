@@ -1,4 +1,5 @@
 import CryptoKit
+import CoreFoundation
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -500,6 +501,110 @@ public actor SynologyAudioStationClient {
             if values.count == page.total { return values }
             guard page.radios.count == pageSize else { throw SynologyAudioStationError.invalidResponse }
         }
+    }
+
+    // MARK: - 文件标签
+
+    /// Audio Station 的网页编辑器使用独立 CGI；SYNO.AudioStation.Tag 只有读取方法。
+    /// 先读取文件标签，保留未修改的字段及歌词，再从同一文件回读，避免目录索引延迟造成误判。
+    public func setTags(id: String, values: [String: String]) async throws -> [String: String] {
+        let textKeys = ["title", "artist", "album", "album_artist", "composer", "genre", "comment"]
+        let numberKeys = ["year", "track", "disc"]
+        let editable = Set(["title", "artist", "album", "genre"] + numberKeys)
+        guard SynologyAudioStationAPI.isCatalogSongID(id),
+              !SynologyAudioStationAPI.isVirtualTrackID(id),
+              !values.isEmpty, Set(values.keys).isSubset(of: editable),
+              numberKeys.allSatisfy({ key in
+                  guard let value = values[key], !value.isEmpty else { return true }
+                  return Int(value).map { $0 >= 0 } == true
+              }) else { throw SynologyAudioStationError.operationNotPermitted }
+        guard try await info().canEditTags == true else {
+            throw SynologyAudioStationError.operationNotPermitted
+        }
+        let info: SynologyAudioStationSongInfo = try await perform(SynologyAudioStationAPI.songInfoCall(id: id))
+        guard info.songs.count == 1, let song = info.songs.first, song.id == id,
+              let path = song.path, path.hasPrefix("/"), !path.contains("\0"),
+              !path.split(separator: "/").contains(".."),
+              ["mp3", "m4a", "m4b", "ogg", "flac", "aif", "aiff"].contains((path as NSString).pathExtension.lowercased()) else {
+            throw SynologyAudioStationError.operationNotPermitted
+        }
+        let audioInfos = String(decoding: try JSONSerialization.data(withJSONObject: [["path": path]]), as: UTF8.self)
+        let load = [SynologyAudioStationParameter("action", "load"), .init("audioInfos", audioInfos)]
+        let loaded = try Self.tagEditorResponse(try await tagEditorRequest(load), path: path, applying: false)
+        guard let files = loaded["files"] as? [[String: Any]], let original = files.first,
+              let lyrics = loaded["lyrics"] as? String else { throw SynologyAudioStationError.invalidResponse }
+        var payload: [String: Any] = [
+            "audioInfos": files, "lyrics": lyrics, "codePage": "SYNO_NO_CODE_PAGE_CONVERT",
+            "coverType": "original_image", "coverPath": "",
+        ]
+        for key in textKeys {
+            guard let value = original[key] as? String else { throw SynologyAudioStationError.invalidResponse }
+            payload[key] = values[key] ?? value
+        }
+        for key in numberKeys {
+            guard let value = Self.tagNumber(original[key]) else { throw SynologyAudioStationError.invalidResponse }
+            payload[key] = values[key] ?? value
+        }
+        let encoded = String(decoding: try JSONSerialization.data(withJSONObject: [payload]), as: UTF8.self)
+        _ = try Self.tagEditorResponse(try await tagEditorRequest([
+            .init("action", "apply"), .init("data", encoded),
+        ]), path: path, applying: true)
+        let confirmed = try Self.tagEditorResponse(try await tagEditorRequest(load), path: path, applying: false)
+        guard let file = (confirmed["files"] as? [[String: Any]])?.first else {
+            throw SynologyAudioStationError.invalidResponse
+        }
+        var result: [String: String] = [:]
+        for key in values.keys {
+            guard let value = numberKeys.contains(key) ? Self.tagNumber(file[key]) : file[key] as? String else {
+                throw SynologyAudioStationError.invalidResponse
+            }
+            result[key] = value
+        }
+        return result
+    }
+
+    private static func tagNumber(_ value: Any?) -> String? {
+        if let text = value as? String {
+            if text.isEmpty { return "0" }
+            return Int(text).map(String.init)
+        }
+        if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+            return number.stringValue
+        }
+        return nil
+    }
+
+    private static func tagEditorResponse(_ body: Data, path: String, applying: Bool) throws -> [String: Any] {
+        guard let json = try JSONSerialization.jsonObject(with: SynologyAudioStationAPI.normalizedBody(body)) as? [String: Any],
+              json["success"] as? Bool == true,
+              tagNumber(json["read_fail_count"]) == "0",
+              let files = json["files"] as? [[String: Any]], files.count == 1,
+              files[0]["path"] as? String == path else { throw SynologyAudioStationError.invalidResponse }
+        if applying {
+            guard let failures = json["write_fail_files"] as? [Any] else { throw SynologyAudioStationError.invalidResponse }
+            if !failures.isEmpty { throw SynologyAudioStationError.operationNotPermitted }
+        }
+        return json
+    }
+
+    private func tagEditorRequest(_ parameters: [SynologyAudioStationParameter]) async throws -> Data {
+        let session = try await currentSession()
+        let url = ProxyPrefixedBasePathPolicy.appending(
+            "webman/3rdparty/AudioStation/tagEditorUI/tag_editor.cgi", to: session.context.baseURL
+        )
+        guard let encoded = SynologyAudioStationAPI.formEncoded(parameters + [.init("_sid", session.sid)]) else {
+            throw SynologyAudioStationError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = Data(encoded.utf8)
+        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("Primuse/1.0", forHTTPHeaderField: "User-Agent")
+        // 不重放结果不明的 apply，避免再次覆盖服务端刚发生的编辑。
+        let (body, response) = try await transport.data(request)
+        try Task.checkCancellation()
+        try Self.validateStatus(response)
+        return body
     }
 
     // MARK: - 评分与歌词

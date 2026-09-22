@@ -693,6 +693,7 @@ struct EmbeddedMetadataWritebackResult: Sendable, Equatable {
     let revision: String?
     let fileSHA256: String
     let verification: EmbeddedMetadataVerification
+    var filePath: String? = nil
 }
 
 enum EmbeddedMetadataWritebackSourceError: LocalizedError, Equatable {

@@ -2622,6 +2622,7 @@ final class SourceManager {
     /// misleading selected/unselected flash during automatic retries.
     private(set) var lastSuccessfulConnectionRoutes: [String: SourceConnectionCandidateKind] = [:]
     private var offlineDownloadTasks: [String: OfflineDownloadTaskRecord] = [:]
+    @ObservationIgnored var metadataFileReplacementHandler: ((Song, Song) async throws -> Void)?
     @ObservationIgnored var automaticOfflineDownloadRemovedHandler: ((String) -> Void)?
     @ObservationIgnored private var automaticPlaylistPinnedSongsByID: [String: Song] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
@@ -11938,11 +11939,20 @@ final class SourceManager {
             updated: updated,
             coverData: coverData
         )
-        if mode == .embedded {
+        var writesServerAudio = false
+        if mode == .serverAPI {
+            let type = (try? await sourcesProvider())?.first(where: { $0.id == original.sourceID })?.type
+            writesServerAudio = type == .airsonic || type == .fnMusic || type == .synologyAudioStation
+        }
+        if mode == .embedded || writesServerAudio {
             // The file may already have reached the replace stage even when a
             // mandatory readback later reports an error. Never retain bytes
             // cached under the pre-write revision in either outcome.
             deleteAudioCache(for: original)
+        }
+        let relocated = report.replacementAfterFailedVerification ?? report.updatedSong
+        if relocated.filePath != original.filePath {
+            try await metadataFileReplacementHandler?(original, relocated)
         }
         if report.remoteMutationOccurred {
             let writtenFields = report.fields.compactMap { result -> String? in
@@ -11984,19 +11994,35 @@ final class SourceManager {
         // The file may already have reached the replace stage when a later
         // step fails, so cached bytes are dropped in either outcome.
         defer { deleteAudioCache(for: song) }
-        let result = try await connector.writeEmbeddedMetadata(
-            original: song,
-            updated: song,
-            coverData: nil,
-            lyrics: lyrics,
-            writesTextTags: false
-        )
-        var updated = song
-        updated.fileSize = result.fileSize
-        updated.lastModified = result.modifiedDate
-        updated.revision = result.revision
-        plog("Embedded lyrics writeback completed for songID=\(song.id) edit=\(lyrics.logName)")
-        return updated
+        do {
+            let result = try await connector.writeEmbeddedMetadata(
+                original: song,
+                updated: song,
+                coverData: nil,
+                lyrics: lyrics,
+                writesTextTags: false
+            )
+            var updated = song
+            updated.filePath = result.filePath ?? song.filePath
+            updated.fileSize = result.fileSize
+            updated.lastModified = result.modifiedDate
+            updated.revision = result.revision
+            if updated.filePath != song.filePath {
+                deleteAudioCache(for: song)
+                try await metadataFileReplacementHandler?(song, updated)
+            }
+            plog("Embedded lyrics writeback completed for songID=\(song.id) edit=\(lyrics.logName)")
+            return updated
+        } catch let error as EmbeddedMetadataReplacementReadbackError {
+            var relocated = song
+            relocated.filePath = error.filePath
+            relocated.fileSize = error.fileSize
+            relocated.lastModified = nil
+            relocated.revision = nil
+            deleteAudioCache(for: song)
+            try await metadataFileReplacementHandler?(song, relocated)
+            throw error
+        }
     }
 
     func supportsMediaServerWriteback(for song: Song) async -> Bool {
@@ -12008,6 +12034,8 @@ final class SourceManager {
         case .jellyfin, .emby, .plex:
             return true
         default:
+            // Airsonic's native editor changes audio files. Keep it on the
+            // manual tag-save path; bulk scraping never embeds tags.
             return false
         }
     }

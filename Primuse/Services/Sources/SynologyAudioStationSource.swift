@@ -12,7 +12,7 @@ import PrimuseKit
 /// (回 200),改成整曲下载一次再切片,之后同一个连接器都走本地文件。整轨切出来的
 /// 虚拟音轨(`music_v_`)没有独立文件,只能拿服务端现转的 mp3。
 actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
-    ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector {
+    ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector, MediaServerWritebackConnector {
     /// 诊断里「连接」这一步的上限。QuickConnect 要先解析中转,比直连地址慢。
     static let connectionTimeout: TimeInterval = 30
 
@@ -519,6 +519,61 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     func setServerRating(itemID: String, rating: Int?) async throws -> Int? {
         guard SynologyAudioStationAPI.isCatalogSongID(itemID) else { throw SourceError.fileNotFound(itemID) }
         return try await perform { try await $0.setRating(id: itemID, rating: rating) }
+    }
+
+    // MARK: - 文件标签写回
+
+    func writeScrapedMetadata(original: Song, updated: Song, coverData: Data?, lyricsLines: [LyricLine]?, lyricsContent: String?) async -> MediaServerWritebackResult {
+        let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: coverData?.isEmpty == false)
+        let id = SynologyAudioStationAPI.songID(fromTrackPath: original.filePath)
+        let supported = id.map { !SynologyAudioStationAPI.isVirtualTrackID($0) } == true
+            && !original.isCueTrack && !original.isStreamDescriptor
+            && ["mp3", "m4a", "m4b", "ogg", "flac", "aif", "aiff"].contains((original.filePath as NSString).pathExtension.lowercased())
+        let writable = supported ? changed.intersection(TagMetadataWritebackField.metadataFields) : []
+        let unsupported = changed.subtracting(writable)
+        let detail = String(localized: "metadata_writeback_error_unsupported")
+        var result = MediaServerWritebackResult()
+        result.fieldResults = unsupported.map { .init(field: $0, disposition: .unsupported(detail)) }
+        if !unsupported.isEmpty || lyricsLines != nil || lyricsContent != nil { result.unsupported.append(detail) }
+        guard let id, !writable.isEmpty else { return result }
+        let mapping: [TagMetadataWritebackField: (key: String, value: String)] = [
+            .title: ("title", updated.title), .artist: ("artist", updated.artistName ?? ""),
+            .album: ("album", updated.albumTitle ?? ""), .genre: ("genre", updated.genre ?? ""),
+            .year: ("year", updated.year.map(String.init) ?? "0"),
+            .trackNumber: ("track", updated.trackNumber.map(String.init) ?? "0"),
+            .discNumber: ("disc", updated.discNumber.map(String.init) ?? "0"),
+        ]
+        let values = Dictionary(uniqueKeysWithValues: writable.compactMap { mapping[$0] }.map { ($0.key, $0.value) })
+        // apply 可能已成功而回读失败；两种结果都必须淘汰旧音频字节。
+        defer { invalidateTagAudioCache(path: original.filePath) }
+        do {
+            let confirmed = try await perform { try await $0.setTags(id: id, values: values) }
+            let failure = SynologyAudioStationError.invalidResponse.localizedDescription
+            for field in writable {
+                guard let expected = mapping[field] else { continue }
+                let matched = confirmed[expected.key] == expected.value
+                result.fieldResults.append(.init(field: field, disposition: matched ? .written : .failed(failure)))
+                if matched { result.metadataWritten = true }
+                else if !result.errors.contains(failure) { result.errors.append(failure) }
+            }
+        } catch {
+            let message = error.localizedDescription
+            result.errors.append(message)
+            result.fieldResults += writable.map { .init(field: $0, disposition: .failed(message)) }
+        }
+        return result
+    }
+
+    func removeLyrics(for song: Song) async -> MediaServerWritebackResult {
+        MediaServerWritebackResult(unsupported: [String(localized: "metadata_writeback_error_unsupported")])
+    }
+
+    private func invalidateTagAudioCache(path: String) {
+        completeFileDownloads.removeValue(forKey: path)?.task.cancel()
+        let cache = audioCacheDirectory.appendingPathComponent(
+            CacheFileNamePolicy.make(path: path, preferredExtension: (path as NSString).pathExtension)
+        )
+        try? FileManager.default.removeItem(at: cache)
     }
 
     // MARK: - 工具

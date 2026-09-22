@@ -845,11 +845,13 @@ enum LyricsWriteback {
     // MARK: - 嵌入音频文件的随身副本
 
     private struct EmbeddedFileIdentity: Sendable {
+        let filePath: String
         let fileSize: Int64
         let lastModified: Date?
         let revision: String?
 
         func apply(to song: inout Song) {
+            song.filePath = filePath
             song.fileSize = fileSize
             song.lastModified = lastModified
             song.revision = revision
@@ -893,6 +895,7 @@ enum LyricsWriteback {
         // 事务按库里记的文件身份做冲突判断，编辑器手里的快照可能已经旧了。
         var target = song
         if let latest = library.song(id: song.id) {
+            target.filePath = latest.filePath
             target.fileSize = latest.fileSize
             target.lastModified = latest.lastModified
             target.revision = latest.revision
@@ -900,6 +903,7 @@ enum LyricsWriteback {
         do {
             let written = try await sourceManager.writeEmbeddedLyrics(edit, for: target)
             return .written(EmbeddedFileIdentity(
+                filePath: written.filePath,
                 fileSize: written.fileSize,
                 lastModified: written.lastModified,
                 revision: written.revision

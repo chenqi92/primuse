@@ -18,11 +18,13 @@ import PrimuseKit
 /// 123 用「文件 ID」而非层级路径标识文件 —— `RemoteFileItem.path` / `Song.filePath`
 /// 存的是 fileId 字符串。sidecar 写入时 SidecarWriteService 传来的 path 形如
 /// `"{fileId}-cover.jpg"`,这里反解 fileId → 查文件详情拿真实名 + 父目录 → 上传。
-actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetResolving {
+actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetResolving, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting = true   // 刮削封面/歌词回写 123 云盘
     nonisolated let preferredDeleteBatchSize = 100
     private let helper: CloudDriveHelper
+    private let session: URLSession
+    private let tokenProvider: (@Sendable () async throws -> String)?
 
     private static let apiBase = "https://open-api.123pan.com"
     private static let authURL = "https://yun.123pan.com/auth"
@@ -36,9 +38,15 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
     private var cachedUploadDomain: (value: String, expiresAt: Date)?
     private static let uploadDomainTTL: TimeInterval = 30 * 60
 
-    init(sourceID: String) {
+    init(
+        sourceID: String,
+        session: URLSession = .shared,
+        tokenProvider: (@Sendable () async throws -> String)? = nil
+    ) {
         self.sourceID = sourceID
         self.helper = CloudDriveHelper(sourceID: sourceID)
+        self.session = session
+        self.tokenProvider = tokenProvider
     }
 
     func connect() async throws { _ = try await getToken() }
@@ -120,6 +128,239 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         let url = try await getDownloadURL(for: path)
         return try await helper.rangeRequest(url: url, offset: offset, length: length)
+    }
+
+    // MARK: - Embedded metadata replacement
+
+    private struct MetadataFile {
+        let name: String
+        let parentID: Int
+        let state: EmbeddedMetadataRemoteFileState
+    }
+
+    private func metadataFile(for path: String) async throws -> MetadataFile {
+        guard let fileID = Int(path), fileID > 0 else {
+            throw CloudDriveError.invalidResponse
+        }
+        let json = try await authedRequest("/api/v1/file/detail?fileID=\(fileID)")
+        guard let data = json["data"] as? [String: Any],
+              Self.intValue(data["fileID"] ?? data["fileId"]) == fileID,
+              Self.intValue(data["type"]) == 0,
+              Self.intValue(data["trashed"]) == 0,
+              let name = data["filename"] as? String, !name.isEmpty,
+              let parent = Self.intValue(data["parentFileID"]), parent >= 0,
+              let size = Self.intValue(data["size"]), size > 0,
+              let md5 = data["etag"] as? String,
+              md5.count == 32, md5.allSatisfy({ $0.isHexDigit }) else {
+            throw CloudDriveError.invalidResponse
+        }
+        return MetadataFile(
+            name: name,
+            parentID: parent,
+            state: EmbeddedMetadataRemoteFileState(
+                fileSize: Int64(size), modifiedDate: nil, revision: md5.lowercased(),
+                replacementToken: "\(parent)/\(name)"
+            )
+        )
+    }
+
+    func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        try await metadataFile(for: path).state
+    }
+
+    func invalidateMetadataWritebackCache(for path: String) async {
+        invalidateDownloadURL(for: path)
+        helper.invalidateCachedFile(path: path)
+    }
+
+    func replaceMetadataFile(
+        at path: String, with localURL: URL, expected: EmbeddedMetadataRemoteFileState
+    ) async throws {
+        _ = try await replaceMetadataFileReturningPath(at: path, with: localURL, expected: expected)
+    }
+
+    private func unchangedMetadataFile(
+        at path: String, expected: EmbeddedMetadataRemoteFileState
+    ) async throws -> MetadataFile {
+        let file = try await metadataFile(for: path)
+        guard expected.matches(file.state) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        // duplicate=2 replaces by name, so an ambiguous same-name sibling must
+        // never be allowed to turn a tag edit into replacement of another file.
+        let matches = try await listFiles(at: String(file.parentID)).filter { $0.name == file.name }
+        guard matches.count == 1, matches.first?.path == path else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        return file
+    }
+
+    func replaceMetadataFileReturningPath(
+        at path: String, with localURL: URL, expected: EmbeddedMetadataRemoteFileState
+    ) async throws -> String {
+        guard expected.revision?.isEmpty == false else {
+            throw EmbeddedMetadataWritebackSourceError.missingStrongRevision
+        }
+        let size = Int64(try localURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+        guard size > 0, size <= 10 * 1024 * 1024 * 1024 else {
+            throw CloudDriveError.invalidResponse
+        }
+        let md5 = try await Task.detached(priority: .utility) {
+            try Self.metadataMD5(at: localURL)
+        }.value
+        let original = try await unchangedMetadataFile(at: path, expected: expected)
+        let createBody = try JSONSerialization.data(withJSONObject: [
+            "parentFileID": original.parentID, "filename": original.name,
+            "etag": md5, "size": size, "duplicate": 2, "containDir": false,
+        ])
+        let replacementPath: String
+        do {
+            let json = try await authedRequest("/upload/v2/file/create", method: "POST", body: createBody)
+            guard let data = json["data"] as? [String: Any] else { throw CloudDriveError.invalidResponse }
+            if Self.intValue(data["reuse"]) == 1 {
+                replacementPath = try Self.uploadedFileID(data)
+            } else {
+                guard Self.intValue(data["reuse"]) == 0,
+                      let uploadID = data["preuploadID"] as? String, !uploadID.isEmpty,
+                      let sliceSize = Self.intValue(data["sliceSize"]), sliceSize > 0,
+                      let servers = data["servers"] as? [String],
+                      let server = servers.first,
+                      let endpoint = URL(string: server)?.appendingPathComponent("upload/v2/file/slice"),
+                      endpoint.scheme == "https", endpoint.host != nil else {
+                    throw CloudDriveError.invalidResponse
+                }
+                var offset: Int64 = 0
+                var sliceNo = 1
+                while offset < size {
+                    try Task.checkCancellation()
+                    let count = min(Int64(sliceSize), size - offset)
+                    let body = try await Task.detached(priority: .utility) { [offset, sliceNo] in
+                        try Self.metadataSliceBody(
+                            at: localURL, offset: offset, count: count,
+                            uploadID: uploadID, sliceNo: sliceNo
+                        )
+                    }.value
+                    do {
+                        defer { try? FileManager.default.removeItem(at: body.url) }
+                        try await uploadMetadataSlice(body.url, boundary: body.boundary, to: endpoint)
+                    }
+                    offset += count
+                    sliceNo += 1
+                }
+                // Like Baidu, this API has no If-Match. Recheck immediately
+                // before committing the detached chunks, including name/parent.
+                _ = try await unchangedMetadataFile(at: path, expected: expected)
+                let complete = try await authedRequest(
+                    "/upload/v2/file/upload_complete", method: "POST",
+                    body: JSONSerialization.data(withJSONObject: ["preuploadID": uploadID])
+                )
+                guard let result = complete["data"] as? [String: Any],
+                      Self.intValue(result["completed"]) == 1 else {
+                    throw CloudDriveError.invalidResponse
+                }
+                replacementPath = try Self.uploadedFileID(result)
+            }
+        } catch {
+            // A lost create/complete response may hide a successful commit.
+            // Resolve only an exact content match; do not blindly repeat writes.
+            guard let recovered = try? await listFiles(at: String(original.parentID)).filter({
+                !$0.isDirectory && $0.name == original.name && $0.size == size
+                    && $0.revision?.lowercased() == md5
+            }), recovered.count == 1, let item = recovered.first else { throw error }
+            replacementPath = item.path
+        }
+        await invalidateMetadataWritebackCache(for: path)
+        await invalidateMetadataWritebackCache(for: replacementPath)
+        do {
+            let committed = try await metadataFile(for: replacementPath)
+            guard committed.parentID == original.parentID, committed.name == original.name,
+                  committed.state.fileSize == size, committed.state.revision == md5 else {
+                throw EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
+            }
+        } catch {
+            guard replacementPath != path else { throw error }
+            throw EmbeddedMetadataReplacementReadbackError(
+                filePath: replacementPath, fileSize: size, detail: error.localizedDescription
+            )
+        }
+        return replacementPath
+    }
+
+    private static func uploadedFileID(_ data: [String: Any]) throws -> String {
+        guard let id = intValue(data["fileID"] ?? data["fileId"]), id > 0 else {
+            throw CloudDriveError.invalidResponse
+        }
+        return String(id)
+    }
+
+    private static func metadataMD5(at url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hash = Insecure.MD5()
+        while let data = try handle.read(upToCount: 1024 * 1024), !data.isEmpty {
+            try Task.checkCancellation()
+            hash.update(data: data)
+        }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func metadataSliceBody(
+        at source: URL, offset: Int64, count: Int64, uploadID: String, sliceNo: Int
+    ) throws -> (url: URL, boundary: String) {
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        func readSlice(_ consume: (Data) throws -> Void) throws {
+            try input.seek(toOffset: UInt64(offset))
+            var remaining = count
+            while remaining > 0 {
+                try Task.checkCancellation()
+                guard let data = try input.read(upToCount: Int(min(remaining, 1024 * 1024))),
+                      !data.isEmpty else { throw CloudDriveError.invalidResponse }
+                try consume(data)
+                remaining -= Int64(data.count)
+            }
+        }
+        var hash = Insecure.MD5()
+        try readSlice { hash.update(data: $0) }
+        let md5 = hash.finalize().map { String(format: "%02x", $0) }.joined()
+        let boundary = "Primuse-\(UUID().uuidString)"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(boundary)
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        do {
+            let output = try FileHandle(forWritingTo: url)
+            defer { try? output.close() }
+            func text(_ value: String) throws { try output.write(contentsOf: Data(value.utf8)) }
+            for (name, value) in [("preuploadID", uploadID), ("sliceNo", String(sliceNo)), ("sliceMD5", md5)] {
+                try text("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n")
+            }
+            try text("--\(boundary)\r\nContent-Disposition: form-data; name=\"slice\"; filename=\"slice\"\r\nContent-Type: application/octet-stream\r\n\r\n")
+            try readSlice { try output.write(contentsOf: $0) }
+            try text("\r\n--\(boundary)--\r\n")
+            return (url, boundary)
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
+    }
+
+    private func uploadMetadataSlice(_ body: URL, boundary: String, to url: URL) async throws {
+        let token = try await getToken()
+        let session = session
+        try await helper.withTokenRetry(initialToken: token, refresh: refreshToken, isTokenRejection: Self.isAuthError) { @Sendable token in
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("open_platform", forHTTPHeaderField: "Platform")
+            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 300
+            let (data, response) = try await session.upload(for: request, fromFile: body)
+            guard let http = response as? HTTPURLResponse else { throw CloudDriveError.invalidResponse }
+            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            if http.statusCode == 401 || Self.intValue(json?["code"]) == 401 { throw CloudDriveError.tokenExpired }
+            guard (200...299).contains(http.statusCode), Self.intValue(json?["code"]) == 0 else {
+                throw CloudDriveError.apiError(Self.intValue(json?["code"]) ?? http.statusCode, json?["message"] as? String ?? "")
+            }
+        }
     }
 
     // MARK: - Sidecar 回写(单步上传)
@@ -453,6 +694,7 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
     @discardableResult
     private func authedRequest(_ pathAndQuery: String, method: String = "GET", body: Data? = nil) async throws -> [String: Any] {
         let token = try await getToken()
+        let session = session
         return try await helper.withTokenRetry(initialToken: token, refresh: refreshToken, isTokenRejection: Self.isAuthError) { @Sendable tok in
             var req = URLRequest(url: URL(string: Self.apiBase + pathAndQuery)!)
             req.httpMethod = method
@@ -470,7 +712,7 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
                 let data: Data
                 let response: URLResponse
                 do {
-                    (data, response) = try await URLSession.shared.data(for: req)
+                    (data, response) = try await session.data(for: req)
                 } catch {
                     let nsError = error as NSError
                     guard mayRetry,
@@ -520,9 +762,10 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
     // MARK: - Token
 
     private func getToken() async throws -> String {
+        if let tokenProvider { return try await tokenProvider() }
         // proactive:本地标记过期才刷新,与 reactive(401)共享 CloudTokenManager 的去重刷新,
         // 避免单次有效的 refresh_token 被并发刷新作废。
-        try await helper.tokenManager.refreshDeduped(.ifExpired, refresh: refreshToken).accessToken
+        return try await helper.tokenManager.refreshDeduped(.ifExpired, refresh: refreshToken).accessToken
     }
 
     /// 用 refresh_token 换新 access_token。123 的 oauth2/access_token 用 QueryString 传参,

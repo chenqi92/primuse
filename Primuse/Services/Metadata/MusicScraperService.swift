@@ -143,6 +143,7 @@ final class MusicScraperService {
     nonisolated static let sidecarWriteTimeoutKey = "primuse.sidecar.writeTimeout"
 
     private let sourceManager: SourceManager
+    private let sourceFileName: (Song) -> String?
     private let metadataService = MetadataService()
     private var scrapingTask: Task<Void, Never>?
     private var scrapingGeneration = 0
@@ -214,8 +215,9 @@ final class MusicScraperService {
     private var pendingPlaylistCompletions: [String: BatchScrapeCompletion] = [:]
     private var artworkTargetIDs: [String] = []
 
-    init(sourceManager: SourceManager) {
+    init(sourceManager: SourceManager, sourceFileName: @escaping (Song) -> String? = { _ in nil }) {
         self.sourceManager = sourceManager
+        self.sourceFileName = sourceFileName
         let appSupport = FileManager.default.primuseDirectoryURL(for: .applicationSupportDirectory)
         let directory = appSupport.appendingPathComponent("Primuse", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1634,7 +1636,7 @@ final class MusicScraperService {
         updateArtworkCheckpoint()
     }
 
-    private struct ProcessedResult {
+    struct ProcessedResult {
         let song: Song
         let coverData: Data?
         let lyricsLines: [LyricLine]?
@@ -1694,7 +1696,7 @@ final class MusicScraperService {
         return seeds
     }
 
-    private func processedSongWithAssets(
+    func processedSongWithAssets(
         _ song: Song,
         forceRescrape: Bool,
         storeAssets: Bool = true,
@@ -1772,10 +1774,14 @@ final class MusicScraperService {
             // album and assets. This also keeps identical NAS copies
             // deterministic without downloading the complete audio file.
             let identitySeed = remoteIdentitySeed ?? song
+            let correctedTitle = identitySeed.isCueTrack ? nil
+                : MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+                    title: identitySeed.title, artist: identitySeed.artistName, fileStem: fallbackTitle
+                )
             var seededMetadata = await metadataService.fillMissingOnline(
-                title: identitySeed.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                title: correctedTitle ?? (identitySeed.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? fallbackTitle
-                    : identitySeed.title,
+                    : identitySeed.title),
                 artist: identitySeed.artistName,
                 album: identitySeed.albumTitle,
                 year: identitySeed.year,
@@ -1948,6 +1954,11 @@ final class MusicScraperService {
 
     private func resolvedScrapeFallbackTitle(for song: Song) async -> String {
         let local = Self.scrapeFallbackTitle(for: song)
+        if !song.isCueTrack, let fileName = sourceFileName(song) {
+            let stem = (fileName as NSString).deletingPathExtension
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !stem.isEmpty { return stem }
+        }
         guard Self.shouldResolveRemoteDisplayName(for: song, candidate: local) else {
             return local
         }

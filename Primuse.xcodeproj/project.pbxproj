@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		EC4E690BDC577264F438C37B /* AirsonicTagEditingProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBA84D2E4CE73B786936652 /* AirsonicTagEditingProtocol.swift */; };
 		00253E72EDEA9E0D926D0185 /* AssetReaderDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F224C180F61FD6AD00DD7B /* AssetReaderDecoder.swift */; };
 		009F6DB5B5567F00941DC59F /* iTunesLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 085DFD0DBF1B85D82AE401E0 /* iTunesLibrary.framework */; };
 		0114DC49D0F15E94FDF09739 /* libswresample.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F8034D1C470B837DB46D3E0 /* libswresample.xcframework */; };
@@ -1602,6 +1603,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		BDBA84D2E4CE73B786936652 /* AirsonicTagEditingProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirsonicTagEditingProtocol.swift; sourceTree = "<group>"; };
 		00315BE49B8ED4049B2713AB /* SyncedCredentialAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncedCredentialAvailability.swift; sourceTree = "<group>"; };
 		0039D9169F515627C5A4C159 /* CueSheetParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueSheetParser.swift; sourceTree = "<group>"; };
 		0079EF685D04AD5701F7F80F /* PrimuseWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimuseWatchApp.swift; sourceTree = "<group>"; };
@@ -4209,6 +4211,7 @@
 		F49A5BE606706F898B5DEAC8 /* Streaming */ = {
 			isa = PBXGroup;
 			children = (
+				BDBA84D2E4CE73B786936652 /* AirsonicTagEditingProtocol.swift */,
 				6522627B000671EA9055B5D5 /* BaiduFileManagerBatchResponse.swift */,
 				13DF5DE888D6B46DD9A60F16 /* BaiduPanStreamResolver.swift */,
 				57EAF85EAC8E874651FF330B /* CloudDeviceAuthFlow.swift */,
@@ -4897,6 +4900,7 @@
 				D244F1C2ACF0EF764E421EB0 /* DiagnosticLogSampler.swift in Sources */,
 				9170264A12CAC6F2F15C1CAD /* DiagnosticReportMailPolicy.swift in Sources */,
 				648972DDA395F92075E33575 /* DirectoryBrowserNavigationState.swift in Sources */,
+				EC4E690BDC577264F438C37B /* AirsonicTagEditingProtocol.swift in Sources */,
 				09E0FA677763B8D51EAF2356 /* DrimeAPIProtocol.swift in Sources */,
 				6FE53DDA9986F85A3897E582 /* EQPreset.swift in Sources */,
 				8C79DA90AA64CCACA16842D0 /* EmbeddedTagMetadataParser.swift in Sources */,

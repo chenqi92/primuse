@@ -1527,7 +1527,10 @@ struct TagEditorView: View {
         let lyricsChanged = hasLyricsChanges
         var needsLibraryReplace = true
         if lyricsChanged {
-            let mode = await resolveLyricsWritebackMode()
+            // Lyrics persistence merges into the latest library row. Publish
+            // verified tags first so that merge retains this editor's changes.
+            if sourceMutationOccurred { library.replaceSong(updated) }
+            let mode = await resolveLyricsWritebackMode(for: updated)
             let outcome = await LyricsWriteback.save(
                 text: lyricsText,
                 for: updated,
@@ -1544,6 +1547,12 @@ struct TagEditorView: View {
                 // Keep the library aligned with that verified source state even
                 // if the independent lyrics sidecar operation failed afterward.
                 if sourceMutationOccurred {
+                    if let latest = library.song(id: updated.id) {
+                        updated.filePath = latest.filePath
+                        updated.fileSize = latest.fileSize
+                        updated.lastModified = latest.lastModified
+                        updated.revision = latest.revision
+                    }
                     library.replaceSong(updated)
                     invalidateSelectedCoverIfNeeded()
                 }
@@ -1633,13 +1642,13 @@ struct TagEditorView: View {
     }
 
     @MainActor
-    private func resolveLyricsWritebackMode() async -> LyricsWriteback.Mode {
+    private func resolveLyricsWritebackMode(for target: Song) async -> LyricsWriteback.Mode {
         let mode = await LyricsWriteback.resolveMode(
-            for: song,
+            for: target,
             sourceManager: sourceManager,
             sourcesStore: sourcesStore
         ).protectingSourceConflict(lyricsHaveSourceConflict)
-        lyricsEmbeddingMode = await sourceManager.lyricsEmbeddingMode(for: song)
+        lyricsEmbeddingMode = await sourceManager.lyricsEmbeddingMode(for: target)
         lyricsWritebackMode = mode
         return mode
     }

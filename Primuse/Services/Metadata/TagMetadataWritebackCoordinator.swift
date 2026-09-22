@@ -5,6 +5,7 @@ struct TagMetadataWritebackReport: Sendable {
     let mode: TagMetadataPersistenceMode
     var updatedSong: Song
     var fields: [TagMetadataFieldWritebackResult]
+    var replacementAfterFailedVerification: Song? = nil
 
     var failedFields: [TagMetadataFieldWritebackResult] {
         fields.filter {
@@ -100,7 +101,16 @@ enum TagMetadataWritebackCoordinator {
                 report.updatedSong.fileSize = result.fileSize
                 report.updatedSong.lastModified = result.modifiedDate
                 report.updatedSong.revision = result.revision
+                report.updatedSong.filePath = result.filePath ?? updated.filePath
                 report.setDisposition(.written, for: changed)
+            } catch let error as EmbeddedMetadataReplacementReadbackError {
+                var relocated = original
+                relocated.filePath = error.filePath
+                relocated.fileSize = error.fileSize
+                relocated.revision = nil
+                relocated.lastModified = nil
+                report.replacementAfterFailedVerification = relocated
+                report.setDisposition(.failed(error.localizedDescription), for: changed)
             } catch {
                 report.setDisposition(.failed(error.localizedDescription), for: changed)
             }
