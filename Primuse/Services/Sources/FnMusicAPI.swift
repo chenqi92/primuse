@@ -76,6 +76,10 @@ actor FnMusicAPI {
 
     deinit { session.invalidateAndCancel() }
 
+    func prepareConnection() async throws {
+        _ = try await endpointProvider.endpoint()
+    }
+
     func login(username: String, password: String) async throws {
         guard !username.isEmpty, !password.isEmpty else {
             throw SourceError.authenticationFailed

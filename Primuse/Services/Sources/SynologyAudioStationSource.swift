@@ -78,6 +78,10 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
 
     // MARK: - 连接
 
+    func prepareDiagnosticConnection() async throws {
+        try await client.prepareConnection()
+    }
+
     /// 登录并确认这个账号能用 Audio Station。`info()` 会在需要时自动登录;
     /// 没有权限时 DSM 在登录(402)或这一步(105)就会说出来。
     func connect() async throws {
@@ -136,6 +140,12 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     ]
 
     // MARK: - 曲库
+
+    func diagnosticLibraryItemCount() async throws -> Int {
+        try await connect()
+        // The synthetic directory root does not verify song-read permission.
+        return try await perform { try await $0.songPage(offset: 0, limit: 1).songs.count }
+    }
 
     /// 整库源没有目录可选,给诊断一个代表整库的合成根。
     func listFiles(at path: String) async throws -> [RemoteFileItem] {

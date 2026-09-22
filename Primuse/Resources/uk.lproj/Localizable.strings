@@ -4178,3 +4178,17 @@
 "chapters_title" = "Розділи";
 "a11y_skip_backward" = "Назад на 15 секунд";
 "a11y_skip_forward" = "Вперед на 30 секунд";
+
+"source_diag_reachability_title" = "Доступність адреси";
+"source_diag_reachability_ok" = "Вузол і порт доступні.";
+"source_diag_login_title" = "Вхід до служби";
+"source_diag_library_title" = "Доступ до медіатеки";
+"source_diag_waiting" = "Перевірка…";
+"source_diag_skipped" = "Не виконано через помилку попередньої перевірки.";
+"source_diag_progress_format" = "Завершено перевірок: %1$d із %2$d";
+"source_diag_routes_format" = "Доступні підключення в цій мережі: %1$d із %2$d";
+"source_diag_cancelled" = "Перевірку скасовано";
+"source_diag_check_counts_format" = "Успішно: %1$d · Попереджень: %2$d · Помилок: %3$d · Пропущено: %4$d";
+"source_diag_resolution_title" = "Визначення адреси";
+"source_diag_resolution_ok" = "Адресу служби визначено.";
+"source_diag_library_ok" = "Доступ до медіатеки отримано.";

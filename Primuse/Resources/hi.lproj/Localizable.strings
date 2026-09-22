@@ -4178,3 +4178,17 @@
 "chapters_title" = "अध्याय";
 "a11y_skip_backward" = "15 सेकंड पीछे";
 "a11y_skip_forward" = "30 सेकंड आगे";
+
+"source_diag_reachability_title" = "पते की पहुँच";
+"source_diag_reachability_ok" = "होस्ट और पोर्ट तक पहुँचा जा सकता है।";
+"source_diag_login_title" = "सेवा में साइन इन";
+"source_diag_library_title" = "लाइब्रेरी तक पहुँच";
+"source_diag_waiting" = "जाँच जारी है…";
+"source_diag_skipped" = "पिछली जाँच विफल होने के कारण नहीं चला।";
+"source_diag_progress_format" = "%2$d में से %1$d जाँचें पूरी";
+"source_diag_routes_format" = "इस नेटवर्क पर उपलब्ध कनेक्शन: %2$d में से %1$d";
+"source_diag_cancelled" = "जाँच रद्द कर दी गई";
+"source_diag_check_counts_format" = "%1$d सफल · %2$d चेतावनियाँ · %3$d विफल · %4$d छोड़े गए";
+"source_diag_resolution_title" = "पता खोज";
+"source_diag_resolution_ok" = "सेवा का पता मिल गया।";
+"source_diag_library_ok" = "लाइब्रेरी तक पहुँच सफल रही।";

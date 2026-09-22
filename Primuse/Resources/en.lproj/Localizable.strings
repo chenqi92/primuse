@@ -4050,3 +4050,17 @@
 "chapters_title" = "Chapters";
 "a11y_skip_backward" = "Skip back 15 seconds";
 "a11y_skip_forward" = "Skip forward 30 seconds";
+
+"source_diag_reachability_title" = "Address reachability";
+"source_diag_reachability_ok" = "The host and port are reachable.";
+"source_diag_login_title" = "Service sign-in";
+"source_diag_library_title" = "Library access";
+"source_diag_waiting" = "Checking…";
+"source_diag_skipped" = "Not run because a prerequisite check failed.";
+"source_diag_progress_format" = "Completed %1$d of %2$d checks";
+"source_diag_routes_format" = "Connections available on this network: %1$d of %2$d";
+"source_diag_cancelled" = "Check cancelled";
+"source_diag_check_counts_format" = "%1$d passed · %2$d warnings · %3$d failed · %4$d skipped";
+"source_diag_resolution_title" = "Address resolution";
+"source_diag_resolution_ok" = "The service address was resolved.";
+"source_diag_library_ok" = "Library access succeeded.";

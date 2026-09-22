@@ -4272,3 +4272,17 @@
 "chapters_title" = "Kapitel";
 "a11y_skip_backward" = "15 Sekunden zurück";
 "a11y_skip_forward" = "30 Sekunden vor";
+
+"source_diag_reachability_title" = "Erreichbarkeit";
+"source_diag_reachability_ok" = "Host und Port sind erreichbar.";
+"source_diag_login_title" = "Dienstanmeldung";
+"source_diag_library_title" = "Mediathekszugriff";
+"source_diag_waiting" = "Wird geprüft…";
+"source_diag_skipped" = "Wegen einer fehlgeschlagenen Vorprüfung übersprungen.";
+"source_diag_progress_format" = "%1$d von %2$d Prüfungen abgeschlossen";
+"source_diag_routes_format" = "Verfügbare Verbindungen in diesem Netzwerk: %1$d von %2$d";
+"source_diag_cancelled" = "Prüfung abgebrochen";
+"source_diag_check_counts_format" = "%1$d bestanden · %2$d Warnungen · %3$d fehlgeschlagen · %4$d übersprungen";
+"source_diag_resolution_title" = "Adressauflösung";
+"source_diag_resolution_ok" = "Die Dienstadresse wurde aufgelöst.";
+"source_diag_library_ok" = "Mediathekszugriff erfolgreich.";

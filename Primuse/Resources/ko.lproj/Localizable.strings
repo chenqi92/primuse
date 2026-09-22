@@ -4272,3 +4272,17 @@
 "chapters_title" = "챕터";
 "a11y_skip_backward" = "15초 뒤로";
 "a11y_skip_forward" = "30초 앞으로";
+
+"source_diag_reachability_title" = "주소 연결 확인";
+"source_diag_reachability_ok" = "호스트와 포트에 연결할 수 있습니다.";
+"source_diag_login_title" = "서비스 로그인";
+"source_diag_library_title" = "보관함 접근";
+"source_diag_waiting" = "확인 중…";
+"source_diag_skipped" = "이전 확인에 실패하여 실행하지 않았습니다.";
+"source_diag_progress_format" = "%2$d개 중 %1$d개 확인 완료";
+"source_diag_routes_format" = "현재 네트워크에서 사용 가능한 연결: %1$d / %2$d";
+"source_diag_cancelled" = "확인이 취소되었습니다";
+"source_diag_check_counts_format" = "통과 %1$d · 경고 %2$d · 실패 %3$d · 건너뜀 %4$d";
+"source_diag_resolution_title" = "주소 확인";
+"source_diag_resolution_ok" = "서비스 주소를 확인했습니다.";
+"source_diag_library_ok" = "보관함에 접근했습니다.";

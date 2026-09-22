@@ -4365,3 +4365,17 @@
 "chapters_title" = "章节";
 "a11y_skip_backward" = "后退 15 秒";
 "a11y_skip_forward" = "前进 30 秒";
+
+"source_diag_reachability_title" = "地址连通性";
+"source_diag_reachability_ok" = "主机和端口可以连接。";
+"source_diag_login_title" = "服务登录";
+"source_diag_library_title" = "曲库读取";
+"source_diag_waiting" = "正在检查…";
+"source_diag_skipped" = "前序检查未通过，未执行。";
+"source_diag_progress_format" = "已完成 %1$d / %2$d 项";
+"source_diag_routes_format" = "当前网络可用连接：%1$d / %2$d";
+"source_diag_cancelled" = "体检已取消";
+"source_diag_check_counts_format" = "%1$d 项通过 · %2$d 项提醒 · %3$d 项失败 · %4$d 项未执行";
+"source_diag_resolution_title" = "地址解析";
+"source_diag_resolution_ok" = "已解析到服务地址。";
+"source_diag_library_ok" = "曲库读取成功。";

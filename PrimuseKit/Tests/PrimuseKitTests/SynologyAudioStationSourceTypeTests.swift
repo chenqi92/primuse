@@ -16,6 +16,35 @@ private let audioStationMissingBody = """
 """
 
 struct SynologyAudioStationSourceTypeTests {
+    @Test func diagnosticsIncludeUnselectedConnectionsWithoutChangingNormalRouting() throws {
+        let configuration = try JSONDecoder().decode(SourceConnectionConfiguration.self, from: Data("""
+        {"localEndpoint":{"host":"192.168.1.8","port":5001,"useSsl":true},
+         "publicEndpoint":{"host":"nas.example.com","port":443,"useSsl":true},
+         "remoteAccessMode":"vendor","vendorIdentifier":"mynas","preference":"localOnly"}
+        """.utf8))
+        for type in [MusicSourceType.synology, .synologyAudioStation, .fnMusic] {
+            let source = MusicSource(name: "NAS", type: type, connectionConfiguration: configuration)
+            #expect(source.connectionCandidates.map(\.kind) == [.localAddress])
+            #expect(source.diagnosticConnectionCandidates.map(\.kind) == [.localAddress, .publicAddress, .vendorRemote])
+            let vendor = source.applyingConnectionCandidate(source.diagnosticConnectionCandidates[2])
+            #expect(vendor.host == "mynas")
+            #expect(type == .fnMusic ? vendor.effectiveFnMusicConnectionMode == .fnConnect
+                : vendor.effectiveSynologyConnectionMode == .quickConnect)
+        }
+    }
+
+    @Test func diagnosticsPreserveLegacyRoutesAndInvalidConfiguredAddresses() {
+        let legacy = MusicSource(name: "NAS", type: .synology, host: "mynas", synologyConnectionMode: .quickConnect)
+        #expect(legacy.diagnosticConnectionCandidates.map(\.kind) == [.vendorRemote])
+        let invalid = MusicSource(name: "NAS", type: .webdav, connectionConfiguration: SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(host: "192.168.1.8", port: 0, useSsl: false),
+            vendorIdentifier: "unsupported"
+        ))
+        #expect(invalid.connectionCandidates.isEmpty)
+        #expect(invalid.diagnosticConnectionCandidates.map(\.kind) == [.localAddress])
+        #expect(invalid.diagnosticConnectionCandidates[0].endpoint?.isUsable == false)
+    }
+
     @Test func audioStationIsAWholeLibraryServerSourceOnTheDSMPorts() {
         let type = MusicSourceType.synologyAudioStation
         #expect(type.category == .mediaServer)

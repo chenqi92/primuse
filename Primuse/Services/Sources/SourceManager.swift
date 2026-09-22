@@ -1065,6 +1065,8 @@ private final class OfflineDirectDownloadDelegate: NSObject, URLSessionDataDeleg
 }
 
 enum SourceDiagnosticStatus: Sendable {
+    case running
+    case skipped
     case passed
     case warning
     case failed
@@ -1077,14 +1079,34 @@ struct SourceDiagnosticCheck: Identifiable, Sendable {
     let message: String
     let suggestion: String
 
-    init(status: SourceDiagnosticStatus, title: String, message: String, suggestion: String = "") {
-        self.id = UUID()
+    init(id: UUID = UUID(), status: SourceDiagnosticStatus, title: String, message: String, suggestion: String = "") {
+        self.id = id
         self.status = status
         self.title = title
         self.message = message
         self.suggestion = suggestion
     }
 }
+
+struct SourceDiagnosticProgress: Sendable {
+    var checks: [SourceDiagnosticCheck] = []
+    var totalChecks: Int = 0
+
+    var completedChecks: Int { checks.filter { $0.status != .running }.count }
+}
+
+struct SourceDiagnosticConnectionResult: Sendable {
+    let title: String
+    let isAvailable: Bool
+}
+
+protocol SourceDiagnosticConnectionPreparing: MusicSourceConnector {
+    func prepareDiagnosticConnection() async throws
+}
+
+extension FnMusicSource: SourceDiagnosticConnectionPreparing {}
+extension SynologySource: SourceDiagnosticConnectionPreparing {}
+extension SynologyAudioStationSource: SourceDiagnosticConnectionPreparing {}
 
 struct SourceDiagnosticReport: Identifiable, Sendable {
     let id: UUID
@@ -1094,12 +1116,14 @@ struct SourceDiagnosticReport: Identifiable, Sendable {
     let finishedAt: Date
     let checks: [SourceDiagnosticCheck]
     let wasCancelled: Bool
+    let connections: [SourceDiagnosticConnectionResult]
 
     init(
         source: MusicSource,
         startedAt: Date,
         checks: [SourceDiagnosticCheck],
-        wasCancelled: Bool = false
+        wasCancelled: Bool = false,
+        connections: [SourceDiagnosticConnectionResult] = []
     ) {
         self.id = UUID()
         self.sourceID = source.id
@@ -1108,6 +1132,7 @@ struct SourceDiagnosticReport: Identifiable, Sendable {
         self.finishedAt = Date()
         self.checks = checks
         self.wasCancelled = wasCancelled
+        self.connections = connections
     }
 
     var blockingFailure: SourceDiagnosticCheck? {
@@ -1115,6 +1140,11 @@ struct SourceDiagnosticReport: Identifiable, Sendable {
     }
 
     var summaryStatus: SourceDiagnosticStatus {
+        if wasCancelled { return .warning }
+        if !connections.isEmpty {
+            guard connections.contains(where: \.isAvailable) else { return .failed }
+            if connections.contains(where: { !$0.isAvailable }) { return .warning }
+        }
         if checks.contains(where: { $0.status == .failed }) { return .failed }
         if checks.contains(where: { $0.status == .warning }) { return .warning }
         return .passed
@@ -2799,7 +2829,11 @@ final class SourceManager {
         return try await provider.requestServerCatalogScan()
     }
 
-    private func connector(for source: MusicSource, cache: Bool) -> any MusicSourceConnector {
+    private func connector(
+        for source: MusicSource,
+        cache: Bool,
+        diagnosticCandidate: SourceConnectionCandidate? = nil
+    ) -> any MusicSourceConnector {
         let scopeFingerprint = Self.audioCacheScopeSignature(for: source)
         guard !credentialChangesInProgress.contains(source.id),
               !MusicSourceSecurityRevision.hasPendingChange(for: source.id) else {
@@ -2870,7 +2904,17 @@ final class SourceManager {
             retireConnectorAsynchronously(unavailable.connector)
         }
 
-        let build = routedConnector(for: source)
+        let build: RoutedConnectorBuild
+        if let diagnosticCandidate {
+            // Validate the original source's credential scope, then pin this
+            // temporary connector to exactly one route without publishing it.
+            build = RoutedConnectorBuild(
+                connector: directConnector(for: source.applyingConnectionCandidate(diagnosticCandidate)),
+                routeOwner: nil
+            )
+        } else {
+            build = routedConnector(for: source)
+        }
         let connector = build.connector
         if cache {
             if connector is CredentialUnavailableSourceConnector {
@@ -3262,6 +3306,191 @@ final class SourceManager {
         return connector
     }
 
+    /// Interactive diagnostics own their connections; scan preflight below keeps
+    /// its fast, reusable route selection and its existing blocking semantics.
+    func diagnoseAllConnections(
+        source: MusicSource,
+        endpointProbe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check,
+        onProgress: @MainActor (SourceDiagnosticProgress) -> Void
+    ) async -> SourceDiagnosticReport {
+        let startedAt = Date()
+        let configuration = configurationChecks(for: source, explicitDirectories: nil, allConnections: true)
+        let candidates: [SourceConnectionCandidate?] = source.type.supportsAdaptiveConnections
+            ? source.diagnosticConnectionCandidates.map { Optional($0) }
+            : [nil]
+        let roots = source.type.scansEntireLibrary ? ["/"] : diagnosticProbeRoots(for: source, explicitDirectories: nil)
+        var progress = SourceDiagnosticProgress(totalChecks: configuration.count + candidates.reduce(0) {
+            $0 + ($1?.endpoint == nil ? 0 : 1) + ($1?.kind == .vendorRemote ? 1 : 0) + 1 + roots.count
+        })
+        var connections: [SourceDiagnosticConnectionResult] = []
+        var wasCancelled = false
+
+        func publish() async {
+            onProgress(progress)
+            await Task.yield()
+        }
+
+        func skip(_ title: String) async {
+            progress.checks.append(SourceDiagnosticCheck(
+                status: .skipped, title: title, message: String(localized: "source_diag_skipped")
+            ))
+            await publish()
+        }
+
+        func perform(
+            _ title: String,
+            operation: @Sendable () async throws -> SourceDiagnosticCheck
+        ) async -> Bool {
+            let id = UUID()
+            let index = progress.checks.count
+            progress.checks.append(SourceDiagnosticCheck(
+                id: id, status: .running, title: title, message: String(localized: "source_diag_waiting")
+            ))
+            await publish()
+            let result: SourceDiagnosticCheck
+            do {
+                try Task.checkCancellation()
+                let completed = try await operation()
+                try Task.checkCancellation()
+                result = completed
+            } catch {
+                wasCancelled = OperationCancellationPolicy.isCancellation(error)
+                result = wasCancelled
+                    ? SourceDiagnosticCheck(status: .skipped, title: title, message: String(localized: "source_diag_cancelled"))
+                    : diagnosticCheck(for: error, source: source, title: title)
+            }
+            progress.checks[index] = SourceDiagnosticCheck(
+                id: id, status: result.status, title: title, message: result.message, suggestion: result.suggestion
+            )
+            await publish()
+            return result.status == .passed || result.status == .warning
+        }
+
+        for check in configuration {
+            guard !Task.isCancelled else { wasCancelled = true; break }
+            progress.checks.append(check)
+            await publish()
+        }
+        let configurationPassed = !configuration.contains { $0.status == .failed }
+
+        for candidate in candidates {
+            guard !Task.isCancelled, !wasCancelled else { wasCancelled = true; break }
+            let routeTitle: String
+            switch candidate?.kind {
+            case .localAddress: routeTitle = String(localized: "source_connection_local")
+            case .publicAddress: routeTitle = String(localized: "source_connection_public_direct")
+            case .vendorRemote:
+                routeTitle = source.type == .fnMusic ? "FN Connect" : "QuickConnect"
+            case nil: routeTitle = source.type.displayName
+            }
+            func title(_ stage: String) -> String { "\(routeTitle) · \(stage)" }
+            var available = configurationPassed
+            if let endpoint = candidate?.endpoint {
+                let stageTitle = title(String(localized: "source_diag_reachability_title"))
+                // Reachability remains useful even when the saved credential is missing.
+                let reachable = await perform(stageTitle) {
+                    try await endpointProbe(endpoint)
+                    return SourceDiagnosticCheck(
+                        status: .passed, title: stageTitle, message: String(localized: "source_diag_reachability_ok")
+                    )
+                }
+                available = available && reachable
+            }
+            if wasCancelled || Task.isCancelled { wasCancelled = true; break }
+
+            let loginTitle = title(String(localized: "source_diag_login_title"))
+            let connector: (any MusicSourceConnector)?
+            if available {
+                let temporary = self.connector(for: source, cache: false, diagnosticCandidate: candidate)
+                connector = temporary
+                let timeout: TimeInterval
+                switch source.type {
+                case .fnMusic: timeout = FnMusicSource.connectionTimeout + 5
+                case .synology, .synologyAudioStation: timeout = SynologyAudioStationSource.connectionTimeout + 5
+                default: timeout = 15
+                }
+                if candidate?.kind == .vendorRemote {
+                    let resolutionTitle = title(String(localized: "source_diag_resolution_title"))
+                    available = await perform(resolutionTitle) {
+                        try await Self.withTimeout(seconds: timeout) {
+                            if let preparing = temporary as? any SourceDiagnosticConnectionPreparing {
+                                try await preparing.prepareDiagnosticConnection()
+                            } else {
+                                // Fail-closed credential/scope connectors retain their error.
+                                try await temporary.connect()
+                            }
+                        }
+                        return SourceDiagnosticCheck(
+                            status: .passed, title: resolutionTitle, message: String(localized: "source_diag_resolution_ok")
+                        )
+                    }
+                }
+                if available && !Task.isCancelled && !wasCancelled {
+                    available = await perform(loginTitle) {
+                        do {
+                            try await Self.withTimeout(seconds: timeout) { try await temporary.connect() }
+                        } catch {
+                            guard !OperationCancellationPolicy.isCancellation(error),
+                                  await SSLTrustStore.shared.handleSSLErrorIfNeeded(error) else { throw error }
+                            try Task.checkCancellation()
+                            try await Self.withTimeout(seconds: timeout) { try await temporary.connect() }
+                        }
+                        return SourceDiagnosticCheck(
+                            status: .passed, title: loginTitle, message: String(localized: "source_diag_connection_ok")
+                        )
+                    }
+                } else if !wasCancelled && !Task.isCancelled {
+                    await skip(loginTitle)
+                }
+            } else {
+                connector = nil
+                if candidate?.kind == .vendorRemote {
+                    await skip(title(String(localized: "source_diag_resolution_title")))
+                }
+                await skip(loginTitle)
+            }
+            // These instances are never put in the playback/scan cache.
+            defer { if let connector { retireConnectorAsynchronously(connector) } }
+            if wasCancelled || Task.isCancelled { wasCancelled = true; break }
+
+            let connected = available
+            for root in roots {
+                guard !Task.isCancelled, !wasCancelled else { wasCancelled = true; break }
+                let stage = source.type.scansEntireLibrary
+                    ? String(localized: "source_diag_library_title")
+                    : String(localized: "source_diag_directory_title")
+                let directory = SourceDirectoryLabelPolicy.readableFallback(path: root, sourceType: source.type)
+                let detail = source.type.scansEntireLibrary ? stage : directory.map { "\(stage) · \($0)" } ?? stage
+                let stageTitle = title(detail)
+                guard connected, let connector else { await skip(stageTitle); continue }
+                let readable = await perform(stageTitle) {
+                    let count = try await Self.withTimeout(seconds: 20) {
+                        if let audioStation = connector as? SynologyAudioStationSource {
+                            return try await audioStation.diagnosticLibraryItemCount()
+                        }
+                        return try await connector.listFiles(at: root).count
+                    }
+                    return SourceDiagnosticCheck(
+                        status: count == 0 ? .warning : .passed,
+                        title: stageTitle,
+                        message: count > 0 && source.type.scansEntireLibrary
+                            ? String(localized: "source_diag_library_ok")
+                            : String(format: String(localized: count == 0
+                                ? "source_diag_directory_empty_format" : "source_diag_directory_ok_format"), count),
+                        suggestion: count == 0 ? String(localized: "source_diag_directory_empty_suggestion") : ""
+                    )
+                }
+                available = available && readable
+            }
+            if wasCancelled || Task.isCancelled { wasCancelled = true; break }
+            connections.append(SourceDiagnosticConnectionResult(title: routeTitle, isAvailable: available))
+        }
+        return SourceDiagnosticReport(
+            source: source, startedAt: startedAt, checks: progress.checks,
+            wasCancelled: wasCancelled || Task.isCancelled, connections: connections
+        )
+    }
+
     func diagnose(source: MusicSource, directories explicitDirectories: [String]? = nil) async -> SourceDiagnosticReport {
         let startedAt = Date()
         var checks = configurationChecks(for: source, explicitDirectories: explicitDirectories)
@@ -3493,13 +3722,14 @@ final class SourceManager {
 
     private func configurationChecks(
         for source: MusicSource,
-        explicitDirectories: [String]?
+        explicitDirectories: [String]?,
+        allConnections: Bool = false
     ) -> [SourceDiagnosticCheck] {
         var checks: [SourceDiagnosticCheck] = []
 
         let hasUsableConnection = source.type.supportsAdaptiveConnections
             && source.connectionConfiguration != nil
-            ? source.connectionCandidates.isEmpty == false
+            ? (allConnections ? source.diagnosticConnectionCandidates : source.connectionCandidates).isEmpty == false
             : trimmed(source.host).isEmpty == false
         if source.type.requiresHost, hasUsableConnection == false {
             checks.append(SourceDiagnosticCheck(

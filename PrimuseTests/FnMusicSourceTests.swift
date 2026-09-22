@@ -6,6 +6,129 @@ import XCTest
 
 @MainActor
 final class FnMusicSourceTests: XCTestCase {
+    func testInteractiveDiagnosticsPublishStepsAndContinueAfterFailedRoute() async {
+        let source = diagnosticSource(type: .fnMusic)
+        let local = InteractiveDiagnosticConnector(sourceID: source.id)
+        let remote = InteractiveDiagnosticConnector(sourceID: source.id, failsConnect: true)
+        let vendor = InteractiveDiagnosticConnector(sourceID: source.id)
+        var projectedSources: [MusicSource] = []
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: {
+            projectedSources.append($0)
+            if $0.host == "192.168.1.8" { return local }
+            return $0.host == "nas.example.com" ? remote : vendor
+        })
+        var snapshots: [SourceDiagnosticProgress] = []
+        let report = await manager.diagnoseAllConnections(source: source, endpointProbe: { _ in }) {
+            snapshots.append($0)
+        }
+        XCTAssertEqual(projectedSources.map(\.host), ["192.168.1.8", "nas.example.com", "mynas"])
+        XCTAssertEqual(projectedSources.map(\.effectiveFnMusicConnectionMode), [.address, .address, .fnConnect])
+        XCTAssertEqual(report.connections.map(\.isAvailable), [true, false, true])
+        XCTAssertEqual(report.summaryStatus, .warning)
+        XCTAssertEqual(report.checks.filter { $0.status == .failed }.count, 1)
+        XCTAssertEqual(report.checks.filter { $0.status == .skipped }.count, 1)
+        XCTAssertEqual(snapshots.last?.completedChecks, snapshots.last?.totalChecks)
+        XCTAssertTrue(snapshots.contains { $0.checks.contains { $0.status == .passed }
+            && $0.checks.last?.status == .running && $0.completedChecks < $0.totalChecks })
+        for running in snapshots.flatMap(\.checks).filter({ $0.status == .running }) {
+            XCTAssertTrue(report.checks.contains { $0.id == running.id && $0.status != .running })
+        }
+        let reads = await vendor.readPaths
+        XCTAssertEqual(reads, ["/"])
+    }
+
+    func testInteractiveDiagnosticsProbeEveryDirectoryAfterAReadFailure() async {
+        var source = MusicSource(id: UUID().uuidString, name: "Folders", type: .webdav,
+                                 host: "nas.example.com", authType: .none)
+        source.extraConfig = MusicSource.encodeScannedDirectories(
+            ["/first", "/blocked", "/last", "/fourth"], into: nil, type: source.type
+        )
+        let connector = InteractiveDiagnosticConnector(sourceID: source.id, failedPath: "/blocked")
+        let manager = SourceManager(sourcesProvider: { [] }, connectorFactory: { _ in connector })
+        let report = await manager.diagnoseAllConnections(source: source, endpointProbe: { _ in }) { _ in }
+        let paths = await connector.readPaths
+        XCTAssertEqual(paths, source.scannedDirectories)
+        XCTAssertEqual(report.summaryStatus, .failed)
+        XCTAssertEqual(report.connections.map(\.isAvailable), [false])
+    }
+
+    func testInteractiveDiagnosticsSkipUnreachableRouteAndStillTestVendor() async {
+        let source = diagnosticSource(type: .synologyAudioStation)
+        var hosts: [String?] = []
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: {
+            hosts.append($0.host)
+            return InteractiveDiagnosticConnector(sourceID: $0.id)
+        })
+        let report = await manager.diagnoseAllConnections(source: source, endpointProbe: { _ in
+            throw URLError(.timedOut)
+        }) { _ in }
+        XCTAssertEqual(hosts, ["mynas"])
+        XCTAssertEqual(report.connections.map(\.isAvailable), [false, false, true])
+        XCTAssertEqual(report.checks.filter { $0.status == .skipped }.count, 4)
+        XCTAssertEqual(report.summaryStatus, .warning)
+    }
+
+    func testInteractiveDiagnosticsCancellationDoesNotStartNextRoute() async throws {
+        let source = diagnosticSource(type: .fnMusic)
+        let connector = InteractiveDiagnosticConnector(sourceID: source.id, waitsForCancellation: true)
+        var created = 0
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in
+            created += 1
+            return connector
+        })
+        let task = Task {
+            await manager.diagnoseAllConnections(source: source, endpointProbe: { _ in }) { _ in }
+        }
+        for _ in 0..<200 {
+            if await connector.connectCount > 0 { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        task.cancel()
+        let report = await task.value
+        XCTAssertTrue(report.wasCancelled)
+        XCTAssertEqual(report.summaryStatus, .warning)
+        XCTAssertEqual(created, 1)
+        XCTAssertFalse(report.checks.contains { $0.status == .running || $0.status == .failed })
+        for _ in 0..<200 {
+            if await connector.disconnectCount > 0 { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let disconnects = await connector.disconnectCount
+        XCTAssertEqual(disconnects, 1)
+    }
+
+    func testInteractiveDiagnosticsLeaveCachedPlaybackConnectorAlive() async throws {
+        let source = MusicSource(id: UUID().uuidString, name: "Playback", type: .webdav,
+                                 host: "nas.example.com", authType: .none)
+        var created: [InteractiveDiagnosticConnector] = []
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: {
+            let connector = InteractiveDiagnosticConnector(sourceID: $0.id)
+            created.append(connector)
+            return connector
+        })
+        let cached = manager.connector(for: source)
+        _ = await manager.diagnoseAllConnections(source: source, endpointProbe: { _ in }) { _ in }
+        XCTAssertEqual(created.count, 2)
+        XCTAssertTrue((manager.connector(for: source) as AnyObject) === (cached as AnyObject))
+        for _ in 0..<200 {
+            if await created[1].disconnectCount > 0 { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let cachedDisconnects = await created[0].disconnectCount
+        let diagnosticDisconnects = await created[1].disconnectCount
+        XCTAssertEqual(cachedDisconnects, 0)
+        XCTAssertEqual(diagnosticDisconnects, 1)
+    }
+
+    private func diagnosticSource(type: MusicSourceType) -> MusicSource {
+        MusicSource(id: UUID().uuidString, name: "Diagnostic", type: type,
+                    connectionConfiguration: SourceConnectionConfiguration(
+                        localEndpoint: SourceConnectionEndpoint(host: "192.168.1.8", port: 443, useSsl: true),
+                        publicEndpoint: SourceConnectionEndpoint(host: "nas.example.com", port: 443, useSsl: true),
+                        remoteAccessMode: .vendor, vendorIdentifier: "mynas"
+                    ), authType: .none)
+    }
+
     func testLateLoginCancellationKeepsEstablishedSession() async throws {
         let host = UUID().uuidString.lowercased() + ".invalid"
         FnMusicSourceURLProtocol.register(host: host, loginDelay: 0, discoveryDelay: 0)
@@ -740,6 +863,42 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 /// connect() 成功、目录探测失败的假 connector, 记录 connect/disconnect 次数。
+private actor InteractiveDiagnosticConnector: SourceDiagnosticConnectionPreparing {
+    nonisolated let sourceID: String
+    let failsConnect: Bool
+    let failedPath: String?
+    let waitsForCancellation: Bool
+    private(set) var connectCount = 0
+    private(set) var disconnectCount = 0
+    private(set) var readPaths: [String] = []
+
+    init(sourceID: String, failsConnect: Bool = false, failedPath: String? = nil, waitsForCancellation: Bool = false) {
+        self.sourceID = sourceID
+        self.failsConnect = failsConnect
+        self.failedPath = failedPath
+        self.waitsForCancellation = waitsForCancellation
+    }
+
+    func prepareDiagnosticConnection() async throws {}
+
+    func connect() async throws {
+        connectCount += 1
+        if failsConnect { throw URLError(.cannotConnectToHost) }
+        if waitsForCancellation { try await Task.sleep(for: .seconds(30)) }
+    }
+    func disconnect() async { disconnectCount += 1 }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        readPaths.append(path)
+        if path == failedPath { throw SourceError.pathNotFound(path) }
+        return [RemoteFileItem(name: "Music", path: path, isDirectory: true, size: 0, modifiedDate: nil)]
+    }
+    func localURL(for path: String) async throws -> URL { throw URLError(.unsupportedURL) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { throw URLError(.unsupportedURL) }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+}
+
 private actor DiagnosticProbeConnector: MusicSourceConnector {
     nonisolated let sourceID: String
     private let failsConnect: Bool

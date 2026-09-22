@@ -4272,3 +4272,17 @@
 "chapters_title" = "Chapitres";
 "a11y_skip_backward" = "Reculer de 15 secondes";
 "a11y_skip_forward" = "Avancer de 30 secondes";
+
+"source_diag_reachability_title" = "Accessibilité de l’adresse";
+"source_diag_reachability_ok" = "L’hôte et le port sont accessibles.";
+"source_diag_login_title" = "Connexion au service";
+"source_diag_library_title" = "Accès à la bibliothèque";
+"source_diag_waiting" = "Vérification…";
+"source_diag_skipped" = "Non exécuté car une vérification préalable a échoué.";
+"source_diag_progress_format" = "%1$d vérifications sur %2$d terminées";
+"source_diag_routes_format" = "Connexions disponibles sur ce réseau : %1$d sur %2$d";
+"source_diag_cancelled" = "Vérification annulée";
+"source_diag_check_counts_format" = "%1$d réussies · %2$d avertissements · %3$d échecs · %4$d ignorées";
+"source_diag_resolution_title" = "Résolution de l’adresse";
+"source_diag_resolution_ok" = "L’adresse du service a été résolue.";
+"source_diag_library_ok" = "Accès à la bibliothèque réussi.";

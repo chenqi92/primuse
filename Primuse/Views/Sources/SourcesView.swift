@@ -2577,6 +2577,8 @@ struct SourceDiagnosticsView: View {
     let source: MusicSource
     @State private var report: SourceDiagnosticReport?
     @State private var isRunning = false
+    @State private var progress = SourceDiagnosticProgress()
+    @State private var runID = UUID()
 
     @ViewBuilder
     var body: some View {
@@ -2593,7 +2595,7 @@ struct SourceDiagnosticsView: View {
                 }
                 Spacer()
                 Button {
-                    Task { await runDiagnostics() }
+                    runID = UUID()
                 } label: {
                     Label("source_diag_run_again", systemImage: "arrow.clockwise")
                 }
@@ -2626,7 +2628,7 @@ struct SourceDiagnosticsView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        Task { await runDiagnostics() }
+                        runID = UUID()
                     } label: {
                         Label("source_diag_run_again", systemImage: "arrow.clockwise")
                     }
@@ -2639,34 +2641,36 @@ struct SourceDiagnosticsView: View {
 
     private var diagnosticsList: some View {
         List {
-            Section {
-                if isRunning {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text("source_diag_running")
-                            .font(.body)
+            if isRunning {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(String(format: String(localized: "source_diag_progress_format"),
+                                    progress.completedChecks, progress.totalChecks))
+                        ProgressView(value: Double(progress.completedChecks), total: Double(max(1, progress.totalChecks)))
                     }
                     .padding(.vertical, 4)
-                } else if let report {
-                    summaryRow(report)
                 }
             }
 
-            if let report {
+            if !progress.checks.isEmpty {
                 Section("source_diag_checks") {
-                    ForEach(report.checks) { check in
+                    ForEach(progress.checks) { check in
                         diagnosticRow(check)
                     }
                 }
             }
-        }
-        .task {
-            if report == nil {
-                await runDiagnostics()
+            if let report, !isRunning {
+                Section {
+                    summaryRow(report)
+                }
             }
         }
-        .refreshable {
+        .task(id: runID) {
             await runDiagnostics()
+        }
+        .refreshable {
+            guard !isRunning else { return }
+            runID = UUID()
         }
     }
 
@@ -2678,8 +2682,20 @@ struct SourceDiagnosticsView: View {
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(summaryTitle(for: report.summaryStatus))
+                Text(report.wasCancelled ? String(localized: "source_diag_cancelled") : summaryTitle(for: report.summaryStatus))
                     .font(.headline)
+                if !report.connections.isEmpty {
+                    Text(String(format: String(localized: "source_diag_routes_format"),
+                                report.connections.filter(\.isAvailable).count, report.connections.count))
+                        .font(.subheadline)
+                }
+                Text(String(format: String(localized: "source_diag_check_counts_format"),
+                            report.checks.filter { $0.status == .passed }.count,
+                            report.checks.filter { $0.status == .warning }.count,
+                            report.checks.filter { $0.status == .failed }.count,
+                            report.checks.filter { $0.status == .skipped }.count))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text(String(format: String(localized: "source_diag_summary_detail_format"), report.sourceName, elapsedText(report)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -2690,11 +2706,17 @@ struct SourceDiagnosticsView: View {
 
     private func diagnosticRow(_ check: SourceDiagnosticCheck) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: iconName(for: check.status))
-                .font(.body)
-                .foregroundStyle(tint(for: check.status))
-                .frame(width: 24)
-                .padding(.top, 1)
+            Group {
+                if check.status == .running {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: iconName(for: check.status))
+                        .font(.body)
+                        .foregroundStyle(tint(for: check.status))
+                }
+            }
+            .frame(width: 24)
+            .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(check.title)
@@ -2714,9 +2736,14 @@ struct SourceDiagnosticsView: View {
     }
 
     private func runDiagnostics() async {
+        guard !isRunning else { return }
         isRunning = true
+        report = nil
+        progress = SourceDiagnosticProgress()
         defer { isRunning = false }
-        report = await sourceManager.diagnose(source: source)
+        let result = await sourceManager.diagnoseAllConnections(source: source) { progress = $0 }
+        guard !Task.isCancelled else { return }
+        report = result
     }
 
     private func elapsedText(_ report: SourceDiagnosticReport) -> String {
@@ -2726,6 +2753,8 @@ struct SourceDiagnosticsView: View {
 
     private func summaryTitle(for status: SourceDiagnosticStatus) -> String {
         switch status {
+        case .running: String(localized: "source_diag_running")
+        case .skipped: String(localized: "source_diag_skipped")
         case .passed: String(localized: "source_diag_summary_ok")
         case .warning: String(localized: "source_diag_summary_warning")
         case .failed: String(localized: "source_diag_summary_failed")
@@ -2734,6 +2763,8 @@ struct SourceDiagnosticsView: View {
 
     private func iconName(for status: SourceDiagnosticStatus) -> String {
         switch status {
+        case .running: "circle.dotted"
+        case .skipped: "minus.circle"
         case .passed: "checkmark.circle.fill"
         case .warning: "exclamationmark.triangle.fill"
         case .failed: "xmark.octagon.fill"
@@ -2742,6 +2773,8 @@ struct SourceDiagnosticsView: View {
 
     private func tint(for status: SourceDiagnosticStatus) -> Color {
         switch status {
+        case .running: .accentColor
+        case .skipped: .secondary
         case .passed: .green
         case .warning: .orange
         case .failed: .red

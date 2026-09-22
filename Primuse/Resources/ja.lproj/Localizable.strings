@@ -4273,3 +4273,17 @@
 "chapters_title" = "チャプター";
 "a11y_skip_backward" = "15秒戻る";
 "a11y_skip_forward" = "30秒進む";
+
+"source_diag_reachability_title" = "アドレスへの接続";
+"source_diag_reachability_ok" = "ホストとポートに接続できます。";
+"source_diag_login_title" = "サービスへのログイン";
+"source_diag_library_title" = "ライブラリへのアクセス";
+"source_diag_waiting" = "確認中…";
+"source_diag_skipped" = "前の確認が失敗したため実行されませんでした。";
+"source_diag_progress_format" = "%2$d 項目中 %1$d 項目完了";
+"source_diag_routes_format" = "現在のネットワークで利用可能な接続：%1$d / %2$d";
+"source_diag_cancelled" = "確認をキャンセルしました";
+"source_diag_check_counts_format" = "成功 %1$d · 警告 %2$d · 失敗 %3$d · 未実行 %4$d";
+"source_diag_resolution_title" = "アドレス解決";
+"source_diag_resolution_ok" = "サービスのアドレスを取得しました。";
+"source_diag_library_ok" = "ライブラリにアクセスできました。";

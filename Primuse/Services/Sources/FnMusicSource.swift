@@ -99,6 +99,10 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
 
     // MARK: - Connection
 
+    func prepareDiagnosticConnection() async throws {
+        try await api.prepareConnection()
+    }
+
     func connect() async throws {
         try Task.checkCancellation()
         if await api.isLoggedIn { return }

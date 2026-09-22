@@ -4178,3 +4178,17 @@
 "chapters_title" = "Capítulos";
 "a11y_skip_backward" = "Voltar 15 segundos";
 "a11y_skip_forward" = "Avançar 30 segundos";
+
+"source_diag_reachability_title" = "Acessibilidade do endereço";
+"source_diag_reachability_ok" = "O servidor e a porta estão acessíveis.";
+"source_diag_login_title" = "Login no serviço";
+"source_diag_library_title" = "Acesso à biblioteca";
+"source_diag_waiting" = "Verificando…";
+"source_diag_skipped" = "Não executado porque uma verificação anterior falhou.";
+"source_diag_progress_format" = "%1$d de %2$d verificações concluídas";
+"source_diag_routes_format" = "Conexões disponíveis nesta rede: %1$d de %2$d";
+"source_diag_cancelled" = "Verificação cancelada";
+"source_diag_check_counts_format" = "%1$d aprovadas · %2$d avisos · %3$d falhas · %4$d ignoradas";
+"source_diag_resolution_title" = "Resolução de endereço";
+"source_diag_resolution_ok" = "O endereço do serviço foi resolvido.";
+"source_diag_library_ok" = "Acesso à biblioteca concluído.";

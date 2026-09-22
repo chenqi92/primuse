@@ -4178,3 +4178,17 @@
 "chapters_title" = "Rozdziały";
 "a11y_skip_backward" = "Cofnij o 15 sekund";
 "a11y_skip_forward" = "Przewiń o 30 sekund";
+
+"source_diag_reachability_title" = "Dostępność adresu";
+"source_diag_reachability_ok" = "Host i port są dostępne.";
+"source_diag_login_title" = "Logowanie do usługi";
+"source_diag_library_title" = "Dostęp do biblioteki";
+"source_diag_waiting" = "Sprawdzanie…";
+"source_diag_skipped" = "Nie wykonano z powodu niepowodzenia poprzedniego testu.";
+"source_diag_progress_format" = "Ukończono %1$d z %2$d testów";
+"source_diag_routes_format" = "Połączenia dostępne w tej sieci: %1$d z %2$d";
+"source_diag_cancelled" = "Anulowano sprawdzanie";
+"source_diag_check_counts_format" = "%1$d udanych · %2$d ostrzeżeń · %3$d nieudanych · %4$d pominiętych";
+"source_diag_resolution_title" = "Rozpoznawanie adresu";
+"source_diag_resolution_ok" = "Rozpoznano adres usługi.";
+"source_diag_library_ok" = "Uzyskano dostęp do biblioteki.";

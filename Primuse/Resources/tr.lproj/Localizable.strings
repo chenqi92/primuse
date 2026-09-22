@@ -4178,3 +4178,17 @@
 "chapters_title" = "Bölümler";
 "a11y_skip_backward" = "15 saniye geri";
 "a11y_skip_forward" = "30 saniye ileri";
+
+"source_diag_reachability_title" = "Adres erişilebilirliği";
+"source_diag_reachability_ok" = "Sunucuya ve bağlantı noktasına erişilebiliyor.";
+"source_diag_login_title" = "Hizmete giriş";
+"source_diag_library_title" = "Arşive erişim";
+"source_diag_waiting" = "Denetleniyor…";
+"source_diag_skipped" = "Önceki bir denetim başarısız olduğu için çalıştırılmadı.";
+"source_diag_progress_format" = "%2$d denetimden %1$d tamamlandı";
+"source_diag_routes_format" = "Bu ağdaki kullanılabilir bağlantılar: %1$d / %2$d";
+"source_diag_cancelled" = "Denetim iptal edildi";
+"source_diag_check_counts_format" = "%1$d başarılı · %2$d uyarı · %3$d başarısız · %4$d atlandı";
+"source_diag_resolution_title" = "Adres çözümleme";
+"source_diag_resolution_ok" = "Hizmet adresi çözümlendi.";
+"source_diag_library_ok" = "Arşive erişim başarılı.";

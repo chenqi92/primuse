@@ -4178,3 +4178,17 @@
 "chapters_title" = "Главы";
 "a11y_skip_backward" = "Назад на 15 секунд";
 "a11y_skip_forward" = "Вперёд на 30 секунд";
+
+"source_diag_reachability_title" = "Доступность адреса";
+"source_diag_reachability_ok" = "Узел и порт доступны.";
+"source_diag_login_title" = "Вход в службу";
+"source_diag_library_title" = "Доступ к медиатеке";
+"source_diag_waiting" = "Проверка…";
+"source_diag_skipped" = "Не выполнено из-за ошибки предыдущей проверки.";
+"source_diag_progress_format" = "Завершено проверок: %1$d из %2$d";
+"source_diag_routes_format" = "Доступные подключения в этой сети: %1$d из %2$d";
+"source_diag_cancelled" = "Проверка отменена";
+"source_diag_check_counts_format" = "Успешно: %1$d · Предупреждений: %2$d · Ошибок: %3$d · Пропущено: %4$d";
+"source_diag_resolution_title" = "Определение адреса";
+"source_diag_resolution_ok" = "Адрес службы определён.";
+"source_diag_library_ok" = "Доступ к медиатеке получен.";

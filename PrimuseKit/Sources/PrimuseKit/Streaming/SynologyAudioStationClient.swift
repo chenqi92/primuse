@@ -206,6 +206,11 @@ public actor SynologyAudioStationClient {
         }
     }
 
+    /// Resolve the route and discover the service before starting authentication.
+    public func prepareConnection() async throws {
+        _ = try await apiContext()
+    }
+
     /// 基址与接口表在重登之间复用;只有 `invalidateSession` 才会让它们重新发现。
     private func apiContext() async throws -> Context {
         if let context { return context }

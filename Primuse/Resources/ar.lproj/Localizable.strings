@@ -4178,3 +4178,17 @@
 "chapters_title" = "الفصول";
 "a11y_skip_backward" = "الرجوع 15 ثانية";
 "a11y_skip_forward" = "التقدم 30 ثانية";
+
+"source_diag_reachability_title" = "إمكانية الوصول إلى العنوان";
+"source_diag_reachability_ok" = "يمكن الوصول إلى المضيف والمنفذ.";
+"source_diag_login_title" = "تسجيل الدخول إلى الخدمة";
+"source_diag_library_title" = "الوصول إلى المكتبة";
+"source_diag_waiting" = "جارٍ الفحص…";
+"source_diag_skipped" = "لم يُنفّذ بسبب فشل فحص سابق.";
+"source_diag_progress_format" = "اكتمل %1$d من %2$d فحوصات";
+"source_diag_routes_format" = "الاتصالات المتاحة على هذه الشبكة: %1$d من %2$d";
+"source_diag_cancelled" = "أُلغي الفحص";
+"source_diag_check_counts_format" = "نجح %1$d · تحذيرات %2$d · فشل %3$d · تم تخطي %4$d";
+"source_diag_resolution_title" = "تحديد العنوان";
+"source_diag_resolution_ok" = "تم تحديد عنوان الخدمة.";
+"source_diag_library_ok" = "تم الوصول إلى المكتبة.";

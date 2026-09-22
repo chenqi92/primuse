@@ -4249,3 +4249,17 @@
 "chapters_title" = "章節";
 "a11y_skip_backward" = "後退 15 秒";
 "a11y_skip_forward" = "前進 30 秒";
+
+"source_diag_reachability_title" = "位址連通性";
+"source_diag_reachability_ok" = "主機和連接埠可以連線。";
+"source_diag_login_title" = "服務登入";
+"source_diag_library_title" = "曲庫讀取";
+"source_diag_waiting" = "正在檢查…";
+"source_diag_skipped" = "前序檢查未通過，未執行。";
+"source_diag_progress_format" = "已完成 %1$d / %2$d 項";
+"source_diag_routes_format" = "目前網路可用連線：%1$d / %2$d";
+"source_diag_cancelled" = "檢查已取消";
+"source_diag_check_counts_format" = "%1$d 項通過 · %2$d 項提醒 · %3$d 項失敗 · %4$d 項未執行";
+"source_diag_resolution_title" = "位址解析";
+"source_diag_resolution_ok" = "已解析到服務位址。";
+"source_diag_library_ok" = "曲庫讀取成功。";

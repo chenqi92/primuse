@@ -72,6 +72,10 @@ actor SynologySource: MusicSourceConnector, EmbeddedMetadataWritebackAdapter {
         self.cacheDirectory = cacheDir
     }
 
+    func prepareDiagnosticConnection() async throws {
+        _ = try await api.resolveBaseURL()
+    }
+
     func connect() async throws {
         try await connect(forceReconnect: false)
     }

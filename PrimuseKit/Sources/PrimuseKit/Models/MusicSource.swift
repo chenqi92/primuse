@@ -1793,6 +1793,25 @@ public extension MusicSource {
         }
     }
 
+    /// Diagnostics inspect every configured method, including saved alternatives
+    /// that normal routing does not currently select.
+    var diagnosticConnectionCandidates: [SourceConnectionCandidate] {
+        guard let configuration = effectiveConnectionConfiguration else { return [] }
+        var candidates: [SourceConnectionCandidate] = []
+        if let endpoint = configuration.localEndpoint {
+            candidates.append(SourceConnectionCandidate(kind: .localAddress, endpoint: endpoint.normalized))
+        }
+        if let endpoint = configuration.publicEndpoint {
+            candidates.append(SourceConnectionCandidate(kind: .publicAddress, endpoint: endpoint.normalized))
+        }
+        if type.supportsVendorRemoteAccess,
+           let identifier = configuration.vendorIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !identifier.isEmpty {
+            candidates.append(SourceConnectionCandidate(kind: .vendorRemote, vendorIdentifier: identifier))
+        }
+        return candidates
+    }
+
     /// Applies one candidate to the legacy fields consumed by existing source
     /// connectors and stream resolvers. The full configuration stays attached.
     func applyingConnectionCandidate(_ candidate: SourceConnectionCandidate) -> MusicSource {

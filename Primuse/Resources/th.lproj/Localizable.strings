@@ -4178,3 +4178,17 @@
 "chapters_title" = "บท";
 "a11y_skip_backward" = "ย้อนกลับ 15 วินาที";
 "a11y_skip_forward" = "ข้ามไป 30 วินาที";
+
+"source_diag_reachability_title" = "การเข้าถึงที่อยู่";
+"source_diag_reachability_ok" = "สามารถเข้าถึงโฮสต์และพอร์ตได้";
+"source_diag_login_title" = "เข้าสู่ระบบบริการ";
+"source_diag_library_title" = "เข้าถึงคลังเพลง";
+"source_diag_waiting" = "กำลังตรวจสอบ…";
+"source_diag_skipped" = "ไม่ได้ดำเนินการเนื่องจากการตรวจสอบก่อนหน้าล้มเหลว";
+"source_diag_progress_format" = "ตรวจสอบแล้ว %1$d จาก %2$d รายการ";
+"source_diag_routes_format" = "การเชื่อมต่อที่ใช้ได้บนเครือข่ายนี้: %1$d จาก %2$d";
+"source_diag_cancelled" = "ยกเลิกการตรวจสอบแล้ว";
+"source_diag_check_counts_format" = "ผ่าน %1$d · คำเตือน %2$d · ล้มเหลว %3$d · ข้าม %4$d";
+"source_diag_resolution_title" = "ค้นหาที่อยู่";
+"source_diag_resolution_ok" = "ค้นหาที่อยู่บริการสำเร็จแล้ว";
+"source_diag_library_ok" = "เข้าถึงคลังเพลงสำเร็จแล้ว";

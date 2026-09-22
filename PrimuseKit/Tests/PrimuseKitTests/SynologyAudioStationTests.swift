@@ -458,6 +458,18 @@ struct SynologyAudioStationTests {
 
     // MARK: - 客户端(注入传输层)
 
+    @Test func diagnosticPreparationDiscoversServiceBeforeLoginAndReusesIt() async throws {
+        let fixture = AudioStationFixture()
+        let client = fixture.client()
+        try await client.prepareConnection()
+        #expect(await fixture.logins == 0)
+        #expect(await fixture.requests.count == 1)
+        _ = try await client.info()
+        #expect(await fixture.logins == 1)
+        let discoveryRequests = await fixture.requests.filter { $0.url?.path.hasSuffix("/query.cgi") == true }
+        #expect(discoveryRequests.count == 1)
+    }
+
     @Test func loginSendsProductionParametersWithAudioStationSession() async throws {
         let fixture = AudioStationFixture(deviceID: "did-old")
         let client = fixture.client(deviceName: "Primuse-iOS")
