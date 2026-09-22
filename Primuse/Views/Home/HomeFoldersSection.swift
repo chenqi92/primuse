@@ -54,6 +54,7 @@ struct HomeFoldersSection: View {
                 Spacer()
                 NavigationLink {
                     HomeFolderBrowser(showsInlineBack: true)
+                        .environment(model)
                         #if os(iOS)
                         .minimalNavigationDetail()
                         #endif
