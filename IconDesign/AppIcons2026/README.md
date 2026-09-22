@@ -3,7 +3,7 @@
 The production catalog contains one primary icon and six alternates:
 
 - `00-splash.png` — primary icon: a milky-white dimensional splash with an engraved ring and a note in its opening, on solid berry pink.
-- `16-nonoend.png` — NonoEnd: a pink-violet beamed eighth-note pair. Light sets it on a neutral grey gradient with a white edge and a soft cast shadow; Dark sets the same note on a deep indigo-to-plum plate.
+- `16-nonoend.png` — NonoEnd: a pink-violet bass clef. Light sets it on a neutral grey gradient with a top-left rim light and a cast shadow; Dark sets the same clef on a deep indigo-to-plum plate.
 - `14-letter-p.png` — the letter P in the same material in pure white on solid cobalt blue. Its bowl is an open counter; the note sits at the lower right on the P's own baseline, where its stem and flag double as a lowercase r — together they read Pr.
 - `15-folded-note.png` — the previous primary folded-note icon, retained as an alternate.
 - `12-pikaqiu.png` — user-submitted gradient music-note icon on an adaptive light, dark, or tinted background.
@@ -18,7 +18,7 @@ The folded note, Pikaqiu, and soft note preserve their Light, Dark, and Tinted P
 
 Splash and Letter P share one material: a white glyph with its own shading and a soft cast shadow over a single solid colour. Their Dark variants keep the identical composition with a colour-tinted glyph on charcoal, and their Tinted variants use a silver glyph on near-black.
 
-NonoEnd ships two supplied plates, Light and Dark, both used as delivered. Their note masks coincide pixel for pixel, so switching appearance never shifts the artwork. The Tinted variant is derived from the Dark plate: its backdrop never rises above ~55 luminance and its note never falls below ~85, so one soft luminance threshold separates them — the field drops to near-black and the note is lifted into the light band.
+NonoEnd started from two supplied plates carrying a beamed eighth-note pair. That composition — a rounded square with a centred beamed pair — reads as Apple Music's, so the glyph was replaced with a bass clef while the plates and the material were kept. The clef is drawn as a signed-distance stroke field (a sampled centre line plus a half-width that tapers along it), then dressed in the material measured off the original artwork: a linear vertical fill from (248,135,231) at the top to (161,87,204) at the bottom, and, on the Light plate only, a white rim up-left with a cast shadow down-right, matching a top-left key light. Both backdrops are polynomial fits of the supplied plates taken well clear of the old glyph and its shadow (residual rms 0.46 Light, 0.83 Dark), so the grounds are the delivered ones. The Tinted variant is derived from the rebuilt Dark plate: its backdrop never rises above ~55 luminance and its glyph never falls below ~85, so one soft luminance threshold separates them — the field drops to near-black and the glyph is lifted into the light band.
 
 Chris’s Muse preserves the artwork from `13-chris-muse-light-original.jpg` and `13-chris-muse-dark-original.jpg`. The supplied rounded outer rim is removed so platform masking does not create a second edge; the note's dimensional highlights are retained. Its Tinted variant uses a silver-white note on charcoal. The selected original JPEGs are retained alongside the prepared PNGs in `raw/`.
 
