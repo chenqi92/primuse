@@ -1493,6 +1493,165 @@ struct LyricBilingualMixedDocumentPairingTests {
     }
 }
 
+@Suite("Cached mixed-script word lyrics")
+struct LyricCachedMixedScriptPairingTests {
+    @Test("Structured TTML and subtitle rows retain their authored boundaries", arguments: [
+        """
+        <tt xmlns="http://www.w3.org/ns/ttml"><body><div>
+        <p begin="1s" end="3s" xml:lang="en">Hello world</p>
+        <p begin="1s" end="4s" xml:lang="zh">你好世界</p>
+        <p begin="5s" end="7s" xml:lang="en">See you again</p>
+        <p begin="5s" end="8s" xml:lang="zh">下次再见</p>
+        </div></body></tt>
+        """,
+        """
+        WEBVTT
+
+        00:01.000 --> 00:03.000
+        Hello world
+
+        00:01.000 --> 00:04.000
+        你好世界
+
+        00:05.000 --> 00:07.000
+        See you again
+
+        00:05.000 --> 00:08.000
+        下次再见
+        """,
+    ])
+    func preservesStructuredCache(_ content: String) throws {
+        let parsed = LyricsContentParser.parse(content, options: .literal)
+        #expect(parsed.count == 4)
+        let cached = try JSONDecoder().decode([LyricLine].self, from: JSONEncoder().encode(parsed))
+        #expect(LyricBilingualPairingPolicy.normalizingCachedLines(cached) == cached)
+        let mixed = establishedPairs + cached
+        #expect(LyricBilingualPairingPolicy.normalizingCachedLines(mixed) == mixed)
+    }
+
+    @Test("An authored reading is not discarded when a cached row resembles a translation")
+    func preservesAuthoredReading() {
+        var cached = LyricsContentParser.parse("""
+        [00:01.00]Hello world
+        [00:01.00]你好世界
+        [00:05.00]See you again
+        [00:05.00]下次再见
+        """, options: .literal)
+        cached[1].romanization = "ni hao shi jie"
+        cached[3].romanization = "xia ci zai jian"
+        #expect(LyricBilingualPairingPolicy.normalizingCachedLines(cached) == cached)
+        let mixed = establishedPairs + cached
+        #expect(LyricBilingualPairingPolicy.normalizingCachedLines(mixed) == mixed)
+    }
+
+    @Test("Source edits keep literal rows and the saved cache fingerprint")
+    func preservesLiteralSourceEdit() throws {
+        let document = LyricsEditorDocument(parsing: "[00:01.000]Original")
+            .replacingOriginalSource(with: """
+            [00:01.000]Hello world
+            [00:01.000]你好世界
+            [00:02.000]Goodbye moon
+            [00:02.000]再见月亮
+            """)
+        let written = document.lyricLines()
+        #expect(written.count == 4)
+        #expect(written.allSatisfy { !$0.documentIsLocalOverride })
+        let cached = try JSONDecoder().decode([LyricLine].self, from: JSONEncoder().encode(written))
+        let reread = LyricBilingualPairingPolicy.normalizingCachedLines(cached)
+        #expect(reread == cached)
+        #expect(LyricsDocumentFingerprint(lines: reread) == LyricsDocumentFingerprint(lines: written))
+    }
+
+    static let mixedRows = [
+        """
+        [01:01.364]줄게 [01:01.859]내 [01:02.028]galaxy[01:03.199]
+        [01:01.364]jul ge  nae  galaxy
+        [01:01.364]把我的宇宙给你
+        """,
+        """
+        [01:07.027]Cause [01:07.223]I'm [01:07.487]your [01:07.655]pilot [01:08.525]네 [01:08.808]곁에[01:09.740]
+        [01:07.027]Cause I'm your pilot ni  gyeo te
+        [01:07.027]因为我是你身旁的飞行员
+        """,
+        """
+        [01:28.507]두고 [01:28.819]봐 [01:29.451]Babe[01:30.818]
+        [01:28.507]du go  bwa  Babe
+        [01:28.507]走着瞧吧 宝贝
+        """,
+    ]
+
+    private var establishedPairs: [LyricLine] {
+        LyricsContentParser.parse("""
+        [00:10.000]안녕 [00:11.000]세상[00:12.000]
+        [00:10.000]annyeong sesang
+        [00:10.000]你好世界
+        [00:20.000]다시 [00:21.000]만나[00:22.000]
+        [00:20.000]dasi manna
+        [00:20.000]再次相见
+        """)
+    }
+
+    @Test("Partially paired JSON caches recover the remaining mixed source", arguments: mixedRows)
+    func repairsPartiallyPairedCache(_ text: String) throws {
+        let unresolved = LyricsContentParser.parse(text, options: .literal)
+        let previous = establishedPairs + unresolved
+        let cached = try JSONDecoder().decode(
+            [LyricLine].self, from: JSONEncoder().encode(previous)
+        )
+        let normalized = LyricBilingualPairingPolicy.normalizingCachedLines(cached)
+        #expect(normalized.count == 3)
+        #expect(Array(normalized.prefix(2)) == Array(cached.prefix(2)))
+        let source = try #require(normalized.last)
+        #expect(source.id == unresolved[0].id)
+        #expect(source.text == unresolved[0].text)
+        #expect(source.syllables == unresolved[0].syllables)
+        #expect(source.allManualTranslations.map(\.text) == unresolved.dropFirst().map(\.text))
+        #expect(source.allManualTranslations.map(\.id) == unresolved.dropFirst().map(\.id))
+        #expect(LyricBilingualPairingPolicy.normalizingCachedLines(normalized) == normalized)
+        let time = try #require(source.syllables?.last?.start) + 0.1
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(in: normalized, at: time) == 2)
+        #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: normalized, afterLine: 2, lookahead: 0.1
+        ) == nil)
+    }
+
+    @Test("Fresh square-word parsing retains the entire mixed-language timeline", arguments: mixedRows)
+    func parsesFreshSource(_ text: String) throws {
+        let literal = LyricsContentParser.parse(text, options: .literal)
+        let content = LyricsContentParser.serialize(establishedPairs) + "\n" + text
+        let parsed = LyricsContentParser.parse(content)
+        #expect(parsed.count == 3)
+        let source = try #require(parsed.last)
+        #expect(source.text == literal[0].text)
+        #expect(source.syllables == literal[0].syllables)
+        #expect(source.allManualTranslations.map(\.text) == literal.dropFirst().map(\.text))
+    }
+
+    @Test("Local overrides and authored translation fields remain unchanged")
+    func preservesAuthoredCache() {
+        var local = establishedPairs + LyricsContentParser.parse(Self.mixedRows[0], options: .literal)
+        local[0].documentIsLocalOverride = true
+        #expect(LyricBilingualPairingPolicy.normalizingCachedLines(local) == local)
+
+        var authored = establishedPairs
+        for index in authored.indices {
+            authored[index].manualTranslation?.source = .localEditor
+        }
+        authored += LyricsContentParser.parse(Self.mixedRows[0], options: .literal)
+        #expect(LyricBilingualPairingPolicy.normalizingCachedLines(authored) == authored)
+    }
+
+    @Test("Word-timed companion voices are not absorbed as translations")
+    func preservesTimedCompanionVoice() {
+        let voices = establishedPairs + LyricsContentParser.parse("""
+        [01:01.364]줄게 [01:01.859]내 [01:02.028]galaxy[01:03.199]
+        [01:01.364]Another [01:02.028]voice[01:03.199]
+        [01:01.364]另一声部
+        """, options: .literal)
+        #expect(LyricBilingualPairingPolicy.normalizingCachedLines(voices) == voices)
+    }
+}
+
 /// refs #152 —— 原文本身就是混合语（韩语夹英文、日文夹英文、中文夹英文）的
 /// 双语文档，以及整篇只出现一次、或者根本分不出文字构成的那几簇。
 @Suite("Bilingual pairing with mixed-script source lines")

@@ -3,6 +3,61 @@ import Testing
 
 @Suite("Lyric playback positioning")
 struct LyricPlaybackPositionPolicyTests {
+    @Test("Companion rows do not deactivate the source word timeline")
+    func deactivationSkipsTheCurrentTimestampGroup() throws {
+        let lyrics = [
+            LyricLine(timestamp: 61.364, text: "Source"),
+            LyricLine(timestamp: 61.364, text: "Reading"),
+            LyricLine(timestamp: 61.365, text: "Translation"),
+            LyricLine(timestamp: 64.166, text: "Next"),
+        ]
+        let end = try #require(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics, afterLine: 0, lookahead: 0.1
+        ))
+        #expect(abs(end - 64.066) < 0.000001)
+        #expect(63.0 < end)
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics, at: 63, lookahead: 0.1
+        ) == 0)
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics, at: end + 0.001, lookahead: 0.1
+        ) == 3)
+    }
+
+    @Test("A final timestamp group has no next-line deactivation")
+    func finalGroupKeepsItsWordTimeline() {
+        let lyrics = [
+            LyricLine(timestamp: 88.507, text: "Source"),
+            LyricLine(timestamp: 88.507, text: "Reading"),
+            LyricLine(timestamp: 88.507, text: "Translation"),
+        ]
+        for index in lyrics.indices {
+            #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+                in: lyrics, afterLine: index, lookahead: 0.1
+            ) == nil)
+        }
+        #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics, afterLine: -1
+        ) == nil)
+        #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: [], afterLine: 0
+        ) == nil)
+    }
+
+    @Test("Ordinary line takeovers retain lookahead and the current start bound")
+    func deactivationPreservesOrdinaryTakeovers() {
+        let lyrics = [
+            LyricLine(timestamp: 1, text: "First"),
+            LyricLine(timestamp: 1.05, text: "Second"),
+        ]
+        #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics, afterLine: 0, lookahead: 0.1
+        ) == 1)
+        #expect(LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics, afterLine: 0, lookahead: -1
+        ) == 1.05)
+    }
+
     @Test("Lyrics loaded in the middle of playback select the current row")
     func selectsCurrentRowAfterDelayedLoad() {
         let lyrics = [

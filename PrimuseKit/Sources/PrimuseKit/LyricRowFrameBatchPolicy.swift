@@ -126,6 +126,21 @@ public enum LyricPlaybackPositionPolicy {
     /// `LyricBilingualPairingPolicy` 判定同一簇用的余量一致。
     private static let sameRowTolerance: TimeInterval = 0.002
 
+    /// Companion rows share the source timestamp and must not end its word
+    /// sweep. Only a later timestamp group can take over the highlight.
+    public static func wordLevelDeactivationTime(
+        in lyrics: [LyricLine],
+        afterLine index: Int,
+        lookahead: TimeInterval = 0
+    ) -> TimeInterval? {
+        guard lyrics.indices.contains(index) else { return nil }
+        let currentStart = lyrics[index].timestamp
+        guard let next = lyrics.dropFirst(index + 1).first(where: {
+            $0.timestamp - currentStart > sameRowTolerance
+        }) else { return nil }
+        return max(currentStart, next.timestamp - max(0, lookahead))
+    }
+
     /// Keeps the semantic active row unchanged during a long instrumental
     /// break while allowing a lyrics surface to move to a dedicated interlude
     /// marker. Line-level lyrics have no explicit end time, so their visible

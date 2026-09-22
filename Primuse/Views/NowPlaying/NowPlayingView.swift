@@ -7513,10 +7513,12 @@ struct LyricsScrollView: View {
     }
 
     private func wordLevelDeactivationTime(for index: Int) -> TimeInterval? {
-        guard hasWordLevelLyrics, lyrics.indices.contains(index + 1) else { return nil }
-        let currentStart = lyrics[index].timestamp
-        let nextTakeover = lyrics[index + 1].timestamp - Self.wordLevelLineLookahead
-        return max(currentStart, nextTakeover)
+        guard hasWordLevelLyrics else { return nil }
+        return LyricPlaybackPositionPolicy.wordLevelDeactivationTime(
+            in: lyrics,
+            afterLine: index,
+            lookahead: Self.wordLevelLineLookahead
+        )
     }
 
     /// 行级歌词 LRC 文件的 timestamp 通常是「演唱开始那一刻」,但 LRC 制作过程

@@ -1074,6 +1074,54 @@ public enum LyricBilingualPairingPolicy {
         enabled: Bool = true,
         timestampTolerance: TimeInterval = 0.002
     ) -> [LyricLine] {
+        pair(lines, enabled: enabled, timestampTolerance: timestampTolerance, storedEvidence: [])
+    }
+
+    /// Older caches may already have paired most of a document while leaving
+    /// mixed-script rows separate. Those established pairs still provide the
+    /// document structure needed to recognize a single remaining cluster.
+    public static func normalizingCachedLines(_ lines: [LyricLine]) -> [LyricLine] {
+        // LRC inference must not reinterpret authored TTML/subtitle boundaries,
+        // language fields, readings, or voice structure during cache loading.
+        guard lines.allSatisfy({ line in
+            !line.documentIsLocalOverride
+                && line.endTimestamp == nil
+                && line.languageCode == nil
+                && line.romanization == nil
+                && line.voice == .primary
+                && line.background?.isEmpty != false
+                && line.syllables?.contains(where: { $0.languageCode != nil }) != true
+                && line.allManualTranslations.allSatisfy { $0.source == .bilingualLRC }
+        }) else { return lines }
+        let evidence = lines.compactMap { line -> PairCandidate? in
+            let translations = line.allManualTranslations
+            guard !translations.isEmpty,
+                  translations.allSatisfy({ $0.source == .bilingualLRC }) else { return nil }
+            var source = line
+            source.manualTranslation = nil
+            source.alternateManualTranslations = []
+            let rows = [source] + translations.map {
+                LyricLine(timestamp: line.timestamp, text: $0.text, isSynchronized: line.isSynchronized)
+            }
+            guard var candidate = makeCandidate(cluster: Array(rows.indices), in: rows) else {
+                return nil
+            }
+            // Evidence votes on structure but never replaces a stored row.
+            candidate.sourceIndex = -1
+            return candidate
+        }
+        // Literal source edits deliberately keep independent rows and carry no
+        // inferred pairs. Reinterpreting them would also change save fingerprints.
+        guard !evidence.isEmpty else { return lines }
+        return pair(lines, enabled: true, timestampTolerance: 0.002, storedEvidence: evidence)
+    }
+
+    private static func pair(
+        _ lines: [LyricLine],
+        enabled: Bool,
+        timestampTolerance: TimeInterval,
+        storedEvidence: [PairCandidate]
+    ) -> [LyricLine] {
         guard enabled, lines.count >= 4 else { return lines }
 
         let tolerance = max(0, timestampTolerance)
@@ -1086,8 +1134,12 @@ public enum LyricBilingualPairingPolicy {
             && cluster.contains(where: { isPairableSourceLine(lines[$0]) }) {
             repeatedClusterCounts[cluster.count, default: 0] += 1
         }
+        for candidate in storedEvidence {
+            repeatedClusterCounts[candidate.rowCount, default: 0] += 1
+        }
 
         let candidates = clusters.compactMap { makeCandidate(cluster: $0, in: lines) }
+            + storedEvidence
         let candidatesByRowCount = Dictionary(grouping: candidates, by: \.rowCount)
         var accepted: [PairCandidate] = []
         var provenSignatures: [[ScriptFamily]] = []
@@ -1107,6 +1159,7 @@ public enum LyricBilingualPairingPolicy {
                 documentScript: documentScript(in: lines, clusters: clusters)
             ))
         }
+        accepted.removeAll { $0.sourceIndex < 0 }
         guard !accepted.isEmpty else { return lines }
 
         let candidateBySourceIndex = Dictionary(
