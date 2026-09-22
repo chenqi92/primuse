@@ -308,6 +308,16 @@ final class MetadataBackfillService {
     /// transport problem and must not be unparked by a network transition.
     @ObservationIgnored private var sessionStallParkedIDs: Set<String> = []
 
+    /// 上一个 worker 最后真正处理过的那一批 ID。
+    ///
+    /// 振荡守卫原来只在**一个 worker 的循环内**比较。可这一轮处理完的那几首
+    /// 还挂在 `pendingFlushSongIDs` 里(`selectBatch` 会跳过它们), 于是同一个
+    /// worker 第二次取快照拿到的是空的 → `break` 正常收尾 → 守卫一次都没比过。
+    /// 几秒后新 worker 起来, pendingFlush 已经清空, 同一批歌又变回裸行被选中。
+    /// 于是几首永远读不出时长/封面的歌每几秒重来一轮: 每轮重下一遍 head+tail,
+    /// 每轮整库发布一次。跨代次记住它, 守卫才看得见这个重复。
+    @ObservationIgnored private var lastProcessedSnapshotIDs: Set<String> = []
+
     /// Persisted marker for songs that still need another attempt after a
     /// transient transport failure. Unlike `sessionGivenUpIDs`, this set does
     /// not suppress queueing: it survives relaunch only so the UI can explain
@@ -986,6 +996,7 @@ final class MetadataBackfillService {
                 self.sessionGivenUpIDs.subtract(ids)
                 self.sessionNetworkParkedIDs.subtract(ids)
                 self.sessionStallParkedIDs.subtract(ids)
+                self.lastProcessedSnapshotIDs.subtract(ids)
                 self.mutateDeferredRetries { $0.subtract(ids) }
                 for id in ids { self.diagnosticRecords[id] = nil }
                 self.titleCheckedIDs.subtract(ids)
@@ -1521,6 +1532,7 @@ final class MetadataBackfillService {
                 sessionGivenUpIDs.subtract(retryIDs)
                 sessionNetworkParkedIDs.subtract(retryIDs)
                 sessionStallParkedIDs.subtract(retryIDs)
+                lastProcessedSnapshotIDs.subtract(retryIDs)
                 mutateDeferredRetries { $0.subtract(retryIDs) }
                 titleCheckedIDs.subtract(retryIDs)
                 albumArtistCheckedIDs.subtract(retryIDs)
@@ -1563,6 +1575,7 @@ final class MetadataBackfillService {
                 sessionGivenUpIDs.subtract(retryIDs)
                 sessionNetworkParkedIDs.subtract(retryIDs)
                 sessionStallParkedIDs.subtract(retryIDs)
+                lastProcessedSnapshotIDs.subtract(retryIDs)
                 mutateDeferredRetries { $0.subtract(retryIDs) }
                 titleCheckedIDs.subtract(retryIDs)
                 for id in retryIDs { transientFailureCounts[id] = nil }
@@ -2008,6 +2021,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.subtract(songIDs)
         sessionNetworkParkedIDs.subtract(songIDs)
         sessionStallParkedIDs.subtract(songIDs)
+        lastProcessedSnapshotIDs.subtract(songIDs)
         for id in songIDs {
             switch diagnosticRecords[id]?.state {
             case .sourceUnavailable, .fileUnavailable, .retryPending, .stalled:
@@ -2177,6 +2191,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.subtract(songIDs)
         sessionNetworkParkedIDs.subtract(songIDs)
         sessionStallParkedIDs.subtract(songIDs)
+        lastProcessedSnapshotIDs.subtract(songIDs)
         mutateDeferredRetries { $0.subtract(songIDs) }
         for songID in songIDs { diagnosticRecords[songID] = nil }
         titleCheckedIDs.subtract(songIDs)
@@ -3060,6 +3075,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.subtract(retryIDs)
         sessionNetworkParkedIDs.subtract(retryIDs)
         sessionStallParkedIDs.subtract(retryIDs)
+        lastProcessedSnapshotIDs.subtract(retryIDs)
         // An explicit retry reopens the affected rows as ordinary pending
         // inspection. Keeping every source-parked row in the deferred set would
         // recreate the misleading "hundreds of retries" count after one
@@ -3350,6 +3366,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.remove(songID)
         sessionNetworkParkedIDs.remove(songID)
         sessionStallParkedIDs.remove(songID)
+        lastProcessedSnapshotIDs.remove(songID)
         mutateDeferredRetries { $0.insert(songID) }
         artworkGivenUpIDs.remove(songID)
         titleCheckedIDs.remove(songID)
@@ -3509,7 +3526,9 @@ final class MetadataBackfillService {
         // already-processed songs still look "bare" in the library and
         // would be picked again, causing duplicate Range fetches and a
         // weird-looking processedCount that grows past pendingCount.
-        var lastSnapshotIDs: Set<String> = []
+        // 上一个 worker 处理过的那一批也算"上一轮" —— 见
+        // `lastProcessedSnapshotIDs` 的说明。
+        var lastSnapshotIDs = lastProcessedSnapshotIDs
         var completedSnapshotPasses = 0
         while !Task.isCancelled {
             let (limits, allowedSourceIDs) = await MainActor.run { [self] in
@@ -3550,6 +3569,8 @@ final class MetadataBackfillService {
             ) {
                 sessionGivenUpIDs.formUnion(snapIDs)
                 sessionStallParkedIDs.formUnion(snapIDs)
+                // 已经登记成停滞, 不必再拿它和下一个 worker 比一次。
+                lastProcessedSnapshotIDs = []
                 let deferredIDs = MetadataBackfillDeferredRetryPolicy.idsToPersist(
                     failedSongID: nil,
                     snapshotSongIDs: snapIDs,
@@ -3565,6 +3586,7 @@ final class MetadataBackfillService {
 
             activeSourceIDs = Set(snapshot.map(\.sourceID))
             await processSnapshot(snapshot)
+            lastProcessedSnapshotIDs = snapIDs
             completedSnapshotPasses += 1
         }
         // 收尾这一批必须落地 —— 它横跨了好几个快照, 也可能是被 stop() 取消的。
@@ -3825,15 +3847,28 @@ final class MetadataBackfillService {
             libraryPublishDepth -= 1
             libraryPublishGeneration &+= 1
         }
-        let batch = pendingFlush.compactMap(backfillResultForApply)
-        let batchIDs = Set(batch.map(\.id))
+        let resolved = pendingFlush.compactMap(backfillResultForApply)
+        // 标记照旧按"已落地"记账 —— 逐字相同的行, 库里存的就是这个值,
+        // 不存在"标记写了而替换没落地"的空档。
+        let batchIDs = Set(resolved.map(\.id))
+        // 和库里那一行逐字相同的结果不必再整库发布一次: 一次发布的代价与整库
+        // 规模成正比(重发两个上万元素的可观察数组 + 首页/搜索/CarPlay 各一次
+        // 整库重算), 与这一批有几首无关。读不出时长又找不到封面的歌每轮都会
+        // 原样交回同一行, 这一条把那种空转的代价降到零。
+        let batch = resolved.filter { library.song(id: $0.id) != $0 }
         pendingFlush.removeAll(keepingCapacity: true)
         pendingFlushSongIDs.removeAll(keepingCapacity: true)
         lastFlushAt = Date()
-        if !batch.isEmpty {
-            await library.replaceSongsPreparedOffMain(batch, maintenance: .deferred)
-            clearDeferredRetries(in: batch)
-            plog("📥 \(isFinal ? "final flush" : "flushed") \(batch.count) songs to library")
+        if !resolved.isEmpty {
+            if !batch.isEmpty {
+                await library.replaceSongsPreparedOffMain(batch, maintenance: .deferred)
+            }
+            // 重试记账按"这一轮确实读过这些行"来清, 和过滤前一致。
+            clearDeferredRetries(in: resolved)
+            plog(
+                "📥 \(isFinal ? "final flush" : "flushed") \(batch.count) songs to library"
+                    + (resolved.count == batch.count ? "" : " (unchanged=\(resolved.count - batch.count))")
+            )
         }
         let artistIDsSafeToPersist = pendingArtistInspectionIDs
             .subtracting(artistInspectionIDsRequiringReplacement)
@@ -5697,6 +5732,7 @@ final class MetadataBackfillService {
         sessionGivenUpIDs.remove(songID)
         sessionNetworkParkedIDs.remove(songID)
         sessionStallParkedIDs.remove(songID)
+        lastProcessedSnapshotIDs.remove(songID)
         let songCountRemoved = transientFailureCounts.removeValue(forKey: songID) != nil
         let sourceCountRemoved = sourceTransientFailureCounts.removeValue(forKey: sourceID) != nil
         if songCountRemoved || sourceCountRemoved {
