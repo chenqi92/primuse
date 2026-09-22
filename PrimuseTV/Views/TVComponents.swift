@@ -346,14 +346,10 @@ struct TVRadioStationCard: View {
     let station: RadioStation
     var width: CGFloat = 220
     var action: () -> Void = {}
+    @State private var showsDeleteConfirmation = false
 
     var body: some View {
-        TVFocusButton(ring: false,
-                      action: {
-                          TVSiriMediaInteractionDonor.donate(station: station)
-                          store.play(station)
-                          action()
-                      }) { focused in
+        TVFocusButton(ring: false, action: play) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover)
                     .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
@@ -373,6 +369,34 @@ struct TVRadioStationCard: View {
             }
             .frame(width: width, alignment: .leading)
         }
+        // 长按:音乐源镜像的台由服务端管理,只给播放。
+        .contextMenu {
+            Button(action: play) {
+                Label(PMString("ext.tv.radio.play"), systemImage: "play.fill")
+            }
+            if store.canManageRadioStation(station) {
+                Button {
+                    store.moveRadioStationToTop(id: station.id)
+                } label: {
+                    Label(PMString("ext.tv.radio.moveToTop"), systemImage: "arrow.up.to.line")
+                }
+                Button(role: .destructive) {
+                    showsDeleteConfirmation = true
+                } label: {
+                    Label(PMString("ext.tv.radio.delete"), systemImage: "trash")
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showsDeleteConfirmation) {
+            TVRadioDeleteConfirmation(station: station)
+                .environment(store)
+        }
+    }
+
+    private func play() {
+        TVSiriMediaInteractionDonor.donate(station: station)
+        store.play(station)
+        action()
     }
 }
 
@@ -383,7 +407,7 @@ struct TVRadioArtworkView: View {
 
     @State private var logo: UIImage?
 
-    private var logoIdentity: Int { station.logoData?.hashValue ?? 0 }
+    private var logoIdentity: Int { TVRadioLogoLoader.identity(for: station) }
 
     var body: some View {
         Group {
@@ -403,8 +427,9 @@ struct TVRadioArtworkView: View {
         }
         .task(id: logoIdentity) {
             let identity = logoIdentity
-            guard let data = station.logoData else {
-                logo = nil
+            guard let data = await TVRadioLogoLoader.data(for: station),
+                  !Task.isCancelled, identity == logoIdentity else {
+                if !Task.isCancelled, identity == logoIdentity { logo = nil }
                 return
             }
             let decoded = await Task.detached(priority: .utility) {
@@ -477,6 +502,9 @@ struct TVEmptyState: View {
     let icon: String
     let title: String
     var subtitle: String = PMString("ext.tv.components.emptySubtitle")
+    var actionTitle: String? = nil
+    var actionIcon: String = "plus"
+    var action: () -> Void = {}
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: icon).font(.system(size: 80)).foregroundStyle(TVColor.textGhost)
@@ -484,6 +512,10 @@ struct TVEmptyState: View {
             if !subtitle.isEmpty {
                 Text(subtitle).tvFont(.caption).foregroundStyle(TVColor.textMuted)
                     .multilineTextAlignment(.center).frame(maxWidth: 720)
+            }
+            if let actionTitle {
+                TVPillButton(title: actionTitle, systemImage: actionIcon, style: .solid, action: action)
+                    .padding(.top, 18)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

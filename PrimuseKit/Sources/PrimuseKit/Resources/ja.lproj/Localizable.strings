@@ -436,6 +436,29 @@
 "ext.tv.radio.live" = "LIVE";
 "ext.tv.radio.stop" = "停止";
 "ext.tv.radio.play" = "再生";
+"ext.tv.radio.add" = "ステーションを追加";
+"ext.tv.radio.addSubtitle" = "検索またはURLを入力";
+"ext.tv.radio.modeSearch" = "ステーションを検索";
+"ext.tv.radio.modeManual" = "URLを入力";
+"ext.tv.radio.searchLabel" = "ステーション名";
+"ext.tv.radio.searchButton" = "検索";
+"ext.tv.radio.searching" = "検索中…";
+"ext.tv.radio.noResults" = "ステーションが見つかりません";
+"ext.tv.radio.searchFailed" = "検索に失敗しました。ネットワークを確認してもう一度お試しください。";
+"ext.tv.radio.directoryNote" = "ステーション一覧はコミュニティ運営の radio-browser.info によるものです";
+"ext.tv.radio.nameLabel" = "名前";
+"ext.tv.radio.urlLabel" = "ストリームURL（http:// または https://）";
+"ext.tv.radio.addButton" = "追加";
+"ext.tv.radio.added" = "追加済み";
+"ext.tv.radio.invalidInput" = "名前と、http:// または https:// で始まるストリームURLを入力してください";
+"ext.tv.radio.duplicate" = "このステーションはすでにリストにあります";
+"ext.tv.radio.addedNotice" = "「%@」を追加しました";
+"ext.tv.radio.syncHint" = "iPhoneやMacで追加したステーションもiCloud経由でここに同期されます";
+"ext.tv.radio.moveToTop" = "先頭に移動";
+"ext.tv.radio.delete" = "ステーションを削除";
+"ext.tv.radio.deleteConfirm" = "「%@」を削除しますか？";
+"ext.tv.radio.deleteNote" = "iCloud同期がオンの場合、ほかのデバイスからもこのステーションが削除されます。";
+"ext.tv.home.emptyWithRadio" = "iPhoneやMacからライブラリを同期するとここに音楽が表示されます。インターネットラジオを直接追加することもできます。";
 
 // MARK: - ソース名とローカライズ済みの実行時エラー
 "src.category.protocol" = "プロトコル";

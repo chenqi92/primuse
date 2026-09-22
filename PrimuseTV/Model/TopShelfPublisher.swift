@@ -25,10 +25,7 @@ enum TopShelfPublisher {
     }
 
     struct RadioDraft: Sendable {
-        let id: String
-        let title: String
-        let subtitle: String
-        let logoData: Data?
+        let station: RadioStation
         let playURL: String
     }
 
@@ -42,7 +39,7 @@ enum TopShelfPublisher {
         if !recentItems.isEmpty {
             sections.append(TopShelfSection(id: "recent", title: PMString("ext.tv.topShelf.recent"), items: recentItems))
         }
-        let radioItems = radioItems(from: radio)
+        let radioItems = await radioItems(from: radio)
         if !radioItems.isEmpty {
             sections.append(TopShelfSection(id: "radio", title: PMString("ext.tv.radio.title"), items: radioItems))
         }
@@ -74,14 +71,17 @@ enum TopShelfPublisher {
         return out
     }
 
-    private static func radioItems(from drafts: [RadioDraft]) -> [TopShelfItem] {
+    private static func radioItems(from drafts: [RadioDraft]) async -> [TopShelfItem] {
         var out: [TopShelfItem] = []
         for d in drafts {
             guard !Task.isCancelled else { return [] }
-            let output = d.logoData.flatMap(radioLogoCover)
-                ?? placeholderCover(seed: d.id, symbolName: "radio.fill")
-            out.append(TopShelfItem(id: d.id, title: d.title, subtitle: d.subtitle,
-                                    imageFileName: output.flatMap { writeCover($0, key: d.id) },
+            let station = d.station
+            let logo = await TVRadioLogoLoader.data(for: station)
+            let output = logo.flatMap(radioLogoCover)
+                ?? placeholderCover(seed: station.id, symbolName: "radio.fill")
+            out.append(TopShelfItem(id: station.id, title: station.name,
+                                    subtitle: station.playbackSubtitle,
+                                    imageFileName: output.flatMap { writeCover($0, key: station.id) },
                                     playURL: d.playURL))
         }
         return out

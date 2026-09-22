@@ -70,6 +70,7 @@
 		0ACB1D658F47D5EAA17E73DF /* SongloftSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A373D69542A894AC0E311DF /* SongloftSource.swift */; };
 		0ADD6ADCDD5C664E159B9F76 /* CarPlayLayoutConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA81D957BD070901D2869F60 /* CarPlayLayoutConfiguration.swift */; };
 		0B27BB086E12A8042A20DCAA /* BaiduPanIncrementalSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6260D8F4F4648F9D7376C4F5 /* BaiduPanIncrementalSync.swift */; };
+		0B72E87F67676C2FEED378DF /* RadioDirectoryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87CDB114A51764BEBD90ED3 /* RadioDirectoryClient.swift */; };
 		0B877004E9BC6105414BD7A5 /* MacDetailContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D09F74F18E7CED7C6CDC0960 /* MacDetailContainer.swift */; };
 		0BAFA3FEF20223C7CA4FFAA1 /* SidecarMetadataLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F90F8D26A59F3DF6BF867F /* SidecarMetadataLoader.swift */; };
 		0BB1C495B1A3CF695925518D /* FloatingInputPanelClearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B6EE3BA7595C043A4CDB60 /* FloatingInputPanelClearance.swift */; };
@@ -646,6 +647,7 @@
 		731960A337291B311A1CB746 /* Bundle+AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD88BFBBCA5054A7248399F /* Bundle+AppVersion.swift */; };
 		731F196C5E41C34D8A22835D /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 564355C7C182D7C30114AC27 /* PlaylistDetailView.swift */; };
 		735F07C4006F3BCF37D55A84 /* WordTimedLyricsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C91AEEF06A98409B623ED637 /* WordTimedLyricsParser.swift */; };
+		736976E3D1391A3681E57C61 /* TVRadioManagement.swift in Sources */ = {isa = PBXBuildFile; fileRef = E185DD0D7E4C457960429B00 /* TVRadioManagement.swift */; };
 		736B88C0482339485F824541 /* ScraperResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9694CD231B4175BED85BEA /* ScraperResult.swift */; };
 		73AC215B300A8F0FDC954F57 /* AppIconService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A796306024AE3678DB56D02A /* AppIconService.swift */; };
 		73B4EFBC7B09D57388B12DBF /* HomeDiscovery.strings in Resources */ = {isa = PBXBuildFile; fileRef = 37B6EF903623F1A187DD21B2 /* HomeDiscovery.strings */; };
@@ -2526,6 +2528,7 @@
 		E0CD6571B6CA1E276A954F2F /* SidecarWriteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarWriteService.swift; sourceTree = "<group>"; };
 		E0D61C87A5E9C4A579E85C9C /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/HomeDiscovery.strings"; sourceTree = "<group>"; };
 		E155726354BEF06B6BCABFB7 /* YearlyReportAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyReportAnalyzer.swift; sourceTree = "<group>"; };
+		E185DD0D7E4C457960429B00 /* TVRadioManagement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVRadioManagement.swift; sourceTree = "<group>"; };
 		E1A603AA0134C1792449BF47 /* libavcodec.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = libavcodec.xcframework; path = Frameworks/FFmpeg/libavcodec.xcframework; sourceTree = "<group>"; };
 		E1AB08BCA3F70E0E6050C35F /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/Localizable.strings; sourceTree = "<group>"; };
 		E1C899A774E84E601D74500D /* TVPlaybackPipelinePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVPlaybackPipelinePolicy.swift; sourceTree = "<group>"; };
@@ -4148,6 +4151,7 @@
 				2505E223E326D2B217B3F45C /* TVPlaylistsView.swift */,
 				17619205E3E09E1E57C7277F /* TVQRCode.swift */,
 				01A3E8F6656778B940F633F3 /* TVQueueView.swift */,
+				E185DD0D7E4C457960429B00 /* TVRadioManagement.swift */,
 				A838C1C1D523CAD6E766726A /* TVRoot.swift */,
 				80464460F8B6E1ACA91B21E2 /* TVScanFlowView.swift */,
 				84FE88C010A4F459DC4AAEF0 /* TVSearchView.swift */,
@@ -5601,6 +5605,7 @@
 				E2810AAD4DBE00E55CB6203B /* PlayHistoryStore.swift in Sources */,
 				32A58EAB3403674F44A1B9C6 /* PrimuseAIRelayClient.swift in Sources */,
 				5D5F85F83B1720CE94E8C202 /* QnapAPI.swift in Sources */,
+				0B72E87F67676C2FEED378DF /* RadioDirectoryClient.swift in Sources */,
 				7C40148B1413D9AC91D84E13 /* RadioFLACAudioDecoder.swift in Sources */,
 				1B4ED35B9C20D4E306269836 /* RadioFLACDecoderBridge.m in Sources */,
 				7DAA6248DD6B317C33A9E6D2 /* RadioLiveStreamSource.swift in Sources */,
@@ -5655,6 +5660,7 @@
 				6E53C03FF0B15B39510AE06F /* TVPlaylistsView.swift in Sources */,
 				A2E01FF23E1E76B17C9EB312 /* TVQRCode.swift in Sources */,
 				7556EAFB8DAAC196BE324DA8 /* TVQueueView.swift in Sources */,
+				736976E3D1391A3681E57C61 /* TVRadioManagement.swift in Sources */,
 				86E8C6BB304347462D250493 /* TVRoot.swift in Sources */,
 				3CC98788ADA6DA983C3AF45F /* TVSFBEngine.swift in Sources */,
 				12C003F7A3614B1A157FB185 /* TVSFTPConnectorFactory.swift in Sources */,

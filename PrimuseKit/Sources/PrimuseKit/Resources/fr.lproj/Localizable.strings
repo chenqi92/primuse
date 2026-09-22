@@ -436,6 +436,29 @@
 "ext.tv.radio.live" = "EN DIRECT";
 "ext.tv.radio.stop" = "Arrêter";
 "ext.tv.radio.play" = "Lire";
+"ext.tv.radio.add" = "Ajouter une station";
+"ext.tv.radio.addSubtitle" = "Rechercher ou saisir une URL";
+"ext.tv.radio.modeSearch" = "Rechercher des stations";
+"ext.tv.radio.modeManual" = "Saisir une URL";
+"ext.tv.radio.searchLabel" = "Nom de la station";
+"ext.tv.radio.searchButton" = "Rechercher";
+"ext.tv.radio.searching" = "Recherche…";
+"ext.tv.radio.noResults" = "Aucune station trouvée";
+"ext.tv.radio.searchFailed" = "La recherche a échoué. Vérifiez votre réseau et réessayez.";
+"ext.tv.radio.directoryNote" = "Annuaire de stations fourni par le projet communautaire radio-browser.info";
+"ext.tv.radio.nameLabel" = "Nom";
+"ext.tv.radio.urlLabel" = "URL du flux (http:// ou https://)";
+"ext.tv.radio.addButton" = "Ajouter";
+"ext.tv.radio.added" = "Ajoutée";
+"ext.tv.radio.invalidInput" = "Saisissez un nom et une URL de flux commençant par http:// ou https://";
+"ext.tv.radio.duplicate" = "Cette station est déjà dans votre liste";
+"ext.tv.radio.addedNotice" = "« %@ » ajoutée";
+"ext.tv.radio.syncHint" = "Les stations ajoutées sur iPhone ou Mac sont aussi synchronisées ici via iCloud";
+"ext.tv.radio.moveToTop" = "Placer en premier";
+"ext.tv.radio.delete" = "Supprimer la station";
+"ext.tv.radio.deleteConfirm" = "Supprimer « %@ » ?";
+"ext.tv.radio.deleteNote" = "Avec la synchronisation iCloud activée, cette station est aussi supprimée de vos autres appareils.";
+"ext.tv.home.emptyWithRadio" = "Synchronisez votre bibliothèque depuis l’iPhone ou le Mac pour voir votre musique ici, ou ajoutez directement des radios internet.";
 
 // MARK: - Libellés des sources et erreurs d’exécution localisées
 "src.category.protocol" = "Protocole";

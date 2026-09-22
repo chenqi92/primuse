@@ -616,6 +616,8 @@ targets:
       - path: Primuse/Services/Library/SmartPlaylistEngine.swift
       - path: Primuse/Services/Cloud/CloudKitSyncService.swift
       - path: Primuse/Services/Radio/RadioStationsStore.swift
+      # 电视端添加电台:按名称搜 radio-browser 目录,纯 Foundation,与 iOS / macOS 同一份。
+      - path: Primuse/Services/Radio/RadioDirectoryClient.swift
       - path: Primuse/Services/Metadata/ScraperSettingsStore.swift
       - path: Primuse/Services/Metadata/Scrapers
       - path: Primuse/Services/Metadata/ArtworkFetchService.swift

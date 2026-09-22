@@ -433,6 +433,29 @@
 "ext.tv.radio.live" = "直播";
 "ext.tv.radio.stop" = "停止";
 "ext.tv.radio.play" = "播放";
+"ext.tv.radio.add" = "新增電台";
+"ext.tv.radio.addSubtitle" = "搜尋目錄或輸入網址";
+"ext.tv.radio.modeSearch" = "搜尋電台";
+"ext.tv.radio.modeManual" = "輸入網址";
+"ext.tv.radio.searchLabel" = "電台名稱";
+"ext.tv.radio.searchButton" = "搜尋";
+"ext.tv.radio.searching" = "正在搜尋…";
+"ext.tv.radio.noResults" = "找不到相關電台";
+"ext.tv.radio.searchFailed" = "搜尋失敗，請檢查網路後重試";
+"ext.tv.radio.directoryNote" = "電台目錄來自社群維護的 radio-browser.info";
+"ext.tv.radio.nameLabel" = "名稱";
+"ext.tv.radio.urlLabel" = "串流網址（http:// 或 https://）";
+"ext.tv.radio.addButton" = "新增";
+"ext.tv.radio.added" = "已新增";
+"ext.tv.radio.invalidInput" = "請填寫名稱和以 http:// 或 https:// 開頭的串流網址";
+"ext.tv.radio.duplicate" = "這個電台已經在列表裡了";
+"ext.tv.radio.addedNotice" = "已新增「%@」";
+"ext.tv.radio.syncHint" = "在 iPhone 或 Mac 上新增的電台，也會透過 iCloud 同步到這裡";
+"ext.tv.radio.moveToTop" = "移到最前";
+"ext.tv.radio.delete" = "刪除電台";
+"ext.tv.radio.deleteConfirm" = "刪除「%@」？";
+"ext.tv.radio.deleteNote" = "開啟 iCloud 同步時，其他裝置上的這個電台也會一起刪除。";
+"ext.tv.home.emptyWithRadio" = "在 iPhone / Mac 上同步曲庫後，這裡會顯示你的音樂；也可以直接新增網路電台。";
 
 // MARK: - 音樂來源標籤與本地化執行階段錯誤
 "src.category.protocol" = "通訊協定";
