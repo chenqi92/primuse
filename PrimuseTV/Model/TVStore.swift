@@ -3501,7 +3501,8 @@ final class TVStore {
                         ? station.playbackSubtitle
                         : self.radioMetadataTitle,
                     format: station.streamFormat.displayName,
-                    streamFormat: station.streamFormat
+                    streamFormat: station.streamFormat,
+                    isSourceBacked: station.requiresSourceStreamResolution
                 )
                 resolutionCompletion?(true)
             } catch is CancellationError {
@@ -4168,7 +4169,8 @@ final class TVStore {
                         ? station.playbackSubtitle
                         : self.radioMetadataTitle,
                     format: station.streamFormat.displayName,
-                    streamFormat: station.streamFormat
+                    streamFormat: station.streamFormat,
+                    isSourceBacked: station.requiresSourceStreamResolution
                 )
             } catch is CancellationError {
                 return
