@@ -334,7 +334,10 @@ struct HomeListeningRankingSection: View {
         _ rank: HomeListeningRank, @ViewBuilder label: () -> Content
     ) -> some View {
         if let folderID = rank.folderID {
-            NavigationLink { HomeFolderBrowser(nodeID: folderID) } label: { label() }
+            NavigationLink {
+                HomeFolderBrowser(nodeID: folderID)
+                    .environment(model)
+            } label: { label() }
         } else if rankedCategory == .songs {
             Button {
                 HomeDiscoveryPlayback.play(
