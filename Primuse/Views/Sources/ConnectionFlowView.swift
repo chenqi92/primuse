@@ -18,6 +18,9 @@ struct ConnectionFlowView: View {
     /// Audio Station 登录并确认权限之后调用:它没有目录可选,宿主在这里开始整库扫描,
     /// 这个视图随后自行关闭。
     var onAudioStationReady: (() -> Void)?
+    var requestsPassword = false
+    var initialPassword: String?
+    var onAuthenticated: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.pmHeightClass) private var heightClass
 
@@ -36,6 +39,7 @@ struct ConnectionFlowView: View {
     @State private var activeSynologyCandidateKind: SourceConnectionCandidateKind?
     @State private var rootItems: [SynologyAPI.FileItem] = []
     @State private var connectionTask: Task<Void, Never>?
+    @State private var hasStarted = false
     @FocusState private var otpFocused: Bool
     @FocusState private var passwordFocused: Bool
 
@@ -62,7 +66,16 @@ struct ConnectionFlowView: View {
             #endif
         }
         .interactiveDismissDisabled(step == .connecting)
-        .onAppear { startConnection() }
+        .onAppear {
+            guard !hasStarted else { return }
+            hasStarted = true
+            if requestsPassword, initialPassword == nil {
+                rememberDevice = source.rememberDevice
+                step = .password
+            } else {
+                startConnection(overridePassword: initialPassword)
+            }
+        }
         .onDisappear {
             connectionTask?.cancel()
             connectionTask = nil
@@ -458,8 +471,7 @@ struct ConnectionFlowView: View {
 
     // MARK: - Password prompt
     //
-    // 仅在 DSM 真正返回 code=400(账号或密码错误)时才出现。新密码
-    // 先作为待验证值贯穿登录/2FA/SSL 重试，确认可浏览后才写回 Keychain。
+    // 新密码先贯穿登录/2FA/SSL 重试，确认授权请求成功后才写回 Keychain。
     private var passwordView: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -551,7 +563,12 @@ struct ConnectionFlowView: View {
             Text("connection_failed").font(.headline)
             failureDetails
             VStack(spacing: 12) {
-                Button { startConnection() } label: {
+                Button {
+                    // Credential recovery must not silently retry the old
+                    // saved password after a network or certificate failure.
+                    let candidate = passwordInput.isEmpty ? initialPassword : passwordInput
+                    startConnection(overridePassword: requestsPassword ? candidate : nil)
+                } label: {
                     Label("retry", systemImage: "arrow.clockwise").fontWeight(.medium)
                 }
                 .buttonStyle(.borderedProminent)
@@ -608,23 +625,19 @@ struct ConnectionFlowView: View {
 
     // MARK: - Logic
 
-    private func startConnection() {
+    private func startConnection(overridePassword: String? = nil) {
         // 离开转圈态的每一步都带动画, 进来时也得带 —— 否则从失败页点重试是硬跳。
         pmWithAnimation(.pageSwitch) { step = .connecting }
         errorMessage = ""
         otpCode = ""
-        passwordInput = ""
-        pendingPasswordCandidate = nil
+        passwordInput = overridePassword ?? ""
+        pendingPasswordCandidate = overridePassword
         activeSynologySource = nil
         activeSynologyCandidateKind = nil
         rememberDevice = source.rememberDevice
         connectionTask?.cancel()
         connectionTask = Task { @MainActor in
-            switch source.type {
-            case .synology: await connectSynology(otpCode: nil)
-            case .synologyAudioStation: await connectAudioStation(otpCode: nil)
-            default: pmWithAnimation(.pageSwitch) { step = .browsing }
-            }
+            await connectCurrentSource(otpCode: nil, overridePassword: overridePassword)
         }
     }
 
@@ -810,6 +823,12 @@ struct ConnectionFlowView: View {
                 onSessionReady?(api)
                 if let candidate {
                     await SourceConnectionRuntime.shared.record(candidate.kind, for: source.id)
+                }
+                SourceAuthAlert.clear(sourceID: source.id)
+                if let onAuthenticated {
+                    onAuthenticated()
+                    dismiss()
+                    return
                 }
                 pmWithAnimation(.pageSwitch) { step = .browsing }
             } catch {
@@ -1067,7 +1086,11 @@ struct ConnectionFlowView: View {
             await SourceConnectionRuntime.shared.record(candidate.kind, for: source.id)
         }
         SourceAuthAlert.clear(sourceID: source.id)
-        onAudioStationReady?()
+        if let onAuthenticated {
+            onAuthenticated()
+        } else {
+            onAudioStationReady?()
+        }
         dismiss()
     }
 
@@ -1145,6 +1168,60 @@ struct ConnectionFlowView: View {
             otpCode: otpCode,
             overridePassword: overridePassword
         )
+    }
+}
+
+// MARK: - Credential Recovery
+
+struct SynologyCredentialRecoveryView: View {
+    let source: MusicSource
+    var initialPassword: String?
+    var onAuthenticated: (MusicSource) -> Void
+
+    @Environment(SourceManager.self) private var sourceManager
+    @State private var validatedDeviceTrust: (remember: Bool, deviceID: String?)?
+
+    var body: some View {
+        ConnectionFlowView(
+            source: source,
+            selectedDirectories: .constant(source.scannedDirectories),
+            onDeviceTrustSaved: { remember, deviceID in
+                validatedDeviceTrust = (remember, deviceID)
+            },
+            onPasswordWillChange: {
+                do {
+                    try sourceManager.credentialsWillChange(for: source.id)
+                    return true
+                } catch {
+                    return false
+                }
+            },
+            onPasswordSaveUncertain: {
+                sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+            },
+            onPasswordSaved: {
+                do {
+                    try sourceManager.credentialsDidChange(for: source.id)
+                    return true
+                } catch {
+                    sourceManager.credentialsChangeOutcomeUncertain(for: source.id)
+                    return false
+                }
+            },
+            requestsPassword: true,
+            initialPassword: initialPassword,
+            onAuthenticated: {
+                var updated = source
+                if let trust = validatedDeviceTrust {
+                    updated.rememberDevice = trust.remember
+                    updated.deviceId = trust.remember ? (trust.deviceID ?? source.deviceId) : nil
+                }
+                onAuthenticated(updated)
+            }
+        )
+        #if os(macOS)
+        .frame(minWidth: 440, idealWidth: 520, minHeight: 420)
+        #endif
     }
 }
 

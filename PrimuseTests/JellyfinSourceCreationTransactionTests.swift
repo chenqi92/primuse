@@ -1,10 +1,80 @@
 import Foundation
 import PrimuseKit
 import XCTest
+import SwiftUI
+import UIKit
 @testable import Primuse
 
 @MainActor
 final class SourceAddressFormTests: XCTestCase {
+    func testSynologySourceEditorsAcceptReplacementPasswords() async throws {
+        for sourceType in [MusicSourceType.synology, .synologyAudioStation] {
+            let source = credentialTestSource(type: sourceType)
+            let view = AddSourceView(sourceType: sourceType, editingSource: source) { _ in
+                XCTFail("Typing must not save the source")
+            }
+            .environment(ThemeService())
+            .environment(AppServices.shared.sourceManager)
+
+            try await assertPasswordCanBeEntered(in: view)
+            XCTAssertNil(KeychainService.passwordLookup(for: source.id).password)
+        }
+    }
+
+    func testSynologyRecoveryPromptsWithoutConnectingOrChangingCredentials() async throws {
+        for sourceType in [MusicSourceType.synology, .synologyAudioStation] {
+            let source = credentialTestSource(type: sourceType)
+            let view = SynologyCredentialRecoveryView(source: source) { _ in
+                XCTFail("Entering text must not complete authentication")
+            }
+            .environment(AppServices.shared.sourceManager)
+
+            try await assertPasswordCanBeEntered(in: view)
+            XCTAssertNil(KeychainService.passwordLookup(for: source.id).password)
+        }
+    }
+
+    private func credentialTestSource(type: MusicSourceType) -> MusicSource {
+        MusicSource(
+            id: "credential-form-test-\(UUID().uuidString)", name: "Credential Test", type: type,
+            host: "nas.invalid", port: 5001, useSsl: true,
+            synologyConnectionMode: .address, username: "test-user"
+        )
+    }
+
+    private func assertPasswordCanBeEntered<V: View>(in view: V) async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let host = UIHostingController(rootView: view)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 820, height: 1180)
+        window.rootViewController = host
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        var passwordField: UITextField?
+        for _ in 0..<30 {
+            host.view.layoutIfNeeded()
+            passwordField = textFields(in: host.view).first(where: \.isSecureTextEntry)
+            if passwordField != nil { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let field = try XCTUnwrap(passwordField, "The recovery/editor must expose a password input")
+        XCTAssertTrue(field.isEnabled, "Existing Synology credentials must remain editable")
+        XCTAssertTrue(field.isUserInteractionEnabled)
+        let candidate = " replacement password "
+        field.insertText(candidate)
+        try await Task.sleep(for: .milliseconds(100))
+        host.view.layoutIfNeeded()
+        XCTAssertEqual(field.text, candidate, "Password input must retain whitespace and survive a view update")
+    }
+
+    private func textFields(in view: UIView) -> [UITextField] {
+        (view as? UITextField).map { [$0] } ?? view.subviews.flatMap { textFields(in: $0) }
+    }
+
     func testTransportSelectionChangesAddressWithoutReplacingTheRow() {
         var row = SourceAddressRow(address: "https://192.168.0.2:5666")
         row.showsAdvancedOptions = true

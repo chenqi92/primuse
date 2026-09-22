@@ -1212,7 +1212,7 @@ private struct SourceAuthenticationPresentationModifier: ViewModifier {
                     title: Text("source_auth_failed_title"),
                     message: Text("\(prompt.source.name) — \(detail)"),
                     primaryButton: .default(Text("source_auth_failed_re_enter")) {
-                        let source = prompt.source
+                        let source = sourcesStore.source(id: prompt.source.id) ?? prompt.source
                         alerts[prompt.id] = nil
                         AppAlertCoordinator.shared.finish(
                             .sourceAuthentication(prompt.id),
@@ -1231,11 +1231,22 @@ private struct SourceAuthenticationPresentationModifier: ViewModifier {
                 item: $reauthSource,
                 onDismiss: { AppAlertCoordinator.shared.resumeAfterModal() }
             ) { source in
-                AddSourceView(sourceType: source.type, editingSource: source) { updated in
-                    sourcesStore.update(updated.id) { $0 = updated }
-                    scanService.removeSynologyAPI(for: updated.id)
-                    Task { await sourceManager.refreshConnector(for: updated.id) }
-                    SourceAuthAlert.clear(sourceID: updated.id)
+                if source.type.usesSynologyConnectionMode {
+                    SynologyCredentialRecoveryView(source: source) { updated in
+                        sourcesStore.update(updated.id) {
+                            $0.rememberDevice = updated.rememberDevice
+                            $0.deviceId = updated.deviceId
+                        }
+                        scanService.removeSynologyAPI(for: updated.id)
+                        Task { await sourceManager.refreshConnector(for: updated.id, force: true) }
+                    }
+                } else {
+                    AddSourceView(sourceType: source.type, editingSource: source) { updated in
+                        sourcesStore.update(updated.id) { $0 = updated }
+                        scanService.removeSynologyAPI(for: updated.id)
+                        Task { await sourceManager.refreshConnector(for: updated.id) }
+                        SourceAuthAlert.clear(sourceID: updated.id)
+                    }
                 }
             }
     }
@@ -1284,8 +1295,7 @@ struct PrimuseApp: App {
     #endif
     @Environment(\.scenePhase) private var scenePhase
 
-    /// 后台 connect() 失败时弹的 "登录失败" 提示。点 "重新输入" 后会把 source
-    /// 存到 reauthSource 触发 AddSourceView sheet。
+    /// 后台认证失败后，由来源类型选择对应的凭据恢复界面。
     @State private var sourceAuthenticationAlerts: [String: SourceAuthenticationAlert] = [:]
     @State private var reauthSource: MusicSource?
     /// Apple TV 上的二维码扫码后(primuse://add-source)触发的"添加音乐源" sheet。
