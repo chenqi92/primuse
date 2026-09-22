@@ -6541,7 +6541,6 @@ final class AudioPlayerService {
         playID id: UUID,
         advanceTicket: PlaybackAdvanceTicket
     ) {
-        let settings = playbackSettings.snapshot()
         plog("📍 scheduleLastBuffer for playID=\(id.uuidString.prefix(8)) frames=\(buffer.frameLength)")
 
         // Standard and crossfade modes both use completion callback for track-end detection
@@ -6552,8 +6551,18 @@ final class AudioPlayerService {
             Task { @MainActor [weak self] in
                 guard let self, self.playID == id else { return }
                 plog("🔔 lastBuffer dataPlayedBack fired playID=\(id.uuidString.prefix(8))")
-                // In crossfade mode, only handle track end if crossfade wasn't triggered
-                if self.shouldUseCrossfade(settings) && self.crossfadeTriggered { return }
+                // 只有**已提交**的淡入淡出才接管这个边界 —— 它会换掉 playID,
+                // 所以上一行的 guard 已经把那种情况挡掉了。仅仅「触发过」的
+                // 尝试不能吞掉曲末:它还可能解析失败、被换走或判成过期
+                // (`crossfadeTriggered` 留在 true 时更是永远不会自己清掉),
+                // 那样这一首播完就再没有任何人推进队列 —— 用户看到的就是
+                // 「开了淡入淡出,歌播完直接停住,下一首不播」。
+                if self.isCrossfading, self.committedCrossfade != nil { return }
+                // 还在准备中的尝试已经赶不上这个边界了,撤掉它再按普通方式续播。
+                if self.crossfadeAttemptID != nil || self.crossfadeTriggered {
+                    plog("🎚️ Crossfade attempt abandoned at track end; advancing normally")
+                    self.cancelCrossfadeAttempt()
+                }
                 await self.handleTrackEnd(
                     advanceTicket: advanceTicket,
                     trigger: "final-buffer"

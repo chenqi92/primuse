@@ -403,6 +403,15 @@ extension AudioPlayerService {
                 queueGeneration: sourceQueueGeneration,
                 nextEntryID: nextEntry.id
             )
+            // 过期退出(暂停、别的播放请求、后继歌曲变了)不会走 failCrossfadeAttempt,
+            // 这一尝试的标记就留在了原地。没人会再清它: `crossfadeTriggered` 挡住
+            // 本首后面的重试, `isCrossfading` 会同时关掉曲末看门狗与每拍的
+            // checkCrossfade。手动切歌那条路早就补了这一步(见 crossfadeToManualNeighbour),
+            // 自动这条一直漏着。
+            guard crossfadeAttemptID == attemptID,
+                  lastCommittedCrossfadeAttemptID != attemptID else { return }
+            plog("🎚️ Crossfade attempt superseded; clearing its flags")
+            cancelCrossfadeAttempt()
         }
     }
 
