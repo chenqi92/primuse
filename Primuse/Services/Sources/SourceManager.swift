@@ -2597,6 +2597,9 @@ final class SourceManager {
     private let sourcesProvider: @Sendable () async throws -> [MusicSource]
     private let songsProvider: @MainActor () -> [Song]
     @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
+    @ObservationIgnored private var offlineAudioSnapshotVersions: [String: UInt64] = [:]
+    @ObservationIgnored private var pendingOfflineAudioCachePaths: Set<String> = []
+    @ObservationIgnored private var offlineAudioCacheRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var offlineAudioSnapshotEntries: [String: OfflineAudioSnapshotEntry] = [:]
     /// Lightweight aggregate used by the source cards. Download progress does
     /// not mutate this set; only entering/leaving the downloading state does.
@@ -2715,6 +2718,17 @@ final class SourceManager {
     }
 
     private func observeLibraryInvalidations() {
+        NotificationCenter.default.addObserver(
+            forName: .primuseAudioCacheFilesDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] note in
+            guard let paths = note.userInfo?["paths"] as? [String] else { return }
+            Task { @MainActor [weak self] in
+                self?.enqueueOfflineAudioCacheRefresh(paths: paths)
+            }
+        }
+
         NotificationCenter.default.addObserver(
             forName: .primuseSourcesDidChange,
             object: nil,
@@ -6679,6 +6693,7 @@ final class SourceManager {
         _ snapshot: OfflineAudioCacheSnapshot,
         for songID: String
     ) {
+        offlineAudioSnapshotVersions[songID, default: 0] &+= 1
         let previousSnapshot = offlineAudioSnapshots[songID]
         guard previousSnapshot != snapshot else { return }
         offlineAudioSnapshots[songID] = snapshot
@@ -6697,6 +6712,7 @@ final class SourceManager {
     }
 
     private func removeOfflineAudioSnapshot(for songID: String) {
+        offlineAudioSnapshotVersions[songID, default: 0] &+= 1
         let wasDownloaded = offlineAudioSnapshots[songID]?.isDownloaded == true
         offlineAudioSnapshots.removeValue(forKey: songID)
         offlineAudioSnapshotEntries[songID]?.update(.notCached)
@@ -6714,6 +6730,7 @@ final class SourceManager {
         guard !songIDs.isEmpty else { return }
         var removedDownloadedSong = false
         for songID in songIDs {
+            offlineAudioSnapshotVersions[songID, default: 0] &+= 1
             removedDownloadedSong = removedDownloadedSong
                 || offlineAudioSnapshots[songID]?.isDownloaded == true
             offlineAudioSnapshots.removeValue(forKey: songID)
@@ -6750,8 +6767,34 @@ final class SourceManager {
         setOfflineAudioSnapshot(snapshot, for: song.id)
     }
 
+    private func enqueueOfflineAudioCacheRefresh(paths: [String]) {
+        pendingOfflineAudioCachePaths.formUnion(paths)
+        guard offlineAudioCacheRefreshTask == nil else { return }
+        offlineAudioCacheRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Serialize probes so a removal that arrives during a completion
+            // refresh is read afterwards rather than losing its invalidation.
+            while !pendingOfflineAudioCachePaths.isEmpty {
+                let changedPaths = pendingOfflineAudioCachePaths
+                pendingOfflineAudioCachePaths.removeAll(keepingCapacity: true)
+                let songs = songsProvider().filter {
+                    offlineAudioSnapshots[$0.id] != nil
+                        && changedPaths.contains(audioCacheRelativePath(for: $0))
+                }
+                for song in songs {
+                    guard offlineAudioSnapshots[song.id]?.isDownloading != true else { continue }
+                    await refreshOfflineAudioSnapshot(for: song)
+                }
+            }
+            offlineAudioCacheRefreshTask = nil
+        }
+    }
+
     func refreshOfflineAudioSnapshot(for song: Song) async {
-        guard await ensureAudioCacheScopeValidated(for: song.sourceID) else {
+        let version = offlineAudioSnapshotVersions[song.id, default: 0]
+        let scopeValidated = await ensureAudioCacheScopeValidated(for: song.sourceID)
+        guard offlineAudioSnapshotVersions[song.id, default: 0] == version else { return }
+        guard scopeValidated else {
             setOfflineAudioSnapshot(.notCached, for: song.id)
             return
         }
@@ -6759,6 +6802,7 @@ final class SourceManager {
         let info = await Task.detached(priority: .utility) {
             Self.offlineFileInfo(at: url, expectedSize: song.fileSize)
         }.value
+        guard offlineAudioSnapshotVersions[song.id, default: 0] == version else { return }
         guard audioCacheReadsAreAllowed(for: song.sourceID) else {
             setOfflineAudioSnapshot(.notCached, for: song.id)
             return
@@ -6768,6 +6812,9 @@ final class SourceManager {
             fileExists: info.exists,
             byteCount: info.byteCount
         )
+        // A newer download, removal or source invalidation owns the row now.
+        guard audioCacheReadsAreAllowed(for: song.sourceID),
+              offlineAudioSnapshotVersions[song.id, default: 0] == version else { return }
         setOfflineAudioSnapshot(snapshot, for: song.id)
     }
 

@@ -2838,6 +2838,18 @@ struct SongListView: View {
             }
         }
 
+        if song.sourceID != AppleMusicLibraryService.systemSourceID {
+            Section {
+                SongOfflineActionButtons(
+                    song: song,
+                    snapshot: sourceManager.offlineAudioSnapshotEntry(for: song).snapshot
+                )
+                .task(id: song.id) {
+                    await sourceManager.ensureOfflineAudioSnapshot(for: song)
+                }
+            }
+        }
+
         Section {
             Button {
                 library.toggleLiked(songID: song.id)

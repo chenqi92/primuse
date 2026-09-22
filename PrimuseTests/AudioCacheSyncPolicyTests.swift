@@ -1,5 +1,6 @@
 import XCTest
 import Network
+import PrimuseKit
 @testable import Primuse
 
 final class AudioCacheSyncPolicyTests: XCTestCase {
@@ -165,5 +166,101 @@ final class AudioCacheSyncPolicyTests: XCTestCase {
         XCTAssertTrue(
             AudioCacheSyncPolicy.limitedItemIDs(itemIDs, maximumCount: 0).isEmpty
         )
+    }
+}
+
+@MainActor
+final class OfflineAudioSnapshotTests: XCTestCase {
+    func testStreamingCompletionUpdatesNegativeSnapshotAndDownloadedMembership() async throws {
+        let fixture = try await fixture()
+        defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
+        let entry = fixture.manager.offlineAudioSnapshotEntry(for: fixture.song)
+        let initialIDs = await fixture.manager.downloadedSongIDs(in: [fixture.song])
+        XCTAssertTrue(initialIDs.isEmpty)
+        XCTAssertEqual(entry.snapshot.state, .notCached)
+        let revision = fixture.manager.offlineAudioSnapshotRevision
+
+        let partial = fixture.url.appendingPathExtension("partial")
+        try Data(repeating: 7, count: 128).write(to: partial)
+        await AudioCacheManager.shared.refreshPathFamily(path: fixture.path)
+        let partialIDs = await fixture.manager.downloadedSongIDs(in: [fixture.song])
+        XCTAssertTrue(partialIDs.isEmpty)
+
+        try FileManager.default.moveItem(at: partial, to: fixture.url)
+        await AudioCacheManager.shared.recordAccess(path: fixture.path)
+        try await waitUntil { entry.snapshot.state == .cached }
+        let completedIDs = await fixture.manager.downloadedSongIDs(in: [fixture.song])
+        XCTAssertEqual(completedIDs, [fixture.song.id])
+        XCTAssertGreaterThan(fixture.manager.offlineAudioSnapshotRevision, revision)
+    }
+
+    func testCacheRemovalUpdatesDownloadedMembershipWithoutReloadingLibrary() async throws {
+        let fixture = try await fixture()
+        defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
+        try Data(repeating: 7, count: 128).write(to: fixture.url)
+        await AudioCacheManager.shared.recordAccess(path: fixture.path)
+        let initialIDs = await fixture.manager.downloadedSongIDs(in: [fixture.song])
+        XCTAssertEqual(initialIDs, [fixture.song.id])
+        let entry = fixture.manager.offlineAudioSnapshotEntry(for: fixture.song)
+
+        await AudioCacheManager.shared.removeEntry(path: fixture.path)
+        try await waitUntil { entry.snapshot.state == .notCached }
+        let removedIDs = await fixture.manager.downloadedSongIDs(in: [fixture.song])
+        XCTAssertTrue(removedIDs.isEmpty)
+    }
+
+    func testCompletedPinnedFileRetainsOfflinePinWhenSnapshotRefreshes() async throws {
+        let fixture = try await fixture()
+        defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
+        await fixture.manager.ensureOfflineAudioSnapshot(for: fixture.song)
+        let entry = fixture.manager.offlineAudioSnapshotEntry(for: fixture.song)
+        try Data(repeating: 7, count: 128).write(to: fixture.url)
+        await AudioCacheManager.shared.markDownloaded(path: fixture.path, byteCount: 128, pinned: true)
+        try await waitUntil { entry.snapshot.state == .pinned }
+        let downloadedIDs = await fixture.manager.downloadedSongIDs(in: [fixture.song])
+        XCTAssertEqual(downloadedIDs, [fixture.song.id])
+    }
+
+    func testIncompleteCanonicalFileRemainsUndownloadedUntilReplacementCompletes() async throws {
+        let fixture = try await fixture()
+        defer { fixture.manager.deleteLocalCaches(for: [fixture.song]) }
+        await fixture.manager.ensureOfflineAudioSnapshot(for: fixture.song)
+        try Data(repeating: 7, count: 16).write(to: fixture.url)
+        await AudioCacheManager.shared.recordAccess(path: fixture.path)
+        await fixture.manager.refreshOfflineAudioSnapshot(for: fixture.song)
+        XCTAssertFalse(fixture.manager.offlineAudioSnapshot(for: fixture.song).isDownloaded)
+
+        try Data(repeating: 7, count: 128).write(to: fixture.url, options: .atomic)
+        await AudioCacheManager.shared.recordAccess(path: fixture.path)
+        try await waitUntil {
+            fixture.manager.offlineAudioSnapshotEntry(for: fixture.song).snapshot.isDownloaded
+        }
+    }
+
+    private func fixture() async throws -> (manager: SourceManager, song: Song, url: URL, path: String) {
+        let source = MusicSource(id: UUID().uuidString, name: "Cache fixture", type: .navidrome)
+        let song = Song(id: UUID().uuidString, title: "Cache fixture", fileFormat: .flac,
+                        filePath: "/songs/fixture.flac", sourceID: source.id, fileSize: 128)
+        let manager = SourceManager(sourcesProvider: { [source] }, songsProvider: { [song] })
+        // A newly configured source validates its cache namespace before any
+        // transfer can install files; creating files earlier tests quarantine.
+        let deadline = Date().addingTimeInterval(3)
+        while !(await manager.prepareAutomaticOfflineDownload(song: song, forceRedownload: false)) {
+            guard Date() < deadline else { throw URLError(.timedOut) }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let url = manager.cacheURL(for: song)
+        return (manager, song, url, source.id + "/" + url.lastPathComponent)
+    }
+
+    private func waitUntil(_ predicate: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(3)
+        while !predicate() {
+            guard Date() < deadline else {
+                XCTFail("Cache change did not reach the observed song")
+                throw URLError(.timedOut)
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
     }
 }

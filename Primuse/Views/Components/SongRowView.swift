@@ -713,7 +713,7 @@ struct SongRowView: View {
             }
 
             if supportsOfflineAudioCache {
-                offlineActionButtons(snapshot: offline)
+                SongOfflineActionButtons(song: song, snapshot: offline)
             }
 
             Button {
@@ -874,52 +874,6 @@ struct SongRowView: View {
         }
     }
 
-    @ViewBuilder
-    private func offlineActionButtons(snapshot: OfflineAudioCacheSnapshot) -> some View {
-        switch snapshot.state {
-        case .downloading:
-            Button {} label: {
-                Label(String(localized: "offline_downloading"), systemImage: "arrow.down.circle")
-            }
-            .disabled(true)
-        case .pinned:
-            Button(role: .destructive) {
-                sourceManager.removeOfflineDownload(song: song)
-            } label: {
-                Label(String(localized: "offline_remove_song_cache"), systemImage: "trash")
-            }
-        case .cached:
-            Button {
-                sourceManager.downloadForOffline(song: song)
-            } label: {
-                Label(String(localized: "offline_keep_cached"), systemImage: "pin")
-            }
-
-            Button(role: .destructive) {
-                sourceManager.removeOfflineDownload(song: song)
-            } label: {
-                Label(String(localized: "offline_remove_cached_file"), systemImage: "trash")
-            }
-        case .failed:
-            Button {
-                sourceManager.downloadForOffline(song: song)
-            } label: {
-                Label(String(localized: "offline_retry_download"), systemImage: "arrow.clockwise")
-            }
-
-            Button(role: .destructive) {
-                sourceManager.removeOfflineDownload(song: song)
-            } label: {
-                Label(String(localized: "offline_clear_failed_download"), systemImage: "trash")
-            }
-        case .notCached:
-            Button {
-                sourceManager.downloadForOffline(song: song)
-            } label: {
-                Label(String(localized: "offline_cache_song"), systemImage: "arrow.down.circle")
-            }
-        }
-    }
 
     private func deleteSong() {
         guard canDeleteSourceFile else { return }
@@ -1926,5 +1880,58 @@ extension SongRowView {
         self.sourceIconName = context.sourceIconName
         self.detailsState = context.detailsState
         self.canDeleteSourceFile = context.canDeleteSourceFile
+    }
+}
+
+struct SongOfflineActionButtons: View {
+    let song: Song
+    let snapshot: OfflineAudioCacheSnapshot
+    @Environment(SourceManager.self) private var sourceManager
+
+    @ViewBuilder
+    var body: some View {
+        switch snapshot.state {
+        case .downloading:
+            Button {} label: {
+                Label(String(localized: "offline_downloading"), systemImage: "arrow.down.circle")
+            }
+            .disabled(true)
+        case .pinned:
+            Button(role: .destructive) {
+                sourceManager.removeOfflineDownload(song: song)
+            } label: {
+                Label(String(localized: "offline_remove_song_cache"), systemImage: "trash")
+            }
+        case .cached:
+            Button {
+                sourceManager.downloadForOffline(song: song)
+            } label: {
+                Label(String(localized: "offline_keep_cached"), systemImage: "pin")
+            }
+
+            Button(role: .destructive) {
+                sourceManager.removeOfflineDownload(song: song)
+            } label: {
+                Label(String(localized: "offline_remove_cached_file"), systemImage: "trash")
+            }
+        case .failed:
+            Button {
+                sourceManager.downloadForOffline(song: song)
+            } label: {
+                Label(String(localized: "offline_retry_download"), systemImage: "arrow.clockwise")
+            }
+
+            Button(role: .destructive) {
+                sourceManager.removeOfflineDownload(song: song)
+            } label: {
+                Label(String(localized: "offline_clear_failed_download"), systemImage: "trash")
+            }
+        case .notCached:
+            Button {
+                sourceManager.downloadForOffline(song: song)
+            } label: {
+                Label(String(localized: "offline_cache_song"), systemImage: "arrow.down.circle")
+            }
+        }
     }
 }
