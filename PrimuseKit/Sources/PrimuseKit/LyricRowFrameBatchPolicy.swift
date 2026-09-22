@@ -76,6 +76,9 @@ public enum LyricPlaybackPositionPolicy {
     /// Returns the lyric row that should be active at the supplied playback
     /// time, or `nil` while playback is still before the first timestamp.
     /// Parsed lyric lines are expected to be ordered by timestamp.
+    ///
+    /// 同一个时间戳上留了好几行时（没能配对的双语 LRC、多声部叠唱）高亮落在
+    /// 这一组的第一行：唱的是原文，注音和译文写在它后面。
     public static func activeLineIndex(
         in lyrics: [LyricLine],
         at playbackTime: TimeInterval,
@@ -109,8 +112,19 @@ public enum LyricPlaybackPositionPolicy {
             }
         }
         guard lower > 0 else { return nil }
-        return lower - 1
+        var index = lower - 1
+        let activeTimestamp = timestamp(lyrics[index])
+        while index > 0,
+              abs(activeTimestamp - timestamp(lyrics[index - 1])) <= sameRowTolerance {
+            index -= 1
+        }
+        return index
     }
+
+    /// 同一句的几行来自同一个 `[mm:ss.xx]`，解析出来本应完全相等；留一点余量
+    /// 是为了写成 `[00:12.00]` 和 `[00:12.001]` 这种手抄的文件。与
+    /// `LyricBilingualPairingPolicy` 判定同一簇用的余量一致。
+    private static let sameRowTolerance: TimeInterval = 0.002
 
     /// Keeps the semantic active row unchanged during a long instrumental
     /// break while allowing a lyrics surface to move to a dedicated interlude
@@ -169,11 +183,15 @@ public enum LyricPlaybackPositionPolicy {
         interludeActivationDelay: TimeInterval,
         minimumInterludeDuration: TimeInterval
     ) -> (activation: TimeInterval, nextLineStart: TimeInterval)? {
-        guard lyrics.indices.contains(index),
-              lyrics.indices.contains(index + 1) else { return nil }
+        guard lyrics.indices.contains(index) else { return nil }
 
         let line = lyrics[index]
-        let nextLineStart = lyrics[index + 1].timestamp
+        // 同一时间戳上的兄弟行（注音、译文、另一个声部）不是「下一句」，
+        // 拿它们当下一句会把每一段间奏的时长算成 0。
+        guard let nextLineStart = lyrics[(index + 1)...]
+            .first(where: { $0.timestamp > line.timestamp })?.timestamp else {
+            return nil
+        }
         let fallbackEnd = line.timestamp + max(0, lineLevelEstimatedDuration)
         let explicitEnd = line.endTime.flatMap { $0.isFinite ? $0 : nil }
         let estimatedEnd = max(line.timestamp, explicitEnd ?? fallbackEnd)

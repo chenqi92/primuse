@@ -1060,10 +1060,14 @@ public enum LyricManualTranslationPolicy {
 
 /// Conservatively recognizes the common bilingual-LRC convention where an
 /// authored translation immediately follows its source at the same timestamp.
-/// A single pair is never enough: the document must establish a stable script
-/// orientation across multiple distinct rows. Repeated chorus rows, explicit
-/// voice timelines, and common speaker-prefixed duet rows remain unmodified;
-/// callers can use literal parsing for inherently ambiguous unlabelled duets.
+/// A single pair is never enough: the document must first establish a stable
+/// structure — the same number of rows per timestamp, with the companion rows
+/// written in the same scripts — across multiple distinct clusters. Clusters
+/// that cannot be classified on their own then follow that proven structure,
+/// which is how mainstream players read these files. Repeated chorus rows,
+/// explicit voice timelines, and common speaker-prefixed duet rows remain
+/// unmodified; callers can use literal parsing for inherently ambiguous
+/// unlabelled duets.
 public enum LyricBilingualPairingPolicy {
     public static func pair(
         _ lines: [LyricLine],
@@ -1084,11 +1088,23 @@ public enum LyricBilingualPairingPolicy {
         }
 
         let candidates = clusters.compactMap { makeCandidate(cluster: $0, in: lines) }
+        let candidatesByRowCount = Dictionary(grouping: candidates, by: \.rowCount)
         var accepted: [PairCandidate] = []
-        for (rowCount, group) in Dictionary(grouping: candidates, by: \.rowCount) {
-            accepted.append(contentsOf: dominantCandidates(
+        var provenSignatures: [[ScriptFamily]] = []
+        for (rowCount, group) in candidatesByRowCount {
+            guard let structure = dominantStructure(
                 in: group,
                 repeatedClusterCount: repeatedClusterCounts[rowCount] ?? group.count
+            ) else { continue }
+            accepted.append(contentsOf: structure.candidates)
+            provenSignatures.append(structure.signature)
+        }
+        // 某个行数只出现过一次时投不出票，但它同样会把高亮落到译文上。
+        if candidatesByRowCount.values.contains(where: { $0.count == 1 }) {
+            accepted.append(contentsOf: loneTranslatedCandidates(
+                in: candidatesByRowCount,
+                provenSignatures: provenSignatures,
+                documentScript: documentScript(in: lines, clusters: clusters)
             ))
         }
         guard !accepted.isEmpty else { return lines }
@@ -1117,9 +1133,10 @@ public enum LyricBilingualPairingPolicy {
         }
     }
 
-    /// 一句原文最多吸收两条附属行。外语歌常见「原文 + 注音 + 译文」三行共用一个
-    /// 时间戳，再多就更可能是多声部叠唱，吞掉任何一行都会真的丢内容。
-    private static let maximumRowCount = 3
+    /// 一句原文最多吸收三条附属行。外语歌常见「原文 + 注音 + 译文」，也有
+    /// 「原文 + 注音 + 中译 + 英译」四行共用一个时间戳；再多就更可能是多声部
+    /// 叠唱，吞掉任何一行都会真的丢内容。
+    private static let maximumRowCount = 4
 
     private static func makeCandidate(
         cluster: [Int],
@@ -1135,36 +1152,51 @@ public enum LyricBilingualPairingPolicy {
         // 高亮便落到译文上，原文的逐字扫光和点按都随之失效。
         guard isPairableSourceLine(source),
               !appearsSpeakerAttributed(source.text),
+              !isFullyBracketed(source.text),
               source.manualTranslation == nil,
-              source.alternateManualTranslations.isEmpty,
-              let sourceEvidence = dominantScript(in: source.text) else {
+              source.alternateManualTranslations.isEmpty else {
             return nil
         }
 
-        var companionFamilies: [ScriptFamily] = []
+        let sourceEvidence = leadingScript(in: source.text)
+        let sourceText = normalizedText(source.text)
+        var companionFamilies: [ScriptFamily?] = []
         var companionTexts: [String] = []
         for companionIndex in cluster.dropFirst() {
             let companion = lines[companionIndex]
             guard isOrdinarySynchronizedLine(companion),
                   !appearsSpeakerAttributed(companion.text),
                   companion.manualTranslation == nil,
-                  companion.alternateManualTranslations.isEmpty,
-                  let evidence = dominantScript(in: companion.text),
-                  evidence.family != sourceEvidence.family else {
+                  companion.alternateManualTranslations.isEmpty else {
                 return nil
             }
-            companionFamilies.append(evidence.family)
-            companionTexts.append(normalizedText(companion.text))
+            let companionEvidence = leadingScript(in: companion.text)
+            var family = companionEvidence?.family
+            if let companionEvidence,
+               let sourceEvidence,
+               companionEvidence.family == sourceEvidence.family {
+                // 两行几乎整行都是同一种文字：双声部或者同一句写了两遍，
+                // 吞掉一行会真的丢内容。
+                guard !(sourceEvidence.isDominant && companionEvidence.isDominant) else {
+                    return nil
+                }
+                // 原文里夹着几个同种文字的字（英文句里的地名之类）说明不了
+                // 这一行是不是译文，交给整篇的结构去判断。
+                family = nil
+            }
+            let text = normalizedText(companion.text)
+            guard text != sourceText, !companionTexts.contains(text) else { return nil }
+            companionFamilies.append(family)
+            companionTexts.append(text)
         }
 
         return PairCandidate(
             sourceIndex: sourceIndex,
             companionIndexes: Array(cluster.dropFirst()),
-            orientation: Orientation(
-                source: sourceEvidence.family,
-                companions: companionFamilies
-            ),
-            sourceText: normalizedText(source.text),
+            sourceFamily: sourceEvidence?.family,
+            sourceFamilyIsExclusive: sourceEvidence?.isDominant == true,
+            companionFamilies: companionFamilies,
+            sourceText: sourceText,
             companionTexts: companionTexts
         )
     }
@@ -1172,61 +1204,142 @@ public enum LyricBilingualPairingPolicy {
     /// 同一时间戳上行数相同的候选各自投票。一份文档里既可能整篇都是「原文 +
     /// 译文」，也可能整篇都是「原文 + 注音 + 译文」，两种结构分开计票才不会
     /// 互相拉低比例。
-    private static func dominantCandidates(
+    ///
+    /// 票面只看附属行的文字构成（注音是拉丁、译文是汉字……），不看原文自己是
+    /// 哪种文字 —— 混合语的原文、以及整篇里夹的那几句外语，文字构成本来就和
+    /// 主体不同，把它算进票面只会让这些句子因为「少数派」被判掉。
+    private static func dominantStructure(
         in candidates: [PairCandidate],
         repeatedClusterCount: Int
-    ) -> [PairCandidate] {
-        guard candidates.count >= 2 else { return [] }
+    ) -> (signature: [ScriptFamily], candidates: [PairCandidate])? {
+        let confident = candidates.filter { $0.signature != nil }
+        guard confident.count >= 2 else { return nil }
 
-        var countByOrientation: [Orientation: Int] = [:]
-        for candidate in candidates {
-            countByOrientation[candidate.orientation, default: 0] += 1
+        var countBySignature: [[ScriptFamily]: Int] = [:]
+        for candidate in confident {
+            guard let signature = candidate.signature else { continue }
+            countBySignature[signature, default: 0] += 1
         }
-        guard let highestCount = countByOrientation.values.max(),
+        guard let highestCount = countBySignature.values.max(),
               highestCount >= 2 else {
-            return []
+            return nil
         }
-        let dominantOrientations = countByOrientation.compactMap { orientation, count in
-            count == highestCount ? orientation : nil
+        let dominantSignatures = countBySignature.compactMap { signature, count in
+            count == highestCount ? signature : nil
         }
-        guard dominantOrientations.count == 1,
-              let dominantOrientation = dominantOrientations.first else {
-            return []
+        guard dominantSignatures.count == 1,
+              let dominantSignature = dominantSignatures.first else {
+            return nil
         }
 
-        let dominant = candidates.filter { $0.orientation == dominantOrientation }
+        let dominant = confident.filter { $0.signature == dominantSignature }
+        // 结构一旦成立，同一形状里证据不足的那几簇也跟着走：短感叹词、只有
+        // 符号或数字的行、以及没有收录的文字都分不出文字构成，但它们和整篇
+        // 是同一个作者写的同一种结构。市面上的播放器读双语 LRC 就是只看结构。
+        let adopted = candidates.filter {
+            $0.signature == nil && $0.fits(dominantSignature)
+        }
+        let paired = dominant + adopted
+
         // 整段重复的副歌无法区分「译文」和「同一句唱了两遍」，因此原文和每一条
         // 附属行都要至少出现两种不同文本。
-        let companionTextsAreVaried = dominantOrientation.companions.indices.allSatisfy { slot in
+        let companionTextsAreVaried = dominantSignature.indices.allSatisfy { slot in
             Set(dominant.map { $0.companionTexts[slot] }).count >= 2
         }
         guard Set(dominant.map(\.sourceText)).count >= 2,
               companionTextsAreVaried,
-              dominant.count * 5 >= candidates.count * 4,
-              dominant.count * 5 >= repeatedClusterCount * 3 else {
-            return []
+              dominant.count * 5 >= confident.count * 4,
+              paired.count * 5 >= repeatedClusterCount * 3 else {
+            return nil
         }
-        return dominant
+        return (dominantSignature, paired)
+    }
+
+    /// 某个行数整篇只出现一次的那一簇：凑不出第二票，但它同样会把高亮落到
+    /// 译文上。两种证据足以认定它是译文而不是另一个声部 ——
+    ///
+    /// - 整篇已经证明了自己的结构，这一簇只是少了一条附属行（夹在韩语歌里的
+    ///   英文句不需要注音），剩下的位置仍然对得上；
+    /// - 或者整篇是单语歌词、只夹了这一句外语：附属行用的正是整篇歌词的文字，
+    ///   原文不是。
+    private static func loneTranslatedCandidates(
+        in candidatesByRowCount: [Int: [PairCandidate]],
+        provenSignatures: [[ScriptFamily]],
+        documentScript: ScriptFamily?
+    ) -> [PairCandidate] {
+        candidatesByRowCount.values.compactMap { group in
+            guard group.count == 1,
+                  let candidate = group.first,
+                  let signature = candidate.signature,
+                  let sourceFamily = candidate.sourceFamily,
+                  !signature.contains(sourceFamily) else {
+                return nil
+            }
+            let matchesProvenStructure = provenSignatures.contains {
+                $0.count > signature.count
+                    && ($0.starts(with: signature)
+                        || Array($0.suffix(signature.count)) == signature)
+            }
+            let translatesIntoTheDocumentScript = documentScript.map {
+                signature.contains($0) && sourceFamily != $0
+            } ?? false
+            guard matchesProvenStructure || translatesIntoTheDocumentScript else {
+                return nil
+            }
+            return candidate
+        }
+    }
+
+    /// 整篇歌词自己用的文字。只数单独成行的歌词 —— 它们不涉及配对歧义，
+    /// 因此最能代表这份文件是用哪种文字写的。
+    private static func documentScript(
+        in lines: [LyricLine],
+        clusters: [[Int]]
+    ) -> ScriptFamily? {
+        var counts: [ScriptFamily: Int] = [:]
+        for cluster in clusters where cluster.count == 1 {
+            guard let evidence = leadingScript(in: lines[cluster[0]].text) else { continue }
+            counts[evidence.family, default: 0] += 1
+        }
+        guard let highestCount = counts.values.max(), highestCount >= 2 else { return nil }
+        let leading = counts.compactMap { family, count in
+            count == highestCount ? family : nil
+        }
+        return leading.count == 1 ? leading.first : nil
     }
 
     private struct PairCandidate {
         var sourceIndex: Int
         var companionIndexes: [Int]
-        var orientation: Orientation
+        var sourceFamily: ScriptFamily?
+        /// 原文几乎整行都是 `sourceFamily`。混合语的原文不是，所以它不能拿来
+        /// 否决一条同种文字的附属行。
+        var sourceFamilyIsExclusive: Bool
+        var companionFamilies: [ScriptFamily?]
         var sourceText: String
         var companionTexts: [String]
 
         var rowCount: Int { companionIndexes.count + 1 }
-    }
 
-    private struct Orientation: Hashable {
-        var source: ScriptFamily
-        var companions: [ScriptFamily]
-    }
+        /// 每一条附属行的文字都认得出来时，这一簇才能自己投票。
+        var signature: [ScriptFamily]? {
+            let known = companionFamilies.compactMap { $0 }
+            return known.count == companionFamilies.count ? known : nil
+        }
 
-    private struct ScriptEvidence {
-        var family: ScriptFamily
-        var count: Int
+        /// 证据不足的一簇能否按整篇的结构解析：认出来的每一条都要落在对应的
+        /// 位置上，而原文不能和任何一条附属行同种文字。
+        func fits(_ signature: [ScriptFamily]) -> Bool {
+            guard companionFamilies.count == signature.count else { return false }
+            if sourceFamilyIsExclusive,
+               let sourceFamily,
+               signature.contains(sourceFamily) {
+                return false
+            }
+            return zip(companionFamilies, signature).allSatisfy { family, expected in
+                family == nil || family == expected
+            }
+        }
     }
 
     private enum ScriptFamily: Hashable {
@@ -1237,8 +1350,28 @@ public enum LyricBilingualPairingPolicy {
         case arabic
         case hebrew
         case cyrillic
+        case greek
+        case armenian
+        case georgian
         case devanagari
+        case bengali
+        case gurmukhi
+        case gujarati
+        case oriya
+        case tamil
+        case telugu
+        case kannada
+        case malayalam
+        case sinhala
+        case thaana
         case thai
+        case lao
+        case tibetan
+        case myanmar
+        case khmer
+        case ethiopic
+        case cherokee
+        case mongolian
     }
 
     private static func adjacentTimestampClusters(
@@ -1290,13 +1423,35 @@ public enum LyricBilingualPairingPolicy {
             .lowercased()
     }
 
+    private static let bracketPairs: [Character: Character] = [
+        "(": ")", "（": "）", "[": "]", "【": "】", "<": ">", "〈": "〉",
+    ]
+
+    /// 整行都被同一对括号包住的行是注记（「(合唱)」「(Guitar solo)」），
+    /// 不能当原文。行首括号后面还接着正文的不算 —— 「(Hey) 두고 봐 Babe」
+    /// 在韩语歌里就是正常的一句，把它判成注记会让整句配不上译文。
+    private static func isFullyBracketed(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let opening = trimmed.first,
+              let closing = bracketPairs[opening],
+              trimmed.last == closing else {
+            return false
+        }
+        var depth = 0
+        for (offset, character) in trimmed.enumerated() {
+            if character == opening {
+                depth += 1
+            } else if character == closing {
+                depth -= 1
+                if depth == 0 { return offset == trimmed.count - 1 }
+            }
+        }
+        return false
+    }
+
     private static func appearsSpeakerAttributed(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-
-        if ["(", "（", "[", "【", "<", "〈"].contains(where: trimmed.hasPrefix) {
-            return true
-        }
 
         guard let separator = trimmed.firstIndex(where: { $0 == ":" || $0 == "：" }) else {
             return false
@@ -1316,20 +1471,32 @@ public enum LyricBilingualPairingPolicy {
         return speakerLabels.contains(compact)
     }
 
-    private static func dominantScript(in text: String) -> ScriptEvidence? {
-        var totalAlphabeticCount = 0
+    /// 一行歌词的主体文字。
+    ///
+    /// 非拉丁语系的歌词里夹英文单词是常态（「두고 봐 Babe」「夢の中の
+    /// Wonderland」「你是我的 baby」），所以拉丁字母永远不会盖过真正出现的
+    /// 其它文字 —— 只有整行没有别的文字时它才是主体。这样混合语的原文才认得
+    /// 出来，它的注音（纯拉丁）和译文（汉字等）也才分得开。
+    ///
+    /// 真的混了两种非拉丁文字、或者只有孤零零一个非拉丁字符夹在英文里时不猜：
+    /// 这一簇交给整篇的结构去覆盖，比猜错一次好。
+    private static func leadingScript(in text: String) -> ScriptEvidence? {
         var counts: [ScriptFamily: Int] = [:]
         var hanCount = 0
         var kanaCount = 0
+        var latinCount = 0
+        var alphabeticCount = 0
 
         for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
-            totalAlphabeticCount += 1
+            alphabeticCount += 1
             guard let family = scriptFamily(for: scalar.value) else { continue }
             switch family {
             case .han:
                 hanCount += 1
             case .japanese:
                 kanaCount += 1
+            case .latin:
+                latinCount += 1
             default:
                 counts[family, default: 0] += 1
             }
@@ -1340,26 +1507,44 @@ public enum LyricBilingualPairingPolicy {
         } else if hanCount > 0 {
             counts[.han] = hanCount
         }
-        guard totalAlphabeticCount >= 2,
-              let highestCount = counts.values.max(),
-              highestCount >= 2,
-              Double(highestCount) / Double(totalAlphabeticCount) >= 0.7 else {
+
+        if let highestCount = counts.values.max() {
+            let leading = counts.compactMap { family, count in
+                count == highestCount ? family : nil
+            }
+            guard leading.count == 1, let family = leading.first else { return nil }
+            guard highestCount >= 2 || latinCount == 0 else { return nil }
+            return ScriptEvidence(
+                family: family,
+                isDominant: isDominant(highestCount, of: alphabeticCount)
+            )
+        }
+        guard latinCount >= 2 || (latinCount == 1 && alphabeticCount == 1) else {
             return nil
         }
-        let dominantFamilies = counts.compactMap { family, count in
-            count == highestCount ? family : nil
-        }
-        guard dominantFamilies.count == 1, let family = dominantFamilies.first else {
-            return nil
-        }
-        return ScriptEvidence(family: family, count: highestCount)
+        return ScriptEvidence(
+            family: .latin,
+            isDominant: isDominant(latinCount, of: alphabeticCount)
+        )
+    }
+
+    /// 七成以上的字母都是同一种文字时，这一行就只算这种文字写的。
+    private static func isDominant(_ count: Int, of alphabeticCount: Int) -> Bool {
+        alphabeticCount > 0 && Double(count) / Double(alphabeticCount) >= 0.7
+    }
+
+    private struct ScriptEvidence {
+        var family: ScriptFamily
+        var isDominant: Bool
     }
 
     private static func scriptFamily(for value: UInt32) -> ScriptFamily? {
         switch value {
         case 0x0041...0x005A, 0x0061...0x007A,
-             0x00C0...0x024F, 0x1E00...0x1EFF,
-             0xAB30...0xAB6F, 0xFF21...0xFF3A, 0xFF41...0xFF5A:
+             0x00C0...0x024F, 0x0250...0x02AF,
+             0x1E00...0x1EFF, 0x2C60...0x2C7F,
+             0xA720...0xA7FF, 0xAB30...0xAB6F,
+             0xFF21...0xFF3A, 0xFF41...0xFF5A:
             return .latin
         case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF,
              0x20000...0x3134F:
@@ -1367,19 +1552,59 @@ public enum LyricBilingualPairingPolicy {
         case 0x3040...0x30FF, 0x31F0...0x31FF, 0xFF66...0xFF9D:
             return .japanese
         case 0x1100...0x11FF, 0x3130...0x318F, 0xA960...0xA97F,
-             0xAC00...0xD7AF, 0xD7B0...0xD7FF:
+             0xAC00...0xD7AF, 0xD7B0...0xD7FF, 0xFFA0...0xFFDC:
             return .hangul
         case 0x0600...0x06FF, 0x0750...0x077F, 0x0870...0x089F,
              0x08A0...0x08FF, 0xFB50...0xFDFF, 0xFE70...0xFEFF:
             return .arabic
         case 0x0590...0x05FF, 0xFB1D...0xFB4F:
             return .hebrew
-        case 0x0400...0x052F, 0x2DE0...0x2DFF, 0xA640...0xA69F:
+        case 0x0400...0x052F, 0x1C80...0x1C8F, 0x2DE0...0x2DFF, 0xA640...0xA69F:
             return .cyrillic
+        case 0x0370...0x03FF, 0x1F00...0x1FFF:
+            return .greek
+        case 0x0530...0x058F, 0xFB13...0xFB17:
+            return .armenian
+        case 0x10A0...0x10FF, 0x1C90...0x1CBF, 0x2D00...0x2D2F:
+            return .georgian
         case 0x0900...0x097F, 0xA8E0...0xA8FF:
             return .devanagari
+        case 0x0980...0x09FF:
+            return .bengali
+        case 0x0A00...0x0A7F:
+            return .gurmukhi
+        case 0x0A80...0x0AFF:
+            return .gujarati
+        case 0x0B00...0x0B7F:
+            return .oriya
+        case 0x0B80...0x0BFF:
+            return .tamil
+        case 0x0C00...0x0C7F:
+            return .telugu
+        case 0x0C80...0x0CFF:
+            return .kannada
+        case 0x0D00...0x0D7F:
+            return .malayalam
+        case 0x0D80...0x0DFF:
+            return .sinhala
+        case 0x0780...0x07BF:
+            return .thaana
         case 0x0E00...0x0E7F:
             return .thai
+        case 0x0E80...0x0EFF:
+            return .lao
+        case 0x0F00...0x0FFF:
+            return .tibetan
+        case 0x1000...0x109F:
+            return .myanmar
+        case 0x1780...0x17FF:
+            return .khmer
+        case 0x1200...0x139F:
+            return .ethiopic
+        case 0x13A0...0x13FF:
+            return .cherokee
+        case 0x1800...0x18AF:
+            return .mongolian
         default:
             return nil
         }

@@ -1492,3 +1492,308 @@ struct LyricBilingualMixedDocumentPairingTests {
         #expect(lines.allSatisfy { $0.manualTranslation == nil })
     }
 }
+
+/// refs #152 —— 原文本身就是混合语（韩语夹英文、日文夹英文、中文夹英文）的
+/// 双语文档，以及整篇只出现一次、或者根本分不出文字构成的那几簇。
+@Suite("Bilingual pairing with mixed-script source lines")
+struct LyricMixedScriptSourcePairingTests {
+
+    /// K-pop 歌词里夹英文单词是常态。此前原文必须有七成以上是同一种文字才
+    /// 参与配对，「두고 봐 Babe」达不到，于是译文留成独立一行，高亮落在译文上，
+    /// 原文一直不亮。
+    @Test("韩语夹英文的原文也配对")
+    func pairsKoreanSourceWithEmbeddedEnglish() {
+        let lines = LyricsContentParser.parse("""
+        [00:06.00]널 보는 눈빛이
+        [00:06.00]nol bo nun nun bi chi
+        [00:06.00]看着你的眼神
+        [00:09.00]두고 봐 Babe
+        [00:09.00]du go bwa Babe
+        [00:09.00]走着瞧吧 宝贝
+        [00:12.00]흐린 공간속에서
+        [00:12.00]he lin gong gan so ge so
+        [00:12.00]在模糊的空间里
+        """)
+
+        #expect(lines.count == 3)
+        #expect(lines[1].text == "두고 봐 Babe")
+        #expect(lines[1].manualTranslation?.text == "du go bwa Babe")
+        #expect(lines[1].alternateManualTranslations.map(\.text) == ["走着瞧吧 宝贝"])
+        // 每个时间戳只剩一行，高亮不会再落到注音或译文上。
+        #expect(Set(lines.map(\.timestamp)).count == lines.count)
+    }
+
+    /// 英文单词多到超过原文本身时，原文此前会被判成拉丁文字，于是和它的注音
+    /// 撞成同一种文字；这样的句子一多，整篇都不配对了。
+    @Test("英文占多数的混合原文不会让整篇放弃配对")
+    func pairsWhenEmbeddedEnglishOutnumbersTheSourceScript() {
+        let lines = LyricsContentParser.parse("""
+        [00:06.00]줄게 내 galaxy
+        [00:06.00]jul ge nae galaxy
+        [00:06.00]把我的宇宙给你
+        [00:09.00]내 맘 속 shooting star
+        [00:09.00]nae mam sok shooting star
+        [00:09.00]我心里的流星
+        [00:12.00]흐린 공간속에서
+        [00:12.00]he lin gong gan so ge so
+        [00:12.00]在模糊的空间里
+        """)
+
+        #expect(lines.count == 3)
+        #expect(lines.allSatisfy { $0.allManualTranslations.count == 2 })
+        #expect(lines[0].text == "줄게 내 galaxy")
+    }
+
+    @Test("日文夹英文、中文夹英文同样配对")
+    func pairsOtherMixedScriptSources() {
+        let japanese = LyricsContentParser.parse("""
+        [00:06.00]君の声が聞こえる
+        [00:06.00]kimi no koe ga kikoeru
+        [00:06.00]听见你的声音
+        [00:09.00]夢の中の Wonderland
+        [00:09.00]yume no naka no Wonderland
+        [00:09.00]梦中的仙境
+        [00:12.00]夜の果てで
+        [00:12.00]yoru no hate de
+        [00:12.00]在夜的尽头
+        """)
+        #expect(japanese.count == 3)
+        #expect(japanese[1].text == "夢の中の Wonderland")
+        #expect(japanese[1].allManualTranslations.count == 2)
+
+        let chinese = LyricsContentParser.parse("""
+        [00:06.00]我的心里只有你
+        [00:06.00]My heart only has you
+        [00:09.00]你是我的 baby
+        [00:09.00]You are my baby
+        [00:12.00]夜色渐渐深了
+        [00:12.00]The night grows deep
+        """)
+        #expect(chinese.count == 3)
+        #expect(chinese[1].text == "你是我的 baby")
+        #expect(chinese[1].manualTranslation?.text == "You are my baby")
+    }
+
+    /// 结构一旦成立，分不出文字构成的那几簇也跟着走：一个字的感叹词两边都
+    /// 太短，符号行和数字行根本没有字母。
+    @Test("短感叹词与符号行跟着整篇结构")
+    func adoptsRowsWithoutScriptEvidence() {
+        let lines = LyricsContentParser.parse("""
+        [00:06.00]널 보는 눈빛이
+        [00:06.00]看着你的眼神
+        [00:09.00]아
+        [00:09.00]啊
+        [00:12.00]1, 2, 3
+        [00:12.00]一二三
+        [00:15.00]흐린 공간속에서
+        [00:15.00]在模糊的空间里
+        [00:18.00]바람이 스쳐가
+        [00:18.00]风轻轻吹过
+        """)
+
+        #expect(lines.count == 5)
+        #expect(lines.map(\.text) == ["널 보는 눈빛이", "아", "1, 2, 3", "흐린 공간속에서", "바람이 스쳐가"])
+        #expect(lines[1].manualTranslation?.text == "啊")
+        #expect(lines[2].manualTranslation?.text == "一二三")
+    }
+
+    /// 整篇只有一句外语带译文时凑不出第二票。附属行用的正是整篇歌词的文字，
+    /// 原文不是 —— 这就是一条译文，而不是另一个声部。
+    @Test("整篇只出现一次的外语配译文也配对")
+    func pairsASingleTranslatedCoupletInsideAMonolingualDocument() {
+        let lines = LyricsContentParser.parse("""
+        [00:06.00]第一句中文歌词
+        [00:09.00]第二句中文歌词
+        [00:12.00]Sometimes I feel alone
+        [00:12.00]有时候我觉得孤单
+        [00:15.00]第三句中文歌词
+        [00:18.00]第四句中文歌词
+        """)
+
+        #expect(lines.count == 5)
+        #expect(lines[2].text == "Sometimes I feel alone")
+        #expect(lines[2].manualTranslation?.text == "有时候我觉得孤单")
+        #expect(Set(lines.map(\.timestamp)).count == lines.count)
+    }
+
+    @Test("收录范围之外的文字不再整篇失配")
+    func pairsScriptsBeyondTheOriginalCoverage() {
+        let greek = LyricsContentParser.parse("""
+        [00:06.00]Θέλω να σε δω
+        [00:06.00]我想见你
+        [00:09.00]Είσαι η ζωή μου
+        [00:09.00]你是我的生命
+        [00:12.00]Μη φύγεις τώρα
+        [00:12.00]现在别走
+        """)
+        #expect(greek.count == 3)
+        #expect(greek[0].manualTranslation?.text == "我想见你")
+
+        let tamil = LyricsContentParser.parse("""
+        [00:06.00]என் காதல் நீ
+        [00:06.00]你是我的爱
+        [00:09.00]வானம் நீலமாய்
+        [00:09.00]天空一片蓝
+        [00:12.00]கனவு காண்கிறேன்
+        [00:12.00]我在做梦
+        """)
+        #expect(tamil.count == 3)
+        #expect(tamil[2].manualTranslation?.text == "我在做梦")
+    }
+
+    /// 行首的括号是和声或语气词，后面还接着正文时它就是普通的一句歌词。
+    @Test("行首括号的和声不再当成注记")
+    func treatsABracketedPrefixAsOrdinaryLyrics() {
+        let lines = LyricsContentParser.parse("""
+        [00:06.00](Hey) 두고 봐 Babe
+        [00:06.00]走着瞧吧 宝贝
+        [00:09.00]널 보는 눈빛이
+        [00:09.00]看着你的眼神
+        [00:12.00](Oh) 흐린 공간속에서
+        [00:12.00]在模糊的空间里
+        [00:15.00]바람이 스쳐가
+        [00:15.00]风轻轻吹过
+        """)
+
+        #expect(lines.count == 4)
+        #expect(lines[0].text == "(Hey) 두고 봐 Babe")
+        #expect(lines[0].manualTranslation?.text == "走着瞧吧 宝贝")
+    }
+
+    /// 手抄的双语文件常把译文整句写进括号里。
+    @Test("括号包住的译文也能并进原文")
+    func pairsABracketedTranslationRow() {
+        let lines = LyricsContentParser.parse("""
+        [00:06.00]널 보는 눈빛이
+        [00:06.00]（看着你的眼神）
+        [00:09.00]흐린 공간속에서
+        [00:09.00]（在模糊的空间里）
+        [00:12.00]바람이 스쳐가
+        [00:12.00]（风轻轻吹过）
+        """)
+
+        #expect(lines.count == 3)
+        #expect(lines[0].manualTranslation?.text == "（看着你的眼神）")
+    }
+
+    /// 整行都在括号里的注记不能当原文：它不是被唱出来的那一句。
+    @Test("整行括号的注记不当原文")
+    func neverTreatsAFullyBracketedRowAsTheSource() {
+        let lines = LyricsContentParser.parse("""
+        [00:06.00](Guitar solo)
+        [00:06.00]（吉他独奏）
+        [00:09.00]널 보는 눈빛이
+        [00:09.00]看着你的眼神
+        [00:12.00]흐린 공간속에서
+        [00:12.00]在模糊的空间里
+        """)
+
+        #expect(lines.count == 4)
+        #expect(lines[0].text == "(Guitar solo)")
+        #expect(lines[0].manualTranslation == nil)
+        #expect(lines[1].text == "（吉他独奏）")
+        #expect(lines[2].manualTranslation?.text == "看着你的眼神")
+    }
+
+    /// 「原文 + 注音 + 中译 + 英译」四行共用一个时间戳的文件（动漫歌常见）。
+    @Test("四行结构也归到同一句并能写回")
+    func pairsFourRowStructures() {
+        let source = """
+        [00:06.00]君の声が聞こえる
+        [00:06.00]kimi no koe ga kikoeru
+        [00:06.00]听见你的声音
+        [00:06.00]I can hear your voice
+        [00:09.00]夜の果てで
+        [00:09.00]yoru no hate de
+        [00:09.00]在夜的尽头
+        [00:09.00]At the end of the night
+        [00:12.00]遠くに消える
+        [00:12.00]tooku ni kieru
+        [00:12.00]消失在远方
+        [00:12.00]Fading far away
+        """
+        let lines = LyricsContentParser.parse(source)
+
+        #expect(lines.count == 3)
+        #expect(lines[0].text == "君の声が聞こえる")
+        #expect(lines[0].allManualTranslations.map(\.text) == [
+            "kimi no koe ga kikoeru",
+            "听见你的声音",
+            "I can hear your voice",
+        ])
+
+        // 一次回写不能把第三、第四行吃掉。
+        let reparsed = LyricsContentParser.parse(LyricsContentParser.serialize(lines))
+        #expect(reparsed.map { $0.allManualTranslations.map(\.text) }
+            == lines.map { $0.allManualTranslations.map(\.text) })
+    }
+
+    /// 韩语歌里夹的英文句不需要注音，于是整篇是三行、它只有两行。此前这一簇
+    /// 凑不出第二票，译文便留成独立一行，高亮落在译文上。
+    @Test("整篇三行结构里少一条注音的那句也配对")
+    func pairsAShorterClusterInsideAProvenStructure() {
+        let lines = LyricsContentParser.parse("""
+        [00:06.00]널 보는 눈빛이
+        [00:06.00]nol bo nun nun bi chi
+        [00:06.00]看着你的眼神
+        [00:09.00]Sometimes I feel alone
+        [00:09.00]有时候我觉得孤单
+        [00:12.00]흐린 공간속에서
+        [00:12.00]he lin gong gan so ge so
+        [00:12.00]在模糊的空间里
+        [00:15.00]바람이 스쳐가
+        [00:15.00]ba ra mi seu chyeo ga
+        [00:15.00]风轻轻吹过
+        """)
+
+        #expect(lines.count == 4)
+        #expect(lines[1].text == "Sometimes I feel alone")
+        #expect(lines[1].manualTranslation?.text == "有时候我觉得孤单")
+        #expect(lines[1].alternateManualTranslations.isEmpty)
+        #expect(lines[0].allManualTranslations.count == 2)
+    }
+
+    /// 原文是英文、里面夹了两个汉字，而译文正好也是汉字。两行的文字构成撞在
+    /// 一起，但原文并不是整行汉字 —— 这不是双声部，仍然要按整篇的结构配对。
+    @Test("原文夹的字与译文同种文字时仍跟着结构")
+    func pairsWhenEmbeddedCharactersMatchTheTranslationScript() {
+        let lines = LyricsContentParser.parse("""
+        [00:06.00]I love 上海 at night
+        [00:06.00]我爱夜晚的上海
+        [00:09.00]Tell me what you need
+        [00:09.00]告诉我你要什么
+        [00:12.00]Nothing left at all
+        [00:12.00]什么都没有剩下
+        """)
+
+        #expect(lines.count == 3)
+        #expect(lines[0].text == "I love 上海 at night")
+        #expect(lines[0].manualTranslation?.text == "我爱夜晚的上海")
+    }
+
+    /// 放宽文字判定之后，同一句唱两遍、以及两个声部各唱一句，仍然不能配对。
+    @Test("重复行与双声部仍然不配对")
+    func stillRefusesRepeatsAndDuets() {
+        let repeated = LyricsContentParser.parse("""
+        [00:06.00]널 보는 눈빛이
+        [00:06.00]널 보는 눈빛이
+        [00:09.00]흐린 공간속에서
+        [00:09.00]흐린 공간속에서
+        [00:12.00]바람이 스쳐가
+        [00:12.00]바람이 스쳐가
+        """)
+        #expect(repeated.count == 6)
+        #expect(repeated.allSatisfy { $0.manualTranslation == nil })
+
+        let duet = LyricsContentParser.parse("""
+        [00:06.00]널 보는 눈빛이
+        [00:06.00]바람이 스쳐가
+        [00:09.00]흐린 공간속에서
+        [00:09.00]밤이 깊어가
+        [00:12.00]사랑해 그대여
+        [00:12.00]두고 봐 그대여
+        """)
+        #expect(duet.count == 6)
+        #expect(duet.allSatisfy { $0.manualTranslation == nil })
+    }
+}

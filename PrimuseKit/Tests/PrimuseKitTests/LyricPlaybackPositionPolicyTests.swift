@@ -176,6 +176,40 @@ struct LyricPlaybackPositionPolicyTests {
         ) == .line(1))
     }
 
+    /// refs #152 —— 配对不成立时（多声部，或结构本身就说不清的文件）同一个
+    /// 时间戳上会留着好几行。高亮落在最后一行等于把译文当成正在唱的那一句：
+    /// 原文反而是灰的。唱的是第一行。
+    @Test("同一时间戳的多行高亮落在第一行")
+    func picksTheFirstRowOfATimestampCluster() {
+        let lyrics = [
+            LyricLine(id: "source", timestamp: 12, text: "두고 봐 Babe"),
+            LyricLine(id: "roman", timestamp: 12, text: "du go bwa Babe"),
+            LyricLine(id: "translation", timestamp: 12, text: "走着瞧吧 宝贝"),
+            LyricLine(id: "next", timestamp: 20, text: "Next"),
+        ]
+
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(in: lyrics, at: 15) == 0)
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(in: lyrics, at: 15) == .line(0))
+        #expect(LyricPlaybackPositionPolicy.activeLineIndex(in: lyrics, at: 21) == 3)
+    }
+
+    /// 同一时间戳上的兄弟行不是「下一句」：拿它们当下一句，每一段间奏的时长
+    /// 都会算成 0，间奏标记就永远不出现。
+    @Test("间奏判定跳过同一时间戳的兄弟行")
+    func interludeLooksPastSiblingRows() {
+        let lyrics = [
+            LyricLine(id: "source", timestamp: 0, text: "First"),
+            LyricLine(id: "translation", timestamp: 0, text: "第一句"),
+            LyricLine(id: "next", timestamp: 40, text: "Second"),
+        ]
+
+        #expect(LyricPlaybackPositionPolicy.hasLongInterlude(afterLine: 0, in: lyrics))
+        #expect(LyricPlaybackPositionPolicy.scrollTarget(
+            in: lyrics,
+            at: 26
+        ) == .interlude(afterLine: 0))
+    }
+
     @Test("Now Playing metadata uses the active synchronized lyric")
     func nowPlayingMetadataUsesActiveLyric() {
         let lyrics = [
