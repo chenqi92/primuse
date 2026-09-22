@@ -5324,6 +5324,17 @@ public enum NowPlayingPlayerLayoutMode: Equatable, Sendable {
 /// layout; squeezing the portrait stack below a phone's short edge clips the
 /// volume/footer rows and places metadata under the sensor housing.
 public enum NowPlayingPlayerLayoutPolicy {
+    /// Plus/Pro Max phones report a regular width class in landscape, so the
+    /// width class alone sends them into the iPad two-column composition that
+    /// is laid out for a full-height canvas. The height class is what actually
+    /// separates a phone in landscape from a tablet.
+    public static func prefersWideColumns(
+        isRegularWidth: Bool,
+        isCompactHeight: Bool
+    ) -> Bool {
+        isRegularWidth && !isCompactHeight
+    }
+
     public static func mode(
         viewportWidth: Double,
         viewportHeight: Double,

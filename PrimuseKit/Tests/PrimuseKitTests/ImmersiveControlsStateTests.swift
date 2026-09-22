@@ -314,6 +314,33 @@ struct NowPlayingPlayerLayoutPolicyTests {
             prefersWideColumns: true
         ) == .wideLandscape)
     }
+
+    @Test("A regular-width phone in landscape still uses the short-height composition")
+    func regularWidthPhoneLandscapeStaysCompact() {
+        // 16 Pro Max in landscape: regular width, compact height.
+        let prefersWideColumns = NowPlayingPlayerLayoutPolicy.prefersWideColumns(
+            isRegularWidth: true,
+            isCompactHeight: true
+        )
+        #expect(prefersWideColumns == false)
+        #expect(NowPlayingPlayerLayoutPolicy.mode(
+            viewportWidth: 956,
+            viewportHeight: 440,
+            prefersWideColumns: prefersWideColumns
+        ) == .compactLandscape)
+    }
+
+    @Test("A tablet in landscape still opts into the wide columns")
+    func tabletLandscapePrefersWideColumns() {
+        #expect(NowPlayingPlayerLayoutPolicy.prefersWideColumns(
+            isRegularWidth: true,
+            isCompactHeight: false
+        ))
+        #expect(NowPlayingPlayerLayoutPolicy.prefersWideColumns(
+            isRegularWidth: false,
+            isCompactHeight: false
+        ) == false)
+    }
 }
 
 @Suite("Lyrics background tap policy")

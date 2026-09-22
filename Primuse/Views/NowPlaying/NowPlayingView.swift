@@ -549,6 +549,7 @@ struct NowPlayingView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -1150,7 +1151,12 @@ struct NowPlayingView: View {
     /// 右常驻歌词。其它(iPhone / iPad 竖屏 / 分屏小窗 compact)还走原来的
     /// 上下结构,showLyrics 切歌词 / 封面模式。
     private func shouldUseWideLayout(geo: GeometryProxy) -> Bool {
-        sizeClass == .regular && geo.size.width > geo.size.height
+        // Plus / Pro Max 横屏也是常规宽度，只看宽度等级会把手机横屏送进 iPad 的
+        // 两栏布局——那套尺寸是按整屏高度标定的，落在三四百点的高度上就是压扁的旧样子。
+        NowPlayingPlayerLayoutPolicy.prefersWideColumns(
+            isRegularWidth: sizeClass == .regular,
+            isCompactHeight: heightClass.isCompact
+        ) && geo.size.width > geo.size.height
     }
 
     private func playerMinimizeDragGesture(
