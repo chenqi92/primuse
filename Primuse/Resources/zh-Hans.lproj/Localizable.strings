@@ -2865,6 +2865,10 @@
 "Artist" = "艺术家";
 "Optional, narrows the match if multiple songs share a title." = "可选；当多首歌曲同名时用于缩小匹配范围。";
 "No matching song in your library." = "资料库中没有匹配的歌曲。";
+"Which song? Tell Siri the song title." = "想听哪首歌？把歌名告诉 Siri。";
+"Primuse is still loading your library. Try again in a moment." = "Primuse 还在载入资料库，请稍后再试。";
+"Your Primuse library is empty." = "Primuse 资料库还是空的。";
+"Open Primuse once, then try again." = "请先打开 Primuse，然后重试。";
 "Play Playlist" = "播放歌单";
 "Find a playlist by name and play it." = "按名称查找并播放歌单。";
 "Name" = "名称";

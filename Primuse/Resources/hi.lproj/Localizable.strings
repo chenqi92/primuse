@@ -236,6 +236,10 @@
 "No matching playlist in your library." = "आपकी लाइब्रेरी में कोई मेल खाती प्लेलिस्ट नहीं।";
 "No matching saved radio station." = "कोई मेल खाता सहेजा गया रेडियो स्टेशन नहीं।";
 "No matching song in your library." = "आपकी लाइब्रेरी में कोई मेल खाता गाना नहीं।";
+"Which song? Tell Siri the song title." = "कौन सा गाना? Siri को गाने का नाम बताएँ।";
+"Primuse is still loading your library. Try again in a moment." = "Primuse अभी आपकी लाइब्रेरी लोड कर रहा है। थोड़ी देर बाद फिर कोशिश करें।";
+"Your Primuse library is empty." = "आपकी Primuse लाइब्रेरी खाली है।";
+"Open Primuse once, then try again." = "Primuse को एक बार खोलें, फिर दोबारा कोशिश करें।";
 "No need to open the app" = "ऐप खोलने की आवश्यकता नहीं है";
 "No updates available." = "कोई अपडेट उपलब्ध नहीं है।";
 "Not Enabled" = "सक्षम नहीं";

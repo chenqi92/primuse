@@ -320,9 +320,20 @@ public enum SiriNamedMediaResolver {
             .joined()
     }
 
-    /// Bounded Levenshtein distance keeps a large station library cheap while
-    /// still accepting ordinary voice-recognition or spelling errors.
     private static func editDistance(
+        _ lhs: String,
+        _ rhs: String,
+        maximumDistance: Int
+    ) -> Int? {
+        SiriTextMatching.boundedEditDistance(lhs, rhs, maximumDistance: maximumDistance)
+    }
+}
+
+/// Bounded Levenshtein distance keeps a large library cheap while still
+/// accepting ordinary voice-recognition or spelling errors. Shared by the
+/// named-container resolver and the song matcher's last-resort tier.
+enum SiriTextMatching {
+    static func boundedEditDistance(
         _ lhs: String,
         _ rhs: String,
         maximumDistance: Int
@@ -580,11 +591,38 @@ public enum SiriMediaSearchResolver {
         guard let requestedTitle = query.mediaName ?? query.albumName ?? query.artistName else {
             return nil
         }
+        // Exact/prefix/substring first, so relaxed matching can never outrank a
+        // song the listener really named. Only when nothing matches at all does
+        // the relaxed tier run: Siri hands over whole phrases ("play mikham")
+        // and mishears a letter or two, and a flat "no matching song in your
+        // library." for a song that is right there reads like a broken library.
+        if let strict = rankedSongResolution(
+            requestedTitle: requestedTitle,
+            query: query,
+            songs: songs,
+            relaxed: false
+        ) {
+            return strict
+        }
+        return rankedSongResolution(
+            requestedTitle: requestedTitle,
+            query: query,
+            songs: songs,
+            relaxed: true
+        )
+    }
 
+    private static func rankedSongResolution(
+        requestedTitle: String,
+        query: SiriMediaSearchQuery,
+        songs: [Song],
+        relaxed: Bool
+    ) -> SiriMediaSearchResolution? {
         let ranked = songs.compactMap { song -> (song: Song, score: Int)? in
             let titleScore = bestScore(
                 requestedTitle,
-                candidates: [song.title, song.titlePinyin]
+                candidates: [song.title, song.titlePinyin],
+                relaxed: relaxed
             )
             guard titleScore > 0 else { return nil }
 
@@ -592,7 +630,8 @@ public enum SiriMediaSearchResolver {
             if let artistName = query.artistName {
                 let artistScore = bestScore(
                     artistName,
-                    candidates: [song.artistName, song.artistPinyin]
+                    candidates: [song.artistName, song.artistPinyin],
+                    relaxed: relaxed
                 )
                 guard artistScore > 0 else { return nil }
                 score += artistScore * 10
@@ -600,7 +639,8 @@ public enum SiriMediaSearchResolver {
             if let albumName = query.albumName {
                 let albumScore = bestScore(
                     albumName,
-                    candidates: [song.albumTitle, song.albumPinyin]
+                    candidates: [song.albumTitle, song.albumPinyin],
+                    relaxed: relaxed
                 )
                 guard albumScore > 0 else { return nil }
                 score += albumScore
@@ -686,11 +726,41 @@ public enum SiriMediaSearchResolver {
         )
     }
 
-    private static func bestScore(_ requested: String, candidates: [String?]) -> Int {
+    private static func bestScore(
+        _ requested: String,
+        candidates: [String?],
+        relaxed: Bool = false
+    ) -> Int {
         candidates.compactMap { candidate in
             guard let candidate else { return nil }
-            return matchScore(requested: requested, candidate: candidate)
+            return relaxed
+                ? relaxedMatchScore(requested: requested, candidate: candidate)
+                : matchScore(requested: requested, candidate: candidate)
         }.max() ?? 0
+    }
+
+    /// Last-resort tier. Two things the strict tier cannot do: recognise the
+    /// name inside a longer spoken phrase (it only tests "request is part of
+    /// the title", never the reverse), and absorb a one- or two-character
+    /// speech-recognition slip. Both stay bounded — short names and long
+    /// distances score zero — so this can never reach an unrelated song.
+    private static func relaxedMatchScore(requested: String, candidate: String) -> Int {
+        let needle = normalized(requested)
+        let value = normalized(candidate)
+        guard needle.count >= 3, value.count >= 3 else { return 0 }
+        if needle == value { return 3 }
+        if needle.hasPrefix(value) || needle.hasSuffix(value) { return 3 }
+        if needle.contains(value) { return 2 }
+        let limit = max(1, min(3, max(needle.count, value.count) / 4))
+        guard abs(needle.count - value.count) <= limit,
+              let distance = SiriTextMatching.boundedEditDistance(
+                  needle,
+                  value,
+                  maximumDistance: limit
+              ) else {
+            return 0
+        }
+        return max(1, 3 - distance)
     }
 
     private static func matchScore(requested: String, candidate: String) -> Int {

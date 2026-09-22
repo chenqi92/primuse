@@ -1926,7 +1926,14 @@ final class AppServices {
         }
 
         bridge.playSong = { [self] title, artist in
-            await awaitLibraryForIntent()
+            // 空歌名不是"库里没有这首歌"。快捷指令把 Title 留空跑一次就会走到
+            // 这里,原先照样回"No matching song in your library.",用户根本看不
+            // 出是自己没给歌名。
+            guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .missingTitle
+            }
+            let libraryIsReady = await awaitLibraryForIntent()
+            let songs = library.visibleSongs
             let query = SiriMediaSearchQuery(
                 kind: .song,
                 mediaName: title,
@@ -1934,25 +1941,29 @@ final class AppServices {
             )
             guard let match = SiriMediaSearchResolver.resolve(
                 query: query,
-                songs: library.visibleSongs
+                songs: songs
             ), let song = match.queue.first else {
-                return nil
+                guard !songs.isEmpty else {
+                    // 冷启动时被 Siri 唤起、资料库还没装完,报"库里没有"是假话。
+                    return libraryIsReady ? .libraryEmpty : .libraryNotReady
+                }
+                return .notFound
             }
             // A named selection is an exact request. Keeping a one-item queue
             // prevents the player's failure auto-advance from silently playing
             // an unrelated library song when that source is temporarily down.
-            guard startIntentQueue([song]) != nil else { return nil }
+            guard startIntentQueue([song]) != nil else { return .notFound }
             if let artist = library.artistDisplayName(for: song), !artist.isEmpty {
-                return String(
+                return .playing(description: String(
                     format: String(localized: "intent_playing_song_by_format"),
                     song.title,
                     artist
-                )
+                ))
             }
-            return String(
+            return .playing(description: String(
                 format: String(localized: "intent_playing_song_format"),
                 song.title
-            )
+            ))
         }
 
         bridge.playAlbum = { [self] title, artist in
@@ -2131,8 +2142,11 @@ final class AppServices {
     /// Stage 2: 冷启动时资料库可能还在主线程之外装载, 而 Widget / Shortcuts /
     /// 控制中心的 intent 随时会到。与 SiriKit 同样的有界等待(Intents 的预算
     /// 约 10 秒), 超时后按今天的路径继续 —— 空库自然返回"没找到"。
-    private func awaitLibraryForIntent() async {
-        _ = await musicLibrary.whenReady(timeout: .seconds(8))
+    /// 返回"等到就绪了吗" —— 超时后按今天的路径继续,但调用方要能把
+    /// "库还在装载"和"库里真的没有"分开回话。
+    @discardableResult
+    private func awaitLibraryForIntent() async -> Bool {
+        await musicLibrary.whenReady(timeout: .seconds(8))
     }
 
     /// Queue acceptance is synchronous; remote URL resolution and first-buffer

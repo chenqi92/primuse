@@ -236,6 +236,10 @@
 "No matching playlist in your library." = "ไม่มีเพลย์ลิสต์ที่ตรงกันในคลังเพลงของคุณ";
 "No matching saved radio station." = "ไม่มีสถานีวิทยุที่บันทึกไว้ที่ตรงกัน";
 "No matching song in your library." = "ไม่มีเพลงที่ตรงกันในคลังเพลงของคุณ";
+"Which song? Tell Siri the song title." = "เพลงไหน บอกชื่อเพลงกับ Siri";
+"Primuse is still loading your library. Try again in a moment." = "Primuse กำลังโหลดคลังเพลงอยู่ ลองอีกครั้งในอีกสักครู่";
+"Your Primuse library is empty." = "คลังเพลง Primuse ของคุณว่างเปล่า";
+"Open Primuse once, then try again." = "เปิด Primuse หนึ่งครั้ง แล้วลองอีกครั้ง";
 "No need to open the app" = "ไม่จำเป็นต้องเปิดแอป";
 "No updates available." = "ไม่มีการอัปเดต";
 "Not Enabled" = "ไม่ได้เปิดใช้งาน";

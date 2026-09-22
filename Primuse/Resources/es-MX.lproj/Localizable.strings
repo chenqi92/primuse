@@ -236,6 +236,10 @@
 "No matching playlist in your library." = "No hay ninguna lista de reproducción coincidente en tu biblioteca.";
 "No matching saved radio station." = "No hay ninguna estación de radio guardada coincidente.";
 "No matching song in your library." = "No hay ninguna canción que coincida en tu biblioteca.";
+"Which song? Tell Siri the song title." = "¿Qué canción? Dile a Siri el título.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse todavía está cargando tu biblioteca. Vuelve a intentarlo en un momento.";
+"Your Primuse library is empty." = "Tu biblioteca de Primuse está vacía.";
+"Open Primuse once, then try again." = "Abre Primuse una vez y vuelve a intentarlo.";
 "No need to open the app" = "No es necesario abrir la aplicación";
 "No updates available." = "No hay actualizaciones disponibles.";
 "Not Enabled" = "No habilitado";

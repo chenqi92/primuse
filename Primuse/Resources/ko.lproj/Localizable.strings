@@ -2764,6 +2764,10 @@
 "Artist" = "아티스트";
 "Optional, narrows the match if multiple songs share a title." = "선택 사항. 같은 제목의 곡이 여러 개일 때 결과를 좁힙니다.";
 "No matching song in your library." = "보관함에 일치하는 곡이 없습니다.";
+"Which song? Tell Siri the song title." = "어떤 곡인가요? Siri에게 곡 제목을 알려 주세요.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse가 아직 라이브러리를 불러오는 중입니다. 잠시 후 다시 시도해 주세요.";
+"Your Primuse library is empty." = "Primuse 라이브러리가 비어 있습니다.";
+"Open Primuse once, then try again." = "Primuse를 한 번 실행한 뒤 다시 시도해 주세요.";
 "Play Playlist" = "플레이리스트 재생";
 "Find a playlist by name and play it." = "이름으로 플레이리스트를 찾아 재생합니다.";
 "Name" = "이름";

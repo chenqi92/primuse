@@ -2749,6 +2749,10 @@
 "Artist" = "藝人";
 "Optional, narrows the match if multiple songs share a title." = "選填；多首歌曲同名時用於縮小配對範圍。";
 "No matching song in your library." = "資料庫中沒有符合的歌曲。";
+"Which song? Tell Siri the song title." = "想聽哪首歌？把歌名告訴 Siri。";
+"Primuse is still loading your library. Try again in a moment." = "Primuse 還在載入資料庫，請稍後再試。";
+"Your Primuse library is empty." = "Primuse 資料庫還是空的。";
+"Open Primuse once, then try again." = "請先打開 Primuse，然後重試。";
 "Play Playlist" = "播放播放列表";
 "Find a playlist by name and play it." = "按名稱尋找並播放播放列表。";
 "Name" = "名稱";

@@ -2764,6 +2764,10 @@
 "Artist" = "Artiste";
 "Optional, narrows the match if multiple songs share a title." = "Facultatif ; précise la recherche si plusieurs morceaux ont le même titre.";
 "No matching song in your library." = "Aucun morceau correspondant dans votre bibliothèque.";
+"Which song? Tell Siri the song title." = "Quel morceau ? Indiquez le titre à Siri.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse charge encore votre bibliothèque. Réessayez dans un instant.";
+"Your Primuse library is empty." = "Votre bibliothèque Primuse est vide.";
+"Open Primuse once, then try again." = "Ouvrez Primuse une fois, puis réessayez.";
 "Play Playlist" = "Lire une playlist";
 "Find a playlist by name and play it." = "Rechercher une playlist par son nom et la lire.";
 "Name" = "Nom";

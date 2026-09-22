@@ -2765,6 +2765,10 @@
 "Artist" = "アーティスト";
 "Optional, narrows the match if multiple songs share a title." = "任意。同名の曲が複数ある場合に絞り込みます。";
 "No matching song in your library." = "ライブラリに一致する曲がありません。";
+"Which song? Tell Siri the song title." = "どの曲ですか？曲名をSiriに伝えてください。";
+"Primuse is still loading your library. Try again in a moment." = "Primuseはライブラリを読み込み中です。少ししてからもう一度お試しください。";
+"Your Primuse library is empty." = "Primuseのライブラリは空です。";
+"Open Primuse once, then try again." = "Primuseを一度開いてから、もう一度お試しください。";
 "Play Playlist" = "プレイリストを再生";
 "Find a playlist by name and play it." = "名前でプレイリストを検索して再生します。";
 "Name" = "名前";

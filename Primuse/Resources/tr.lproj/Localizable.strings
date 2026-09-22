@@ -1878,6 +1878,10 @@
 "tag_editor_cover_revert" = "Orijinal kapağını saklayın";
 "apple_music_library_idle" = "Henüz senkronize edilmedi";
 "No matching song in your library." = "Arşivinizde eşleşen şarkı yok.";
+"Which song? Tell Siri the song title." = "Hangi şarkı? Siri'ye şarkının adını söyle.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse kitaplığını hâlâ yüklüyor. Birazdan yeniden dene.";
+"Your Primuse library is empty." = "Primuse kitaplığın boş.";
+"Open Primuse once, then try again." = "Primuse'u bir kez aç, sonra yeniden dene.";
 "smart_field_sourceID" = "Kaynak";
 "songs_column_rating" = "Değerlendirme";
 "local_import_progress_preparing" = "İçe aktarma hazırlanıyor…";

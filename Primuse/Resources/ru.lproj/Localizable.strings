@@ -1878,6 +1878,10 @@
 "tag_editor_cover_revert" = "Сохраните оригинальную обложку.";
 "apple_music_library_idle" = "Еще не синхронизировано";
 "No matching song in your library." = "В вашей медиатеке нет подходящей песни.";
+"Which song? Tell Siri the song title." = "Какая песня? Назовите Siri название трека.";
+"Primuse is still loading your library. Try again in a moment." = "Primuse ещё загружает медиатеку. Повторите попытку чуть позже.";
+"Your Primuse library is empty." = "Медиатека Primuse пуста.";
+"Open Primuse once, then try again." = "Откройте Primuse один раз и повторите попытку.";
 "smart_field_sourceID" = "Источник";
 "songs_column_rating" = "Рейтинг";
 "local_import_progress_preparing" = "Подготовка импорта…";
