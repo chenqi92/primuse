@@ -1399,14 +1399,14 @@
 "diagnostics_footer" = "Les rapports restent sur cet appareil. Touchez pour les partager avec le développeur par e-mail ou AirDrop.";
 "diagnostics_clear" = "Effacer tous les rapports";
 "diagnostics_clear_confirm" = "Supprimer tous les rapports ?";
-"diagnostics_send_button" = "Envoyer les rapports au développeur par e-mail";
-"diagnostics_send_privacy" = "Seuls les enregistrements des threads du programme sont envoyés : les piles d'appels de plantage et de blocage collectées par le système, ainsi que la version de l'app, le modèle de l'appareil et la version du système. Aucune donnée de compte, bibliothèque musicale, historique d'écoute, nom de fichier ni autre donnée personnelle.";
+"diagnostics_send_button" = "Envoyer à l’auteur";
+"diagnostics_send_privacy" = "L’e-mail contient les rapports ou journaux sélectionnés. Vérifiez-le avant de l’envoyer.";
 "diagnostics_send_mail_intro %lld" = "%lld rapports de diagnostic Primuse sont joints.";
 "diagnostics_send_sent_title" = "Rapport envoyé";
 "diagnostics_send_sent_message" = "Merci. Voulez-vous effacer maintenant les rapports enregistrés sur cet appareil ?";
 "diagnostics_send_keep" = "Conserver";
 "diagnostics_send_unavailable_title" = "Impossible d'envoyer l'e-mail";
-"diagnostics_send_unavailable_message %@" = "Aucun compte e-mail n'est configuré sur cet appareil. Vous pouvez toujours utiliser le bouton de partage d'un rapport pour l'envoyer à %@.";
+"diagnostics_send_unavailable_message %@" = "Aucun compte de messagerie n’est configuré sur cet appareil. Partagez un rapport ou exportez les journaux et envoyez-les à %@.";
 "diagnostics_send_failed_title" = "Échec de l'envoi";
 "diagnostics_send_failed_message" = "L'app Mail n'a pas pu envoyer le message. Vos rapports restent sur cet appareil.";
 "source_diagnostics" = "Diagnostic de la source";
@@ -1472,7 +1472,7 @@
 "source_diag_advice_certificate_message" = "Le certificat HTTPS n'a pas pu être approuvé.";
 "source_diag_advice_certificate_suggestion" = "Vérifiez le certificat, puis approuvez-le uniquement s'il appartient à votre serveur.";
 "source_diag_advice_server_title" = "Erreur de réponse de la source";
-"source_diag_advice_server_suggestion" = "Vérifiez l'état du serveur et réessayez. Si l'échec persiste, exportez les journaux depuis Stockage.";
+"source_diag_advice_server_suggestion" = "Vérifiez l’état du serveur et réessayez. Si le problème persiste, exportez les journaux depuis Rapports de diagnostic.";
 "source_diag_advice_invalid_response" = "La source a renvoyé une réponse illisible.";
 "settings_menu_item" = "Réglages…";
 "playback_menu" = "Lecture";
@@ -4286,3 +4286,11 @@
 "source_diag_resolution_title" = "Résolution de l’adresse";
 "source_diag_resolution_ok" = "L’adresse du service a été résolue.";
 "source_diag_library_ok" = "Accès à la bibliothèque réussi.";
+
+"diagnostics_send_all" = "Rapports et journaux";
+"diagnostics_send_reports_only" = "Rapports uniquement";
+"diagnostics_send_logs_only" = "Journaux uniquement";
+"diagnostics_feedback_attachments" = "Pièces jointes (facultatif)";
+"diagnostics_feedback_message" = "Demandes ou suggestions";
+"diagnostics_feedback_compose" = "Ouvrir Mail";
+"diagnostics_logs_title" = "Journaux";

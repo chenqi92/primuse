@@ -891,14 +891,14 @@
 "immersive_demo_lyric_09" = "Далёкий ритм не дает городу уснуть.";
 "Scrape Entire Library" = "Найти метаданные всей медиатеки";
 "diagnostics_clear_confirm" = "Удалить все отчеты?";
-"diagnostics_send_button" = "Отправить отчёты разработчику по почте";
-"diagnostics_send_privacy" = "Отправляются только записи потоков программы: собранные системой стеки вызовов при сбоях и зависаниях, а также версия приложения, модель устройства и версия системы. Никаких данных учётной записи, медиатеки, истории прослушивания, имён файлов и других личных данных.";
+"diagnostics_send_button" = "Отправить автору";
+"diagnostics_send_privacy" = "К письму будут прикреплены выбранные отчёты или журналы. Проверьте письмо перед отправкой.";
 "diagnostics_send_mail_intro %lld" = "Вложено отчётов диагностики Primuse: %lld.";
 "diagnostics_send_sent_title" = "Отчёт отправлен";
 "diagnostics_send_sent_message" = "Спасибо. Очистить отчёты, сохранённые на этом устройстве?";
 "diagnostics_send_keep" = "Оставить";
 "diagnostics_send_unavailable_title" = "Не удаётся отправить письмо";
-"diagnostics_send_unavailable_message %@" = "На этом устройстве не настроена учётная запись почты. Отчёт можно отправить на %@ кнопкой «Поделиться».";
+"diagnostics_send_unavailable_message %@" = "На устройстве не настроена почта. Поделитесь отчётом или экспортируйте журналы и отправьте их на %@.";
 "diagnostics_send_failed_title" = "Не отправлено";
 "diagnostics_send_failed_message" = "Приложению «Почта» не удалось отправить письмо. Отчёты остались на устройстве.";
 "ai_playlist_create" = "Создать плейлист";
@@ -3523,7 +3523,7 @@
 "metadata_status_state_unreadable" = "Теги нечитабельны";
 "ai_primuse_relay_diagnostic_region_detail" = "Встроенный сервис недоступен для текущего региона витрины, поэтому запрос на ретрансляцию не был отправлен.";
 "Metadata Scraping" = "Поиск метаданных";
-"source_diag_advice_server_suggestion" = "Проверьте состояние сервера и повторите попытку. Если ошибка продолжает возникать, экспортируйте журналы из хранилища.";
+"source_diag_advice_server_suggestion" = "Проверьте состояние сервера и повторите попытку. Если проблема сохранится, экспортируйте журналы в разделе диагностических отчётов.";
 "Listening Stats" = "Статистика прослушивания";
 "4 Recent Covers" = "4 последних кавера";
 "URL recognized" = "URL распознан";
@@ -4192,3 +4192,11 @@
 "source_diag_resolution_title" = "Определение адреса";
 "source_diag_resolution_ok" = "Адрес службы определён.";
 "source_diag_library_ok" = "Доступ к медиатеке получен.";
+
+"diagnostics_send_all" = "Отчёты и журналы";
+"diagnostics_send_reports_only" = "Только отчёты";
+"diagnostics_send_logs_only" = "Только журналы";
+"diagnostics_feedback_attachments" = "Вложения (необязательно)";
+"diagnostics_feedback_message" = "Пожелания или предложения";
+"diagnostics_feedback_compose" = "Открыть почту";
+"diagnostics_logs_title" = "Журналы";

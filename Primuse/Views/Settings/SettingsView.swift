@@ -240,18 +240,10 @@ struct SettingsView: View {
             HStack {
                 Label("version", systemImage: "number")
                 Spacer()
-                Text(Bundle.main.appVersion)
+                Text("\(Bundle.main.appVersion) (\(Bundle.main.appBuildNumber))")
                     .foregroundStyle(.secondary)
             }
             .settingsAnchor("about.version")
-
-            HStack {
-                Label("build", systemImage: "hammer")
-                Spacer()
-                Text(Bundle.main.appBuildNumber)
-                    .foregroundStyle(.secondary)
-            }
-            .settingsAnchor("about.build")
 
             CheckForUpdateRow()
 
@@ -264,20 +256,11 @@ struct SettingsView: View {
             }
 
             Button {
-                // The only rating signal the app ever gets: StoreKit stays
-                // silent about the system sheet, so remember this one and stop
-                // asking automatically.
-                AppReviewPromptCoordinator.shared.recordManualReviewVisit()
                 openURL(PrimuseAppStore.reviewURL)
             } label: {
                 Label("rate_on_app_store", systemImage: "star.bubble")
             }
             .settingsAnchor("about.rate")
-
-            Link(destination: IssueFeedbackLink.repositoryURL) {
-                Label("github_repository", systemImage: "chevron.left.forwardslash.chevron.right")
-            }
-            .settingsAnchor("about.repository")
 
             Link(destination: feedbackURL(for: .bugReport)) {
                 Label("github_bug_report", systemImage: "exclamationmark.bubble")
@@ -2099,12 +2082,6 @@ struct StorageManagementView: View {
     @State private var isClearingOrphans = false
     /// 清理结果提示 — 失败时让用户知道为什么没全清掉 (通常是当前正在播放的歌)。
     @State private var cacheActionToast: String?
-    @State private var logShareItem: LogShareItem?
-
-    struct LogShareItem: Identifiable {
-        let id = UUID()
-        let url: URL
-    }
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -2284,28 +2261,6 @@ struct StorageManagementView: View {
                 Text("metadata_clear_footer")
             }
 
-            // Debug 与 TestFlight 才有这个入口。测试用户报障时得能把日志交出来,
-            // 否则只能靠口述复现; App Store 正式版仍然不显示 —— 详见
-            // DiagnosticLogExportPolicy。
-            if DiagnosticLogExportPolicy.exposesExportEntry(
-                channel: Bundle.main.distributionChannel
-            ) {
-                Section {
-                    Button {
-                        logShareItem = LogShareItem(url: FileLogger.shared.logFileURL)
-                    } label: {
-                        Label("storage_export_log", systemImage: "square.and.arrow.up.on.square")
-                    }
-                    .settingsAnchor("storage.exportLog")
-                } header: {
-                    Text("diagnostics_title")
-                } footer: {
-                    Text("storage_export_log_footer")
-                }
-            }
-        }
-        .sheet(item: $logShareItem) { item in
-            ShareSheet(items: [item.url])
         }
         .navigationTitle("storage_management")
         #if os(iOS)
@@ -2688,6 +2643,14 @@ struct LicensesView: View {
         .navigationTitle("licenses")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Link(destination: IssueFeedbackLink.repositoryURL) {
+                    Label("github_repository", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                .settingsAnchor("about.repository")
+            }
+        }
         #endif
     }
 

@@ -1095,14 +1095,14 @@
 "desktop_widgets" = "डेस्कटॉप विजेट";
 "diagnostics_clear" = "सभी रिपोर्ट साफ़ करें";
 "diagnostics_clear_confirm" = "सभी रिपोर्ट हटाएं?";
-"diagnostics_send_button" = "रिपोर्ट डेवलपर को ईमेल करें";
-"diagnostics_send_privacy" = "केवल प्रोग्राम थ्रेड रिकॉर्ड भेजे जाते हैं: सिस्टम द्वारा एकत्र किए गए क्रैश और हैंग कॉल स्टैक, साथ ही ऐप संस्करण, डिवाइस मॉडल और सिस्टम संस्करण। कोई खाता जानकारी, संगीत लाइब्रेरी, सुनने का इतिहास, फ़ाइल नाम या अन्य व्यक्तिगत डेटा नहीं।";
+"diagnostics_send_button" = "लेखक को भेजें";
+"diagnostics_send_privacy" = "ईमेल में आपकी चुनी हुई रिपोर्ट या लॉग शामिल होंगे। भेजने से पहले जाँच लें।";
 "diagnostics_send_mail_intro %lld" = "संलग्न Primuse डायग्नोस्टिक रिपोर्ट: %lld।";
 "diagnostics_send_sent_title" = "रिपोर्ट भेजी गई";
 "diagnostics_send_sent_message" = "धन्यवाद। क्या आप इस डिवाइस पर सहेजी गई रिपोर्ट अभी हटाना चाहते हैं?";
 "diagnostics_send_keep" = "रखें";
 "diagnostics_send_unavailable_title" = "मेल नहीं भेजा जा सकता";
-"diagnostics_send_unavailable_message %@" = "इस डिवाइस पर कोई मेल खाता सेट नहीं है। आप रिपोर्ट के शेयर बटन से उसे %@ पर भेज सकते हैं।";
+"diagnostics_send_unavailable_message %@" = "इस डिवाइस पर कोई ईमेल खाता सेट अप नहीं है। रिपोर्ट साझा करें या लॉग निर्यात करके %@ पर भेजें।";
 "diagnostics_send_failed_title" = "भेजा नहीं जा सका";
 "diagnostics_send_failed_message" = "मेल ऐप संदेश नहीं भेज सका। आपकी रिपोर्ट इस डिवाइस पर बनी हुई हैं।";
 "diagnostics_empty_subtitle" = "यदि Primuse क्रैश या फ्रीज हो जाता है, तो iOS डेवलपर के साथ साझा करने के लिए आपके लिए यहां एक रिपोर्ट छोड़ देगा।";
@@ -3094,7 +3094,7 @@
 "source_diag_advice_rate_message" = "प्रदाता अस्थायी रूप से अनुरोधों को सीमित कर रहा है।";
 "source_diag_advice_rate_suggestion" = "कुछ मिनट प्रतीक्षा करें, फिर पुनः प्रयास करें, और थोड़े समय में बार-बार स्कैन या प्लेबैक प्रयासों से बचें।";
 "source_diag_advice_rate_title" = "प्रदाता की अनुरोध सीमा";
-"source_diag_advice_server_suggestion" = "सर्वर स्थिति जांचें और पुनः प्रयास करें। यदि यह विफल रहता है, तो स्टोरेज से लॉग निर्यात करें।";
+"source_diag_advice_server_suggestion" = "सर्वर की स्थिति जाँचें और फिर कोशिश करें। समस्या बनी रहे तो निदान रिपोर्ट से लॉग निर्यात करें।";
 "source_diag_advice_server_title" = "स्रोत प्रतिक्रिया त्रुटि";
 "source_diag_advice_timeout_message" = "स्रोत ने समय पर प्रतिक्रिया नहीं दी।";
 "source_diag_advice_timeout_suggestion" = "जांचें कि Wi-Fi/वीपीएन, सर्वर वेक स्थिति, पोर्ट फ़ॉरवर्डिंग, और क्या NAS सो रहा है।";
@@ -4192,3 +4192,11 @@
 "source_diag_resolution_title" = "पता खोज";
 "source_diag_resolution_ok" = "सेवा का पता मिल गया।";
 "source_diag_library_ok" = "लाइब्रेरी तक पहुँच सफल रही।";
+
+"diagnostics_send_all" = "रिपोर्ट और लॉग";
+"diagnostics_send_reports_only" = "केवल रिपोर्ट";
+"diagnostics_send_logs_only" = "केवल लॉग";
+"diagnostics_feedback_attachments" = "अटैचमेंट (वैकल्पिक)";
+"diagnostics_feedback_message" = "अनुरोध या सुझाव";
+"diagnostics_feedback_compose" = "मेल खोलें";
+"diagnostics_logs_title" = "लॉग";

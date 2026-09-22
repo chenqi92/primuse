@@ -1342,14 +1342,14 @@
 "diagnostics_footer" = "報告僅保存在本機。點擊透過郵件 / AirDrop 分享給開發者。";
 "diagnostics_clear" = "清空全部報告";
 "diagnostics_clear_confirm" = "確定要刪除所有報告嗎？";
-"diagnostics_send_button" = "將報告以電子郵件寄給開發者";
-"diagnostics_send_privacy" = "只會寄出程式執行緒記錄：系統收集的當機與卡頓呼叫堆疊，以及 App 版本、裝置型號和系統版本。不含帳號資訊、音樂庫、聆聽記錄、檔案名稱等任何個人資料。";
+"diagnostics_send_button" = "傳送給作者";
+"diagnostics_send_privacy" = "郵件將附上你選擇的診斷報告或日誌，由你確認後傳送。";
 "diagnostics_send_mail_intro %lld" = "隨附 Primuse 診斷報告 %lld 份。";
 "diagnostics_send_sent_title" = "報告已寄出";
 "diagnostics_send_sent_message" = "感謝回報。現在要清除本機儲存的報告嗎？";
 "diagnostics_send_keep" = "保留";
 "diagnostics_send_unavailable_title" = "無法寄送郵件";
-"diagnostics_send_unavailable_message %@" = "這台裝置尚未設定郵件帳號。你仍可以用報告右側的分享按鈕，將它寄到 %@。";
+"diagnostics_send_unavailable_message %@" = "這部裝置尚未設定郵件帳號。你可以分享診斷報告或匯出日誌，傳送至 %@。";
 "diagnostics_send_failed_title" = "寄送失敗";
 "diagnostics_send_failed_message" = "郵件 App 未能寄出這封郵件。你的報告仍保存在本機。";
 "source_diagnostics" = "音樂來源健檢";
@@ -1415,7 +1415,7 @@
 "source_diag_advice_certificate_message" = "HTTPS 憑證無法被信任。";
 "source_diag_advice_certificate_suggestion" = "先確認這是你自己的伺服器憑證，再決定是否信任。";
 "source_diag_advice_server_title" = "音樂源回應異常";
-"source_diag_advice_server_suggestion" = "檢查伺服器狀態後重試；如果持續失敗，可以在儲存管理裡匯出記錄檔。";
+"source_diag_advice_server_suggestion" = "檢查伺服器狀態後重試；如果持續失敗，可以在診斷報告中匯出日誌。";
 "source_diag_advice_invalid_response" = "音樂源回傳了無法解析的回應。";
 "settings_menu_item" = "設定…";
 "playback_menu" = "播放";
@@ -4263,3 +4263,11 @@
 "source_diag_resolution_title" = "位址解析";
 "source_diag_resolution_ok" = "已解析到服務位址。";
 "source_diag_library_ok" = "曲庫讀取成功。";
+
+"diagnostics_send_all" = "診斷報告與日誌";
+"diagnostics_send_reports_only" = "僅診斷報告";
+"diagnostics_send_logs_only" = "僅日誌";
+"diagnostics_feedback_attachments" = "附件（可選）";
+"diagnostics_feedback_message" = "需求或建議";
+"diagnostics_feedback_compose" = "開啟郵件";
+"diagnostics_logs_title" = "日誌";

@@ -891,14 +891,14 @@
 "immersive_demo_lyric_09" = "Далекий ритм не дає спати місту";
 "Scrape Entire Library" = "Знайти метадані всієї медіатеки";
 "diagnostics_clear_confirm" = "Видалити всі звіти?";
-"diagnostics_send_button" = "Надіслати звіти розробнику електронною поштою";
-"diagnostics_send_privacy" = "Надсилаються лише записи потоків програми: зібрані системою стеки викликів під час збоїв і зависань, а також версія програми, модель пристрою та версія системи. Жодних даних облікового запису, медіатеки, історії прослуховування, імен файлів чи інших особистих даних.";
+"diagnostics_send_button" = "Надіслати автору";
+"diagnostics_send_privacy" = "До листа буде додано вибрані звіти або журнали. Перевірте його перед надсиланням.";
 "diagnostics_send_mail_intro %lld" = "Долучено звітів діагностики Primuse: %lld.";
 "diagnostics_send_sent_title" = "Звіт надіслано";
 "diagnostics_send_sent_message" = "Дякуємо. Очистити звіти, збережені на цьому пристрої?";
 "diagnostics_send_keep" = "Залишити";
 "diagnostics_send_unavailable_title" = "Не вдається надіслати лист";
-"diagnostics_send_unavailable_message %@" = "На цьому пристрої не налаштовано поштовий обліковий запис. Звіт можна надіслати на %@ кнопкою «Поділитися».";
+"diagnostics_send_unavailable_message %@" = "На пристрої не налаштовано пошту. Поділіться звітом або експортуйте журнали й надішліть їх на %@.";
 "diagnostics_send_failed_title" = "Не надіслано";
 "diagnostics_send_failed_message" = "Програмі «Пошта» не вдалося надіслати лист. Ваші звіти залишилися на пристрої.";
 "ai_playlist_create" = "Створити список відтворення";
@@ -3523,7 +3523,7 @@
 "metadata_status_state_unreadable" = "Теги не читаються";
 "ai_primuse_relay_diagnostic_region_detail" = "Вбудована служба недоступна для поточного регіону вітрини, тому запит на ретрансляцію не надіслано.";
 "Metadata Scraping" = "Пошук метаданих";
-"source_diag_advice_server_suggestion" = "Перевірте статус сервера та повторіть спробу. Якщо збій продовжується, експортуйте журнали зі сховища.";
+"source_diag_advice_server_suggestion" = "Перевірте стан сервера та спробуйте знову. Якщо проблема не зникне, експортуйте журнали в розділі діагностичних звітів.";
 "Listening Stats" = "Статистика прослуховування";
 "4 Recent Covers" = "4 останні обкладинки";
 "URL recognized" = "URL розпізнано";
@@ -4192,3 +4192,11 @@
 "source_diag_resolution_title" = "Визначення адреси";
 "source_diag_resolution_ok" = "Адресу служби визначено.";
 "source_diag_library_ok" = "Доступ до медіатеки отримано.";
+
+"diagnostics_send_all" = "Звіти та журнали";
+"diagnostics_send_reports_only" = "Лише звіти";
+"diagnostics_send_logs_only" = "Лише журнали";
+"diagnostics_feedback_attachments" = "Вкладення (необов’язково)";
+"diagnostics_feedback_message" = "Побажання або пропозиції";
+"diagnostics_feedback_compose" = "Відкрити пошту";
+"diagnostics_logs_title" = "Журнали";

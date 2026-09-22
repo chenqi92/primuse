@@ -1399,14 +1399,14 @@
 "diagnostics_footer" = "리포트는 이 기기에만 저장됩니다. 탭하여 이메일 또는 AirDrop으로 개발자와 공유하세요.";
 "diagnostics_clear" = "모든 리포트 지우기";
 "diagnostics_clear_confirm" = "모든 리포트를 삭제하시겠습니까?";
-"diagnostics_send_button" = "개발자에게 보고서 메일 보내기";
-"diagnostics_send_privacy" = "전송되는 것은 프로그램 스레드 기록뿐입니다. 시스템이 수집한 충돌 및 멈춤 호출 스택과 앱 버전, 기기 모델, 시스템 버전만 포함되며 계정 정보, 음악 보관함, 재생 기록, 파일 이름 등 개인 데이터는 포함되지 않습니다.";
+"diagnostics_send_button" = "개발자에게 보내기";
+"diagnostics_send_privacy" = "선택한 진단 보고서 또는 로그가 이메일에 첨부됩니다. 보내기 전에 확인하세요.";
 "diagnostics_send_mail_intro %lld" = "Primuse 진단 보고서 %lld개를 첨부했습니다.";
 "diagnostics_send_sent_title" = "보고서를 보냈습니다";
 "diagnostics_send_sent_message" = "감사합니다. 이 기기에 저장된 보고서를 지금 지울까요?";
 "diagnostics_send_keep" = "유지";
 "diagnostics_send_unavailable_title" = "메일을 보낼 수 없음";
-"diagnostics_send_unavailable_message %@" = "이 기기에 메일 계정이 설정되어 있지 않습니다. 보고서의 공유 버튼으로 %@에 보낼 수도 있습니다.";
+"diagnostics_send_unavailable_message %@" = "이 기기에 메일 계정이 설정되어 있지 않습니다. 보고서를 공유하거나 로그를 내보내 %@ 주소로 보내세요.";
 "diagnostics_send_failed_title" = "보내지 못함";
 "diagnostics_send_failed_message" = "메일 App이 메시지를 보내지 못했습니다. 보고서는 이 기기에 그대로 있습니다.";
 "source_diagnostics" = "소스 진단";
@@ -1472,7 +1472,7 @@
 "source_diag_advice_certificate_message" = "HTTPS 인증서를 신뢰할 수 없습니다.";
 "source_diag_advice_certificate_suggestion" = "인증서를 확인하고, 본인의 서버에 속한 경우에만 신뢰하세요.";
 "source_diag_advice_server_title" = "소스 응답 오류";
-"source_diag_advice_server_suggestion" = "서버 상태를 확인하고 다시 시도하세요. 계속 실패하면 저장 공간에서 로그를 내보내세요.";
+"source_diag_advice_server_suggestion" = "서버 상태를 확인하고 다시 시도하세요. 문제가 계속되면 진단 보고서에서 로그를 내보내세요.";
 "source_diag_advice_invalid_response" = "소스가 읽을 수 없는 응답을 반환했습니다.";
 "settings_menu_item" = "설정…";
 "playback_menu" = "재생";
@@ -4286,3 +4286,11 @@
 "source_diag_resolution_title" = "주소 확인";
 "source_diag_resolution_ok" = "서비스 주소를 확인했습니다.";
 "source_diag_library_ok" = "보관함에 접근했습니다.";
+
+"diagnostics_send_all" = "진단 보고서 및 로그";
+"diagnostics_send_reports_only" = "진단 보고서만";
+"diagnostics_send_logs_only" = "로그만";
+"diagnostics_feedback_attachments" = "첨부 파일(선택 사항)";
+"diagnostics_feedback_message" = "요청 또는 제안";
+"diagnostics_feedback_compose" = "메일 열기";
+"diagnostics_logs_title" = "로그";

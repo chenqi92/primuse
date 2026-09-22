@@ -289,6 +289,15 @@ final class FileLogger: @unchecked Sendable {
     /// Returns the log file URL for sharing/debugging
     var logFileURL: URL { fileURL }
 
+    func exportData() async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                self.flushPendingSummaries()
+                continuation.resume(with: Result { try Data(contentsOf: self.fileURL) })
+            }
+        }
+    }
+
     /// Returns recent log content (last N bytes). 用 FileHandle.seek 只读尾部,
     /// 避免把可能数 MB 的整个文件全量读进内存。
     func recentContent(maxBytes: Int = 50_000) -> String {

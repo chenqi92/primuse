@@ -1399,14 +1399,14 @@
 "diagnostics_footer" = "Berichte bleiben auf diesem Gerät. Tippe, um sie per E-Mail oder AirDrop mit dem Entwickler zu teilen.";
 "diagnostics_clear" = "Alle Berichte löschen";
 "diagnostics_clear_confirm" = "Alle Berichte löschen?";
-"diagnostics_send_button" = "Berichte per E-Mail an den Entwickler senden";
-"diagnostics_send_privacy" = "Gesendet werden nur Programm-Thread-Aufzeichnungen: die vom System erfassten Absturz- und Hänger-Aufrufstapel sowie App-Version, Gerätemodell und Systemversion. Keine Kontodaten, Mediathek, Wiedergabeverlauf, Dateinamen oder andere personenbezogene Daten.";
+"diagnostics_send_button" = "An den Autor senden";
+"diagnostics_send_privacy" = "Die E-Mail enthält die ausgewählten Berichte oder Protokolle. Prüfe sie vor dem Senden.";
 "diagnostics_send_mail_intro %lld" = "Angehängt sind %lld Primuse-Diagnoseberichte.";
 "diagnostics_send_sent_title" = "Bericht gesendet";
 "diagnostics_send_sent_message" = "Danke. Möchtest du die auf diesem Gerät gespeicherten Berichte jetzt löschen?";
 "diagnostics_send_keep" = "Behalten";
 "diagnostics_send_unavailable_title" = "E-Mail kann nicht gesendet werden";
-"diagnostics_send_unavailable_message %@" = "Auf diesem Gerät ist kein E-Mail-Konto eingerichtet. Du kannst einen Bericht weiterhin über die Teilen-Taste an %@ senden.";
+"diagnostics_send_unavailable_message %@" = "Auf diesem Gerät ist kein E-Mail-Konto eingerichtet. Teile einen Bericht oder exportiere Protokolle und sende sie an %@.";
 "diagnostics_send_failed_title" = "Senden fehlgeschlagen";
 "diagnostics_send_failed_message" = "Die Mail-App konnte die Nachricht nicht senden. Deine Berichte bleiben auf diesem Gerät.";
 "source_diagnostics" = "Quellendiagnose";
@@ -1472,7 +1472,7 @@
 "source_diag_advice_certificate_message" = "Dem HTTPS-Zertifikat konnte nicht vertraut werden.";
 "source_diag_advice_certificate_suggestion" = "Überprüfe das Zertifikat und vertraue ihm nur, wenn es zu deinem Server gehört.";
 "source_diag_advice_server_title" = "Fehler bei der Antwort der Quelle";
-"source_diag_advice_server_suggestion" = "Prüfe den Serverstatus und versuche es erneut. Wenn es weiterhin fehlschlägt, exportiere die Protokolle unter „Speicher“.";
+"source_diag_advice_server_suggestion" = "Prüfe den Serverstatus und versuche es erneut. Exportiere bei anhaltenden Problemen die Protokolle unter Diagnoseberichte.";
 "source_diag_advice_invalid_response" = "Die Quelle hat eine nicht lesbare Antwort zurückgegeben.";
 "settings_menu_item" = "Einstellungen …";
 "playback_menu" = "Wiedergabe";
@@ -4286,3 +4286,11 @@
 "source_diag_resolution_title" = "Adressauflösung";
 "source_diag_resolution_ok" = "Die Dienstadresse wurde aufgelöst.";
 "source_diag_library_ok" = "Mediathekszugriff erfolgreich.";
+
+"diagnostics_send_all" = "Berichte und Protokolle";
+"diagnostics_send_reports_only" = "Nur Berichte";
+"diagnostics_send_logs_only" = "Nur Protokolle";
+"diagnostics_feedback_attachments" = "Anhänge (optional)";
+"diagnostics_feedback_message" = "Wünsche oder Vorschläge";
+"diagnostics_feedback_compose" = "Mail öffnen";
+"diagnostics_logs_title" = "Protokolle";

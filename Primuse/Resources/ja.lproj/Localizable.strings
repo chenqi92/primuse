@@ -1400,14 +1400,14 @@
 "diagnostics_footer" = "レポートはこのデバイスに保存されます。タップしてメールまたは AirDrop で開発者と共有できます。";
 "diagnostics_clear" = "すべてのレポートを消去";
 "diagnostics_clear_confirm" = "すべてのレポートを削除しますか？";
-"diagnostics_send_button" = "レポートを開発者にメールで送る";
-"diagnostics_send_privacy" = "送信されるのはプログラムのスレッド記録だけです。システムが収集したクラッシュとハングのコールスタック、アプリのバージョン、デバイスの機種、システムバージョンのみで、アカウント情報、ミュージックライブラリ、再生履歴、ファイル名などの個人データは含まれません。";
+"diagnostics_send_button" = "作者に送信";
+"diagnostics_send_privacy" = "選択した診断レポートやログをメールに添付します。内容を確認してから送信してください。";
 "diagnostics_send_mail_intro %lld" = "Primuse の診断レポート %lld 件を添付しました。";
 "diagnostics_send_sent_title" = "レポートを送信しました";
 "diagnostics_send_sent_message" = "ありがとうございます。この端末に保存されているレポートを今すぐ消去しますか？";
 "diagnostics_send_keep" = "残す";
 "diagnostics_send_unavailable_title" = "メールを送信できません";
-"diagnostics_send_unavailable_message %@" = "この端末にはメールアカウントが設定されていません。レポートの共有ボタンから %@ に送ることもできます。";
+"diagnostics_send_unavailable_message %@" = "このデバイスにはメールアカウントが設定されていません。診断レポートの共有やログの書き出しで、%@ に送信できます。";
 "diagnostics_send_failed_title" = "送信できませんでした";
 "diagnostics_send_failed_message" = "メールAppがメッセージを送信できませんでした。レポートはこの端末に残っています。";
 "source_diagnostics" = "ソースの診断";
@@ -1473,7 +1473,7 @@
 "source_diag_advice_certificate_message" = "HTTPS 証明書を信頼できませんでした。";
 "source_diag_advice_certificate_suggestion" = "証明書を確認し、ご自身のサーバーのものである場合にのみ信頼してください。";
 "source_diag_advice_server_title" = "ソースの応答エラー";
-"source_diag_advice_server_suggestion" = "サーバーの状態を確認してから再試行してください。失敗が続く場合は、ストレージからログを書き出してください。";
+"source_diag_advice_server_suggestion" = "サーバーの状態を確認して再試行してください。問題が続く場合は、診断レポートからログを書き出してください。";
 "source_diag_advice_invalid_response" = "ソースから解析できない応答が返されました。";
 "settings_menu_item" = "設定…";
 "playback_menu" = "再生";
@@ -4287,3 +4287,11 @@
 "source_diag_resolution_title" = "アドレス解決";
 "source_diag_resolution_ok" = "サービスのアドレスを取得しました。";
 "source_diag_library_ok" = "ライブラリにアクセスできました。";
+
+"diagnostics_send_all" = "診断レポートとログ";
+"diagnostics_send_reports_only" = "診断レポートのみ";
+"diagnostics_send_logs_only" = "ログのみ";
+"diagnostics_feedback_attachments" = "添付ファイル（任意）";
+"diagnostics_feedback_message" = "要望や提案";
+"diagnostics_feedback_compose" = "メールを開く";
+"diagnostics_logs_title" = "ログ";

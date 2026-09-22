@@ -1423,14 +1423,14 @@
 "diagnostics_footer" = "报告仅保存在本机。点击通过邮件 / AirDrop 分享给开发者。";
 "diagnostics_clear" = "清空全部报告";
 "diagnostics_clear_confirm" = "确定要删除所有报告吗？";
-"diagnostics_send_button" = "把报告发邮件给开发者";
-"diagnostics_send_privacy" = "只发送程序线程记录：系统收集的崩溃与卡顿调用栈，以及 App 版本、设备型号和系统版本。不含账号信息、音乐库、收听记录、文件名等任何个人数据。";
+"diagnostics_send_button" = "发送给作者";
+"diagnostics_send_privacy" = "邮件将附上你选择的诊断报告或日志，由你确认后发送。";
 "diagnostics_send_mail_intro %lld" = "随附 Primuse 诊断报告 %lld 份。";
 "diagnostics_send_sent_title" = "报告已发送";
 "diagnostics_send_sent_message" = "感谢反馈。现在要清空本机保存的报告吗？";
 "diagnostics_send_keep" = "保留";
 "diagnostics_send_unavailable_title" = "无法发送邮件";
-"diagnostics_send_unavailable_message %@" = "这台设备还没有设置邮件账户。你仍可以用报告右侧的分享按钮把它发送到 %@。";
+"diagnostics_send_unavailable_message %@" = "这台设备还没有设置邮件账户。你可以分享诊断报告或导出日志，发送到 %@。";
 "diagnostics_send_failed_title" = "发送失败";
 "diagnostics_send_failed_message" = "邮件 App 未能发出这封邮件。你的报告仍保存在本机。";
 "source_diagnostics" = "音乐源体检";
@@ -1496,7 +1496,7 @@
 "source_diag_advice_certificate_message" = "HTTPS 证书无法被信任。";
 "source_diag_advice_certificate_suggestion" = "先确认这是你自己的服务器证书，再决定是否信任。";
 "source_diag_advice_server_title" = "音乐源响应异常";
-"source_diag_advice_server_suggestion" = "检查服务器状态后重试；如果持续失败，可以在存储管理里导出日志。";
+"source_diag_advice_server_suggestion" = "检查服务器状态后重试；如果持续失败，可以在诊断报告里导出日志。";
 "source_diag_advice_invalid_response" = "音乐源返回了无法解析的响应。";
 
 // MARK: - macOS Playback menu
@@ -4379,3 +4379,11 @@
 "source_diag_resolution_title" = "地址解析";
 "source_diag_resolution_ok" = "已解析到服务地址。";
 "source_diag_library_ok" = "曲库读取成功。";
+
+"diagnostics_send_all" = "诊断报告和日志";
+"diagnostics_send_reports_only" = "仅诊断报告";
+"diagnostics_send_logs_only" = "仅日志";
+"diagnostics_feedback_attachments" = "附件（可选）";
+"diagnostics_feedback_message" = "需求或建议";
+"diagnostics_feedback_compose" = "打开邮件";
+"diagnostics_logs_title" = "日志";

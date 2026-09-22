@@ -1095,14 +1095,14 @@
 "desktop_widgets" = "أدوات سطح المكتب";
 "diagnostics_clear" = "مسح كافة التقارير";
 "diagnostics_clear_confirm" = "حذف كافة التقارير؟";
-"diagnostics_send_button" = "إرسال التقارير إلى المطور بالبريد";
-"diagnostics_send_privacy" = "لا تُرسَل سوى سجلات مسارات البرنامج: مكدسات الاستدعاء للأعطال والتجمّد التي يجمعها النظام، مع إصدار التطبيق وطراز الجهاز وإصدار النظام. لا تتضمن بيانات الحساب أو مكتبة الموسيقى أو سجل الاستماع أو أسماء الملفات أو أي بيانات شخصية أخرى.";
+"diagnostics_send_button" = "إرسال إلى المطوّر";
+"diagnostics_send_privacy" = "يتضمن البريد التقارير أو السجلات التي تختارها. راجعه قبل الإرسال.";
 "diagnostics_send_mail_intro %lld" = "عدد تقارير تشخيص Primuse المرفقة: %lld.";
 "diagnostics_send_sent_title" = "تم إرسال التقرير";
 "diagnostics_send_sent_message" = "شكرًا لك. هل تريد مسح التقارير المحفوظة على هذا الجهاز الآن؟";
 "diagnostics_send_keep" = "الاحتفاظ";
 "diagnostics_send_unavailable_title" = "تعذر إرسال البريد";
-"diagnostics_send_unavailable_message %@" = "لا يوجد حساب بريد مُعد على هذا الجهاز. يمكنك استخدام زر المشاركة في التقرير لإرساله إلى %@.";
+"diagnostics_send_unavailable_message %@" = "لم يتم إعداد حساب بريد على هذا الجهاز. يمكنك مشاركة تقرير أو تصدير السجلات وإرسالها إلى %@.";
 "diagnostics_send_failed_title" = "تعذر الإرسال";
 "diagnostics_send_failed_message" = "لم يتمكن تطبيق البريد من إرسال الرسالة. لا تزال تقاريرك على هذا الجهاز.";
 "diagnostics_empty_subtitle" = "إذا تعطل Primuse أو تجمد، iOS سيترك تقريرًا هنا لمشاركته مع المطور.";
@@ -3094,7 +3094,7 @@
 "source_diag_advice_rate_message" = "يقوم الموفر بتقييد الطلبات مؤقتًا.";
 "source_diag_advice_rate_suggestion" = "انتظر بضع دقائق، ثم أعد المحاولة، وتجنب تكرار عمليات الفحص أو محاولات التشغيل في فترة قصيرة.";
 "source_diag_advice_rate_title" = "حد طلبات المزوّد";
-"source_diag_advice_server_suggestion" = "تحقق من حالة الخادم وأعد المحاولة. إذا استمر الفشل، قم بتصدير السجلات من التخزين.";
+"source_diag_advice_server_suggestion" = "تحقق من حالة الخادم وحاول مجددًا. إذا استمرت المشكلة، فصدّر السجلات من تقارير التشخيص.";
 "source_diag_advice_server_title" = "خطأ في استجابة المصدر";
 "source_diag_advice_timeout_message" = "ولم يرد المصدر في الوقت المناسب.";
 "source_diag_advice_timeout_suggestion" = "تحقق من Wi-Fi/VPN وحالة تنبيه الخادم وإعادة توجيه المنفذ وما إذا كان NAS في وضع السكون.";
@@ -4192,3 +4192,11 @@
 "source_diag_resolution_title" = "تحديد العنوان";
 "source_diag_resolution_ok" = "تم تحديد عنوان الخدمة.";
 "source_diag_library_ok" = "تم الوصول إلى المكتبة.";
+
+"diagnostics_send_all" = "التقارير والسجلات";
+"diagnostics_send_reports_only" = "التقارير فقط";
+"diagnostics_send_logs_only" = "السجلات فقط";
+"diagnostics_feedback_attachments" = "المرفقات (اختياري)";
+"diagnostics_feedback_message" = "طلبات أو اقتراحات";
+"diagnostics_feedback_compose" = "فتح البريد";
+"diagnostics_logs_title" = "السجلات";

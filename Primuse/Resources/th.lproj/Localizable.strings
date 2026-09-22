@@ -1095,14 +1095,14 @@
 "desktop_widgets" = "วิดเจ็ตบนเดสก์ท็อป";
 "diagnostics_clear" = "ล้างรายงานทั้งหมด";
 "diagnostics_clear_confirm" = "ลบรายงานทั้งหมดเหรอ?";
-"diagnostics_send_button" = "ส่งรายงานถึงนักพัฒนาทางอีเมล";
-"diagnostics_send_privacy" = "ส่งเฉพาะบันทึกเธรดของโปรแกรมเท่านั้น ได้แก่ call stack ของการขัดข้องและการค้างที่ระบบเก็บไว้ พร้อมเวอร์ชันแอป รุ่นอุปกรณ์ และเวอร์ชันระบบ ไม่มีข้อมูลบัญชี คลังเพลง ประวัติการฟัง ชื่อไฟล์ หรือข้อมูลส่วนบุคคลอื่นใด";
+"diagnostics_send_button" = "ส่งถึงผู้พัฒนา";
+"diagnostics_send_privacy" = "อีเมลจะแนบรายงานหรือบันทึกที่คุณเลือก โปรดตรวจสอบก่อนส่ง";
 "diagnostics_send_mail_intro %lld" = "แนบรายงานวินิจฉัยของ Primuse: %lld ฉบับ";
 "diagnostics_send_sent_title" = "ส่งรายงานแล้ว";
 "diagnostics_send_sent_message" = "ขอบคุณ ต้องการล้างรายงานที่เก็บไว้ในเครื่องนี้ตอนนี้เลยไหม";
 "diagnostics_send_keep" = "เก็บไว้";
 "diagnostics_send_unavailable_title" = "ส่งอีเมลไม่ได้";
-"diagnostics_send_unavailable_message %@" = "อุปกรณ์นี้ยังไม่ได้ตั้งค่าบัญชีอีเมล คุณยังใช้ปุ่มแชร์ของรายงานเพื่อส่งไปยัง %@ ได้";
+"diagnostics_send_unavailable_message %@" = "อุปกรณ์นี้ยังไม่ได้ตั้งค่าบัญชีอีเมล คุณสามารถแชร์รายงานหรือส่งออกบันทึกแล้วส่งไปที่ %@";
 "diagnostics_send_failed_title" = "ส่งไม่สำเร็จ";
 "diagnostics_send_failed_message" = "แอปเมลส่งข้อความไม่สำเร็จ รายงานของคุณยังอยู่ในเครื่องนี้";
 "diagnostics_empty_subtitle" = "หาก Primuse ขัดข้องหรือค้าง iOS จะทิ้งรายงานไว้ที่นี่เพื่อให้คุณแชร์กับนักพัฒนาซอฟต์แวร์";
@@ -3094,7 +3094,7 @@
 "source_diag_advice_rate_message" = "ผู้ให้บริการกำลังจำกัดคำขอชั่วคราว";
 "source_diag_advice_rate_suggestion" = "รอสักครู่ จากนั้นลองอีกครั้ง และหลีกเลี่ยงการสแกนหรือเล่นซ้ำในช่วงเวลาสั้นๆ";
 "source_diag_advice_rate_title" = "ขีดจำกัดคำขอของผู้ให้บริการ";
-"source_diag_advice_server_suggestion" = "ตรวจสอบสถานะเซิร์ฟเวอร์แล้วลองอีกครั้ง หากยังคงล้มเหลว ให้ส่งออกบันทึกจากพื้นที่เก็บข้อมูล";
+"source_diag_advice_server_suggestion" = "ตรวจสอบสถานะเซิร์ฟเวอร์แล้วลองอีกครั้ง หากยังพบปัญหา ให้ส่งออกบันทึกจากรายงานการวินิจฉัย";
 "source_diag_advice_server_title" = "ข้อผิดพลาดในการตอบสนองแหล่งที่มา";
 "source_diag_advice_timeout_message" = "แหล่งที่มาไม่ตอบสนองทันเวลา";
 "source_diag_advice_timeout_suggestion" = "ตรวจสอบ Wi-Fi/VPN, สถานะการปลุกของเซิร์ฟเวอร์, การส่งต่อพอร์ต และ NAS อยู่ในโหมดสลีปหรือไม่";
@@ -4192,3 +4192,11 @@
 "source_diag_resolution_title" = "ค้นหาที่อยู่";
 "source_diag_resolution_ok" = "ค้นหาที่อยู่บริการสำเร็จแล้ว";
 "source_diag_library_ok" = "เข้าถึงคลังเพลงสำเร็จแล้ว";
+
+"diagnostics_send_all" = "รายงานและบันทึก";
+"diagnostics_send_reports_only" = "รายงานเท่านั้น";
+"diagnostics_send_logs_only" = "บันทึกเท่านั้น";
+"diagnostics_feedback_attachments" = "ไฟล์แนบ (ไม่บังคับ)";
+"diagnostics_feedback_message" = "คำขอหรือข้อเสนอแนะ";
+"diagnostics_feedback_compose" = "เปิดเมล";
+"diagnostics_logs_title" = "บันทึก";

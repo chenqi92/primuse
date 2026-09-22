@@ -1422,14 +1422,14 @@
 "diagnostics_footer" = "Reports stay on this device. Tap to share with the developer via email or AirDrop.";
 "diagnostics_clear" = "Clear all reports";
 "diagnostics_clear_confirm" = "Delete all reports?";
-"diagnostics_send_button" = "Email reports to the developer";
-"diagnostics_send_privacy" = "Only program thread records are sent: the crash and hang call stacks the system collects, plus the app version, device model and system version. No account details, music library, listening history, file names or other personal data.";
+"diagnostics_send_button" = "Send to the author";
+"diagnostics_send_privacy" = "Your email includes the reports or logs you select. Review it before sending.";
 "diagnostics_send_mail_intro %lld" = "Primuse diagnostic reports attached: %lld.";
 "diagnostics_send_sent_title" = "Report sent";
 "diagnostics_send_sent_message" = "Thanks. Do you want to clear the reports stored on this device now?";
 "diagnostics_send_keep" = "Keep";
 "diagnostics_send_unavailable_title" = "Can't send mail";
-"diagnostics_send_unavailable_message %@" = "This device has no mail account set up. You can still use the share button on a report to send it to %@.";
+"diagnostics_send_unavailable_message %@" = "No mail account is set up on this device. You can share a report or export logs and send them to %@.";
 "diagnostics_send_failed_title" = "Couldn't send";
 "diagnostics_send_failed_message" = "The Mail app couldn't send the message. Your reports are still on this device.";
 "source_diagnostics" = "Source Diagnostics";
@@ -1495,7 +1495,7 @@
 "source_diag_advice_certificate_message" = "The HTTPS certificate could not be trusted.";
 "source_diag_advice_certificate_suggestion" = "Verify the certificate, then trust it only if it belongs to your server.";
 "source_diag_advice_server_title" = "Source response error";
-"source_diag_advice_server_suggestion" = "Check the server status and retry. If it keeps failing, export logs from Storage.";
+"source_diag_advice_server_suggestion" = "Check the server status and try again. If the problem persists, export logs from Diagnostic Reports.";
 "source_diag_advice_invalid_response" = "The source returned an unreadable response.";
 
 // MARK: - macOS Playback menu
@@ -4064,3 +4064,11 @@
 "source_diag_resolution_title" = "Address resolution";
 "source_diag_resolution_ok" = "The service address was resolved.";
 "source_diag_library_ok" = "Library access succeeded.";
+
+"diagnostics_send_all" = "Reports and logs";
+"diagnostics_send_reports_only" = "Reports only";
+"diagnostics_send_logs_only" = "Logs only";
+"diagnostics_feedback_attachments" = "Attachments (optional)";
+"diagnostics_feedback_message" = "Requests or suggestions";
+"diagnostics_feedback_compose" = "Open Mail";
+"diagnostics_logs_title" = "Logs";

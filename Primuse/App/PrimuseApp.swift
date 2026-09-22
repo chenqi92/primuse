@@ -1406,7 +1406,6 @@ struct PrimuseApp: App {
             .preferredColorScheme(iOSAppearance.colorScheme)
             .modifier(IOSWindowAppearanceModifier(preference: iOSAppearance))
             .modifier(ExternalDisplaySceneAccessoryModifier())
-            .automaticAppReviewPrompt()
     }
     #else
     @ViewBuilder private var macPlatformRootContent: some View {
@@ -1421,11 +1420,9 @@ struct PrimuseApp: App {
             )
         } else {
             MacContentView()
-                .automaticAppReviewPrompt()
         }
         #else
         MacContentView()
-            .automaticAppReviewPrompt()
         #endif
     }
     #endif

@@ -1,16 +1,48 @@
 import Foundation
 
-/// Composes the one-tap "send my diagnostic reports to the developer" email.
-///
-/// Only MetricKit payloads are ever attached. Those are thread call stacks for
-/// a crash or a hang, plus the app version, device model and OS version Apple
-/// puts alongside them. Nothing from the music library, no account or server
-/// credentials, no playback history, and no file paths of the user's own
-/// files. Keep that true: anything added to the attachment list has to hold to
-/// the same boundary, because the button promises it in the UI.
+/// Describes the attachments the user chooses for a diagnostic email.
 public enum DiagnosticReportMail {
     /// Where the reports go. Shown to the user before anything is sent.
     public static let recipient = "hi@yzs.ai"
+    public enum Selection: Sendable, CaseIterable {
+        case all, reports, logs, none
+
+        public init(includesReports: Bool, includesLogs: Bool) {
+            switch (includesReports, includesLogs) {
+            case (true, true): self = .all
+            case (true, false): self = .reports
+            case (false, true): self = .logs
+            case (false, false): self = .none
+            }
+        }
+
+        public var includesReports: Bool { self == .all || self == .reports }
+        public var includesLogs: Bool { self == .all || self == .logs }
+    }
+
+    public struct Attachment: Equatable, Sendable {
+        public let url: URL
+        public let mimeType: String
+        public let fileName: String
+    }
+
+    public static func attachments(
+        selection: Selection,
+        reportURLs: [URL],
+        logURL: URL
+    ) -> [Attachment] {
+        var result: [Attachment] = selection.includesReports
+            ? reportURLs.enumerated().map { index, url in
+                Attachment(
+                    url: url, mimeType: "application/json",
+                    fileName: attachmentName(index: index, of: reportURLs.count)
+                )
+            } : []
+        if selection.includesLogs {
+            result.append(Attachment(url: logURL, mimeType: "text/plain", fileName: "primuse_debug.log"))
+        }
+        return result
+    }
 
     /// The non-personal identifiers that travel with a report.
     public struct Environment: Equatable, Sendable {
@@ -52,9 +84,9 @@ public enum DiagnosticReportMail {
 
     /// Deliberately English and machine-greppable: it lands in the developer's
     /// inbox, not in the sender's own language.
-    public static func subject(environment: Environment) -> String {
+    public static func subject(environment: Environment, isFeedback: Bool = false) -> String {
         [
-            "\(environment.appName) diagnostics",
+            "\(environment.appName) \(isFeedback ? "feedback" : "diagnostics")",
             environment.versionDescription,
             environment.deviceModel,
             environment.systemDescription,
@@ -81,8 +113,7 @@ public enum DiagnosticReportMail {
         ].joined(separator: "\n")
     }
 
-    /// Full mail body: what the user is sending, what it cannot contain, then
-    /// the technical block.
+    /// Full mail body: the selected content followed by the technical block.
     ///
     /// `intro` and `privacyNote` come from the app's localized strings so the
     /// sender reads them in their own language before tapping send.
@@ -91,14 +122,16 @@ public enum DiagnosticReportMail {
         privacyNote: String,
         environment: Environment,
         reportCount: Int,
-        formattedSize: String
+        formattedSize: String,
+        includesLogs: Bool = false,
+        message: String = ""
     ) -> String {
         let summary = technicalSummary(
             environment: environment,
             reportCount: reportCount,
             formattedSize: formattedSize
         )
-        return [intro, privacyNote, summary]
+        return [message, intro, privacyNote, summary + (includesLogs ? "\nLogs: primuse_debug.log" : "")]
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
     }

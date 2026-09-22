@@ -11,9 +11,14 @@ struct DiagnosticReportsView: View {
     /// 没有崩溃报告的"闪退"只能从它的退出原因统计里认出来。
     @State private var metricReports: [DiagnosticReport] = []
     @State private var showClearConfirm = false
-    @State private var showComposer = false
+    @State private var showFeedback = false
+    @State private var logSize: Int?
+    @Environment(\.scenePhase) private var scenePhase
+    #if os(iOS)
+    @State private var mailDraft: DiagnosticReportMailer.Draft?
+    @State private var pendingMailDraft: DiagnosticReportMailer.Draft?
+    #endif
     @State private var showSentPrompt = false
-    @State private var showMailUnavailable = false
     @State private var failureMessage: String?
     private let service: CrashDiagnosticsService
 
@@ -24,15 +29,20 @@ struct DiagnosticReportsView: View {
     var body: some View {
         #if os(iOS)
         reportsList.modifier(DiagnosticMailSupport(
-            showComposer: $showComposer,
+            draft: $mailDraft,
             showSentPrompt: $showSentPrompt,
-            showMailUnavailable: $showMailUnavailable,
             failureMessage: $failureMessage,
-            subject: mailSubject,
-            messageBody: mailBody,
-            attachments: reports.map(\.url) + metricReports.map(\.url),
             onClearRequested: clearAll
         ))
+        .sheet(isPresented: $showFeedback, onDismiss: presentPreparedDraft) {
+            DiagnosticFeedbackView(
+                reportURLs: reports.map(\.url) + metricReports.map(\.url),
+                canExportLogs: canExportLogs
+            ) { draft in
+                pendingMailDraft = draft
+                showFeedback = false
+            }
+        }
         #else
         reportsList
         #endif
@@ -56,14 +66,7 @@ struct DiagnosticReportsView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
                 }
-                // 没崩过也可能有话要说: 被系统按内存上限回收、watchdog 终止
-                // 这类"闪退"不产生崩溃报告, 只记在指标载荷里, 得能发出去。
-                if !metricReports.isEmpty {
-                    sendSection
-                }
             } else {
-                sendSection
-
                 Section {
                     ForEach(reports) { report in
                         ShareLink(item: report.url) {
@@ -89,6 +92,7 @@ struct DiagnosticReportsView: View {
                 }
 
             }
+            logSection
         }
         .navigationTitle(String(localized: "diagnostics_title"))
         .navigationBarTitleDisplayMode(.inline)
@@ -103,8 +107,21 @@ struct DiagnosticReportsView: View {
                     .accessibilityLabel(String(localized: "diagnostics_clear"))
                 }
             }
+            #if os(iOS)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showFeedback = true
+                } label: {
+                    Label(String(localized: "diagnostics_send_button"), systemImage: "paperplane")
+                }
+                .settingsAnchor("diagnostics.sendReports")
+            }
+            #endif
         }
         .task { reload() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { reload() }
+        }
         // Use a centered alert instead of an iPad popover. A confirmation
         // dialog attached to the List used the bottom destructive section as
         // its source rect; with only one report at the top, the arrow could
@@ -121,59 +138,39 @@ struct DiagnosticReportsView: View {
         }
     }
 
-    /// 一键把本机报告作为附件填进系统邮件草稿,发给开发者。
-    @ViewBuilder private var sendSection: some View {
+    @ViewBuilder private var logSection: some View {
         #if os(iOS)
-        Section {
-            Button {
-                if DiagnosticReportMailer.canSendMail {
-                    showComposer = true
-                } else {
-                    showMailUnavailable = true
-                }
-            } label: {
-                HStack {
-                    Label(
-                        String(localized: "diagnostics_send_button"),
-                        systemImage: "paperplane"
-                    )
-                    Spacer()
-                    Text(totalSizeText)
-                        .font(.caption)
+        if canExportLogs {
+            Section {
+                ShareLink(item: FileLogger.shared.logFileURL) {
+                    HStack {
+                        Label("storage_export_log", systemImage: "square.and.arrow.up.on.square")
+                        Spacer()
+                        Text(logSize.map {
+                            ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file)
+                        } ?? "—")
                         .foregroundStyle(.secondary)
+                    }
                 }
+                .settingsAnchor("storage.exportLog")
+            } header: {
+                Text("diagnostics_logs_title")
+            } footer: {
+                Text("storage_export_log_footer")
             }
-            .settingsAnchor("diagnostics.sendReports")
-        } footer: {
-            Text(String(localized: "diagnostics_send_privacy"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         #endif
     }
 
+    private var canExportLogs: Bool {
+        DiagnosticLogExportPolicy.exposesExportEntry(channel: Bundle.main.distributionChannel)
+    }
+
     #if os(iOS)
-    /// 按钮旁边这个大小说的是"这一发会带多少附件", 所以把指标载荷也算进去。
-    private var totalSizeText: String {
-        let total = (reports + metricReports).reduce(0) { $0 + $1.sizeBytes }
-        return ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file)
-    }
-
-    private var mailSubject: String {
-        DiagnosticReportMail.subject(environment: DiagnosticReportMailer.environment())
-    }
-
-    private var mailBody: String {
-        DiagnosticReportMail.body(
-            intro: String(
-                format: String(localized: "diagnostics_send_mail_intro %lld"),
-                reports.count
-            ),
-            privacyNote: String(localized: "diagnostics_send_privacy"),
-            environment: DiagnosticReportMailer.environment(),
-            reportCount: reports.count,
-            formattedSize: totalSizeText
-        )
+    private func presentPreparedDraft() {
+        mailDraft = pendingMailDraft
+        pendingMailDraft = nil
+        reload()
     }
     #endif
 
@@ -185,37 +182,136 @@ struct DiagnosticReportsView: View {
     private func reload() {
         reports = service.reports()
         metricReports = service.metricReports()
+        if canExportLogs {
+            logSize = try? FileLogger.shared.logFileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        }
     }
 }
 
 #if os(iOS)
 
+private struct DiagnosticFeedbackView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var includesReports = false
+    @State private var includesLogs = false
+    @State private var message = ""
+    @State private var isPreparing = false
+    @State private var showMailUnavailable = false
+    @State private var failureMessage: String?
+    let reportURLs: [URL]
+    let canExportLogs: Bool
+    let onPrepared: (DiagnosticReportMailer.Draft) -> Void
+
+    private var selection: DiagnosticReportMail.Selection {
+        DiagnosticReportMail.Selection(
+            includesReports: includesReports && !reportURLs.isEmpty,
+            includesLogs: includesLogs && canExportLogs
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("diagnostics_feedback_attachments") {
+                    Toggle("diagnostics_title", isOn: $includesReports)
+                        .disabled(reportURLs.isEmpty)
+                    if canExportLogs {
+                        Toggle("diagnostics_logs_title", isOn: $includesLogs)
+                    }
+                }
+                Section {
+                    TextEditor(text: $message)
+                        .frame(minHeight: 160)
+                        .accessibilityLabel(String(localized: "diagnostics_feedback_message"))
+                } header: {
+                    Text("diagnostics_feedback_message")
+                } footer: {
+                    Text(verbatim: DiagnosticReportMail.recipient)
+                }
+            }
+            .disabled(isPreparing)
+            .navigationTitle(String(localized: "diagnostics_send_button"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("cancel") { dismiss() }
+                        .disabled(isPreparing)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(action: prepareMail) {
+                        if isPreparing {
+                            ProgressView()
+                        } else {
+                            Text("diagnostics_feedback_compose")
+                        }
+                    }
+                    .accessibilityLabel(String(localized: "diagnostics_feedback_compose"))
+                    .disabled(isPreparing || (selection == .none && message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                }
+            }
+            .interactiveDismissDisabled(isPreparing)
+            .alert(String(localized: "diagnostics_send_unavailable_title"), isPresented: $showMailUnavailable) {
+                Button(String(localized: "ok"), role: .cancel) {}
+            } message: {
+                Text(String(format: String(localized: "diagnostics_send_unavailable_message %@"), DiagnosticReportMail.recipient))
+            }
+            .alert(
+                String(localized: "diagnostics_send_failed_title"),
+                isPresented: Binding(
+                    get: { failureMessage != nil },
+                    set: { if !$0 { failureMessage = nil } }
+                )
+            ) {
+                Button(String(localized: "ok"), role: .cancel) { failureMessage = nil }
+            } message: {
+                Text(failureMessage ?? String(localized: "diagnostics_send_failed_message"))
+            }
+        }
+    }
+
+    private func prepareMail() {
+        guard DiagnosticReportMailer.canSendMail else {
+            showMailUnavailable = true
+            return
+        }
+        isPreparing = true
+        Task {
+            defer { isPreparing = false }
+            do {
+                let draft = try await DiagnosticReportMailer.prepare(
+                    selection: selection, reportURLs: reportURLs, message: message
+                )
+                onPrepared(draft)
+            } catch {
+                failureMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
 /// 邮件草稿 sheet 与三种结果提示。只有系统确认「已发送」才会提议清空本机
 /// 报告 —— 取消或存草稿都不动数据。
 private struct DiagnosticMailSupport: ViewModifier {
-    @Binding var showComposer: Bool
+    @Binding var draft: DiagnosticReportMailer.Draft?
     @Binding var showSentPrompt: Bool
-    @Binding var showMailUnavailable: Bool
     @Binding var failureMessage: String?
     @State private var pendingOutcome: DiagnosticReportMailer.Outcome?
-    let subject: String
-    /// Not named `body`: `ViewModifier` already requires `body(content:)`.
-    let messageBody: String
-    let attachments: [URL]
+    @State private var sentReportCount = 0
     let onClearRequested: () -> Void
 
     func body(content: Content) -> some View {
         content
             // The result alert has to wait for the sheet to finish dismissing;
             // presenting it from the compose callback loses it.
-            .sheet(isPresented: $showComposer, onDismiss: presentOutcome) {
+            .sheet(item: $draft, onDismiss: presentOutcome) { item in
                 DiagnosticMailComposer(
-                    subject: subject,
-                    messageBody: messageBody,
-                    attachments: attachments
+                    subject: item.subject,
+                    messageBody: item.messageBody,
+                    attachments: item.attachments
                 ) { outcome in
                     pendingOutcome = outcome
-                    showComposer = false
+                    sentReportCount = item.reportCount
+                    draft = nil
                 }
                 .ignoresSafeArea()
             }
@@ -229,19 +325,6 @@ private struct DiagnosticMailSupport: ViewModifier {
                 Button(String(localized: "diagnostics_send_keep"), role: .cancel) {}
             } message: {
                 Text(String(localized: "diagnostics_send_sent_message"))
-            }
-            .alert(
-                String(localized: "diagnostics_send_unavailable_title"),
-                isPresented: $showMailUnavailable
-            ) {
-                Button(String(localized: "ok"), role: .cancel) {}
-            } message: {
-                Text(
-                    String(
-                        format: String(localized: "diagnostics_send_unavailable_message %@"),
-                        DiagnosticReportMail.recipient
-                    )
-                )
             }
             .alert(
                 String(localized: "diagnostics_send_failed_title"),
@@ -259,7 +342,7 @@ private struct DiagnosticMailSupport: ViewModifier {
     private func presentOutcome() {
         switch pendingOutcome {
         case .sent:
-            showSentPrompt = true
+            showSentPrompt = sentReportCount > 0
         case .failed(let message):
             failureMessage = message.isEmpty
                 ? String(localized: "diagnostics_send_failed_message")

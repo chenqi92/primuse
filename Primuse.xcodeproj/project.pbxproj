@@ -116,7 +116,6 @@
 		13DD1FC0A9A63C8DD65490E1 /* SourceTypeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C50B958D5A7FEF1F9E8AD24 /* SourceTypeSelectionView.swift */; };
 		13FE069B663ACE81C88E15F4 /* LaunchDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42797B07E3FAFAB2A9613955 /* LaunchDiagnostics.swift */; };
 		14262AEAD1DBF77D0DCAC85C /* AppShortcuts.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FA6002EF70A5C00D99798236 /* AppShortcuts.xcstrings */; };
-		14375ACB8E3CF85D8F284DBB /* AppReviewPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 674035830422263129C5DAB9 /* AppReviewPromptCoordinator.swift */; };
 		14485ACB30CED190C930AD8F /* SnapshotFileTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = B705F84F128EDD24EE3C5CF2 /* SnapshotFileTransaction.swift */; };
 		14D6F7EBC2C261E3B5E4E679 /* CloudSchemaDeploymentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D4DD0E30B07ACFFCFB5570 /* CloudSchemaDeploymentPolicy.swift */; };
 		152920B6D3906F588742E8DC /* ArtistNameSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D20E7F75F96F9D732690062 /* ArtistNameSettingsStore.swift */; };
@@ -263,7 +262,6 @@
 		3019EBD9771AABB8DA917F66 /* YearlyReportCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12A2BC6296FF8B06F4EA887E /* YearlyReportCards.swift */; };
 		30217441ECE20F09AF419B8D /* MacCloudSyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E23D24CDD16F125DE20A4C3F /* MacCloudSyncSettingsView.swift */; };
 		3043FF24779407E29FC86609 /* PMPlaybackVolumeControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10CFE1EAE8AD179E6A7CF5A0 /* PMPlaybackVolumeControl.swift */; };
-		304A86D84352A6BF59F47AE8 /* AppReviewPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 674035830422263129C5DAB9 /* AppReviewPromptCoordinator.swift */; };
 		306A3943055A9E1E83264D2D /* LyricsSidecarSelectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F19E25DEFBA6AFD7958D89B /* LyricsSidecarSelectionPolicy.swift */; };
 		31131FE9D0603FCAC89CE76C /* SMBBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF0DF0592D356324C4E9A4C /* SMBBrowserView.swift */; };
 		3142477D6F0EE2B5E99F7CF5 /* PrimuseWatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 94091D358D024862C22DA30C /* PrimuseWatchWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -2045,7 +2043,6 @@
 		665AD2E66F0C5533E6152E7A /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		66A627BB63824FA32280BC29 /* MetadataBackfillDrainWaitPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataBackfillDrainWaitPolicy.swift; sourceTree = "<group>"; };
 		6723FC0B92EDA2CC1B5E3C83 /* SourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourcesView.swift; sourceTree = "<group>"; };
-		674035830422263129C5DAB9 /* AppReviewPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppReviewPromptCoordinator.swift; sourceTree = "<group>"; };
 		674C441197AFC8EDFF6E7E4B /* FullscreenPlayerEffectSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullscreenPlayerEffectSettings.swift; sourceTree = "<group>"; };
 		678F2DD30767937AE051A639 /* SongloftStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongloftStreamResolver.swift; sourceTree = "<group>"; };
 		67A74DBDB4BE669EBE61F4DA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -3522,7 +3519,6 @@
 				82393C1ADCBCAFE7BBF8820E /* Transfer */,
 				5070DEF324D99A563F83D6FA /* Watch */,
 				A796306024AE3678DB56D02A /* AppIconService.swift */,
-				674035830422263129C5DAB9 /* AppReviewPromptCoordinator.swift */,
 				45727C23F384EA4681DAF4F3 /* AppUpdateChecker.swift */,
 				B7563332EFAE1A5E1F571491 /* CarPlayEditorCatalog.swift */,
 				98285F1005EE5897CA9D6C9D /* CarPlayHomeContent.swift */,
@@ -5160,7 +5156,6 @@
 				D0165ECB27849861E2204675 /* AnimatedArtworkDataView.swift in Sources */,
 				7A8AE931F42C82A025F20511 /* AppIconService.swift in Sources */,
 				580CEF484E82F5BCA08DC12A /* AppIconSettingsView.swift in Sources */,
-				14375ACB8E3CF85D8F284DBB /* AppReviewPromptCoordinator.swift in Sources */,
 				63259BF946E30D768662FE86 /* AppSecrets.swift in Sources */,
 				418FDE4C3C9F303227153879 /* AppServices.swift in Sources */,
 				C383F136AEF239A67C4ABF0E /* AppUpdateChecker.swift in Sources */,
@@ -5701,7 +5696,6 @@
 				0370BE128DDF0347C93FE343 /* AnimatedArtworkDataView.swift in Sources */,
 				73AC215B300A8F0FDC954F57 /* AppIconService.swift in Sources */,
 				E20CD86639EC304A4521720F /* AppIconSettingsView.swift in Sources */,
-				304A86D84352A6BF59F47AE8 /* AppReviewPromptCoordinator.swift in Sources */,
 				48DC6DE60F711B6DA3FDC362 /* AppSecrets.swift in Sources */,
 				665270F210ADA54AADCA24D1 /* AppServices.swift in Sources */,
 				816C685DF2972C76C00A88D1 /* AppUpdateChecker.swift in Sources */,

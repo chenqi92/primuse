@@ -891,14 +891,14 @@
 "immersive_demo_lyric_09" = "Uzak bir ritim şehri uyanık tutuyor";
 "Scrape Entire Library" = "Tüm arşivin üst verilerini bul";
 "diagnostics_clear_confirm" = "Tüm raporlar silinsin mi?";
-"diagnostics_send_button" = "Raporları geliştiriciye e-postayla gönder";
-"diagnostics_send_privacy" = "Yalnızca program iş parçacığı kayıtları gönderilir: sistemin topladığı çökme ve donma çağrı yığınları ile uygulama sürümü, cihaz modeli ve sistem sürümü. Hesap bilgisi, müzik arşivi, dinleme geçmişi, dosya adı veya başka kişisel veri gönderilmez.";
+"diagnostics_send_button" = "Geliştiriciye gönder";
+"diagnostics_send_privacy" = "E-postaya seçtiğiniz raporlar veya günlükler eklenir. Göndermeden önce gözden geçirin.";
 "diagnostics_send_mail_intro %lld" = "Ekte %lld Primuse tanılama raporu var.";
 "diagnostics_send_sent_title" = "Rapor gönderildi";
 "diagnostics_send_sent_message" = "Teşekkürler. Bu cihazda saklanan raporları şimdi silmek ister misin?";
 "diagnostics_send_keep" = "Sakla";
 "diagnostics_send_unavailable_title" = "E-posta gönderilemiyor";
-"diagnostics_send_unavailable_message %@" = "Bu cihazda kurulu bir e-posta hesabı yok. Raporu paylaş düğmesiyle %@ adresine gönderebilirsin.";
+"diagnostics_send_unavailable_message %@" = "Bu cihazda e-posta hesabı ayarlanmamış. Bir rapor paylaşabilir veya günlükleri dışa aktarıp %@ adresine gönderebilirsiniz.";
 "diagnostics_send_failed_title" = "Gönderilemedi";
 "diagnostics_send_failed_message" = "Mail uygulaması iletiyi gönderemedi. Raporların bu cihazda duruyor.";
 "ai_playlist_create" = "Çalma Listesi Oluştur";
@@ -3523,7 +3523,7 @@
 "metadata_status_state_unreadable" = "Etiketler Okunamıyor";
 "ai_primuse_relay_diagnostic_region_detail" = "Yerleşik hizmet mevcut vitrin bölgesi için kullanılamadığından geçiş isteği gönderilmedi.";
 "Metadata Scraping" = "Üst veri alma";
-"source_diag_advice_server_suggestion" = "Sunucu durumunu kontrol edin ve yeniden deneyin. Başarısız olmaya devam ederse günlükleri Depolama'dan dışa aktarın.";
+"source_diag_advice_server_suggestion" = "Sunucu durumunu kontrol edip tekrar deneyin. Sorun sürerse Tanılama Raporları bölümünden günlükleri dışa aktarın.";
 "Listening Stats" = "Dinleme İstatistikleri";
 "4 Recent Covers" = "4 Yeni Kapak";
 "URL recognized" = "URL tanındı";
@@ -4192,3 +4192,11 @@
 "source_diag_resolution_title" = "Adres çözümleme";
 "source_diag_resolution_ok" = "Hizmet adresi çözümlendi.";
 "source_diag_library_ok" = "Arşive erişim başarılı.";
+
+"diagnostics_send_all" = "Raporlar ve günlükler";
+"diagnostics_send_reports_only" = "Yalnızca raporlar";
+"diagnostics_send_logs_only" = "Yalnızca günlükler";
+"diagnostics_feedback_attachments" = "Ekler (isteğe bağlı)";
+"diagnostics_feedback_message" = "İstekler veya öneriler";
+"diagnostics_feedback_compose" = "Postayı aç";
+"diagnostics_logs_title" = "Günlükler";

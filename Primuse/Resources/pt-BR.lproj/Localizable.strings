@@ -1095,14 +1095,14 @@
 "desktop_widgets" = "Widgets da área de trabalho";
 "diagnostics_clear" = "Limpar todos os relatórios";
 "diagnostics_clear_confirm" = "Excluir todos os relatórios?";
-"diagnostics_send_button" = "Enviar os relatórios ao desenvolvedor por e-mail";
-"diagnostics_send_privacy" = "São enviados apenas registros de threads do programa: as pilhas de chamadas de falhas e travamentos coletadas pelo sistema, além da versão do app, do modelo do dispositivo e da versão do sistema. Sem dados de conta, biblioteca musical, histórico de reprodução, nomes de arquivos ou outros dados pessoais.";
+"diagnostics_send_button" = "Enviar ao autor";
+"diagnostics_send_privacy" = "O e-mail inclui os relatórios ou registros selecionados. Confira antes de enviar.";
 "diagnostics_send_mail_intro %lld" = "Relatórios de diagnóstico do Primuse anexados: %lld.";
 "diagnostics_send_sent_title" = "Relatório enviado";
 "diagnostics_send_sent_message" = "Obrigado. Deseja apagar agora os relatórios guardados neste dispositivo?";
 "diagnostics_send_keep" = "Manter";
 "diagnostics_send_unavailable_title" = "Não é possível enviar o e-mail";
-"diagnostics_send_unavailable_message %@" = "Este dispositivo não tem uma conta de e-mail configurada. Você ainda pode usar o botão de compartilhar de um relatório para enviá-lo para %@.";
+"diagnostics_send_unavailable_message %@" = "Nenhuma conta de e-mail está configurada neste dispositivo. Compartilhe um relatório ou exporte os registros e envie para %@.";
 "diagnostics_send_failed_title" = "Falha no envio";
 "diagnostics_send_failed_message" = "O app Mail não conseguiu enviar a mensagem. Seus relatórios continuam neste dispositivo.";
 "diagnostics_empty_subtitle" = "Se o Primuse travar ou congelar, o iOS deixará um relatório aqui para você compartilhar com o desenvolvedor.";
@@ -3094,7 +3094,7 @@
 "source_diag_advice_rate_message" = "O provedor está limitando temporariamente as solicitações.";
 "source_diag_advice_rate_suggestion" = "Aguarde alguns minutos, tente novamente e evite varreduras repetidas ou tentativas de reprodução em um curto período.";
 "source_diag_advice_rate_title" = "Limite de taxa do provedor";
-"source_diag_advice_server_suggestion" = "Verifique o status do servidor e tente novamente. Se continuar falhando, exporte os logs do Armazenamento.";
+"source_diag_advice_server_suggestion" = "Verifique o estado do servidor e tente novamente. Se o problema persistir, exporte os registros em Relatórios de diagnóstico.";
 "source_diag_advice_server_title" = "Erro de resposta da fonte";
 "source_diag_advice_timeout_message" = "A fonte não respondeu a tempo.";
 "source_diag_advice_timeout_suggestion" = "Verifique o Wi-Fi/VPN, o estado de ativação do servidor, o encaminhamento de porta e se o NAS está inativo.";
@@ -4192,3 +4192,11 @@
 "source_diag_resolution_title" = "Resolução de endereço";
 "source_diag_resolution_ok" = "O endereço do serviço foi resolvido.";
 "source_diag_library_ok" = "Acesso à biblioteca concluído.";
+
+"diagnostics_send_all" = "Relatórios e registros";
+"diagnostics_send_reports_only" = "Somente relatórios";
+"diagnostics_send_logs_only" = "Somente registros";
+"diagnostics_feedback_attachments" = "Anexos (opcional)";
+"diagnostics_feedback_message" = "Pedidos ou sugestões";
+"diagnostics_feedback_compose" = "Abrir e-mail";
+"diagnostics_logs_title" = "Registros";

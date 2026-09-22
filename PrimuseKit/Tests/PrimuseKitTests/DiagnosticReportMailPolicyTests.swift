@@ -109,4 +109,81 @@ struct DiagnosticReportMailTests {
                 == "primuse-diagnostic-1.json"
         )
     }
+
+    @Test("Each selection attaches exactly the requested file types")
+    func selectsAttachments() {
+        let crash = URL(fileURLWithPath: "/reports/crash.json")
+        let metrics = URL(fileURLWithPath: "/reports/metrics.json")
+        let log = URL(fileURLWithPath: "/logs/primuse_debug.log")
+        let reports = DiagnosticReportMail.attachments(
+            selection: .reports, reportURLs: [crash, metrics], logURL: log
+        )
+        #expect(reports.map(\.url) == [crash, metrics])
+        #expect(reports.map(\.mimeType) == ["application/json", "application/json"])
+        #expect(reports.map(\.fileName) == ["primuse-diagnostic-1.json", "primuse-diagnostic-2.json"])
+
+        let logs = DiagnosticReportMail.attachments(
+            selection: .logs, reportURLs: [crash, metrics], logURL: log
+        )
+        #expect(logs.map(\.url) == [log])
+        #expect(logs.first?.mimeType == "text/plain")
+        #expect(logs.first?.fileName == "primuse_debug.log")
+        #expect(!DiagnosticReportMail.Selection.logs.includesReports)
+
+        let all = DiagnosticReportMail.attachments(
+            selection: .all, reportURLs: [crash, metrics], logURL: log
+        )
+        #expect(all == reports + logs)
+    }
+
+    @Test("Logs can be sent when no diagnostic reports exist")
+    func sendsLogsWithoutReports() {
+        let log = URL(fileURLWithPath: "/logs/primuse_debug.log")
+        #expect(DiagnosticReportMail.attachments(
+            selection: .logs, reportURLs: [], logURL: log
+        ).map(\.url) == [log])
+        #expect(DiagnosticReportMail.attachments(
+            selection: .reports, reportURLs: [], logURL: log
+        ).isEmpty)
+    }
+
+    @Test("Mail identifies included logs without inventing diagnostic reports")
+    func describesLogOnlyMail() {
+        let body = DiagnosticReportMail.body(
+            intro: "Logs only", privacyNote: "", environment: environment,
+            reportCount: 0, formattedSize: "4 KB", includesLogs: true
+        )
+        #expect(body.contains("Reports: 0"))
+        #expect(body.contains("Logs: primuse_debug.log"))
+    }
+
+    @Test("Optional attachment toggles support both, either, or neither")
+    func resolvesOptionalSelections() {
+        for selection in DiagnosticReportMail.Selection.allCases {
+            #expect(DiagnosticReportMail.Selection(
+                includesReports: selection.includesReports,
+                includesLogs: selection.includesLogs
+            ) == selection)
+        }
+        let empty = DiagnosticReportMail.Selection(includesReports: false, includesLogs: false)
+        #expect(empty == .none)
+        #expect(!empty.includesReports)
+        #expect(!empty.includesLogs)
+        #expect(DiagnosticReportMail.attachments(
+            selection: empty,
+            reportURLs: [URL(fileURLWithPath: "/reports/crash.json")],
+            logURL: URL(fileURLWithPath: "/logs/primuse_debug.log")
+        ).isEmpty)
+    }
+
+    @Test("User feedback precedes attachment details without losing line breaks")
+    func preservesMessageAlongsideReports() {
+        let message = "A playback problem\n\nSteps to reproduce:"
+        let body = DiagnosticReportMail.body(
+            intro: "Reports", privacyNote: "", environment: environment,
+            reportCount: 1, formattedSize: "4 KB", message: message
+        )
+        #expect(body.hasPrefix(message + "\n\nReports\n\n"))
+        #expect(body.contains("Reports: 1 (4 KB)"))
+    }
 }

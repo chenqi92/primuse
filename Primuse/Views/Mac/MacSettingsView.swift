@@ -6682,6 +6682,13 @@ private struct MacLicensesPanel: View {
                         .foregroundStyle(PMColor.textMuted)
                 }
                 Spacer()
+                Link(destination: IssueFeedbackLink.repositoryURL) {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .frame(width: 26, height: 26)
+                }
+                .help(Text("github_repository"))
+                .accessibilityLabel(Text("github_repository"))
+                .accessibilityIdentifier("about.repository")
                 if selected != nil {
                     Button {
                         selected = nil
@@ -7112,8 +7119,6 @@ private struct MacLogRow {
 private struct MacSTAboutView: View {
     @State private var showLicenses = false
 
-    private let repositoryURL = IssueFeedbackLink.repositoryURL
-
     /// The issue form opens with this build's version, device and system already
     /// filled in. None of those fields are required by the form, so the user can
     /// edit or clear them before submitting.
@@ -7185,15 +7190,6 @@ private struct MacSTAboutView: View {
                 .settingsAnchor("about.featureRequest")
             }
 
-            aboutLinkCard(
-                title: String(localized: "github_repository"),
-                detail: "github.com/chenqi92/primuse",
-                systemImage: "chevron.left.forwardslash.chevron.right"
-            ) {
-                NSWorkspace.shared.open(repositoryURL)
-            }
-            .settingsAnchor("about.repository")
-
             HStack(alignment: .top, spacing: 7) {
                 Image(systemName: "info.circle")
                     .font(.system(size: 10.5, weight: .medium))
@@ -7217,10 +7213,6 @@ private struct MacSTAboutView: View {
                     title: String(localized: "rate_on_app_store"),
                     systemImage: "star.bubble"
                 ) {
-                    // The only rating signal the app ever gets: StoreKit stays
-                    // silent about the system sheet, so remember this one and
-                    // stop asking automatically.
-                    AppReviewPromptCoordinator.shared.recordManualReviewVisit()
                     NSWorkspace.shared.open(PrimuseAppStore.reviewURL)
                 }
                 aboutUtilityButton(

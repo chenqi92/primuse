@@ -1095,14 +1095,14 @@
 "desktop_widgets" = "Widżety pulpitu";
 "diagnostics_clear" = "Wyczyść wszystkie raporty";
 "diagnostics_clear_confirm" = "Usunąć wszystkie raporty?";
-"diagnostics_send_button" = "Wyślij raporty do dewelopera e-mailem";
-"diagnostics_send_privacy" = "Wysyłane są wyłącznie zapisy wątków programu: zebrane przez system stosy wywołań awarii i zawieszeń oraz wersja aplikacji, model urządzenia i wersja systemu. Bez danych konta, biblioteki muzycznej, historii odtwarzania, nazw plików i innych danych osobowych.";
+"diagnostics_send_button" = "Wyślij do autora";
+"diagnostics_send_privacy" = "Wiadomość zawiera wybrane raporty lub dzienniki. Sprawdź ją przed wysłaniem.";
 "diagnostics_send_mail_intro %lld" = "Załączone raporty diagnostyczne Primuse: %lld.";
 "diagnostics_send_sent_title" = "Raport wysłany";
 "diagnostics_send_sent_message" = "Dziękujemy. Czy wyczyścić teraz raporty zapisane na tym urządzeniu?";
 "diagnostics_send_keep" = "Zachowaj";
 "diagnostics_send_unavailable_title" = "Nie można wysłać wiadomości";
-"diagnostics_send_unavailable_message %@" = "Na tym urządzeniu nie skonfigurowano konta e-mail. Raport możesz wysłać na %@ przyciskiem udostępniania.";
+"diagnostics_send_unavailable_message %@" = "Na tym urządzeniu nie skonfigurowano konta pocztowego. Udostępnij raport lub wyeksportuj dzienniki i wyślij je na %@.";
 "diagnostics_send_failed_title" = "Nie wysłano";
 "diagnostics_send_failed_message" = "Aplikacja Mail nie mogła wysłać wiadomości. Twoje raporty pozostają na tym urządzeniu.";
 "diagnostics_empty_subtitle" = "Jeśli Primuse ulegnie awarii lub zawiesi się, iOS pozostawi tutaj raport, który możesz udostępnić programiście.";
@@ -3094,7 +3094,7 @@
 "source_diag_advice_rate_message" = "Dostawca tymczasowo ogranicza żądania.";
 "source_diag_advice_rate_suggestion" = "Poczekaj kilka minut, a następnie spróbuj ponownie i unikaj powtarzania skanowania lub prób odtwarzania w krótkim czasie.";
 "source_diag_advice_rate_title" = "Limit stawki dostawcy";
-"source_diag_advice_server_suggestion" = "Sprawdź status serwera i spróbuj ponownie. Jeśli to się nie powiedzie, wyeksportuj dzienniki z magazynu.";
+"source_diag_advice_server_suggestion" = "Sprawdź stan serwera i spróbuj ponownie. Jeśli problem nadal występuje, wyeksportuj dzienniki z Raportów diagnostycznych.";
 "source_diag_advice_server_title" = "Błąd odpowiedzi źródła";
 "source_diag_advice_timeout_message" = "Źródło nie odpowiedziało na czas.";
 "source_diag_advice_timeout_suggestion" = "Sprawdź Wi-Fi/VPN, stan wybudzenia serwera, przekierowanie portów i czy NAS śpi.";
@@ -4192,3 +4192,11 @@
 "source_diag_resolution_title" = "Rozpoznawanie adresu";
 "source_diag_resolution_ok" = "Rozpoznano adres usługi.";
 "source_diag_library_ok" = "Uzyskano dostęp do biblioteki.";
+
+"diagnostics_send_all" = "Raporty i dzienniki";
+"diagnostics_send_reports_only" = "Tylko raporty";
+"diagnostics_send_logs_only" = "Tylko dzienniki";
+"diagnostics_feedback_attachments" = "Załączniki (opcjonalnie)";
+"diagnostics_feedback_message" = "Prośby lub sugestie";
+"diagnostics_feedback_compose" = "Otwórz pocztę";
+"diagnostics_logs_title" = "Dzienniki";
