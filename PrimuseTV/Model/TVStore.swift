@@ -2249,6 +2249,7 @@ final class TVStore {
             radioMetadataTitle = ""
             hasNowPlaying = false
         }
+        publishTopShelf()
     }
 
     private func markRadioPlayed(_ id: String) {
@@ -2374,7 +2375,7 @@ final class TVStore {
         }
     }
 
-    /// 生成 Top Shelf 展示数据(最近播放 + 资料库专辑),后台预取封面并写入 App Group,
+    /// 生成 Top Shelf 展示数据(最近播放 + 电台 + 资料库专辑),后台预取封面并写入 App Group,
     /// 供 Apple TV 主屏「顶部内容展示」扩展读取。没配 App Group 时发布器自身会跳过。
     func publishTopShelf() {
         let recent: [TopShelfPublisher.Draft] = recentlyPlayed.prefix(8).map { s in
@@ -2383,6 +2384,17 @@ final class TVStore {
                          album: alb?.title ?? "", coverKey: alb?.id ?? "",
                          songID: s.id, coverRef: s.coverRef,
                          playURL: Self.topShelfLink(host: "play", key: "song", s.id))
+        }
+        // 最近听过的台排前面,其余按电台页顺序补足。
+        let playedStations = radioStations
+            .filter { $0.lastPlayedAt != nil }
+            .sorted { ($0.lastPlayedAt ?? .distantPast) > ($1.lastPlayedAt ?? .distantPast) }
+        let playedIDs = Set(playedStations.map(\.id))
+        let stationList = playedStations + radioStations.filter { !playedIDs.contains($0.id) }
+        let radio: [TopShelfPublisher.RadioDraft] = stationList.prefix(10).map { station in
+            .init(id: station.id, title: station.name, subtitle: station.playbackSubtitle,
+                  logoData: station.logoData,
+                  playURL: Self.topShelfLink(host: "radio", key: "id", station.id))
         }
         let albumList = recentlyAddedAlbums.isEmpty ? albums : recentlyAddedAlbums
         let lib: [TopShelfPublisher.Draft] = albumList.prefix(12).map { a in
@@ -2394,7 +2406,7 @@ final class TVStore {
         topShelfTask = Task {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            await TopShelfPublisher.publish(recent: recent, albums: lib)
+            await TopShelfPublisher.publish(recent: recent, radio: radio, albums: lib)
         }
     }
 
@@ -2418,7 +2430,13 @@ final class TVStore {
     }
 
     func flushPendingDeepLink() {
-        guard let url = pendingDeepLink, url.scheme == "primuse", hasRealLibrary else { return }
+        guard let url = pendingDeepLink, url.scheme == "primuse" else { return }
+        // 电台不依赖曲库:只听电台的用户点主屏上的台也要能播。
+        if url.host == "radio" {
+            guard !radioStations.isEmpty else { return }
+        } else {
+            guard hasRealLibrary else { return }
+        }
         pendingDeepLink = nil
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
         func q(_ name: String) -> String? { comps?.queryItems?.first { $0.name == name }?.value }
@@ -2427,6 +2445,10 @@ final class TVStore {
             if let id = q("song"), let s = song(id) { play(s) }
         case "album":
             if let id = q("id"), let a = album(id) { play(album: a) }
+        case "radio":
+            if let id = q("id"), let station = radioStations.first(where: { $0.id == id }) {
+                play(station)
+            }
         default:
             break
         }
