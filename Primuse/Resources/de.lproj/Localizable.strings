@@ -388,7 +388,7 @@
 "theme_color_hex" = "Farbwert";
 "app_icon" = "App-Symbol";
 "app_icon_dock_hint" = "macOS kann das Dock-Symbol nur ändern, solange Primuse läuft – nach dem Beenden zeigt das Dock wieder das Symbol aus dem App-Paket.";
-"icon_default" = "Splash";
+"icon_default" = "Sanfte Note";
 "icon_appearance_gray" = "Grau";
 "icon_appearance_hint" = "Das Symbol folgt der Darstellung des Home-Bildschirms. Halte den Home-Bildschirm gedrückt und wähle „Bearbeiten“ → „Anpassen“ → „Automatisch“.";
 "icon_theme_12" = "pikaqiu";
@@ -396,7 +396,7 @@
 "icon_theme_14" = "Buchstabe P";
 "icon_theme_15" = "Gefaltete Note";
 "icon_theme_16" = "NonoEnd";
-"icon_theme_6" = "Sanfte Note";
+"icon_theme_17" = "Splash";
 "queue_title" = "Warteschlange";
 "queue_empty" = "Warteschlange leer";
 "queue_empty_desc" = "Füge Titel zur Warteschlange hinzu";

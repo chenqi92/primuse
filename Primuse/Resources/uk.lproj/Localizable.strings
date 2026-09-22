@@ -1014,6 +1014,7 @@
 "icon_theme_14" = "Літера P";
 "icon_theme_15" = "Складена нота";
 "icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "Сплеск";
 "lyrics_editor_paste_redo" = "Почніть спочатку";
 "ai_recommendation_intent_description_label" = "Опис фокусу";
 "META-03 · Custom Source JSON" = "META-03 · Спеціальне джерело JSON";
@@ -1088,7 +1089,6 @@
 "carplay_search_no_results" = "Немає результатів";
 "intent_playing_similar_format" = "Відтворення пісень, схожих на %@.";
 "source_diag_summary_failed" = "Потребує уваги";
-"icon_theme_6" = "М'яка нота";
 "batch_scrape_start_failed" = "Не вдалося розпочати пакетне отримання метаданих. Повторіть спробу незабаром.";
 "yearly_meta_closing_sub" = "Так тримати · поділіться своїм звітом";
 "greeting_evening" = "Доброго вечора";
@@ -3567,7 +3567,7 @@
 "share_song_information_action" = "Поділіться інформацією про пісню";
 "source_remove_confirm_title" = "Видалити це музичне джерело?";
 "dup_keep_newest" = "Зберігати найновіші";
-"icon_default" = "Сплеск";
+"icon_default" = "М'яка нота";
 "relay_share_action" = "Створити зв’язок із приватним ретранслятором";
 "dup_mac_cleanup_action" = "Очистити дублікати (перемістити до нещодавно видалених)";
 "save_then_scan_library_hint" = "Спочатку збережіть, потім торкніться джерела, щоб підключитися та відсканувати повний каталог сервера";

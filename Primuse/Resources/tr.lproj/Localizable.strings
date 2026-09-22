@@ -1014,6 +1014,7 @@
 "icon_theme_14" = "P Harfi";
 "icon_theme_15" = "Katlanmış Nota";
 "icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "Sıçrama";
 "lyrics_editor_paste_redo" = "Yeniden Başla";
 "ai_recommendation_intent_description_label" = "Odak Açıklaması";
 "META-03 · Custom Source JSON" = "META-03 · Özel Kaynak JSON";
@@ -1088,7 +1089,6 @@
 "carplay_search_no_results" = "Sonuç yok";
 "intent_playing_similar_format" = "%@'ye benzer şarkıları çalma.";
 "source_diag_summary_failed" = "Dikkat edilmesi gerekiyor";
-"icon_theme_6" = "Yumuşak nota";
 "batch_scrape_start_failed" = "Toplu üst veri alımı başlatılamadı. Kısa süre sonra tekrar deneyin.";
 "yearly_meta_closing_sub" = "Devam edin · raporunuzu paylaşın";
 "greeting_evening" = "İyi Akşamlar";
@@ -3567,7 +3567,7 @@
 "share_song_information_action" = "Şarkı Bilgilerini Paylaş";
 "source_remove_confirm_title" = "Bu Müzik Kaynağı Kaldırılsın mı?";
 "dup_keep_newest" = "En Yeniyi Tut";
-"icon_default" = "Sıçrama";
+"icon_default" = "Yumuşak nota";
 "relay_share_action" = "Özel Aktarma ile Bağlantı Oluşturun";
 "dup_mac_cleanup_action" = "Kopyaları Temizle (Son Silinenlere Taşı)";
 "save_then_scan_library_hint" = "Önce kaydedin, ardından bağlanmak ve sunucu kataloğunun tamamını taramak için kaynağa dokunun";

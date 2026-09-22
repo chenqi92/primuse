@@ -1014,6 +1014,7 @@
 "icon_theme_14" = "Буква P";
 "icon_theme_15" = "Сложенная нота";
 "icon_theme_16" = "NonoEnd";
+"icon_theme_17" = "Всплеск";
 "lyrics_editor_paste_redo" = "Начать сначала";
 "ai_recommendation_intent_description_label" = "Описание фокуса";
 "META-03 · Custom Source JSON" = "МЕТА-03 · Пользовательский источник JSON";
@@ -1088,7 +1089,6 @@
 "carplay_search_no_results" = "Нет результатов";
 "intent_playing_similar_format" = "Воспроизведение песен, похожих на %@.";
 "source_diag_summary_failed" = "Требует внимания";
-"icon_theme_6" = "Мягкая нота";
 "batch_scrape_start_failed" = "Не удалось запустить пакетное получение метаданных. Повторите попытку через некоторое время.";
 "yearly_meta_closing_sub" = "Продолжайте в том же духе · поделитесь своим отчетом";
 "greeting_evening" = "Добрый вечер";
@@ -3567,7 +3567,7 @@
 "share_song_information_action" = "Поделиться информацией о песне";
 "source_remove_confirm_title" = "Удалить этот источник музыки?";
 "dup_keep_newest" = "Будьте в курсе последних новостей";
-"icon_default" = "Всплеск";
+"icon_default" = "Мягкая нота";
 "relay_share_action" = "Создать ссылку с помощью Private Relay";
 "dup_mac_cleanup_action" = "Очистить дубликаты (перейти к недавно удаленным)";
 "save_then_scan_library_hint" = "Сначала сохраните, затем коснитесь источника, чтобы подключиться и отсканировать весь каталог сервера.";

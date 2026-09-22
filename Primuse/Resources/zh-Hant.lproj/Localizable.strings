@@ -149,7 +149,7 @@
 "theme_color_hex" = "色值";
 "app_icon" = "App 圖示";
 "app_icon_dock_hint" = "macOS 只能在 Primuse 執行時替換 Dock 圖示，結束後 Dock 會顯示 App 套件內建的圖示。";
-"icon_default" = "音浪";
+"icon_default" = "清新音符";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "圖示會跟隨主畫面外觀切換。請長按主畫面空白處，然後選擇「編輯」→「自訂」→「自動」。";
 "icon_theme_12" = "皮卡丘";
@@ -157,7 +157,7 @@
 "icon_theme_14" = "字母 P";
 "icon_theme_15" = "折頁音符";
 "icon_theme_16" = "NonoEnd";
-"icon_theme_6" = "清新音符";
+"icon_theme_17" = "音浪";
 "queue_title" = "播放佇列";
 "queue_empty" = "佇列為空";
 "queue_empty_desc" = "加入歌曲到佇列";

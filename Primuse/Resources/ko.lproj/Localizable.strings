@@ -388,7 +388,7 @@
 "theme_color_hex" = "색상 값";
 "app_icon" = "앱 아이콘";
 "app_icon_dock_hint" = "macOS는 Primuse가 실행 중일 때만 Dock 아이콘을 바꿀 수 있어, 종료하면 Dock은 앱 번들에 들어 있는 아이콘으로 돌아갑니다.";
-"icon_default" = "스플래시";
+"icon_default" = "부드러운 음표";
 "icon_appearance_gray" = "회색";
 "icon_appearance_hint" = "아이콘은 홈 화면 모드를 따릅니다. 홈 화면을 길게 누른 다음 편집 → 사용자화 → 자동을 선택하세요.";
 "icon_theme_12" = "pikaqiu";
@@ -396,7 +396,7 @@
 "icon_theme_14" = "문자 P";
 "icon_theme_15" = "접힌 음표";
 "icon_theme_16" = "NonoEnd";
-"icon_theme_6" = "소프트 노트";
+"icon_theme_17" = "스플래시";
 "queue_title" = "재생 대기열";
 "queue_empty" = "대기열 비어 있음";
 "queue_empty_desc" = "대기열에 곡을 추가하세요";
