@@ -255,6 +255,12 @@ struct PMCard: ViewModifier {
     @Environment(\.pmAppearance) private var mode
     var cornerRadius: CGFloat = PMRadius.l
     var padding: CGFloat? = nil
+    /// 背板本身就不透明时(弹框、抽屉里那种铺在 `PMColor.bg` 上的卡片)玻璃
+    /// 没有可吸的底 —— `ultraThinMaterial` 只剩每帧的模糊开销,几张卡片叠在
+    /// 一个 `ScrollView` 里滑起来就会掉帧。这种位置明确要不透明填充。
+    var overOpaqueBackground = false
+
+    private var usesMaterial: Bool { mode == .glass && overOpaqueBackground == false }
 
     func body(content: Content) -> some View {
         Group {
@@ -267,7 +273,7 @@ struct PMCard: ViewModifier {
         .background {
             ZStack {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(mode == .glass
+                    .fill(usesMaterial
                           ? AnyShapeStyle(Material.ultraThinMaterial)
                           : AnyShapeStyle(PMColor.bgElev))
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -287,9 +293,20 @@ extension View {
         modifier(PMGlass(cornerRadius: cornerRadius, stroke: stroke))
     }
 
-    /// 卡片背景。
-    func pmCard(cornerRadius: CGFloat = PMRadius.l, padding: CGFloat? = nil) -> some View {
-        modifier(PMCard(cornerRadius: cornerRadius, padding: padding))
+    /// 卡片背景。`overOpaqueBackground` 给铺在不透明底上的卡片用(弹框、抽屉):
+    /// 那里玻璃没有可吸的底,省掉模糊既不改观感又省掉每帧开销。
+    func pmCard(
+        cornerRadius: CGFloat = PMRadius.l,
+        padding: CGFloat? = nil,
+        overOpaqueBackground: Bool = false
+    ) -> some View {
+        modifier(
+            PMCard(
+                cornerRadius: cornerRadius,
+                padding: padding,
+                overOpaqueBackground: overOpaqueBackground
+            )
+        )
     }
 
     /// 圆形 / 胶囊控件的玻璃背景。macOS 26 起用系统 Liquid Glass, 更早的系统

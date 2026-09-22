@@ -511,10 +511,17 @@ public struct SynologyQuickConnectResolver: Sendable {
         return nil
     }
 
+    /// 编译一次就够。这个判断在添加音乐源的表单里被每一次界面更新读到
+    /// (`SourceAddressInputPolicy.interpret` 每行地址都问一遍),原来每次调用
+    /// 都重新编译一遍正则。
+    private static let idPattern = try? NSRegularExpression(
+        pattern: "^[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9]$|^[A-Za-z]$"
+    )
+
     private static func validatedID(_ value: String?) -> String? {
         guard let value else { return nil }
         let id = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let regex = try? NSRegularExpression(pattern: "^[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9]$|^[A-Za-z]$"),
+        guard let regex = idPattern,
               regex.firstMatch(in: id, range: NSRange(id.startIndex..., in: id)) != nil else {
             return nil
         }

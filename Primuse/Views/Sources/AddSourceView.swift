@@ -55,6 +55,9 @@ struct AddSourceView: View {
     @State private var autoConnect = false
     @State private var rememberDevice = false
     @State private var isInitialized = false
+    /// 编辑已有源时钥匙串里到底有没有存过密钥。初始化时读一次就够 ——
+    /// 这个答案在表单打开期间不会变,而 `canSave` 是被 body 反复求值的。
+    @State private var editingSourceHasStoredSecret = false
     @State private var showCredentialSaveError = false
     @State private var showSynologyPasswordValidationInfo = false
     @State private var mediaServerCreationTransaction = MediaServerSourceCreationTransaction()
@@ -128,6 +131,28 @@ struct AddSourceView: View {
             : remoteUsesVendor
     }
 
+    /// 钥匙串里有没有这个源的密钥。**不要在 body 里直接查钥匙串** ——
+    /// `SecItemCopyMatching` 是一次同步的 securityd 往返(读不到时还要查两遍,
+    /// 并且不进内存缓存),而这个判断被 `canSave` 带进每一次界面更新里:
+    /// 编辑页上敲一个字、动一下焦点就要敲好几次钥匙串。
+    private func storedSecretExists(for source: MusicSource) -> Bool {
+        guard isInitialized else { return Self.readStoredSecretExists(for: source.id) }
+        return editingSourceHasStoredSecret
+    }
+
+    private static func readStoredSecretExists(for sourceID: String) -> Bool {
+        switch KeychainService.passwordLookup(for: sourceID) {
+        case .found(let secret):
+            return secret.isEmpty == false
+        case .notFound:
+            return false
+        case .temporarilyUnavailable, .failed:
+            // Preserve an existing edit without forcing the user to
+            // overwrite a credential that is merely unreadable right now.
+            return true
+        }
+    }
+
     private var canSave: Bool {
         if sourceType.requiresHost {
             if supportsAdaptiveConnections {
@@ -151,16 +176,7 @@ struct AddSourceView: View {
 
         let hasStoredSecret: Bool
         if let editingSource, editingSource.authType == authType {
-            switch KeychainService.passwordLookup(for: editingSource.id) {
-            case .found(let secret):
-                hasStoredSecret = !secret.isEmpty
-            case .notFound:
-                hasStoredSecret = false
-            case .temporarilyUnavailable, .failed:
-                // Preserve an existing edit without forcing the user to
-                // overwrite a credential that is merely unreadable right now.
-                hasStoredSecret = true
-            }
+            hasStoredSecret = storedSecretExists(for: editingSource)
         } else {
             hasStoredSecret = false
         }
@@ -773,7 +789,7 @@ struct AddSourceView: View {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .pmCard(cornerRadius: 10)
+            .pmCard(cornerRadius: 10, overOpaqueBackground: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1234,6 +1250,7 @@ struct AddSourceView: View {
                 }
             }
             ftpEncryption = s.ftpEncryption ?? .none; nfsVersion = s.nfsVersion ?? .auto
+            editingSourceHasStoredSecret = Self.readStoredSecretExists(for: s.id)
         } else if let device = prefillDevice {
             name = device.name
             host = device.host
