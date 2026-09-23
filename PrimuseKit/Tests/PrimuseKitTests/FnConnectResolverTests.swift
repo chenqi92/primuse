@@ -379,11 +379,61 @@ struct FnConnectResolverTests {
         #expect(await loader.lookupCount == 2)
     }
 
-    private func makeProvider(_ loader: FnConnectDelayedLookup) -> FnMusicEndpointProvider {
+    @Test func rebuiltClientsReuseTheRouteResolvedOnTheSamePath() async throws {
+        let loader = FnConnectDelayedLookup()
+        await loader.completeFutureLookups()
+        let runtime = SourceConnectionRuntime()
+        let memory = FnConnectResolutionMemory()
+        let resolved = try await makeProvider(loader, runtime: runtime, memory: memory).endpoint()
+        #expect(resolved.route == .relay)
+        let rebuilt = try await makeProvider(loader, runtime: runtime, memory: memory).endpoint()
+        #expect(rebuilt == resolved)
+        #expect(await loader.lookupCount == 1)
+
+        // A route failure forgets the shared answer too.
+        let failing = makeProvider(loader, runtime: runtime, memory: memory)
+        _ = try await failing.endpoint()
+        await failing.invalidate()
+        _ = try await makeProvider(loader, runtime: runtime, memory: memory).endpoint()
+        #expect(await loader.lookupCount == 2)
+
+        // A new network path resolves again.
+        await runtime.observeNetworkPath(prefersLocalNetwork: true, pathChanged: true)
+        _ = try await makeProvider(loader, runtime: runtime, memory: memory).endpoint()
+        #expect(await loader.lookupCount == 3)
+    }
+
+    @Test func privateCandidatesAreSkippedDuringTheHandshakeCooldown() async throws {
+        let hosts = FnConnectDiagnosticLog()
+        let resolver = FnConnectResolver(data: { request in
+            let url = try #require(request.url)
+            if url.path == "/api/v1/fn/con" {
+                return FnConnectDelayedLookup.response(request, json:
+                    #"{"code":0,"data":{"ipv4":["192.168.50.20"],"fn":["livingroom-nas.5ddd.com"]}}"#)
+            }
+            hosts.append(url.host ?? "")
+            if url.host == "192.168.50.20" { throw URLError(.timedOut) }
+            if url.path == "/access_code_verify" {
+                return FnConnectDelayedLookup.response(request, json: "", status: 204)
+            }
+            return FnConnectDelayedLookup.response(request, json: #"{"code":200,"data":{}}"#)
+        })
+        let endpoint = try await resolver.resolve("livingroom-nas", skipsLocalCandidates: true)
+        #expect(endpoint.route == .relay)
+        #expect(!hosts.messages.contains("192.168.50.20"))
+    }
+
+    private func makeProvider(
+        _ loader: FnConnectDelayedLookup,
+        runtime: SourceConnectionRuntime = SourceConnectionRuntime(),
+        memory: FnConnectResolutionMemory = FnConnectResolutionMemory()
+    ) -> FnMusicEndpointProvider {
         FnMusicEndpointProvider(
             source: MusicSource(name: "FN", type: .fnMusic, host: "livingroom-nas",
                                 fnMusicConnectionMode: .fnConnect),
-            dataLoader: { try await loader.load($0) }
+            dataLoader: { try await loader.load($0) },
+            runtime: runtime,
+            sharedResolutions: memory
         )
     }
 

@@ -38,6 +38,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private let cacheDirectory: URL
 
     private var accessToken: String?
+    /// Route generation on which the session was last proven.
+    private var verifiedRouteGeneration: UInt64?
     private var userID: String?
     private var loginTask: Task<Void, Error>?
     private var plexItems: [String: PlexAudioItem] = [:]
@@ -170,6 +172,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
     func connect() async throws {
         try Task.checkCancellation()
+        let routeGeneration = await SourceConnectionRuntime.shared.routeGeneration()
         if session == nil {
             session = Self.makeSession(
                 configuration: sessionConfiguration,
@@ -188,11 +191,21 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
         let generation = transportGeneration
         if accessToken != nil, userID != nil {
+            guard SourceSessionRouteValidation.needsRevalidation(
+                verifiedGeneration: verifiedRouteGeneration,
+                currentGeneration: routeGeneration
+            ) else { return }
+            // The network changed under a live session: prove this route with
+            // one small request before the router trusts it again.
+            try await verifyRoute()
+            try checkTransportGeneration(generation)
+            verifiedRouteGeneration = routeGeneration
             return
         }
         if let loginTask {
             try await loginTask.value
             try checkTransportGeneration(generation)
+            verifiedRouteGeneration = routeGeneration
             return
         }
         let task = Task { [weak self] in
@@ -205,6 +218,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
         try await task.value
         try checkTransportGeneration(generation)
+        verifiedRouteGeneration = routeGeneration
+    }
+
+    private func verifyRoute() async throws {
+        if kind == .plex {
+            _ = try await fetchPlexServerInfo()
+        } else if let userID {
+            _ = try await performRequest(path: "/Users/\(userID)/Views")
+        }
     }
 
     private func establishConnection() async throws {

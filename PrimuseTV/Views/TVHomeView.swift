@@ -19,6 +19,17 @@ struct TVHomeView: View {
     @State private var recommendationClockRevision = 0
     @State private var showsRadioAdd = false
     var openPlayer: () -> Void = {}
+    /// 「全部电台」卡片:切到资料库的「电台」。
+    var openRadioLibrary: () -> Void = {}
+
+    /// 首页电台那一排最多放几个台。台多的时候(音乐源镜像动辄上千个)整排一次性构造
+    /// 会很卡,其余的去资料库「电台」里看,那里是懒加载的网格。
+    static let homeRadioLimit = 20
+
+    #if DEBUG
+    /// 截图用的 `radioAdd` 只在首次进首页时打开一次。
+    @MainActor private static var didOpenDebugRadioAdd = false
+    #endif
 
     private var candidateAlbum: TVAlbum? {
         store.albums.first(where: { !store.songs(forAlbum: $0.id).isEmpty })
@@ -141,8 +152,11 @@ struct TVHomeView: View {
                             ? nil
                             : PMString("ext.tv.radio.stationCount", store.radioStations.count)
                     ) {
-                        ForEach(store.radioStations) { station in
+                        ForEach(store.radioStations.prefix(Self.homeRadioLimit)) { station in
                             TVRadioStationCard(station: station, action: openPlayer)
+                        }
+                        if store.radioStations.count > Self.homeRadioLimit {
+                            TVRadioAllStationsCard(count: store.radioStations.count, action: openRadioLibrary)
                         }
                         TVRadioAddCard { showsRadioAdd = true }
                     }
@@ -171,6 +185,14 @@ struct TVHomeView: View {
         .fullScreenCover(isPresented: $showsRadioAdd) {
             TVRadioAddView().environment(store)
         }
+        #if DEBUG
+        .onAppear {
+            if TVDebugLaunch.screen == "radioAdd", !Self.didOpenDebugRadioAdd {
+                Self.didOpenDebugRadioAdd = true
+                showsRadioAdd = true
+            }
+        }
+        #endif
         .task(id: recommendationCandidateRefreshKey) {
             guard intelligence.settingsStore.recommendationsEnabled else {
                 recommendationCandidates = []

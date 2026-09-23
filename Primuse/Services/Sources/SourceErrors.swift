@@ -44,3 +44,23 @@ struct SourceConnectionTerminalError: Error, LocalizedError, Sendable {
     let message: String
     var errorDescription: String? { message }
 }
+
+/// Text for a source failure shown to the listener. A `URLError` built in code
+/// (a timeout race, for example) carries no localized description, and
+/// Foundation then renders it as "NSURLErrorDomain error -1001".
+enum SourceErrorPresentation {
+    static func userFacingDescription(_ error: any Error) -> String {
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return error.localizedDescription }
+        if let described = nsError.userInfo[NSLocalizedDescriptionKey] as? String,
+           !described.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return described
+        }
+        switch URLError.Code(rawValue: nsError.code) {
+        case .timedOut:
+            return String(localized: "error_connection_timeout")
+        default:
+            return String(localized: "playback_error_connection")
+        }
+    }
+}

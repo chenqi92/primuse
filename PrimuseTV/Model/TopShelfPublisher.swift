@@ -72,11 +72,24 @@ enum TopShelfPublisher {
     }
 
     private static func radioItems(from drafts: [RadioDraft]) async -> [TopShelfItem] {
+        // 台标并发取(同时下载数由 TVRadioLogoLoader 限住),逐个等的话 10 个台最坏要两分钟,
+        // 而每次播放、每次电台重载都会触发一次发布。
+        let logos = await withTaskGroup(of: (Int, Data?).self) { group in
+            for (index, draft) in drafts.enumerated() {
+                let station = draft.station
+                group.addTask { (index, await TVRadioLogoLoader.data(for: station)) }
+            }
+            var byIndex: [Int: Data] = [:]
+            for await (index, data) in group {
+                if let data { byIndex[index] = data }
+            }
+            return byIndex
+        }
         var out: [TopShelfItem] = []
-        for d in drafts {
+        for (index, d) in drafts.enumerated() {
             guard !Task.isCancelled else { return [] }
             let station = d.station
-            let logo = await TVRadioLogoLoader.data(for: station)
+            let logo = logos[index]
             let output = logo.flatMap(radioLogoCover)
                 ?? placeholderCover(seed: station.id, symbolName: "radio.fill")
             out.append(TopShelfItem(id: station.id, title: station.name,

@@ -149,6 +149,15 @@
 "ext.tv.radio.delete" = "İstasyonu Sil";
 "ext.tv.radio.deleteConfirm" = "“%@” silinsin mi?";
 "ext.tv.radio.deleteNote" = "iCloud eşzamanlama açıkken bu istasyon diğer aygıtlarınızdan da silinir.";
+"ext.tv.radio.moveEarlier" = "Öne Taşı";
+"ext.tv.radio.moveLater" = "Geriye Taşı";
+"ext.tv.radio.rename" = "Yeniden Adlandır";
+"ext.tv.radio.renameTitle" = "İstasyonu Yeniden Adlandır";
+"ext.tv.radio.allStations" = "Tüm İstasyonlar";
+"ext.tv.radio.ungrouped" = "Klasörsüz";
+"ext.tv.radio.empty" = "Henüz istasyon yok";
+"ext.tv.radio.popular" = "Popüler İstasyonlar";
+"ext.tv.radio.popularIn" = "%@ bölgesinde popüler";
 "ext.tv.home.emptyWithRadio" = "Müziğinizi burada görmek için arşivinizi iPhone veya Mac’ten eşzamanlayın ya da doğrudan internet radyosu istasyonları ekleyin.";
 "ext.tv.settings.notSynced" = "Henüz senkronize edilmedi";
 "error.catalog.missingHTTPResponse" = "Sunucu hiçbir HTTP yanıtı döndürmedi.";

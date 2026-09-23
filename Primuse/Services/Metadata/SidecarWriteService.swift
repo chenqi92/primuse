@@ -120,7 +120,7 @@ actor SidecarWriteService {
                 plog("📁 Sidecar: \(coverFileName) written to \(songDir)")
             } catch {
                 result.coverError = error.localizedDescription
-                result.errors.append("Cover: \(error.localizedDescription)")
+                result.errors.append("Cover: \(SourceErrorPresentation.userFacingDescription(error))")
                 result.sourceUnavailable = Self.isSourceUnavailable(error)
                 // Never pass user-controlled paths or remote error descriptions
                 // to NSLog as the format string. A '%' in either value makes
@@ -153,7 +153,7 @@ actor SidecarWriteService {
                       sidecarData.count <= LyricsSidecarTargetPolicy.maximumContentByteCount else {
                     let error = EmbeddedMetadataWritebackSourceError.remoteVerificationFailed
                     result.lyricsError = error.localizedDescription
-                    result.errors.append("Lyrics: \(error.localizedDescription)")
+                    result.errors.append("Lyrics: \(SourceErrorPresentation.userFacingDescription(error))")
                     return result
                 }
                 let currentPreflight = LyricsPreflightResult(
@@ -184,7 +184,7 @@ actor SidecarWriteService {
                 plog("📁 Sidecar: \(target.fileName) written to \(songDir)")
             } catch {
                 result.lyricsError = error.localizedDescription
-                result.errors.append("Lyrics: \(error.localizedDescription)")
+                result.errors.append("Lyrics: \(SourceErrorPresentation.userFacingDescription(error))")
                 result.sourceUnavailable = Self.isSourceUnavailable(error)
                 plog("⚠️ Sidecar: Failed to write lyrics: \(error)")
             }
@@ -228,7 +228,7 @@ actor SidecarWriteService {
             plog("📁 Sidecar: \(target.fileName) removed")
         } catch {
             result.lyricsError = error.localizedDescription
-            result.errors.append("Lyrics: \(error.localizedDescription)")
+            result.errors.append("Lyrics: \(SourceErrorPresentation.userFacingDescription(error))")
             result.sourceUnavailable = Self.isSourceUnavailable(error)
             plog("⚠️ Sidecar: Failed to remove lyrics: \(error)")
         }

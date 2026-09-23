@@ -134,6 +134,90 @@ public struct SourceRoutePathCondition: Sendable, Equatable {
 
 }
 
+/// What must change about the network path before remembered route verdicts
+/// are thrown away.
+///
+/// `NWPathMonitor` calls back far more often than the path really changes —
+/// a DNS or proxy refresh, a radio waking up, the same interfaces reported
+/// again. Treating every callback as a new network cleared the private-route
+/// cooldowns every few seconds, so a LAN address that could not answer was
+/// handshaked again and again. The app monitor and the kit observer both use
+/// this value, so they agree on when the path changed.
+public struct SourceNetworkPathFingerprint: Hashable, Sendable {
+    public enum Transition: Sendable, Equatable {
+        /// The first path seen by this observer.
+        case initial
+        case unchanged
+        case changed
+    }
+
+    public var status: String
+    /// `type:name` for every available interface, sorted.
+    public var interfaces: [String]
+    /// Gateway endpoints, sorted. Two WLANs on the same interface differ here.
+    public var gateways: [String]
+    public var supportsIPv4: Bool
+    public var supportsIPv6: Bool
+    public var isExpensive: Bool
+    public var isConstrained: Bool
+
+    public init(
+        status: String,
+        interfaces: [String],
+        gateways: [String],
+        supportsIPv4: Bool,
+        supportsIPv6: Bool,
+        isExpensive: Bool,
+        isConstrained: Bool
+    ) {
+        self.status = status
+        self.interfaces = interfaces.sorted()
+        self.gateways = gateways.sorted()
+        self.supportsIPv4 = supportsIPv4
+        self.supportsIPv6 = supportsIPv6
+        self.isExpensive = isExpensive
+        self.isConstrained = isConstrained
+    }
+
+    public static func transition(
+        from previous: SourceNetworkPathFingerprint?,
+        to next: SourceNetworkPathFingerprint
+    ) -> Transition {
+        guard let previous else { return .initial }
+        return previous == next ? .unchanged : .changed
+    }
+
+    /// Log-safe description: interface kinds and flags, never addresses.
+    public func diagnosticSummary(condition: SourceRoutePathCondition) -> String {
+        let kinds = interfaces.map { $0.split(separator: ":", maxSplits: 1).first.map(String.init) ?? $0 }
+        let hasCellular = kinds.contains("cellular")
+        return "status=\(status) class=\(condition.interfaceClass.rawValue) "
+            + "interfaces=\(kinds.isEmpty ? "none" : kinds.joined(separator: ",")) "
+            + "tunnel=\(condition.usesTunnel) cellular=\(hasCellular) "
+            + "cellularOnly=\(condition.underlyingCellularOnly) gateways=\(gateways.count) "
+            + "ipv4=\(supportsIPv4) ipv6=\(supportsIPv6) "
+            + "expensive=\(isExpensive) constrained=\(isConstrained)"
+    }
+}
+
+/// How long a private route that answered TCP but could not finish its
+/// protocol handshake is skipped in favour of a configured alternative.
+///
+/// A VPN or proxy in TUN mode completes the TCP handshake for any private
+/// address on the device itself, so "port open" says nothing about the NAS.
+/// Retrying such a route on every request cost a full handshake budget each
+/// time; the cooldown grows with every consecutive failure and resets as soon
+/// as the private route completes a handshake or the network path changes.
+public enum SourceLocalHandshakeBackoff {
+    public static let schedule: [TimeInterval] = [30, 60, 120, 300]
+
+    /// `consecutiveFailures` counts the failure being recorded, starting at 1.
+    public static func interval(afterConsecutiveFailures consecutiveFailures: Int) -> TimeInterval {
+        let index = min(max(consecutiveFailures, 1), schedule.count) - 1
+        return schedule[index]
+    }
+}
+
 public extension SourceRoutePathCondition {
     init(path: NWPath) {
         let satisfied = path.status == .satisfied
@@ -206,5 +290,37 @@ public enum SourceRouteFailureReason: String, Sendable, Equatable {
             return classify(underlying, depth: depth + 1)
         }
         return .refused
+    }
+}
+
+public extension SourceNetworkPathFingerprint {
+    init(path: NWPath) {
+        let status: String
+        switch path.status {
+        case .satisfied: status = "satisfied"
+        case .unsatisfied: status = "unsatisfied"
+        case .requiresConnection: status = "requiresConnection"
+        @unknown default: status = "unknown"
+        }
+        self.init(
+            status: status,
+            interfaces: path.availableInterfaces.map { "\(Self.typeName($0.type)):\($0.name)" },
+            gateways: path.gateways.map { "\($0)" },
+            supportsIPv4: path.supportsIPv4,
+            supportsIPv6: path.supportsIPv6,
+            isExpensive: path.isExpensive,
+            isConstrained: path.isConstrained
+        )
+    }
+
+    private static func typeName(_ type: NWInterface.InterfaceType) -> String {
+        switch type {
+        case .wifi: return "wifi"
+        case .cellular: return "cellular"
+        case .wiredEthernet: return "wired"
+        case .loopback: return "loopback"
+        case .other: return "other"
+        @unknown default: return "unknown"
+        }
     }
 }

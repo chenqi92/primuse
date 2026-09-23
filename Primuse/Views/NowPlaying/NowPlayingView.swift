@@ -4113,6 +4113,9 @@ struct NowPlayingView: View {
             // 请求结束, 不论它是拿到歌词、拿到空结果还是抛错。
             defer { endLyricsResolution(loadRevision) }
             let tier3Start = Date()
+            // 连接器已解析且不是服务端曲库源时才为 true：此时 sidecar 缺失才是
+            // 「源里确实没有歌词」，首次加载可以进 Tier4 在线兜底。
+            var resolvedPlainSource = false
             do {
                 guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 let connector = try await capturedSourceManager.auxiliaryConnector(for: song)
@@ -4187,6 +4190,8 @@ struct NowPlayingView: View {
                     return
                 }
 
+                resolvedPlainSource = true
+
                 let songDir = (song.filePath as NSString).deletingLastPathComponent
                 let baseName = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
                 let lyricsPath: String
@@ -4214,11 +4219,21 @@ struct NowPlayingView: View {
                 let fetchMs = Date().timeIntervalSince(fetchStart) * 1000
                 guard let lyricsContent = String(data: lyricsData, encoding: .utf8) else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar not utf8 (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
+                    if !isRefresh {
+                        await applyAutomaticOnlineLyrics(
+                            song: song, currentCache: currentCache, loadRevision: loadRevision
+                        )
+                    }
                     return
                 }
                 var parsed = LyricsParser.parse(lyricsContent)
                 guard !parsed.isEmpty else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar empty after parse (connect=%.0fms fetch=%.0fms %dB)", songTitle, connectMs, fetchMs, lyricsData.count))
+                    if !isRefresh {
+                        await applyAutomaticOnlineLyrics(
+                            song: song, currentCache: currentCache, loadRevision: loadRevision
+                        )
+                    }
                     return
                 }
 
@@ -4276,9 +4291,33 @@ struct NowPlayingView: View {
                     plog(String(format: "📜 lyrics refresh '%@' FAILED in %.0fms (cache still shown): %@", songTitle, Date().timeIntervalSince(tier3Start) * 1000, error.localizedDescription))
                 } else {
                     plog(String(format: "📜 loadLyrics '%@' Tier3 FAILED in %.0fms: %@", songTitle, Date().timeIntervalSince(tier3Start) * 1000, error.localizedDescription))
+                    if resolvedPlainSource {
+                        await applyAutomaticOnlineLyrics(
+                            song: song, currentCache: currentCache, loadRevision: loadRevision
+                        )
+                    }
                 }
             }
         }
+    }
+
+    /// Tier4：普通源首次加载确实没有歌词时，自动向在线歌词源取一次（开关、
+    /// 台账与写缓存都在 `LyricsLoader.automaticOnlineLyrics` 里）。
+    private func applyAutomaticOnlineLyrics(
+        song: Song,
+        currentCache: [LyricLine]?,
+        loadRevision: UInt
+    ) async {
+        let songID = song.id
+        guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
+        let start = Date()
+        guard let online = await LyricsLoader.automaticOnlineLyrics(
+            for: song,
+            expectedFingerprint: currentCache.map(LyricsDocumentFingerprint.init(lines:))
+        ), !online.isEmpty else { return }
+        guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
+        plog(String(format: "📜 loadLyrics '%@' Tier4 online OK in %.0fms (%d lines)", song.title, Date().timeIntervalSince(start) * 1000, online.count))
+        setLyrics(online)
     }
 
     /// Parser-generated IDs change on every load; compare the complete stable

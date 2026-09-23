@@ -9,6 +9,8 @@ enum MusicScraperFactory {
             LRCLIBScraper()
         case .itunes:
             ITunesScraper()
+        case .lyricsServer:
+            LyricsAPIServerScraper(servers: LyricsAPIServerSettings.load().servers)
         case .custom(let configId):
             if let scraperConfig = ScraperConfigStore.shared.config(for: configId) {
                 ConfigurableScraper(config: scraperConfig, cookie: config.cookie)

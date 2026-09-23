@@ -465,6 +465,15 @@
 "ext.tv.radio.delete" = "Delete Station";
 "ext.tv.radio.deleteConfirm" = "Delete “%@”?";
 "ext.tv.radio.deleteNote" = "With iCloud sync on, this station is also deleted on your other devices.";
+"ext.tv.radio.moveEarlier" = "Move Earlier";
+"ext.tv.radio.moveLater" = "Move Later";
+"ext.tv.radio.rename" = "Rename";
+"ext.tv.radio.renameTitle" = "Rename Station";
+"ext.tv.radio.allStations" = "All Stations";
+"ext.tv.radio.ungrouped" = "Ungrouped";
+"ext.tv.radio.empty" = "No Stations Yet";
+"ext.tv.radio.popular" = "Popular Stations";
+"ext.tv.radio.popularIn" = "Popular in %@";
 "ext.tv.home.emptyWithRadio" = "Sync your library from iPhone or Mac to see your music here, or add internet radio stations directly.";
 
 // MARK: - Source labels and localized runtime errors

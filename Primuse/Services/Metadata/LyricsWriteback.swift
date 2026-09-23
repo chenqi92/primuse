@@ -309,7 +309,13 @@ enum LyricsWriteback {
         if let cached {
             lines = cached
         } else {
-            lines = await LyricsLoader.load(for: song, sourceManager: sourceManager)
+            // 编辑器只读源里真实存在的歌词：不做 Tier4 在线兜底，否则要多等一轮网络请求，
+            // 且在线歌词会被预填成用户编辑。
+            lines = await LyricsLoader.load(
+                for: song,
+                sourceManager: sourceManager,
+                allowsAutomaticOnlineLyrics: false
+            )
         }
         return EditablePayload(
             text: LyricsContentParser.serialize(lines),
@@ -337,8 +343,8 @@ enum LyricsWriteback {
                 return .sidecar(preflight)
             } catch {
                 return SourceWriteProbeFailure.isTransient(error)
-                    ? .temporarilyUnavailable(error.localizedDescription)
-                    : .unavailable(error.localizedDescription)
+                    ? .temporarilyUnavailable(SourceErrorPresentation.userFacingDescription(error))
+                    : .unavailable(SourceErrorPresentation.userFacingDescription(error))
             }
         }
 
@@ -361,8 +367,8 @@ enum LyricsWriteback {
                 return .localOnly(reason: nil)
             } catch {
                 return SourceWriteProbeFailure.isTransient(error)
-                    ? .temporarilyUnavailable(error.localizedDescription)
-                    : .unavailable(error.localizedDescription)
+                    ? .temporarilyUnavailable(SourceErrorPresentation.userFacingDescription(error))
+                    : .unavailable(SourceErrorPresentation.userFacingDescription(error))
             }
         }
 
@@ -1038,7 +1044,7 @@ enum LyricsWriteback {
                 }
                 return nil
             } catch {
-                return error.localizedDescription
+                return SourceErrorPresentation.userFacingDescription(error)
             }
         case .mediaServer:
             let result = await sourceManager.writeScrapedMetadataToMediaServer(
@@ -1098,7 +1104,7 @@ enum LyricsWriteback {
                 }
                 return nil
             } catch {
-                return error.localizedDescription
+                return SourceErrorPresentation.userFacingDescription(error)
             }
         case .mediaServer:
             let result = await sourceManager.removeLyricsFromMediaServer(for: song)

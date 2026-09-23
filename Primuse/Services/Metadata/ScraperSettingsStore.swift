@@ -6,10 +6,38 @@ struct ScraperSettings: Codable, Sendable {
 
     var sources: [ScraperSourceConfig]
     var onlyFillMissingFields: Bool
+    /// 本地/网盘等普通源确实没有歌词时，播放时自动按启用顺序向在线歌词源取一次。
+    var autoFetchOnlineLyrics: Bool
 
-    init(sources: [ScraperSourceConfig]? = nil, onlyFillMissingFields: Bool = true) {
+    init(
+        sources: [ScraperSourceConfig]? = nil,
+        onlyFillMissingFields: Bool = true,
+        autoFetchOnlineLyrics: Bool = true
+    ) {
         self.sources = sources ?? ScraperSourceConfig.defaultSources()
         self.onlyFillMissingFields = onlyFillMissingFields
+        self.autoFetchOnlineLyrics = autoFetchOnlineLyrics
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sources
+        case onlyFillMissingFields
+        case autoFetchOnlineLyrics
+    }
+
+    /// 旧版本写入的设置没有 autoFetchOnlineLyrics，缺省按开启处理。
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sources = try container.decode([ScraperSourceConfig].self, forKey: .sources)
+        self.onlyFillMissingFields = try container.decode(Bool.self, forKey: .onlyFillMissingFields)
+        self.autoFetchOnlineLyrics = try container.decodeIfPresent(Bool.self, forKey: .autoFetchOnlineLyrics) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sources, forKey: .sources)
+        try container.encode(onlyFillMissingFields, forKey: .onlyFillMissingFields)
+        try container.encode(autoFetchOnlineLyrics, forKey: .autoFetchOnlineLyrics)
     }
 
     static func load(defaults: UserDefaults = .standard) -> ScraperSettings {
@@ -42,7 +70,7 @@ struct ScraperSettings: Codable, Sendable {
             var migrated = settings
             migrated.sources = settings.sources.filter { source in
                 switch source.type {
-                case .musicBrainz, .lrclib, .itunes: true
+                case .musicBrainz, .lrclib, .itunes, .lyricsServer: true
                 case .custom(let id): ScraperConfigStore.shared.exists(id: id)
                 }
             }
@@ -52,7 +80,10 @@ struct ScraperSettings: Codable, Sendable {
                     migrated.sources.append(ScraperSourceConfig(
                         id: UUID().uuidString,
                         type: builtIn,
-                        isEnabled: true,
+                        // v2 时代的内置源都默认开启；歌词服务器是后来加的，按新默认值处理。
+                        isEnabled: builtIn == .lyricsServer
+                            ? ScraperSourceConfig.defaultEnabled(for: builtIn)
+                            : true,
                         priority: migrated.sources.count
                     ))
                 }
@@ -172,6 +203,7 @@ struct ScraperSettings: Codable, Sendable {
 final class ScraperSettingsStore {
     var sources: [ScraperSourceConfig] { didSet { persist() } }
     var onlyFillMissingFields: Bool { didSet { persist() } }
+    var autoFetchOnlineLyrics: Bool { didSet { persist() } }
 
     private let defaults: UserDefaults
     private var suppressPersist = false
@@ -181,6 +213,7 @@ final class ScraperSettingsStore {
         let settings = ScraperSettings.loadPersistingReconciliation(defaults: defaults)
         self.sources = settings.sources.sorted { $0.priority < $1.priority }
         self.onlyFillMissingFields = settings.onlyFillMissingFields
+        self.autoFetchOnlineLyrics = settings.autoFetchOnlineLyrics
 
         CloudKVSSync.shared.register(key: ScraperSettings.defaultsKey) { [weak self] in
             self?.reloadFromDefaults()
@@ -193,6 +226,7 @@ final class ScraperSettingsStore {
         defer { suppressPersist = false }
         sources = settings.sources.sorted { $0.priority < $1.priority }
         onlyFillMissingFields = settings.onlyFillMissingFields
+        autoFetchOnlineLyrics = settings.autoFetchOnlineLyrics
     }
 
     var enabledSources: [ScraperSourceConfig] {
@@ -257,10 +291,15 @@ final class ScraperSettingsStore {
         for i in defaults.indices { defaults[i].priority = i }
         sources = defaults
         onlyFillMissingFields = true
+        autoFetchOnlineLyrics = true
     }
 
     func snapshot() -> ScraperSettings {
-        ScraperSettings(sources: sources, onlyFillMissingFields: onlyFillMissingFields)
+        ScraperSettings(
+            sources: sources,
+            onlyFillMissingFields: onlyFillMissingFields,
+            autoFetchOnlineLyrics: autoFetchOnlineLyrics
+        )
     }
 
     private func persist() {

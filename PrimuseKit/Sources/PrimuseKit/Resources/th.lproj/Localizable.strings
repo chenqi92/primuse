@@ -249,6 +249,15 @@
 "ext.tv.radio.delete" = "ลบสถานี";
 "ext.tv.radio.deleteConfirm" = "ลบ “%@” หรือไม่";
 "ext.tv.radio.deleteNote" = "เมื่อเปิดการซิงค์ iCloud สถานีนี้จะถูกลบจากอุปกรณ์อื่นของคุณด้วย";
+"ext.tv.radio.moveEarlier" = "ย้ายไปข้างหน้า";
+"ext.tv.radio.moveLater" = "ย้ายไปข้างหลัง";
+"ext.tv.radio.rename" = "เปลี่ยนชื่อ";
+"ext.tv.radio.renameTitle" = "เปลี่ยนชื่อสถานี";
+"ext.tv.radio.allStations" = "สถานีทั้งหมด";
+"ext.tv.radio.ungrouped" = "ไม่มีโฟลเดอร์";
+"ext.tv.radio.empty" = "ยังไม่มีสถานี";
+"ext.tv.radio.popular" = "สถานียอดนิยม";
+"ext.tv.radio.popularIn" = "ยอดนิยมใน%@";
 "ext.tv.home.emptyWithRadio" = "ซิงค์คลังเพลงจาก iPhone หรือ Mac เพื่อดูเพลงของคุณที่นี่ หรือเพิ่มสถานีวิทยุอินเทอร์เน็ตได้โดยตรง";
 "ext.tv.radio.stationCount" = "%d สถานี";
 "ext.tv.radio.stop" = "หยุด";

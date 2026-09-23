@@ -2572,6 +2572,8 @@ private struct MacSTScrapingView: View {
     @AppStorage(MusicScraperService.sidecarWriteTimeoutKey) private var sidecarWriteTimeout = 30.0
     @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
     @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
+    @State private var showLyricsServersSheet = false
+    @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
         MacSTSection(Lz("Scraping Sources"), hint: Lz("META-01 · Drag to Reorder · Higher Items Take Priority")) {
@@ -2585,7 +2587,8 @@ private struct MacSTScrapingView: View {
                         move: { offsets, destination in
                             scraperSettings.reorderSources(fromOffsets: offsets, toOffset: destination)
                         },
-                        remove: { scraperSettings.removeCustomSource(id: source.id) }
+                        remove: { scraperSettings.removeCustomSource(id: source.id) },
+                        configure: source.type == .lyricsServer ? { showLyricsServersSheet = true } : nil
                     )
                 }
             }
@@ -2610,6 +2613,13 @@ private struct MacSTScrapingView: View {
                     ))
                 }
                 .settingsAnchor("scraping.onlyMissing")
+                MacSTRow(Lz("Auto-Fetch Online Lyrics"), hint: Lz("When a song has no lyrics locally or in its source, ask the enabled lyrics sources once")) {
+                    MacSTToggle(isOn: Binding(
+                        get: { scraperSettings.autoFetchOnlineLyrics },
+                        set: { scraperSettings.autoFetchOnlineLyrics = $0 }
+                    ))
+                }
+                .settingsAnchor("scraping.autoOnlineLyrics")
                 MacSTRow(Lz("Enabled Sources")) {
                     MacSTInfoText(text: "\(scraperSettings.enabledSources.count) / \(scraperSettings.sources.count)")
                     MacSTButton(title: Lz("Restore Defaults"), destructive: true) {
@@ -2691,6 +2701,9 @@ private struct MacSTScrapingView: View {
         }
         .sheet(isPresented: $showImportSheet) {
             importScraperSheet
+        }
+        .sheet(isPresented: $showLyricsServersSheet) {
+            MacLyricsAPIServersSheet(player: player) { showLyricsServersSheet = false }
         }
     }
 
@@ -2785,6 +2798,370 @@ private struct MacSTScrapingView: View {
         }
     }
 
+}
+
+// MARK: Lyrics API servers
+
+/// 「歌词 API 服务」的地址管理。地址和 Authorization 在行内直接改，提交 / 失焦时写回；
+/// 列表顺序就是请求顺序。
+private struct MacLyricsAPIServersSheet: View {
+    let player: AudioPlayerService
+    let onDone: () -> Void
+
+    @State private var store = LyricsAPIServerStore.shared
+    @State private var newAddress = ""
+    @State private var newAuthorization = ""
+    @State private var showsNewAddressError = false
+
+    private var canAddNewAddress: Bool {
+        LyricsAPIServerPolicy.normalizedAddress(newAddress) != nil
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(store.servers.enumerated()), id: \.element.id) { index, server in
+                        MacLyricsAPIServerRow(
+                            server: server,
+                            index: index,
+                            count: store.servers.count,
+                            store: store,
+                            player: player
+                        )
+                    }
+                    newAddressRow
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+            }
+            .frame(maxHeight: .infinity)
+
+            footer
+        }
+        .frame(minWidth: 560, minHeight: 360)
+        .background(PMColor.bg)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 14) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+                    .frame(width: 34, height: 34)
+                    .background(PMColor.brand.opacity(0.14), in: .rect(cornerRadius: 8))
+                Text(verbatim: Lz("Lyrics API Servers"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                Button(action: onDone) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(PMColor.textMuted)
+                        .frame(width: 26, height: 26)
+                        .background(PMColor.glassBtn, in: .circle)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            Text(verbatim: Lz("Requests go to each address in order with title, artist, album and duration; the first server that returns lyrics wins. You configure and are responsible for these addresses."))
+                .font(PMFont.caption)
+                .foregroundStyle(PMColor.textMuted)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    /// 列表末尾的空白行：填好地址后回车或点「添加地址」才进入列表。
+    private var newAddressRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(width: 16)
+                MacLyricsServerField(
+                    text: $newAddress,
+                    prompt: "https://example.com/lyrics",
+                    monospaced: true
+                )
+                .onSubmit { addNewAddress() }
+                MacLyricsServerField(
+                    text: $newAuthorization,
+                    prompt: Lz("Authorization header (optional)"),
+                    monospaced: false
+                )
+                .frame(width: 170)
+                .onSubmit { addNewAddress() }
+            }
+            if showsNewAddressError {
+                Text(verbatim: Lz("Address must start with http:// or https://"))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.bad)
+                    .padding(.leading, 24)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(PMColor.bgElev.opacity(0.6), in: .rect(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, style: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+        }
+        .onChange(of: newAddress) { _, _ in showsNewAddressError = false }
+    }
+
+    private var footer: some View {
+        HStack {
+            MacSTButton(title: Lz("Add Address"), systemImage: "plus") { addNewAddress() }
+                .disabled(!canAddNewAddress)
+            Spacer()
+            MacSTButton(title: Lz("Done"), prominent: true, action: onDone)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 56)
+        .overlay(alignment: .top) {
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+        }
+    }
+
+    private func addNewAddress() {
+        guard let normalized = LyricsAPIServerPolicy.normalizedAddress(newAddress) else {
+            showsNewAddressError = !newAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return
+        }
+        let authorization = newAuthorization.trimmingCharacters(in: .whitespacesAndNewlines)
+        if store.add(address: normalized, authorization: authorization.isEmpty ? nil : authorization) {
+            newAddress = ""
+            newAuthorization = ""
+            showsNewAddressError = false
+        }
+    }
+}
+
+private struct MacLyricsAPIServerRow: View {
+    let server: LyricsAPIServer
+    let index: Int
+    let count: Int
+    let store: LyricsAPIServerStore
+    let player: AudioPlayerService
+
+    private enum Field: Hashable { case address, authorization }
+
+    @FocusState private var focusedField: Field?
+    @State private var addressDraft: String
+    @State private var authorizationDraft: String
+    @State private var showsInvalidAddress = false
+    @State private var probeResult: LyricsAPIServerProbeResult?
+    @State private var isProbing = false
+    @State private var probeTask: Task<Void, Never>?
+
+    init(server: LyricsAPIServer, index: Int, count: Int, store: LyricsAPIServerStore, player: AudioPlayerService) {
+        self.server = server
+        self.index = index
+        self.count = count
+        self.store = store
+        self.player = player
+        _addressDraft = State(initialValue: server.address)
+        _authorizationDraft = State(initialValue: server.authorization ?? "")
+    }
+
+    private var normalizedDraftAddress: String? {
+        LyricsAPIServerPolicy.normalizedAddress(addressDraft)
+    }
+
+    private var trimmedAuthorizationDraft: String? {
+        let value = authorizationDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(verbatim: "\(index + 1)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(width: 16)
+                MacLyricsServerField(
+                    text: $addressDraft,
+                    prompt: "https://example.com/lyrics",
+                    monospaced: true
+                )
+                .focused($focusedField, equals: .address)
+                .onSubmit { commit() }
+                MacLyricsServerField(
+                    text: $authorizationDraft,
+                    prompt: Lz("Authorization header (optional)"),
+                    monospaced: false
+                )
+                .frame(width: 170)
+                .focused($focusedField, equals: .authorization)
+                .onSubmit { commit() }
+
+                HStack(spacing: 4) {
+                    iconButton("chevron.up", help: Lz("Move Up")) {
+                        commit()
+                        store.move(fromOffsets: IndexSet(integer: index), toOffset: index - 1)
+                    }
+                    .disabled(index == 0)
+                    iconButton("chevron.down", help: Lz("Move Down")) {
+                        commit()
+                        store.move(fromOffsets: IndexSet(integer: index), toOffset: index + 2)
+                    }
+                    .disabled(index >= count - 1)
+                    iconButton("trash", help: Lz("Delete"), tint: PMColor.bad) {
+                        probeTask?.cancel()
+                        store.remove(id: server.id)
+                    }
+                }
+
+                MacSTButton(title: Lz("Test")) { runProbe() }
+                    .disabled(player.currentSong == nil || normalizedDraftAddress == nil || isProbing)
+                    .help(player.currentSong == nil ? Lz("Play a song to test with it") : "")
+            }
+
+            if showsInvalidAddress {
+                Text(verbatim: Lz("Address must start with http:// or https://"))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.bad)
+                    .padding(.leading, 24)
+            }
+            if isProbing {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.leading, 24)
+            } else if let probeResult {
+                probeResultText(probeResult)
+                    .padding(.leading, 24)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(PMColor.bgElev, in: .rect(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .onChange(of: focusedField) { oldValue, newValue in
+            // 失焦（或在同一行两个输入框之间切换）时写回。
+            if oldValue != nil, oldValue != newValue { commit() }
+        }
+        .onChange(of: server) { _, newValue in
+            // 别处改了这条（比如 iCloud 同步）且用户没在编辑时，跟上新值。
+            guard focusedField == nil else { return }
+            addressDraft = newValue.address
+            authorizationDraft = newValue.authorization ?? ""
+            showsInvalidAddress = false
+        }
+        .onDisappear { probeTask?.cancel() }
+    }
+
+    private func iconButton(_ systemImage: String, help: String, tint: Color = PMColor.textMuted, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 24, height: 24)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: 5))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    @ViewBuilder
+    private func probeResultText(_ result: LyricsAPIServerProbeResult) -> some View {
+        switch result {
+        case .found(let lineCount):
+            resultLabel(String(format: String(localized: "lyrics_server_test_ok_format"), lineCount),
+                        systemImage: "checkmark.circle.fill", color: PMColor.ok)
+        case .notFound:
+            resultLabel(String(localized: "lyrics_server_test_not_found"),
+                        systemImage: "questionmark.circle", color: PMColor.textMuted)
+        case .failed(let message):
+            resultLabel(String(format: String(localized: "lyrics_server_test_failed_format"), message),
+                        systemImage: "exclamationmark.triangle.fill", color: PMColor.warn)
+        }
+    }
+
+    private func resultLabel(_ text: String, systemImage: String, color: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10.5, weight: .semibold))
+            Text(verbatim: text)
+                .font(.system(size: 11))
+                .lineLimit(2)
+                .textSelection(.enabled)
+        }
+        .foregroundStyle(color)
+    }
+
+    /// 地址非法时只提示不写回，列表里保留上一次的合法值。
+    private func commit() {
+        guard let normalized = normalizedDraftAddress else {
+            showsInvalidAddress = true
+            return
+        }
+        showsInvalidAddress = false
+        let authorization = trimmedAuthorizationDraft
+        guard normalized != server.address || authorization != server.authorization else { return }
+        store.update(id: server.id, address: normalized, authorization: authorization)
+    }
+
+    private func runProbe() {
+        guard let song = player.currentSong, let normalized = normalizedDraftAddress else { return }
+        // 用输入框里的内容临时拼一个服务，不必先写回。
+        let probeServer = LyricsAPIServer(id: server.id, address: normalized, authorization: trimmedAuthorizationDraft)
+        let title = song.title
+        let artist = song.artistName
+        let album = song.albumTitle
+        let duration: TimeInterval? = song.duration > 0 ? song.duration : nil
+        probeTask?.cancel()
+        probeResult = nil
+        isProbing = true
+        probeTask = Task {
+            let result = await LyricsAPIServerScraper.probe(
+                server: probeServer,
+                title: title,
+                artist: artist,
+                album: album,
+                duration: duration
+            )
+            guard !Task.isCancelled else { return }
+            probeResult = result
+            isProbing = false
+        }
+    }
+}
+
+private struct MacLyricsServerField: View {
+    @Binding var text: String
+    let prompt: String
+    let monospaced: Bool
+
+    var body: some View {
+        TextField("", text: $text, prompt: Text(verbatim: prompt))
+            .textFieldStyle(.plain)
+            .font(.system(size: 12, design: monospaced ? .monospaced : .default))
+            .foregroundStyle(PMColor.text)
+            .autocorrectionDisabled()
+            .padding(.horizontal, 9)
+            .frame(height: 24)
+            .frame(maxWidth: .infinity)
+            .background(PMColor.bg, in: .rect(cornerRadius: 5))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(PMColor.dividerStrong, lineWidth: 0.5)
+            }
+    }
 }
 
 private struct MacScraperImportSheet: View {
@@ -3278,6 +3655,7 @@ private struct MacScraperSourceRow: View {
     @Binding var isEnabled: Bool
     let move: (IndexSet, Int) -> Void
     let remove: () -> Void
+    var configure: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 10) {
@@ -3308,6 +3686,9 @@ private struct MacScraperSourceRow: View {
                         .tracking(0.5)
                         .foregroundStyle(PMColor.textFaint)
                 }
+                if source.type == .lyricsServer {
+                    MacSTBadge(text: lyricsServerCountText, color: PMColor.textMuted)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -3317,7 +3698,9 @@ private struct MacScraperSourceRow: View {
                 }
             }
 
-            if !source.type.isBuiltIn {
+            if source.type == .lyricsServer, configure != nil {
+                MacSTButton(title: Lz("Configure"), systemImage: "slider.horizontal.3") { configure?() }
+            } else if !source.type.isBuiltIn {
                 MacSTButton(title: Lz("Delete"), destructive: true, action: remove)
             }
 
@@ -3329,6 +3712,15 @@ private struct MacScraperSourceRow: View {
         .overlay {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+    }
+
+    private var lyricsServerCountText: String {
+        let count = LyricsAPIServerStore.shared.servers.count
+        switch count {
+        case 0: return Lz("No addresses")
+        case 1: return Lz("1 address")
+        default: return Lz("\(count) addresses")
         }
     }
 

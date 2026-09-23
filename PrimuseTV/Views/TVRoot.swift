@@ -181,8 +181,13 @@ struct TVRoot: View {
         let initialTab: Tab
         #if DEBUG
         // 截图预览用:SIMCTL_CHILD_TV_SCREEN=<tab> 直接进入指定页。
+        // 电台三页(radioHome / radioAdd / radioLibrary)配合 TV_DEMO_RADIO=1 注入演示电台。
         switch TVDebugLaunch.screen {
         case "library": initialTab = .library
+        case "radioLibrary":
+            initialTab = .library
+            _libraryFilter = State(initialValue: .radio)
+        case "radioHome", "radioAdd": initialTab = .home
         case "playlists": initialTab = .playlists
         case "sources", "sourcePicker", "sourceForm", "credentials", "otp", "scan", "recycleBin":
             initialTab = .sources
@@ -347,7 +352,13 @@ struct TVRoot: View {
     private var content: some View {
         switch tab {
         case .home:
-            TVHomeView(openPlayer: { tab = .nowPlaying })
+            TVHomeView(
+                openPlayer: { tab = .nowPlaying },
+                openRadioLibrary: {
+                    libraryFilter = .radio
+                    tab = .library
+                }
+            )
         case .library:
             TVLibraryView(
                 openPlayer: { tab = .nowPlaying },

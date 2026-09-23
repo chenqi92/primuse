@@ -54,6 +54,43 @@ public enum SourceNetworkFailurePolicy {
         }
     }
 
+    /// Endpoints that can still speak for a source's reachability. A private
+    /// route inside its handshake cooldown has already shown that a TCP answer
+    /// on this path does not reach the service — a VPN or proxy can complete
+    /// that handshake on the device itself — so only the other routes decide.
+    public static func availabilityEndpoints(
+        _ candidates: [SourceConnectionCandidate],
+        localRouteBackedOff: Bool
+    ) -> [SourceConnectionEndpoint?] {
+        guard localRouteBackedOff,
+              candidates.contains(where: { $0.kind != .localAddress }) else {
+            return candidates.map(\.endpoint)
+        }
+        return candidates.filter { $0.kind != .localAddress }.map(\.endpoint)
+    }
+
+    /// A handshake that reached a port and then stalled or broke: a timeout,
+    /// a dropped connection, a failed TLS negotiation, or any transport
+    /// failure. Trust decisions, authentication and cancellation are not.
+    public static func isStalledHandshake(_ error: any Error) -> Bool {
+        if isNetworkFailure(error) { return true }
+        return containsURLErrorCode(
+            error,
+            codes: [URLError.Code.secureConnectionFailed.rawValue, URLError.Code.networkConnectionLost.rawValue],
+            depth: 0
+        )
+    }
+
+    private static func containsURLErrorCode(_ error: any Error, codes: Set<Int>, depth: Int) -> Bool {
+        guard depth < 8, !(error is CancellationError) else { return false }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, codes.contains(nsError.code) { return true }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? any Error {
+            return containsURLErrorCode(underlying, codes: codes, depth: depth + 1)
+        }
+        return false
+    }
+
     public static func isNetworkFailure(_ error: any Error) -> Bool {
         classify(error, depth: 0)
     }
@@ -94,5 +131,21 @@ public enum SourceNetworkFailurePolicy {
         [ENETDOWN, ENETUNREACH, ENETRESET, ECONNABORTED, ECONNRESET,
          ENOTCONN, ETIMEDOUT, ECONNREFUSED, EHOSTDOWN, EHOSTUNREACH, EPIPE]
             .contains { Int($0) == code }
+    }
+}
+
+/// When an already signed-in connector must prove its route again.
+///
+/// A server connector keeps its session across a network change, so its
+/// `connect()` used to return at once. The router then trusted a private
+/// route that a VPN or proxy answered on the device, and every request waited
+/// out its full timeout. After the path changes, one lightweight request
+/// inside `connect()` lets the router's handshake deadline catch that route.
+public enum SourceSessionRouteValidation {
+    /// - Parameter verifiedGeneration: the `SourceConnectionRuntime`
+    ///   route generation of the last successful sign-in or check; `nil` when
+    ///   none has been recorded.
+    public static func needsRevalidation(verifiedGeneration: UInt64?, currentGeneration: UInt64) -> Bool {
+        verifiedGeneration != currentGeneration
     }
 }

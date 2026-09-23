@@ -209,10 +209,13 @@ enum LyricsLoader {
         }
     }
 
+    /// - Parameter allowsAutomaticOnlineLyrics: 普通源确实没有歌词时是否允许 Tier4 自动在线兜底。
+    ///   播放类调用保持默认；歌词编辑器打开时传 false，免得多等一轮网络请求、把在线歌词预填成用户编辑。
     static func load(
         for song: Song,
         sourceManager: SourceManager,
-        sourceType: MusicSourceType? = nil
+        sourceType: MusicSourceType? = nil,
+        allowsAutomaticOnlineLyrics: Bool = true
     ) async -> [LyricLine] {
         if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
             guard !Task.isCancelled else { return [] }
@@ -271,6 +274,9 @@ enum LyricsLoader {
             return resolved
         }
 
+        // 连接器已解析且不是服务端曲库源时才为 true：只有这种情况下「源里没有歌词」
+        // 才是可信结论，可以进入 Tier4 在线兜底。连不上源不算。
+        var resolvedPlainSource = false
         do {
             let connector = try await sourceManager.auxiliaryConnector(for: song)
             guard !Task.isCancelled else { return [] }
@@ -341,10 +347,16 @@ enum LyricsLoader {
                 }
             }
 
+            let isPlainSource = allowsAutomaticOnlineLyrics && !(connector is ServerLyricsConnector)
+            resolvedPlainSource = isPlainSource
+
             guard let lyricsFile = try await authoritativeLyricsFile(
                 for: song,
                 connector: connector
-            ) else { return [] }
+            ) else {
+                if isPlainSource { return await automaticOnlineFallback(for: song) }
+                return []
+            }
             let cacheSnapshot = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)
             let lyricsData = try await connector.fetchRange(
                 path: lyricsFile.path,
@@ -355,6 +367,7 @@ enum LyricsLoader {
             guard !Task.isCancelled,
                   lyricsData.count == Int(lyricsFile.size) else { return [] }
             guard let lyricsContent = String(data: lyricsData, encoding: .utf8) else {
+                if isPlainSource { return await automaticOnlineFallback(for: song) }
                 return []
             }
             var parsed = LyricsParser.parse(lyricsContent)
@@ -388,7 +401,21 @@ enum LyricsLoader {
             }
         } catch {
             guard !Task.isCancelled else { return [] }
-            // No .lrc — quietly return empty.
+            // No .lrc — quietly return empty (after the Tier4 online attempt below).
+        }
+        if resolvedPlainSource {
+            return await automaticOnlineFallback(for: song)
+        }
+        plog("📜 LyricsLoader '\(song.title)' empty")
+        return []
+    }
+
+    /// 普通源确实没有歌词时的最后一站：Tier4 在线兜底，拿不到就按原样返回空。
+    private static func automaticOnlineFallback(for song: Song) async -> [LyricLine] {
+        if let online = await automaticOnlineLyrics(for: song, expectedFingerprint: nil) {
+            guard !Task.isCancelled else { return [] }
+            logLoaded(online, song: song, tier: "Tier4-online")
+            return online
         }
         plog("📜 LyricsLoader '\(song.title)' empty")
         return []
@@ -544,5 +571,75 @@ enum LyricsLoader {
             translation: translation,
             languageCode: languageCode
         ) ?? primary
+    }
+}
+
+// MARK: - Tier4: 普通源的自动在线歌词兜底
+
+/// 同一进程内，每首歌 6 小时只自动问一次在线歌词，避免没歌词的歌每次播放都打一轮网络请求。手动刮削不经过这里。
+actor AutomaticOnlineLyricsLedger {
+    static let shared = AutomaticOnlineLyricsLedger()
+
+    private static let cooldown: TimeInterval = 6 * 60 * 60
+    private static let pruneThreshold = 2048
+
+    private var lastAttempt: [String: Date] = [:]
+
+    /// 最近 6 小时没问过就登记并返回 true；问过返回 false。
+    func shouldAttempt(songID: String) -> Bool {
+        let now = Date()
+        if let previous = lastAttempt[songID],
+           now.timeIntervalSince(previous) < Self.cooldown {
+            return false
+        }
+        lastAttempt[songID] = now
+        if lastAttempt.count > Self.pruneThreshold {
+            lastAttempt = lastAttempt.filter { now.timeIntervalSince($0.value) < Self.cooldown }
+        }
+        return true
+    }
+}
+
+extension LyricsLoader {
+    /// Tier4：本地/网盘等普通源确实没有歌词时，按启用顺序向在线歌词源取一次并写入缓存。
+    /// 开关关、没有启用的歌词源、台账说最近问过、任务被取消 → nil。
+    static func automaticOnlineLyrics(
+        for song: Song,
+        expectedFingerprint: LyricsDocumentFingerprint?
+    ) async -> [LyricLine]? {
+        guard !Task.isCancelled else { return nil }
+        let settings = ScraperSettings.load()
+        guard settings.autoFetchOnlineLyrics else { return nil }
+        let hasLyricsServers = !LyricsAPIServerSettings.load().servers.isEmpty
+        let hasUsableLyricsSource = settings.enabledSources.contains { config in
+            guard config.type.supportsLyrics else { return false }
+            // 歌词服务器源开着但一个地址都没填，等于没有。
+            if config.type == .lyricsServer { return hasLyricsServers }
+            return true
+        }
+        guard hasUsableLyricsSource else { return nil }
+        guard await AutomaticOnlineLyricsLedger.shared.shouldAttempt(songID: song.id) else { return nil }
+        guard !Task.isCancelled else { return nil }
+
+        guard let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
+            title: song.title,
+            artist: song.artistName,
+            album: song.albumTitle,
+            duration: song.duration > 0 ? song.duration : nil
+        ), !online.isEmpty else { return nil }
+        guard !Task.isCancelled else { return nil }
+
+        let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+            online,
+            forSongID: song.id,
+            expectedFingerprint: expectedFingerprint,
+            force: false
+        )
+        if wrote { return online }
+        // 并发的编辑/刮削写入赢了：以最新缓存为准，不覆盖它。
+        guard let latest = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
+              !latest.isEmpty
+        else { return nil }
+        return latest
     }
 }

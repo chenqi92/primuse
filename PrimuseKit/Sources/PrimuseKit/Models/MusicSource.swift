@@ -1169,6 +1169,14 @@ public actor SourceConnectionRuntime {
     /// what made a Tailscale address look permanently unreachable.
     public static let localTimeoutRetryInterval: TimeInterval = 8
     private var rejectedLocalSources: [String: Date] = [:]
+    /// Private routes that accepted TCP and then could not finish their
+    /// protocol handshake on this path, with the consecutive-failure count that
+    /// sizes the next cooldown (`SourceLocalHandshakeBackoff`). Shared by every
+    /// connector instance of a source: playback, scanning and write-back
+    /// connectors are separate routers and must not each pay for the same
+    /// dead private route.
+    private var localHandshakeFailureCounts: [String: Int] = [:]
+    private var localHandshakeBackoffUntil: [String: Date] = [:]
     private var observedCondition: SourceRoutePathCondition?
     private var generation: UInt64 = 0
 
@@ -1220,6 +1228,9 @@ public actor SourceConnectionRuntime {
         let remoteKind = availableKinds.first { $0 != .localAddress }
 
         if prefersLocalNetwork, let localKind {
+            if let remoteKind, isLocalRouteBackedOff(for: sourceID, now: now) {
+                return activeKind.flatMap { $0 == localKind ? nil : $0 } ?? remoteKind
+            }
             if activeKind == localKind { return localKind }
             if let retryAt = rejectedLocalSources[sourceID], now < retryAt {
                 return activeKind ?? remoteKind ?? localKind
@@ -1242,7 +1253,40 @@ public actor SourceConnectionRuntime {
         activeKinds[sourceID] = kind
         if kind == .localAddress {
             rejectedLocalSources.removeValue(forKey: sourceID)
+            localHandshakeFailureCounts.removeValue(forKey: sourceID)
+            localHandshakeBackoffUntil.removeValue(forKey: sourceID)
         }
+    }
+
+    /// The private route answered (or seemed to answer) TCP but its protocol
+    /// handshake timed out, dropped or failed TLS while an alternative route
+    /// exists. Callers only report this when the source has an alternative;
+    /// a LAN-only source must keep trying its one route.
+    /// - Returns: the cooldown that was applied.
+    @discardableResult
+    public func recordLocalHandshakeFailure(
+        for sourceID: String,
+        now: Date = Date()
+    ) -> TimeInterval {
+        let failures = (localHandshakeFailureCounts[sourceID] ?? 0) + 1
+        localHandshakeFailureCounts[sourceID] = failures
+        let interval = SourceLocalHandshakeBackoff.interval(afterConsecutiveFailures: failures)
+        let until = now.addingTimeInterval(interval)
+        localHandshakeBackoffUntil[sourceID] = max(localHandshakeBackoffUntil[sourceID] ?? until, until)
+        if activeKinds[sourceID] == .localAddress {
+            activeKinds.removeValue(forKey: sourceID)
+        }
+        return interval
+    }
+
+    /// Whether the private route is inside a handshake cooldown on this path.
+    public func isLocalRouteBackedOff(for sourceID: String, now: Date = Date()) -> Bool {
+        guard let until = localHandshakeBackoffUntil[sourceID] else { return false }
+        return now < until
+    }
+
+    public func localHandshakeFailureCount(for sourceID: String) -> Int {
+        localHandshakeFailureCounts[sourceID] ?? 0
     }
 
     /// Retires a route after a transport failure. A failed private endpoint is
@@ -1276,6 +1320,8 @@ public actor SourceConnectionRuntime {
         guard pathChanged else { return }
         activeKinds.removeAll()
         rejectedLocalSources.removeAll()
+        localHandshakeFailureCounts.removeAll()
+        localHandshakeBackoffUntil.removeAll()
         generation &+= 1
     }
 
@@ -1303,11 +1349,15 @@ public actor SourceConnectionRuntime {
     public func invalidate(sourceID: String) {
         activeKinds.removeValue(forKey: sourceID)
         rejectedLocalSources.removeValue(forKey: sourceID)
+        localHandshakeFailureCounts.removeValue(forKey: sourceID)
+        localHandshakeBackoffUntil.removeValue(forKey: sourceID)
     }
 
     public func invalidateAll() {
         activeKinds.removeAll()
         rejectedLocalSources.removeAll()
+        localHandshakeFailureCounts.removeAll()
+        localHandshakeBackoffUntil.removeAll()
         generation &+= 1
     }
 
@@ -1322,7 +1372,7 @@ private final class SourceConnectionNetworkObserver: @unchecked Sendable {
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.primuse.connection-routes.network")
     private let lock = NSLock()
-    private var receivedInitialPath = false
+    private var lastFingerprint: SourceNetworkPathFingerprint?
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -1332,18 +1382,23 @@ private final class SourceConnectionNetworkObserver: @unchecked Sendable {
     }
 
     private func handle(_ path: NWPath) {
+        // Only a material change (interfaces, gateways, address families,
+        // cost) is a new network. Repeated callbacks for the same path used to
+        // wipe every route verdict every few seconds.
+        let fingerprint = SourceNetworkPathFingerprint(path: path)
         lock.lock()
-        let pathChanged = receivedInitialPath
-        receivedInitialPath = true
+        let transition = SourceNetworkPathFingerprint.transition(from: lastFingerprint, to: fingerprint)
+        lastFingerprint = fingerprint
         lock.unlock()
+        let pathChanged = transition == .changed
 
         // Interface types cannot tell a tunnel that reaches the user's NAS from
         // one that does not, so the condition is carried whole and the router
         // proves the routes by probing them concurrently.
         let condition = SourceRoutePathCondition(path: path)
         // Do not collapse two Wi-Fi paths merely because both are unmetered
-        // IPv4: moving from one WLAN to another must make the next operation
-        // prove the LAN service again.
+        // IPv4: moving from one WLAN to another changes the gateways, and the
+        // next operation must prove the LAN service again.
         Task {
             await SourceConnectionRuntime.shared.observeNetworkPath(
                 condition: condition,
