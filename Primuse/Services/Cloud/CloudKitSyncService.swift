@@ -138,7 +138,8 @@ final class CloudKitSyncService {
                 return Self.zoneID
             }
         }
-        return Self.familyZoneID
+        // participant 写到所有者的共享 zone; 所有者写自己的 PrimuseFamily。
+        return participantSharedZoneID ?? Self.familyZoneID
     }
 
     /// Singleton ID used for the playback-history record (one per user).
@@ -402,6 +403,31 @@ final class CloudKitSyncService {
         set { UserDefaults.standard.set(newValue, forKey: "primuse.familySharing.isParticipant") }
     }
 
+    /// participant 接受的那个 zone: zone 名是所有者的 PrimuseFamily, ownerName 是所有者
+    /// 的 CloudKit 用户记录名。participant 的共享写入必须落到这个 zone(经
+    /// sharedCloudDatabase), 而不是自己私有库里同名的 zone —— 以前就是写错了地方,
+    /// 所有者永远看不到参与者的改动。
+    @MainActor
+    private static var participantSharedZoneID: CKRecordZone.ID? {
+        get {
+            guard let name = UserDefaults.standard.string(forKey: "primuse.familySharing.sharedZoneName"),
+                  let owner = UserDefaults.standard.string(forKey: "primuse.familySharing.sharedZoneOwner") else {
+                return nil
+            }
+            return CKRecordZone.ID(zoneName: name, ownerName: owner)
+        }
+        set {
+            UserDefaults.standard.set(newValue?.zoneName, forKey: "primuse.familySharing.sharedZoneName")
+            UserDefaults.standard.set(newValue?.ownerName, forKey: "primuse.familySharing.sharedZoneOwner")
+        }
+    }
+
+    /// 某个 zone 的记录该由哪个引擎上传: participant 的共享 zone 走 sharedEngine, 其余走私有引擎。
+    private func engine(for zoneID: CKRecordZone.ID) -> CKSyncEngine? {
+        if let shared = Self.participantSharedZoneID, zoneID == shared { return sharedEngine }
+        return engine
+    }
+
     /// Owner 启用家庭共享 ── 在 family zone 建一个 holder record + CKShare,
     /// 返回 CKShare 让 UI 用 UICloudSharingController 弹邀请发到 iMessage / 邮件。
     /// 之后 shareable record (playlist / source / cloud account 等) 会自动走
@@ -430,49 +456,36 @@ final class CloudKitSyncService {
             plog("⚠️ ensure family zone failed: \(error.localizedDescription)")
         }
 
-        let holderID = CKRecord.ID(recordName: "primuse.family.holder",
-                                    zoneID: Self.familyZoneID)
-
-        // 2. 试 fetch 现有 holder ── 如果在 + 有 share, 直接复用
-        if let existingHolder = try? await db.record(for: holderID) {
-            // holder 已存在, 查它关联的 share reference
-            if let shareRef = existingHolder.share,
-               let existingShare = try? await db.record(for: shareRef.recordID) as? CKShare {
-                Self.familySharingEnabled = true
-                isParticipantOfShare = false
-                plog("☁️ Family sharing reuse existing share")
-                return existingShare
-            }
-            // holder 在但 share 没了 → 在现有 holder 上 attach 新 share
-            let newShare = CKShare(rootRecord: existingHolder)
-            newShare[CKShare.SystemFieldKey.title] = "Primuse Family" as CKRecordValue
-            newShare.publicPermission = .none
-            try await saveFamilyRecords([existingHolder, newShare], in: db)
+        // 2. 已有 zone 级 share 就复用(用户重复点、重装后再点都走这里)。
+        let zoneShareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: Self.familyZoneID)
+        if let existing = try? await db.record(for: zoneShareID) as? CKShare {
             Self.familySharingEnabled = true
             isParticipantOfShare = false
-            scheduleInitialUpload()
-            plog("☁️ Family sharing rebuilt share on existing holder")
-            return newShare
+            plog("☁️ Family sharing reuse existing zone share")
+            return existing
         }
 
-        // 3. 全新创建 holder + share (CKShare 必须依附 rootRecord, holder 当
-        //    placeholder; 真正 share 整个 family zone 的 record 通过这个
-        //    rootRecord 的关联做)
-        let holder = CKRecord(recordType: "FamilyHolder", recordID: holderID)
-        holder["createdAt"] = Date() as CKRecordValue
+        // 3. 旧版本按根记录建的 share 只共享 holder 那一条: zone 里的歌单、源、电台
+        //    都没有 parent 引用, 参与者什么都收不到。一个 zone 不能同时有记录级
+        //    share 和 zone 级 share, 先把旧的拆掉(参与者要重新接受一次邀请)。
+        let holderID = CKRecord.ID(recordName: "primuse.family.holder", zoneID: Self.familyZoneID)
+        if (try? await db.record(for: holderID)) != nil {
+            _ = try? await db.deleteRecord(withID: holderID)
+            plog("☁️ Family sharing removed the legacy root-record share")
+        }
 
-        let share = CKShare(rootRecord: holder)
+        // 4. 整个 zone 共享: zone 里现在和将来的每条记录参与者都能读写。
+        let share = CKShare(recordZoneID: Self.familyZoneID)
         share[CKShare.SystemFieldKey.title] = "Primuse Family" as CKRecordValue
         share.publicPermission = .none
-
-        try await saveFamilyRecords([holder, share], in: db)
+        try await saveFamilyRecords([share], in: db)
 
         Self.familySharingEnabled = true
         isParticipantOfShare = false
 
         // migration: shareable record 重新 push, recordID 算到 family zone
         scheduleInitialUpload()
-        plog("☁️ Family sharing enabled, share created")
+        plog("☁️ Family sharing enabled, zone share created")
         return share
     }
 
@@ -499,13 +512,16 @@ final class CloudKitSyncService {
     @MainActor
     func disableFamilySharing() async {
         if let db = configuredDatabase() {
+            // zone 级 share 删掉即停止共享; 旧版本的 holder(连同它的 share)一并清。
+            let zoneShareID = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: Self.familyZoneID)
+            _ = try? await db.deleteRecord(withID: zoneShareID)
             let holderID = CKRecord.ID(recordName: "primuse.family.holder",
                                         zoneID: Self.familyZoneID)
-            // 删 holder 会级联清掉 CKShare (CKShare 是 holder 的关联)
             _ = try? await db.deleteRecord(withID: holderID)
         }
         Self.familySharingEnabled = false
         isParticipantOfShare = false
+        Self.participantSharedZoneID = nil
         sharedEngine = nil
         plog("☁️ Family sharing disabled")
     }
@@ -536,6 +552,8 @@ final class CloudKitSyncService {
         guard ok else { return }
         Self.familySharingEnabled = true
         isParticipantOfShare = true
+        // 之后本机的共享类型记录都写到所有者的这个 zone。
+        Self.participantSharedZoneID = metadata.share.recordID.zoneID
         await startSharedDatabaseEngine()
         plog("☁️ Family share accepted, participant engine started")
     }
@@ -1043,6 +1061,10 @@ final class CloudKitSyncService {
             guard let id = note.userInfo?["id"] as? String else { return }
             Task { @MainActor in self?.radioStationDeleted(id: id) }
         })
+        observerTokens.append(nc.addObserver(forName: .primuseRadioStationDidPurge, object: nil, queue: .main) { [weak self] note in
+            let ids = (note.userInfo?["ids"] as? [String]) ?? []
+            Task { @MainActor in self?.radioStationsPurged(ids: ids) }
+        })
         observerTokens.append(nc.addObserver(forName: .primuseScraperConfigDidChange, object: nil, queue: .main) { [weak self] note in
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.scraperConfigsChanged(ids: ids) }
@@ -1200,14 +1222,12 @@ final class CloudKitSyncService {
             uniquingKeysWith: { first, _ in first }
         )
         for id in Set(ids) {
-            guard let station = stationsByID[id] else { continue }
-            // 订阅的排除标记虽然是墓碑，却要作为一条普通记录保存出去 —— 它得在
-            // 每台设备上一直挡着清单里那一条，删掉记录就等于撤销了用户的删除。
-            if station.isDeleted && !station.isSubscriptionExclusionMarker {
-                deleted.append(id)
-            } else {
-                active.append(id)
-            }
+            guard stationsByID[id] != nil else { continue }
+            // 墓碑也作为一条普通记录保存出去(以前普通删除走 CloudKit 删除): 记录
+            // 带着删除时刻, 别的设备上一次更早的保存到了也盖不掉它, 删掉的台不会
+            // 再复活。订阅的排除标记本来就是这么传的; 过了保留期的墓碑由清理流程
+            // 真正删除记录。
+            active.append(id)
         }
         enqueueSaves(recordType: RecordType.radioStation, ids: active)
         enqueueDeletes(recordType: RecordType.radioStation, ids: deleted)
@@ -1249,12 +1269,16 @@ final class CloudKitSyncService {
 
     func radioStationDeleted(id: String) {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
-        // 排除标记走保存，不走删除(见 `enqueueRadioStationRecords`)。
-        if radioStationsStore.allStations.first(where: { $0.id == id })?
-            .isSubscriptionExclusionMarker == true {
-            return
-        }
-        enqueueDeletes(recordType: RecordType.radioStation, ids: [id])
+        // 删除是一次带时间的保存(墓碑), 见 `enqueueRadioStationRecords`; 只有过了
+        // 保留期的清理才真正删记录。
+        enqueueRadioStationRecords(ids: [id])
+    }
+
+    /// 本机把过期墓碑清掉了: 现在才把记录从 CloudKit 删掉, 别的设备收到删除后
+    /// 也把自己那条墓碑行清掉。
+    func radioStationsPurged(ids: [String]) {
+        guard CloudSyncChannel.isEnabled(.sources) else { return }
+        enqueueDeletes(recordType: RecordType.radioStation, ids: ids)
     }
 
     func scraperConfigsChanged(ids: [String]) {
@@ -1417,19 +1441,28 @@ final class CloudKitSyncService {
     }
 
     private func enqueueSaves(recordType: String, ids: [String]) {
-        guard let engine, canEnqueueRecordChanges else { return }
-        let changes = ids.map { id in
-            CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(recordType: recordType, id: id))
-        }
-        addCoalescedRecordZoneChanges(changes, to: engine)
+        guard canEnqueueRecordChanges else { return }
+        enqueue(ids.map { recordID(recordType: recordType, id: $0) }, deleting: false)
     }
 
     private func enqueueDeletes(recordType: String, ids: [String]) {
-        guard let engine, canEnqueueRecordChanges else { return }
-        let changes = ids.map { id in
-            CKSyncEngine.PendingRecordZoneChange.deleteRecord(recordID(recordType: recordType, id: id))
+        guard canEnqueueRecordChanges else { return }
+        enqueue(ids.map { recordID(recordType: recordType, id: $0) }, deleting: true)
+    }
+
+    /// 按记录所在的 zone 分给各自的引擎: participant 的共享记录进 sharedEngine。
+    private func enqueue(_ recordIDs: [CKRecord.ID], deleting: Bool) {
+        var byEngine: [ObjectIdentifier: (engine: CKSyncEngine, changes: [CKSyncEngine.PendingRecordZoneChange])] = [:]
+        for recordID in recordIDs {
+            guard let target = engine(for: recordID.zoneID) else { continue }
+            let change: CKSyncEngine.PendingRecordZoneChange = deleting
+                ? .deleteRecord(recordID)
+                : .saveRecord(recordID)
+            byEngine[ObjectIdentifier(target), default: (target, [])].changes.append(change)
         }
-        addCoalescedRecordZoneChanges(changes, to: engine)
+        for entry in byEngine.values {
+            addCoalescedRecordZoneChanges(entry.changes, to: entry.engine)
+        }
     }
 
     private func addCoalescedRecordZoneChanges(
@@ -2126,8 +2159,8 @@ final class CloudKitSyncService {
         if recordType == RecordType.playlist,
            let owner = LibraryArtworkOwner.fromCloudRecordID(id) {
             if allowLocalRestore, library.artworkOverride(for: owner) != nil {
-                if let engine {
-                    addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: engine)
+                if let target = engine(for: recordID.zoneID) {
+                    addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: target)
                 }
                 return
             }
@@ -2146,8 +2179,8 @@ final class CloudKitSyncService {
         // every active local row as "restored" re-pushes stale sources and
         // makes deletions appear to come back.
         if allowLocalRestore, isLocallyRestored(recordType: recordType, id: id) {
-            if let engine {
-                addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: engine)
+            if let target = engine(for: recordID.zoneID) {
+                addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: target)
             }
             return
         }
@@ -2157,8 +2190,8 @@ final class CloudKitSyncService {
 
         switch recordType {
         case RecordType.playlist:
-            if library.deletePlaylistFromRemote(id: id), let engine {
-                addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: engine)
+            if library.deletePlaylistFromRemote(id: id), let target = engine(for: recordID.zoneID) {
+                addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: target)
             }
         case RecordType.smartPlaylist:
             library.deleteSmartPlaylistFromRemote(id: id)
@@ -2237,9 +2270,43 @@ final class CloudKitSyncService {
         if let data = try? JSONEncoder().encode(
             PlaylistCloudSyncEnvelope(playlist: playlist, songIdentities: identities)
         ) {
-            record[Self.songIdentitiesField] = data
+            if data.count > Self.playlistEnvelopeInlineLimit {
+                // 两千首以上的歌单, 身份信封本身就超过一条记录 1MB 的字段上限,
+                // 以前这条记录永远保存不了。超额的信封改走附件; 旧版本读不到
+                // 附件时仍有 songIDs 可用。
+                guard let assetURL = stagePlaylistEnvelopeAsset(data, playlistID: playlistID) else {
+                    return false
+                }
+                record[Self.songIdentitiesField] = nil
+                record[Self.songIdentitiesAssetField] = CKAsset(fileURL: assetURL)
+            } else {
+                record[Self.songIdentitiesField] = data
+                record[Self.songIdentitiesAssetField] = nil
+            }
         }
         return true
+    }
+
+    /// 身份信封内联进记录的上限。记录还带着 songIDs 数组和几个小字段, 留够余量。
+    private nonisolated static let playlistEnvelopeInlineLimit = 700_000
+    /// 超大歌单的信封附件字段。新字段: 发布前要把 Playlist 的 schema 部署到生产环境。
+    private nonisolated static let songIdentitiesAssetField = "songIdentitiesAsset"
+
+    /// 附件文件要活到引擎真正上传完为止, 所以按歌单 id 放在固定路径、每次构建
+    /// 记录时整份覆盖, 不用临时目录。
+    private func stagePlaylistEnvelopeAsset(_ data: Data, playlistID: String) -> URL? {
+        let directory = stateURL.deletingLastPathComponent()
+            .appendingPathComponent("cloudkit-playlist-envelopes", isDirectory: true)
+        let fileName = playlistID.replacingOccurrences(of: "/", with: "_") + ".json"
+        let url = directory.appendingPathComponent(fileName, isDirectory: false)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            plog("CloudKitSync: staging playlist envelope asset failed id=\(playlistID.prefix(8))…: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     @discardableResult
@@ -2384,7 +2451,10 @@ final class CloudKitSyncService {
         guard let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist) else {
             return nil
         }
-        if let data = record[Self.songIdentitiesField] as? Data,
+        // 超大歌单的信封在附件里; 引擎在回调前已把附件下载到本地临时文件。
+        let envelopeData = (record[Self.songIdentitiesField] as? Data)
+            ?? (record[Self.songIdentitiesAssetField] as? CKAsset)?.fileURL.flatMap { try? Data(contentsOf: $0) }
+        if let data = envelopeData,
            let envelope = try? JSONDecoder().decode(PlaylistCloudSyncEnvelope.self, from: data),
            envelope.playlist.id == id {
             return (envelope.playlist, envelope.songIdentities)
@@ -2426,7 +2496,10 @@ final class CloudKitSyncService {
     private func applySmartPlaylistRecord(_ record: CKRecord) {
         guard let data = record["payload"] as? Data,
               let smart = try? JSONDecoder().decode(SmartPlaylist.self, from: data) else { return }
-        library.applyRemoteSmartPlaylist(smart)
+        // 本机那份更新时不让远端旧副本盖掉, 并把本机这份再推一次(与歌单一致)。
+        if library.applyRemoteSmartPlaylist(smart), let target = engine(for: record.recordID.zoneID) {
+            addCoalescedRecordZoneChanges([.saveRecord(record.recordID)], to: target)
+        }
     }
 
     // MARK: - Music source mapping
@@ -2504,14 +2577,13 @@ final class CloudKitSyncService {
     // MARK: - Internet radio mapping
 
     private func populateRadioStationRecord(_ record: CKRecord, stationID: String) -> Bool {
-        // 普通墓碑不上传(它们走 CloudKit 删除)；订阅的排除标记例外，
-        // 它以 `isDeleted = true` 的完整记录保存。
+        // 墓碑(普通删除和订阅的排除标记)都以 `isDeleted = true` 的完整记录保存:
+        // 带修改时间的墓碑才挡得住别的设备更早的一次保存把它复活。
         //
-        // 兼容旧版本：旧版本不认识订阅字段，但认识 `isDeleted`。它收到排除标记时，
-        // `upsertFromRemote` 对本地已有的那条会变成墓碑(隐藏)，对本地没有的直接
-        // 忽略 —— 正好都是想要的结果，所以这条记录可以放心地发给所有版本。
-        guard var station = radioStationsStore.allStations.first(where: { $0.id == stationID }),
-              !station.isDeleted || station.isSubscriptionExclusionMarker else {
+        // 兼容旧版本：旧版本认识 `isDeleted`。它收到墓碑时，`upsertFromRemote`
+        // 对本地已有的那条会变成墓碑(隐藏)，对本地没有的直接忽略 —— 正好都是
+        // 想要的结果，所以这条记录可以放心地发给所有版本。
+        guard var station = radioStationsStore.allStations.first(where: { $0.id == stationID }) else {
             return false
         }
         // 最近收听时间只用于当前设备排序，不参与跨设备合并。
@@ -2801,6 +2873,18 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             // We re-create our zone if it's gone and force a re-seed on next
             // start so the local data ends up back in CloudKit.
             guard isCurrentEngine else { return }
+            // 所有者停止共享(或撤掉本机的参与资格): 共享 zone 从共享库里消失。本机
+            // 退回只同步自己的私有库, 免得共享类型的记录继续往一个不存在的 zone 排队。
+            await MainActor.run {
+                guard let shared = Self.participantSharedZoneID,
+                      event.deletions.contains(where: { $0.zoneID == shared }) else { return }
+                plog("CloudKitSync: shared family zone was removed by its owner — leaving the share")
+                self.isParticipantOfShare = false
+                Self.participantSharedZoneID = nil
+                Self.familySharingEnabled = false
+                self.sharedEngine = nil
+                try? FileManager.default.removeItem(at: self.sharedStateURL)
+            }
             for deletion in event.deletions where deletion.zoneID == Self.zoneID {
                 plog("CloudKitSync: PrimuseSync zone was deleted remotely — recreating + re-seeding")
                 await MainActor.run {
@@ -2834,7 +2918,10 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             // 当前 engine 触发。
             guard isCurrentEngine else { return }
             for saved in event.savedRecords {
-                await MainActor.run { self.acknowledgeSavedSourceTombstone(saved) }
+                await MainActor.run {
+                    self.acknowledgeSavedSourceTombstone(saved)
+                    self.acknowledgeSavedPlaylist(saved)
+                }
             }
             for failed in event.failedRecordSaves {
                 await MainActor.run {
@@ -2891,6 +2978,14 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             }
             return nil
         }
+    }
+
+    /// 歌单记录保存成功: 服务器上的曲目表就是刚推上去的这份, 交给资料库记成
+    /// 三方合并的基线。
+    private func acknowledgeSavedPlaylist(_ record: CKRecord) {
+        guard record.recordType == RecordType.playlist,
+              let id = parseLocalID(from: record.recordID, recordType: RecordType.playlist) else { return }
+        library.markPlaylistSynced(id: id, songIDs: (record["songIDs"] as? [String]) ?? [])
     }
 
     private func acknowledgeSavedSourceTombstone(_ record: CKRecord) {
@@ -3269,6 +3364,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             didCompleteInitialUpload = false
             isParticipantOfShare = false
             Self.familySharingEnabled = false
+            Self.participantSharedZoneID = nil
             UserDefaults.standard.set(false, forKey: CloudSyncChannel.masterDefaultsKey)
             stop(updateStatus: true)
             status = .accountUnavailable(.unknown)

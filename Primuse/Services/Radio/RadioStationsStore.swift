@@ -4,6 +4,8 @@ import PrimuseKit
 extension Notification.Name {
     static let primuseRadioStationsDidChange = Notification.Name("primuse.radioStations.changed")
     static let primuseRadioStationDidDelete = Notification.Name("primuse.radioStations.deleted")
+    /// 过了保留期的墓碑被清掉: 这时才把 CloudKit 记录真正删掉。userInfo["ids"]。
+    static let primuseRadioStationDidPurge = Notification.Name("primuse.radioStations.purged")
 }
 
 struct ServerRadioSyncResult: Sendable {
@@ -583,6 +585,25 @@ final class RadioStationsStore {
         )
     }
 
+    /// 过了保留期的普通墓碑: 行删掉, CloudKit 记录也在这时才真正删除。墓碑在保留期
+    /// 内一直留着, 是为了挡住别的设备更早的一次保存把删掉的台复活。订阅的排除标记
+    /// 要永远留着挡清单; 服务端镜像的墓碑由镜像对账自己收。
+    func pruneTombstones(deletedBefore threshold: Date) {
+        let purged = allStations.filter {
+            $0.isDeleted && !$0.isSubscriptionExclusionMarker && !$0.isServerMirror
+                && ($0.deletedAt ?? .distantFuture) < threshold
+        }.map(\.id)
+        guard !purged.isEmpty else { return }
+        let purgedSet = Set(purged)
+        allStations.removeAll { purgedSet.contains($0.id) }
+        persist()
+        NotificationCenter.default.post(
+            name: .primuseRadioStationDidPurge,
+            object: nil,
+            userInfo: ["ids": purged]
+        )
+    }
+
     /// CloudKit 送来的一条电台。整份清单是一次编码写盘的，远端一批几百上千条
     /// （订阅清单）逐条整份写，写入量就随条数平方增长，所以这里只记下待写：
     /// `CloudKitSyncService` 在一批处理完、保存引擎游标之前调 `flushRemotePersist()`，
@@ -658,9 +679,12 @@ final class RadioStationsStore {
             guard merged != allStations[index] else { return nil }
             allStations[index] = merged
         } else {
-            // 本地没有这条时，普通墓碑照旧不收；订阅的排除标记要收下 —— 它得一直
-            // 挡着清单里那一条，否则本机下次刷新会把用户删掉的台加回来。
-            guard !normalized.isDeleted || normalized.isSubscriptionExclusionMarker else { return nil }
+            // 本地没有这条时, 用户删台的墓碑也收下(隐藏行, 过了保留期清掉): 有它在,
+            // 第三台设备更早的一次保存到了才比得出新旧, 删掉的台不会被加回来。
+            // 订阅的排除标记同理且永远留着; 服务端镜像的墓碑由镜像对账自己处理。
+            guard !normalized.isDeleted
+                || normalized.isSubscriptionExclusionMarker
+                || !normalized.isServerMirror else { return nil }
             allStations.append(normalized)
         }
         return normalized
