@@ -896,17 +896,58 @@ struct AIRemoteEndpointPolicyTests {
         }
     }
 
-    @Test func AICredentialsAreEligibleForICloudKeychainMigration() {
+    @Test func legacyDeviceOnlyAPIKeysStillMigrateToICloudKeychain() throws {
+        // e1424418 之前 AI 密钥经本机路径写入；三种旧账号形态都要补迁进 iCloud。
         let profileID = UUID(uuidString: "F36F1DD2-7471-4D96-A6B8-BBA6A3EF02C0")!
-        #expect(AICredentialStoragePolicy.isEligibleForICloudMigration(
-            account: AICredentialStoragePolicy.legacyAccount(profileID: profileID)
-        ))
-        #expect(AICredentialStoragePolicy.isEligibleForICloudMigration(
-            account: "ai.provider.future-device-only-secret"
-        ))
-        #expect(AICredentialStoragePolicy.isEligibleForICloudMigration(
-            account: "source.connection.example"
-        ))
+        let configuration = AIRemoteProviderConfiguration(
+            id: profileID,
+            baseURL: "https://api.example.org/v1"
+        )
+        let legacyAccounts = [
+            AICredentialStoragePolicy.legacyAccount(profileID: profileID),
+            try AICredentialStoragePolicy.account(
+                profileID: profileID,
+                baseURL: configuration.baseURL,
+                allowInsecureLocalHTTP: false
+            ),
+            try AICredentialStoragePolicy.scopedAccount(configuration: configuration),
+        ]
+        for account in legacyAccounts {
+            #expect(account.hasPrefix("ai.provider."))
+            #expect(AICredentialStoragePolicy.isEligibleForICloudMigration(
+                account: account,
+                storedDeviceOnly: true
+            ))
+        }
+    }
+
+    @Test func deliberatelyDeviceOnlySecretsNeverMigrateToICloudKeychain() {
+        // 中继安装凭据与自建分享令牌用 setLocalOnlyPassword 落盘，必须留在本机；
+        // 同一命名空间里非密钥形态的本机秘密也不能被顺带迁走。
+        for account in [
+            "primuse.ai.relay.installation.v1",
+            "media-relay.self-hosted.admin-token",
+            "media-relay.share.4f3c2a1b",
+            "ai.provider.future-device-only-secret",
+        ] {
+            #expect(!AICredentialStoragePolicy.isEligibleForICloudMigration(
+                account: account,
+                storedDeviceOnly: true
+            ))
+        }
+    }
+
+    @Test func ordinaryLocalEntriesRemainEligibleForICloudKeychainMigration() {
+        // 没有本机信号的项就是 iCloud 钥匙串之前留下的普通凭据，照常迁移。
+        for account in [
+            "source.connection.example",
+            "ai.provider.f36f1dd2-7471-4d96-a6b8-bba6a3ef02c0.apiKey",
+        ] {
+            #expect(AICredentialStoragePolicy.isEligibleForICloudMigration(
+                account: account,
+                storedDeviceOnly: false
+            ))
+        }
     }
 
     @Test func providerSetRoutesPrimaryThenEnabledFallbacks() {

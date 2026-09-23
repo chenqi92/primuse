@@ -476,7 +476,7 @@
 "ext.tv.radio.popularIn" = "Popular in %@";
 "ext.tv.radio.deepLinkUnavailable" = "This station is no longer in your list.";
 "ext.tv.radio.stationCount.one" = "1 station";
-"ext.tv.radio.playlistCleartext" = "This station uses a playlist link over plain HTTP, which Apple TV does not fetch. Use the direct stream address or an https link.";
+"ext.tv.radio.playlistCleartext" = "This station's playlist link uses plain HTTP and wasn't allowed, so Apple TV didn't fetch it. Play the station again to allow it, or use the direct stream address or an https link.";
 "ext.tv.home.emptyWithRadio" = "Sync your library from iPhone or Mac to see your music here, or add internet radio stations directly.";
 
 // MARK: - Source labels and localized runtime errors
@@ -641,6 +641,7 @@
 "ext.tv.http.title" = "Cleartext HTTP Requires Confirmation";
 "ext.tv.http.allow" = "Allow and Continue";
 "ext.tv.http.message" = "%1$@ uses unencrypted HTTP. Continue only if this is your server. Authorization applies only to this scheme, host, and port.";
+"ext.tv.http.radioMessage" = "This station's playlist at %1$@ uses unencrypted HTTP. Allow it so Apple TV can read the playlist and find the stream. Authorization applies only to this scheme, host, and port, and you won't be asked again.";
 "source_connection_intro" = "Enter a LAN address, a remote one, or both. With both saved, Primuse uses whichever is reachable and faster.";
 "source_connection_local" = "LAN";
 "source_connection_local_optional" = "LAN Address (Optional)";

@@ -1541,7 +1541,23 @@ final class TVStore {
         resumePendingSourceUpload()
         let payload = await LibrarySnapshotSync.shared.downloadTVPayload()
         var installed = false
-        if let payload { installed = await installSnapshot(payload, fromCloud: true) }
+        if let payload {
+            // 云端记录没变就不重装; 局域网刚直传过更新的库, 云端那份旧的也不装。
+            switch TVCloudSnapshotInstallPolicy.disposition(
+                cloudChangeTag: payload.cloudChangeTag,
+                installedChangeTag: defaults.string(forKey: Self.installedCloudSnapshotTagKey),
+                cloudModifiedAt: payload.cloudModifiedAt,
+                lastLANInstallAt: defaults.object(forKey: Self.lastLANInstallKey) as? Date
+            ) {
+            case .install:
+                installed = await installSnapshot(payload, fromCloud: true)
+                if installed, let tag = payload.cloudChangeTag {
+                    defaults.set(tag, forKey: Self.installedCloudSnapshotTagKey)
+                }
+            case .alreadyInstalled, .olderThanLANTransfer:
+                installed = true
+            }
+        }
         // `start()` 只有第一次会真的跑 fetch + send,之后凭 `engine != nil` 直接早退。
         // 设置页的手动同步要想把 CKSyncEngine 那半边也拉一遍,只能在引擎已经起来的
         // 情况下自己补一次 `syncNow()`;首次引导交给 `start()`,别重复拉两遍。
@@ -1582,7 +1598,7 @@ final class TVStore {
     /// 让引擎跟着起停,只写 UserDefaults 不生效。
     func setCloudSyncEnabled(_ enabled: Bool) async {
         if enabled {
-            await cloudSync.start()
+            await cloudSync.startAfterUserEnabledSync()
         } else {
             cloudSync.stop()
         }
@@ -1763,7 +1779,13 @@ final class TVStore {
     }
 
     /// 完成提示停留一会儿再收起,露出换新的二维码。
+    /// 上一次装好的云端快照记录的 changeTag, 与上一次局域网直传装库的时刻:
+    /// 引导时据此决定云端快照装不装(`TVCloudSnapshotInstallPolicy`)。
+    private static let installedCloudSnapshotTagKey = "tv.installedCloudSnapshotTag"
+    private static let lastLANInstallKey = "tv.lastLANInstallAt"
+
     private func finishPairingTransfer(requestSerial: Int, generation: Int) {
+        defaults.set(Date(), forKey: Self.lastLANInstallKey)
         setPairingTransfer(LANReceiveStatus(phase: .finished, stage: .finish, songCount: library.songs.count,
                                             requestSerial: requestSerial),
                            generation: generation)

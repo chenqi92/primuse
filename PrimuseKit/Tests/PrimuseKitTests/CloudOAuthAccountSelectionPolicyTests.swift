@@ -137,3 +137,49 @@ struct CloudOAuthAccountSelectionPolicyTests {
         #expect(commitCount == 0)
     }
 }
+
+@Suite("Cloud account mount keeper election")
+struct CloudAccountMountKeeperPolicyTests {
+    @Test("Election depends only on the ids, not on their order")
+    func electionIgnoresInputOrder() {
+        #expect(CloudAccountMountKeeperPolicy.keeperID(among: ["b", "a", "c"]) == "a")
+        #expect(CloudAccountMountKeeperPolicy.keeperID(among: ["c", "a", "b"]) == "a")
+        #expect(CloudAccountMountKeeperPolicy.keeperID(among: ["a"]) == "a")
+        #expect(CloudAccountMountKeeperPolicy.keeperID(among: []) == nil)
+    }
+
+    @Test("Overlapping device views never elect keepers that delete each other")
+    func overlappingViewsNeverDeleteEachOthersKeeper() {
+        // 设备 A 看到 {m1, m2}，设备 B 看到 {m2, m3}(m1 还没同步到 B)：
+        // A 留 m1 删 m2，B 留 m2 删 m3；B 从未见过 m1，也就不会删它，最后两边都只剩 m1。
+        #expect(CloudAccountMountKeeperPolicy.keeperID(among: ["m2", "m1"]) == "m1")
+        #expect(CloudAccountMountKeeperPolicy.keeperID(among: ["m3", "m2"]) == "m2")
+
+        // 穷举两台设备各自能看到的任意非空子集：互删要求各自删掉对方的 keeper，
+        // 即对方的 keeper 在我方视野里且不是我方的 keeper —— 这种组合不存在。
+        let ids = ["m1", "m2", "m3", "m4"]
+        let views: [[String]] = (1..<(1 << ids.count)).map { mask in
+            ids.enumerated().compactMap { mask & (1 << $0.offset) == 0 ? nil : $0.element }
+        }
+        for a in views {
+            for b in views {
+                guard let keeperA = CloudAccountMountKeeperPolicy.keeperID(among: a),
+                      let keeperB = CloudAccountMountKeeperPolicy.keeperID(among: b) else {
+                    Issue.record("Non-empty views must elect a keeper")
+                    continue
+                }
+                let aDeletesB = a.contains(keeperB) && keeperB != keeperA
+                let bDeletesA = b.contains(keeperA) && keeperA != keeperB
+                #expect(!(aDeletesB && bDeletesA), "views \(a) / \(b) would delete each other")
+            }
+        }
+    }
+
+    @Test("A device that already migrated keeps the keeper another device elected")
+    func rerunFollowsTombstones() {
+        // 别的设备留 m1 删了 m2；这台设备重跑时 m2 已是墓碑、不再参与分组。
+        #expect(CloudAccountMountKeeperPolicy.keeperID(among: ["m1"]) == "m1")
+        // 墓碑还没到、两份都活着：按同一条规则也选出 m1，不会删掉别人留下的那份。
+        #expect(CloudAccountMountKeeperPolicy.keeperID(among: ["m2", "m1"]) == "m1")
+    }
+}

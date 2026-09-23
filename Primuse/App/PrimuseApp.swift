@@ -1469,6 +1469,9 @@ struct PrimuseApp: App {
                 // background scans and playback never wait for a sheet-local
                 // certificate prompt that has already disappeared.
                 .transportTrustAlerts()
+                #if DEBUG
+                .modifier(DebugLaunchAutomation())
+                #endif
                 .task {
                     // Background-poll the App Store. Throttled internally
                     // to once per day, so calling on every scene-active is
@@ -2225,6 +2228,39 @@ private struct IOSWindowAppearanceModifier: ViewModifier {
                 window.overrideUserInterfaceStyle = style
             }
         }
+    }
+}
+#endif
+
+#if DEBUG
+/// 调试构建的启动自动化，由环境变量驱动，给编译机上无人值守的实机检查用：
+/// - `PRIMUSE_OPEN_SETTINGS=<设置目录 id>`：启动后打开该设置项（Mac 打开设置窗口，iOS 推入对应页）。
+/// - `PRIMUSE_AUTOPLAY_SONG=<标题片段>`：曲库里出现标题包含该片段的歌后自动播放它。
+private struct DebugLaunchAutomation: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .task {
+                let env = ProcessInfo.processInfo.environment
+                guard let settingID = env["PRIMUSE_OPEN_SETTINGS"], !settingID.isEmpty else { return }
+                try? await Task.sleep(for: .seconds(4))
+                guard !Task.isCancelled else { return }
+                plog("🧪 DebugLaunchAutomation: open settings \(settingID)")
+                SettingsNavigation.shared.open(settingID)
+            }
+            .task {
+                let env = ProcessInfo.processInfo.environment
+                guard let needle = env["PRIMUSE_AUTOPLAY_SONG"]?.lowercased(), !needle.isEmpty else { return }
+                for _ in 0..<150 {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { return }
+                    let songs = AppServices.shared.musicLibrary.songs
+                    guard let song = songs.first(where: { $0.title.lowercased().contains(needle) }) else { continue }
+                    plog("🧪 DebugLaunchAutomation: autoplay '\(song.title)'")
+                    await AppServices.shared.playerService.play(song: song)
+                    return
+                }
+                plog("🧪 DebugLaunchAutomation: no song matching '\(needle)' within the wait window")
+            }
     }
 }
 #endif

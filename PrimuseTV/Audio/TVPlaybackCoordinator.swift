@@ -24,7 +24,7 @@ struct TVResolvedRadioStream: Equatable, Sendable {
     let headers: [String: String]
 }
 
-/// 电台的 `.pls` / `.m3u` 包装地址只有公网明文 http 这一条路、而电视不取它时抛出,
+/// 电台的 `.pls` / `.m3u` 包装地址只有公网明文 http 这一条路、而用户没有允许(拒绝或没回答)时抛出,
 /// 好给出专门的提示,不再笼统地说「无法构造播放地址」。
 private enum TVRadioPlaylistError: Error, Equatable {
     case cleartextNotFetched
@@ -38,6 +38,9 @@ private actor TVRadioPlaylistAttempts {
     private var failedRegardlessOfScheme = false
 
     var blamesCleartext: Bool { refusedCleartext && !failedRegardlessOfScheme }
+
+    /// 前面的写法已经取到清单或已知没联网时,再为明文地址弹询问也换不来能播的地址,不问。
+    var cleartextCouldHelp: Bool { !failedRegardlessOfScheme }
 
     func noteFetched() {
         failedRegardlessOfScheme = true
@@ -62,10 +65,86 @@ private actor TVRadioPlaylistAttempts {
     }
 }
 
+/// 公网明文 http 的清单地址在电视上问一次:借 TVRoot 已经挂着的明文确认框
+/// (`TVServerCertificateTrustStore`,文案换成电台清单那一句),最多等 60 秒。超时或这次起播被取消
+/// 都按拒绝收场,并把还挂着的询问撤掉,免得用户回来面对一个已经没人等的框。
+/// 同意后主机也记进 `SSLTrustStore` 的明文许可 —— 电视上音乐源的连接器用的就是这一份,
+/// 清单取数(`TrustedHTTPTransport`)也只认它,之后同一主机端口不再问。
+@MainActor
+private final class TVRadioPlaylistCleartextConsent {
+    private static let timeout: Duration = .seconds(60)
+
+    private let endpoint: String
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var outcome: Bool?
+    private var timeoutTask: Task<Void, Never>?
+
+    private init(endpoint: String) {
+        self.endpoint = endpoint
+    }
+
+    /// `endpoint` 是 `TrustedHTTPTransport.trustTarget(for:)` 给出的「协议 + 主机 + 端口」键,
+    /// 两份许可名单用的是同一种键。
+    static func request(endpoint: String) async -> Bool {
+        let consent = TVRadioPlaylistCleartextConsent(endpoint: endpoint)
+        guard await consent.wait() else { return false }
+        SSLTrustStore.shared.allowInsecureHTTP(domain: endpoint)
+        return SSLTrustStore.shared.allowsInsecureHTTP(domain: endpoint)
+    }
+
+    private func wait() async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard outcome == nil, !Task.isCancelled else {
+                    outcome = false
+                    continuation.resume(returning: false)
+                    return
+                }
+                self.continuation = continuation
+                let endpoint = endpoint
+                Task { @MainActor [weak self] in
+                    let approved = await TVServerCertificateTrustStore.shared.requestInsecureHTTPTrust(
+                        endpoint: endpoint,
+                        purpose: .radioPlaylist
+                    )
+                    self?.finish(approved, withdrawing: false)
+                }
+                timeoutTask = Task { @MainActor [weak self] in
+                    do {
+                        try await Task.sleep(for: Self.timeout)
+                    } catch {
+                        return
+                    }
+                    self?.finish(false, withdrawing: true)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finish(false, withdrawing: true)
+            }
+        }
+    }
+
+    private func finish(_ approved: Bool, withdrawing: Bool) {
+        guard outcome == nil else { return }
+        outcome = approved
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        if withdrawing {
+            TVServerCertificateTrustStore.shared.withdrawInsecureHTTPRequest(
+                endpoint: endpoint,
+                purpose: .radioPlaylist
+            )
+        }
+        continuation?.resume(returning: approved)
+        continuation = nil
+    }
+}
+
 /// 取电台的 `.pls` / `.m3u` 包装清单。`RadioImportParser.wrapperFetchURLs` 先给出 https 的写法;
-/// 公网明文 http 的清单只在这台设备已放行过该主机(`SSLTrustStore` 的明文许可)时才取,
-/// 电视上没有地方授予这份许可,所以实际上只取 https 与局域网地址。这里有意不弹明文信任询问
-/// (要不要在电视上加由产品决定);直接的 http 流地址不经过这里,照常能播。
+/// 公网明文 http 的清单要这台设备放行过该主机(`SSLTrustStore` 的明文许可)才取,没放行过就当场问一次
+/// (`TVRadioPlaylistCleartextConsent`),用户没同意则抛 `cleartextNotFetched`。
+/// 直接的 http 流地址不经过这里,照常能播。
 private enum TVRadioPlaylistFetcher {
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -76,17 +155,24 @@ private enum TVRadioPlaylistFetcher {
         return URLSession(configuration: configuration)
     }()
 
-    /// 这个地址是公网明文 http、且没被放行过,不会去取。
-    private static func refusesCleartext(_ urlString: String) -> Bool {
-        guard let url = URL(string: urlString),
-              TrustedHTTPTransport.requiresPlainSocket(for: url) else { return false }
-        guard let target = TrustedHTTPTransport.trustTarget(for: url) else { return true }
-        return !SSLTrustStore.allowsInsecureHTTPHostSync(domain: target)
+    /// 公网明文 http 且还没放行过的地址先问用户;`asksForCleartext` 为 false(问了也没用)时直接不取。
+    /// 许可一旦记下,`TrustedHTTPTransport` 就不会再弹它自己的那一套询问。
+    private static func ensureCleartextAllowed(for url: URL, asksForCleartext: Bool) async throws {
+        guard TrustedHTTPTransport.requiresPlainSocket(for: url) else { return }
+        guard let target = TrustedHTTPTransport.trustTarget(for: url) else {
+            throw TVRadioPlaylistError.cleartextNotFetched
+        }
+        if SSLTrustStore.allowsInsecureHTTPHostSync(domain: target) { return }
+        guard asksForCleartext,
+              await TVRadioPlaylistCleartextConsent.request(endpoint: target) else {
+            try Task.checkCancellation()
+            throw TVRadioPlaylistError.cleartextNotFetched
+        }
     }
 
-    static func text(at urlString: String) async throws -> String {
+    static func text(at urlString: String, asksForCleartext: Bool) async throws -> String {
         guard let url = URL(string: urlString) else { throw StreamResolveError.cannotBuildURL }
-        guard !refusesCleartext(urlString) else { throw TVRadioPlaylistError.cleartextNotFetched }
+        try await ensureCleartextAllowed(for: url, asksForCleartext: asksForCleartext)
         let (data, response) = try await TrustedHTTPTransport.data(
             for: URLRequest(url: url),
             session: session,
@@ -235,7 +321,10 @@ final class TVPlaybackCoordinator {
                 station.streamURL,
                 fetch: { candidate in
                     do {
-                        let text = try await TVRadioPlaylistFetcher.text(at: candidate)
+                        let text = try await TVRadioPlaylistFetcher.text(
+                            at: candidate,
+                            asksForCleartext: await attempts.cleartextCouldHelp
+                        )
                         await attempts.noteFetched()
                         return text
                     } catch {
@@ -245,7 +334,7 @@ final class TVPlaybackCoordinator {
                 }
             )
             guard let unwrapped else {
-                // 能取的写法都没取到清单,剩下的只有一个不取的明文地址:告诉用户换直接的流地址或 https。
+                // 能取的写法都没取到清单,剩下的只有一个用户没允许的明文地址:告诉用户换直接的流地址或 https。
                 if await attempts.blamesCleartext {
                     throw TVRadioPlaylistError.cleartextNotFetched
                 }

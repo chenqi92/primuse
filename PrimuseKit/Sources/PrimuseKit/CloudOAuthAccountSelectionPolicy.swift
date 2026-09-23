@@ -81,6 +81,30 @@ public enum CloudCredentialStorageKeyPolicy {
     }
 }
 
+/// 同一个云盘账号名下有多份挂载(旧版本每走一次 OAuth 就新建一份 `MusicSource`)时，
+/// 迁移只留一份(keeper)，其余软删除、歌曲改指向 keeper。哪一份留下必须在每台设备
+/// 上算出同一个答案，否则两台设备各留一份、各删对方留下的那份，最后一份都不剩。
+///
+/// 因此只按 `id` 字典序取最小，别的字段都不能用：
+/// - `lastScannedAt` 不进 CloudKit 载荷(`SyncableSource` 会抹掉)，每台设备各有各的值；
+/// - `modifiedAt` 会被迁移自己(写 `cloudAccountID`)和任何编辑抬高，一台设备写完、
+///   另一台再算答案就变了；
+/// - `cloudAccountID`「谁已经被选过」也是会变、会晚到的状态：一边看到它已挂上账号、
+///   另一边还没收到，两边就会选出不同的一份；
+/// - `id` 是建源时生成的 UUID 字符串，随载荷同步、之后永不改变。
+///
+/// 收敛论证(两台设备各自看到的成员集合可以不同)：互删要求各自删掉对方留下的那份，
+/// 也就是各自都看得见对方的 keeper。对方的 keeper 是对方视野里 id 最小的，我方看得见
+/// 它，我方 keeper 的 id 就不大于它；对称地，对方 keeper 的 id 也不大于我方的 —— 两者
+/// 只能是同一份，而 keeper 自己从不会被删。被删掉的成员随墓碑同步到别处后不再参与
+/// 分组，后跑的设备只会看到更少的候选，不会再做出不同的选择。
+public enum CloudAccountMountKeeperPolicy {
+    /// 结果与输入顺序无关；空输入返回 nil。
+    public static func keeperID(among mountIDs: [String]) -> String? {
+        mountIDs.min()
+    }
+}
+
 /// Delays OAuth token and connection-stage credential writes until interactive
 /// authorization has succeeded. A cancellation or provider error exits before
 /// the commit closure, preserving every existing source credential.

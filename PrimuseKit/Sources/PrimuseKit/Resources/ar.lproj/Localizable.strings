@@ -160,6 +160,7 @@
 "ext.tv.home.tonightsPick" = "اختيار الليلة";
 "ext.tv.http.allow" = "السماح والمتابعة";
 "ext.tv.http.message" = "%1$@ يستخدم HTTP غير مشفر. تابع فقط إذا كان هذا هو الخادم الخاص بك. ينطبق التفويض فقط على هذا المخطط والمضيف والمنفذ.";
+"ext.tv.http.radioMessage" = "تستخدم قائمة تشغيل هذه المحطة على %1$@ بروتوكول HTTP غير مشفّر. اسمح بها ليتمكن Apple TV من قراءة القائمة والعثور على البث. ينطبق الإذن على هذا المخطط والمضيف والمنفذ فقط، ولن يُطلب منك ذلك مرة أخرى.";
 "ext.tv.http.title" = "نص واضح HTTP يتطلب التأكيد";
 "ext.tv.immersive.exitHint" = "اضغط على القائمة للخروج";
 "ext.tv.immersive.holdForQueue" = "الانتظار لقائمة الانتظار";
@@ -260,7 +261,7 @@
 "ext.tv.radio.popularIn" = "الشائعة في %@";
 "ext.tv.radio.deepLinkUnavailable" = "لم تعد هذه المحطة في قائمتك.";
 "ext.tv.radio.stationCount.one" = "محطة واحدة";
-"ext.tv.radio.playlistCleartext" = "تستخدم هذه المحطة رابط قائمة تشغيل عبر HTTP غير مشفّر، ولا يجلبه Apple TV. استخدم عنوان البث المباشر أو رابط https.";
+"ext.tv.radio.playlistCleartext" = "يستخدم رابط قائمة تشغيل هذه المحطة HTTP غير مشفّر ولم يُسمح به، لذلك لم يجلبه Apple TV. شغّل المحطة مرة أخرى للسماح به، أو استخدم عنوان البث المباشر أو رابط https.";
 "ext.tv.home.emptyWithRadio" = "زامن مكتبتك من iPhone أو Mac لعرض موسيقاك هنا، أو أضف محطات راديو الإنترنت مباشرة.";
 "ext.tv.radio.stationCount" = "%d محطة";
 "ext.tv.radio.stop" = "إيقاف";

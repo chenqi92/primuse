@@ -96,3 +96,28 @@ public enum RadioPendingCloudUploadPolicy {
         return (rows, restoredIDs, supersededIDs)
     }
 }
+
+/// CloudKit 送来的电台删除在本机落成墓碑，而不是把这一行抹掉。
+///
+/// 行一抹掉，本机就不记得这台被删过：随后装进来的一份过期快照（Apple TV 装整库快照、
+/// 局域网直传）里它还活着，逐条按修改时间合并时本机没有对手，就被原样合并回来。
+/// 留下墓碑，快照里那一版的修改时间更早，合并时输给墓碑。
+public enum RadioRemoteDeletionPolicy {
+    /// 这一行被远端删除后的样子；本机已经是普通墓碑时返回 nil（不用再动）。
+    ///
+    /// - 其余字段原样保留，只打删除标记。
+    /// - 订阅的排除标记也变成普通墓碑并清掉排除标志 —— 与取消订阅
+    ///   （`RadioSubscriptionMergePolicy.unsubscribing`）的做法一致：排除标记只在
+    ///   订阅没了时才会被从 CloudKit 删掉。
+    /// - 修改时间至少比被删的那一版晚一整秒：写盘的日期只留到秒，快照合并时
+    ///   同一秒算快照赢；别的设备时钟走快时，那一版的修改时间还可能晚于本机现在。
+    public static func tombstone(_ station: RadioStation, at now: Date) -> RadioStation? {
+        guard !station.isDeleted || station.isSubscriptionExclusionMarker else { return nil }
+        var tombstone = station
+        tombstone.deletedAt = station.isDeleted ? (station.deletedAt ?? now) : now
+        tombstone.isDeleted = true
+        tombstone.isSubscriptionExclusion = nil
+        tombstone.modifiedAt = max(now, station.modifiedAt.addingTimeInterval(1))
+        return tombstone
+    }
+}

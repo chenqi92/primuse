@@ -13,7 +13,8 @@ enum MusicScraperFactory {
             LyricsAPIServerScraper(servers: LyricsAPIServerSettings.load().servers)
         case .custom(let configId):
             if let scraperConfig = ScraperConfigStore.shared.config(for: configId) {
-                ConfigurableScraper(config: scraperConfig, cookie: config.cookie)
+                // 用户填的 Cookie 在钥匙串里，不在 config 行上。
+                ConfigurableScraper(config: scraperConfig, cookie: ScraperSourceCookieStore.cookie(for: config))
             } else {
                 // Config not found — return a no-op scraper
                 EmptyScraper(type: config.type)

@@ -229,6 +229,7 @@
 		266A8EA5287AD7BED8C1E552 /* TVUserFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6BE43CAD4E9683B7D735649 /* TVUserFlowTests.swift */; };
 		26A573E7842EB96A6C81BB47 /* NetworkURLBuilderIPv6Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64243D76BBA29B6B1E38F212 /* NetworkURLBuilderIPv6Tests.swift */; };
 		7A3C1E5D9B2F4A6C8E0D1F23 /* SourceChangeScanInvalidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C9E2B7A4D1F6E8B0A3C7D51 /* SourceChangeScanInvalidationTests.swift */; };
+		3D7F1A2B9C4E5F6A7B8C9D01 /* CloudKVSSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8A2B3C1D5F6A7B8C9D0E12 /* CloudKVSSyncTests.swift */; };
 		26FD125E371B9C01ED64F6F9 /* TVTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C670601E6537CC88001F2B4 /* TVTheme.swift */; };
 		274D2D5B9C91780E4F97141A /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2555ED6B08291C7E7B7202E4 /* Localization.swift */; };
 		278054AFB875BFD0D4548D29 /* SpokenWordLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27DD45712F9E0206213AB3FA /* SpokenWordLibraryView.swift */; };
@@ -693,6 +694,7 @@
 		790189620FE35DFEC1D44373 /* ListenerRestartPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6412A69AF458A967A5C88F0 /* ListenerRestartPolicy.swift */; };
 		790E6EC9BAD713E863742CA9 /* AISettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C25D3D08BB0FD71403FAFD2 /* AISettingsStore.swift */; };
 		792835F98B1AABE297CC5D22 /* PrimuseAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */; };
+		79DA1CC631CDC5E41730E3C7 /* SVGArtworkRasterizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8972964595E4EC82C746FB2D /* SVGArtworkRasterizer.swift */; };
 		79E2E4EE00D50F18EEDF9B01 /* WiFiTransferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 758577225D4912E66F9AA8CE /* WiFiTransferView.swift */; };
 		79F0E9CB426C2AF921C0FBA3 /* ServerMediaSharingConnectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8C402A42935381C7C44E36 /* ServerMediaSharingConnectorTests.swift */; };
 		7A3273F295FFDDCC05C65206 /* PMHeightClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */; };
@@ -1119,6 +1121,7 @@
 		C0CCDE0A3022B35ACE45FC5A /* ConnectorDirectoryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACACC8DFC2348B923ACAB6E5 /* ConnectorDirectoryBrowserView.swift */; };
 		C0CD7D6E45358510AB9E6B04 /* CloudDriveConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21727E0AB276B85CA9B19BE9 /* CloudDriveConnectionView.swift */; };
 		C0F8BD6105F068ADA910E7E0 /* CloudOAuthAccountSelectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475C1FE8058D8223F7F7B0B6 /* CloudOAuthAccountSelectionPolicy.swift */; };
+		9F2E4D6C1B3A5F7E8D0C2B41 /* CloudKVSReconciliationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C7D3E5F9A2B4C6D8E0F1A52 /* CloudKVSReconciliationPolicy.swift */; };
 		C10D6698FEA351FE3C9AFAC3 /* SourceAddressForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC47CC232985205CE2E6861 /* SourceAddressForm.swift */; };
 		C1A324B262C6C7E77588AF1A /* DLNARendererService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4A762C2201670999B92FB3 /* DLNARendererService.swift */; };
 		C2013CCE9B28C52112EDA8B8 /* SongSelectable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8817585FD03BC82372556BB9 /* SongSelectable.swift */; };
@@ -1252,6 +1255,7 @@
 		DAA94A7E4E994B6DF5DE2460 /* PMMenuLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8355C8D0FBADBC25AF310BF4 /* PMMenuLayout.swift */; };
 		DB18A0C7FC05D5856F733A90 /* MacRadioStationEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF5FD80A376FCFC69894248 /* MacRadioStationEditorView.swift */; };
 		DB9E5F2628D4E445C822E8D3 /* LyricsTranslationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8CBD34CDDF944EDE45F0D28 /* LyricsTranslationCache.swift */; };
+		DBA9393418AC47ACE5DA5BC9 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = B11CE4D4721E505FD97D4F5E /* SwiftDraw */; };
 		DBE6CC8937ACBC0CCF6D6A23 /* SongRowColumnsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F99AA6FC13E79A7AE9255BE /* SongRowColumnsPolicy.swift */; };
 		DBEB1006A1C6D8EE8BC47135 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
 		DCB677DC234750D404F0D6BA /* PlaybackScheduleSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B1A6965440571278822185 /* PlaybackScheduleSettlement.swift */; };
@@ -1972,6 +1976,7 @@
 		466AF990FCB1B871B4D60DE5 /* CloudSyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncSettingsView.swift; sourceTree = "<group>"; };
 		471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmersiveStageScenery.swift; sourceTree = "<group>"; };
 		475C1FE8058D8223F7F7B0B6 /* CloudOAuthAccountSelectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudOAuthAccountSelectionPolicy.swift; sourceTree = "<group>"; };
+		1C7D3E5F9A2B4C6D8E0F1A52 /* CloudKVSReconciliationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKVSReconciliationPolicy.swift; sourceTree = "<group>"; };
 		47748DA5FBA423FEABD1BDA1 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		47E59B77B48BB80E013B77B3 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = th.lproj/WiFiTransfer.strings; sourceTree = "<group>"; };
 		4824F430EB139F30159A6457 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
@@ -2089,6 +2094,7 @@
 		63EBB09B5F6B03143A59F27A /* CarPlayEditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayEditorModel.swift; sourceTree = "<group>"; };
 		64243D76BBA29B6B1E38F212 /* NetworkURLBuilderIPv6Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkURLBuilderIPv6Tests.swift; sourceTree = "<group>"; };
 		5C9E2B7A4D1F6E8B0A3C7D51 /* SourceChangeScanInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceChangeScanInvalidationTests.swift; sourceTree = "<group>"; };
+		4E8A2B3C1D5F6A7B8C9D0E12 /* CloudKVSSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKVSSyncTests.swift; sourceTree = "<group>"; };
 		645BBABA564E600B40010061 /* MetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataService.swift; sourceTree = "<group>"; };
 		64AA9D08D8BB09FD23E9CADD /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/WiFiTransfer.strings"; sourceTree = "<group>"; };
 		6501ADF2A78A679B038D1826 /* LibraryStartupPreparationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStartupPreparationTests.swift; sourceTree = "<group>"; };
@@ -2757,6 +2763,7 @@
 				13D5A32839126B9045BF15F9 /* Crypto in Frameworks */,
 				8B77D792AE4D2D370EFF3410 /* NIOCore in Frameworks */,
 				0E772B0EB2E0CACAA49F0EAD /* SFBAudioEngine in Frameworks */,
+				DBA9393418AC47ACE5DA5BC9 /* SwiftDraw in Frameworks */,
 				E7071AF18FB302425A91145B /* libavutil.xcframework in Frameworks */,
 				8C7B1EDD59EBCF0115F48561 /* libswresample.xcframework in Frameworks */,
 				51DC9BBBE4717BD78C48408A /* libavcodec.xcframework in Frameworks */,
@@ -3167,6 +3174,7 @@
 				CA81D957BD070901D2869F60 /* CarPlayLayoutConfiguration.swift */,
 				FF63E23361AAD30DB8BBCEAC /* CarPlayListRefreshPolicy.swift */,
 				475C1FE8058D8223F7F7B0B6 /* CloudOAuthAccountSelectionPolicy.swift */,
+				1C7D3E5F9A2B4C6D8E0F1A52 /* CloudKVSReconciliationPolicy.swift */,
 				1FDA42A505F2E43E118256B8 /* ConnectorRefreshInvalidationPolicy.swift */,
 				03BB71DD4DCCE64B2CD1B622 /* CrossfadePlaybackClockPolicy.swift */,
 				E8D54831E007E5D96E0015AB /* DecodedBufferGate.swift */,
@@ -4219,6 +4227,7 @@
 				0F8FB229B285DCA5BF46F542 /* MusicLibrarySourceRemovalFenceTests.swift */,
 				64243D76BBA29B6B1E38F212 /* NetworkURLBuilderIPv6Tests.swift */,
 				5C9E2B7A4D1F6E8B0A3C7D51 /* SourceChangeScanInvalidationTests.swift */,
+				4E8A2B3C1D5F6A7B8C9D0E12 /* CloudKVSSyncTests.swift */,
 				5EBFB113C5765B93854AF59F /* OfflineRangeDownloadRetryTests.swift */,
 				0EB9BD8B836299C30B3A1296 /* OpenAICompatibleProviderTests.swift */,
 				28344C4A76C56EC6BE57ED3B /* PlaybackSourceAvailabilityTests.swift */,
@@ -4461,6 +4470,7 @@
 				78723AF9ADCA00533C13723D /* Crypto */,
 				2BE904A0DE01349CEB7A473E /* NIOCore */,
 				DEFB79BF078B546E68E53350 /* SFBAudioEngine */,
+				B11CE4D4721E505FD97D4F5E /* SwiftDraw */,
 			);
 			productName = PrimuseTV;
 			productReference = E77C291D51A0577AAC67C318 /* PrimuseTV.app */;
@@ -4911,6 +4921,7 @@
 				C037CF6BF5C1A4326FD67C69 /* MusicLibrarySourceRemovalFenceTests.swift in Sources */,
 				26A573E7842EB96A6C81BB47 /* NetworkURLBuilderIPv6Tests.swift in Sources */,
 				7A3C1E5D9B2F4A6C8E0D1F23 /* SourceChangeScanInvalidationTests.swift in Sources */,
+				3D7F1A2B9C4E5F6A7B8C9D01 /* CloudKVSSyncTests.swift in Sources */,
 				B075343784EC60A5A09AB40B /* OfflineRangeDownloadRetryTests.swift in Sources */,
 				E0F81CCC4D4D80C022C98A59 /* OpenAICompatibleProviderTests.swift in Sources */,
 				BC6A73FEEDED6D358AA5CFE7 /* PlaybackSourceAvailabilityTests.swift in Sources */,
@@ -5005,6 +5016,7 @@
 				18EF7BC5C1B706CD5A3E761F /* CloudDriveStreamResolver.swift in Sources */,
 				E72D16A925993F952A8934A6 /* CloudFlushGate.swift in Sources */,
 				C0F8BD6105F068ADA910E7E0 /* CloudOAuthAccountSelectionPolicy.swift in Sources */,
+				9F2E4D6C1B3A5F7E8D0C2B41 /* CloudKVSReconciliationPolicy.swift in Sources */,
 				14D6F7EBC2C261E3B5E4E679 /* CloudSchemaDeploymentPolicy.swift in Sources */,
 				DA414524DD0D815F8DE6E173 /* ConnectorRefreshInvalidationPolicy.swift in Sources */,
 				EA28DFE79AF807B40A5B91B4 /* CredentialBundle.swift in Sources */,
@@ -5752,6 +5764,7 @@
 				50B4FE11D72718B9A2A6DC9D /* SFTPSource.swift in Sources */,
 				4957D61D66472F3CAD612DBD /* SMBByteReader.swift in Sources */,
 				5113925C793EABC4ED74382E /* SSLTrustStore.swift in Sources */,
+				79DA1CC631CDC5E41730E3C7 /* SVGArtworkRasterizer.swift in Sources */,
 				C050CF06129F96A1FF5A62DC /* ScraperConfig.swift in Sources */,
 				2FFBF33B610DBA25706D8E8F /* ScraperConfigStore.swift in Sources */,
 				4F8138671B835CF4096422EF /* ScraperResult.swift in Sources */,
@@ -7363,7 +7376,7 @@
 			repositoryURL = "https://github.com/swhitty/SwiftDraw.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.6;
+				minimumVersion = 0.29.0;
 			};
 		};
 		CC0D700D53C2657611962EDA /* XCRemoteSwiftPackageReference "FileProvider" */ = {
@@ -7476,6 +7489,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 47E64858A997CBFB17040255 /* XCRemoteSwiftPackageReference "swift-crypto" */;
 			productName = Crypto;
+		};
+		B11CE4D4721E505FD97D4F5E /* SwiftDraw */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C687181FA0A2B2D096A24E9F /* XCRemoteSwiftPackageReference "SwiftDraw" */;
+			productName = SwiftDraw;
 		};
 		B2C3B6B4EB6D34863A2508CB /* FilesProvider */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -27,7 +27,7 @@ struct MacCloudSyncSettingsView: View {
                 .toggleStyle(.switch)
                 .onChange(of: enabled) { _, newValue in
                     Task {
-                        if newValue { await sync.start() } else { sync.stop() }
+                        if newValue { await sync.startAfterUserEnabledSync() } else { sync.stop() }
                     }
                 }
                 .disabled(!sync.isAvailableInCurrentBuild)

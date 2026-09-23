@@ -51,7 +51,7 @@ packages:
     from: "0.12.1"
   SwiftDraw:
     url: https://github.com/swhitty/SwiftDraw.git
-    from: "0.9.6"
+    from: "0.29.0"
 
 schemes:
   CarPlayEditorUI:
@@ -169,8 +169,7 @@ targets:
         product: NFSKit
       - package: SFBAudioEngine
         product: SFBAudioEngine
-      # SwiftDraw 只给 iOS 与 macOS：0.9.6 的 CoreGraphics 渲染分支只写了
-      # macOS / iOS 两条，tvOS 上编不过。
+      # SwiftDraw 栅格化 SVG 台标。0.29 起 tvOS 也能编，iOS / macOS / tvOS 三端都链接它。
       - package: SwiftDraw
         product: SwiftDraw
       - framework: Frameworks/FFmpeg/libavutil.xcframework
@@ -504,8 +503,7 @@ targets:
         product: NFSKit
       - package: SFBAudioEngine
         product: SFBAudioEngine
-      # SwiftDraw 只给 iOS 与 macOS：0.9.6 的 CoreGraphics 渲染分支只写了
-      # macOS / iOS 两条，tvOS 上编不过。
+      # SwiftDraw 栅格化 SVG 台标。0.29 起 tvOS 也能编，iOS / macOS / tvOS 三端都链接它。
       - package: SwiftDraw
         product: SwiftDraw
       - framework: Frameworks/FFmpeg/libavutil.xcframework
@@ -621,6 +619,8 @@ targets:
       - path: Primuse/Services/Metadata/ScraperSettingsStore.swift
       - path: Primuse/Services/Metadata/Scrapers
       - path: Primuse/Services/Metadata/ArtworkFetchService.swift
+      # 矢量台标(SVG)栅格化成位图,与 iOS / macOS 同一份实现。
+      - path: Primuse/Services/Metadata/SVGArtworkRasterizer.swift
       - path: Primuse/Services/Metadata/TagMetadataWritebackTypes.swift
       - path: Primuse/Services/Sources/MusicSourceProtocol.swift
       - path: Primuse/Services/Sources/SourceErrors.swift
@@ -729,6 +729,9 @@ targets:
       # 非 AVFoundation 原生格式(APE/WavPack/OGG/DSD 等)在 TV 本机解码。
       - package: SFBAudioEngine
         product: SFBAudioEngine
+      # 矢量台标栅格化(SVGArtworkRasterizer),与 iOS / macOS 同一个包。
+      - package: SwiftDraw
+        product: SwiftDraw
       # SFBAudioEngine 没有解码器的 WMA/DTS/TrueHD/ATRAC/TAK 等交给 FFmpeg,
       # 与 iOS / macOS 同一套 xcframework(scripts/build-ffmpeg-apple.sh 产出 tvOS 切片)。
       - framework: Frameworks/FFmpeg/libavutil.xcframework

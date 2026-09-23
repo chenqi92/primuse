@@ -155,6 +155,44 @@ public enum CredentialBundlePolicy {
         return pruning(result, activeSourceIDs: activeSourceIDs)
     }
 
+    /// 一台设备往云端传凭据包时与服务器现有的那份合并, 而不是整份替换:
+    /// 上传方没有的源(别的设备独有的)、上传方钥匙串里读不到的密码, 都保留服务器
+    /// 那份; 同一个源上传方能读到的字段以上传方为准。中继端点只有发布过它的那台
+    /// 设备才能把它撤掉(`localOwnsRelay`), 别的设备(比如没有中继的 Mac)传包时
+    /// 不能顺手把 iPhone 的中继删了。
+    public static func mergingUpload(
+        local: CredentialBundle,
+        server: CredentialBundle?,
+        localOwnsRelay: Bool
+    ) -> CredentialBundle {
+        guard let server else { return local }
+        var result = local
+        result.version = max(local.version, server.version)
+        for (sourceID, serverEntry) in server.entries {
+            guard var entry = local.entries[sourceID] else {
+                result.entries[sourceID] = serverEntry
+                continue
+            }
+            func fill(_ value: inout String?, from other: String?) {
+                if (value ?? "").isEmpty, let other, !other.isEmpty { value = other }
+            }
+            fill(&entry.username, from: serverEntry.username)
+            fill(&entry.password, from: serverEntry.password)
+            fill(&entry.token, from: serverEntry.token)
+            fill(&entry.refreshToken, from: serverEntry.refreshToken)
+            fill(&entry.clientID, from: serverEntry.clientID)
+            fill(&entry.clientSecret, from: serverEntry.clientSecret)
+            for (key, value) in serverEntry.extra where (entry.extra[key] ?? "").isEmpty && !value.isEmpty {
+                entry.extra[key] = value
+            }
+            result.entries[sourceID] = entry
+        }
+        if local.relay == nil, !localOwnsRelay {
+            result.relay = server.relay
+        }
+        return result
+    }
+
     /// 将一次成功的 OAuth 刷新窄化到单个 source。只覆盖刷新结果中确实存在的
     /// 字段，保留同一条目里的密码、client secret、provider extra，以及包内所有
     /// 其它源和 relay。CloudKit 冲突重放也使用这条纯策略，避免整包旧值回盖新值。
@@ -319,5 +357,33 @@ public enum SourceCloudCleanupPolicy {
 
     private static func sourceClock(_ source: MusicSource) -> Date {
         MusicSourceLifecyclePolicy.lifecycleClock(source)
+    }
+}
+
+/// Apple TV 每次引导都会拉云端快照。以前拉到什么装什么: 云端记录没变也整份重装一遍,
+/// 局域网刚直传过来的新曲库也会被云端那份旧的盖回去。装不装由这里决定。
+public enum TVCloudSnapshotInstallPolicy {
+    public enum Disposition: Equatable, Sendable {
+        /// 云端快照有变化, 装。
+        case install
+        /// 与本机上次装好的是同一份, 不必重装。
+        case alreadyInstalled
+        /// 本机在云端这份之后又经局域网直传装过更新的库, 云端这份旧的不装。
+        case olderThanLANTransfer
+    }
+
+    public static func disposition(
+        cloudChangeTag: String?,
+        installedChangeTag: String?,
+        cloudModifiedAt: Date?,
+        lastLANInstallAt: Date?
+    ) -> Disposition {
+        if let cloudChangeTag, cloudChangeTag == installedChangeTag {
+            return .alreadyInstalled
+        }
+        if let cloudModifiedAt, let lastLANInstallAt, lastLANInstallAt > cloudModifiedAt {
+            return .olderThanLANTransfer
+        }
+        return .install
     }
 }

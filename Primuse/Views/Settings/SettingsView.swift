@@ -1387,11 +1387,11 @@ struct MetadataScrapingView: View {
                         if source.type.supportsCookie {
                             Button {
                                 editingCookieSourceId = source.id
-                                cookieText = source.cookie ?? ""
+                                cookieText = scraperSettings.cookie(for: source.id) ?? ""
                             } label: {
                                 Image(systemName: "key")
                                     .font(.caption)
-                                    .foregroundStyle(source.cookie?.isEmpty == false ? Color.green : Color.secondary)
+                                    .foregroundStyle(scraperSettings.hasCookie(for: source.id) ? Color.green : Color.secondary)
                             }
                             .buttonStyle(.plain)
                         }
@@ -1559,6 +1559,15 @@ struct MetadataScrapingView: View {
         .navigationDestination(isPresented: $showLyricsServers) {
             LyricsAPIServersView()
         }
+        #if DEBUG
+        .task {
+            // 编译机上的无人值守检查：`PRIMUSE_VISUAL_EVIDENCE=lyricsServers` 直接进入地址页。
+            guard ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "lyricsServers" else { return }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            showLyricsServers = true
+        }
+        #endif
         .navigationTitle("metadata_scraping")
         #if os(iOS)
         #if os(iOS)

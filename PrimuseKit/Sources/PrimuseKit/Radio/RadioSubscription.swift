@@ -35,7 +35,11 @@ public struct RadioSubscription: Codable, Identifiable, Hashable, Sendable {
     public var usesListGroupsAsFolders: Bool
     public var createdAt: Date
     public var modifiedAt: Date
-    /// 任意一台设备最近一次成功刷新的时间。跨设备同步，免得每台设备都去刷一遍。
+    /// 最近一次成功刷新的时间。本机刷新成功后只写本机，不单独推 iCloud ——
+    /// 定义走的键值存储按整份列表最后写入者胜出，自动写回要是也推，会把别的设备
+    /// 刚加的订阅盖掉；它只跟着下一次真正的定义修改一起上云，所以别的设备看到的
+    /// 可能是旧值。本机的准确时间在 `RadioSubscriptionRefreshStatus.lastSuccessAt`，
+    /// 判定到期与显示都取两者较晚的一个。
     public var lastRefreshedAt: Date?
 
     public init(
@@ -476,9 +480,7 @@ public enum RadioSubscriptionMergePolicy {
         unmatched.removeAll { claimedEntryKeys.contains($0.key) }
 
         // 规则 4 / 7：剩下的新条目逐个新建；首次订阅时用户没勾的建排除标记。
-        var nextSortOrder: Int? = stations.contains(where: { !$0.isDeleted && $0.sortOrder != nil })
-            ? (stations.compactMap(\.sortOrder).max() ?? -1) + 1
-            : nil
+        var nextSortOrder = RadioStationOrdering.appendedRank(after: stations)
         for entry in unmatched {
             if foreignExcludedKeys.contains(entry.key) {
                 summary.skippedExcluded += 1
@@ -528,7 +530,7 @@ public enum RadioSubscriptionMergePolicy {
                 subscriptionID: subscriptionID,
                 subscriptionEntryKey: entry.key
             ))
-            if let order = nextSortOrder { nextSortOrder = order + 1 }
+            if let order = nextSortOrder { nextSortOrder = RadioStationOrdering.rank(after: order) }
             addedIDs.append(id)
             summary.added += 1
         }

@@ -534,7 +534,15 @@ public struct RadioStationArtworkGridLayout: Equatable, Sendable {
     }
 }
 
+/// 电台的显示顺序与手动排序的序号。
+///
+/// 序号是带间隔的：相邻两台之间留 `rankStep` 个空位。挪一个台只在它两侧邻居的
+/// 序号之间取一个值，别的台原样不动 —— 连续编号的话挪一次就要给几乎全部台改号，
+/// 每一台都跟着逐条上传 CloudKit（音乐源镜像的台动辄几千个）。
 public enum RadioStationOrdering {
+    /// 相邻两台序号之间的间隔。新台接在末尾、整份归一化都按它排。
+    public static let rankStep = 1_024
+
     public static func sorted(_ stations: [RadioStation]) -> [RadioStation] {
         stations.sorted { lhs, rhs in
             switch (lhs.sortOrder, rhs.sortOrder) {
@@ -557,6 +565,162 @@ public enum RadioStationOrdering {
                 return nameOrder == .orderedAscending
             }
             return lhs.id < rhs.id
+        }
+    }
+
+    /// 紧接在 `rank` 后面一个间隔的序号。到了整数上限就停在上限，不溢出。
+    public static func rank(after rank: Int) -> Int {
+        let (next, overflow) = rank.addingReportingOverflow(rankStep)
+        return overflow ? rank : next
+    }
+
+    /// 新台（手动添加、清单订阅、音乐源镜像）接在末尾要用的序号。
+    ///
+    /// 只有活着的台**全都**带序号时才给：还有没序号的台，它们按最近播放排在
+    /// 有序号的台后面，给新台一个序号反而会把它插到这些台前面去；这时新台也不带序号，
+    /// 跟它们一起排。最大值连墓碑一起算，复活的墓碑不会和新台撞号。
+    public static func appendedRank(after stations: [RadioStation]) -> Int? {
+        var hasLiveRank = false
+        for station in stations where !station.isDeleted {
+            guard station.sortOrder != nil else { return nil }
+            hasLiveRank = true
+        }
+        guard hasLiveRank, let maximum = stations.compactMap(\.sortOrder).max() else { return nil }
+        return rank(after: maximum)
+    }
+
+    /// 整份按给定顺序重新编号，第 i 个是 `i * rankStep`。重复的 id 只认第一次出现。
+    /// 用户明确的整体重排（按名称排序）和一次性归一化用它。
+    public static func denseRanks(for orderedIDs: [String]) -> [String: Int] {
+        var result: [String: Int] = [:]
+        result.reserveCapacity(orderedIDs.count)
+        var next = 0
+        for id in orderedIDs where result[id] == nil {
+            result[id] = next * rankStep
+            next += 1
+        }
+        return result
+    }
+
+    /// 一组被挪动的台落在哪：紧挨在某一台之前，或紧挨在某一台之后。
+    public enum Anchor: Equatable, Sendable {
+        case before(String)
+        case after(String)
+    }
+
+    /// 只给被挪动的台算新序号，其余的台一个不动。
+    ///
+    /// `ordered` 是现在的完整顺序（`sorted` 排好的活电台），`movingIDs` 按挪完之后的
+    /// 先后给出；它们在落点两侧邻居的序号之间等距取整数，落在最前或最后时按
+    /// `rankStep` 往外排。返回值只含序号真的变了的台。
+    ///
+    /// 返回 nil 表示稀疏写不了，调用方要按挪完的整份顺序归一化（`denseRanks`）：
+    /// - 还有台没序号 —— 它们按最近播放排，位置会自己变，落点的序号算不出来；
+    /// - 落点两侧邻居之间的整数空位不够放下这几台（含两台同号）；
+    /// - 给的 id 或落点在 `ordered` 里找不到，或者全部台都在挪、没有邻居可参照。
+    public static func sparseRanks(
+        moving movingIDs: [String],
+        anchor: Anchor,
+        in ordered: [RadioStation]
+    ) -> [String: Int]? {
+        var current: [String: Int] = [:]
+        current.reserveCapacity(ordered.count)
+        for station in ordered {
+            guard let rank = station.sortOrder else { return nil }
+            if current[station.id] == nil { current[station.id] = rank }
+        }
+        var movingSet = Set<String>()
+        let moving = movingIDs.filter { movingSet.insert($0).inserted }
+        guard !moving.isEmpty, moving.allSatisfy({ current[$0] != nil }) else { return nil }
+
+        let remaining = ordered.filter { !movingSet.contains($0.id) }
+        let insertion: Int
+        switch anchor {
+        case .before(let id):
+            guard let index = remaining.firstIndex(where: { $0.id == id }) else { return nil }
+            insertion = index
+        case .after(let id):
+            guard let index = remaining.firstIndex(where: { $0.id == id }) else { return nil }
+            insertion = index + 1
+        }
+        let lower = insertion > 0 ? remaining[insertion - 1].sortOrder : nil
+        let upper = insertion < remaining.count ? remaining[insertion].sortOrder : nil
+        guard let ranks = interpolatedRanks(count: moving.count, between: lower, and: upper) else { return nil }
+
+        var result: [String: Int] = [:]
+        for (id, rank) in zip(moving, ranks) where current[id] != rank {
+            result[id] = rank
+        }
+        return result
+    }
+
+    /// 置顶：`ids` 按给定先后排到最前，其余的台序号不动。
+    ///
+    /// 新序号取剩下的台里最小序号再往前数；剩下的台都没序号时从 0 起 ——
+    /// 有序号的台本来就排在没序号的前面。已经按这个先后排在最前、并且都有序号时
+    /// 什么都不写。返回值只含序号真的变了的台。
+    public static func ranksMovingToTop(_ ids: [String], in ordered: [RadioStation]) -> [String: Int] {
+        let current = Dictionary(
+            ordered.map { ($0.id, $0.sortOrder) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var movingSet = Set<String>()
+        let moving = ids.filter { current[$0] != nil && movingSet.insert($0).inserted }
+        guard !moving.isEmpty else { return [:] }
+        if ordered.prefix(moving.count).map(\.id) == moving,
+           moving.allSatisfy({ current[$0].flatMap { $0 } != nil }) {
+            return [:]
+        }
+
+        let remaining = ordered.filter { !movingSet.contains($0.id) }
+        let assigned: [String: Int]
+        if let floor = remaining.compactMap(\.sortOrder).min() {
+            if let ranks = interpolatedRanks(count: moving.count, between: nil, and: floor) {
+                assigned = Dictionary(uniqueKeysWithValues: zip(moving, ranks))
+            } else {
+                // 序号已经逼近整数下限（只可能是坏数据）：整份按置顶后的顺序重新编号。
+                assigned = denseRanks(for: moving + remaining.map(\.id))
+            }
+        } else {
+            assigned = denseRanks(for: moving)
+        }
+        return assigned.filter { current[$0.key].flatMap { $0 } != $0.value }
+    }
+
+    /// `count` 个严格递增的整数：两侧都有邻居时落在 (lower, upper) 开区间里等距取整，
+    /// 只有一侧时按 `rankStep` 往外排。空位不够或会溢出时返回 nil。
+    static func interpolatedRanks(count: Int, between lower: Int?, and upper: Int?) -> [Int]? {
+        guard count > 0 else { return [] }
+        switch (lower, upper) {
+        case let (lower?, upper?):
+            let (span, overflow) = upper.subtractingReportingOverflow(lower)
+            guard !overflow, span > count else { return nil }
+            let step = span / (count + 1)
+            return (1...count).map { lower + step * $0 }
+        case let (lower?, nil):
+            var result: [Int] = []
+            result.reserveCapacity(count)
+            var value = lower
+            for _ in 0..<count {
+                let (next, overflow) = value.addingReportingOverflow(rankStep)
+                guard !overflow else { return nil }
+                value = next
+                result.append(value)
+            }
+            return result
+        case let (nil, upper?):
+            var result: [Int] = []
+            result.reserveCapacity(count)
+            var value = upper
+            for _ in 0..<count {
+                let (next, overflow) = value.subtractingReportingOverflow(rankStep)
+                guard !overflow else { return nil }
+                value = next
+                result.append(value)
+            }
+            return result.reversed()
+        case (nil, nil):
+            return nil
         }
     }
 }

@@ -9,6 +9,9 @@ import PrimuseKit
 ///   CloudKit 同步，别的设备只是看不到订阅管理，不会出错。
 /// - 刷新状态(`RadioSubscriptionRefreshStatus`)另存一个本机键，不同步：退避、错误、
 ///   待确认的移除都是这台设备自己的事。
+/// - 只有用户真正改了订阅(新增、删除、改定义)才推 iCloud。键值存储按整份列表
+///   最后写入者胜出：自动刷新写回 `lastRefreshedAt` 要是也推，每台设备每天都会
+///   拿自己的整份列表盖一次云端，别的设备刚加、这边还没收到的订阅就没了。
 ///
 /// 电台里挂着本机不认识的 `subscriptionID`(别的设备订阅了、定义还没同步过来，
 /// 或者这边关了设置同步)也没关系：它们照常显示为订阅电台，只是本机没法管理。
@@ -107,8 +110,9 @@ final class RadioSubscriptionsStore {
         persistStatuses()
     }
 
-    /// 改订阅定义。`touchesDefinition` 为假时不动 `modifiedAt` —— 写回
-    /// `lastRefreshedAt` 这种事不算用户改了订阅。
+    /// 改订阅定义。`touchesDefinition` 为假时不动 `modifiedAt`、也不推 iCloud ——
+    /// 写回 `lastRefreshedAt` 这种事不算用户改了订阅，只落本机；它会跟着下一次
+    /// 真正的定义修改一起上云。
     func update(
         id: String,
         touchesDefinition: Bool = true,
@@ -121,7 +125,7 @@ final class RadioSubscriptionsStore {
         guard next != subscriptions[index] else { return }
         if touchesDefinition { next.modifiedAt = Date() }
         subscriptions[index] = next
-        persistSubscriptions()
+        persistSubscriptions(pushesToICloud: touchesDefinition)
     }
 
     func updateStatus(id: String, mutate: (inout RadioSubscriptionRefreshStatus) -> Void) {
@@ -156,10 +160,13 @@ final class RadioSubscriptionsStore {
         persistStatuses()
     }
 
-    private func persistSubscriptions() {
+    /// `pushesToICloud` 为假只写本机：不抬修订号，打开开关时的补推也按修订号
+    /// 比对、不会把它推上去。本机值与云端值不一致没关系，下一次真正的修改会
+    /// 连同它一起推。
+    private func persistSubscriptions(pushesToICloud: Bool = true) {
         guard let data = try? JSONEncoder().encode(subscriptions) else { return }
         defaults.set(data, forKey: Self.storageKey)
-        if syncsThroughICloud {
+        if syncsThroughICloud, pushesToICloud {
             CloudKVSSync.shared.markChanged(key: Self.storageKey)
         }
     }

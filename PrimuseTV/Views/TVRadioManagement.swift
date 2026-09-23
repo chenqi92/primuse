@@ -138,7 +138,7 @@ enum TVRadioLogoLoader {
 
     // MARK: 公网台标
 
-    /// 远程台标唯一的取图入口:查缓存 → 失败记录 → 闸门 → 下载 → 校验 → 写缓存。
+    /// 远程台标唯一的取图入口:查缓存 → 失败记录 → 闸门 → 下载 → 校验(矢量图先栅格化)→ 写缓存。
     private static func fetchRemoteLogo(cacheSongID: String, address remote: String) async -> Data? {
         guard let url = URL(string: remote) else { return nil }
         // 地址进缓存键:别的设备换了台标地址,这里不会一直拿着旧图。
@@ -149,11 +149,6 @@ enum TVRadioLogoLoader {
         // 目录 favicon 大约四成是坏的;失败过的地址一段时间内不再请求,
         // 否则每次冷启动、每次 Top Shelf 发布都要把注定失败的请求再发一遍。
         guard await failureLog.allowsAttempt(for: remote) else { return nil }
-        // 电视没有 SVG 栅格化器(SwiftDraw 编不过 tvOS),矢量台标取回来也显示不了。
-        if SVGImageSupport.referenceLooksLikeSVG(remote) {
-            await record(.content, for: remote)
-            return nil
-        }
         guard !Task.isCancelled else { return nil }
 
         // 首页电台那一排不是懒加载的,上千个台会同时要图;限住同时下载的数量。
@@ -205,8 +200,7 @@ enum TVRadioLogoLoader {
             return nil
         }
         guard !Task.isCancelled else { return nil }
-        guard !data.isEmpty, !SVGImageSupport.looksLikeSVG(data),
-              let usable = cacheableLogo(data) else {
+        guard !data.isEmpty, let usable = cacheableLogo(data) else {
             await record(.content, for: remote)
             return nil
         }
@@ -218,9 +212,19 @@ enum TVRadioLogoLoader {
     /// 图本身能解出来、只是容器不规整的(结尾多了字节、缺结束标记等,网站 favicon 常见),
     /// 按上限尺寸重新编码成干净的 JPEG。`ArtworkImageCompatibility.staticFirstFrameJPEG`
     /// 在这里用不上:它自己先要求 `isCompleteImage`,正是这道门槛没过。
+    ///
+    /// 矢量台标(目录与清单里不少是 SVG)ImageIO 解不了,先按同一上限画成透明底 PNG
+    /// 再过门槛:缓存里只放位图,卡片、Top Shelf 读缓存时都不用再认 SVG。
     private static func cacheableLogo(_ data: Data) -> Data? {
+        if SVGImageSupport.looksLikeSVG(data) {
+            guard let rasterized = SVGArtworkRasterizer.pngData(
+                from: data,
+                maximumPixelSize: cachedLogoPixelSize
+            ), passesCacheGate(rasterized) else { return nil }
+            return rasterized
+        }
         if passesCacheGate(data) { return data }
-        guard let image = thumbnail(from: data, maxPixelSize: 1_024),
+        guard let image = thumbnail(from: data, maxPixelSize: cachedLogoPixelSize),
               let jpeg = image.jpegData(compressionQuality: 0.9),
               passesCacheGate(jpeg) else { return nil }
         return jpeg
@@ -231,7 +235,7 @@ enum TVRadioLogoLoader {
             && !ArtworkImageCompatibility.hasRedundantJPEGSampling(data)
     }
 
-    /// 失败分级:地址本身的问题(4xx、太大、不是图、SVG)6 小时内不再试;服务端一时的问题
+    /// 失败分级:地址本身的问题(4xx、太大、不是图、矢量图画不出来)6 小时内不再试;服务端一时的问题
     /// (5xx、限流、超时、域名解析或连不上)5 分钟后再给机会;取消、断网、蜂窝限制不算这个地址的错。
     private enum FetchFailure {
         case content
@@ -276,6 +280,9 @@ enum TVRadioLogoLoader {
     }
 
     private static let maximumBytes = 4 * 1_024 * 1_024
+    /// 进缓存的台标长边上限:重新编码的位图与栅格化的矢量图都按它。Top Shelf 的台标画布
+    /// 最大 1216,卡片按显示尺寸再缩略解码。
+    private static let cachedLogoPixelSize = 1_024
     private static let fetchGate = TVRadioLogoFetchGate(limit: 4)
     private static let failureLog = TVRadioLogoFailureLog()
     /// 台标专用会话:请求与整体下载都有上限,一个慢站点不会拖住闸门名额;不带 Cookie,

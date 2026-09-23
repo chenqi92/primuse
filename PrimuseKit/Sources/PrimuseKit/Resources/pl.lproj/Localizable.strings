@@ -160,6 +160,7 @@
 "ext.tv.home.tonightsPick" = "Dzisiejszy wybór";
 "ext.tv.http.allow" = "Zezwól i kontynuuj";
 "ext.tv.http.message" = "%1$@ używa niezaszyfrowanego HTTP. Kontynuuj tylko wtedy, gdy jest to Twój serwer. Autoryzacja dotyczy tylko tego schematu, hosta i portu.";
+"ext.tv.http.radioMessage" = "Playlista tej stacji pod adresem %1$@ używa nieszyfrowanego HTTP. Zezwól, aby Apple TV mogła odczytać playlistę i znaleźć strumień. Zgoda dotyczy tylko tego schematu, hosta i portu i nie będzie ponownie wymagana.";
 "ext.tv.http.title" = "Jasny tekst HTTP wymaga potwierdzenia";
 "ext.tv.immersive.exitHint" = "Naciśnij Menu, aby wyjść";
 "ext.tv.immersive.holdForQueue" = "Czekaj na kolejkę";
@@ -260,7 +261,7 @@
 "ext.tv.radio.popularIn" = "Popularne: %@";
 "ext.tv.radio.deepLinkUnavailable" = "Tej stacji nie ma już na liście.";
 "ext.tv.radio.stationCount.one" = "1 stacja";
-"ext.tv.radio.playlistCleartext" = "Ta stacja używa linku do playlisty przez nieszyfrowany HTTP, którego Apple TV nie pobiera. Użyj bezpośredniego adresu strumienia lub linku https.";
+"ext.tv.radio.playlistCleartext" = "Link do playlisty tej stacji używa nieszyfrowanego HTTP i nie został dozwolony, więc Apple TV go nie pobrała. Włącz stację ponownie, aby zezwolić, albo użyj bezpośredniego adresu strumienia lub linku https.";
 "ext.tv.home.emptyWithRadio" = "Zsynchronizuj bibliotekę z iPhone’a lub Maca, aby zobaczyć tu muzykę, albo dodaj stacje radia internetowego bezpośrednio.";
 "ext.tv.radio.stationCount" = "Stacje %d";
 "ext.tv.radio.stop" = "Zatrzymaj";

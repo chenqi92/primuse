@@ -21,9 +21,17 @@ public final class TVServerCertificateTrustStore {
         var continuations: [CheckedContinuation<Bool, Never>]
     }
 
+    /// 这次明文确认是为谁弹的，只决定提示文案：音乐源服务器，还是电台的 `.pls` / `.m3u` 清单。
+    /// 许可都按「协议 + 主机 + 端口」记在同一份名单里。
+    public enum InsecureHTTPPurpose: Sendable, Equatable {
+        case server
+        case radioPlaylist
+    }
+
     public struct InsecureHTTPRequest: Identifiable {
         public let id = UUID()
         public let endpoint: String
+        public let purpose: InsecureHTTPPurpose
         var continuations: [CheckedContinuation<Bool, Never>]
     }
 
@@ -80,7 +88,10 @@ public final class TVServerCertificateTrustStore {
         }
     }
 
-    public func requestInsecureHTTPTrust(endpoint: String) async -> Bool {
+    public func requestInsecureHTTPTrust(
+        endpoint: String,
+        purpose: InsecureHTTPPurpose = .server
+    ) async -> Bool {
         if Self.isInsecureHTTPTrustedSync(endpoint: endpoint) { return true }
         return await withCheckedContinuation { continuation in
             if pendingInsecureHTTPRequest?.endpoint == endpoint {
@@ -95,6 +106,7 @@ public final class TVServerCertificateTrustStore {
             }
             let request = InsecureHTTPRequest(
                 endpoint: endpoint,
+                purpose: purpose,
                 continuations: [continuation]
             )
             if pendingInsecureHTTPRequest == nil {
@@ -120,6 +132,24 @@ public final class TVServerCertificateTrustStore {
             : waitingInsecureHTTPRequests.removeFirst()
         for continuation in request.continuations {
             continuation.resume(returning: approved)
+        }
+    }
+
+    /// 发起方不再等回答（超时或已取消）时撤回自己那次询问：按拒绝收场、不记许可，
+    /// 正弹着就收起来，还在排队就从队列里拿掉。只撤同一用途的，别处为同一端点发起的询问不受影响。
+    public func withdrawInsecureHTTPRequest(endpoint: String, purpose: InsecureHTTPPurpose) {
+        if let request = pendingInsecureHTTPRequest,
+           request.endpoint == endpoint,
+           request.purpose == purpose {
+            resolvePendingInsecureHTTPRequest(approved: false)
+            return
+        }
+        guard let index = waitingInsecureHTTPRequests.firstIndex(where: {
+            $0.endpoint == endpoint && $0.purpose == purpose
+        }) else { return }
+        let request = waitingInsecureHTTPRequests.remove(at: index)
+        for continuation in request.continuations {
+            continuation.resume(returning: false)
         }
     }
 

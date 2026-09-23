@@ -361,6 +361,8 @@ actor TVArtworkLoader {
     private static let maximumAnimatedArtworkBytes =
         ArtworkAnimationLimits.default.maximumCompressedBytes
     private static let maximumSearchResponseBytes = 1 * 1024 * 1024
+    /// 矢量封面栅格化的长边,与静态首帧镜像(`staticFirstFrameJPEG`)的默认上限一致。
+    private static let vectorArtworkPixelSize = 1_536
     private static let staticAnimationNegativeTTL: TimeInterval = 24 * 60 * 60
     private static let animationDiskCache: ArtworkAnimationDiskCache = {
         let base = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
@@ -757,6 +759,15 @@ actor TVArtworkLoader {
     private nonisolated static func prepareStaticArtwork(
         _ data: Data
     ) -> StaticArtworkPreparation? {
+        // 音乐源给的矢量封面(镜像电台的台标里有)ImageIO 解不了,先画成透明底 PNG,
+        // 之后的缓存与显示都按位图走;iPhone / Mac 的 `CachedArtworkView` 解码时同样先栅格化。
+        if SVGImageSupport.looksLikeSVG(data) {
+            guard let rasterized = SVGArtworkRasterizer.pngData(
+                from: data,
+                maximumPixelSize: vectorArtworkPixelSize
+            ), isImageData(rasterized) else { return nil }
+            return StaticArtworkPreparation(displayData: rasterized, mayContainAnimation: false)
+        }
         guard isImageData(data) else { return nil }
         let mayContainAnimation = isAnimationContainerCandidate(data)
         let displayData: Data

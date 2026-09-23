@@ -77,6 +77,7 @@ final class PlayHistoryStore {
         #endif
         try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
         self.storeURL = docs.appendingPathComponent("play_history.json")
+        clearedAt = UserDefaults.standard.object(forKey: Self.clearedAtDefaultsKey) as? Date
         load()
     }
 
@@ -131,9 +132,18 @@ final class PlayHistoryStore {
         notifyChanged()
     }
 
+    /// 用户最近一次「清空听歌记录」的时刻。清空必须作为事实同步出去: 光把本机
+    /// 表清空, 云端那份、别的设备那份下一轮又会整份并回来。早于这一刻的记录在
+    /// 哪台设备上都不再算数。
+    private(set) var clearedAt: Date? {
+        didSet { UserDefaults.standard.set(clearedAt, forKey: Self.clearedAtDefaultsKey) }
+    }
+    private static let clearedAtDefaultsKey = "primuse.listeningStats.clearedAt"
+
     func clearAll() {
         entries.removeAll()
         try? FileManager.default.removeItem(at: storeURL)
+        clearedAt = Date()
         notifyChanged()
     }
 
@@ -141,15 +151,21 @@ final class PlayHistoryStore {
 
     var entriesForSync: [Entry] { entries }
 
-    func mergeRemoteEntries(_ remoteEntries: [Entry]) {
-        guard !remoteEntries.isEmpty else { return }
+    func mergeRemoteEntries(_ remoteEntries: [Entry], remoteClearedAt: Date? = nil) {
+        if let remoteClearedAt, remoteClearedAt > (clearedAt ?? .distantPast) {
+            clearedAt = remoteClearedAt
+        }
+        let cutoff = clearedAt ?? .distantPast
+        let survivingRemote = remoteEntries.filter { $0.playedAt >= cutoff }
+        let survivingLocal = entries.filter { $0.playedAt >= cutoff }
+        guard !survivingRemote.isEmpty || survivingLocal.count != entries.count else { return }
         let previous = entries
         let before = Set(entries.map(\.id))
         var mergedByID = Dictionary(
-            entries.map { ($0.id, $0) },
+            survivingLocal.map { ($0.id, $0) },
             uniquingKeysWith: { lhs, rhs in lhs.playedAt >= rhs.playedAt ? lhs : rhs }
         )
-        for entry in remoteEntries {
+        for entry in survivingRemote {
             mergedByID[entry.id] = entry
         }
         let merged = mergedByID.values.sorted { $0.playedAt > $1.playedAt }
@@ -165,14 +181,23 @@ final class PlayHistoryStore {
             return
         }
         scheduleSave()
-        notifyChanged()
+        notifyChanged(origin: "remote")
     }
 
     func clearFromRemote() {
         guard !entries.isEmpty else { return }
         entries.removeAll()
         try? FileManager.default.removeItem(at: storeURL)
-        notifyChanged()
+        notifyChanged(origin: "remote")
+    }
+
+    /// CloudKit 游标马上要落盘: 攒着的那次两秒写现在就写, 免得进程在这两秒里
+    /// 被杀, 刚并进来的远端记录丢了却再也拉不回来。
+    func flushPendingSave() {
+        guard saveTask != nil else { return }
+        saveTask?.cancel()
+        saveTask = nil
+        saveNow()
     }
 
     // MARK: - 查询 / 聚合
@@ -385,9 +410,15 @@ final class PlayHistoryStore {
         try? data.write(to: storeURL, options: .atomic)
     }
 
-    private func notifyChanged() {
+    /// `origin` 让 CloudKit 的观察者分得清这是本机播放还是远端并进来的, 后者
+    /// 不能再当成本机改动传回云端。
+    private func notifyChanged(origin: String = "local") {
         revision &+= 1
-        NotificationCenter.default.post(name: .primuseListeningStatsDidChange, object: nil)
+        NotificationCenter.default.post(
+            name: .primuseListeningStatsDidChange,
+            object: nil,
+            userInfo: ["origin": origin]
+        )
     }
 }
 

@@ -24,7 +24,8 @@ enum RadioSubscriptionRefreshOutcome: Equatable, Sendable {
 /// 电台清单订阅的刷新与管理。
 ///
 /// - 下载 → 解析 → 按 `RadioSubscriptionMergePolicy` 合并 → 一次写回电台库。
-/// - 失败只记状态，不动电台；成功才把 `lastRefreshedAt` 写回订阅定义(跨设备同步)。
+/// - 失败只记状态，不动电台；成功才把 `lastRefreshedAt` 写回订阅定义(只写本机，
+///   随下一次真正的定义修改一起上云)。
 /// - 单飞：同一份订阅同时只有一个刷新在跑，后来的调用等同一个结果。
 /// - 自动刷新：启动后等一会儿、以及每次回到前台时，按
 ///   `RadioSubscriptionRefreshSchedule` 把到期的订阅逐个串行刷新。

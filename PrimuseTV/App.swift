@@ -45,6 +45,8 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
     let store = TVStore()
     private lazy var playMediaHandler = TVPlayMediaIntentHandler(store: store)
     private var radioCatalogObserver: NSObjectProtocol?
+    /// 电台目录变更的通知一次播放就会连发好几条,合并成停下来约 400ms 后刷新一次词表。
+    private var radioVocabularyRefreshTask: Task<Void, Never>?
 
     func application(
         _ application: UIApplication,
@@ -59,11 +61,25 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.playMediaHandler.refreshRadioVocabulary()
+                self?.scheduleRadioVocabularyRefresh()
             }
         }
         playMediaHandler.refreshRadioVocabulary()
         return true
+    }
+
+    private func scheduleRadioVocabularyRefresh() {
+        radioVocabularyRefreshTask?.cancel()
+        radioVocabularyRefreshTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(400))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            self.radioVocabularyRefreshTask = nil
+            self.playMediaHandler.refreshRadioVocabulary()
+        }
     }
 
     func sceneDidBecomeActive() {

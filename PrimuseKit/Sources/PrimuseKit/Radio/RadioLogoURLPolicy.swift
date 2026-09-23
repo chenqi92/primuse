@@ -59,8 +59,8 @@ public enum RadioLogoURLPolicy {
         "about:blank", "http://", "https://", "example.com",
     ]
 
-    /// 能当台标用的图片扩展名。SVG 也在其中：ImageIO 解不了它，但 iPhone 和
-    /// Mac 上有矢量栅格化器兜着(见 `SVGImageSupport`)，清单里的 SVG 台标
+    /// 能当台标用的图片扩展名。SVG 也在其中：ImageIO 解不了它，但 iPhone、
+    /// Mac 与 Apple TV 上都有矢量栅格化器兜着(见 `SVGImageSupport`)，清单里的 SVG 台标
     /// 不该在这一步就被当成「不是图片」丢掉。
     private static let bitmapExtensions: Set<String> = [
         "jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif", "tif", "tiff", "ico",

@@ -2960,6 +2960,9 @@ final class MusicLibrary {
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
     private var playlistSongIDs: [String: [String]] = [:]
+    /// 每个歌单上一次与云端一致时的曲目表(远端套用后、合并后、本机保存成功后都会
+    /// 更新)。冲突合并拿它当三方合并的基线: 基线里有、一边没有的, 就是那一边删掉的。
+    private var playlistSyncBaseSongIDs: [String: [String]] = [:]
     /// Changes when playlist metadata, membership, or Apple Music mirror
     /// visibility changes. Folder projections observe this separately from the
     /// song collection because a playlist rename does not mutate any Song.
@@ -7645,12 +7648,24 @@ final class MusicLibrary {
             playlistSongIDs[playlist.id] = nil
             pendingPlaylistIdentities[playlist.id] = nil
         }
+        // 远端这份现在就是本机与云端一致的状态: 记成下次合并的基线。
+        playlistSyncBaseSongIDs[playlist.id] = playlist.isPurged ? nil : playlistSongIDs[playlist.id]
 
         sortPlaylists()
         scheduleRemotePlaylistDurabilityLedgerWrite()
         persistSnapshot()
         playlistCollectionRevision &+= 1
         return false
+    }
+
+    /// 本机的歌单记录保存成功: 服务器上现在就是这份曲目表, 记成下次合并的基线。
+    func markPlaylistSynced(id: String, songIDs: [String]) {
+        guard !MirrorPlaylistIdentity.isMirrorPlaylist(id),
+              LibraryArtworkOwner.fromCloudRecordID(id) == nil,
+              playlistSyncBaseSongIDs[id] != songIDs else { return }
+        playlistSyncBaseSongIDs[id] = songIDs
+        // 基线丢了只是退化成并集合并, 不值得为它立刻整库落盘。
+        persistSnapshot(after: Self.lowPriorityPortableSnapshotDelay)
     }
 
     /// Merge a server-side playlist update into the existing local playlist.
@@ -7692,13 +7707,40 @@ final class MusicLibrary {
         }
 
         let (resolved, unresolved) = resolveIdentitiesPartitioned(additionalIdentities)
+        // `baseSongIDs` 是本机现在的曲目表。有上次同步的基线就做三方合并: 基线里有而
+        // 一边没有的, 是那一边删掉的, 不能再从另一边并回来; 没有基线(旧快照)才退化
+        // 成并集 —— 那种情况下一台删歌、另一台同时改, 被删的歌会回来。
         var seen = Set<String>()
-        let merged = (baseSongIDs + resolved).filter { seen.insert($0).inserted }
+        let merged: [String]
+        if let syncBase = playlistSyncBaseSongIDs[playlist.id] {
+            let removedLocally = Set(syncBase).subtracting(baseSongIDs)
+            let removedRemotely = Set(syncBase).subtracting(resolved)
+            merged = (baseSongIDs + resolved).filter {
+                !removedLocally.contains($0) && !removedRemotely.contains($0) && seen.insert($0).inserted
+            }
+        } else {
+            merged = (baseSongIDs + resolved).filter { seen.insert($0).inserted }
+        }
         playlistSongIDs[reconciled.id] = merged
         updatePendingPlaylistIdentities(playlistID: reconciled.id, with: unresolved)
         if reconciled.isPurged {
             playlistSongIDs[reconciled.id] = nil
             pendingPlaylistIdentities[reconciled.id] = nil
+            playlistSyncBaseSongIDs[reconciled.id] = nil
+        } else if !localWon,
+                  !Set(merged).isSubset(of: Set(resolved)),
+                  let index = allPlaylists.firstIndex(where: { $0.id == reconciled.id }) {
+            // 远端版本赢了元数据, 但本机独有的曲目并了进去: 推上去的必须是一个
+            // 更新的版本。否则别的设备按「同一版本」跳过, 这些曲目在它们那里永远
+            // 不出现, 而它们下一次编辑又会把这份并集整个覆盖掉。
+            allPlaylists[index].syncRevision = max(0, playlist.syncRevision) + 1
+            allPlaylists[index].syncWriterID = playlistSyncWriterID
+            allPlaylists[index].syncOperationID = UUID().uuidString
+            reconciled = allPlaylists[index]
+        }
+        if !reconciled.isPurged {
+            // 合并结果马上会随待传的保存推上去, 它就是下一次合并的基线。
+            playlistSyncBaseSongIDs[reconciled.id] = merged
         }
 
         // 合并前后完全一样(典型是源类型指纹重置后本机重排、又原样拉回来的那些)
@@ -7730,13 +7772,19 @@ final class MusicLibrary {
         }) { return }
         let previousSongIDs = recentPlaybackSongIDs
         let previousPending = pendingHistoryIdentities
+        // 远端那份排在前面(那台设备刚放过), 本机独有的最近播放接在后面。以前是
+        // 整份替换: 本机刚放的一首还没轮到五分钟节流上传, 别的设备一条记录到了,
+        // 它就从「最近播放」里消失, 也再没机会传出去。
+        let incoming: [String]
         if let identities, !identities.isEmpty {
             let (resolved, unresolved) = resolveIdentitiesPartitioned(identities)
-            recentPlaybackSongIDs = Array(resolved.prefix(100))
+            incoming = resolved
             updatePendingHistoryIdentities(with: unresolved)
         } else {
-            recentPlaybackSongIDs = Array(songIDs.prefix(100))
+            incoming = songIDs
         }
+        var seen = Set<String>()
+        recentPlaybackSongIDs = Array((incoming + previousSongIDs).filter { seen.insert($0).inserted }.prefix(100))
         // 拉回来的就是本机已有的那份时不必再整库落盘。
         guard recentPlaybackSongIDs != previousSongIDs
             || pendingHistoryIdentities != previousPending else { return }
@@ -8122,11 +8170,19 @@ final class MusicLibrary {
 
     /// 应用来自远端 (CloudKit) 的智能歌单更新。比 Playlist 简单很多 ── 没有
     /// songID 解析问题, 因为 SmartPlaylist 只存规则定义不存歌曲列表。
-    func applyRemoteSmartPlaylist(_ smart: SmartPlaylist) {
+    /// 返回 true 表示本机那份更新、远端副本被忽略, 调用方应把本机这份再推一次。
+    @discardableResult
+    func applyRemoteSmartPlaylist(_ smart: SmartPlaylist) -> Bool {
         // S2: 智能歌单集合在发布时整体拷回。
-        if deferringUntilReady({ [weak self] in self?.applyRemoteSmartPlaylist(smart) }) { return }
+        if deferringUntilReady({ [weak self] in _ = self?.applyRemoteSmartPlaylist(smart) }) { return false }
         if let idx = allSmartPlaylists.firstIndex(where: { $0.id == smart.id }) {
-            guard allSmartPlaylists[idx] != smart else { return }
+            guard allSmartPlaylists[idx] != smart else { return false }
+            // 智能歌单没有逻辑版本号, 只能比修改时间。以前拉到什么就覆盖什么:
+            // 通道关着期间的本机编辑、或者只是到得晚的一份旧副本, 都会把更新的
+            // 那份冲掉。
+            if Self.smartPlaylistClock(allSmartPlaylists[idx]) > Self.smartPlaylistClock(smart) {
+                return true
+            }
             allSmartPlaylists[idx] = smart
         } else {
             allSmartPlaylists.append(smart)
@@ -8134,6 +8190,11 @@ final class MusicLibrary {
         sortSmartPlaylists()
         playlistCollectionRevision &+= 1
         persistSnapshot()
+        return false
+    }
+
+    private static func smartPlaylistClock(_ smart: SmartPlaylist) -> Date {
+        max(smart.updatedAt, smart.deletedAt ?? .distantPast)
     }
 
     /// Most recently replaced song — observable so consumers (e.g. player) can sync.
@@ -9197,6 +9258,7 @@ final class MusicLibrary {
         var allPlaylists: [Playlist] = []
         var allSmartPlaylists: [SmartPlaylist] = []
         var playlistSongIDs: [String: [String]] = [:]
+        var playlistSyncBaseSongIDs: [String: [String]] = [:]
         var recentPlaybackSongIDs: [String] = []
         var deletedSongIdentities: Set<String> = []
         var deletedSongIdentityDetails: [String: LibrarySongTombstoneDetail] = [:]
@@ -9548,6 +9610,7 @@ final class MusicLibrary {
             loadPlaylistDurabilityLedger()
             allSmartPlaylists = snapshot.smartPlaylists ?? []
             playlistSongIDs = snapshot.playlistSongIDs ?? [:]
+            playlistSyncBaseSongIDs = snapshot.playlistSyncBaseSongIDs ?? [:]
             recentPlaybackSongIDs = snapshot.recentPlaybackSongIDs ?? []
             // Old `deletedSongIDs` field stored mount-UUID-derived song.id
             // tombstones — useless after re-OAuth changes the source UUID.
@@ -9763,6 +9826,7 @@ final class MusicLibrary {
             storage.allPlaylists = allPlaylists
             storage.allSmartPlaylists = allSmartPlaylists
             storage.playlistSongIDs = playlistSongIDs
+            storage.playlistSyncBaseSongIDs = playlistSyncBaseSongIDs
             storage.recentPlaybackSongIDs = recentPlaybackSongIDs
             storage.deletedSongIdentities = deletedSongIdentities
             storage.deletedSongIdentityDetails = deletedSongIdentityDetails
@@ -9819,6 +9883,7 @@ final class MusicLibrary {
             artists = storage.artists
             allSmartPlaylists = storage.allSmartPlaylists
             playlistSongIDs = storage.playlistSongIDs
+            playlistSyncBaseSongIDs = storage.playlistSyncBaseSongIDs
             recentPlaybackSongIDs = storage.recentPlaybackSongIDs
             deletedSongIdentities = storage.deletedSongIdentities
             deletedSongIdentityDetails = storage.deletedSongIdentityDetails
@@ -10363,6 +10428,16 @@ final class MusicLibrary {
         _ = enqueueSnapshotWrite()
     }
 
+    /// 远端记录已经并进内存、CloudKit 游标马上要落盘: 已武装的短防抖写入现在就
+    /// 写, 否则进程在这两秒里被杀, 游标越过的那批歌单曲目、智能歌单就再也拉不回
+    /// 来了。只管两秒档: 最近播放那种 600 秒档丢了也只是几分钟的记录, 不值得为它
+    /// 在每批远端事件后整库写一次。
+    func flushArmedSnapshotWriteNow() {
+        guard persistTask != nil, let deadline = persistDeadline,
+              deadline <= ContinuousClock.now + .seconds(5) else { return }
+        persistNow()
+    }
+
     var hasPendingPortableSnapshotChanges: Bool {
         portableSnapshotNeedsInitialWrite
             || portableSnapshotMutationGeneration != portableSnapshotPersistedGeneration
@@ -10481,6 +10556,7 @@ final class MusicLibrary {
             mirrorPlaylistSuppressions: hiddenMirrorPlaylists.isEmpty ? nil : hiddenMirrorPlaylists,
             smartPlaylists: allSmartPlaylists.isEmpty ? nil : allSmartPlaylists,
             playlistSongIDs: playlistSongIDs,
+            playlistSyncBaseSongIDs: playlistSyncBaseSongIDs.isEmpty ? nil : playlistSyncBaseSongIDs,
             recentPlaybackSongIDs: recentPlaybackSongIDs,
             deletedSongIdentities: Array(deletedSongIdentities),
             deletedSongIdentityDetails: deletedSongIdentityDetails.isEmpty
@@ -11622,6 +11698,8 @@ final class MusicLibrary {
         /// 智能歌单。Optional 让旧 snapshot decode 不报错。
         var smartPlaylists: [SmartPlaylist]?
         var playlistSongIDs: [String: [String]]?
+        /// 三方合并基线, 见 `MusicLibrary.playlistSyncBaseSongIDs`。Optional: 旧快照没有。
+        var playlistSyncBaseSongIDs: [String: [String]]? = nil
         var recentPlaybackSongIDs: [String]?
         /// Account-or-source-prefixed identity keys ("<id>:<filePath>").
         /// Persisted via Array because Set isn't Codable-stable across

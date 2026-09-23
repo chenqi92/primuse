@@ -2705,6 +2705,15 @@ private struct MacSTScrapingView: View {
         .sheet(isPresented: $showLyricsServersSheet) {
             MacLyricsAPIServersSheet(player: player) { showLyricsServersSheet = false }
         }
+        #if DEBUG
+        .task {
+            // 编译机上的无人值守检查：`PRIMUSE_VISUAL_EVIDENCE=lyricsServers` 直接弹出地址面板。
+            guard ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "lyricsServers" else { return }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            showLyricsServersSheet = true
+        }
+        #endif
     }
 
     /// 空字符串表示还没选过：交给策略读，它认得第一版留下的开关。
@@ -5041,7 +5050,7 @@ private struct MacSTCloudView: View {
                         set: { newValue in
                             enabled = newValue
                             Task {
-                                if newValue { await sync.start() } else { sync.stop() }
+                                if newValue { await sync.startAfterUserEnabledSync() } else { sync.stop() }
                             }
                         }
                     ))

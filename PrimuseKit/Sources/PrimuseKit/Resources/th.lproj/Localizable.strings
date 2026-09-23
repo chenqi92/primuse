@@ -160,6 +160,7 @@
 "ext.tv.home.tonightsPick" = "รายการเด็ดคืนนี้";
 "ext.tv.http.allow" = "อนุญาตและดำเนินการต่อ";
 "ext.tv.http.message" = "%1$@ ใช้ที่ไม่ได้เข้ารหัส HTTP ดำเนินการต่อหากนี่คือเซิร์ฟเวอร์ของคุณเท่านั้น การอนุญาตมีผลกับสคีม โฮสต์ และพอร์ตนี้เท่านั้น";
+"ext.tv.http.radioMessage" = "เพลย์ลิสต์ของสถานีนี้ที่ %1$@ ใช้ HTTP ที่ไม่เข้ารหัส อนุญาตเพื่อให้ Apple TV อ่านเพลย์ลิสต์และค้นหาสตรีมได้ การอนุญาตมีผลกับสคีม โฮสต์ และพอร์ตนี้เท่านั้น และจะไม่ถามอีก";
 "ext.tv.http.title" = "ข้อความเคลียร์ HTTP ต้องมีการยืนยัน";
 "ext.tv.immersive.exitHint" = "กด Menu เพื่อออก";
 "ext.tv.immersive.holdForQueue" = "รอคิว";
@@ -260,7 +261,7 @@
 "ext.tv.radio.popularIn" = "ยอดนิยมใน%@";
 "ext.tv.radio.deepLinkUnavailable" = "สถานีนี้ไม่อยู่ในรายการของคุณแล้ว";
 "ext.tv.radio.stationCount.one" = "1 สถานี";
-"ext.tv.radio.playlistCleartext" = "สถานีนี้ใช้ลิงก์เพลย์ลิสต์ผ่าน HTTP ที่ไม่เข้ารหัส ซึ่ง Apple TV จะไม่ดึงข้อมูล โปรดใช้ที่อยู่สตรีมโดยตรงหรือลิงก์ https";
+"ext.tv.radio.playlistCleartext" = "ลิงก์เพลย์ลิสต์ของสถานีนี้ใช้ HTTP ที่ไม่เข้ารหัสและไม่ได้รับอนุญาต Apple TV จึงไม่ได้ดึงข้อมูล เล่นสถานีอีกครั้งเพื่ออนุญาต หรือใช้ที่อยู่สตรีมโดยตรงหรือลิงก์ https";
 "ext.tv.home.emptyWithRadio" = "ซิงค์คลังเพลงจาก iPhone หรือ Mac เพื่อดูเพลงของคุณที่นี่ หรือเพิ่มสถานีวิทยุอินเทอร์เน็ตได้โดยตรง";
 "ext.tv.radio.stationCount" = "%d สถานี";
 "ext.tv.radio.stop" = "หยุด";

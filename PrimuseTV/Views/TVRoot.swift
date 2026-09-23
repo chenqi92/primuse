@@ -260,7 +260,12 @@ struct TVRoot: View {
                 }
             } message: {
                 if let request = certificateTrustStore.pendingInsecureHTTPRequest {
-                    Text(verbatim: PMString("ext.tv.http.message", request.endpoint))
+                    switch request.purpose {
+                    case .server:
+                        Text(verbatim: PMString("ext.tv.http.message", request.endpoint))
+                    case .radioPlaylist:
+                        Text(verbatim: PMString("ext.tv.http.radioMessage", request.endpoint))
+                    }
                 }
             }
     }

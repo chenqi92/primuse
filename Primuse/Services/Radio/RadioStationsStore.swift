@@ -4,6 +4,8 @@ import PrimuseKit
 extension Notification.Name {
     static let primuseRadioStationsDidChange = Notification.Name("primuse.radioStations.changed")
     static let primuseRadioStationDidDelete = Notification.Name("primuse.radioStations.deleted")
+    /// 过了保留期的墓碑被清掉: 这时才把 CloudKit 记录真正删掉。userInfo["ids"]。
+    static let primuseRadioStationDidPurge = Notification.Name("primuse.radioStations.purged")
 }
 
 struct ServerRadioSyncResult: Sendable {
@@ -96,9 +98,9 @@ final class RadioStationsStore {
     /// 远端写入攒着还没写盘（见 `upsertFromRemote`）。
     @ObservationIgnored private var remotePersistPending = false
     @ObservationIgnored private var remotePersistTask: Task<Void, Never>?
-    /// 攒着没写盘的那些远端改动本身，按到达顺序；`nil` 表示远端删除。
+    /// 攒着没写盘的那些远端改动本身（远端删除是落下的那条墓碑），按到达顺序。
     /// 外部整份改写文件后 `reloadFromDisk()` 要把它们放回去（见那里）。
-    @ObservationIgnored private var pendingRemoteChanges: [(id: String, station: RadioStation?)] = []
+    @ObservationIgnored private var pendingRemoteChanges: [RadioStation] = []
     /// 最近收听时间攒着还没写盘（见 `markPlayed`）。
     @ObservationIgnored private var playedPersistPending = false
     @ObservationIgnored private var playedPersistTask: Task<Void, Never>?
@@ -183,9 +185,8 @@ final class RadioStationsStore {
             }
             allStations[index] = stamped
         } else {
-            if stamped.sortOrder == nil,
-               allStations.contains(where: { !$0.isDeleted && $0.sortOrder != nil }) {
-                stamped.sortOrder = (allStations.compactMap(\.sortOrder).max() ?? -1) + 1
+            if stamped.sortOrder == nil {
+                stamped.sortOrder = RadioStationOrdering.appendedRank(after: allStations)
             }
             allStations.append(stamped)
         }
@@ -468,14 +469,19 @@ final class RadioStationsStore {
         moveStations(from: offsets, to: destination, within: stations)
     }
 
-    /// 在 `visible` 这个子集内部拖动排序。
+    /// 在 `visible` 这个子集内部拖动排序（iPhone 拖动、Mac 与电视的前移后移都走这里）。
     ///
-    /// 可见电台在全局顺序里占据的**位置**不动，只是它们彼此之间的先后调换 ——
-    /// 筛选状态下直接拿可见下标去改全局顺序，会把没显示出来的电台一起搅乱。
+    /// 只给被挪动的台写新序号：落点两侧邻居的序号之间取值（`RadioStationOrdering.sparseRanks`），
+    /// 其余的台一个不动，也就不会逐条上传。往前挪就紧贴在越过的那一台之前，往后挪就紧贴在
+    /// 它之后 —— 筛选状态下两台可见电台之间夹着的其他台原地不动。
+    ///
+    /// 稀疏写不了的时候（还有台没序号、落点两侧没有整数空位）做一次 `normalizeRanks`，
+    /// 按挪完的整份顺序重新编号。这时可见电台在全局顺序里占据的**位置**不动，只是它们
+    /// 彼此之间的先后调换 —— 筛选状态下直接拿可见下标去改全局顺序，会把没显示出来的电台一起搅乱。
     func moveStations(from offsets: IndexSet, to destination: Int, within visible: [RadioStation]) {
         var ordered = visible
         let validOffsets = offsets.filter { ordered.indices.contains($0) }
-        guard !validOffsets.isEmpty else { return }
+        guard let firstOffset = validOffsets.min() else { return }
 
         let moving = validOffsets.map { ordered[$0] }
         for index in validOffsets.sorted(by: >) {
@@ -484,13 +490,36 @@ final class RadioStationsStore {
         let removedBeforeDestination = validOffsets.filter { $0 < destination }.count
         let insertionIndex = max(0, min(ordered.count, destination - removedBeforeDestination))
         ordered.insert(contentsOf: moving, at: insertionIndex)
+        // 放回原处：顺序没变，什么都不写。
+        guard ordered.map(\.id) != visible.map(\.id) else { return }
+
+        let previous = insertionIndex > 0 ? ordered[insertionIndex - 1] : nil
+        let nextIndex = insertionIndex + moving.count
+        let next = ordered.indices.contains(nextIndex) ? ordered[nextIndex] : nil
+        let anchor: RadioStationOrdering.Anchor?
+        if insertionIndex < firstOffset {
+            anchor = next.map { .before($0.id) } ?? previous.map { .after($0.id) }
+        } else {
+            anchor = previous.map { .after($0.id) } ?? next.map { .before($0.id) }
+        }
+
+        let current = stations
+        if let anchor,
+           let ranks = RadioStationOrdering.sparseRanks(
+               moving: moving.map(\.id),
+               anchor: anchor,
+               in: current
+           ) {
+            applyRanks(ranks)
+            return
+        }
 
         let visibleIDs = Set(visible.map(\.id))
         var reordered = ordered.map(\.id).makeIterator()
-        let globalOrder = stations.map(\.id).map { id in
+        let globalOrder = current.map(\.id).map { id in
             visibleIDs.contains(id) ? (reordered.next() ?? id) : id
         }
-        applyPriorityOrder(globalOrder)
+        normalizeRanks(inOrder: globalOrder)
     }
 
     func moveStation(id: String, by offset: Int) {
@@ -499,11 +528,17 @@ final class RadioStationsStore {
         guard let index = ordered.firstIndex(where: { $0.id == id }) else { return }
         let target = max(0, min(ordered.count - 1, index + offset))
         guard target != index else { return }
+        // SwiftUI onMove 语义的目标下标：往后挪插到目标台之后，往前挪插到目标台之前。
+        moveStations(
+            from: IndexSet(integer: index),
+            to: target > index ? target + 1 : target,
+            within: ordered
+        )
+    }
 
-        var reordered = ordered
-        let station = reordered.remove(at: index)
-        reordered.insert(station, at: target)
-        applyPriorityOrder(reordered.map(\.id))
+    /// 置顶：这些台按给定先后排到最前，只写它们自己的序号，其余的台不动。
+    func moveToTop(ids: [String]) {
+        applyRanks(RadioStationOrdering.ranksMovingToTop(ids, in: stations))
     }
 
     func sortStationsByName() {
@@ -511,13 +546,13 @@ final class RadioStationsStore {
             let result = $0.name.localizedStandardCompare($1.name)
             return result == .orderedSame ? $0.id < $1.id : result == .orderedAscending
         }
-        applyPriorityOrder(ordered.map(\.id))
+        applyOrder(ordered.map(\.id))
     }
 
-    /// 一次性把顺序设成给定的 id 序列。批量操作(置顶 / 归组)用它，
-    /// 逐个 `update` 会按站数触发同样多次落盘和同步。
+    /// 整份重排：按给定的 id 序列重新编号（用户明确的整体动作，比如按名称排序）。
+    /// 整批只落一次盘、只发一次通知，逐个 `update` 会按站数触发同样多次落盘和同步。
     func applyOrder(_ stationIDs: [String]) {
-        applyPriorityOrder(stationIDs)
+        normalizeRanks(inOrder: stationIDs)
     }
 
     func remove(id: String) {
@@ -550,20 +585,46 @@ final class RadioStationsStore {
         )
     }
 
+    /// 过了保留期的普通墓碑: 行删掉, CloudKit 记录也在这时才真正删除。墓碑在保留期
+    /// 内一直留着, 是为了挡住别的设备更早的一次保存把删掉的台复活。订阅的排除标记
+    /// 要永远留着挡清单; 服务端镜像的墓碑由镜像对账自己收。
+    func pruneTombstones(deletedBefore threshold: Date) {
+        let purged = allStations.filter {
+            $0.isDeleted && !$0.isSubscriptionExclusionMarker && !$0.isServerMirror
+                && ($0.deletedAt ?? .distantFuture) < threshold
+        }.map(\.id)
+        guard !purged.isEmpty else { return }
+        let purgedSet = Set(purged)
+        allStations.removeAll { purgedSet.contains($0.id) }
+        persist()
+        NotificationCenter.default.post(
+            name: .primuseRadioStationDidPurge,
+            object: nil,
+            userInfo: ["ids": purged]
+        )
+    }
+
     /// CloudKit 送来的一条电台。整份清单是一次编码写盘的，远端一批几百上千条
     /// （订阅清单）逐条整份写，写入量就随条数平方增长，所以这里只记下待写：
     /// `CloudKitSyncService` 在一批处理完、保存引擎游标之前调 `flushRemotePersist()`，
     /// 零散调用由短延迟兜底合并。
     func upsertFromRemote(_ remote: RadioStation) {
         guard let applied = applyRemote(remote) else { return }
-        pendingRemoteChanges.append((id: applied.id, station: applied))
+        pendingRemoteChanges.append(applied)
         scheduleRemotePersist()
         materializeLogos(for: [applied])
     }
 
+    /// CloudKit 送来的删除：本机这一行变成墓碑（`RadioRemoteDeletionPolicy`），不整行抹掉 ——
+    /// 否则随后装进来的过期快照里它还活着，按修改时间合并时没有对手，就被合并回来。
+    /// 本机没有这一行、或者已经是普通墓碑时什么都不做。
     func removeFromRemote(id: String) {
-        allStations.removeAll { $0.id == id }
-        pendingRemoteChanges.append((id: id, station: nil))
+        guard let index = allStations.firstIndex(where: { $0.id == id }),
+              let tombstone = RadioRemoteDeletionPolicy.tombstone(allStations[index], at: Date()) else {
+            return
+        }
+        allStations[index] = tombstone
+        pendingRemoteChanges.append(tombstone)
         scheduleRemotePersist()
     }
 
@@ -618,9 +679,12 @@ final class RadioStationsStore {
             guard merged != allStations[index] else { return nil }
             allStations[index] = merged
         } else {
-            // 本地没有这条时，普通墓碑照旧不收；订阅的排除标记要收下 —— 它得一直
-            // 挡着清单里那一条，否则本机下次刷新会把用户删掉的台加回来。
-            guard !normalized.isDeleted || normalized.isSubscriptionExclusionMarker else { return nil }
+            // 本地没有这条时, 用户删台的墓碑也收下(隐藏行, 过了保留期清掉): 有它在,
+            // 第三台设备更早的一次保存到了才比得出新旧, 删掉的台不会被加回来。
+            // 订阅的排除标记同理且永远留着; 服务端镜像的墓碑由镜像对账自己处理。
+            guard !normalized.isDeleted
+                || normalized.isSubscriptionExclusionMarker
+                || !normalized.isServerMirror else { return nil }
             allStations.append(normalized)
         }
         return normalized
@@ -789,9 +853,7 @@ final class RadioStationsStore {
         }
         var changedIDs: [String] = []
         var seenServerIDs = Set<String>()
-        var nextSortOrder: Int? = stations.contains(where: {
-            !$0.isDeleted && $0.sortOrder != nil
-        }) ? (stations.compactMap(\.sortOrder).max() ?? -1) + 1 : nil
+        var nextSortOrder = RadioStationOrdering.appendedRank(after: stations)
 
         for serverStation in snapshot.stations {
             let serverID = serverStation.id.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -853,8 +915,8 @@ final class RadioStationsStore {
                 ),
                 tagNames: existing?.tagNames
             )
-            if existing == nil, nextSortOrder != nil {
-                nextSortOrder = (nextSortOrder ?? 0) + 1
+            if existing == nil, let order = nextSortOrder {
+                nextSortOrder = RadioStationOrdering.rank(after: order)
             }
 
             if let existing, serverMirrorContentMatches(existing, updated) {
@@ -940,15 +1002,11 @@ final class RadioStationsStore {
 
         load()
 
+        // 远端删除回放的是那条墓碑，与远端写入一样按修改时间合并：文件里那一行不比它新
+        // 就变成墓碑，文件里没有这一台就不收（普通墓碑不单独落一行）。
         var changed = false
-        for change in remoteChanges {
-            if let station = change.station {
-                if applyRemote(station) != nil { changed = true }
-            } else {
-                let countBefore = allStations.count
-                allStations.removeAll { $0.id == change.id }
-                if allStations.count != countBefore { changed = true }
-            }
+        for station in remoteChanges {
+            if applyRemote(station) != nil { changed = true }
         }
 
         if !pendingLocal.isEmpty {
@@ -999,20 +1057,33 @@ final class RadioStationsStore {
         try? data.write(to: storeURL, options: .atomic)
     }
 
-    private func applyPriorityOrder(_ stationIDs: [String]) {
-        let orderByID = Dictionary(uniqueKeysWithValues: stationIDs.enumerated().map { ($1, $0) })
-        let now = Date()
-        var changedIDs: [String] = []
+    /// 按给定顺序给这些台写 `i * rankStep`（稠密重写，每台都可能改号、都要上传）。
+    ///
+    /// 只在两种整份场景用：用户的整体重排（`applyOrder`），以及挪动时稀疏写不了 ——
+    /// 活着的台里还有没序号的（从没排过序的库第一次挪动），或者落点两侧邻居之间没有
+    /// 整数空位（同一处反复插入把间隔用完、旧版本把序号改回了连续编号、两台设备同时插进
+    /// 同一个空位撞了号）。镜像台一并编号，之后的挪动又只动被挪的那几台。
+    private func normalizeRanks(inOrder stationIDs: [String]) {
+        applyRanks(RadioStationOrdering.denseRanks(for: stationIDs))
+    }
 
-        for index in allStations.indices where !allStations[index].isDeleted {
-            guard let order = orderByID[allStations[index].id],
-                  allStations[index].sortOrder != order else { continue }
-            allStations[index].sortOrder = order
-            allStations[index].modifiedAt = now
-            changedIDs.append(allStations[index].id)
+    /// 写入序号。只改序号真的变了的活电台，也只有它们更新修改时间、记账上传；
+    /// 整批只落一次盘、只发一次通知。
+    private func applyRanks(_ ranks: [String: Int]) {
+        guard !ranks.isEmpty else { return }
+        let now = Date()
+        var updated = allStations
+        var changedIDs: [String] = []
+        for index in updated.indices where !updated[index].isDeleted {
+            guard let rank = ranks[updated[index].id],
+                  updated[index].sortOrder != rank else { continue }
+            updated[index].sortOrder = rank
+            updated[index].modifiedAt = now
+            changedIDs.append(updated[index].id)
         }
 
         guard !changedIDs.isEmpty else { return }
+        allStations = updated
         persist()
         notifyChanged(ids: changedIDs)
     }

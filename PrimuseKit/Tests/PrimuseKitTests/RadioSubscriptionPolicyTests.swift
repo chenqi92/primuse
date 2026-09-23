@@ -146,8 +146,11 @@ struct RadioSubscriptionPolicyTests {
         #expect(alpha.isSubscribed)
         #expect(!alpha.isDeleted)
         #expect(alpha.homepageURL == "https://a.example")
-        #expect(alpha.sortOrder == 5)
-        #expect(beta.sortOrder == 6)
+        // 新台接在最大序号后面，彼此留一个间隔。
+        let firstAppended = 4 + RadioStationOrdering.rankStep
+        let secondAppended = firstAppended + RadioStationOrdering.rankStep
+        #expect(alpha.sortOrder == firstAppended)
+        #expect(beta.sortOrder == secondAppended)
         #expect(beta.streamFormat == .aac)
         #expect(beta.remoteLogoURL == "https://b.example/logo.png")
         #expect(beta.remoteLogoSource == .importedManifest)

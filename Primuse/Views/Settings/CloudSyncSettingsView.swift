@@ -26,7 +26,7 @@ struct CloudSyncSettingsView: View {
                     .onChange(of: enabled) { _, newValue in
                         Task {
                             if newValue {
-                                await sync.start()
+                                await sync.startAfterUserEnabledSync()
                             } else {
                                 sync.stop()
                             }
