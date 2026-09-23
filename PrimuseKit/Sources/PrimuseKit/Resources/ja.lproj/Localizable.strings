@@ -467,6 +467,7 @@
 "ext.tv.radio.empty" = "ステーションがありません";
 "ext.tv.radio.popular" = "人気のステーション";
 "ext.tv.radio.popularIn" = "%@で人気のステーション";
+"ext.tv.radio.deepLinkUnavailable" = "このラジオ局はもうリストにありません。";
 "ext.tv.home.emptyWithRadio" = "iPhoneやMacからライブラリを同期するとここに音楽が表示されます。インターネットラジオを直接追加することもできます。";
 
 // MARK: - ソース名とローカライズ済みの実行時エラー

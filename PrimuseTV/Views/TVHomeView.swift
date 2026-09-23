@@ -152,8 +152,11 @@ struct TVHomeView: View {
                             ? nil
                             : PMString("ext.tv.radio.stationCount", store.radioStations.count)
                     ) {
-                        ForEach(store.radioStations.prefix(Self.homeRadioLimit)) { station in
-                            TVRadioStationCard(station: station, action: openPlayer)
+                        let homeStations = Array(store.radioStations.prefix(Self.homeRadioLimit))
+                        // 长按挪动只在这一排里算,台不会被挪出首页。
+                        let homeStationIDs = homeStations.map(\.id)
+                        ForEach(homeStations) { station in
+                            TVRadioStationCard(station: station, siblingIDs: homeStationIDs, action: openPlayer)
                         }
                         if store.radioStations.count > Self.homeRadioLimit {
                             TVRadioAllStationsCard(count: store.radioStations.count, action: openRadioLibrary)

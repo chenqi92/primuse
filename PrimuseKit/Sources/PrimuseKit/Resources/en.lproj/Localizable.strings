@@ -465,6 +465,7 @@
 "ext.tv.radio.empty" = "No Stations Yet";
 "ext.tv.radio.popular" = "Popular Stations";
 "ext.tv.radio.popularIn" = "Popular in %@";
+"ext.tv.radio.deepLinkUnavailable" = "This station is no longer in your list.";
 "ext.tv.home.emptyWithRadio" = "Sync your library from iPhone or Mac to see your music here, or add internet radio stations directly.";
 
 // MARK: - Source labels and localized runtime errors

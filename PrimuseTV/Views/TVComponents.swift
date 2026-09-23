@@ -345,12 +345,25 @@ struct TVRadioStationCard: View {
     @Environment(TVStore.self) private var store
     let station: RadioStation
     var width: CGFloat = 220
+    /// 卡片所在那一排 / 那一格实际显示的台(首页只放前几个,资料库可能按文件夹筛过)。
+    /// 长按菜单的首尾判断和挪动都只在它们之间算;不给就按电视上的全部电台。
+    var siblingIDs: [String]? = nil
     var action: () -> Void = {}
     @State private var panel: Panel?
 
     private enum Panel: String, Identifiable {
         case rename, delete
         var id: String { rawValue }
+    }
+
+    private var isFirstInRow: Bool {
+        guard let siblingIDs else { return store.radioStations.first?.id == station.id }
+        return siblingIDs.first == station.id
+    }
+
+    private var isLastInRow: Bool {
+        guard let siblingIDs else { return store.radioStations.last?.id == station.id }
+        return siblingIDs.last == station.id
     }
 
     var body: some View {
@@ -380,25 +393,26 @@ struct TVRadioStationCard: View {
                 Label(PMString("ext.tv.radio.play"), systemImage: "play.fill")
             }
             if store.canManageRadioStation(station) {
-                let isFirst = store.firstRadioStationID == station.id
-                let isLast = store.lastRadioStationID == station.id
+                // 首页那排最后一张卡不给「向后移」:挪出前几个就不在首页了,焦点会掉回顶栏。
+                let isFirst = isFirstInRow
+                let isLast = isLastInRow
                 if !isFirst {
                     Button {
-                        store.moveRadioStation(id: station.id, by: -1)
+                        store.moveRadioStation(id: station.id, by: -1, within: siblingIDs)
                     } label: {
                         Label(PMString("ext.tv.radio.moveEarlier"), systemImage: "arrow.backward")
                     }
                 }
                 if !isLast {
                     Button {
-                        store.moveRadioStation(id: station.id, by: 1)
+                        store.moveRadioStation(id: station.id, by: 1, within: siblingIDs)
                     } label: {
                         Label(PMString("ext.tv.radio.moveLater"), systemImage: "arrow.forward")
                     }
                 }
                 if !isFirst {
                     Button {
-                        store.moveRadioStationToTop(id: station.id)
+                        store.moveRadioStationToTop(id: station.id, within: siblingIDs)
                     } label: {
                         Label(PMString("ext.tv.radio.moveToTop"), systemImage: "arrow.up.to.line")
                     }

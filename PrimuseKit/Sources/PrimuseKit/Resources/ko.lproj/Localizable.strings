@@ -467,6 +467,7 @@
 "ext.tv.radio.empty" = "아직 방송국이 없습니다";
 "ext.tv.radio.popular" = "인기 방송국";
 "ext.tv.radio.popularIn" = "%@ 인기 방송국";
+"ext.tv.radio.deepLinkUnavailable" = "이 방송국은 더 이상 목록에 없습니다.";
 "ext.tv.home.emptyWithRadio" = "iPhone 또는 Mac에서 보관함을 동기화하면 여기에 음악이 표시됩니다. 인터넷 라디오 방송국을 직접 추가할 수도 있습니다.";
 
 // MARK: - 소스 이름과 현지화된 런타임 오류

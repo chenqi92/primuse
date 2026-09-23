@@ -27,12 +27,28 @@ enum TVRadioLogoLoader {
         // 与 iPhone / Mac 的取图顺序一致。
         let hasOwnedLogo = station.logoFileName?.isEmpty == false
         guard !hasOwnedLogo || station.remoteLogoSource?.isUserProvided == true,
-              let remote = RadioLogoURLPolicy.normalized(station.remoteLogoURL),
-              let url = URL(string: remote) else { return nil }
+              let remote = RadioLogoURLPolicy.normalized(station.remoteLogoURL) else { return nil }
+        return await fetchRemoteLogo(
+            cacheSongID: RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(for: station.id),
+            address: remote
+        )
+    }
 
+    /// 写进电台之前先确认这个台标地址真的能取回一张图(`address` 须是
+    /// `RadioLogoURLPolicy.normalized` 过的)。取回的图照常进缓存,台加上以后显示直接命中;
+    /// 失败同样记进失败记录,之后不会每次显示都再请求一遍。
+    static func probeRemoteLogo(_ address: String, forStationID stationID: String) async -> Bool {
+        await fetchRemoteLogo(
+            cacheSongID: RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(for: stationID),
+            address: address
+        ) != nil
+    }
+
+    /// 远程台标唯一的取图入口:查缓存 → 构造请求 → 下载 → 校验 → 写缓存。
+    private static func fetchRemoteLogo(cacheSongID: String, address remote: String) async -> Data? {
+        guard let url = URL(string: remote) else { return nil }
         // 地址进缓存键:别的设备换了台标地址,这里不会一直拿着旧图。
-        let cacheID = RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(for: station.id)
-            + "#" + stableDigest(remote)
+        let cacheID = cacheSongID + "#" + stableDigest(remote)
         if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: cacheID) {
             return cached
         }
@@ -776,11 +792,19 @@ struct TVRadioLibrarySection: View {
                 )
                 .frame(minHeight: 520)
             } else {
+                let shown = stations
+                // 按文件夹筛选时,长按挪动只在这个文件夹里的台之间算。
+                let shownIDs = shown.map(\.id)
                 VStack(alignment: .leading, spacing: 26) {
                     chips
                     LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
-                        ForEach(stations) { station in
-                            TVRadioStationCard(station: station, width: cell, action: openPlayer)
+                        ForEach(shown) { station in
+                            TVRadioStationCard(
+                                station: station,
+                                width: cell,
+                                siblingIDs: shownIDs,
+                                action: openPlayer
+                            )
                         }
                     }
                 }

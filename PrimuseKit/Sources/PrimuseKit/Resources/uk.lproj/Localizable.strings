@@ -158,6 +158,7 @@
 "ext.tv.radio.empty" = "Станцій поки немає";
 "ext.tv.radio.popular" = "Популярні станції";
 "ext.tv.radio.popularIn" = "Популярне: %@";
+"ext.tv.radio.deepLinkUnavailable" = "Цієї станції більше немає у списку.";
 "ext.tv.home.emptyWithRadio" = "Синхронізуйте медіатеку з iPhone або Mac, щоб бачити тут музику, або додайте інтернет-радіостанції напряму.";
 "ext.tv.settings.notSynced" = "Ще не синхронізовано";
 "error.catalog.missingHTTPResponse" = "Сервер не повернув відповідь HTTP.";

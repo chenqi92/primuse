@@ -464,6 +464,7 @@
 "ext.tv.radio.empty" = "還沒有電台";
 "ext.tv.radio.popular" = "熱門電台";
 "ext.tv.radio.popularIn" = "熱門電台 · %@";
+"ext.tv.radio.deepLinkUnavailable" = "這個電台已不在列表裡。";
 "ext.tv.home.emptyWithRadio" = "在 iPhone / Mac 上同步曲庫後，這裡會顯示你的音樂；也可以直接新增網路電台。";
 
 // MARK: - 音樂來源標籤與本地化執行階段錯誤

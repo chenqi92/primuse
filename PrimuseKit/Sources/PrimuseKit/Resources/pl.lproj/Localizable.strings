@@ -258,6 +258,7 @@
 "ext.tv.radio.empty" = "Brak stacji";
 "ext.tv.radio.popular" = "Popularne stacje";
 "ext.tv.radio.popularIn" = "Popularne: %@";
+"ext.tv.radio.deepLinkUnavailable" = "Tej stacji nie ma już na liście.";
 "ext.tv.home.emptyWithRadio" = "Zsynchronizuj bibliotekę z iPhone’a lub Maca, aby zobaczyć tu muzykę, albo dodaj stacje radia internetowego bezpośrednio.";
 "ext.tv.radio.stationCount" = "Stacje %d";
 "ext.tv.radio.stop" = "Zatrzymaj";

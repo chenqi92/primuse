@@ -464,6 +464,7 @@
 "ext.tv.radio.empty" = "还没有电台";
 "ext.tv.radio.popular" = "热门电台";
 "ext.tv.radio.popularIn" = "热门电台 · %@";
+"ext.tv.radio.deepLinkUnavailable" = "这个电台已不在列表里。";
 "ext.tv.home.emptyWithRadio" = "在 iPhone / Mac 上同步曲库后，这里会显示你的音乐；也可以直接添加网络电台。";
 
 // MARK: - 音源标签与本地化运行时错误

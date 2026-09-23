@@ -258,6 +258,7 @@
 "ext.tv.radio.empty" = "لا توجد محطات بعد";
 "ext.tv.radio.popular" = "المحطات الشائعة";
 "ext.tv.radio.popularIn" = "الشائعة في %@";
+"ext.tv.radio.deepLinkUnavailable" = "لم تعد هذه المحطة في قائمتك.";
 "ext.tv.home.emptyWithRadio" = "زامن مكتبتك من iPhone أو Mac لعرض موسيقاك هنا، أو أضف محطات راديو الإنترنت مباشرة.";
 "ext.tv.radio.stationCount" = "%d محطة";
 "ext.tv.radio.stop" = "إيقاف";

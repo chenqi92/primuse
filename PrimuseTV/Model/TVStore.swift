@@ -465,6 +465,7 @@ final class TVStore {
         }
         syncTrackNavigationCommands()
         observeLibraryChanges()
+        observeRadioStoreChanges()
         observePlaybackChanges()
         if pendingSnapshotImport || pendingSnapshotRecovery {
             Task { [weak self] in
@@ -511,9 +512,6 @@ final class TVStore {
         }
     }
     /// 以下由 `radioStations` 推出,列表一变整份重建,视图里直接读,不再逐台遍历。
-    /// 首尾电台:长按菜单据此决定显不显示「向前移 / 向后移」。
-    private(set) var firstRadioStationID: String?
-    private(set) var lastRadioStationID: String?
     /// 电台里出现过的文件夹(资料库「电台」的筛选条)。文件夹只能在 iPhone / Mac 上建,电视端只读。
     private(set) var radioFolders: [RadioStationFolderSummary] = []
     private(set) var radioUngroupedCount = 0
@@ -521,6 +519,10 @@ final class TVStore {
     private(set) var radioStationsByFolderKey: [String: [RadioStation]] = [:]
     /// 全部电台的流判重键。搜索结果每一行都要问「加过没有」。
     private var radioStreamIdentityKeys: Set<String> = []
+    /// 上一台 / 下一台沿用的顺序(电台 id)。用户自己选台时记下当时电视上的顺序,
+    /// 自动切台不刷新它:起播会把刚播的台按最近播放排到最前,拿实时列表找相邻台
+    /// 就会在两个台之间来回跳(与 iPhone 的 `radioStationOrder` 同一个做法)。
+    @ObservationIgnored private var radioNavigationOrder: [String] = []
     var isLiveRadio = false {
         didSet { syncTrackNavigationCommands() }
     }
@@ -622,6 +624,7 @@ final class TVStore {
     @ObservationIgnored private var playbackSessionTask: Task<Void, Never>?
     @ObservationIgnored private var playbackMonitorTask: Task<Void, Never>?
     @ObservationIgnored private var libraryRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var radioRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var historyRequestID: UUID?
     @ObservationIgnored private var playbackRecoveryAttempt = 0
     @ObservationIgnored private var playbackRestoreAttempted = false
@@ -1532,6 +1535,7 @@ final class TVStore {
         // 局域网扫码直传走 `applyLANPayload`,不经过这里,不受影响。
         guard CloudSyncChannel.isMasterEnabled(defaults: defaults) else {
             refreshVisibility()
+            finishPendingRadioDeepLink()
             return .syncDisabled
         }
         resumePendingSourceUpload()
@@ -1545,6 +1549,9 @@ final class TVStore {
         await cloudSync.start()
         if engineWasRunning { await cloudSync.syncNow() }
         refreshVisibility()
+        // `start()` 等 fetch 跑完才返回(账号不可用时直接返回、不会再有电台拉下来),
+        // 此刻电台列表已经到齐。
+        finishPendingRadioDeepLink()
         if installed {
             return hasRealLibrary ? .installed : .installedWithoutTransferableSongs
         }
@@ -2254,7 +2261,12 @@ final class TVStore {
             visible = demo + visible.filter { !demoIDs.contains($0.id) }
         }
         #endif
-        radioStations = visible
+        // 没变就不赋值:didSet 里的派生重建、Siri 词表通知和 Top Shelf 发布都跟着省掉。
+        // 电视端的增删改会先同步重载一次,随后电台存储的观察回调再来一次,那一次多半没变。
+        if radioStations != visible {
+            radioStations = visible
+            publishTopShelf()
+        }
 
         if isLiveRadio,
            let currentRadioStationID,
@@ -2269,29 +2281,53 @@ final class TVStore {
             radioMetadataTitle = ""
             hasNowPlaying = false
         }
-        publishTopShelf()
-        // 系统清掉缓存后电台要等 CloudKit 拉回来;这期间从 Top Shelf 点进来的电台深链
-        // 一直暂存着,列表到了就补一次。
-        if pendingDeepLink?.host == "radio", !radioStations.isEmpty {
+        // 正在播的台改了名(电视上改的,或 iPhone / Mac 经 iCloud 改的):底栏、正在播放页
+        // 和系统「正在播放」信息跟着换,不重连。
+        if isLiveRadio, let station = currentRadioStation, nowPlaying.title != station.name {
+            nowPlaying.title = station.name
+            engine.updateLiveTitle(station.name)
+        }
+        // 系统清掉缓存后电台要等 CloudKit 一条条拉回来;这期间从 Top Shelf 点进来的电台
+        // 深链一直暂存着,每次列表有变化就再找一次目标台。
+        if pendingDeepLink?.host == "radio" {
             flushPendingDeepLink()
         }
     }
 
     private func rebuildRadioDerivedState() {
         let stations = radioStations
-        let first = stations.first?.id
-        let last = stations.last?.id
-        if firstRadioStationID != first { firstRadioStationID = first }
-        if lastRadioStationID != last { lastRadioStationID = last }
-
+        // 镜像台动辄几千个,文件夹名却只有几十种:同一个原始文件夹名只归一化、折叠一次。
+        var keyByRawFolder: [String: String] = [:]
+        var displayNameByKey: [String: String] = [:]
         var byFolder: [String: [RadioStation]] = [:]
         for station in stations {
-            let key = RadioStationOrganization.normalizedFolderName(station.folderName)
-                .map(RadioStationOrganization.comparisonKey) ?? ""
+            let raw = station.folderName ?? ""
+            let key: String
+            if let known = keyByRawFolder[raw] {
+                key = known
+            } else {
+                if let name = RadioStationOrganization.normalizedFolderName(raw) {
+                    key = RadioStationOrganization.comparisonKey(name)
+                    // 与 `folders(in:)` 一样,文件夹显示名取这个文件夹里第一个台的写法。
+                    if displayNameByKey[key] == nil { displayNameByKey[key] = name }
+                } else {
+                    key = ""
+                }
+                keyByRawFolder[raw] = key
+            }
             byFolder[key, default: []].append(station)
         }
-        radioStationsByFolderKey = byFolder
-        let folders = RadioStationOrganization.folders(in: stations)
+        if radioStationsByFolderKey != byFolder { radioStationsByFolderKey = byFolder }
+        // 排序与显示名交给 `folders(in:additionalNames:)`(只传几十个显示名,不再逐台归一化),
+        // 计数直接用上面分好的组。
+        let folders = RadioStationOrganization
+            .folders(in: [], additionalNames: Array(displayNameByKey.values))
+            .map { summary in
+                RadioStationFolderSummary(
+                    name: summary.name,
+                    stationCount: byFolder[RadioStationOrganization.comparisonKey(summary.name)]?.count ?? 0
+                )
+            }
         if radioFolders != folders { radioFolders = folders }
         let ungrouped = byFolder[""]?.count ?? 0
         if radioUngroupedCount != ungrouped { radioUngroupedCount = ungrouped }
@@ -2387,7 +2423,10 @@ final class TVStore {
     private func lookUpDirectoryLogo(stationID: String, streamURL: String) {
         Task { @MainActor [weak self] in
             guard let found = await RadioDirectoryClient.lookup(streamURL: streamURL),
-                  let logo = RadioLogoURLPolicy.normalized(found.faviconURL),
+                  let logo = RadioLogoURLPolicy.normalized(found.faviconURL) else { return }
+            // 目录给的 favicon 大约四成是坏的,先取回来确认是张图再写:台标地址会同步到
+            // 所有设备,而 iPhone 看到已有地址就不再自己去找台标,坏地址会一直占着位置。
+            guard await TVRadioLogoLoader.probeRemoteLogo(logo, forStationID: stationID),
                   let self,
                   let current = self.radioStore.station(id: stationID),
                   current.remoteLogoURL == nil else { return }
@@ -2409,21 +2448,14 @@ final class TVStore {
         reloadRadioStations(fromDisk: false)
     }
 
-    /// 在电视上看得到的台之间前后挪一格(`offset` 为负是往前)。排序与 iPhone / Mac 共用。
-    /// 只在可见的台之间换位置:停用音乐源的镜像台不显示,不能让它们吃掉一次挪动。
-    func moveRadioStation(id: String, by offset: Int) {
+    /// 在同一排的台之间前后挪一格(`offset` 为负是往前)。排序与 iPhone / Mac 共用。
+    /// `siblingIDs` 是卡片所在那一排 / 那一格实际显示的台(首页只放前几个,资料库可能
+    /// 按文件夹筛过),只越过其中的相邻台;不给就是电视上的全部电台。
+    func moveRadioStation(id: String, by offset: Int, within siblingIDs: [String]?) {
         guard offset != 0 else { return }
-        let visibleIDs = Set(radioStations.map(\.id))
-        let visible = radioStore.stations.filter { visibleIDs.contains($0.id) }
-        guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
-        let target = max(0, min(visible.count - 1, index + offset))
-        guard target != index else { return }
-        radioStore.moveStations(
-            from: IndexSet(integer: index),
-            to: target > index ? target + 1 : target,
-            within: visible
-        )
-        reloadRadioStations(fromDisk: false)
+        reorderRadioStation(id: id, within: siblingIDs) { index, count in
+            max(0, min(count - 1, index + offset))
+        }
     }
 
     /// 改电台名称。订阅来的台名字归清单管、镜像台归服务端管,都不走这里。
@@ -2437,24 +2469,60 @@ final class TVStore {
         reloadRadioStations(fromDisk: false)
     }
 
-    /// 移到电台列表最前面。排序与 iPhone / Mac 共用,会一起同步过去。
-    func moveRadioStationToTop(id: String) {
-        let ordered = radioStore.stations.map(\.id)
-        guard ordered.contains(id), ordered.first != id else { return }
-        radioStore.applyOrder([id] + ordered.filter { $0 != id })
+    /// 移到同一排的最前面(`siblingIDs` 同上;资料库按文件夹筛选时就是移到这个文件夹最前)。
+    /// 排序与 iPhone / Mac 共用,会一起同步过去。
+    func moveRadioStationToTop(id: String, within siblingIDs: [String]?) {
+        reorderRadioStation(id: id, within: siblingIDs) { _, _ in 0 }
+    }
+
+    /// 把 `id` 挪到同一排的第 `target(当前位置, 同排台数)` 个位置。
+    ///
+    /// 基准是电视上显示的顺序(`radioStations`),不是存储自己的排序:这台电视记的最近
+    /// 播放时间可能与存储里的不同,两边按它排出来的先后就不一样,按存储顺序挪会挪错邻居。
+    /// 只留存储里确实有的台(DEBUG 演示台不在存储里,混进去会顶掉真台的位置)。
+    /// 挪动落在整份显示顺序上:越过同一排的相邻台,中间夹着的其他台原地不动,存储固化
+    /// 下来的顺序因此就是电视上看到的样子,首页和资料库的其他台不会因为这一挪整排跳变。
+    private func reorderRadioStation(
+        id: String,
+        within siblingIDs: [String]?,
+        target: (_ index: Int, _ count: Int) -> Int
+    ) {
+        let storedIDs = Set(radioStore.allStations.lazy.filter { !$0.isDeleted }.map(\.id))
+        let movable = radioStations.filter { storedIDs.contains($0.id) }
+        let siblings = siblingIDs.map { Set($0) }
+        // 同一排各台在 `movable` 里的下标,保持显示顺序。
+        let row = movable.indices.filter { siblings?.contains(movable[$0].id) ?? true }
+        guard let index = row.firstIndex(where: { movable[$0].id == id }) else { return }
+        let goal = target(index, row.count)
+        guard row.indices.contains(goal), goal != index else { return }
+        // SwiftUI onMove 语义的目标下标:往后挪插到目标台之后,往前挪插到目标台之前。
+        let destination = goal > index ? row[goal] + 1 : row[goal]
+        radioStore.moveStations(
+            from: IndexSet(integer: row[index]),
+            to: destination,
+            within: movable
+        )
         reloadRadioStations(fromDisk: false)
     }
 
     private func markRadioPlayed(_ id: String) {
-        let now = Date()
+        // DEBUG 演示台和已经不在存储里的台不留痕:不写最近播放,也不重排。
+        guard radioStore.station(id: id) != nil else { return }
+        // 存储、UserDefaults 和内存列表用同一个时间值。重载时两边取较大值,值一致,
+        // 随后电台存储观察回调的那次重载才会判定「没变」。
+        let playedAt = Date().timeIntervalSince1970
+        let now = Date(timeIntervalSince1970: playedAt)
         radioStore.markPlayed(id, at: now)
-        if let index = radioStations.firstIndex(where: { $0.id == id }) {
-            radioStations[index].lastPlayedAt = now
-            radioStations = RadioStationOrdering.sorted(radioStations)
-        }
         var recency = UserDefaults.standard.dictionary(forKey: "tvRadioLastPlayedAt") ?? [:]
-        recency[id] = now.timeIntervalSince1970
+        recency[id] = playedAt
         UserDefaults.standard.set(recency, forKey: "tvRadioLastPlayedAt")
+        guard let index = radioStations.firstIndex(where: { $0.id == id }) else { return }
+        // 改副本、排一次、赋值一次:每赋值一次 didSet 就整份重建一次派生状态。
+        var next = radioStations
+        next[index].lastPlayedAt = now
+        radioStations = RadioStationOrdering.sorted(next)
+        // Top Shelf 的电台按最近播放排在前面。
+        publishTopShelf()
     }
 
     private var activeCredentialSourceIDs: Set<String> {
@@ -2613,37 +2681,61 @@ final class TVStore {
 
     /// 曲库未就绪时暂存的深链,reload/bootstrap 完成后再执行。
     @ObservationIgnored private var pendingDeepLink: URL?
+    /// 这次启动的电台列表已经到齐过(首轮同步结束,或这次启动不会同步)。
+    /// 之后再来的电台深链找不到目标台,就不必再等。
+    @ObservationIgnored private var hasSettledRadioList = false
 
     /// 处理 primuse:// 深链(主屏 Top Shelf 点击)。冷启动时曲库可能还没加载好,
     /// 先暂存,bootstrap/reload 完成后由 flushPendingDeepLink 执行。
     func handleDeepLink(_ url: URL) {
         pendingDeepLink = url
-        flushPendingDeepLink()
+        flushPendingDeepLink(isFinalAttempt: hasSettledRadioList)
     }
 
-    func flushPendingDeepLink() {
+    /// `isFinalAttempt`:电台列表已经到齐,这次仍找不到目标台就放弃并告诉用户。
+    func flushPendingDeepLink(isFinalAttempt: Bool = false) {
         guard let url = pendingDeepLink, url.scheme == "primuse" else { return }
-        // 电台不依赖曲库:只听电台的用户点主屏上的台也要能播。
-        if url.host == "radio" {
-            guard !radioStations.isEmpty else { return }
-        } else {
-            guard hasRealLibrary else { return }
-        }
-        pendingDeepLink = nil
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
         func q(_ name: String) -> String? { comps?.queryItems?.first { $0.name == name }?.value }
+        // 电台不依赖曲库:只听电台的用户点主屏上的台也要能播。
+        if url.host == "radio" {
+            guard let id = q("id") else {
+                pendingDeepLink = nil
+                return
+            }
+            // 系统清掉缓存后电台是 CloudKit 一条条拉回来的,列表还不全时找不到很正常:
+            // 链接留着,等下一次列表变化再找。只有找到了才消费它。
+            guard let station = radioStations.first(where: { $0.id == id }) else {
+                if isFinalAttempt {
+                    pendingDeepLink = nil
+                    playbackIssue = .failed(PMString("ext.tv.radio.deepLinkUnavailable"))
+                }
+                return
+            }
+            pendingDeepLink = nil
+            play(station)
+            return
+        }
+        guard hasRealLibrary else { return }
+        pendingDeepLink = nil
         switch url.host {
         case "play":
             if let id = q("song"), let s = song(id) { play(s) }
         case "album":
             if let id = q("id"), let a = album(id) { play(album: a) }
-        case "radio":
-            if let id = q("id"), let station = radioStations.first(where: { $0.id == id }) {
-                play(station)
-            }
         default:
             break
         }
+    }
+
+    /// 电台列表已经到齐(首轮同步结束,或这次启动根本不会同步)时,最后找一次挂着的
+    /// 电台深链;仍找不到就放弃并说明,不让它一直挂着、几分钟后突然顶掉用户正在听的。
+    func finishPendingRadioDeepLink() {
+        hasSettledRadioList = true
+        guard pendingDeepLink?.host == "radio" else { return }
+        // 电台存储观察回调的那次重载可能还排在 yield 后面,先把刚拉下来的台并进列表。
+        reloadRadioStations(fromDisk: false)
+        flushPendingDeepLink(isFinalAttempt: true)
     }
 
     /// 隐藏「停用 / 已删除」音乐源的歌曲——资料库只显示有效源的内容。
@@ -2668,7 +2760,6 @@ final class TVStore {
             _ = library.playlistCollectionRevision
             _ = sourcesStore.allSources
             _ = PlayHistoryStore.shared.entries
-            _ = radioStore.allStations
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -2679,6 +2770,28 @@ final class TVStore {
                     guard let self else { return }
                     self.libraryRefreshTask = nil
                     self.refreshVisibility()
+                    // 电台的可见性跟着音乐源的启用 / 删除走,源一变电台列表也要重算。
+                    self.reloadRadioStations(fromDisk: false)
+                }
+            }
+        }
+    }
+
+    /// 电台存储单独观察。CloudKit 拉回来的台、播放记录写回、别的入口的增删改都只需要
+    /// 重算电台列表,不该带着整库 `refreshVisibility()` / `rebuildLookupCaches()` 再跑一遍
+    /// (上千个镜像台时,原来每播一次台都要把整个曲库重新映射一遍)。
+    private func observeRadioStoreChanges() {
+        withObservationTracking {
+            _ = radioStore.allStations
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.observeRadioStoreChanges()
+                guard self.radioRefreshTask == nil else { return }
+                self.radioRefreshTask = Task { @MainActor [weak self] in
+                    await Task.yield()
+                    guard let self else { return }
+                    self.radioRefreshTask = nil
                     self.reloadRadioStations(fromDisk: false)
                 }
             }
@@ -3608,20 +3721,44 @@ final class TVStore {
         engine.skip(by: -10)
     }
 
+    /// 用户选台(卡片、Top Shelf 深链)。上一台 / 下一台走 `switchRadioStation`。
     func play(_ station: RadioStation) {
-        startRadioSelection(station, resolutionCompletion: nil)
+        // 用户自己开始播放了,还挂着的深链就作废,免得它之后补执行把这次播放顶掉。
+        pendingDeepLink = nil
+        startRadioSelection(station, recordsNavigationOrder: true, resolutionCompletion: nil)
     }
 
     func playRadioFromIntent(_ station: RadioStation) async -> Bool {
-        await withCheckedContinuation { continuation in
-            startRadioSelection(station) { accepted in
+        pendingDeepLink = nil
+        return await withCheckedContinuation { continuation in
+            startRadioSelection(station, recordsNavigationOrder: true) { accepted in
                 continuation.resume(returning: accepted)
             }
         }
     }
 
+    /// 上一台 / 下一台(`step` 为 1 / -1,首尾相接):沿用用户选台时记下的顺序,
+    /// 找不到可用的相邻台就不动。
+    private func switchRadioStation(by step: Int) {
+        guard let currentRadioStationID else { return }
+        let byID = Dictionary(
+            radioStations.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // 快照里已经不在列表里的台(被删、源被停用)跳过;快照用不上时退回实时列表。
+        var order = radioNavigationOrder.filter { byID[$0] != nil }
+        if order.count < 2 || !order.contains(currentRadioStationID) {
+            order = radioStations.map(\.id)
+        }
+        guard order.count > 1,
+              let index = order.firstIndex(of: currentRadioStationID),
+              let station = byID[order[(index + step + order.count) % order.count]] else { return }
+        startRadioSelection(station, recordsNavigationOrder: false, resolutionCompletion: nil)
+    }
+
     private func startRadioSelection(
         _ station: RadioStation,
+        recordsNavigationOrder: Bool,
         resolutionCompletion: ((Bool) -> Void)?
     ) {
         guard !hasPendingSnapshotRecovery,
@@ -3629,6 +3766,10 @@ final class TVStore {
               RadioStationValidation.hasValidPlaybackReference(station) else {
             resolutionCompletion?(false)
             return
+        }
+        // 必须在 `markRadioPlayed` 之前记:它会把这个台按最近播放排到最前。
+        if recordsNavigationOrder {
+            radioNavigationOrder = radioStations.map(\.id)
         }
         finishListeningSession()
         persistPlaybackSession()
@@ -3710,7 +3851,8 @@ final class TVStore {
                 self.engine.loadLiveRadio(
                     url: url.url,
                     headers: url.headers,
-                    title: station.name,
+                    // 解析期间台可能被改了名,用列表里现在的名字。
+                    title: self.currentRadioStation?.name ?? station.name,
                     subtitle: self.radioMetadataTitle.isEmpty
                         ? station.playbackSubtitle
                         : self.radioMetadataTitle,
@@ -3744,6 +3886,7 @@ final class TVStore {
     /// 通用单曲入口(整库列表 / 搜索结果 / 首页歌曲卡片 / 推荐行):
     /// 队列取当前可见曲库顺序,从该曲开始续播,而不是切换到该曲所属专辑。
     func play(_ song: TVSong) {
+        pendingDeepLink = nil
         guard !hasPendingSnapshotRecovery else { return }
         setQueueAround(song)
         startPlaying(song)
@@ -3761,6 +3904,8 @@ final class TVStore {
     /// 单曲所属专辑重建随机队列而丢失语音请求的范围与顺序。
     @discardableResult
     func playResolvedQueue(songIDs: [String], shuffled: Bool, startingAt songID: String? = nil) -> Bool {
+        // 专辑 / 歌单 / 全部播放 / Siri 都从这里进:用户自己开始播放,挂着的深链作废。
+        pendingDeepLink = nil
         guard !hasPendingSnapshotRecovery else { return false }
         let resolved = songIDs.filter { song($0) != nil }
         guard !resolved.isEmpty else { return false }
@@ -3806,10 +3951,7 @@ final class TVStore {
 
     func next() {
         if isLiveRadio {
-            guard let currentRadioStationID,
-                  radioStations.count > 1,
-                  let index = radioStations.firstIndex(where: { $0.id == currentRadioStationID }) else { return }
-            play(radioStations[(index + 1) % radioStations.count])
+            switchRadioStation(by: 1)
             return
         }
         // 手动下一首:忽略「单曲循环」;到队尾时「列表循环」则回到队首。
@@ -3909,10 +4051,7 @@ final class TVStore {
 
     func previous(restartCurrentIfNeeded: Bool = true) {
         if isLiveRadio {
-            guard let currentRadioStationID,
-                  radioStations.count > 1,
-                  let index = radioStations.firstIndex(where: { $0.id == currentRadioStationID }) else { return }
-            play(radioStations[index > 0 ? index - 1 : radioStations.count - 1])
+            switchRadioStation(by: -1)
             return
         }
         // 播过 3 秒先回到开头,否则切上一首。
@@ -4378,7 +4517,7 @@ final class TVStore {
                 self.engine.loadLiveRadio(
                     url: url.url,
                     headers: url.headers,
-                    title: station.name,
+                    title: self.currentRadioStation?.name ?? station.name,
                     subtitle: self.radioMetadataTitle.isEmpty
                         ? station.playbackSubtitle
                         : self.radioMetadataTitle,
