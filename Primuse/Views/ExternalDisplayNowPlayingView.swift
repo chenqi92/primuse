@@ -61,8 +61,8 @@ struct ExternalDisplayNowPlayingView: View {
             }
         }
         #if os(iOS)
-        .lyricsScreenWakeLease(
-            isVisible: player.currentSong != nil && !lyrics.isEmpty,
+        .playerScreenWakeLease(
+            isVisible: player.currentSong != nil,
             sceneIsActive: scenePhase == .active
         )
         #endif

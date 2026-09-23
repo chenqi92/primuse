@@ -20,12 +20,11 @@ enum PlayerAppearancePreferences {
     static let gradientLyricsEndColorHexKey = "primuse.player.gradientLyricsEndColorHex"
     static let blursInactiveLyricsKey = "primuse.player.blursInactiveLyrics"
     static let blursInactiveLyricsByDefault = false
-    static let keepsScreenAwakeForLyricsKey = "primuse.player.keepsScreenAwakeForLyrics"
-    static let keepsScreenAwakeForLyricsByDefault = false
-    static let keepsScreenAwakeInFullscreenPlayerKey = "primuse.player.keepsScreenAwakeInFullscreenPlayer"
-    static let keepsScreenAwakeInFullscreenPlayerByDefault = false
-    static let fullscreenScreenWakeRequiresChargingKey = "primuse.player.fullscreenScreenWakeRequiresCharging"
-    static let fullscreenScreenWakeRequiresChargingByDefault = true
+    /// 播放器界面保持常亮。沿用早先「歌词界面常亮」的存储键，老用户开过的直接生效。
+    static let keepsScreenAwakeInPlayerKey = "primuse.player.keepsScreenAwakeForLyrics"
+    static let keepsScreenAwakeInPlayerByDefault = false
+    static let playerScreenWakeRequiresChargingKey = "primuse.player.screenWakeRequiresCharging"
+    static let playerScreenWakeRequiresChargingByDefault = false
     static let tapLyricsToSeekKey = "primuse.player.tapLyricsToSeek"
     static let tapLyricsToSeekByDefault = true
 

@@ -1611,10 +1611,6 @@
 "dup_show_all_hint" = "表示の応答性を保つため、最初の 100 グループのみ表示しています。まずは上の「すべてクリーンアップ」で明らかな重複を処理してください。";
 "full_screen_player" = "フルスクリーン";
 "fullscreen_effect_settings_title" = "フルスクリーンエフェクト";
-"fullscreen_keep_screen_awake_title" = "フルスクリーン再生中は画面を消灯しない";
-"fullscreen_keep_screen_awake_subtitle" = "フルスクリーンプレーヤーの表示中に Primuse が前面にあれば、歌詞の有無にかかわらず自動ロックを防ぎます。";
-"fullscreen_keep_screen_awake_charging_only_title" = "充電中のみ";
-"fullscreen_keep_screen_awake_charging_only_subtitle" = "バッテリー駆動時はシステム設定どおりに自動ロックされます。";
 "fullscreen_effect_exit" = "フルスクリーンエフェクトを終了";
 "fullscreen_effect_native" = "オリジナル";
 "fullscreen_effect_native_subtitle" = "使い慣れたプレーヤーの配置と操作";
@@ -3144,8 +3140,10 @@
 "player_current_lyric_color_description" = "現在行と単語単位のハイライト色のみを変更し、それ以外の歌詞は元の表示を維持します。";
 "player_blur_inactive_lyrics" = "現在行以外の歌詞をぼかす";
 "player_blur_inactive_lyrics_description" = "再生中の行を際立たせるため、現在行以外の同期歌詞を軽くぼかします。";
-"player_keep_screen_awake_for_lyrics" = "歌詞表示中は画面をスリープさせない";
-"player_keep_screen_awake_for_lyrics_description" = "歌詞が表示され、Primuse がアクティブな間だけ自動ロックを防ぎます。";
+"player_keep_screen_awake_title" = "プレーヤー画面では画面を消灯しない";
+"player_keep_screen_awake_subtitle" = "プレーヤー画面を開いていて Primuse が前面にある間、歌詞やフルスクリーンエフェクトを含めて自動ロックを防ぎます。";
+"player_keep_screen_awake_charging_only_title" = "充電中のみ";
+"player_keep_screen_awake_charging_only_subtitle" = "バッテリー駆動時はシステム設定どおりに自動ロックされます。";
 "player_tap_lyrics_to_seek" = "歌詞をタップしてシーク";
 "player_tap_lyrics_to_seek_description" = "同期歌詞の行をタップすると、その位置へ移動します。スクロールではシークしません。";
 "server_favorite_unsupported" = "このソースはサーバー側のお気に入りに対応していません。";

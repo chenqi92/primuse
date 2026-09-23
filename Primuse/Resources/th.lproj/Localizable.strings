@@ -1373,10 +1373,6 @@
 "fullscreen_effect_radial_pulse_motion" = "ขับเคลื่อนสเปกตรัมสด · บันทึกการหมุน";
 "fullscreen_effect_radial_pulse_subtitle" = "วงแหวนบันทึกเสียงแบบหมุนตอบสนองต่อเสียงจริง";
 "fullscreen_effect_settings_title" = "เอฟเฟ็กต์แบบเต็มหน้าจอ";
-"fullscreen_keep_screen_awake_title" = "ไม่ให้หน้าจอดับขณะเล่นแบบเต็มจอ";
-"fullscreen_keep_screen_awake_subtitle" = "ป้องกันการล็อกอัตโนมัติขณะแสดงเครื่องเล่นเต็มจอและ Primuse อยู่เบื้องหน้า ไม่ว่าจะแสดงเนื้อเพลงหรือไม่";
-"fullscreen_keep_screen_awake_charging_only_title" = "เฉพาะขณะชาร์จ";
-"fullscreen_keep_screen_awake_charging_only_subtitle" = "เมื่อใช้แบตเตอรี่ หน้าจอจะยังล็อกตามการตั้งค่าของระบบ";
 "fullscreen_effect_spectrum" = "สเปกตรัม";
 "fullscreen_effect_spectrum_subtitle" = "สเปกตรัมของแผงหน้าปัดและข้อมูลจำเพาะด้านเสียง";
 "fullscreen_effect_starry_night" = "คืนแห่งดวงดาว";
@@ -2253,8 +2249,10 @@
 "player_current_lyric_color_description" = "เปลี่ยนเฉพาะบรรทัดปัจจุบันและสีไฮไลต์ระดับคำ เนื้อเพลงที่ไม่ใช้งานจะคงรูปลักษณ์ที่มีอยู่ไว้";
 "player_empty_message" = "เลือกหนึ่งรายการจากคลังเพลงหรือค้นหาทางด้านซ้าย";
 "player_empty_title" = "เลือกเพลงที่จะเล่น";
-"player_keep_screen_awake_for_lyrics" = "เปิดหน้าจอค้างไว้ขณะแสดงเนื้อเพลง";
-"player_keep_screen_awake_for_lyrics_description" = "ป้องกันการล็อกอัตโนมัติเฉพาะเมื่อเนื้อเพลงแสดงอยู่และ Primuse ทำงานอยู่";
+"player_keep_screen_awake_title" = "ไม่ให้หน้าจอดับในหน้าเครื่องเล่น";
+"player_keep_screen_awake_subtitle" = "ป้องกันการล็อกอัตโนมัติขณะเปิดหน้าเครื่องเล่นและ Primuse อยู่เบื้องหน้า รวมถึงเนื้อเพลงและเอฟเฟกต์เต็มจอ";
+"player_keep_screen_awake_charging_only_title" = "เฉพาะขณะชาร์จ";
+"player_keep_screen_awake_charging_only_subtitle" = "เมื่อใช้แบตเตอรี่ หน้าจอจะยังล็อกตามการตั้งค่าของระบบ";
 "player_lyrics_alignment" = "การจัดตำแหน่งเนื้อเพลง";
 "player_lyrics_alignment_center" = "เซ็นเตอร์";
 "player_lyrics_alignment_left" = "ซ้าย";

@@ -1037,7 +1037,10 @@
 "yearly_meta_top_artist_title" = "En iyi sanatçı";
 "ugreen_login_missing_token" = "UGREEN oturum açma işlemi başarılı oldu ancak jeton döndürmedi.";
 "Sidecar Write-Back" = "Yan dosyaya geri yazma";
-"player_keep_screen_awake_for_lyrics" = "Şarkı Sözleri İçin Ekranı Uyanık Tutun";
+"player_keep_screen_awake_title" = "Oynatıcıda ekranı açık tut";
+"player_keep_screen_awake_subtitle" = "Oynatıcı ekranı açıkken ve Primuse etkinken, şarkı sözleri ve tam ekran efektleri dahil otomatik kilidi engeller.";
+"player_keep_screen_awake_charging_only_title" = "Yalnızca şarj olurken";
+"player_keep_screen_awake_charging_only_subtitle" = "Pilde ekran yine sistem ayarlarına göre kilitlenir.";
 "lang_de" = "Almanca";
 "ai_service_address" = "Hizmet adresi";
 "Tracks Indexed" = "Dizinlenmiş Parçalar";
@@ -3361,7 +3364,6 @@
 "Stop After Current Song" = "Geçerli Şarkıdan Sonra Durdur";
 "intent_radio_search_results_format" = "Şu radyo istasyonlarını buldum: %@.";
 "smart_playlist_new" = "Yeni Akıllı Çalma Listesi";
-"player_keep_screen_awake_for_lyrics_description" = "Otomatik kilitlemeyi yalnızca şarkı sözleri görünürken ve Primuse etkinken önler.";
 "playlist_import_name_header" = "Çalma listesi adı";
 "new_rule_smart_playlist" = "Yeni Kural Tabanlı Akıllı Çalma Listesi";
 "error_oauth_token_exchange %@" = "Jeton değişimi başarısız oldu: %@";
@@ -3573,10 +3575,6 @@
 "home_playable" = "Oynanabilir oran";
 "onboarding_sources_nas" = "Synology ve QNAP NAS, SMB / NFS paylaşımları, ayrıca Audio Station ve Feiniu Music gibi NAS müzik hizmetleri";
 "fullscreen_effect_settings_title" = "Tam ekran efektleri";
-"fullscreen_keep_screen_awake_title" = "Tam ekranda ekranı açık tut";
-"fullscreen_keep_screen_awake_subtitle" = "Tam ekran oynatıcı görünürken ve Primuse etkinken, şarkı sözü olsun ya da olmasın otomatik kilidi engeller.";
-"fullscreen_keep_screen_awake_charging_only_title" = "Yalnızca şarj olurken";
-"fullscreen_keep_screen_awake_charging_only_subtitle" = "Pilde ekran yine sistem ayarlarına göre kilitlenir.";
 "song_details_unavailable_message" = "Etiketler okundu ancak süre çıkarılamadı. Dosya bozuk veya desteklenmeyen bir biçimde olabilir.";
 "add_insecure_http_domain_message" = "Yalnızca nas.example.com gibi ana bilgisayarı veya genel IP adresini girin. Bir şema, bağlantı noktası veya yol eklemeyin. Bu ana bilgisayara giden HTTP trafiği şifrelenmeyecek.";
 "immersive_demo_lyric_10" = "Bitmemiş sözleri bir sonraki akora bırakın";

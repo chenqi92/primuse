@@ -3,71 +3,33 @@ import Testing
 @testable import PrimuseKit
 
 struct NowPlayingInteractionPolicyTests {
-    @Test func screenAwakeRequiresEveryVisibilityCondition() {
+    @Test func screenAwakeRequiresTheSettingAVisiblePlayerAndAnActiveScene() {
         #expect(NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: true,
-            lyricsVisible: true,
-            sceneIsActive: true
+            settingEnabled: true, requiresCharging: false, isCharging: false,
+            playerVisible: true, sceneIsActive: true
         ))
         #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: false,
-            lyricsVisible: true,
-            sceneIsActive: true
+            settingEnabled: false, requiresCharging: false, isCharging: true,
+            playerVisible: true, sceneIsActive: true
         ))
         #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: true,
-            lyricsVisible: false,
-            sceneIsActive: true
+            settingEnabled: true, requiresCharging: false, isCharging: true,
+            playerVisible: false, sceneIsActive: true
         ))
         #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwake(
-            settingEnabled: true,
-            lyricsVisible: true,
-            sceneIsActive: false
+            settingEnabled: true, requiresCharging: false, isCharging: true,
+            playerVisible: true, sceneIsActive: false
         ))
     }
 
-    @Test func fullscreenPlayerKeepsScreenAwakeWithoutLyricsAndHonorsTheChargingRule() {
-        #expect(NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
-            settingEnabled: true,
-            requiresCharging: false,
-            isCharging: false,
-            playerVisible: true,
-            sceneIsActive: true
+    @Test func chargingOnlyReleasesTheScreenOnBattery() {
+        #expect(NowPlayingInteractionPolicy.shouldKeepScreenAwake(
+            settingEnabled: true, requiresCharging: true, isCharging: true,
+            playerVisible: true, sceneIsActive: true
         ))
-        #expect(NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
-            settingEnabled: true,
-            requiresCharging: true,
-            isCharging: true,
-            playerVisible: true,
-            sceneIsActive: true
-        ))
-        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
-            settingEnabled: true,
-            requiresCharging: true,
-            isCharging: false,
-            playerVisible: true,
-            sceneIsActive: true
-        ))
-        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
-            settingEnabled: false,
-            requiresCharging: false,
-            isCharging: true,
-            playerVisible: true,
-            sceneIsActive: true
-        ))
-        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
-            settingEnabled: true,
-            requiresCharging: false,
-            isCharging: true,
-            playerVisible: false,
-            sceneIsActive: true
-        ))
-        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
-            settingEnabled: true,
-            requiresCharging: false,
-            isCharging: true,
-            playerVisible: true,
-            sceneIsActive: false
+        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwake(
+            settingEnabled: true, requiresCharging: true, isCharging: false,
+            playerVisible: true, sceneIsActive: true
         ))
     }
 

@@ -1373,10 +1373,6 @@
 "fullscreen_effect_radial_pulse_motion" = "Orientado por espectro ao vivo · Registro rotativo";
 "fullscreen_effect_radial_pulse_subtitle" = "Um anel de gravação giratório responde ao áudio real";
 "fullscreen_effect_settings_title" = "Efeitos de tela cheia";
-"fullscreen_keep_screen_awake_title" = "Manter a tela ligada em tela cheia";
-"fullscreen_keep_screen_awake_subtitle" = "Evita o bloqueio automático enquanto o player em tela cheia está visível e o Primuse está ativo, com ou sem letras.";
-"fullscreen_keep_screen_awake_charging_only_title" = "Somente ao carregar";
-"fullscreen_keep_screen_awake_charging_only_subtitle" = "Na bateria, a tela continua bloqueando conforme os ajustes do sistema.";
 "fullscreen_effect_spectrum" = "Espectro";
 "fullscreen_effect_spectrum_subtitle" = "Espectro do painel de instrumentos e especificações de áudio";
 "fullscreen_effect_starry_night" = "Noite Estrelada";
@@ -2253,8 +2249,10 @@
 "player_current_lyric_color_description" = "Altera apenas a cor de destaque da linha atual e do nível da palavra; letras inativas mantêm sua aparência existente.";
 "player_empty_message" = "Escolha um da biblioteca ou pesquise à esquerda.";
 "player_empty_title" = "Escolha uma música para tocar";
-"player_keep_screen_awake_for_lyrics" = "Manter a tela ligada com letras";
-"player_keep_screen_awake_for_lyrics_description" = "Impede o bloqueio automático somente enquanto a letra estiver visível e o Primuse estiver ativo.";
+"player_keep_screen_awake_title" = "Manter a tela ligada no player";
+"player_keep_screen_awake_subtitle" = "Evita o bloqueio automático enquanto a tela do player está aberta e o Primuse está ativo, incluindo letras e efeitos em tela cheia.";
+"player_keep_screen_awake_charging_only_title" = "Somente ao carregar";
+"player_keep_screen_awake_charging_only_subtitle" = "Na bateria, a tela continua bloqueando conforme os ajustes do sistema.";
 "player_lyrics_alignment" = "Alinhamento das letras";
 "player_lyrics_alignment_center" = "Centro";
 "player_lyrics_alignment_left" = "Esquerda";

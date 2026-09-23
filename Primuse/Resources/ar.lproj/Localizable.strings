@@ -1373,10 +1373,6 @@
 "fullscreen_effect_radial_pulse_motion" = "الطيف المباشر مدفوع · سجل متناوب";
 "fullscreen_effect_radial_pulse_subtitle" = "حلقة التسجيل الدوارة تستجيب للصوت الفعلي";
 "fullscreen_effect_settings_title" = "تأثيرات ملء الشاشة";
-"fullscreen_keep_screen_awake_title" = "إبقاء الشاشة مضاءة في وضع ملء الشاشة";
-"fullscreen_keep_screen_awake_subtitle" = "يمنع القفل التلقائي أثناء عرض مشغّل ملء الشاشة وبقاء Primuse في المقدمة، مع كلمات الأغنية أو بدونها.";
-"fullscreen_keep_screen_awake_charging_only_title" = "أثناء الشحن فقط";
-"fullscreen_keep_screen_awake_charging_only_subtitle" = "عند العمل على البطارية تُقفل الشاشة كالمعتاد وفق إعدادات النظام.";
 "fullscreen_effect_spectrum" = "الطيف";
 "fullscreen_effect_spectrum_subtitle" = "طيف لوحة العدادات ومواصفات الصوت";
 "fullscreen_effect_starry_night" = "ليلة مرصعة بالنجوم";
@@ -2253,8 +2249,10 @@
 "player_current_lyric_color_description" = "يغير فقط السطر الحالي ولون التمييز على مستوى الكلمة؛ تحافظ الكلمات غير النشطة على مظهرها الحالي.";
 "player_empty_message" = "اختر واحدة من المكتبة أو ابحث على اليسار.";
 "player_empty_title" = "اختر أغنية لتشغيلها";
-"player_keep_screen_awake_for_lyrics" = "إبقاء الشاشة مستيقظة أثناء عرض الكلمات";
-"player_keep_screen_awake_for_lyrics_description" = "يمنع القفل التلقائي فقط أثناء ظهور كلمات الأغاني وبقاء Primuse نشطًا.";
+"player_keep_screen_awake_title" = "إبقاء الشاشة مضاءة في المشغّل";
+"player_keep_screen_awake_subtitle" = "يمنع القفل التلقائي أثناء فتح شاشة المشغّل وبقاء Primuse في المقدمة، بما في ذلك كلمات الأغنية وتأثيرات ملء الشاشة.";
+"player_keep_screen_awake_charging_only_title" = "أثناء الشحن فقط";
+"player_keep_screen_awake_charging_only_subtitle" = "عند العمل على البطارية تُقفل الشاشة كالمعتاد وفق إعدادات النظام.";
 "player_lyrics_alignment" = "محاذاة الكلمات";
 "player_lyrics_alignment_center" = "المركز";
 "player_lyrics_alignment_left" = "يسار";

@@ -1373,10 +1373,6 @@
 "fullscreen_effect_radial_pulse_motion" = "Sterowanie widmem na żywo · Zapis obrotowy";
 "fullscreen_effect_radial_pulse_subtitle" = "Obrotowy pierścień nagrywania reaguje na rzeczywisty dźwięk";
 "fullscreen_effect_settings_title" = "Efekty pełnoekranowe";
-"fullscreen_keep_screen_awake_title" = "Nie wygaszaj ekranu w trybie pełnoekranowym";
-"fullscreen_keep_screen_awake_subtitle" = "Zapobiega automatycznej blokadzie, gdy widoczny jest odtwarzacz pełnoekranowy i Primuse jest aktywny, z tekstem utworu lub bez.";
-"fullscreen_keep_screen_awake_charging_only_title" = "Tylko podczas ładowania";
-"fullscreen_keep_screen_awake_charging_only_subtitle" = "Na baterii ekran nadal blokuje się zgodnie z ustawieniami systemu.";
 "fullscreen_effect_spectrum" = "Widmo";
 "fullscreen_effect_spectrum_subtitle" = "Specyfikacja widma tablicy przyrządów i dźwięku";
 "fullscreen_effect_starry_night" = "Gwiaździsta noc";
@@ -2253,8 +2249,10 @@
 "player_current_lyric_color_description" = "Zmienia tylko kolor podświetlenia bieżącej linii i słowa; nieaktywne teksty zachowują swój dotychczasowy wygląd.";
 "player_empty_message" = "Wybierz jeden z biblioteki lub wyszukaj po lewej stronie.";
 "player_empty_title" = "Wybierz piosenkę do odtworzenia";
-"player_keep_screen_awake_for_lyrics" = "Nie wygaszaj ekranu z tekstem";
-"player_keep_screen_awake_for_lyrics_description" = "Zapobiega automatycznemu blokowaniu tylko wtedy, gdy widoczny jest tekst i aktywne jest Primuse.";
+"player_keep_screen_awake_title" = "Nie wygaszaj ekranu w odtwarzaczu";
+"player_keep_screen_awake_subtitle" = "Zapobiega automatycznej blokadzie, gdy ekran odtwarzacza jest otwarty i Primuse jest aktywny, w tym przy tekście utworu i efektach pełnoekranowych.";
+"player_keep_screen_awake_charging_only_title" = "Tylko podczas ładowania";
+"player_keep_screen_awake_charging_only_subtitle" = "Na baterii ekran nadal blokuje się zgodnie z ustawieniami systemu.";
 "player_lyrics_alignment" = "Wyrównanie tekstu";
 "player_lyrics_alignment_center" = "Środek";
 "player_lyrics_alignment_left" = "Lewo";

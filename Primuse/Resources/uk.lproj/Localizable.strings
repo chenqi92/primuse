@@ -1037,7 +1037,10 @@
 "yearly_meta_top_artist_title" = "Топ артист";
 "ugreen_login_missing_token" = "UGREEN ввійшов успішно, але маркер не повернув.";
 "Sidecar Write-Back" = "Запис у супровідні файли";
-"player_keep_screen_awake_for_lyrics" = "Тримайте екран активним для текстів";
+"player_keep_screen_awake_title" = "Не вимикати екран у плеєрі";
+"player_keep_screen_awake_subtitle" = "Не дає екрану заблокуватися, поки відкрито екран плеєра і Primuse активний, зокрема з текстом пісні та повноекранними ефектами.";
+"player_keep_screen_awake_charging_only_title" = "Лише під час заряджання";
+"player_keep_screen_awake_charging_only_subtitle" = "Від акумулятора екран і далі блокується за налаштуваннями системи.";
 "lang_de" = "німецька";
 "ai_service_address" = "Адреса служби";
 "Tracks Indexed" = "Треки проіндексовано";
@@ -3361,7 +3364,6 @@
 "Stop After Current Song" = "Зупинка після поточної пісні";
 "intent_radio_search_results_format" = "Знайдено ці радіостанції: %@.";
 "smart_playlist_new" = "Новий розумний список відтворення";
-"player_keep_screen_awake_for_lyrics_description" = "Запобігає автоматичному блокуванню лише тоді, коли тексти пісень видимі та Primuse активний.";
 "playlist_import_name_header" = "Назва списку відтворення";
 "new_rule_smart_playlist" = "Новий розумний список відтворення на основі правил";
 "error_oauth_token_exchange %@" = "Помилка обміну токенів: %@";
@@ -3573,10 +3575,6 @@
 "home_playable" = "Ігровий коефіцієнт";
 "onboarding_sources_nas" = "NAS Synology і QNAP, спільні папки SMB / NFS, а також музичні сервіси NAS, як-от Audio Station і Feiniu Music";
 "fullscreen_effect_settings_title" = "Повноекранні ефекти";
-"fullscreen_keep_screen_awake_title" = "Не вимикати екран у повноекранному режимі";
-"fullscreen_keep_screen_awake_subtitle" = "Не дає екрану заблокуватися, поки показано повноекранний плеєр і Primuse активний, з текстом пісні чи без нього.";
-"fullscreen_keep_screen_awake_charging_only_title" = "Лише під час заряджання";
-"fullscreen_keep_screen_awake_charging_only_subtitle" = "Від акумулятора екран і далі блокується за налаштуваннями системи.";
 "song_details_unavailable_message" = "Теги було прочитано, але не вдалося витягнути тривалість. Файл може бути пошкоджений або має непідтримуваний формат.";
 "add_insecure_http_domain_message" = "Введіть лише хост, наприклад nas.example.com або публічну адресу IP. Не включайте схему, порт або шлях. Трафік HTTP до цього хосту не буде зашифровано.";
 "immersive_demo_lyric_10" = "Залиште незакінчені слова до наступного акорду";
