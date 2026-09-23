@@ -49,3 +49,50 @@ public enum RadioSnapshotUploadPolicy {
         return CloudFlushGate.shouldFlush(isCancelled: isCancelled, currentToken: currentToken, taskToken: taskToken)
     }
 }
+
+/// 外部整份改写 `radio-stations.json` 之后（Apple TV 的快照事务写入或恢复），
+/// 把还没交给 CloudKit 的本机改动放回去 —— 文件里是别的设备的版本，
+/// 本机这几行一旦被冲掉，补传时就只剩文件里的旧样子。
+///
+/// 逐行按修改时间判：
+/// - 文件里同一台的修改时间**严格**更新：远端已经盖过了本机这次改动，保留文件里的，
+///   id 记进 `supersededIDs`（本机已没有要传的）。
+/// - 文件里没有这一台，或者两行内容不同：换成本机的，没有就追加到末尾，id 记进 `restoredIDs`。
+/// - 两行完全相同：什么都不做。
+///
+/// 文件里原有的行保持原来的顺序。
+public enum RadioPendingCloudUploadPolicy {
+    public static func reapply<Row: Equatable>(
+        pendingLocal: [Row],
+        onto disk: [Row],
+        id: (Row) -> String,
+        modifiedAt: (Row) -> Date
+    ) -> (rows: [Row], restoredIDs: [String], supersededIDs: [String]) {
+        var rows = disk
+        var indexByID: [String: Int] = [:]
+        for (index, row) in rows.enumerated() where indexByID[id(row)] == nil {
+            indexByID[id(row)] = index
+        }
+        var restoredIDs: [String] = []
+        var supersededIDs: [String] = []
+        var seen = Set<String>()
+        for local in pendingLocal {
+            let key = id(local)
+            guard seen.insert(key).inserted else { continue }
+            if let index = indexByID[key] {
+                let current = rows[index]
+                if modifiedAt(current) > modifiedAt(local) {
+                    supersededIDs.append(key)
+                    continue
+                }
+                guard current != local else { continue }
+                rows[index] = local
+            } else {
+                indexByID[key] = rows.count
+                rows.append(local)
+            }
+            restoredIDs.append(key)
+        }
+        return (rows, restoredIDs, supersededIDs)
+    }
+}

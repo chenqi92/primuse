@@ -4528,6 +4528,8 @@ final class TVStore {
 
     func persistForLifecycle() async {
         guard !hasPendingSnapshotRecovery else { return }
+        // 切台时攒着没写的最近收听时间（和批末才写的远端电台）现在写掉。
+        radioStore.flushPendingPersist()
         persistPlaybackSession()
         if !isPlaying { finishListeningSession() }
         PlayHistoryStore.shared.flush()

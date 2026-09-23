@@ -1753,11 +1753,14 @@ struct PrimuseApp: App {
                         // Every platform: a coalesced source counter must not
                         // wait out its window once the scene is leaving.
                         sourcesStore.flushCoalescedPersist()
+                        // 电台的最近收听时间同理，攒着的现在写掉。
+                        radioStationsStore.flushPendingPersist()
 
                     case .background:
                         // Every platform: flush the coalesced source counters
                         // before the scene is gone.
                         sourcesStore.flushCoalescedPersist()
+                        radioStationsStore.flushPendingPersist()
                         #if os(iOS)
                         // Only iOS suspends the process, and it can do so while
                         // a cancelled scan task is still unwinding — so from

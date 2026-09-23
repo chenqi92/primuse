@@ -73,3 +73,141 @@ struct RadioSnapshotUploadPolicyTests {
         #expect(RadioSnapshotUploadPolicy.delay(sinceFirstPendingChange: .seconds(600)) == .zero)
     }
 }
+
+@Suite("外部改写电台文件后放回待上传的本机改动")
+struct RadioPendingCloudUploadPolicyTests {
+    private let base = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    private func station(
+        _ id: String,
+        name: String? = nil,
+        at offset: TimeInterval = 0,
+        isDeleted: Bool = false
+    ) -> RadioStation {
+        RadioStation(
+            id: id,
+            name: name ?? "Station \(id)",
+            streamURL: "https://radio.example/\(id)",
+            createdAt: base,
+            modifiedAt: base.addingTimeInterval(offset),
+            isDeleted: isDeleted,
+            deletedAt: isDeleted ? base.addingTimeInterval(offset) : nil
+        )
+    }
+
+    private func reapply(
+        _ pending: [RadioStation],
+        onto disk: [RadioStation]
+    ) -> (rows: [RadioStation], restoredIDs: [String], supersededIDs: [String]) {
+        RadioPendingCloudUploadPolicy.reapply(
+            pendingLocal: pending,
+            onto: disk,
+            id: \.id,
+            modifiedAt: \.modifiedAt
+        )
+    }
+
+    @Test("本机新增、文件里没有的台追加到末尾")
+    func restoresLocalAddition() {
+        let added = station("new", at: 10)
+        let result = reapply([added], onto: [station("a"), station("b")])
+        #expect(result.rows.map(\.id) == ["a", "b", "new"])
+        #expect(result.rows.last == added)
+        #expect(result.restoredIDs == ["new"])
+        #expect(result.supersededIDs.isEmpty)
+    }
+
+    @Test("本机改名比文件里的新，换回本机的版本")
+    func restoresNewerLocalRename() {
+        let renamed = station("a", name: "Renamed", at: 20)
+        let result = reapply([renamed], onto: [station("a", at: 5), station("b")])
+        #expect(result.rows.map(\.id) == ["a", "b"])
+        #expect(result.rows[0].name == "Renamed")
+        #expect(result.restoredIDs == ["a"])
+        #expect(result.supersededIDs.isEmpty)
+    }
+
+    @Test("文件里的版本更新时保留文件里的，本机这次改动判为已被盖过")
+    func newerDiskRowSupersedesLocal() {
+        let local = station("a", name: "Local", at: 5)
+        let remote = station("a", name: "Remote", at: 30)
+        let result = reapply([local], onto: [remote])
+        #expect(result.rows == [remote])
+        #expect(result.restoredIDs.isEmpty)
+        #expect(result.supersededIDs == ["a"])
+    }
+
+    @Test("修改时间相同但内容不同，仍以本机为准")
+    func tieKeepsLocal() {
+        let local = station("a", name: "Local", at: 5)
+        let result = reapply([local], onto: [station("a", name: "Remote", at: 5)])
+        #expect(result.rows == [local])
+        #expect(result.restoredIDs == ["a"])
+        #expect(result.supersededIDs.isEmpty)
+    }
+
+    @Test("本机删掉的台（墓碑）盖过文件里还活着的那一行")
+    func localTombstoneWinsOverLiveRow() {
+        let tombstone = station("a", at: 40, isDeleted: true)
+        let result = reapply([tombstone], onto: [station("a", at: 10), station("b")])
+        #expect(result.rows.map(\.id) == ["a", "b"])
+        #expect(result.rows[0].isDeleted)
+        #expect(result.restoredIDs == ["a"])
+    }
+
+    @Test("订阅的排除标记被放回，文件里没有时也追加")
+    func restoresSubscriptionExclusionMarker() {
+        var marker = station("sub-1", at: 50, isDeleted: true)
+        marker.subscriptionID = "list"
+        marker.subscriptionEntryKey = "radio.example/sub-1"
+        marker.isSubscriptionExclusion = true
+        #expect(marker.isSubscriptionExclusionMarker)
+
+        var active = station("sub-1", at: 10)
+        active.subscriptionID = "list"
+        active.subscriptionEntryKey = "radio.example/sub-1"
+
+        let replaced = reapply([marker], onto: [active])
+        #expect(replaced.rows == [marker])
+        #expect(replaced.restoredIDs == ["sub-1"])
+
+        let appended = reapply([marker], onto: [station("other")])
+        #expect(appended.rows.map(\.id) == ["other", "sub-1"])
+        #expect(appended.rows[1].isSubscriptionExclusionMarker)
+        #expect(appended.restoredIDs == ["sub-1"])
+    }
+
+    @Test("两行完全相同时什么都不做")
+    func identicalRowsAreLeftAlone() {
+        let row = station("a", at: 5)
+        let disk = [row, station("b")]
+        let result = reapply([row], onto: disk)
+        #expect(result.rows == disk)
+        #expect(result.restoredIDs.isEmpty)
+        #expect(result.supersededIDs.isEmpty)
+    }
+
+    @Test("文件里原有的顺序不变，替换就地发生，新增依次排在末尾")
+    func preservesDiskOrder() {
+        let disk = [station("c"), station("a"), station("b")]
+        let pending = [
+            station("x", at: 1),
+            station("a", name: "A2", at: 9),
+            station("y", at: 2),
+            station("a", name: "A3", at: 12)
+        ]
+        let result = reapply(pending, onto: disk)
+        #expect(result.rows.map(\.id) == ["c", "a", "b", "x", "y"])
+        #expect(result.rows[1].name == "A2")
+        #expect(result.restoredIDs == ["x", "a", "y"])
+    }
+
+    @Test("没有待上传的行时原样返回")
+    func emptyPendingIsNoOp() {
+        let disk = [station("a"), station("b")]
+        let result = reapply([], onto: disk)
+        #expect(result.rows == disk)
+        #expect(result.restoredIDs.isEmpty)
+        #expect(result.supersededIDs.isEmpty)
+    }
+}
