@@ -102,3 +102,52 @@ public enum CloudKVSReconciliationPolicy {
         reason != .quotaViolation
     }
 }
+
+/// 一把钥匙一整包 JSON 地同步的设置里, 只属于这台设备的字段。
+///
+/// 缓存容量、输出链路这类按本机硬件与存储做的决定不该跟着别的设备走: Mac 上给
+/// 缓存划 50 GB、为外置 DAC 开高保真直通, 整包推到 iPhone 上就成了一台存储被占满、
+/// 耳机里没了均衡器的手机。远端整包到达时用 `merge(remote:local:)` 把这些字段换回
+/// 本机值; 整包格式不变, 旧版本照样解得开。推上云端的整包里带的仍是写入方的本机
+/// 值, 收到的一方拿同一张表把它们忽略掉。
+public struct CloudKVSDeviceLocalFields<Settings>: Sendable {
+    public struct Field: Sendable {
+        public let name: String
+        let keep: @Sendable (_ local: Settings, _ merged: inout Settings) -> Void
+        let differs: @Sendable (_ local: Settings, _ remote: Settings) -> Bool
+
+        // 闭包是 @Sendable 的, 捕获的 key path 会连带捕获 `Value` 的元类型, 6.4 起要
+        // 显式声明它可跨隔离域; 具体类型(Bool / Int64 / 枚举)都隐式满足。
+        public init<Value: Equatable & SendableMetatype>(
+            _ name: String,
+            _ keyPath: WritableKeyPath<Settings, Value> & Sendable
+        ) {
+            self.name = name
+            keep = { local, merged in merged[keyPath: keyPath] = local[keyPath: keyPath] }
+            differs = { local, remote in local[keyPath: keyPath] != remote[keyPath: keyPath] }
+        }
+    }
+
+    public let fields: [Field]
+
+    public init(_ fields: [Field]) {
+        self.fields = fields
+    }
+
+    public var names: [String] { fields.map(\.name) }
+
+    /// 非本机字段取 `remote`, 本机字段保留 `local`。`local` 是这台设备套用远端整包之前
+    /// 的值 —— 新装设备上就是默认值, 同样不能被远端顶掉。`keptFields` 只列本机值与
+    /// 远端不同、真的被保下来的字段: 为空说明合并结果就是远端整包, 不必再写回本机。
+    public func merge(remote: Settings, local: Settings) -> (settings: Settings, keptFields: [String]) {
+        var merged = remote
+        var kept: [String] = []
+        for field in fields {
+            field.keep(local, &merged)
+            if field.differs(local, remote) {
+                kept.append(field.name)
+            }
+        }
+        return (merged, kept)
+    }
+}

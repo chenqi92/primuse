@@ -14,12 +14,15 @@ import PrimuseKit
 ///    token revoked) — they'll be retried on the next launch.
 /// 3. Group by `(provider, accountUID)`. Single-mount groups just get
 ///    a `CloudAccount` record + `mount.cloudAccountID` set.
-/// 4. Multi-mount groups: keep the row with the newest
-///    `lastScannedAt` as the keeper, repoint every other group
-///    member's songs to the keeper's id, then soft-delete the
-///    redundant rows via `SourcesStore.remove()`. That fires
-///    `primuseSourceDidSoftDelete`, which CloudKitSyncService persists as a
-///    durable tombstone so historical mounts cannot return after cursor reset.
+/// 4. Multi-mount groups: keep the row elected by
+///    `CloudAccountMountKeeperPolicy`(id 最小的那份 —— 只用会同步、且不会变的
+///    字段，两台设备才会选出同一份；以前按 `lastScannedAt` 选，它不进 CloudKit
+///    载荷，两台设备各选各的、互删对方留下的那份，最后两份都没了)as the
+///    keeper, repoint every other group member's songs to the keeper's id,
+///    then soft-delete the redundant rows via `SourcesStore.remove()`. That
+///    fires `primuseSourceDidSoftDelete`, which CloudKitSyncService persists
+///    as a durable tombstone so historical mounts cannot return after cursor
+///    reset.
 ///
 /// Idempotent. The `migrationKey` UserDefaults flag guards against a
 /// repeat run; clearing the flag forces a re-migration on next launch
@@ -117,17 +120,12 @@ enum CloudAccountMigrationService {
         }
 
         for (key, members) in grouped {
-            // `members` are in scan order; pick the latest-scanned one
-            // as the keeper (most likely to have correct songCount,
-            // freshest tokens, etc.). Falls back to first when no
-            // member has been scanned yet.
-            let keeper = members.max { lhs, rhs in
-                (lhs.lastScannedAt ?? .distantPast) < (rhs.lastScannedAt ?? .distantPast)
-            } ?? members[0]
-            let provider = keeper.type
+            // 分组键以 provider 开头，组内成员的 provider 一致。
+            let provider = members[0].type
             let uidPart = key.dropFirst(provider.rawValue.count + 1)
             let accountUID = String(uidPart)
             let accountID = CloudAccount.deriveID(provider: provider, accountUID: accountUID)
+            let keeper = electKeeper(among: members)
 
             // Always ensure a CloudAccount row exists (idempotent —
             // upsertAccount keys on the deterministic id).
@@ -142,11 +140,12 @@ enum CloudAccountMigrationService {
 
             // Wire the keeper to the account and retain any directory labels
             // learned by duplicate mounts before those rows become tombstones.
-            let directoryNames = mergedDirectoryDisplayNames(from: members)
-            sourcesStore.update(keeper.id) {
-                $0.cloudAccountID = account.id
-                $0.scannedDirectoryDisplayNames.merge(directoryNames) { current, _ in current }
-            }
+            linkKeeper(
+                keeper,
+                accountID: account.id,
+                directoryNames: mergedDirectoryDisplayNames(from: members),
+                in: sourcesStore
+            )
             stats.linked += 1
 
             // Single-mount group → done; nothing to merge.
@@ -199,12 +198,14 @@ enum CloudAccountMigrationService {
             return (sig, source)
         }, by: { $0.0 }).mapValues { $0.map(\.1) }
         for (_, dupes) in bySignature where dupes.count > 1 {
-            let keeper = dupes.max { ($0.lastScannedAt ?? .distantPast) < ($1.lastScannedAt ?? .distantPast) } ?? dupes[0]
+            let keeper = electKeeper(among: dupes)
             let toMerge = dupes.filter { $0.id != keeper.id }
-            let directoryNames = mergedDirectoryDisplayNames(from: dupes)
-            sourcesStore.update(keeper.id) {
-                $0.scannedDirectoryDisplayNames.merge(directoryNames) { current, _ in current }
-            }
+            linkKeeper(
+                keeper,
+                accountID: nil,
+                directoryNames: mergedDirectoryDisplayNames(from: dupes),
+                in: sourcesStore
+            )
             plog("☁️ Migration: phase 1.5 config-dedup — \(toMerge.count) exact-duplicate \(keeper.type.rawValue) mount(s) → keeper=\(keeper.id)")
             let redundantIDs = Set(toMerge.map(\.id))
             let affectedSongs = library.songs.filter { redundantIDs.contains($0.sourceID) }
@@ -223,6 +224,40 @@ enum CloudAccountMigrationService {
             }
         }
         return stats
+    }
+
+    /// 多份挂载里留下哪一份。规则与收敛论证见 `CloudAccountMountKeeperPolicy`。
+    ///
+    /// 已经跑过迁移的设备不会删掉别的设备后来选出的 keeper：
+    /// - 标记已置就不再跑；
+    /// - 识别失败而每次启动重跑时，别的设备删掉的成员已随墓碑同步过来、不在
+    ///   `sources`(只含活行)里，组里只剩那一份，单成员组什么都不删；
+    /// - 墓碑还没到、两份都活着，就按同一条规则再选一次 —— 对方在看得见我方那份
+    ///   的情况下选了另一份，说明另一份 id 更小，我方也会选它，删的是同一份。
+    private static func electKeeper(among members: [MusicSource]) -> MusicSource {
+        let keeperID = CloudAccountMountKeeperPolicy.keeperID(among: members.map(\.id))
+        return members.first { $0.id == keeperID } ?? members[0]
+    }
+
+    /// 把 keeper 挂到账号上、补上重复挂载学到的目录名。已经挂好、也没有新目录名
+    /// 时不写：`update` 会抬 `modifiedAt`，而识别失败的设备每次启动都会重跑迁移，
+    /// 每次都抬一次会让这台设备的副本在 CloudKit 的 LWW 里压过别的设备真正的编辑。
+    private static func linkKeeper(
+        _ keeper: MusicSource,
+        accountID: String?,
+        directoryNames: [String: String],
+        in sourcesStore: SourcesStore
+    ) {
+        let selected = Set(keeper.scannedDirectories)
+        let addsDirectoryNames = directoryNames.contains { key, _ in
+            selected.contains(key) && keeper.scannedDirectoryDisplayNames[key] == nil
+        }
+        let needsAccount = accountID != nil && keeper.cloudAccountID != accountID
+        guard needsAccount || addsDirectoryNames else { return }
+        sourcesStore.update(keeper.id) {
+            if let accountID { $0.cloudAccountID = accountID }
+            $0.scannedDirectoryDisplayNames.merge(directoryNames) { current, _ in current }
+        }
     }
 
     private static func mergedDirectoryDisplayNames(

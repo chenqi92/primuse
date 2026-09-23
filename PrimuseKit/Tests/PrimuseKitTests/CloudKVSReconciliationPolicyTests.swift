@@ -68,3 +68,61 @@ struct CloudKVSReconciliationPolicyTests {
         #expect(Policy.ExternalChangeReason(rawChangeReason: nil) == .unknown)
     }
 }
+
+@Suite("Device-local fields inside a whole-blob KVS setting")
+struct CloudKVSDeviceLocalFieldsTests {
+    /// 缩小版的整包设置: 两个跟着账号走的偏好, 两个只属于本机的硬件/存储决定。
+    struct Settings: Equatable {
+        var crossfadeEnabled = false
+        var crossfadeDuration = 5.0
+        var cacheEnabled = true
+        var cacheLimitBytes: Int64 = 1_000
+    }
+
+    static let deviceLocal = CloudKVSDeviceLocalFields<Settings>([
+        .init("cacheEnabled", \.cacheEnabled),
+        .init("cacheLimitBytes", \.cacheLimitBytes),
+    ])
+
+    @Test("A remote blob updates synced fields and leaves this device's hardware decisions alone")
+    func remoteBlobKeepsDeviceLocalValues() {
+        let local = Settings(crossfadeEnabled: false, crossfadeDuration: 5, cacheEnabled: false, cacheLimitBytes: 2_000)
+        let remote = Settings(crossfadeEnabled: true, crossfadeDuration: 8, cacheEnabled: true, cacheLimitBytes: 50_000)
+        let result = Self.deviceLocal.merge(remote: remote, local: local)
+        #expect(result.settings == Settings(crossfadeEnabled: true, crossfadeDuration: 8, cacheEnabled: false, cacheLimitBytes: 2_000))
+        #expect(result.keptFields == ["cacheEnabled", "cacheLimitBytes"])
+    }
+
+    @Test("A fresh install keeps its defaults for device-local fields and takes the rest from the cloud")
+    func freshInstallKeepsDefaults() {
+        let remote = Settings(crossfadeEnabled: true, crossfadeDuration: 8, cacheEnabled: false, cacheLimitBytes: 50_000)
+        let result = Self.deviceLocal.merge(remote: remote, local: Settings())
+        #expect(result.settings == Settings(crossfadeEnabled: true, crossfadeDuration: 8, cacheEnabled: true, cacheLimitBytes: 1_000))
+        #expect(result.keptFields == ["cacheEnabled", "cacheLimitBytes"])
+    }
+
+    @Test("Only fields whose local value differs are reported, so an identical blob needs no write-back")
+    func identicalDeviceLocalValuesReportNothing() {
+        let local = Settings(crossfadeEnabled: false, crossfadeDuration: 5, cacheEnabled: true, cacheLimitBytes: 1_000)
+        let remote = Settings(crossfadeEnabled: true, crossfadeDuration: 8, cacheEnabled: true, cacheLimitBytes: 1_000)
+        let result = Self.deviceLocal.merge(remote: remote, local: local)
+        #expect(result.settings == remote)
+        #expect(result.keptFields.isEmpty)
+
+        let partial = Self.deviceLocal.merge(remote: remote, local: Settings(cacheLimitBytes: 3_000))
+        #expect(partial.keptFields == ["cacheLimitBytes"])
+        #expect(partial.settings.cacheLimitBytes == 3_000)
+        #expect(partial.settings.cacheEnabled == true)
+    }
+
+    @Test("Merging is idempotent: applying the same blob twice changes nothing")
+    func mergeIsIdempotent() {
+        let local = Settings(crossfadeEnabled: false, crossfadeDuration: 5, cacheEnabled: false, cacheLimitBytes: 2_000)
+        let remote = Settings(crossfadeEnabled: true, crossfadeDuration: 8, cacheEnabled: true, cacheLimitBytes: 50_000)
+        let once = Self.deviceLocal.merge(remote: remote, local: local).settings
+        let twice = Self.deviceLocal.merge(remote: remote, local: once)
+        #expect(twice.settings == once)
+        #expect(twice.keptFields == ["cacheEnabled", "cacheLimitBytes"])
+        #expect(Self.deviceLocal.names == ["cacheEnabled", "cacheLimitBytes"])
+    }
+}

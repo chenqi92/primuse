@@ -248,6 +248,32 @@ struct PlaybackSettings: Codable, Sendable {
         self.reverbRoomSize = reverbRoomSize
     }
 
+    /// 整包经 iCloud 键值存储同步到用户的每台设备, 但下面这些字段是按这台设备的
+    /// 硬件与存储做的决定, 别的设备推来的整包不能替本机做主: Mac 上给缓存划 50 GB、
+    /// 为外置 DAC 开高保真直通, 同步到 iPhone 上就是一台存储被占满、耳机里没了
+    /// 均衡器的手机。远端整包到达时(`PlaybackSettingsStore.reloadFromDefaults`)这些
+    /// 字段保留本机原值。整包格式不变, 旧版本照样解得开; 推上云端的整包里带的仍是
+    /// 本机值, 收到的一方拿这张表把它们忽略掉。
+    ///
+    /// 新增字段时先问一句: 换一台设备, 用户还会想要同一个值吗? 不会的才放进来。
+    static let deviceLocalFields = CloudKVSDeviceLocalFields<PlaybackSettings>([
+        // 缓存开关与容量是本机存储的决定: 手机的 64 GB 和 Mac 的 2 TB 没法共用一个数。
+        .init("audioCacheEnabled", \.audioCacheEnabled),
+        .init("audioCacheLimitBytes", \.audioCacheLimitBytes),
+        // 输出模式与 DSD 走哪条路取决于接在这台设备上的 DAC / 输出链路。
+        .init("outputMode", \.outputMode),
+        .init("dsdPlaybackMode", \.dsdPlaybackMode),
+        // 让硬件输出采样率跟随歌曲只对 iOS 真机有意义, 而且部分硬件无视。
+        .init("matchOutputSampleRate", \.matchOutputSampleRate),
+        // 提前准备几首是本机内存与网络预算的取舍。
+        .init("prewarmQueueCount", \.prewarmQueueCount),
+        // 头部追踪要这台设备连着带传感器的耳机; 空间音频本身是听感偏好, 照常同步。
+        .init("spatialHeadTrackingEnabled", \.spatialHeadTrackingEnabled),
+        // 传输音质按这台设备的网络来: Mac 没有蜂窝, 手机的流量套餐也不是 Mac 的。
+        .init("wifiStreamQuality", \.wifiStreamQuality),
+        .init("cellularStreamQuality", \.cellularStreamQuality),
+    ])
+
     static func load(defaults: UserDefaults = .standard) -> PlaybackSettings {
         guard let data = defaults.data(forKey: defaultsKey),
               let settings = try? JSONDecoder().decode(PlaybackSettings.self, from: data) else {
@@ -451,9 +477,22 @@ final class PlaybackSettingsStore {
         }
     }
 
-    /// Re-apply values from UserDefaults (used after KVS pushes a remote update).
+    /// Re-apply values from UserDefaults (used after KVS pushes a remote update,
+    /// and after a one-time rollout rewrote the local payload).
+    ///
+    /// 到这里时 UserDefaults 里已经是远端整包(`CloudKVSSync` 先写 defaults 再回调)。
+    /// 套用到内存前, 把只属于本机的字段(`PlaybackSettings.deviceLocalFields`)换回
+    /// 内存里的当前值: 那就是本机套用远端之前的值 —— 新装设备上则是默认值, 两种都
+    /// 不能被远端顶掉。合并结果还要写回 UserDefaults, `AudioCacheManager` 这类直接
+    /// 读 defaults 的地方才看得到本机值, 下次启动也才装得回来。但这不是一次编辑,
+    /// 绝不能经 `persist()` 走 `markChanged`: 推回去会让两台设备拿各自的本机值来回
+    /// 互推。灰度迁移那条路上 defaults 里的本机字段与内存一致, 合并是恒等, 不写回。
     private func reloadFromDefaults() {
-        let s = PlaybackSettings.load(defaults: defaults)
+        let merge = PlaybackSettings.deviceLocalFields.merge(
+            remote: PlaybackSettings.load(defaults: defaults),
+            local: snapshot()
+        )
+        let s = merge.settings
         suppressPersist = true
         defer { suppressPersist = false }
 
@@ -489,6 +528,12 @@ final class PlaybackSettingsStore {
         reverbPresetIndex = s.reverbPresetIndex
         reverbWetDryMix = s.reverbWetDryMix
         reverbRoomSize = s.reverbRoomSize
+
+        guard !merge.keptFields.isEmpty else { return }
+        // 写回的是套用后的内存快照(已做范围与联动归一), 与 `persist()` 落盘的
+        // 内容一致, 只是不推云端。
+        snapshot().save(defaults: defaults)
+        plog("☁️ PlaybackSettings remote payload applied, kept device-local: \(merge.keptFields.joined(separator: ", "))")
     }
 
     func snapshot() -> PlaybackSettings {
