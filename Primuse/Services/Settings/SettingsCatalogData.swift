@@ -73,7 +73,6 @@ enum SettingsCatalogData {
         SettingDefinition(id: "storage.exportLog", titleKey: "storage_export_log", iosPage: .diagnostics, macPage: nil, keywords: ["log", "日志", "导出日志", "排查", "diagnostics", "troubleshoot"], requiresDiagnosticBuild: true),
         SettingDefinition(id: "appearance.scheme", titleKey: "appearance", iosPage: .appearance, macPage: .appearance, keywords: ["dark mode", "深色", "浅色", "夜间模式", "Theme"]),
         SettingDefinition(id: "appearance.minimalNavigation", titleKey: "minimal_mode_title", iosPage: .appearance, macPage: nil, keywords: ["minimal", "极简", "导航模式"], anchor: "appearance.skin"),
-        SettingDefinition(id: "appearance.minimalHome", titleKey: "minimal_shows_home_title", iosPage: .appearance, macPage: nil, keywords: ["home", "首页", "主页", "极简"]),
         SettingDefinition(id: "appearance.skin", titleKey: "skin_section_title", iosPage: .appearance, macPage: nil, keywords: ["skin", "皮肤", "主题", "theme", "风格"]),
         SettingDefinition(id: "appearance.themeMode", titleKey: "theme_color_mode", iosPage: .themeColor, macPage: .appearance),
         SettingDefinition(id: "appearance.palette", titleKey: "theme_color_palette", iosPage: .themeColor, macPage: .appearance, keywords: ["Brand Color"]),

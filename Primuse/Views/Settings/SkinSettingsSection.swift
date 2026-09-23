@@ -179,28 +179,18 @@ struct SkinPreviewThumbnail: View {
         }
     }
 
-    @ViewBuilder
+    /// 两套基座都是系统导航栏的大标题;极简没有设置标签,右上角多一颗齿轮。
     private var header: some View {
-        switch skin.navigationHeader {
-        case .minimal:
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 4) {
-                    Circle().fill(style.color(.surfaceElevated)).frame(width: 16, height: 16)
-                    Capsule().fill(style.color(.surfaceElevated)).frame(height: 16)
-                    Circle().fill(style.color(.surfaceElevated)).frame(width: 16, height: 16)
-                }
-                HStack(spacing: 4) {
-                    Capsule().fill(style.color(.chipSelected)).frame(width: 30, height: 11)
-                    Capsule().fill(style.color(.chip)).frame(width: 26, height: 11)
-                    Capsule().fill(style.color(.chip)).frame(width: 34, height: 11)
-                }
-            }
-        case .classic:
+        HStack(spacing: 0) {
             RoundedRectangle(cornerRadius: 3, style: .continuous)
                 .fill(style.color(.textPrimary))
                 .frame(width: 56, height: 9)
-                .padding(.top, 8)
+            Spacer(minLength: 0)
+            if skin.base == .minimal {
+                Circle().fill(style.color(.surfaceElevated)).frame(width: 14, height: 14)
+            }
         }
+        .padding(.top, 8)
     }
 
     private func row(tint: Color) -> some View {
@@ -228,20 +218,25 @@ struct SkinPreviewThumbnail: View {
         }
     }
 
+    /// 底部按基座画:经典是标签栏,极简是「资料库键 · 播放胶囊 · 搜索键」三件。
     @ViewBuilder
     private var footer: some View {
-        switch skin.bottomChrome {
-        case .floatingCapsule:
-            HStack(spacing: 5) {
-                Circle().fill(Self.coverTints[0]).frame(width: 14, height: 14)
-                Capsule().fill(style.color(.textPrimary)).frame(width: 40, height: 4).opacity(0.85)
-                Spacer(minLength: 0)
-                Circle().strokeBorder(style.color(.accent), lineWidth: 1.5).frame(width: 12, height: 12)
+        switch skin.base {
+        case .minimal:
+            HStack(spacing: 4) {
+                dockCircle
+                HStack(spacing: 5) {
+                    Circle().fill(Self.coverTints[0]).frame(width: 12, height: 12)
+                    Capsule().fill(style.color(.textPrimary)).frame(width: 30, height: 4).opacity(0.85)
+                    Spacer(minLength: 0)
+                    Circle().strokeBorder(style.color(.accent), lineWidth: 1.5).frame(width: 10, height: 10)
+                }
+                .padding(.horizontal, 5)
+                .frame(height: 22)
+                .background(style.color(.chromeBackground), in: Capsule())
+                .overlay { Capsule().strokeBorder(style.color(.chromeBorder), lineWidth: 0.5) }
+                dockCircle
             }
-            .padding(.horizontal, 6)
-            .frame(height: 24)
-            .background(style.color(.chromeBackground), in: Capsule())
-            .overlay { Capsule().strokeBorder(style.color(.chromeBorder), lineWidth: 0.5) }
             .padding(.bottom, 9)
         case .classic:
             HStack {
@@ -256,6 +251,13 @@ struct SkinPreviewThumbnail: View {
             .background(style.color(.chromeBackground))
             .padding(.horizontal, -10)
         }
+    }
+
+    private var dockCircle: some View {
+        Circle()
+            .fill(style.color(.chromeBackground))
+            .overlay { Circle().strokeBorder(style.color(.chromeBorder), lineWidth: 0.5) }
+            .frame(width: 22, height: 22)
     }
 }
 
