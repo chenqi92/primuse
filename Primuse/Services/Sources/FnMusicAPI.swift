@@ -114,7 +114,7 @@ actor FnMusicAPI {
         // Keep that established session available to subsequent callers.
         guard token == nil else { return }
         sessionGeneration &+= 1
-        await endpointProvider.invalidate()
+        await endpointProvider.releaseSession()
     }
 
     func logout() async {
@@ -131,7 +131,7 @@ actor FnMusicAPI {
                 cookieToken: requestToken
             )
         }
-        if sessionGeneration == generation { await endpointProvider.invalidate() }
+        if sessionGeneration == generation { await endpointProvider.releaseSession() }
     }
 
     func invalidateSession() {

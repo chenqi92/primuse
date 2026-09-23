@@ -442,9 +442,14 @@ public struct FnConnectResolver: Sendable {
         fnID(from: rawValue) != nil
     }
 
+    /// - Parameter skipsLocalCandidates: the NAS's private addresses are
+    ///   skipped while its private route is in a handshake cooldown on this
+    ///   network path; each of them otherwise costs a full probe timeout
+    ///   before the public addresses and the relay are tried.
     public func resolve(
         _ rawValue: String,
-        accessCode: String? = nil
+        accessCode: String? = nil,
+        skipsLocalCandidates: Bool = false
     ) async throws -> FnMusicResolvedEndpoint {
         try Task.checkCancellation()
         guard let fnID = Self.fnID(from: rawValue) else {
@@ -452,7 +457,16 @@ public struct FnConnectResolver: Sendable {
         }
         let parameters = try await lookup(fnID: fnID)
         try Task.checkCancellation()
-        let groups = Self.candidateGroups(fnID: fnID, parameters: parameters)
+        var groups = Self.candidateGroups(fnID: fnID, parameters: parameters)
+        if skipsLocalCandidates {
+            groups = groups.map { group in
+                group.filter { candidate in
+                    candidate.endpoint.usesRelay
+                        || !InsecureHTTPHostPolicy.isLocalNetworkHost(candidate.endpoint.baseURL.host ?? "")
+                }
+            }
+            diagnosticLogger?("FN Connect stage=candidates local=skipped reason=handshake-backoff")
+        }
         guard groups.contains(where: { !$0.isEmpty }) else {
             diagnosticLogger?("FN Connect stage=candidates result=empty")
             throw FnConnectError.invalidResponse
@@ -835,8 +849,11 @@ public actor FnMusicEndpointProvider {
 
     private let directEndpoint: FnMusicResolvedEndpoint?
     private let fnID: String?
+    private let sourceID: String
     private let accessCode: String?
     private let resolver: FnConnectResolver
+    private let runtime: SourceConnectionRuntime
+    private let sharedResolutions: FnConnectResolutionMemory
     private var cachedEndpoint: FnMusicResolvedEndpoint?
     private var resolutionOperation: ResolutionOperation?
     private var resolutionGeneration: UInt64 = 0
@@ -846,9 +863,14 @@ public actor FnMusicEndpointProvider {
         accessCode: String? = nil,
         session: URLSession = .shared,
         dataLoader: FnConnectResolver.DataLoader? = nil,
-        diagnosticLogger: FnConnectResolver.DiagnosticLogger? = nil
+        diagnosticLogger: FnConnectResolver.DiagnosticLogger? = nil,
+        runtime: SourceConnectionRuntime = .shared,
+        sharedResolutions: FnConnectResolutionMemory = .shared
     ) {
         self.accessCode = accessCode
+        self.sourceID = source.id
+        self.runtime = runtime
+        self.sharedResolutions = sharedResolutions
         if let dataLoader {
             self.resolver = FnConnectResolver(data: dataLoader, diagnosticLogger: diagnosticLogger)
         } else {
@@ -871,19 +893,50 @@ public actor FnMusicEndpointProvider {
     public func endpoint(forceRefresh: Bool = false) async throws -> FnMusicResolvedEndpoint {
         try Task.checkCancellation()
         if let directEndpoint { return directEndpoint }
+        guard let fnID else { throw FnConnectError.invalidID }
         if forceRefresh {
-            invalidate()
+            await invalidate()
         }
         if let cachedEndpoint { return cachedEndpoint }
         let operation: ResolutionOperation
         if let existing = resolutionOperation {
             operation = existing
         } else {
-            guard let fnID else { throw FnConnectError.invalidID }
+            let key = FnConnectResolutionMemory.Key(fnID: fnID, accessCode: accessCode)
+            let resolver = resolver
+            let runtime = runtime
+            let sharedResolutions = sharedResolutions
+            let sourceID = sourceID
+            let accessCode = accessCode
             operation = ResolutionOperation(
                 id: UUID(),
                 generation: resolutionGeneration,
-                task: Task { try await resolver.resolve(fnID, accessCode: accessCode) }
+                task: Task {
+                    // Connectors are rebuilt often (source edits, a failed
+                    // preflight, the write-back connector). A route resolved a
+                    // moment ago on the same network path is still the answer;
+                    // resolving again costs every private candidate's timeout.
+                    let networkGeneration = await runtime.routeGeneration()
+                    if let remembered = await sharedResolutions.endpoint(
+                        for: key,
+                        networkGeneration: networkGeneration
+                    ) {
+                        return remembered
+                    }
+                    let skipsLocal = await runtime.isLocalRouteBackedOff(for: sourceID)
+                    let endpoint = try await resolver.resolve(
+                        fnID,
+                        accessCode: accessCode,
+                        skipsLocalCandidates: skipsLocal
+                    )
+                    try Task.checkCancellation()
+                    await sharedResolutions.remember(
+                        endpoint,
+                        for: key,
+                        networkGeneration: networkGeneration
+                    )
+                    return endpoint
+                }
             )
             resolutionOperation = operation
         }
@@ -904,11 +957,60 @@ public actor FnMusicEndpointProvider {
         }
     }
 
-    public func invalidate() {
+    /// Forgets the resolved route after a route failure, including the copy
+    /// shared with other connectors of this FN ID.
+    public func invalidate() async {
+        releaseSession()
+        if let fnID {
+            await sharedResolutions.forget(FnConnectResolutionMemory.Key(fnID: fnID, accessCode: accessCode))
+        }
+    }
+
+    /// Drops this client's route without judging it: a logout or a cancelled
+    /// login says nothing about whether the relay still works.
+    public func releaseSession() {
         resolutionGeneration &+= 1
         resolutionOperation?.task.cancel()
         resolutionOperation = nil
         cachedEndpoint = nil
+    }
+}
+
+/// FN Connect resolutions shared by every client of the same FN ID for as long
+/// as the network path is unchanged (`SourceConnectionRuntime.routeGeneration`).
+/// Memory only; nothing here is persisted.
+public actor FnConnectResolutionMemory {
+    public static let shared = FnConnectResolutionMemory()
+
+    public struct Key: Hashable, Sendable {
+        let fnID: String
+        let accessCode: String?
+
+        public init(fnID: String, accessCode: String?) {
+            self.fnID = fnID
+            self.accessCode = accessCode
+        }
+    }
+
+    private var entries: [Key: (endpoint: FnMusicResolvedEndpoint, networkGeneration: UInt64)] = [:]
+
+    public init() {}
+
+    public func endpoint(for key: Key, networkGeneration: UInt64) -> FnMusicResolvedEndpoint? {
+        guard let entry = entries[key] else { return nil }
+        guard entry.networkGeneration == networkGeneration else {
+            entries.removeValue(forKey: key)
+            return nil
+        }
+        return entry.endpoint
+    }
+
+    public func remember(_ endpoint: FnMusicResolvedEndpoint, for key: Key, networkGeneration: UInt64) {
+        entries[key] = (endpoint, networkGeneration)
+    }
+
+    public func forget(_ key: Key) {
+        entries.removeValue(forKey: key)
     }
 }
 
