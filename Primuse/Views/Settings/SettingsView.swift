@@ -580,8 +580,6 @@ struct LyricsAppearanceSections: View {
     private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
-    @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeForLyricsKey)
-    private var keepsScreenAwakeForLyrics = PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
 
@@ -706,14 +704,6 @@ struct LyricsAppearanceSections: View {
             .settingsAnchor("lyrics.blurInactive")
                 .accessibilityHint(Text("player_blur_inactive_lyrics_description"))
 
-            Toggle(
-                "player_keep_screen_awake_for_lyrics",
-                isOn: $keepsScreenAwakeForLyrics
-            )
-            .settingsAnchor("lyrics.keepScreenAwake")
-            .accessibilityHint(Text("player_keep_screen_awake_for_lyrics_description"))
-            .accessibilityIdentifier("playerKeepScreenAwakeForLyricsToggle")
-
             Toggle("player_tap_lyrics_to_seek", isOn: $tapLyricsToSeek)
             .settingsAnchor("lyrics.tapToSeek")
                 .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
@@ -768,13 +758,10 @@ private struct PlayerAppearanceSettingsView: View {
     private var motionArtworkServiceEndpoint = PlayerAppearancePreferences.motionArtworkServiceEndpointByDefault
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
-
-
-
-
-
-
-
+    @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
+    private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
+    @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
+    private var screenWakeRequiresCharging = PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault
 
     var body: some View {
         SkinForm {
@@ -814,6 +801,25 @@ private struct PlayerAppearanceSettingsView: View {
                 Toggle("player_volume_bar", isOn: $showsVolumeBar)
                 .settingsAnchor("appearance.volumeBar")
                     .accessibilityHint(Text("player_volume_bar_description"))
+            }
+            Section {
+                Toggle("player_keep_screen_awake_title", isOn: $keepsScreenAwake)
+                .settingsAnchor("player.keepScreenAwake")
+                .accessibilityIdentifier("playerKeepScreenAwakeToggle")
+                if keepsScreenAwake {
+                    Toggle(
+                        "player_keep_screen_awake_charging_only_title",
+                        isOn: $screenWakeRequiresCharging
+                    )
+                    .settingsAnchor("player.keepScreenAwakeChargingOnly")
+                    .accessibilityIdentifier("playerKeepScreenAwakeChargingOnlyToggle")
+                }
+            } footer: {
+                Text(
+                    keepsScreenAwake && screenWakeRequiresCharging
+                        ? "player_keep_screen_awake_charging_only_subtitle"
+                        : "player_keep_screen_awake_subtitle"
+                )
             }
             Section {
                 NavigationLink {

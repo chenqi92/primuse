@@ -73,11 +73,25 @@ actor CarPlayArtworkScheduler {
         self.dynamicCooldownMultiplier = max(0, dynamicCooldownMultiplier)
     }
 
+    enum Outcome: Sendable {
+        case image(UIImage?)
+        /// 过热时整批跳过。调用方该稍后再试，而不是把这一行永远留在占位图上。
+        case throttled
+    }
+
+    /// 过热跳过后重试前的等待。
+    static let thermalRetryDelay: Duration = .seconds(20)
+
     func image(_ operation: @escaping @Sendable () async -> UIImage?) async -> UIImage? {
+        if case .image(let image) = await attempt(operation) { return image }
+        return nil
+    }
+
+    func attempt(_ operation: @escaping @Sendable () async -> UIImage?) async -> Outcome {
         let acquired = await acquire()
         guard acquired, !Task.isCancelled else {
             if acquired { release() }
-            return nil
+            return .image(nil)
         }
         defer { release() }
 
@@ -86,13 +100,13 @@ actor CarPlayArtworkScheduler {
             do {
                 try await Task.sleep(for: .milliseconds(Int64((wait * 1_000).rounded(.up))))
             } catch {
-                return nil
+                return .image(nil)
             }
         }
-        guard !Task.isCancelled else { return nil }
+        guard !Task.isCancelled else { return .image(nil) }
         switch ProcessInfo.processInfo.thermalState {
         case .serious, .critical:
-            return nil
+            return .throttled
         default:
             break
         }
@@ -106,7 +120,7 @@ actor CarPlayArtworkScheduler {
             cooldown *= 2
         }
         nextStart = Date().addingTimeInterval(min(maximumCooldown, cooldown))
-        return Task.isCancelled ? nil : image
+        return .image(Task.isCancelled ? nil : image)
     }
 
     private func acquire() async -> Bool {
@@ -1231,14 +1245,22 @@ extension CarPlaySceneDelegate {
                 defer { self?.artworkTasks[id] = nil }
                 repeat {
                     pendingRefresh = false
-                    let image = await CarPlayArtworkScheduler.shared.image {
+                    let outcome = await CarPlayArtworkScheduler.shared.attempt {
                         await CarPlayHomeContent.artwork(artwork, pixelSize: pixelSize)
                     }
                     guard !Task.isCancelled, owner != nil else { return }
-                    if let image {
-                        let rendered = render(image)
-                        CarPlayRenderedArtwork.store(rendered, forKey: key)
-                        apply(rendered)
+                    switch outcome {
+                    case .throttled:
+                        // 过热只是暂时的；行还在就过一会儿再取，否则整页封面会一直空着。
+                        try? await Task.sleep(for: CarPlayArtworkScheduler.thermalRetryDelay)
+                        guard !Task.isCancelled, owner != nil else { return }
+                        pendingRefresh = true
+                    case .image(let image):
+                        if let image {
+                            let rendered = render(image)
+                            CarPlayRenderedArtwork.store(rendered, forKey: key)
+                            apply(rendered)
+                        }
                     }
                 } while pendingRefresh
             }
@@ -1922,45 +1944,51 @@ extension CarPlaySceneDelegate {
         openQueueTemplate.updateSections([queueSection()])
     }
 
+    /// 行序与手机端「即将播放」一致：当前曲目在首行，其后是实际会播放的顺序
+    /// （随机时按本轮乱序，循环全部时接下一轮）。行的起始图先取已渲染的封面缓存，
+    /// 重建时不会整页退回占位图。
     private func queueSection() -> CPListSection {
         let player = AppServices.shared.playerService
-        let queue = player.queue
-        // Clamp on BOTH ends. `Array.suffix(from:)` requires
-        // i ∈ [0, count] — passing a stale currentIndex larger than count
-        // (queue replaced before currentIndex caught up) would crash.
-        let safeIdx = min(max(0, player.currentIndex), queue.count)
-        let upcoming = Array(queue.suffix(from: safeIdx).prefix(CPListTemplate.maximumItemCount))
-        let items = upcoming.enumerated().map { offset, song -> CPListItem in
+        var rows: [(entry: QueueEntry?, song: Song, isCurrent: Bool)] = []
+        if let current = player.currentSong {
+            let entry = player.queueEntries.indices.contains(player.currentIndex)
+                ? player.queueEntries[player.currentIndex]
+                : nil
+            rows.append((entry, current, true))
+        }
+        for presentation in player.upcomingQueueEntries {
+            rows.append((presentation.entry, presentation.entry.song, false))
+        }
+        let pixelSize = Int(CarPlayTemplateImages.listSide * artworkScale)
+        let items = rows.prefix(CPListTemplate.maximumItemCount).enumerated().map { offset, row -> CPListItem in
+            let song = row.song
             let item = CPListItem(
                 text: song.title,
                 detailText: AppServices.shared.musicLibrary.artistDisplayName(for: song)
                     ?? song.albumTitle,
-                image: CarPlayTemplateImages.placeholder("music.note")
+                image: initialArtwork(.song(song), pixelSize: pixelSize)
+                    ?? CarPlayTemplateImages.placeholder("music.note")
             )
             if CarPlayArtworkLoadPolicy.shouldLoad(index: offset) {
                 loadArtwork(for: song, into: item)
             }
-            // First row corresponds to currently-playing track — show indicator.
-            if offset == 0 {
+            if row.isCurrent {
                 item.isPlaying = true
                 item.playingIndicatorLocation = .leading
             }
+            let entryID = row.entry?.id
             item.handler = { [weak self] _, completion in
                 Task { @MainActor in
-                    // The page was built from a queue snapshot, but observePlayerState()
-                    // intentionally doesn't track player.queue — so phone-side
-                    // insertNextInQueue/appendToQueue/removeFromQueue changes that
-                    // don't move currentIndex won't have refreshed this open page.
-                    // Read the live queue at tap time and re-locate the tapped song
-                    // by id, so playing a row never replays a stale snapshot (which
-                    // would silently drop tracks added on the phone since the page
-                    // opened).
-                    let live = AppServices.shared.playerService.queue
-                    if let liveIndex = live.firstIndex(where: { $0.id == song.id }) {
-                        self?.play(queue: live, startAt: liveIndex)
+                    // 页面是按快照建的，手机上插队/移除不会刷新它。点按时按队列
+                    // 条目 id 在实时队列里重新定位，就地播放，不替换队列也不丢随机轮次；
+                    // 条目已不在队列里就退回按歌曲 id 找，再找不到就单独播这一首。
+                    let player = AppServices.shared.playerService
+                    if let entryID,
+                       let index = player.queueEntries.firstIndex(where: { $0.id == entryID }) {
+                        await player.playFromQueue(at: index)
+                    } else if let index = player.queue.firstIndex(where: { $0.id == song.id }) {
+                        await player.playFromQueue(at: index)
                     } else {
-                        // Song no longer in the live queue (removed on the phone) —
-                        // play it as a single-item queue rather than doing nothing.
                         self?.play(queue: [song], startAt: 0)
                     }
                     completion()
@@ -2068,12 +2096,15 @@ extension CarPlaySceneDelegate {
             Task { @MainActor [weak self] in
                 guard let self, self.interfaceController != nil, self.connectionGeneration == generation else { return }
                 self.refreshNowPlayingButtons()
-                self.refreshOpenQueueTemplate()
 
                 // 播放暂停、随机、循环、队列位置每变一次就重建整张列表，等于把
                 // 所有行退回占位图再逐个重取。只有「在放哪一首 / 哪个台」变了才
                 // 需要重建 —— 首页那条「正在播放」的副标题和封面取的就是它。
+                // 队列页多看随机与循环：它们改变的是后面几行的顺序。
                 let state = self.currentPlayerState()
+                if CarPlayListRefreshPolicy.queuePageNeedsRebuild(from: self.lastPlayerState, to: state) {
+                    self.refreshOpenQueueTemplate()
+                }
                 let rebuildsLists = CarPlayListRefreshPolicy.listsNeedRebuild(
                     from: self.lastPlayerState, to: state
                 )

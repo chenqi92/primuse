@@ -681,7 +681,7 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertFalse(PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault)
+        XCTAssertFalse(PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault)
         XCTAssertTrue(PlayerAppearancePreferences.tapLyricsToSeekIsEnabled(defaults: defaults))
 
         defaults.set(false, forKey: PlayerAppearancePreferences.tapLyricsToSeekKey)

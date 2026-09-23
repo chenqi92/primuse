@@ -202,8 +202,9 @@ private struct NowPlayingGlassActionButton: View {
 }
 
 #if os(iOS)
+/// 播放页与外接显示器各持一份租约，谁最后释放谁关掉常亮。
 @MainActor
-private enum LyricsScreenWakeCoordinator {
+private enum PlayerScreenWakeCoordinator {
     private static var owners: Set<UUID> = []
 
     static func update(ownerID: UUID, shouldHold: Bool) {
@@ -219,39 +220,78 @@ private enum LyricsScreenWakeCoordinator {
     }
 }
 
-private struct LyricsScreenWakeLeaseModifier: ViewModifier {
+/// `UIDevice.batteryState` only reports a real value while monitoring is on,
+/// so monitoring runs just for the window in which the charging rule matters.
+@MainActor
+private enum DeviceChargingState {
+    static var isCharging: Bool {
+        switch UIDevice.current.batteryState {
+        case .charging, .full: true
+        case .unplugged, .unknown: false
+        @unknown default: false
+        }
+    }
+
+    static func setMonitoring(_ enabled: Bool) {
+        guard UIDevice.current.isBatteryMonitoringEnabled != enabled else { return }
+        UIDevice.current.isBatteryMonitoringEnabled = enabled
+    }
+}
+
+/// 整个播放器界面（封面、歌词、全屏效果）只要是当前展示面就持有常亮租约，
+/// 不再区分歌词有没有显示。
+private struct PlayerScreenWakeLeaseModifier: ViewModifier {
     let isVisible: Bool
     let sceneIsActive: Bool
 
-    @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeForLyricsKey)
-    private var isEnabled = PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault
+    @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
+    private var isEnabled = PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault
+    @AppStorage(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
+    private var requiresCharging = PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault
     @State private var ownerID = UUID()
+    @State private var isCharging = false
+
+    private var observesCharging: Bool {
+        isEnabled && requiresCharging && isVisible && sceneIsActive
+    }
 
     private var shouldHoldLease: Bool {
         NowPlayingInteractionPolicy.shouldKeepScreenAwake(
             settingEnabled: isEnabled,
-            lyricsVisible: isVisible,
+            requiresCharging: requiresCharging,
+            isCharging: isCharging,
+            playerVisible: isVisible,
             sceneIsActive: sceneIsActive
         )
     }
 
     func body(content: Content) -> some View {
         content
+            .onChange(of: observesCharging, initial: true) { _, observes in
+                DeviceChargingState.setMonitoring(observes)
+                isCharging = DeviceChargingState.isCharging
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: UIDevice.batteryStateDidChangeNotification)
+            ) { _ in
+                isCharging = DeviceChargingState.isCharging
+            }
             .onChange(of: shouldHoldLease, initial: true) { _, shouldHold in
-                LyricsScreenWakeCoordinator.update(
+                PlayerScreenWakeCoordinator.update(
                     ownerID: ownerID,
                     shouldHold: shouldHold
                 )
             }
             .onDisappear {
-                LyricsScreenWakeCoordinator.update(ownerID: ownerID, shouldHold: false)
+                DeviceChargingState.setMonitoring(false)
+                PlayerScreenWakeCoordinator.update(ownerID: ownerID, shouldHold: false)
             }
     }
 }
 
 extension View {
-    func lyricsScreenWakeLease(isVisible: Bool, sceneIsActive: Bool) -> some View {
-        modifier(LyricsScreenWakeLeaseModifier(
+    func playerScreenWakeLease(isVisible: Bool, sceneIsActive: Bool) -> some View {
+        modifier(PlayerScreenWakeLeaseModifier(
             isVisible: isVisible,
             sceneIsActive: sceneIsActive
         ))
@@ -686,14 +726,6 @@ struct NowPlayingView: View {
         isPresentationSettled
             && isPresentationActive
             && !isFullscreenPlayerPresented
-            && !hasBlockingNowPlayingPresentation
-            && activeMinimizeDragAxis == nil
-            && activeMinimizeDragStartLocation == nil
-    }
-
-    private var isLyricsWakeSurfaceExposed: Bool {
-        isPresentationSettled
-            && isPresentationActive
             && !hasBlockingNowPlayingPresentation
             && activeMinimizeDragAxis == nil
             && activeMinimizeDragStartLocation == nil
@@ -1310,6 +1342,12 @@ struct NowPlayingView: View {
                 }
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
+                // 常亮租约挂在这个常驻的零尺寸视图上：播放页是当前展示面就持有，
+                // 收成迷你条或整页消失就释放。
+                .playerScreenWakeLease(
+                    isVisible: isPresentationSettled && isPresentationActive,
+                    sceneIsActive: isVisualSceneActive
+                )
                 #endif
 
                 if !isFullscreenPlayerPresented {
@@ -1405,11 +1443,6 @@ struct NowPlayingView: View {
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true }
-                    )
-                    .lyricsScreenWakeLease(
-                        isVisible: isLyricsWakeSurfaceExposed
-                            && fullscreenPlayerEffect.displaysLyrics,
-                        sceneIsActive: isVisualSceneActive
                     )
                     .zIndex(100)
                 }
@@ -2065,7 +2098,7 @@ struct NowPlayingView: View {
     private func compactLandscapeLyricsPane(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
     ) -> some View {
-        wakeManagedLyricsFullView(isVisible: showLyrics && isLyricsWakeSurfaceExposed)
+        lyricsFullView
             .frame(width: CGFloat(metrics.lyricsPaneWidth))
             .frame(maxHeight: .infinity)
     }
@@ -2631,7 +2664,7 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             // 跟左栏 grabber 顶端对齐
             Spacer().frame(height: topSafeArea + 21)
-            wakeManagedLyricsFullView(isVisible: isLyricsWakeSurfaceExposed)
+            lyricsFullView
                 .padding(.bottom, 24)
         }
     }
@@ -2641,9 +2674,7 @@ struct NowPlayingView: View {
         let safeInsets = resolvedSafeAreaInsets(for: geo)
         let baseHorizontalPadding = max(72, geo.size.width * 0.10)
         ZStack {
-            wakeManagedLyricsFullView(
-                isVisible: showLyrics && isLyricsWakeSurfaceExposed
-            )
+            lyricsFullView
                 .padding(.leading, max(baseHorizontalPadding, safeInsets.leading + 18))
                 .padding(.trailing, max(baseHorizontalPadding, safeInsets.trailing + 18))
                 .padding(.top, 56)
@@ -2760,9 +2791,7 @@ struct NowPlayingView: View {
                         .strokeBorder(appearance.primary.opacity(0.09), lineWidth: 0.5)
                 }
 
-                wakeManagedLyricsFullView(
-                    isVisible: showLyrics && isLyricsWakeSurfaceExposed
-                )
+                lyricsFullView
                     .padding(.horizontal, 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -2916,15 +2945,11 @@ struct NowPlayingView: View {
                         // Full screen lyrics
                         if isLyricsImmersive {
                             immersiveLyricsExperience(isLandscape: false) {
-                                wakeManagedLyricsFullView(
-                                    isVisible: showLyrics && isLyricsWakeSurfaceExposed
-                                )
+                                lyricsFullView
                             }
                             .transition(.opacity)
                         } else {
-                            wakeManagedLyricsFullView(
-                                isVisible: showLyrics && isLyricsWakeSurfaceExposed
-                            )
+                            lyricsFullView
                                 .transition(lyricsPanelTransition)
                         }
                     } else {
@@ -3669,19 +3694,6 @@ struct NowPlayingView: View {
             },
             exposedTranslations: $lyricTranslationsForSharing
         )
-    }
-
-    @ViewBuilder
-    private func wakeManagedLyricsFullView(isVisible: Bool) -> some View {
-        #if os(iOS)
-        lyricsFullView
-            .lyricsScreenWakeLease(
-                isVisible: isVisible && !isFullscreenPlayerPresented,
-                sceneIsActive: isVisualSceneActive
-            )
-        #else
-        lyricsFullView
-        #endif
     }
 
     private func nowPlayingSongHeader(titleFont: Font, metadataFont: Font, showsQuality: Bool = false) -> some View {

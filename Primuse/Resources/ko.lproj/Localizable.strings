@@ -1650,9 +1650,6 @@
 "fullscreen_effect_flowing_lines" = "흐르는 선";
 "fullscreen_effect_flowing_lines_subtitle" = "변하는 선이 커버를 감싸며 가사 세 줄을 보여 줍니다";
 "fullscreen_effect_flowing_lines_motion" = "계속 변하는 궤적 · 가사 세 줄";
-"fullscreen_effect_light_rhythm" = "빛의 리듬";
-"fullscreen_effect_light_rhythm_subtitle" = "앨범 아트 색 빛과 현재 가사 한 줄이 호흡합니다";
-"fullscreen_effect_light_rhythm_motion" = "겹쳐진 커버 빛 · 느린 호흡";
 "fullscreen_effect_kinetic_title" = "곡명 전시 벽";
 "fullscreen_effect_kinetic_title_subtitle" = "곡명과 현재 가사는 한 번만 표시되고 다른 가사는 깊이감 있는 문자 필드를 만듭니다";
 "fullscreen_effect_kinetic_title_motion" = "배경 가사의 느린 이동 · 재생 위치에 맞춘 현재 줄 강조";
@@ -1660,9 +1657,6 @@
 "fullscreen_effect_radial_pulse" = "원형 펄스";
 "fullscreen_effect_radial_pulse_subtitle" = "회전하는 레코드 둘레가 실제 오디오에 반응합니다";
 "fullscreen_effect_radial_pulse_motion" = "실시간 스펙트럼 · 회전 레코드";
-"fullscreen_effect_live_waveform" = "실시간 파형";
-"fullscreen_effect_live_waveform_subtitle" = "가로 스펙트럼이 재생 오디오를 실시간으로 따릅니다";
-"fullscreen_effect_live_waveform_motion" = "실시간 스펙트럼 · 무음일 때 정지";
 "fullscreen_effect_vinyl_deck" = "바이닐 덱";
 "fullscreen_effect_vinyl_deck_subtitle" = "아트워크가 회전하는 레코드의 라벨이 되고 톤암이 홈 위에 내려앉습니다";
 "fullscreen_effect_vinyl_deck_motion" = "재생에 맞춰 회전 · 일시정지 시 톤암 상승";
@@ -3148,8 +3142,10 @@
 "player_current_lyric_color_description" = "현재 줄과 단어별 강조 색상만 변경하며, 나머지 가사는 기존 스타일을 유지합니다.";
 "player_blur_inactive_lyrics" = "현재 외 가사 흐리게";
 "player_blur_inactive_lyrics_description" = "현재 줄을 강조하도록 현재 줄 이외의 동기화된 가사를 살짝 흐리게 표시합니다.";
-"player_keep_screen_awake_for_lyrics" = "가사 화면에서 화면 켜짐 유지";
-"player_keep_screen_awake_for_lyrics_description" = "가사가 표시되고 Primuse가 활성 상태일 때만 자동 잠금을 방지합니다.";
+"player_keep_screen_awake_title" = "플레이어 화면에서 화면 켜짐 유지";
+"player_keep_screen_awake_subtitle" = "플레이어 화면이 열려 있고 Primuse가 활성 상태일 때 가사와 전체 화면 효과를 포함해 자동 잠금을 막습니다.";
+"player_keep_screen_awake_charging_only_title" = "충전 중에만";
+"player_keep_screen_awake_charging_only_subtitle" = "배터리 사용 시에는 시스템 설정에 따라 자동 잠금됩니다.";
 "player_tap_lyrics_to_seek" = "가사를 탭하여 탐색";
 "player_tap_lyrics_to_seek_description" = "동기화된 가사 줄을 탭하면 해당 위치로 이동합니다. 가사를 스크롤해도 재생 위치는 바뀌지 않습니다.";
 "server_favorite_unsupported" = "이 소스는 서버 즐겨찾기를 지원하지 않습니다.";

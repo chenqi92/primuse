@@ -1347,11 +1347,6 @@
 "fullscreen_effect_kinetic_title_subtitle" = "गीत का शीर्षक और वर्तमान गीत एकवचन रहते हैं जबकि अन्य गीत स्क्रीन पर एक स्तरित क्षेत्र बनाते हैं";
 "fullscreen_effect_light_field" = "प्रकाश क्षेत्र";
 "fullscreen_effect_light_field_subtitle" = "धीमी गति से बुनी गई रोशनी और प्रिज्म गति";
-"fullscreen_effect_light_rhythm" = "प्रकाश लय";
-"fullscreen_effect_light_rhythm_motion" = "स्तरित कलाकृति प्रकाश · धीमी गति से सांस लेना";
-"fullscreen_effect_light_rhythm_subtitle" = "कलाकृति के रंग की रोशनी एक मौजूदा गीत के बोल के पीछे सांस लेती है";
-"fullscreen_effect_live_waveform" = "लाइव वेवफॉर्म";
-"fullscreen_effect_live_waveform_motion" = "लाइव स्पेक्ट्रम चालित · चुप रहने पर भी";
 "fullscreen_effect_vinyl_deck" = "विनाइल डेक";
 "fullscreen_effect_vinyl_deck_subtitle" = "कवर घूमते रिकॉर्ड का लेबल बन जाता है और टोनआर्म खांचे में टिका रहता है";
 "fullscreen_effect_vinyl_deck_motion" = "प्लेबैक के साथ रिकॉर्ड घूमता है · रोकने पर टोनआर्म उठ जाता है";
@@ -1370,7 +1365,6 @@
 "fullscreen_effect_cover_mosaic" = "कवर मोज़ेक";
 "fullscreen_effect_cover_mosaic_subtitle" = "लाइब्रेरी के कवर मिलकर पूरी स्क्रीन पर एक झुकी हुई दीवार बनाते हैं, जिसके सामने वर्तमान कवर और बोल रहते हैं";
 "fullscreen_effect_cover_mosaic_motion" = "वास्तविक लाइब्रेरी कवर · समय-समय पर नई सजावट";
-"fullscreen_effect_live_waveform_subtitle" = "क्षैतिज स्पेक्ट्रम वास्तविक समय में चल रहे ऑडियो का अनुसरण करता है";
 "fullscreen_effect_lyric_stage" = "गीत के बोल मंच";
 "fullscreen_effect_lyric_stage_subtitle" = "गीत के बोल एक संयमित ट्रैक हेडर के साथ आगे बढ़ते हैं";
 "fullscreen_effect_lyrics" = "गीत के बोल";
@@ -2280,8 +2274,10 @@
 "player_current_lyric_color_description" = "केवल वर्तमान पंक्ति और शब्द-स्तरीय हाइलाइट रंग बदलता है; निष्क्रिय गीत के बोल अपना मौजूदा स्वरूप बरकरार रखते हैं।";
 "player_empty_message" = "लाइब्रेरी में से एक चुनें या बाईं ओर खोजें।";
 "player_empty_title" = "बजाने के लिए एक गाना चुनें";
-"player_keep_screen_awake_for_lyrics" = "गीत के बोल दिखते समय स्क्रीन चालू रखें";
-"player_keep_screen_awake_for_lyrics_description" = "केवल तब अपने-आप लॉक होने से रोकता है जब गीत के बोल दिख रहे हों और Primuse सक्रिय हो।";
+"player_keep_screen_awake_title" = "प्लेयर स्क्रीन पर स्क्रीन जागी रखें";
+"player_keep_screen_awake_subtitle" = "जब प्लेयर स्क्रीन खुली हो और Primuse सक्रिय हो, तब लिरिक्स और फ़ुल स्क्रीन इफ़ेक्ट सहित ऑटो-लॉक रोकता है।";
+"player_keep_screen_awake_charging_only_title" = "केवल चार्जिंग के दौरान";
+"player_keep_screen_awake_charging_only_subtitle" = "बैटरी पर स्क्रीन सिस्टम सेटिंग के अनुसार ही लॉक होती रहेगी।";
 "player_lyrics_alignment" = "गीत के बोल संरेखण";
 "player_lyrics_alignment_center" = "केंद्र";
 "player_lyrics_alignment_left" = "बायाँ";

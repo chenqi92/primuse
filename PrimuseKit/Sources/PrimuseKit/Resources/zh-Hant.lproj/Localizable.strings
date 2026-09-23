@@ -676,9 +676,6 @@
 "fullscreen_effect_flowing_lines" = "流動聲紋";
 "fullscreen_effect_flowing_lines_subtitle" = "動態線條圍繞封面變化，右上顯示前後歌詞";
 "fullscreen_effect_flowing_lines_motion" = "線條軌跡持續演化 · 三句歌詞";
-"fullscreen_effect_light_rhythm" = "光影音律";
-"fullscreen_effect_light_rhythm_subtitle" = "封面色光影緩慢律動，規格下顯示目前歌詞";
-"fullscreen_effect_light_rhythm_motion" = "多層封面色光影 · 低頻呼吸";
 "fullscreen_effect_kinetic_title" = "曲名展牆";
 "fullscreen_effect_kinetic_title_subtitle" = "曲名和目前歌詞各自只出現一次，其他歌詞以遠近層次鋪滿畫面";
 "fullscreen_effect_kinetic_title_motion" = "背景歌詞緩慢漂移 · 目前歌詞隨播放進度高亮";
@@ -686,9 +683,6 @@
 "fullscreen_effect_radial_pulse" = "環形聲譜";
 "fullscreen_effect_radial_pulse_subtitle" = "旋轉唱片外圈跟隨實際聲音起伏";
 "fullscreen_effect_radial_pulse_motion" = "即時頻譜驅動 · 唱片隨播放旋轉";
-"fullscreen_effect_live_waveform" = "即時波形";
-"fullscreen_effect_live_waveform_subtitle" = "橫向頻譜按實際播放音訊即時變化";
-"fullscreen_effect_live_waveform_motion" = "即時頻譜驅動 · 無音訊時保持靜止";
 "fullscreen_effect_vinyl_deck" = "黑膠唱機";
 "fullscreen_effect_vinyl_deck_subtitle" = "封面化作旋轉唱片的圓標，唱臂隨播放落入音軌";
 "fullscreen_effect_vinyl_deck_motion" = "唱片隨播放旋轉 · 暫停時唱臂抬起";

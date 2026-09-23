@@ -1347,11 +1347,6 @@
 "fullscreen_effect_kinetic_title_subtitle" = "O título da música e a letra atual permanecem singulares enquanto outras letras formam um campo em camadas na tela";
 "fullscreen_effect_light_field" = "Campo de luz";
 "fullscreen_effect_light_field_subtitle" = "Luz tecida lenta e movimento de prisma";
-"fullscreen_effect_light_rhythm" = "Ritmo Leve";
-"fullscreen_effect_light_rhythm_motion" = "Luz de arte em camadas · Respiração lenta";
-"fullscreen_effect_light_rhythm_subtitle" = "Luz colorida respira por trás de uma letra atual";
-"fullscreen_effect_live_waveform" = "Forma de onda ao vivo";
-"fullscreen_effect_live_waveform_motion" = "Espectro ao vivo · Parado quando silencioso";
 "fullscreen_effect_vinyl_deck" = "Toca-discos";
 "fullscreen_effect_vinyl_deck_subtitle" = "A capa vira o selo de um disco girando enquanto o braço repousa no sulco";
 "fullscreen_effect_vinyl_deck_motion" = "O disco gira na reprodução · O braço levanta ao pausar";
@@ -1370,7 +1365,6 @@
 "fullscreen_effect_cover_mosaic" = "Mosaico de capas";
 "fullscreen_effect_cover_mosaic_subtitle" = "As capas da biblioteca formam uma parede inclinada em tela cheia, com a capa atual e a letra à frente";
 "fullscreen_effect_cover_mosaic_motion" = "Capas reais da biblioteca · Reorganização periódica";
-"fullscreen_effect_live_waveform_subtitle" = "O espectro horizontal acompanha a reprodução do áudio em tempo real";
 "fullscreen_effect_lyric_stage" = "Palco Lírico";
 "fullscreen_effect_lyric_stage_subtitle" = "Inicialização da letra com cabeçalho de faixa contido";
 "fullscreen_effect_lyrics" = "Letras";
@@ -2280,8 +2274,10 @@
 "player_current_lyric_color_description" = "Altera apenas a cor de destaque da linha atual e do nível da palavra; letras inativas mantêm sua aparência existente.";
 "player_empty_message" = "Escolha um da biblioteca ou pesquise à esquerda.";
 "player_empty_title" = "Escolha uma música para tocar";
-"player_keep_screen_awake_for_lyrics" = "Manter a tela ligada com letras";
-"player_keep_screen_awake_for_lyrics_description" = "Impede o bloqueio automático somente enquanto a letra estiver visível e o Primuse estiver ativo.";
+"player_keep_screen_awake_title" = "Manter a tela ligada no player";
+"player_keep_screen_awake_subtitle" = "Evita o bloqueio automático enquanto a tela do player está aberta e o Primuse está ativo, incluindo letras e efeitos em tela cheia.";
+"player_keep_screen_awake_charging_only_title" = "Somente ao carregar";
+"player_keep_screen_awake_charging_only_subtitle" = "Na bateria, a tela continua bloqueando conforme os ajustes do sistema.";
 "player_lyrics_alignment" = "Alinhamento das letras";
 "player_lyrics_alignment_center" = "Centro";
 "player_lyrics_alignment_left" = "Esquerda";

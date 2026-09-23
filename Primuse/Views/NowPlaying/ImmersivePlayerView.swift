@@ -450,10 +450,10 @@ struct ImmersivePlayerView: View {
     private func showcaseControlAlignment(_ metrics: ImmersiveStageMetrics) -> Alignment {
         guard metrics.layout != .phonePortrait else { return .center }
         switch presentationEffect {
-        case .radialPulse, .vinylDeck, .particleBloom:
+        case .vinylDeck, .particleBloom:
             return .leading
-        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform,
-             .mirrorStage, .auroraVeil, .spectrumHorizon, .coverMosaic:
+        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .kineticTitle,
+             .radialPulse, .mirrorStage, .auroraVeil, .spectrumHorizon, .coverMosaic:
             return .trailing
         case .native:
             return .center
@@ -494,7 +494,7 @@ struct ImmersivePlayerView: View {
                     )
                 Spacer()
                 effectShortcutButton("textformat.size", target: .kineticTitle)
-                effectShortcutButton("waveform", target: .liveWaveform)
+                effectShortcutButton("chart.bar.xaxis", target: .spectrumHorizon)
                 AirPlayButton()
                     .frame(width: 34, height: 34)
                     .accessibilityLabel(Text("cast_to_device"))

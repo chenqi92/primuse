@@ -564,11 +564,6 @@
 "fullscreen_effect_kinetic_title" = "Muro de título";
 "fullscreen_effect_kinetic_title_motion" = "Deriva lenta de la letra de fondo · resaltado de la línea actual sincronizada con la reproducción";
 "fullscreen_effect_kinetic_title_subtitle" = "El título de la canción y la letra actual permanecen singulares mientras que otras letras forman un campo en capas en la pantalla.";
-"fullscreen_effect_light_rhythm" = "Ritmo de Luz";
-"fullscreen_effect_light_rhythm_motion" = "Luz de portada en capas · Respiración lenta";
-"fullscreen_effect_light_rhythm_subtitle" = "La luz del color de una portada respira detrás de una letra actual";
-"fullscreen_effect_live_waveform" = "Forma de onda en vivo";
-"fullscreen_effect_live_waveform_motion" = "Espectro en vivo impulsado · Aún cuando está en silencio";
 "fullscreen_effect_vinyl_deck" = "Tornamesa";
 "fullscreen_effect_vinyl_deck_subtitle" = "La portada se convierte en la etiqueta de un disco que gira mientras el brazo reposa en el surco";
 "fullscreen_effect_vinyl_deck_motion" = "El disco gira al reproducir · El brazo se levanta al pausar";
@@ -587,7 +582,6 @@
 "fullscreen_effect_cover_mosaic" = "Mosaico de portadas";
 "fullscreen_effect_cover_mosaic_subtitle" = "Las portadas de la biblioteca forman un muro inclinado a pantalla completa, con la portada actual y la letra al frente";
 "fullscreen_effect_cover_mosaic_motion" = "Portadas reales de la biblioteca · Reacomodo periódico";
-"fullscreen_effect_live_waveform_subtitle" = "El espectro horizontal sigue la reproducción de audio en tiempo real";
 "fullscreen_effect_native" = "Originales";
 "fullscreen_effect_native_motion" = "Transición nativa · Predeterminado";
 "fullscreen_effect_native_subtitle" = "El diseño y los controles familiares del reproductor";

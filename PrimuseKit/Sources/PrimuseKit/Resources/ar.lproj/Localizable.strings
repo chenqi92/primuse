@@ -564,11 +564,6 @@
 "fullscreen_effect_kinetic_title" = "جدار العنوان";
 "fullscreen_effect_kinetic_title_motion" = "الانجراف الغنائي البطيء للخلفية · تسليط الضوء على الخط الحالي المتزامن مع التشغيل";
 "fullscreen_effect_kinetic_title_subtitle" = "يظل عنوان الأغنية والكلمات الغنائية الحالية مفردتين بينما تشكل الكلمات الأخرى حقلاً متعدد الطبقات عبر الشاشة";
-"fullscreen_effect_light_rhythm" = "إيقاع الضوء";
-"fullscreen_effect_light_rhythm_motion" = "الضوء الفني متعدد الطبقات · التنفس البطيء";
-"fullscreen_effect_light_rhythm_subtitle" = "يتنفس الضوء الملون بالعمل الفني خلف قصيدة غنائية حالية";
-"fullscreen_effect_live_waveform" = "الموجي المباشر";
-"fullscreen_effect_live_waveform_motion" = "طيف مباشر مدفوع · ساكن عندما يكون صامتًا";
 "fullscreen_effect_vinyl_deck" = "منصة الفينيل";
 "fullscreen_effect_vinyl_deck_subtitle" = "يتحوّل الغلاف إلى ملصق أسطوانة دوّارة بينما تستقر الذراع في الأخدود";
 "fullscreen_effect_vinyl_deck_motion" = "تدور الأسطوانة أثناء التشغيل · ترتفع الذراع عند الإيقاف المؤقت";
@@ -587,7 +582,6 @@
 "fullscreen_effect_cover_mosaic" = "فسيفساء الأغلفة";
 "fullscreen_effect_cover_mosaic_subtitle" = "تشكّل أغلفة المكتبة جدارًا مائلًا يملأ الشاشة، ويقف أمامه الغلاف الحالي وكلمات الأغنية";
 "fullscreen_effect_cover_mosaic_motion" = "أغلفة المكتبة الحقيقية · إعادة ترتيب دورية";
-"fullscreen_effect_live_waveform_subtitle" = "يتبع الطيف الأفقي تشغيل الصوت في الوقت الحقيقي";
 "fullscreen_effect_native" = "الأصل";
 "fullscreen_effect_native_motion" = "الانتقال الأصلي · الافتراضي";
 "fullscreen_effect_native_subtitle" = "تخطيط اللاعب وعناصر التحكم المألوفة";

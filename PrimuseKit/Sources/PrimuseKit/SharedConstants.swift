@@ -6620,7 +6620,7 @@ public enum ImmersivePresentationFallbackPolicy {
     /// 当前受支持的全屏效果 id。界面皮肤声明自己带来哪几款效果时,也以这张表为准。
     public static let supportedEffectRawValues: [String] = [
         "native", "coverFlow", "coverGallery", "starryNight", "flowingLines",
-        "lightRhythm", "kineticTitle", "radialPulse", "liveWaveform",
+        "kineticTitle", "radialPulse",
         "vinylDeck", "mirrorStage", "auroraVeil", "spectrumHorizon", "particleBloom",
         "coverMosaic",
     ]
@@ -6646,8 +6646,8 @@ public enum ImmersivePresentationFallbackPolicy {
             return "starryNight"
         case "contour":
             return "flowingLines"
-        case "lightField", "liquidChrome":
-            return "lightRhythm"
+        case "lightRhythm", "lightField", "liquidChrome":
+            return "auroraVeil"
         case "auroraDrift":
             return "auroraVeil"
         case "typography", "typeWall", "lyricStage", "lyrics":
@@ -6656,8 +6656,8 @@ public enum ImmersivePresentationFallbackPolicy {
             return "radialPulse"
         case "vinyl":
             return "vinylDeck"
-        case "spectrum", "visualizer":
-            return "liveWaveform"
+        case "liveWaveform", "spectrum", "visualizer":
+            return "spectrumHorizon"
         default:
             return "coverFlow"
         }

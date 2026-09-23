@@ -216,7 +216,6 @@
 "error.catalog.missingItemsOrTotal" = "У списку треків відсутні елементи або загальна кількість.";
 "ext.tv.scan.playable" = "Можна грати";
 "error.catalog.incompletePage" = "Пагінація треку неповна.";
-"fullscreen_effect_live_waveform_subtitle" = "Горизонтальний спектр слідує за відтворюваним аудіо в реальному часі";
 "ext.tv.error.range.bodyTooLarge" = "Тіло відповіді перевищило байти %@, оголошені Content-Range.";
 "ext.tv.sources.scanFolders" = "Виберіть папки для сканування";
 "ext.tv.sources.hint.nfs" = "NFS частка";
@@ -292,7 +291,6 @@
 "ext.widget.lyrics.empty.title" = "Немає тексту пісні";
 "ext.tv.scan.metadataValue" = "Шляхи + доступні метадані файлу";
 "fnmusic_connection_address" = "Адреса сервера";
-"fullscreen_effect_live_waveform_motion" = "Спектр у реальному часі · Тихо";
 "fullscreen_effect_vinyl_deck" = "Вінілова дека";
 "fullscreen_effect_vinyl_deck_subtitle" = "Обкладинка стає етикеткою платівки, що обертається, а тонарм лежить у доріжці";
 "fullscreen_effect_vinyl_deck_motion" = "Платівка обертається під час відтворення · Тонарм піднімається на паузі";
@@ -352,12 +350,10 @@
 "ext.tv.settings.intelligence.ready" = "Семантичний пошук готовий";
 "ext.widget.wrapped.displayName" = "Огляд року";
 "ext.tv.scan.interrupted" = "Сканування перервано";
-"fullscreen_effect_light_rhythm" = "Легкий ритм";
 "error.catalog.duplicateItem" = "Сторінка композиції містить повторюваний елемент.";
 "source_connection_public_port" = "Зовнішній порт";
 "ext.tv.settings.intensity.medium" = "Середній";
 "ext.tv.countOnly" = "%d";
-"fullscreen_effect_light_rhythm_motion" = "Багатошарове освітлення творів мистецтва · Повільне дихання";
 "theme_color_turquoise" = "Бірюзовий";
 "ext.tv.sources.removeFromTV" = "Видалити з Apple TV";
 "metadata.rangeRead.error.suffixUnsupported" = "Цей сервер не може забезпечити обмежене читання хвоста файлу, необхідне для метаданих.";
@@ -396,7 +392,6 @@
 "ext.tv.otp.missingCredential" = "Спочатку введіть обліковий запис і пароль для цього джерела.";
 "ext.widget.stats.description" = "Ваші відтворення та найпопулярніший трек за останні 30 днів.";
 "ext.tv.sources.form.share" = "Назва спільного доступу";
-"fullscreen_effect_live_waveform" = "Жива форма сигналу";
 "src.subtitle.pan123" = "123 Відкрита платформа OAuth";
 "src.subtitle.guangya"       = "GuangYa Відкрита платформа OAuth";
 
@@ -489,7 +484,6 @@
 "ext.widget.lyrics.displayName" = "Текст пісні";
 "error.appleMusic.invalidPaginationURL" = "Недійсна пагінація Apple Music URL: %@";
 "send_to_tv_error_cancelled" = "Переказ скасовано.";
-"fullscreen_effect_light_rhythm_subtitle" = "За однією актуальною лірикою дихає світло кольорового твору";
 "source_connection_path_prefix" = "Префікс шляху (необов’язково)";
 "fullscreen_effect_radial_pulse" = "Радіальний імпульс";
 "src.category.protocol" = "Протокол";

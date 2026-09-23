@@ -564,11 +564,6 @@
 "fullscreen_effect_kinetic_title" = "Ściana tytułowa";
 "fullscreen_effect_kinetic_title_motion" = "Powolne przesuwanie się tekstu w tle · Podświetlenie bieżącego wiersza zsynchronizowane z odtwarzaniem";
 "fullscreen_effect_kinetic_title_subtitle" = "Tytuł utworu i bieżący tekst pozostają pojedyncze, podczas gdy inne teksty tworzą warstwowe pole na ekranie";
-"fullscreen_effect_light_rhythm" = "Rytm światła";
-"fullscreen_effect_light_rhythm_motion" = "Światło warstwowe grafiki · Powolny oddech";
-"fullscreen_effect_light_rhythm_subtitle" = "Światło w kolorze dzieła sztuki oddycha za jednym aktualnym tekstem";
-"fullscreen_effect_live_waveform" = "Przebieg na żywo";
-"fullscreen_effect_live_waveform_motion" = "Sterowanie widmem na żywo · Nieruchome, gdy jest cicho";
 "fullscreen_effect_vinyl_deck" = "Gramofon";
 "fullscreen_effect_vinyl_deck_subtitle" = "Okładka staje się etykietą obracającej się płyty, a ramię spoczywa w rowku";
 "fullscreen_effect_vinyl_deck_motion" = "Płyta obraca się podczas odtwarzania · Ramię unosi się przy pauzie";
@@ -587,7 +582,6 @@
 "fullscreen_effect_cover_mosaic" = "Mozaika okładek";
 "fullscreen_effect_cover_mosaic_subtitle" = "Okładki z biblioteki tworzą pochyloną ścianę na cały ekran, a przed nią stoją aktualna okładka i tekst utworu";
 "fullscreen_effect_cover_mosaic_motion" = "Prawdziwe okładki z biblioteki · Okresowe przetasowanie";
-"fullscreen_effect_live_waveform_subtitle" = "Widmo poziome podąża za odtwarzanym dźwiękiem w czasie rzeczywistym";
 "fullscreen_effect_native" = "Oryginał";
 "fullscreen_effect_native_motion" = "Przejście natywne · Domyślne";
 "fullscreen_effect_native_subtitle" = "Znajomy układ odtwarzacza i sterowanie";

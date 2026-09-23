@@ -1650,9 +1650,6 @@
 "fullscreen_effect_flowing_lines" = "Lignes fluides";
 "fullscreen_effect_flowing_lines_subtitle" = "Des contours évolutifs entourent la pochette avec trois paroles";
 "fullscreen_effect_flowing_lines_motion" = "Contours en évolution continue · Trois paroles";
-"fullscreen_effect_light_rhythm" = "Rythme lumineux";
-"fullscreen_effect_light_rhythm_subtitle" = "Une lumière aux couleurs de la pochette respire derrière la parole";
-"fullscreen_effect_light_rhythm_motion" = "Lumière en couches · Respiration lente";
 "fullscreen_effect_kinetic_title" = "Mur de titres";
 "fullscreen_effect_kinetic_title_subtitle" = "Le titre et les paroles actuelles restent uniques tandis que les autres lignes composent un champ en profondeur";
 "fullscreen_effect_kinetic_title_motion" = "Dérive lente des paroles en arrière-plan · surbrillance de la ligne actuelle synchronisée";
@@ -1660,9 +1657,6 @@
 "fullscreen_effect_radial_pulse" = "Pulsation radiale";
 "fullscreen_effect_radial_pulse_subtitle" = "L’anneau du disque tourne et réagit au son réel";
 "fullscreen_effect_radial_pulse_motion" = "Spectre en direct · Disque rotatif";
-"fullscreen_effect_live_waveform" = "Onde en direct";
-"fullscreen_effect_live_waveform_subtitle" = "Le spectre horizontal suit le son lu en temps réel";
-"fullscreen_effect_live_waveform_motion" = "Spectre en direct · Immobile dans le silence";
 "fullscreen_effect_vinyl_deck" = "Platine vinyle";
 "fullscreen_effect_vinyl_deck_subtitle" = "La pochette devient l'étiquette d'un disque en rotation, le bras posé dans le sillon";
 "fullscreen_effect_vinyl_deck_motion" = "Le disque tourne à la lecture · Le bras se lève en pause";
@@ -3148,8 +3142,10 @@
 "player_current_lyric_color_description" = "Modifie uniquement la ligne actuelle et la surbrillance mot par mot ; les autres paroles conservent leur apparence.";
 "player_blur_inactive_lyrics" = "Flouter les paroles inactives";
 "player_blur_inactive_lyrics_description" = "Floute légèrement les paroles synchronisées sauf la ligne actuelle afin de mettre en valeur ce qui est chanté.";
-"player_keep_screen_awake_for_lyrics" = "Garder l’écran allumé pour les paroles";
-"player_keep_screen_awake_for_lyrics_description" = "Empêche le verrouillage automatique uniquement lorsque les paroles sont visibles et que Primuse est actif.";
+"player_keep_screen_awake_title" = "Garder l’écran allumé dans le lecteur";
+"player_keep_screen_awake_subtitle" = "Empêche le verrouillage automatique tant que l’écran du lecteur est ouvert et que Primuse est actif, paroles et effets plein écran compris.";
+"player_keep_screen_awake_charging_only_title" = "Uniquement pendant la charge";
+"player_keep_screen_awake_charging_only_subtitle" = "Sur batterie, l’écran se verrouille toujours selon les réglages du système.";
 "player_tap_lyrics_to_seek" = "Toucher les paroles pour avancer";
 "player_tap_lyrics_to_seek_description" = "Touchez une ligne synchronisée pour atteindre ce passage. Le défilement ne change pas la position.";
 "server_favorite_unsupported" = "Cette source ne prend pas en charge les favoris du serveur.";

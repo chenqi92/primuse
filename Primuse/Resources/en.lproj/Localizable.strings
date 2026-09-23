@@ -1687,9 +1687,6 @@
 "fullscreen_effect_flowing_lines" = "Flowing Lines";
 "fullscreen_effect_flowing_lines_subtitle" = "Evolving contours orbit the artwork with three lyric lines";
 "fullscreen_effect_flowing_lines_motion" = "Continuously evolving contours · Three lyrics";
-"fullscreen_effect_light_rhythm" = "Light Rhythm";
-"fullscreen_effect_light_rhythm_subtitle" = "Artwork-colored light breathes behind one current lyric";
-"fullscreen_effect_light_rhythm_motion" = "Layered artwork light · Slow breathing";
 "fullscreen_effect_kinetic_title" = "Title Wall";
 "fullscreen_effect_kinetic_title_subtitle" = "The song title and current lyric stay singular while other lyrics form a layered field across the screen";
 "fullscreen_effect_kinetic_title_motion" = "Slow background lyric drift · playback-synced current-line highlight";
@@ -1697,9 +1694,6 @@
 "fullscreen_effect_radial_pulse" = "Radial Pulse";
 "fullscreen_effect_radial_pulse_subtitle" = "A rotating record ring responds to the actual audio";
 "fullscreen_effect_radial_pulse_motion" = "Live spectrum driven · Rotating record";
-"fullscreen_effect_live_waveform" = "Live Waveform";
-"fullscreen_effect_live_waveform_subtitle" = "The horizontal spectrum follows the playing audio in real time";
-"fullscreen_effect_live_waveform_motion" = "Live spectrum driven · Still when silent";
 "fullscreen_effect_vinyl_deck" = "Vinyl Deck";
 "fullscreen_effect_vinyl_deck_subtitle" = "The artwork becomes the label of a spinning record while the tonearm rests in the groove";
 "fullscreen_effect_vinyl_deck_motion" = "Record spins with playback · Tonearm lifts on pause";
@@ -2918,8 +2912,10 @@
 "player_current_lyric_color_description" = "Changes only the current line and word-level highlight color; inactive lyrics keep their existing appearance.";
 "player_blur_inactive_lyrics" = "Blur Inactive Lyrics";
 "player_blur_inactive_lyrics_description" = "Slightly blur synchronized lyrics other than the current line to emphasize what is playing.";
-"player_keep_screen_awake_for_lyrics" = "Keep Screen Awake for Lyrics";
-"player_keep_screen_awake_for_lyrics_description" = "Prevents auto-lock only while lyrics are visible and Primuse is active.";
+"player_keep_screen_awake_title" = "Keep Screen Awake in Player";
+"player_keep_screen_awake_subtitle" = "Prevents auto-lock while the player screen is open and Primuse is active, including lyrics and full-screen effects.";
+"player_keep_screen_awake_charging_only_title" = "Only While Charging";
+"player_keep_screen_awake_charging_only_subtitle" = "On battery, the screen still locks on the system schedule.";
 "player_tap_lyrics_to_seek" = "Tap Lyrics to Seek";
 "player_tap_lyrics_to_seek_description" = "Tap a synchronized lyric line to jump to that point. Scrolling lyrics never seeks.";
 "server_favorite_unsupported" = "This source does not support server favorites.";

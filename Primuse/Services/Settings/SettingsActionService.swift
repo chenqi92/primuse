@@ -26,8 +26,8 @@ struct SettingsActionService {
         "playback.skipLeadingSilence", "playback.skipTrailingSilence", "playback.replayGain",
         "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
-        "lyrics.translationEnabled", "lyrics.tapToSeek", "lyrics.blurInactive", "lyrics.keepScreenAwake",
-        "appearance.volumeBar"
+        "lyrics.translationEnabled", "lyrics.tapToSeek", "lyrics.blurInactive",
+        "appearance.volumeBar", "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly"
     ]
     nonisolated static let readableIDs = toggleIDs.union([
         "playback.outputMode", "playback.dsdMode", "playback.crossfadeMode", "playback.crossfadeDuration",
@@ -126,8 +126,9 @@ struct SettingsActionService {
         case "lyrics.translationEnabled": LyricsTranslationSettingsStore.shared.isEnabled
         case "lyrics.tapToSeek": preference(PlayerAppearancePreferences.tapLyricsToSeekKey, fallback: PlayerAppearancePreferences.tapLyricsToSeekByDefault)
         case "lyrics.blurInactive": preference(PlayerAppearancePreferences.blursInactiveLyricsKey, fallback: PlayerAppearancePreferences.blursInactiveLyricsByDefault)
-        case "lyrics.keepScreenAwake": preference(PlayerAppearancePreferences.keepsScreenAwakeForLyricsKey, fallback: PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault)
         case "appearance.volumeBar": preference(PlayerAppearancePreferences.showsVolumeBarKey, fallback: PlayerAppearancePreferences.showsVolumeBarByDefault)
+        case "player.keepScreenAwake": preference(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey, fallback: PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault)
+        case "player.keepScreenAwakeChargingOnly": preference(PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey, fallback: PlayerAppearancePreferences.playerScreenWakeRequiresChargingByDefault)
         default: nil
         }
     }
@@ -156,8 +157,9 @@ struct SettingsActionService {
         case "lyrics.translationEnabled": LyricsTranslationSettingsStore.shared.isEnabled = enabled
         case "lyrics.tapToSeek": defaults.set(enabled, forKey: PlayerAppearancePreferences.tapLyricsToSeekKey)
         case "lyrics.blurInactive": defaults.set(enabled, forKey: PlayerAppearancePreferences.blursInactiveLyricsKey)
-        case "lyrics.keepScreenAwake": defaults.set(enabled, forKey: PlayerAppearancePreferences.keepsScreenAwakeForLyricsKey)
         case "appearance.volumeBar": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsVolumeBarKey)
+        case "player.keepScreenAwake": defaults.set(enabled, forKey: PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
+        case "player.keepScreenAwakeChargingOnly": defaults.set(enabled, forKey: PlayerAppearancePreferences.playerScreenWakeRequiresChargingKey)
         default: throw SettingsActionError.unavailable(SettingsStrings.text("Open this setting in the app to make changes."))
         }
         var result = status(for: id)

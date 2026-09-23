@@ -388,7 +388,6 @@
 "scraper_warn_non_get_requests" = "Цей сценарій отримання метаданих може надсилати запити, відмінні від GET.";
 "Play Radio Station" = "Відтворити радіостанцію";
 "immersive_demo_lyric_11" = "Світло м'яко збирається між кожним ударом";
-"fullscreen_effect_light_rhythm_subtitle" = "За однією актуальною лірикою дихає світло кольорового твору";
 "smart_field_title" = "Назва";
 "tag_editor_title_navigation" = "Редагувати теги";
 "ai_provider_preset_qwen" = "Qwen";
@@ -538,7 +537,6 @@
 "tag_editor_cover_cache_failed" = "Не вдалося зберегти новий локальний кеш обкладинки. Перескануйте музичне джерело та повторіть спробу.";
 "Crashes (30 days)" = "Збої (30 днів)";
 "scrape_description" = "Заповніть відсутні назви, виконавців, альбоми, обкладинки та тексти пісень, які вже є у вашій бібліотеці.";
-"fullscreen_effect_live_waveform_subtitle" = "Горизонтальний спектр слідує за відтворюваним аудіо в реальному часі";
 "scrape_writeback_media_server_hint" = "Записує через сервер API; коли Emby/Plex не може оновити тексти пісень через API, вони залишаються в локальному кеші.";
 "baidu_snapshot_deep_scan_required" = "Зміни, виявлені цим легким оновленням, перевищили бюджет безпеки, тому медіатеку залишили без змін. Запустіть глибоке сканування на передньому плані, щоб безпечно узгодити їх.";
 "lock_desktop_lyrics" = "Заблокувати тексти пісень на робочому столі";
@@ -1039,7 +1037,10 @@
 "yearly_meta_top_artist_title" = "Топ артист";
 "ugreen_login_missing_token" = "UGREEN ввійшов успішно, але маркер не повернув.";
 "Sidecar Write-Back" = "Запис у супровідні файли";
-"player_keep_screen_awake_for_lyrics" = "Тримайте екран активним для текстів";
+"player_keep_screen_awake_title" = "Не вимикати екран у плеєрі";
+"player_keep_screen_awake_subtitle" = "Не дає екрану заблокуватися, поки відкрито екран плеєра і Primuse активний, зокрема з текстом пісні та повноекранними ефектами.";
+"player_keep_screen_awake_charging_only_title" = "Лише під час заряджання";
+"player_keep_screen_awake_charging_only_subtitle" = "Від акумулятора екран і далі блокується за налаштуваннями системи.";
 "lang_de" = "німецька";
 "ai_service_address" = "Адреса служби";
 "Tracks Indexed" = "Треки проіндексовано";
@@ -1310,7 +1311,6 @@
 "About" = "Про";
 "ai_error_http_status_format" = "Провайдер повернув HTTP %d.";
 "relay_share_lifetime" = "Тривалість життя";
-"fullscreen_effect_live_waveform_motion" = "Спектр у реальному часі · Тихо";
 "fullscreen_effect_vinyl_deck" = "Вінілова дека";
 "fullscreen_effect_vinyl_deck_subtitle" = "Обкладинка стає етикеткою платівки, що обертається, а тонарм лежить у доріжці";
 "fullscreen_effect_vinyl_deck_motion" = "Платівка обертається під час відтворення · Тонарм піднімається на паузі";
@@ -2056,7 +2056,6 @@
 "sidebar_playlists_empty" = "Списків відтворення ще немає";
 "ai_provider_preset_stepfun" = "StepFun";
 "ai_provider_preset_siliconflow" = "SiliconFlow";
-"fullscreen_effect_light_rhythm" = "Легкий ритм";
 "yearly_personality_lovm_description" = "Зберігає кілька давніх виконавців на повторі протягом тихих годин.";
 "scrape_lyrics_diff_format" = "%1$@ → %2$d лінії";
 "synced_credentials" = "Вихідні паролі та вхід у хмару (брелок)";
@@ -2479,7 +2478,6 @@
 "source_connection_path_prefix" = "Префікс шляху (необов’язково)";
 "Interactive" = "Інтерактивний";
 "volume" = "Том";
-"fullscreen_effect_light_rhythm_motion" = "Багатошарове освітлення творів мистецтва · Повільне дихання";
 "scraper_import_auto_footer" = "Вставте сценарій отримання метаданих JSON або конфігурацію HTTPS URL. Формат визначається автоматично.";
 "scrobble_mac_recent_reports_subtitle" = "Нещодавно надіслано до Last.fm / ListenBrainz";
 "View Year in Review" = "Переглянути огляд року";
@@ -3391,7 +3389,6 @@
 "Stop After Current Song" = "Зупинка після поточної пісні";
 "intent_radio_search_results_format" = "Знайдено ці радіостанції: %@.";
 "smart_playlist_new" = "Новий розумний список відтворення";
-"player_keep_screen_awake_for_lyrics_description" = "Запобігає автоматичному блокуванню лише тоді, коли тексти пісень видимі та Primuse активний.";
 "playlist_import_name_header" = "Назва списку відтворення";
 "new_rule_smart_playlist" = "Новий розумний список відтворення на основі правил";
 "error_oauth_token_exchange %@" = "Помилка обміну токенів: %@";
@@ -3407,7 +3404,6 @@
 "Tranquil Woods" = "Тихий ліс";
 "export" = "Експорт";
 "playlists_count" = "списки відтворення";
-"fullscreen_effect_live_waveform" = "Жива форма сигналу";
 "metadata_writeback_stage_download" = "вихідне завантаження";
 "playlists_title" = "Плейлісти";
 "ai_audio_transcription_failed" = "Цю пісню неможливо переписати. Існуючі тексти пісень і відтворення не змінені. Перевірте мережу, ключ API і статус служби, а потім повторіть спробу.";

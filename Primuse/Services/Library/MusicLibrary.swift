@@ -10754,6 +10754,62 @@ final class MusicLibrary {
         return (try? decoder.decode(Snapshot.self, from: data)) != nil
     }
 
+    /// 多台设备各自上传的曲库快照合并成一份给 Apple TV。`payloads` 按上传时间新的
+    /// 在前: 歌曲按 id 取并集, 同一首以前面的设备为准; 封面按键取并集, 合计不超过
+    /// 一份快照的封面预算; 歌单、智能歌单、最近播放、墓碑这些用户状态沿用
+    /// `mergingSnapshotUserState` 的版本规则, 不看是哪台设备传的。
+    nonisolated static func mergingDeviceSnapshots(_ payloads: [Data]) throws -> Data {
+        guard var mergedData = payloads.first else { throw CocoaError(.fileReadCorruptFile) }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        for olderData in payloads.dropFirst() {
+            var merged = try decoder.decode(Snapshot.self, from: mergedData)
+            let older = try decoder.decode(Snapshot.self, from: olderData)
+
+            var songIDs = Set(merged.songs.map(\.id))
+            merged.songs.append(contentsOf: older.songs.filter { songIDs.insert($0.id).inserted })
+
+            var artworkBytes = (merged.artworkAssets ?? [:]).values.reduce(0) { $0 + $1.count }
+                + (merged.cachedArtworkAssets ?? [:]).values.reduce(0) { $0 + $1.count }
+            func absorb(_ incoming: [String: Data]?, into target: inout [String: Data]?) {
+                guard let incoming, !incoming.isEmpty else { return }
+                var current = target ?? [:]
+                for (key, data) in incoming where current[key] == nil {
+                    guard artworkBytes + data.count <= portableArtworkBudgetBytes else { continue }
+                    current[key] = data
+                    artworkBytes += data.count
+                }
+                target = current
+            }
+            absorb(older.artworkAssets, into: &merged.artworkAssets)
+            absorb(older.cachedArtworkAssets, into: &merged.cachedArtworkAssets)
+            if let references = older.artworkCacheReferences, !references.isEmpty {
+                merged.artworkCacheReferences = (merged.artworkCacheReferences ?? [:])
+                    .merging(references) { current, _ in current }
+            }
+            if let catalogs = older.automaticArtistArtworkCatalogs, !catalogs.isEmpty {
+                var known = Set((merged.automaticArtistArtworkCatalogs ?? []).map(\.sourceID))
+                merged.automaticArtistArtworkCatalogs = (merged.automaticArtistArtworkCatalogs ?? [])
+                    + catalogs.filter { known.insert($0.sourceID).inserted }
+            }
+            if let overrides = older.artworkOverrides, !overrides.isEmpty {
+                var known = Set((merged.artworkOverrides ?? []).map(\.owner.storageKey))
+                merged.artworkOverrides = (merged.artworkOverrides ?? [])
+                    + overrides.filter { known.insert($0.owner.storageKey).inserted }
+            }
+
+            mergedData = try encoder.encode(merged)
+            mergedData = try mergingSnapshotUserState(
+                localData: olderData,
+                incomingData: mergedData,
+                locallyRetainedSongIDs: []
+            )
+        }
+        return mergedData
+    }
+
     nonisolated static func mergingSnapshotUserState(
         localData: Data,
         incomingData: Data,

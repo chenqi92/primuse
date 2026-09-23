@@ -52,4 +52,17 @@ public enum CarPlayListRefreshPolicy {
             || previous.stationID != next.stationID
             || previous.stationName != next.stationName
     }
+
+    /// 「即将播放」页比其他列表多看两样：随机与循环改变后面几行的顺序，
+    /// 队列位置变了首行的正在播放指示要跟着走。播放暂停与电台元数据仍然不算。
+    public static func queuePageNeedsRebuild(
+        from previous: CarPlayPlayerState?,
+        to next: CarPlayPlayerState
+    ) -> Bool {
+        guard let previous else { return true }
+        return previous.songID != next.songID
+            || previous.currentIndex != next.currentIndex
+            || previous.shuffleEnabled != next.shuffleEnabled
+            || previous.repeatModeRawValue != next.repeatModeRawValue
+    }
 }
