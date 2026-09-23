@@ -395,29 +395,42 @@ final class LibrarySnapshotSync: Sendable {
             }
         }
 
+        // 本机一首可同步的歌都没有(只有本机文件 / Apple Music 资料库)时, 自动上传
+        // 只更新源、电台与凭据, 服务器上别的设备传的曲库与歌词原样保留 —— 否则
+        // 这台设备每次自动上传都把 Apple TV 引导用的曲库清成空的。显式推送照旧。
+        let preservesServerLibrary = effectiveOwner == .automatic
+            && preparedSnapshot.eligibleSongCount <= 0
+            && serverHasLibraryPayload
+        let libraryKeys = ["libraryGz", "library", "lyricsGz"]
+        let catalogKeys = ["sourcesGz", "sources", "radioStationsGz", "radioStations"]
         // Work on the fetched record (and its change tag) instead of deleting
         // the last known-good snapshot first. Explicitly clear both alternate
         // representations so changedKeys removes stale fields atomically.
-        for key in ["libraryGz", "library", "sourcesGz", "sources", "radioStationsGz", "radioStations", "lyricsGz"] {
+        for key in (preservesServerLibrary ? catalogKeys : libraryKeys + catalogKeys) {
             record[key] = nil
         }
-        // 整库快照走【内联 gzip Data】而非 CKAsset:实测 tvOS 下 CKAsset 的字节经常
-        // 下载失败,而内联 Data(和凭据同通道)稳定可靠。压缩后超 ~800KB 才回退 CKAsset。
-        guard let libraryAttachment = attachSnapshot(
-            record,
-            data: libraryData,
-            gzKey: "libraryGz",
-            assetKey: "library"
-        ) else {
-            plog("LibrarySnapshotSync: cannot stage library snapshot, keeping cloud record unchanged")
-            return .failure(.snapshotPreparationFailed)
+        var libInfo = "library=kept-server-copy"
+        var libraryStagingURL: URL?
+        if !preservesServerLibrary {
+            // 整库快照走【内联 gzip Data】而非 CKAsset:实测 tvOS 下 CKAsset 的字节经常
+            // 下载失败,而内联 Data(和凭据同通道)稳定可靠。压缩后超 ~800KB 才回退 CKAsset。
+            guard let libraryAttachment = attachSnapshot(
+                record,
+                data: libraryData,
+                gzKey: "libraryGz",
+                assetKey: "library"
+            ) else {
+                plog("LibrarySnapshotSync: cannot stage library snapshot, keeping cloud record unchanged")
+                return .failure(.snapshotPreparationFailed)
+            }
+            libraryStagingURL = libraryAttachment.stagingURL
+            libInfo = libraryAttachment.info
         }
         defer {
-            if let stagingURL = libraryAttachment.stagingURL {
-                try? fm.removeItem(at: stagingURL)
+            if let libraryStagingURL {
+                try? fm.removeItem(at: libraryStagingURL)
             }
         }
-        let libInfo = libraryAttachment.info
         var srcInfo = "sources=skip"
         if let sourcesData = localSourcesData(including: []) {
             srcInfo = attachSourcesSnapshot(
@@ -444,9 +457,10 @@ final class LibrarySnapshotSync: Sendable {
             }
         }
         // 歌词:把本机已抓到的歌词(MetadataAssetStore 里的 .json)随快照传给 TV。
-        if let lyrics = Self.gatherInlineLyricsBlob(
+        if !preservesServerLibrary,
+           let lyrics = Self.gatherInlineLyricsBlob(
             allowedFileNames: preparedSnapshot.eligibleLyricsFileNames
-        ) {
+           ) {
             record["lyricsGz"] = lyrics.gz as CKRecordValue
             srcInfo += "; lyricsGz=\(lyrics.gz.count)B files=\(lyrics.snapshot.fileCount) skipped=\(lyrics.snapshot.skippedFileCount)"
         }
@@ -476,8 +490,10 @@ final class LibrarySnapshotSync: Sendable {
             }
             // Another device changed the singleton after our fetch. Rebase the
             // complete local snapshot fields onto its current change tag and
-            // retry once, preserving any future/unknown server fields.
-            for key in ["libraryGz", "library", "sourcesGz", "sources", "radioStationsGz", "radioStations", "lyricsGz", "modifiedAt"] {
+            // retry once, preserving any future/unknown server fields. 保留服务器
+            // 曲库的那种上传不把自己拉到的旧曲库再抄回去: 冲突恰恰说明别的设备刚传了新的。
+            let rebasedKeys = (preservesServerLibrary ? catalogKeys : libraryKeys + catalogKeys) + ["modifiedAt"]
+            for key in rebasedKeys {
                 serverRecord[key] = record[key]
             }
             outcome = await saveChangedRecord(serverRecord, in: database)
