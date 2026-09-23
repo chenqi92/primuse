@@ -14,9 +14,11 @@ struct PlaylistDetailView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
-    @Environment(\.skin) private var skin
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
     #endif
     let playlist: Playlist
     private let onMacInlineBack: (() -> Void)?
@@ -166,6 +168,13 @@ struct PlaylistDetailView: View {
         }
     }
 
+    #if os(iOS)
+    /// 整页底色取自歌单里第一首带封面的歌 —— 封面墙轮换时底色不跟着跳。
+    private var artworkTintSong: Song? {
+        songs.first(where: { !($0.coverArtFileName ?? "").isEmpty }) ?? songs.first
+    }
+    #endif
+
     /// 空态占位图标 ── Liked 用 heart, 其它歌单用列表图标。
     private var coverPlaceholderIcon: String {
         playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : "music.note.list"
@@ -210,6 +219,7 @@ struct PlaylistDetailView: View {
         #endif
         }
         #if os(iOS)
+        .libraryDetailTint(from: artworkTintSong)
         .minimalNavigationDetail()
         .librarySearchContext {
             LibrarySearchScope(title: currentPlaylist?.name ?? playlist.name, songIDs: Set(songs.map(\.id)))
@@ -264,123 +274,70 @@ struct PlaylistDetailView: View {
         }
     }
 
-    /// 歌单头部。头图怎么画由界面皮肤决定;标题、歌曲数这些内容只有这一份。
-    /// 封面墙自己没有放按钮的位置,所以那条路径上刮削卡片与操作行排在墙下面;
-    /// 经典画法把它们排进头部本身(横屏时就是横带的右栏),两边都只有一份。
-    @ViewBuilder
-    private var playlistHeader: some View {
-        #if os(iOS)
-        switch skin.skin.detailHeader {
-        case .coverWall:
-            let wallSpacing = heightClass.value(20, compact: 10)
-            VStack(spacing: wallSpacing) {
-                CollectionCoverWallHeader(
-                    title: currentPlaylist?.name ?? playlist.name,
-                    subtitle: playlistSongCountText,
-                    titleSymbol: playlist.id == MusicLibrary.likedSongsPlaylistID ? "heart.fill" : nil,
-                    songs: songs,
-                    nowPlaying: player.currentSong
-                ) {
-                    classicPlaylistHeader(showsAccessories: false)
-                }
-                playlistHeaderAccessories(spacing: wallSpacing)
-                    .padding(.horizontal)
-            }
-        case .classic:
-            classicPlaylistHeader(showsAccessories: true)
-        }
-        #else
-        classicPlaylistHeader(showsAccessories: true)
-        #endif
-    }
-
+    #if os(iOS)
     private var playlistSongCountText: String {
         "\(songs.count) \(String(localized: "songs_count"))"
     }
 
-    /// 刮削进度卡片 + 操作行。封面墙画法把它们排在墙下面。
-    private func playlistHeaderAccessories(spacing: CGFloat) -> some View {
-        VStack(spacing: spacing) {
-            if isCurrentPlaylistScraping {
-                batchScrapeProgressCard
-                    // 只让卡片自己淡入淡出: 下面就是整份曲目表, 不能在
-                    // 它们共同的祖先上挂动画。
-                    .pmFadeTransition(motion: .list)
-            }
-            playlistActionButtons
-        }
+    /// 「N 首 · 总时长」。空歌单只写首数。
+    private var playlistMetaText: String {
+        let total = songs.reduce(0.0) { $0 + $1.duration }
+        guard total > 0 else { return playlistSongCountText }
+        return "\(playlistSongCountText) \u{00B7} \(total.formattedShort)"
     }
 
+    private var isLikedPlaylist: Bool {
+        playlist.id == MusicLibrary.likedSongsPlaylistID
+    }
+
+    /// 两套基座共用的歌单页:整页铺封面色;封面够多时头图是会轮换构图的封面墙,
+    /// 不够时是居中的单张封面;下面一排「随机 · 播放全部 · 下载」,再往下是刮削进度、
+    /// 评分、源不可达提示、始终下载开关与曲目。
     private var legacyPlaylistDetail: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                playlistHeader
+        ImmersiveLibraryDetailScrollView { insets in
+            playlistHero(insets: insets)
+        } content: {
+            VStack(spacing: 16) {
+                VStack(spacing: 14) {
+                    if isCurrentPlaylistScraping {
+                        batchScrapeProgressCard
+                            // 只让卡片自己淡入淡出: 下面就是整份曲目表, 不能在
+                            // 它们共同的祖先上挂动画。
+                            .pmFadeTransition(motion: .list)
+                    }
 
-                LibraryReviewSection(
-                    subject: .playlist(playlist.id),
-                    compact: true
-                )
-                .padding(.horizontal)
+                    LibraryReviewSection(
+                        subject: .playlist(playlist.id),
+                        compact: true,
+                        onArtwork: true
+                    )
 
-                if hasSongsFromUnreachableSources {
-                    unreachableSongsNotice
-                        .padding(.horizontal)
-                }
+                    if hasSongsFromUnreachableSources {
+                        unreachableSongsNotice
+                    }
 
-                if supportsAlwaysDownload {
-                    alwaysDownloadControl
-                        .padding(.horizontal)
-                        .pmFadeTransition(motion: .list)
-                }
-
-                // Songs
-                LazyVStack(spacing: 0) {
-                    ForEach(songs) { song in
-                        // 「移出歌单」挂在行自己的长按菜单里 —— 在行外面再套一层
-                        // contextMenu 的话，SwiftUI 只认最里面那一份，外层永远弹不出来。
-                        // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
-                        // 下次同步也会覆盖任何临时改动，所以那些歌单不给这个入口。
-                        SongRowView(
-                            song: song,
-                            isPlaying: player.currentSong?.id == song.id,
-                            showsActions: false,
-                            onRemoveFromPlaylist: allowsPlaylistRemoval
-                                ? { library.remove(songID: song.id, fromPlaylist: playlist.id) }
-                                : nil,
-                            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
-                        )
-                        .songSelectable(
-                            songID: song.id,
-                            selection: selection,
-                            orderedIDs: { songs.map(\.id) },
-                            defaultAction: { playSong(song) }
-                        )
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if selection.isActive {
-                                selection.toggle(song.id)
-                            } else {
-                                playSong(song)
-                            }
-                        }
-
-                        Divider().padding(.leading, 50)
+                    if supportsAlwaysDownload {
+                        alwaysDownloadControl
+                            .pmFadeTransition(motion: .list)
                     }
                 }
-                #if os(iOS)
-                .songRowColumnsContainer()
-                #endif
+                .padding(.horizontal, 20)
+
+                trackList
             }
+            .padding(.top, 4)
+            .padding(.bottom, BottomChromeClearancePolicy.clearance(
+                legacyOverlayActive: legacyBottomChromeOverlayActive,
+                legacy: 64,
+                baseline: 16
+            ))
         }
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     sortMenuOptions
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down.circle")
+                    Image(systemName: "arrow.up.arrow.down")
                 }
                 .disabled(songs.count < 2)
                 .accessibilityLabel(Text("sort_by"))
@@ -479,7 +436,7 @@ struct PlaylistDetailView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "ellipsis")
                 }
                 // Do not disable the whole menu for an empty playlist. Actions
                 // that require tracks already carry their own disabled state,
@@ -504,96 +461,154 @@ struct PlaylistDetailView: View {
         } message: { Text(exportError ?? "") }
     }
 
-    /// 竖屏是「居中大封面 + 标题 + 计数 + 操作行」的竖排; 手机横屏纵向只剩三百多点,
-    /// 同一批视图换成「左封面 + 右信息与操作」的矮横带, 曲目表才进得了首屏。
-    ///
-    /// 两种排布共用同一棵子树 —— `AnyLayout` 只换布局不换视图身份, 旋转时行上的
-    /// 长按菜单不会被连根替换。竖屏的取值全部照抄原来的常量: 外层 8 的间距加上
-    /// 计数行之后那 12 的上边距, 还原成原来「计数 → 操作行」之间的 20。
-    private func classicPlaylistHeader(showsAccessories: Bool) -> some View {
+    /// 头图 + 操作行。封面墙自己带标题块;单封面时标题、信息由这里画。
+    private func playlistHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let compact = usesCompactHeaderLayout
-        let coverSide: CGFloat = compact ? 116 : 180
-        let bandLayout = compact
-            ? AnyLayout(HStackLayout(alignment: .top, spacing: 14))
-            : AnyLayout(VStackLayout(spacing: 8))
-        let detailAlignment: HorizontalAlignment = compact ? .leading : .center
-        let detailLayout = AnyLayout(VStackLayout(alignment: detailAlignment, spacing: 8))
-        let stackedTopPadding: CGFloat = compact ? 0 : 12
-        let rowHorizontalPadding: CGFloat? = compact ? 0 : nil
-        let titleLineLimit: Int? = compact ? 2 : nil
-        let bandTopPadding: CGFloat = compact ? 10 : 20
-        let bandHorizontalPadding: CGFloat = compact ? 16 : 0
+        return VStack(spacing: compact ? 12 : 18) {
+            CollectionCoverWallHeader(
+                title: currentPlaylist?.name ?? playlist.name,
+                subtitle: playlistMetaText,
+                titleSymbol: isLikedPlaylist ? "heart.fill" : nil,
+                songs: songs,
+                nowPlaying: player.currentSong,
+                topInset: insets.top
+            ) {
+                singleCoverHeader(insets: insets)
+            }
 
-        return bandLayout {
+            playlistActionRow
+                .padding(.leading, insets.leading + 20)
+                .padding(.trailing, insets.trailing + 20)
+        }
+        .padding(.bottom, compact ? 8 : 14)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// 封面不够铺一面墙时的头图,版式与专辑页一致:封面浮在整页底色上,标题与信息居中。
+    /// 手机横屏只剩三百多点高,封面缩到 112 并挪到左边。
+    private func singleCoverHeader(insets: ImmersiveLibraryDetailInsets) -> some View {
+        let compact = usesCompactHeaderLayout
+        let stacks = !compact || dynamicTypeSize.isAccessibilitySize
+        let coverSide: CGFloat = compact ? 112 : 240
+        let identityLayout = stacks
+            ? AnyLayout(VStackLayout(spacing: 20))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
+
+        return identityLayout {
             PlaylistArtworkView(
                 playlist: currentPlaylist ?? playlist,
                 size: coverSide,
                 cornerRadius: 14,
                 placeholderIcon: coverPlaceholderIcon
             )
+            .shadow(color: .black.opacity(0.32), radius: 24, y: 14)
+            .accessibilityHidden(true)
 
-            detailLayout {
-                VStack(alignment: detailAlignment, spacing: 8) {
+            VStack(alignment: stacks ? .center : .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    if isLikedPlaylist {
+                        Image(systemName: "heart.fill")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.pink)
+                            .accessibilityHidden(true)
+                    }
                     Text(currentPlaylist?.name ?? playlist.name)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .lineLimit(titleLineLimit)
-
-                    Text(playlistSongCountText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.title2.weight(.heavy))
+                        .foregroundStyle(.white)
+                        .lineLimit(compact ? 2 : 3)
                 }
-
-                if showsAccessories {
-                    playlistHeaderAccessories(spacing: compact ? 8 : 20)
-                        .padding(.horizontal, rowHorizontalPadding)
-                        .padding(.top, stackedTopPadding)
-                }
+                Text(verbatim: playlistMetaText)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.72))
             }
+            .multilineTextAlignment(stacks ? .center : .leading)
+            .frame(maxWidth: .infinity, alignment: stacks ? .center : .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
         }
-        .padding(.top, bandTopPadding)
-        .padding(.horizontal, bandHorizontalPadding)
+        .padding(.leading, insets.leading + 20)
+        .padding(.trailing, insets.trailing + 20)
+        .padding(.top, insets.top + (compact ? 12 : 16))
+        .frame(maxWidth: .infinity)
     }
 
-    /// Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
-    /// 三按钮等分时中文 label 在 iPhone 上挤换行 / 截断, 这套 Apple Music
-    /// 风格的 1+2 布局更稳。
-    private var playlistActionButtons: some View {
-        HStack(spacing: 10) {
-            Button {
-                playAll()
-            } label: {
-                Label("play_all", systemImage: "play.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-
-            Button {
+    /// 「随机 · 播放全部 · 下载」:播放居中最宽,两侧是圆形玻璃键,与专辑页一致。
+    private var playlistActionRow: some View {
+        let playable = songs.filteredPlayable()
+        return HStack(spacing: 14) {
+            LibraryDetailCircleButton(
+                systemImage: "shuffle",
+                label: "shuffle",
+                disabled: playable.count < 2
+            ) {
                 playAll(shuffled: true)
-            } label: {
-                Image(systemName: "shuffle")
-                    .font(.headline)
-                    .frame(width: 24, height: 24)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .accessibilityLabel(Text("shuffle"))
-
-            Button {
+            LibraryDetailPlayPill(title: "play_all", disabled: playable.isEmpty) {
+                playAll()
+            }
+            .frame(maxWidth: 220)
+            LibraryDetailCircleButton(
+                systemImage: "arrow.down",
+                label: "offline_download",
+                disabled: playable.isEmpty
+            ) {
                 sourceManager.downloadForOffline(songs: songs)
-            } label: {
-                Image(systemName: "arrow.down.circle")
-                    .font(.headline)
-                    .frame(width: 24, height: 24)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .disabled(songs.filteredPlayable().isEmpty)
-            .accessibilityLabel(Text("offline_download"))
         }
+        .frame(maxWidth: .infinity)
     }
+
+    /// 曲目直接排在整页底色上,行间一条细线。行的全部能力(点按播放、长按多选、
+    /// 左右滑入队、长按菜单里的「移出歌单」)都来自 `SongRowView`,这里不重做。
+    private var trackList: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                if index == 0 { trackSeparator(leading: 20) }
+                // 「移出歌单」挂在行自己的长按菜单里 —— 在行外面再套一层
+                // contextMenu 的话，SwiftUI 只认最里面那一份，外层永远弹不出来。
+                // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
+                // 下次同步也会覆盖任何临时改动，所以那些歌单不给这个入口。
+                SongRowView(
+                    song: song,
+                    isPlaying: player.currentSong?.id == song.id,
+                    showsActions: false,
+                    onRemoveFromPlaylist: allowsPlaylistRemoval
+                        ? { library.remove(songID: song.id, fromPlaylist: playlist.id) }
+                        : nil,
+                    context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                )
+                .songSelectable(
+                    songID: song.id,
+                    selection: selection,
+                    orderedIDs: { songs.map(\.id) },
+                    defaultAction: { playSong(song) }
+                )
+                .padding(.leading, 20)
+                .padding(.trailing, 12)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if selection.isActive {
+                        selection.toggle(song.id)
+                    } else {
+                        playSong(song)
+                    }
+                }
+
+                trackSeparator(leading: index < songs.count - 1 ? 74 : 20)
+            }
+        }
+        .songRowColumnsContainer()
+    }
+
+    private func trackSeparator(leading: CGFloat) -> some View {
+        Rectangle()
+            .fill(.white.opacity(0.18))
+            .frame(height: 0.5)
+            .padding(.leading, leading)
+            .padding(.trailing, 20)
+    }
+    #endif
 
     /// The set is empty on a network that reaches everything, so the scan only
     /// runs during an outage.
@@ -859,7 +874,7 @@ struct PlaylistDetailView: View {
     }
 
     private var playlistSubtitle: String {
-        let duration = songs.reduce(0) { $0 + $1.duration }
+        let duration = songs.reduce(0.0) { $0 + $1.duration }
         return "\(songs.count) \(String(localized: "songs_count")) · \(duration.formattedShort) · \(playlistKindLabel)"
     }
 

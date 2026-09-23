@@ -20,9 +20,11 @@ struct SmartPlaylistDetailView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
-    @Environment(\.skin) private var skin
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.legacyBottomChromeOverlayActive)
+    private var legacyBottomChromeOverlayActive
     #endif
 
     @State private var showEditor = false
@@ -58,6 +60,10 @@ struct SmartPlaylistDetailView: View {
         #else
         return AnyView(
             legacyBody(matched)
+                // 整页底色取自第一首带封面的歌 —— 封面墙轮换时底色不跟着跳。
+                .libraryDetailTint(
+                    from: matched.first(where: { !($0.coverArtFileName ?? "").isEmpty }) ?? matched.first
+                )
                 .minimalNavigationDetail()
                 .librarySearchContext {
                     LibrarySearchScope(
@@ -71,98 +77,50 @@ struct SmartPlaylistDetailView: View {
         #endif
     }
 
-    /// 智能歌单头部。头图怎么画由界面皮肤决定;规则 / 描述摘要在两种画法下都保留。
-    ///
-    /// 封面墙自己没有放摘要与按钮的位置,那条路径上它们排在墙下面;经典画法把它们
-    /// 排进头部本身(横屏时就是横带的右栏),两边都只有一份。
-    @ViewBuilder
-    private func smartPlaylistHeader(_ smart: SmartPlaylist, matched: [Song]) -> some View {
-        #if os(iOS)
-        switch skin.skin.detailHeader {
-        case .coverWall:
-            VStack(spacing: heightClass.value(10, compact: 8)) {
-                CollectionCoverWallHeader(
-                    title: smart.name,
-                    subtitle: smartPlaylistCountText(matched),
-                    titleSymbol: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
-                    songs: matched,
-                    nowPlaying: player.currentSong
-                ) {
-                    classicSmartPlaylistHeader(
-                        smart,
-                        matched: matched,
-                        showsSummary: false,
-                        showsActions: false
-                    )
-                }
-                smartPlaylistSummaryText(
-                    smart,
-                    alignment: .center,
-                    lineLimit: 3,
-                    horizontalPadding: nil
-                )
-                legacyActionButtons(matched)
-                    .padding(.horizontal)
-            }
-        case .classic:
-            classicSmartPlaylistHeader(
-                smart,
-                matched: matched,
-                showsSummary: true,
-                showsActions: true
-            )
-        }
-        #else
-        classicSmartPlaylistHeader(
-            smart,
-            matched: matched,
-            showsSummary: true,
-            showsActions: true
-        )
-        #endif
+    #if os(iOS)
+    /// 「N 首 · 总时长」。
+    private func smartPlaylistMetaText(_ matched: [Song]) -> String {
+        let count = "\(matched.count) \(String(localized: "songs_count"))"
+        let total = matched.reduce(0.0) { $0 + $1.duration }
+        guard total > 0 else { return count }
+        return "\(count) \u{00B7} \(total.formattedShort)"
     }
 
-    private func smartPlaylistCountText(_ matched: [Song]) -> String {
-        "\(matched.count) \(String(localized: "songs_count"))"
+    private func kindSymbol(_ smart: SmartPlaylist) -> String {
+        smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3"
     }
 
-    private func smartPlaylistSummaryText(
-        _ smart: SmartPlaylist,
-        alignment: TextAlignment,
-        lineLimit: Int,
-        horizontalPadding: CGFloat?
-    ) -> some View {
-        Text(playlistSummary(smart))
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-            .multilineTextAlignment(alignment)
-            .padding(.horizontal, horizontalPadding)
-            .lineLimit(lineLimit)
-    }
-
+    /// 两套基座共用的智能歌单页,骨架与普通歌单页一致:整页铺封面色,封面够多时是封面墙,
+    /// 不够时是原来的渐变色块;下面是规则 / 描述摘要、「随机 · 播放全部 · 下载」、评分,
+    /// AI 歌单再多一颗「继续添加歌曲」。
     private func legacyBody(_ matched: [Song]) -> some View {
         Group {
             if let smart {
-                ScrollView {
-                    VStack(spacing: 20) {
-                        smartPlaylistHeader(smart, matched: matched)
+                ImmersiveLibraryDetailScrollView { insets in
+                    smartHero(smart, matched: matched, insets: insets)
+                } content: {
+                    VStack(spacing: 16) {
+                        VStack(spacing: 14) {
+                            LibraryReviewSection(
+                                subject: .playlist(smart.id),
+                                compact: true,
+                                onArtwork: true
+                            )
 
-                        LibraryReviewSection(
-                            subject: .playlist(smart.id),
-                            compact: true
-                        )
-                        .padding(.horizontal)
-
-                        if smart.effectiveKind == .ai {
-                            Button {
-                                showEditor = true
-                            } label: {
-                                Label("ai_playlist_add_songs", systemImage: "sparkles")
-                                    .frame(maxWidth: .infinity)
+                            if smart.effectiveKind == .ai {
+                                Button {
+                                    showEditor = true
+                                } label: {
+                                    Label("ai_playlist_add_songs", systemImage: "sparkles")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity, minHeight: 44)
+                                        .libraryDetailGlass(Capsule())
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.bordered)
-                            .padding(.horizontal)
                         }
+                        .padding(.horizontal, 20)
 
                         // Songs
                         if matched.isEmpty {
@@ -174,40 +132,30 @@ struct SmartPlaylistDetailView: View {
                             .padding(.top, 24)
                             .pmAppearFade(.contentAppear)
                         } else {
-                            LazyVStack(spacing: 0) {
-                                ForEach(matched) { song in
-                                    SongRowView(
-                                        song: song,
-                                        isPlaying: player.currentSong?.id == song.id,
-                                        showsActions: false,
-                                        context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
-                                    )
-                                    .padding(.horizontal)
-                                    .padding(.vertical, 8)
-                                    .onTapGesture { playSong(song) }
-
-                                    Divider().padding(.leading, 50)
-                                }
-                            }
-                            #if os(iOS)
-                            .songRowColumnsContainer()
-                            #endif
-                            // 只在"空态 ⇄ 曲目表"重建时淡入一次: 匹配结果变化不换
-                            // 分支, 不会每次刷新都重放; 表内的行一律不动。
-                            .pmAppearFade(.contentAppear)
+                            smartTrackList(matched)
+                                // 只在"空态 ⇄ 曲目表"重建时淡入一次: 匹配结果变化不换
+                                // 分支, 不会每次刷新都重放; 表内的行一律不动。
+                                .pmAppearFade(.contentAppear)
                         }
                     }
+                    .padding(.top, 4)
+                    .padding(.bottom, BottomChromeClearancePolicy.clearance(
+                        legacyOverlayActive: legacyBottomChromeOverlayActive,
+                        legacy: 64,
+                        baseline: 16
+                    ))
                 }
-                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             showEditor = true
                         } label: {
-                            Image(systemName: smart.effectiveKind == .ai
-                                  ? "sparkles"
-                                  : "slider.horizontal.3")
+                            Image(systemName: kindSymbol(smart))
                         }
+                        // 三元表达式得到的是 String,会被当成原文显示;显式包成 LocalizedStringKey。
+                        .accessibilityLabel(Text(smart.effectiveKind == .ai
+                                                 ? LocalizedStringKey("ai_playlist_add_songs")
+                                                 : LocalizedStringKey("smart_edit_rules")))
                     }
                 }
                 .sheet(isPresented: $showEditor) {
@@ -222,34 +170,56 @@ struct SmartPlaylistDetailView: View {
         }
     }
 
-    /// 竖屏是「居中大色块 + 名称 + 计数 + 摘要 + 操作行」的竖排; 手机横屏纵向只剩
-    /// 三百多点, 同一批视图换成「左色块 + 右信息与操作」的矮横带。
-    ///
-    /// 排布由 `AnyLayout` 决定, 视图身份不随旋转变化。竖屏取值全部照抄原常量:
-    /// 外层 8 的间距加上摘要之后那 12 的上边距, 还原成原来「摘要 → 操作行」的 20。
-    private func classicSmartPlaylistHeader(
+    private func smartHero(
         _ smart: SmartPlaylist,
         matched: [Song],
-        showsSummary: Bool,
-        showsActions: Bool
+        insets: ImmersiveLibraryDetailInsets
     ) -> some View {
         let compact = usesCompactHeaderLayout
-        let coverSide: CGFloat = compact ? 116 : 180
-        let glyphSize: CGFloat = compact ? 44 : 60
-        let bandLayout = compact
-            ? AnyLayout(HStackLayout(alignment: .top, spacing: 14))
-            : AnyLayout(VStackLayout(spacing: 8))
-        let detailAlignment: HorizontalAlignment = compact ? .leading : .center
-        let detailLayout = AnyLayout(VStackLayout(alignment: detailAlignment, spacing: 8))
-        let stackedTopPadding: CGFloat = compact ? 0 : 12
-        let rowHorizontalPadding: CGFloat? = compact ? 0 : nil
-        let titleLineLimit: Int? = compact ? 2 : nil
-        let summaryLineLimit = compact ? 2 : 3
-        let summaryAlignment: TextAlignment = compact ? .leading : .center
-        let bandTopPadding: CGFloat = compact ? 10 : 20
-        let bandHorizontalPadding: CGFloat = compact ? 16 : 0
+        return VStack(spacing: compact ? 10 : 14) {
+            CollectionCoverWallHeader(
+                title: smart.name,
+                subtitle: smartPlaylistMetaText(matched),
+                titleSymbol: kindSymbol(smart),
+                songs: matched,
+                nowPlaying: player.currentSong,
+                topInset: insets.top
+            ) {
+                smartSingleHeader(smart, matched: matched, insets: insets)
+            }
 
-        return bandLayout {
+            Text(playlistSummary(smart))
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.66))
+                .multilineTextAlignment(.center)
+                .lineLimit(compact ? 2 : 3)
+                .padding(.horizontal, 28)
+
+            smartActionRow(matched)
+                .padding(.leading, insets.leading + 20)
+                .padding(.trailing, insets.trailing + 20)
+                .padding(.top, 4)
+        }
+        .padding(.bottom, compact ? 8 : 14)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// 封面不够铺一面墙时:原来那块渐变色块浮在整页底色上,标题与信息居中。
+    /// 手机横屏缩到 112 并挪到左边。
+    private func smartSingleHeader(
+        _ smart: SmartPlaylist,
+        matched: [Song],
+        insets: ImmersiveLibraryDetailInsets
+    ) -> some View {
+        let compact = usesCompactHeaderLayout
+        let stacks = !compact || dynamicTypeSize.isAccessibilitySize
+        let coverSide: CGFloat = compact ? 112 : 200
+        let glyphSize: CGFloat = compact ? 42 : 64
+        let identityLayout = stacks
+            ? AnyLayout(VStackLayout(spacing: 20))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
+
+        return identityLayout {
             ZStack {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(LinearGradient(
@@ -259,76 +229,90 @@ struct SmartPlaylistDetailView: View {
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ))
-                Image(systemName: smart.effectiveKind == .ai
-                      ? "sparkles"
-                      : "slider.horizontal.3")
+                Image(systemName: kindSymbol(smart))
                     .font(.system(size: glyphSize))
                     .foregroundStyle(.white)
             }
             .frame(width: coverSide, height: coverSide)
+            .shadow(color: .black.opacity(0.3), radius: 22, y: 12)
+            .accessibilityHidden(true)
 
-            detailLayout {
-                VStack(alignment: detailAlignment, spacing: 8) {
-                    Text(smart.name)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .lineLimit(titleLineLimit)
-
-                    Text(smartPlaylistCountText(matched))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if showsSummary {
-                        smartPlaylistSummaryText(
-                            smart,
-                            alignment: summaryAlignment,
-                            lineLimit: summaryLineLimit,
-                            horizontalPadding: rowHorizontalPadding
-                        )
-                    }
-                }
-
-                if showsActions {
-                    legacyActionButtons(matched)
-                        .padding(.horizontal, rowHorizontalPadding)
-                        .padding(.top, stackedTopPadding)
-                }
+            VStack(alignment: stacks ? .center : .leading, spacing: 5) {
+                Text(smart.name)
+                    .font(.title2.weight(.heavy))
+                    .foregroundStyle(.white)
+                    .lineLimit(compact ? 2 : 3)
+                Text(verbatim: smartPlaylistMetaText(matched))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.72))
             }
+            .multilineTextAlignment(stacks ? .center : .leading)
+            .frame(maxWidth: .infinity, alignment: stacks ? .center : .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
         }
-        .padding(.top, bandTopPadding)
-        .padding(.horizontal, bandHorizontalPadding)
+        .padding(.leading, insets.leading + 20)
+        .padding(.trailing, insets.trailing + 20)
+        .padding(.top, insets.top + (compact ? 12 : 16))
+        .frame(maxWidth: .infinity)
     }
 
-    private func legacyActionButtons(_ matched: [Song]) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                playAll()
-            } label: {
-                Label("play_all", systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(matched.isEmpty)
-
-            Button {
+    /// 「随机 · 播放全部 · 下载」,与普通歌单页同一套按钮。
+    private func smartActionRow(_ matched: [Song]) -> some View {
+        let playable = matched.filteredPlayable()
+        return HStack(spacing: 14) {
+            LibraryDetailCircleButton(
+                systemImage: "shuffle",
+                label: "shuffle",
+                disabled: matched.isEmpty
+            ) {
                 playAll(shuffled: true)
-            } label: {
-                Label("shuffle", systemImage: "shuffle")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .disabled(matched.isEmpty)
-
-            Button {
+            LibraryDetailPlayPill(title: "play_all", disabled: matched.isEmpty) {
+                playAll()
+            }
+            .frame(maxWidth: 220)
+            LibraryDetailCircleButton(
+                systemImage: "arrow.down",
+                label: "offline_download",
+                disabled: playable.isEmpty
+            ) {
                 sourceManager.downloadForOffline(songs: matched)
-            } label: {
-                Label("offline_download", systemImage: "arrow.down.circle")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .disabled(matched.filteredPlayable().isEmpty)
         }
+        .frame(maxWidth: .infinity)
     }
+
+    private func smartTrackList(_ matched: [Song]) -> some View {
+        LazyVStack(spacing: 0) {
+            ForEach(Array(matched.enumerated()), id: \.element.id) { index, song in
+                if index == 0 { trackSeparator(leading: 20) }
+                SongRowView(
+                    song: song,
+                    isPlaying: player.currentSong?.id == song.id,
+                    showsActions: false,
+                    context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                )
+                .padding(.leading, 20)
+                .padding(.trailing, 12)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
+                .onTapGesture { playSong(song) }
+
+                trackSeparator(leading: index < matched.count - 1 ? 74 : 20)
+            }
+        }
+        .songRowColumnsContainer()
+    }
+
+    private func trackSeparator(leading: CGFloat) -> some View {
+        Rectangle()
+            .fill(.white.opacity(0.18))
+            .frame(height: 0.5)
+            .padding(.leading, leading)
+            .padding(.trailing, 20)
+    }
+    #endif
 
     #if os(macOS)
     private func macBody(_ matched: [Song]) -> some View {

@@ -17,6 +17,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     private let coverIDs: [String]
     private let coverSongs: [String: Song]
     private let focusCoverID: String?
+    private let topInset: CGFloat
     private let fallback: Fallback
 
     @Environment(\.skin) private var skin
@@ -28,6 +29,8 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     ///   - titleAccessory: 标题上方的一小块内容(艺术家页的头像)。压在墙面渐隐的那一段上。
     ///   - songs: 集合里的歌,按页面上看到的顺序。只会扫前面一段。
     ///   - nowPlaying: 正在播放的歌。它的封面在这面墙里时会成为焦点。
+    ///   - topInset: 头图铺到导航栏后面时多出来的那段高度(整页取色的详情页传安全区上沿)。
+    ///     墙面向上延伸这么多,标题块的位置不变。
     init(
         title: String,
         subtitle: String,
@@ -35,9 +38,11 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
         titleAccessory: AnyView? = nil,
         songs: [Song],
         nowPlaying: Song?,
+        topInset: CGFloat = 0,
         @ViewBuilder fallback: () -> Fallback
     ) {
         self.title = title
+        self.topInset = topInset
         self.subtitle = subtitle
         self.titleSymbol = titleSymbol
         self.titleAccessory = titleAccessory
@@ -116,7 +121,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
         // 手机横屏下整幅内容区只有两百多点高,320 的墙会把曲目整个挤出首屏。
         // 墙面几何本来就按传进来的尺寸算,收高不改结构:150 里标题块占 46,
         // 剩下的一条墙面仍能铺满一行封面。
-        .frame(height: heightClass.value(320, compact: 150))
+        .frame(height: heightClass.value(320, compact: 150) + topInset)
         .frame(maxWidth: .infinity)
         .task(id: isCycling) {
             guard isCycling else { return }
@@ -243,95 +248,4 @@ enum CollectionCoverWall {
     }
 }
 
-/// 同一个插槽的单封面画法:专辑这类只有一张封面的集合用它。
-/// 居中的封面压在自己放大、模糊之后的光晕上,下沿融进页面底色。
-struct CollectionSingleCoverHeader<Artwork: View, Backdrop: View>: View {
-    private let title: String
-    private let subtitle: String?
-    private let caption: String
-    private let artwork: Artwork
-    private let backdrop: Backdrop
-
-    @Environment(\.skin) private var skin
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.pmHeightClass) private var heightClass
-
-    /// - Parameters:
-    ///   - artwork: 清晰的那张封面,建议 180 见方。
-    ///   - backdrop: 同一张封面的大图,只用来做模糊光晕;「降低透明度」开启时不画。
-    init(
-        title: String,
-        subtitle: String?,
-        caption: String,
-        @ViewBuilder artwork: () -> Artwork,
-        @ViewBuilder backdrop: () -> Backdrop
-    ) {
-        self.title = title
-        self.subtitle = subtitle
-        self.caption = caption
-        self.artwork = artwork()
-        self.backdrop = backdrop()
-    }
-
-    var body: some View {
-        // 封面尺寸由调用处按纵向尺寸等级给;这里只把块间距、上下留白与光晕高度跟着降一档。
-        VStack(spacing: heightClass.value(16, compact: 8)) {
-            artwork
-                .shadow(color: Color.black.opacity(0.4), radius: 24, y: 14)
-                .accessibilityHidden(true)
-
-            VStack(spacing: 5) {
-                Text(title)
-                    .font(skin.font(.pageTitle))
-                    .foregroundStyle(.skin(.textPrimary))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(skin.font(.bodyStrong))
-                        .foregroundStyle(skin.color(.accent))
-                        .multilineTextAlignment(.center)
-                }
-
-                Text(caption)
-                    .font(skin.font(.caption))
-                    .foregroundStyle(.skin(.textSecondary))
-                    .multilineTextAlignment(.center)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, heightClass.value(12, compact: 6))
-        .padding(.bottom, heightClass.value(4, compact: 2))
-        .frame(maxWidth: .infinity)
-        .background(alignment: .top) {
-            if !reduceTransparency {
-                backdrop
-                    .blur(radius: 46)
-                    .saturation(1.4)
-                    .opacity(0.5)
-                    .frame(height: heightClass.value(300, compact: 180))
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .mask {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .clear, location: 0),
-                                .init(color: .black, location: 0.22),
-                                .init(color: .black, location: 0.5),
-                                .init(color: .clear, location: 1),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    }
-                    .padding(.horizontal, -16)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
-    }
-}
 #endif
