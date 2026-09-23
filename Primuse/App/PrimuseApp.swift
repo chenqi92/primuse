@@ -1411,7 +1411,19 @@ struct PrimuseApp: App {
     }
 
     #if os(iOS)
-    private var standardIOSRootContent: some View {
+    @ViewBuilder private var standardIOSRootContent: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "immersiveStage" {
+            ImmersiveStageEvidenceHost()
+        } else {
+            iosAppContent
+        }
+        #else
+        iosAppContent
+        #endif
+    }
+
+    private var iosAppContent: some View {
         ContentView()
             .preferredColorScheme(iOSAppearance.colorScheme)
             .modifier(IOSWindowAppearanceModifier(preference: iOSAppearance))

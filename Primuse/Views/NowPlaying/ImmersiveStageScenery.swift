@@ -342,11 +342,77 @@ struct ImmersiveEffectPreview: View {
                 )
             }
         } else {
-            immersiveStage(levels: Self.baseLevels, elapsed: 108)
+            immersiveStage(levels: ImmersiveDemoStage.baseLevels, elapsed: 108)
         }
     }
 
     private func immersiveStage(levels: [CGFloat], elapsed: TimeInterval) -> some View {
+        ImmersiveDemoStage.make(
+            effect: effect,
+            metrics: ImmersiveStageMetrics(size: canvasSize, prefersWide: true),
+            palette: palette,
+            levels: levels,
+            elapsed: elapsed,
+            animates: animates
+        )
+    }
+
+    private func previewElapsed(at time: TimeInterval) -> TimeInterval {
+        guard animates else { return 108 }
+        return 36 + time.truncatingRemainder(dividingBy: 176)
+    }
+
+    private func animatedLevels(at time: TimeInterval) -> [CGFloat] {
+        guard animates else { return ImmersiveDemoStage.baseLevels }
+        return ImmersiveDemoStage.baseLevels.enumerated().map { index, value in
+            let primary = sin(time * 3.1 + Double(index) * 0.73)
+            let secondary = sin(time * 1.7 - Double(index) * 0.41)
+            let pulse = CGFloat(0.76 + primary * 0.17 + secondary * 0.07)
+            return min(max(value * pulse + 0.035, 0), 1)
+        }
+    }
+}
+
+/// 设置页预览、效果抽屉缩略图与调试取证页共用的演示舞台：同一套演示曲目、
+/// 歌词与占位封面，只有视口度量和控件占位由调用方决定。
+enum ImmersiveDemoStage {
+    static var platform: ImmersiveStagePlatform {
+        #if os(tvOS)
+        .tvOS
+        #elseif os(macOS)
+        .macOS
+        #else
+        .iOS
+        #endif
+    }
+
+    static let baseLevels: [CGFloat] = [
+        0.18, 0.31, 0.46, 0.38, 0.62, 0.74, 0.54, 0.82,
+        0.66, 0.43, 0.57, 0.91, 0.70, 0.48, 0.79, 0.60,
+        0.36, 0.52, 0.68, 0.44, 0.73, 0.58, 0.39, 0.63,
+        0.47, 0.34, 0.51, 0.41, 0.29, 0.38, 0.24, 0.17,
+    ]
+
+    static var lyrics: [ImmersiveStageLyric] {
+        Array(ImmersiveDemoContent.lyrics.prefix(3)).enumerated().map { index, text in
+            ImmersiveStageLyric(
+                id: index,
+                text: text,
+                isActive: index == 1,
+                offset: index - 1
+            )
+        }
+    }
+
+    static func make(
+        effect: FullscreenPlayerEffect,
+        metrics: ImmersiveStageMetrics,
+        palette: ImmersiveArtworkPalette,
+        levels: [CGFloat],
+        elapsed: TimeInterval,
+        animates: Bool,
+        controlsInset: CGFloat = 0
+    ) -> some View {
         var track = ImmersiveDemoContent.track
         track.isPlaying = animates
         track.elapsed = elapsed
@@ -354,11 +420,11 @@ struct ImmersiveEffectPreview: View {
 
         return ImmersiveStageView(
             style: effect,
-            platform: previewPlatform,
-            metrics: ImmersiveStageMetrics(size: canvasSize, prefersWide: true),
+            platform: platform,
+            metrics: metrics,
             track: track,
             palette: palette,
-            lyricWindow: previewLyrics,
+            lyricWindow: lyrics,
             currentLyric: ImmersiveDemoContent.lyrics[1],
             nextLyric: ImmersiveDemoContent.lyrics[2],
             levels: levels,
@@ -380,57 +446,115 @@ struct ImmersiveEffectPreview: View {
             lyricsMotionEnabled: animates,
             lyricInterlude: false,
             lyricsPlaceholder: ImmersiveDemoContent.lyrics[1],
-            controlsInset: 0,
+            controlsInset: controlsInset,
             showsClock: false
         ) { side in
             ImmersivePreviewArtwork(variant: 0, palette: palette)
                 .frame(width: side, height: side)
         }
     }
-
-    private var previewPlatform: ImmersiveStagePlatform {
-        #if os(tvOS)
-        .tvOS
-        #elseif os(macOS)
-        .macOS
-        #else
-        .iOS
-        #endif
-    }
-
-    private var previewLyrics: [ImmersiveStageLyric] {
-        Array(ImmersiveDemoContent.lyrics.prefix(3)).enumerated().map { index, text in
-            ImmersiveStageLyric(
-                id: index,
-                text: text,
-                isActive: index == 1,
-                offset: index - 1
-            )
-        }
-    }
-
-    private func previewElapsed(at time: TimeInterval) -> TimeInterval {
-        guard animates else { return 108 }
-        return 36 + time.truncatingRemainder(dividingBy: 176)
-    }
-
-    private func animatedLevels(at time: TimeInterval) -> [CGFloat] {
-        guard animates else { return Self.baseLevels }
-        return Self.baseLevels.enumerated().map { index, value in
-            let primary = sin(time * 3.1 + Double(index) * 0.73)
-            let secondary = sin(time * 1.7 - Double(index) * 0.41)
-            let pulse = CGFloat(0.76 + primary * 0.17 + secondary * 0.07)
-            return min(max(value * pulse + 0.035, 0), 1)
-        }
-    }
-
-    private static let baseLevels: [CGFloat] = [
-        0.18, 0.31, 0.46, 0.38, 0.62, 0.74, 0.54, 0.82,
-        0.66, 0.43, 0.57, 0.91, 0.70, 0.48, 0.79, 0.60,
-        0.36, 0.52, 0.68, 0.44, 0.73, 0.58, 0.39, 0.63,
-        0.47, 0.34, 0.51, 0.41, 0.29, 0.38, 0.24, 0.17,
-    ]
 }
+
+#if DEBUG && os(iOS)
+/// 调试构建的舞台取证页，`PRIMUSE_VISUAL_EVIDENCE=immersiveStage` 启动时替换根视图。
+/// `PRIMUSE_EVIDENCE_EFFECT`（rawValue，逗号分隔，默认 radialPulse）指定效果，
+/// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认全部）指定视口；
+/// 每个视口按真实尺寸、安全区与控件占位渲染一帧静态舞台，缩放到屏宽后纵向排开，
+/// 直接用模拟器截图就能看到三种排版。
+struct ImmersiveStageEvidenceHost: View {
+    private struct Frame: Identifiable {
+        let effect: FullscreenPlayerEffect
+        let layout: String
+        let size: CGSize
+        let safeArea: EdgeInsets
+        let prefersWide: Bool
+        /// 设计稿单位的控件占位，与 `ImmersivePlayerView.controlsInset` 的 showcase 取值一致。
+        let controlsInsetDesignValue: CGFloat
+
+        var id: String { "\(effect.rawValue)-\(layout)" }
+    }
+
+    private let frames: [Frame]
+
+    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        let effects = (environment["PRIMUSE_EVIDENCE_EFFECT"] ?? "radialPulse")
+            .split(separator: ",")
+            .compactMap { FullscreenPlayerEffect(rawValue: $0.trimmingCharacters(in: .whitespaces)) }
+        let layouts = (environment["PRIMUSE_EVIDENCE_LAYOUTS"] ?? "phoneLandscape,phonePortrait,wide")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        var frames: [Frame] = []
+        for effect in effects.isEmpty ? [.radialPulse] : effects {
+            for layout in layouts {
+                switch layout {
+                case "phoneLandscape":
+                    frames.append(Frame(
+                        effect: effect, layout: layout,
+                        size: CGSize(width: 852, height: 393),
+                        safeArea: EdgeInsets(top: 0, leading: 59, bottom: 21, trailing: 59),
+                        prefersWide: false, controlsInsetDesignValue: 76
+                    ))
+                case "phonePortrait":
+                    frames.append(Frame(
+                        effect: effect, layout: layout,
+                        size: CGSize(width: 393, height: 852),
+                        safeArea: EdgeInsets(top: 59, leading: 0, bottom: 34, trailing: 0),
+                        prefersWide: false, controlsInsetDesignValue: 106
+                    ))
+                case "wide":
+                    frames.append(Frame(
+                        effect: effect, layout: layout,
+                        size: CGSize(width: 960, height: 540),
+                        safeArea: EdgeInsets(),
+                        prefersWide: true, controlsInsetDesignValue: 112
+                    ))
+                default:
+                    continue
+                }
+            }
+        }
+        self.frames = frames
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(frames) { frame in
+                        let metrics = ImmersiveStageMetrics(
+                            size: frame.size,
+                            safeArea: frame.safeArea,
+                            prefersWide: frame.prefersWide
+                        )
+                        let scale = geometry.size.width / frame.size.width
+                        Text(verbatim: "\(frame.effect.rawValue) · \(frame.layout) · \(Int(frame.size.width))×\(Int(frame.size.height))")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .padding(.horizontal, 8)
+                        ImmersiveDemoStage.make(
+                            effect: frame.effect,
+                            metrics: metrics,
+                            palette: .fallback,
+                            levels: ImmersiveDemoStage.baseLevels,
+                            elapsed: 108,
+                            animates: false,
+                            controlsInset: metrics.s(frame.controlsInsetDesignValue)
+                        )
+                        .frame(width: frame.size.width, height: frame.size.height)
+                        .clipped()
+                        .scaleEffect(scale, anchor: .topLeading)
+                        .frame(width: geometry.size.width, height: frame.size.height * scale, alignment: .topLeading)
+                        .accessibilityIdentifier("evidence.\(frame.id)")
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .background(Color.black.ignoresSafeArea())
+        }
+        .preferredColorScheme(.dark)
+    }
+}
+#endif
 
 private struct ImmersiveNativeEffectPreview: View {
     var isAnimating: Bool
