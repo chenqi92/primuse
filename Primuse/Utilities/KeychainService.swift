@@ -37,6 +37,8 @@ enum KeychainService {
     @discardableResult
     static func setPassword(_ password: String, for account: String) -> Bool {
         let data = Data(password.utf8)
+        // 本机为这个源保存过密码, 就不再当它「密码还在路上」。
+        RemoteSourceArrivalLedger.forget(sourceID: account)
 
         // The `credentials` channel toggle decides whether new writes go to
         // iCloud Keychain (synchronizable) or stay local. Past entries already
@@ -156,13 +158,19 @@ enum KeychainService {
     }
 
     /// Persists secrets that must never be synchronized to another device.
+    ///
+    /// 除了 `…ThisDeviceOnly` 可访问性，还给条目打上本机标记（见
+    /// `deviceOnlyItemMarker`）：启动时的 iCloud 迁移只查「非同步项」，得靠这
+    /// 两个信号才认得出哪些是刻意留在本机的，否则中继安装凭据、自建分享令牌
+    /// 会被整个推到同一 Apple ID 的所有设备上。标记不参与条目身份，所以本文件
+    /// 的查询、删除路径和旧的未打标记项都不受影响。
     @discardableResult
     static func setLocalOnlyPassword(_ password: String, for account: String) -> Bool {
         let status = persistPasswordItem(
             Data(password.utf8),
             account: account,
             synchronizable: false,
-            accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            deviceOnly: true
         )
         guard status == errSecSuccess else {
             plog("⚠️ Local-only Keychain write failed item=\(account.prefix(12))… status=\(status)")
@@ -223,7 +231,18 @@ enum KeychainService {
         guard source.type.requiresCredentials, source.authType != .none else {
             return .ready("")
         }
-        return NetworkCredentialPolicy.resolveForConnector(passwordLookup(for: source.id))
+        let lookup = passwordLookup(for: source.id)
+        // 源记录经 CloudKit 先到、密码经 iCloud 钥匙串后到的那几分钟, 本机查不到
+        // 这条密码。以前当成空密码去登录, NAS 记一次失败还可能锁号; 现在按「凭据
+        // 暂不可用」处理, 扫描与播放延后重试。窗口过了仍没有, 才按没有密码处理。
+        if case .notFound = lookup,
+           CloudSyncChannel.isEnabled(.credentials),
+           MusicSourceCloudSyncPolicy.isEligible(source),
+           !(source.username ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           RemoteSourceArrivalLedger.isAwaitingSyncedCredential(sourceID: source.id) {
+            return .temporarilyUnavailable(errSecItemNotFound)
+        }
+        return NetworkCredentialPolicy.resolveForConnector(lookup)
     }
 
     /// Keeps "no saved credential" separate from a temporarily unreadable
@@ -377,11 +396,40 @@ enum KeychainService {
         return true
     }
 
+    /// 记录条目走的是哪条写入路径的标记，写在 `kSecAttrGeneric`（钥匙串留给应用
+    /// 自定义的属性，iOS 数据保护钥匙串和 macOS 登录钥匙串都会原样保存并随属性
+    /// 一起返回）。需要它是因为 macOS 登录钥匙串不保存 `kSecAttrAccessible`，迁移
+    /// 在 Mac 上认不出 `…ThisDeviceOnly`。普通写入也写一个明确的值而不是不写：
+    /// 同一账号若曾走过本机路径、后来改走同步路径，旧标记必须被覆盖掉，否则会
+    /// 一直挡住迁移。用非空值而不是空 Data，是不想赌两种钥匙串对空属性的处理。
+    private static let deviceOnlyItemMarker = Data("primuse.device-only".utf8)
+    private static let syncAllowedItemMarker = Data("primuse.sync-allowed".utf8)
+
+    /// `kSecAttrAccessible` 里表示「不出设备」的取值。只列未废弃的三种；应用
+    /// 自己只写 AfterFirstUnlockThisDeviceOnly，其余两种是为了别的写入方也能被认出。
+    private static let deviceOnlyAccessibilityValues: Set<String> = [
+        kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String,
+        kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String,
+        kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly as String,
+    ]
+
+    /// 从 `SecItemCopyMatching` 带回的属性判断该项是否以「仅本机」方式落盘。
+    /// 两个信号任一命中即算：可访问性是系统层面的事实（iOS 上一定有），标记是
+    /// 应用自己的记号（Mac 上唯一可用）。改这里前先确认 `persistPasswordItem`
+    /// 的普通写入仍会把两者都覆盖回非本机值。
+    private static func isDeviceOnlyItem(_ attributes: [String: Any]) -> Bool {
+        if let accessible = attributes[kSecAttrAccessible as String] as? String,
+           deviceOnlyAccessibilityValues.contains(accessible) {
+            return true
+        }
+        return (attributes[kSecAttrGeneric as String] as? Data) == deviceOnlyItemMarker
+    }
+
     private static func persistPasswordItem(
         _ data: Data,
         account: String,
         synchronizable: Bool,
-        accessible: CFString = kSecAttrAccessibleAfterFirstUnlock
+        deviceOnly: Bool = false
     ) -> OSStatus {
         var identity: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -394,9 +442,14 @@ enum KeychainService {
                 : kCFBooleanFalse as Any
         }
 
+        // 可访问性与本机标记总是成对写入：本机项两者都置上，普通项两者都写回
+        // 非本机值，这样 SecItemUpdate 原地更新一个旧的本机项时不会留下半个信号。
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: accessible,
+            kSecAttrAccessible as String: deviceOnly
+                ? kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                : kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrGeneric as String: deviceOnly ? deviceOnlyItemMarker : syncAllowedItemMarker,
         ]
         let updateStatus = SecItemUpdate(identity as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess {
@@ -517,15 +570,30 @@ enum KeychainService {
         let status = SecItemCopyMatching(copyQuery as CFDictionary, &result)
         guard status == errSecSuccess, let items = result as? [[String: Any]] else { return }
 
+        var keptDeviceOnlyCount = 0
         for item in items {
             guard let account = item[kSecAttrAccount as String] as? String,
-                  AICredentialStoragePolicy.isEligibleForICloudMigration(account: account),
                   let data = item[kSecValueData as String] as? Data,
                   let password = String(data: data, encoding: .utf8) else { continue }
+
+            // 「非同步」不等于「待迁移」：setLocalOnlyPassword 写下的项（中继安装
+            // 凭据、自建分享令牌）刻意不出设备，迁走会把秘密推到同一 Apple ID 的
+            // 所有设备，而且本机副本被删后本机读取路径再也找不到它。只有
+            // e1424418 之前按本机方式存下的 AI 密钥才随服务商配置补迁进 iCloud。
+            guard AICredentialStoragePolicy.isEligibleForICloudMigration(
+                account: account,
+                storedDeviceOnly: isDeviceOnlyItem(item)
+            ) else {
+                keptDeviceOnlyCount += 1
+                continue
+            }
 
             // setPassword writes the synchronizable value first, then removes
             // the local variant only after persistence succeeds.
             setPassword(password, for: account)
+        }
+        if keptDeviceOnlyCount > 0 {
+            plog("🔐 Keychain migration kept \(keptDeviceOnlyCount) device-only item(s) local")
         }
         #endif
     }

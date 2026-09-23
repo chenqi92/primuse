@@ -47,6 +47,10 @@ struct ScraperSettings: Codable, Sendable {
     /// Loads and reconciles settings without mutating UserDefaults. Background
     /// scraper tasks call `load()` concurrently, so persistence is deliberately
     /// confined to the main-actor settings store.
+    ///
+    /// 旧版本写进 blob 的 Cookie 也只在 store 这条路径上搬进钥匙串（见
+    /// `finishLoad`）；后台的 `load()` 读到残留值就原样带着，由
+    /// `ScraperSourceCookieStore.cookie(for:)` 兜底。
     private static func load(
         defaults: UserDefaults,
         persistReconciliation: Bool
@@ -55,10 +59,12 @@ struct ScraperSettings: Codable, Sendable {
         if let data = defaults.data(forKey: defaultsKey),
            let settings = try? JSONDecoder().decode(ScraperSettings.self, from: data) {
             let (reconciled, didChange) = reconcileLoadedSettings(settings)
-            if persistReconciliation, didChange {
-                reconciled.save(defaults: defaults)
-            }
-            return reconciled
+            return finishLoad(
+                reconciled,
+                defaults: defaults,
+                persist: persistReconciliation,
+                needsSave: didChange
+            )
         }
 
         // Migrate from v2 (had hardcoded third-party scraper types)
@@ -89,18 +95,42 @@ struct ScraperSettings: Codable, Sendable {
                 }
             }
             let (reconciled, _) = reconcileLoadedSettings(migrated)
+            let finished = finishLoad(
+                reconciled,
+                defaults: defaults,
+                persist: persistReconciliation,
+                needsSave: true
+            )
             if persistReconciliation {
-                reconciled.save(defaults: defaults)
                 defaults.removeObject(forKey: v2Key)
             }
-            return reconciled
+            return finished
         }
 
         let (reconciled, didChange) = reconcileLoadedSettings(ScraperSettings())
-        if persistReconciliation, didChange {
-            reconciled.save(defaults: defaults)
+        return finishLoad(
+            reconciled,
+            defaults: defaults,
+            persist: persistReconciliation,
+            needsSave: didChange
+        )
+    }
+
+    /// 主线程 store 路径的收尾：把旧 blob 里的 Cookie 搬进钥匙串，再把抹白后的 blob
+    /// 写回本机。这里只写 UserDefaults、不 `markChanged`，和补齐内置源的对账一样不算编辑。
+    private static func finishLoad(
+        _ settings: ScraperSettings,
+        defaults: UserDefaults,
+        persist: Bool,
+        needsSave: Bool
+    ) -> ScraperSettings {
+        guard persist else { return settings }
+        var result = settings
+        let migratedCookies = ScraperSourceCookieStore.migrateLegacyCookies(in: &result)
+        if needsSave || migratedCookies {
+            result.save(defaults: defaults)
         }
-        return reconciled
+        return result
     }
 
     fileprivate static func loadPersistingReconciliation(
@@ -109,8 +139,13 @@ struct ScraperSettings: Codable, Sendable {
         load(defaults: defaults, persistReconciliation: true)
     }
 
+    /// 落盘的 blob 会经 iCloud 键值同步：Cookie 一律抹掉，只留在钥匙串里。
     func save(defaults: UserDefaults = .standard) {
-        guard let data = try? JSONEncoder().encode(self) else { return }
+        var stripped = self
+        for index in stripped.sources.indices {
+            stripped.sources[index].cookie = nil
+        }
+        guard let data = try? JSONEncoder().encode(stripped) else { return }
         defaults.set(data, forKey: Self.defaultsKey)
     }
 
@@ -201,9 +236,12 @@ struct ScraperSettings: Codable, Sendable {
 @MainActor
 @Observable
 final class ScraperSettingsStore {
+    /// 行里不带 Cookie（加载时已搬进钥匙串），界面判断有没有 Cookie 看 `cookieSourceIDs`。
     var sources: [ScraperSourceConfig] { didSet { persist() } }
     var onlyFillMissingFields: Bool { didSet { persist() } }
     var autoFetchOnlineLyrics: Bool { didSet { persist() } }
+    /// 钥匙串里存着 Cookie 的源（按行 id）。Cookie 改动不经 `sources`，界面靠这个集合刷新。
+    private(set) var cookieSourceIDs: Set<String> = []
 
     private let defaults: UserDefaults
     private var suppressPersist = false
@@ -214,6 +252,7 @@ final class ScraperSettingsStore {
         self.sources = settings.sources.sorted { $0.priority < $1.priority }
         self.onlyFillMissingFields = settings.onlyFillMissingFields
         self.autoFetchOnlineLyrics = settings.autoFetchOnlineLyrics
+        self.cookieSourceIDs = Self.sourceIDsWithCookie(in: self.sources)
 
         CloudKVSSync.shared.register(key: ScraperSettings.defaultsKey) { [weak self] in
             self?.reloadFromDefaults()
@@ -227,6 +266,21 @@ final class ScraperSettingsStore {
         sources = settings.sources.sorted { $0.priority < $1.priority }
         onlyFillMissingFields = settings.onlyFillMissingFields
         autoFetchOnlineLyrics = settings.autoFetchOnlineLyrics
+        cookieSourceIDs = Self.sourceIDsWithCookie(in: sources)
+    }
+
+    private static func sourceIDsWithCookie(in sources: [ScraperSourceConfig]) -> Set<String> {
+        Set(sources.filter { ScraperSourceCookieStore.cookie(for: $0) != nil }.map(\.id))
+    }
+
+    func hasCookie(for id: String) -> Bool {
+        cookieSourceIDs.contains(id)
+    }
+
+    /// 编辑框回填用：从钥匙串取。
+    func cookie(for id: String) -> String? {
+        guard let source = sources.first(where: { $0.id == id }) else { return nil }
+        return ScraperSourceCookieStore.cookie(for: source)
     }
 
     var enabledSources: [ScraperSourceConfig] {
@@ -245,9 +299,19 @@ final class ScraperSettingsStore {
         }
     }
 
+    /// Cookie 只进钥匙串，不动 `sources`、不推 KVS；ScraperManager 的 cacheKey 每次
+    /// 都从钥匙串取值，改了自然换新实例。
     func updateCookie(id: String, cookie: String?) {
-        guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
-        sources[index].cookie = cookie
+        guard let source = sources.first(where: { $0.id == id }) else { return }
+        guard ScraperSourceCookieStore.save(cookie, for: source) else {
+            plog("⚠️ Scraper cookie save failed for source \(id.prefix(8))…")
+            return
+        }
+        if ScraperSourceCookieStore.cookie(for: source) != nil {
+            cookieSourceIDs.insert(id)
+        } else {
+            cookieSourceIDs.remove(id)
+        }
     }
 
     /// Add a custom scraper source from an imported config
@@ -273,12 +337,14 @@ final class ScraperSettingsStore {
         addCustomSource(config)
     }
 
-    /// Remove a custom scraper source and its config
+    /// Remove a custom scraper source, its config and its Keychain cookie
     func removeCustomSource(id: String) {
         if let index = sources.firstIndex(where: { $0.id == id }) {
             if case .custom(let configId) = sources[index].type {
                 ScraperConfigStore.shared.delete(id: configId)
             }
+            ScraperSourceCookieStore.remove(for: sources[index])
+            cookieSourceIDs.remove(id)
             sources.remove(at: index)
         }
     }

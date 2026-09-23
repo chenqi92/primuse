@@ -973,9 +973,10 @@ public enum AIRemoteEndpointPolicy {
 
 public enum AICredentialStoragePolicy {
     private static let accountNamespace = "ai.provider."
+    private static let apiKeyAccountSuffix = ".apiKey"
 
     public static func legacyAccount(profileID: UUID) -> String {
-        "\(accountNamespace)\(profileID.uuidString.lowercased()).apiKey"
+        "\(accountNamespace)\(profileID.uuidString.lowercased())\(apiKeyAccountSuffix)"
     }
 
     public static func canonicalOrigin(
@@ -1013,7 +1014,7 @@ public enum AICredentialStoragePolicy {
             baseURL: baseURL,
             allowInsecureLocalHTTP: allowInsecureLocalHTTP
         )
-        return "\(accountNamespace)\(profileID.uuidString.lowercased()).origin.\(origin).apiKey"
+        return "\(accountNamespace)\(profileID.uuidString.lowercased()).origin.\(origin)\(apiKeyAccountSuffix)"
     }
 
     public static func canonicalScope(
@@ -1030,10 +1031,27 @@ public enum AICredentialStoragePolicy {
         configuration: AIRemoteProviderConfiguration
     ) throws -> String {
         let scope = try canonicalScope(configuration: configuration)
-        return "\(accountNamespace)\(configuration.id.uuidString.lowercased()).endpoint.\(scope).apiKey"
+        return "\(accountNamespace)\(configuration.id.uuidString.lowercased()).endpoint.\(scope)\(apiKeyAccountSuffix)"
     }
 
-    public static func isEligibleForICloudMigration(account: String) -> Bool {
-        true
+    /// 启动迁移把旧的本地钥匙串项改写成 iCloud 钥匙串项时的准入判定。
+    ///
+    /// `storedDeviceOnly` 表示这一项是以「仅本机」方式落盘的（`…ThisDeviceOnly`
+    /// 可访问性或本机标记）。这类项默认不迁：中继安装凭据、自建分享令牌这些
+    /// 秘密本来就不该离开设备。唯一例外是 AI 服务商密钥：e1424418 之前它们走
+    /// 本机路径写入，之后改为随服务商配置一起漫游，旧密钥仍要补迁进 iCloud
+    /// 钥匙串，否则其他设备只能看到配置却没有密钥。判定按账号形态（命名空间
+    /// 前缀 + `.apiKey` 后缀）而不是整个命名空间，免得日后放进同一命名空间的
+    /// 本机专用秘密也被顺带迁走。
+    public static func isEligibleForICloudMigration(
+        account: String,
+        storedDeviceOnly: Bool
+    ) -> Bool {
+        guard storedDeviceOnly else { return true }
+        return isAPIKeyAccount(account)
+    }
+
+    private static func isAPIKeyAccount(_ account: String) -> Bool {
+        account.hasPrefix(accountNamespace) && account.hasSuffix(apiKeyAccountSuffix)
     }
 }

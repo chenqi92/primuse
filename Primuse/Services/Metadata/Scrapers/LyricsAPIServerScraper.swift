@@ -86,6 +86,14 @@ actor LyricsAPIServerScraper: MusicScraper {
         case failed(any Error)
     }
 
+    /// Authorization 凭据从哪来。正常刮削每次请求时从钥匙串取，刮削实例可以长期缓存，
+    /// 改了凭据不用重建；设置页「测试」按钮传的是输入框里的草稿，不查钥匙串，用户清空
+    /// 输入框再测就是真的不带凭据去试。
+    enum AuthorizationSource: Sendable {
+        case keychain
+        case draft
+    }
+
     static func makeSession() -> URLSession {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
@@ -95,6 +103,7 @@ actor LyricsAPIServerScraper: MusicScraper {
     static func query(
         server: LyricsAPIServer,
         session: URLSession,
+        authorizationSource: AuthorizationSource = .keychain,
         title: String,
         artist: String?,
         album: String?,
@@ -112,8 +121,7 @@ actor LyricsAPIServerScraper: MusicScraper {
         request.httpMethod = "GET"
         request.setValue("text/plain, application/json;q=0.9, */*;q=0.8", forHTTPHeaderField: "Accept")
         request.setValue("Primuse/1.0 (Lyrics API Client)", forHTTPHeaderField: "User-Agent")
-        if let authorization = server.authorization?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !authorization.isEmpty {
+        if let authorization = resolvedAuthorization(for: server, source: authorizationSource) {
             request.setValue(authorization, forHTTPHeaderField: "Authorization")
         }
 
@@ -156,6 +164,24 @@ actor LyricsAPIServerScraper: MusicScraper {
         return false
     }
 
+    private static func resolvedAuthorization(
+        for server: LyricsAPIServer,
+        source: AuthorizationSource
+    ) -> String? {
+        let raw: String?
+        switch source {
+        case .keychain:
+            // 钥匙串优先；server 上还带着值只可能是旧版本 blob 里尚未搬家的凭据，兜底照用。
+            raw = LyricsAPIServerCredentialStore.authorization(for: server.id) ?? server.authorization
+        case .draft:
+            raw = server.authorization
+        }
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty
+        else { return nil }
+        return trimmed
+    }
+
     /// 日志只记主机（含端口），不记路径、query 与凭据。
     private static func logHost(for server: LyricsAPIServer) -> String {
         guard let components = URLComponents(string: server.address), let host = components.host else {
@@ -185,7 +211,7 @@ extension LyricsAPIServerScraper {
         let session = makeSession()
         defer { session.finishTasksAndInvalidate() }
         switch await query(
-            server: server, session: session,
+            server: server, session: session, authorizationSource: .draft,
             title: title, artist: artist, album: album, duration: duration
         ) {
         case .lyrics(let lrc, let plain):

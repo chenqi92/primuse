@@ -747,7 +747,8 @@ actor ScraperManager {
     /// input that影响 scraper 构造(cookie / extraConfig / 自定义配置的 modifiedAt)
     /// so changing any of them yields a fresh instance automatically.
     private func cacheKey(for config: ScraperSourceConfig) -> String {
-        var parts: [String] = [config.id, config.cookie ?? ""]
+        // Cookie 在钥匙串里，每次都取当前值：设置页改了 Cookie 不会动 config 行。
+        var parts: [String] = [config.id, ScraperSourceCookieStore.cookie(for: config) ?? ""]
         if let extra = config.extraConfig, !extra.isEmpty {
             parts.append(extra.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "&"))
         }

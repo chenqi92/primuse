@@ -700,6 +700,7 @@ final class SourcesStore {
             var sanitized = remote
             sanitized.deviceId = nil
             allSources.append(sanitized)
+            RemoteSourceArrivalLedger.markArrived(sourceID: sanitized.id)
             allSources.sort { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
         if restoresRecordedDeletion {
@@ -1122,5 +1123,37 @@ private struct FailableDecodable<T: Decodable>: Decodable {
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         value = try? container.decode(T.self)
+    }
+}
+
+/// 记下哪些源是经 iCloud 从别的设备到达本机的, 以及到达时刻。源记录走 CloudKit,
+/// 密码走 iCloud 钥匙串, 两条路不同步: 源先到、密码后到的那几分钟里, 本机钥匙串
+/// 查不到密码。`KeychainService.connectorCredential` 据此把「还没到」和「本来就没
+/// 有密码」分开, 前者暂不登录, 而不是拿空密码去试一次(NAS 会记一次失败, 还可能
+/// 触发锁定)。到达超过一定时间就不再当作在途, 免得对方本来就没存密码的源永远
+/// 连不上。
+enum RemoteSourceArrivalLedger {
+    private static let defaultsKey = "primuse.sources.remoteArrivals"
+    /// 钥匙串同步通常几分钟内到齐; 超过这个时间还没到, 就按「没有密码」处理。
+    static let pendingWindow: TimeInterval = 15 * 60
+
+    static func markArrived(sourceID: String, now: Date = Date()) {
+        var arrivals = (UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Date]) ?? [:]
+        arrivals = arrivals.filter { now.timeIntervalSince($0.value) < pendingWindow * 4 }
+        arrivals[sourceID] = now
+        UserDefaults.standard.set(arrivals, forKey: defaultsKey)
+    }
+
+    static func forget(sourceID: String) {
+        guard var arrivals = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Date],
+              arrivals.removeValue(forKey: sourceID) != nil else { return }
+        UserDefaults.standard.set(arrivals, forKey: defaultsKey)
+    }
+
+    /// 这个源刚从别的设备同步过来、它的密码可能还在路上。
+    static func isAwaitingSyncedCredential(sourceID: String, now: Date = Date()) -> Bool {
+        guard let arrivals = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: Date],
+              let arrivedAt = arrivals[sourceID] else { return false }
+        return now.timeIntervalSince(arrivedAt) < pendingWindow
     }
 }

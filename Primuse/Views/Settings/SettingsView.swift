@@ -1152,11 +1152,11 @@ struct MetadataScrapingView: View {
                         if source.type.supportsCookie {
                             Button {
                                 editingCookieSourceId = source.id
-                                cookieText = source.cookie ?? ""
+                                cookieText = scraperSettings.cookie(for: source.id) ?? ""
                             } label: {
                                 Image(systemName: "key")
                                     .font(.caption)
-                                    .foregroundStyle(source.cookie?.isEmpty == false ? Color.green : Color.secondary)
+                                    .foregroundStyle(scraperSettings.hasCookie(for: source.id) ? Color.green : Color.secondary)
                             }
                             .buttonStyle(.plain)
                         }

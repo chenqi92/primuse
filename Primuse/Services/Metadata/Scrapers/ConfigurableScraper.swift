@@ -778,7 +778,8 @@ actor ConfigurableScraper: MusicScraper {
               let config = ScraperConfigStore.shared.config(for: configID) else {
             return nil
         }
-        return (config, sourceConfig.cookie ?? config.cookie)
+        // 用户填的 Cookie 在钥匙串里；没填才用清单自带的。
+        return (config, ScraperSourceCookieStore.cookie(for: sourceConfig) ?? config.cookie)
     }
 
     /// Whether `host` matches a trusted domain at a DNS label boundary.
