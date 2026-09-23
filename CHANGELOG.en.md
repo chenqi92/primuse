@@ -34,6 +34,7 @@ This release redesigns key search and immersive-player interactions, expands App
 - **Connection and startup feedback** — connections no longer spin forever on failure, startup and source setup report actionable causes, and server addresses and paths are redacted from logs
 - **Lyric editing** — write-permission checks no longer stall, and editing an M4A with grouping metadata preserves its embedded lyrics
 - **Memory pressure** — artwork caches are released first when memory is tight, reducing the chance of system termination
+- **Safe mode false alarms** — launches the system starts in the background (scan resume, silent push) are no longer counted as aborted launches and can no longer lock the app into safe mode; a wrongly latched safe mode is cleared after updating
 
 ### Performance
 

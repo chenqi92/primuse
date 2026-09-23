@@ -12,6 +12,11 @@ import UIKit
 /// app 里的诊断页——除了猜就只剩这条路。哨兵里记的是阶段轨迹、每一步的时刻、
 /// 最后一次看到的内存占用和剩余空间，足够把"死在界面上"和"死在启动链上"分开。
 ///
+/// 只有前台启动才立哨兵。后台启动（续扫的 BGProcessingTask、iCloud 静默推送、
+/// Siri）没人在看屏幕，之后被系统回收是常态，而且它从不经过 `didEnterBackground`——
+/// 没人销哨兵，进程一停就会被下次启动读成「启动中止」，build 78–81 正是这样把人
+/// 锁进了安全模式。这类进程等第一次真正到前台再立哨兵。
+///
 /// 连续中止两次就锁定安全模式：下次启动跳过首页与延后启动链，让人至少打得开、
 /// 读得到、发得出去。Mac 端的同类实现是 `MacLaunchDiagnostics`。
 @MainActor
@@ -25,6 +30,9 @@ enum LaunchDiagnostics {
 
     private static let abortCountKey = "primuse.launch.consecutiveAborts"
     private static let safeModeLatchKey = "primuse.launch.safeModeLatched"
+    /// build 78–81 把后台启动也记成中止，连着两次后台被回收就锁进安全模式。那把锁
+    /// 不是用户的错：修好的版本第一次启动时把计数、锁定和盘上残留的哨兵一并作废。
+    private static let backgroundLaunchRepairKey = "primuse.launch.backgroundLaunchRepairDone"
 
     enum Stage: String, Codable, Sendable {
         /// `didFinishLaunching` 刚进来。
@@ -37,6 +45,8 @@ enum LaunchDiagnostics {
         case deferredStartup
         /// 上次播放会话恢复完成，迷你播放条随之插入。
         case playbackRestored
+        /// 后台启动的进程第一次真正到前台。那之前的阶段没人看见，哨兵从这里才立。
+        case foregrounded
         /// 活过 `healthyAfter`，这次启动算成功。
         case settled
     }
@@ -105,8 +115,16 @@ enum LaunchDiagnostics {
     static func begin() {
         heartbeat?.cancel()
         let defaults = UserDefaults.standard
-        let previous = loadSentinel()
+        var previous = loadSentinel()
         clearSentinel()
+        if !defaults.bool(forKey: backgroundLaunchRepairKey) {
+            // 旧版留下的计数、锁定和盘上的哨兵都可能是后台启动被回收记出来的，
+            // 一并作废；真在启动上崩的机器，两次之后照样会进安全模式。
+            defaults.set(true, forKey: backgroundLaunchRepairKey)
+            defaults.removeObject(forKey: abortCountKey)
+            defaults.removeObject(forKey: safeModeLatchKey)
+            previous = nil
+        }
 
         let decision = decide(
             previousLaunchAborted: previous != nil,
@@ -122,7 +140,34 @@ enum LaunchDiagnostics {
                 consecutiveAborts: decision.consecutiveAborts
             )
         }
+        if previousAbort != nil {
+            exportDiagnosticsForRetrieval()
+        }
 
+        if armsSentinelAtLaunch(applicationState: UIApplication.shared.applicationState) {
+            arm(from: .launching)
+        } else {
+            // 后台启动：这会儿没人看屏幕，等它第一次真正到前台再算「启动」。
+            observers.append(NotificationCenter.default.addObserver(
+                forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { arm(from: .foregrounded) }
+            })
+        }
+    }
+
+    /// 前台启动时 `didFinishLaunching` 里的状态是 `.inactive`；续扫的 BGProcessingTask、
+    /// iCloud 静默推送、Siri 这些后台启动是 `.background`。后台启动不立哨兵：它从不经过
+    /// `didEnterBackground`，哨兵没人销，进程随后被系统正常回收就会被记成一次中止。
+    static func armsSentinelAtLaunch(applicationState: UIApplication.State) -> Bool {
+        applicationState != .background
+    }
+
+    /// 立哨兵、挂销哨兵的观察者、起心跳。`stage` 是轨迹的第一步：前台启动是
+    /// `launching`，后台启动的进程第一次到前台是 `foregrounded`。
+    private static func arm(from stage: Stage) {
+        removeObservers()
+        heartbeat?.cancel()
         let now = Date()
         write(Sentinel(
             version: bundleValue("CFBundleShortVersionString"),
@@ -131,33 +176,31 @@ enum LaunchDiagnostics {
             device: deviceModelIdentifier,
             startedAt: now,
             lastSeenAt: now,
-            steps: [Step(stage: Stage.launching.rawValue, at: now)],
+            steps: [Step(stage: stage.rawValue, at: now)],
             freeDiskBytes: freeDiskBytes(),
             footprintBytes: memoryFootprintBytes(),
             safeMode: isSafeModeActive
         ))
 
-        if previousAbort != nil {
-            exportDiagnosticsForRetrieval()
-        }
-
         let center = NotificationCenter.default
         // 用户自己划掉 app，或者退到后台之后被系统正常回收，都不算启动中止。
+        // 通知在主队列投递，同步销掉：进程随后就可能被挂起，别再排一个 Task。
         for name in [
             UIApplication.willTerminateNotification,
             UIApplication.didEnterBackgroundNotification
         ] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
-                Task { @MainActor in settle() }
+                MainActor.assumeIsolated { settle() }
             })
         }
 
         heartbeat = Task { @MainActor in
-            var elapsed: TimeInterval = 0
-            while elapsed < healthyAfter {
+            // 按真实时钟算存活，别数睡了几次：一次 sleep 跨过挂起就不止 2 秒了。
+            let clock = ContinuousClock()
+            let deadline = clock.now + .seconds(healthyAfter)
+            while clock.now < deadline {
                 try? await Task.sleep(for: .seconds(tick))
                 if Task.isCancelled { return }
-                elapsed += tick
                 touch()
             }
             mark(.settled)
@@ -166,6 +209,7 @@ enum LaunchDiagnostics {
     }
 
     /// 里程碑。落盘是同步的：异步写在进程被回收时正好丢的就是最后一行。
+    /// 哨兵还没立（后台启动）时什么都不记。
     static func mark(_ stage: Stage) {
         guard var sentinel = loadSentinel() else { return }
         guard sentinel.steps.last?.stage != stage.rawValue else { return }
@@ -182,6 +226,10 @@ enum LaunchDiagnostics {
         heartbeat = nil
         clearSentinel()
         UserDefaults.standard.set(0, forKey: abortCountKey)
+        removeObservers()
+    }
+
+    private static func removeObservers() {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }

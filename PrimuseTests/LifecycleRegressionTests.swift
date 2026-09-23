@@ -1,5 +1,6 @@
 import Foundation
 import PrimuseKit
+import UIKit
 import XCTest
 @testable import Primuse
 
@@ -133,6 +134,15 @@ final class LifecycleRegressionTests: XCTestCase {
             LaunchDiagnostics.decide(previousLaunchAborted: true, storedAborts: -5, latched: false),
             Decision(consecutiveAborts: 1, latchSafeMode: false, safeModeActive: false)
         )
+    }
+
+    /// 后台启动（续扫、静默推送、Siri）没人看屏幕，也从不经过 didEnterBackground：
+    /// 立了哨兵就会在进程被系统回收后被记成一次中止，两次就把人锁进安全模式。
+    @MainActor
+    func testLaunchSentinelIsOnlyArmedForForegroundLaunches() {
+        XCTAssertTrue(LaunchDiagnostics.armsSentinelAtLaunch(applicationState: .inactive))
+        XCTAssertTrue(LaunchDiagnostics.armsSentinelAtLaunch(applicationState: .active))
+        XCTAssertFalse(LaunchDiagnostics.armsSentinelAtLaunch(applicationState: .background))
     }
 
     @MainActor
