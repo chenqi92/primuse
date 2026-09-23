@@ -469,7 +469,7 @@
 "ext.tv.radio.popularIn" = "%@で人気のラジオ局";
 "ext.tv.radio.deepLinkUnavailable" = "このラジオ局はもうリストにありません。";
 "ext.tv.radio.stationCount.one" = "1 局";
-"ext.tv.radio.playlistCleartext" = "このラジオ局は暗号化されていない HTTP のプレイリストリンクを使っているため、Apple TV では読み込みません。ストリームの直接のアドレスか https のリンクを使ってください。";
+"ext.tv.radio.playlistCleartext" = "このラジオ局のプレイリストリンクは暗号化されていない HTTP で、許可されなかったため Apple TV は読み込みませんでした。もう一度再生して許可するか、ストリームの直接のアドレスか https のリンクを使ってください。";
 "ext.tv.home.emptyWithRadio" = "iPhoneやMacからライブラリを同期するとここに音楽が表示されます。インターネットラジオを直接追加することもできます。";
 
 // MARK: - ソース名とローカライズ済みの実行時エラー
@@ -634,6 +634,7 @@
 "ext.tv.http.title" = "暗号化されていない HTTP の確認";
 "ext.tv.http.allow" = "許可して続ける";
 "ext.tv.http.message" = "%1$@ は暗号化されていない HTTP を使用しています。ご自身のサーバーである場合のみ続行してください。許可はこのプロトコル、ホスト、ポートにのみ適用されます。";
+"ext.tv.http.radioMessage" = "このラジオ局のプレイリスト %1$@ は暗号化されていない HTTP を使用しています。許可すると Apple TV がプレイリストを読み込んでストリームを見つけられます。許可はこのプロトコル、ホスト、ポートにのみ適用され、以後は確認しません。";
 "source_connection_intro" = "LAN アドレスとリモートアドレスはどちらか一方でも構いません。両方を保存すると、到達可能でより高速な方を自動的に使用します。";
 "source_connection_local" = "LAN";
 "source_connection_local_optional" = "LAN アドレス（任意）";

@@ -466,7 +466,7 @@
 "ext.tv.radio.popularIn" = "热门电台 · %@";
 "ext.tv.radio.deepLinkUnavailable" = "这个电台已不在列表里。";
 "ext.tv.radio.stationCount.one" = "1 个电台";
-"ext.tv.radio.playlistCleartext" = "这个电台用的是明文 HTTP 的播放清单链接，Apple TV 不会读取。请改用直接的流地址或 https 链接。";
+"ext.tv.radio.playlistCleartext" = "这个电台的播放清单链接是明文 HTTP，没有得到允许，Apple TV 没有读取。可以重新播放并选择允许，或改用直接的流地址或 https 链接。";
 "ext.tv.home.emptyWithRadio" = "在 iPhone / Mac 上同步曲库后，这里会显示你的音乐；也可以直接添加网络电台。";
 
 // MARK: - 音源标签与本地化运行时错误
@@ -631,6 +631,7 @@
 "ext.tv.http.title" = "明文 HTTP 需要确认";
 "ext.tv.http.allow" = "允许并继续";
 "ext.tv.http.message" = "%1$@ 使用未加密的 HTTP。仅在确认这是你的服务器后继续；授权只适用于当前协议、主机和端口。";
+"ext.tv.http.radioMessage" = "这个电台的播放清单地址 %1$@ 使用未加密的 HTTP。允许后 Apple TV 才能读取清单、找到流地址；授权只适用于当前协议、主机和端口，之后不再询问。";
 "source_connection_intro" = "填写内网或外网地址即可，两个都填时会自动选择当前可用且更快的一个。";
 "source_connection_local" = "内网";
 "source_connection_local_optional" = "内网地址（可选）";

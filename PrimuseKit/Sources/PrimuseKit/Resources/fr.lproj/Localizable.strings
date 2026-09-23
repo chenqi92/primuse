@@ -469,7 +469,7 @@
 "ext.tv.radio.popularIn" = "Populaires en %@";
 "ext.tv.radio.deepLinkUnavailable" = "Cette station ne figure plus dans votre liste.";
 "ext.tv.radio.stationCount.one" = "1 station";
-"ext.tv.radio.playlistCleartext" = "Cette station utilise un lien de playlist en HTTP non chiffré, qu’Apple TV ne récupère pas. Utilisez l’adresse directe du flux ou un lien https.";
+"ext.tv.radio.playlistCleartext" = "Le lien de playlist de cette station utilise HTTP non chiffré et n’a pas été autorisé : Apple TV ne l’a donc pas récupéré. Relancez la station pour l’autoriser, ou utilisez l’adresse directe du flux ou un lien https.";
 "ext.tv.home.emptyWithRadio" = "Synchronisez votre bibliothèque depuis l’iPhone ou le Mac pour voir votre musique ici, ou ajoutez directement des radios internet.";
 
 // MARK: - Libellés des sources et erreurs d’exécution localisées
@@ -634,6 +634,7 @@
 "ext.tv.http.title" = "Confirmer le HTTP non chiffré";
 "ext.tv.http.allow" = "Autoriser et continuer";
 "ext.tv.http.message" = "%1$@ utilise une connexion HTTP non chiffrée. Continuez uniquement s’il s’agit de votre serveur. L’autorisation s’applique seulement à ce protocole, cet hôte et ce port.";
+"ext.tv.http.radioMessage" = "La playlist de cette station à l’adresse %1$@ utilise une connexion HTTP non chiffrée. Autorisez-la pour qu’Apple TV puisse lire la playlist et trouver le flux. L’autorisation s’applique seulement à ce protocole, cet hôte et ce port ; la question ne sera plus posée.";
 "source_connection_intro" = "Saisissez une adresse locale, une adresse distante ou les deux. Si les deux sont enregistrées, Primuse utilise automatiquement celle qui est accessible et la plus rapide.";
 "source_connection_local" = "Local";
 "source_connection_local_optional" = "Adresse locale (facultatif)";

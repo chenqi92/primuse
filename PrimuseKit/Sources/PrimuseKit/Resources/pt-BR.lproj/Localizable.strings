@@ -160,6 +160,7 @@
 "ext.tv.home.tonightsPick" = "Escolha desta noite";
 "ext.tv.http.allow" = "Permitir e continuar";
 "ext.tv.http.message" = "%1$@ usa HTTP não criptografado. Continue apenas se este for o seu servidor. A autorização se aplica somente a este esquema, host e porta.";
+"ext.tv.http.radioMessage" = "A playlist desta estação em %1$@ usa HTTP não criptografado. Permita para que a Apple TV possa ler a playlist e encontrar o stream. A autorização vale somente para este esquema, host e porta, e não será solicitada de novo.";
 "ext.tv.http.title" = "Cleartext HTTP requer confirmação";
 "ext.tv.immersive.exitHint" = "Pressione Menu para sair";
 "ext.tv.immersive.holdForQueue" = "Espera para fila";
@@ -260,7 +261,7 @@
 "ext.tv.radio.popularIn" = "Populares em %@";
 "ext.tv.radio.deepLinkUnavailable" = "Esta estação não está mais na sua lista.";
 "ext.tv.radio.stationCount.one" = "1 estação";
-"ext.tv.radio.playlistCleartext" = "Esta estação usa um link de playlist por HTTP sem criptografia, que a Apple TV não busca. Use o endereço direto do stream ou um link https.";
+"ext.tv.radio.playlistCleartext" = "O link da playlist desta estação usa HTTP sem criptografia e não foi permitido, então a Apple TV não o buscou. Toque a estação de novo para permitir, ou use o endereço direto do stream ou um link https.";
 "ext.tv.home.emptyWithRadio" = "Sincronize sua biblioteca pelo iPhone ou Mac para ver suas músicas aqui, ou adicione estações de rádio na internet diretamente.";
 "ext.tv.radio.stationCount" = "Estações %d";
 "ext.tv.radio.stop" = "Parar";

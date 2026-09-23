@@ -160,7 +160,7 @@
 "ext.tv.radio.popularIn" = "%@ bölgesinde popüler";
 "ext.tv.radio.deepLinkUnavailable" = "Bu istasyon artık listenizde değil.";
 "ext.tv.radio.stationCount.one" = "1 istasyon";
-"ext.tv.radio.playlistCleartext" = "Bu istasyon şifrelenmemiş HTTP üzerinden bir çalma listesi bağlantısı kullanıyor; Apple TV bu bağlantıyı açmaz. Doğrudan yayın adresini veya bir https bağlantısını kullanın.";
+"ext.tv.radio.playlistCleartext" = "Bu istasyonun çalma listesi bağlantısı şifrelenmemiş HTTP kullanıyor ve izin verilmedi, bu yüzden Apple TV bağlantıyı açmadı. İzin vermek için istasyonu yeniden çalın ya da doğrudan yayın adresini veya bir https bağlantısını kullanın.";
 "ext.tv.home.emptyWithRadio" = "Müziğinizi burada görmek için arşivinizi iPhone veya Mac’ten eşzamanlayın ya da doğrudan internet radyosu istasyonları ekleyin.";
 "ext.tv.settings.notSynced" = "Henüz senkronize edilmedi";
 "error.catalog.missingHTTPResponse" = "Sunucu hiçbir HTTP yanıtı döndürmedi.";
@@ -458,6 +458,7 @@
 "src.category.mediaServer" = "Medya Sunucusu";
 "ext.tv.test.directConnected" = "Bağlı · %1$@ (TV'de doğrudan oynatma) · dosya %2$@ KB";
 "ext.tv.http.message" = "%1$@, şifrelenmemiş HTTP'yi kullanır. Yalnızca bu sizin sunucunuzsa devam edin. Yetkilendirme yalnızca bu şema, ana bilgisayar ve bağlantı noktası için geçerlidir.";
+"ext.tv.http.radioMessage" = "Bu istasyonun %1$@ adresindeki çalma listesi şifrelenmemiş HTTP kullanıyor. Apple TV'nin çalma listesini okuyup yayını bulabilmesi için izin verin. İzin yalnızca bu şema, ana bilgisayar ve bağlantı noktası için geçerlidir ve tekrar sorulmaz.";
 "ext.tv.error.range.invalidOpenRequest" = "İstenilen açık uçlu bayt aralığı geçersiz.";
 "fullscreen_effect_flowing_lines_motion" = "Sürekli gelişen konturlar · Üç şarkı sözü";
 "ext.tv.settings.tip.search.title" = "Arama alanı";

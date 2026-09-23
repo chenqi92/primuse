@@ -469,7 +469,7 @@
 "ext.tv.radio.popularIn" = "Beliebt in %@";
 "ext.tv.radio.deepLinkUnavailable" = "Dieser Sender ist nicht mehr in deiner Liste.";
 "ext.tv.radio.stationCount.one" = "1 Sender";
-"ext.tv.radio.playlistCleartext" = "Dieser Sender verwendet einen Playlist-Link über unverschlüsseltes HTTP, den Apple TV nicht abruft. Verwende die direkte Stream-Adresse oder einen https-Link.";
+"ext.tv.radio.playlistCleartext" = "Der Playlist-Link dieses Senders verwendet unverschlüsseltes HTTP und wurde nicht erlaubt, daher hat Apple TV ihn nicht abgerufen. Spiele den Sender erneut ab, um ihn zu erlauben, oder verwende die direkte Stream-Adresse oder einen https-Link.";
 "ext.tv.home.emptyWithRadio" = "Synchronisiere deine Mediathek von iPhone oder Mac, um deine Musik hier zu sehen, oder füge direkt Internetradiosender hinzu.";
 
 // MARK: - Quellenbezeichnungen und lokalisierte Laufzeitfehler
@@ -634,6 +634,7 @@
 "ext.tv.http.title" = "Unverschlüsseltes HTTP bestätigen";
 "ext.tv.http.allow" = "Zulassen und fortfahren";
 "ext.tv.http.message" = "%1$@ verwendet unverschlüsseltes HTTP. Fahre nur fort, wenn dies dein Server ist. Die Freigabe gilt nur für dieses Protokoll, diesen Host und diesen Port.";
+"ext.tv.http.radioMessage" = "Die Playlist dieses Senders unter %1$@ verwendet unverschlüsseltes HTTP. Erlaube sie, damit Apple TV die Playlist lesen und den Stream finden kann. Die Freigabe gilt nur für dieses Protokoll, diesen Host und diesen Port; danach wird nicht mehr gefragt.";
 "source_connection_intro" = "Gib eine LAN-Adresse, eine externe Adresse oder beide ein. Sind beide gespeichert, nutzt Primuse automatisch die erreichbare und schnellere Adresse.";
 "source_connection_local" = "LAN";
 "source_connection_local_optional" = "LAN-Adresse (optional)";
