@@ -1784,10 +1784,12 @@ final class TVStore {
         guard let localSources = try? sourcesStore.validatedSourcesForSnapshot() else { return false }
         let previousCredentialReference = try? Data(contentsOf: TVCredentialStore.pairedBundleReferenceURL)
         guard let staged = stageIncomingCredentials(incoming, fromCloud: false) else { return false }
-        guard let files = LibrarySnapshotSync.shared.prepareTVSourcesInstall(
-                  payload, credentialReference: staged.reference, localSources: localSources
+        let sync = LibrarySnapshotSync.shared
+        guard let plan = sync.prepareTVSourcesInstall(
+                  payload, credentialReference: staged.reference, localSources: localSources,
+                  hasExistingRadioStations: sync.hasTVRadioStations()
               ),
-              LibrarySnapshotSync.shared.applyTVPayloadInstall(files) else {
+              sync.applyTVPayloadInstall(plan.files) else {
             TVCredentialStore.discardInactiveStagedBundle(reference: staged.reference)
             return false
         }
@@ -1795,7 +1797,7 @@ final class TVStore {
                                 fromCloud: false)
         scanner.invalidateFnMusicClients()
         sourcesStore.reloadFromDisk()
-        reloadRadioStations()
+        installRadioStations(from: plan)
         pruneCredentialBundlesToActiveSources()
         refreshVisibility()
         sourcesRevision += 1
@@ -1895,9 +1897,9 @@ final class TVStore {
             preservingSongs: before.filter { locallyScannedSourceIDs.contains($0.sourceID) },
             localSources: localSources, generation: generation
         )
-        let didInstall = prepared.map { LibrarySnapshotSync.shared.applyTVPayloadInstall($0) } ?? false
+        let didInstall = prepared.map { LibrarySnapshotSync.shared.applyTVPayloadInstall($0.files) } ?? false
         PrimuseSignposts.hitch.endInterval("tv.installPayload", installSignpost)
-        guard didInstall else {
+        guard didInstall, let prepared else {
             if let reference { TVCredentialStore.discardInactiveStagedBundle(reference: reference) }
             return false
         }
@@ -1909,7 +1911,7 @@ final class TVStore {
         // 与安装步骤对照:reloadFromDisk 是设计上就同步的整库重载,先量清楚
         // 两者各占多少,再决定要不要动安装步骤。
         let reloadSignpost = PrimuseSignposts.hitch.beginInterval("tv.reloadMerging")
-        reloadMerging(before: before)
+        reloadMerging(before: before, installed: prepared)
         PrimuseSignposts.hitch.endInterval("tv.reloadMerging", reloadSignpost)
         await library.waitForPendingIndex()
         // 重载 + 合并之后内存里就是导入结果与本地改动合并后的真相, 这时候放行
@@ -1933,7 +1935,7 @@ final class TVStore {
     /// 引导会重新下载)。
     /// 离开主 actor 算出来的安装结果, 外加算它时用的两份基线身份。
     private struct PreparedSnapshotInstall: Sendable {
-        let files: [URL: Data]
+        let plan: LibrarySnapshotSync.TVPayloadInstallPlan
         let libraryIdentity: SnapshotFileIdentity?
         let sourcesIdentity: SnapshotFileIdentity?
     }
@@ -1941,7 +1943,7 @@ final class TVStore {
     private func preparedSnapshotFiles(
         _ payload: LANSyncPayload, credentialReference: Data?, fromCloud: Bool,
         preservingSongs: [Song], localSources: [MusicSource], generation: Int
-    ) async -> [URL: Data]? {
+    ) async -> LibrarySnapshotSync.TVPayloadInstallPlan? {
         let sync = LibrarySnapshotSync.shared
         for attempt in 0..<2 {
             // 基线的读取也放进这个任务: `library-cache.json` 可以有几十 MB,
@@ -1951,13 +1953,14 @@ final class TVStore {
                 guard let baseline = sync.readTVPayloadInstallBaseline(localSources: localSources) else {
                     return nil
                 }
-                guard let files = sync.prepareTVPayloadInstall(
+                guard let plan = sync.prepareTVPayloadInstall(
                     payload, credentialReference: credentialReference, fromCloud: fromCloud,
                     preservingSongs: preservingSongs, localSources: localSources,
                     existingLibraryData: baseline.existingLibraryData,
-                    existingSourcesData: baseline.existingSourcesData
+                    existingSourcesData: baseline.existingSourcesData,
+                    hasExistingRadioStations: baseline.hasExistingRadioStations
                 ) else { return nil }
-                return PreparedSnapshotInstall(files: files,
+                return PreparedSnapshotInstall(plan: plan,
                                                libraryIdentity: baseline.libraryIdentity,
                                                sourcesIdentity: baseline.sourcesIdentity)
             }.value
@@ -1969,7 +1972,7 @@ final class TVStore {
                                                  current: sync.currentTVLibraryIdentity()),
                SnapshotBaselineGate.isStillValid(captured: prepared.sourcesIdentity,
                                                  current: sync.currentTVSourcesIdentity()) {
-                return prepared.files
+                return prepared.plan
             }
             if attempt == 0 { plog("TVStore: library baseline changed during install, recomputing") }
         }
@@ -1996,6 +1999,8 @@ final class TVStore {
                     self.hasPendingSnapshotRecovery = false
                     self.library.reloadFromDisk(preferExternalSnapshot: self.hasPendingSnapshotImport)
                     self.sourcesStore.reloadFromDisk()
+                    // 完成或回滚的那次事务里可能带着电台文件(首次引导整份写入的那种)。
+                    self.reloadRadioStations(fromDisk: true)
                     self.refreshVisibility()
                 } catch {
                     self.playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
@@ -2026,7 +2031,7 @@ final class TVStore {
 
     /// 应用手机快照后重载,并把「TV 本机扫的、手机快照里没有的源」的歌合并回来,
     /// 避免整库覆盖冲掉 TV 扫描结果(song id 确定性派生,addSongs 自动去重)。
-    private func reloadMerging(before: [Song]) {
+    private func reloadMerging(before: [Song], installed plan: LibrarySnapshotSync.TVPayloadInstallPlan) {
         scanner.invalidateFnMusicClients()
         library.reloadFromDisk()
         let incomingIDs = Set(library.songs.map(\.id))
@@ -2039,11 +2044,26 @@ final class TVStore {
             plog("TVStore: merged \(tvOnly.count) TV-scanned songs back after sync")
         }
         sourcesStore.reloadFromDisk()
-        reloadRadioStations()
+        installRadioStations(from: plan)
         refreshVisibility()
         publishTopShelf()
         flushPendingDeepLink()
         pruneCredentialBundlesToActiveSources()
+    }
+
+    /// 快照里的电台进本机。本机已有清单时逐条按修改时间合并:电视上的增删改名排序、
+    /// 还没传上去的改动都留着,快照里更新的行照收。首次引导随事务整份写入,从磁盘重读。
+    private func installRadioStations(from plan: LibrarySnapshotSync.TVPayloadInstallPlan) {
+        if let raw = plan.radioStationsToMerge {
+            do {
+                try radioStore.applySnapshot(raw)
+            } catch {
+                plog("TVStore: radio snapshot merge failed: \(error.localizedDescription)")
+            }
+            reloadRadioStations(fromDisk: false)
+        } else {
+            reloadRadioStations(fromDisk: plan.replacesRadioStations)
+        }
     }
 
     #if DEBUG
@@ -2220,7 +2240,9 @@ final class TVStore {
         }
         migrateLegacySongIDs()
         sourcesStore.reloadFromDisk()
-        reloadRadioStations()
+        // 电台文件只有本进程的电台存储会写(快照事务整份写入时由各安装入口自己重读),
+        // 内存里就是最新的,这里不必从磁盘重读。
+        reloadRadioStations(fromDisk: false)
         refreshVisibility()
         publishTopShelf()
         flushPendingDeepLink()
@@ -2231,7 +2253,7 @@ final class TVStore {
         if hasPendingSnapshotImport { Task { _ = await self.retryPendingSnapshotImport() } }
     }
 
-    private func reloadRadioStations(fromDisk: Bool = true) {
+    private func reloadRadioStations(fromDisk: Bool) {
         if fromDisk { radioStore.reloadFromDisk() }
         var decoded = radioStore.allStations
 

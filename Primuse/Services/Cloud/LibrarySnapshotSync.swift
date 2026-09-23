@@ -563,8 +563,9 @@ final class LibrarySnapshotSync: Sendable {
         }
     }
 
-    /// Radio is read-only on Apple TV. Keep its station catalogue in the same
-    /// snapshot record so TV can refresh it without linking the full app sync service.
+    /// 只重写快照记录里的电台清单。电台的改动本身逐条走 CloudKit 记录；
+    /// Apple TV 每次引导都会装一次这份快照（按修改时间逐条并进本机清单），
+    /// 所以任何一台设备改了电台都在这里补一份，让快照别落后太多。
     @discardableResult
     func uploadRadioStationsOnly() async -> Bool {
         await withCloudMutationLock { [self] in
@@ -2278,14 +2279,17 @@ final class LibrarySnapshotSync: Sendable {
                           fileWriter: (Data, URL) throws -> Void = { try $0.write(to: $1, options: .atomic) }) -> Bool {
         guard let baseline = readTVPayloadInstallBaseline(localSources: localSources,
                                                           destinationDirectory: destinationDirectory),
-              let files = prepareTVPayloadInstall(
+              let plan = prepareTVPayloadInstall(
                   payload, credentialReference: credentialReference, fromCloud: fromCloud,
                   preservingSongs: preservingSongs, localSources: localSources,
                   existingLibraryData: baseline.existingLibraryData,
                   existingSourcesData: baseline.existingSourcesData,
+                  hasExistingRadioStations: baseline.hasExistingRadioStations,
                   destinationDirectory: destinationDirectory
               ) else { return false }
-        return applyTVPayloadInstall(files, destinationDirectory: destinationDirectory,
+        // 本机已有电台清单时快照里的电台不在这里动(`plan.radioStationsToMerge`),
+        // 要合并得走 TVStore 那条能碰到 `RadioStationsStore` 的入口。
+        return applyTVPayloadInstall(plan.files, destinationDirectory: destinationDirectory,
                                      fileWriter: fileWriter)
     }
 
@@ -2295,6 +2299,40 @@ final class LibrarySnapshotSync: Sendable {
         let existingSourcesData: Data?
         let libraryIdentity: SnapshotFileIdentity?
         let sourcesIdentity: SnapshotFileIdentity?
+        /// 本机是不是已经有 `radio-stations.json`(见 `TVPayloadInstallPlan`)。
+        let hasExistingRadioStations: Bool
+    }
+
+    /// 电视装一次快照要做的事:事务整份写入的文件,外加要逐条并进本机电台清单的那份电台快照。
+    struct TVPayloadInstallPlan: Sendable {
+        /// 事务一次性整份写入的文件。
+        let files: [URL: Data]
+        /// 本机已经有电台清单时,快照里的电台不进事务 —— 整份覆盖会冲掉电视上的增删改名
+        /// 排序和还没传上去的改动。解压校验过的原文交给调用方按修改时间逐条合并
+        /// (`RadioStationsStore.applySnapshot`)。
+        let radioStationsToMerge: Data?
+        /// 电台清单随事务整份写入了(本机还没有电台文件的首次引导),调用方要从磁盘重读。
+        let replacesRadioStations: Bool
+    }
+
+    /// 本机是不是已经有电台清单。
+    nonisolated func hasTVRadioStations(destinationDirectory: URL? = nil) -> Bool {
+        FileManager.default.fileExists(
+            atPath: (destinationDirectory ?? directory).appendingPathComponent("radio-stations.json").path
+        )
+    }
+
+    /// 快照里的电台怎么进本机:本机还没有清单就随事务整份写入,有了就交回调用方合并。
+    private nonisolated static func radioStationsInstall(
+        _ payload: LANSyncPayload, into files: inout [URL: Data], root: URL,
+        hasExistingRadioStations: Bool
+    ) -> (radioStationsToMerge: Data?, replacesRadioStations: Bool)? {
+        guard let gz = payload.radioStationsGz else { return (nil, false) }
+        guard let raw = gunzip(gz, maxOutputBytes: maxRadioStationsRawBytes),
+              radioStations(from: raw) != nil else { return nil }
+        if hasExistingRadioStations { return (raw, false) }
+        files[root.appendingPathComponent("radio-stations.json")] = raw
+        return (nil, true)
     }
 
     private static func snapshotFileIdentity(at url: URL) -> SnapshotFileIdentity? {
@@ -2330,7 +2368,10 @@ final class LibrarySnapshotSync: Sendable {
             return TVPayloadInstallBaseline(existingLibraryData: libraryData,
                                             existingSourcesData: sourcesData,
                                             libraryIdentity: identity,
-                                            sourcesIdentity: sourcesIdentity)
+                                            sourcesIdentity: sourcesIdentity,
+                                            hasExistingRadioStations: hasTVRadioStations(
+                                                destinationDirectory: destinationDirectory
+                                            ))
         } catch {
             plog("TV snapshot transaction failed: \(error.localizedDescription)")
             return nil
@@ -2359,8 +2400,9 @@ final class LibrarySnapshotSync: Sendable {
         localSources: [MusicSource]? = nil,
         existingLibraryData: Data? = nil,
         existingSourcesData: Data? = nil,
+        hasExistingRadioStations: Bool,
         destinationDirectory: URL? = nil
-    ) -> [URL: Data]? {
+    ) -> TVPayloadInstallPlan? {
         do {
             let root = destinationDirectory ?? directory
             let sourceDestination = root.appendingPathComponent("sources.json")
@@ -2416,11 +2458,9 @@ final class LibrarySnapshotSync: Sendable {
             if let credentialReference {
                 files[root.appendingPathComponent("paired-credential-reference.json")] = credentialReference
             }
-            if let gz = payload.radioStationsGz {
-                guard let raw = Self.gunzip(gz, maxOutputBytes: Self.maxRadioStationsRawBytes),
-                      Self.radioStations(from: raw) != nil else { return nil }
-                files[root.appendingPathComponent("radio-stations.json")] = raw
-            }
+            guard let radio = Self.radioStationsInstall(
+                payload, into: &files, root: root, hasExistingRadioStations: hasExistingRadioStations
+            ) else { return nil }
             if let gz = payload.lyricsGz {
                 guard let raw = Self.gunzip(gz, maxOutputBytes: Self.maxLyricsBlobRawBytes) else { return nil }
                 let lyrics = try JSONDecoder().decode([String: String].self, from: raw)
@@ -2434,19 +2474,23 @@ final class LibrarySnapshotSync: Sendable {
                     files[destination] = bytes
                 }
             }
-            return files
+            return TVPayloadInstallPlan(files: files,
+                                        radioStationsToMerge: radio.radioStationsToMerge,
+                                        replacesRadioStations: radio.replacesRadioStations)
         } catch {
             plog("TV snapshot transaction failed: \(error.localizedDescription)")
             return nil
         }
     }
 
-    /// 分段直传第一段:合并音乐源、写凭据引用和电台,不碰曲库。合并与整包安装走同一个
-    /// 入口(先并入本机删除记录里的墓碑),曲库随后那段再合并一次也是同样的结果。
+    /// 分段直传第一段:合并音乐源、写凭据引用,电台按 `TVPayloadInstallPlan` 的规则处理,
+    /// 不碰曲库。合并与整包安装走同一个入口(先并入本机删除记录里的墓碑),
+    /// 曲库随后那段再合并一次也是同样的结果。
     nonisolated func prepareTVSourcesInstall(
         _ payload: LANSyncPayload, credentialReference: Data?,
-        localSources: [MusicSource], destinationDirectory: URL? = nil
-    ) -> [URL: Data]? {
+        localSources: [MusicSource], hasExistingRadioStations: Bool,
+        destinationDirectory: URL? = nil
+    ) -> TVPayloadInstallPlan? {
         do {
             let root = destinationDirectory ?? directory
             let encoder = JSONEncoder()
@@ -2460,12 +2504,12 @@ final class LibrarySnapshotSync: Sendable {
             if let credentialReference {
                 files[root.appendingPathComponent("paired-credential-reference.json")] = credentialReference
             }
-            if let gz = payload.radioStationsGz {
-                guard let raw = Self.gunzip(gz, maxOutputBytes: Self.maxRadioStationsRawBytes),
-                      Self.radioStations(from: raw) != nil else { return nil }
-                files[root.appendingPathComponent("radio-stations.json")] = raw
-            }
-            return files
+            guard let radio = Self.radioStationsInstall(
+                payload, into: &files, root: root, hasExistingRadioStations: hasExistingRadioStations
+            ) else { return nil }
+            return TVPayloadInstallPlan(files: files,
+                                        radioStationsToMerge: radio.radioStationsToMerge,
+                                        replacesRadioStations: radio.replacesRadioStations)
         } catch {
             plog("TV sources transaction failed: \(error.localizedDescription)")
             return nil
