@@ -258,6 +258,9 @@
 "ext.tv.radio.empty" = "Nenhuma estação ainda";
 "ext.tv.radio.popular" = "Estações populares";
 "ext.tv.radio.popularIn" = "Populares em %@";
+"ext.tv.radio.deepLinkUnavailable" = "Esta estação não está mais na sua lista.";
+"ext.tv.radio.stationCount.one" = "1 estação";
+"ext.tv.radio.playlistCleartext" = "Esta estação usa um link de playlist por HTTP sem criptografia, que a Apple TV não busca. Use o endereço direto do stream ou um link https.";
 "ext.tv.home.emptyWithRadio" = "Sincronize sua biblioteca pelo iPhone ou Mac para ver suas músicas aqui, ou adicione estações de rádio na internet diretamente.";
 "ext.tv.radio.stationCount" = "Estações %d";
 "ext.tv.radio.stop" = "Parar";

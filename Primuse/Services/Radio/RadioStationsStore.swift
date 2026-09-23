@@ -96,6 +96,23 @@ final class RadioStationsStore {
     /// 远端写入攒着还没写盘（见 `upsertFromRemote`）。
     @ObservationIgnored private var remotePersistPending = false
     @ObservationIgnored private var remotePersistTask: Task<Void, Never>?
+    /// 攒着没写盘的那些远端改动本身，按到达顺序；`nil` 表示远端删除。
+    /// 外部整份改写文件后 `reloadFromDisk()` 要把它们放回去（见那里）。
+    @ObservationIgnored private var pendingRemoteChanges: [(id: String, station: RadioStation?)] = []
+    /// 最近收听时间攒着还没写盘（见 `markPlayed`）。
+    @ObservationIgnored private var playedPersistPending = false
+    @ObservationIgnored private var playedPersistTask: Task<Void, Never>?
+
+    /// 待上传账本：本机改过、还没交给 CloudKit 引擎的电台 id。
+    ///
+    /// 同步没在跑的时候（总开关或「音乐源」通道关着、Apple TV 启动时引擎还没起来、
+    /// 引导早退）改的电台，通知发出去也没人收；记在这里并写盘，等
+    /// `CloudKitSyncService` 起来或通道重新打开时补传，交给正在运行的引擎之后才销账。
+    /// 不参与观察 —— 每次记账都让视图失效毫无意义。
+    @ObservationIgnored private(set) var cloudPendingStationIDs: Set<String> = []
+    /// 账本文件跟电台文件放同一目录（`radio-stations-cloud-pending.json`），
+    /// 由 `storeURL` 推出来，测试注入的 `storeURL` 各自隔离。
+    private let cloudPendingURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
@@ -107,7 +124,11 @@ final class RadioStationsStore {
         #endif
         let directory = base.appendingPathComponent("Primuse", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        self.storeURL = storeURL ?? directory.appendingPathComponent("radio-stations.json")
+        let resolvedStoreURL = storeURL ?? directory.appendingPathComponent("radio-stations.json")
+        self.storeURL = resolvedStoreURL
+        self.cloudPendingURL = resolvedStoreURL.deletingLastPathComponent().appendingPathComponent(
+            resolvedStoreURL.deletingPathExtension().lastPathComponent + "-cloud-pending.json"
+        )
         self.folderPlaceholdersURL = directory.appendingPathComponent("radio-folders.json")
         self.allStations = []
 
@@ -122,6 +143,7 @@ final class RadioStationsStore {
 
         load()
         loadFolderPlaceholders()
+        loadCloudPending()
         materializeLogos(for: allStations)
     }
 
@@ -416,10 +438,30 @@ final class RadioStationsStore {
     }
 
     /// Device-local recency is intentionally not pushed through CloudKit.
+    ///
+    /// 不立刻写盘：整份清单（含台标数据）每切一次台就重写一遍不划算，
+    /// 攒 2 秒合并成一次；期间任何一次 `persist()` 都会把它一起写掉。
+    /// 生命周期落盘时由 `flushPendingPersist()` 兜底。
     func markPlayed(_ id: String, at date: Date = Date()) {
         guard let index = allStations.firstIndex(where: { $0.id == id }) else { return }
         allStations[index].lastPlayedAt = date
+        schedulePlayedPersist()
+    }
+
+    /// 攒着没写盘的（最近收听时间、远端改动）现在写掉。进后台、退出前调。
+    func flushPendingPersist() {
+        guard playedPersistPending || remotePersistPending else { return }
         persist()
+    }
+
+    private func schedulePlayedPersist() {
+        playedPersistPending = true
+        guard playedPersistTask == nil else { return }
+        playedPersistTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.flushPendingPersist()
+        }
     }
 
     func moveStations(from offsets: IndexSet, to destination: Int) {
@@ -514,12 +556,14 @@ final class RadioStationsStore {
     /// 零散调用由短延迟兜底合并。
     func upsertFromRemote(_ remote: RadioStation) {
         guard let applied = applyRemote(remote) else { return }
+        pendingRemoteChanges.append((id: applied.id, station: applied))
         scheduleRemotePersist()
         materializeLogos(for: [applied])
     }
 
     func removeFromRemote(id: String) {
         allStations.removeAll { $0.id == id }
+        pendingRemoteChanges.append((id: id, station: nil))
         scheduleRemotePersist()
     }
 
@@ -541,6 +585,12 @@ final class RadioStationsStore {
 
     /// 把一条远端电台并进内存，不写盘。不合法或不比本地新时返回 nil。
     private func applyRemote(_ remote: RadioStation) -> RadioStation? {
+        applyRemote(remote, existingIndex: allStations.firstIndex { $0.id == remote.id })
+    }
+
+    /// `existingIndex` 是本机同 id 行的下标（没有就传 nil），由调用方决定怎么找：
+    /// 单条远端写入直接线性查，整份快照合并则先建索引。
+    private func applyRemote(_ remote: RadioStation, existingIndex: Int?) -> RadioStation? {
         guard remote.logoData.map({ $0.count <= RadioStationValidation.maximumLogoBytes }) ?? true,
               RadioStationValidation.hasConsistentServerIdentity(remote),
               remote.isDeleted
@@ -560,7 +610,7 @@ final class RadioStationsStore {
                 normalized.streamURL = normalizedURL
             }
         }
-        if let index = allStations.firstIndex(where: { $0.id == normalized.id }) {
+        if let index = existingIndex {
             guard allStations[index].modifiedAt <= normalized.modifiedAt else { return nil }
             var merged = normalized
             merged.lastPlayedAt = allStations[index].lastPlayedAt
@@ -580,13 +630,32 @@ final class RadioStationsStore {
         try encoder.encode(allStations)
     }
 
+    /// 把一份整份快照（Apple TV 装快照、局域网直传）逐条按修改时间并进来：
+    /// 本机独有的行和本机更新的行都留着，整份并完只写一次盘。
     func applySnapshot(_ data: Data) throws {
         let incoming = try decoder.decode([RadioStation].self, from: data)
-        // 整份快照并完只写一次盘。
-        let applied = incoming.compactMap { applyRemote($0) }
+        // 镜像台动辄几千个，逐条线性查找是平方级的；先建一次 id → 下标索引，
+        // 追加的新行随手登记，整份合并就是线性的。
+        var indexByID: [String: Int] = [:]
+        indexByID.reserveCapacity(allStations.count)
+        for (index, station) in allStations.enumerated() where indexByID[station.id] == nil {
+            indexByID[station.id] = index
+        }
+        var applied: [RadioStation] = []
+        applied.reserveCapacity(incoming.count)
+        for remote in incoming {
+            let countBefore = allStations.count
+            guard let station = applyRemote(remote, existingIndex: indexByID[remote.id]) else { continue }
+            if allStations.count > countBefore {
+                indexByID[station.id] = allStations.count - 1
+            }
+            applied.append(station)
+        }
         guard !applied.isEmpty else { return }
         persist()
         materializeLogos(for: applied)
+        // 被并进来的行都不比本机旧：账本里同一台的本机改动已经被盖过，不用再传。
+        clearCloudPending(applied.map(\.id))
     }
 
     // MARK: - 清单订阅
@@ -849,8 +918,56 @@ final class RadioStationsStore {
         notifyChanged(ids: changedIDs)
     }
 
+    /// 外部整份改写了 `radio-stations.json`（Apple TV 的快照事务写入或恢复）之后重读。
+    ///
+    /// 内存里有两样东西不能跟着旧内容一起丢：
+    /// - 已经并进内存、还没写盘的远端记录。CloudKit 一批记录逐条并进来、批末才写盘，
+    ///   这时重读会把前面几条冲掉，引擎游标随后越过它们，再也不会送来。
+    /// - 待上传账本里的本机改动。它们还没交给 CloudKit，文件里的是别的设备的版本。
+    /// 先回放远端、再放回本机改动，两边都按修改时间取新；有变化只整份写一次。
     func reloadFromDisk() {
+        let remoteChanges = remotePersistPending ? pendingRemoteChanges : []
+        var pendingLocal = cloudPendingStationIDs.isEmpty
+            ? []
+            : allStations.filter { cloudPendingStationIDs.contains($0.id) }
+        // 先按写盘的编码走一遍：日期写盘只留到秒，不这样比，文件里内容相同的行
+        // 也会因为毫秒差被当成改动放回去，平白整份重写一次。
+        if !pendingLocal.isEmpty,
+           let encoded = try? encoder.encode(pendingLocal),
+           let roundTripped = try? decoder.decode([RadioStation].self, from: encoded) {
+            pendingLocal = roundTripped
+        }
+
         load()
+
+        var changed = false
+        for change in remoteChanges {
+            if let station = change.station {
+                if applyRemote(station) != nil { changed = true }
+            } else {
+                let countBefore = allStations.count
+                allStations.removeAll { $0.id == change.id }
+                if allStations.count != countBefore { changed = true }
+            }
+        }
+
+        if !pendingLocal.isEmpty {
+            let result = RadioPendingCloudUploadPolicy.reapply(
+                pendingLocal: pendingLocal,
+                onto: allStations,
+                id: \.id,
+                modifiedAt: \.modifiedAt
+            )
+            if !result.restoredIDs.isEmpty {
+                allStations = result.rows
+                changed = true
+                plog("RadioStationsStore: restored \(result.restoredIDs.count) unsent local station change(s) after reload")
+            }
+            // 文件里的版本更新：远端已经盖过本机这次改动，本机没有要传的了。
+            clearCloudPending(result.supersededIDs)
+        }
+
+        if changed { persist() }
         materializeLogos(for: allStations)
     }
 
@@ -870,10 +987,14 @@ final class RadioStationsStore {
     }
 
     private func persist() {
-        // 整份写盘，远端攒着的改动也一并写进去了。
+        // 整份写盘，远端攒着的改动和最近收听时间也一并写进去了。
         remotePersistTask?.cancel()
         remotePersistTask = nil
         remotePersistPending = false
+        pendingRemoteChanges.removeAll()
+        playedPersistTask?.cancel()
+        playedPersistTask = nil
+        playedPersistPending = false
         guard let data = try? encoder.encode(allStations) else { return }
         try? data.write(to: storeURL, options: .atomic)
     }
@@ -896,12 +1017,47 @@ final class RadioStationsStore {
         notifyChanged(ids: changedIDs)
     }
 
+    /// 本地改动的唯一出口：先记进待上传账本，再发通知给 `CloudKitSyncService`。
+    ///
+    /// 不变量：远端入口（`upsertFromRemote`、`removeFromRemote`、`applySnapshot`、
+    /// `flushRemotePersist`）绝不能调用它 —— 否则拉下来的远端改动会被当成本机改动记账，
+    /// 补传时再推回 CloudKit。
     private func notifyChanged(ids: [String]) {
+        markCloudPending(ids)
         NotificationCenter.default.post(
             name: .primuseRadioStationsDidChange,
             object: nil,
             userInfo: ["ids": ids]
         )
+    }
+
+    // MARK: - 待上传账本
+
+    /// 这些电台已经交给正在运行的 CloudKit 引擎（或远端版本已经盖过本机改动），销账。
+    func clearCloudPending(_ ids: some Sequence<String>) {
+        guard !cloudPendingStationIDs.isEmpty else { return }
+        let countBefore = cloudPendingStationIDs.count
+        cloudPendingStationIDs.subtract(ids)
+        guard cloudPendingStationIDs.count != countBefore else { return }
+        persistCloudPending()
+    }
+
+    private func markCloudPending(_ ids: [String]) {
+        let countBefore = cloudPendingStationIDs.count
+        cloudPendingStationIDs.formUnion(ids)
+        guard cloudPendingStationIDs.count != countBefore else { return }
+        persistCloudPending()
+    }
+
+    private func loadCloudPending() {
+        guard let data = try? Data(contentsOf: cloudPendingURL),
+              let ids = try? decoder.decode([String].self, from: data) else { return }
+        cloudPendingStationIDs = Set(ids)
+    }
+
+    private func persistCloudPending() {
+        guard let data = try? encoder.encode(cloudPendingStationIDs.sorted()) else { return }
+        try? data.write(to: cloudPendingURL, options: .atomic)
     }
 
     private func materializeLogos(for stations: [RadioStation]) {

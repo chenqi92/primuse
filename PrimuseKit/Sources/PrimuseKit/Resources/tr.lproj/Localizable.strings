@@ -81,7 +81,7 @@
 "ext.tv.settings.appearance.light" = "Açık";
 "fullscreen_effect_cover_flow_motion" = "Gerçek sanat eserleri renkleri · Yavaş ışık kayması";
 "ext.tv.settings.appearance.system" = "Takip Et";
-"ext.tv.songsCount" = "%d şarkıları";
+"ext.tv.songsCount" = "%d şarkı";
 "serverShare.error.invalidTarget" = "Seçilen ortamın desteklenen bir sunucuya ait sabit kimlikleri yok.";
 "api_key" = "API Anahtarı";
 "send_to_tv_error_tv_status" = "Apple TV, HTTP durumu %@ ile aktarımı reddetti.";
@@ -118,7 +118,7 @@
 "send_to_tv_error_tv_forbidden" = "Apple TV eşleştirme kodu veya şifreleme anahtarı artık geçerli değil (HTTP 403). Mevcut QR kodunu tekrar tarayın.";
 "ext.tv.sources.enable" = "Etkinleştir";
 "drime_connect_description" = "Drime Ayarları → Geliştirici bölümünde oluşturulan API erişim belirtecini yapıştırın. Primuse, sürücünüzü açmadan önce bunu doğrular.";
-"ext.tv.radio.stationCount" = "%d istasyonları";
+"ext.tv.radio.stationCount" = "%d istasyon";
 "ext.tv.settings.appearance.dark" = "Koyu";
 "ext.tv.scan.start" = "Taramayı Başlat";
 "ext.tv.sources.add.step1" = "Kaynak Ekle · Adım 1";
@@ -158,13 +158,16 @@
 "ext.tv.radio.empty" = "Henüz istasyon yok";
 "ext.tv.radio.popular" = "Popüler İstasyonlar";
 "ext.tv.radio.popularIn" = "%@ bölgesinde popüler";
+"ext.tv.radio.deepLinkUnavailable" = "Bu istasyon artık listenizde değil.";
+"ext.tv.radio.stationCount.one" = "1 istasyon";
+"ext.tv.radio.playlistCleartext" = "Bu istasyon şifrelenmemiş HTTP üzerinden bir çalma listesi bağlantısı kullanıyor; Apple TV bu bağlantıyı açmaz. Doğrudan yayın adresini veya bir https bağlantısını kullanın.";
 "ext.tv.home.emptyWithRadio" = "Müziğinizi burada görmek için arşivinizi iPhone veya Mac’ten eşzamanlayın ya da doğrudan internet radyosu istasyonları ekleyin.";
 "ext.tv.settings.notSynced" = "Henüz senkronize edilmedi";
 "error.catalog.missingHTTPResponse" = "Sunucu hiçbir HTTP yanıtı döndürmedi.";
 "fullscreen_effect_native_subtitle" = "Tanıdık oynatıcı düzeni ve kontrolleri";
 "ext.tv.library.title.albums" = "Albümler · %d";
 "ext.tv.sources.saveFailedBody" = "Kaynak veya kimlik bilgileri tamamen kaydedilemedi. Tekrar deneyin.";
-"ext.tv.scan.depthExceeded" = "Klasör iç içe yerleştirme, tarama sınırını (%d düzeyleri) aşıyor.";
+"ext.tv.scan.depthExceeded" = "Klasör iç içe yerleştirme, tarama sınırını (%d düzey) aşıyor.";
 "ext.tv.sources.continueInitialScan" = "İlk Taramaya Devam Et";
 "ai_recommendation_intent_adjacentDiscovery" = "Bitişik Keşif";
 "src.category.local" = "Yerel";
@@ -179,10 +182,10 @@
 "ext.widget.sources.description" = "Her kaynak için indeksleme durumu ve indekslenmiş sayımlar.";
 "send_to_tv_error_snapshot_missing" = "Yerel arşiv anlık görüntüsü eksik. Arşivin yüklenmesinin bitmesini bekleyin ve tekrar deneyin.";
 "source_connection_public_hint" = "Genel adres ve ters proxy, kendi bağlantı noktaları ve isteğe bağlı yol önekleriyle aynı doğrudan yöntemdir.";
-"ext.tv.scan.totalIndexed" = "%d şarkıları indekslendi";
+"ext.tv.scan.totalIndexed" = "%d şarkı indekslendi";
 "ext.tv.scan.noSubfolders" = "Bu klasörün alt klasörü yoktur. Doğrudan taramak için geçerli klasörü seçin.";
 "error.baidu.topLevel" = "Baidu dosya yöneticisi %@ hatasıyla başarısız oldu.";
-"ext.tv.scan.folderCount" = "%d klasörleri";
+"ext.tv.scan.folderCount" = "%d klasör";
 "error.daoliyu.http" = "Daoliyu hizmeti HTTP %@'yi döndürdü.";
 "ext.tv.sources.cred.password" = "Şifre";
 "src.subtitle.pan115" = "115 Açık Platform · Çok yakında";
@@ -202,7 +205,7 @@
 "ext.tv.settings.intensity.low" = "Düşük";
 "drime_token_permission_hint" = "İzin kılavuzu: All oynatma, yazma ve silmeyi; Read Only göz atma ve oynatmayı destekler. Restricted için Files: Read, yan dosya yazma ve silme için ayrıca Files: Write gerekir.";
 "ext.tv.test.needs2FA" = "İki adımlı doğrulama gereklidir. Kaynağı basılı tutun, ardından İki Adımlı Doğrulama'yı seçin.";
-"ext.tv.search.artistMeta" = "Sanatçı · %d şarkıları";
+"ext.tv.search.artistMeta" = "Sanatçı · %d şarkı";
 "send_to_tv_credential_oauth_token" = "OAuth belirteci";
 "ext.tv.scan.cancelScan" = "Taramayı İptal Et";
 "ext.widget.sources.indexed" = "indekslendi";
@@ -275,7 +278,7 @@
 "ext.tv.sources.form.iphoneInputBody" = "Bir alana odaklanıldığında, eşleştirilmiş iPhone klavye girişi sunar. Oraya yazmak, uzaktan kumandayı kullanmaktan çok daha hızlıdır.";
 "ext.tv.nowPlaying.notPlaying" = "Oynatılmıyor";
 "source_connection_no_route" = "Kullanılabilir bağlantı adresi yapılandırılmamış";
-"ext.tv.settings.synced" = "Senkronize edildi · %@ şarkılar";
+"ext.tv.settings.synced" = "Senkronize edildi · %@ şarkı";
 "ext.tv.test.unsupported" = "“%@” doğrudan Apple TV üzerinde oynatılamaz";
 "source_connection_public_address" = "Genel Adres veya Ters Proxy URL";
 "ext.tv.immersive.style.lyricStage" = "Şarkı Sözü Sahnesi";
@@ -425,7 +428,7 @@
 "ext.widget.stats.displayName" = "Dinleme İstatistikleri";
 "ext.widget.wrapped.empty.subtitle" = "İncelemedeki yılınızın kilidini açmak için daha fazla şarkı dinleyin";
 "source_connection_local_address" = "LAN Adresi";
-"ext.tv.sources.typeSongs" = "%1$@ · %2$@ şarkıları";
+"ext.tv.sources.typeSongs" = "%1$@ · %2$@ şarkı";
 "ext.tv.scan.inProgress" = "Devam Ediyor";
 "ext.tv.nav.home" = "Ana sayfa";
 "error.catalog.missingList" = "Parça yanıtının listesi eksik.";
@@ -516,7 +519,7 @@
 "ext.tv.settings.general" = "Genel";
 "src.subtitle.fnMusic" = "Doğrudan katalog · Yerel API";
 "ext.watch.complication.description" = "Şu anda oynanan şeye bir göz atın.";
-"artist_name_settings_tv_summary" = "%1$d ayırıcılar · %2$d korumalı";
+"artist_name_settings_tv_summary" = "%1$d ayırıcı · %2$d korumalı";
 "ext.tv.options.sleepActive" = "Uyku %d dk.";
 "ext.tv.search.topResult" = "En İyi Sonuç";
 "ext.tv.immersive.style.vinyl" = "Vinil";
@@ -537,7 +540,7 @@
 "ai_recommendation_intent_familiarContinuity_detail" = "Favori sanatçılara ve tanıdık türlere yakın kalır";
 "ext.tv.search.aiFailed" = "Akıllı arama başarısız oldu; düzenli sonuçlar mevcut olmaya devam ediyor";
 "src.subtitle.upnp" = "Otomatik keşif";
-"ext.tv.queue.upNext" = "Sıradaki · %d şarkılar";
+"ext.tv.queue.upNext" = "Sıradaki · %d şarkı";
 "ext.widget.lyricsPreview.empty1" = "Şarkı sözü önizlemesi yok";
 "ext.widget.recent.empty.medium" = "Çalmaya başladığınızda son albümleriniz burada görünecek";
 "ext.control.playPause.description" = "Primuse oynatmayı tek dokunuşla kontrol edin.";
@@ -592,7 +595,7 @@
 "ext.tv.settings.syncUnreachable" = "iCloud'a ulaşılamıyor — ağı kontrol edin";
 "ext.tv.settings.syncedNoTransferable" = "Eşitlendi · Yerel dosyalar telefonda kalır";
 "ext.tv.settings.syncDisabled" = "iCloud eşitlemesi kapalı";
-"ext.tv.settings.libraryStat" = "%1$@ şarkıları · %2$d albümleri · %3$d sanatçıları";
+"ext.tv.settings.libraryStat" = "%1$@ şarkı · %2$d albüm · %3$d sanatçı";
 "ext.tv.search.path" = "Yol: %@";
 "ext.tv.options.eyebrow" = "Seçenekler";
 "ext.tv.demo.lyric6" = "Bırakın neon suyun üzerinde sallansın";

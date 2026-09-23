@@ -18,9 +18,17 @@ struct TVHomeView: View {
     @State private var recommendationHistoryRevision = 0
     @State private var recommendationClockRevision = 0
     @State private var showsRadioAdd = false
+    /// 这次「添加电台」是从空首页的按钮打开的:加上第一个台后空态整块换成了电台排,
+    /// 原来的按钮不在了,关闭时由这里把焦点放到第一张电台卡片上。
+    @State private var radioAddFromEmptyState = false
+    @State private var radioDeleteRequest: TVRadioDeleteRequest?
+    @FocusState private var focusedRadioID: String?
     var openPlayer: () -> Void = {}
     /// 「全部电台」卡片:切到资料库的「电台」。
     var openRadioLibrary: () -> Void = {}
+    /// 电台的添加 / 重命名 / 删除确认弹层。只报弹层在不在,关闭后的焦点由这里和系统负责,
+    /// TVRoot 不改焦点(它的关闭处理会把首页的焦点送回顶栏)。
+    var onModalPresentationChanged: (Bool) -> Void = { _ in }
 
     /// 首页电台那一排最多放几个台。台多的时候(音乐源镜像动辄上千个)整排一次性构造
     /// 会很卡,其余的去资料库「电台」里看,那里是懒加载的网格。
@@ -124,7 +132,13 @@ struct TVHomeView: View {
                     title: PMString("ext.tv.home.empty"),
                     subtitle: PMString("ext.tv.home.emptyWithRadio"),
                     actionTitle: PMString("ext.tv.radio.add"),
-                    action: { showsRadioAdd = true }
+                    // 没有曲库时删掉最后一个台,整页换成这个空态,删除后的焦点交给这颗按钮。
+                    focusBinding: $focusedRadioID,
+                    focusID: TVRadioFocusID.add,
+                    action: {
+                        radioAddFromEmptyState = true
+                        showsRadioAdd = true
+                    }
                 ).tvPage()
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
@@ -150,15 +164,27 @@ struct TVHomeView: View {
                         label: PMString("ext.tv.radio.title"),
                         sub: store.radioStations.isEmpty
                             ? nil
-                            : PMString("ext.tv.radio.stationCount", store.radioStations.count)
+                            : TVRadioText.stationCount(store.radioStations.count)
                     ) {
-                        ForEach(store.radioStations.prefix(Self.homeRadioLimit)) { station in
-                            TVRadioStationCard(station: station, action: openPlayer)
+                        let homeStations = homeRadioStations
+                        // 长按挪动只在这一排里算,台不会被挪出首页。
+                        let homeStationIDs = homeStations.map(\.id)
+                        ForEach(homeStations) { station in
+                            TVRadioStationCard(
+                                station: station,
+                                siblingIDs: homeStationIDs,
+                                focusBinding: $focusedRadioID,
+                                onDelete: {
+                                    radioDeleteRequest = TVRadioDeleteRequest(station: $0, siblingIDs: homeStationIDs)
+                                },
+                                onModalPresentationChanged: onModalPresentationChanged,
+                                action: openPlayer
+                            )
                         }
                         if store.radioStations.count > Self.homeRadioLimit {
                             TVRadioAllStationsCard(count: store.radioStations.count, action: openRadioLibrary)
                         }
-                        TVRadioAddCard { showsRadioAdd = true }
+                        TVRadioAddCard(focusBinding: $focusedRadioID) { showsRadioAdd = true }
                     }
                     if !store.recentlyAddedAlbums.isEmpty {
                         TVRow(label: PMString("ext.tv.home.recentlyAdded")) {
@@ -182,9 +208,22 @@ struct TVHomeView: View {
             }
             }
         }
-        .fullScreenCover(isPresented: $showsRadioAdd) {
+        .fullScreenCover(isPresented: $showsRadioAdd, onDismiss: focusRadioRowAfterAdd) {
             TVRadioAddView().environment(store)
         }
+        .onChange(of: showsRadioAdd) { _, shows in onModalPresentationChanged(shows) }
+        .onDisappear {
+            if showsRadioAdd { onModalPresentationChanged(false) }
+        }
+        // 删掉一张后焦点交给同一排的邻居;这一排删空了就交给「添加电台」卡片,
+        // 没有曲库时则是整页空态上的「添加电台」按钮。
+        .modifier(TVRadioDeleteConfirmationHost(
+            request: $radioDeleteRequest,
+            focus: $focusedRadioID,
+            currentIDs: { homeRadioStations.map(\.id) },
+            store: store,
+            onPresentationChanged: onModalPresentationChanged
+        ))
         #if DEBUG
         .onAppear {
             if TVDebugLaunch.screen == "radioAdd", !Self.didOpenDebugRadioAdd {
@@ -207,6 +246,20 @@ struct TVHomeView: View {
             Timer.publish(every: 15 * 60, on: .main, in: .common).autoconnect()
         ) { _ in
             recommendationClockRevision &+= 1
+        }
+    }
+
+    private var homeRadioStations: [RadioStation] {
+        Array(store.radioStations.prefix(Self.homeRadioLimit))
+    }
+
+    private func focusRadioRowAfterAdd() {
+        guard radioAddFromEmptyState else { return }
+        radioAddFromEmptyState = false
+        guard let first = store.radioStations.first?.id else { return }
+        Task { @MainActor in
+            await Task.yield()
+            focusedRadioID = first
         }
     }
 

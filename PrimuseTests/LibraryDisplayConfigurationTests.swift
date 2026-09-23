@@ -124,7 +124,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
 
         XCTAssertEqual(
             LibraryDisplayConfiguration.decodeSectionOrder(rawValue),
-            [.recommendations, .favorites, .albums, .songs, .artists, .genres, .playlists, .folders, .radio, .statistics]
+            [.recommendations, .favorites, .spokenWord, .albums, .songs, .artists, .genres, .playlists, .folders, .radio, .statistics]
         )
     }
 
@@ -313,7 +313,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
             LibraryDisplayConfiguration.encodeSectionOrder(oldOrder)
         )
         XCTAssertEqual(order.filter(oldOrder.contains), oldOrder)
-        let hidden: Set<LibrarySection> = [.recommendations, .favorites, .folders, .statistics]
+        let hidden: Set<LibrarySection> = [.recommendations, .favorites, .spokenWord, .folders, .statistics]
         let visible = LibraryDisplayConfiguration.visibleSections(
             orderRawValue: LibraryDisplayConfiguration.encodeSectionOrder(order),
             hiddenRawValue: LibraryDisplayConfiguration.encodeHiddenSections(hidden)

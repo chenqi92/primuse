@@ -222,7 +222,8 @@ final class TVAudioEngine {
         let id: UUID
         let url: URL
         let headers: [String: String]
-        let title: String
+        /// 电台改名时就地更新(`updateLiveTitle`),断线重连沿用新名字。
+        var title: String
         let subtitle: String
         let format: String
         let streamFormat: RadioStreamFormat
@@ -440,6 +441,15 @@ final class TVAudioEngine {
         liveDecodedFallbackNeedsValidation = false
         liveRequest = request
         startLiveRadio(request)
+    }
+
+    /// 正在播的电台改了名:只换标题并重发系统「正在播放」信息,不重连。
+    /// 留着的直播请求一起改,断线重连(`startLiveRadio(liveRequest)`)不会把旧名字带回来。
+    func updateLiveTitle(_ title: String) {
+        guard isLiveStream, liveRequest != nil, npTitle != title else { return }
+        liveRequest?.title = title
+        npTitle = title
+        updateNowPlayingInfo()
     }
 
     private func startLiveRadio(_ request: LiveRequest) {

@@ -357,13 +357,15 @@ struct TVRoot: View {
                 openRadioLibrary: {
                     libraryFilter = .radio
                     tab = .library
-                }
+                },
+                onModalPresentationChanged: childModalPresentationChanged
             )
         case .library:
             TVLibraryView(
                 openPlayer: { tab = .nowPlaying },
                 onReturnToTabs: returnFocusToTabs,
                 onModalActivityChanged: childModalActivityChanged,
+                onModalPresentationChanged: childModalPresentationChanged,
                 filter: $libraryFilter,
                 focusRequest: libraryFocusRequest
             )
@@ -408,7 +410,9 @@ struct TVRoot: View {
         ].filter { $0 }.count
     }
 
-    private func modalActivityChanged(_ active: Bool) {
+    /// `restoresContentFocus` 为 false 时弹层关闭后不改焦点,只在收起期间压住顶栏的
+    /// 焦点换页 —— 焦点由弹出它的那一页自己放回。
+    private func modalActivityChanged(_ active: Bool, restoresContentFocus: Bool = true) {
         modalFocusRecoveryGeneration &+= 1
         let generation = modalFocusRecoveryGeneration
         suppressesFocusDrivenTabSelection = true
@@ -417,13 +421,15 @@ struct TVRoot: View {
         Task { @MainActor in
             await Task.yield()
             guard generation == modalFocusRecoveryGeneration else { return }
-            if TVContentFocusRoutingPolicy.target(
-                for: focusRoutingTab(tab),
-                nowPlayingMode: nowPlayingFocusMode
-            ) != nil {
-                requestContentFocus(from: tab)
-            } else {
-                returnFocusToTabs()
+            if restoresContentFocus {
+                if TVContentFocusRoutingPolicy.target(
+                    for: focusRoutingTab(tab),
+                    nowPlayingMode: nowPlayingFocusMode
+                ) != nil {
+                    requestContentFocus(from: tab)
+                } else {
+                    returnFocusToTabs()
+                }
             }
             await Task.yield()
             guard generation == modalFocusRecoveryGeneration else { return }
@@ -434,6 +440,17 @@ struct TVRoot: View {
     private func childModalActivityChanged(_ active: Bool) {
         hasChildModalPresentation = active
         modalActivityChanged(active || rootModalPresentationCount > 0)
+    }
+
+    /// 电台卡片的重命名 / 删除确认、首页的添加电台:关闭后焦点该回到原卡片或删掉那张的
+    /// 邻居,这由那一页自己放。这里只登记弹层在不在(停掉播放快捷键、压住焦点换页),
+    /// 关闭时不再把焦点送回顶栏或筛选行,否则会盖掉那一页放好的焦点。
+    private func childModalPresentationChanged(_ active: Bool) {
+        hasChildModalPresentation = active
+        modalActivityChanged(
+            active || rootModalPresentationCount > 0,
+            restoresContentFocus: false
+        )
     }
 
     private func requestContentFocus(from tab: Tab) {
@@ -843,7 +860,7 @@ struct TVBottomBar: View {
     @ViewBuilder
     private func bottomArtwork(_ np: TVNowPlaying) -> some View {
         if store.isLiveRadio, let station = store.currentRadioStation {
-            TVRadioArtworkView(station: station, size: 48, radius: 8)
+            TVRadioArtworkView(station: station, size: 48, radius: 8, store: store)
         } else {
             TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                           songID: np.songID, coverRef: np.coverRef,

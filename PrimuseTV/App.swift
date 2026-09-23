@@ -169,7 +169,13 @@ struct PrimuseTVApp: App {
                     }
                     #endif
                     let autoSync = UserDefaults.standard.object(forKey: "tvAutoSync") as? Bool ?? true
-                    if autoSync { await store.bootstrap() } else { store.reload() }
+                    if autoSync {
+                        await store.bootstrap()
+                    } else {
+                        store.reload()
+                        // 这次启动不同步,本地电台列表就是全部了。
+                        store.finishPendingRadioDeepLink()
+                    }
                     store.recoverReceivedMusicIfNeeded()
                 }
                 // 注意:不在回到前台时自动重新拉快照。否则会用手机端的权威状态覆盖

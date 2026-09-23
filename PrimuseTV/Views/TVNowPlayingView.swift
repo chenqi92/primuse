@@ -198,7 +198,7 @@ struct TVNowPlayingView: View {
 
             HStack(spacing: 84) {
                 if let station = store.currentRadioStation {
-                    TVRadioArtworkView(station: station, size: 500, radius: 30)
+                    TVRadioArtworkView(station: station, size: 500, radius: 30, store: store)
                         .shadow(color: .black.opacity(0.55), radius: 42, y: 22)
                 } else {
                     TVMusicPlaceholder(

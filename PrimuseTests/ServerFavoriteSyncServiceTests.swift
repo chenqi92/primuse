@@ -250,7 +250,7 @@ final class ServerFavoriteSyncServiceTests: XCTestCase {
             let source = makeSource(type: sourceType)
             let path: String
             switch sourceType {
-            case .emby: path = "/items/item-1.mp3"
+            case .emby, .jellyfin, .plex: path = "/items/item-1.mp3"
             case .fnMusic: path = "/fnmusic/tracks/item-1.mp3"
             case .songloft: path = "/songloft/songs/1.mp3"
             default: path = "/songs/item-1.mp3"
@@ -264,7 +264,8 @@ final class ServerFavoriteSyncServiceTests: XCTestCase {
             service.localLikedStateDidChange(song: song, previous: false, desired: true)
             await service.waitForPendingMutations(sourceID: source.id)
 
-            let shouldWrite = [MusicSourceType.emby, .subsonic, .navidrome, .fnMusic, .songloft].contains(sourceType)
+            let shouldWrite = [MusicSourceType.emby, .jellyfin, .plex, .subsonic, .navidrome, .fnMusic, .songloft]
+                .contains(sourceType)
             XCTAssertEqual(manager.setCalls.count, shouldWrite ? 1 : 0, "Unexpected call for \(sourceType)")
             XCTAssertTrue(library.isLiked(songID: song.id))
         }

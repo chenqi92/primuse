@@ -877,12 +877,11 @@ actor Pan123Source: MusicSourceConnector, OAuthCloudSource, LyricsSidecarTargetR
 /// 123 云盘分片上传在轮询上限内一直没有确认合并完成(`upload_complete` 始终 `completed=false`)。
 struct Pan123UploadMergePendingError: LocalizedError {
     let attempts: Int
-    // 复用已本地化的 API 错误框架;文案点明是合并未完成,而非响应无效。
+    /// 填进 `error_api` 第二个槽位的技术细节, 说明是合并未完成而非响应无效;
+    /// 不是给用户读的文案, 所以不走本地化表。
+    private var detail: String { "completed=false ×\(attempts) (merge pending)" }
+    // 复用已本地化的 API 错误框架。
     var errorDescription: String? {
-        String(
-            format: String(localized: "error_api %@ %@"),
-            "upload_complete",
-            "completed=false ×\(attempts) (merge pending)"
-        )
+        String(format: String(localized: "error_api %@ %@"), "upload_complete", detail)
     }
 }

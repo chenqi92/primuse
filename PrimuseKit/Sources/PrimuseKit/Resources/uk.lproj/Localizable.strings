@@ -154,10 +154,13 @@
 "ext.tv.radio.rename" = "Перейменувати";
 "ext.tv.radio.renameTitle" = "Перейменувати станцію";
 "ext.tv.radio.allStations" = "Усі станції";
-"ext.tv.radio.ungrouped" = "Без папки";
+"ext.tv.radio.ungrouped" = "Без теки";
 "ext.tv.radio.empty" = "Станцій поки немає";
 "ext.tv.radio.popular" = "Популярні станції";
 "ext.tv.radio.popularIn" = "Популярне: %@";
+"ext.tv.radio.deepLinkUnavailable" = "Цієї станції більше немає у списку.";
+"ext.tv.radio.stationCount.one" = "1 станція";
+"ext.tv.radio.playlistCleartext" = "Ця станція використовує посилання на плейлист через незашифрований HTTP, яке Apple TV не завантажує. Використайте пряму адресу потоку або посилання https.";
 "ext.tv.home.emptyWithRadio" = "Синхронізуйте медіатеку з iPhone або Mac, щоб бачити тут музику, або додайте інтернет-радіостанції напряму.";
 "ext.tv.settings.notSynced" = "Ще не синхронізовано";
 "error.catalog.missingHTTPResponse" = "Сервер не повернув відповідь HTTP.";

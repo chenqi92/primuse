@@ -258,6 +258,9 @@
 "ext.tv.radio.empty" = "अभी कोई स्टेशन नहीं";
 "ext.tv.radio.popular" = "लोकप्रिय स्टेशन";
 "ext.tv.radio.popularIn" = "%@ में लोकप्रिय";
+"ext.tv.radio.deepLinkUnavailable" = "यह स्टेशन अब आपकी सूची में नहीं है।";
+"ext.tv.radio.stationCount.one" = "1 स्टेशन";
+"ext.tv.radio.playlistCleartext" = "यह स्टेशन बिना एन्क्रिप्शन वाले HTTP पर प्लेलिस्ट लिंक का उपयोग करता है, जिसे Apple TV नहीं लाता। सीधा स्ट्रीम पता या https लिंक इस्तेमाल करें।";
 "ext.tv.home.emptyWithRadio" = "अपना संगीत यहाँ देखने के लिए iPhone या Mac से लाइब्रेरी सिंक करें, या सीधे इंटरनेट रेडियो स्टेशन जोड़ें।";
 "ext.tv.radio.stationCount" = "%d स्टेशन";
 "ext.tv.radio.stop" = "बंद करें";

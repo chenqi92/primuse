@@ -394,6 +394,10 @@ struct TVFocusButton<Label: View>: View {
     var ring: Bool
     var action: () -> Void
     var onFocusChanged: (Bool) -> Void
+    /// 可选的外部焦点绑定:持有列表的父视图按 `focusID` 把焦点放到这颗按钮上
+    /// (比如删掉一张卡片后交给它的邻居)。按钮自己的 `@FocusState` 照旧管焦点外观。
+    var focusBinding: FocusState<String?>.Binding?
+    var focusID: String?
     @ViewBuilder var label: (Bool) -> Label
 
     @FocusState private var focused: Bool
@@ -405,6 +409,8 @@ struct TVFocusButton<Label: View>: View {
          ring: Bool = true,
          action: @escaping () -> Void = {},
          onFocusChanged: @escaping (Bool) -> Void = { _ in },
+         focusBinding: FocusState<String?>.Binding? = nil,
+         focusID: String? = nil,
          @ViewBuilder label: @escaping (Bool) -> Label) {
         self.radius = radius
         self.accent = accent
@@ -413,6 +419,8 @@ struct TVFocusButton<Label: View>: View {
         self.ring = ring
         self.action = action
         self.onFocusChanged = onFocusChanged
+        self.focusBinding = focusBinding
+        self.focusID = focusID
         self.label = label
     }
 
@@ -428,9 +436,25 @@ struct TVFocusButton<Label: View>: View {
         }
         .buttonStyle(TVBareButtonStyle())
         .focused($focused)
+        .modifier(TVExternalFocusModifier(binding: focusBinding, id: focusID))
         .focusEffectDisabled()   // 关掉 tvOS 默认白卡焦点效果,只保留自定义高亮
         .onChange(of: focused) { _, value in
             onFocusChanged(value)
+        }
+    }
+}
+
+/// `TVFocusButton` 的外部焦点绑定。两份绑定跟随同一个焦点:没给绑定时什么也不挂。
+private struct TVExternalFocusModifier: ViewModifier {
+    let binding: FocusState<String?>.Binding?
+    let id: String?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let binding, let id {
+            content.focused(binding, equals: id)
+        } else {
+            content
         }
     }
 }

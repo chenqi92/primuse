@@ -206,6 +206,9 @@ final class CloudKitSyncService {
     private var pendingRadioSnapshotUpload: Task<Void, Never>?
     private var radioSnapshotToken: UUID?
     private var radioSnapshotFirstPendingAt: ContinuousClock.Instant?
+    /// 补传了待上传账本里的电台（见 `flushDeferredRadioStationChanges`），快照要等
+    /// 下一次拉取成功、本机 radio-stations.json 已含拉到的记录之后再传。
+    private var radioSnapshotAfterFetch = false
 
     /// Listening-stats payload precomputed by the throttled flush, keyed by the
     /// store revision it was built from. A miss simply encodes synchronously.
@@ -336,6 +339,9 @@ final class CloudKitSyncService {
         // 只补传服务器还没确认过的那一次删除: 已确认的也每次重传, 任何一台设备
         // 启动一次, 其它设备就得把全部墓碑(实测 40 条)再收一遍。
         sourcesChanged(ids: unacknowledgedSourceDeletionIDs())
+        // 同步没在跑时本机改过的电台同理：每次 start 都补，与只做一次的首次上传无关。
+        // 仍是先拉后推，拉到的远端改动按修改时间与补传的记录比较。
+        flushDeferredRadioStationChanges()
 
         // Push existing local state once after install so the engine has a
         // baseline. After that CKSyncEngine's persisted state tracks per-record
@@ -351,10 +357,13 @@ final class CloudKitSyncService {
             // 用户可能刚好在 fetch 期间关掉同步 / 切换账号。此时这条 pass 必须
             // 停在这里,不能再把本地数据推上去。
             guard self.engine === engine, startAttemptID == attemptID else { return }
+            uploadDeferredRadioSnapshotIfNeeded()
             let drained = try await sendChangesResolvingRecoverableFailures(using: engine)
             plog("CloudKitSync: sendChanges OK")
             guard self.engine === engine, startAttemptID == attemptID else { return }
-            self.didCompleteInitialUpload = drained
+            // 只允许从未完成升为完成：已经做过的首次上传，不因这一轮补传的积压没传完
+            // 就被改回未完成，下次启动再整份重传一遍。
+            if drained { self.didCompleteInitialUpload = true }
             self.status = drained ? .upToDate : .syncing
             if drained { self.lastSyncedAt = Date() }
         } catch {
@@ -662,6 +671,8 @@ final class CloudKitSyncService {
             smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
         case .sources:
             sourcesChanged(ids: sourceIDsForCatchUp())
+            // 电台逐条同步，不全量重传；只补通道关着时本机改过的那些。
+            flushDeferredRadioStationChanges()
         case .playbackHistory:
             enqueueSaves(recordType: RecordType.playbackHistory, ids: [Self.playbackHistoryRecordName])
         case .listeningStats:
@@ -694,6 +705,7 @@ final class CloudKitSyncService {
             // 同上:stop() 之后这条 pass 既不能继续上传,也不能把 `.disabled`
             // 状态改回来。
             guard self.engine === engine else { return }
+            uploadDeferredRadioSnapshotIfNeeded()
             let drained = try await sendChangesResolvingRecoverableFailures(using: engine)
             guard self.engine === engine else { return }
             status = drained ? .upToDate : .syncing
@@ -1090,6 +1102,48 @@ final class CloudKitSyncService {
         guard CloudSyncChannel.isEnabled(.sources) else { return }
         enqueueRadioStationRecords(ids: ids)
         scheduleRadioSnapshotUpload()
+        // 真交给了正在运行的引擎才销账。引擎没起来、或者这是 stop() 之后才跑到的
+        // 观察者任务，id 留在账本里，等下一次 start / catchUp 补传。
+        if canEnqueueRecordChanges { radioStationsStore.clearCloudPending(ids) }
+    }
+
+    /// 补传同步没在跑时（总开关或「音乐源」通道关着、Apple TV 引擎还没起来、引导早退）
+    /// 本机改过的电台。只把记录交给引擎；快照要等这一轮拉取成功之后再传
+    /// （`uploadDeferredRadioSnapshotIfNeeded`）—— 此刻本机文件还没追上远端，
+    /// 现在传会把旧行写进 Apple TV 每次启动都要装的共享快照。
+    private func flushDeferredRadioStationChanges() {
+        let ids = radioStationsStore.cloudPendingStationIDs
+        guard !ids.isEmpty, CloudSyncChannel.isEnabled(.sources) else { return }
+        let sortedIDs = ids.sorted()
+        plog("☁️ CloudKitSync: re-enqueueing \(sortedIDs.count) radio station change(s) made while sync was not running")
+        enqueueRadioStationRecords(ids: sortedIDs)
+        guard canEnqueueRecordChanges else { return }
+        radioStationsStore.clearCloudPending(sortedIDs)
+        radioSnapshotAfterFetch = true
+    }
+
+    /// 拉取成功之后补传一次电台快照。先把拉到、还攒在内存里的远端记录写进
+    /// radio-stations.json，快照读的是这个文件。拉取失败不走到这里，留给下一次。
+    private func uploadDeferredRadioSnapshotIfNeeded() {
+        guard radioSnapshotAfterFetch else { return }
+        radioSnapshotAfterFetch = false
+        flushCoalescedRemoteWrites()
+        scheduleRadioSnapshotUpload()
+    }
+
+    /// 通道关着时拉到的电台变更照样被消费了：etag 已存、游标已越过，重新打开后不会再送来。
+    /// 账本里同一台的本机改动如果不比远端新，就不能再补传 —— 否则会盖掉较新的远端版本，
+    /// 或者把别处删掉的台当成新台插回去。只清账本，不改本地数据。
+    /// `serverUpdatedAt == nil` 表示远端删除，删除优先。
+    private func supersedeDeferredRadioChange(recordID: CKRecord.ID, serverUpdatedAt: Date?) {
+        guard let id = parseLocalID(from: recordID, recordType: RecordType.radioStation),
+              radioStationsStore.cloudPendingStationIDs.contains(id) else { return }
+        if let serverUpdatedAt,
+           let local = radioStationsStore.allStations.first(where: { $0.id == id }),
+           serverUpdatedAt < local.modifiedAt {
+            return
+        }
+        radioStationsStore.clearCloudPending([id])
     }
 
     /// Per-station record sync on its own. This is the channel that carries an
@@ -1313,8 +1367,14 @@ final class CloudKitSyncService {
 
     // MARK: - Internal helpers
 
+    /// 现在入队的记录能不能真的交给引擎。入队和电台账本的销账用同一个判定，
+    /// 不会出现没入队却销了账的情况。
+    private var canEnqueueRecordChanges: Bool {
+        engine != nil && isStarted && !isApplyingRemote
+    }
+
     private func enqueueSaves(recordType: String, ids: [String]) {
-        guard let engine, isStarted, !isApplyingRemote else { return }
+        guard let engine, canEnqueueRecordChanges else { return }
         let changes = ids.map { id in
             CKSyncEngine.PendingRecordZoneChange.saveRecord(recordID(recordType: recordType, id: id))
         }
@@ -1322,7 +1382,7 @@ final class CloudKitSyncService {
     }
 
     private func enqueueDeletes(recordType: String, ids: [String]) {
-        guard let engine, isStarted, !isApplyingRemote else { return }
+        guard let engine, canEnqueueRecordChanges else { return }
         let changes = ids.map { id in
             CKSyncEngine.PendingRecordZoneChange.deleteRecord(recordID(recordType: recordType, id: id))
         }
@@ -1800,6 +1860,12 @@ final class CloudKitSyncService {
         // 不论本 channel 是否启用,都先保留 system fields——禁用期间也可能后续
         // 又开启,届时如果没有 changeTag 还是会撞 "record to insert already exists"。
         storeSystemFields(record)
+        if record.recordType == RecordType.radioStation {
+            supersedeDeferredRadioChange(
+                recordID: record.recordID,
+                serverUpdatedAt: (record["updatedAt"] as? Date) ?? .distantPast
+            )
+        }
 
         if let channel = Self.channel(for: record.recordType),
            !CloudSyncChannel.isEnabled(channel) {
@@ -1881,6 +1947,12 @@ final class CloudKitSyncService {
         // Preserve the server change tag before the already-pending send asks
         // makeRecord(for:) to rebuild the merged payload.
         storeSystemFields(record)
+        if record.recordType == RecordType.radioStation {
+            supersedeDeferredRadioChange(
+                recordID: record.recordID,
+                serverUpdatedAt: (record["updatedAt"] as? Date) ?? .distantPast
+            )
+        }
 
         if let channel = Self.channel(for: record.recordType),
            !CloudSyncChannel.isEnabled(channel) {
@@ -1984,6 +2056,9 @@ final class CloudKitSyncService {
     ) {
         // record 已经从 server 移除,缓存里的 changeTag 也没用了。
         removeSystemFields(for: recordID)
+        if recordType == RecordType.radioStation {
+            supersedeDeferredRadioChange(recordID: recordID, serverUpdatedAt: nil)
+        }
 
         if let channel = Self.channel(for: recordType),
            !CloudSyncChannel.isEnabled(channel) {

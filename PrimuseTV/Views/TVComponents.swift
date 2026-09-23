@@ -345,25 +345,40 @@ struct TVRadioStationCard: View {
     @Environment(TVStore.self) private var store
     let station: RadioStation
     var width: CGFloat = 220
+    /// 卡片所在那一排 / 那一格实际显示的台(首页只放前几个,资料库可能按文件夹筛过)。
+    /// 长按菜单的首尾判断和挪动都只在它们之间算;不给就按电视上的全部电台。
+    var siblingIDs: [String]? = nil
+    /// 持有这一排卡片的父视图的焦点绑定(按电台 id),删除后由父视图把焦点交给邻居。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    /// 长按「删除」:确认弹层由持有这一排的父视图弹(`TVRadioDeleteConfirmationHost`)。
+    /// 确认后这张卡片就不在了,挂在卡片自己身上的弹层没人接得住焦点。
+    let onDelete: (RadioStation) -> Void
+    /// 重命名面板弹出 / 关闭。只报给 TVRoot 登记,关闭后系统自己把焦点还给这张卡片。
+    var onModalPresentationChanged: (Bool) -> Void = { _ in }
     var action: () -> Void = {}
-    @State private var panel: Panel?
+    @State private var showsRename = false
 
-    private enum Panel: String, Identifiable {
-        case rename, delete
-        var id: String { rawValue }
+    private var isFirstInRow: Bool {
+        guard let siblingIDs else { return store.radioStations.first?.id == station.id }
+        return siblingIDs.first == station.id
+    }
+
+    private var isLastInRow: Bool {
+        guard let siblingIDs else { return store.radioStations.last?.id == station.id }
+        return siblingIDs.last == station.id
     }
 
     var body: some View {
-        TVFocusButton(ring: false, action: play) { focused in
+        TVFocusButton(ring: false, action: play, focusBinding: focusBinding, focusID: station.id) { focused in
             VStack(alignment: .leading, spacing: 0) {
-                TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover)
+                TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover, store: store)
                     .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(station.name)
                         .tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(2, reservesSpace: true)
-                    Text(station.playbackSubtitle)
+                    Text(station.tvPlaybackSubtitle)
                         .tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint)
                         .lineLimit(1)
@@ -380,25 +395,26 @@ struct TVRadioStationCard: View {
                 Label(PMString("ext.tv.radio.play"), systemImage: "play.fill")
             }
             if store.canManageRadioStation(station) {
-                let isFirst = store.firstRadioStationID == station.id
-                let isLast = store.lastRadioStationID == station.id
+                // 首页那排最后一张卡不给「向后移」:挪出前几个就不在首页了,焦点会掉回顶栏。
+                let isFirst = isFirstInRow
+                let isLast = isLastInRow
                 if !isFirst {
                     Button {
-                        store.moveRadioStation(id: station.id, by: -1)
+                        store.moveRadioStation(id: station.id, by: -1, within: siblingIDs)
                     } label: {
                         Label(PMString("ext.tv.radio.moveEarlier"), systemImage: "arrow.backward")
                     }
                 }
                 if !isLast {
                     Button {
-                        store.moveRadioStation(id: station.id, by: 1)
+                        store.moveRadioStation(id: station.id, by: 1, within: siblingIDs)
                     } label: {
                         Label(PMString("ext.tv.radio.moveLater"), systemImage: "arrow.forward")
                     }
                 }
                 if !isFirst {
                     Button {
-                        store.moveRadioStationToTop(id: station.id)
+                        store.moveRadioStationToTop(id: station.id, within: siblingIDs)
                     } label: {
                         Label(PMString("ext.tv.radio.moveToTop"), systemImage: "arrow.up.to.line")
                     }
@@ -406,27 +422,25 @@ struct TVRadioStationCard: View {
                 // 订阅来的台名字归清单管,改了下次刷新也会被还原。
                 if !station.isSubscribed {
                     Button {
-                        panel = .rename
+                        showsRename = true
                     } label: {
                         Label(PMString("ext.tv.radio.rename"), systemImage: "pencil")
                     }
                 }
                 Button(role: .destructive) {
-                    panel = .delete
+                    onDelete(station)
                 } label: {
                     Label(PMString("ext.tv.radio.delete"), systemImage: "trash")
                 }
             }
         }
-        .fullScreenCover(item: $panel) { panel in
-            switch panel {
-            case .rename:
-                TVRadioRenameView(station: station)
-                    .environment(store)
-            case .delete:
-                TVRadioDeleteConfirmation(station: station)
-                    .environment(store)
-            }
+        .fullScreenCover(isPresented: $showsRename) {
+            TVRadioRenameView(station: station)
+                .environment(store)
+        }
+        .onChange(of: showsRename) { _, shows in onModalPresentationChanged(shows) }
+        .onDisappear {
+            if showsRename { onModalPresentationChanged(false) }
         }
     }
 
@@ -441,10 +455,25 @@ struct TVRadioArtworkView: View {
     let station: RadioStation
     let size: CGFloat
     var radius: CGFloat = TVRadius.cover
+    /// 按值传入,不读 `@Environment`:这个视图挂在带 `.contextMenu` 的按钮 label 里,
+    /// 那种位置可能被系统挪到独立的宿主里渲染,读环境对象会直接崩。
+    let store: TVStore
 
     @State private var logo: UIImage?
 
-    private var logoIdentity: Int { TVRadioLogoLoader.identity(for: station) }
+    /// 缩略图的目标像素(电视 4K 是 2 倍屏)。
+    private var pixelSize: Int { max(1, Int((size * 2).rounded(.up))) }
+
+    /// 台标来源、音乐源与凭据、显示尺寸任何一样变了都重新取图:冷启动后凭据才到、
+    /// 在电视上改了凭据,占位卡片不用重建就会补上台标。普通电台和没有封面引用的
+    /// 镜像台指纹恒为 0,不观察音乐源相关的状态。
+    private var loadKey: Int {
+        var hasher = Hasher()
+        hasher.combine(TVRadioLogoLoader.identity(for: station))
+        hasher.combine(store.radioLogoSourceFingerprint(for: station))
+        hasher.combine(pixelSize)
+        return hasher.finalize()
+    }
 
     var body: some View {
         Group {
@@ -462,17 +491,21 @@ struct TVRadioArtworkView: View {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(TVColor.cardBorder, lineWidth: 1)
         }
-        .task(id: logoIdentity) {
-            let identity = logoIdentity
-            guard let data = await TVRadioLogoLoader.data(for: station),
-                  !Task.isCancelled, identity == logoIdentity else {
-                if !Task.isCancelled, identity == logoIdentity { logo = nil }
+        // 换 key 时 `.task(id:)` 会取消旧任务,过期结果靠 `Task.isCancelled` 丢弃。
+        .task(id: loadKey) {
+            let targetPixels = pixelSize
+            let data = await TVRadioLogoLoader.data(for: station) { [store] id in
+                store.radioLogoSourceContext(sourceID: id)
+            }
+            guard !Task.isCancelled else { return }
+            guard let data else {
+                logo = nil
                 return
             }
             let decoded = await Task.detached(priority: .utility) {
-                UIImage(data: data)
+                TVRadioLogoLoader.thumbnail(from: data, maxPixelSize: targetPixels)
             }.value
-            guard !Task.isCancelled, identity == logoIdentity else { return }
+            guard !Task.isCancelled else { return }
             logo = decoded
         }
     }
@@ -541,6 +574,9 @@ struct TVEmptyState: View {
     var subtitle: String = PMString("ext.tv.components.emptySubtitle")
     var actionTitle: String? = nil
     var actionIcon: String = "plus"
+    /// 操作按钮的外部焦点绑定(见 `TVFocusButton`):整页换成空态后,父视图还能把焦点放到这颗按钮上。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     var action: () -> Void = {}
     var body: some View {
         VStack(spacing: 16) {
@@ -551,8 +587,15 @@ struct TVEmptyState: View {
                     .multilineTextAlignment(.center).frame(maxWidth: 720)
             }
             if let actionTitle {
-                TVPillButton(title: actionTitle, systemImage: actionIcon, style: .solid, action: action)
-                    .padding(.top, 18)
+                TVPillButton(
+                    title: actionTitle,
+                    systemImage: actionIcon,
+                    style: .solid,
+                    focusBinding: focusBinding,
+                    focusID: focusID,
+                    action: action
+                )
+                .padding(.top, 18)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -567,10 +610,19 @@ struct TVPillButton: View {
     let systemImage: String
     var style: Style = .glass
     var isSelected = false
+    /// 父视图的焦点绑定(见 `TVFocusButton`)。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     var action: () -> Void = {}
+    /// 外面挂了 `.disabled` 时系统不再让它获得焦点,外观也要跟着变成不可用:
+    /// 否则一颗看着能点的实心按钮会被方向键直接跳过。写法与音乐源表单的提交按钮一致。
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: action) { _ in
+        TVFocusButton(
+            radius: 14, scale: 1.04, lift: 6, action: action,
+            focusBinding: focusBinding, focusID: focusID
+        ) { _ in
             HStack(spacing: 12) {
                 Image(systemName: systemImage).font(.system(size: 22, weight: .semibold))
                 Text(title).tvFont(.button, weight: style == .solid ? .bold : .semibold)
@@ -578,11 +630,20 @@ struct TVPillButton: View {
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 18)
-            .foregroundStyle(style == .solid ? TVColor.onBrand : TVColor.text)
-            .background(style == .solid ? AnyShapeStyle(TVColor.brand)
-                                        : AnyShapeStyle(TVColor.surfaceStrong))
+            .foregroundStyle(foreground)
+            .background(background)
         }
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var foreground: Color {
+        guard isEnabled else { return TVColor.textGhost }
+        return style == .solid ? TVColor.onBrand : TVColor.text
+    }
+
+    private var background: AnyShapeStyle {
+        guard isEnabled else { return AnyShapeStyle(TVColor.surface) }
+        return style == .solid ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong)
     }
 }
 

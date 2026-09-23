@@ -476,6 +476,9 @@
 "ext.tv.radio.empty" = "Noch keine Sender";
 "ext.tv.radio.popular" = "Beliebte Sender";
 "ext.tv.radio.popularIn" = "Beliebt in %@";
+"ext.tv.radio.deepLinkUnavailable" = "Dieser Sender ist nicht mehr in deiner Liste.";
+"ext.tv.radio.stationCount.one" = "1 Sender";
+"ext.tv.radio.playlistCleartext" = "Dieser Sender verwendet einen Playlist-Link über unverschlüsseltes HTTP, den Apple TV nicht abruft. Verwende die direkte Stream-Adresse oder einen https-Link.";
 "ext.tv.home.emptyWithRadio" = "Synchronisiere deine Mediathek von iPhone oder Mac, um deine Musik hier zu sehen, oder füge direkt Internetradiosender hinzu.";
 
 // MARK: - Quellenbezeichnungen und lokalisierte Laufzeitfehler
