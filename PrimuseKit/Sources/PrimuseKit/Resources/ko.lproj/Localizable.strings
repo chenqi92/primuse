@@ -463,11 +463,13 @@
 "ext.tv.radio.rename" = "이름 변경";
 "ext.tv.radio.renameTitle" = "방송국 이름 변경";
 "ext.tv.radio.allStations" = "모든 방송국";
-"ext.tv.radio.ungrouped" = "그룹 없음";
+"ext.tv.radio.ungrouped" = "미분류";
 "ext.tv.radio.empty" = "아직 방송국이 없습니다";
 "ext.tv.radio.popular" = "인기 방송국";
 "ext.tv.radio.popularIn" = "%@ 인기 방송국";
 "ext.tv.radio.deepLinkUnavailable" = "이 방송국은 더 이상 목록에 없습니다.";
+"ext.tv.radio.stationCount.one" = "방송국 1개";
+"ext.tv.radio.playlistCleartext" = "이 방송국은 암호화되지 않은 HTTP 재생 목록 링크를 사용하므로 Apple TV에서 읽어 오지 않습니다. 스트림 주소를 직접 쓰거나 https 링크를 사용하세요.";
 "ext.tv.home.emptyWithRadio" = "iPhone 또는 Mac에서 보관함을 동기화하면 여기에 음악이 표시됩니다. 인터넷 라디오 방송국을 직접 추가할 수도 있습니다.";
 
 // MARK: - 소스 이름과 현지화된 런타임 오류

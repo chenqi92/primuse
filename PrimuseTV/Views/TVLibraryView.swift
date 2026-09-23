@@ -15,6 +15,8 @@ struct TVLibraryView: View {
     var openPlayer: () -> Void = {}
     var onReturnToTabs: () -> Void = {}
     var onModalActivityChanged: (Bool) -> Void = { _ in }
+    /// 只登记弹层、关闭后不改焦点的那一类(电台卡片的重命名 / 删除确认)。
+    var onModalPresentationChanged: (Bool) -> Void = { _ in }
 
     enum Filter: String, CaseIterable, Identifiable {
         case albums, songs, artists, genres, folders, radio, recommendations, ranking
@@ -279,7 +281,8 @@ struct TVLibraryView: View {
                 cell: cell,
                 spacing: gap,
                 openPlayer: openPlayer,
-                onModalActivityChanged: onModalActivityChanged
+                onModalActivityChanged: onModalActivityChanged,
+                onModalPresentationChanged: onModalPresentationChanged
             )
         case .ranking:
             TVRankingBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)

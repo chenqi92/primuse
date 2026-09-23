@@ -382,10 +382,13 @@ struct TVRadioTileCard: View {
     let subtitle: String
     var dashed = true
     var width: CGFloat = 220
+    /// 父视图的焦点绑定(见 `TVFocusButton`)。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     let action: () -> Void
 
     var body: some View {
-        TVFocusButton(ring: false, action: action) { focused in
+        TVFocusButton(ring: false, action: action, focusBinding: focusBinding, focusID: focusID) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 ZStack {
                     RoundedRectangle(cornerRadius: TVRadius.cover, style: .continuous)
@@ -426,6 +429,8 @@ struct TVRadioTileCard: View {
 
 struct TVRadioAddCard: View {
     var width: CGFloat = 220
+    /// 这一排删空以后,父视图把焦点交给这张卡片(`TVRadioFocusID.add`)。
+    var focusBinding: FocusState<String?>.Binding? = nil
     let action: () -> Void
 
     var body: some View {
@@ -434,6 +439,8 @@ struct TVRadioAddCard: View {
             title: PMString("ext.tv.radio.add"),
             subtitle: PMString("ext.tv.radio.addSubtitle"),
             width: width,
+            focusBinding: focusBinding,
+            focusID: TVRadioFocusID.add,
             action: action
         )
     }
@@ -449,11 +456,101 @@ struct TVRadioAllStationsCard: View {
         TVRadioTileCard(
             icon: "square.grid.2x2",
             title: PMString("ext.tv.radio.allStations"),
-            subtitle: PMString("ext.tv.radio.stationCount", count),
+            subtitle: TVRadioText.stationCount(count),
             dashed: false,
             width: width,
             action: action
         )
+    }
+}
+
+enum TVRadioText {
+    /// 「N 个电台」。Kit 文案表没有复数规则,只有一个台时换成单数写法,英文不会出现「1 stations」。
+    static func stationCount(_ count: Int) -> String {
+        count == 1
+            ? PMString("ext.tv.radio.stationCount.one")
+            : PMString("ext.tv.radio.stationCount", count)
+    }
+}
+
+// MARK: - 删除后的焦点
+
+/// 电台卡片列表里的焦点 id:电台卡片用电台 id,「添加电台」入口用这个固定值
+/// (电台 id 是 UUID 或 `as-` 开头的摘要,撞不上)。
+enum TVRadioFocusID {
+    static let add = "tv.radio.focus.add"
+}
+
+/// 删掉一张电台卡片后焦点该落到哪:原位置后面第一张还在的卡片,没有就前面最近的一张;
+/// 都没有返回 nil,由调用方交给「添加电台」入口。
+enum TVRadioDeleteFocusPolicy {
+    static func target(
+        afterRemoving removedID: String,
+        from siblingIDs: [String],
+        remaining: Set<String>
+    ) -> String? {
+        guard let index = siblingIDs.firstIndex(of: removedID) else { return nil }
+        if let next = siblingIDs[(index + 1)...].first(where: { remaining.contains($0) }) {
+            return next
+        }
+        return siblingIDs[..<index].last(where: { remaining.contains($0) })
+    }
+}
+
+/// 等待确认删除的电台,连同弹出时这一排实际显示的顺序。
+struct TVRadioDeleteRequest: Identifiable {
+    let station: RadioStation
+    let siblingIDs: [String]
+    var id: String { station.id }
+}
+
+/// 首页电台排和资料库电台网格共用的删除确认弹层,挂在持有卡片列表的父视图上。
+/// 确认删除后那张卡片已经不在了,系统没法把焦点还给它,只会退回顶栏;这里在弹层关闭后
+/// 把焦点交给原位置的邻居。取消删除时卡片还在,焦点由系统照常还回去。
+struct TVRadioDeleteConfirmationHost: ViewModifier {
+    @Binding var request: TVRadioDeleteRequest?
+    let focus: FocusState<String?>.Binding
+    /// 关闭弹层时这一排实际显示的台,按显示顺序。
+    let currentIDs: () -> [String]
+    /// 按值传入:弹层内容不在卡片所在的视图树里渲染。
+    let store: TVStore
+    /// 弹层出现 / 关闭,只报给 TVRoot 登记,关闭后的焦点由这里负责。
+    var onPresentationChanged: (Bool) -> Void = { _ in }
+
+    /// 弹层关闭时 `request` 已经被清空,这里另留一份。
+    @State private var presented: TVRadioDeleteRequest?
+
+    func body(content: Content) -> some View {
+        content
+            .fullScreenCover(item: $request, onDismiss: restoreFocus) { request in
+                TVRadioDeleteConfirmation(station: request.station)
+                    .environment(store)
+            }
+            .onChange(of: request?.id) { _, id in
+                if let request { presented = request }
+                onPresentationChanged(id != nil)
+            }
+            .onDisappear {
+                if request != nil { onPresentationChanged(false) }
+            }
+    }
+
+    private func restoreFocus() {
+        guard let presented else { return }
+        self.presented = nil
+        let current = currentIDs()
+        // 取消了删除(或是不落盘的演示台):卡片还在,不用接手。
+        guard !current.contains(presented.id) else { return }
+        let target = TVRadioDeleteFocusPolicy.target(
+            afterRemoving: presented.id,
+            from: presented.siblingIDs,
+            remaining: Set(current)
+        ) ?? TVRadioFocusID.add
+        Task { @MainActor in
+            // 等弹层真正收起、列表换成删除后的样子再挪焦点。
+            await Task.yield()
+            focus.wrappedValue = target
+        }
     }
 }
 
@@ -496,6 +593,8 @@ struct TVRadioAddView: View {
                 .padding(.horizontal, 90)
                 .padding(.vertical, 50)
         }
+        // 主入口是搜索,打开就把焦点放进查询框,不停在右上角的模式胶囊上。
+        .onAppear { focusedField = mode == .search ? .query : .name }
         .onExitCommand { dismiss() }
         .onDisappear { searchTask?.cancel() }
         .task { await loadPopularStations() }
@@ -547,8 +646,15 @@ struct TVRadioAddView: View {
             style: mode == target ? .solid : .glass,
             isSelected: mode == target
         ) {
+            let changed = mode != target
             mode = target
             notice = nil
+            guard changed else { return }
+            // 下面整块内容换掉了,焦点跟过去放进它的第一个输入框。等新内容出现再设。
+            Task { @MainActor in
+                await Task.yield()
+                focusedField = target == .search ? .query : .name
+            }
         }
     }
 
@@ -577,6 +683,14 @@ struct TVRadioAddView: View {
 
             searchResults
                 .padding(.top, 22)
+        }
+        // 把查询删空就回到热门电台。在途的搜索一并取消,免得它晚些回来又把状态写成「已完成」。
+        .onChange(of: query) { _, newValue in
+            guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            searchTask?.cancel()
+            searchTask = nil
+            results = []
+            searchState = .idle
         }
     }
 
@@ -628,22 +742,40 @@ struct TVRadioAddView: View {
     }
 
     /// 还没输入时先摆出本地区(取不到就全球)投票最多的台,遥控器打字太费劲。
-    /// 取不到就静默留在目录说明行。
+    /// 取不到就静默留在目录说明行。取到的结果在本次运行内留着(`TVRadioPopularCache`),
+    /// 再打开这个面板不重新请求目录;失败不留,下次打开再试。
     private func loadPopularStations() async {
         guard popular.isEmpty else { return }
         let region = Locale.current.region?.identifier
         let code = region.flatMap { $0.count == 2 && $0.allSatisfy(\.isLetter) ? $0.uppercased() : nil }
-        if let code,
-           let regional = try? await RadioDirectoryClient.topStations(countryCode: code),
-           !regional.isEmpty {
-            guard !Task.isCancelled else { return }
-            popularRegionName = Locale.current.localizedString(forRegionCode: code) ?? code
-            popular = regional
+        if let cached = TVRadioPopularCache.entry, cached.regionCode == code {
+            popularRegionName = cached.regionName
+            popular = cached.stations
             return
+        }
+        // 本地区请求出错(不是「本地区没有台」)时这次先用全球榜,但不留缓存,下次再试本地区。
+        var regionalFailed = false
+        if let code {
+            do {
+                let regional = try await RadioDirectoryClient.topStations(countryCode: code)
+                guard !Task.isCancelled else { return }
+                if !regional.isEmpty {
+                    let name = Locale.current.localizedString(forRegionCode: code) ?? code
+                    TVRadioPopularCache.entry = .init(regionCode: code, regionName: name, stations: regional)
+                    popularRegionName = name
+                    popular = regional
+                    return
+                }
+            } catch {
+                regionalFailed = true
+            }
         }
         guard !Task.isCancelled,
               let global = try? await RadioDirectoryClient.topStations(countryCode: nil),
               !Task.isCancelled else { return }
+        if !regionalFailed, !global.isEmpty {
+            TVRadioPopularCache.entry = .init(regionCode: code, regionName: nil, stations: global)
+        }
         popularRegionName = nil
         popular = global
     }
@@ -810,6 +942,20 @@ struct TVRadioAddView: View {
             .foregroundStyle(tint)
             .padding(.top, 10)
     }
+}
+
+/// 添加电台面板的热门电台,本次运行内只取一次。面板每次打开都是新视图,
+/// 不留一份的话每开一次都要再请求一两次目录。按地区码对应,系统地区改了就重新取。
+@MainActor
+private enum TVRadioPopularCache {
+    struct Entry {
+        let regionCode: String?
+        /// 地区的显示名;按全球取回时为 nil。
+        let regionName: String?
+        let stations: [RadioDirectoryClient.Result]
+    }
+
+    static var entry: Entry?
 }
 
 /// 搜索结果里的台标缩略图。目录给的 favicon 常常失效,取不到就显示电台图标。
@@ -996,7 +1142,11 @@ struct TVRadioLibrarySection: View {
     let cell: CGFloat
     let spacing: CGFloat
     var openPlayer: () -> Void = {}
+    /// 「添加电台」弹层:关闭后由 TVRoot 把焦点放回资料库的筛选行。
     var onModalActivityChanged: (Bool) -> Void = { _ in }
+    /// 卡片的重命名 / 删除确认:只报弹层在不在,关闭后的焦点由这里和系统负责
+    /// (重命名回到原卡片,删除交给邻居),TVRoot 不改焦点。
+    var onModalPresentationChanged: (Bool) -> Void = { _ in }
 
     private enum Selection: Hashable {
         case all
@@ -1006,6 +1156,8 @@ struct TVRadioLibrarySection: View {
 
     @State private var selection: Selection = .all
     @State private var showsAdd = false
+    @State private var deleteRequest: TVRadioDeleteRequest?
+    @FocusState private var focusedRadioID: String?
 
     /// 选中的文件夹被别的设备删掉或改名时回到「全部」。
     private var effectiveSelection: Selection {
@@ -1035,6 +1187,9 @@ struct TVRadioLibrarySection: View {
                     title: PMString("ext.tv.radio.empty"),
                     subtitle: PMString("ext.tv.radio.syncHint"),
                     actionTitle: PMString("ext.tv.radio.add"),
+                    // 电台全删空后筛选行也没了,删除后的焦点交给这颗按钮。
+                    focusBinding: $focusedRadioID,
+                    focusID: TVRadioFocusID.add,
                     action: { showsAdd = true }
                 )
                 .frame(minHeight: 520)
@@ -1050,6 +1205,9 @@ struct TVRadioLibrarySection: View {
                                 station: station,
                                 width: cell,
                                 siblingIDs: shownIDs,
+                                focusBinding: $focusedRadioID,
+                                onDelete: { deleteRequest = TVRadioDeleteRequest(station: $0, siblingIDs: shownIDs) },
+                                onModalPresentationChanged: onModalPresentationChanged,
                                 action: openPlayer
                             )
                         }
@@ -1064,6 +1222,15 @@ struct TVRadioLibrarySection: View {
         .onDisappear {
             if showsAdd { onModalActivityChanged(false) }
         }
+        // 这个文件夹删空时网格会回到「全部」,焦点交给筛选行的「添加」胶囊;
+        // 电台全删空时交给空态上的「添加电台」按钮。
+        .modifier(TVRadioDeleteConfirmationHost(
+            request: $deleteRequest,
+            focus: $focusedRadioID,
+            currentIDs: { stations.map(\.id) },
+            store: store,
+            onPresentationChanged: onModalPresentationChanged
+        ))
     }
 
     private var chips: some View {
@@ -1092,7 +1259,12 @@ struct TVRadioLibrarySection: View {
                         current: current
                     )
                 }
-                TVPillButton(title: PMString("ext.tv.radio.add"), systemImage: "plus") {
+                TVPillButton(
+                    title: PMString("ext.tv.radio.add"),
+                    systemImage: "plus",
+                    focusBinding: $focusedRadioID,
+                    focusID: TVRadioFocusID.add
+                ) {
                     showsAdd = true
                 }
                 .padding(.leading, 18)

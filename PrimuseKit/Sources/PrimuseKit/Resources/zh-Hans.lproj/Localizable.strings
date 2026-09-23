@@ -465,6 +465,8 @@
 "ext.tv.radio.popular" = "热门电台";
 "ext.tv.radio.popularIn" = "热门电台 · %@";
 "ext.tv.radio.deepLinkUnavailable" = "这个电台已不在列表里。";
+"ext.tv.radio.stationCount.one" = "1 个电台";
+"ext.tv.radio.playlistCleartext" = "这个电台用的是明文 HTTP 的播放清单链接，Apple TV 不会读取。请改用直接的流地址或 https 链接。";
 "ext.tv.home.emptyWithRadio" = "在 iPhone / Mac 上同步曲库后，这里会显示你的音乐；也可以直接添加网络电台。";
 
 // MARK: - 音源标签与本地化运行时错误

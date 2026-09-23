@@ -24,8 +24,48 @@ struct TVResolvedRadioStream: Equatable, Sendable {
     let headers: [String: String]
 }
 
-/// 取电台的 `.pls` / `.m3u` 包装清单。电视上没有明文主机的信任询问,没被信任过的
-/// 明文地址直接跳过(`RadioImportParser.wrapperFetchURLs` 会先给出 https 的写法)。
+/// 电台的 `.pls` / `.m3u` 包装地址只有公网明文 http 这一条路、而电视不取它时抛出,
+/// 好给出专门的提示,不再笼统地说「无法构造播放地址」。
+private enum TVRadioPlaylistError: Error, Equatable {
+    case cleartextNotFetched
+}
+
+/// 一次拆包装里各个候选地址的结果,决定「取不到」能不能归给明文限制:明文地址确实被拒过,
+/// 且没有出现下面两种换成明文也一样播不了的情况时才归给它 —— https 的写法已经取到清单、
+/// 只是清单里拆不出可播地址;设备没联网或主机解析不了。这两种说成「明文」会把人指错方向。
+private actor TVRadioPlaylistAttempts {
+    private var refusedCleartext = false
+    private var failedRegardlessOfScheme = false
+
+    var blamesCleartext: Bool { refusedCleartext && !failedRegardlessOfScheme }
+
+    func noteFetched() {
+        failedRegardlessOfScheme = true
+    }
+
+    func noteFailure(_ error: Error) {
+        if error as? TVRadioPlaylistError == .cleartextNotFetched {
+            refusedCleartext = true
+        } else if let urlError = error as? URLError, Self.isOffline(urlError.code) {
+            failedRegardlessOfScheme = true
+        }
+    }
+
+    private static func isOffline(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed,
+             .internationalRoamingOff, .cannotFindHost, .dnsLookupFailed:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+/// 取电台的 `.pls` / `.m3u` 包装清单。`RadioImportParser.wrapperFetchURLs` 先给出 https 的写法;
+/// 公网明文 http 的清单只在这台设备已放行过该主机(`SSLTrustStore` 的明文许可)时才取,
+/// 电视上没有地方授予这份许可,所以实际上只取 https 与局域网地址。这里有意不弹明文信任询问
+/// (要不要在电视上加由产品决定);直接的 http 流地址不经过这里,照常能播。
 private enum TVRadioPlaylistFetcher {
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
@@ -36,14 +76,17 @@ private enum TVRadioPlaylistFetcher {
         return URLSession(configuration: configuration)
     }()
 
+    /// 这个地址是公网明文 http、且没被放行过,不会去取。
+    private static func refusesCleartext(_ urlString: String) -> Bool {
+        guard let url = URL(string: urlString),
+              TrustedHTTPTransport.requiresPlainSocket(for: url) else { return false }
+        guard let target = TrustedHTTPTransport.trustTarget(for: url) else { return true }
+        return !SSLTrustStore.allowsInsecureHTTPHostSync(domain: target)
+    }
+
     static func text(at urlString: String) async throws -> String {
         guard let url = URL(string: urlString) else { throw StreamResolveError.cannotBuildURL }
-        if TrustedHTTPTransport.requiresPlainSocket(for: url) {
-            guard let target = TrustedHTTPTransport.trustTarget(for: url),
-                  SSLTrustStore.allowsInsecureHTTPHostSync(domain: target) else {
-                throw StreamResolveError.cannotBuildURL
-            }
-        }
+        guard !refusesCleartext(urlString) else { throw TVRadioPlaylistError.cleartextNotFetched }
         let (data, response) = try await TrustedHTTPTransport.data(
             for: URLRequest(url: url),
             session: session,
@@ -187,12 +230,28 @@ final class TVPlaybackCoordinator {
                 return TVResolvedRadioStream(url: url, headers: [:])
             }
             // SHOUTcast 这类 `.pls` / `.m3u` 包装播放器不认,取回清单拆出真实流地址。
-            guard let stream = try await RadioImportParser.unwrappedStreamURL(
+            let attempts = TVRadioPlaylistAttempts()
+            let unwrapped = try await RadioImportParser.unwrappedStreamURL(
                 station.streamURL,
-                fetch: { try await TVRadioPlaylistFetcher.text(at: $0) }
-            ), let streamURL = URL(string: stream) else {
+                fetch: { candidate in
+                    do {
+                        let text = try await TVRadioPlaylistFetcher.text(at: candidate)
+                        await attempts.noteFetched()
+                        return text
+                    } catch {
+                        await attempts.noteFailure(error)
+                        throw error
+                    }
+                }
+            )
+            guard let unwrapped else {
+                // 能取的写法都没取到清单,剩下的只有一个不取的明文地址:告诉用户换直接的流地址或 https。
+                if await attempts.blamesCleartext {
+                    throw TVRadioPlaylistError.cleartextNotFetched
+                }
                 throw StreamResolveError.cannotBuildURL
             }
+            guard let streamURL = URL(string: unwrapped) else { throw StreamResolveError.cannotBuildURL }
             try ensureCurrent(requestID, store: store)
             return TVResolvedRadioStream(url: streamURL, headers: [:])
         }
@@ -239,6 +298,9 @@ final class TVPlaybackCoordinator {
     }
 
     func radioPlaybackIssue(for error: Error, station: RadioStation) -> TVPlaybackIssue {
+        if error as? TVRadioPlaylistError == .cleartextNotFetched {
+            return .failed(PMString("ext.tv.radio.playlistCleartext"))
+        }
         if let streamError = error as? StreamResolveError {
             let sourceName = station.sourceID
                 .flatMap { store?.sourcesStore.source(id: $0)?.name }

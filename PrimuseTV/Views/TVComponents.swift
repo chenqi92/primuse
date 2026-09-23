@@ -348,13 +348,15 @@ struct TVRadioStationCard: View {
     /// 卡片所在那一排 / 那一格实际显示的台(首页只放前几个,资料库可能按文件夹筛过)。
     /// 长按菜单的首尾判断和挪动都只在它们之间算;不给就按电视上的全部电台。
     var siblingIDs: [String]? = nil
+    /// 持有这一排卡片的父视图的焦点绑定(按电台 id),删除后由父视图把焦点交给邻居。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    /// 长按「删除」:确认弹层由持有这一排的父视图弹(`TVRadioDeleteConfirmationHost`)。
+    /// 确认后这张卡片就不在了,挂在卡片自己身上的弹层没人接得住焦点。
+    let onDelete: (RadioStation) -> Void
+    /// 重命名面板弹出 / 关闭。只报给 TVRoot 登记,关闭后系统自己把焦点还给这张卡片。
+    var onModalPresentationChanged: (Bool) -> Void = { _ in }
     var action: () -> Void = {}
-    @State private var panel: Panel?
-
-    private enum Panel: String, Identifiable {
-        case rename, delete
-        var id: String { rawValue }
-    }
+    @State private var showsRename = false
 
     private var isFirstInRow: Bool {
         guard let siblingIDs else { return store.radioStations.first?.id == station.id }
@@ -367,7 +369,7 @@ struct TVRadioStationCard: View {
     }
 
     var body: some View {
-        TVFocusButton(ring: false, action: play) { focused in
+        TVFocusButton(ring: false, action: play, focusBinding: focusBinding, focusID: station.id) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover, store: store)
                     .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
@@ -420,27 +422,25 @@ struct TVRadioStationCard: View {
                 // 订阅来的台名字归清单管,改了下次刷新也会被还原。
                 if !station.isSubscribed {
                     Button {
-                        panel = .rename
+                        showsRename = true
                     } label: {
                         Label(PMString("ext.tv.radio.rename"), systemImage: "pencil")
                     }
                 }
                 Button(role: .destructive) {
-                    panel = .delete
+                    onDelete(station)
                 } label: {
                     Label(PMString("ext.tv.radio.delete"), systemImage: "trash")
                 }
             }
         }
-        .fullScreenCover(item: $panel) { panel in
-            switch panel {
-            case .rename:
-                TVRadioRenameView(station: station)
-                    .environment(store)
-            case .delete:
-                TVRadioDeleteConfirmation(station: station)
-                    .environment(store)
-            }
+        .fullScreenCover(isPresented: $showsRename) {
+            TVRadioRenameView(station: station)
+                .environment(store)
+        }
+        .onChange(of: showsRename) { _, shows in onModalPresentationChanged(shows) }
+        .onDisappear {
+            if showsRename { onModalPresentationChanged(false) }
         }
     }
 
@@ -574,6 +574,9 @@ struct TVEmptyState: View {
     var subtitle: String = PMString("ext.tv.components.emptySubtitle")
     var actionTitle: String? = nil
     var actionIcon: String = "plus"
+    /// 操作按钮的外部焦点绑定(见 `TVFocusButton`):整页换成空态后,父视图还能把焦点放到这颗按钮上。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     var action: () -> Void = {}
     var body: some View {
         VStack(spacing: 16) {
@@ -584,8 +587,15 @@ struct TVEmptyState: View {
                     .multilineTextAlignment(.center).frame(maxWidth: 720)
             }
             if let actionTitle {
-                TVPillButton(title: actionTitle, systemImage: actionIcon, style: .solid, action: action)
-                    .padding(.top, 18)
+                TVPillButton(
+                    title: actionTitle,
+                    systemImage: actionIcon,
+                    style: .solid,
+                    focusBinding: focusBinding,
+                    focusID: focusID,
+                    action: action
+                )
+                .padding(.top, 18)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -600,10 +610,19 @@ struct TVPillButton: View {
     let systemImage: String
     var style: Style = .glass
     var isSelected = false
+    /// 父视图的焦点绑定(见 `TVFocusButton`)。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     var action: () -> Void = {}
+    /// 外面挂了 `.disabled` 时系统不再让它获得焦点,外观也要跟着变成不可用:
+    /// 否则一颗看着能点的实心按钮会被方向键直接跳过。写法与音乐源表单的提交按钮一致。
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
-        TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: action) { _ in
+        TVFocusButton(
+            radius: 14, scale: 1.04, lift: 6, action: action,
+            focusBinding: focusBinding, focusID: focusID
+        ) { _ in
             HStack(spacing: 12) {
                 Image(systemName: systemImage).font(.system(size: 22, weight: .semibold))
                 Text(title).tvFont(.button, weight: style == .solid ? .bold : .semibold)
@@ -611,11 +630,20 @@ struct TVPillButton: View {
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 18)
-            .foregroundStyle(style == .solid ? TVColor.onBrand : TVColor.text)
-            .background(style == .solid ? AnyShapeStyle(TVColor.brand)
-                                        : AnyShapeStyle(TVColor.surfaceStrong))
+            .foregroundStyle(foreground)
+            .background(background)
         }
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var foreground: Color {
+        guard isEnabled else { return TVColor.textGhost }
+        return style == .solid ? TVColor.onBrand : TVColor.text
+    }
+
+    private var background: AnyShapeStyle {
+        guard isEnabled else { return AnyShapeStyle(TVColor.surface) }
+        return style == .solid ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong)
     }
 }
 
