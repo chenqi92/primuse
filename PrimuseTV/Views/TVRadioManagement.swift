@@ -1,37 +1,71 @@
 #if os(tvOS)
 import SwiftUI
 import UIKit
+import ImageIO
 import PrimuseKit
 
 // MARK: - 台标
 
-/// 电台台标的取法。用户自己选的图(`logoData`)永远优先;没有时用目录、清单或
-/// 自动发现带来的远程台标地址,取回后缓存在本机。
+/// 取音乐源台标要用的源和凭据,由 `TVStore.radioLogoSourceContext(sourceID:)` 在主线程上
+/// 解析好,再交给不在主线程上的加载器。只在内存里传,绝不写进 Top Shelf 的数据文件。
+struct TVRadioLogoSourceContext: Sendable {
+    let source: MusicSource
+    let credential: SourceCredential
+}
+
+/// 电台台标的取法,顺序与 iPhone / Mac 同一份策略(`RadioStationArtworkResolutionPolicy`):
+/// 用户自己选的图(`logoData`)→ 音乐源镜像台自带的封面引用(`logoFileName`,经音乐源连接器取)
+/// → 目录、清单或自动发现带来的远程台标地址(电台已有自己的台标时只认用户自己填的链接)。
 ///
-/// 远程台标原先在电视端完全不显示 —— 从目录添加的台只存地址不存字节,
-/// 在 iPhone 上有图,到了电视上就只剩占位。
+/// 三类磁盘缓存键互不覆盖:
+/// - `radio:<id>`:用户台标(电台存储 `materializeLogos` 写的);
+/// - `radio-remote:<id>#<地址摘要>`:公网台标;
+/// - `radio:<id>#artwork-<fnv>`:音乐源台标(`RadioStationArtworkRemoteRequest.cacheDiscriminator`,
+///   服务端换了封面引用就是新键,旧图不会一直显示下去)。
 enum TVRadioLogoLoader {
-    /// 台标来源的指纹。视图用它判断要不要重新取图。
+    /// 台标来源的指纹。视图用它判断要不要重新取图;每次刷新都会算,所以只看决定取法的
+    /// 那几个字段,用户台标只看字节数和末尾一小段,不把整份字节再哈希一遍。
     static func identity(for station: RadioStation) -> Int {
         var hasher = Hasher()
         hasher.combine(station.id)
-        hasher.combine(station.logoData)
-        hasher.combine(station.remoteLogoURL)
+        hasher.combine(station.logoData?.count)
+        if let logo = station.logoData {
+            // 换成字节数恰好相同的另一张图时也能认出来;图片文件的结尾各不相同。
+            logo.suffix(32).withUnsafeBytes { hasher.combine(bytes: $0) }
+        }
         hasher.combine(station.logoFileName)
+        hasher.combine(station.remoteLogoURL)
+        hasher.combine(station.remoteLogoSource)
+        hasher.combine(station.sourceID)
+        hasher.combine(station.sourcePlaybackPath)
+        hasher.combine(station.streamFormat)
         return hasher.finalize()
     }
 
-    static func data(for station: RadioStation) async -> Data? {
-        if let data = station.logoData, !data.isEmpty { return data }
-        // 音乐源自带台标(logoFileName)的台,远程台标只在用户自己填了图片链接时才上场,
-        // 与 iPhone / Mac 的取图顺序一致。
-        let hasOwnedLogo = station.logoFileName?.isEmpty == false
-        guard !hasOwnedLogo || station.remoteLogoSource?.isUserProvided == true,
-              let remote = RadioLogoURLPolicy.normalized(station.remoteLogoURL) else { return nil }
-        return await fetchRemoteLogo(
-            cacheSongID: RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(for: station.id),
-            address: remote
-        )
+    /// 按取图计划逐个候选尝试。`sourceContext` 在音乐源台标缓存没命中时才会被调用
+    /// (它要读钥匙串);故意不给默认值,每个调用点都要明确交代音乐源从哪来。
+    static func data(
+        for station: RadioStation,
+        sourceContext: @MainActor @Sendable (String) -> TVRadioLogoSourceContext?
+    ) async -> Data? {
+        let plan = RadioStationArtworkResolutionPolicy.makePlan(for: station)
+        guard !plan.usesPlaceholderOnly else { return nil }
+        let remoteLogoID = RadioStationArtworkResolutionPolicy.remoteLogoCacheSongID(for: station.id)
+        let resolved: RadioStationArtworkResolution<Data>? = await RadioStationArtworkResolver.resolve(
+            plan: plan
+        ) { candidate in
+            switch candidate {
+            case .inline(let data):
+                // 解不出来就往下走,交给后面的候选,不在这里停住。
+                return UIImage(data: data) == nil ? nil : data
+            case .cachedOrSource(let request) where request.songID == remoteLogoID:
+                // 公网台标不带 sourceID,只有它会走公网请求。
+                return await fetchRemoteLogo(cacheSongID: request.songID, address: request.coverReference)
+            case .cachedOrSource(let request):
+                return await sourceLogo(request, sourceContext: sourceContext)
+            }
+        }
+        return resolved?.value
     }
 
     /// 写进电台之前先确认这个台标地址真的能取回一张图(`address` 须是
@@ -44,7 +78,67 @@ enum TVRadioLogoLoader {
         ) != nil
     }
 
-    /// 远程台标唯一的取图入口:查缓存 → 构造请求 → 下载 → 校验 → 写缓存。
+    /// 添加电台页搜索结果里的 favicon。与电台台标共用闸门、失败记录和磁盘缓存。
+    static func directoryLogo(address: String) async -> Data? {
+        await fetchRemoteLogo(cacheSongID: "radio-directory", address: address)
+    }
+
+    /// 在后台线程按显示尺寸解出缩略图,不常驻整张原图(台标常有上千像素,
+    /// 资料库网格一屏几十张)。不会放大比 `maxPixelSize` 小的图。
+    static func thumbnail(from data: Data, maxPixelSize: Int) -> UIImage? {
+        guard maxPixelSize > 0,
+              let source = CGImageSourceCreateWithData(data as CFData, [
+                  kCGImageSourceShouldCache: false,
+              ] as CFDictionary),
+              CGImageSourceGetCount(source) > 0,
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceShouldCacheImmediately: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+              ] as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
+    // MARK: 音乐源台标
+
+    /// 音乐源镜像台的台标,经 `TVArtworkLoader.songCover` 的音乐源分支取:请求去重、
+    /// 按引用和凭据身份记 5 分钟失败、按连接线路依次尝试,那边都已经有了。
+    ///
+    /// 不变量:没有受支持的音乐源就绝不能调用 `songCover`。它最后会把不认识的引用当成
+    /// 公网地址直接请求,Jellyfin / Emby 的绝对地址就会被不带鉴权地打出去。
+    private static func sourceLogo(
+        _ request: RadioStationArtworkRemoteRequest,
+        sourceContext: @MainActor @Sendable (String) -> TVRadioLogoSourceContext?
+    ) async -> Data? {
+        guard let sourceID = request.sourceID, !sourceID.isEmpty else { return nil }
+        let key = request.cacheDiscriminator
+        // 缓存命中不碰主线程、不读钥匙串:源离线、凭据还没到的时候以前取到的图照样显示。
+        if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: key) {
+            return cached
+        }
+        guard !Task.isCancelled,
+              let context = await sourceContext(sourceID),
+              context.source.id == sourceID,
+              TVSourceAssetReader.supports(context.source.type) else { return nil }
+        guard await fetchGate.acquire() else { return nil }
+        // `songCover` 先按同一个键查缓存,等名额期间别处(卡片 / Top Shelf)已经取回的直接命中。
+        var data: Data?
+        if !Task.isCancelled {
+            data = await TVArtworkLoader.shared.songCover(
+                songID: key,
+                coverRef: request.coverReference,
+                source: context.source,
+                credential: context.credential
+            )
+        }
+        await fetchGate.release()
+        return data
+    }
+
+    // MARK: 公网台标
+
+    /// 远程台标唯一的取图入口:查缓存 → 失败记录 → 闸门 → 下载 → 校验 → 写缓存。
     private static func fetchRemoteLogo(cacheSongID: String, address remote: String) async -> Data? {
         guard let url = URL(string: remote) else { return nil }
         // 地址进缓存键:别的设备换了台标地址,这里不会一直拿着旧图。
@@ -55,51 +149,148 @@ enum TVRadioLogoLoader {
         // 目录 favicon 大约四成是坏的;失败过的地址一段时间内不再请求,
         // 否则每次冷启动、每次 Top Shelf 发布都要把注定失败的请求再发一遍。
         guard await failureLog.allowsAttempt(for: remote) else { return nil }
-
-        // 首页电台那一排不是懒加载的,上千个台会同时要图;限住同时下载的数量。
-        await fetchGate.acquire()
-        defer { Task { await fetchGate.release() } }
+        // 电视没有 SVG 栅格化器(SwiftDraw 编不过 tvOS),矢量台标取回来也显示不了。
+        if SVGImageSupport.referenceLooksLikeSVG(remote) {
+            await record(.content, for: remote)
+            return nil
+        }
         guard !Task.isCancelled else { return nil }
 
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 12
-        request.setValue("Primuse/1.0", forHTTPHeaderField: "User-Agent")
-        let fetched: (Data, URLResponse)
-        do {
-            fetched = try await URLSession.shared.data(for: request)
-        } catch {
-            // 取消、断网不算这个地址的错,下次照样可以再试。
-            if !Task.isCancelled, !isTransientNetworkFailure(error) {
-                await failureLog.recordFailure(for: remote)
-            }
-            return nil
-        }
-        let (data, response) = fetched
-        guard let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode),
-              !data.isEmpty,
-              data.count <= 4 * 1_024 * 1_024,
-              UIImage(data: data) != nil else {
-            await failureLog.recordFailure(for: remote)
-            return nil
-        }
-        await MetadataAssetStore.shared.cacheCover(data, forSongID: cacheID)
+        // 首页电台那一排不是懒加载的,上千个台会同时要图;限住同时下载的数量。
+        guard await fetchGate.acquire() else { return nil }
+        let data = await downloadRemoteLogo(url, address: remote, cacheID: cacheID)
+        await fetchGate.release()
         return data
     }
 
-    private static let fetchGate = TVRadioLogoFetchGate(limit: 4)
-    private static let failureLog = TVRadioLogoFailureLog(retryAfter: 6 * 60 * 60)
+    /// 拿到下载名额以后的那一半。
+    private static func downloadRemoteLogo(_ url: URL, address remote: String, cacheID: String) async -> Data? {
+        // 等名额期间同一个地址可能已经被别处下好了,或者刚刚失败过。
+        if let cached = await MetadataAssetStore.shared.cachedCoverData(forSongID: cacheID) {
+            return cached
+        }
+        guard !Task.isCancelled, await failureLog.allowsAttempt(for: remote) else { return nil }
 
-    private static func isTransientNetworkFailure(_ error: Error) -> Bool {
-        guard let urlError = error as? URLError else { return false }
-        switch urlError.code {
-        case .cancelled, .notConnectedToInternet, .networkConnectionLost,
-             .dataNotAllowed, .internationalRoamingOff:
-            return true
-        default:
-            return false
+        var request = URLRequest(url: url)
+        request.setValue("Primuse/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("image/avif,image/webp,image/*,*/*;q=0.5", forHTTPHeaderField: "Accept")
+        let data: Data
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                await record(.content, for: remote)
+                return nil
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                await record(FetchFailure(statusCode: http.statusCode), for: remote)
+                return nil
+            }
+            guard http.expectedContentLength <= Int64(maximumBytes) else {
+                await record(.content, for: remote)
+                return nil
+            }
+            // 边下边数,超过上限立刻放弃,不把整份大文件拉进内存。
+            var body = Data()
+            if http.expectedContentLength > 0 { body.reserveCapacity(Int(http.expectedContentLength)) }
+            for try await byte in bytes {
+                guard body.count < maximumBytes else {
+                    await record(.content, for: remote)
+                    return nil
+                }
+                body.append(byte)
+            }
+            data = body
+        } catch {
+            await record(Task.isCancelled ? .transient : FetchFailure(error: error), for: remote)
+            return nil
+        }
+        guard !Task.isCancelled else { return nil }
+        guard !data.isEmpty, !SVGImageSupport.looksLikeSVG(data),
+              let usable = cacheableLogo(data) else {
+            await record(.content, for: remote)
+            return nil
+        }
+        await MetadataAssetStore.shared.cacheCover(usable, forSongID: cacheID)
+        return usable
+    }
+
+    /// 与 `MetadataAssetStore.cacheCover` 同一道门槛,过不了它就进不了缓存,每次显示都得重新下载。
+    /// 图本身能解出来、只是容器不规整的(结尾多了字节、缺结束标记等,网站 favicon 常见),
+    /// 按上限尺寸重新编码成干净的 JPEG。`ArtworkImageCompatibility.staticFirstFrameJPEG`
+    /// 在这里用不上:它自己先要求 `isCompleteImage`,正是这道门槛没过。
+    private static func cacheableLogo(_ data: Data) -> Data? {
+        if passesCacheGate(data) { return data }
+        guard let image = thumbnail(from: data, maxPixelSize: 1_024),
+              let jpeg = image.jpegData(compressionQuality: 0.9),
+              passesCacheGate(jpeg) else { return nil }
+        return jpeg
+    }
+
+    private static func passesCacheGate(_ data: Data) -> Bool {
+        ArtworkImageCompatibility.isCompleteImage(data)
+            && !ArtworkImageCompatibility.hasRedundantJPEGSampling(data)
+    }
+
+    /// 失败分级:地址本身的问题(4xx、太大、不是图、SVG)6 小时内不再试;服务端一时的问题
+    /// (5xx、限流、超时、域名解析或连不上)5 分钟后再给机会;取消、断网、蜂窝限制不算这个地址的错。
+    private enum FetchFailure {
+        case content
+        case service
+        case transient
+
+        var retryAfter: TimeInterval? {
+            switch self {
+            case .content: return 6 * 60 * 60
+            case .service: return 5 * 60
+            case .transient: return nil
+            }
+        }
+
+        init(statusCode: Int) {
+            switch statusCode {
+            case 408, 429, 500...599: self = .service
+            default: self = .content
+            }
+        }
+
+        init(error: Error) {
+            guard let urlError = error as? URLError else {
+                self = error is CancellationError ? .transient : .content
+                return
+            }
+            switch urlError.code {
+            case .cancelled, .notConnectedToInternet, .networkConnectionLost,
+                 .dataNotAllowed, .internationalRoamingOff, .callIsActive:
+                self = .transient
+            case .timedOut, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                self = .service
+            default:
+                self = .content
+            }
         }
     }
+
+    private static func record(_ failure: FetchFailure, for address: String) async {
+        guard let retryAfter = failure.retryAfter else { return }
+        await failureLog.recordFailure(for: address, retryAfter: retryAfter)
+    }
+
+    private static let maximumBytes = 4 * 1_024 * 1_024
+    private static let fetchGate = TVRadioLogoFetchGate(limit: 4)
+    private static let failureLog = TVRadioLogoFailureLog()
+    /// 台标专用会话:请求与整体下载都有上限,一个慢站点不会拖住闸门名额;不带 Cookie,
+    /// 也不沿用系统共享会话的磁盘缓存(取回的图已经进了台标缓存)。
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 20
+        config.httpMaximumConnectionsPerHost = 2
+        config.httpCookieStorage = nil
+        config.urlCredentialStorage = nil
+        config.httpShouldSetCookies = false
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
 
     /// 跨进程启动稳定的短摘要(`hashValue` 每次启动都会变,不能进磁盘缓存键)。
     private static func stableDigest(_ value: String) -> String {
@@ -112,38 +303,58 @@ enum TVRadioLogoLoader {
     }
 }
 
-/// 台标地址的失败记录。只在本进程内有效,不落盘:换个启动、换个网络就重新给机会。
-private actor TVRadioLogoFailureLog {
-    private let retryAfter: TimeInterval
-    private var failedAt: [String: Date] = [:]
-
-    init(retryAfter: TimeInterval) { self.retryAfter = retryAfter }
-
-    func allowsAttempt(for address: String, now: Date = Date()) -> Bool {
-        guard let date = failedAt[address] else { return true }
-        if now.timeIntervalSince(date) < retryAfter { return false }
-        failedAt[address] = nil
-        return true
-    }
-
-    func recordFailure(for address: String, now: Date = Date()) {
-        failedAt[address] = now
+extension RadioStation {
+    /// 电视上显示的电台副标题。Kit 的 `playbackSubtitle` 没有格式和码率时回退成写死的
+    /// 英文「LIVE」,那是 iPhone / Mac / CarPlay / 手表共用的,不动它;电视上换成本地化的文字。
+    var tvPlaybackSubtitle: String {
+        streamFormat != .automatic || (bitRate ?? 0) > 0
+            ? playbackSubtitle
+            : PMString("ext.tv.radio.live")
     }
 }
 
+/// 台标地址的失败记录。只在本进程内有效,不落盘:换个启动、换个网络就重新给机会。
+private actor TVRadioLogoFailureLog {
+    private var blockedUntil: [String: Date] = [:]
+
+    func allowsAttempt(for address: String, now: Date = Date()) -> Bool {
+        guard let until = blockedUntil[address] else { return true }
+        if now < until { return false }
+        blockedUntil[address] = nil
+        return true
+    }
+
+    func recordFailure(for address: String, retryAfter: TimeInterval, now: Date = Date()) {
+        blockedUntil[address] = now.addingTimeInterval(retryAfter)
+    }
+}
+
+/// 同时取图的名额。等待中的任务被取消(卡片滑出屏幕、Top Shelf 重新发布)就立刻让出
+/// 排队位置并返回 false,不会占着队列等到轮上才发现自己已经没用了。
 private actor TVRadioLogoFetchGate {
     private let limit: Int
     private var active = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var nextToken = 0
+    private var waiters: [(token: Int, continuation: CheckedContinuation<Bool, Never>)] = []
 
     init(limit: Int) { self.limit = limit }
 
-    func acquire() async {
+    /// 拿到名额返回 true,调用方用完必须 `release()`;返回 false 表示没拿到,不用还。
+    func acquire() async -> Bool {
+        guard !Task.isCancelled else { return false }
         if active < limit {
             active += 1
-            return
+            return true
         }
-        await withCheckedContinuation { waiters.append($0) }
+        let token = nextToken
+        nextToken &+= 1
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters.append((token, continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(token) }
+        }
     }
 
     func release() {
@@ -151,8 +362,14 @@ private actor TVRadioLogoFetchGate {
             active -= 1
         } else {
             // 名额直接交给下一个等待者,active 不变。
-            waiters.removeFirst().resume()
+            waiters.removeFirst().continuation.resume(returning: true)
         }
+    }
+
+    /// 找不到说明它已经领到名额被唤醒了,那就由它自己用完再还。
+    private func cancelWaiter(_ token: Int) {
+        guard let index = waiters.firstIndex(where: { $0.token == token }) else { return }
+        waiters.remove(at: index).continuation.resume(returning: false)
     }
 }
 
@@ -596,9 +813,20 @@ struct TVRadioAddView: View {
 }
 
 /// 搜索结果里的台标缩略图。目录给的 favicon 常常失效,取不到就显示电台图标。
+/// 走台标加载器(闸门、失败记录、磁盘缓存),解出的缩略图在本次运行内留一份,
+/// 来回切换热门和搜索结果时不再重新解码。
 private struct TVRadioDirectoryLogo: View {
     let urlString: String?
     private let side: CGFloat = 72
+    @State private var image: UIImage?
+
+    @MainActor private static let thumbnails: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 300
+        return cache
+    }()
+
+    private var address: String? { RadioLogoURLPolicy.normalized(urlString) }
 
     var body: some View {
         ZStack {
@@ -607,16 +835,35 @@ private struct TVRadioDirectoryLogo: View {
             Image(systemName: "radio.fill")
                 .font(.system(size: side * 0.4, weight: .semibold))
                 .foregroundStyle(TVColor.textGhost)
-            if let urlString, let url = URL(string: urlString) {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    }
-                }
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
             }
         }
         .frame(width: side, height: side)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .task(id: address) {
+            guard let address else {
+                image = nil
+                return
+            }
+            let key = address as NSString
+            if let cached = Self.thumbnails.object(forKey: key) {
+                image = cached
+                return
+            }
+            image = nil
+            guard let data = await TVRadioLogoLoader.directoryLogo(address: address),
+                  !Task.isCancelled else { return }
+            let pixelSize = Int(side * 2)
+            let decoded = await Task.detached(priority: .utility) {
+                TVRadioLogoLoader.thumbnail(from: data, maxPixelSize: pixelSize)
+            }.value
+            guard !Task.isCancelled, let decoded else { return }
+            Self.thumbnails.setObject(decoded, forKey: key)
+            image = decoded
+        }
     }
 }
 
@@ -635,7 +882,7 @@ struct TVRadioDeleteConfirmation: View {
             TVColor.bg.opacity(0.62).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 24) {
                 HStack(spacing: 24) {
-                    TVRadioArtworkView(station: station, size: 120, radius: 18)
+                    TVRadioArtworkView(station: station, size: 120, radius: 18, store: store)
                     Text(PMString("ext.tv.radio.deleteConfirm", station.name))
                         .tvFont(.sectionTitle)
                         .foregroundStyle(TVColor.text)
@@ -690,7 +937,7 @@ struct TVRadioRenameView: View {
             TVColor.bg.opacity(0.5).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 24) {
                 HStack(spacing: 24) {
-                    TVRadioArtworkView(station: station, size: 120, radius: 18)
+                    TVRadioArtworkView(station: station, size: 120, radius: 18, store: store)
                     Text(PMString("ext.tv.radio.renameTitle"))
                         .tvFont(.sectionTitle)
                         .foregroundStyle(TVColor.text)

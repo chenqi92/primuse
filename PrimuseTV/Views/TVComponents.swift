@@ -369,14 +369,14 @@ struct TVRadioStationCard: View {
     var body: some View {
         TVFocusButton(ring: false, action: play) { focused in
             VStack(alignment: .leading, spacing: 0) {
-                TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover)
+                TVRadioArtworkView(station: station, size: width, radius: TVRadius.cover, store: store)
                     .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(station.name)
                         .tvFont(.cardTitle)
                         .foregroundStyle(TVColor.text)
                         .lineLimit(2, reservesSpace: true)
-                    Text(station.playbackSubtitle)
+                    Text(station.tvPlaybackSubtitle)
                         .tvFont(.caption)
                         .foregroundStyle(TVColor.textFaint)
                         .lineLimit(1)
@@ -455,10 +455,25 @@ struct TVRadioArtworkView: View {
     let station: RadioStation
     let size: CGFloat
     var radius: CGFloat = TVRadius.cover
+    /// 按值传入,不读 `@Environment`:这个视图挂在带 `.contextMenu` 的按钮 label 里,
+    /// 那种位置可能被系统挪到独立的宿主里渲染,读环境对象会直接崩。
+    let store: TVStore
 
     @State private var logo: UIImage?
 
-    private var logoIdentity: Int { TVRadioLogoLoader.identity(for: station) }
+    /// 缩略图的目标像素(电视 4K 是 2 倍屏)。
+    private var pixelSize: Int { max(1, Int((size * 2).rounded(.up))) }
+
+    /// 台标来源、音乐源与凭据、显示尺寸任何一样变了都重新取图:冷启动后凭据才到、
+    /// 在电视上改了凭据,占位卡片不用重建就会补上台标。普通电台和没有封面引用的
+    /// 镜像台指纹恒为 0,不观察音乐源相关的状态。
+    private var loadKey: Int {
+        var hasher = Hasher()
+        hasher.combine(TVRadioLogoLoader.identity(for: station))
+        hasher.combine(store.radioLogoSourceFingerprint(for: station))
+        hasher.combine(pixelSize)
+        return hasher.finalize()
+    }
 
     var body: some View {
         Group {
@@ -476,17 +491,21 @@ struct TVRadioArtworkView: View {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(TVColor.cardBorder, lineWidth: 1)
         }
-        .task(id: logoIdentity) {
-            let identity = logoIdentity
-            guard let data = await TVRadioLogoLoader.data(for: station),
-                  !Task.isCancelled, identity == logoIdentity else {
-                if !Task.isCancelled, identity == logoIdentity { logo = nil }
+        // 换 key 时 `.task(id:)` 会取消旧任务,过期结果靠 `Task.isCancelled` 丢弃。
+        .task(id: loadKey) {
+            let targetPixels = pixelSize
+            let data = await TVRadioLogoLoader.data(for: station) { [store] id in
+                store.radioLogoSourceContext(sourceID: id)
+            }
+            guard !Task.isCancelled else { return }
+            guard let data else {
+                logo = nil
                 return
             }
             let decoded = await Task.detached(priority: .utility) {
-                UIImage(data: data)
+                TVRadioLogoLoader.thumbnail(from: data, maxPixelSize: targetPixels)
             }.value
-            guard !Task.isCancelled, identity == logoIdentity else { return }
+            guard !Task.isCancelled else { return }
             logo = decoded
         }
     }

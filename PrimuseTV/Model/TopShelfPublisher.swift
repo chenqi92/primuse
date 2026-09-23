@@ -29,17 +29,23 @@ enum TopShelfPublisher {
         let playURL: String
     }
 
-    static func publish(recent: [Draft], radio: [RadioDraft], albums: [Draft]) async {
+    /// `radioLogoSource`:镜像台的音乐源和凭据。只在台标缓存没命中时才回主线程要,
+    /// 发布时不预先解析(那要读钥匙串)。
+    static func publish(
+        recent: [Draft],
+        radio: [RadioDraft],
+        albums: [Draft],
+        radioLogoSource: @escaping @MainActor @Sendable (String) -> TVRadioLogoSourceContext?
+    ) async {
         // 没配 App Group(旧版 / 未签 entitlement)时 containerURL 为 nil,直接跳过。
         guard !Task.isCancelled, TopShelfStore.containerURL != nil else { return }
-        pruneStaleCovers()
 
         var sections: [TopShelfSection] = []
         let recentItems = await items(from: recent)
         if !recentItems.isEmpty {
             sections.append(TopShelfSection(id: "recent", title: PMString("ext.tv.topShelf.recent"), items: recentItems))
         }
-        let radioItems = await radioItems(from: radio)
+        let radioItems = await radioItems(from: radio, radioLogoSource: radioLogoSource)
         if !radioItems.isEmpty {
             sections.append(TopShelfSection(id: "radio", title: PMString("ext.tv.radio.title"), items: radioItems))
         }
@@ -48,9 +54,18 @@ enum TopShelfPublisher {
             sections.append(TopShelfSection(id: "albums", title: PMString("ext.tv.topShelf.library"), items: albumItems))
         }
         guard !Task.isCancelled else { return }
+        let stored = TopShelfStore.load()
+        // 本次要用的封面都已落盘之后再清理,正要复用的旧文件不会先被删掉。
+        pruneStaleCovers(keeping: referencedCovers(in: sections).union(referencedCovers(in: stored?.sections ?? [])))
+        // 每次播放、每次电台列表变化都会发布一次,内容多半没变:不重写、也不打扰系统。
+        guard stored?.sections != sections else { return }
         TopShelfStore.save(TopShelfPayload(sections: sections))
         // 通知系统 Top Shelf 内容已变,促其在下次机会重新向扩展取数据(否则停留旧值/空)
         TVTopShelfContentProvider.topShelfContentDidChange()
+    }
+
+    private static func referencedCovers(in sections: [TopShelfSection]) -> Set<String> {
+        Set(sections.flatMap(\.items).compactMap(\.imageFileName))
     }
 
     private static func items(from drafts: [Draft]) async -> [TopShelfItem] {
@@ -71,13 +86,19 @@ enum TopShelfPublisher {
         return out
     }
 
-    private static func radioItems(from drafts: [RadioDraft]) async -> [TopShelfItem] {
+    private static func radioItems(
+        from drafts: [RadioDraft],
+        radioLogoSource: @escaping @MainActor @Sendable (String) -> TVRadioLogoSourceContext?
+    ) async -> [TopShelfItem] {
         // 台标并发取(同时下载数由 TVRadioLogoLoader 限住),逐个等的话 10 个台最坏要两分钟,
-        // 而每次播放、每次电台重载都会触发一次发布。
+        // 而每次播放、每次电台重载都会触发一次发布。镜像台的音乐源台标也受同一个闸门限制,
+        // 并且与卡片共用 `songCover` 的请求去重,同一张图不会取两次。
         let logos = await withTaskGroup(of: (Int, Data?).self) { group in
             for (index, draft) in drafts.enumerated() {
                 let station = draft.station
-                group.addTask { (index, await TVRadioLogoLoader.data(for: station)) }
+                group.addTask {
+                    (index, await TVRadioLogoLoader.data(for: station, sourceContext: radioLogoSource))
+                }
             }
             var byIndex: [Int: Data] = [:]
             for await (index, data) in group {
@@ -89,15 +110,53 @@ enum TopShelfPublisher {
         for (index, d) in drafts.enumerated() {
             guard !Task.isCancelled else { return [] }
             let station = d.station
-            let logo = logos[index]
-            let output = logo.flatMap(radioLogoCover)
-                ?? placeholderCover(seed: station.id, symbolName: "radio.fill")
             out.append(TopShelfItem(id: station.id, title: station.name,
-                                    subtitle: station.playbackSubtitle,
-                                    imageFileName: output.flatMap { writeCover($0, key: station.id) },
+                                    subtitle: station.tvPlaybackSubtitle,
+                                    imageFileName: radioCover(for: station, logo: logos[index]),
                                     playURL: d.playURL))
         }
         return out
+    }
+
+    /// 电台封面文件按**输入**命名(台标字节的摘要,或占位的种子与图标),文件已在就直接复用:
+    /// 每次发布不再把十张 608/1216 像素的图重新画一遍、编码一遍、写一遍。
+    private static func radioCover(for station: RadioStation, logo: Data?) -> String? {
+        if let logo {
+            let name = inputCoverName(key: station.id, variant: "logo-v1", input: sha256Hex(logo))
+            if let name = existingOrRendered(name, render: { radioLogoCover(logo) }) {
+                return name
+            }
+        }
+        return placeholderCoverFile(seed: station.id, symbolName: "radio.fill")
+    }
+
+    /// 占位图只由种子和图标决定,同样按输入命名、画过一次就复用。
+    private static func placeholderCoverFile(seed: String, symbolName: String? = nil) -> String? {
+        let name = inputCoverName(key: seed, variant: "placeholder-v1", input: symbolName ?? "brand")
+        return existingOrRendered(name) { placeholderCover(seed: seed, symbolName: symbolName) }
+    }
+
+    /// 必须是跨启动稳定的摘要(不能用 `Hasher`,它每次启动换种子,文件名就对不上了)。
+    /// 改了渲染方式要升 `variant` 的版本号,让系统不再命中旧图。
+    private static func inputCoverName(key: String, variant: String, input: String) -> String {
+        sha256Hex(Data("\(key)|topshelf-\(variant)|\(input)".utf8), bytes: 16) + ".jpg"
+    }
+
+    private static func existingOrRendered(_ name: String, render: () -> Data?) -> String? {
+        guard let dir = TopShelfStore.coversDirectory else { return nil }
+        let dest = dir.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: dest.path) { return name }
+        guard !Task.isCancelled, let output = render() else { return nil }
+        do {
+            try output.write(to: dest, options: .atomic)
+            return name
+        } catch {
+            return nil
+        }
+    }
+
+    private static func sha256Hex(_ data: Data, bytes: Int = 12) -> String {
+        SHA256.hash(data: data).prefix(bytes).map { String(format: "%02x", $0) }.joined()
     }
 
     /// 台标尺寸五花八门(常见几十像素的 favicon、透明底 PNG),统一铺满到深色方形底上,
@@ -153,34 +212,25 @@ enum TopShelfPublisher {
                 album: album
             )
         }
-        guard !Task.isCancelled,
-              let output = data.flatMap({ $0.isEmpty ? nil : $0 })
-                ?? placeholderCover(seed: key) else { return nil }
+        guard !Task.isCancelled else { return nil }
+        guard let output = data.flatMap({ $0.isEmpty ? nil : $0 }) else {
+            return placeholderCoverFile(seed: key)
+        }
         return writeCover(output, key: key)
     }
 
     private static func writeCover(_ output: Data, key: String) -> String? {
-        guard let dir = TopShelfStore.coversDirectory, !key.isEmpty else { return nil }
+        guard !key.isEmpty else { return nil }
         // 把实际图像内容纳入 URL：占位后来被真实封面替换时，tvOS 不会继续命中旧图缓存。
-        let imageDigest = SHA256.hash(data: output).prefix(12)
-            .map { String(format: "%02x", $0) }.joined()
-        let cacheKey = "\(key)|topshelf-art-v3|\(imageDigest)"
-        let name = SHA256.hash(data: Data(cacheKey.utf8)).prefix(16)
-            .map { String(format: "%02x", $0) }.joined() + ".jpg"
-        let dest = dir.appendingPathComponent(name)
-        try? output.write(to: dest, options: .atomic)
-        return name
+        // 文件名由内容决定，已经写过的同一张图不再重写。
+        let name = sha256Hex(Data("\(key)|topshelf-art-v3|\(sha256Hex(output))".utf8), bytes: 16) + ".jpg"
+        return existingOrRendered(name) { output }
     }
 
-    /// 内容摘要会为更新后的封面生成新文件名。仅清理一周前且不被当前 payload
-    /// 引用的 JPEG，既限制长期缓存增长，也给 Top Shelf 扩展的旧快照留出读取窗口。
-    private static func pruneStaleCovers() {
+    /// 文件名随内容或输入变化，更新后的封面会换新文件。仅清理一周前且不在 `referenced`
+    /// （本次与上一次发布引用到的）里的 JPEG，既限制长期缓存增长，也给 Top Shelf 扩展的旧快照留出读取窗口。
+    private static func pruneStaleCovers(keeping referenced: Set<String>) {
         guard let dir = TopShelfStore.coversDirectory else { return }
-        let referenced = Set(
-            TopShelfStore.load()?.sections
-                .flatMap(\.items)
-                .compactMap(\.imageFileName) ?? []
-        )
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: dir,

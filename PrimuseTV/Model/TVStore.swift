@@ -2247,11 +2247,7 @@ final class TVStore {
                 !$0.isDeleted
                     && RadioStationValidation.hasConsistentServerIdentity($0)
                     && RadioStationValidation.hasValidPlaybackReference($0)
-                    && ($0.sourceID.map { id in
-                        !locallyRemovedSourceIDs.contains(id)
-                            && sourcesStore.source(id: id)?.isEnabled == true
-                            && sourcesStore.source(id: id)?.isDeleted == false
-                    } ?? true)
+                    && ($0.sourceID.map { id in isRadioSourceAvailable(id) } ?? true)
             }
         )
         #if DEBUG
@@ -2381,6 +2377,48 @@ final class TVStore {
     /// 音乐源镜像的台由服务端管,电视端只能播,不能改。
     func canManageRadioStation(_ station: RadioStation) -> Bool {
         !station.isServerMirror
+    }
+
+    /// 镜像台所属的音乐源还在用:没在电视上移除、启用着、没被删。电台列表的过滤和
+    /// 镜像台台标的取图共用这一处判断。
+    private func isRadioSourceAvailable(_ sourceID: String) -> Bool {
+        guard !locallyRemovedSourceIDs.contains(sourceID),
+              let source = sourcesStore.source(id: sourceID) else { return false }
+        return source.isEnabled && !source.isDeleted
+    }
+
+    /// 取镜像台台标要用的音乐源和凭据;源不可用或电视上没有能取封面的连接器时为 nil。
+    /// 会读钥匙串,所以只由台标加载器在缓存没命中时调用。不设「密码或令牌非空」的门槛:
+    /// Jellyfin / Emby 允许没有密码的具名账号。
+    func radioLogoSourceContext(sourceID: String) -> TVRadioLogoSourceContext? {
+        guard isRadioSourceAvailable(sourceID),
+              let source = sourcesStore.source(id: sourceID),
+              TVSourceAssetReader.supports(source.type) else { return nil }
+        return TVRadioLogoSourceContext(
+            source: source,
+            credential: TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        )
+    }
+
+    /// 镜像台台标所依赖的音乐源状态的指纹,台标卡片拿它决定要不要重新取图。只读内存。
+    /// 普通电台和没有封面引用的镜像台(群晖 Audio Station 的台都没有)直接返回 0,
+    /// 几千张这样的卡片不会因此订阅音乐源和凭据的变化。
+    func radioLogoSourceFingerprint(for station: RadioStation) -> Int {
+        guard station.isServerMirror,
+              station.logoFileName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              let sourceID = station.sourceID else { return 0 }
+        var hasher = Hasher()
+        hasher.combine(sourceID)
+        // 在电视上手动改凭据、启停音乐源都会让它加一。
+        hasher.combine(sourcesRevision)
+        hasher.combine(sourcesStore.source(id: sourceID))
+        // 经 iCloud 或扫码直传到的凭据。只进本进程内随机种子的哈希,不落盘。
+        if let entry = credentialBundle?.entries[sourceID] {
+            hasher.combine(entry.username)
+            hasher.combine(entry.password)
+            hasher.combine(entry.token)
+        }
+        return hasher.finalize()
     }
 
     /// 同一个流(不计 http/https、末尾斜杠)是否已经在电台列表里。
@@ -2662,11 +2700,21 @@ final class TVStore {
                   album: a.title, coverKey: a.id, songID: nil, coverRef: nil,
                   playURL: Self.topShelfLink(host: "album", key: "id", a.id))
         }
+        // 镜像台的音乐源凭据不在这里预先解析:台标缓存没命中时发布器才回主线程要,
+        // 这时去抖已过,冷启动时配对凭据包也已装好。
+        let radioLogoSource: @MainActor @Sendable (String) -> TVRadioLogoSourceContext? = { [weak self] id in
+            self?.radioLogoSourceContext(sourceID: id)
+        }
         topShelfTask?.cancel()
         topShelfTask = Task {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            await TopShelfPublisher.publish(recent: recent, radio: radio, albums: lib)
+            await TopShelfPublisher.publish(
+                recent: recent,
+                radio: radio,
+                albums: lib,
+                radioLogoSource: radioLogoSource
+            )
         }
     }
 
@@ -3799,7 +3847,7 @@ final class TVStore {
             songID: "radio:\(station.id)",
             coverRef: nil,
             title: station.name,
-            artist: station.playbackSubtitle,
+            artist: station.tvPlaybackSubtitle,
             album: "",
             albumID: "",
             tint: fallback.primary,
@@ -3854,7 +3902,7 @@ final class TVStore {
                     // 解析期间台可能被改了名,用列表里现在的名字。
                     title: self.currentRadioStation?.name ?? station.name,
                     subtitle: self.radioMetadataTitle.isEmpty
-                        ? station.playbackSubtitle
+                        ? station.tvPlaybackSubtitle
                         : self.radioMetadataTitle,
                     format: station.streamFormat.displayName,
                     streamFormat: station.streamFormat,
@@ -4519,7 +4567,7 @@ final class TVStore {
                     headers: url.headers,
                     title: self.currentRadioStation?.name ?? station.name,
                     subtitle: self.radioMetadataTitle.isEmpty
-                        ? station.playbackSubtitle
+                        ? station.tvPlaybackSubtitle
                         : self.radioMetadataTitle,
                     format: station.streamFormat.displayName,
                     streamFormat: station.streamFormat,

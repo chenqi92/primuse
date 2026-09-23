@@ -843,7 +843,7 @@ struct TVBottomBar: View {
     @ViewBuilder
     private func bottomArtwork(_ np: TVNowPlaying) -> some View {
         if store.isLiveRadio, let station = store.currentRadioStation {
-            TVRadioArtworkView(station: station, size: 48, radius: 8)
+            TVRadioArtworkView(station: station, size: 48, radius: 8, store: store)
         } else {
             TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                           songID: np.songID, coverRef: np.coverRef,
