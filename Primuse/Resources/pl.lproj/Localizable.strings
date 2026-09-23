@@ -1379,6 +1379,10 @@
 "fullscreen_effect_radial_pulse_motion" = "Sterowanie widmem na żywo · Zapis obrotowy";
 "fullscreen_effect_radial_pulse_subtitle" = "Obrotowy pierścień nagrywania reaguje na rzeczywisty dźwięk";
 "fullscreen_effect_settings_title" = "Efekty pełnoekranowe";
+"fullscreen_keep_screen_awake_title" = "Nie wygaszaj ekranu w trybie pełnoekranowym";
+"fullscreen_keep_screen_awake_subtitle" = "Zapobiega automatycznej blokadzie, gdy widoczny jest odtwarzacz pełnoekranowy i Primuse jest aktywny, z tekstem utworu lub bez.";
+"fullscreen_keep_screen_awake_charging_only_title" = "Tylko podczas ładowania";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "Na baterii ekran nadal blokuje się zgodnie z ustawieniami systemu.";
 "fullscreen_effect_spectrum" = "Widmo";
 "fullscreen_effect_spectrum_subtitle" = "Specyfikacja widma tablicy przyrządów i dźwięku";
 "fullscreen_effect_starry_night" = "Gwiaździsta noc";

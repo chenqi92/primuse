@@ -88,6 +88,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "appearance.volumeBar", titleKey: "player_volume_bar", iosPage: .player, macPage: .appearance),
         SettingDefinition(id: "appearance.fullscreenEffect", titleKey: "fullscreen_effect_settings_title", iosPage: .fullscreen, macPage: .appearance, keywords: ["visualizer", "spectrum", "可视化", "频谱", "全屏效果"]),
         SettingDefinition(id: "appearance.lyricsMotion", titleKey: "immersive_lyrics_motion_title", iosPage: .fullscreen, macPage: nil),
+        SettingDefinition(id: "appearance.fullscreenKeepScreenAwake", titleKey: "fullscreen_keep_screen_awake_title", iosPage: .fullscreen, macPage: nil, keywords: ["keep awake", "auto-lock", "亮屏", "熄屏", "屏幕常亮", "锁屏", "全屏播放"]),
+        SettingDefinition(id: "appearance.fullscreenKeepScreenAwakeChargingOnly", titleKey: "fullscreen_keep_screen_awake_charging_only_title", iosPage: .fullscreen, macPage: nil, keywords: ["charging", "充电", "屏幕常亮"], anchor: "appearance.fullscreenKeepScreenAwake"),
         SettingDefinition(id: "appearance.appIcon", titleKey: "app_icon", iosPage: .appIcon, macPage: .appearance),
         SettingDefinition(id: "appearance.material", titleKey: "Material", table: "SettingsSearch", iosPage: nil, macPage: .appearance),
         SettingDefinition(id: "appearance.autoMaterial", titleKey: "Detect macOS version automatically at launch", table: "SettingsSearch", iosPage: nil, macPage: .appearance),

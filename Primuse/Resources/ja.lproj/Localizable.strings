@@ -1611,6 +1611,10 @@
 "dup_show_all_hint" = "表示の応答性を保つため、最初の 100 グループのみ表示しています。まずは上の「すべてクリーンアップ」で明らかな重複を処理してください。";
 "full_screen_player" = "フルスクリーン";
 "fullscreen_effect_settings_title" = "フルスクリーンエフェクト";
+"fullscreen_keep_screen_awake_title" = "フルスクリーン再生中は画面を消灯しない";
+"fullscreen_keep_screen_awake_subtitle" = "フルスクリーンプレーヤーの表示中に Primuse が前面にあれば、歌詞の有無にかかわらず自動ロックを防ぎます。";
+"fullscreen_keep_screen_awake_charging_only_title" = "充電中のみ";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "バッテリー駆動時はシステム設定どおりに自動ロックされます。";
 "fullscreen_effect_exit" = "フルスクリーンエフェクトを終了";
 "fullscreen_effect_native" = "オリジナル";
 "fullscreen_effect_native_subtitle" = "使い慣れたプレーヤーの配置と操作";

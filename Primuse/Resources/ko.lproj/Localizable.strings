@@ -1610,6 +1610,10 @@
 "dup_show_all_hint" = "UI 반응성을 유지하기 위해 처음 100개 그룹만 표시합니다. 위의 “모두 정리”를 사용해 명백한 중복부터 먼저 처리하세요.";
 "full_screen_player" = "전체 화면";
 "fullscreen_effect_settings_title" = "전체 화면 효과";
+"fullscreen_keep_screen_awake_title" = "전체 화면 재생 중 화면 켜짐 유지";
+"fullscreen_keep_screen_awake_subtitle" = "전체 화면 플레이어가 표시되고 Primuse가 활성 상태일 때 가사 표시 여부와 관계없이 자동 잠금을 막습니다.";
+"fullscreen_keep_screen_awake_charging_only_title" = "충전 중에만";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "배터리 사용 시에는 시스템 설정에 따라 자동 잠금됩니다.";
 "fullscreen_effect_exit" = "전체 화면 효과 종료";
 "fullscreen_effect_native" = "기본";
 "fullscreen_effect_native_subtitle" = "익숙한 플레이어 레이아웃과 조작";

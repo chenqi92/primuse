@@ -1610,6 +1610,10 @@
 "dup_show_all_hint" = "Es werden zunächst nur die ersten 100 Gruppen angezeigt, um die Oberfläche reaktionsfähig zu halten. Nutze oben „Alle bereinigen“, um offensichtliche Duplikate zuerst zu behandeln.";
 "full_screen_player" = "Vollbild";
 "fullscreen_effect_settings_title" = "Vollbildeffekte";
+"fullscreen_keep_screen_awake_title" = "Bildschirm im Vollbild wach halten";
+"fullscreen_keep_screen_awake_subtitle" = "Verhindert die automatische Sperre, solange der Vollbild-Player angezeigt wird und Primuse aktiv ist, mit oder ohne Liedtext.";
+"fullscreen_keep_screen_awake_charging_only_title" = "Nur beim Laden";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "Im Akkubetrieb sperrt sich der Bildschirm weiterhin nach den Systemeinstellungen.";
 "fullscreen_effect_exit" = "Vollbildeffekt beenden";
 "fullscreen_effect_native" = "Original";
 "fullscreen_effect_native_subtitle" = "Vertrautes Playerlayout und bekannte Bedienung";

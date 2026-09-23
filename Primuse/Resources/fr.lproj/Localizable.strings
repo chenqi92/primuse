@@ -1610,6 +1610,10 @@
 "dup_show_all_hint" = "Seuls les 100 premiers groupes sont affichés pour garder l'interface réactive. Utilisez « Tout nettoyer » ci-dessus pour traiter d'abord les doublons évidents.";
 "full_screen_player" = "Plein écran";
 "fullscreen_effect_settings_title" = "Effets plein écran";
+"fullscreen_keep_screen_awake_title" = "Garder l’écran allumé en plein écran";
+"fullscreen_keep_screen_awake_subtitle" = "Empêche le verrouillage automatique tant que le lecteur plein écran est affiché et que Primuse est actif, avec ou sans paroles.";
+"fullscreen_keep_screen_awake_charging_only_title" = "Uniquement pendant la charge";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "Sur batterie, l’écran se verrouille toujours selon les réglages du système.";
 "fullscreen_effect_exit" = "Quitter l’effet plein écran";
 "fullscreen_effect_native" = "D’origine";
 "fullscreen_effect_native_subtitle" = "Présentation et commandes familières du lecteur";

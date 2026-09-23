@@ -26,6 +26,51 @@ struct NowPlayingInteractionPolicyTests {
         ))
     }
 
+    @Test func fullscreenPlayerKeepsScreenAwakeWithoutLyricsAndHonorsTheChargingRule() {
+        #expect(NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
+            settingEnabled: true,
+            requiresCharging: false,
+            isCharging: false,
+            playerVisible: true,
+            sceneIsActive: true
+        ))
+        #expect(NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
+            settingEnabled: true,
+            requiresCharging: true,
+            isCharging: true,
+            playerVisible: true,
+            sceneIsActive: true
+        ))
+        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
+            settingEnabled: true,
+            requiresCharging: true,
+            isCharging: false,
+            playerVisible: true,
+            sceneIsActive: true
+        ))
+        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
+            settingEnabled: false,
+            requiresCharging: false,
+            isCharging: true,
+            playerVisible: true,
+            sceneIsActive: true
+        ))
+        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
+            settingEnabled: true,
+            requiresCharging: false,
+            isCharging: true,
+            playerVisible: false,
+            sceneIsActive: true
+        ))
+        #expect(!NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
+            settingEnabled: true,
+            requiresCharging: false,
+            isCharging: true,
+            playerVisible: true,
+            sceneIsActive: false
+        ))
+    }
+
     @Test func screenWakeLeaseSurvivesUntilTheLastVisibleWindowReleasesIt() {
         let firstWindow = UUID()
         let secondWindow = UUID()

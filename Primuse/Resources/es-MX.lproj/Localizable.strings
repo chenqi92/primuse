@@ -1379,6 +1379,10 @@
 "fullscreen_effect_radial_pulse_motion" = "Espectro en vivo impulsado · Registro rotativo";
 "fullscreen_effect_radial_pulse_subtitle" = "Un anillo de grabación giratorio responde al audio real";
 "fullscreen_effect_settings_title" = "Efectos de pantalla completa";
+"fullscreen_keep_screen_awake_title" = "Mantener la pantalla activa en pantalla completa";
+"fullscreen_keep_screen_awake_subtitle" = "Evita el bloqueo automático mientras se muestra el reproductor de pantalla completa y Primuse está activo, con o sin letras.";
+"fullscreen_keep_screen_awake_charging_only_title" = "Solo mientras se carga";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "Con batería, la pantalla se sigue bloqueando según la configuración del sistema.";
 "fullscreen_effect_spectrum" = "Espectro";
 "fullscreen_effect_spectrum_subtitle" = "Espectro del panel de instrumentos y especificaciones de audio";
 "fullscreen_effect_starry_night" = "Noche Estrellada";

@@ -22,6 +22,10 @@ enum PlayerAppearancePreferences {
     static let blursInactiveLyricsByDefault = false
     static let keepsScreenAwakeForLyricsKey = "primuse.player.keepsScreenAwakeForLyrics"
     static let keepsScreenAwakeForLyricsByDefault = false
+    static let keepsScreenAwakeInFullscreenPlayerKey = "primuse.player.keepsScreenAwakeInFullscreenPlayer"
+    static let keepsScreenAwakeInFullscreenPlayerByDefault = false
+    static let fullscreenScreenWakeRequiresChargingKey = "primuse.player.fullscreenScreenWakeRequiresCharging"
+    static let fullscreenScreenWakeRequiresChargingByDefault = true
     static let tapLyricsToSeekKey = "primuse.player.tapLyricsToSeek"
     static let tapLyricsToSeekByDefault = true
 

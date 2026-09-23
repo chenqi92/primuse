@@ -3579,6 +3579,10 @@
 "home_playable" = "Oynanabilir oran";
 "onboarding_sources_nas" = "Synology ve QNAP NAS, SMB / NFS paylaşımları, ayrıca Audio Station ve Feiniu Music gibi NAS müzik hizmetleri";
 "fullscreen_effect_settings_title" = "Tam ekran efektleri";
+"fullscreen_keep_screen_awake_title" = "Tam ekranda ekranı açık tut";
+"fullscreen_keep_screen_awake_subtitle" = "Tam ekran oynatıcı görünürken ve Primuse etkinken, şarkı sözü olsun ya da olmasın otomatik kilidi engeller.";
+"fullscreen_keep_screen_awake_charging_only_title" = "Yalnızca şarj olurken";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "Pilde ekran yine sistem ayarlarına göre kilitlenir.";
 "song_details_unavailable_message" = "Etiketler okundu ancak süre çıkarılamadı. Dosya bozuk veya desteklenmeyen bir biçimde olabilir.";
 "add_insecure_http_domain_message" = "Yalnızca nas.example.com gibi ana bilgisayarı veya genel IP adresini girin. Bir şema, bağlantı noktası veya yol eklemeyin. Bu ana bilgisayara giden HTTP trafiği şifrelenmeyecek.";
 "immersive_demo_lyric_10" = "Bitmemiş sözleri bir sonraki akora bırakın";

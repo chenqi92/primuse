@@ -111,6 +111,22 @@ public enum NowPlayingInteractionPolicy {
         settingEnabled && lyricsVisible && sceneIsActive
     }
 
+    /// The full-screen player is watched on its own, so it holds the screen
+    /// awake without lyrics. The charging requirement keeps the option from
+    /// draining a phone that was left on the stage unplugged.
+    public static func shouldKeepScreenAwakeForFullscreenPlayer(
+        settingEnabled: Bool,
+        requiresCharging: Bool,
+        isCharging: Bool,
+        playerVisible: Bool,
+        sceneIsActive: Bool
+    ) -> Bool {
+        settingEnabled
+            && playerVisible
+            && sceneIsActive
+            && (!requiresCharging || isCharging)
+    }
+
     public static func updatedScreenWakeOwners(
         _ owners: Set<UUID>,
         ownerID: UUID,

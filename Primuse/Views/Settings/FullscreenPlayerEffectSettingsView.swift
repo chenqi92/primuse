@@ -9,6 +9,10 @@ struct FullscreenPlayerEffectSettingsView: View {
     private var selectedRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
+    @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInFullscreenPlayerKey)
+    private var keepsScreenAwake = PlayerAppearancePreferences.keepsScreenAwakeInFullscreenPlayerByDefault
+    @AppStorage(PlayerAppearancePreferences.fullscreenScreenWakeRequiresChargingKey)
+    private var screenWakeRequiresCharging = PlayerAppearancePreferences.fullscreenScreenWakeRequiresChargingByDefault
 
     private var selectedEffect: FullscreenPlayerEffect {
         FullscreenPlayerEffect(rawValue: selectedRawValue) ?? .defaultValue
@@ -26,6 +30,7 @@ struct FullscreenPlayerEffectSettingsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
                 lyricsMotionCard
+                screenWakeCard
 
                 ForEach(FullscreenEffectCollection.allCases) { collection in
                     if !collection.effects.isEmpty {
@@ -73,6 +78,51 @@ struct FullscreenPlayerEffectSettingsView: View {
             Color(uiColor: .secondarySystemGroupedBackground),
             in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
+    }
+
+    /// 常亮开关放在全屏页而不是歌词页：它管的是舞台本身，不要求显示歌词。
+    private var screenWakeCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Toggle(isOn: $keepsScreenAwake) {
+                screenWakeLabel(
+                    title: "fullscreen_keep_screen_awake_title",
+                    subtitle: "fullscreen_keep_screen_awake_subtitle"
+                )
+            }
+            .settingsAnchor("appearance.fullscreenKeepScreenAwake")
+            .accessibilityIdentifier("fullscreenKeepScreenAwakeToggle")
+
+            if keepsScreenAwake {
+                Divider()
+
+                Toggle(isOn: $screenWakeRequiresCharging) {
+                    screenWakeLabel(
+                        title: "fullscreen_keep_screen_awake_charging_only_title",
+                        subtitle: "fullscreen_keep_screen_awake_charging_only_subtitle"
+                    )
+                }
+                .settingsAnchor("appearance.fullscreenKeepScreenAwakeChargingOnly")
+                .accessibilityIdentifier("fullscreenKeepScreenAwakeChargingOnlyToggle")
+            }
+        }
+        .tint(previewPalette.primary)
+        .padding(16)
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .pmAnimation(.control, value: keepsScreenAwake)
+    }
+
+    private func screenWakeLabel(title: LocalizedStringKey, subtitle: LocalizedStringKey) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+            Text(subtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func effectCard(_ effect: FullscreenPlayerEffect) -> some View {

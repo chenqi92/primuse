@@ -27,7 +27,8 @@ struct SettingsActionService {
         "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
         "lyrics.translationEnabled", "lyrics.tapToSeek", "lyrics.blurInactive", "lyrics.keepScreenAwake",
-        "appearance.volumeBar"
+        "appearance.volumeBar", "appearance.fullscreenKeepScreenAwake",
+        "appearance.fullscreenKeepScreenAwakeChargingOnly"
     ]
     nonisolated static let readableIDs = toggleIDs.union([
         "playback.outputMode", "playback.dsdMode", "playback.crossfadeMode", "playback.crossfadeDuration",
@@ -128,6 +129,8 @@ struct SettingsActionService {
         case "lyrics.blurInactive": preference(PlayerAppearancePreferences.blursInactiveLyricsKey, fallback: PlayerAppearancePreferences.blursInactiveLyricsByDefault)
         case "lyrics.keepScreenAwake": preference(PlayerAppearancePreferences.keepsScreenAwakeForLyricsKey, fallback: PlayerAppearancePreferences.keepsScreenAwakeForLyricsByDefault)
         case "appearance.volumeBar": preference(PlayerAppearancePreferences.showsVolumeBarKey, fallback: PlayerAppearancePreferences.showsVolumeBarByDefault)
+        case "appearance.fullscreenKeepScreenAwake": preference(PlayerAppearancePreferences.keepsScreenAwakeInFullscreenPlayerKey, fallback: PlayerAppearancePreferences.keepsScreenAwakeInFullscreenPlayerByDefault)
+        case "appearance.fullscreenKeepScreenAwakeChargingOnly": preference(PlayerAppearancePreferences.fullscreenScreenWakeRequiresChargingKey, fallback: PlayerAppearancePreferences.fullscreenScreenWakeRequiresChargingByDefault)
         default: nil
         }
     }
@@ -158,6 +161,8 @@ struct SettingsActionService {
         case "lyrics.blurInactive": defaults.set(enabled, forKey: PlayerAppearancePreferences.blursInactiveLyricsKey)
         case "lyrics.keepScreenAwake": defaults.set(enabled, forKey: PlayerAppearancePreferences.keepsScreenAwakeForLyricsKey)
         case "appearance.volumeBar": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsVolumeBarKey)
+        case "appearance.fullscreenKeepScreenAwake": defaults.set(enabled, forKey: PlayerAppearancePreferences.keepsScreenAwakeInFullscreenPlayerKey)
+        case "appearance.fullscreenKeepScreenAwakeChargingOnly": defaults.set(enabled, forKey: PlayerAppearancePreferences.fullscreenScreenWakeRequiresChargingKey)
         default: throw SettingsActionError.unavailable(SettingsStrings.text("Open this setting in the app to make changes."))
         }
         var result = status(for: id)

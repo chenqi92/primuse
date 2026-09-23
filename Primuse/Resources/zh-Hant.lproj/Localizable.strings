@@ -1558,6 +1558,10 @@
 "dup_show_all_hint" = "為了不卡頓算繪，先只顯示前 100 組。建議先用上面的「一鍵清理」處理掉明顯多餘的版本。";
 "full_screen_player" = "全螢幕播放";
 "fullscreen_effect_settings_title" = "全螢幕效果";
+"fullscreen_keep_screen_awake_title" = "全螢幕播放時保持螢幕常亮";
+"fullscreen_keep_screen_awake_subtitle" = "全螢幕播放器顯示且 Primuse 位於前景時防止自動鎖定，不需顯示歌詞。";
+"fullscreen_keep_screen_awake_charging_only_title" = "僅在充電時";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "未接電源時仍依系統設定自動鎖定。";
 "fullscreen_effect_exit" = "退出全螢幕效果";
 "fullscreen_effect_native" = "原生";
 "fullscreen_effect_native_subtitle" = "保留原本的播放器版面與互動";

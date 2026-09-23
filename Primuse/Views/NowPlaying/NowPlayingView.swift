@@ -257,6 +257,84 @@ extension View {
         ))
     }
 }
+
+/// `UIDevice.batteryState` only reports a real value while monitoring is on,
+/// so monitoring runs just for the window in which the charging rule matters.
+@MainActor
+private enum DeviceChargingState {
+    static var isCharging: Bool {
+        switch UIDevice.current.batteryState {
+        case .charging, .full: true
+        case .unplugged, .unknown: false
+        @unknown default: false
+        }
+    }
+
+    static func setMonitoring(_ enabled: Bool) {
+        guard UIDevice.current.isBatteryMonitoringEnabled != enabled else { return }
+        UIDevice.current.isBatteryMonitoringEnabled = enabled
+    }
+}
+
+/// 全屏播放器自己的常亮租约：不看歌词有没有显示，只看舞台是否露出。
+/// 与歌词租约共用同一个持有人集合，谁最后释放谁关掉常亮。
+private struct FullscreenPlayerScreenWakeLeaseModifier: ViewModifier {
+    let isVisible: Bool
+    let sceneIsActive: Bool
+
+    @AppStorage(PlayerAppearancePreferences.keepsScreenAwakeInFullscreenPlayerKey)
+    private var isEnabled = PlayerAppearancePreferences.keepsScreenAwakeInFullscreenPlayerByDefault
+    @AppStorage(PlayerAppearancePreferences.fullscreenScreenWakeRequiresChargingKey)
+    private var requiresCharging = PlayerAppearancePreferences.fullscreenScreenWakeRequiresChargingByDefault
+    @State private var ownerID = UUID()
+    @State private var isCharging = false
+
+    private var observesCharging: Bool {
+        isEnabled && requiresCharging && isVisible && sceneIsActive
+    }
+
+    private var shouldHoldLease: Bool {
+        NowPlayingInteractionPolicy.shouldKeepScreenAwakeForFullscreenPlayer(
+            settingEnabled: isEnabled,
+            requiresCharging: requiresCharging,
+            isCharging: isCharging,
+            playerVisible: isVisible,
+            sceneIsActive: sceneIsActive
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: observesCharging, initial: true) { _, observes in
+                DeviceChargingState.setMonitoring(observes)
+                isCharging = DeviceChargingState.isCharging
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: UIDevice.batteryStateDidChangeNotification)
+            ) { _ in
+                isCharging = DeviceChargingState.isCharging
+            }
+            .onChange(of: shouldHoldLease, initial: true) { _, shouldHold in
+                LyricsScreenWakeCoordinator.update(
+                    ownerID: ownerID,
+                    shouldHold: shouldHold
+                )
+            }
+            .onDisappear {
+                DeviceChargingState.setMonitoring(false)
+                LyricsScreenWakeCoordinator.update(ownerID: ownerID, shouldHold: false)
+            }
+    }
+}
+
+extension View {
+    func fullscreenPlayerScreenWakeLease(isVisible: Bool, sceneIsActive: Bool) -> some View {
+        modifier(FullscreenPlayerScreenWakeLeaseModifier(
+            isVisible: isVisible,
+            sceneIsActive: sceneIsActive
+        ))
+    }
+}
 #endif
 
 /// A single low-frequency color field shared by the standard iOS and macOS
@@ -1385,6 +1463,10 @@ struct NowPlayingView: View {
                     .lyricsScreenWakeLease(
                         isVisible: isLyricsWakeSurfaceExposed
                             && fullscreenPlayerEffect.displaysLyrics,
+                        sceneIsActive: isVisualSceneActive
+                    )
+                    .fullscreenPlayerScreenWakeLease(
+                        isVisible: isLyricsWakeSurfaceExposed,
                         sceneIsActive: isVisualSceneActive
                     )
                     .zIndex(100)

@@ -3579,6 +3579,10 @@
 "home_playable" = "Играбельное соотношение";
 "onboarding_sources_nas" = "NAS Synology и QNAP, общие папки SMB / NFS, а также музыкальные сервисы NAS, например Audio Station и Feiniu Music";
 "fullscreen_effect_settings_title" = "Полноэкранные эффекты";
+"fullscreen_keep_screen_awake_title" = "Не гасить экран в полноэкранном режиме";
+"fullscreen_keep_screen_awake_subtitle" = "Не даёт экрану заблокироваться, пока показан полноэкранный плеер и Primuse активен, с текстом песни или без него.";
+"fullscreen_keep_screen_awake_charging_only_title" = "Только при зарядке";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "От батареи экран по-прежнему блокируется по настройкам системы.";
 "song_details_unavailable_message" = "Теги были прочитаны, но длительность извлечь не удалось. Возможно, файл поврежден или имеет неподдерживаемый формат.";
 "add_insecure_http_domain_message" = "Введите только хост, например nas.example.com или общедоступный адрес IP. Не указывайте схему, порт или путь. Трафик HTTP на этот хост не будет шифроваться.";
 "immersive_demo_lyric_10" = "Оставьте незаконченные слова до следующего аккорда.";

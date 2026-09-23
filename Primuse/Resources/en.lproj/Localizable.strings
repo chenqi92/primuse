@@ -1647,6 +1647,10 @@
 // MARK: - More macOS i18n gaps round 2
 "full_screen_player" = "Full screen";
 "fullscreen_effect_settings_title" = "Full-screen effects";
+"fullscreen_keep_screen_awake_title" = "Keep Screen Awake in Full Screen";
+"fullscreen_keep_screen_awake_subtitle" = "Prevents auto-lock while the full-screen player is showing and Primuse is active, with or without lyrics.";
+"fullscreen_keep_screen_awake_charging_only_title" = "Only While Charging";
+"fullscreen_keep_screen_awake_charging_only_subtitle" = "On battery, the screen still locks on the system schedule.";
 "fullscreen_effect_exit" = "Exit full-screen effect";
 "fullscreen_effect_native" = "Original";
 "fullscreen_effect_native_subtitle" = "The familiar player layout and controls";
