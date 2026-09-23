@@ -163,7 +163,9 @@ enum TopShelfPublisher {
     /// 与 app 内电台卡片的 scaledToFill 裁切一致。
     private static func radioLogoCover(_ data: Data) -> Data? {
         guard let logo = UIImage(data: data), logo.size.width > 0, logo.size.height > 0 else { return nil }
-        let side: CGFloat = 608
+        // 同一个文件同时给 1x 与 2x 的位置用：画布跟着台标本身的像素走，大图保住 2x 的细节，
+        // 几十像素的 favicon 也不必放大到 1216。
+        let side: CGFloat = min(1216, max(608, min(logo.size.width, logo.size.height)))
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true

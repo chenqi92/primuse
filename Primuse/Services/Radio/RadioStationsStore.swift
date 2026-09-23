@@ -585,6 +585,12 @@ final class RadioStationsStore {
 
     /// 把一条远端电台并进内存，不写盘。不合法或不比本地新时返回 nil。
     private func applyRemote(_ remote: RadioStation) -> RadioStation? {
+        applyRemote(remote, existingIndex: allStations.firstIndex { $0.id == remote.id })
+    }
+
+    /// `existingIndex` 是本机同 id 行的下标（没有就传 nil），由调用方决定怎么找：
+    /// 单条远端写入直接线性查，整份快照合并则先建索引。
+    private func applyRemote(_ remote: RadioStation, existingIndex: Int?) -> RadioStation? {
         guard remote.logoData.map({ $0.count <= RadioStationValidation.maximumLogoBytes }) ?? true,
               RadioStationValidation.hasConsistentServerIdentity(remote),
               remote.isDeleted
@@ -604,7 +610,7 @@ final class RadioStationsStore {
                 normalized.streamURL = normalizedURL
             }
         }
-        if let index = allStations.firstIndex(where: { $0.id == normalized.id }) {
+        if let index = existingIndex {
             guard allStations[index].modifiedAt <= normalized.modifiedAt else { return nil }
             var merged = normalized
             merged.lastPlayedAt = allStations[index].lastPlayedAt
@@ -628,7 +634,23 @@ final class RadioStationsStore {
     /// 本机独有的行和本机更新的行都留着，整份并完只写一次盘。
     func applySnapshot(_ data: Data) throws {
         let incoming = try decoder.decode([RadioStation].self, from: data)
-        let applied = incoming.compactMap { applyRemote($0) }
+        // 镜像台动辄几千个，逐条线性查找是平方级的；先建一次 id → 下标索引，
+        // 追加的新行随手登记，整份合并就是线性的。
+        var indexByID: [String: Int] = [:]
+        indexByID.reserveCapacity(allStations.count)
+        for (index, station) in allStations.enumerated() where indexByID[station.id] == nil {
+            indexByID[station.id] = index
+        }
+        var applied: [RadioStation] = []
+        applied.reserveCapacity(incoming.count)
+        for remote in incoming {
+            let countBefore = allStations.count
+            guard let station = applyRemote(remote, existingIndex: indexByID[remote.id]) else { continue }
+            if allStations.count > countBefore {
+                indexByID[station.id] = allStations.count - 1
+            }
+            applied.append(station)
+        }
         guard !applied.isEmpty else { return }
         persist()
         materializeLogos(for: applied)
