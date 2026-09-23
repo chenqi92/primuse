@@ -37,6 +37,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private let mirrorsStarredSongsAsPlaylist: Bool
 
     private var isConnected = false
+    /// Route generation on which the session was last proven.
+    private var verifiedRouteGeneration: UInt64?
     /// 服务端类型与 OpenSubsonic 能力 —— 从 ping 响应读。决定歌词走 OpenSubsonic
     /// `getLyricsBySongId`(Navidrome/Gonic)还是老 `getLyrics`(Airsonic 等非 OpenSubsonic)。
     private var serverType: String?
@@ -238,7 +240,18 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     // MARK: - Connection
 
     func connect() async throws {
-        if isConnected { return }
+        let routeGeneration = await SourceConnectionRuntime.shared.routeGeneration()
+        if isConnected {
+            guard SourceSessionRouteValidation.needsRevalidation(
+                verifiedGeneration: verifiedRouteGeneration,
+                currentGeneration: routeGeneration
+            ) else { return }
+            // The network changed under a live session: prove this route
+            // with one ping before the router trusts it again.
+            let _: PingContainer = try await requestJSON("ping")
+            verifiedRouteGeneration = routeGeneration
+            return
+        }
         guard username.isEmpty == false else { throw SourceError.authenticationFailed }
         // requestJSON 已统一校验 envelope status, status != "ok"(含认证 error 40/41)直接抛错。
         let ping: PingContainer
@@ -251,6 +264,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         serverType = ping.type
         isOpenSubsonic = ping.openSubsonic ?? false
         isConnected = true
+        verifiedRouteGeneration = routeGeneration
     }
 
     func disconnect() async {

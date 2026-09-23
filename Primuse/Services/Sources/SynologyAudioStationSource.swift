@@ -22,6 +22,8 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     private let audioCacheDirectory: URL
     private let usesQuickConnect: Bool
     private var connected = false
+    /// Route generation on which the session was last proven.
+    private var verifiedRouteGeneration: UInt64?
     /// 这台服务器的 `method=stream` 不认 Range。连接器存活期间不再逐段试探。
     private var rangeRequestsUnsupported = false
     /// 整曲下载按路径单飞:并发的分段读取与离线下载共用同一次传输。任务不随
@@ -85,10 +87,17 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     /// 登录并确认这个账号能用 Audio Station。`info()` 会在需要时自动登录;
     /// 没有权限时 DSM 在登录(402)或这一步(105)就会说出来。
     func connect() async throws {
-        guard !connected else { return }
+        let routeGeneration = await SourceConnectionRuntime.shared.routeGeneration()
+        // After a network change the session must prove this route again;
+        // `info()` is the same small request that signs in.
+        guard !connected || SourceSessionRouteValidation.needsRevalidation(
+            verifiedGeneration: verifiedRouteGeneration,
+            currentGeneration: routeGeneration
+        ) else { return }
         do {
             _ = try await perform { try await $0.info() }
             connected = true
+            verifiedRouteGeneration = routeGeneration
             #if !os(tvOS)
             await MainActor.run { SourceAuthAlert.clear(sourceID: sourceID) }
             #endif
@@ -110,6 +119,7 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
         let login = try await client.login(otp: otp)
         _ = try await perform { try await $0.info() }
         connected = true
+        verifiedRouteGeneration = await SourceConnectionRuntime.shared.routeGeneration()
         return login.deviceID
     }
 

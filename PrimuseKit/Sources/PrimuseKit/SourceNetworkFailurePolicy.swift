@@ -133,3 +133,19 @@ public enum SourceNetworkFailurePolicy {
             .contains { Int($0) == code }
     }
 }
+
+/// When an already signed-in connector must prove its route again.
+///
+/// A server connector keeps its session across a network change, so its
+/// `connect()` used to return at once. The router then trusted a private
+/// route that a VPN or proxy answered on the device, and every request waited
+/// out its full timeout. After the path changes, one lightweight request
+/// inside `connect()` lets the router's handshake deadline catch that route.
+public enum SourceSessionRouteValidation {
+    /// - Parameter verifiedGeneration: the `SourceConnectionRuntime`
+    ///   route generation of the last successful sign-in or check; `nil` when
+    ///   none has been recorded.
+    public static func needsRevalidation(verifiedGeneration: UInt64?, currentGeneration: UInt64) -> Bool {
+        verifiedGeneration != currentGeneration
+    }
+}

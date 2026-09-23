@@ -129,4 +129,19 @@ struct SourceRouteMemoryTests {
         #expect(!SourceNetworkFailurePolicy.isStalledHandshake(CancellationError()))
         #expect(!SourceNetworkFailurePolicy.isStalledHandshake(URLError(.cancelled)))
     }
+
+    @Test func signedInConnectorsProveTheirRouteAgainAfterAPathChange() async {
+        let runtime = SourceConnectionRuntime()
+        let signedInOn = await runtime.routeGeneration()
+        #expect(!SourceSessionRouteValidation.needsRevalidation(
+            verifiedGeneration: signedInOn, currentGeneration: await runtime.routeGeneration()))
+        // Repeated callbacks for the same path do not cost a request.
+        await runtime.observeNetworkPath(prefersLocalNetwork: true, pathChanged: false)
+        #expect(!SourceSessionRouteValidation.needsRevalidation(
+            verifiedGeneration: signedInOn, currentGeneration: await runtime.routeGeneration()))
+        await runtime.observeNetworkPath(prefersLocalNetwork: false, pathChanged: true)
+        #expect(SourceSessionRouteValidation.needsRevalidation(
+            verifiedGeneration: signedInOn, currentGeneration: await runtime.routeGeneration()))
+        #expect(SourceSessionRouteValidation.needsRevalidation(verifiedGeneration: nil, currentGeneration: 0))
+    }
 }

@@ -20,6 +20,8 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     }
     private var loginOperation: LoginOperation?
     private let loginTimeout: TimeInterval
+    /// Route generation on which the session was last proven.
+    private var verifiedRouteGeneration: UInt64?
 
     static let connectionTimeout: TimeInterval = 60
 
@@ -105,7 +107,23 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
 
     func connect() async throws {
         try Task.checkCancellation()
-        if await api.isLoggedIn { return }
+        let routeGeneration = await SourceConnectionRuntime.shared.routeGeneration()
+        if await api.isLoggedIn {
+            guard SourceSessionRouteValidation.needsRevalidation(
+                verifiedGeneration: verifiedRouteGeneration,
+                currentGeneration: routeGeneration
+            ) else { return }
+            // The network changed under a live session: prove this route with
+            // the smallest catalogue request before the router trusts it again.
+            do {
+                _ = try await api.trackPage(page: 1, size: 1)
+                verifiedRouteGeneration = routeGeneration
+                return
+            } catch SourceError.authenticationFailed {
+                // The session expired as well; sign in again below.
+                await api.invalidateSession()
+            }
+        }
         guard !username.isEmpty, !password.isEmpty else {
             await reportAuthenticationProblem(PMString("error.fnMusic.missingCredential"))
             throw SourceError.authenticationFailed
@@ -128,6 +146,7 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
         do {
             try await Self.waitForLogin(operation.task)
             try Task.checkCancellation()
+            verifiedRouteGeneration = routeGeneration
             await finishLoginWaiter(waiterID, operationID: operation.id, failed: false)
             await MainActor.run { SourceAuthAlert.clear(sourceID: sourceID) }
         } catch {
