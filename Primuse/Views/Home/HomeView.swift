@@ -1316,8 +1316,8 @@ struct HomeView: View {
                             toggleHomeRadio(station)
                         } label: {
                             Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .frame(width: 38, height: 38)
+                                .font(.system(size: 17, weight: .bold))
+                                .frame(width: 46, height: 46)
                                 .contentTransition(.symbolEffect(.replace))
                                 .pmAnimation(.control, value: isPlaying)
                         }
@@ -1349,9 +1349,9 @@ struct HomeView: View {
         )
         .background {
             radioSpotlightBackdrop
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
-        .contentShape(RoundedRectangle(cornerRadius: 22))
+        .contentShape(RoundedRectangle(cornerRadius: 26))
         .simultaneousGesture(
             DragGesture(minimumDistance: 24).onEnded { value in
                 guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
@@ -1773,9 +1773,10 @@ struct HomeView: View {
     private var initialLoadingView: some View {
         LoadingSkeletonGroup {
             VStack(alignment: .leading, spacing: 24) {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                // 与封面墙头图同尺寸,数据到位时版面不跳。
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .fill(homeCardSurface)
-                    .frame(height: heightClass.value(154, compact: 96))
+                    .frame(height: heightClass.value(318, compact: 196))
                     .padding(.horizontal, 16)
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -2152,36 +2153,40 @@ struct HomeView: View {
                 .minimalNavigationDetail()
                 #endif
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "chart.bar.xaxis")
-                    .font(.title3)
-                    .foregroundStyle(.tint)
-                    .frame(width: 32, height: 32)
-                VStack(alignment: .leading, spacing: 2) {
+            // 本周听歌:大号时长做主角,次数与活跃天数一行小字,右边一个统计图标。
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
                     Text("stats_title")
-                        .font(.subheadline.weight(.semibold))
-                    Text(String(
-                        format: String(localized: "home_stats_glimpse_format"),
-                        summary.totalPlays,
-                        formattedDuration(summary.totalSec),
-                        summary.activeDays
-                    ))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                HStack(alignment: .lastTextBaseline) {
+                    Text(verbatim: formattedDuration(summary.totalSec))
+                        .font(.system(.title, design: .rounded).weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.title2)
+                        .foregroundStyle(.tint)
+                }
+                Text(String(
+                    format: String(localized: "home_stats_glimpse_format"),
+                    summary.totalPlays,
+                    formattedDuration(summary.totalSec),
+                    summary.activeDays
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .padding(14)
+            .padding(16)
             .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(homeCardSurface)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(.primary.opacity(0.06), lineWidth: 0.5)
-                    }
             }
             .padding(.horizontal, 16)
         }
@@ -2270,7 +2275,7 @@ struct HomeView: View {
                         .font(.caption).fontWeight(.medium)
                         .foregroundStyle(.secondary)
                     Text("home_todays_pick_title")
-                        .font(.title3).fontWeight(.bold)
+                        .font(.title3.weight(.heavy))
                         .lineLimit(1)
                     Text(pick.title)
                         .font(.subheadline).fontWeight(.medium)
@@ -2337,134 +2342,139 @@ struct HomeView: View {
         }
     }
 
-    /// Cold-start: no songs eligible for the today's pick. Keep the
-    /// old library-mix CTA so the user always has something to tap.
+    /// 首页头图:资料库里的封面斜着铺成一面墙,向下压暗,问候语、标题和两颗按钮压在
+    /// 压暗的那一段上。整块仍是「打开全部歌曲」的入口(按钮以外的地方点下去就进歌曲)。
+    /// 两套基座共用 —— 颜色全部来自封面,不依赖皮肤底色。
     private var libraryMixHeroFallback: some View {
-        VStack(spacing: heightClass.value(14, compact: 10)) {
-            homeFaceHeader(.music)
+        let compact = heightClass.isCompact
+        let heroHeight: CGFloat = compact ? 196 : 318
+        return ZStack(alignment: .bottomLeading) {
+            heroMosaic(height: heroHeight)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
 
-            HStack(alignment: .center, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(greeting)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("home_library_mix_title")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .lineLimit(heightClass.pick(2, compact: 1))
-                        .minimumScaleFactor(0.85)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: compact ? 8 : 12) {
+                homeFaceHeader(.music, onDarkSurface: true)
+
+                Spacer(minLength: 0)
+
+                Text(greeting)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.78))
+                Text("home_library_mix_title")
+                    .font(compact ? .title2.weight(.heavy) : .largeTitle.weight(.heavy))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 10) {
+                    Button {
+                        playLibrary(shuffled: true)
+                    } label: {
+                        Label("shuffle", systemImage: "shuffle")
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity, minHeight: compact ? 40 : 48)
+                            .background(.white, in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.pmPressable)
+
+                    Button {
+                        playLibrary(shuffled: false)
+                    } label: {
+                        Label("play_all", systemImage: "play.fill")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: compact ? 40 : 48)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .overlay { Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.5) }
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.pmPressable)
                 }
-
-                heroCoverCollage
             }
-
-            HStack(spacing: 10) {
-                Button {
-                    playLibrary(shuffled: true)
-                } label: {
-                    Label("shuffle", systemImage: "shuffle")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                }
-                .buttonStyle(.borderedProminent)
-                .clipShape(Capsule())
-
-                Button {
-                    playLibrary(shuffled: false)
-                } label: {
-                    Label("play_all", systemImage: "play.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 11)
-                }
-                .buttonStyle(.bordered)
-                .clipShape(Capsule())
-            }
+            .padding(heroPadding)
         }
-        .padding(heroPadding)
+        .frame(height: heroHeight)
+        .frame(maxWidth: .infinity)
+        // 海报一律是深色的,里面的材质与语义色按深色取值。
+        .environment(\.colorScheme, .dark)
         .background {
             Button(action: openLibrarySongs) {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(homeCardSurface)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(.primary.opacity(0.06), lineWidth: 0.5)
-                    }
+                Color.black
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text("tab_songs"))
             .accessibilityHint(Text("library_browse"))
             .accessibilityIdentifier("homeLibraryHeroOpenSongs")
         }
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
         .padding(.horizontal, 16)
+    }
+
+    /// 斜铺的封面墙。封面不够铺满时循环使用;一张都没有时用主题色渐变兜底。
+    @ViewBuilder
+    private func heroMosaic(height: CGFloat) -> some View {
+        let songs = model.snapshot.heroCoverSongs
+        let tile: CGFloat = heightClass.value(108, compact: 78)
+        let columns = 5
+        let rows = 4
+        ZStack {
+            LinearGradient(
+                colors: [Color.accentColor.opacity(0.55), Color.black],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            if !songs.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        HStack(spacing: 8) {
+                            ForEach(0..<columns, id: \.self) { column in
+                                let song = songs[(row * columns + column + row) % songs.count]
+                                CachedArtworkView(
+                                    coverRef: song.coverArtFileName,
+                                    songID: song.id,
+                                    size: tile,
+                                    cornerRadius: 12,
+                                    sourceID: song.sourceID,
+                                    filePath: song.filePath,
+                                    fileFormat: song.fileFormat
+                                )
+                            }
+                        }
+                        // 行与行错开半张,墙面看起来是斜着铺过去的,不是一张表格。
+                        .offset(x: row.isMultiple(of: 2) ? 0 : -tile / 2)
+                    }
+                }
+                .rotationEffect(.degrees(-10))
+                .scaleEffect(1.12)
+            } else {
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.22), location: 0),
+                    .init(color: .black.opacity(0.05), location: 0.28),
+                    .init(color: .black.opacity(0.42), location: 0.58),
+                    .init(color: .black.opacity(0.86), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .clipped()
     }
 
     /// Hero 的内边距。手机横屏整块要控制在视口的四成以内,四周先收一档。
     private var heroPadding: CGFloat {
         heightClass.value(16, compact: 10)
-    }
-
-    /// 4 张封面错落叠放 — 用 ZStack 加旋转 + 偏移, 跟 Spotify Mix /
-    /// Apple Music「For You」拼贴风格一致。封面来自最近添加 + 最近播放
-    /// 的随机抽样, 每次 view 出现重洗一次。
-    @ViewBuilder
-    private var heroCoverCollage: some View {
-        // 手机横屏整块 hero 要压到视口四成以内,拼贴跟着等比缩一档:
-        // 封面、错开的距离、外框三处必须一起缩,只改外框会让封面溢出去压到文字。
-        let size = heightClass.value(50, compact: 38)
-        let radius = heightClass.value(8, compact: 6)
-        let spread = heightClass.value(1, compact: 0.75)
-        ZStack {
-            // 4 张依次叠, 角度 + 偏移让它们看起来散开
-            ForEach(Array(model.snapshot.heroCoverSongs.prefix(4).enumerated()), id: \.element.id) { index, song in
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: size,
-                    cornerRadius: radius,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath,
-                    fileFormat: song.fileFormat
-                )
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-                .rotationEffect(.degrees(coverRotation(for: index)))
-                .offset(coverOffset(for: index, spread: spread))
-                .zIndex(Double(4 - index))
-            }
-            if model.snapshot.heroCoverSongs.isEmpty {
-                Image(systemName: "music.note.list")
-                    .font(.title)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(
-            width: heightClass.value(110, compact: 90),
-            height: heightClass.value(80, compact: 56)
-        )
-    }
-
-    private func coverRotation(for index: Int) -> Double {
-        switch index {
-        case 0: return -10
-        case 1: return -3
-        case 2: return 5
-        case 3: return 12
-        default: return 0
-        }
-    }
-
-    private func coverOffset(for index: Int, spread: CGFloat) -> CGSize {
-        let base: CGSize
-        switch index {
-        case 0: base = CGSize(width: -28, height: 0)
-        case 1: base = CGSize(width: -10, height: -4)
-        case 2: base = CGSize(width: 10, height: 2)
-        case 3: base = CGSize(width: 28, height: 0)
-        default: base = .zero
-        }
-        return CGSize(width: base.width * spread, height: base.height * spread)
     }
 
     nonisolated private static func makeHeroCoverSongs(
@@ -2482,7 +2492,8 @@ struct HomeView: View {
             pool.append(song)
         }
         let withCover = pool.filter { $0.coverArtFileName?.isEmpty == false }
-        return Array(withCover.shuffled().prefix(4))
+        // 头图是一面封面墙,抽 12 张;不够时墙面会循环使用。
+        return Array(withCover.shuffled().prefix(12))
     }
 
     // MARK: - Quick Access
@@ -2490,9 +2501,7 @@ struct HomeView: View {
     @ViewBuilder
     private func quickAccessSection(_ style: HomeSectionLayoutStyle) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("home_section_quick_access")
-                .font(.title3.weight(.bold))
-                .padding(.horizontal, 20)
+            homeSectionTitle("home_section_quick_access")
 
             if style == .carousel {
                 // 横排档去掉整块底卡:一行图标本来就不高,再包一层圆角面板
@@ -2507,25 +2516,18 @@ struct HomeView: View {
                     .padding(.horizontal, 20)
                 }
             } else {
+                // 网格档是两列胶囊磁贴:左边封面、右边名称与一行说明,
+                // 一屏能放六个,比一排小图标好认。
                 LazyVGrid(
                     columns: Array(
                         repeating: GridItem(.flexible(), spacing: 10),
-                        count: 3
+                        count: usesPadMetrics ? 3 : 2
                     ),
-                    spacing: 14
+                    spacing: 10
                 ) {
                     ForEach(model.snapshot.quickItems) { item in
-                        homeQuickDockItem(item)
+                        homeQuickDockItem(item, pill: true)
                     }
-                }
-                .padding(14)
-                .background {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(homeCardSurface)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(.primary.opacity(0.06), lineWidth: 0.5)
-                        }
                 }
                 .padding(.horizontal, 20)
             }
@@ -2533,13 +2535,14 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func homeQuickDockItem(_ item: HomeQuickItem) -> some View {
+    private func homeQuickDockItem(_ item: HomeQuickItem, pill: Bool = false) -> some View {
+        let side: CGFloat = pill ? 46 : 52
         switch item {
         case .liked(let playlist):
             NavigationLink(value: playlist) {
-                quickAccessDockLabel(title: String(localized: "sidebar_liked_songs")) {
-                    QuickAccessArtworkView(item: .playlist(playlist), size: 52, cornerRadius: 9) {
-                        likedSongsArtwork(size: 52)
+                quickAccessLabel(title: String(localized: "sidebar_liked_songs"), subtitle: nil, pill: pill) {
+                    QuickAccessArtworkView(item: .playlist(playlist), size: side, cornerRadius: 9) {
+                        likedSongsArtwork(size: side)
                     }
                 }
             }
@@ -2547,9 +2550,9 @@ struct HomeView: View {
             .mediaZoomSource(.playlist, id: playlist.id)
         case .album(let album):
             NavigationLink(value: album) {
-                quickAccessDockLabel(title: album.title) {
-                    QuickAccessArtworkView(item: .album(album), size: 52, cornerRadius: 9) {
-                        AlbumArtworkView(album: album, size: 52, cornerRadius: 9)
+                quickAccessLabel(title: album.title, subtitle: album.artistName, pill: pill) {
+                    QuickAccessArtworkView(item: .album(album), size: side, cornerRadius: 9) {
+                        AlbumArtworkView(album: album, size: side, cornerRadius: 9)
                     }
                 }
             }
@@ -2557,9 +2560,9 @@ struct HomeView: View {
             .mediaZoomSource(.album, id: album.id)
         case .artist(let artist):
             NavigationLink(value: artist) {
-                quickAccessDockLabel(title: artist.name) {
-                    QuickAccessArtworkView(item: .artist(artist), size: 52, cornerRadius: 9) {
-                        ArtistArtworkView(artist: artist, size: 52, cornerRadius: 26)
+                quickAccessLabel(title: artist.name, subtitle: nil, pill: pill) {
+                    QuickAccessArtworkView(item: .artist(artist), size: side, cornerRadius: 9) {
+                        ArtistArtworkView(artist: artist, size: side, cornerRadius: side / 2)
                     }
                 }
             }
@@ -2567,14 +2570,55 @@ struct HomeView: View {
             .mediaZoomSource(.artist, id: artist.id)
         case .playlist(let tile):
             NavigationLink(value: tile.playlist) {
-                quickAccessDockLabel(title: tile.playlist.name) {
-                    QuickAccessArtworkView(item: .playlist(tile.playlist), size: 52, cornerRadius: 9) {
-                        homePlaylistArtwork(tile, size: 52, cornerRadius: 9)
+                quickAccessLabel(
+                    title: tile.playlist.name,
+                    subtitle: "\(tile.songCount) " + String(localized: "songs_count"),
+                    pill: pill
+                ) {
+                    QuickAccessArtworkView(item: .playlist(tile.playlist), size: side, cornerRadius: 9) {
+                        homePlaylistArtwork(tile, size: side, cornerRadius: 9)
                     }
                 }
             }
             .buttonStyle(.pmPressable)
             .mediaZoomSource(.playlist, id: tile.playlist.id)
+        }
+    }
+
+    @ViewBuilder
+    private func quickAccessLabel<Artwork: View>(
+        title: String,
+        subtitle: String?,
+        pill: Bool,
+        @ViewBuilder artwork: () -> Artwork
+    ) -> some View {
+        if pill {
+            HStack(spacing: 10) {
+                artwork()
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 10)
+            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(homeCardSurface)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        } else {
+            quickAccessDockLabel(title: title, artwork: artwork)
         }
     }
 
@@ -2619,9 +2663,7 @@ struct HomeView: View {
         let tiles = model.snapshot.playlists
 
         VStack(alignment: .leading, spacing: 10) {
-            Text("home_section_playlists")
-                .font(.title3.weight(.bold))
-                .padding(.horizontal, 20)
+            homeSectionTitle("home_section_playlists")
 
             switch style {
             case .carousel:
@@ -2750,10 +2792,7 @@ struct HomeView: View {
     @ViewBuilder
     private func forYouSection(_ style: HomeSectionLayoutStyle) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("home_for_you_title")
-                .font(.title3)
-                .fontWeight(.bold)
-                .padding(.horizontal, 20)
+            homeSectionTitle("home_for_you_title")
 
             if style == .list {
                 VStack(spacing: 8) {
@@ -2873,11 +2912,12 @@ struct HomeView: View {
 
     @ViewBuilder
     private func recommendationCardBackground(for song: Song) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
         if let tint = tintProvider.tint(forSongID: song.id) {
+            // 推荐卡整张铺这首歌的封面色,一眼看得出是哪一首。
             shape.fill(
                 LinearGradient(
-                    colors: [tint.opacity(0.28), tint.opacity(0.08)],
+                    colors: [tint.opacity(0.46), tint.opacity(0.14)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -2897,18 +2937,20 @@ struct HomeView: View {
         let songs = model.snapshot.recentSongs
 
         VStack(alignment: .leading, spacing: 10) {
-            Text("home_continue_listening")
-                .font(.title3).fontWeight(.bold).padding(.horizontal, 20)
+            homeSectionTitle("home_continue_listening")
 
             switch style {
             // 继续听不提供网格：`resolved` 会把它夹回支持的方案，这里并到横排
             // 只是不让任何意外取值渲染成一片空白。
             case .carousel, .grid:
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(rows: carouselRows(.continueListening, height: 60, spacing: 10), spacing: 10) {
+                    LazyHGrid(
+                        rows: carouselRows(.continueListening, height: continueCardSide + 46, spacing: 16),
+                        spacing: 14
+                    ) {
                         ForEach(songs.prefix(sectionItemCount(.continueListening, 12)), id: \.id) { song in
                             Button { playSong(song) } label: {
-                                continueListeningRow(song)
+                                continueListeningCard(song)
                             }
                             .buttonStyle(.pmPressable)
                         }
@@ -2927,6 +2969,42 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
             }
         }
+    }
+
+    /// 横排档的方形大卡:封面占满卡宽,下面两行歌名与艺术家。
+    private var continueCardSide: CGFloat {
+        usesPadMetrics ? 168 : heightClass.value(148, compact: 104)
+    }
+
+    private func continueListeningCard(_ song: Song) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CachedArtworkView(
+                coverRef: song.coverArtFileName,
+                songID: song.id,
+                size: continueCardSide,
+                cornerRadius: 14,
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat
+            )
+            .shadow(color: .black.opacity(0.14), radius: 8, y: 4)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(song.title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(
+                    library.artistDisplayName(for: song)
+                        ?? String(localized: "unknown_artist")
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+        }
+        .frame(width: continueCardSide, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     /// 纵向列表里要铺满一行 —— 沿用横排的固定宽度会在右侧留一条空白。
@@ -2973,6 +3051,14 @@ struct HomeView: View {
                 .fill(homeCardSurface)
         }
         .contentShape(Rectangle())
+    }
+
+    /// 首页各区块的标题。字重比系统默认再重一档,区块之间靠标题分隔,不再靠卡片边框。
+    private func homeSectionTitle(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.title3.weight(.heavy))
+            .padding(.horizontal, 20)
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// 首页所有卡片共用的底。经典皮肤下 `.surface` 就是 secondarySystemBackground,与原来一致。
@@ -3026,7 +3112,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: style == .grid ? 14 : 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text(HomeDiscoveryText.string("recent_albums"))
-                    .font(.title3).fontWeight(.bold)
+                    .font(.title3.weight(.heavy))
                 Spacer()
                 NavigationLink {
                     RecentlyAddedAlbumsView()

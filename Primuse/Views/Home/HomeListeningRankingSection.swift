@@ -113,7 +113,7 @@ struct HomeListeningRankingSection: View {
 
     private var heading: some View {
         Text(HomeDiscoveryText.string("ranking"))
-            .font(.title3.bold()).fixedSize(horizontal: true, vertical: false)
+            .font(.title3.weight(.heavy)).fixedSize(horizontal: true, vertical: false)
             .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("home.listeningRanking")
     }
