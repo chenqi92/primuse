@@ -175,6 +175,39 @@ public struct SkinCompanions: Sendable, Equatable, Codable {
     public var isEmpty: Bool { immersiveStageIDs.isEmpty && lyricPosterStyleIDs.isEmpty }
 }
 
+// MARK: - 特征位
+
+/// 样式在几处「画法取向」上的选择。原来一个「自己画页面底色」的布尔值同时决定了页面底色、
+/// 封面染色和浮层材质,后续样式想要「自己的底色 + 封面染色的详情页」这类组合就表达不了,
+/// 所以拆成互相独立的几位。中性页面(设置、搜索、音乐源)的底色仍由 `pageBackground` 决定。
+public struct SkinTraits: Sendable, Equatable, Codable {
+    /// 专辑 / 艺术家 / 歌单 / 风格详情页的整页底色从哪里来。
+    public enum CollectionBackdrop: String, Sendable, Codable, CaseIterable {
+        /// 取自这一页的封面(两套基座的默认)。
+        case artworkTint
+        /// 用样式自己的页面底色,不染封面色。
+        case skinCanvas
+    }
+
+    /// 底栏、播放胶囊这类悬浮控件的材质。
+    public enum ChromeMaterial: String, Sendable, Codable, CaseIterable {
+        /// 模糊材质叠样式的半透明底。
+        case glass
+        /// 不透明的样式底色(与系统「降低透明度」时一样)。
+        case solid
+    }
+
+    public let collectionBackdrop: CollectionBackdrop
+    public let chromeMaterial: ChromeMaterial
+
+    public init(collectionBackdrop: CollectionBackdrop = .artworkTint, chromeMaterial: ChromeMaterial = .glass) {
+        self.collectionBackdrop = collectionBackdrop
+        self.chromeMaterial = chromeMaterial
+    }
+
+    public static let standard = SkinTraits()
+}
+
 // MARK: - 样式定义
 
 /// 一套样式的完整描述。除插槽选择外全是数据 —— 新增一套样式不需要动视图。
@@ -196,6 +229,7 @@ public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
     public let motion: [SkinMotionToken: SkinMotionSpec]
     public let slots: [SkinSlot: SkinSlotVariantID]
     public let companions: SkinCompanions
+    public let traits: SkinTraits
 
     public init(
         id: String,
@@ -209,7 +243,8 @@ public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
         typography: [SkinTypographyToken: SkinTypeSpec],
         motion: [SkinMotionToken: SkinMotionSpec],
         slots: [SkinSlot: SkinSlotVariantID] = SkinSlotRegistry.allClassic,
-        companions: SkinCompanions = .none
+        companions: SkinCompanions = .none,
+        traits: SkinTraits = .standard
     ) {
         self.id = id
         self.nameKey = nameKey
@@ -223,6 +258,32 @@ public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
         self.motion = motion
         self.slots = slots
         self.companions = companions
+        self.traits = traits
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, nameKey, descriptionKey, appearance, pageBackground, access
+        case colors, metrics, typography, motion, slots, companions, traits
+    }
+
+    /// 特征位是后加的:没有这一项的旧样式数据按默认取向解码,不必迁移。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            nameKey: try container.decode(String.self, forKey: .nameKey),
+            descriptionKey: try container.decode(String.self, forKey: .descriptionKey),
+            appearance: try container.decode(SkinAppearanceAffinity.self, forKey: .appearance),
+            pageBackground: try container.decode(SkinPageBackground.self, forKey: .pageBackground),
+            access: try container.decode(SkinAccess.self, forKey: .access),
+            colors: try container.decode([SkinColorToken: SkinColorSpec].self, forKey: .colors),
+            metrics: try container.decode([SkinMetricToken: Double].self, forKey: .metrics),
+            typography: try container.decode([SkinTypographyToken: SkinTypeSpec].self, forKey: .typography),
+            motion: try container.decode([SkinMotionToken: SkinMotionSpec].self, forKey: .motion),
+            slots: try container.decode([SkinSlot: SkinSlotVariantID].self, forKey: .slots),
+            companions: try container.decode(SkinCompanions.self, forKey: .companions),
+            traits: try container.decodeIfPresent(SkinTraits.self, forKey: .traits) ?? .standard
+        )
     }
 
     public func color(_ token: SkinColorToken) -> SkinColorSpec? { colors[token] }

@@ -2,19 +2,30 @@
 import PrimuseKit
 import SwiftUI
 
+/// CarPlay 编辑器的配色。经典样式下每一项都原样是系统色(界面测试钉着这套外观);
+/// 自己画底色的样式下换成样式的色位。
+///
+/// 这里是 87 处调用共用的静态入口,读不到 SwiftUI 环境,所以当前样式由 `SkinRuntime`
+/// 在换样式时写进来,与 `PMMotionSkin` 同一个做法。
 enum CarPlayEditorTheme {
-    static let background = Color(uiColor: .systemGroupedBackground)
-    static let canvas = Color(uiColor: .systemBackground)
-    static let sidebar = Color(uiColor: .secondarySystemBackground)
-    static let surface = Color(uiColor: .secondarySystemGroupedBackground)
-    static let sheet = Color(uiColor: .systemBackground)
-    static let row = Color(uiColor: .secondarySystemBackground)
-    static let border = Color(uiColor: .separator).opacity(0.3)
+    nonisolated(unsafe) static var style = SkinStyle()
+
+    private static func pick(_ classic: Color, _ token: SkinColorToken) -> Color {
+        style.paintsPageBackground ? style.color(token) : classic
+    }
+
+    static var background: Color { pick(Color(uiColor: .systemGroupedBackground), .canvasSunken) }
+    static var canvas: Color { pick(Color(uiColor: .systemBackground), .canvas) }
+    static var sidebar: Color { pick(Color(uiColor: .secondarySystemBackground), .surface) }
+    static var surface: Color { pick(Color(uiColor: .secondarySystemGroupedBackground), .surface) }
+    static var sheet: Color { pick(Color(uiColor: .systemBackground), .canvasElevated) }
+    static var row: Color { pick(Color(uiColor: .secondarySystemBackground), .surface) }
+    static var border: Color { pick(Color(uiColor: .separator).opacity(0.3), .surfaceBorder) }
     static let accent = Color.accentColor
     static let accentText = Color.accentColor
-    static let text = Color.primary
-    static let secondary = Color.secondary
-    static let muted = Color.secondary.opacity(0.7)
+    static var text: Color { pick(Color.primary, .textPrimary) }
+    static var secondary: Color { pick(Color.secondary, .textSecondary) }
+    static var muted: Color { pick(Color.secondary.opacity(0.7), .textTertiary) }
     static let artwork = LinearGradient(colors: [Color(uiColor: .tertiarySystemFill), Color(uiColor: .secondarySystemFill)], startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 

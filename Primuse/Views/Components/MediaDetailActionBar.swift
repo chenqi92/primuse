@@ -112,9 +112,12 @@ private struct LibraryDetailTintModifier: ViewModifier {
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
 
-    /// 两套基座的详情页都是「封面色的海报」,所以不看皮肤,一律染色。
+    @Environment(\.skin) private var skin
+
+    /// 两套基座的详情页默认都是「封面色的海报」;样式声明了用自己的底色时不染。
     private var style: LibraryDetailTintStyle? {
-        .artwork(song.flatMap { coverTints.tint(forSongID: $0.id) }, colorScheme: colorScheme)
+        guard skin.tintsCollectionPages else { return nil }
+        return .artwork(song.flatMap { coverTints.tint(forSongID: $0.id) }, colorScheme: colorScheme)
     }
 
     func body(content: Content) -> some View {

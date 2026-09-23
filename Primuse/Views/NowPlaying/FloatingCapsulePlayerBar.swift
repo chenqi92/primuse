@@ -77,7 +77,7 @@ struct FloatingCapsulePlayerBar: View {
 
     @ViewBuilder
     private var capsuleFill: some View {
-        if reduceTransparency {
+        if reduceTransparency || skin.usesSolidChrome {
             Capsule().fill(skin.color(.canvasElevated))
         } else {
             // 样式的半透明底色叠在模糊之上:底下滚过的封面只透出一点颜色,文字始终可读。
@@ -318,7 +318,7 @@ struct MinimalBottomDock: View {
 
     @ViewBuilder
     private var circleFill: some View {
-        if reduceTransparency {
+        if reduceTransparency || skin.usesSolidChrome {
             Circle().fill(skin.color(.canvasElevated))
         } else {
             ZStack {

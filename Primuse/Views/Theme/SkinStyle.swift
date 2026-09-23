@@ -107,6 +107,12 @@ struct SkinStyle: Equatable, Sendable {
     /// 都保持系统默认。
     var paintsPageBackground: Bool { skin.pageBackground == .canvas }
 
+    /// 详情页(专辑 / 艺术家 / 歌单 / 风格)整页铺封面色,还是用样式自己的底色。
+    var tintsCollectionPages: Bool { skin.traits.collectionBackdrop == .artworkTint }
+
+    /// 悬浮控件用不透明底(样式声明了 solid,或系统开了「降低透明度」由调用处另判)。
+    var usesSolidChrome: Bool { skin.traits.chromeMaterial == .solid }
+
     // MARK: - 几何
 
     /// 已按 Dynamic Type 缩放的点值。圆角、描边、阴影这类形状语言不参与缩放

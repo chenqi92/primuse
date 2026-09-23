@@ -44,9 +44,10 @@ struct ArtistDetailView: View {
         library.preferredArtworkSong(forArtistID: artist.id) ?? songs.first
     }
 
-    /// 两套基座的详情页都铺封面色。
+    /// 两套基座的详情页默认铺封面色;样式声明了用自己的底色时不染。
     private var tint: LibraryDetailTintStyle? {
-        .artwork(
+        guard skin.tintsCollectionPages else { return nil }
+        return .artwork(
             artworkTintSong.flatMap { coverTints.tint(forSongID: $0.id) },
             colorScheme: colorScheme
         )

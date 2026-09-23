@@ -99,6 +99,8 @@ final class SkinRuntime {
         publishCompanionAvailability()
         // 全 App 共用的动效词汇(`PMMotion`)从这张表取曲线。
         PMMotionSkin.motion = resolved.motion
+        // CarPlay 编辑器的静态配色入口读不到环境,在这里跟着换。
+        CarPlayEditorTheme.style = SkinStyle(skin: resolved)
     }
 
     /// 随皮肤提供的全屏效果与歌词海报,要那套皮肤可用才出现在各自的列表里。
