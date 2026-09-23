@@ -83,6 +83,69 @@ struct FnMusicLibraryTests {
         #expect(rejected.requests.count == before)
     }
 
+    /// 飞牛把空集合序列化成 null（`{"list":null,"total":0}`），命令类接口甚至整个 data 为 null。
+    /// 以前这两种都被判成「响应不是有效的飞牛音乐 JSON」，歌单与收藏同步三天没成功过一次。
+    @Test func emptyServerCollectionsArriveAsNullListsOrNullData() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setRawPage("/favorite-track/list", page: 1, data: ["list": NSNull(), "total": 0])
+        fixture.setRawPage("/playlist/list", page: 1, data: NSNull())
+        let (client, _, _) = fixture.clients()
+        #expect(try await client.library.favorites().isEmpty)
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.playlists.isEmpty)
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+    }
+
+    /// 没有 total 时短页就是末页；歌单清单不分页、一次全给，条数可以超过我们请求的 size。
+    @Test func listsWithoutTotalEndAtTheFirstShortPage() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setRawPage("/favorite-track/list", page: 1, data: ["list": (0..<50).map { ["guid": "s\($0)"] }])
+        fixture.setRawPage("/favorite-track/list", page: 2, data: ["list": [["guid": "s50"]]])
+        fixture.setRawPage("/playlist/list", page: 1,
+                           data: ["list": (0..<60).map { ["guid": "p\($0)", "name": "List \($0)"] }])
+        for i in 0..<60 {
+            fixture.setRawPage("/track/playlist-detail/list", playlist: "p\(i)", page: 1, data: ["list": NSNull(), "total": 0])
+        }
+        let (client, _, _) = fixture.clients()
+        #expect(try await client.library.favorites() == (0..<51).map { "s\($0)" })
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.playlists.map(\.id) == (0..<60).map { "p\($0)" })
+        #expect(snapshot.playlists.allSatisfy { $0.trackIDs.isEmpty })
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/playlist/list") == true }.count == 1)
+    }
+
+    /// 带 total 的清单一次给全也照收；说了 total 却给了短页、list 不是数组、没有 total 又
+    /// 永远返回同一满页，仍然是坏响应而不是被当成空集合或无限翻页。
+    @Test func completeUnpagedListsAreAcceptedAndBrokenPagesStillFailClosed() async throws {
+        let whole = FnMusicLibraryFixture()
+        whole.setPage("/playlist/list", page: 1,
+                      list: (0..<60).map { ["guid": "p\($0)", "name": "List \($0)"] }, total: 60)
+        for i in 0..<60 {
+            whole.setPage("/track/playlist-detail/list", playlist: "p\(i)", page: 1, list: [], total: 0)
+        }
+        let (reader, _, _) = whole.clients()
+        #expect(try await reader.library.playlists().playlists.count == 60)
+
+        let short = FnMusicLibraryFixture()
+        short.setRawPage("/favorite-track/list", page: 1, data: ["list": NSNull(), "total": 3])
+        let (shortReader, _, _) = short.clients()
+        await #expect(throws: FnMusicServiceError.self) { try await shortReader.library.favorites() }
+
+        let malformed = FnMusicLibraryFixture()
+        malformed.setRawPage("/favorite-track/list", page: 1, data: ["list": "nope"])
+        let (malformedReader, _, _) = malformed.clients()
+        await #expect(throws: FnMusicServiceError.self) { try await malformedReader.library.favorites() }
+
+        let looping = FnMusicLibraryFixture()
+        let full = (0..<50).map { ["guid": "s\($0)"] }
+        looping.setRawPage("/favorite-track/list", page: 1, data: ["list": full])
+        looping.setRawPage("/favorite-track/list", page: 2, data: ["list": full])
+        let (loopingReader, _, _) = looping.clients()
+        await #expect(throws: FnMusicServiceError.self) { try await loopingReader.library.favorites() }
+        #expect(looping.requests.filter { $0.url?.path.hasSuffix("/favorite-track/list") == true }.count == 2)
+    }
+
     @Test(arguments: [120001, 401, 403])
     func streamBusinessAuthenticationErrorsRefreshExactlyOnce(code: Int) async throws {
         let fixture = FnMusicLibraryFixture(streamError: code)
@@ -124,6 +187,11 @@ private final class FnMusicLibraryFixture: @unchecked Sendable {
 
     func setPage(_ path: String, playlist: String = "", page: Int, list: [[String: Any]], total: Int) {
         lock.withLock { pages["\(path)|\(playlist)|\(page)"] = Self.json(["code": 0, "data": ["list": list, "total": total]]) }
+    }
+
+    /// 原样塞一个 `data`：用来摆服务端真实会给的形状（`list: null`、整个 data 为 null、没有 total）。
+    func setRawPage(_ path: String, playlist: String = "", page: Int, data: Any) {
+        lock.withLock { pages["\(path)|\(playlist)|\(page)"] = Self.json(["code": 0, "data": data]) }
     }
 
     func clients() -> (FnMusicServiceClient, FnMusicStreamResolver, MusicSource) {
