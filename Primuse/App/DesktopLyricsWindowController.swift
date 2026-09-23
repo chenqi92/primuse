@@ -17,20 +17,16 @@ import PrimuseKit
 final class DesktopLyricsInteraction {
     static let shared = DesktopLyricsInteraction()
 
-    /// 歌词 (连同背板) 在面板局部坐标里的矩形,SwiftUI 坐标系:左上原点、
+    /// 歌词 (连同背板留白) 在面板局部坐标里的矩形,SwiftUI 坐标系:左上原点、
     /// y 向下。`.null` = 还没量出来,这时按整块面板算 —— 宁可暂时不穿透,
-    /// 也不能让歌词点不到。
+    /// 也不能让歌词点不到。背板开没开都照样上报:关掉背板只是不画玻璃,
+    /// 字还在原地,指针落到字上就得能浮出工具栏。
     var contentRect: CGRect = .null
 
-    /// 指针是否已经"进入"面板。进入只认 `contentRect`,离开认整块面板 ——
-    /// 鼠标一碰到歌词,浮出的工具栏、四边缩放热区、拖动就全都能用,移出
-    /// 面板之后才重新变回穿透。只由 controller 写。
+    /// 指针是否已经"进入"面板。进入只认 `contentRect` 和右上角把手,离开认
+    /// 整块面板 —— 鼠标一碰到歌词,浮出的工具栏、四边缩放热区、拖动就全都
+    /// 能用,移出面板之后才重新变回穿透。只由 controller 写。
     var engaged = false
-
-    /// 整窗穿透 —— 关掉背板或锁定时置位,面板一个像素都不再接收鼠标事件。
-    /// 这条路不看 `contentRect`:用户说"背板都关了还挡"的就是这种情况,
-    /// 不能再押在测量上,测不准就等于没修。由 view 写。
-    var fullyTransparent = false
 
     /// popover 撑开期间强制保持。popover 是另一个窗口,指针移过去时面板
     /// 这边一个事件都收不到,不兜住会被判成"离开"把 chrome 连同 popover
@@ -264,28 +260,30 @@ final class DesktopLyricsWindowController {
         pointerTimer?.invalidate()
         pointerTimer = nil
         DesktopLyricsInteraction.shared.engaged = false
+        // 面板中途被收起时松手事件到不了 SwiftUI,拖动锚点会滞留;留着它下次
+        // 开拖第一帧就会按旧锚点跳一下,还会把穿透判定钉在"进入"上。
+        dragAnchor = nil
         // 下次 show() 之前保持可点,免得停在"穿透"上把再次打开的面板变成死的。
         panel?.ignoresMouseEvents = false
     }
 
     /// 按指针此刻的位置决定面板吃不吃鼠标事件。
+    ///
+    /// 进入只认两块:量出来的歌词矩形,和右上角那个把手。跟背板开没开、锁没锁
+    /// 都无关 —— 关掉背板只是不画那块玻璃,字还在原地,指针落到字上就得能浮出
+    /// 工具栏;之前把"关掉背板"等同于整窗穿透,结果面板上唯一能碰的只剩一块
+    /// 看不见的把手,用户再也够不到「显示背板」,也拖不动歌词。锁定同理:碰到
+    /// 字要能浮出解锁提示,锁定本身只管禁掉拖动、把 chrome 换成解锁按钮。
     private func updatePassthrough() {
         guard let panel, panel.isVisible else { return }
         let interaction = DesktopLyricsInteraction.shared
         let mouse = NSEvent.mouseLocation
-        // 关掉背板 / 锁定 = 面板上没有一块"看得见的板",除了右上角那个把手
-        // 以外整窗放行。这一支不看 contentRect,所以即使测量出问题也一定生效
-        // —— 用户抱怨的就是"背板都关了还挡",这条不能再押在测量上。
-        if interaction.fullyTransparent, !interaction.keepsEngaged {
-            let onHandle = cornerHandleOnScreen(panel).contains(mouse)
-            let stillInside = interaction.engaged && panel.frame.contains(mouse)
-            let inside = onHandle || stillInside
-            if interaction.engaged != inside { interaction.engaged = inside }
-            if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
-            return
-        }
+        // 正在拖动 (锚点在、左键还按着) 或正在从边缘拉尺寸:中途绝不能切回穿透。
+        // 拖动时面板比指针慢一个事件,快拖会让指针短暂落到面板外,按几何判会
+        // 误判成离开,chrome 一闪、拖动也可能断掉。
+        let dragging = dragAnchor != nil && NSEvent.pressedMouseButtons & 0x1 != 0
         let inside: Bool
-        if interaction.keepsEngaged {
+        if interaction.keepsEngaged || dragging || panel.inLiveResize {
             inside = true
         } else if interaction.engaged {
             // 已经进来了就按整块面板判离开 —— 否则指针从歌词挪向顶部工具栏
@@ -315,9 +313,9 @@ final class DesktopLyricsWindowController {
     }
 
     /// 面板右上角常驻的一小块把手 —— 悬浮工具栏和锁定提示本来就锚在这儿。
-    /// 不论背板开没开、锁没锁,它都接收鼠标:没有它,关掉背板之后整块面板
-    /// 全透,用户就再也够不到"重新显示背板"和"解锁"那两个开关了。
-    /// 纯几何算出来,不经过 SwiftUI 测量。
+    /// 它是歌词矩形之外的第二个入口,纯几何算出来、不经过 SwiftUI 测量:
+    /// 歌词矩形还没量到、量错了,或者字小到很难瞄准时,从这儿照样能进来
+    /// 够到工具栏和解锁按钮。
     private func cornerHandleOnScreen(_ panel: NSPanel) -> NSRect {
         let frame = panel.frame
         let size = NSSize(width: min(150, frame.width), height: min(40, frame.height))
