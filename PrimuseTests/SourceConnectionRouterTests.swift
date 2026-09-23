@@ -80,31 +80,99 @@ final class SourceConnectionRouterTests: XCTestCase {
         }
     }
 
-    func testRequestTimeoutsAndExternalMediaFailuresKeepReachableLAN() async throws {
-        let errors: [any Error] = [
-            URLError(.timedOut),
-            URLError(.networkConnectionLost, userInfo: [NSURLErrorFailingURLErrorKey: URL(string: "https://cdn.invalid/art.jpg")!]),
-            NSError(domain: NSPOSIXErrorDomain, code: Int(ECONNRESET))
-        ]
-        for error in errors {
+    func testExternalMediaFailureKeepsReachableLAN() async throws {
+        let error = URLError(.networkConnectionLost, userInfo: [NSURLErrorFailingURLErrorKey: URL(string: "https://cdn.invalid/art.jpg")!])
+        let fixture = Fixture()
+        _ = try await fixture.read()
+        await fixture.local.failNextRead(error)
+        do { _ = try await fixture.read(); XCTFail("Expected request failure") } catch {}
+        let next = try await fixture.read()
+        XCTAssertEqual(next, "lan")
+        await fixture.router.noteDeferredReadFailure(error, routeIndex: 0)
+        await fixture.local.failNextRead(error)
+        do {
+            _ = try await fixture.router.withMutation { try await ($0 as! RouterTestConnector).read() }
+            XCTFail("Expected mutation failure")
+        } catch {}
+        XCTAssertEqual(fixture.events.values, [.localAddress])
+        let disconnects = await fixture.local.disconnections
+        let publicConnections = await fixture.remote.connections
+        XCTAssertEqual(disconnects, 0)
+        XCTAssertEqual(publicConnections, 0)
+    }
+
+    // Pending Apple-side run.
+    /// A connector whose session survived a network change skips its handshake,
+    /// so the private route is only found out by the request itself. A VPN or
+    /// proxy keeps answering the TCP probe; the read must still move to the
+    /// public route, and later reads must not wait on the LAN again.
+    func testStalledRequestOnReusedLANSessionMovesReadsToPublicRoute() async throws {
+        for error: any Error in [URLError(.networkConnectionLost), URLError(.timedOut),
+                                 NSError(domain: NSPOSIXErrorDomain, code: Int(ECONNRESET))] {
             let fixture = Fixture()
             _ = try await fixture.read()
             await fixture.local.failNextRead(error)
-            do { _ = try await fixture.read(); XCTFail("Expected request failure") } catch {}
+            let moved = try await fixture.read()
+            XCTAssertEqual(moved, "wan")
+            let backedOff = await fixture.runtime.isLocalRouteBackedOff(for: fixture.id)
+            XCTAssertTrue(backedOff)
             let next = try await fixture.read()
-            XCTAssertEqual(next, "lan")
-            await fixture.router.noteDeferredReadFailure(error, routeIndex: 0)
-            await fixture.local.failNextRead(error)
-            do {
-                _ = try await fixture.router.withMutation { try await ($0 as! RouterTestConnector).read() }
-                XCTFail("Expected mutation failure")
-            } catch {}
-            XCTAssertEqual(fixture.events.values, [.localAddress])
-            let disconnects = await fixture.local.disconnections
-            let publicConnections = await fixture.remote.connections
-            XCTAssertEqual(disconnects, 0)
-            XCTAssertEqual(publicConnections, 0)
+            XCTAssertEqual(next, "wan")
+            let localReads = await fixture.local.reads
+            XCTAssertEqual(localReads, 2, "The second read must not wait on the LAN again")
+            XCTAssertEqual(fixture.events.values, [.localAddress, nil, .publicAddress])
         }
+    }
+
+    // Pending Apple-side run.
+    func testStalledMutationOnLANIsNotReplayedButRetiresTheRoute() async throws {
+        let fixture = Fixture()
+        _ = try await fixture.read()
+        await fixture.local.failNextRead(URLError(.timedOut))
+        do {
+            _ = try await fixture.router.withMutation { try await ($0 as! RouterTestConnector).read() }
+            XCTFail("Expected mutation failure")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .timedOut)
+        }
+        let remoteReads = await fixture.remote.reads
+        XCTAssertEqual(remoteReads, 0, "A mutation is never replayed")
+        let backedOff = await fixture.runtime.isLocalRouteBackedOff(for: fixture.id)
+        XCTAssertTrue(backedOff)
+        let next = try await fixture.read()
+        XCTAssertEqual(next, "wan")
+    }
+
+    // Pending Apple-side run.
+    func testPublicRouteRequestFailureStillNeedsProbeEvidence() async throws {
+        for error: any Error in [URLError(.networkConnectionLost), URLError(.timedOut)] {
+            let fixture = Fixture()
+            await fixture.runtime.observeNetworkPath(prefersLocalNetwork: false, pathChanged: false)
+            let first = try await fixture.read()
+            XCTAssertEqual(first, "wan")
+            await fixture.remote.failNextRead(error)
+            do { _ = try await fixture.read(); XCTFail("Expected request failure") } catch {}
+            let active = await fixture.runtime.activeKind(for: fixture.id)
+            XCTAssertEqual(active, .publicAddress)
+            let localConnections = await fixture.local.connections
+            XCTAssertEqual(localConnections, 0)
+            let next = try await fixture.read()
+            XCTAssertEqual(next, "wan")
+        }
+    }
+
+    // Pending Apple-side run.
+    func testSingleRouteRequestFailureStillNeedsProbeEvidence() async throws {
+        let runtime = SourceConnectionRuntime()
+        let local = RouterTestConnector(sourceID: "lan")
+        let router = SourceConnectionRouter(sourceID: UUID().uuidString, candidates: [
+            .init(kind: .localAddress, endpoint: .init(host: "lan.invalid", port: 445, useSsl: false), connector: local)
+        ], runtime: runtime, endpointProbe: { _ in }) { _ in }
+        _ = try await router.withRead { try await ($0 as! RouterTestConnector).read() }
+        await local.failNextRead(URLError(.timedOut))
+        do { _ = try await router.withRead { try await ($0 as! RouterTestConnector).read() }; XCTFail("Expected failure") } catch {}
+        let disconnects = await local.disconnections
+        XCTAssertEqual(disconnects, 0)
     }
 
     func testTransportErrorsFailOverAndClearCurrentDisplayBeforeFallback() async throws {
@@ -370,8 +438,10 @@ final class SourceConnectionRouterTests: XCTestCase {
         await fixture.probe.setReachable(false)
         let result = try await fixture.read()
         XCTAssertEqual(result, "wan")
+        // A private route with an alternative leaves on its own transport
+        // failure; only the initial preflight probed it.
         let hosts = await fixture.probe.hosts
-        XCTAssertEqual(hosts, ["lan.invalid", "lan.invalid"])
+        XCTAssertEqual(hosts, ["lan.invalid"])
     }
 
     func testSlowPrivateRouteDoesNotBlockTheReachablePublicRoute() async throws {

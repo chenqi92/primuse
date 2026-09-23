@@ -1241,7 +1241,7 @@ actor SourceConnectionRouter {
         do {
             return (try await operation(candidates[initialIndex].connector), initialIndex)
         } catch {
-            guard await canFailOver(after: error, at: initialIndex) else { throw error }
+            guard await canLeaveRoute(after: error, at: initialIndex) else { throw error }
             await retireFailedRoute(at: initialIndex, error: error)
             return try await attemptRead(
                 operation,
@@ -1258,7 +1258,9 @@ actor SourceConnectionRouter {
         do {
             return try await operation(candidates[index].connector)
         } catch {
-            if await canFailOver(after: error, at: index) {
+            // A mutation is never replayed; a failed route is only retired so
+            // the caller's next operation uses the alternative.
+            if await canLeaveRoute(after: error, at: index) {
                 await retireFailedRoute(at: index, error: error)
             }
             throw error
@@ -1271,7 +1273,7 @@ actor SourceConnectionRouter {
     /// retire the failed route so the caller's next safe retry uses fallback.
     func noteDeferredReadFailure(_ error: Error, routeIndex: Int) async {
         guard candidates.indices.contains(routeIndex) else { return }
-        guard await canFailOver(after: error, at: routeIndex) else { return }
+        guard await canLeaveRoute(after: error, at: routeIndex) else { return }
         await retireFailedRoute(at: routeIndex, error: error)
     }
 
@@ -1644,7 +1646,7 @@ actor SourceConnectionRouter {
                 return (try await operation(candidates[index].connector), index)
             } catch {
                 lastError = error
-                guard await canFailOver(after: error, at: index) else { throw error }
+                guard await canLeaveRoute(after: error, at: index) else { throw error }
                 await retireFailedRoute(at: index, error: error)
                 excluded.insert(index)
             }
@@ -1667,6 +1669,40 @@ actor SourceConnectionRouter {
         let reason = SourceRouteFailureReason.classify(error)
         plog("Source route network failure source=\(sourceID.prefix(8)) kind=\(kind.rawValue) error=\(failure.domain)/\(failure.code) reason=\(reason.rawValue) endpointProbe=unreachable")
         await runtime.recordFailure(of: kind, for: sourceID, reason: reason)
+    }
+
+    /// Request-stage decision. A private route with an alternative leaves on
+    /// any transport failure or stalled exchange (-1001/-1005/-1200) of its
+    /// own endpoint, whatever a TCP probe says: a VPN or proxy in TUN mode
+    /// answers that probe on the device itself, and a connector whose session
+    /// was already established skips the handshake that would have caught it.
+    /// Public and relay routes, and single-route sources, still need an
+    /// independent probe, because a CDN, a transcoder or one lost socket can
+    /// fail a request on a healthy route.
+    private func canLeaveRoute(after error: Error, at index: Int) async -> Bool {
+        if isStalledLocalRequest(error, at: index) {
+            let interval = await runtime.recordLocalHandshakeFailure(for: sourceID)
+            let failure = error as NSError
+            plog("Source local route stalled; using alternative route source=\(sourceID.prefix(8)) error=\(failure.domain)/\(failure.code) backoff=\(Int(interval))s")
+            return true
+        }
+        return await canFailOver(after: error, at: index)
+    }
+
+    private func isStalledLocalRequest(_ error: Error, at index: Int) -> Bool {
+        guard !Task.isCancelled,
+              candidates[index].kind == .localAddress,
+              candidates.indices.contains(where: { $0 != index }) else { return false }
+        // A failure reported for another host (artwork CDN, redirect target)
+        // says nothing about the private route.
+        if let failingURL = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL,
+           let failingHost = failingURL.host,
+           let endpointHost = candidates[index].endpoint?.normalized.host,
+           NetworkHostAuthority.canonicalHost(failingHost).lowercased()
+            != NetworkHostAuthority.canonicalHost(endpointHost).lowercased() {
+            return false
+        }
+        return isTransportFailure(error) || SourceNetworkFailurePolicy.isStalledHandshake(error)
     }
 
     private func canFailOver(after error: Error, at index: Int) async -> Bool {
