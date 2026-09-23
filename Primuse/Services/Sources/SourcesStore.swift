@@ -640,6 +640,8 @@ final class SourcesStore {
             merged.lastScannedAt = allSources[index].lastScannedAt
             merged.songCount = allSources[index].songCount
             merged.deviceId = allSources[index].deviceId
+            // 同一块墓碑再拉一遍(全量重拉、本机推上去又回来)不重写也不广播。
+            if Self.isSameIgnoringSubsecondDates(merged, allSources[index]) { return }
             allSources[index] = merged
             persist()
             notifyChanged([remote.id], origin: "remote")
@@ -686,7 +688,7 @@ final class SourcesStore {
             // iCloud 会把本机刚推上去的那份原样拉回来。一个字段都没变的记录
             // 不落盘也不广播: 广播会被当成源被改过 —— 缓存审查、连接器重建、
             // 音乐源列表整页重建都会跟着跑一遍。
-            if merged == existing, !restoresRecordedDeletion { return }
+            if !restoresRecordedDeletion, Self.isSameIgnoringSubsecondDates(merged, existing) { return }
             if let index = allSources.firstIndex(where: { $0.id == merged.id }) {
                 allSources[index] = merged
             }
@@ -742,6 +744,20 @@ final class SourcesStore {
 
     private static func sourceClock(_ source: MusicSource) -> Date {
         MusicSourceLifecyclePolicy.lifecycleClock(source)
+    }
+
+    /// 本机落盘用 ISO-8601 整秒, CloudKit 载荷带小数秒: 重启之后同一条记录的
+    /// 时间戳就差那么一点。比较「是不是同一份」时把一秒以内的差别抹掉。
+    private static func isSameIgnoringSubsecondDates(_ lhs: MusicSource, _ rhs: MusicSource) -> Bool {
+        func snapped(_ date: Date?, to reference: Date?) -> Date? {
+            guard let date, let reference, abs(date.timeIntervalSince(reference)) < 1 else { return date }
+            return reference
+        }
+        var normalized = lhs
+        normalized.modifiedAt = snapped(lhs.modifiedAt, to: rhs.modifiedAt) ?? lhs.modifiedAt
+        normalized.deletedAt = snapped(lhs.deletedAt, to: rhs.deletedAt)
+        normalized.restoredAt = snapped(lhs.restoredAt, to: rhs.restoredAt)
+        return normalized == rhs
     }
 
     @discardableResult

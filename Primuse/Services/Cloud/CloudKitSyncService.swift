@@ -331,8 +331,11 @@ final class CloudKitSyncService {
 
         attachLocalChangeObservers()
         attachAccountChangeObserver()
+        // 设置类键在总开关关着的时候只在本机记账; 引擎起来这一刻补齐两边。
+        CloudKVSSync.shared.catchUp()
 
         migratePendingSourceDeletesToTombstoneSaves(in: engine)
+        retryRememberedFailedSaves(in: engine)
         // Deletion evidence must be re-seeded on every start, independently of
         // the once-per-install initial-upload flag. A delete can be created
         // while sync or the sources channel is disabled.
@@ -623,6 +626,11 @@ final class CloudKitSyncService {
                 let available = await self.checkAccountAndUpdateStatus()
                 if !available {
                     self.stop(updateStatus: false)
+                } else if !self.isStarted, self.startAttemptID == nil,
+                          CloudSyncChannel.isMasterEnabled() {
+                    // 账号短暂不可用时 stop() 过一次; 恢复了就自己起来, 以前要等
+                    // 用户重开开关或重启 app, 期间推送来了也只是空转。
+                    await self.start()
                 }
             }
         }
@@ -645,10 +653,8 @@ final class CloudKitSyncService {
             NotificationCenter.default.removeObserver(token)
         }
         observerTokens.removeAll()
-        if let accountChangeObserver {
-            NotificationCenter.default.removeObserver(accountChangeObserver)
-            self.accountChangeObserver = nil
-        }
+        // 账号观察者留着: 它是账号恢复可用时把引擎重新拉起来的唯一入口, 拆了
+        // 就只能等用户重开开关。总开关关着时它什么都不做。
         // 引擎摘掉之后不会再有批末落盘, 攒着的现在写掉。
         flushCoalescedRemoteWrites()
         engine = nil
@@ -662,8 +668,48 @@ final class CloudKitSyncService {
     /// Re-enqueue every local entity belonging to a channel. Use this when a
     /// channel is toggled from off → on so edits made while it was off get
     /// caught up. Cheap because CKSyncEngine de-dupes against server change tags.
+    ///
+    /// 通道关着的时候, 拉到的记录被原样跳过、游标却照样往前走了。所以先丢掉游标
+    /// 全量重拉一遍, 让别的设备在这期间的改动先落地; 再把本机实体补推时, 和服务器
+    /// 相同的会被撤掉, 更旧的已经被拉回来的版本盖掉 —— 以前是直接整份推, 本机的
+    /// 旧副本带着最新的 changeTag 无冲突地盖掉服务器上更新的记录。
     func catchUp(channel: CloudSyncChannel) async {
         guard isStarted else { return }
+        await refetchEverythingBeforeCatchUp()
+        guard isStarted else { return }
+        enqueueLocalEntities(for: channel)
+        await syncNow()
+    }
+
+    /// 总开关从关到开: 引擎停着的时候观察者也被拆了, 这期间的本机改动没人记。
+    /// 起来之后把每个开着的通道的本机实体都补推一遍; 游标没动过, 不必重拉。
+    func startAfterUserEnabledSync() async {
+        await start()
+        guard isStarted else { return }
+        for channel in CloudSyncChannel.allCases where CloudSyncChannel.isEnabled(channel) {
+            enqueueLocalEntities(for: channel)
+        }
+        await syncNow()
+    }
+
+    private func refetchEverythingBeforeCatchUp() async {
+        guard let engine else { return }
+        // 先把在途的待传送完: 状态文件里还有别的通道的待传, 直接删会把它们一起丢掉。
+        let drained = (try? await sendChangesResolvingRecoverableFailures(using: engine)) ?? false
+        guard self.engine === engine else { return }
+        guard drained, engine.state.pendingRecordZoneChanges.isEmpty else {
+            plog("CloudKitSync: catch-up keeps the cursor — pending changes could not be drained first")
+            return
+        }
+        stop(updateStatus: false)
+        for url in [stateURL, sharedStateURL] {
+            try? FileManager.default.removeItem(at: url)
+        }
+        plog("CloudKitSync: catch-up dropped the fetch cursor, refetching everything")
+        await start()
+    }
+
+    private func enqueueLocalEntities(for channel: CloudSyncChannel) {
         switch channel {
         case .playlists:
             playlistsChanged(ids: library.allPlaylists.map(\.id))
@@ -679,21 +725,15 @@ final class CloudKitSyncService {
             enqueueSaves(recordType: RecordType.listeningStats, ids: [Self.listeningStatsRecordName])
         case .settings:
             scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
-            // KVS-mirrored UserDefaults keys: poke each so timestamps update.
-            for key in [CloudKVSKey.aiSettings,
-                        CloudKVSKey.lyricsTranscriptionSettings,
-                        CloudKVSKey.playbackSettings,
-                        CloudKVSKey.scraperSettings,
-                        CloudKVSKey.artistNameConfiguration,
-                        CloudKVSKey.lyricsFontScale, CloudKVSKey.recentSearches] {
-                CloudKVSSync.shared.markChanged(key: key)
-            }
+            // KVS 镜像的键逐个按修订号比对: 云端新的拉下来, 本机在关着时改过的
+            // 推上去。以前是不看云端就整份推, 一台没改过设置的设备打开开关就把
+            // 别的设备的设置全盖掉, 本机没值的键还会推成删除。
+            CloudKVSSync.shared.catchUp()
         case .credentials:
             // Past Keychain entries are governed by the system iCloud Keychain
             // toggle — nothing for us to push from here.
             break
         }
-        await syncNow()
     }
 
     /// Force a fetch + send pass (used by the "Sync now" action).
@@ -822,7 +862,7 @@ final class CloudKitSyncService {
             return true
         case .unknownItem:
             if let recordType = recordMetadata(for: recordID)?.recordType {
-                applyRemoteDeletion(recordID: recordID, recordType: recordType, allowLocalRestore: true)
+                resolveUnknownItem(recordID: recordID, recordType: recordType, syncEngine: syncEngine)
             } else {
                 dropPendingRecordZoneChanges(for: recordID, syncEngine: syncEngine)
             }
@@ -892,7 +932,7 @@ final class CloudKitSyncService {
         case .accountTemporarilyUnavailable:
             return .accountUnavailable(.temporarilyUnavailable)
         case .partialFailure:
-            didCompleteInitialUpload = false
+            // 逐条失败已经在 `handleFailedSave` 里各自记下重试, 不再整库重传。
             return .error("CloudKit partial upload failure: \(ckError.localizedDescription)")
         case .serverRejectedRequest, .badContainer, .missingEntitlement, .permissionFailure:
             // Container / entitlement misconfigured server-side. Surface a specific
@@ -1014,7 +1054,10 @@ final class CloudKitSyncService {
         observerTokens.append(nc.addObserver(forName: .primusePlaybackHistoryDidChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.playbackHistoryChanged() }
         })
-        observerTokens.append(nc.addObserver(forName: .primuseListeningStatsDidChange, object: nil, queue: .main) { [weak self] _ in
+        observerTokens.append(nc.addObserver(forName: .primuseListeningStatsDidChange, object: nil, queue: .main) { [weak self] note in
+            // 远端并进来的那批同样广播这条通知; `isApplyingRemote` 在这个 Task 跑到
+            // 时早已复位, 只能靠 origin 挡住, 否则每台设备都把整份统计再传一遍。
+            guard !Self.notificationCameFromRemote(note) else { return }
             Task { @MainActor in self?.listeningStatsChanged() }
         })
     }
@@ -1733,6 +1776,14 @@ final class CloudKitSyncService {
         flushSystemFieldsCache()
         radioStationsStore.flushRemotePersist()
         library.flushRemotePlaylistDurabilityLedger()
+        // 歌单曲目、智能歌单和听歌统计只在整库快照 / 统计文件里, 它们的防抖写
+        // 还没到点就存游标, 进程这时被杀, 越过游标的那批记录就再也拉不回来。
+        library.flushArmedSnapshotWriteNow()
+        PlayHistoryStore.shared.flushPendingSave()
+    }
+
+    private func engineIsCurrent(_ syncEngine: CKSyncEngine) -> Bool {
+        syncEngine === engine || syncEngine === sharedEngine
     }
 
     /// systemFieldsCache 的 key。必须带上 ownerName + zoneName: 同一条 record 在
@@ -2505,6 +2556,9 @@ final class CloudKitSyncService {
         guard let data = record["payload"] as? Data,
               let config = try? JSONDecoder().decode(ScraperConfig.self, from: data) else { return }
         scraperConfigStore.applyRemoteConfig(config)
+        // 已删除的配置不再往刮削来源列表里补一行: 那会把别的设备刚删掉的来源
+        // 又加回来, 再经 KVS 传一圈。
+        guard config.isDeleted != true else { return }
         scraperSettingsStore.ensureCustomSourcePresent(for: config)
     }
 
@@ -2555,7 +2609,20 @@ final class CloudKitSyncService {
         record["payload"] = nil
         record["entryCount"] = encoded.entryCount
         record["updatedAt"] = Date()
+        // 只在真的清空过时才写这个字段: 生产环境的 schema 还没有它之前, 没清空过
+        // 的用户照常同步。
+        if let clearedAt = PlayHistoryStore.shared.clearedAt {
+            record[Self.listeningStatsClearedAtField] = clearedAt
+        }
         return true
+    }
+
+    /// 「清空听歌记录」的时刻, 随统计记录同步; 早于它的条目在合并时一律丢弃。
+    /// 新字段: 发布前要把 ListeningStats 的 schema 部署到生产环境。
+    private nonisolated static let listeningStatsClearedAtField = "clearedAt"
+
+    private nonisolated static func decodeListeningStatsClearedAt(_ record: CKRecord) -> Date? {
+        record[listeningStatsClearedAtField] as? Date
     }
 
     /// Pure: entries in, compressed payload out. Safe to run off the main actor,
@@ -2586,7 +2653,10 @@ final class CloudKitSyncService {
 
     private func applyListeningStatsRecord(_ record: CKRecord, decodedEntries: [PlayHistoryStore.Entry]? = nil) {
         guard let entries = decodedEntries ?? Self.decodeListeningStatsEntries(record) else { return }
-        PlayHistoryStore.shared.mergeRemoteEntries(entries)
+        PlayHistoryStore.shared.mergeRemoteEntries(
+            entries,
+            remoteClearedAt: Self.decodeListeningStatsClearedAt(record)
+        )
     }
 
     /// Pure: record in, entries out. The fetch handler runs it before it hops to
@@ -2675,6 +2745,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         case .stateUpdate(let event):
             guard isCurrentEngine else { return }
             await MainActor.run {
+                // 进入 handleEvent 时判过一次, 但跳回主 actor 之前引擎可能已被摘掉。
+                guard self.engineIsCurrent(syncEngine) else { return }
                 // 游标落盘前先把已拉到的记录落盘: 游标一旦越过就不会再拉。
                 self.flushCoalescedRemoteWrites()
                 // private engine 跟 sharedEngine state 分开存, 否则下次启动
@@ -2701,11 +2773,13 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                     continue
                 }
                 await MainActor.run {
+                    guard self.engineIsCurrent(syncEngine) else { return }
                     self.applyFetchedRecord(record, syncEngine: syncEngine)
                 }
             }
             for deletion in event.deletions {
                 await MainActor.run {
+                    guard self.engineIsCurrent(syncEngine) else { return }
                     self.applyRemoteDeletion(
                         recordID: deletion.recordID,
                         recordType: deletion.recordType,
@@ -2737,11 +2811,22 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             }
         case .sentRecordZoneChanges(let event):
             if acceptsSystemFieldUpdates {
+                // 每一跳都再判一次: 退役引擎报回来的 etag 在缓存整份清空之后不能再写进去。
+                let stillAccepts: @MainActor () -> Bool = {
+                    self.engineIsCurrent(syncEngine)
+                        || self.systemFieldsCacheGeneration == self.engineCacheGeneration
+                }
                 for saved in event.savedRecords {
-                    await MainActor.run { self.storeSystemFields(saved) }
+                    await MainActor.run {
+                        guard stillAccepts() else { return }
+                        self.storeSystemFields(saved)
+                    }
                 }
                 for deletedID in event.deletedRecordIDs {
-                    await MainActor.run { self.removeSystemFields(for: deletedID) }
+                    await MainActor.run {
+                        guard stillAccepts() else { return }
+                        self.removeSystemFields(for: deletedID)
+                    }
                 }
                 await MainActor.run { self.flushSystemFieldsCache() }
             }
@@ -2894,7 +2979,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         case .unknownItem:
             // Server-side record went away (deleted on another device). Mirror
             // that locally so the two sides line up.
-            applyRemoteDeletion(recordID: recordID, recordType: failed.record.recordType, allowLocalRestore: true)
+            resolveUnknownItem(recordID: recordID, recordType: failed.record.recordType, syncEngine: syncEngine)
         case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
             // Engine retries automatically; honor any explicit retry-after.
             if let retry = ckError.retryAfterSeconds {
@@ -2904,11 +2989,11 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 }
             }
         case .quotaExceeded:
-            didCompleteInitialUpload = false
+            rememberFailedSave(recordID)
             unresolvedRecordSaveError = ckError.localizedDescription
             status = .quotaExceeded
         case .notAuthenticated:
-            didCompleteInitialUpload = false
+            rememberFailedSave(recordID)
             unresolvedRecordSaveError = ckError.localizedDescription
             status = .accountUnavailable(.noAccount)
         case .invalidArguments:
@@ -2920,10 +3005,53 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
             removeSystemFields(for: recordID)
         default:
-            didCompleteInitialUpload = false
+            // 以前这里把「首次上传已完成」清掉, 让下次启动整库重传一遍 —— 一条
+            // 永远保存不了的记录(比如超过 1MB 的歌单)就让每次启动都重传全部、
+            // 每台设备都重收全部。改成只记住这一条, 下次启动单独重试它。
+            rememberFailedSave(recordID)
             unresolvedRecordSaveError = "\(ckError.code.rawValue): \(ckError.localizedDescription)"
-            plog("CloudKitSync: unhandled save error code \(ckError.code.rawValue): \(ckError.localizedDescription)")
+            plog("CloudKitSync: unhandled save error code \(ckError.code.rawValue) for \(recordID.recordName): \(ckError.localizedDescription)")
         }
+    }
+
+    /// 服务器说这条记录不存在, 而本机缓存着它的 changeTag。单例记录(播放历史、
+    /// 听歌统计)只有本机这一份是事实: 丢掉旧 etag 当新记录重传, 不能把本机历史
+    /// 清空。其它类型仍按「别的设备删了」处理, 本机还活着的行会重新保存。
+    private func resolveUnknownItem(recordID: CKRecord.ID, recordType: String, syncEngine: CKSyncEngine) {
+        if recordType == RecordType.playbackHistory || recordType == RecordType.listeningStats {
+            removeSystemFields(for: recordID)
+            addCoalescedRecordZoneChanges([.saveRecord(recordID)], to: syncEngine)
+        } else {
+            applyRemoteDeletion(recordID: recordID, recordType: recordType, allowLocalRestore: true)
+        }
+    }
+
+    private static let rememberedFailedSavesKey = "primuse.cloudSync.rememberedFailedSaves"
+    private static let rememberedFailedSavesLimit = 500
+
+    /// 引擎对不可重试的失败会把那条待传丢掉。记下 record 名, 下次 start() 单独
+    /// 重排它, 而不是靠整库重传碰运气。
+    private func rememberFailedSave(_ recordID: CKRecord.ID) {
+        var names = UserDefaults.standard.stringArray(forKey: Self.rememberedFailedSavesKey) ?? []
+        guard !names.contains(recordID.recordName) else { return }
+        names.append(recordID.recordName)
+        if names.count > Self.rememberedFailedSavesLimit {
+            names.removeFirst(names.count - Self.rememberedFailedSavesLimit)
+        }
+        UserDefaults.standard.set(names, forKey: Self.rememberedFailedSavesKey)
+    }
+
+    private func retryRememberedFailedSaves(in engine: CKSyncEngine) {
+        let names = UserDefaults.standard.stringArray(forKey: Self.rememberedFailedSavesKey) ?? []
+        guard !names.isEmpty else { return }
+        UserDefaults.standard.removeObject(forKey: Self.rememberedFailedSavesKey)
+        let changes: [CKSyncEngine.PendingRecordZoneChange] = names.compactMap { name in
+            guard let meta = recordMetadata(for: CKRecord.ID(recordName: name)) else { return nil }
+            return .saveRecord(recordID(recordType: meta.recordType, id: meta.localID))
+        }
+        guard !changes.isEmpty else { return }
+        addCoalescedRecordZoneChanges(changes, to: engine)
+        plog("☁️ CloudKitSync: retrying \(changes.count) save(s) that failed permanently last time")
     }
 
     /// Resolve a `serverRecordChanged` conflict with type-aware merging.
@@ -3088,9 +3216,15 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     private func mergeListeningStatsRecord(local: CKRecord, server: CKRecord) {
         let localEntries = Self.decodeListeningStatsEntries(local) ?? []
         let serverEntries = Self.decodeListeningStatsEntries(server) ?? []
+        let clearedAt = [Self.decodeListeningStatsClearedAt(local), Self.decodeListeningStatsClearedAt(server)]
+            .compactMap { $0 }
+            .max()
 
         applyRemoteEnvelope {
-            PlayHistoryStore.shared.mergeRemoteEntries(localEntries + serverEntries)
+            PlayHistoryStore.shared.mergeRemoteEntries(
+                localEntries + serverEntries,
+                remoteClearedAt: clearedAt
+            )
         }
     }
 

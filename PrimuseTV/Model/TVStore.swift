@@ -1582,7 +1582,7 @@ final class TVStore {
     /// 让引擎跟着起停,只写 UserDefaults 不生效。
     func setCloudSyncEnabled(_ enabled: Bool) async {
         if enabled {
-            await cloudSync.start()
+            await cloudSync.startAfterUserEnabledSync()
         } else {
             cloudSync.stop()
         }

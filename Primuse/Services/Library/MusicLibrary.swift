@@ -7699,6 +7699,16 @@ final class MusicLibrary {
         if reconciled.isPurged {
             playlistSongIDs[reconciled.id] = nil
             pendingPlaylistIdentities[reconciled.id] = nil
+        } else if !localWon,
+                  !Set(merged).isSubset(of: Set(resolved)),
+                  let index = allPlaylists.firstIndex(where: { $0.id == reconciled.id }) {
+            // 远端版本赢了元数据, 但本机独有的曲目并了进去: 推上去的必须是一个
+            // 更新的版本。否则别的设备按「同一版本」跳过, 这些曲目在它们那里永远
+            // 不出现, 而它们下一次编辑又会把这份并集整个覆盖掉。
+            allPlaylists[index].syncRevision = max(0, playlist.syncRevision) + 1
+            allPlaylists[index].syncWriterID = playlistSyncWriterID
+            allPlaylists[index].syncOperationID = UUID().uuidString
+            reconciled = allPlaylists[index]
         }
 
         // 合并前后完全一样(典型是源类型指纹重置后本机重排、又原样拉回来的那些)
@@ -7730,13 +7740,19 @@ final class MusicLibrary {
         }) { return }
         let previousSongIDs = recentPlaybackSongIDs
         let previousPending = pendingHistoryIdentities
+        // 远端那份排在前面(那台设备刚放过), 本机独有的最近播放接在后面。以前是
+        // 整份替换: 本机刚放的一首还没轮到五分钟节流上传, 别的设备一条记录到了,
+        // 它就从「最近播放」里消失, 也再没机会传出去。
+        let incoming: [String]
         if let identities, !identities.isEmpty {
             let (resolved, unresolved) = resolveIdentitiesPartitioned(identities)
-            recentPlaybackSongIDs = Array(resolved.prefix(100))
+            incoming = resolved
             updatePendingHistoryIdentities(with: unresolved)
         } else {
-            recentPlaybackSongIDs = Array(songIDs.prefix(100))
+            incoming = songIDs
         }
+        var seen = Set<String>()
+        recentPlaybackSongIDs = Array((incoming + previousSongIDs).filter { seen.insert($0).inserted }.prefix(100))
         // 拉回来的就是本机已有的那份时不必再整库落盘。
         guard recentPlaybackSongIDs != previousSongIDs
             || pendingHistoryIdentities != previousPending else { return }
@@ -10361,6 +10377,16 @@ final class MusicLibrary {
         persistTask = nil
         persistDeadline = nil
         _ = enqueueSnapshotWrite()
+    }
+
+    /// 远端记录已经并进内存、CloudKit 游标马上要落盘: 已武装的短防抖写入现在就
+    /// 写, 否则进程在这两秒里被杀, 游标越过的那批歌单曲目、智能歌单就再也拉不回
+    /// 来了。只管两秒档: 最近播放那种 600 秒档丢了也只是几分钟的记录, 不值得为它
+    /// 在每批远端事件后整库写一次。
+    func flushArmedSnapshotWriteNow() {
+        guard persistTask != nil, let deadline = persistDeadline,
+              deadline <= ContinuousClock.now + .seconds(5) else { return }
+        persistNow()
     }
 
     var hasPendingPortableSnapshotChanges: Bool {
