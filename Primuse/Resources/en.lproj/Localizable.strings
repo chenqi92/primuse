@@ -4124,3 +4124,7 @@
 "diagnostics_feedback_message" = "Requests or suggestions";
 "diagnostics_feedback_compose" = "Open Mail";
 "diagnostics_logs_title" = "Logs";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "More by %@";
+"library_remove_quick_access" = "Remove from Quick Access";

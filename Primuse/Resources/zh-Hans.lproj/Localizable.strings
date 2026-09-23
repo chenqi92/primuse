@@ -4454,3 +4454,7 @@
 "diagnostics_feedback_message" = "需求或建议";
 "diagnostics_feedback_compose" = "打开邮件";
 "diagnostics_logs_title" = "日志";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "更多来自 %@";
+"library_remove_quick_access" = "移出快捷收藏";

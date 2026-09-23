@@ -4267,3 +4267,7 @@
 "diagnostics_feedback_message" = "طلبات أو اقتراحات";
 "diagnostics_feedback_compose" = "فتح البريد";
 "diagnostics_logs_title" = "السجلات";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "المزيد من %@";
+"library_remove_quick_access" = "إزالة من الوصول السريع";

@@ -4267,3 +4267,7 @@
 "diagnostics_feedback_message" = "Prośby lub sugestie";
 "diagnostics_feedback_compose" = "Otwórz pocztę";
 "diagnostics_logs_title" = "Dzienniki";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "Więcej od %@";
+"library_remove_quick_access" = "Usuń z szybkiego dostępu";

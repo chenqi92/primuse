@@ -95,8 +95,10 @@ public enum LibraryDetailTintPolicy {
         sourceBrightness: Double,
         appearance: Appearance
     ) -> LibraryDetailTint {
-        // 浅色外观下整页可以稍亮一点，但仍然是"深色页配白字"，跟深色外观同一套版式。
-        let target = appearance == .dark ? 0.28 : 0.34
+        // 2.0 的详情页整页是「封面色的海报」:颜色要亮到一眼认得出是这张封面,
+        // 白字读不读得清交给下面的对比度二分兜底 —— 亮黄、亮青这类封面会被自动压到 4.5:1。
+        // 浅色外观下再亮一档,但仍然是"彩色页配白字",跟深色外观同一套版式。
+        let target = appearance == .dark ? 0.44 : 0.50
         // 封面本身的明暗只在 ±12% 内影响页面，避免深色封面把页面压成纯黑。
         let nudged = target * (0.88 + 0.24 * sourceBrightness)
 

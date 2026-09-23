@@ -4267,3 +4267,7 @@
 "diagnostics_feedback_message" = "Pedidos ou sugestões";
 "diagnostics_feedback_compose" = "Abrir e-mail";
 "diagnostics_logs_title" = "Registros";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "Mais de %@";
+"library_remove_quick_access" = "Remover do acesso rápido";

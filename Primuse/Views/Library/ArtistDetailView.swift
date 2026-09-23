@@ -44,10 +44,9 @@ struct ArtistDetailView: View {
         library.preferredArtworkSong(forArtistID: artist.id) ?? songs.first
     }
 
-    /// 自己画页面底色的皮肤下为 nil —— 页面用皮肤的底色，不再叠封面色。
+    /// 两套基座的详情页都铺封面色。
     private var tint: LibraryDetailTintStyle? {
-        guard !skin.paintsPageBackground else { return nil }
-        return .artwork(
+        .artwork(
             artworkTintSong.flatMap { coverTints.tint(forSongID: $0.id) },
             colorScheme: colorScheme
         )
@@ -172,14 +171,18 @@ struct ArtistDetailView: View {
                     Button {
                         serverMediaShareTarget = target
                     } label: {
-                        Image(systemName: "link.badge.plus")
+                        Image(systemName: "square.and.arrow.up")
                     }
                     .accessibilityLabel(Text("server_share_action"))
                 }
-                Button { showArtworkEditor = true } label: {
-                    Image(systemName: "photo.badge.plus")
+                Menu {
+                    Button { showArtworkEditor = true } label: {
+                        Label("artwork_edit", systemImage: "photo.badge.plus")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
                 }
-                .accessibilityLabel(Text("artwork_edit"))
+                .accessibilityLabel(Text("a11y_more_actions"))
             }
         }
         #endif
@@ -228,184 +231,100 @@ struct ArtistDetailView: View {
         }
     }
 
-    /// 头图跟着界面皮肤的详情头图插槽走。封面墙要凑得够四张不同的封面才铺得起来,
-    /// 凑不够的艺术家(只有一两张专辑)仍用原来的头图。
-    @ViewBuilder
+    /// 两套基座共用的艺术家页头图:人像海报铺满上半屏,向下化进封面色;名字居中压在
+    /// 渐隐段上,下面一排「随机 · 播放 · 快捷收藏」。
+    ///
+    /// 手机横屏只剩三百多点高,海报压到 230,名字与按钮跟着降一档,首屏才露得出热门单曲。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        switch skin.skin.detailHeader {
-        case .coverWall where CollectionCoverWall.isAvailable(for: songs):
-            coverWallHero
-        case .coverWall, .classic:
-            classicHero(insets: insets)
-        }
-    }
-
-    private var artistSummaryText: String {
-        "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
-    }
-
-    /// 封面墙头图:艺术家的专辑封面铺成墙,头像压在墙面渐隐的那一段上;播放与随机两个按钮照旧,
-    /// 只是换成压在页面底色上的样式。
-    private var coverWallHero: some View {
-        let actionLayout = dynamicTypeSize >= .xxLarge
-            ? AnyLayout(VStackLayout(spacing: 10))
-            : AnyLayout(HStackLayout(spacing: 10))
-        // 墙面自己会按纵向尺寸等级收高, 这里只把压在墙上的头像与块间距跟着降一档。
-        let accessorySide = heightClass.value(72, compact: 52)
-        let blockSpacing = heightClass.value(14, compact: 10)
-
-        return VStack(spacing: blockSpacing) {
-            CollectionCoverWallHeader(
-                title: displayArtistName,
-                subtitle: artistSummaryText,
-                titleAccessory: AnyView(
-                    ArtistArtworkView(artist: artist, size: accessorySide, cornerRadius: accessorySide / 2)
-                        .overlay { Circle().stroke(skin.color(.surfaceBorder), lineWidth: 1) }
-                        .shadow(color: .black.opacity(0.28), radius: 12, y: 5)
-                ),
-                songs: songs,
-                nowPlaying: player.currentSong
-            ) {
-                EmptyView()
-            }
-
-            Text(verbatim: monthlyListenText)
-                .font(skin.font(.caption))
-                .foregroundStyle(.skin(.textSecondary))
-                .padding(.horizontal, 20)
-
-            actionLayout {
-                LibraryDetailActionButton(
-                    title: "play",
-                    systemImage: "play.fill",
-                    emphasized: true,
-                    fillsWidth: true,
-                    disabled: playableSongs.isEmpty,
-                    action: playAll
-                )
-                LibraryDetailActionButton(
-                    title: "shuffle",
-                    systemImage: "shuffle",
-                    onArtwork: false,
-                    fillsWidth: true,
-                    disabled: playableSongs.count < 2,
-                    action: shuffleAll
-                )
-            }
-            .padding(.horizontal, 20)
-        }
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity)
-    }
-
-    /// 手机横屏只剩三百多点高, 头像、块间距、上下留白都按竖屏标定过一遍,
-    /// 紧凑高度下各降一档, 让 hero 压到 170pt 以内, 首屏才露得出热门单曲。
-    private func classicHero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        let identityLayout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
-        let actionLayout = dynamicTypeSize >= .xxLarge
-            ? AnyLayout(VStackLayout(spacing: 10))
-            : AnyLayout(HStackLayout(spacing: 10))
-        let avatarSide = heightClass.value(88, compact: 64)
-        let blockSpacing = heightClass.value(20, compact: 12)
-        let heroTopPadding = heightClass.value(12, compact: 8)
-        let heroBottomPadding = heightClass.value(24, compact: 14)
-        let nameFont = heightClass.pick(Font.title2, compact: .title3)
-        let nameLineLimit: Int? = heightClass.isCompact ? 2 : nil
-        // 没有封面底色(自己画底色的皮肤)时头图照旧收进黑色。
+        let compact = heightClass.isCompact
+        let posterHeight: CGFloat = insets.top + (compact ? 230 : 440)
         let heroBase = tint?.top ?? .black
 
-        return VStack(alignment: .leading, spacing: blockSpacing) {
-            identityLayout {
-                ArtistArtworkView(artist: artist, size: avatarSide, cornerRadius: avatarSide / 2)
-                    .overlay { Circle().stroke(.white.opacity(0.28), lineWidth: 1) }
-                    .shadow(color: .black.opacity(0.24), radius: 12, y: 4)
-                    .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(verbatim: displayArtistName)
-                        .font(nameFont.weight(.bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(nameLineLimit)
-                        .minimumScaleFactor(heightClass.value(1, compact: 0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text(
-                        verbatim:
-                            "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
-                    )
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.78))
-
-                    Text(verbatim: monthlyListenText)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.68))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            actionLayout {
-                LibraryDetailActionButton(
-                    title: "play",
-                    systemImage: "play.fill",
-                    emphasized: true,
-                    fillsWidth: true,
-                    disabled: playableSongs.isEmpty,
-                    action: playAll
-                )
-                LibraryDetailActionButton(
-                    title: "shuffle",
-                    systemImage: "shuffle",
-                    fillsWidth: true,
-                    disabled: playableSongs.count < 2,
-                    action: shuffleAll
-                )
-            }
-        }
-        // 底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
-        .padding(.leading, insets.leading + 20)
-        .padding(.trailing, insets.trailing + 20)
-        .padding(.top, insets.top + heroTopPadding)
-        .padding(.bottom, heroBottomPadding)
-        .frame(maxWidth: .infinity)
-        .background {
+        return ZStack(alignment: .bottom) {
             GeometryReader { geometry in
                 ArtistArtworkView(
                     artist: artist,
                     size: max(geometry.size.width, geometry.size.height),
                     cornerRadius: 0
                 )
-                .blur(radius: 24)
-                .scaleEffect(1.16)
-                .opacity(0.78)
                 .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
             }
-            .background(heroBase)
-            .accessibilityHidden(true)
+            .frame(height: posterHeight)
             .overlay {
-                // 头图往下化进整页底色, 而不是收在一块黑里 —— 页面接下去就是这个颜色,
-                // 所以看不出头图在哪儿结束。
+                // 顶部压一点暗让系统返回键读得清;下半段化进整页底色,看不出海报在哪儿结束。
                 LinearGradient(
                     stops: [
-                        .init(color: .black.opacity(0.16), location: 0),
-                        .init(color: heroBase.opacity(0.42), location: 0.5),
+                        .init(color: .black.opacity(0.22), location: 0),
+                        .init(color: .clear, location: 0.2),
+                        .init(color: .clear, location: 0.46),
+                        .init(color: heroBase.opacity(0.82), location: 0.8),
                         .init(color: heroBase, location: 1),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             }
+            .accessibilityHidden(true)
+
+            VStack(spacing: compact ? 8 : 10) {
+                Text(verbatim: displayArtistName)
+                    .font(compact ? .title.weight(.heavy) : .largeTitle.weight(.heavy))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
+
+                Text(verbatim: "\(monthlyListenText) \u{00B7} \(artistSummaryText)")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .multilineTextAlignment(.center)
+
+                HStack(spacing: compact ? 18 : 24) {
+                    LibraryDetailCircleButton(
+                        systemImage: "shuffle",
+                        label: "shuffle",
+                        size: compact ? 48 : 56,
+                        disabled: playableSongs.count < 2,
+                        action: shuffleAll
+                    )
+                    LibraryDetailPlayCircle(
+                        size: compact ? 64 : 80,
+                        disabled: playableSongs.isEmpty,
+                        action: playAll
+                    )
+                    QuickAccessPinCircleButton(pin: LibraryPinReference(kind: .artist, itemID: artist.id))
+                }
+                .padding(.top, compact ? 4 : 8)
+            }
+            .padding(.leading, insets.leading + 24)
+            .padding(.trailing, insets.trailing + 24)
+            .padding(.bottom, compact ? 10 : 16)
         }
+        .frame(maxWidth: .infinity)
         .clipped()
     }
 
+    private var artistSummaryText: String {
+        "\(songs.count) \(String(localized: "songs_count")) · \(albumCount) \(String(localized: "albums_count"))"
+    }
+
     private var iosTopSongs: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("artist_popular") {
-                NavigationLink("see_all") { ArtistAllSongsView(artist: artist) }
-                    .font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: 6) {
+            // 整个标题就是「查看全部」的入口,跟参照稿一样带一个箭头。
+            NavigationLink { ArtistAllSongsView(artist: artist) } label: {
+                HStack(spacing: 4) {
+                    Text("artist_popular").font(.title3.weight(.bold))
+                    Image(systemName: "chevron.right")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .foregroundStyle(.white)
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 20)
+            .accessibilityHint(Text("see_all"))
 
             LazyVStack(spacing: 0) {
                 ForEach(Array(topSongs.enumerated()), id: \.element.id) { index, song in
@@ -419,7 +338,8 @@ struct ArtistDetailView: View {
                             backfill: backfill
                         )
                     )
-                    .padding(.horizontal, 12)
+                    .padding(.leading, 20)
+                    .padding(.trailing, 10)
                     .padding(.vertical, 7)
                     .contentShape(Rectangle())
                     .onTapGesture { playSong(song) }
@@ -430,13 +350,15 @@ struct ArtistDetailView: View {
                     )
 
                     if index != topSongs.count - 1 {
-                        Divider().padding(.leading, 66)
+                        Rectangle()
+                            .fill(.white.opacity(0.18))
+                            .frame(height: 0.5)
+                            .padding(.leading, 74)
+                            .padding(.trailing, 20)
                     }
                 }
             }
             .songRowColumnsContainer()
-            .libraryDetailSection(tint: tint)
-            .padding(.horizontal, 20)
         }
     }
 

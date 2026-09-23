@@ -2366,10 +2366,8 @@ private struct GenreDetailView: View {
         )
     }
 
-    /// 内容块的衬底只在经典这类不自己画底色的皮肤下跟封面色走;头图仍用上面那条色。
-    private var sectionTint: LibraryDetailTintStyle? {
-        skin.paintsPageBackground ? nil : tint
-    }
+    /// 内容块的衬底跟封面色走,两套基座一样。
+    private var sectionTint: LibraryDetailTintStyle? { tint }
     #endif
 
     private var albums: [Album] {

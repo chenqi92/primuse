@@ -4267,3 +4267,7 @@
 "diagnostics_feedback_message" = "İstekler veya öneriler";
 "diagnostics_feedback_compose" = "Postayı aç";
 "diagnostics_logs_title" = "Günlükler";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "%@ tarafından daha fazlası";
+"library_remove_quick_access" = "Hızlı erişimden kaldır";

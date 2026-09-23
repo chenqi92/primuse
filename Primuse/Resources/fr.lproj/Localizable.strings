@@ -4361,3 +4361,7 @@
 "diagnostics_feedback_message" = "Demandes ou suggestions";
 "diagnostics_feedback_compose" = "Ouvrir Mail";
 "diagnostics_logs_title" = "Journaux";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "Plus de %@";
+"library_remove_quick_access" = "Retirer de l’accès rapide";

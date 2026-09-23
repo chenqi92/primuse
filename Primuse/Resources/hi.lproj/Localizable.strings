@@ -4267,3 +4267,7 @@
 "diagnostics_feedback_message" = "अनुरोध या सुझाव";
 "diagnostics_feedback_compose" = "मेल खोलें";
 "diagnostics_logs_title" = "लॉग";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "%@ के और एल्बम";
+"library_remove_quick_access" = "त्वरित पहुंच से हटाएँ";

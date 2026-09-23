@@ -14,6 +14,13 @@ struct SongRowActionRequest: Identifiable {
     let action: Action
 }
 
+/// 歌曲行的行首。
+enum SongRowLeading: Equatable {
+    case artwork
+    /// 曲序;读不到曲序时画一个短横。
+    case trackNumber(Int?)
+}
+
 struct SongRowView: View {
     @Environment(SourceManager.self) private var sourceManager
     @Environment(AudioPlayerService.self) private var player
@@ -56,6 +63,11 @@ struct SongRowView: View {
     /// Resolved by the parent so rows do not individually observe every
     /// backfill state mutation.
     var detailsState: SongDetailsState = .ready
+
+    /// 行首画封面还是画曲序。专辑页的行都在同一张专辑里,封面一模一样,改画曲序。
+    var leading: SongRowLeading = .artwork
+    /// 专辑页里与专辑艺术家相同的艺术家名不必每行重复一遍。
+    var hidesArtist = false
 
     @State private var showScrapeOptions = false
     @State private var showNoScraperSourceAlert = false
@@ -328,18 +340,9 @@ struct SongRowView: View {
     }
 
     @ViewBuilder
-    private var rowContent: some View {
-        let offline = offlineSnapshot
-        let unreachable = isUnreachableNow
-        let unreachableDimming: Double = unreachable ? 0.45 : 1
-        // 够宽时专辑与时长从副标题里挪到 Spacer 之后的对齐列；两者只能出现一次。
-        // 列在整份列表里要占同样的位置，所以读取中、时长还没回填的行也照样占位，
-        // 只是内容为空——否则徽标与 ⋯ 会一行一个位置。
-        let columns = songRowColumns
-        let showsAlbumColumn = columns.showsAlbum && showAlbum
-        let showsDurationColumn = columns.showsDuration
-        HStack(spacing: 10) {
-            // Cover art with playing overlay
+    private func leadingContent(unreachableDimming: Double) -> some View {
+        switch leading {
+        case .artwork:
             ZStack {
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
@@ -375,6 +378,46 @@ struct SongRowView: View {
             }
             .frame(width: 44, height: 44)
             .opacity(isReadingDetails ? 0.65 : unreachableDimming)
+        case .trackNumber(let number):
+            ZStack {
+                if isPlaying {
+                    if player.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .pmFadeTransition()
+                    } else {
+                        Image(systemName: "waveform")
+                            .font(.callout)
+                            .symbolEffect(.variableColor.iterative)
+                            .foregroundStyle(skin.color(.accent))
+                            .pmFadeTransition()
+                    }
+                } else {
+                    Text(verbatim: number.map(String.init) ?? "–")
+                        .font(skin.font(.rowTitle).monospacedDigit())
+                        .foregroundStyle(.skin(.textSecondary))
+                        .pmFadeTransition()
+                }
+            }
+            .frame(width: 28, height: 44)
+            .opacity(isReadingDetails ? 0.65 : unreachableDimming)
+            .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private var rowContent: some View {
+        let offline = offlineSnapshot
+        let unreachable = isUnreachableNow
+        let unreachableDimming: Double = unreachable ? 0.45 : 1
+        // 够宽时专辑与时长从副标题里挪到 Spacer 之后的对齐列；两者只能出现一次。
+        // 列在整份列表里要占同样的位置，所以读取中、时长还没回填的行也照样占位，
+        // 只是内容为空——否则徽标与 ⋯ 会一行一个位置。
+        let columns = songRowColumns
+        let showsAlbumColumn = columns.showsAlbum && showAlbum
+        let showsDurationColumn = columns.showsDuration
+        HStack(spacing: 10) {
+            leadingContent(unreachableDimming: unreachableDimming)
 
             // Song info — title and subtitle only, no format/duration clutter
             VStack(alignment: .leading, spacing: 2) {
@@ -435,7 +478,7 @@ struct SongRowView: View {
                                 .font(.caption2)
                                 .accessibilityLabel(Text("music_video_badge"))
                         }
-                        if let artist = library.artistDisplayName(for: song) {
+                        if !hidesArtist, let artist = library.artistDisplayName(for: song) {
                             if song.isStandaloneMusicVideo || unreachable { Text("·") }
                             Text(artist)
                         }
@@ -1869,6 +1912,8 @@ extension SongRowView {
         selection: SongSelectionModel? = nil,
         onRemoveFromPlaylist: (() -> Void)? = nil,
         queueSwipeActionsEnabled: Bool = true,
+        leading: SongRowLeading = .artwork,
+        hidesArtist: Bool = false,
         context: RowContext
     ) {
         self.song = song
@@ -1878,6 +1923,8 @@ extension SongRowView {
         self.selection = selection
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.queueSwipeActionsEnabled = queueSwipeActionsEnabled
+        self.leading = leading
+        self.hidesArtist = hidesArtist
         self.sourceName = context.sourceName
         self.sourceIconName = context.sourceIconName
         self.detailsState = context.detailsState

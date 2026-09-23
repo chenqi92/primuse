@@ -4361,3 +4361,7 @@
 "diagnostics_feedback_message" = "요청 또는 제안";
 "diagnostics_feedback_compose" = "메일 열기";
 "diagnostics_logs_title" = "로그";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "%@의 다른 앨범";
+"library_remove_quick_access" = "빠른 접근에서 제거";

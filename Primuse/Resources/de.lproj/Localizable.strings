@@ -4361,3 +4361,7 @@
 "diagnostics_feedback_message" = "Wünsche oder Vorschläge";
 "diagnostics_feedback_compose" = "Mail öffnen";
 "diagnostics_logs_title" = "Protokolle";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "Mehr von %@";
+"library_remove_quick_access" = "Aus Schnellzugriff entfernen";

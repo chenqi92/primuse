@@ -41,10 +41,9 @@ struct AlbumDetailView: View {
         library.preferredArtworkSong(forAlbumID: album.id) ?? songs.first
     }
 
-    /// 自己画页面底色的皮肤下为 nil —— 页面用皮肤的底色，不再叠封面色。
+    /// 两套基座的详情页都铺封面色。
     private var tint: LibraryDetailTintStyle? {
-        guard !skin.paintsPageBackground else { return nil }
-        return .artwork(
+        .artwork(
             artworkTintSong.flatMap { coverTints.tint(forSongID: $0.id) },
             colorScheme: colorScheme
         )
@@ -119,159 +118,79 @@ struct AlbumDetailView: View {
     }
 
     #if os(iOS)
+    /// 两套基座共用的专辑页:整页铺封面色,封面浮在上面,标题 / 艺术家 / 信息居中,
+    /// 一排「随机 · 播放 · 下载」,下面是曲目、发行信息和同一艺术家的其他专辑。
     private var iosBody: some View {
         let discs = discSections
         let showsDiscHeaders = discs.contains { $0.number > 1 }
-        return Group {
-            // 头部怎么画由界面皮肤决定;曲目列表、按钮、评分两种画法共用一份。
-            switch skin.skin.detailHeader {
-            case .coverWall:
-                ScrollView {
-                    VStack(spacing: 20) {
-                        coverWallHeader
-                        trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-                    .padding(.bottom, BottomChromeClearancePolicy.clearance(
-                        legacyOverlayActive: legacyBottomChromeOverlayActive,
-                        legacy: 64,
-                        baseline: 16
-                    ))
-                }
-                .skinPageBackground(replacing: .canvas)
-                .navigationBarTitleDisplayMode(.inline)
-            case .classic:
-                ImmersiveLibraryDetailScrollView { insets in
-                    iosHero(insets: insets)
-                } content: {
-                    trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 18)
-                        .padding(.bottom, BottomChromeClearancePolicy.clearance(
-                            legacyOverlayActive: legacyBottomChromeOverlayActive,
-                            legacy: 64,
-                            baseline: 16
-                        ))
-                }
+        return ImmersiveLibraryDetailScrollView { insets in
+            iosHero(insets: insets)
+        } content: {
+            VStack(alignment: .leading, spacing: 0) {
+                trackList(discs: discs, showsDiscHeaders: showsDiscHeaders)
+                albumFooter
+                moreFromArtist
             }
+            .padding(.bottom, BottomChromeClearancePolicy.clearance(
+                legacyOverlayActive: legacyBottomChromeOverlayActive,
+                legacy: 64,
+                baseline: 16
+            ))
         }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    sourceManager.downloadForOffline(songs: songs)
-                } label: {
-                    Image(systemName: "arrow.down.circle")
-                }
-                .disabled(songs.filteredPlayable().isEmpty)
-                .accessibilityLabel(Text("offline_download"))
                 if let target = albumServerMediaShareTarget {
                     Button {
                         serverMediaShareTarget = target
                     } label: {
-                        Image(systemName: "link.badge.plus")
+                        Image(systemName: "square.and.arrow.up")
                     }
                     .accessibilityLabel(Text("server_share_action"))
                 }
-                Button {
-                    showArtworkEditor = true
+                Menu {
+                    Button {
+                        showArtworkEditor = true
+                    } label: {
+                        Label("artwork_edit", systemImage: "photo.badge.plus")
+                    }
                 } label: {
-                    Image(systemName: "photo.badge.plus")
+                    Image(systemName: "ellipsis")
                 }
-                .accessibilityLabel(Text("artwork_edit"))
+                .accessibilityLabel(Text("a11y_more_actions"))
             }
         }
     }
 
-    /// 封面墙皮肤的单封面头图。手机横屏下降一档:封面 180 → 116、块间距 18 → 12,
-    /// 头图连同按钮压到 200pt 以内。
-    private var coverWallHeader: some View {
-        let heroCoverSide = heightClass.value(180, compact: 116)
-        let heroSpacing = heightClass.value(18, compact: 12)
-        return VStack(spacing: heroSpacing) {
-            CollectionSingleCoverHeader(
-                title: album.title,
-                subtitle: album.artistName ?? String(localized: "unknown_artist"),
-                caption: heroMetaLine
-            ) {
-                AlbumArtworkView(
-                    album: album,
-                    size: heroCoverSide,
-                    cornerRadius: 20,
-                    presentationRole: .animatedHero
-                )
-            } backdrop: {
-                AlbumArtworkView(album: album, size: 320, cornerRadius: 0, showsPlaceholder: false)
-            }
-            albumActionRow(onArtwork: false)
-            LibraryReviewSection(subject: .album(album.id), compact: true)
-        }
-    }
-
-    /// - Parameter onArtwork: 按钮是不是压在封面色上;封面墙头图下按钮在皮肤底色上。
-    private func albumActionRow(onArtwork: Bool) -> some View {
-        let actionLayout = dynamicTypeSize >= .xxLarge
-            ? AnyLayout(VStackLayout(spacing: 10))
-            : AnyLayout(HStackLayout(spacing: 10))
-
-        return actionLayout {
-            LibraryDetailActionButton(
-                title: "play",
-                systemImage: "play.fill",
-                emphasized: true,
-                onArtwork: onArtwork,
-                fillsWidth: true,
-                disabled: songs.filteredPlayable().isEmpty,
-                action: { playAll() }
-            )
-            LibraryDetailActionButton(
-                title: "shuffle",
-                systemImage: "shuffle",
-                onArtwork: onArtwork,
-                fillsWidth: true,
-                disabled: songs.filteredPlayable().count < 2,
-                action: shuffleAll
-            )
-        }
-    }
-
-    /// 头图改成「封面浮在整页底色上」: 封面居中, 标题、信息、按钮顺着往下, 页面其余
-    /// 部分继续用同一条渐变 —— 原来那种卡片贴在系统灰底上的接缝没有了。
-    ///
-    /// 手机横屏只剩三百多点高, 封面、间距、留白各降一档并改成封面在左的一行,
-    /// 头图压到 190pt 以内, 首屏才露得出歌。
+    /// 手机横屏只剩三百多点高:封面缩到 112 并挪到左边,头图压到 200pt 以内,首屏才露得出歌。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let compact = heightClass.isCompact
         // 无障碍字号下横排放不下, 一律回到竖排居中。
         let stacksIdentity = !compact || dynamicTypeSize.isAccessibilitySize
-        let coverSide: CGFloat = compact ? 88 : 190
-        let heroTopPadding: CGFloat = compact ? 18 : 52
-        let heroBottomPadding: CGFloat = compact ? 16 : 26
-        let blockSpacing: CGFloat = compact ? 14 : 18
+        let coverSide: CGFloat = compact ? 112 : 262
 
-        return VStack(alignment: stacksIdentity ? .center : .leading, spacing: blockSpacing) {
+        return VStack(spacing: compact ? 14 : 22) {
             if stacksIdentity {
-                VStack(spacing: 14) {
+                VStack(spacing: 22) {
                     heroCover(side: coverSide)
                     heroIdentityText(centered: true)
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                HStack(alignment: .center, spacing: 16) {
+                HStack(alignment: .center, spacing: 18) {
                     heroCover(side: coverSide)
                     heroIdentityText(centered: false)
                 }
             }
 
-            albumActionRow(onArtwork: true)
+            albumActionRow
 
             LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
         }
         // 底色铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
         .padding(.leading, insets.leading + 20)
         .padding(.trailing, insets.trailing + 20)
-        .padding(.top, insets.top + heroTopPadding)
-        .padding(.bottom, heroBottomPadding)
+        .padding(.top, insets.top + (compact ? 12 : 16))
+        .padding(.bottom, compact ? 12 : 18)
         .frame(maxWidth: .infinity)
     }
 
@@ -282,37 +201,86 @@ struct AlbumDetailView: View {
             cornerRadius: side > 140 ? 14 : 10,
             presentationRole: .animatedHero
         )
-        .shadow(color: .black.opacity(0.34), radius: 18, y: 10)
+        .shadow(color: .black.opacity(0.32), radius: 24, y: 14)
         .accessibilityHidden(true)
     }
 
     private func heroIdentityText(centered: Bool) -> some View {
-        VStack(alignment: centered ? .center : .leading, spacing: 6) {
+        VStack(alignment: centered ? .center : .leading, spacing: 4) {
             Text(album.title)
-                .font(.title2.weight(.bold))
+                .font(.title2.weight(.heavy))
                 .foregroundStyle(.white)
                 .lineLimit(heightClass.isCompact ? 2 : 3)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(album.artistName ?? String(localized: "unknown_artist"))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.82))
-                .fixedSize(horizontal: false, vertical: true)
+            artistLink
 
-            Text(verbatim: heroMetaLine)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.62))
+            if !heroMetaLine.isEmpty {
+                Text(verbatim: heroMetaLine)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .padding(.top, 2)
+            }
         }
         .multilineTextAlignment(centered ? .center : .leading)
         .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
     }
 
+    /// 艺术家名可点进艺术家页。专辑页也会从播放页的 sheet 里打开,那个导航栈没登记
+    /// `Artist` 目的地,所以这里用视图目的地而不是 value 链接。
+    @ViewBuilder
+    private var artistLink: some View {
+        let name = Text(album.artistName ?? String(localized: "unknown_artist"))
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.9))
+        if let artistID = album.artistID, let artist = library.visibleArtist(id: artistID) {
+            NavigationLink {
+                ArtistDetailView(artist: artist)
+            } label: {
+                name
+            }
+            .buttonStyle(.plain)
+        } else {
+            name
+        }
+    }
+
+    /// 流派 · 年份 · 格式。格式只在整张专辑一致时才写(混了多种格式的专辑写哪个都不对)。
     private var heroMetaLine: String {
         var parts: [String] = []
+        if let genre = album.genre?.trimmingCharacters(in: .whitespacesAndNewlines), !genre.isEmpty {
+            parts.append(genre)
+        }
         if let year = album.year { parts.append(String(year)) }
-        parts.append("\(album.songCount) \(String(localized: "songs_count"))")
-        parts.append(formatDuration(album.totalDuration))
+        let formats = Set(songs.map { $0.fileFormat.rawValue.uppercased() })
+        if formats.count == 1, let format = formats.first, !format.isEmpty {
+            parts.append(format)
+        }
         return parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// 「随机 · 播放 · 下载」:播放居中最宽,两侧是圆形玻璃键。
+    private var albumActionRow: some View {
+        HStack(spacing: 14) {
+            LibraryDetailCircleButton(
+                systemImage: "shuffle",
+                label: "shuffle",
+                disabled: songs.filteredPlayable().count < 2,
+                action: shuffleAll
+            )
+            LibraryDetailPlayPill(disabled: songs.filteredPlayable().isEmpty) {
+                playAll()
+            }
+            .frame(maxWidth: 220)
+            LibraryDetailCircleButton(
+                systemImage: "arrow.down",
+                label: "offline_download",
+                disabled: songs.filteredPlayable().isEmpty
+            ) {
+                sourceManager.downloadForOffline(songs: songs)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private func trackList(discs: [DiscSection], showsDiscHeaders: Bool) -> some View {
@@ -321,24 +289,28 @@ struct AlbumDetailView: View {
                 if showsDiscHeaders {
                     Text(verbatim: disc.title)
                         .font(.headline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.72))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 20)
-                        .padding(.bottom, 8)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 22)
+                        .padding(.bottom, 6)
                         .accessibilityAddTraits(.isHeader)
                 }
 
                 ForEach(Array(disc.songs.enumerated()), id: \.element.id) { index, song in
+                    if index == 0 { trackSeparator(leading: 20) }
                     SongRowView(
                         song: song,
                         isPlaying: player.currentSong?.id == song.id,
                         showAlbum: false,
                         selection: selection,
+                        leading: .trackNumber(song.trackNumber),
+                        hidesArtist: library.artistDisplayName(for: song) == album.artistName,
                         context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
                     )
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.leading, 14)
+                    .padding(.trailing, 10)
+                    .padding(.vertical, 5)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         playSong(song)
@@ -348,16 +320,88 @@ struct AlbumDetailView: View {
                         selection: selection,
                         orderedIDs: { orderedSongIDs }
                     )
-
-                    if index < disc.songs.count - 1 {
-                        Divider().padding(.leading, 66)
-                    }
+                    trackSeparator(leading: index < disc.songs.count - 1 ? 52 : 20)
                 }
             }
         }
         // 专辑详情页的行都在同一张专辑里, 宽行不必再补一列专辑名。
         .songRowColumnsContainer(showsAlbum: false)
-        .libraryDetailSection(tint: tint, cornerRadius: 20)
+    }
+
+    private func trackSeparator(leading: CGFloat) -> some View {
+        Rectangle()
+            .fill(.white.opacity(0.18))
+            .frame(height: 0.5)
+            .padding(.leading, leading)
+            .padding(.trailing, 20)
+    }
+
+    /// 发行日期、曲目数与总时长、来源与音质 —— 专辑页页尾那几行小字。
+    private var albumFooter: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let year = album.year {
+                Text(verbatim: String(year))
+            }
+            Text(verbatim: "\(album.songCount) \(String(localized: "songs_count")) \u{00B7} \(formatDuration(album.totalDuration))")
+            if let source = songs.first.flatMap({ sourcesStore.source(id: $0.sourceID) }) {
+                Text(verbatim: source.name)
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.white.opacity(0.7))
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+    }
+
+    /// 同一艺术家的其他专辑。只有一张的艺术家整块不出现。
+    @ViewBuilder
+    private var moreFromArtist: some View {
+        let others = otherAlbumsByArtist
+        if !others.isEmpty, let name = album.artistName {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(verbatim: String(format: String(localized: "album_more_from_artist_format"), name))
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 20)
+                    .accessibilityAddTraits(.isHeader)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(others) { other in
+                            NavigationLink {
+                                AlbumDetailView(album: other)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    AlbumArtworkView(album: other, cornerRadius: 12)
+                                        .frame(width: 150, height: 150)
+                                    Text(verbatim: other.title)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    if let year = other.year {
+                                        Text(verbatim: String(year))
+                                            .font(.caption)
+                                            .foregroundStyle(.white.opacity(0.66))
+                                    }
+                                }
+                                .frame(width: 150, alignment: .leading)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+            }
+            .padding(.top, 32)
+        }
+    }
+
+    private var otherAlbumsByArtist: [Album] {
+        guard let artistID = album.artistID else { return [] }
+        return library.visibleAlbums
+            .filter { $0.artistID == artistID && $0.id != album.id }
+            .prefix(12)
+            .map { $0 }
     }
     #endif
 

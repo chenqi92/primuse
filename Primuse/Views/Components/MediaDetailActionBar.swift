@@ -111,12 +111,10 @@ private struct LibraryDetailTintModifier: ViewModifier {
 
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.skin) private var skin
 
-    /// 自己画页面底色的皮肤下不染封面色,页面、按钮、内容块都按皮肤画。
+    /// 两套基座的详情页都是「封面色的海报」,所以不看皮肤,一律染色。
     private var style: LibraryDetailTintStyle? {
-        guard !skin.paintsPageBackground else { return nil }
-        return .artwork(song.flatMap { coverTints.tint(forSongID: $0.id) }, colorScheme: colorScheme)
+        .artwork(song.flatMap { coverTints.tint(forSongID: $0.id) }, colorScheme: colorScheme)
     }
 
     func body(content: Content) -> some View {
@@ -217,6 +215,135 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
         .skinPageBackground(replacing: .canvasSunken)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+    }
+}
+
+/// 详情页头图下那一排的圆形次按钮(随机、下载、加入快速访问)。
+///
+/// 压在封面取色的整页底色上:iOS 26 起用系统玻璃,更早的系统用半透明白叠材质。
+/// 两套基座共用 —— 这一排的版式由详情页自己决定,不随皮肤变。
+struct LibraryDetailCircleButton: View {
+    let systemImage: String
+    let label: LocalizedStringKey
+    var size: CGFloat = 54
+    var isOn = false
+    var disabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: size * 0.38, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: size, height: size)
+                .contentShape(Circle())
+                .libraryDetailGlass(Circle(), highlighted: isOn)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.45 : 1)
+        .accessibilityLabel(Text(label))
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+}
+
+/// 详情页的主按钮:白底胶囊,字用本页底色。
+struct LibraryDetailPlayPill: View {
+    var title: LocalizedStringKey = "play"
+    var systemImage = "play.fill"
+    var height: CGFloat = 54
+    let disabled: Bool
+    let action: () -> Void
+
+    @Environment(\.libraryDetailTint) private var tint
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(tint?.bottom ?? .black)
+                .frame(maxWidth: .infinity, minHeight: height)
+                .background(.white, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.55 : 1)
+    }
+}
+
+/// 艺术家页居中的大圆形播放键。
+struct LibraryDetailPlayCircle: View {
+    var size: CGFloat = 80
+    let disabled: Bool
+    let action: () -> Void
+
+    @Environment(\.libraryDetailTint) private var tint
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "play.fill")
+                .font(.system(size: size * 0.4, weight: .bold))
+                .foregroundStyle(tint?.bottom ?? .black)
+                .offset(x: size * 0.03)
+                .frame(width: size, height: size)
+                .background(.white, in: Circle())
+                .shadow(color: .black.opacity(0.22), radius: 14, y: 8)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.55 : 1)
+        .accessibilityLabel(Text("play"))
+    }
+}
+
+/// 详情页上「加入 / 移出快捷收藏」的圆键。读写的是资料库快捷收藏那份存储,
+/// 与「编辑快捷收藏」页同一套规则:满了就不能再加。
+struct QuickAccessPinCircleButton: View {
+    let pin: LibraryPinReference
+
+    @AppStorage(LibraryPinStorage.defaultsKey) private var pinsRawValue = ""
+    @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
+    private var configuredLimit = LibraryDisplayConfiguration.defaultQuickAccessLimit
+
+    private var limit: Int { LibraryDisplayConfiguration.normalizedQuickAccessLimit(configuredLimit) }
+    private var pins: [LibraryPinReference] { LibraryPinStorage.decode(pinsRawValue, maximumCount: limit) }
+
+    var body: some View {
+        let current = pins
+        let isPinned = current.contains(pin)
+        LibraryDetailCircleButton(
+            systemImage: isPinned ? "pin.fill" : "pin",
+            label: isPinned ? "library_remove_quick_access" : "library_add_quick_access",
+            isOn: isPinned,
+            disabled: !isPinned && current.count >= limit
+        ) {
+            var updated = current
+            if let index = updated.firstIndex(of: pin) {
+                updated.remove(at: index)
+            } else if updated.count < limit {
+                updated.append(pin)
+            }
+            pinsRawValue = LibraryPinStorage.encode(updated, maximumCount: limit)
+        }
+        .sensoryFeedback(.selection, trigger: isPinned)
+    }
+}
+
+extension View {
+    /// 压在封面色上的玻璃底。
+    @ViewBuilder
+    func libraryDetailGlass<S: Shape>(_ shape: S, highlighted: Bool = false) -> some View {
+        if #available(iOS 26.0, *) {
+            glassEffect(
+                .regular.tint(.white.opacity(highlighted ? 0.34 : 0.12)).interactive(),
+                in: shape
+            )
+        } else {
+            background(.white.opacity(highlighted ? 0.32 : 0.16), in: shape)
+                .background(.ultraThinMaterial, in: shape)
+        }
     }
 }
 #endif

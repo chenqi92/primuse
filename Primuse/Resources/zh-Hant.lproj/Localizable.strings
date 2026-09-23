@@ -4338,3 +4338,7 @@
 "diagnostics_feedback_message" = "需求或建議";
 "diagnostics_feedback_compose" = "開啟郵件";
 "diagnostics_logs_title" = "日誌";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "更多來自 %@";
+"library_remove_quick_access" = "移出快捷收藏";

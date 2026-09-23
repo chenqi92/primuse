@@ -4267,3 +4267,7 @@
 "diagnostics_feedback_message" = "คำขอหรือข้อเสนอแนะ";
 "diagnostics_feedback_compose" = "เปิดเมล";
 "diagnostics_logs_title" = "บันทึก";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "เพิ่มเติมจาก %@";
+"library_remove_quick_access" = "นำออกจากการเข้าถึงด่วน";

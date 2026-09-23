@@ -4362,3 +4362,7 @@
 "diagnostics_feedback_message" = "要望や提案";
 "diagnostics_feedback_compose" = "メールを開く";
 "diagnostics_logs_title" = "ログ";
+
+/* 2.0 详情页 */
+"album_more_from_artist_format" = "%@のその他の作品";
+"library_remove_quick_access" = "クイックアクセスから削除";
