@@ -659,11 +659,26 @@ struct ImmersiveStageView<Artwork: View>: View {
 
     // MARK: - 6. 环形声谱
 
+    /// 环形声谱的可见外沿是 `radialArtwork` 里涟漪层的 1.4 倍直径，三层都按这个尺寸摆。
+    private var radialRingSpanRatio: CGFloat { 1.4 }
+
+    /// 竖屏：环在上、文字在下。其余视口：环贴前缘、整高居中，文字列从环的可见外沿
+    /// 再留出间距、占满到后缘；控件在文字这一侧（`ImmersivePlayerView.showcaseControlAlignment`）。
     private var radialPulseScene: some View {
-        let diameter = min(
-            metrics.size.height * (metrics.isPortrait ? 0.46 : 0.70),
-            metrics.size.width * (metrics.isPortrait ? 0.88 : 0.49)
+        let isPhoneLandscape = metrics.layout == .phoneLandscape
+        let innerWidth = metrics.size.width - leadingInset - trailingInset
+        let landscapeRingSpan = min(
+            metrics.size.height - topInset - max(metrics.safeArea.bottom, metrics.s(14))
+                - metrics.s(isPhoneLandscape ? 4 : 24),
+            innerWidth * (isPhoneLandscape ? 0.44 : 0.42)
         )
+        let diameter = metrics.isPortrait
+            ? min(metrics.size.height * 0.46, metrics.size.width * 0.88)
+            : landscapeRingSpan / radialRingSpanRatio
+        let ringSpan = diameter * radialRingSpanRatio
+        let textLeading = leadingInset + ringSpan
+            + metrics.s(isPhoneLandscape ? 32 : (platform == .tvOS ? 96 : 64))
+        let textWidth = max(metrics.s(160), metrics.size.width - trailingInset - textLeading)
         return ZStack {
             palette.secondary
             ImmersiveEnergyGlow(
@@ -691,35 +706,37 @@ struct ImmersiveStageView<Artwork: View>: View {
                 .padding(.top, topInset + metrics.s(14))
                 .padding(.bottom, bottomInset)
             } else {
-                HStack(spacing: metrics.s(platform == .tvOS ? 82 : 52)) {
-                    radialArtwork(diameter: diameter)
-                    VStack(alignment: .leading, spacing: metrics.s(18)) {
-                        titleBlock(size: metrics.s(platform == .tvOS ? 94 : 60), weight: .semibold)
-                        formatAndLyric(
-                            fontSize: metrics.s(platform == .tvOS ? 23 : 14),
-                            availableWidth: metrics.size.width * 0.38
-                        )
-                    }
-                    .frame(maxWidth: metrics.size.width * 0.38, alignment: .leading)
+                radialArtwork(diameter: diameter)
+                    .position(x: leadingInset + ringSpan / 2, y: metrics.size.height / 2)
+
+                VStack(alignment: .leading, spacing: metrics.s(18)) {
+                    titleBlock(
+                        size: metrics.s(isPhoneLandscape ? 46 : (platform == .tvOS ? 94 : 60)),
+                        weight: .semibold
+                    )
+                    formatAndLyric(
+                        fontSize: metrics.s(platform == .tvOS ? 23 : 14),
+                        availableWidth: textWidth
+                    )
                 }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
-                .padding(.bottom, bottomInset)
+                .frame(width: textWidth, alignment: .leading)
+                .position(x: textLeading + textWidth / 2, y: metrics.size.height / 2)
             }
         }
     }
 
+    /// 三层都显式按可见外沿定尺寸，不靠 ZStack 把画布撑到涟漪层的大小。
     private func radialArtwork(diameter: CGFloat) -> some View {
         let barWidth = max(1.4, metrics.f(platform == .tvOS ? 5 : 3))
+        let span = diameter * radialRingSpanRatio
         return ZStack {
             ImmersiveBassRipples(
                 levelsProvider: spectrumProvider,
                 palette: palette,
                 isAnimating: sceneIsAnimating,
-                startRatio: 0.60 / 1.4
+                startRatio: 0.60 / radialRingSpanRatio
             )
-            .frame(width: diameter * 1.4, height: diameter * 1.4)
+            .frame(width: span, height: span)
 
             ImmersiveSpectrumRingHost(
                 levelsProvider: spectrumProvider,
@@ -728,6 +745,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 tint: palette.primary,
                 isPlaying: playbackClockIsActive
             )
+            .frame(width: span, height: span)
             .blur(radius: max(4, metrics.f(12)))
             .opacity(0.9)
 
@@ -738,6 +756,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 tint: palette.primary,
                 isPlaying: playbackClockIsActive
             )
+            .frame(width: span, height: span)
 
             rotatingCircularArtwork(diameter: diameter * 0.60)
         }
