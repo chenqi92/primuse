@@ -435,6 +435,9 @@ final class PlaybackSettingsStore {
         self.reverbWetDryMix = s.reverbWetDryMix
         self.reverbRoomSize = s.reverbRoomSize
 
+        // 新装的设备还没有自己的设置: 灰度迁移只写本机默认值, 不能当成用户编辑
+        // 推上 iCloud —— 那会把别的设备上的播放设置整份换成默认值。
+        let hadPersistedSettings = defaults.data(forKey: PlaybackSettings.defaultsKey) != nil
         CloudKVSSync.shared.register(key: PlaybackSettings.defaultsKey) { [weak self] in
             self?.reloadFromDefaults()
         }
@@ -442,7 +445,9 @@ final class PlaybackSettingsStore {
         let crossfadeRolledOut = PlaybackSettings.applyCrossfadeDurationRolloutIfNeeded(defaults: defaults)
         if lyricsRolledOut || crossfadeRolledOut {
             reloadFromDefaults()
-            CloudKVSSync.shared.markChanged(key: PlaybackSettings.defaultsKey)
+            if hadPersistedSettings {
+                CloudKVSSync.shared.markChanged(key: PlaybackSettings.defaultsKey)
+            }
         }
     }
 

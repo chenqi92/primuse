@@ -492,59 +492,35 @@ enum ImmersiveLyricsMotionSettings {
 }
 
 /// 只同步所选全屏呈现方式，不同步各端的动画强度、控件显隐或版式状态。
-/// 使用带版本号的 KVS 项解决多设备同时修改时的覆盖顺序。
+/// 走 `CloudKVSSync` 那套带修订号的键: 同步开关、初次下载、换账号都由它统一
+/// 处理。以前这里自带一份同步逻辑, 绕过了总开关, 新装设备还会把默认值推上云端。
 @MainActor
 final class FullscreenPlayerEffectSync {
     static let shared = FullscreenPlayerEffectSync()
     static let didChangeNotification = Notification.Name("primuse.fullscreenEffect.didChange")
 
     private let defaults = UserDefaults.standard
-    private let timestampKey = "\(FullscreenPlayerEffect.storageKey).__updatedAt"
-    private let writerKey = "\(FullscreenPlayerEffect.storageKey).__writerID"
-    private let localWriterKey = "primuse.fullscreenEffect.writerID"
-    private var kvs: NSUbiquitousKeyValueStore?
-    private nonisolated(unsafe) var observerToken: NSObjectProtocol?
     private var isInstalled = false
 
     private init() {}
-
-    deinit {
-        if let observerToken {
-            NotificationCenter.default.removeObserver(observerToken)
-        }
-    }
 
     func install() {
         guard !isInstalled else { return }
         isInstalled = true
         normalizeLocalValue()
-        guard CloudKitRuntime.canCreateContainer else { return }
-
-        let store = NSUbiquitousKeyValueStore.default
-        kvs = store
-        observerToken = NotificationCenter.default.addObserver(
-            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
-            object: store,
-            queue: .main
-        ) { [weak self] note in
-            let changed = (note.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String]) ?? []
-            Task { @MainActor in
-                self?.applyRemoteChange(changedKeys: changed)
-            }
-        }
-        store.synchronize()
-
-        if store.string(forKey: FullscreenPlayerEffect.storageKey) == nil {
-            pushCurrentValue()
-        } else {
-            pullRemoteIfNewer()
+        CloudKVSSync.shared.register(key: FullscreenPlayerEffect.storageKey) { [weak self] in
+            guard let self else { return }
+            self.normalizeLocalValue()
+            let raw = self.defaults.string(forKey: FullscreenPlayerEffect.storageKey)
+                ?? FullscreenPlayerEffect.defaultValue.rawValue
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: raw)
         }
     }
 
     func select(_ effect: FullscreenPlayerEffect) {
         install()
         defaults.set(effect.rawValue, forKey: FullscreenPlayerEffect.storageKey)
-        pushCurrentValue()
+        CloudKVSSync.shared.markChanged(key: FullscreenPlayerEffect.storageKey)
         NotificationCenter.default.post(name: Self.didChangeNotification, object: effect.rawValue)
     }
 
@@ -557,56 +533,5 @@ final class FullscreenPlayerEffectSync {
         if stored != effect.rawValue {
             defaults.set(effect.rawValue, forKey: FullscreenPlayerEffect.storageKey)
         }
-    }
-
-    private var localWriterID: String {
-        if let existing = defaults.string(forKey: localWriterKey), !existing.isEmpty {
-            return existing
-        }
-        let value = UUID().uuidString.lowercased()
-        defaults.set(value, forKey: localWriterKey)
-        return value
-    }
-
-    private func pushCurrentValue() {
-        guard let kvs else { return }
-        let revision = max(
-            Date().timeIntervalSince1970,
-            max(defaults.double(forKey: timestampKey), kvs.double(forKey: timestampKey))
-        ) + 1
-        let writer = localWriterID
-        let raw = defaults.string(forKey: FullscreenPlayerEffect.storageKey)
-            ?? FullscreenPlayerEffect.defaultValue.rawValue
-
-        defaults.set(revision, forKey: timestampKey)
-        defaults.set(writer, forKey: writerKey)
-        kvs.set(raw, forKey: FullscreenPlayerEffect.storageKey)
-        kvs.set(revision, forKey: timestampKey)
-        kvs.set(writer, forKey: writerKey)
-        kvs.synchronize()
-    }
-
-    private func applyRemoteChange(changedKeys: [String]) {
-        guard changedKeys.isEmpty
-                || changedKeys.contains(FullscreenPlayerEffect.storageKey)
-                || changedKeys.contains(timestampKey)
-                || changedKeys.contains(writerKey) else { return }
-        pullRemoteIfNewer()
-    }
-
-    private func pullRemoteIfNewer() {
-        guard let kvs,
-              let raw = kvs.string(forKey: FullscreenPlayerEffect.storageKey),
-              let effect = FullscreenPlayerEffect(rawValue: raw) else { return }
-
-        let remote = (kvs.double(forKey: timestampKey), kvs.string(forKey: writerKey) ?? "")
-        let local = (defaults.double(forKey: timestampKey), defaults.string(forKey: writerKey) ?? "")
-        let remoteWins = remote.0 > local.0 || (remote.0 == local.0 && remote.1 > local.1)
-        guard remoteWins || defaults.string(forKey: FullscreenPlayerEffect.storageKey) == nil else { return }
-
-        defaults.set(effect.rawValue, forKey: FullscreenPlayerEffect.storageKey)
-        defaults.set(remote.0, forKey: timestampKey)
-        defaults.set(remote.1, forKey: writerKey)
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: effect.rawValue)
     }
 }
