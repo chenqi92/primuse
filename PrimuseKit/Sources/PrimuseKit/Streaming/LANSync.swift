@@ -144,6 +144,10 @@ public struct LANSyncPayload: Codable, Sendable {
     public var radioStationsGz: Data?        // gzip(radio-stations.json)
     public var lyricsGz: Data?               // gzip(歌词 blob JSON)
     public var credentials: CredentialBundle?
+    /// 云端快照记录的 changeTag 与修改时刻, 只有从 CloudKit 下载的载荷才带。Apple TV
+    /// 用它们判断快照有没有变、比本机上一次局域网直传是不是更新, 不必每次启动都重装。
+    public var cloudChangeTag: String?
+    public var cloudModifiedAt: Date?
 
     public init(version: Int = 2, libraryGz: Data? = nil, sourcesGz: Data? = nil,
                 radioStationsGz: Data? = nil, lyricsGz: Data? = nil,

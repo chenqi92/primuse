@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import PrimuseKit
 
@@ -186,5 +187,66 @@ struct CredentialBundlePolicyTests {
 
         #expect(result.entries["dropbox"]?.token == "new-access")
         #expect(result.entries["dropbox"]?.refreshToken == "durable-refresh")
+    }
+}
+
+@Suite("Credential bundle upload merge")
+struct CredentialBundleUploadMergeTests {
+    @Test("Entries the uploader lacks or cannot read survive, its own readable fields win")
+    func serverEntriesSurviveUpload() {
+        let server = CredentialBundle(
+            entries: [
+                "mac-only": CredentialEntry(username: "mac", password: "mac-pass"),
+                "shared": CredentialEntry(username: "old", password: "old-pass", token: "server-token"),
+            ],
+            relay: RelayEndpoint(host: "192.0.2.1", port: 8765, token: "phone-relay")
+        )
+        let local = CredentialBundle(
+            entries: [
+                "shared": CredentialEntry(username: "new", password: "new-pass"),
+                "ipad-only": CredentialEntry(password: "ipad-pass"),
+            ]
+        )
+        let merged = CredentialBundlePolicy.mergingUpload(local: local, server: server, localOwnsRelay: false)
+        #expect(merged.entries["mac-only"]?.password == "mac-pass")
+        #expect(merged.entries["ipad-only"]?.password == "ipad-pass")
+        #expect(merged.entries["shared"]?.username == "new")
+        #expect(merged.entries["shared"]?.password == "new-pass")
+        #expect(merged.entries["shared"]?.token == "server-token", "a field the uploader could not read keeps the server value")
+        #expect(merged.relay == server.relay, "a device without its own relay never removes the phone's relay")
+    }
+
+    @Test("Only the device that published the relay can withdraw it")
+    func relayOwnershipDecidesWithdrawal() {
+        let server = CredentialBundle(relay: RelayEndpoint(host: "192.0.2.1", port: 8765, token: "phone-relay"))
+        let withdrawn = CredentialBundlePolicy.mergingUpload(local: CredentialBundle(), server: server, localOwnsRelay: true)
+        #expect(withdrawn.relay == nil)
+        let replaced = CredentialBundlePolicy.mergingUpload(
+            local: CredentialBundle(relay: RelayEndpoint(host: "192.0.2.9", port: 1, token: "new")),
+            server: server,
+            localOwnsRelay: true
+        )
+        #expect(replaced.relay?.token == "new")
+        #expect(CredentialBundlePolicy.mergingUpload(local: CredentialBundle(), server: nil, localOwnsRelay: false) == CredentialBundle())
+    }
+}
+
+@Suite("Apple TV cloud snapshot install decision")
+struct TVCloudSnapshotInstallPolicyTests {
+    typealias Policy = TVCloudSnapshotInstallPolicy
+    let earlier = Date(timeIntervalSince1970: 1_000)
+    let later = Date(timeIntervalSince1970: 2_000)
+
+    @Test("An unchanged cloud record is not reinstalled")
+    func unchangedRecordSkips() {
+        #expect(Policy.disposition(cloudChangeTag: "t1", installedChangeTag: "t1", cloudModifiedAt: later, lastLANInstallAt: nil) == .alreadyInstalled)
+        #expect(Policy.disposition(cloudChangeTag: "t2", installedChangeTag: "t1", cloudModifiedAt: later, lastLANInstallAt: nil) == .install)
+        #expect(Policy.disposition(cloudChangeTag: nil, installedChangeTag: nil, cloudModifiedAt: nil, lastLANInstallAt: nil) == .install)
+    }
+
+    @Test("A LAN transfer newer than the cloud record keeps the TV's library")
+    func newerLANTransferWins() {
+        #expect(Policy.disposition(cloudChangeTag: "t2", installedChangeTag: "t1", cloudModifiedAt: earlier, lastLANInstallAt: later) == .olderThanLANTransfer)
+        #expect(Policy.disposition(cloudChangeTag: "t2", installedChangeTag: "t1", cloudModifiedAt: later, lastLANInstallAt: earlier) == .install)
     }
 }

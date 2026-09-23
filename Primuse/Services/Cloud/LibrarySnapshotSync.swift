@@ -409,6 +409,44 @@ final class LibrarySnapshotSync: Sendable {
         for key in (preservesServerLibrary ? catalogKeys : libraryKeys + catalogKeys) {
             record[key] = nil
         }
+        // 一条记录的非附件字段合计不能超过 1MB。各字段各自的上限加起来远超这个数,
+        // 以前只按字段判断, 内联的曲库加歌词就能把整条记录顶爆, 上传失败后每小时
+        // 重试、凭据也一直传不上去。按优先级分配额度: 源 → 电台 → 曲库 → 歌词,
+        // 曲库超额走附件, 歌词超额就不带。保留服务器曲库时它占的字节同样算进去。
+        var inlineBudget = Self.inlineRecordBudget
+        if preservesServerLibrary {
+            inlineBudget -= (record["libraryGz"] as? Data)?.count ?? 0
+            inlineBudget -= (record["lyricsGz"] as? Data)?.count ?? 0
+        }
+        var srcInfo = "sources=skip"
+        if let sourcesData = localSourcesData(including: []) {
+            let attached = attachSourcesSnapshot(
+                record,
+                rawData: sourcesData,
+                gzKey: "sourcesGz",
+                assetKey: "sources",
+                inlineLimit: inlineBudget
+            )
+            srcInfo = attached.info
+            inlineBudget -= attached.inlineBytes
+        }
+        var radioAttachment: SnapshotAttachment?
+        if let data = validRadioStationsData(at: radioStationsURL) {
+            radioAttachment = attachSnapshot(
+                record,
+                data: data,
+                gzKey: "radioStationsGz",
+                assetKey: "radioStations",
+                inlineLimit: min(256_000, inlineBudget)
+            )
+            srcInfo += "; \(radioAttachment?.info ?? "radioStations=stage-failed")"
+            inlineBudget -= radioAttachment?.inlineBytes ?? 0
+        }
+        defer {
+            if let stagingURL = radioAttachment?.stagingURL {
+                try? fm.removeItem(at: stagingURL)
+            }
+        }
         var libInfo = "library=kept-server-copy"
         var libraryStagingURL: URL?
         if !preservesServerLibrary {
@@ -418,52 +456,32 @@ final class LibrarySnapshotSync: Sendable {
                 record,
                 data: libraryData,
                 gzKey: "libraryGz",
-                assetKey: "library"
+                assetKey: "library",
+                inlineLimit: inlineBudget
             ) else {
                 plog("LibrarySnapshotSync: cannot stage library snapshot, keeping cloud record unchanged")
                 return .failure(.snapshotPreparationFailed)
             }
             libraryStagingURL = libraryAttachment.stagingURL
             libInfo = libraryAttachment.info
+            inlineBudget -= libraryAttachment.inlineBytes
         }
         defer {
             if let libraryStagingURL {
                 try? fm.removeItem(at: libraryStagingURL)
             }
         }
-        var srcInfo = "sources=skip"
-        if let sourcesData = localSourcesData(including: []) {
-            srcInfo = attachSourcesSnapshot(
-                record,
-                rawData: sourcesData,
-                gzKey: "sourcesGz",
-                assetKey: "sources"
-            )
-        }
-        var radioAttachment: SnapshotAttachment?
-        if let data = validRadioStationsData(at: radioStationsURL) {
-            radioAttachment = attachSnapshot(
-                record,
-                data: data,
-                gzKey: "radioStationsGz",
-                assetKey: "radioStations",
-                inlineLimit: 256_000
-            )
-            srcInfo += "; \(radioAttachment?.info ?? "radioStations=stage-failed")"
-        }
-        defer {
-            if let stagingURL = radioAttachment?.stagingURL {
-                try? fm.removeItem(at: stagingURL)
-            }
-        }
         // 歌词:把本机已抓到的歌词(MetadataAssetStore 里的 .json)随快照传给 TV。
         if !preservesServerLibrary,
            let lyrics = Self.gatherInlineLyricsBlob(
-            allowedFileNames: preparedSnapshot.eligibleLyricsFileNames
+            allowedFileNames: preparedSnapshot.eligibleLyricsFileNames,
+            inlineLimit: inlineBudget
            ) {
             record["lyricsGz"] = lyrics.gz as CKRecordValue
+            inlineBudget -= lyrics.gz.count
             srcInfo += "; lyricsGz=\(lyrics.gz.count)B files=\(lyrics.snapshot.fileCount) skipped=\(lyrics.snapshot.skippedFileCount)"
         }
+        srcInfo += "; inlineBudgetLeft=\(inlineBudget)B"
         record["modifiedAt"] = Date() as CKRecordValue
         guard !Task.isCancelled else { return .failure(.cancelled) }
 
@@ -652,14 +670,14 @@ final class LibrarySnapshotSync: Sendable {
         }
         record["sourcesGz"] = nil
         record["sources"] = nil
-        let info = attachSourcesSnapshot(
+        let attached = attachSourcesSnapshot(
             record,
             rawData: payload,
             gzKey: "sourcesGz",
             assetKey: "sources"
         )
         record["modifiedAt"] = Date() as CKRecordValue
-        return info
+        return attached.info
     }
 
     /// Combines the live local file with durable tombstones captured before a
@@ -859,9 +877,12 @@ final class LibrarySnapshotSync: Sendable {
     /// whole lyrics snapshot disappear. Retry with progressively smaller raw
     /// budgets and keep the newest subset chosen by LyricsSnapshotEncoder.
     private static func gatherInlineLyricsBlob(
-        allowedFileNames: Set<String>? = nil
+        allowedFileNames: Set<String>? = nil,
+        inlineLimit: Int = inlineGzLimit
     ) -> InlineLyricsBlob? {
-        let guaranteedRawBudget = max(2, inlineGzLimit - 64 * 1024)
+        let limit = min(inlineGzLimit, inlineLimit)
+        guard limit > 64 * 1024 else { return nil }
+        let guaranteedRawBudget = max(2, limit - 64 * 1024)
         let budgets = [
             maxLyricsUploadRawBytes,
             2 * 1024 * 1024,
@@ -875,7 +896,7 @@ final class LibrarySnapshotSync: Sendable {
                 allowedFileNames: allowedFileNames
             ),
                   let gz = gzip(snapshot.data) else { continue }
-            if gz.count < inlineGzLimit {
+            if gz.count < limit {
                 return InlineLyricsBlob(snapshot: snapshot, gz: gz)
             }
         }
@@ -1073,7 +1094,12 @@ final class LibrarySnapshotSync: Sendable {
     private struct SnapshotAttachment {
         let info: String
         let stagingURL: URL?
+        /// 真正内联进记录的字节数; 走附件时为 0。用来做整条记录的额度核算。
+        var inlineBytes: Int = 0
     }
+
+    /// 一条 CloudKit 记录非附件字段的合计额度(服务器上限 1MB, 留些余量)。
+    private static let inlineRecordBudget = 900_000
 
     /// 把已验证的快照内容压缩后内联进 record;过大则回退 CKAsset。CKAsset 必须
     /// 指向本次上传独占的稳定副本，不能引用会被持续原子替换的活文件。
@@ -1088,7 +1114,11 @@ final class LibrarySnapshotSync: Sendable {
            let gz = try? (data as NSData).compressed(using: .zlib) as Data,
            gz.count < min(inlineLimit, Self.inlineGzLimit) {
             record[gzKey] = gz as CKRecordValue
-            return SnapshotAttachment(info: "\(gzKey)=inline \(gz.count)B", stagingURL: nil)
+            return SnapshotAttachment(
+                info: "\(gzKey)=inline \(gz.count)B",
+                stagingURL: nil,
+                inlineBytes: gz.count
+            )
         }
 
         guard !Task.isCancelled else { return nil }
@@ -1118,29 +1148,34 @@ final class LibrarySnapshotSync: Sendable {
         _ record: CKRecord,
         rawData: Data? = nil,
         gzKey: String,
-        assetKey: String
-    ) -> String {
+        assetKey: String,
+        inlineLimit: Int = LibrarySnapshotSync.inlineGzLimit
+    ) -> SnapshotAttachment {
         guard let raw = rawData ?? (try? Data(contentsOf: sourcesURL)),
               raw.count <= Self.maxSourcesRawBytes,
               let sanitized = Self.sanitizedSourcesData(
                   raw,
                   includeDeviceLocalSources: false
               ) else {
-            return "\(gzKey)=no-file"
+            return SnapshotAttachment(info: "\(gzKey)=no-file", stagingURL: nil)
         }
         if let gz = try? (sanitized as NSData).compressed(using: .zlib) as Data,
-           gz.count < Self.inlineGzLimit {
+           gz.count < min(inlineLimit, Self.inlineGzLimit) {
             record[gzKey] = gz as CKRecordValue
-            return "\(gzKey)=inline \(gz.count)B"
+            return SnapshotAttachment(
+                info: "\(gzKey)=inline \(gz.count)B",
+                stagingURL: nil,
+                inlineBytes: gz.count
+            )
         }
 
         let assetURL = directory.appendingPathComponent("sources-sync.json")
         do {
             try sanitized.write(to: assetURL, options: .atomic)
             record[assetKey] = CKAsset(fileURL: assetURL)
-            return "\(assetKey)=asset"
+            return SnapshotAttachment(info: "\(assetKey)=asset", stagingURL: nil)
         } catch {
-            return "\(assetKey)=write-failed"
+            return SnapshotAttachment(info: "\(assetKey)=write-failed", stagingURL: nil)
         }
     }
 
@@ -1425,6 +1460,9 @@ final class LibrarySnapshotSync: Sendable {
         return false
     }
 
+    /// 上一次凭据包上传时这台设备带了自己的中继端点。
+    private static let relayPublishedFromThisDeviceKey = "primuse.cloudSnapshot.relayPublishedFromThisDevice"
+
     private func uploadCredentialsResult(
         _ bundle: CredentialBundle
     ) async -> Result<Void, AppleTVTransferFailure> {
@@ -1443,8 +1481,21 @@ final class LibrarySnapshotSync: Sendable {
             return .failure(.credentialUploadFailed(detail: Self.diagnosticDetail(error)))
         }
 
-        guard CredentialBundlePolicy.writeAction(for: bundle) == .deleteRecord else {
-            return await saveCredentialBundleResult(bundle, existingRecord: existingRecord, in: database)
+        // 与服务器现有的那份合并: 别的设备独有的源、本机钥匙串读不到的密码都留着,
+        // 中继只有发布过它的这台设备才能撤。以前是整份替换, Mac 一次自动上传就把
+        // iPhone 的中继端点和它读不到的凭据从 Apple TV 上抹掉了。
+        let serverBundle = existingRecord
+            .flatMap { $0.encryptedValues["credentials"] as? Data }
+            .flatMap(CredentialBundle.decode)
+        let mergedBundle = CredentialBundlePolicy.mergingUpload(
+            local: bundle,
+            server: serverBundle,
+            localOwnsRelay: UserDefaults.standard.bool(forKey: Self.relayPublishedFromThisDeviceKey)
+        )
+        // 这台设备这次带着自己的中继上传, 下次它不带了才算撤销。
+        UserDefaults.standard.set(bundle.relay != nil, forKey: Self.relayPublishedFromThisDeviceKey)
+        guard CredentialBundlePolicy.writeAction(for: mergedBundle) == .deleteRecord else {
+            return await saveCredentialBundleResult(mergedBundle, existingRecord: existingRecord, in: database)
         }
         guard let existingRecord else { return .success(()) }
         guard let data = existingRecord.encryptedValues["credentials"] as? Data,
@@ -2277,6 +2328,8 @@ final class LibrarySnapshotSync: Sendable {
                     payload.radioStationsGz = Self.gzip(try Data(contentsOf: url))
                 }
                 payload.lyricsGz = record["lyricsGz"] as? Data
+                payload.cloudChangeTag = record.recordChangeTag
+                payload.cloudModifiedAt = record["modifiedAt"] as? Date ?? record.modificationDate
                 return payload
             }
         } catch {
