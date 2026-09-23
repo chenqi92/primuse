@@ -10,6 +10,8 @@ struct QueueView: View {
     /// 队列以半屏 sheet 呈现, 手机横屏下可视高度只够两行出头, 行距与底部留白收一档。
     @Environment(\.pmHeightClass) private var heightClass
     @State private var dropTarget: QueueReorderOccurrenceID?
+    /// 已播放默认收起:队列页要看的是接下来放什么,听过的列表越放越长会把它挤下去。
+    @State private var showsPlayed = false
 
     var body: some View {
         NavigationStack {
@@ -42,6 +44,23 @@ struct QueueView: View {
             .accessibilityLabel(Text("a11y_shuffle"))
             .accessibilityValue(Text(isOn ? "a11y_value_on" : "a11y_value_off"))
         }
+        // 循环也放在这里:关 → 全部 → 单曲,和播放页的循环键同一个顺序。
+        ToolbarItem(placement: .primaryAction) {
+            let mode = player.repeatMode
+            Button {
+                switch mode {
+                case .off: player.repeatMode = .all
+                case .all: player.repeatMode = .one
+                case .one: player.repeatMode = .off
+                }
+            } label: {
+                Image(systemName: mode == .one ? "repeat.1" : "repeat")
+                    .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel(Text("a11y_repeat"))
+            .accessibilityValue(Text(mode == .off ? "a11y_value_off" : "a11y_value_on"))
+        }
     }
 
     @ViewBuilder
@@ -65,10 +84,16 @@ struct QueueView: View {
                     let currentIndex = min(max(player.currentIndex, 0), entries.count - 1)
                     let currentEntry = entries[currentIndex]
                     queueSection(title: "now_playing") {
+                        // 正在播放单独成一张卡片,和下面的列表分开。
                         queueRow(
                             entry: currentEntry,
                             displayedSong: player.currentSong ?? currentEntry.song,
                             isPlaying: true
+                        )
+                        .padding(.vertical, 4)
+                        .background(
+                            Color.accentColor.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
                     }
 
@@ -92,9 +117,34 @@ struct QueueView: View {
 
                     let played = player.playedQueueEntries
                     if !played.isEmpty {
-                        queueSection(title: "played") {
-                            ForEach(played) { presentation in
-                                queueRow(entry: presentation.entry, dimmed: true)
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            Button {
+                                pmWithAnimation(.list) { showsPlayed.toggle() }
+                            } label: {
+                                HStack {
+                                    Text("played")
+                                        .font(.caption.weight(.semibold))
+                                        .textCase(.uppercase)
+                                    Text(verbatim: "\(played.count)")
+                                        .font(.caption.monospacedDigit())
+                                    Spacer()
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption.weight(.bold))
+                                        .rotationEffect(.degrees(showsPlayed ? 180 : 0))
+                                }
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityValue(Text(showsPlayed ? "a11y_value_on" : "a11y_value_off"))
+
+                            if showsPlayed {
+                                ForEach(played) { presentation in
+                                    queueRow(entry: presentation.entry, dimmed: true)
+                                }
                             }
                         }
                     }

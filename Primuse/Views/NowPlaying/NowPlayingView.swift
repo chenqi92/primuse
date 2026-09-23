@@ -2574,18 +2574,9 @@ struct NowPlayingView: View {
                 .accessibilityLabel(transportBackwardLabel)
                 Spacer()
                 Button { player.togglePlayPause() } label: {
-                    ZStack {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 60)).opacity(0)
-                        if player.isLoading {
-                            ProgressView().controlSize(.large).tint(appearance.primary)
-                        } else {
-                            Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 60)).foregroundStyle(appearance.primary)
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                    }
+                    portraitPlayButtonLabel
                 }
+                .buttonStyle(.plain)
                 .disabled(player.isLoading)
                 .accessibilityLabel(player.isPlaying
                     ? String(localized: "a11y_pause")
@@ -2615,38 +2606,23 @@ struct NowPlayingView: View {
                     .padding(.horizontal, 36).padding(.top, 12)
             }
 
-            // 底部 bar —— 没有歌词切换按钮(歌词永远在右栏可见),保留 AirPlay
-            // 和队列入口
-            HStack {
-                Spacer()
+            // 底部 bar —— 没有歌词切换按钮(歌词永远在右栏可见):中间是音质胶囊,
+            // 右边隔空播放与队列,和竖屏同一套零件。
+            HStack(spacing: 4) {
+                Color.clear.frame(width: 88, height: 44)
+                Spacer(minLength: 6)
+                portraitQualityChip
+                Spacer(minLength: 6)
                 AirPlayButton()
                     .frame(width: 36, height: 36)
                     .frame(width: 44, height: 44)
-                Spacer()
                 Button { showQueue = true } label: {
                     Image(systemName: "list.bullet").foregroundStyle(appearance.secondary)
                 }
                 .frame(width: 44, height: 44)
                 .accessibilityLabel("a11y_queue")
             }
-            .font(.body).padding(.horizontal, 80).padding(.top, 14)
-
-            if let song = player.currentSong {
-                HStack(spacing: 4) {
-                    Text(song.fileFormat.displayName)
-                    if let sr = song.sampleRate { Text("·"); Text("\(sr / 1000)kHz") }
-                    if sourcesStore.sources.count > 1,
-                       let source = sourcesStore.source(id: song.sourceID) {
-                        Text("·")
-                        Image(systemName: source.type.iconName)
-                        Text(source.name)
-                    }
-                }
-                .font(.caption2).foregroundStyle(appearance.faint)
-                .padding(.top, 6).padding(.bottom, 16)
-            } else {
-                Spacer().frame(height: 16)
-            }
+            .font(.body).padding(.horizontal, 40).padding(.top, 14).padding(.bottom, 16)
         }
     }
 
@@ -2956,13 +2932,18 @@ struct NowPlayingView: View {
                             // Text and controls retain their height; artwork uses the remaining space.
                             let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
                             let fittedWidth = min(mediaWidth, max(1, artworkGeometry.size.height - 24) * ratio)
-                            artworkOrMusicVideo(size: fittedWidth, cornerRadius: 12)
+                            // 2.0:封面浮在取色底上 —— 圆角加大、阴影更深更远,暂停时收小一档。
+                            artworkOrMusicVideo(size: fittedWidth, cornerRadius: 16)
                                 .scaleEffect(
                                     player.isMusicVideoPlaybackActive
                                         ? 1.0
-                                        : (artworkAppearsPlaying ? 1.0 : 0.9)
+                                        : (artworkAppearsPlaying ? 1.0 : 0.88)
                                 )
-                                .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
+                                .shadow(
+                                    color: .black.opacity(artworkAppearsPlaying ? 0.45 : 0.28),
+                                    radius: 28,
+                                    y: 16
+                                )
                                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                                 .onTapGesture {
                                     guard !player.isMusicVideoPlaybackActive else { return }
@@ -3005,24 +2986,9 @@ struct NowPlayingView: View {
                         .accessibilityLabel(transportBackwardLabel)
                         Spacer()
                         Button { player.togglePlayPause() } label: {
-                            ZStack {
-                                // Anchor sizing so the button doesn't reflow.
-                                Image(systemName: "play.circle.fill")
-                                    .font(.system(size: 56)).opacity(0)
-                                if player.isLoading {
-                                    ProgressView()
-                                        .controlSize(.large)
-                                        .tint(appearance.primary)
-                                        .pmFadeTransition(motion: .control)
-                                } else {
-                                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                                        .font(.system(size: 56)).foregroundStyle(appearance.primary)
-                                        .contentTransition(.symbolEffect(.replace))
-                                        // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
-                                        .pmFadeTransition(motion: .control)
-                                }
-                            }
+                            portraitPlayButtonLabel
                         }
+                        .buttonStyle(.plain)
                         .disabled(player.isLoading)
                         .accessibilityLabel(player.isPlaying
                             ? String(localized: "a11y_pause")
@@ -3052,42 +3018,39 @@ struct NowPlayingView: View {
                                 .padding(.horizontal, 26).padding(.top, 10)
                         }
 
-                        // Bottom bar —— 三个槽位都是 44×44, HStack 的两个 Spacer 才
-                        // 会把 AirPlay 分到正中, 左右图标到 padding 边的距离也才相等
-                        HStack {
-                        Button { toggleStandardLyrics() } label: {
-                            Image(systemName: showLyrics ? "photo" : "quote.bubble")
-                                .foregroundStyle(showLyrics ? appearance.primary : appearance.tertiary)
-                        }
-                        .frame(width: 44, height: 44)
-                        .accessibilityLabel(Text(showLyrics ? "a11y_close_lyrics" : "a11y_open_lyrics"))
-                        Spacer()
-                        AirPlayButton()
-                            .frame(width: 36, height: 36)
-                            .frame(width: 44, height: 44)
-                        Spacer()
-                        Button { showQueue = true } label: {
-                            Image(systemName: "list.bullet").foregroundStyle(appearance.tertiary)
-                        }
-                        .frame(width: 44, height: 44)
-                        .accessibilityLabel("a11y_queue")
-                        }
-                        .font(.body).padding(.horizontal, 46).padding(.top, 12)
-
-                        // Format & source
-                        if let song = player.currentSong {
-                            HStack(spacing: 4) {
-                                Text(song.fileFormat.displayName)
-                                if let sr = song.sampleRate { Text("·"); Text("\(sr / 1000)kHz") }
-                                if sourcesStore.sources.count > 1,
-                                   let source = sourcesStore.source(id: song.sourceID) {
-                                    Text("·")
-                                    Image(systemName: source.type.iconName)
-                                    Text(source.name)
-                                }
+                        // Bottom bar —— 左边歌词开关,中间是音质与来源的玻璃胶囊(原来单独一行
+                        // 的小字收了进来),右边隔空播放与队列。两端都是 44×44 的点按区。
+                        HStack(spacing: 4) {
+                            Button { toggleStandardLyrics() } label: {
+                                Image(systemName: showLyrics ? "photo" : "quote.bubble")
+                                    .foregroundStyle(showLyrics ? appearance.primary : appearance.secondary)
+                                    .frame(width: 40, height: 36)
+                                    .background {
+                                        if showLyrics {
+                                            Capsule().fill(appearance.primary.opacity(0.16))
+                                        }
+                                    }
                             }
-                            .font(.caption2).foregroundStyle(appearance.faint).padding(.top, 4).padding(.bottom, 6)
+                            .frame(width: 44, height: 44)
+                            .accessibilityLabel(Text(showLyrics ? "a11y_close_lyrics" : "a11y_open_lyrics"))
+
+                            Spacer(minLength: 6)
+                            portraitQualityChip
+                            Spacer(minLength: 6)
+
+                            AirPlayButton()
+                                .frame(width: 36, height: 36)
+                                .frame(width: 44, height: 44)
+                            Button { showQueue = true } label: {
+                                Image(systemName: "list.bullet").foregroundStyle(appearance.secondary)
+                            }
+                            .frame(width: 44, height: 44)
+                            .accessibilityLabel("a11y_queue")
                         }
+                        .font(.body)
+                        .padding(.horizontal, 22)
+                        .padding(.top, 12)
+                        .padding(.bottom, 6)
                     }
                 }
                 // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。
@@ -3843,6 +3806,66 @@ struct NowPlayingView: View {
     }
 
     // MARK: - Helpers
+
+    /// 竖屏播放键:实心圆。深色外观下白圆配封面的深色调图标,浅色外观下反过来,
+    /// 取不到封面色时图标用页面底色 —— 两种外观下都是高对比。
+    private var portraitPlayButtonLabel: some View {
+        let glyphTint: Color = (!appearance.isLight && presentationHasArtworkTheme)
+            ? presentationDarkAccent
+            : appearance.backgroundBase
+        return ZStack {
+            Circle()
+                .fill(appearance.primary)
+                .shadow(color: .black.opacity(0.22), radius: 14, y: 8)
+
+            if player.isLoading {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(glyphTint)
+                    .pmFadeTransition(motion: .control)
+            } else {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(glyphTint)
+                    .offset(x: player.isPlaying ? 0 : 2)
+                    .contentTransition(.symbolEffect(.replace))
+                    // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
+                    .pmFadeTransition(motion: .control)
+            }
+        }
+        .frame(width: 72, height: 72)
+        .contentShape(Circle())
+    }
+
+    /// 底栏中间的音质胶囊:格式 · 采样率 · 音乐源(多于一个源时才写源)。
+    @ViewBuilder
+    private var portraitQualityChip: some View {
+        if let song = player.currentSong {
+            HStack(spacing: 4) {
+                Text(song.fileFormat.displayName)
+                    .monospaced()
+                if let sr = song.sampleRate {
+                    Text("·")
+                    Text("\(sr / 1000)kHz").monospaced()
+                }
+                if sourcesStore.sources.count > 1,
+                   let source = sourcesStore.source(id: song.sourceID) {
+                    Text("·")
+                    Image(systemName: source.type.iconName)
+                    Text(source.name)
+                }
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(appearance.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .nowPlayingAdaptiveGlass(Capsule(), appearance: appearance, tint: appearance.primary)
+            .accessibilityElement(children: .combine)
+        } else {
+            Color.clear.frame(height: 26)
+        }
+    }
 
     private func ctrlBtn(_ icon: String, active: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {

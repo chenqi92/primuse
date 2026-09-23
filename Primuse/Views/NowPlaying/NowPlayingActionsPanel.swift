@@ -44,11 +44,13 @@ struct NowPlayingActionsPanel: View {
     @Environment(\.skin) private var skin
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private let columns = [
         GridItem(.flexible(), spacing: 8),
         GridItem(.flexible(), spacing: 8),
     ]
+    private let iconColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 4)
 
     var body: some View {
         ScrollView {
@@ -61,21 +63,26 @@ struct NowPlayingActionsPanel: View {
                 playbackModeRow
 
                 sectionTitle("now_playing_panel_song_section")
-                LazyVGrid(columns: columns, spacing: 8) {
-                    cell("add_to_playlist", "text.badge.plus", enabled: snapshot.hasSong, actions.addToPlaylist)
-                    cell("similar_songs", "sparkles", enabled: snapshot.hasSong, actions.showSimilarSongs)
+                // 「这首歌」这一组是一排圆形图标:都是一步就走的动作,认图标比读长条快。
+                // 无障碍字号下文字放不进图标底下,回到两列长条。
+                LazyVGrid(
+                    columns: dynamicTypeSize.isAccessibilitySize ? columns : iconColumns,
+                    spacing: dynamicTypeSize.isAccessibilitySize ? 8 : 14
+                ) {
+                    songCell("add_to_playlist", "text.badge.plus", enabled: snapshot.hasSong, actions.addToPlaylist)
+                    songCell("similar_songs", "sparkles", enabled: snapshot.hasSong, actions.showSimilarSongs)
                     if snapshot.canShare {
-                        cell("share", "square.and.arrow.up", enabled: true, actions.share)
+                        songCell("share", "square.and.arrow.up", enabled: true, actions.share)
                     }
-                    cell("song_info", "info.circle", enabled: snapshot.hasSong, actions.showSongInfo)
+                    songCell("song_info", "info.circle", enabled: snapshot.hasSong, actions.showSongInfo)
                     if snapshot.canOpenAlbum {
-                        cell("go_to_album", "square.stack", enabled: true, actions.openAlbum)
+                        songCell("go_to_album", "square.stack", enabled: true, actions.openAlbum)
                     }
                     if snapshot.canOpenArtist {
-                        cell("go_to_artist", "music.mic", enabled: true, actions.openArtist)
+                        songCell("go_to_artist", "music.mic", enabled: true, actions.openArtist)
                     }
                     if snapshot.appleMusicCatalogURL != nil {
-                        cell("apple_music_open_in_app", "arrow.up.right.square", enabled: true, actions.openInAppleMusic)
+                        songCell("apple_music_open_in_app", "arrow.up.right.square", enabled: true, actions.openInAppleMusic)
                     }
                 }
 
@@ -382,6 +389,46 @@ struct NowPlayingActionsPanel: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
+    }
+
+    /// 「这首歌」一组的格子:平时是圆形图标加一行字,无障碍字号下回到长条。
+    @ViewBuilder
+    private func songCell(
+        _ titleKey: LocalizedStringKey,
+        _ systemImage: String,
+        enabled: Bool,
+        _ action: @escaping () -> Void
+    ) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            cell(titleKey, systemImage, enabled: enabled, action)
+        } else {
+            Button {
+                performAfterDismiss(action)
+            } label: {
+                VStack(spacing: 7) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(.skin(.textPrimary))
+                        .frame(width: 54, height: 54)
+                        .background(skin.color(.surface), in: Circle())
+                        .overlay {
+                            Circle().strokeBorder(skin.color(.surfaceBorder), lineWidth: skin.rawMetric(.borderWidth))
+                        }
+                    Text(titleKey)
+                        .font(skin.font(.meta))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.skin(.textPrimary))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!enabled)
+            .opacity(enabled ? 1 : 0.4)
+        }
     }
 
     private func cellLabel(_ titleKey: LocalizedStringKey, _ systemImage: String, tint: Color?) -> some View {
