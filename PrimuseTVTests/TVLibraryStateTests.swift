@@ -648,7 +648,7 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), damaged)
         let store = TVStore(sourcesStore: degraded, library: fixture.library, defaults: fixture.defaults,
                             sessionStore: PlaybackSessionStore(url: fixture.directory.appendingPathComponent("session.json")))
-        let installed = await store.applyLANPayload(try fixture.payload(songs: []))
+        let installed = await store.applyLANPayload(try fixture.payload(songs: []), requestSerial: 1)
         XCTAssertFalse(installed)
         XCTAssertEqual(try Data(contentsOf: url), damaged)
     }
