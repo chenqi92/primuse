@@ -670,9 +670,6 @@
 "fullscreen_effect_flowing_lines" = "Fließende Linien";
 "fullscreen_effect_flowing_lines_subtitle" = "Wandelnde Konturen umkreisen das Cover mit drei Textzeilen";
 "fullscreen_effect_flowing_lines_motion" = "Stetig wandelnde Konturen · Drei Textzeilen";
-"fullscreen_effect_light_rhythm" = "Lichtrhythmus";
-"fullscreen_effect_light_rhythm_subtitle" = "Coverfarbenes Licht atmet hinter der aktuellen Textzeile";
-"fullscreen_effect_light_rhythm_motion" = "Coverlicht in Ebenen · Ruhiges Atmen";
 "fullscreen_effect_kinetic_title" = "Titelwand";
 "fullscreen_effect_kinetic_title_subtitle" = "Titel und aktuelle Liedzeile bleiben einmalig, während weitere Liedzeilen ein räumliches Textfeld bilden";
 "fullscreen_effect_kinetic_title_motion" = "Langsame Bewegung der Hintergrundzeilen · Wiedergabe-Hervorhebung der aktuellen Zeile";
@@ -680,9 +677,6 @@
 "fullscreen_effect_radial_pulse" = "Radialer Puls";
 "fullscreen_effect_radial_pulse_subtitle" = "Der Ring der rotierenden Platte reagiert auf das echte Audio";
 "fullscreen_effect_radial_pulse_motion" = "Live-Spektrum · Rotierende Platte";
-"fullscreen_effect_live_waveform" = "Live-Wellenform";
-"fullscreen_effect_live_waveform_subtitle" = "Das horizontale Spektrum folgt dem Audio in Echtzeit";
-"fullscreen_effect_live_waveform_motion" = "Live-Spektrum · Bei Stille unbewegt";
 "fullscreen_effect_vinyl_deck" = "Vinyl-Deck";
 "fullscreen_effect_vinyl_deck_subtitle" = "Das Cover wird zum Label einer rotierenden Platte, der Tonarm liegt in der Rille";
 "fullscreen_effect_vinyl_deck_motion" = "Platte dreht sich bei Wiedergabe · Tonarm hebt bei Pause";

@@ -452,7 +452,7 @@ struct ImmersivePlayerView: View {
         switch presentationEffect {
         case .radialPulse, .vinylDeck, .particleBloom:
             return .leading
-        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .lightRhythm, .kineticTitle, .liveWaveform,
+        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .kineticTitle,
              .mirrorStage, .auroraVeil, .spectrumHorizon:
             return .trailing
         case .native:
@@ -494,7 +494,7 @@ struct ImmersivePlayerView: View {
                     )
                 Spacer()
                 effectShortcutButton("textformat.size", target: .kineticTitle)
-                effectShortcutButton("waveform", target: .liveWaveform)
+                effectShortcutButton("chart.bar.xaxis", target: .spectrumHorizon)
                 AirPlayButton()
                     .frame(width: 34, height: 34)
                     .accessibilityLabel(Text("cast_to_device"))

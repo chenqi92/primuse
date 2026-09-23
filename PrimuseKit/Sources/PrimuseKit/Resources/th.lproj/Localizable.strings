@@ -564,11 +564,6 @@
 "fullscreen_effect_kinetic_title" = "กำแพงชื่อเรื่อง";
 "fullscreen_effect_kinetic_title_motion" = "เลื่อนเนื้อเพลงพื้นหลังช้า · ไฮไลท์บรรทัดปัจจุบันที่ซิงค์การเล่น";
 "fullscreen_effect_kinetic_title_subtitle" = "ชื่อเพลงและเนื้อเพลงปัจจุบันยังคงเป็นเอกพจน์ ในขณะที่เนื้อเพลงอื่นๆ ก่อตัวเป็นชั้นๆ บนหน้าจอ";
-"fullscreen_effect_light_rhythm" = "จังหวะแสง";
-"fullscreen_effect_light_rhythm_motion" = "แสงอาร์ตเวิร์คแบบเรียงซ้อน · หายใจช้าๆ";
-"fullscreen_effect_light_rhythm_subtitle" = "แสงสีอาร์ตเวิร์กหายใจอยู่เบื้องหลังเนื้อเพลงหนึ่งในปัจจุบัน";
-"fullscreen_effect_live_waveform" = "รูปคลื่นสด";
-"fullscreen_effect_live_waveform_motion" = "ขับเคลื่อนสเปกตรัมสด · นิ่งเมื่อเงียบ";
 "fullscreen_effect_vinyl_deck" = "เครื่องเล่นแผ่นเสียง";
 "fullscreen_effect_vinyl_deck_subtitle" = "ปกอัลบั้มกลายเป็นฉลากของแผ่นเสียงที่หมุน ขณะที่โทนอาร์มวางอยู่ในร่อง";
 "fullscreen_effect_vinyl_deck_motion" = "แผ่นหมุนตามการเล่น · โทนอาร์มยกขึ้นเมื่อหยุดชั่วคราว";
@@ -584,7 +579,6 @@
 "fullscreen_effect_particle_bloom" = "ละอองดาวเบ่งบาน";
 "fullscreen_effect_particle_bloom_subtitle" = "ละอองดาวแผ่ออกจากปกอัลบั้มและสว่างขึ้นตามจังหวะ";
 "fullscreen_effect_particle_bloom_motion" = "ขับเคลื่อนด้วยสเปกตรัมแบบเรียลไทม์ · อนุภาคเบ่งบานตามเสียงเบส";
-"fullscreen_effect_live_waveform_subtitle" = "สเปกตรัมแนวนอนติดตามเสียงที่เล่นแบบเรียลไทม์";
 "fullscreen_effect_native" = "ต้นฉบับ";
 "fullscreen_effect_native_motion" = "การเปลี่ยนผ่านแบบเนทีฟ · ค่าเริ่มต้น";
 "fullscreen_effect_native_subtitle" = "รูปแบบและการควบคุมของผู้เล่นที่คุ้นเคย";

@@ -190,7 +190,7 @@ struct ImmersivePresentationFallbackPolicyTests {
     func preservesSelection() {
         for selected in [
             "coverFlow", "coverGallery", "starryNight", "flowingLines",
-            "lightRhythm", "kineticTitle", "radialPulse", "liveWaveform",
+            "kineticTitle", "radialPulse",
             "vinylDeck", "mirrorStage", "auroraVeil", "spectrumHorizon", "particleBloom",
         ] {
             #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
@@ -198,6 +198,24 @@ struct ImmersivePresentationFallbackPolicyTests {
                 hasSynchronizedLyrics: true,
                 hasArtwork: true
             ) == selected)
+        }
+    }
+
+    @Test("Retired effects move to the closest surviving one")
+    func migratesRetiredEffects() {
+        for retired in ["lightRhythm", "lightField", "liquidChrome"] {
+            #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: retired,
+                hasSynchronizedLyrics: true,
+                hasArtwork: true
+            ) == "auroraVeil")
+        }
+        for retired in ["liveWaveform", "spectrum", "visualizer"] {
+            #expect(ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                selectedRawValue: retired,
+                hasSynchronizedLyrics: true,
+                hasArtwork: true
+            ) == "spectrumHorizon")
         }
     }
 

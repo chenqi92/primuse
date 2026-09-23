@@ -216,7 +216,6 @@
 "error.catalog.missingItemsOrTotal" = "В списке треков отсутствуют элементы или общее количество.";
 "ext.tv.scan.playable" = "Играбельно";
 "error.catalog.incompletePage" = "Нумерация страниц трека неполная.";
-"fullscreen_effect_live_waveform_subtitle" = "Горизонтальный спектр следует за воспроизводимым звуком в реальном времени.";
 "ext.tv.error.range.bodyTooLarge" = "Тело ответа превысило байты %@, объявленные Content-Range.";
 "ext.tv.sources.scanFolders" = "Выберите папки для сканирования.";
 "ext.tv.sources.hint.nfs" = "NFS доля";
@@ -292,7 +291,6 @@
 "ext.widget.lyrics.empty.title" = "Нет текста песни";
 "ext.tv.scan.metadataValue" = "Пути + доступные метаданные файла";
 "fnmusic_connection_address" = "Адрес сервера";
-"fullscreen_effect_live_waveform_motion" = "Управление живым спектром · Неподвижно в тишине";
 "fullscreen_effect_vinyl_deck" = "Виниловая дека";
 "fullscreen_effect_vinyl_deck_subtitle" = "Обложка становится этикеткой вращающейся пластинки, тонарм лежит в дорожке";
 "fullscreen_effect_vinyl_deck_motion" = "Пластинка вращается при воспроизведении · Тонарм поднимается на паузе";
@@ -349,12 +347,10 @@
 "ext.tv.settings.intelligence.ready" = "Семантический поиск готов.";
 "ext.widget.wrapped.displayName" = "Обзор года";
 "ext.tv.scan.interrupted" = "Сканирование прервано";
-"fullscreen_effect_light_rhythm" = "Световой ритм";
 "error.catalog.duplicateItem" = "Страница трека содержит повторяющийся элемент.";
 "source_connection_public_port" = "Внешний порт";
 "ext.tv.settings.intensity.medium" = "Средний";
 "ext.tv.countOnly" = "%d";
-"fullscreen_effect_light_rhythm_motion" = "Многослойный художественный свет · Медленное дыхание";
 "theme_color_turquoise" = "Бирюзовый";
 "ext.tv.sources.removeFromTV" = "Удалить из Apple TV";
 "metadata.rangeRead.error.suffixUnsupported" = "Этот сервер не может обеспечить ограниченное чтение хвоста файла, необходимое для метаданных.";
@@ -393,7 +389,6 @@
 "ext.tv.otp.missingCredential" = "Сначала введите учетную запись и пароль для этого источника.";
 "ext.widget.stats.description" = "Ваши прослушивания и топ-треки за последние 30 дней.";
 "ext.tv.sources.form.share" = "Имя общего ресурса";
-"fullscreen_effect_live_waveform" = "Живая форма волны";
 "src.subtitle.pan123" = "123 Открытая платформа OAuth";
 "src.subtitle.guangya"       = "GuangYa Открытая платформа OAuth";
 "serverShare.error.unsupported" = "Этот сервер не поддерживает общедоступные медиа-ссылки, или общий доступ отключен.";
@@ -477,7 +472,6 @@
 "ext.widget.lyrics.displayName" = "Текст песни";
 "error.appleMusic.invalidPaginationURL" = "Неверная нумерация страниц Apple Music URL: %@";
 "send_to_tv_error_cancelled" = "Передача отменена.";
-"fullscreen_effect_light_rhythm_subtitle" = "Свет цвета искусства дышит за текущей лирикой";
 "source_connection_path_prefix" = "Префикс пути (необязательно)";
 "fullscreen_effect_radial_pulse" = "Радиальный пульс";
 "src.category.protocol" = "Протокол";

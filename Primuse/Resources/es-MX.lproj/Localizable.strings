@@ -1347,11 +1347,6 @@
 "fullscreen_effect_kinetic_title_subtitle" = "El título de la canción y la letra actual permanecen singulares mientras que otras letras forman un campo en capas en la pantalla.";
 "fullscreen_effect_light_field" = "Campo de luz";
 "fullscreen_effect_light_field_subtitle" = "Luz tejida lenta y movimiento de prisma";
-"fullscreen_effect_light_rhythm" = "Ritmo de Luz";
-"fullscreen_effect_light_rhythm_motion" = "Luz de portada en capas · Respiración lenta";
-"fullscreen_effect_light_rhythm_subtitle" = "La luz del color de una portada respira detrás de una letra actual";
-"fullscreen_effect_live_waveform" = "Forma de onda en vivo";
-"fullscreen_effect_live_waveform_motion" = "Espectro en vivo impulsado · Aún cuando está en silencio";
 "fullscreen_effect_vinyl_deck" = "Tornamesa";
 "fullscreen_effect_vinyl_deck_subtitle" = "La portada se convierte en la etiqueta de un disco que gira mientras el brazo reposa en el surco";
 "fullscreen_effect_vinyl_deck_motion" = "El disco gira al reproducir · El brazo se levanta al pausar";
@@ -1367,7 +1362,6 @@
 "fullscreen_effect_particle_bloom" = "Floración de partículas";
 "fullscreen_effect_particle_bloom_subtitle" = "Polvo de estrellas irradia desde la portada y se ilumina con el ritmo";
 "fullscreen_effect_particle_bloom_motion" = "Espectro en tiempo real · Las partículas florecen con los graves";
-"fullscreen_effect_live_waveform_subtitle" = "El espectro horizontal sigue la reproducción de audio en tiempo real";
 "fullscreen_effect_lyric_stage" = "Etapa Lírica";
 "fullscreen_effect_lyric_stage_subtitle" = "La letra comienza con un encabezado de pista restringido";
 "fullscreen_effect_lyrics" = "Letras";

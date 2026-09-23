@@ -102,7 +102,7 @@ extension ImmersiveStageBackgroundLyric {
     }
 }
 
-/// iOS、macOS 与 tvOS 共用的十三类动态播放舞台。封面、封面墙与实时频谱由平台容器注入。
+/// iOS、macOS 与 tvOS 共用的十一类动态播放舞台。封面、封面墙与实时频谱由平台容器注入。
 struct ImmersiveStageView<Artwork: View>: View {
     var style: FullscreenPlayerEffect
     var platform: ImmersiveStagePlatform = .iOS
@@ -200,14 +200,10 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveStageDeferredScene { starryNightScene }
         case .flowingLines:
             ImmersiveStageDeferredScene { flowingLinesScene }
-        case .lightRhythm:
-            ImmersiveStageDeferredScene { lightRhythmScene }
         case .kineticTitle:
             ImmersiveStageDeferredScene { kineticTitleWallScene }
         case .radialPulse:
             ImmersiveStageDeferredScene { radialPulseScene }
-        case .liveWaveform:
-            ImmersiveStageDeferredScene { liveWaveformScene }
         case .vinylDeck:
             ImmersiveStageDeferredScene { vinylDeckScene }
         case .mirrorStage:
@@ -536,71 +532,6 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(width: diameter * 1.16, height: diameter * 1.16)
     }
 
-    // MARK: - 5. 光影呼吸
-
-    private var lightRhythmScene: some View {
-        ZStack {
-            ImmersivePaletteFlowBackdrop(palette: palette, isAnimating: sceneIsAnimating, isLuminous: true)
-            ImmersiveLightRays(
-                palette: palette,
-                isAnimating: sceneIsAnimating,
-                origin: metrics.isPortrait ? UnitPoint(x: 0.92, y: -0.10) : UnitPoint(x: 0.08, y: -0.12)
-            )
-            ImmersiveVignette(color: palette.secondary, clearStop: 0.18, strength: 0.56)
-
-            if metrics.isPortrait {
-                VStack(alignment: .leading, spacing: metrics.s(22)) {
-                    haloArtwork(
-                        side: min(metrics.size.width * 0.70, metrics.size.height * 0.36),
-                        radius: metrics.f(18)
-                    )
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    titleBlock(size: metrics.s(43), weight: .semibold)
-                    formatAndLyric(
-                        fontSize: metrics.s(14),
-                        availableWidth: metrics.size.width - leadingInset - trailingInset
-                    )
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset + metrics.s(16))
-                .padding(.bottom, bottomInset)
-            } else {
-                HStack(spacing: metrics.s(platform == .tvOS ? 96 : 60)) {
-                    haloArtwork(
-                        side: min(metrics.size.height * 0.54, metrics.size.width * 0.33),
-                        radius: metrics.f(22)
-                    )
-                    VStack(alignment: .leading, spacing: metrics.s(22)) {
-                        titleBlock(size: metrics.s(platform == .tvOS ? 98 : 62), weight: .semibold)
-                        formatAndLyric(
-                            fontSize: metrics.s(platform == .tvOS ? 24 : 15),
-                            availableWidth: metrics.size.width * 0.42
-                        )
-                    }
-                    .frame(maxWidth: metrics.size.width * 0.42, alignment: .leading)
-                }
-                .padding(.leading, leadingInset + metrics.s(platform == .tvOS ? 40 : 24))
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset)
-                .padding(.bottom, bottomInset)
-            }
-        }
-    }
-
-    private func haloArtwork(side: CGFloat, radius: CGFloat) -> some View {
-        ZStack {
-            ImmersiveBreathingHalo(
-                palette: palette,
-                isAnimating: sceneIsAnimating,
-                diameter: side * 1.36
-            )
-            artworkPlate(side: side, radius: radius)
-        }
-        .frame(width: side, height: side)
-    }
-
     private func formatAndLyric(fontSize: CGFloat, availableWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: metrics.s(12)) {
             Text(track.format.uppercased())
@@ -613,7 +544,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - 6. 曲名展墙
+    // MARK: - 5. 曲名展墙
 
     private var kineticTitleWallScene: some View {
         let current = resolvedCurrentStageLyric
@@ -726,7 +657,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
     }
 
-    // MARK: - 7. 环形声谱
+    // MARK: - 6. 环形声谱
 
     private var radialPulseScene: some View {
         let diameter = min(
@@ -813,101 +744,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(width: diameter, height: diameter)
     }
 
-    // MARK: - 8. 实时波形
-
-    /// 控制台式构图：顶部一行小封面加标题，下面整幅宽的波形面板，再下是歌词。
-    private var liveWaveformScene: some View {
-        ZStack {
-            ImmersivePaletteFlowBackdrop(palette: palette, isAnimating: sceneIsAnimating, intensity: 0.50)
-            ImmersiveArtworkAtmosphere(
-                isAnimating: sceneIsAnimating,
-                blur: metrics.s(platform == .tvOS ? 90 : 64),
-                opacity: 0.22,
-                saturation: 1.4,
-                artwork: artwork
-            )
-            .blendMode(.screen)
-            ImmersiveEnergyGlow(
-                levelsProvider: spectrumProvider,
-                palette: palette,
-                center: UnitPoint(x: 0.5, y: metrics.isPortrait ? 0.40 : 0.46),
-                radius: max(metrics.size.width, metrics.size.height) * 0.42,
-                baseOpacity: 0.10,
-                reactiveOpacity: 0.30
-            )
-            ImmersiveVignette(color: palette.secondary, clearStop: 0.14, strength: 0.70)
-
-            if metrics.isPortrait {
-                VStack(alignment: .leading, spacing: metrics.s(24)) {
-                    deckHeader(artSide: metrics.s(96), titleSize: metrics.s(26))
-                    waveformPanel(height: metrics.s(132))
-                    singleLyric(fontSize: metrics.s(17))
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset + metrics.s(14))
-                .padding(.bottom, bottomInset)
-            } else {
-                VStack(alignment: .leading, spacing: metrics.s(platform == .tvOS ? 34 : 24)) {
-                    deckHeader(
-                        artSide: metrics.s(platform == .tvOS ? 150 : 96),
-                        titleSize: metrics.s(platform == .tvOS ? 54 : 34)
-                    )
-                    waveformPanel(height: metrics.s(platform == .tvOS ? 220 : 130))
-                    singleLyric(
-                        fontSize: metrics.s(platform == .tvOS ? 30 : 19),
-                        availableWidth: metrics.size.width * 0.62
-                    )
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, leadingInset)
-                .padding(.trailing, trailingInset)
-                .padding(.top, topInset + metrics.s(platform == .tvOS ? 40 : 20))
-                .padding(.bottom, bottomInset)
-            }
-        }
-    }
-
-    private func deckHeader(artSide: CGFloat, titleSize: CGFloat) -> some View {
-        HStack(alignment: .center, spacing: metrics.s(platform == .tvOS ? 30 : 18)) {
-            artworkPlate(side: artSide, radius: metrics.f(platform == .tvOS ? 18 : 12))
-            titleBlock(size: titleSize, weight: .semibold)
-        }
-    }
-
-    private func waveformPanel(height: CGFloat) -> some View {
-        ImmersiveWaveformPlaybackPanel(
-            levelsProvider: spectrumProvider,
-            initialElapsed: track.elapsed,
-            duration: track.duration,
-            isPlaying: playbackClockIsActive,
-            playbackTime: playbackTime,
-            active: palette.primary,
-            inactive: ImmersiveStagePalette.text.opacity(0.22),
-            waveformHeight: height,
-            labelFontSize: metrics.s(platform == .tvOS ? 20 : 11),
-            spacing: metrics.s(8),
-            barWidthRatio: platform == .tvOS
-                ? ImmersiveWaveformBarLayoutPolicy.televisionBarWidthRatio
-                : ImmersiveWaveformBarLayoutPolicy.compactBarWidthRatio,
-            minimumBarCount: platform == .tvOS
-                ? ImmersiveWaveformBarLayoutPolicy.televisionMinimumCount
-                : ImmersiveWaveformBarLayoutPolicy.compactMinimumCount,
-            maximumBarCount: platform == .tvOS
-                ? ImmersiveWaveformBarLayoutPolicy.televisionMaximumCount
-                : ImmersiveWaveformBarLayoutPolicy.compactMaximumCount,
-            lowPositionExponent: platform == .tvOS
-                ? ImmersiveWaveformBarLayoutPolicy.televisionLowPositionExponent
-                : ImmersiveWaveformBarLayoutPolicy.compactLowPositionExponent,
-            highPositionExponent: platform == .tvOS
-                ? ImmersiveWaveformBarLayoutPolicy.televisionHighPositionExponent
-                : ImmersiveWaveformBarLayoutPolicy.compactHighPositionExponent
-        )
-        .accessibilityLabel(visualizerDisclosure)
-    }
-
-    // MARK: - 9. 黑胶唱机
+    // MARK: - 7. 黑胶唱机
 
     private var vinylDeckScene: some View {
         let diameter = min(
@@ -983,7 +820,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
     }
 
-    // MARK: - 10. 镜面展台
+    // MARK: - 8. 镜面展台
 
     /// 横屏时文字在左、封面立在右侧镜面地板上；竖屏封面居中立于地板，文字在地平线下。
     private var mirrorStageScene: some View {
@@ -1059,7 +896,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
     }
 
-    // MARK: - 11. 极光帷幕
+    // MARK: - 9. 极光帷幕
 
     private var auroraVeilScene: some View {
         ZStack {
@@ -1103,7 +940,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
     }
 
-    // MARK: - 12. 声场地平线
+    // MARK: - 10. 声场地平线
 
     /// 舞台式构图：封面居中立在发光地平线上，频谱天际线在它身后升起，
     /// 标题与歌词居中排在封面上方。
@@ -1165,7 +1002,7 @@ struct ImmersiveStageView<Artwork: View>: View {
         }
     }
 
-    // MARK: - 13. 星尘律动
+    // MARK: - 11. 星尘律动
 
     /// 横屏时文字在左、发射粒子的圆形封面在右；竖屏封面居中在上，文字在下。
     private var particleBloomScene: some View {
@@ -1746,57 +1583,6 @@ private struct ImmersiveSpectrumRingHost: View {
     }
 }
 
-private struct ImmersiveWaveformPlaybackPanel: View {
-    let levelsProvider: @MainActor () -> [CGFloat]
-    let initialElapsed: TimeInterval
-    let duration: TimeInterval
-    let isPlaying: Bool
-    let playbackTime: (@MainActor () -> TimeInterval)?
-    let active: Color
-    let inactive: Color
-    let waveformHeight: CGFloat
-    let labelFontSize: CGFloat
-    let spacing: CGFloat
-    var barWidthRatio: Double = ImmersiveWaveformBarLayoutPolicy.compactBarWidthRatio
-    var minimumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMinimumCount
-    var maximumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMaximumCount
-    var lowPositionExponent: Double = ImmersiveWaveformBarLayoutPolicy.compactLowPositionExponent
-    var highPositionExponent: Double = ImmersiveWaveformBarLayoutPolicy.compactHighPositionExponent
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 0.1, paused: !isPlaying)) { _ in
-            let elapsed = ImmersivePlaybackClock.elapsed(
-                playbackTime?() ?? initialElapsed,
-                duration: duration
-            )
-            let progress = ImmersivePlaybackClock.fraction(elapsed: elapsed, duration: duration)
-            VStack(spacing: spacing) {
-                ImmersiveLiveWaveform(
-                    levelsProvider: levelsProvider,
-                    progress: progress,
-                    active: active,
-                    inactive: inactive,
-                    barWidthRatio: barWidthRatio,
-                    minimumBarCount: minimumBarCount,
-                    maximumBarCount: maximumBarCount,
-                    lowPositionExponent: lowPositionExponent,
-                    highPositionExponent: highPositionExponent
-                )
-                .frame(height: waveformHeight)
-
-                HStack {
-                    Text(ImmersivePlaybackClock.timeString(elapsed))
-                    Spacer()
-                    Text("−\(ImmersivePlaybackClock.timeString(max(duration - elapsed, 0)))")
-                }
-                .font(.system(size: labelFontSize, weight: .medium, design: .monospaced))
-                .foregroundStyle(ImmersiveStagePalette.text.opacity(0.55))
-                .monospacedDigit()
-            }
-        }
-    }
-}
-
 private enum ImmersivePlaybackClock {
     static func elapsed(_ value: TimeInterval, duration: TimeInterval) -> TimeInterval {
         guard value.isFinite else { return 0 }
@@ -2241,144 +2027,6 @@ private struct ImmersiveTypographyFieldRenderItem: Identifiable {
     var id: Int { item.id }
 }
 
-private struct ImmersiveLiveWaveform: View {
-    let levelsProvider: @MainActor () -> [CGFloat]
-    let progress: Double
-    let active: Color
-    let inactive: Color
-    /// 柱宽相对面板高度的比例与根数区间。电视的面板宽近 1920pt,沿用手机那套
-    /// 参数会把多出来的宽度平摊到每根柱子上,粗到看不出是波形。
-    var barWidthRatio: Double = ImmersiveWaveformBarLayoutPolicy.compactBarWidthRatio
-    var minimumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMinimumCount
-    var maximumBarCount: Int = ImmersiveWaveformBarLayoutPolicy.compactMaximumCount
-    var lowPositionExponent: Double = ImmersiveWaveformBarLayoutPolicy.compactLowPositionExponent
-    var highPositionExponent: Double = ImmersiveWaveformBarLayoutPolicy.compactHighPositionExponent
-
-    var body: some View {
-        // 频段采样只在这一层读取，整块沉浸场景不随 25 Hz 刷新失效。
-        let levels = levelsProvider()
-        Canvas(rendersAsynchronously: true) { canvas, size in
-            let layout = ImmersiveWaveformBarLayoutPolicy.layout(
-                width: Double(size.width),
-                height: Double(size.height),
-                barWidthRatio: barWidthRatio,
-                minimumCount: minimumBarCount,
-                maximumCount: maximumBarCount
-            )
-            guard layout.count > 0 else { return }
-            let count = layout.count
-            let spacing = CGFloat(layout.spacing)
-            let width = CGFloat(layout.barWidth)
-            let centerY = size.height / 2
-            let playedWidth = size.width * CGFloat(min(max(progress, 0), 1))
-            let baselineHeight = max(0.8, width * 0.18)
-
-            let baseline = CGRect(
-                x: 0,
-                y: centerY - baselineHeight / 2,
-                width: size.width,
-                height: baselineHeight
-            )
-            canvas.fill(
-                Path(roundedRect: baseline, cornerRadius: baselineHeight / 2),
-                with: .color(inactive.opacity(0.48))
-            )
-
-            var playedBars = Path()
-            var upcomingBars = Path()
-            var currentBar: CGRect?
-
-            for index in 0..<count {
-                let level = levels.isEmpty
-                    ? 0
-                    : displayedLevel(at: index, outputCount: count, source: levels)
-                let barHeight = max(width, size.height * (0.075 + level * 0.82))
-                let rect = CGRect(
-                    x: CGFloat(index) * (width + spacing),
-                    y: centerY - barHeight / 2,
-                    width: width,
-                    height: barHeight
-                )
-                let path = Path(roundedRect: rect, cornerRadius: width / 2)
-                if rect.midX <= playedWidth {
-                    playedBars.addPath(path)
-                    currentBar = rect
-                } else {
-                    upcomingBars.addPath(path)
-                }
-            }
-
-            canvas.fill(upcomingBars, with: .color(inactive.opacity(0.88)))
-
-            canvas.drawLayer { glow in
-                glow.addFilter(.blur(radius: max(2, width * 1.2)))
-                glow.fill(playedBars, with: .color(active.opacity(0.34)))
-            }
-            canvas.fill(
-                playedBars,
-                with: .linearGradient(
-                    Gradient(colors: [
-                        active.opacity(0.72),
-                        ImmersiveStagePalette.ink.opacity(0.92),
-                        active.opacity(0.78),
-                    ]),
-                    startPoint: CGPoint(x: 0, y: 0),
-                    endPoint: CGPoint(x: 0, y: size.height)
-                )
-            )
-
-            if let currentBar {
-                let marker = currentBar.insetBy(dx: -max(0.6, width * 0.12), dy: -max(1.2, width * 0.28))
-                canvas.fill(
-                    Path(roundedRect: marker, cornerRadius: marker.width / 2),
-                    with: .color(ImmersiveStagePalette.ink.opacity(0.92))
-                )
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    /// 低频落在略偏左的视觉重心，两侧分别用不同频率曲线展开。它保留真实
-    /// FFT 的起伏，但不会形成机械的左右镜像或从左到右单调塌下的柱状图。
-    private func displayedLevel(at index: Int, outputCount: Int, source: [CGFloat]) -> CGFloat {
-        guard !source.isEmpty, outputCount > 1 else { return 0 }
-        guard source.count > 1 else { return min(max(source[0], 0), 1) }
-
-        let x = CGFloat(index) / CGFloat(outputCount - 1)
-        let center: CGFloat = 0.43
-        let distance: CGFloat
-        let exponent: CGFloat
-        if x < center {
-            distance = (center - x) / center
-            exponent = CGFloat(lowPositionExponent)
-        } else {
-            distance = (x - center) / (1 - center)
-            exponent = CGFloat(highPositionExponent)
-        }
-
-        let primaryPosition = pow(min(max(distance, 0), 1), exponent)
-        let companionPosition = x < center
-            ? min(primaryPosition * 0.58 + 0.12, 1)
-            : min(primaryPosition * 0.72 + 0.18, 1)
-        let primaryWeight: CGFloat = x < center ? 0.80 : 0.72
-        let spectralValue = interpolatedLevel(at: primaryPosition, source: source) * primaryWeight
-            + interpolatedLevel(at: companionPosition, source: source) * (1 - primaryWeight)
-        let highFrequencyLift = 0.92 + primaryPosition * 0.34
-        let compressed = pow(min(max(spectralValue * highFrequencyLift, 0), 1), 0.62)
-        return min(max(compressed, 0), 1)
-    }
-
-    private func interpolatedLevel(at position: CGFloat, source: [CGFloat]) -> CGFloat {
-        let scaled = min(max(position, 0), 1) * CGFloat(source.count - 1)
-        let lower = min(Int(floor(scaled)), source.count - 1)
-        let upper = min(lower + 1, source.count - 1)
-        let fraction = scaled - CGFloat(lower)
-        return source[lower] + (source[upper] - source[lower]) * fraction
-    }
-}
-
-/// 当前歌词的填充遮罩。整段文字换行后必须**按行**推进:先填满上面一行再填下面一行。
-/// 旧实现用一整块矩形盖住整段,换行时上下两行会被同时点亮(进度都取整段的同一比例)。
 private struct ImmersiveLyricFillMask: View {
     let progress: Double
     let fontSize: CGFloat

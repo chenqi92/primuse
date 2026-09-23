@@ -388,7 +388,6 @@
 "scraper_warn_non_get_requests" = "Bu üst veri alma betiği, GET olmayan istekler gönderebilir.";
 "Play Radio Station" = "Radyo İstasyonunu Çal";
 "immersive_demo_lyric_11" = "Işık her vuruş arasında yumuşak bir şekilde toplanır";
-"fullscreen_effect_light_rhythm_subtitle" = "Güncel bir şarkı sözü arkasında sanat eseri renginde ışık esiyor";
 "smart_field_title" = "Başlık";
 "tag_editor_title_navigation" = "Etiketleri Düzenle";
 "ai_provider_preset_qwen" = "Qwen";
@@ -538,7 +537,6 @@
 "tag_editor_cover_cache_failed" = "Yeni yerel kapak önbelleği kaydedilemedi. Müzik kaynağını yeniden tarayın ve tekrar deneyin.";
 "Crashes (30 days)" = "Çökmeler (30 gün)";
 "scrape_description" = "Arşivinizde zaten bulunan şarkıların eksik başlıklarını, sanatçılarını, albümlerini, kapaklarını ve şarkı sözlerini doldurun.";
-"fullscreen_effect_live_waveform_subtitle" = "Yatay spektrum, çalınan sesi gerçek zamanlı olarak takip eder";
 "scrape_writeback_media_server_hint" = "API sunucusu üzerinden yazar; Emby/Plex, şarkı sözlerini API aracılığıyla güncelleyemediğinde yerel önbellekte kalır.";
 "baidu_snapshot_deep_scan_required" = "Bu hafif yenilemeyle bulunan değişiklikler güvenlik bütçesini aştığı için arşiv değişmeden kaldı. Bunları güvenli bir şekilde uzlaştırmak için Derin Taramayı ön planda çalıştırın.";
 "lock_desktop_lyrics" = "Masaüstü şarkı sözlerini kilitle";
@@ -1310,7 +1308,6 @@
 "About" = "Hakkında";
 "ai_error_http_status_format" = "Sağlayıcı HTTP %d'yi döndürdü.";
 "relay_share_lifetime" = "Ömür boyu";
-"fullscreen_effect_live_waveform_motion" = "Canlı spektrum odaklı · Sessizken hareketsiz";
 "fullscreen_effect_vinyl_deck" = "Pikap";
 "fullscreen_effect_vinyl_deck_subtitle" = "Kapak, dönen plağın etiketi olur; kol ise oluğa yerleşir";
 "fullscreen_effect_vinyl_deck_motion" = "Plak çalarken döner · Duraklatınca kol kalkar";
@@ -2053,7 +2050,6 @@
 "sidebar_playlists_empty" = "Henüz çalma listesi yok";
 "ai_provider_preset_stepfun" = "StepFun";
 "ai_provider_preset_siliconflow" = "SiliconFlow";
-"fullscreen_effect_light_rhythm" = "Işık Ritmi";
 "yearly_personality_lovm_description" = "Uzun süredir çalışan birkaç sanatçının en sessiz saatlerde tekrarlanmasını sağlar.";
 "scrape_lyrics_diff_format" = "%1$@ → %2$d hatları";
 "synced_credentials" = "Kaynak şifreleri ve bulutta oturum açma (Anahtarlık)";
@@ -2476,7 +2472,6 @@
 "source_connection_path_prefix" = "Yol Öneki (İsteğe Bağlı)";
 "Interactive" = "İnteraktif";
 "volume" = "Hacim";
-"fullscreen_effect_light_rhythm_motion" = "Katmanlı sanat eseri ışığı · Yavaş nefes alma";
 "scraper_import_auto_footer" = "Üst veri alma komut dosyasını JSON veya HTTPS yapılandırmasını URL yapıştırın. Format otomatik olarak algılanır.";
 "scrobble_mac_recent_reports_subtitle" = "Yakın zamanda Last.fm / ListenBrainz'ye gönderildi";
 "View Year in Review" = "Yılı İncelemede Görüntüle";
@@ -3382,7 +3377,6 @@
 "Tranquil Woods" = "Sakin Orman";
 "export" = "Dışa Aktar";
 "playlists_count" = "çalma listeleri";
-"fullscreen_effect_live_waveform" = "Canlı Dalga Formu";
 "metadata_writeback_stage_download" = "kaynak indirme";
 "playlists_title" = "Çalma listeleri";
 "ai_audio_transcription_failed" = "Bu şarkı yazıya dökülemedi. Mevcut şarkı sözleri ve çalma değişmez. Ağı, API anahtarını ve hizmet durumunu kontrol edip tekrar deneyin.";

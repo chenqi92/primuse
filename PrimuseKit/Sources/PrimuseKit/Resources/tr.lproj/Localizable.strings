@@ -216,7 +216,6 @@
 "error.catalog.missingItemsOrTotal" = "Parça listesinde eksik öğeler veya toplam sayı var.";
 "ext.tv.scan.playable" = "Oynanabilir";
 "error.catalog.incompletePage" = "Parça sayfalandırması eksik.";
-"fullscreen_effect_live_waveform_subtitle" = "Yatay spektrum, çalınan sesi gerçek zamanlı olarak takip eder";
 "ext.tv.error.range.bodyTooLarge" = "Yanıt gövdesi, Content-Range tarafından bildirilen %@ bayt sayısını aştı.";
 "ext.tv.sources.scanFolders" = "Taranacak Klasörleri Seçin";
 "ext.tv.sources.hint.nfs" = "NFS paylaşımı";
@@ -292,7 +291,6 @@
 "ext.widget.lyrics.empty.title" = "Şarkı sözü yok";
 "ext.tv.scan.metadataValue" = "Yollar + mevcut dosya üst verileri";
 "fnmusic_connection_address" = "Sunucu Adresi";
-"fullscreen_effect_live_waveform_motion" = "Canlı spektrum odaklı · Sessizken hareketsiz";
 "fullscreen_effect_vinyl_deck" = "Pikap";
 "fullscreen_effect_vinyl_deck_subtitle" = "Kapak, dönen plağın etiketi olur; kol ise oluğa yerleşir";
 "fullscreen_effect_vinyl_deck_motion" = "Plak çalarken döner · Duraklatınca kol kalkar";
@@ -349,12 +347,10 @@
 "ext.tv.settings.intelligence.ready" = "Anlamsal arama hazır";
 "ext.widget.wrapped.displayName" = "Yıl İncelemesi";
 "ext.tv.scan.interrupted" = "Tarama Kesintiye Uğradı";
-"fullscreen_effect_light_rhythm" = "Işık Ritmi";
 "error.catalog.duplicateItem" = "Parça sayfası yinelenen bir öğe içeriyor.";
 "source_connection_public_port" = "İnternet bağlantı noktası";
 "ext.tv.settings.intensity.medium" = "Orta";
 "ext.tv.countOnly" = "%d";
-"fullscreen_effect_light_rhythm_motion" = "Katmanlı sanat eseri ışığı · Yavaş nefes alma";
 "theme_color_turquoise" = "Turkuaz";
 "ext.tv.sources.removeFromTV" = "Apple TV'den kaldır";
 "metadata.rangeRead.error.suffixUnsupported" = "Bu sunucu, üst veriler için gereken sınırlı dosya kuyruğu okumasını sağlayamaz.";
@@ -393,7 +389,6 @@
 "ext.tv.otp.missingCredential" = "Önce bu kaynağın hesabını ve şifresini girin.";
 "ext.widget.stats.description" = "Son 30 gündeki çalmalarınız ve en çok izlenen şarkılarınız.";
 "ext.tv.sources.form.share" = "Paylaşım Adı";
-"fullscreen_effect_live_waveform" = "Canlı Dalga Formu";
 "src.subtitle.pan123" = "123 Açık Platform OAuth";
 "src.subtitle.guangya"       = "GuangYa Açık Platform OAuth";
 "serverShare.error.unsupported" = "Bu sunucu genel medya bağlantılarını desteklemiyor veya paylaşım devre dışı.";
@@ -477,7 +472,6 @@
 "ext.widget.lyrics.displayName" = "Şarkı sözleri";
 "error.appleMusic.invalidPaginationURL" = "Geçersiz Apple Music sayfalandırması URL: %@";
 "send_to_tv_error_cancelled" = "Transfer iptal edildi.";
-"fullscreen_effect_light_rhythm_subtitle" = "Güncel bir şarkı sözü arkasında sanat eseri renginde ışık esiyor";
 "source_connection_path_prefix" = "Yol Öneki (İsteğe Bağlı)";
 "fullscreen_effect_radial_pulse" = "Radyal Darbe";
 "src.category.protocol" = "Protokol";

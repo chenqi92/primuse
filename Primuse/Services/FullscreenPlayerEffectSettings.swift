@@ -248,7 +248,7 @@ enum AmbientLightOverlayPolicy {
     }
 }
 
-/// 用户可选择的十三类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
+/// 用户可选择的十一类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
     case coverFlow
     case coverGallery
@@ -256,11 +256,9 @@ enum ImmersiveEffectScene: Sendable {
     case mirrorStage
     case starryNight
     case flowingLines
-    case lightRhythm
     case auroraVeil
     case kineticTitle
     case radialPulse
-    case liveWaveform
     case spectrumHorizon
     case particleBloom
 }
@@ -306,7 +304,7 @@ enum FullscreenEffectCollection: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// 三端共享的全屏效果目录。原生播放器保持默认，其余十三项对应十三种实际渲染机制。
+/// 三端共享的全屏效果目录。原生播放器保持默认，其余十一项对应十一种实际渲染机制。
 /// 新增效果追加在末尾，保证 macOS 数字快捷键与既有顺序一致。
 enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case native
@@ -314,10 +312,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case coverGallery
     case starryNight
     case flowingLines
-    case lightRhythm
     case kineticTitle
     case radialPulse
-    case liveWaveform
     case vinylDeck
     case mirrorStage
     case auroraVeil
@@ -338,10 +334,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .coverGallery: "coverGallery"
         case .starryNight: "starryNight"
         case .flowingLines: "flowingLines"
-        case .lightRhythm: "lightRhythm"
         case .kineticTitle: "kineticTitle"
         case .radialPulse: "radialPulse"
-        case .liveWaveform: "liveWaveform"
         case .vinylDeck: "vinylDeck"
         case .mirrorStage: "mirrorStage"
         case .auroraVeil: "auroraVeil"
@@ -365,13 +359,13 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case "flowingLines", "contour":
             self = .flowingLines
         case "lightRhythm", "lightField", "liquidChrome":
-            self = .lightRhythm
+            self = .auroraVeil
         case "kineticTitle", "typography", "typeWall", "lyricStage", "lyrics":
             self = .kineticTitle
         case "radialPulse", "radialSpectrum":
             self = .radialPulse
         case "liveWaveform", "spectrum", "visualizer":
-            self = .liveWaveform
+            self = .spectrumHorizon
         case "vinylDeck", "vinyl":
             self = .vinylDeck
         case "mirrorStage":
@@ -391,8 +385,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         switch self {
         case .native: .native
         case .coverFlow, .coverGallery, .vinylDeck, .mirrorStage: .coverReactive
-        case .starryNight, .flowingLines, .lightRhythm, .auroraVeil, .kineticTitle: .sceneMotion
-        case .radialPulse, .liveWaveform, .spectrumHorizon, .particleBloom: .audioReactive
+        case .starryNight, .flowingLines, .auroraVeil, .kineticTitle: .sceneMotion
+        case .radialPulse, .spectrumHorizon, .particleBloom: .audioReactive
         }
     }
 
@@ -402,10 +396,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .coverGallery: .coverGallery
         case .starryNight: .starryNight
         case .flowingLines: .flowingLines
-        case .lightRhythm: .lightRhythm
         case .kineticTitle: .kineticTitle
         case .radialPulse: .radialPulse
-        case .liveWaveform: .liveWaveform
         case .vinylDeck: .vinylDeck
         case .mirrorStage: .mirrorStage
         case .auroraVeil: .auroraVeil
@@ -421,7 +413,7 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var prefersLightContent: Bool { false }
     var usesRealtimeSpectrum: Bool {
         switch self {
-        case .radialPulse, .liveWaveform, .spectrumHorizon, .particleBloom: true
+        case .radialPulse, .spectrumHorizon, .particleBloom: true
         default: false
         }
     }
@@ -442,10 +434,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .coverGallery: "cover_gallery"
         case .starryNight: "starry_night"
         case .flowingLines: "flowing_lines"
-        case .lightRhythm: "light_rhythm"
         case .kineticTitle: "kinetic_title"
         case .radialPulse: "radial_pulse"
-        case .liveWaveform: "live_waveform"
         case .vinylDeck: "vinyl_deck"
         case .mirrorStage: "mirror_stage"
         case .auroraVeil: "aurora_veil"
@@ -477,10 +467,8 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         case .coverGallery: "square.grid.3x3.fill"
         case .starryNight: "sparkles"
         case .flowingLines: "scribble.variable"
-        case .lightRhythm: "lightspectrum.horizontal"
         case .kineticTitle: "textformat.size"
         case .radialPulse: "waveform.circle.fill"
-        case .liveWaveform: "waveform"
         case .vinylDeck: "opticaldisc.fill"
         case .mirrorStage: "rectangle.portrait.bottomhalf.inset.filled"
         case .auroraVeil: "moon.haze.fill"

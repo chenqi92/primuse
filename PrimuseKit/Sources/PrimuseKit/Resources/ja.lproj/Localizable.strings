@@ -670,9 +670,6 @@
 "fullscreen_effect_flowing_lines" = "流れるライン";
 "fullscreen_effect_flowing_lines_subtitle" = "変化する輪郭がカバーを囲み、歌詞を三行表示します";
 "fullscreen_effect_flowing_lines_motion" = "変化し続ける軌跡 · 歌詞三行";
-"fullscreen_effect_light_rhythm" = "ライトリズム";
-"fullscreen_effect_light_rhythm_subtitle" = "アートワーク色の光と現在の歌詞がゆっくり呼吸します";
-"fullscreen_effect_light_rhythm_motion" = "重なるカバー色の光 · ゆっくり呼吸";
 "fullscreen_effect_kinetic_title" = "曲名ウォール";
 "fullscreen_effect_kinetic_title_subtitle" = "曲名と現在の歌詞は一度だけ表示され、ほかの歌詞が奥行きのある文字フィールドを作ります";
 "fullscreen_effect_kinetic_title_motion" = "背景歌詞の緩やかな移動 · 再生位置に同期した現在行のハイライト";
@@ -680,9 +677,6 @@
 "fullscreen_effect_radial_pulse" = "ラジアルパルス";
 "fullscreen_effect_radial_pulse_subtitle" = "回転するレコードの外周が実際の音声に反応します";
 "fullscreen_effect_radial_pulse_motion" = "ライブスペクトラム · 回転するレコード";
-"fullscreen_effect_live_waveform" = "ライブ波形";
-"fullscreen_effect_live_waveform_subtitle" = "横方向のスペクトラムが再生音声をリアルタイムで追います";
-"fullscreen_effect_live_waveform_motion" = "ライブスペクトラム · 無音時は静止";
 "fullscreen_effect_vinyl_deck" = "レコードデッキ";
 "fullscreen_effect_vinyl_deck_subtitle" = "アートワークが回転するレコードのラベルになり、トーンアームが溝に降りる";
 "fullscreen_effect_vinyl_deck_motion" = "再生に合わせて回転 · 一時停止でアームが上がる";

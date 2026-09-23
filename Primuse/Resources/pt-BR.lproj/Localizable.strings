@@ -1347,11 +1347,6 @@
 "fullscreen_effect_kinetic_title_subtitle" = "O título da música e a letra atual permanecem singulares enquanto outras letras formam um campo em camadas na tela";
 "fullscreen_effect_light_field" = "Campo de luz";
 "fullscreen_effect_light_field_subtitle" = "Luz tecida lenta e movimento de prisma";
-"fullscreen_effect_light_rhythm" = "Ritmo Leve";
-"fullscreen_effect_light_rhythm_motion" = "Luz de arte em camadas · Respiração lenta";
-"fullscreen_effect_light_rhythm_subtitle" = "Luz colorida respira por trás de uma letra atual";
-"fullscreen_effect_live_waveform" = "Forma de onda ao vivo";
-"fullscreen_effect_live_waveform_motion" = "Espectro ao vivo · Parado quando silencioso";
 "fullscreen_effect_vinyl_deck" = "Toca-discos";
 "fullscreen_effect_vinyl_deck_subtitle" = "A capa vira o selo de um disco girando enquanto o braço repousa no sulco";
 "fullscreen_effect_vinyl_deck_motion" = "O disco gira na reprodução · O braço levanta ao pausar";
@@ -1367,7 +1362,6 @@
 "fullscreen_effect_particle_bloom" = "Florescer de partículas";
 "fullscreen_effect_particle_bloom_subtitle" = "Poeira estelar irradia da capa e brilha no ritmo";
 "fullscreen_effect_particle_bloom_motion" = "Espectro em tempo real · Partículas florescem nos graves";
-"fullscreen_effect_live_waveform_subtitle" = "O espectro horizontal acompanha a reprodução do áudio em tempo real";
 "fullscreen_effect_lyric_stage" = "Palco Lírico";
 "fullscreen_effect_lyric_stage_subtitle" = "Inicialização da letra com cabeçalho de faixa contido";
 "fullscreen_effect_lyrics" = "Letras";

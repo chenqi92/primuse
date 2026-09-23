@@ -388,7 +388,6 @@
 "scraper_warn_non_get_requests" = "Этот сценарий получения метаданных может отправлять запросы, отличные от GET.";
 "Play Radio Station" = "Воспроизвести радиостанцию";
 "immersive_demo_lyric_11" = "Свет мягко собирается между каждым ударом.";
-"fullscreen_effect_light_rhythm_subtitle" = "Свет цвета искусства дышит за текущей лирикой";
 "smart_field_title" = "Название";
 "tag_editor_title_navigation" = "Редактировать теги";
 "ai_provider_preset_qwen" = "Qwen";
@@ -538,7 +537,6 @@
 "tag_editor_cover_cache_failed" = "Не удалось сохранить новый локальный кэш обложки. Повторно отсканируйте источник музыки и повторите попытку.";
 "Crashes (30 days)" = "Сбои (30 дней)";
 "scrape_description" = "Введите недостающие названия, исполнителей, альбомы, каверы и тексты песен, которые уже есть в вашей медиатеке.";
-"fullscreen_effect_live_waveform_subtitle" = "Горизонтальный спектр следует за воспроизводимым звуком в реальном времени.";
 "scrape_writeback_media_server_hint" = "Пишет через сервер API; когда Emby/Plex не может обновить тексты песен через свой API, они остаются в локальном кеше.";
 "baidu_snapshot_deep_scan_required" = "Изменения, обнаруженные в ходе этого легкого обновления, превысили бюджет безопасности, поэтому медиатека осталась без изменений. Запустите Deep Scan на переднем плане, чтобы безопасно их согласовать.";
 "lock_desktop_lyrics" = "Заблокировать тексты песен на рабочем столе";
@@ -1310,7 +1308,6 @@
 "About" = "О нас";
 "ai_error_http_status_format" = "Поставщик вернул HTTP %d.";
 "relay_share_lifetime" = "Срок службы";
-"fullscreen_effect_live_waveform_motion" = "Управление живым спектром · Неподвижно в тишине";
 "fullscreen_effect_vinyl_deck" = "Виниловая дека";
 "fullscreen_effect_vinyl_deck_subtitle" = "Обложка становится этикеткой вращающейся пластинки, тонарм лежит в дорожке";
 "fullscreen_effect_vinyl_deck_motion" = "Пластинка вращается при воспроизведении · Тонарм поднимается на паузе";
@@ -2053,7 +2050,6 @@
 "sidebar_playlists_empty" = "Пока нет плейлистов";
 "ai_provider_preset_stepfun" = "StepFun";
 "ai_provider_preset_siliconflow" = "SiliconFlow";
-"fullscreen_effect_light_rhythm" = "Световой ритм";
 "yearly_personality_lovm_description" = "Держит на повторе нескольких давних артистов даже в самые тихие часы.";
 "scrape_lyrics_diff_format" = "%1$@ → %2$d строки";
 "synced_credentials" = "Исходные пароли и вход в облако (Связка ключей)";
@@ -2476,7 +2472,6 @@
 "source_connection_path_prefix" = "Префикс пути (необязательно)";
 "Interactive" = "Интерактивный";
 "volume" = "Громкость";
-"fullscreen_effect_light_rhythm_motion" = "Многослойный художественный свет · Медленное дыхание";
 "scraper_import_auto_footer" = "Вставьте сценарий получения метаданных JSON или конфигурацию HTTPS URL. Формат определяется автоматически.";
 "scrobble_mac_recent_reports_subtitle" = "Недавно отправлено в Last.fm / ListenBrainz";
 "View Year in Review" = "Просмотр обзора года";
@@ -3382,7 +3377,6 @@
 "Tranquil Woods" = "Безмятежный лес";
 "export" = "Экспорт";
 "playlists_count" = "плейлисты";
-"fullscreen_effect_live_waveform" = "Живая форма волны";
 "metadata_writeback_stage_download" = "загрузка исходного кода";
 "playlists_title" = "Плейлисты";
 "ai_audio_transcription_failed" = "Эту песню невозможно расшифровать. Существующие тексты песен и воспроизведение не изменились. Проверьте сеть, ключ API и состояние службы, а затем повторите попытку.";
