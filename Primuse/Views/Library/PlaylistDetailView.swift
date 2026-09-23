@@ -599,15 +599,10 @@ struct PlaylistDetailView: View {
                 .foregroundStyle(Color.accentColor)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text("playlist_always_download")
-                    .font(.subheadline.weight(.semibold))
-                Text("playlist_always_download_description")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .accessibilityHidden(true)
+            // 说明只留给辅助功能读：卡片里堆三句话反而抢了歌曲列表的位置。
+            Text("playlist_always_download")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityHidden(true)
 
             Spacer(minLength: 10)
 
