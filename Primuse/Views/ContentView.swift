@@ -837,6 +837,10 @@ struct ContentView: View {
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenLibrarySectionsRawValue = ""
     @State private var showInitialOnboarding = false
+    #if DEBUG
+    /// `PRIMUSE_OPEN_PAGE=queue` 用的队列面板。
+    @State private var debugQueuePresented = false
+    #endif
     private let legacyTabBarClearance: CGFloat = 49
     @Environment(\.skin) private var skin
 
@@ -1308,6 +1312,14 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
             presentNowPlaying()
         }
+        #if DEBUG
+        .task { await runDebugOpenPage() }
+        .sheet(isPresented: $debugQueuePresented) {
+            QueueView(player: player)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        #endif
         .alert(
             String(localized: "server_favorite_update_failed_title"),
             isPresented: Binding(
@@ -1610,6 +1622,90 @@ struct ContentView: View {
         minimalDetailLedger = ledger
     }
 }
+
+#if DEBUG
+/// 调试构建的启动自动化：`PRIMUSE_OPEN_PAGE=<页面>` 在曲库装载后直接打开指定页面，给编译机上无人值守截图用。
+/// 取值：`home` / `library` / `songs` / `albums` / `artists` / `album:<标题片段>` / `artist:<名字片段>` /
+/// `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `queue` / `search` / `settings`。
+extension ContentView {
+    @MainActor
+    private func runDebugOpenPage() async {
+        guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_OPEN_PAGE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return }
+        let parts = raw.split(separator: ":", maxSplits: 1).map(String.init)
+        let page = parts[0].lowercased()
+        let needle = parts.count > 1 ? parts[1].lowercased() : ""
+        let isMinimal = navigationMode == .minimal
+
+        // 等曲库里有歌（最多一分钟），再给界面一点时间把标签页搭好。
+        for _ in 0..<30 where library.visibleSongs.isEmpty {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+        }
+        try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { return }
+        plog("🧪 DebugLaunchAutomation: open page \(raw)")
+
+        switch page {
+        case "home":
+            if isMinimal { selectMinimalPage(.home) } else { selectTab(0) }
+        case "library":
+            selectTab(1)
+            libraryDeepLink = .root
+        case "songs", "albums", "artists":
+            let section: LibrarySection = page == "songs" ? .songs : (page == "albums" ? .albums : .artists)
+            if isMinimal {
+                selectMinimalPage(.librarySection(section))
+            } else {
+                openLibraryDeepLink(.section(section))
+            }
+        case "album":
+            for _ in 0..<30 {
+                if let album = library.visibleAlbums.first(where: {
+                    needle.isEmpty || $0.title.lowercased().contains(needle)
+                }) {
+                    openLibraryDeepLink(.album(album))
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+            }
+            plog("🧪 DebugLaunchAutomation: no album matching '\(needle)'")
+        case "artist":
+            for _ in 0..<30 {
+                if let artist = library.visibleArtists.first(where: {
+                    needle.isEmpty || $0.name.lowercased().contains(needle)
+                }) {
+                    openLibraryDeepLink(.artist(artist))
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+            }
+            plog("🧪 DebugLaunchAutomation: no artist matching '\(needle)'")
+        case "player", "queue":
+            // 等 `PRIMUSE_AUTOPLAY_SONG` 把歌放起来，没有也照样打开。
+            for _ in 0..<20 where player.currentSong == nil {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+            }
+            presentNowPlaying()
+            if page == "queue" {
+                try? await Task.sleep(for: .seconds(1.5))
+                guard !Task.isCancelled else { return }
+                debugQueuePresented = true
+            }
+        case "search":
+            if isMinimal { selectMinimalPage(.search) } else { selectTab(2) }
+        case "settings":
+            if isMinimal { selectMinimalPage(.settings) } else { selectTab(3) }
+        default:
+            plog("🧪 DebugLaunchAutomation: unknown page '\(raw)'")
+        }
+    }
+}
+#endif
 
 private struct AuthoritativeSongRemovalObserver: View {
     let onSongsRemoved: @MainActor (Set<String>) -> Void
