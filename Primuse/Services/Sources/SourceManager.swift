@@ -1185,7 +1185,6 @@ actor SourceConnectionRouter {
         didSet { selectionRevision &+= 1 }
     }
     private var routeGeneration: UInt64?
-    private var localHandshakeRetryAfter: Date?
     /// The candidate the concurrent probe just proved reachable, so the
     /// handshake does not repeat that probe.
     private var probeVerifiedIndex: Int?
@@ -1222,7 +1221,6 @@ actor SourceConnectionRouter {
     func disconnect() async {
         activeIndex = nil
         probeVerifiedIndex = nil
-        localHandshakeRetryAfter = nil
         await routeDidChange(nil)
         for candidate in candidates {
             await candidate.connector.disconnect()
@@ -1289,18 +1287,16 @@ actor SourceConnectionRouter {
                 await routeDidChange(nil)
             }
             probeVerifiedIndex = nil
-            localHandshakeRetryAfter = nil
             routeGeneration = currentGeneration
         }
 
-        var preferredKind = await runtime.preferredKind(
+        // The runtime already steers away from a private route inside its
+        // handshake cooldown, and that verdict is shared with every other
+        // connector instance of this source.
+        let preferredKind = await runtime.preferredKind(
             for: sourceID,
             availableKinds: candidates.map(\.kind)
         )
-        if preferredKind == .localAddress,
-           let retryAfter = localHandshakeRetryAfter, Date() < retryAfter {
-            preferredKind = .publicAddress
-        }
 
         if let currentIndex = activeIndex,
            excluded.contains(currentIndex) == false {
@@ -1376,14 +1372,37 @@ actor SourceConnectionRouter {
         preferredKind: SourceConnectionCandidateKind?,
         excluding excluded: Set<Int>
     ) async -> [Int] {
+        // A private route inside its handshake cooldown already won TCP races
+        // it could not follow through on — a VPN or proxy answers that
+        // handshake on the device itself. It stays only as the last resort.
+        let localBackedOff = await runtime.isLocalRouteBackedOff(for: sourceID)
+        func isBackedOff(_ index: Int) -> Bool {
+            localBackedOff && candidates[index].kind == .localAddress
+        }
         let baseline = candidates.indices
             .filter { excluded.contains($0) == false }
             .sorted { lhs, rhs in
+                if isBackedOff(lhs) != isBackedOff(rhs) { return isBackedOff(rhs) }
                 if candidates[lhs].kind == preferredKind { return true }
                 if candidates[rhs].kind == preferredKind { return false }
                 return lhs < rhs
             }
-        let probeable = baseline.filter { candidates[$0].endpoint?.normalized.isUsable == true }
+        let probeable = baseline.filter {
+            candidates[$0].endpoint?.normalized.isUsable == true && !isBackedOff($0)
+        }
+        if let backedOffIndex = baseline.first(where: isBackedOff) {
+            guard !probeable.isEmpty, !Task.isCancelled else { return baseline }
+            if let winner = await firstReachableCandidate(among: probeable, minimumTargets: 1) {
+                return [winner] + baseline.filter { $0 != winner }
+            }
+            // Nothing else answers either (at home without NAT hairpinning, for
+            // example). Then the private route is still the best bet.
+            let unprobeable = baseline.filter {
+                $0 != backedOffIndex && candidates[$0].endpoint?.normalized.isUsable != true
+            }
+            guard unprobeable.isEmpty, !Task.isCancelled else { return baseline }
+            return [backedOffIndex] + baseline.filter { $0 != backedOffIndex }
+        }
         guard probeable.count > 1, !Task.isCancelled else { return baseline }
         guard let winner = await firstReachableCandidate(among: probeable) else { return baseline }
         probeVerifiedIndex = winner
@@ -1393,14 +1412,14 @@ actor SourceConnectionRouter {
     /// A TCP probe carries no credentials and no service side effects, so racing
     /// the endpoints is safe. The winner still has to complete its own
     /// authenticated handshake before the route counts as usable.
-    private func firstReachableCandidate(among indices: [Int]) async -> Int? {
+    private func firstReachableCandidate(among indices: [Int], minimumTargets: Int = 2) async -> Int? {
         let probe = endpointProbe
         let headStart = Self.probeRaceHeadStart
         let targets: [(index: Int, endpoint: SourceConnectionEndpoint)] = indices.compactMap { index in
             guard let endpoint = candidates[index].endpoint else { return nil }
             return (index, endpoint)
         }
-        guard targets.count > 1 else { return nil }
+        guard targets.count >= minimumTargets else { return nil }
         return await withTaskGroup(of: Int?.self, returning: Int?.self) { group in
             for (offset, target) in targets.enumerated() {
                 let delay = Double(offset) * headStart
@@ -1456,6 +1475,13 @@ actor SourceConnectionRouter {
                     try await candidate.connector.connect()
                 }
             } catch is HandshakeDeadlineExceeded {
+                // Record the cooldown before tearing the login down: another
+                // caller may have joined this login, and the cancellation it
+                // receives must already find the verdict in the runtime.
+                if candidate.kind == .localAddress, candidates.count > 1 {
+                    let interval = await runtime.recordLocalHandshakeFailure(for: sourceID)
+                    plog("Source local handshake failed; using alternative route source=\(sourceID.prefix(8)) reason=deadline backoff=\(Int(interval))s")
+                }
                 await candidate.connector.disconnect()
                 plog("Source route handshake deadline source=\(sourceID.prefix(8)) kind=\(candidate.kind.rawValue)")
                 throw HandshakeDeadlineExceeded()
@@ -1473,40 +1499,82 @@ actor SourceConnectionRouter {
             try await candidate.connector.connect()
         }
         try Task.checkCancellation()
-        if candidate.kind == .localAddress { localHandshakeRetryAfter = nil }
     }
 
+    /// Decides whether a failed handshake may move on to the next candidate.
+    ///
+    /// A handshake is not a business operation, so trying another route cannot
+    /// replay anything. A private route that stalled, dropped or failed TLS
+    /// while an alternative exists moves on whatever a TCP probe says — a VPN
+    /// or proxy in TUN mode completes that probe on the device itself — and
+    /// its cooldown is recorded in the shared runtime so the playback, scan
+    /// and write-back connectors all skip it. Authentication, trust decisions
+    /// and cancellation still end the attempt.
     private func prepareConnectionFallback(after error: Error, at index: Int) async throws {
         try Task.checkCancellation()
-        // Abandon only this handshake, not the endpoint's health. Service and
-        // trust errors still follow the stricter transport-evidence policy.
+        let candidate = candidates[index]
+        let hasAlternative = candidates.indices.contains { $0 != index }
+        // The deadline path recorded its cooldown and disconnected already.
         if error is HandshakeDeadlineExceeded { return }
-        if candidates[index].kind == .localAddress,
-           candidates.contains(where: { $0.kind == .publicAddress }),
-           let urlError = error as? URLError,
-           [.networkConnectionLost, .secureConnectionFailed].contains(urlError.code) {
-            // VPNs can accept a private TCP connection even when the NAS
-            // protocol cannot complete. Try the configured public handshake
-            // without declaring the LAN unreachable or bypassing TLS trust.
-            await candidates[index].connector.disconnect()
-            // Keep the working public route through the following range and
-            // metadata requests; a path change allows an immediate LAN retry.
-            localHandshakeRetryAfter = Date().addingTimeInterval(SourceConnectionRuntime.localRetryInterval)
-            plog("Source local handshake failed; trying configured public route source=\(sourceID.prefix(8)) error=\(urlError.errorCode)")
+        if let probeFailure = error as? EndpointProbeFailure {
+            let underlying = probeFailure.underlying
+            guard isTransportFailure(underlying) else { throw underlying }
+            let generation = await runtime.routeGeneration()
+            let hasCurrentProbeFailure = probeFailure.generation == generation
+                && probeFailure.selectionRevision == selectionRevision
+            if !hasCurrentProbeFailure {
+                guard await canFailOver(after: underlying, at: index) else { throw underlying }
+            }
+            try Task.checkCancellation()
+            await candidate.connector.disconnect()
+            await recordNetworkFailure(of: candidate.kind, error: underlying)
             return
         }
-        let probeFailure = error as? EndpointProbeFailure
-        let underlying = probeFailure?.underlying ?? error
-        guard isTransportFailure(underlying) else { throw underlying }
-        let generation = await runtime.routeGeneration()
-        let hasCurrentProbeFailure = probeFailure?.generation == generation
-            && probeFailure?.selectionRevision == selectionRevision
-        if !hasCurrentProbeFailure {
-            guard await canFailOver(after: underlying, at: index) else { throw underlying }
+        if candidate.kind == .localAddress, hasAlternative {
+            if isStalledHandshake(error) {
+                await noteLocalHandshakeStall(at: index, error: error)
+                return
+            }
+            // Another caller's handshake deadline tears down a login this
+            // caller had joined; that cancellation is its verdict, not ours.
+            let nsError = error as NSError
+            if error is CancellationError
+                || (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled),
+               await runtime.isLocalRouteBackedOff(for: sourceID) {
+                return
+            }
         }
+        guard isTransportFailure(error) else { throw error }
         try Task.checkCancellation()
+        await candidate.connector.disconnect()
+        if hasAlternative {
+            let failure = error as NSError
+            plog("Source route handshake failed; trying next route source=\(sourceID.prefix(8)) kind=\(candidate.kind.rawValue) error=\(failure.domain)/\(failure.code)")
+            // Remote routes: only forget this route as the active one. Their
+            // ordering is not throttled by a cooldown.
+            await runtime.recordFailure(
+                of: candidate.kind,
+                for: sourceID,
+                reason: SourceRouteFailureReason.classify(error)
+            )
+        }
+    }
+
+    private func noteLocalHandshakeStall(at index: Int, error: Error) async {
+        let interval = await runtime.recordLocalHandshakeFailure(for: sourceID)
         await candidates[index].connector.disconnect()
-        await recordNetworkFailure(of: candidates[index].kind, error: underlying)
+        let failure = error as NSError
+        let reason = "\(failure.domain)/\(failure.code)"
+        plog("Source local handshake failed; using alternative route source=\(sourceID.prefix(8)) reason=\(reason) backoff=\(Int(interval))s")
+    }
+
+    /// A connector's own timeout, a dropped connection, a TLS failure or a
+    /// transport error during the handshake.
+    private func isStalledHandshake(_ error: Error) -> Bool {
+        guard !Task.isCancelled else { return false }
+        if let sourceError = error as? SourceError, case .timeout = sourceError { return true }
+        if error is FnMusicSource.LoginTimeoutError { return true }
+        return isTransportFailure(error) || SourceNetworkFailurePolicy.isStalledHandshake(error)
     }
 
     /// A task-group timeout waits for a non-cooperative losing child before it
@@ -3339,6 +3407,10 @@ final class SourceManager {
         })
         var connections: [SourceDiagnosticConnectionResult] = []
         var wasCancelled = false
+        var lastFailure: (any Error)?
+        // A TCP answer is weak evidence on a tunnelled path: a VPN or proxy in
+        // TUN mode can complete that handshake on the device itself.
+        let pathCondition = await SourceConnectionRuntime.shared.pathCondition()
 
         func publish() async {
             onProgress(progress)
@@ -3369,6 +3441,7 @@ final class SourceManager {
                 try Task.checkCancellation()
                 result = completed
             } catch {
+                lastFailure = error
                 wasCancelled = OperationCancellationPolicy.isCancellation(error)
                 result = wasCancelled
                     ? SourceDiagnosticCheck(status: .skipped, title: title, message: String(localized: "source_diag_cancelled"))
@@ -3400,17 +3473,22 @@ final class SourceManager {
             }
             func title(_ stage: String) -> String { "\(routeTitle) · \(stage)" }
             var available = configurationPassed
+            var reachabilityCheckIndex: Int?
             if let endpoint = candidate?.endpoint {
                 let stageTitle = title(String(localized: "source_diag_reachability_title"))
+                let passedMessage = String(localized: pathCondition.usesTunnel
+                    ? "source_diag_reachability_ok_tunnel" : "source_diag_reachability_ok")
                 // Reachability remains useful even when the saved credential is missing.
                 let reachable = await perform(stageTitle) {
                     try await endpointProbe(endpoint)
                     return SourceDiagnosticCheck(
-                        status: .passed, title: stageTitle, message: String(localized: "source_diag_reachability_ok")
+                        status: .passed, title: stageTitle, message: passedMessage
                     )
                 }
+                if reachable { reachabilityCheckIndex = progress.checks.count - 1 }
                 available = available && reachable
             }
+            lastFailure = nil
             if wasCancelled || Task.isCancelled { wasCancelled = true; break }
 
             let loginTitle = title(String(localized: "source_diag_login_title"))
@@ -3456,6 +3534,23 @@ final class SourceManager {
                     }
                 } else if !wasCancelled && !Task.isCancelled {
                     await skip(loginTitle)
+                }
+                // The port answered but the service behind it never did. Say
+                // so on the reachability row instead of leaving it green.
+                if !available, !wasCancelled, !Task.isCancelled,
+                   candidate?.kind == .localAddress,
+                   let index = reachabilityCheckIndex,
+                   let failure = lastFailure,
+                   Self.isStalledDiagnosticHandshake(failure) {
+                    let check = progress.checks[index]
+                    progress.checks[index] = SourceDiagnosticCheck(
+                        id: check.id,
+                        status: .warning,
+                        title: check.title,
+                        message: String(localized: "source_diag_reachability_unverified"),
+                        suggestion: String(localized: "source_diag_reachability_unverified_suggestion")
+                    )
+                    await publish()
                 }
             } else {
                 connector = nil
@@ -3504,6 +3599,14 @@ final class SourceManager {
             source: source, startedAt: startedAt, checks: progress.checks,
             wasCancelled: wasCancelled || Task.isCancelled, connections: connections
         )
+    }
+
+    /// A login or relay resolution that timed out, dropped or failed TLS after
+    /// the port had answered.
+    nonisolated static func isStalledDiagnosticHandshake(_ error: any Error) -> Bool {
+        if let sourceError = error as? SourceError, case .timeout = sourceError { return true }
+        if error is FnMusicSource.LoginTimeoutError { return true }
+        return SourceNetworkFailurePolicy.isStalledHandshake(error)
     }
 
     func diagnose(source: MusicSource, directories explicitDirectories: [String]? = nil) async -> SourceDiagnosticReport {
@@ -3687,6 +3790,12 @@ final class SourceManager {
             connectorConstructionSignatures.removeValue(forKey: sourceID)
         }
         guard disconnect else { return }
+        // A routed connector is shared by every caller of this source, and a
+        // failed connect may only be the loser of another caller's handshake
+        // deadline. The router already disconnects each route it abandons;
+        // disconnecting the whole router here cancelled the fallback login a
+        // concurrent playback request was still waiting on.
+        if connector is any RoutedConnectorProxy { return }
         retireConnectorAsynchronously(connector)
     }
 
@@ -10922,8 +11031,16 @@ final class SourceManager {
         let candidates = source.connectionCandidates.sorted { lhs, rhs in
             lhs.kind == preferredKind && rhs.kind != preferredKind
         }
+        // A private address whose handshake keeps failing on this path does
+        // not count as reachable just because something answers its port.
+        let localRouteBackedOff = await SourceConnectionRuntime.shared
+            .isLocalRouteBackedOff(for: source.id)
         let unavailable = await SourceNetworkFailurePolicy.allEndpointsAreUnreachable(
-            candidates.map(\.endpoint), probe: probe
+            SourceNetworkFailurePolicy.availabilityEndpoints(
+                candidates,
+                localRouteBackedOff: localRouteBackedOff
+            ),
+            probe: probe
         )
         guard !Task.isCancelled,
               NetworkMonitor.shared.pathGeneration == networkGeneration,
@@ -11157,8 +11274,13 @@ final class SourceManager {
         // A failed request may use a CDN or an older active route. Test all
         // configured routes before parking the entire source, without changing
         // the route selected by the connector.
+        let localRouteBackedOff = await SourceConnectionRuntime.shared
+            .isLocalRouteBackedOff(for: source.id)
         return await SourceNetworkFailurePolicy.allEndpointsAreUnreachable(
-            source.connectionCandidates.map(\.endpoint)
+            SourceNetworkFailurePolicy.availabilityEndpoints(
+                source.connectionCandidates,
+                localRouteBackedOff: localRouteBackedOff
+            )
         )
     }
 

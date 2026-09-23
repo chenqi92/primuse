@@ -4053,6 +4053,9 @@
 
 "source_diag_reachability_title" = "Address reachability";
 "source_diag_reachability_ok" = "The host and port are reachable.";
+"source_diag_reachability_ok_tunnel" = "The host and port answered through a tunnel or proxy; sign-in still has to confirm it.";
+"source_diag_reachability_unverified" = "The TCP handshake succeeded but the service never answered. A VPN or proxy may have taken over this address, or it is not this device.";
+"source_diag_reachability_unverified_suggestion" = "Away from home, use the public address or relay. If a VPN or proxy (including TUN mode) is on, route this private range directly or turn it off and try again.";
 "source_diag_login_title" = "Service sign-in";
 "source_diag_library_title" = "Library access";
 "source_diag_waiting" = "Checking…";

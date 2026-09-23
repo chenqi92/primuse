@@ -4275,6 +4275,9 @@
 
 "source_diag_reachability_title" = "Erreichbarkeit";
 "source_diag_reachability_ok" = "Host und Port sind erreichbar.";
+"source_diag_reachability_ok_tunnel" = "Host und Port haben über einen Tunnel oder Proxy geantwortet; die Anmeldung muss das noch bestätigen.";
+"source_diag_reachability_unverified" = "Der TCP-Handshake war erfolgreich, aber der Dienst antwortet nicht. Ein VPN oder Proxy hat diese Adresse übernommen, oder es ist nicht dieses Gerät.";
+"source_diag_reachability_unverified_suggestion" = "Unterwegs die öffentliche Adresse oder das Relay verwenden. Ist ein VPN oder Proxy (auch im TUN-Modus) aktiv, diesen privaten Bereich direkt leiten oder es kurz ausschalten.";
 "source_diag_login_title" = "Dienstanmeldung";
 "source_diag_library_title" = "Mediathekszugriff";
 "source_diag_waiting" = "Wird geprüft…";

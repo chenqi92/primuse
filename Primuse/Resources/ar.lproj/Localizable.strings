@@ -4181,6 +4181,9 @@
 
 "source_diag_reachability_title" = "إمكانية الوصول إلى العنوان";
 "source_diag_reachability_ok" = "يمكن الوصول إلى المضيف والمنفذ.";
+"source_diag_reachability_ok_tunnel" = "استجاب المضيف والمنفذ عبر نفق أو وكيل؛ ما زال تسجيل الدخول بحاجة إلى تأكيد ذلك.";
+"source_diag_reachability_unverified" = "نجحت مصافحة TCP لكن الخدمة لا تستجيب. ربما استولت شبكة VPN أو وكيل على هذا العنوان، أو أنه ليس هذا الجهاز.";
+"source_diag_reachability_unverified_suggestion" = "خارج المنزل استخدم العنوان العام أو المرحّل. إذا كانت شبكة VPN أو وكيل (بما في ذلك وضع TUN) قيد التشغيل، فاجعل هذا النطاق الخاص اتصالًا مباشرًا أو أوقفه مؤقتًا ثم أعد المحاولة.";
 "source_diag_login_title" = "تسجيل الدخول إلى الخدمة";
 "source_diag_library_title" = "الوصول إلى المكتبة";
 "source_diag_waiting" = "جارٍ الفحص…";

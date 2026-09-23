@@ -4252,6 +4252,9 @@
 
 "source_diag_reachability_title" = "位址連通性";
 "source_diag_reachability_ok" = "主機和連接埠可以連線。";
+"source_diag_reachability_ok_tunnel" = "主機和連接埠有回應，但這是經通道/代理完成的交握，仍需登入驗證。";
+"source_diag_reachability_unverified" = "TCP 交握成功但服務沒有回應，可能被 VPN/代理接管，或者這個位址上不是這台裝置。";
+"source_diag_reachability_unverified_suggestion" = "在外網時請改用公網位址或中繼；如果開著 VPN/代理（含 TUN 模式），把這個內網網段設為直連或暫時關閉後再試。";
 "source_diag_login_title" = "服務登入";
 "source_diag_library_title" = "曲庫讀取";
 "source_diag_waiting" = "正在檢查…";

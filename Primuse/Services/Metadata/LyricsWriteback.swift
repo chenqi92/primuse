@@ -337,8 +337,8 @@ enum LyricsWriteback {
                 return .sidecar(preflight)
             } catch {
                 return SourceWriteProbeFailure.isTransient(error)
-                    ? .temporarilyUnavailable(error.localizedDescription)
-                    : .unavailable(error.localizedDescription)
+                    ? .temporarilyUnavailable(SourceErrorPresentation.userFacingDescription(error))
+                    : .unavailable(SourceErrorPresentation.userFacingDescription(error))
             }
         }
 
@@ -361,8 +361,8 @@ enum LyricsWriteback {
                 return .localOnly(reason: nil)
             } catch {
                 return SourceWriteProbeFailure.isTransient(error)
-                    ? .temporarilyUnavailable(error.localizedDescription)
-                    : .unavailable(error.localizedDescription)
+                    ? .temporarilyUnavailable(SourceErrorPresentation.userFacingDescription(error))
+                    : .unavailable(SourceErrorPresentation.userFacingDescription(error))
             }
         }
 
@@ -1038,7 +1038,7 @@ enum LyricsWriteback {
                 }
                 return nil
             } catch {
-                return error.localizedDescription
+                return SourceErrorPresentation.userFacingDescription(error)
             }
         case .mediaServer:
             let result = await sourceManager.writeScrapedMetadataToMediaServer(
@@ -1098,7 +1098,7 @@ enum LyricsWriteback {
                 }
                 return nil
             } catch {
-                return error.localizedDescription
+                return SourceErrorPresentation.userFacingDescription(error)
             }
         case .mediaServer:
             let result = await sourceManager.removeLyricsFromMediaServer(for: song)

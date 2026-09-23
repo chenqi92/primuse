@@ -4368,6 +4368,9 @@
 
 "source_diag_reachability_title" = "地址连通性";
 "source_diag_reachability_ok" = "主机和端口可以连接。";
+"source_diag_reachability_ok_tunnel" = "主机和端口有应答，但这是经隧道/代理完成的握手，还需登录验证。";
+"source_diag_reachability_unverified" = "TCP 握手成功但服务无响应，可能被 VPN/代理接管，或者这个地址上不是这台设备。";
+"source_diag_reachability_unverified_suggestion" = "在外网时请改用公网地址或中继；如果开着 VPN/代理（含 TUN 模式），把这个内网网段设为直连或暂时关闭后再试。";
 "source_diag_login_title" = "服务登录";
 "source_diag_library_title" = "曲库读取";
 "source_diag_waiting" = "正在检查…";

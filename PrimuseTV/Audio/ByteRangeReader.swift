@@ -55,6 +55,22 @@ enum TVSourceConnectionFailoverPolicy {
         return SourceNetworkFailurePolicy.isNetworkFailure(error)
     }
 
+    /// A private route that has not yet worked on this path and whose
+    /// connection stalled, dropped or failed TLS moves on to a configured
+    /// alternative without waiting for a TCP probe's verdict: a VPN or proxy
+    /// in TUN mode completes that probe on the device itself. The caller
+    /// records the shared cooldown so every reader skips the route for a
+    /// while (`SourceConnectionRuntime.recordLocalHandshakeFailure`).
+    static func abandonsStalledPrivateRoute(
+        after error: Error,
+        kind: SourceConnectionCandidateKind,
+        hasAlternative: Bool,
+        routeEstablished: Bool
+    ) -> Bool {
+        guard !Task.isCancelled, kind == .localAddress, hasAlternative, !routeEstablished else { return false }
+        return SourceNetworkFailurePolicy.isStalledHandshake(error)
+    }
+
     static func confirmsUnreachableEndpoint(
         after error: Error,
         endpoint: SourceConnectionEndpoint?,
@@ -181,6 +197,16 @@ actor TVRoutedByteRangeReader: ByteRangeReader {
                 return result
             } catch {
                 lastError = error
+                if TVSourceConnectionFailoverPolicy.abandonsStalledPrivateRoute(
+                    after: error,
+                    kind: candidates[index].kind,
+                    hasAlternative: candidates.count > 1,
+                    routeEstablished: activeIndex == index
+                ) {
+                    await candidates[index].reader.close()
+                    await SourceConnectionRuntime.shared.recordLocalHandshakeFailure(for: sourceID)
+                    continue
+                }
                 guard await TVSourceConnectionFailoverPolicy.confirmsUnreachableEndpoint(
                     after: error, endpoint: candidates[index].endpoint, probe: endpointProbe
                 ) else {

@@ -4181,6 +4181,9 @@
 
 "source_diag_reachability_title" = "पते की पहुँच";
 "source_diag_reachability_ok" = "होस्ट और पोर्ट तक पहुँचा जा सकता है।";
+"source_diag_reachability_ok_tunnel" = "होस्ट और पोर्ट ने टनल या प्रॉक्सी के ज़रिए जवाब दिया; साइन-इन से अभी इसकी पुष्टि होनी है।";
+"source_diag_reachability_unverified" = "TCP हैंडशेक सफल रहा, पर सेवा जवाब नहीं दे रही। हो सकता है VPN या प्रॉक्सी ने यह पता ले लिया हो, या यह यह डिवाइस न हो।";
+"source_diag_reachability_unverified_suggestion" = "घर से बाहर सार्वजनिक पता या रिले इस्तेमाल करें। अगर VPN या प्रॉक्सी (TUN मोड सहित) चालू है, तो इस निजी रेंज को सीधे जोड़ें या उसे कुछ देर बंद करके फिर आज़माएँ।";
 "source_diag_login_title" = "सेवा में साइन इन";
 "source_diag_library_title" = "लाइब्रेरी तक पहुँच";
 "source_diag_waiting" = "जाँच जारी है…";

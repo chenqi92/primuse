@@ -4276,6 +4276,9 @@
 
 "source_diag_reachability_title" = "アドレスへの接続";
 "source_diag_reachability_ok" = "ホストとポートに接続できます。";
+"source_diag_reachability_ok_tunnel" = "ホストとポートは応答しましたが、トンネル／プロキシ経由のハンドシェイクです。ログインでの確認が必要です。";
+"source_diag_reachability_unverified" = "TCP ハンドシェイクは成功しましたが、サービスが応答しません。VPN／プロキシがこのアドレスを引き受けているか、別のデバイスの可能性があります。";
+"source_diag_reachability_unverified_suggestion" = "外出先では公開アドレスまたはリレーを使ってください。VPN／プロキシ（TUN モードを含む）が有効なら、このプライベート範囲を直接接続にするか、一時的にオフにして再試行してください。";
 "source_diag_login_title" = "サービスへのログイン";
 "source_diag_library_title" = "ライブラリへのアクセス";
 "source_diag_waiting" = "確認中…";

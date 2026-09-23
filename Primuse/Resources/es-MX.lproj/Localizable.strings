@@ -4181,6 +4181,9 @@
 
 "source_diag_reachability_title" = "Accesibilidad de la dirección";
 "source_diag_reachability_ok" = "El servidor y el puerto son accesibles.";
+"source_diag_reachability_ok_tunnel" = "El servidor y el puerto respondieron a través de un túnel o proxy; el inicio de sesión aún debe confirmarlo.";
+"source_diag_reachability_unverified" = "El enlace TCP funcionó, pero el servicio no responde. Una VPN o un proxy pudo tomar esta dirección, o no es este dispositivo.";
+"source_diag_reachability_unverified_suggestion" = "Fuera de casa, usa la dirección pública o el relé. Si hay una VPN o un proxy activo (incluido el modo TUN), deja este rango privado en conexión directa o desactívalo e inténtalo de nuevo.";
 "source_diag_login_title" = "Inicio de sesión";
 "source_diag_library_title" = "Acceso a la biblioteca";
 "source_diag_waiting" = "Comprobando…";

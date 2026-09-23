@@ -4275,6 +4275,9 @@
 
 "source_diag_reachability_title" = "주소 연결 확인";
 "source_diag_reachability_ok" = "호스트와 포트에 연결할 수 있습니다.";
+"source_diag_reachability_ok_tunnel" = "호스트와 포트가 응답했지만 터널/프록시를 통한 핸드셰이크입니다. 로그인으로 확인해야 합니다.";
+"source_diag_reachability_unverified" = "TCP 핸드셰이크는 성공했지만 서비스가 응답하지 않습니다. VPN/프록시가 이 주소를 가로챘거나 다른 기기일 수 있습니다.";
+"source_diag_reachability_unverified_suggestion" = "외부에서는 공개 주소나 릴레이를 사용하세요. VPN/프록시(TUN 모드 포함)가 켜져 있다면 이 사설 대역을 직접 연결로 두거나 잠시 끄고 다시 시도하세요.";
 "source_diag_login_title" = "서비스 로그인";
 "source_diag_library_title" = "보관함 접근";
 "source_diag_waiting" = "확인 중…";

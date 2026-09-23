@@ -4181,6 +4181,9 @@
 
 "source_diag_reachability_title" = "Adres erişilebilirliği";
 "source_diag_reachability_ok" = "Sunucuya ve bağlantı noktasına erişilebiliyor.";
+"source_diag_reachability_ok_tunnel" = "Sunucu ve bağlantı noktası bir tünel veya proxy üzerinden yanıt verdi; oturum açmanın bunu doğrulaması gerekiyor.";
+"source_diag_reachability_unverified" = "TCP el sıkışması başarılı oldu ancak hizmet yanıt vermiyor. Bu adresi bir VPN veya proxy devralmış ya da bu cihaz olmayabilir.";
+"source_diag_reachability_unverified_suggestion" = "Ev dışındayken genel adresi veya aktarıcıyı kullanın. VPN veya proxy (TUN modu dahil) açıksa bu özel aralığı doğrudan yönlendirin ya da geçici olarak kapatıp yeniden deneyin.";
 "source_diag_login_title" = "Hizmete giriş";
 "source_diag_library_title" = "Arşive erişim";
 "source_diag_waiting" = "Denetleniyor…";

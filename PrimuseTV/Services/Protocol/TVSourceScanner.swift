@@ -110,6 +110,15 @@ private actor TVRoutedDirectoryLister: TVDirectoryLister {
                 return entries
             } catch {
                 lastError = error
+                if TVSourceConnectionFailoverPolicy.abandonsStalledPrivateRoute(
+                    after: error,
+                    kind: candidates[index].kind,
+                    hasAlternative: candidates.count > 1,
+                    routeEstablished: activeIndex == index
+                ) {
+                    await SourceConnectionRuntime.shared.recordLocalHandshakeFailure(for: sourceID)
+                    continue
+                }
                 guard await TVSourceConnectionFailoverPolicy.confirmsUnreachableEndpoint(
                     after: error, endpoint: candidates[index].endpoint
                 ) else {
@@ -2239,6 +2248,17 @@ final class TVSourceScanner {
             } catch {
                 lastError = error
                 if error is TVScanPipelineError { throw error }
+                let lanProven = await SourceConnectionRuntime.shared.activeKind(for: source.id) == .localAddress
+                if TVSourceConnectionFailoverPolicy.abandonsStalledPrivateRoute(
+                    after: error,
+                    kind: candidate.kind,
+                    hasAlternative: candidates.count > 1,
+                    routeEstablished: lanProven
+                ) {
+                    invalidateFnMusicClient(sourceID: source.id)
+                    await SourceConnectionRuntime.shared.recordLocalHandshakeFailure(for: source.id)
+                    continue
+                }
                 guard await TVSourceConnectionFailoverPolicy.confirmsUnreachableEndpoint(
                     after: error, endpoint: candidate.endpoint
                 ) else {

@@ -4181,6 +4181,9 @@
 
 "source_diag_reachability_title" = "Доступность адреса";
 "source_diag_reachability_ok" = "Узел и порт доступны.";
+"source_diag_reachability_ok_tunnel" = "Узел и порт ответили через туннель или прокси; это ещё должен подтвердить вход.";
+"source_diag_reachability_unverified" = "TCP-соединение установлено, но служба не отвечает. Возможно, этот адрес перехватил VPN или прокси, либо это другое устройство.";
+"source_diag_reachability_unverified_suggestion" = "Вне дома используйте публичный адрес или ретранслятор. Если включён VPN или прокси (в том числе в режиме TUN), направьте этот частный диапазон напрямую или временно отключите его.";
 "source_diag_login_title" = "Вход в службу";
 "source_diag_library_title" = "Доступ к медиатеке";
 "source_diag_waiting" = "Проверка…";

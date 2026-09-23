@@ -4181,6 +4181,9 @@
 
 "source_diag_reachability_title" = "Dostępność adresu";
 "source_diag_reachability_ok" = "Host i port są dostępne.";
+"source_diag_reachability_ok_tunnel" = "Host i port odpowiedziały przez tunel lub proxy; logowanie musi to jeszcze potwierdzić.";
+"source_diag_reachability_unverified" = "Uzgadnianie TCP się powiodło, ale usługa nie odpowiada. VPN lub proxy mogło przejąć ten adres albo to nie jest to urządzenie.";
+"source_diag_reachability_unverified_suggestion" = "Poza domem użyj adresu publicznego lub przekaźnika. Jeśli działa VPN lub proxy (także w trybie TUN), kieruj ten prywatny zakres bezpośrednio albo tymczasowo je wyłącz.";
 "source_diag_login_title" = "Logowanie do usługi";
 "source_diag_library_title" = "Dostęp do biblioteki";
 "source_diag_waiting" = "Sprawdzanie…";

@@ -4181,6 +4181,9 @@
 
 "source_diag_reachability_title" = "Доступність адреси";
 "source_diag_reachability_ok" = "Вузол і порт доступні.";
+"source_diag_reachability_ok_tunnel" = "Вузол і порт відповіли через тунель або проксі; це ще має підтвердити вхід.";
+"source_diag_reachability_unverified" = "TCP-з’єднання встановлено, але служба не відповідає. Можливо, цю адресу перехопив VPN або проксі, або це інший пристрій.";
+"source_diag_reachability_unverified_suggestion" = "Поза домом використовуйте публічну адресу або ретранслятор. Якщо ввімкнено VPN чи проксі (зокрема в режимі TUN), спрямуйте цей приватний діапазон напряму або тимчасово вимкніть його.";
 "source_diag_login_title" = "Вхід до служби";
 "source_diag_library_title" = "Доступ до медіатеки";
 "source_diag_waiting" = "Перевірка…";

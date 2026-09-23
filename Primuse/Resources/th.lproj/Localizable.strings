@@ -4181,6 +4181,9 @@
 
 "source_diag_reachability_title" = "การเข้าถึงที่อยู่";
 "source_diag_reachability_ok" = "สามารถเข้าถึงโฮสต์และพอร์ตได้";
+"source_diag_reachability_ok_tunnel" = "โฮสต์และพอร์ตตอบกลับผ่านอุโมงค์หรือพร็อกซี ยังต้องยืนยันด้วยการเข้าสู่ระบบ";
+"source_diag_reachability_unverified" = "การจับมือ TCP สำเร็จแต่บริการไม่ตอบสนอง VPN หรือพร็อกซีอาจรับที่อยู่นี้ไว้ หรือไม่ใช่อุปกรณ์เครื่องนี้";
+"source_diag_reachability_unverified_suggestion" = "เมื่ออยู่นอกบ้านให้ใช้ที่อยู่สาธารณะหรือรีเลย์ หากเปิด VPN หรือพร็อกซี (รวมถึงโหมด TUN) ให้ตั้งช่วงที่อยู่ภายในนี้เป็นการเชื่อมต่อโดยตรงหรือปิดชั่วคราวแล้วลองอีกครั้ง";
 "source_diag_login_title" = "เข้าสู่ระบบบริการ";
 "source_diag_library_title" = "เข้าถึงคลังเพลง";
 "source_diag_waiting" = "กำลังตรวจสอบ…";

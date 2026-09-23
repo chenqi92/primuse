@@ -4275,6 +4275,9 @@
 
 "source_diag_reachability_title" = "Accessibilité de l’adresse";
 "source_diag_reachability_ok" = "L’hôte et le port sont accessibles.";
+"source_diag_reachability_ok_tunnel" = "L’hôte et le port ont répondu via un tunnel ou un proxy ; la connexion doit encore le confirmer.";
+"source_diag_reachability_unverified" = "La poignée de main TCP a réussi mais le service ne répond pas. Un VPN ou un proxy a peut-être pris cette adresse, ou ce n’est pas cet appareil.";
+"source_diag_reachability_unverified_suggestion" = "Hors de chez vous, utilisez l’adresse publique ou le relais. Si un VPN ou un proxy (y compris en mode TUN) est actif, faites passer cette plage privée en direct ou désactivez-le puis réessayez.";
 "source_diag_login_title" = "Connexion au service";
 "source_diag_library_title" = "Accès à la bibliothèque";
 "source_diag_waiting" = "Vérification…";

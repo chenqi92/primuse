@@ -21,7 +21,9 @@ final class SourceConnectionRouterTests: XCTestCase {
             XCTAssertEqual(localConnections, 1, "Do not repeat the failed LAN handshake on every read")
             let preferred = await fixture.runtime.preferredKind(for: fixture.id,
                 availableKinds: [.localAddress, .publicAddress], prefersLocalNetwork: true)
-            XCTAssertEqual(preferred, .localAddress, "Protocol failure must not mark the endpoint unreachable")
+            XCTAssertEqual(preferred, .publicAddress, "Every connector of the source shares the LAN cooldown")
+            let backedOff = await fixture.runtime.isLocalRouteBackedOff(for: fixture.id)
+            XCTAssertTrue(backedOff)
             await fixture.runtime.observeNetworkPath(prefersLocalNetwork: true, pathChanged: true)
             let recovered = try await fixture.read()
             XCTAssertEqual(recovered, "lan", "A network change should allow immediate LAN recovery")
@@ -126,7 +128,7 @@ final class SourceConnectionRouterTests: XCTestCase {
     }
 
     func testHandshakeBusinessFailureDoesNotTryPublicAddress() async throws {
-        let errors: [any Error] = [SourceError.authenticationFailed, SourceError.timeout,
+        let errors: [any Error] = [SourceError.authenticationFailed,
                                   SourceConnectionTerminalError(message: "trust required"), CancellationError()]
         for error in errors {
             let fixture = Fixture()
@@ -137,24 +139,30 @@ final class SourceConnectionRouterTests: XCTestCase {
             } catch {}
             let remoteConnections = await fixture.remote.connections
             XCTAssertEqual(remoteConnections, 0)
-            if let sourceError = error as? SourceError, case .timeout = sourceError {
-                let disconnects = await fixture.local.disconnections
-                XCTAssertEqual(disconnects, 1)
-            }
             let preferred = await fixture.runtime.preferredKind(for: fixture.id,
                 availableKinds: [.localAddress, .publicAddress], prefersLocalNetwork: true)
             XCTAssertEqual(preferred, .localAddress)
         }
     }
 
-    func testHandshakeTimeoutDoesNotRetireReachableEndpoint() async throws {
-        let fixture = Fixture()
-        await fixture.local.failNextConnect(URLError(.timedOut))
-        do { _ = try await fixture.read(); XCTFail("Expected handshake timeout") } catch {}
-        let result = try await fixture.read()
-        XCTAssertEqual(result, "lan")
-        let publicConnections = await fixture.remote.connections
-        XCTAssertEqual(publicConnections, 0)
+    // Pending Apple-side run: the router target links NIO and cannot build on Linux.
+    /// A VPN/proxy in TUN mode answers the private TCP probe on the device, then
+    /// the connector's own login times out. That is a handshake failure, not a
+    /// replayable request: the configured public route must still be tried.
+    func testConnectorTimeoutDuringLocalHandshakeTriesPublicDespiteReachableTCP() async throws {
+        for error: any Error in [URLError(.timedOut), SourceError.timeout] {
+            let fixture = Fixture()
+            await fixture.local.failNextConnect(error)
+            let result = try await fixture.read()
+            XCTAssertEqual(result, "wan")
+            let next = try await fixture.read()
+            XCTAssertEqual(next, "wan")
+            let localConnections = await fixture.local.connections
+            XCTAssertEqual(localConnections, 1, "The LAN cooldown keeps later reads on the public route")
+            let backedOff = await fixture.runtime.isLocalRouteBackedOff(for: fixture.id)
+            XCTAssertTrue(backedOff)
+            XCTAssertEqual(fixture.events.values, [.publicAddress])
+        }
     }
 
     func testRemoteHandshakeDeadlineTriesLANWithoutPublishingFailedRoute() async throws {
@@ -174,18 +182,76 @@ final class SourceConnectionRouterTests: XCTestCase {
         }
     }
 
-    func testLocalHandshakeDeadlineDoesNotQuarantineReachableLAN() async throws {
+    // Pending Apple-side run.
+    func testLocalHandshakeDeadlineCooldownIsSharedByEveryConnector() async throws {
         let fixture = Fixture(deadline: 0.1)
         await fixture.local.delayNextConnect(5)
         let fallback = try await fixture.read()
         XCTAssertEqual(fallback, "wan")
         let retry = try await fixture.read()
-        XCTAssertEqual(retry, "lan")
+        XCTAssertEqual(retry, "wan", "The next read must not handshake the LAN again")
         let localConnections = await fixture.local.connections
         let remoteConnections = await fixture.remote.connections
-        XCTAssertEqual(localConnections, 2)
+        XCTAssertEqual(localConnections, 1)
         XCTAssertEqual(remoteConnections, 1)
-        XCTAssertEqual(fixture.events.values, [.publicAddress, .localAddress])
+        XCTAssertEqual(fixture.events.values, [.publicAddress])
+
+        // A write-back or scan connector is a separate router over the same
+        // runtime; it goes straight to the public route too.
+        let sibling = fixture.makeSiblingRouter()
+        let siblingValue = try await sibling.router.withRead { try await ($0 as! RouterTestConnector).read() }
+        XCTAssertEqual(siblingValue, "wan")
+        let siblingLocalConnections = await sibling.local.connections
+        XCTAssertEqual(siblingLocalConnections, 0)
+
+        // A real network change gives the LAN an immediate new chance.
+        await fixture.runtime.observeNetworkPath(prefersLocalNetwork: true, pathChanged: true)
+        let recovered = try await fixture.read()
+        XCTAssertEqual(recovered, "lan")
+    }
+
+    // Pending Apple-side run.
+    /// At home without NAT hairpinning the public address never answers; a LAN
+    /// cooldown must not push every request through that dead route first.
+    func testBackedOffLANStillLeadsWhenNoAlternativeAnswers() async throws {
+        let fixture = Fixture(deadline: 0.1)
+        await fixture.local.delayNextConnect(5)
+        let fallback = try await fixture.read()
+        XCTAssertEqual(fallback, "wan")
+        await fixture.probe.setWANReachable(false)
+        let sibling = fixture.makeSiblingRouter()
+        let value = try await sibling.router.withRead { try await ($0 as! RouterTestConnector).read() }
+        XCTAssertEqual(value, "lan")
+        let siblingRemoteConnections = await sibling.remote.connections
+        XCTAssertEqual(siblingRemoteConnections, 0)
+        let backedOff = await fixture.runtime.isLocalRouteBackedOff(for: fixture.id)
+        XCTAssertFalse(backedOff, "A completed LAN handshake ends the cooldown")
+    }
+
+    // Pending Apple-side run.
+    /// A scan joined the playback request's LAN login. When the playback
+    /// request's deadline tears that login down, the scan must fall back too
+    /// instead of failing — and never cancel the playback's public login.
+    func testCallerJoinedToAnAbandonedLANLoginFallsBackToo() async throws {
+        let runtime = SourceConnectionRuntime()
+        let id = UUID().uuidString
+        let local = JoiningLoginConnector()
+        let remote = RouterTestConnector(sourceID: "wan")
+        let router = SourceConnectionRouter(sourceID: id, candidates: [
+            .init(kind: .localAddress, endpoint: .init(host: "lan.invalid", port: 445, useSsl: false), connector: local),
+            .init(kind: .publicAddress, endpoint: .init(host: "wan.invalid", port: 445, useSsl: false), connector: remote)
+        ], runtime: runtime, endpointProbe: { _ in }, handshakeTimeout: { kind, _ in
+            kind == .localAddress ? 0.3 : 5
+        }) { _ in }
+        let first = Task { try await router.withRead { try await ($0 as! RouterTestConnector).read() } }
+        await local.waitForLogin()
+        let joined = Task { try await router.withRead { try await ($0 as! RouterTestConnector).read() } }
+        let firstValue = try await first.value
+        let joinedValue = try await joined.value
+        XCTAssertEqual(firstValue, "wan")
+        XCTAssertEqual(joinedValue, "wan")
+        let remoteDisconnects = await remote.disconnections
+        XCTAssertEqual(remoteDisconnects, 0)
     }
 
     func testFailbackDeadlineKeepsTheWorkingRouteAlive() async throws {
@@ -451,6 +517,16 @@ final class SourceConnectionRouterTests: XCTestCase {
     func read() async throws -> String {
         try await router.withRead { try await ($0 as! RouterTestConnector).read() }
     }
+
+    func makeSiblingRouter() -> (router: SourceConnectionRouter, local: RouterTestConnector, remote: RouterTestConnector) {
+        let local = RouterTestConnector(sourceID: "lan")
+        let remote = RouterTestConnector(sourceID: "wan")
+        let router = SourceConnectionRouter(sourceID: id, candidates: [
+            .init(kind: .localAddress, endpoint: .init(host: "lan.invalid", port: 445, useSsl: false), connector: local),
+            .init(kind: remoteKind, endpoint: remoteKind == .vendorRemote ? nil : .init(host: "wan.invalid", port: 445, useSsl: false), connector: remote)
+        ], runtime: runtime, endpointProbe: { [probe] in try await probe.check($0) }) { _ in }
+        return (router, local, remote)
+    }
 }
 
 private actor RouterTestConnector: MusicSourceConnector {
@@ -479,6 +555,38 @@ private actor RouterTestConnector: MusicSourceConnector {
         if let error = readError { readError = nil; lastError = error; throw error }
         return sourceID
     }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
+    func localURL(for path: String) async throws -> URL { URL(fileURLWithPath: path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> { .init { $0.finish() } }
+}
+
+/// Models a connector whose concurrent `connect()` calls join one in-flight
+/// login, and whose `disconnect()` cancels it for every waiter.
+private actor JoiningLoginConnector: MusicSourceConnector {
+    nonisolated let sourceID = "lan"
+    private var login: Task<Void, Error>?
+    private var loginObservers: [CheckedContinuation<Void, Never>] = []
+
+    func connect() async throws {
+        if login == nil {
+            login = Task { try await Task.sleep(nanoseconds: 5_000_000_000) }
+            loginObservers.forEach { $0.resume() }
+            loginObservers.removeAll()
+        }
+        try await login!.value
+    }
+
+    func waitForLogin() async {
+        if login != nil { return }
+        await withCheckedContinuation { loginObservers.append($0) }
+    }
+
+    func disconnect() async {
+        login?.cancel()
+        login = nil
+    }
+
     func listFiles(at path: String) async throws -> [RemoteFileItem] { [] }
     func localURL(for path: String) async throws -> URL { URL(fileURLWithPath: path) }
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> { .init { $0.finish() } }
