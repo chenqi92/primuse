@@ -908,7 +908,7 @@ final class ArtistNameSettingsStoreTests: XCTestCase {
 
         XCTAssertTrue(store.addSeparator("|"))
         XCTAssertFalse(store.hasUnsupportedStoredConfiguration)
-        XCTAssertEqual(store.configuration.separators, [";", "；", "|"])
+        XCTAssertEqual(store.configuration.separators, [";", "；", "/", "、", "|"])
         XCTAssertEqual(
             ArtistNameConfiguration.load(from: defaults),
             store.configuration

@@ -584,7 +584,7 @@ final class RecentlyDeletedBatchTests: XCTestCase {
         XCTAssertTrue(library.songs.isEmpty)
     }
 
-    func testOnlyWebDAVPermissionFailuresOfferDeviceLocalRemoval() throws {
+    func testDeniedFailuresOfferDeviceLocalRemovalForAnySourceType() throws {
         let webdav = MusicSource(id: "webdav-source", name: "WebDAV", type: .webdav)
         let smb = MusicSource(id: "smb-source", name: "SMB", type: .smb)
         let permissionDenied = Self.makeWebDAVSong(id: "permission", filePath: "/Music/a.flac")
@@ -616,7 +616,7 @@ final class RecentlyDeletedBatchTests: XCTestCase {
             reasons: [.permissionDenied],
             reasonsBySongID: [smbSong.id: [.permissionDenied]]
         )
-        XCTAssertFalse(smbFailure.supportsDeviceLocalRemoval)
-        XCTAssertTrue(smbFailure.deviceLocalRemovableSongs.isEmpty)
+        XCTAssertTrue(smbFailure.supportsDeviceLocalRemoval)
+        XCTAssertEqual(smbFailure.deviceLocalRemovableSongs.map(\.id), [smbSong.id])
     }
 }

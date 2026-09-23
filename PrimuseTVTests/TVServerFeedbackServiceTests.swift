@@ -185,7 +185,7 @@ final class TVServerFeedbackServiceTests: XCTestCase {
         XCTAssertTrue(TVServerFeedbackPolicy.supportsFavorite(.emby))
         XCTAssertFalse(TVServerFeedbackPolicy.supportsFavorite(.airsonic))
         XCTAssertFalse(TVServerFeedbackPolicy.supportsFavorite(.gonic))
-        XCTAssertFalse(TVServerFeedbackPolicy.supportsFavorite(.jellyfin))
+        XCTAssertTrue(TVServerFeedbackPolicy.supportsFavorite(.jellyfin))
         XCTAssertTrue(TVServerFeedbackPolicy.supportsFavorite(.fnMusic))
 
         XCTAssertTrue(TVServerFeedbackPolicy.supportsNowPlaying(.subsonic))
