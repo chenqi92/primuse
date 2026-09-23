@@ -434,7 +434,7 @@ struct HomeFolderBrowser: View {
     }
 
     private var folderList: some View {
-        List {
+        SkinList {
             if nodeID == nil, !pins.isEmpty {
                 Section {
                     ForEach(pins, id: \.self) { id in

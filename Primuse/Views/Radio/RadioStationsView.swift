@@ -812,10 +812,13 @@ struct RadioStationsView: View {
                         store.remove(id: ordered[index].id)
                     }
                 }
+                .skinListRowBackground()
             } footer: {
                 Text("radio_manage_footer")
             }
         }
+        // 多选列表用不了 SkinList,底色与行底两处手工挂上。
+        .skinPageBackground()
         #if os(iOS)
         .listStyle(.insetGrouped)
         .environment(\.editMode, .constant(.active))
@@ -1587,7 +1590,7 @@ struct RadioStationEditorView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section {
                     TextField("radio_name", text: $name)
                         .disabled(isSubscribed)

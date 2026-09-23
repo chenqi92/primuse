@@ -115,7 +115,7 @@ struct PlaylistListView: View {
             } else if isManagingPlaylists {
                 playlistManageList
             } else {
-                List {
+                SkinList {
                     if !aiSmartPlaylists.isEmpty {
                         Section {
                             ForEach(aiSmartPlaylists) { smart in
@@ -269,8 +269,11 @@ struct PlaylistListView: View {
                         .tag(playlist.id)
                         .selectionDisabled(isSystemPlaylist(playlist.id))
                 }
+                .skinListRowBackground()
             }
         }
+        // 多选列表用不了 SkinList,底色与行底两处手工挂上。
+        .skinPageBackground()
         #if os(iOS)
         .listStyle(.insetGrouped)
         .environment(\.editMode, .constant(.active))
@@ -1074,7 +1077,7 @@ struct PlaylistOrderSheet: View {
     #if !os(macOS)
     private var iosBody: some View {
         NavigationStack {
-            List {
+            SkinList {
                 ForEach(localPlaylists) { playlist in
                     HStack(spacing: 10) {
                         PlaylistArtworkView(playlist: playlist, size: 36, cornerRadius: 5)

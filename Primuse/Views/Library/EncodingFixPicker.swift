@@ -69,7 +69,7 @@ struct EncodingFixPicker: View {
     }
 
     private var fixList: some View {
-        List {
+        SkinList {
             Section {
                 ForEach(fixes) { fix in
                     Button {

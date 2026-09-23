@@ -591,7 +591,7 @@ private struct LibraryReviewCommentEditor: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section {
                     TextEditor(text: $draft)
                         .frame(minHeight: 150)

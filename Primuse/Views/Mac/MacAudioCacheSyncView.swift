@@ -782,7 +782,7 @@ struct IOSAudioCacheSyncView: View {
     @State private var previousIdleTimerDisabled = false
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 AudioCacheSyncDirectionPicker(selection: $direction)
                     .disabled(cacheSync.operation == .transferring || cacheSync.incomingTransferCount > 0)

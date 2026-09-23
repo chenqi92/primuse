@@ -1514,7 +1514,7 @@ struct SimilarSongsSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            SkinList {
                 Section {
                     seedRow
                     if !results.isEmpty {

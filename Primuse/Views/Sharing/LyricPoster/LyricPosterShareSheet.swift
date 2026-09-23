@@ -1031,7 +1031,7 @@ private struct LyricPosterLinePicker: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            SkinList {
                 Section {
                     LyricPosterLineRows(composer: composer)
                 } footer: {

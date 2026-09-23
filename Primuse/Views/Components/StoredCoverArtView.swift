@@ -884,7 +884,7 @@ struct LibraryArtworkEditorSheet: View {
     #if os(iOS)
     private var iosEditor: some View {
         NavigationStack {
-            List {
+            SkinList {
                 Section {
                     Button {
                         if library.setAutomaticArtwork(for: owner) {

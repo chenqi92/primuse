@@ -347,7 +347,7 @@ struct AddSourceView: View {
     #if os(iOS)
     private var iOSBody: some View {
         NavigationStack {
-            Form { formSections }
+            SkinForm { formSections }
             .scrollDismissesKeyboard(.interactively)
             .floatingInputPanelClearance()
             .navigationTitle(isEditing ? String(localized: "edit_source") : sourceType.displayName)

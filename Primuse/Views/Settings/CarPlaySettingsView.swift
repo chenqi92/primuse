@@ -79,7 +79,7 @@ struct CarPlaySettingsView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(CarPlayEditorTheme.background)
+            .skinPageBackground(replacing: .canvasSunken)
         }
         .foregroundStyle(CarPlayEditorTheme.text)
         .navigationTitle(navigationTitleText)
@@ -289,7 +289,7 @@ struct CarPlaySettingsView: View {
                 .contentMargins(.top, 8)
                 .accessibilityIdentifier("carplay.playbackOptions")
             }
-            .background(CarPlayEditorTheme.background)
+            .skinPageBackground(replacing: .canvasSunken)
             .navigationTitle("carplay_now_playing")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

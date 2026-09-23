@@ -520,7 +520,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     /// Legacy grouped form kept as a reference for iOS parity; macOS now uses
     /// the custom SRC-01 sheet above.
     private var macForm: some View {
-        Form {
+        SkinForm {
             Section {
                 if discoveryService.devices.isEmpty {
                     HStack(spacing: 8) {
@@ -759,7 +759,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
 
     #if os(iOS)
     private var iosList: some View {
-        List {
+        SkinList {
             iosDiscoverySection
             if let localImportProgress {
                 iosLocalImportProgressSection(localImportProgress)

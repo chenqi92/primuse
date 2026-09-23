@@ -5275,7 +5275,7 @@ struct SongInfoSheet: View {
     #if !os(macOS)
     private var legacyBody: some View {
         NavigationStack {
-            List {
+            SkinList {
                 infoRow(String(localized: "title_label"), song.title)
                 if let artist = library.artistDisplayName(for: song) {
                     infoRow(String(localized: "artist_label"), artist)
@@ -5587,7 +5587,7 @@ struct AddToPlaylistSheet: View {
 
     private var legacyBody: some View {
         NavigationStack {
-            List {
+            SkinList {
                 Section {
                     Button {
                         showNewPlaylist = true
@@ -8671,7 +8671,7 @@ struct CastDevicePickerSheet: View {
 
     private var iosBody: some View {
         NavigationStack {
-            List {
+            SkinList {
                 Section {
                     Button {
                         Task { await player.stopCasting(); dismiss() }

@@ -271,7 +271,7 @@ struct RadioSubscriptionsView: View {
     }
 
     private var subscriptionList: some View {
-        List {
+        SkinList {
             Section {
                 ForEach(store.sortedSubscriptions) { subscription in
                     NavigationLink(value: Route.subscription(subscription.id)) {
@@ -410,7 +410,7 @@ struct RadioSubscriptionAddView: View {
     }
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 TextField(
                     text: $urlString,

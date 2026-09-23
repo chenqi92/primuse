@@ -105,7 +105,7 @@ struct SearchResultLayoutEditor: View {
     #if os(iOS)
     private var iosBody: some View {
         NavigationStack {
-            List {
+            SkinList {
                 Section {
                     ForEach(displayed) { section in
                         Toggle(isOn: visibilityBinding(for: section)) {

@@ -62,7 +62,7 @@ struct SmartPlaylistEditorView: View {
 
     private var iosBody: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section {
                     TextField("smart_playlist_name", text: $name)
                 }

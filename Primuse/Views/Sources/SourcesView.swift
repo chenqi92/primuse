@@ -702,7 +702,7 @@ struct SourcesContentView: View {
         // 不必再拼进每张卡片的 .id ── 那样任意一个源改名都会销毁重建所有源卡片。
         _ = cloudDirectoryNameRefreshID
         let activeSourceCacheIDs = sourceManager.activeOfflineSourceCacheSourceIDs
-        return List {
+        return SkinList {
             ForEach(groupedSources, id: \.0) { category, items in
                 Section(category.displayName) {
                     ForEach(items) { source in
@@ -2640,7 +2640,7 @@ struct SourceDiagnosticsView: View {
     }
 
     private var diagnosticsList: some View {
-        List {
+        SkinList {
             if isRunning {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {

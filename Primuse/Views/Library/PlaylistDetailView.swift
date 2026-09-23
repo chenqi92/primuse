@@ -1422,7 +1422,7 @@ struct PlaylistReorderSheet: View {
 
     private var iosBody: some View {
         NavigationStack {
-            List {
+            SkinList {
                 ForEach(localSongs) { song in
                     HStack(spacing: 10) {
                         CachedArtworkView(

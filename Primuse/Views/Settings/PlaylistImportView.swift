@@ -72,7 +72,7 @@ struct PlaylistImportView: View {
     }
 
     private var iosBody: some View {
-        Form {
+        SkinForm {
             // 成对分支: 引导那一侧直接消失、预览这一侧淡入。交叉淡入会让两段
             // 同时排在 Form 里, 把内容顶开再弹回。
             if preview == nil {

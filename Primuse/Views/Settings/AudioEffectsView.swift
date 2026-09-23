@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AudioEffectsView: View {
     @Environment(AudioEffectsService.self) private var effects
+    @Environment(\.skin) private var skin
 
     var body: some View {
         @Bindable var fx = effects
@@ -30,7 +31,7 @@ struct AudioEffectsView: View {
                                         .background(
                                             effects.reverbPreset == preset
                                             ? AnyShapeStyle(.tint)
-                                            : AnyShapeStyle(.ultraThinMaterial)
+                                            : skin.cardFill(classic: .ultraThinMaterial, token: .chip)
                                         )
                                         .foregroundStyle(
                                             effects.reverbPreset == preset ? .white : .primary
@@ -84,7 +85,7 @@ struct AudioEffectsView: View {
                                         .background(
                                             effects.compressorPresetId == preset.id
                                             ? AnyShapeStyle(.tint)
-                                            : AnyShapeStyle(.ultraThinMaterial)
+                                            : skin.cardFill(classic: .ultraThinMaterial, token: .chip)
                                         )
                                         .foregroundStyle(
                                             effects.compressorPresetId == preset.id ? .white : .primary

@@ -62,7 +62,7 @@ struct BatchAddToPlaylistSheet: View {
     #if !os(macOS)
     private var iosBody: some View {
         NavigationStack {
-            List {
+            SkinList {
                 Section {
                     TextField("playlist_name", text: $newPlaylistName)
                         .onChange(of: newPlaylistName) { _, newValue in

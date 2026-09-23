@@ -10,7 +10,7 @@ struct LyricsAPIServersView: View {
     @State private var isReordering = false
 
     var body: some View {
-        Form {
+        SkinForm {
             Section {
                 if store.servers.isEmpty {
                     Text("lyrics_server_none")
@@ -138,7 +138,7 @@ private struct LyricsAPIServerEditorSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section {
                     TextField("lyrics_server_address_placeholder", text: $address)
                         #if os(iOS)

@@ -64,7 +64,7 @@ struct ServerListeningStatsView: View {
 
     #if !os(macOS)
     private var mobileBody: some View {
-        Form {
+        SkinForm {
             if let sourceSelection {
                 Section {
                     sourceSelection

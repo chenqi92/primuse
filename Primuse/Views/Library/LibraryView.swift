@@ -1706,7 +1706,7 @@ private struct LibraryQuickAccessEditor: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            SkinList {
                 if searchText.isEmpty || resolvedPins.contains(where: \.matchesQuery) {
                     Section {
                         if pins.isEmpty {

@@ -49,7 +49,7 @@ struct DiagnosticReportsView: View {
     }
 
     private var reportsList: some View {
-        List {
+        SkinList {
             if reports.isEmpty {
                 Section {
                     VStack(spacing: 8) {
@@ -211,7 +211,7 @@ private struct DiagnosticFeedbackView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section("diagnostics_feedback_attachments") {
                     Toggle("diagnostics_title", isOn: $includesReports)
                         .disabled(reportURLs.isEmpty)

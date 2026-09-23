@@ -23,7 +23,7 @@ struct RecentlyDeletedView: View {
     }
 
     var body: some View {
-        Form {
+        SkinForm {
             playlistsSection
             smartPlaylistsSection
             hiddenMirrorPlaylistsSection

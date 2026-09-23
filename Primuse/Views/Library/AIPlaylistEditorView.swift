@@ -196,7 +196,7 @@ struct AIPlaylistEditorView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section("ai_playlist_name_section") {
                     TextField("ai_playlist_name_placeholder", text: $name)
                         .accessibilityIdentifier("aiPlaylistNameField")

@@ -66,7 +66,7 @@ struct CarPlayContentPicker: View {
                 .scrollContentBackground(.hidden)
                 .contentMargins(.top, 4)
             }
-            .background(CarPlayEditorTheme.background)
+            .skinPageBackground(replacing: .canvasSunken)
             .navigationTitle("carplay_content_sources")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

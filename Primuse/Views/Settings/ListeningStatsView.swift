@@ -127,7 +127,7 @@ struct ListeningStatsView: View {
         macBody
         #else
         let snapshot = makeStatsSnapshot(rankLimit: 20)
-        Form {
+        SkinForm {
             Section {
                 if showsInlineSourcePicker {
                     inlineSourcePicker
@@ -1375,7 +1375,7 @@ struct MobileListeningActivityView: View {
         .sheet(isPresented: Binding(get: { expandedMonth != nil }, set: { if !$0 { expandedMonth = nil } })) {
             if let month = expandedMonth {
                 NavigationStack {
-                    Form {
+                    SkinForm {
                         Section {
                             monthGrid(date: month, model: model, maximum: maximum)
                             dayDetail(model: model)

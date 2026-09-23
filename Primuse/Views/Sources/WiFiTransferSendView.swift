@@ -518,7 +518,7 @@ struct WiFiTransferSendView: View {
 
     private var connectionSheet: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section {
                     if discovery.peers.isEmpty {
                         Label(WiFiTransferText.string("noDevices"), systemImage: "laptopcomputer.and.iphone")

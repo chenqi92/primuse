@@ -427,7 +427,7 @@ struct CarPlayPresetLibrary: View {
             .padding(.vertical, 16)
         }
         .scrollIndicators(.hidden)
-        .background(CarPlayEditorTheme.background)
+        .skinPageBackground(replacing: .canvasSunken)
         .foregroundStyle(CarPlayEditorTheme.text)
     }
 

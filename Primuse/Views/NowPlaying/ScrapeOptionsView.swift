@@ -981,7 +981,7 @@ struct ScrapeOptionsView: View {
     // MARK: - Options (what to scrape)
 
     private var optionsView: some View {
-        Form {
+        SkinForm {
             Section {
                 HStack(spacing: 12) {
                     CachedArtworkView(coverRef: song.coverArtFileName, songID: song.id, size: 56, cornerRadius: 8, sourceID: song.sourceID, filePath: song.filePath, fileFormat: song.fileFormat)
@@ -1054,7 +1054,7 @@ struct ScrapeOptionsView: View {
     // MARK: - Preview (confirm before applying)
 
     private var previewView: some View {
-        Form {
+        SkinForm {
             if let preview = previewResult {
                 // Always show all scraped fields
                 Section("select_changes") {
@@ -1252,7 +1252,7 @@ struct ScrapeOptionsView: View {
     // MARK: - Manual Search
 
     private var manualSearchView: some View {
-        List {
+        SkinList {
             if searchResults.isEmpty && !isSearching {
                 ContentUnavailableView("no_results", systemImage: "magnifyingglass",
                     description: Text("no_scrape_results_desc"))

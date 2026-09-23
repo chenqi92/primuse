@@ -3,12 +3,16 @@ import PrimuseKit
 
 struct EqualizerView: View {
     @Environment(EqualizerService.self) private var eq
+    @Environment(\.skin) private var skin
 
     var body: some View {
         #if os(macOS)
         macBody
         #else
         iosBody
+            // 这一页是自己排的 VStack,不是表单,页面底色要自己交给皮肤;经典下仍是系统底色。
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .skinPageBackground(replacing: .canvas)
         #endif
     }
 
@@ -135,8 +139,9 @@ struct EqualizerView: View {
             .padding(8)
             .frame(maxWidth: .infinity)
             .background(
+                // 经典下原样是毛玻璃;自己画底色的皮肤下换成皮肤的卡片底。
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(.ultraThinMaterial)
+                    .fill(skin.cardFill(classic: .ultraThinMaterial))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)

@@ -22,7 +22,7 @@ struct SourceLocalRemovalsView: View {
     }
 
     var body: some View {
-        List {
+        SkinList {
             if !entries.isEmpty {
                 Section {
                     ForEach(entries) { entry in

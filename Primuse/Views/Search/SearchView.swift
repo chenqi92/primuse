@@ -2469,7 +2469,7 @@ struct SearchView: View {
     }
 
     private var recentSearchView: some View {
-        List {
+        SkinList {
             if !recentSearches.isEmpty {
                 Section {
                     ForEach(recentSearches, id: \.self) { query in

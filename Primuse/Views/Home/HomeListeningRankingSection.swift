@@ -474,7 +474,7 @@ private struct HomeRankedSongsView: View {
     }
 
     var body: some View {
-        List {
+        SkinList {
             ForEach(songIDs, id: \.self) { id in
                 if let song = library.unobservedVisibleSong(id: id) {
                     SongRowView(song: song, isPlaying: player.currentSong?.id == id)

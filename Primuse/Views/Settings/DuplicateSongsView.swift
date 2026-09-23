@@ -82,7 +82,7 @@ struct DuplicateSongsView: View {
     }
 
     private var iosBody: some View {
-        Form {
+        SkinForm {
             if !cleaner.lastSourceFailures.isEmpty {
                 Section {
                     Button("dup_delete_result_title") { showDeletionFailures = true }
@@ -1227,7 +1227,7 @@ private struct DuplicateDeletionFailuresView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            SkinList {
                 Section {
                     Text(String(format: String(localized: "dup_clean_failed_format"), cleaner.lastFailedTitles.count))
                     if cleaner.lastCompletedCount > 0 {

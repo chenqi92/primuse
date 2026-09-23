@@ -151,7 +151,7 @@ struct SongShareSheet: View {
     }
 
     private var shareForm: some View {
-        Form {
+        SkinForm {
             songSection
             lyricPosterSection
             informationSection
@@ -496,7 +496,7 @@ struct ServerMediaShareSheet: View {
     }
 
     private var shareForm: some View {
-        Form {
+        SkinForm {
             targetSection
             capabilityContent
             relayFallbackSection
@@ -1719,7 +1719,7 @@ struct MediaRelayShareSheet: View {
     }
 
     private var shareForm: some View {
-        Form {
+        SkinForm {
             mediaSection
             configurationSection
             optionsSection
@@ -2426,7 +2426,7 @@ struct MediaRelayImportSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            SkinForm {
                 Section {
                     Label {
                         Text(verbatim: request.importURL.host ?? "")
