@@ -104,6 +104,13 @@ enum LocalImportService {
     /// 沙箱内存放导入音频的目录(Documents/LocalMusic)。放 Documents 而非
     /// Caches —— 这些是用户自己的歌, 不能在低存储时被系统回收。
     static var musicDirectory: URL {
+        #if DEBUG
+        // 编译机上的无人值守检查：未沙盒化的 Debug 构建碰 ~/Documents 会弹系统的文件夹授权框，
+        // 用环境变量把导入目录指到别处。
+        if let override = ProcessInfo.processInfo.environment["PRIMUSE_LOCAL_MUSIC_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        #endif
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs.appendingPathComponent("LocalMusic", isDirectory: true)
     }
