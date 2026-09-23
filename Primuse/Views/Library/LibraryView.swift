@@ -343,6 +343,7 @@ private struct LibraryBrowseRun: Identifiable {
 struct LibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStationsStore
+    @Environment(\.skin) private var skin
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.pmHeightClass) private var heightClass
@@ -626,9 +627,14 @@ struct LibraryView: View {
     /// 分类入口的列数。竖屏与 iPad 仍是一列(与原来的竖排完全一致); 手机横屏下
     /// 行宽有 700 多点, 一列只放得下一张 72pt 高的卡片, 右边整片空着。
     private var browseCategoryColumns: [GridItem] {
+        #if os(iOS)
+        // 分类入口是带封面预览的方块:竖屏两列,横屏与 iPad 按宽度铺开。
+        [GridItem(.adaptive(minimum: usesCompactBrowseLayout ? 180 : 150), spacing: 10, alignment: .top)]
+        #else
         usesCompactBrowseLayout
             ? [GridItem(.adaptive(minimum: 300), spacing: 0, alignment: .top)]
             : [GridItem(.flexible())]
+        #endif
     }
 
     private var browseLibrarySection: some View {
@@ -643,6 +649,17 @@ struct LibraryView: View {
                                 quickAccessSection
                                     .padding(.vertical, 8)
                             } else {
+                                #if os(iOS)
+                                LazyVGrid(columns: browseCategoryColumns, spacing: 10) {
+                                    ForEach(run.sections) { section in
+                                        NavigationLink(value: section) {
+                                            libraryCategoryTile(section)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                #else
                                 LazyVGrid(columns: browseCategoryColumns, spacing: 10) {
                                     ForEach(run.sections) { section in
                                         NavigationLink(value: section) {
@@ -652,6 +669,7 @@ struct LibraryView: View {
                                         .padding(.horizontal, 16)
                                     }
                                 }
+                                #endif
                             }
                         }
                     }
@@ -854,6 +872,46 @@ struct LibraryView: View {
         }
     }
 
+    #if os(iOS)
+    /// 资料库入口的方块:左上是分类色块图标,右上叠三张代表封面,左下是名字与数量。
+    /// 两套基座共用;底色经典下是原来那层淡灰,自己画底色的皮肤下换成皮肤的卡片底。
+    private func libraryCategoryTile(_ section: LibrarySection) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        return VStack(alignment: .leading, spacing: 2) {
+            Image(systemName: section.icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(section.color.gradient, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+            Spacer(minLength: 12)
+
+            Text(section.title)
+                .font(.title3.weight(.heavy))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(categoryCountText(section))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+        .padding(14)
+        .overlay(alignment: .topTrailing) {
+            categoryPreview(section, size: 50)
+                .padding(.top, 12)
+                .padding(.trailing, 12)
+                .accessibilityHidden(true)
+        }
+        .background(skin.cardFill(classic: Color.secondary.opacity(0.07)), in: shape)
+        .overlay {
+            shape.stroke(Color.secondary.opacity(0.1), lineWidth: 0.5)
+        }
+        .contentShape(shape)
+    }
+    #endif
+
     private func libraryCategoryRow(_ section: LibrarySection) -> some View {
         HStack(spacing: 13) {
             Image(systemName: section.icon)
@@ -892,41 +950,42 @@ struct LibraryView: View {
     }
 
     @ViewBuilder
-    private func categoryPreview(_ section: LibrarySection) -> some View {
+    private func categoryPreview(_ section: LibrarySection, size: CGFloat = 36) -> some View {
+        let radius = size * 0.2
         switch section {
         case .favorites, .folders, .statistics:
             EmptyView()
         case .recommendations:
-            overlappingPreview(previewSongs) { song in
+            overlappingPreview(size: size, previewSongs) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
-                    size: 36,
-                    cornerRadius: 7,
+                    size: size,
+                    cornerRadius: radius,
                     sourceID: song.sourceID,
                     filePath: song.filePath,
                     fileFormat: song.fileFormat
                 )
             }
         case .songs:
-            overlappingPreview(previewSongs) { song in
+            overlappingPreview(size: size, previewSongs) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
-                    size: 36,
-                    cornerRadius: 7,
+                    size: size,
+                    cornerRadius: radius,
                     sourceID: song.sourceID,
                     filePath: song.filePath,
                     fileFormat: song.fileFormat
                 )
             }
         case .spokenWord:
-            overlappingPreview(Array(library.spokenWordSongs.prefix(3))) { song in
+            overlappingPreview(size: size, Array(library.spokenWordSongs.prefix(3))) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
-                    size: 36,
-                    cornerRadius: 7,
+                    size: size,
+                    cornerRadius: radius,
                     sourceID: song.sourceID,
                     filePath: song.filePath,
                     fileFormat: song.fileFormat
@@ -934,49 +993,51 @@ struct LibraryView: View {
             }
         case .albums:
             artworkPreview(
+                size: size,
                 previewAlbums,
                 placeholderIcon: "square.stack",
-                cornerRadius: 7
+                cornerRadius: radius
             ) { album in
                 libraryAlbumArtwork(
                     album,
-                    size: 36,
-                    cornerRadius: 7,
+                    size: size,
+                    cornerRadius: radius,
                     showsPlaceholder: false
                 )
             }
         case .artists:
             artworkPreview(
+                size: size,
                 previewArtists,
                 placeholderIcon: "music.mic",
-                cornerRadius: 18
+                cornerRadius: size / 2
             ) { artist in
                 libraryArtistArtwork(
                     artist,
-                    size: 36,
-                    cornerRadius: 18,
+                    size: size,
+                    cornerRadius: size / 2,
                     showsPlaceholder: false
                 )
             }
         case .genres:
-            overlappingPreview(previewGenreSongs) { song in
+            overlappingPreview(size: size, previewGenreSongs) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
-                    size: 36,
-                    cornerRadius: 7,
+                    size: size,
+                    cornerRadius: radius,
                     sourceID: song.sourceID,
                     filePath: song.filePath,
                     fileFormat: song.fileFormat
                 )
             }
         case .playlists:
-            overlappingPreview(previewPlaylists) { playlist in
-                playlistArtwork(playlist, size: 36, cornerRadius: 7)
+            overlappingPreview(size: size, previewPlaylists) { playlist in
+                playlistArtwork(playlist, size: size, cornerRadius: radius)
             }
         case .radio:
-            overlappingPreview(previewRadioStations) { station in
-                RadioStationArtworkView(station: station, size: 36, cornerRadius: 7)
+            overlappingPreview(size: size, previewRadioStations) { station in
+                RadioStationArtworkView(station: station, size: size, cornerRadius: radius)
             }
         }
     }
@@ -1122,28 +1183,31 @@ struct LibraryView: View {
     }
 
     private func overlappingPreview<Item: Identifiable, Content: View>(
+        size: CGFloat = 36,
         _ items: [Item],
         @ViewBuilder content: @escaping (Item) -> Content
     ) -> some View {
-        HStack(spacing: -10) {
+        let radius = size * 0.2
+        return HStack(spacing: -size * 0.28) {
             if items.isEmpty {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .fill(Color.secondary.opacity(0.1))
-                    .frame(width: 36, height: 36)
+                    .frame(width: size, height: size)
             } else {
                 ForEach(items) { item in
                     content(item)
                         .overlay {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            RoundedRectangle(cornerRadius: radius, style: .continuous)
                                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
                         }
                 }
             }
         }
-        .frame(width: 68, alignment: .trailing)
+        .frame(width: size * 1.9, alignment: .trailing)
     }
 
     private func artworkPreview<Item: Identifiable, Content: View>(
+        size: CGFloat = 36,
         _ items: [Item],
         placeholderIcon: String,
         cornerRadius: CGFloat,
@@ -1154,18 +1218,18 @@ struct LibraryView: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.secondary.opacity(0.1))
                 Image(systemName: placeholderIcon)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: size * 0.36, weight: .medium))
                     .foregroundStyle(.tertiary)
             }
-            .frame(width: 36, height: 36)
+            .frame(width: size, height: size)
 
-            HStack(spacing: -10) {
+            HStack(spacing: -size * 0.28) {
                 ForEach(items) { item in
                     content(item)
                 }
             }
         }
-        .frame(width: 68, height: 36, alignment: .trailing)
+        .frame(width: size * 1.9, height: size, alignment: .trailing)
     }
 
     @ViewBuilder
@@ -2367,8 +2431,6 @@ private struct GenreDetailView: View {
         )
     }
 
-    /// 内容块的衬底跟封面色走,两套基座一样。
-    private var sectionTint: LibraryDetailTintStyle? { tint }
     #endif
 
     private var albums: [Album] {
@@ -2384,13 +2446,13 @@ private struct GenreDetailView: View {
         Group {
             #if os(iOS)
             ImmersiveLibraryDetailScrollView { insets in
-                hero(insets: insets)
+                iosHero(insets: insets)
             } content: {
                 VStack(alignment: .leading, spacing: 28) {
                     if !albums.isEmpty { albumShelf }
                     if !songs.isEmpty { songSection }
                 }
-                .padding(.top, 28)
+                .padding(.top, 12)
                 .padding(.bottom, BottomChromeClearancePolicy.clearance(
                     legacyOverlayActive: legacyBottomChromeOverlayActive,
                     legacy: 64,
@@ -2426,6 +2488,70 @@ private struct GenreDetailView: View {
             resolve: { library.song(id: $0) }
         )
     }
+
+    #if os(iOS)
+    /// 两套基座共用、与专辑页同一套版式:整页封面色,代表封面的马赛克居中当「封面」,
+    /// 下面是名字、数量和一排「随机 · 播放」。手机横屏马赛克缩小并挪到左边。
+    private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
+        let compact = usesCompactHero
+        let mosaicArtworkSize: CGFloat = compact ? 72 : 132
+
+        let identity = VStack(alignment: compact ? .leading : .center, spacing: 4) {
+            Text(verbatim: genre.name)
+                .font(compact ? Font.title.weight(.heavy) : Font.largeTitle.weight(.heavy))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+            Text(
+                verbatim:
+                    "\(albums.count) \(String(localized: "albums_count")) · \(songs.count) \(String(localized: "songs_count"))"
+            )
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.74))
+        }
+        .multilineTextAlignment(compact ? .leading : .center)
+
+        let mosaic = GenreArtworkMosaic(genre: genre, artworkSize: mosaicArtworkSize)
+            .frame(width: mosaicArtworkSize * 1.9, height: mosaicArtworkSize * 1.3)
+            .shadow(color: .black.opacity(0.3), radius: 20, y: 12)
+            .accessibilityHidden(true)
+
+        return VStack(spacing: compact ? 12 : 20) {
+            if compact {
+                HStack(spacing: 18) {
+                    mosaic
+                    identity.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                mosaic
+                identity
+            }
+
+            HStack(spacing: 14) {
+                LibraryDetailCircleButton(
+                    systemImage: "shuffle",
+                    label: "shuffle",
+                    disabled: playableSongs.count < 2,
+                    action: shuffleAll
+                )
+                LibraryDetailPlayPill(disabled: playableSongs.isEmpty, action: playAll)
+                    .frame(maxWidth: 220)
+            }
+            .frame(maxWidth: .infinity)
+
+            LibraryReviewSection(
+                subject: .genre(genre.id),
+                compact: true,
+                onArtwork: true
+            )
+        }
+        .padding(.leading, insets.leading + 20)
+        .padding(.trailing, insets.trailing + 20)
+        .padding(.top, insets.top + (compact ? 12 : 24))
+        .padding(.bottom, compact ? 12 : 18)
+        .frame(maxWidth: .infinity)
+    }
+    #endif
 
     /// 竖屏的 `topInset + 100` 是照着状态栏 + 导航栏标定的; 手机横屏顶部安全区塌成 0,
     /// 那 100 就白占了整块首屏。紧凑高度下顶部留白、标题字号、马赛克都降一档,
@@ -2582,8 +2708,14 @@ private struct GenreDetailView: View {
                             backfill: backfill
                         )
                     )
+                    #if os(iOS)
+                    .padding(.leading, 20)
+                    .padding(.trailing, 10)
+                    .padding(.vertical, 7)
+                    #else
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
+                    #endif
                     .contentShape(Rectangle())
                     .onTapGesture { playSong(song) }
                     .songSelectable(
@@ -2593,21 +2725,29 @@ private struct GenreDetailView: View {
                     )
 
                     if index != songs.count - 1 {
+                        #if os(iOS)
+                        // 整页铺着封面色,行直接压在底色上,只留一道细线。
+                        Rectangle()
+                            .fill(.white.opacity(0.18))
+                            .frame(height: 0.5)
+                            .padding(.leading, 74)
+                            .padding(.trailing, 20)
+                        #else
                         Divider().padding(.leading, 66)
+                        #endif
                     }
                 }
             }
             #if os(iOS)
             .songRowColumnsContainer()
-            .libraryDetailSection(tint: sectionTint)
             #else
             .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.primary.opacity(0.06), lineWidth: 0.5)
             }
-            #endif
             .padding(.horizontal, 20)
+            #endif
         }
     }
 

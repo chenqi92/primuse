@@ -732,6 +732,7 @@ private struct SongListSortProgressIndicator: View {
 
 struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
+    @Environment(\.skin) private var skin
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ScanService.self) private var scanService
@@ -1651,15 +1652,18 @@ struct SongListView: View {
                         )
                         .equatable()
                     } else {
-                        IOSSongListContainer(
-                            cache: listCache,
-                            rowOrderRevision: listCache.rowOrderRevision,
-                            sectionIndexEntries: listCache.sectionIndexEntries,
-                            locatedSongID: locatedSongID,
-                            selection: selection,
-                            onPlay: playSong
-                        )
-                        .equatable()
+                        VStack(spacing: 0) {
+                            songListActionHeader
+                            IOSSongListContainer(
+                                cache: listCache,
+                                rowOrderRevision: listCache.rowOrderRevision,
+                                sectionIndexEntries: listCache.sectionIndexEntries,
+                                locatedSongID: locatedSongID,
+                                selection: selection,
+                                onPlay: playSong
+                            )
+                            .equatable()
+                        }
                     }
                 }
             }
@@ -1677,6 +1681,35 @@ struct SongListView: View {
         .toolbar {
             iosToolbar
         }
+    }
+
+    /// 平铺列表顶上那一排「播放 · 随机」和数量。数量取投影里存好的值,不遍历整张列表。
+    private var songListActionHeader: some View {
+        let playableCount = filteredProjection.playableCount
+        return HStack(spacing: 10) {
+            Button(action: playVisibleFromStart) {
+                Label("play", systemImage: "play.fill")
+            }
+            .buttonStyle(SongListHeaderPillStyle(prominent: true, skin: skin))
+            .disabled(playableCount == 0)
+
+            Button(action: shuffleVisibleSongs) {
+                Label("shuffle", systemImage: "shuffle")
+            }
+            .buttonStyle(SongListHeaderPillStyle(prominent: false, skin: skin))
+            .disabled(playableCount < 2)
+
+            Spacer(minLength: 8)
+
+            Text(verbatim: "\(playableCount) \(String(localized: "songs_count"))")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .opacity(selection.isActive ? 0.4 : 1)
+        .allowsHitTesting(!selection.isActive)
     }
 
     private var presentedShowsFolderBrowser: Bool {
@@ -3972,6 +4005,12 @@ struct SongListView: View {
         Task { await player.play(queue: queue, startingAt: 0) }
     }
 
+    /// 从眼前这份列表的第一首可播的歌开始顺序播放。
+    private func playVisibleFromStart() {
+        guard let first = filteredSongs.filteredPlayable().first else { return }
+        playSong(first)
+    }
+
     /// 把眼前这份列表直接打乱播放。专辑、歌单、艺人详情页早就各有一个随机
     /// 播放按钮, 唯独「歌曲」这份总列表没有 —— 只能先随便点开一首歌进播放页,
     /// 再去底部那排控件里把随机播放打开。
@@ -3991,6 +4030,28 @@ struct SongListView: View {
 /// position up front. With a five-digit library that registration alone can
 /// block the main thread for several seconds when entering flat mode, even
 /// though only a screenful of rows is visible.
+/// 歌曲页顶部的胶囊按钮:主按钮用强调色填满,次按钮是一层淡底。
+private struct SongListHeaderPillStyle: ButtonStyle {
+    let prominent: Bool
+    let skin: SkinStyle
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(prominent ? skin.color(.textOnAccent) : skin.color(.accent))
+            .padding(.horizontal, 16)
+            .frame(minHeight: 38)
+            .background(
+                prominent
+                    ? AnyShapeStyle(skin.color(.accent))
+                    : skin.cardFill(classic: skin.color(.accent).opacity(0.12), token: .chip),
+                in: Capsule()
+            )
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .contentShape(Capsule())
+    }
+}
+
 private struct IOSSongIndexScrollRequest: Equatable {
     let id = UUID()
     let rowOffset: Int
