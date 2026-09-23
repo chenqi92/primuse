@@ -130,6 +130,23 @@ final class LibrarySnapshotSync: Sendable {
     private var recordID: CKRecord.ID { CKRecord.ID(recordName: recordName) }
     private var credRecordID: CKRecord.ID { CKRecord.ID(recordName: credRecordName) }
 
+    /// 本机在账号里的曲库记录 id: 每台上传过曲库的设备各一条, 见 `LibrarySnapshotDeviceManifestPolicy`。
+    private static let deviceIDKey = "primuse.librarySnapshot.deviceID"
+    private var deviceID: String {
+        if let existing = UserDefaults.standard.string(forKey: Self.deviceIDKey), !existing.isEmpty {
+            return existing
+        }
+        let created = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(created, forKey: Self.deviceIDKey)
+        return created
+    }
+    private var deviceRecordID: CKRecord.ID {
+        CKRecord.ID(recordName: LibrarySnapshotDeviceManifestPolicy.recordName(forDevice: deviceID))
+    }
+    private static var deviceDisplayName: String {
+        ProcessInfo.processInfo.hostName
+    }
+
     private static func diagnosticDetail(_ error: Error?) -> String {
         guard let error else { return PMString("send_to_tv_error_no_detail") }
         let nsError = error as NSError
@@ -239,20 +256,6 @@ final class LibrarySnapshotSync: Sendable {
         UserDefaults.standard.set(data, forKey: Self.automaticUploadFingerprintKey)
     }
 
-    /// 自动上传被空曲库护栏拦下时,仍然把这次的指纹记成「已完成」。
-    /// 否则 `hasPendingAutomaticUpload()` 永远为真,每小时的生命周期重试都会
-    /// 把整份 library-cache.json 重新解码、过滤,再拉一次云端记录,然后再次
-    /// 拒绝。指纹一旦随曲库变化,重试自然恢复。
-    private func parkRefusedAutomaticUpload(
-        fingerprint: AutomaticUploadFingerprint?,
-        reason: String
-    ) {
-        recordCompletedAutomaticUpload(fingerprint: fingerprint)
-        plog(
-            "LibrarySnapshotSync: refused automatic upload of an empty library over the existing cloud snapshot (\(reason)); parked until the local library changes"
-        )
-    }
-
     private static func fileIdentity(at url: URL) -> FileIdentity? {
         guard let attributes = try? FileManager.default.attributesOfItem(
             atPath: url.path
@@ -359,65 +362,106 @@ final class LibrarySnapshotSync: Sendable {
         let libraryData = preparedSnapshot.data
         let fm = FileManager.default
 
+        // 曲库按设备各存一条记录, 单例记录只留源、电台和设备清单, 电视按清单合并。
+        // 本机没有可同步的歌(只有本机文件 / Apple Music 资料库)时删掉自己那条,
+        // 别的设备的曲库不受影响 —— 以前全账号只有一份曲库, 谁最后上传谁赢, 扫不同
+        // NAS 的两台设备会让电视上的曲库来回变, 这种空曲库设备还会把它清空。
+        let uploadsLibrary = preparedSnapshot.eligibleSongCount > 0
+        let libraryKeys = ["libraryGz", "library", "lyricsGz"]
+        let catalogKeys = ["sourcesGz", "sources", "radioStationsGz", "radioStations"]
+
+        // 1. 本机的曲库记录。
+        var libInfo = "library=none"
+        if uploadsLibrary {
+            let deviceRecord: CKRecord
+            do {
+                deviceRecord = try await database.record(for: deviceRecordID)
+            } catch is CancellationError {
+                return .failure(.cancelled)
+            } catch {
+                deviceRecord = CKRecord(recordType: recordType, recordID: deviceRecordID)
+            }
+            guard !Task.isCancelled else { return .failure(.cancelled) }
+            for key in libraryKeys { deviceRecord[key] = nil }
+            // 一条记录的非附件字段合计不能超过 1MB: 曲库先占, 歌词只能用剩下的额度。
+            var deviceBudget = Self.inlineRecordBudget
+            // 整库快照走【内联 gzip Data】而非 CKAsset:实测 tvOS 下 CKAsset 的字节经常
+            // 下载失败,而内联 Data(和凭据同通道)稳定可靠。压缩后超 ~800KB 才回退 CKAsset。
+            guard let libraryAttachment = attachSnapshot(
+                deviceRecord,
+                data: libraryData,
+                gzKey: "libraryGz",
+                assetKey: "library",
+                inlineLimit: deviceBudget
+            ) else {
+                plog("LibrarySnapshotSync: cannot stage library snapshot, keeping cloud record unchanged")
+                return .failure(.snapshotPreparationFailed)
+            }
+            defer {
+                if let stagingURL = libraryAttachment.stagingURL {
+                    try? fm.removeItem(at: stagingURL)
+                }
+            }
+            libInfo = libraryAttachment.info
+            deviceBudget -= libraryAttachment.inlineBytes
+            // 歌词:把本机已抓到的歌词(MetadataAssetStore 里的 .json)随快照传给 TV。
+            if let lyrics = Self.gatherInlineLyricsBlob(
+                allowedFileNames: preparedSnapshot.eligibleLyricsFileNames,
+                inlineLimit: deviceBudget
+            ) {
+                deviceRecord["lyricsGz"] = lyrics.gz as CKRecordValue
+                libInfo += "; lyricsGz=\(lyrics.gz.count)B files=\(lyrics.snapshot.fileCount) skipped=\(lyrics.snapshot.skippedFileCount)"
+            }
+            deviceRecord["modifiedAt"] = Date() as CKRecordValue
+            guard !Task.isCancelled else { return .failure(.cancelled) }
+            var deviceOutcome = await saveChangedRecord(deviceRecord, in: database)
+            if case .conflict(let serverRecord) = deviceOutcome {
+                // 只有本机会写这条记录, 冲突只可能是本机另一次上传: 以这份为准重试一次。
+                for key in libraryKeys + ["modifiedAt"] {
+                    serverRecord[key] = deviceRecord[key]
+                }
+                deviceOutcome = await saveChangedRecord(serverRecord, in: database)
+            }
+            switch deviceOutcome {
+            case .success:
+                break
+            case .conflict:
+                plog("LibrarySnapshotSync: device library upload conflict persisted after retry")
+                return .failure(.cloudConflict)
+            case .failure(let error):
+                plog("LibrarySnapshotSync: device library upload failed — \(error?.localizedDescription ?? "no per-record result")")
+                if let schemaFailure = Self.schemaFailure(error) {
+                    return .failure(schemaFailure)
+                }
+                return .failure(.cloudUploadFailed(detail: Self.diagnosticDetail(error)))
+            }
+        } else {
+            do {
+                _ = try await database.deleteRecord(withID: deviceRecordID)
+                libInfo = "library=removed-own-record"
+            } catch let error as CKError where error.code == .unknownItem {
+                // 本来就没有。
+            } catch is CancellationError {
+                return .failure(.cancelled)
+            } catch {
+                plog("LibrarySnapshotSync: removing the device library record failed — \(error.localizedDescription)")
+            }
+        }
+
+        // 2. 单例记录: 源、电台、设备清单。旧的曲库字段一并清掉(曲库已按设备分开存)。
         let record: CKRecord
-        var serverHasLibraryPayload = false
         do {
             record = try await database.record(for: recordID)
-            serverHasLibraryPayload = record["libraryGz"] != nil || record["library"] != nil
         } catch is CancellationError {
             return .failure(.cancelled)
         } catch {
             record = CKRecord(recordType: recordType, recordID: recordID)
         }
         guard !Task.isCancelled else { return .failure(.cancelled) }
-
-        // 一台刚装好、同步默认开着、还没扫描过的设备,光靠 CloudKit 拉回来的
-        // 源与歌单就能写出一份「零首歌」的 library-cache.json。自动上传把它盖到
-        // 账号唯一的那条快照上,Apple TV 下次引导就只剩空曲库。显式推送保持
-        // 原行为(用户自己知道在推什么)——包括中途加入这次自动上传、把归属
-        // 升级成显式的那种。
-        var effectiveOwner = await fullUploadSingleFlight.currentOwner() ?? owner
-        if effectiveOwner == .automatic,
-           !LibrarySnapshotUploadPolicy.automaticUploadAllowed(
-               eligibleSongCount: preparedSnapshot.eligibleSongCount,
-               hasCloudEligibleSources: preparedSnapshot.hasCloudEligibleSources,
-               serverHasLibraryPayload: serverHasLibraryPayload
-           ) {
-            // 显式上传可能在上面那次读取之后才加入并把归属升级。重读一次:
-            // 已经变成用户发起的推送就照常上传,不能把自动护栏的拒绝还给他。
-            effectiveOwner = await fullUploadSingleFlight.currentOwner() ?? owner
-            if effectiveOwner == .automatic {
-                parkRefusedAutomaticUpload(
-                    fingerprint: uploadedFingerprint,
-                    reason: "server snapshot fetch"
-                )
-                return .failure(.snapshotPreparationFailed)
-            }
-        }
-
-        // 本机一首可同步的歌都没有(只有本机文件 / Apple Music 资料库)时, 自动上传
-        // 只更新源、电台与凭据, 服务器上别的设备传的曲库与歌词原样保留 —— 否则
-        // 这台设备每次自动上传都把 Apple TV 引导用的曲库清成空的。显式推送照旧。
-        let preservesServerLibrary = effectiveOwner == .automatic
-            && preparedSnapshot.eligibleSongCount <= 0
-            && serverHasLibraryPayload
-        let libraryKeys = ["libraryGz", "library", "lyricsGz"]
-        let catalogKeys = ["sourcesGz", "sources", "radioStationsGz", "radioStations"]
-        // Work on the fetched record (and its change tag) instead of deleting
-        // the last known-good snapshot first. Explicitly clear both alternate
-        // representations so changedKeys removes stale fields atomically.
-        for key in (preservesServerLibrary ? catalogKeys : libraryKeys + catalogKeys) {
+        for key in libraryKeys + catalogKeys {
             record[key] = nil
         }
-        // 一条记录的非附件字段合计不能超过 1MB。各字段各自的上限加起来远超这个数,
-        // 以前只按字段判断, 内联的曲库加歌词就能把整条记录顶爆, 上传失败后每小时
-        // 重试、凭据也一直传不上去。按优先级分配额度: 源 → 电台 → 曲库 → 歌词,
-        // 曲库超额走附件, 歌词超额就不带。保留服务器曲库时它占的字节同样算进去。
         var inlineBudget = Self.inlineRecordBudget
-        if preservesServerLibrary {
-            inlineBudget -= (record["libraryGz"] as? Data)?.count ?? 0
-            inlineBudget -= (record["lyricsGz"] as? Data)?.count ?? 0
-        }
         var srcInfo = "sources=skip"
         if let sourcesData = localSourcesData(including: []) {
             let attached = attachSourcesSnapshot(
@@ -447,78 +491,43 @@ final class LibrarySnapshotSync: Sendable {
                 try? fm.removeItem(at: stagingURL)
             }
         }
-        var libInfo = "library=kept-server-copy"
-        var libraryStagingURL: URL?
-        if !preservesServerLibrary {
-            // 整库快照走【内联 gzip Data】而非 CKAsset:实测 tvOS 下 CKAsset 的字节经常
-            // 下载失败,而内联 Data(和凭据同通道)稳定可靠。压缩后超 ~800KB 才回退 CKAsset。
-            guard let libraryAttachment = attachSnapshot(
-                record,
-                data: libraryData,
-                gzKey: "libraryGz",
-                assetKey: "library",
-                inlineLimit: inlineBudget
-            ) else {
-                plog("LibrarySnapshotSync: cannot stage library snapshot, keeping cloud record unchanged")
-                return .failure(.snapshotPreparationFailed)
-            }
-            libraryStagingURL = libraryAttachment.stagingURL
-            libInfo = libraryAttachment.info
-            inlineBudget -= libraryAttachment.inlineBytes
+        let manifestEntry = LibrarySnapshotDeviceEntry(
+            deviceID: deviceID,
+            deviceName: Self.deviceDisplayName,
+            modifiedAt: Date(),
+            songCount: preparedSnapshot.eligibleSongCount
+        )
+        // 清单永远从服务器那份出发再改自己那一行: 冲突重试时也是, 两台设备同时上传
+        // 才不会互相抹掉对方的行。
+        func applyManifest(to target: CKRecord) {
+            let server = LibrarySnapshotDeviceManifestPolicy.decode(
+                target[LibrarySnapshotDeviceManifestPolicy.manifestFieldKey] as? Data
+            )
+            let merged = uploadsLibrary
+                ? LibrarySnapshotDeviceManifestPolicy.merging(server: server, upserting: manifestEntry)
+                : LibrarySnapshotDeviceManifestPolicy.removing(deviceID: deviceID, from: server)
+            target[LibrarySnapshotDeviceManifestPolicy.manifestFieldKey] =
+                LibrarySnapshotDeviceManifestPolicy.encode(merged).map { $0 as CKRecordValue }
         }
-        defer {
-            if let libraryStagingURL {
-                try? fm.removeItem(at: libraryStagingURL)
-            }
-        }
-        // 歌词:把本机已抓到的歌词(MetadataAssetStore 里的 .json)随快照传给 TV。
-        if !preservesServerLibrary,
-           let lyrics = Self.gatherInlineLyricsBlob(
-            allowedFileNames: preparedSnapshot.eligibleLyricsFileNames,
-            inlineLimit: inlineBudget
-           ) {
-            record["lyricsGz"] = lyrics.gz as CKRecordValue
-            inlineBudget -= lyrics.gz.count
-            srcInfo += "; lyricsGz=\(lyrics.gz.count)B files=\(lyrics.snapshot.fileCount) skipped=\(lyrics.snapshot.skippedFileCount)"
-        }
-        srcInfo += "; inlineBudgetLeft=\(inlineBudget)B"
+        applyManifest(to: record)
         record["modifiedAt"] = Date() as CKRecordValue
         guard !Task.isCancelled else { return .failure(.cancelled) }
 
         var outcome = await saveChangedRecord(record, in: database)
         if case .conflict(let serverRecord) = outcome {
-            // The conflict carries the authoritative server state, which is the
-            // only evidence available when the fetch above failed for a reason
-            // other than "no record yet". Re-run the same guard before rebasing.
-            if effectiveOwner == .automatic,
-               !LibrarySnapshotUploadPolicy.automaticUploadAllowed(
-                   eligibleSongCount: preparedSnapshot.eligibleSongCount,
-                   hasCloudEligibleSources: preparedSnapshot.hasCloudEligibleSources,
-                   serverHasLibraryPayload: serverRecord["libraryGz"] != nil
-                       || serverRecord["library"] != nil
-               ) {
-                effectiveOwner = await fullUploadSingleFlight.currentOwner() ?? owner
-                if effectiveOwner == .automatic {
-                    parkRefusedAutomaticUpload(
-                        fingerprint: uploadedFingerprint,
-                        reason: "conflict rebase"
-                    )
-                    return .failure(.snapshotPreparationFailed)
-                }
-            }
             // Another device changed the singleton after our fetch. Rebase the
-            // complete local snapshot fields onto its current change tag and
-            // retry once, preserving any future/unknown server fields. 保留服务器
-            // 曲库的那种上传不把自己拉到的旧曲库再抄回去: 冲突恰恰说明别的设备刚传了新的。
-            let rebasedKeys = (preservesServerLibrary ? catalogKeys : libraryKeys + catalogKeys) + ["modifiedAt"]
-            for key in rebasedKeys {
+            // catalog fields onto its current change tag and retry once,
+            // preserving any future/unknown server fields and the other
+            // devices' manifest rows.
+            for key in libraryKeys + catalogKeys + ["modifiedAt"] {
                 serverRecord[key] = record[key]
             }
+            applyManifest(to: serverRecord)
             outcome = await saveChangedRecord(serverRecord, in: database)
         }
         switch outcome {
         case .success:
-            plog("LibrarySnapshotSync: uploaded snapshot [\(libInfo); \(srcInfo)]")
+            plog("LibrarySnapshotSync: uploaded snapshot [\(libInfo); \(srcInfo); manifest=\(uploadsLibrary ? "upsert" : "remove"); inlineBudgetLeft=\(inlineBudget)B]")
         case .conflict:
             plog("LibrarySnapshotSync: upload conflict persisted after retry")
             return .failure(.cloudConflict)
@@ -2302,15 +2311,35 @@ final class LibrarySnapshotSync: Sendable {
         do {
             for _ in 0..<3 {
                 let record = try await database.record(for: recordID)
-                let rawLibrary: Data?
-                if let gz = record["libraryGz"] as? Data {
-                    rawLibrary = Self.gunzip(gz)
-                } else if let url = (record["library"] as? CKAsset)?.fileURL {
-                    guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-                          size <= Self.maxLibraryRawBytes else { return nil }
-                    rawLibrary = try Data(contentsOf: url)
-                } else { return nil }
-                guard let rawLibrary, rawLibrary.count <= Self.maxLibraryRawBytes,
+                // 曲库按设备各一条记录, 单例记录上的清单说有哪些; 旧版本上传的账号
+                // 清单为空, 曲库还在单例记录上。
+                let manifest = LibrarySnapshotDeviceManifestPolicy.decode(
+                    record[LibrarySnapshotDeviceManifestPolicy.manifestFieldKey] as? Data
+                )
+                var libraries: [(entry: LibrarySnapshotDeviceEntry?, library: Data, lyricsGz: Data?, changeTag: String?)] = []
+                if manifest.isEmpty {
+                    guard let raw = try Self.libraryData(from: record) else { return nil }
+                    libraries.append((nil, raw, record["lyricsGz"] as? Data, nil))
+                } else {
+                    let ordered = LibrarySnapshotDeviceManifestPolicy.mergeOrder(manifest)
+                    let ids = ordered.map {
+                        CKRecord.ID(recordName: LibrarySnapshotDeviceManifestPolicy.recordName(forDevice: $0.deviceID))
+                    }
+                    let results = try await database.records(for: ids)
+                    for (entry, id) in zip(ordered, ids) {
+                        guard case .success(let deviceRecord)? = results[id] else {
+                            plog("LibrarySnapshotSync: device library record missing device=\(entry.deviceID.prefix(8))…")
+                            continue
+                        }
+                        guard let raw = try Self.libraryData(from: deviceRecord) else { continue }
+                        libraries.append((entry, raw, deviceRecord["lyricsGz"] as? Data, deviceRecord.recordChangeTag))
+                    }
+                    guard !libraries.isEmpty else { return nil }
+                }
+                let rawLibrary = libraries.count == 1
+                    ? libraries[0].library
+                    : try MusicLibrary.mergingDeviceSnapshots(libraries.map(\.library))
+                guard rawLibrary.count <= Self.maxLibraryRawBytes,
                       MusicLibrary.isValidSnapshotData(rawLibrary),
                       let sourceData = sourcesSnapshotData(from: record, fm: .default),
                       let libraryGz = Self.gzip(rawLibrary),
@@ -2327,15 +2356,53 @@ final class LibrarySnapshotSync: Sendable {
                           size <= Self.maxRadioStationsRawBytes else { return nil }
                     payload.radioStationsGz = Self.gzip(try Data(contentsOf: url))
                 }
-                payload.lyricsGz = record["lyricsGz"] as? Data
-                payload.cloudChangeTag = record.recordChangeTag
-                payload.cloudModifiedAt = record["modifiedAt"] as? Date ?? record.modificationDate
+                payload.lyricsGz = Self.mergedLyricsGz(libraries.map(\.lyricsGz))
+                var deviceTags: [String: String?] = [:]
+                for item in libraries {
+                    if let entry = item.entry { deviceTags[entry.deviceID] = item.changeTag }
+                }
+                payload.cloudChangeTag = LibrarySnapshotDeviceManifestPolicy.compositeChangeTag(
+                    manifestRecordTag: record.recordChangeTag,
+                    deviceRecordTags: deviceTags
+                )
+                let recordModifiedAt = record["modifiedAt"] as? Date ?? record.modificationDate
+                payload.cloudModifiedAt = (libraries.compactMap { $0.entry?.modifiedAt } + [recordModifiedAt].compactMap { $0 }).max()
+                if libraries.count > 1 {
+                    plog("LibrarySnapshotSync: merged \(libraries.count) device libraries for Apple TV")
+                }
                 return payload
             }
         } catch {
             plog("TV snapshot download failed: \(error.localizedDescription)")
         }
         return nil
+    }
+
+    /// 一条曲库记录里的整库 JSON(内联 gzip 或附件), 超过上限或没有就 nil。
+    private static func libraryData(from record: CKRecord) throws -> Data? {
+        if let gz = record["libraryGz"] as? Data {
+            guard let raw = gunzip(gz), raw.count <= maxLibraryRawBytes else { return nil }
+            return raw
+        }
+        if let url = (record["library"] as? CKAsset)?.fileURL {
+            guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  size <= maxLibraryRawBytes else { return nil }
+            return try Data(contentsOf: url)
+        }
+        return nil
+    }
+
+    /// 各设备的歌词 blob 合并(排在前面的设备优先), 再压回一份。
+    private static func mergedLyricsGz(_ blobs: [Data?]) -> Data? {
+        let decoded: [[String: String]] = blobs.compactMap { gz in
+            guard let gz, let raw = gunzip(gz, maxOutputBytes: maxLyricsBlobRawBytes) else { return nil }
+            return try? JSONDecoder().decode([String: String].self, from: raw)
+        }
+        guard !decoded.isEmpty else { return nil }
+        if decoded.count == 1, let only = blobs.compactMap({ $0 }).first { return only }
+        let merged = LibrarySnapshotDeviceManifestPolicy.mergingLyricsBlobs(decoded)
+        guard let raw = try? JSONEncoder().encode(merged) else { return nil }
+        return gzip(raw)
     }
 
     /// tvOS 安装的对外入口:读基线 → 纯计算 → 事务落盘。三段都留了单独的入口,
