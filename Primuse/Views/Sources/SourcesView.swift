@@ -79,7 +79,7 @@ struct SourceUnreachableNotice: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "wifi.slash")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.skin(.warning))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text("source_card_unreachable")
@@ -315,14 +315,14 @@ private struct MetadataFastReadingConfirmation: View {
             VStack(alignment: .leading, spacing: 16) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.title)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.skin(.danger))
                     .accessibilityHidden(true)
                 Text(MetadataReadingText.string("fastWarningTitle"))
                     .font(.title2.bold())
                     .accessibilityAddTraits(.isHeader)
                 Text(MetadataReadingText.string("fastWarningMessage"))
                     .font(.body.bold())
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.skin(.danger))
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("sources.metadataBackfillFastWarning")
             }
@@ -754,20 +754,21 @@ struct SourcesContentView: View {
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
+                // 品牌色图标块稍放大、圆角跟着放大:卡片的第一眼是「这是哪家的源」。
                 Image(systemName: source.type.iconName)
-                    .font(.title3).foregroundStyle(.white)
-                    .frame(width: 38, height: 38)
+                    .font(.title3.weight(.semibold)).foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
                     .background(source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient)
-                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(source.name).font(.body).fontWeight(.medium)
+                        Text(source.name).font(.body).fontWeight(.semibold)
                         if !source.isEnabled {
                             Text(String(localized: "disabled"))
                                 .font(.caption2).fontWeight(.medium)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.red.opacity(0.12))
-                                .foregroundStyle(.red)
+                                .background(.skin(.danger).opacity(0.12))
+                                .foregroundStyle(.skin(.danger))
                                 .clipShape(Capsule())
                         }
                     }
@@ -787,7 +788,7 @@ struct SourcesContentView: View {
                     if source.type.isAwaitingPublicAPI {
                         Label(source.type.subtitle, systemImage: "clock.badge.exclamationmark")
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.skin(.warning))
                     }
                 }
                 Spacer()
@@ -850,7 +851,7 @@ struct SourcesContentView: View {
                         HStack(spacing: 8) {
                             Label("notify_scan_failed_title", systemImage: "exclamationmark.triangle.fill")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.red)
+                                .foregroundStyle(.skin(.danger))
                             Spacer(minLength: 8)
                             if source.type == .synologyAudioStation {
                                 // 设备令牌失效后后台登录会卡在两步验证上,只有这里能再输一次验证码。
@@ -880,10 +881,10 @@ struct SourcesContentView: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+                    .background(.skin(.danger).opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
                     .overlay {
                         RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(Color.red.opacity(0.14), lineWidth: 0.8)
+                            .strokeBorder(.skin(.danger).opacity(0.14), lineWidth: 0.8)
                     }
                     .pmFadeTransition(motion: .list)
                 }
@@ -899,10 +900,10 @@ struct SourcesContentView: View {
                     } icon: {
                         Image(systemName: "checkmark.shield.fill")
                     }
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.skin(.warning))
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                    .background(.skin(.warning).opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
                     .pmFadeTransition(motion: .list)
                 }
             }
@@ -1242,7 +1243,7 @@ struct SourcesContentView: View {
                 systemImage: "exclamationmark.triangle"
             )
             .font(.caption)
-            .foregroundStyle(.orange)
+            .foregroundStyle(.skin(.warning))
         case .notDetermined, .authorized:
             // 还没授权时同步状态就是"尚未同步", 与旁边的"连接 Apple Music"
             // 按钮说的是同一件事, 不必再多一行警告。
@@ -1278,7 +1279,7 @@ struct SourcesContentView: View {
         case .failed(let message):
             Label(message, systemImage: "exclamationmark.triangle")
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(.skin(.danger))
         }
     }
 

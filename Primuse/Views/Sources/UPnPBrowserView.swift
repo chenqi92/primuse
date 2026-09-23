@@ -88,7 +88,7 @@ private struct UPnPDirectoryBrowserView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.title)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.skin(.warning))
                         Text(errorMessage)
                             .font(.caption)
                             .foregroundStyle(.secondary)

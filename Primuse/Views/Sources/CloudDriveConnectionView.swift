@@ -240,7 +240,7 @@ struct CloudDriveConnectionView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "clock.badge.exclamationmark")
                 .font(.system(size: 20))
-                .foregroundStyle(.orange)
+                .foregroundStyle(.skin(.warning))
             VStack(alignment: .leading, spacing: 4) {
                 Text(String(format: String(localized: "cloud_pending_unavailable_format"), source.type.displayName))
                     .font(.subheadline).fontWeight(.semibold)
@@ -254,7 +254,7 @@ struct CloudDriveConnectionView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12), in: .rect(cornerRadius: 12))
+        .background(.skin(.warning).opacity(0.12), in: .rect(cornerRadius: 12))
         .padding(.horizontal, 24)
     }
 
@@ -324,7 +324,7 @@ struct CloudDriveConnectionView: View {
             if !errorMessage.isEmpty {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(.system(size: 11))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.skin(.danger))
                     .padding(.horizontal, 30)
                     .multilineTextAlignment(.center)
             }
@@ -358,7 +358,7 @@ struct CloudDriveConnectionView: View {
             if !errorMessage.isEmpty {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.skin(.danger))
                     .padding(.horizontal, 30)
                     .multilineTextAlignment(.center)
             }
@@ -571,7 +571,7 @@ struct CloudDriveConnectionView: View {
             Spacer()
             Image(systemName: "xmark.circle")
                 .font(.system(size: 52))
-                .foregroundStyle(.red)
+                .foregroundStyle(.skin(.danger))
             Text(String(localized: "cloud_failed_title"))
                 .font(.headline)
             Text(errorMessage)

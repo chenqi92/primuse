@@ -597,11 +597,11 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 if type.isAwaitingPublicAPI {
                     Image(systemName: "clock.badge.exclamationmark")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.skin(.warning))
                 } else if type.supports2FA {
                     Image(systemName: "lock.shield")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.skin(.warning))
                 }
                 if !type.isAwaitingPublicAPI {
                     Image(systemName: "chevron.right")
@@ -623,7 +623,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
             HStack(spacing: 10) {
                 Image(systemName: device.sourceType.iconName)
                     .font(.system(size: 15))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(.skin(.success))
                     .frame(width: 22, alignment: .center)
 
                 VStack(alignment: .leading, spacing: 1) {
@@ -1316,7 +1316,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                             .font(.title3)
                             .foregroundStyle(.white)
                             .frame(width: 36, height: 36)
-                            .background(Color.green)
+                            .background(.skin(.success))
                             .clipShape(RoundedRectangle(cornerRadius: 8))
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -1379,10 +1379,10 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
             Spacer()
             if type.isAwaitingPublicAPI {
                 Image(systemName: "clock.badge.exclamationmark")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(.skin(.warning))
             } else if type.supports2FA {
                 Image(systemName: "lock.shield.fill")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(.skin(.warning))
             }
             if !type.isAwaitingPublicAPI {
                 Image(systemName: "chevron.right")

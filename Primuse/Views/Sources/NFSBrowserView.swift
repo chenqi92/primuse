@@ -134,7 +134,7 @@ private struct NFSDirectoryBrowserView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.title)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.skin(.warning))
                         SourceConnectionFailureDetails(
                             report: failureReport,
                             errorText: errorMessage,

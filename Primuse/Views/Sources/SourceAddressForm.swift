@@ -772,7 +772,7 @@ struct SourceAddressRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("source_address_probe_unresolved")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.skin(.danger))
                 ForEach(attempts) { attempt in
                     attemptRow(attempt)
                 }
@@ -948,7 +948,7 @@ struct MacSourceAddressRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("source_address_probe_unresolved")
                     .font(.system(size: 11.5))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.skin(.danger))
                 ForEach(attempts) { attempt in
                     attemptRow(attempt)
                 }

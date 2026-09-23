@@ -328,7 +328,7 @@ struct ConnectionFlowView: View {
                 // Error message
                 if !errorMessage.isEmpty {
                     Label(errorMessage, systemImage: "exclamationmark.triangle")
-                        .font(.subheadline).foregroundStyle(.red)
+                        .font(.subheadline).foregroundStyle(.skin(.danger))
                         .padding(.horizontal, 30)
                 }
 
@@ -516,7 +516,7 @@ struct ConnectionFlowView: View {
                         // 错误紧贴输入框，指向出问题的那个控件。
                         Label(errorMessage, systemImage: "exclamationmark.circle.fill")
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(.skin(.danger))
                     }
                 }
 
@@ -559,7 +559,7 @@ struct ConnectionFlowView: View {
     private var failedView: some View {
         let content = VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "xmark.circle").font(.system(size: 52)).foregroundStyle(.red)
+            Image(systemName: "xmark.circle").font(.system(size: 52)).foregroundStyle(.skin(.danger))
             Text("connection_failed").font(.headline)
             failureDetails
             VStack(spacing: 12) {
@@ -1284,7 +1284,7 @@ struct RealDirectoryBrowserView: View {
             } else if let err = errorMessage {
                 Spacer()
                 VStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle").font(.title).foregroundStyle(.orange)
+                    Image(systemName: "exclamationmark.triangle").font(.title).foregroundStyle(.skin(.warning))
                     Text(err).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button("retry") { loadDirectory() }.buttonStyle(.bordered)
                 }

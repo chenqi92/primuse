@@ -159,7 +159,7 @@ struct SendToTVSheet: View {
                 if blocked {
                     Label("send_to_tv_need_icloud", systemImage: "exclamationmark.icloud")
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.skin(.warning))
                         .multilineTextAlignment(.center)
                 }
 
@@ -208,7 +208,7 @@ struct SendToTVSheet: View {
                             .font(.caption2.monospaced())
                             .textSelection(.enabled)
                     }
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.skin(.warning))
                     .pmFadeTransition(motion: .contentAppear)
                 }
 
@@ -384,10 +384,10 @@ private struct SendToTVStepRow: View {
                 .controlSize(.small)
         case .done:
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(.skin(.success))
         case .failed:
             Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(.skin(.warning))
         }
     }
 

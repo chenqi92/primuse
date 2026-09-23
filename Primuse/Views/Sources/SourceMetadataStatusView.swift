@@ -786,11 +786,11 @@ struct SourceMetadataStatusView: View {
                 .lineLimit(1)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 6)
-                .foregroundStyle(Color.orange)
-                .background(Color.orange.opacity(0.13), in: Capsule(style: .continuous))
+                .foregroundStyle(.skin(.warning))
+                .background(.skin(.warning).opacity(0.13), in: Capsule(style: .continuous))
                 .overlay {
                     Capsule(style: .continuous)
-                        .strokeBorder(Color.orange.opacity(0.28), lineWidth: 1)
+                        .strokeBorder(.skin(.warning).opacity(0.28), lineWidth: 1)
                 }
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())

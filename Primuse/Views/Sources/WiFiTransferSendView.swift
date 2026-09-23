@@ -345,7 +345,7 @@ struct WiFiTransferSendView: View {
                 TransferFeedback(text: failure, isError: true)
             }
             if let warning = sender.preparationWarnings.first {
-                Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.skin(.warning))
             }
             if let error = sender.error ?? pickerError { TransferFeedback(text: error, isError: true) }
         }
@@ -488,7 +488,7 @@ struct WiFiTransferSendView: View {
     @ViewBuilder private var discoveryFeedback: some View {
         if let error = discovery.error {
             Label(WiFiTransferText.string(error), systemImage: "exclamationmark.triangle")
-                .font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                .font(.caption).foregroundStyle(.skin(.warning)).fixedSize(horizontal: false, vertical: true)
         }
     }
 
