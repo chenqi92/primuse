@@ -211,3 +211,95 @@ struct RadioPendingCloudUploadPolicyTests {
         #expect(result.supersededIDs.isEmpty)
     }
 }
+
+@Suite("远端删除的电台留墓碑")
+struct RadioRemoteDeletionPolicyTests {
+    private let base = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    private func live(_ id: String, at offset: TimeInterval) -> RadioStation {
+        RadioStation(
+            id: id,
+            name: "Station \(id)",
+            streamURL: "https://radio.example/\(id)",
+            createdAt: base,
+            modifiedAt: base.addingTimeInterval(offset),
+            sortOrder: 2_048,
+            folderName: "News",
+            tagNames: ["Talk"]
+        )
+    }
+
+    /// 写盘再读回：日期只留到秒。
+    private func roundTripped(_ station: RadioStation) throws -> RadioStation {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(RadioStation.self, from: encoder.encode(station))
+    }
+
+    @Test("活着的台变成墓碑，其余字段原样保留")
+    func tombstonesLiveRow() throws {
+        let row = live("a", at: 0)
+        let now = base.addingTimeInterval(600)
+        let tombstone = try #require(RadioRemoteDeletionPolicy.tombstone(row, at: now))
+        #expect(tombstone.isDeleted)
+        #expect(tombstone.deletedAt == now)
+        #expect(tombstone.modifiedAt == now)
+        #expect(tombstone.name == row.name)
+        #expect(tombstone.streamURL == row.streamURL)
+        #expect(tombstone.sortOrder == row.sortOrder)
+        #expect(tombstone.folderName == "News")
+        #expect(tombstone.tagNames == ["Talk"])
+        #expect(!tombstone.isSubscriptionExclusionMarker)
+    }
+
+    @Test("已经是普通墓碑时不再改动")
+    func ignoresExistingTombstone() {
+        var row = live("a", at: 0)
+        row.isDeleted = true
+        row.deletedAt = base
+        #expect(RadioRemoteDeletionPolicy.tombstone(row, at: base.addingTimeInterval(60)) == nil)
+    }
+
+    @Test("订阅的排除标记被远端删除后变成普通墓碑，保留原删除时间")
+    func exclusionMarkerBecomesPlainTombstone() throws {
+        var marker = live("radiosub.x.y", at: 0)
+        marker.subscriptionID = "radiosub.x"
+        marker.subscriptionEntryKey = "radio.example/radiosub.x.y"
+        marker.isDeleted = true
+        marker.deletedAt = base
+        marker.isSubscriptionExclusion = true
+        #expect(marker.isSubscriptionExclusionMarker)
+
+        let now = base.addingTimeInterval(300)
+        let tombstone = try #require(RadioRemoteDeletionPolicy.tombstone(marker, at: now))
+        #expect(tombstone.isDeleted)
+        #expect(!tombstone.isSubscriptionExclusionMarker)
+        #expect(tombstone.isSubscriptionExclusion == nil)
+        #expect(tombstone.deletedAt == base)
+        #expect(tombstone.modifiedAt == now)
+    }
+
+    @Test("被删的那一版来自时钟走快的设备时，墓碑仍比它新一整秒")
+    func tombstoneOutranksFutureDatedRow() throws {
+        let row = live("a", at: 30)
+        let now = base
+        let tombstone = try #require(RadioRemoteDeletionPolicy.tombstone(row, at: now))
+        #expect(tombstone.modifiedAt == row.modifiedAt.addingTimeInterval(1))
+        #expect(tombstone.deletedAt == now)
+    }
+
+    @Test("过期快照里同一秒的那一版写盘读回后也盖不过墓碑")
+    func staleSnapshotRowLosesAfterRoundTrip() throws {
+        // 删除在那一版之后不到一秒就到了。
+        let row = live("a", at: 0.2)
+        let tombstone = try #require(RadioRemoteDeletionPolicy.tombstone(row, at: base.addingTimeInterval(0.7)))
+        let storedTombstone = try roundTripped(tombstone)
+        let staleSnapshotRow = try roundTripped(row)
+        // 快照逐条合并的规则：本机的修改时间不晚于快照那一行就换成快照的。
+        let snapshotWins = storedTombstone.modifiedAt <= staleSnapshotRow.modifiedAt
+        #expect(!snapshotWins)
+        #expect(storedTombstone.isDeleted)
+    }
+}

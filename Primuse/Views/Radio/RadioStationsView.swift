@@ -850,14 +850,11 @@ struct RadioStationsView: View {
         .padding(.vertical, 6)
     }
 
-    /// 置顶保持选中项之间的相对顺序，其余的原样跟在后面。
+    /// 置顶保持选中项之间的相对顺序，其余的原样跟在后面（只改被置顶的台的序号）。
     private func moveToTop(_ ids: Set<String>) {
-        let ordered = store.stations
-        let picked = ordered.filter { ids.contains($0.id) && !$0.isServerMirror }
+        let picked = store.stations.filter { ids.contains($0.id) && !$0.isServerMirror }
         guard !picked.isEmpty else { return }
-        let pickedIDs = Set(picked.map(\.id))
-        let rest = ordered.filter { !pickedIDs.contains($0.id) }
-        store.applyOrder((picked + rest).map(\.id))
+        store.moveToTop(ids: picked.map(\.id))
     }
 
     private func exportSelected() {

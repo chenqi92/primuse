@@ -476,9 +476,7 @@ public enum RadioSubscriptionMergePolicy {
         unmatched.removeAll { claimedEntryKeys.contains($0.key) }
 
         // 规则 4 / 7：剩下的新条目逐个新建；首次订阅时用户没勾的建排除标记。
-        var nextSortOrder: Int? = stations.contains(where: { !$0.isDeleted && $0.sortOrder != nil })
-            ? (stations.compactMap(\.sortOrder).max() ?? -1) + 1
-            : nil
+        var nextSortOrder = RadioStationOrdering.appendedRank(after: stations)
         for entry in unmatched {
             if foreignExcludedKeys.contains(entry.key) {
                 summary.skippedExcluded += 1
@@ -528,7 +526,7 @@ public enum RadioSubscriptionMergePolicy {
                 subscriptionID: subscriptionID,
                 subscriptionEntryKey: entry.key
             ))
-            if let order = nextSortOrder { nextSortOrder = order + 1 }
+            if let order = nextSortOrder { nextSortOrder = RadioStationOrdering.rank(after: order) }
             addedIDs.append(id)
             summary.added += 1
         }
