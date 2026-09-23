@@ -683,6 +683,10 @@ final class SourcesStore {
             // with another device's token, otherwise the next scan needlessly
             // falls back to password + TOTP.
             merged.deviceId = existing.deviceId
+            // iCloud 会把本机刚推上去的那份原样拉回来。一个字段都没变的记录
+            // 不落盘也不广播: 广播会被当成源被改过 —— 缓存审查、连接器重建、
+            // 音乐源列表整页重建都会跟着跑一遍。
+            if merged == existing, !restoresRecordedDeletion { return }
             if let index = allSources.firstIndex(where: { $0.id == merged.id }) {
                 allSources[index] = merged
             }
@@ -710,10 +714,14 @@ final class SourcesStore {
     private func notifyChanged(_ ids: [String], origin: String = "local") {
         var scopeFingerprints: [String: String] = [:]
         var credentialScopeFingerprints: [String: String] = [:]
+        // 活着的那几行本身也随通知带出去: ScanService 要拿它们判断扫描作用域
+        // 到底变没变, 而不是一见通知就把正在跑的扫描取消。
+        var changedSources: [String: MusicSource] = [:]
         for sourceID in ids {
             guard let source = allSources.first(where: {
                 $0.id == sourceID && !$0.isDeleted
             }) else { continue }
+            changedSources[sourceID] = source
             scopeFingerprints[sourceID] =
                 MusicSourceSecurityRevision.scopedFingerprint(for: source)
             credentialScopeFingerprints[sourceID] =
@@ -724,6 +732,7 @@ final class SourcesStore {
             object: nil,
             userInfo: [
                 "ids": ids,
+                "sources": changedSources,
                 "scopeFingerprints": scopeFingerprints,
                 "credentialScopeFingerprints": credentialScopeFingerprints,
                 "origin": origin,

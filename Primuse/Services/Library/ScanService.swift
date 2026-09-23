@@ -648,6 +648,15 @@ final class ScanService {
     /// generation synchronously so an old authenticated request cannot commit
     /// after the source row has switched accounts with an otherwise identical
     /// public fingerprint.
+    ///
+    /// 同一条通知也会由 iCloud 拉回来的记录触发 —— 包括本机几分钟前刚推上去的
+    /// 那一份。那种回写一个字段都没改, 以前却照样把正在跑的扫描连同检查点、
+    /// 同步状态一起清掉: 改完目录后的那次深度重扫就这样半路没了, 删除对账
+    /// 只在扫描收尾做, 被取消勾选的目录里的歌于是一直留在资料库里。所以云端
+    /// 来的记录先拿这一行算一次扫描作用域指纹, 跟检查点 / 同步状态记着的那份
+    /// 一样就什么都不动; 指纹的算法与 `scanSource` 相同, 目录、连接身份、
+    /// `modifiedAt`、凭据版本任何一样变了都会不同。本机的编辑照旧一律取消 ——
+    /// 指纹里的 `modifiedAt` 只精确到秒, 不拿它替本机编辑做判断。
     private func observeSourceConfigurationChanges() {
         NotificationCenter.default.addObserver(
             forName: .primuseSourcesDidChange,
@@ -656,8 +665,15 @@ final class ScanService {
         ) { [weak self] note in
             guard let self,
                   let sourceIDs = note.userInfo?["ids"] as? [String] else { return }
+            let cameFromRemote = (note.userInfo?["origin"] as? String) == "remote"
+            let changedSources = note.userInfo?["sources"] as? [String: MusicSource] ?? [:]
             MainActor.assumeIsolated {
                 for sourceID in sourceIDs {
+                    if cameFromRemote,
+                       let source = changedSources[sourceID],
+                       self.scanScopeIsCurrent(for: source) {
+                        continue
+                    }
                     if self.activeTasks[sourceID] != nil {
                         self.cancelScan(for: sourceID)
                     }
@@ -666,6 +682,30 @@ final class ScanService {
                 }
             }
         }
+    }
+
+    /// True when the checkpoint or sync state on file was built for exactly
+    /// this row, so the notification changed nothing a scan depends on.
+    private func scanScopeIsCurrent(for source: MusicSource) -> Bool {
+        guard let directories = scanDirectories(for: source),
+              let bound = checkpoints[source.id]?.scopeFingerprint
+                ?? syncStates[source.id]?.scopeFingerprint else { return false }
+        return bound == Self.scopeFingerprint(for: source, directories: directories)
+    }
+
+    /// The directories a scan of this row walks: the "/" sentinel for sources
+    /// that always cover their whole library, otherwise the user's selection
+    /// with children of a selected parent dropped. Nil when a directory source
+    /// has nothing selected, which is not a scan at all.
+    private func scanDirectories(for source: MusicSource) -> [String]? {
+        let dirs: [String]
+        if source.type.scansEntireLibrary {
+            dirs = ["/"]
+        } else {
+            dirs = source.scannedDirectories
+            guard !dirs.isEmpty else { return nil }
+        }
+        return normalizedDirectories(dirs)
     }
 
     private func invalidateSyncState(for sourceID: String) {
@@ -883,15 +923,7 @@ final class ScanService {
         // 确定范围；媒体服务器与 Apple Music Library 也天然是完整资料库。
         // 统一用 "/" 哨兵触发 connector.scanSongs(from: "/")，避免 Local
         // 因 extraConfig 没有目录数组而在保存后静默跳过扫描。
-        let dirs: [String]
-        if source.type.scansEntireLibrary {
-            dirs = ["/"]
-        } else {
-            dirs = source.scannedDirectories
-            guard !dirs.isEmpty else { return false }
-        }
-
-        let normalizedDirs = normalizedDirectories(dirs)
+        guard let normalizedDirs = scanDirectories(for: source) else { return false }
         let checkpointScopeFingerprint = Self.scopeFingerprint(
             for: source,
             directories: normalizedDirs
