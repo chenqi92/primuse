@@ -1324,6 +1324,15 @@ struct MetadataScrapingView: View {
         .navigationDestination(isPresented: $showLyricsServers) {
             LyricsAPIServersView()
         }
+        #if DEBUG
+        .task {
+            // 编译机上的无人值守检查：`PRIMUSE_VISUAL_EVIDENCE=lyricsServers` 直接进入地址页。
+            guard ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "lyricsServers" else { return }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            showLyricsServers = true
+        }
+        #endif
         .navigationTitle("metadata_scraping")
         #if os(iOS)
         #if os(iOS)
