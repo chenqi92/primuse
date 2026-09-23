@@ -4272,3 +4272,6 @@
 "album_more_from_artist_format" = "เพิ่มเติมจาก %@";
 "library_remove_quick_access" = "นำออกจากการเข้าถึงด่วน";
 "minimal_dock_destinations_hint" = "แตะค้างเพื่อไปยังหน้าใดก็ได้";
+"search_browse_genres" = "เรียกดูตามแนวเพลง";
+"search_browse_genre_hint" = "ค้นหาในแนวเพลงนี้";
+"search_top_result" = "ผลลัพธ์ยอดนิยม";

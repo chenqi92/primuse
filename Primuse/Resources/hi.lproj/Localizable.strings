@@ -4272,3 +4272,6 @@
 "album_more_from_artist_format" = "%@ के और एल्बम";
 "library_remove_quick_access" = "त्वरित पहुंच से हटाएँ";
 "minimal_dock_destinations_hint" = "किसी भी पेज पर जाने के लिए दबाकर रखें";
+"search_browse_genres" = "शैली के अनुसार ब्राउज़ करें";
+"search_browse_genre_hint" = "इस शैली में खोजें";
+"search_top_result" = "शीर्ष परिणाम";

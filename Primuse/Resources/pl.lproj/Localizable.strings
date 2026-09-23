@@ -4272,3 +4272,6 @@
 "album_more_from_artist_format" = "Więcej od %@";
 "library_remove_quick_access" = "Usuń z szybkiego dostępu";
 "minimal_dock_destinations_hint" = "Przytrzymaj, aby przejść do dowolnej strony";
+"search_browse_genres" = "Przeglądaj według gatunku";
+"search_browse_genre_hint" = "Szukaj w tym gatunku";
+"search_top_result" = "Najlepszy wynik";

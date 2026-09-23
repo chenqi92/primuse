@@ -631,6 +631,12 @@ struct RadioStationsView: View {
         let priorities = store.priorityByID
         let total = store.stations.count
         return ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+            #if os(iOS)
+            // 正在播的电台放在最上面一张大卡:台名、节目、上下台与停止、睡眠定时都在这里。
+            // 卡片自己读播放状态,节目标题更新不会把整页网格拉着重画。
+            RadioOnAirHero()
+            #endif
             LazyVGrid(
                 columns: columns,
                 alignment: .leading,
@@ -657,6 +663,9 @@ struct RadioStationsView: View {
                         stationItem(station, priority: priorities[station.id] ?? 1, total: total)
                     }
                 }
+            }
+            // 末尾一格「添加电台」,和首页电台墙的添加卡一样打开批量添加。
+            RadioAddStationTile(layoutMode: layoutMode) { showingBatchAdd = true }
             }
             .padding(16)
         }
@@ -951,6 +960,164 @@ extension UTType {
     }
 }
 
+
+#if os(iOS)
+/// 电台页顶部的「正在直播」卡。只在当前正放着一个电台时出现。
+///
+/// 播放状态在这里读:节目标题一变只重画这张卡。点卡片空白处打开播放页。
+private struct RadioOnAirHero: View {
+    @Environment(AudioPlayerService.self) private var player
+    @State private var showsSleepTimer = false
+
+    var body: some View {
+        if let station = player.currentRadioStation {
+            let isActive = player.isPlaying || player.isLoading
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    if isActive {
+                        HStack(spacing: 5) {
+                            Circle().fill(.white).frame(width: 6, height: 6)
+                            Text("live_badge").font(.caption.weight(.heavy))
+                        }
+                        .padding(.horizontal, 9)
+                        .frame(height: 22)
+                        .background(Color(red: 1, green: 0.23, blue: 0.36), in: Capsule())
+                        .accessibilityLabel(Text("radio_live"))
+                    }
+                    if isActive, player.currentTime > 0 {
+                        Text(player.currentTime.formattedDuration)
+                            .font(.caption.monospacedDigit())
+                            .opacity(0.72)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 16) {
+                    RadioStationArtworkView(station: station, size: 88, cornerRadius: 18)
+                        .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(verbatim: station.name)
+                            .font(.title2.weight(.heavy))
+                            .lineLimit(2)
+                        if let program = player.radioMetadataTitle, !program.isEmpty {
+                            Text(verbatim: program)
+                                .font(.subheadline)
+                                .opacity(0.78)
+                                .lineLimit(2)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                HStack(spacing: 30) {
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { await player.previous() }
+                    } label: {
+                        Image(systemName: "backward.fill").font(.title2)
+                    }
+                    .disabled(!player.canSwitchRadioStation)
+                    .opacity(player.canSwitchRadioStation ? 1 : 0.4)
+                    .accessibilityLabel(Text("radio_previous_station"))
+
+                    Button { player.togglePlayPause() } label: {
+                        Image(systemName: isActive ? "stop.fill" : "play.fill")
+                            .font(.title2)
+                            .foregroundStyle(.black)
+                            .frame(width: 60, height: 60)
+                            .background(.white, in: Circle())
+                    }
+                    .accessibilityLabel(Text(isActive ? "radio_stop" : "a11y_play"))
+
+                    Button {
+                        Task { await player.next() }
+                    } label: {
+                        Image(systemName: "forward.fill").font(.title2)
+                    }
+                    .disabled(!player.canSwitchRadioStation)
+                    .opacity(player.canSwitchRadioStation ? 1 : 0.4)
+                    .accessibilityLabel(Text("radio_next_station"))
+                    Spacer(minLength: 0)
+                }
+                .buttonStyle(.plain)
+                .overlay(alignment: .trailing) {
+                    Button { showsSleepTimer = true } label: {
+                        Image(systemName: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 40, height: 40)
+                            .background(.white.opacity(0.16), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(player.isSleepTimerActive ? "sleep_timer_active" : "sleep_timer"))
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(18)
+            .background {
+                ZStack {
+                    RadioStationArtworkView(station: station, size: 320, cornerRadius: 0)
+                        .blur(radius: 40)
+                        .scaleEffect(1.5)
+                    Color.black.opacity(0.46)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .accessibilityHidden(true)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .onTapGesture {
+                NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
+            }
+            .accessibilityAction(named: Text("now_playing")) {
+                NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
+            }
+            .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showsSleepTimer) {
+                ForEach([5, 15, 30, 45, 60, 90], id: \.self) { minutes in
+                    Button("\(minutes) " + String(localized: "minutes")) { player.scheduleSleep(minutes: minutes) }
+                }
+                if player.isSleepTimerActive {
+                    Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
+                }
+                Button(String(localized: "cancel"), role: .cancel) {}
+            }
+        }
+    }
+}
+#endif
+
+/// 网格末尾的「添加电台」:虚线框一格,打开批量添加。两种版式各自配一个大小。
+private struct RadioAddStationTile: View {
+    let layoutMode: RadioStationLayoutMode
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                switch layoutMode {
+                case .cover:
+                    VStack(spacing: 8) {
+                        Image(systemName: "plus").font(.system(size: 24, weight: .medium))
+                        Text("radio_batch_add_title").font(.caption).multilineTextAlignment(.center)
+                    }
+                    .frame(width: 110, height: 110)
+                case .list:
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus").font(.headline)
+                        Text("radio_batch_add_title").font(.subheadline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                }
+            }
+            .foregroundStyle(.secondary)
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(.primary.opacity(0.18), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
 
 /// 电台页的一格。播放状态在这里读，而不是在整页的 body 里读：节目标题每更新一次、
 /// 换一次台，只重画相关的一两张卡，整页的筛选、分组不跟着重算。

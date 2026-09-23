@@ -4366,3 +4366,6 @@
 "album_more_from_artist_format" = "%@의 다른 앨범";
 "library_remove_quick_access" = "빠른 접근에서 제거";
 "minimal_dock_destinations_hint" = "길게 눌러 원하는 페이지로 이동";
+"search_browse_genres" = "장르별 둘러보기";
+"search_browse_genre_hint" = "이 장르에서 검색";
+"search_top_result" = "최상위 결과";

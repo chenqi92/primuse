@@ -4272,3 +4272,6 @@
 "album_more_from_artist_format" = "Ещё от %@";
 "library_remove_quick_access" = "Убрать из быстрого доступа";
 "minimal_dock_destinations_hint" = "Удерживайте, чтобы перейти на любую страницу";
+"search_browse_genres" = "Обзор по жанрам";
+"search_browse_genre_hint" = "Искать в этом жанре";
+"search_top_result" = "Лучший результат";

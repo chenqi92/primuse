@@ -93,6 +93,8 @@ struct RadioFilterChip: View {
     var tint: Color = .accentColor
     let action: () -> Void
 
+    @Environment(\.skin) private var skin
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
@@ -111,12 +113,18 @@ struct RadioFilterChip: View {
             .padding(.horizontal, 11)
             .padding(.vertical, 6)
             .background(
-                isSelected ? tint : Color.secondary.opacity(0.12),
+                isSelected
+                    ? AnyShapeStyle(tint)
+                    : skin.cardFill(classic: Color.secondary.opacity(0.12), token: .chip),
                 in: Capsule(style: .continuous)
             )
             .overlay {
+                // 未选中的胶囊描一圈淡边;自己画底色的皮肤下用皮肤的描边色。
                 Capsule(style: .continuous)
-                    .stroke(isSelected ? .clear : Color.secondary.opacity(0.18), lineWidth: 0.7)
+                    .stroke(
+                        isSelected ? AnyShapeStyle(Color.clear) : skin.cardFill(classic: Color.secondary.opacity(0.18), token: .surfaceBorder),
+                        lineWidth: 0.7
+                    )
             }
             .contentShape(Capsule(style: .continuous))
         }

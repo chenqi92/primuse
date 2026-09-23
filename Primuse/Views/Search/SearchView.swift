@@ -445,6 +445,8 @@ struct SearchView: View {
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     #endif
+    // Mac 上恒为经典样式;结果列表与最近搜索的行底两端共用这一份判断。
+    @Environment(\.skin) private var skin
     /// 手机横屏时结果区只剩两百多点, 范围卡片与专辑架都要收一档。
     @Environment(\.pmHeightClass) private var heightClass
     @Binding var searchText: String
@@ -2468,47 +2470,162 @@ struct SearchView: View {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
+    /// 还没输入时的搜索页:最近搜索排成一行行胶囊,下面是按流派浏览,最后一行资料库计数。
     private var recentSearchView: some View {
-        SkinList {
-            if !recentSearches.isEmpty {
-                Section {
-                    ForEach(recentSearches, id: \.self) { query in
-                        Button {
-                            addRecentSearch(query)
-                            searchText = query
-                        } label: {
-                            Label(query, systemImage: "clock")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
+                if !recentSearches.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline) {
+                            searchSectionTitle("recent_searches")
+                            Spacer()
+                            Button("clear_all", role: .destructive, action: clearRecentSearches)
+                                .font(.subheadline)
+                        }
+                        SearchChipFlowLayout(spacing: 8) {
+                            ForEach(recentSearches, id: \.self) { query in
+                                recentSearchChip(query)
+                            }
                         }
                     }
-                    .onDelete(perform: deleteRecentSearches)
-                } header: {
-                    HStack {
-                        Text("recent_searches")
-                        Spacer()
-                        Button("clear_all", role: .destructive, action: clearRecentSearches)
-                            .font(.caption)
-                    }
                 }
-            }
 
-            Section {
-                HStack {
-                    Image(systemName: "music.note.list")
-                        .foregroundStyle(.secondary)
-                    Text("\(scope?.songIDs.count ?? library.visibleSongs.count) \(String(localized: "tab_songs"))")
-                    if scope == nil {
-                        Spacer()
-                        Text("\(library.visibleAlbums.count) \(String(localized: "tab_albums"))")
-                        Text("·")
-                        Text("\(library.visibleArtists.count) \(String(localized: "tab_artists"))")
+                // 在某个范围里搜的时候,按流派浏览没有意义(范围本身就是筛选)。
+                if scope == nil {
+                    let genres = browseGenres
+                    if !genres.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            searchSectionTitle("search_browse_genres")
+                            LazyVGrid(
+                                columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                                spacing: 10
+                            ) {
+                                ForEach(genres) { genre in
+                                    genreBrowseTile(genre)
+                                }
+                            }
+                        }
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            } header: {
-                Text(scope?.title ?? String(localized: "library"))
+
+                libraryCountsLine
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+        }
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    private func searchSectionTitle(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.title3.weight(.bold))
+            .foregroundStyle(.primary)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// 一条最近搜索。点按重新搜;长按或辅助功能动作删除这一条(原来左滑删除的替代)。
+    private func recentSearchChip(_ query: String) -> some View {
+        Button {
+            addRecentSearch(query)
+            searchText = query
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "clock")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(verbatim: query)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 13)
+            .frame(minHeight: 34)
+            .background(
+                skin.cardFill(classic: Color.secondary.opacity(0.12), token: .chip),
+                in: Capsule()
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("delete", systemImage: "trash", role: .destructive) {
+                removeRecentSearch(query)
             }
         }
+        .accessibilityAction(named: Text("delete")) {
+            removeRecentSearch(query)
+        }
+    }
+
+    /// 歌曲最多的几个流派。空搜索页才算,流派数量本身不大。
+    private var browseGenres: [LibraryGenre] {
+        Array(library.visibleGenres.sorted { $0.songCount > $1.songCount }.prefix(8))
+    }
+
+    /// 点流派 = 在这个流派里搜(与从流派详情页进搜索是同一种范围),然后直接弹出键盘。
+    private func genreBrowseTile(_ genre: LibraryGenre) -> some View {
+        let color = SearchGenreTilePalette.color(for: genre.id)
+        let coverSong = genre.representativeSongIDs.lazy.compactMap { library.visibleSong(id: $0) }.first
+        return Button {
+            scope = LibrarySearchScope(
+                title: genre.name,
+                songIDs: Set(library.songs(forGenre: genre.id).map(\.id)),
+                kind: .genre
+            )
+            isSearchFieldPresented = true
+        } label: {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(color.gradient)
+                if let coverSong {
+                    CachedArtworkView(
+                        coverRef: coverSong.coverArtFileName,
+                        songID: coverSong.id,
+                        size: 72,
+                        cornerRadius: 8,
+                        sourceID: coverSong.sourceID,
+                        filePath: coverSong.filePath,
+                        fileFormat: coverSong.fileFormat
+                    )
+                    .rotationEffect(.degrees(18))
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .offset(x: 10, y: 12)
+                    .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: genre.name)
+                        .font(.headline.weight(.heavy))
+                        .lineLimit(2)
+                    Text(verbatim: "\(genre.songCount) \(String(localized: "songs_count"))")
+                        .font(.caption.monospacedDigit())
+                        .opacity(0.78)
+                }
+                .foregroundStyle(.white)
+                .padding(12)
+            }
+            .frame(height: 100)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(Text("search_browse_genre_hint"))
+    }
+
+    private var libraryCountsLine: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "music.note.list")
+            if let scope {
+                Text(verbatim: "\(scope.title) · \(scope.songIDs.count) \(String(localized: "tab_songs"))")
+            } else {
+                Text(verbatim: "\(library.visibleSongs.count) \(String(localized: "tab_songs")) · \(library.visibleAlbums.count) \(String(localized: "tab_albums")) · \(library.visibleArtists.count) \(String(localized: "tab_artists"))")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
     }
 
     private var searchResultsView: some View {
@@ -2526,13 +2643,107 @@ struct SearchView: View {
                 }
             }
 
+            if scope == nil, let top = topResult {
+                Section {
+                    topResultCard(top)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 10, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
+            }
+
             ForEach(orderedResultSections) { section in
                 resultSection(section)
             }
+            // 自己画页面底色的皮肤下行是透明的,露出页面底色;经典下仍是系统行底。
+            .listRowBackground(skin.paintsPageBackground ? Color.clear : nil)
         }
         .listStyle(.plain)
+        .scrollContentBackground(skin.paintsPageBackground ? .hidden : .automatic)
         // 结果表够宽时, 歌曲行把专辑与时长排成对齐列。
         .songRowColumnsContainer()
+    }
+
+    private func searchResultHeader(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.title3.weight(.bold))
+            .foregroundStyle(.primary)
+            .textCase(nil)
+            .padding(.top, 6)
+    }
+
+    /// 标题 / 艺术家命中里排第一的那首。只在全局搜索里出现 —— 范围内搜索本来就是在
+    /// 一小组歌里找,不需要再挑一个出来。
+    private var topResult: LibrarySearchResult? {
+        guard orderedResultSections.contains(.metadata) else { return nil }
+        return searchResults.first { $0.matchKind == .metadata }
+    }
+
+    /// 最佳结果:大封面卡片,底子是模糊的封面。点按与点结果行一样立即播放。
+    private func topResultCard(_ result: LibrarySearchResult) -> some View {
+        let song = result.song
+        return Button {
+            playSong(song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
+        } label: {
+            HStack(spacing: 14) {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: 84,
+                    cornerRadius: 12,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+                .shadow(color: .black.opacity(0.3), radius: 10, y: 5)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("search_top_result")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.72))
+                    Text(verbatim: song.title)
+                        .font(.title3.weight(.heavy))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    if let artist = library.artistDisplayName(for: song) {
+                        Text(verbatim: artist)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.78))
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "play.fill")
+                    .font(.headline)
+                    .foregroundStyle(.black)
+                    .frame(width: 44, height: 44)
+                    .background(.white, in: Circle())
+                    .accessibilityHidden(true)
+            }
+            .padding(14)
+            .background {
+                ZStack {
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName,
+                        songID: song.id,
+                        size: 240,
+                        cornerRadius: 0,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat
+                    )
+                    .blur(radius: 30)
+                    .scaleEffect(1.6)
+                    Color.black.opacity(0.42)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .accessibilityHidden(true)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
     }
 
     /// 结果表里的一块。先后与显隐由右上角的「调整搜索结果」决定。
@@ -2585,10 +2796,11 @@ struct SearchView: View {
                 .listRowSeparator(.hidden)
             } header: {
                 HStack {
-                    Text("tab_albums")
+                    searchResultHeader("tab_albums")
                     Spacer()
                     #if os(iOS)
                     NavigationLink("see_all", value: SearchCatalogDestination.albums)
+                    .font(.subheadline)
                     .textCase(nil)
                     #endif
                 }
@@ -2601,7 +2813,7 @@ struct SearchView: View {
         // matchingArtists 每次读都要把全部艺术家过一遍, 这一块只算一次。
         let artists = matchingArtists
         if !artists.isEmpty {
-            Section("tab_artists") {
+            Section {
                 ForEach(artists.prefix(3)) { artist in
                     NavigationLink(value: artist) {
                         HStack(spacing: 12) {
@@ -2620,6 +2832,8 @@ struct SearchView: View {
                     NavigationLink("see_all", value: SearchCatalogDestination.artists)
                     #endif
                 }
+            } header: {
+                searchResultHeader("tab_artists")
             }
         }
     }
@@ -2659,10 +2873,12 @@ struct SearchView: View {
                 }
             }
         } header: {
-            HStack {
+            HStack(spacing: 6) {
                 Image(systemName: "applelogo")
-                Text("search_section_apple_music")
+                    .font(.headline)
+                searchResultHeader("search_section_apple_music")
             }
+            .foregroundStyle(.primary)
         }
     }
 
@@ -2732,7 +2948,7 @@ struct SearchView: View {
                     }
                 }
             } header: {
-                Text(titleKey)
+                searchResultHeader(titleKey)
             }
         }
     }
@@ -3342,3 +3558,69 @@ private struct MacSearchFlowLayout: Layout {
     }
 }
 #endif
+
+/// 把胶囊从左到右排,放不下就折到下一行。最近搜索用它。
+struct SearchChipFlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                y += rowHeight + spacing
+                x = 0
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            widest = max(widest, x - spacing)
+        }
+        return CGSize(width: min(widest, maxWidth), height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                y += rowHeight + spacing
+                x = bounds.minX
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
+/// 搜索页流派磁贴的底色。按流派 id 固定取色,同一个流派每次都是同一种颜色;
+/// 色块都够深,白字压得住。
+enum SearchGenreTilePalette {
+    private static let colors: [Color] = [
+        Color(red: 0.36, green: 0.25, blue: 0.66),
+        Color(red: 0.72, green: 0.20, blue: 0.16),
+        Color(red: 0.05, green: 0.43, blue: 0.48),
+        Color(red: 0.70, green: 0.42, blue: 0.08),
+        Color(red: 0.12, green: 0.31, blue: 0.82),
+        Color(red: 0.30, green: 0.45, blue: 0.29),
+        Color(red: 0.62, green: 0.19, blue: 0.42),
+        Color(red: 0.25, green: 0.27, blue: 0.33),
+    ]
+
+    static func color(for genreID: String) -> Color {
+        var hash: UInt32 = 0
+        for scalar in genreID.unicodeScalars {
+            hash = hash &* 31 &+ scalar.value
+        }
+        return colors[Int(hash % UInt32(colors.count))]
+    }
+}
+
