@@ -4271,3 +4271,4 @@
 /* 2.0 详情页 */
 "album_more_from_artist_format" = "%@ के और एल्बम";
 "library_remove_quick_access" = "त्वरित पहुंच से हटाएँ";
+"minimal_dock_destinations_hint" = "किसी भी पेज पर जाने के लिए दबाकर रखें";

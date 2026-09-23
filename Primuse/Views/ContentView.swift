@@ -200,6 +200,17 @@ private struct LegacyBottomChromeOverlayActiveEnvironmentKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+/// 极简基座:页面按经典的方式带系统导航栏,底部换成极简底栏。只有外壳与根页/详情页
+/// 两个修饰符读它;页面本身看到的 `appNavigationMode` 一律是 `.standard`。
+private struct UsesMinimalDockEnvironmentKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+/// 极简基座没有「设置」标签,首页与资料库的根页在右上角放一颗齿轮,点它走这里。
+private struct MinimalOpenSettingsEnvironmentKey: EnvironmentKey {
+    static let defaultValue: (@MainActor () -> Void)? = nil
+}
+
 private struct MinimalNavigationDetailScopeEnvironmentKey: EnvironmentKey {
     static let defaultValue: MinimalNavigationDetailScope? = nil
 }
@@ -242,6 +253,16 @@ extension EnvironmentValues {
     var appNavigationMode: AppNavigationMode {
         get { self[AppNavigationModeEnvironmentKey.self] }
         set { self[AppNavigationModeEnvironmentKey.self] = newValue }
+    }
+
+    var usesMinimalDock: Bool {
+        get { self[UsesMinimalDockEnvironmentKey.self] }
+        set { self[UsesMinimalDockEnvironmentKey.self] = newValue }
+    }
+
+    var minimalOpenSettings: (@MainActor () -> Void)? {
+        get { self[MinimalOpenSettingsEnvironmentKey.self] }
+        set { self[MinimalOpenSettingsEnvironmentKey.self] = newValue }
     }
 
     var legacyBottomChromeOverlayActive: Bool {
@@ -390,25 +411,30 @@ extension View {
         modifier(MinimalNavigationRootModifier())
     }
 
+    /// 极简基座没有设置标签:首页与资料库的根页右上角放一颗齿轮。经典基座下什么都不加。
+    func minimalSettingsToolbarButton() -> some View {
+        modifier(MinimalSettingsToolbarButtonModifier())
+    }
+
     func minimalNavigationDetail(isDetail: Bool = true) -> some View {
         modifier(MinimalNavigationDetailModifier(isDetail: isDetail))
     }
 }
 
 private struct MinimalNavigationRootModifier: ViewModifier {
-    @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.usesMinimalDock) private var usesMinimalDock
     @Environment(\.minimalNavigationBars) private var bars
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if appNavigationMode == .minimal {
+        if usesMinimalDock {
+            // 极简基座的根页保留系统导航栏(大标题、工具栏按钮、搜索框都在),
+            // 只把底部换成极简底栏。
             content
                 // Empty states have an intrinsic height; bars need the full page bounds.
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // 每个根页面都经过这里,样式自己的页面底色在这一处挂上,不必逐页去改。
                 .skinPageBackground()
-                .toolbar(.hidden, for: .navigationBar)
-                .minimalSafeAreaBar(edge: .top) { bars?.top }
                 .minimalSafeAreaBar(edge: .bottom) { bars?.bottom }
         } else {
             content
@@ -416,9 +442,27 @@ private struct MinimalNavigationRootModifier: ViewModifier {
     }
 }
 
+private struct MinimalSettingsToolbarButtonModifier: ViewModifier {
+    @Environment(\.minimalOpenSettings) private var openSettings
+
+    func body(content: Content) -> some View {
+        content.toolbar {
+            if let openSettings {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: openSettings) {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel(Text("settings_title"))
+                    .accessibilityIdentifier("minimal.settings")
+                }
+            }
+        }
+    }
+}
+
 private struct MinimalNavigationDetailModifier: ViewModifier {
     let isDetail: Bool
-    @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.usesMinimalDock) private var usesMinimalDock
     @Environment(\.minimalNavigationDetailScope) private var detailScope
     @Environment(\.minimalNavigationDetailTransitionHandler) private var transitionHandler
     @Environment(\.minimalNavigationBars) private var bars
@@ -426,7 +470,7 @@ private struct MinimalNavigationDetailModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if isDetail, appNavigationMode == .minimal, let detailScope {
+        if isDetail, usesMinimalDock, let detailScope {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .skinPageBackground()
@@ -948,56 +992,53 @@ struct ContentView: View {
             .environment(
                 \.minimalNavigationBars,
                 MinimalNavigationBars(
-                    top: AnyView(minimalTopChrome),
+                    top: AnyView(EmptyView()),
                     bottom: AnyView(minimalBottomChrome)
                 )
             )
-            .background {
-                MinimalNavigationScrollObserver(
-                    categoriesCollapsed: minimalCategoriesCollapsedBinding,
-                    isEnabled: !minimalTopNavigationHidden,
-                    refreshID: selectedTab,
-                    collapsibleChromeHeight: minimalCollapsibleChromeHeight,
-                    collapsesAtRest: minimalCategoriesCollapseAtRest
-                )
-            }
-            // 每次转进手机横屏都把分类行拨回静止状态。这里只写横屏那一份,竖屏的展开
-            // 与收起是用户自己滚出来的,转回去要原样还给他。
-            .onChange(of: heightClass.isCompact) { _, isCompact in
-                guard isCompact else { return }
-                minimalNavigationCategoriesCollapsedInCompactHeight =
-                    MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(
-                        isCompactHeight: isCompact
-                    )
-            }
+            .environment(\.minimalOpenSettings) { selectMinimalPage(.settings) }
             .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
                 minimalDetailLedger.updateMounted(scopes)
             }
     }
 
+    private var minimalDockPlace: MinimalBottomDock.Place {
+        switch selectedTab {
+        case 1: return .library
+        case 2: return .search
+        case 3: return .settings
+        default: return .home
+        }
+    }
+
+    /// 多选时系统的批量操作栏占着底部,极简底栏让开。
     @ViewBuilder
     private var minimalBottomChrome: some View {
-        if miniPlayerVisible {
-            Group {
-                switch skin.skin.bottomChrome {
-                case .floatingCapsule:
-                    FloatingCapsulePlayerBar(
-                        onTap: presentNowPlaying,
-                        onOpenQueue: { showQueueFromBottomChrome = true }
-                    )
-                case .classic:
-                    // regular 宽度单独判不出 iPad:大屏机型横屏也是 regular 宽,套上
-                    // iPad 那块圆角板会在 440pt 高的视口里显得又厚又空。
-                    if sizeClass == .regular && !heightClass.isCompact {
-                        PadNowPlayingAccessory(onTap: presentNowPlaying)
-                    } else {
-                        MinimalNowPlayingAccessory(onTap: presentNowPlaying)
-                    }
-                }
-            }
-            // miniPlayerVisible 是派生量, 翻转由播放状态决定, 调用点包不住动画
-            // 事务, 曲线只能附在过渡本身上。
-            .pmSlideTransition(edge: .bottom, motion: .panel)
+        if !batchSelectionActive {
+            MinimalBottomDock(
+                place: minimalDockPlace,
+                showsPlayer: miniPlayerVisible,
+                librarySections: visibleLibrarySections,
+                onHome: { selectMinimalPage(.home) },
+                onLibrary: openMinimalLibraryRoot,
+                onLibrarySection: { selectMinimalPage(.librarySection($0)) },
+                onSearch: { selectMinimalPage(.search) },
+                onSettings: { selectMinimalPage(.settings) },
+                onTapPlayer: presentNowPlaying,
+                onOpenQueue: { showQueueFromBottomChrome = true }
+            )
+            .pmAnimation(.panel, value: miniPlayerVisible)
+        }
+    }
+
+    /// 资料库键:已经在资料库时回到资料库首页,否则切过去停在上次看的位置。
+    private func openMinimalLibraryRoot() {
+        showNowPlaying = false
+        if selectedTab == 1 {
+            libraryDeepLink = .root
+        } else {
+            selectedTab = 1
+            sidebarSelection = .library
         }
     }
 
@@ -1281,7 +1322,9 @@ struct ContentView: View {
             }
         }
         .environment(\.librarySearchNavigation, searchNavigation)
-        .environment(\.appNavigationMode, navigationMode)
+        // 极简基座下页面也走经典的导航方式(系统导航栏、工具栏、搜索框),差别只在外壳。
+        .environment(\.appNavigationMode, .standard)
+        .environment(\.usesMinimalDock, navigationMode == .minimal)
         .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
         .onPreferenceChange(CarPlayEditorActivePreferenceKey.self) { carPlayEditorActive = $0 }
         .songBatchRemovalFeedback()
@@ -1331,11 +1374,6 @@ struct ContentView: View {
         }
         .onChange(of: minimalShowsHome) { _, _ in
             activateMinimalLandingPageIfNeeded()
-        }
-        .onChange(of: visibleLibrarySections) { _, sections in
-            guard navigationMode == .minimal, selectedTab == 1,
-                  minimalLibrarySection.map({ !sections.contains($0) }) ?? true else { return }
-            selectMinimalPage(MinimalNavigationPolicy.homePage(visibleSections: sections))
         }
         .fullScreenCover(item: $autoYearlyReport) { data in
             YearlyReportView(data: data)
@@ -1414,17 +1452,9 @@ struct ContentView: View {
         scraperSettingsRoute.requestMetadataScraping()
     }
 
+    /// 极简基座有首页,资料库也有自己的首页,不再需要把用户改落到某个分类。
     private func activateMinimalLandingPageIfNeeded() {
-        guard navigationMode == .minimal else { return }
-        guard MinimalNavigationPolicy.redirectsToLibraryHome(
-            selectedTab: selectedTab,
-            activeLibrarySection: minimalLibrarySection,
-            showsHome: minimalShowsHome
-        ) else {
-            synchronizeSidebarForCurrentSelection()
-            return
-        }
-        selectMinimalPage(MinimalNavigationPolicy.homePage(visibleSections: visibleLibrarySections))
+        synchronizeSidebarForCurrentSelection()
     }
 
     private var searchAwareTabSelection: Binding<Int> {
@@ -1642,13 +1672,7 @@ struct ContentView: View {
 
     private func openLibraryDeepLink(_ link: LibraryDeepLink) {
         selectedTab = 1
-        if navigationMode == .minimal,
-           let section = MinimalNavigationPolicy.section(for: link) {
-            minimalLibrarySection = section
-            sidebarSelection = SidebarItem.libraryChild(for: section)
-        } else {
-            sidebarSelection = .library
-        }
+        sidebarSelection = .library
         libraryDeepLink = link
     }
 

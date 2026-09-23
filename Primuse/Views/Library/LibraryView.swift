@@ -441,6 +441,7 @@ struct LibraryView: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             #if os(iOS)
             .minimalNavigationRoot()
+            .minimalSettingsToolbarButton()
             #endif
             .navigationDestination(for: LibrarySection.self) { section in
                 sectionDestination(section)

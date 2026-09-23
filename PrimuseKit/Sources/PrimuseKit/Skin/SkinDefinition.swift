@@ -235,6 +235,15 @@ public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
     }
 
     // 读不出来(来自更新版本的样式、手改的数据)一律落到经典实现。
+    /// 这套样式建在哪一套基座上。基座决定导航结构:经典 = 系统标签栏,极简 = 没有标签栏
+    /// (左下资料库、中间播放胶囊、右下搜索)。付费样式都建在其中一套上,只换 token、
+    /// 材质、动效与该基座允许的页面实现,不改导航结构 —— 功能对照按基座各测一遍即可。
+    ///
+    /// 由导航插槽推出来,目录与已存的样式数据不必迁移。
+    public var base: SkinBase {
+        navigationHeader == .minimal ? .minimal : .classic
+    }
+
     public var navigationHeader: SkinSlotVariant.NavigationHeader {
         SkinSlotVariant.NavigationHeader(rawValue: variant(for: .navigationHeader)) ?? .classic
     }
@@ -259,4 +268,10 @@ public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
     public var playerStage: SkinSlotVariant.PlayerStage {
         SkinSlotVariant.PlayerStage(rawValue: variant(for: .playerStage)) ?? .classic
     }
+}
+
+/// 两套基座。见 `SkinDefinition.base`。
+public enum SkinBase: String, Codable, Sendable, CaseIterable {
+    case classic
+    case minimal
 }

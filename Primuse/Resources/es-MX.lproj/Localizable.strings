@@ -4271,3 +4271,4 @@
 /* 2.0 详情页 */
 "album_more_from_artist_format" = "Más de %@";
 "library_remove_quick_access" = "Quitar de Acceso Rápido";
+"minimal_dock_destinations_hint" = "Mantén presionado para ir a cualquier página";

@@ -327,7 +327,7 @@ struct HomeFolderBrowser: View {
     var usesInlineControls = false
     var showsInlineBack = false
     #if os(iOS)
-    @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.usesMinimalDock) private var usesMinimalDock
     @Environment(\.editMode) private var editMode
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
@@ -386,7 +386,7 @@ struct HomeFolderBrowser: View {
 
     private var legacyBottomClearance: CGFloat {
         #if os(iOS)
-        appNavigationMode == .minimal
+        usesMinimalDock
             ? 0
             : BottomChromeClearancePolicy.clearance(
                 legacyOverlayActive: legacyBottomChromeOverlayActive,

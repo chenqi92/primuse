@@ -4271,3 +4271,4 @@
 /* 2.0 详情页 */
 "album_more_from_artist_format" = "Ещё от %@";
 "library_remove_quick_access" = "Убрать из быстрого доступа";
+"minimal_dock_destinations_hint" = "Удерживайте, чтобы перейти на любую страницу";

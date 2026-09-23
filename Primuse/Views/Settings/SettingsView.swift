@@ -19,10 +19,6 @@ struct SettingsView: View {
     @State private var search: SettingsSearchState
     @State private var rootItemID: String?
     @State private var rootFocusRevision = UUID()
-    #if os(iOS)
-    @AppStorage(AppNavigationMode.storageKey)
-    private var navigationModeRawValue = AppNavigationMode.standard.rawValue
-    #endif
 
     init(
         scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init()),
@@ -32,12 +28,9 @@ struct SettingsView: View {
         _search = State(initialValue: search ?? SettingsSearchState())
     }
 
+    /// 旧极简的自绘顶栏里有设置搜索框;两套基座现在都用系统导航栏的搜索框。
     private var usesMinimalSearch: Bool {
-        #if os(iOS)
-        AppNavigationMode.resolve(navigationModeRawValue) == .minimal
-        #else
         false
-        #endif
     }
 
     /// The issue form opens with this build's version, device and system

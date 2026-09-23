@@ -4462,7 +4462,7 @@ private enum LibraryFolderNodePresentation {
 
 private struct LibraryFolderRootView: View {
     #if os(iOS)
-    @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.usesMinimalDock) private var usesMinimalDock
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     #endif
@@ -4484,7 +4484,7 @@ private struct LibraryFolderRootView: View {
             )
             .padding(.horizontal, 12)
             #if os(iOS)
-            .padding(.bottom, appNavigationMode == .minimal
+            .padding(.bottom, usesMinimalDock
                 ? 16
                 : BottomChromeClearancePolicy.clearance(
                     legacyOverlayActive: legacyBottomChromeOverlayActive,
@@ -5089,7 +5089,7 @@ private struct LibraryFolderNodeView: View {
     // environment reaching it. See `FolderPlaylistMenuButton`.
     @Environment(SourcesStore.self) private var sourcesStore
     #if os(iOS)
-    @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.usesMinimalDock) private var usesMinimalDock
     #endif
 
     let nodeID: LibraryFolderNodeID
@@ -5182,7 +5182,7 @@ private struct LibraryFolderNodeView: View {
                 }
                 .padding(.horizontal, 8)
                 #if os(iOS)
-                .padding(.bottom, appNavigationMode == .minimal ? 16 : 112)
+                .padding(.bottom, usesMinimalDock ? 16 : 112)
                 #else
                 .padding(.bottom, 112)
                 #endif

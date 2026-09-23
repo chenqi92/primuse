@@ -4366,3 +4366,4 @@
 /* 2.0 详情页 */
 "album_more_from_artist_format" = "%@のその他の作品";
 "library_remove_quick_access" = "クイックアクセスから削除";
+"minimal_dock_destinations_hint" = "長押しで任意のページに移動";

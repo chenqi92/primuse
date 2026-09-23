@@ -664,6 +664,7 @@ struct HomeView: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             #if os(iOS)
             .minimalNavigationRoot()
+            .minimalSettingsToolbarButton()
             #endif
             .toolbar {
                 #if os(iOS)

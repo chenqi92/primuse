@@ -10,6 +10,8 @@ import SwiftUI
 struct FloatingCapsulePlayerBar: View {
     var onTap: () -> Void
     var onOpenQueue: () -> Void
+    /// 嵌在极简底栏的两颗圆键之间:外边距与宽度交给外层,队列键省掉(长按胶囊仍可在播放页里打开)。
+    var embedded = false
 
     @Environment(\.skin) private var skin
     @Environment(AudioPlayerService.self) private var player
@@ -43,7 +45,7 @@ struct FloatingCapsulePlayerBar: View {
                 if !player.isLiveRadio || player.canSwitchRadioStation {
                     nextButton
                 }
-                if !player.isLiveRadio {
+                if !player.isLiveRadio && !embedded {
                     queueButton
                 }
             }
@@ -64,10 +66,13 @@ struct FloatingCapsulePlayerBar: View {
             radius: skin.rawMetric(.shadowRadius),
             y: 8
         )
-        .frame(maxWidth: .infinity, alignment: capsuleAlignment)
-        .padding(.horizontal, skin.metric(.chromeHorizontalInset))
-        .padding(.top, heightClass.value(6, compact: 4))
-        .padding(.bottom, heightClass.value(8, compact: 6))
+        .modifier(FloatingCapsuleOuterLayout(
+            embedded: embedded,
+            alignment: capsuleAlignment,
+            horizontalInset: skin.metric(.chromeHorizontalInset),
+            top: heightClass.value(6, compact: 4),
+            bottom: heightClass.value(8, compact: 6)
+        ))
     }
 
     @ViewBuilder
@@ -188,6 +193,139 @@ private struct FloatingCapsuleProgressRing: View {
         // 引擎每半秒报一次进度,用同样时长的线性动画把两次采样之间补平。
         .animation(skin.reduceMotion ? nil : .linear(duration: 0.5), value: progress)
         .accessibilityHidden(true)
+    }
+}
+/// 独立放置时胶囊自己占满一行并留出外边距;嵌进极简底栏时这些都交给外层。
+private struct FloatingCapsuleOuterLayout: ViewModifier {
+    let embedded: Bool
+    let alignment: Alignment
+    let horizontalInset: CGFloat
+    let top: CGFloat
+    let bottom: CGFloat
+
+    func body(content: Content) -> some View {
+        if embedded {
+            content
+        } else {
+            content
+                .frame(maxWidth: .infinity, alignment: alignment)
+                .padding(.horizontal, horizontalInset)
+                .padding(.top, top)
+                .padding(.bottom, bottom)
+        }
+    }
+}
+
+/// 极简基座的底栏:没有标签栏,左边是「首页 / 资料库」键,中间是悬浮播放胶囊,右边是搜索。
+///
+/// 左键点按在首页与资料库之间来回;在别的页面点按回首页。长按弹出全部去处
+/// (首页、资料库各分类、电台、搜索、设置),所以没有标签栏也能一步到达任何地方。
+struct MinimalBottomDock: View {
+    enum Place: Equatable {
+        case home, library, search, settings
+    }
+
+    let place: Place
+    let showsPlayer: Bool
+    let librarySections: [LibrarySection]
+    let onHome: () -> Void
+    let onLibrary: () -> Void
+    let onLibrarySection: (LibrarySection) -> Void
+    let onSearch: () -> Void
+    let onSettings: () -> Void
+    let onTapPlayer: () -> Void
+    let onOpenQueue: () -> Void
+
+    @Environment(\.skin) private var skin
+    @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private var buttonSize: CGFloat { heightClass.value(56, compact: 48) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            destinationButton
+            Group {
+                if showsPlayer {
+                    FloatingCapsulePlayerBar(onTap: onTapPlayer, onOpenQueue: onOpenQueue, embedded: true)
+                        .pmSlideTransition(edge: .bottom, motion: .panel)
+                } else {
+                    Spacer(minLength: 0)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            searchButton
+        }
+        .frame(maxWidth: heightClass.value(720, compact: 520))
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, skin.metric(.chromeHorizontalInset))
+        .padding(.top, heightClass.value(6, compact: 4))
+        .padding(.bottom, heightClass.value(8, compact: 6))
+    }
+
+    /// 在首页时去资料库,在其它页面时回首页;图标随之变化。
+    private var tapGoesToLibrary: Bool { place == .home }
+
+    private var destinationButton: some View {
+        Menu {
+            Button(action: onHome) { Label("home_title", systemImage: "house") }
+            Button(action: onLibrary) { Label("library_title", systemImage: "books.vertical") }
+            Section {
+                ForEach(librarySections, id: \.self) { section in
+                    Button { onLibrarySection(section) } label: {
+                        Label(section.title, systemImage: section.icon)
+                    }
+                }
+            }
+            Section {
+                Button(action: onSearch) { Label("search_title", systemImage: "magnifyingglass") }
+                Button(action: onSettings) { Label("settings_title", systemImage: "gearshape") }
+            }
+        } label: {
+            dockCircle(systemImage: tapGoesToLibrary ? "books.vertical" : "house")
+        } primaryAction: {
+            if tapGoesToLibrary { onLibrary() } else { onHome() }
+        }
+        .accessibilityLabel(Text(tapGoesToLibrary ? "library_title" : "home_title"))
+        .accessibilityHint(Text("minimal_dock_destinations_hint"))
+    }
+
+    private var searchButton: some View {
+        Button(action: onSearch) {
+            dockCircle(systemImage: "magnifyingglass", highlighted: place == .search)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("search_title"))
+    }
+
+    private func dockCircle(systemImage: String, highlighted: Bool = false) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: buttonSize * 0.36, weight: .semibold))
+            .foregroundStyle(highlighted ? skin.color(.accent) : skin.color(.textPrimary))
+            .frame(width: buttonSize, height: buttonSize)
+            .background { circleFill }
+            .overlay {
+                Circle()
+                    .strokeBorder(skin.color(.chromeBorder), lineWidth: skin.rawMetric(.borderWidth))
+            }
+            .contentShape(Circle())
+            .shadow(
+                color: Color.black.opacity(Double(skin.rawMetric(.shadowOpacity))),
+                radius: skin.rawMetric(.shadowRadius),
+                y: 8
+            )
+    }
+
+    @ViewBuilder
+    private var circleFill: some View {
+        if reduceTransparency {
+            Circle().fill(skin.color(.canvasElevated))
+        } else {
+            ZStack {
+                Circle().fill(.ultraThinMaterial)
+                Circle().fill(skin.color(.chromeBackground))
+            }
+        }
     }
 }
 #endif
