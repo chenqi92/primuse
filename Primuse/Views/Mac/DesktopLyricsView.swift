@@ -121,8 +121,10 @@ struct DesktopLyricsView: View {
     private static let topToolbarHeight: CGFloat = 38
     private static let cornerRadius: CGFloat = 18
 
-    /// 背板矩形,同时也是"这块要吃鼠标事件"的判定区 —— 看得见的地方才拦
-    /// 点击,其余部分穿透到后面的窗口。
+    /// 背板矩形,同时也是"这块要吃鼠标事件"的判定区 —— 歌词本身 (加一圈留白)
+    /// 才拦点击,其余部分穿透到后面的窗口。关掉背板只是不画玻璃,这块判定区
+    /// 照旧上报:字还在那儿,指针落上去就得能浮出工具栏,不然用户再也够不到
+    /// 「显示背板」,也拖不动歌词。
     ///
     /// 留白按文字自身高度取,不写死 pt:字号本来就跟着面板、面板跟着屏幕走,
     /// 所以这样算出来的边距在 1280×800 的笔记本和 6K 显示器上观感一致,
@@ -139,13 +141,6 @@ struct DesktopLyricsView: View {
     private var backdropCornerRadius: CGFloat {
         guard let card = backdropRect else { return Self.cornerRadius }
         return min(Self.cornerRadius, max(10, card.height * 0.26))
-    }
-
-    /// 整块面板完全穿透 —— 背板关掉或锁定时,面板上没有一块"看得见的板",
-    /// 就不该再挡住后面的窗口。右上角那个把手由 controller 单独保住,
-    /// 否则关掉背板之后用户再也够不到开关。
-    private var fullyTransparent: Bool {
-        !showBackground || locked
     }
 
     /// 顶部 chrome 显不显示。指针进没进面板由 controller 判定,穿透时 SwiftUI
@@ -233,15 +228,8 @@ struct DesktopLyricsView: View {
         .onChange(of: settingsShown || colorPaletteShown, initial: true) { _, holding in
             interaction.keepsEngaged = holding
         }
-        .onChange(of: fullyTransparent, initial: true) { _, transparent in
-            interaction.fullyTransparent = transparent
-            // 走同一个回调是为了让 controller 立刻重算一次穿透状态:指针不动
-            // 时鼠标监视器不会响,不然要等保险丝定时器那一下才生效。
-            onContentRectChange?(backdropRect ?? .null)
-        }
         .onDisappear {
             interaction.keepsEngaged = false
-            interaction.fullyTransparent = false
         }
         .task(id: lyricsLoadTaskIdentity) { await refreshLyrics() }
         .background {
