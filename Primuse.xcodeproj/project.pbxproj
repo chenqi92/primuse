@@ -685,6 +685,7 @@
 		790189620FE35DFEC1D44373 /* ListenerRestartPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6412A69AF458A967A5C88F0 /* ListenerRestartPolicy.swift */; };
 		790E6EC9BAD713E863742CA9 /* AISettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C25D3D08BB0FD71403FAFD2 /* AISettingsStore.swift */; };
 		792835F98B1AABE297CC5D22 /* PrimuseAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */; };
+		79DA1CC631CDC5E41730E3C7 /* SVGArtworkRasterizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8972964595E4EC82C746FB2D /* SVGArtworkRasterizer.swift */; };
 		79E2E4EE00D50F18EEDF9B01 /* WiFiTransferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 758577225D4912E66F9AA8CE /* WiFiTransferView.swift */; };
 		79F0E9CB426C2AF921C0FBA3 /* ServerMediaSharingConnectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8C402A42935381C7C44E36 /* ServerMediaSharingConnectorTests.swift */; };
 		7A3273F295FFDDCC05C65206 /* PMHeightClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EFA2B79F3B52F97EEC1E85 /* PMHeightClass.swift */; };
@@ -1228,6 +1229,7 @@
 		DAA94A7E4E994B6DF5DE2460 /* PMMenuLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8355C8D0FBADBC25AF310BF4 /* PMMenuLayout.swift */; };
 		DB18A0C7FC05D5856F733A90 /* MacRadioStationEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF5FD80A376FCFC69894248 /* MacRadioStationEditorView.swift */; };
 		DB9E5F2628D4E445C822E8D3 /* LyricsTranslationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8CBD34CDDF944EDE45F0D28 /* LyricsTranslationCache.swift */; };
+		DBA9393418AC47ACE5DA5BC9 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = B11CE4D4721E505FD97D4F5E /* SwiftDraw */; };
 		DBE6CC8937ACBC0CCF6D6A23 /* SongRowColumnsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F99AA6FC13E79A7AE9255BE /* SongRowColumnsPolicy.swift */; };
 		DBEB1006A1C6D8EE8BC47135 /* FileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F569D02D3E6102A0C0E1CF /* FileLogger.swift */; };
 		DCB677DC234750D404F0D6BA /* PlaybackScheduleSettlement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23B1A6965440571278822185 /* PlaybackScheduleSettlement.swift */; };
@@ -2713,6 +2715,7 @@
 				13D5A32839126B9045BF15F9 /* Crypto in Frameworks */,
 				8B77D792AE4D2D370EFF3410 /* NIOCore in Frameworks */,
 				0E772B0EB2E0CACAA49F0EAD /* SFBAudioEngine in Frameworks */,
+				DBA9393418AC47ACE5DA5BC9 /* SwiftDraw in Frameworks */,
 				E7071AF18FB302425A91145B /* libavutil.xcframework in Frameworks */,
 				8C7B1EDD59EBCF0115F48561 /* libswresample.xcframework in Frameworks */,
 				51DC9BBBE4717BD78C48408A /* libavcodec.xcframework in Frameworks */,
@@ -4375,6 +4378,7 @@
 				78723AF9ADCA00533C13723D /* Crypto */,
 				2BE904A0DE01349CEB7A473E /* NIOCore */,
 				DEFB79BF078B546E68E53350 /* SFBAudioEngine */,
+				B11CE4D4721E505FD97D4F5E /* SwiftDraw */,
 			);
 			productName = PrimuseTV;
 			productReference = E77C291D51A0577AAC67C318 /* PrimuseTV.app */;
@@ -5648,6 +5652,7 @@
 				50B4FE11D72718B9A2A6DC9D /* SFTPSource.swift in Sources */,
 				4957D61D66472F3CAD612DBD /* SMBByteReader.swift in Sources */,
 				5113925C793EABC4ED74382E /* SSLTrustStore.swift in Sources */,
+				79DA1CC631CDC5E41730E3C7 /* SVGArtworkRasterizer.swift in Sources */,
 				C050CF06129F96A1FF5A62DC /* ScraperConfig.swift in Sources */,
 				2FFBF33B610DBA25706D8E8F /* ScraperConfigStore.swift in Sources */,
 				4F8138671B835CF4096422EF /* ScraperResult.swift in Sources */,
@@ -7251,7 +7256,7 @@
 			repositoryURL = "https://github.com/swhitty/SwiftDraw.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.6;
+				minimumVersion = 0.29.0;
 			};
 		};
 		CC0D700D53C2657611962EDA /* XCRemoteSwiftPackageReference "FileProvider" */ = {
@@ -7364,6 +7369,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 47E64858A997CBFB17040255 /* XCRemoteSwiftPackageReference "swift-crypto" */;
 			productName = Crypto;
+		};
+		B11CE4D4721E505FD97D4F5E /* SwiftDraw */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C687181FA0A2B2D096A24E9F /* XCRemoteSwiftPackageReference "SwiftDraw" */;
+			productName = SwiftDraw;
 		};
 		B2C3B6B4EB6D34863A2508CB /* FilesProvider */ = {
 			isa = XCSwiftPackageProductDependency;
