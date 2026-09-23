@@ -23,6 +23,7 @@ final class NetworkMonitor {
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.welape.primuse.network-monitor")
+    private var pathFingerprint: SourceNetworkPathFingerprint?
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -30,19 +31,43 @@ final class NetworkMonitor {
             let expensive = path.isExpensive
             let constrained = path.isConstrained
             let condition = SourceRoutePathCondition(path: path)
+            let fingerprint = SourceNetworkPathFingerprint(path: path)
             Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.hasDeterminedPath = true
-                self.isReachable = reachable
-                self.isExpensive = expensive
-                self.isConstrained = constrained
-                self.routePathCondition = condition
-                // The path handler itself is the change signal. Interface-type
-                // summaries cannot distinguish two different Wi-Fi networks.
-                self.pathGeneration &+= 1
+                self?.apply(
+                    reachable: reachable,
+                    expensive: expensive,
+                    constrained: constrained,
+                    condition: condition,
+                    fingerprint: fingerprint
+                )
             }
         }
         monitor.start(queue: queue)
+    }
+
+    private func apply(
+        reachable: Bool,
+        expensive: Bool,
+        constrained: Bool,
+        condition: SourceRoutePathCondition,
+        fingerprint: SourceNetworkPathFingerprint
+    ) {
+        // Assign only real changes: every observed write re-evaluates the
+        // views and services that read these values.
+        if !hasDeterminedPath { hasDeterminedPath = true }
+        if isReachable != reachable { isReachable = reachable }
+        if isExpensive != expensive { isExpensive = expensive }
+        if isConstrained != constrained { isConstrained = constrained }
+        if routePathCondition != condition { routePathCondition = condition }
+        // The same comparison the source router's observer uses, so both
+        // agree on when the network changed. Interfaces and gateways tell two
+        // Wi-Fi networks apart; a repeated callback for the same path does
+        // not throw away route verdicts, artwork retries or radio probes.
+        let transition = SourceNetworkPathFingerprint.transition(from: pathFingerprint, to: fingerprint)
+        pathFingerprint = fingerprint
+        guard transition != .unchanged else { return }
+        pathGeneration &+= 1
+        plog("🌐 Network path \(transition == .initial ? "initial" : "changed") generation=\(pathGeneration) \(fingerprint.diagnosticSummary(condition: condition))")
     }
 
     /// True only when on Wi-Fi (or wired) — false on cellular, hotspot, or
