@@ -1104,6 +1104,8 @@ struct MetadataScrapingView: View {
     @State private var isReordering = false
     @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
     @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
+    @State private var showLyricsServers = false
+    @State private var lyricsServerStore = LyricsAPIServerStore.shared
 
 
     var body: some View {
@@ -1118,9 +1120,20 @@ struct MetadataScrapingView: View {
                             .foregroundStyle(source.isEnabled ? source.type.themeColor : .secondary)
                             .frame(width: 28)
 
-                        Text(source.type.displayName)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
+                        if source.type == .lyricsServer {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(source.type.displayName)
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Text(lyricsServerCountText)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text(source.type.displayName)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
 
                         if source.type.supportsWordLevelLyrics {
                             Text("lyrics_word_level_badge")
@@ -1146,6 +1159,20 @@ struct MetadataScrapingView: View {
                                     .foregroundStyle(source.cookie?.isEmpty == false ? Color.green : Color.secondary)
                             }
                             .buttonStyle(.plain)
+                        }
+
+                        if source.type == .lyricsServer {
+                            Button {
+                                showLyricsServers = true
+                            } label: {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.callout)
+                                    .foregroundStyle(Color.accentColor)
+                                    .frame(minWidth: 28, minHeight: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text("lyrics_server_configure"))
                         }
 
                         Toggle("", isOn: Binding(
@@ -1219,15 +1246,22 @@ struct MetadataScrapingView: View {
             }
             .settingsAnchor("scraping.import")
 
-            Section("scraper_options") {
+            Section {
                 Toggle("only_fill_missing", isOn: $settings.onlyFillMissingFields)
                 .settingsAnchor("scraping.onlyMissing")
+
+                Toggle("auto_online_lyrics", isOn: $settings.autoFetchOnlineLyrics)
+                .settingsAnchor("scraping.autoOnlineLyrics")
 
                 Button("reset_scraper_defaults") {
                     scraperSettings.resetToDefaults()
                 }
                 .settingsAnchor("scraping.reset")
                 .foregroundStyle(.red)
+            } header: {
+                Text("scraper_options")
+            } footer: {
+                Text("auto_online_lyrics_footer")
             }
 
             Section {
@@ -1287,6 +1321,9 @@ struct MetadataScrapingView: View {
                 Text("scrape_description")
             }
         }
+        .navigationDestination(isPresented: $showLyricsServers) {
+            LyricsAPIServersView()
+        }
         .navigationTitle("metadata_scraping")
         #if os(iOS)
         #if os(iOS)
@@ -1339,6 +1376,13 @@ struct MetadataScrapingView: View {
     /// 空字符串表示还没选过：交给策略读，它认得第一版留下的开关。
     private var currentLyricsEmbeddingMode: LyricsEmbeddingMode {
         LyricsEmbeddingMode(rawValue: lyricsEmbeddingModeRaw) ?? EmbeddedLyricsCopyPolicy.mode()
+    }
+
+    /// 歌词 API 服务那一行名称下的小字：已配置几个地址。
+    private var lyricsServerCountText: String {
+        let count = lyricsServerStore.servers.count
+        guard count > 0 else { return String(localized: "lyrics_server_none") }
+        return String(format: String(localized: "lyrics_server_count_format"), count)
     }
 
     /// 嵌入要改写用户的音频文件。往更深处走（开启、或改成只嵌入）之前先把代价摆出来，

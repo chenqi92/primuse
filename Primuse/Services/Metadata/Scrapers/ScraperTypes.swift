@@ -5,6 +5,8 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
     case musicBrainz
     case lrclib
     case itunes
+    /// 用户自填的歌词 API 服务器（地址列表存在 LyricsAPIServerSettings）
+    case lyricsServer
     case custom(String)  // config ID
 
     var id: String {
@@ -12,6 +14,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .musicBrainz: "musicBrainz"
         case .lrclib: "lrclib"
         case .itunes: "itunes"
+        case .lyricsServer: "lyricsServer"
         case .custom(let configId): "custom_\(configId)"
         }
     }
@@ -22,6 +25,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .musicBrainz: "musicBrainz"
         case .lrclib: "lrclib"
         case .itunes: "itunes"
+        case .lyricsServer: "lyricsServer"
         case .custom(let configId): "custom:\(configId)"
         }
     }
@@ -31,6 +35,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case "musicBrainz": self = .musicBrainz
         case "lrclib": self = .lrclib
         case "itunes": self = .itunes
+        case "lyricsServer": self = .lyricsServer
         default:
             if rawValue.hasPrefix("custom:") {
                 self = .custom(String(rawValue.dropFirst(7)))
@@ -46,6 +51,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .musicBrainz: "MusicBrainz"
         case .lrclib: "LRCLIB"
         case .itunes: "Apple Music"
+        case .lyricsServer: String(localized: "scraper_lyrics_server_name")
         case .custom(let configId):
             Self.localizedCustomDisplayName(ScraperConfigStore.shared.config(for: configId)?.name ?? configId)
         }
@@ -76,6 +82,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .musicBrainz: "globe"
         case .lrclib: "text.quote"
         case .itunes: "applelogo"
+        case .lyricsServer: "server.rack"
         case .custom(let configId):
             ScraperConfigStore.shared.config(for: configId)?.icon ?? "puzzlepiece"
         }
@@ -86,6 +93,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .musicBrainz: Color(red: 0.73, green: 0.28, blue: 0.56)
         case .lrclib: Color(red: 0.39, green: 0.4, blue: 0.95)
         case .itunes: Color(red: 0.98, green: 0.18, blue: 0.36)
+        case .lyricsServer: Color(red: 0.16, green: 0.62, blue: 0.56)
         case .custom(let configId):
             if let hex = ScraperConfigStore.shared.config(for: configId)?.color {
                 Color(hex: hex)
@@ -100,6 +108,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .musicBrainz: return String(localized: "scraper_musicbrainz_desc")
         case .lrclib: return String(localized: "scraper_lrclib_desc")
         case .itunes: return String(localized: "scraper_itunes_desc")
+        case .lyricsServer: return String(localized: "scraper_lyrics_server_desc")
         case .custom(let configId):
             let caps = ScraperConfigStore.shared.config(for: configId)?.capabilities.joined(separator: ", ") ?? ""
             return String(localized: "custom_scraper_desc") + " (\(caps))"
@@ -111,6 +120,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .musicBrainz: true
         case .lrclib: false
         case .itunes: true
+        case .lyricsServer: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsMetadata ?? false
         }
     }
@@ -120,6 +130,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .musicBrainz: true
         case .lrclib: false
         case .itunes: true
+        case .lyricsServer: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsCover ?? false
         }
     }
@@ -129,6 +140,7 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
         case .musicBrainz: false
         case .lrclib: true
         case .itunes: false
+        case .lyricsServer: true
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsLyrics ?? false
         }
     }
@@ -137,28 +149,28 @@ enum MusicScraperType: Sendable, Identifiable, Hashable {
     /// 内置源里只有 lrclib 偶发，但默认按行级处理；自定义源由 capabilities 声明。
     var supportsWordLevelLyrics: Bool {
         switch self {
-        case .musicBrainz, .lrclib, .itunes: false
+        case .musicBrainz, .lrclib, .itunes, .lyricsServer: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsWordLevelLyrics ?? false
         }
     }
 
     var supportsCookie: Bool {
         switch self {
-        case .musicBrainz, .lrclib, .itunes: false
+        case .musicBrainz, .lrclib, .itunes, .lyricsServer: false
         case .custom(let id): ScraperConfigStore.shared.config(for: id)?.supportsCookie ?? false
         }
     }
 
     var isBuiltIn: Bool {
         switch self {
-        case .musicBrainz, .lrclib, .itunes: true
+        case .musicBrainz, .lrclib, .itunes, .lyricsServer: true
         case .custom: false
         }
     }
 
     /// Built-in scrapers in default order
     static var builtInOrder: [MusicScraperType] {
-        [.itunes, .musicBrainz, .lrclib]
+        [.itunes, .musicBrainz, .lrclib, .lyricsServer]
     }
 }
 

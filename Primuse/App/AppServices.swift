@@ -731,6 +731,9 @@ final class AppServices {
             library.songs
         })
         let scraperSettings = ScraperSettingsStore()
+        // 歌词 API 服务器的地址列表经 iCloud 键值同步；CloudKVSSync 只给已登记的键
+        // 应用外部变更，所以启动时就把 store 建出来完成登记，别等用户打开设置页。
+        _ = LyricsAPIServerStore.shared
         let scanService = ScanService()
         manager.metadataFileReplacementHandler = { [weak scanService, weak library] original, updated in
             guard let scanService, let library else { throw CancellationError() }

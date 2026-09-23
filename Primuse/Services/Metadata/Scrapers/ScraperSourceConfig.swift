@@ -30,7 +30,7 @@ struct ScraperSourceConfig: Codable, Sendable, Identifiable, Hashable {
     /// fresh install or when migrated into an existing install.
     static func defaultEnabled(for type: MusicScraperType) -> Bool {
         switch type {
-        case .itunes, .musicBrainz, .lrclib: false
+        case .itunes, .musicBrainz, .lrclib, .lyricsServer: false
         case .custom: true
         }
     }

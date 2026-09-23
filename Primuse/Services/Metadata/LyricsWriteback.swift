@@ -309,7 +309,13 @@ enum LyricsWriteback {
         if let cached {
             lines = cached
         } else {
-            lines = await LyricsLoader.load(for: song, sourceManager: sourceManager)
+            // 编辑器只读源里真实存在的歌词：不做 Tier4 在线兜底，否则要多等一轮网络请求，
+            // 且在线歌词会被预填成用户编辑。
+            lines = await LyricsLoader.load(
+                for: song,
+                sourceManager: sourceManager,
+                allowsAutomaticOnlineLyrics: false
+            )
         }
         return EditablePayload(
             text: LyricsContentParser.serialize(lines),

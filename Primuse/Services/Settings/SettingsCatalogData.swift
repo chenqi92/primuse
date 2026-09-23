@@ -129,6 +129,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "scraping.sources", titleKey: "scraper_sources", iosPage: .scraping, macPage: .scraping, keywords: ["Scraping Sources"]),
         SettingDefinition(id: "scraping.import", titleKey: "import_scraper_source", iosPage: .scraping, macPage: .scraping, keywords: ["Import"]),
         SettingDefinition(id: "scraping.onlyMissing", titleKey: "only_fill_missing", iosPage: .scraping, macPage: .scraping, keywords: ["Fill Missing Fields Only"]),
+        SettingDefinition(id: "scraping.lyricsServers", titleKey: "scraper_lyrics_server_name", iosPage: .scraping, macPage: .scraping, keywords: ["Lyrics API Servers", "LrcApi", "API", "lyrics_server_list"], anchor: "scraping.sources", macAnchor: "scraping.sources"),
+        SettingDefinition(id: "scraping.autoOnlineLyrics", titleKey: "auto_online_lyrics", iosPage: .scraping, macPage: .scraping, keywords: ["Auto-Fetch Online Lyrics"]),
         SettingDefinition(id: "scraping.reset", titleKey: "reset_scraper_defaults", iosPage: .scraping, macPage: .scraping, keywords: ["Restore Defaults"]),
         SettingDefinition(id: "scraping.fillMissing", titleKey: "scrape_missing_metadata", iosPage: .scraping, macPage: .scraping, keywords: ["Fill Missing"]),
         SettingDefinition(id: "scraping.rescrape", titleKey: "rescrape_library", iosPage: .scraping, macPage: .scraping, keywords: ["Re-Scrape"], macAnchor: "scraping.fillMissing"),

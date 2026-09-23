@@ -305,13 +305,26 @@ actor ScraperManager {
                 do {
                     let scraper = getScraper(for: config)
 
-                    if config.type == .lrclib, let artist {
-                        // LRCLIB uses direct lookup, not search
+                    if config.type == .lrclib {
+                        // LRCLIB uses direct lookup, not search；没有歌手时它内部改走按标题搜索。
                         guard let lrclibScraper = scraper as? LRCLIBScraper else {
                             throw ScraperError.parseError("LRCLIB scraper cache type mismatch")
                         }
                         let fetchedLyrics = try await lrclibScraper.fetchLyrics(
-                            title: cleanedTitle, artist: artist, album: album, duration: duration
+                            title: cleanedTitle, artist: effectiveArtist, album: album, duration: duration
+                        )
+                        registerSuccess(config)
+                        if let lyricsResult = fetchedLyrics, lyricsResult.hasLyrics {
+                            result.lyrics = parseLyrics(lyricsResult)
+                            if result.lyrics != nil { break }
+                        }
+                    } else if config.type == .lyricsServer {
+                        // 用户自填的歌词 API 服务器：按地址列表顺序直接取，找到即停。
+                        guard let lyricsServerScraper = scraper as? LyricsAPIServerScraper else {
+                            throw ScraperError.parseError("Lyrics API server scraper cache type mismatch")
+                        }
+                        let fetchedLyrics = try await lyricsServerScraper.fetchLyrics(
+                            title: cleanedTitle, artist: effectiveArtist, album: album, duration: duration
                         )
                         registerSuccess(config)
                         if let lyricsResult = fetchedLyrics, lyricsResult.hasLyrics {
@@ -742,6 +755,10 @@ actor ScraperManager {
            let modifiedAt = ScraperConfigStore.shared.config(for: configId)?.modifiedAt {
             parts.append(String(modifiedAt.timeIntervalSince1970))
         }
+        if config.type == .lyricsServer {
+            // 地址列表在构造时烘进实例；改了地址/凭据/顺序就要换新实例。
+            parts.append(LyricsAPIServerSettings.load().fingerprint)
+        }
         return parts.joined(separator: "|")
     }
 
@@ -757,6 +774,11 @@ actor ScraperManager {
     private func parseLyrics(_ result: ScraperLyricsResult) -> [LyricLine]? {
         if let lrc = result.lrcContent, !lrc.isEmpty {
             let parsed = LyricsParser.parse(lrc)
+            return parsed.isEmpty ? nil : parsed
+        }
+        if let plain = result.plainText,
+           !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let parsed = LyricsParser.parseText(plain)
             return parsed.isEmpty ? nil : parsed
         }
         return nil
