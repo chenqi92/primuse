@@ -2416,8 +2416,19 @@ struct HomeView: View {
     }
 
     /// 斜铺的封面墙。封面不够铺满时循环使用;一张都没有时用主题色渐变兜底。
-    @ViewBuilder
+    ///
+    /// 墙面挂在 overlay 里,不参与布局:一行五张固定尺寸的封面比手机屏幕宽,放进布局里会把
+    /// 头图连同整列首页内容一起撑宽。头图的尺寸只由提议宽度与 `height` 决定。
     private func heroMosaic(height: CGFloat) -> some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .overlay { heroMosaicWall }
+            .clipped()
+    }
+
+    @ViewBuilder
+    private var heroMosaicWall: some View {
         let songs = model.snapshot.heroCoverSongs
         let tile: CGFloat = heightClass.value(108, compact: 78)
         let columns = 5
@@ -2467,9 +2478,6 @@ struct HomeView: View {
                 endPoint: .bottom
             )
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: height)
-        .clipped()
     }
 
     /// Hero 的内边距。手机横屏整块要控制在视口的四成以内,四周先收一档。
