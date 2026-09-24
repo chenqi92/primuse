@@ -28,7 +28,7 @@ struct MetadataInspectionPolicyTests {
 
     @Test("Every declared import format has an explicit inspection route")
     func allDeclaredFormatsHaveInspectionRoute() {
-        #expect(PrimuseConstants.supportedAudioExtensions.count == 45)
+        #expect(PrimuseConstants.supportedAudioExtensions.count == 59)
         for fileExtension in PrimuseConstants.supportedAudioExtensions {
             #expect(AudioFormat.from(fileExtension: fileExtension) != nil)
             let parserExtension = RemoteMetadataInspectionPolicy.parserFileExtension(

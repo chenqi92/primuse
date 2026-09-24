@@ -87,7 +87,30 @@ int main(int argc, const char *argv[]) {
                 continue;
             }
 
-            printf("PASS %s codec=%s container=%s duration=%.6f sr=%.0f srcCh=%ld outCh=%u depth=%ld frames=%ld\n",
+            // Fixtures named `tagged-*` are muxed with a title tag, and
+            // `covered-*` also carry an attached picture; the library
+            // metadata probe must return both.
+            NSString *name = url.lastPathComponent;
+            FFmpegAudioFileInfo *metadata = [FFmpegDecoderBridge probeMetadataForURL:url error:&error];
+            NSString *title = nil;
+            for (NSArray<NSString *> *tag in metadata.tags) {
+                if ([tag.firstObject caseInsensitiveCompare:@"title"] == NSOrderedSame) title = tag.lastObject;
+            }
+            BOOL wantsTitle = [name hasPrefix:@"tagged-"] || [name hasPrefix:@"covered-"];
+            BOOL wantsCover = [name hasPrefix:@"covered-"];
+            if (!metadata || probe.tags.count != 0 || probe.coverArtData != nil ||
+                (wantsTitle && ![title isEqualToString:@"Smoke Title"]) ||
+                (wantsCover && metadata.coverArtData.length == 0)) {
+                fprintf(stderr, "FAIL container metadata %s: tags=%lu title=%s cover=%lu error=%s\n",
+                        argv[index], (unsigned long)metadata.tags.count,
+                        title.UTF8String ?: "none",
+                        (unsigned long)metadata.coverArtData.length,
+                        error.localizedDescription.UTF8String ?: "none");
+                allPassed = NO;
+                continue;
+            }
+
+            printf("PASS %s codec=%s container=%s duration=%.6f sr=%.0f srcCh=%ld outCh=%u depth=%ld frames=%ld tags=%lu cover=%lu\n",
                    url.lastPathComponent.UTF8String,
                    probe.codecName.UTF8String,
                    probe.formatName.UTF8String,
@@ -96,7 +119,9 @@ int main(int argc, const char *argv[]) {
                    (long)probe.channelCount,
                    decodedChannels,
                    (long)probe.bitDepth,
-                   (long)decodedFrames);
+                   (long)decodedFrames,
+                   (unsigned long)metadata.tags.count,
+                   (unsigned long)metadata.coverArtData.length);
         }
         return allPassed ? 0 : 1;
     }

@@ -280,12 +280,7 @@ struct DirectoryPreviewPane: View {
     let items: [RemoteFileItem]
     let selectedCount: Int
 
-    private static let audioExtensions: Set<String> = [
-        "mp3", "m4a", "m4b", "aac", "alac", "flac", "wav", "aiff", "aif", "au", "snd", "caf",
-        "ogg", "opus", "wma", "asf", "ape", "wv", "dsf", "dff", "dts", "dtshd",
-        "ac3", "eac3", "ec3", "mlp", "truehd", "thd", "amr", "awb", "atrac", "oma",
-        "aa3", "at3", "tak", "tta", "mpc", "mpp", "shn", "speex", "spx", "qoa"
-    ]
+    private static let audioExtensions = PrimuseConstants.supportedAudioExtensions
     private static let coverNames: Set<String> = [
         "cover", "folder", "front", "album", "artwork"
     ]

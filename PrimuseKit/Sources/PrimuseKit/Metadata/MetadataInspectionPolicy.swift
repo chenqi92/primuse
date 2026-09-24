@@ -44,6 +44,10 @@ public enum AudioFileSignatureKind: String, Codable, CaseIterable, Sendable {
     case au
     case caf
     case qoa
+    case matroska
+    case rf64
+    case wave64
+    case realMedia
 
     public var parserFileExtension: String? {
         switch self {
@@ -74,6 +78,11 @@ public enum AudioFileSignatureKind: String, Codable, CaseIterable, Sendable {
         case .au: "au"
         case .caf: "caf"
         case .qoa: "qoa"
+        // WebM is a Matroska profile; every reader treats the two alike.
+        case .matroska: "mka"
+        case .rf64: "rf64"
+        case .wave64: "w64"
+        case .realMedia: "ra"
         }
     }
 }
@@ -94,6 +103,16 @@ public enum AudioFileSignaturePolicy {
     private static let asfHeader = Data([
         0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11,
         0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C,
+    ])
+    /// Sony Wave64 opens with the GUID form of `riff`, followed after the
+    /// size by the GUID form of `wave`.
+    private static let wave64RIFFGUID = Data([
+        0x72, 0x69, 0x66, 0x66, 0x2E, 0x91, 0xCF, 0x11,
+        0xA5, 0xD6, 0x28, 0xDB, 0x04, 0xC1, 0x00, 0x00,
+    ])
+    private static let wave64WAVEGUID = Data([
+        0x77, 0x61, 0x76, 0x65, 0xF3, 0xAC, 0xD3, 0x11,
+        0x8C, 0xD1, 0x00, 0xC0, 0x4F, 0x8E, 0xDB, 0x8A,
     ])
     private static let dtsSyncPatterns: [[UInt8]] = [
         [0x7F, 0xFE, 0x80, 0x01],
@@ -122,6 +141,16 @@ public enum AudioFileSignaturePolicy {
         if bytes.starts(with: Data(".snd".utf8)) { return .au }
         if bytes.starts(with: Data("caff".utf8)) { return .caf }
         if bytes.starts(with: Data("qoaf".utf8)) { return .qoa }
+        if bytes.starts(with: Data([0x1A, 0x45, 0xDF, 0xA3])) { return .matroska }
+        if bytes.starts(with: Data(".RMF".utf8))
+            || bytes.starts(with: Data([0x2E, 0x72, 0x61, 0xFD])) { return .realMedia }
+        if bytes.count >= 40,
+           bytes.prefix(16).elementsEqual(wave64RIFFGUID),
+           bytes[24..<40].elementsEqual(wave64WAVEGUID) { return .wave64 }
+        if bytes.count >= 12,
+           (bytes.prefix(4).elementsEqual(Data("RF64".utf8))
+                || bytes.prefix(4).elementsEqual(Data("BW64".utf8))),
+           bytes[8..<12].elementsEqual(Data("WAVE".utf8)) { return .rf64 }
         if bytes.starts(with: Data("#!AMR".utf8)) { return .amr }
         if bytes.starts(with: Data("ADIF".utf8)) { return .adifAAC }
         if isOMAHeader(bytes) { return .atrac }
@@ -326,8 +355,17 @@ public enum RemoteMetadataInspectionPolicy {
     }
 
     private static func normalized(_ value: String) -> String {
-        value.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+        let ext = value.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
             .lowercased()
+        // Aliases of containers the parsers already know. The byte
+        // signature normally resolves these too; this covers the tail
+        // strategy, which is chosen before any byte has been read.
+        switch ext {
+        case "m4r": return "m4a"
+        case "aifc": return "aiff"
+        case "bwf": return "wav"
+        default: return ext
+        }
     }
 }
 

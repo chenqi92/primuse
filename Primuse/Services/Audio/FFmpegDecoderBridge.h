@@ -13,6 +13,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, copy) NSString *formatName;
 @property(nonatomic) BOOL lossless;
 @property(nonatomic) BOOL DSD;
+/// Container tags, then the audio stream's, as [key, value] pairs in the
+/// demuxer's own spelling. Filled only by +probeMetadataForURL:error:.
+@property(nonatomic, copy) NSArray<NSArray<NSString *> *> *tags;
+/// Attached picture (MP4 `covr`, Matroska image attachment), preferring
+/// one named or described as the front cover. Metadata probe only.
+@property(nonatomic, copy, nullable) NSData *coverArtData;
 @end
 
 @interface FFmpegAudioReadResult : NSObject
@@ -29,6 +35,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable NSNumber *)DTSSyncResultForURL:(NSURL *)url error:(NSError **)error;
 + (nullable NSNumber *)decodeSupportForURL:(NSURL *)url error:(NSError **)error;
 + (nullable FFmpegAudioFileInfo *)probeURL:(NSURL *)url error:(NSError **)error;
+/// `probeURL` plus `tags` and `coverArtData`, for library metadata reads.
++ (nullable FFmpegAudioFileInfo *)probeMetadataForURL:(NSURL *)url error:(NSError **)error;
 - (nullable instancetype)initWithURL:(NSURL *)url error:(NSError **)error;
 /// Opens a decoder with a bounded FFmpeg I/O operation timeout. The default
 /// initializer uses the playback-safe timeout chosen by the bridge.

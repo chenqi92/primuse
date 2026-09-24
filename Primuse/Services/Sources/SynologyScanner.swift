@@ -6,7 +6,7 @@ import PrimuseKit
 actor SynologyScanner {
     private let api: SynologyAPI
     private let sourceID: String
-    private static let isoBaseMediaExtensions: Set<String> = ["m4a", "m4b", "mp4", "m4v", "mov", "alac"]
+    private static let isoBaseMediaExtensions: Set<String> = ["m4a", "m4b", "m4r", "mp4", "m4v", "mov", "alac"]
     /// Song IDs whose metadata/title source was actually inspected by this
     /// scanner run. ScanService drains this set before publishing each batch
     /// so MetadataBackfillService does not issue the same remote Range reads.
@@ -1132,7 +1132,7 @@ actor SynologyScanner {
         fileExtension: String
     ) -> Bool {
         let durationMissing = !(metadata.duration?.isFinite == true && (metadata.duration ?? 0) > 0)
-        let containerMayNeedMoreHeader = ["m4a", "m4b", "alac", "mp4", "m4v", "mov"]
+        let containerMayNeedMoreHeader = ["m4a", "m4b", "m4r", "alac", "mp4", "m4v", "mov"]
             .contains(fileExtension.lowercased())
             && durationMissing
         let hasAnyMetadata = !durationMissing

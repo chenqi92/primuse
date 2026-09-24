@@ -294,6 +294,11 @@ enum FileMetadataReader {
             )
         }
         applySFBAudioFallback(to: &metadata, url: url)
+        await applyFFmpegContainerFallback(
+            to: &metadata,
+            url: url,
+            fileExtension: fileExtension
+        )
 
         // 注意: 不在这里用 url filename 兜底 title。
         // 调用方 (MetadataService) 自己决定 fallback 名 (走原始 NAS 文件名),
@@ -719,7 +724,7 @@ enum FileMetadataReader {
     private static let waveHeaderReadLimit = 1024 * 1024
     private static let mpegHeaderReadLimit = 512 * 1024
     private static let isoBaseMediaExtensions: Set<String> = [
-        "m4a", "m4b", "mp4", "m4v", "mov", "alac",
+        "m4a", "m4b", "m4r", "mp4", "m4v", "mov", "alac",
     ]
     private static let boundedContainerTagExtensions: Set<String> = [
         "ogg", "oga", "opus", "speex", "spx", "ape", "wv", "mpc", "mpp",
@@ -856,6 +861,44 @@ enum FileMetadataReader {
             bitRateKbps: properties.bitrate
         )
         metadata.fillMissing(from: fallback)
+    }
+
+    /// Containers whose tags only FFmpeg's demuxer reads here: TagLib in this
+    /// SFB build has no Matroska, RealMedia, Wave64 or RF64 support. MPEG
+    /// Layer I/II is included for its technical properties.
+    private static let ffmpegContainerTagExtensions: Set<String> = [
+        "mka", "webm", "weba", "ra", "w64", "rf64", "bw64", "mp2", "mpa", "mp1", "m2a",
+    ]
+
+    private static func applyFFmpegContainerFallback(
+        to metadata: inout Metadata,
+        url: URL,
+        fileExtension: String
+    ) async {
+        // The Apple TV target shares this reader but not the bounded FFmpeg
+        // worker, so there these containers keep file-name titles.
+        #if !os(tvOS)
+        guard ffmpegContainerTagExtensions.contains(fileExtension)
+                || ffmpegContainerTagExtensions.contains(url.pathExtension.lowercased()),
+              let container = try? await FFmpegAudioDecoder().containerMetadata(for: url)
+        else { return }
+        if let parsed = EmbeddedTagMetadataParser.parseContainerTags(
+            container.tags,
+            coverArtData: container.coverArtData
+        ) {
+            apply(parsed, to: &metadata)
+        }
+        var technical = Metadata()
+        if container.info.duration.isFinite, container.info.duration > 0 {
+            technical.duration = container.info.duration
+        }
+        technical.bitDepth = container.info.bitDepth
+        technical.applyAudioProperties(
+            sampleRate: container.info.sampleRate,
+            bitRateKbps: container.info.bitRate.map(Double.init)
+        )
+        metadata.fillMissing(from: technical)
+        #endif
     }
 
     /// Applies dependency-free parsers to bounded remote ranges. ID3 carried
