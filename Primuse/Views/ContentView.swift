@@ -393,7 +393,7 @@ extension View {
     }
 
     @ViewBuilder
-    fileprivate func minimalSafeAreaBar<Bar: View>(
+    func minimalSafeAreaBar<Bar: View>(
         edge: VerticalEdge,
         @ViewBuilder content: () -> Bar
     ) -> some View {
@@ -438,6 +438,7 @@ private struct MinimalNavigationRootModifier: ViewModifier {
                     // 每个根页面都经过这里,样式自己的页面底色在这一处挂上,不必逐页去改。
                     .skinPageBackground()
                     .environment(\.minimalRootActionsPage, scope)
+                    .environment(\.minimalRootNavigationBarRevealed, revealsNavigationBar)
                     .toolbar(revealsNavigationBar ? .visible : .hidden, for: .navigationBar)
                     .minimalSafeAreaBar(edge: .top) {
                         Color.clear.frame(height: revealsNavigationBar ? 0 : shell.chromeHeight)
@@ -1041,6 +1042,10 @@ struct ContentView: View {
                 event: event
             )
         }
+        // 详情页右上角的放大镜:打开同一个搜索页,限定在这张专辑 / 歌单里。
+        .environment(\.minimalScopedSearchOpener) { scope in
+            openMinimalScopedSearch(scope)
+        }
         .environment(
             \.topTabsShellContext,
             TopTabsShellContext(
@@ -1066,6 +1071,7 @@ struct ContentView: View {
                 pages: pages,
                 selection: currentTopTabPage,
                 actions: currentTopTabPage.flatMap { actions[$0]?.content },
+                filter: currentTopTabPage.flatMap { actions[$0]?.filter },
                 rowHeight: topTabsRowHeight,
                 onSelect: { selectMinimalPage($0) },
                 onSearch: { openMinimalUtility(.search) },
@@ -1141,12 +1147,20 @@ struct ContentView: View {
             SearchView(searchText: $searchText, scope: $searchScope,
                        activatesSearchField: $searchFieldActivationRequested,
                        requestsResultLayoutEditor: $searchLayoutEditorRequested,
-                       contextualScope: nil, onShowInLibrary: showSongInLibrary)
+                       contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
         case .settings:
             SettingsView(scraperSettingsRoute: $scraperSettingsRoute, search: settingsSearch)
         case .home, .librarySection:
             EmptyView()
         }
+    }
+
+    /// 从详情页右上角的放大镜进搜索:与经典外观从详情页切到搜索标签一样,搜索限定在这一页的范围里,
+    /// 范围卡片上可以一键切回全局。范围算不出来(文件夹还没索引好)时就是普通的全局搜索。
+    private func openMinimalScopedSearch(_ scope: LibrarySearchScope?) {
+        openMinimalUtility(.search)
+        searchContext = scope
+        searchScope = scope
     }
 
     /// 搜索 / 设置停在第一层时,从左边缘向右拖可以把它推回去,和系统的返回手势一样。
@@ -1936,6 +1950,7 @@ struct ContentView: View {
 /// 详情页取证用：`playlist:<名字片段>`（`liked` 是「喜欢」）/ `genre:<名字片段>` /
 /// `zoom:<专辑标题片段>`（先停在专辑网格，再从网格推入专辑页、退回、再推入，录缩放转场用）。
 /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）。
+/// `scopedsearch:<专辑标题片段>`：打开专辑页，三秒后进「在这张专辑里搜索」（顶部 tab 外壳走详情页的放大镜，经典走搜索标签）。
 /// `PRIMUSE_DEBUG_SCROLL_BY=<点数>`：页面打开后把最大的纵向滚动视图滚动这么多，负数是下拉到顶部之外。
 extension ContentView {
     @MainActor
@@ -2077,6 +2092,27 @@ extension ContentView {
                 try? await Task.sleep(for: .seconds(3))
                 guard !Task.isCancelled else { return }
                 LibraryDebugNavigation.pop(in: .albums)
+            }
+        case "scopedsearch":
+            guard let album = library.visibleAlbums.first(where: {
+                needle.isEmpty || $0.title.lowercased().contains(needle)
+            }) else {
+                plog("🧪 DebugLaunchAutomation: no album matching '\(needle)'")
+                return
+            }
+            openLibraryDeepLink(.album(album))
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            if rootLayout == .minimal {
+                let songIDs = Set(library.visibleSongs.filter { $0.albumID == album.id }.map(\.id))
+                openMinimalScopedSearch(LibrarySearchScope(
+                    title: album.title,
+                    songIDs: songIDs,
+                    kind: .album,
+                    detail: album.artistName
+                ))
+            } else {
+                selectTab(2)
             }
         case "search":
             selectMinimalPage(.search)

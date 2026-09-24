@@ -28,6 +28,10 @@ enum ArtistLayoutMode: String, CaseIterable, Identifiable {
 struct ArtistListView: View {
     let artists: [Artist]
     @State private var searchText: String = ""
+    #if os(iOS)
+    /// 顶部 tab 外壳里页内筛选框是否展开。筛选文本仍是 `searchText`,与经典的 `.searchable` 同一份。
+    @State private var showsRootFilter = false
+    #endif
 
     @Environment(\.pmHeightClass) private var heightClass
 
@@ -87,6 +91,11 @@ struct ArtistListView: View {
             .searchable(
                 text: $searchText,
                 placement: .navigationBarDrawer(displayMode: .always),
+                prompt: Text("filter_artists_placeholder")
+            )
+            .minimalRootFilter(
+                text: $searchText,
+                isPresented: $showsRootFilter,
                 prompt: Text("filter_artists_placeholder")
             )
             .toolbar {

@@ -4,6 +4,10 @@ import PrimuseKit
 struct AlbumGridView: View {
     @Environment(MusicLibrary.self) private var library
     @State private var albumFilter = ""
+    #if os(iOS)
+    /// 顶部 tab 外壳里页内筛选框是否展开。筛选文本仍是 `albumFilter`,与经典的 `.searchable` 同一份。
+    @State private var showsRootFilter = false
+    #endif
 
     private var filteredAlbums: [Album] {
         let query = albumFilter.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,12 +45,14 @@ struct AlbumGridView: View {
                     openAlbum(album)
                 }
             #else
+            // 整库筛选一次 body 只算一遍:空结果判断与网格共用同一份。
+            let albums = filteredAlbums
             ScrollView {
-                if filteredAlbums.isEmpty {
+                if albums.isEmpty {
                     ContentUnavailableView.search(text: albumFilter)
                 }
                 LazyVGrid(columns: columns, spacing: heightClass.value(20, compact: 14)) {
-                    ForEach(filteredAlbums) { album in
+                    ForEach(albums) { album in
                         NavigationLink(value: album) {
                             AlbumCardView(album: album)
                         }
@@ -61,6 +67,13 @@ struct AlbumGridView: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: Text("filter_albums_placeholder")
             )
+            #if os(iOS)
+            .minimalRootFilter(
+                text: $albumFilter,
+                isPresented: $showsRootFilter,
+                prompt: Text("filter_albums_placeholder")
+            )
+            #endif
             #endif
         }
     }

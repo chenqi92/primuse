@@ -2166,6 +2166,8 @@ struct GenreLibraryView: View {
     @State private var searchText = ""
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
+    /// 顶部 tab 外壳里页内筛选框是否展开。筛选文本仍是 `searchText`,与经典的 `.searchable` 同一份。
+    @State private var showsRootFilter = false
     #endif
     #if os(macOS)
     @State private var selectedGenreID: String?
@@ -2205,8 +2207,10 @@ struct GenreLibraryView: View {
             // 一屏能看到两行而不是一行半。
             let cardMinimumWidth = heightClass.value(156, compact: 124)
             let cardHeight = heightClass.value(142, compact: 112)
+            // 筛选 + 排序一次 body 只做一遍:空结果判断与网格共用同一份。
+            let genres = filteredGenres
             ScrollView {
-                if filteredGenres.isEmpty {
+                if genres.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                         .padding(.top, 80)
                         .pmAppearFade(.contentAppear)
@@ -2215,7 +2219,7 @@ struct GenreLibraryView: View {
                         columns: [GridItem(.adaptive(minimum: cardMinimumWidth), spacing: 12)],
                         spacing: 12
                     ) {
-                        ForEach(filteredGenres) { genre in
+                        ForEach(genres) { genre in
                             NavigationLink(value: genre) {
                                 LibraryGenreCard(genre: genre, height: cardHeight)
                             }
@@ -2231,6 +2235,11 @@ struct GenreLibraryView: View {
             .searchable(
                 text: $searchText,
                 placement: .navigationBarDrawer(displayMode: .always),
+                prompt: Text("genre_search_placeholder")
+            )
+            .minimalRootFilter(
+                text: $searchText,
+                isPresented: $showsRootFilter,
                 prompt: Text("genre_search_placeholder")
             )
         }

@@ -28,6 +28,8 @@ struct RadioStationsView: View {
     @State private var folderScope: RadioStationFilter.FolderScope = .all
     @State private var activeTags: Set<String> = []
     @State private var searchText = ""
+    /// 顶部 tab 外壳里页内搜索框是否展开。文本仍是 `searchText`,与 `.searchable`(经典、整理态)同一份。
+    @State private var showsRootFilter = false
     @State private var namePrompt: RadioNamePrompt?
     @State private var namePromptText = ""
     @State private var folderToDelete: String?
@@ -121,6 +123,11 @@ struct RadioStationsView: View {
         .searchable(text: $searchText, prompt: Text("radio_search_placeholder"))
         .toolbar { toolbarContent }
         #if os(iOS)
+        .minimalRootFilter(
+            text: $searchText,
+            isPresented: $showsRootFilter,
+            prompt: Text("radio_search_placeholder")
+        )
         .minimalRootActions { minimalRootActionItems }
         .minimalRootEditing(isManaging)
         #endif
@@ -135,6 +142,15 @@ struct RadioStationsView: View {
             guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EDIT"] == "radio" else { return }
             try? await Task.sleep(for: .seconds(2))
             isManaging = true
+        }
+        // 编译机截图用:`PRIMUSE_DEBUG_SEED_RADIO=1` 时没有电台就先放几个(地址不通,只为看列表与筛选)。
+        .task {
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_RADIO"] == "1",
+                  store.stations.isEmpty else { return }
+            let names = ["Nova FM", "Harbor Jazz", "City Night Radio", "Classic 88.1", "Folk Café", "Morning News", "Lo-fi Beats", "Tokyo Pop"]
+            for (index, name) in names.enumerated() {
+                store.add(RadioStation(name: name, streamURL: "https://radio.example.com/stream/\(index + 1)"))
+            }
         }
         #endif
         .sheet(isPresented: $showingNewStation) {

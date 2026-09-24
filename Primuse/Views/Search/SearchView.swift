@@ -121,6 +121,10 @@ private struct LibrarySearchTabKey: EnvironmentKey {
     static let defaultValue = 0
 }
 
+private struct MinimalScopedSearchOpenerKey: EnvironmentKey {
+    static let defaultValue: (@MainActor (LibrarySearchScope?) -> Void)? = nil
+}
+
 extension EnvironmentValues {
     var librarySearchNavigation: LibrarySearchNavigation? {
         get { self[LibrarySearchNavigationKey.self] }
@@ -131,18 +135,46 @@ extension EnvironmentValues {
         get { self[LibrarySearchTabKey.self] }
         set { self[LibrarySearchTabKey.self] = newValue }
     }
+
+    /// 顶部 tab 外壳:打开搜索并限定在给定范围里(nil 是全局)。经典外壳里为 nil。
+    var minimalScopedSearchOpener: (@MainActor (LibrarySearchScope?) -> Void)? {
+        get { self[MinimalScopedSearchOpenerKey.self] }
+        set { self[MinimalScopedSearchOpenerKey.self] = newValue }
+    }
 }
 
+/// 详情页登记「在这里面搜索」的范围。
+///
+/// 经典外观:从资料库里的详情页切到底部「搜索」标签时,搜索自动限定在这张专辑 / 这位艺术家 / 这张歌单里。
+/// 顶部 tab 外壳的详情页没有搜索标签可切(tab 条收起了),所以在导航栏右边放一颗放大镜,
+/// 点开就是同一个带范围的搜索页 —— 范围卡片、切回全局都与经典一致,逻辑只有一份。
 private struct LibrarySearchContextModifier: ViewModifier {
     @Environment(\.librarySearchNavigation) private var navigation
     @Environment(\.librarySearchTab) private var tab
+    @Environment(\.minimalScopedSearchOpener) private var openScopedSearch
     @State private var owner = UUID()
     let resolve: @MainActor () -> LibrarySearchScope?
 
     func body(content: Content) -> some View {
+        let open = openScopedSearch
+        let resolve = resolve
         content
             .onAppear { navigation?.register(owner: owner, tab: tab, resolve: resolve) }
             .onDisappear { navigation?.remove(owner: owner) }
+            // 动作按值带进导航栏条目:条目跑在自己的视图图里,不读环境。范围到点下去时才算(整张歌单的歌 ID 不便宜)。
+            .toolbar {
+                if let open {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            open(resolve())
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                        }
+                        .accessibilityLabel(Text("search_title"))
+                        .accessibilityIdentifier("detail.scopedSearch")
+                    }
+                }
+            }
     }
 }
 
