@@ -1,7 +1,7 @@
 import Foundation
 
 extension SkinCatalog {
-    /// 极简:深海蓝底、封面墙头图、悬浮胶囊播放条。界面自己几乎没有颜色,
+    /// 极简:深海蓝底、封面墙头图、顶部 tab 条与底部停靠播放条。界面自己几乎没有颜色,
     /// 颜色全部来自封面与用户的主题色。
     ///
     /// 跟随系统深浅色 —— 「外观」设置在这套样式下依然有效,浅色是同一套版式换色表。
@@ -104,12 +104,12 @@ extension SkinCatalog {
                 .shadowRadius: 16,
                 .shadowOpacity: 0.30,
 
-                // 顶栏沿用现有几何:用户已经熟悉这条栏的手感,换的是材质不是尺寸。
+                // 顶部 tab 条:一行 44 高(随字号放大),tab 之间 20 的间隔由 chromeItemSpacing 的两倍给出。
                 .chromeTopPadding: 6,
                 .chromeBottomPadding: 8,
-                .chromeItemSpacing: 8,
+                .chromeItemSpacing: 10,
                 .chromeChipHeight: 34,
-                .chromeChipRowHeight: 37,
+                .chromeChipRowHeight: 44,
                 .chromeChipSpacing: 7,
                 .chromeChipRowSpacing: 9,
                 .chromeCollapsedChipHeight: 44,
@@ -125,8 +125,9 @@ extension SkinCatalog {
                 .callout: SkinTypeSpec(size: 14.5, relativeTo: .callout),
                 .caption: SkinTypeSpec(size: 12.5, relativeTo: .caption),
                 .meta: SkinTypeSpec(size: 11.5, relativeTo: .caption),
-                .chrome: SkinTypeSpec(size: 14.5, weight: .regular, relativeTo: .subheadline),
-                .chromeCompact: SkinTypeSpec(size: 14, weight: .semibold, relativeTo: .subheadline),
+                // tab 条:未选中与选中同一字号,选中只加粗,切换时文字不跳。
+                .chrome: SkinTypeSpec(size: 16, weight: .medium, relativeTo: .callout),
+                .chromeCompact: SkinTypeSpec(size: 16, weight: .bold, relativeTo: .callout),
                 .chromeField: SkinTypeSpec(size: 15.5, relativeTo: .subheadline),
                 .numeric: SkinTypeSpec(size: 12, design: .monospaced, relativeTo: .footnote),
                 // 行高交给系统文本样式,只把标题加重半级。
@@ -151,8 +152,8 @@ extension SkinCatalog {
                 .ambient: .easeInOut(duration: 0.5),
             ],
             slots: [
-                .navigationHeader: SkinSlotVariant.NavigationHeader.minimal.rawValue,
-                .bottomChrome: SkinSlotVariant.BottomChrome.floatingCapsule.rawValue,
+                .navigationHeader: SkinSlotVariant.NavigationHeader.topTabs.rawValue,
+                .bottomChrome: SkinSlotVariant.BottomChrome.dockedBar.rawValue,
                 .detailHeader: SkinSlotVariant.DetailHeader.coverWall.rawValue,
                 .settingsRoot: SkinSlotVariant.SettingsRoot.hub.rawValue,
                 .homeLayout: SkinSlotVariant.HomeLayout.poster.rawValue,

@@ -272,8 +272,8 @@ struct SkinCatalogTests {
     @Test("极简选用的结构实现")
     func minimalSlotChoices() {
         let skin = SkinCatalog.minimal
-        #expect(skin.navigationHeader == .minimal)
-        #expect(skin.bottomChrome == .floatingCapsule)
+        #expect(skin.navigationHeader == .topTabs)
+        #expect(skin.bottomChrome == .dockedBar)
         #expect(skin.detailHeader == .coverWall)
         #expect(skin.settingsRoot == .hub)
         #expect(skin.playerStage == .sheetActions)
@@ -333,7 +333,8 @@ struct SkinCatalogTests {
         for slot in SkinSlot.allCases {
             #expect(SkinSlotRegistry.builtIn[slot]?.contains(SkinSlotRegistry.classicVariant) == true)
         }
-        #expect(SkinSlotRegistry.builtIn[.navigationHeader] == ["classic", "minimal"])
+        #expect(SkinSlotRegistry.builtIn[.navigationHeader] == ["classic", "topTabs"])
+        #expect(SkinSlotRegistry.builtIn[.bottomChrome] == ["classic", "floatingCapsule", "dockedBar"])
         #expect(SkinSlotRegistry.builtIn[.detailHeader] == ["classic", "coverWall"])
     }
 

@@ -12,7 +12,7 @@ import Foundation
 /// 需要新插槽时,应当先问「这能不能用 token 表达」,只有确实是结构差异才加,并且要
 /// 同时在 `SkinSlotVariant` 里给出它的实现枚举、更新相应测试。
 public enum SkinSlot: String, CaseIterable, Sendable, Codable {
-    /// 根导航:系统标签栏,还是自绘顶栏(搜索 + 分类 chip)。
+    /// 根导航:系统标签栏,还是顶部 tab 条(首页、电台与资料库各分类,右侧搜索与设置)。
     case navigationHeader
     /// 底部 chrome(迷你播放器所在的那条)。
     case bottomChrome
@@ -38,14 +38,17 @@ public enum SkinSlotVariant {
     public enum NavigationHeader: String, CaseIterable, Sendable {
         /// 系统标签栏 + 各页自己的导航栏。
         case classic
-        /// 自绘顶栏:搜索框 + 资料库分类 chip,不显示标签栏。
-        case minimal
+        /// 顶部一行横向可滚的 tab 条(首页、资料库各分类、电台),右侧是页面动作、搜索与设置;
+        /// 不显示标签栏,根页不显示系统导航栏,推入详情页时 tab 条让位给系统导航栏。
+        case topTabs
     }
 
     public enum BottomChrome: String, CaseIterable, Sendable {
         case classic
-        /// 悬浮胶囊:圆形封面、进度环、队列入口。
+        /// 悬浮胶囊:圆形封面、进度环、队列入口。现在没有皮肤选它,留给以后的皮肤。
         case floatingCapsule
+        /// 通栏停靠条:左右内缩的圆角条,封面 + 两行文字 + 播放键 + 队列键,顶沿一条进度细线。
+        case dockedBar
     }
 
     public enum DetailHeader: String, CaseIterable, Sendable {
@@ -315,13 +318,16 @@ public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
     }
 
     // 读不出来(来自更新版本的样式、手改的数据)一律落到经典实现。
-    /// 这套样式建在哪一套基座上。基座决定导航结构:经典 = 系统标签栏,极简 = 没有标签栏
-    /// (左下资料库、中间播放胶囊、右下搜索)。付费样式都建在其中一套上,只换 token、
-    /// 材质、动效与该基座允许的页面实现,不改导航结构 —— 功能对照按基座各测一遍即可。
+    /// 这套样式建在哪一套基座上。基座决定导航结构:经典 = 系统标签栏,极简 = 顶部 tab 条
+    /// + 底部停靠播放条。之后的样式都建在其中一套上,只换 token、材质、动效与该基座允许的
+    /// 页面实现,不改导航结构 —— 功能对照按基座各测一遍即可。
     ///
     /// 由导航插槽推出来,目录与已存的样式数据不必迁移。
     public var base: SkinBase {
-        navigationHeader == .minimal ? .minimal : .classic
+        switch navigationHeader {
+        case .classic: return .classic
+        case .topTabs: return .minimal
+        }
     }
 
     public var navigationHeader: SkinSlotVariant.NavigationHeader {

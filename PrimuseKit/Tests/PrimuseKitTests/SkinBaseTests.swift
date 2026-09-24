@@ -3,7 +3,7 @@ import Testing
 
 @Suite("Skin bases")
 struct SkinBaseTests {
-    @Test("经典是标签栏基座,极简是无标签栏基座")
+    @Test("经典是标签栏基座,极简是顶部 tab 条基座")
     func shippedSkinsDeclareTheirBase() {
         #expect(SkinCatalog.classic.base == .classic)
         #expect(SkinCatalog.minimal.base == .minimal)
@@ -12,7 +12,7 @@ struct SkinBaseTests {
     @Test("实验样式都建在某一套基座上,且与导航插槽一致")
     func labSkinsFollowTheirNavigationSlot() {
         for skin in SkinCatalog.all + SkinCatalog.lab {
-            let expected: SkinBase = skin.navigationHeader == .minimal ? .minimal : .classic
+            let expected: SkinBase = skin.navigationHeader == .topTabs ? .minimal : .classic
             #expect(skin.base == expected)
         }
     }

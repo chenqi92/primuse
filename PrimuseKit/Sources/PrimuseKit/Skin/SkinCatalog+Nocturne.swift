@@ -91,8 +91,8 @@ extension SkinCatalog {
             motion: SkinCatalog.minimal.motion,
             // 与极简同一组结构实现 —— 这一步换的只有数据。
             slots: [
-                .navigationHeader: SkinSlotVariant.NavigationHeader.minimal.rawValue,
-                .bottomChrome: SkinSlotVariant.BottomChrome.floatingCapsule.rawValue,
+                .navigationHeader: SkinSlotVariant.NavigationHeader.topTabs.rawValue,
+                .bottomChrome: SkinSlotVariant.BottomChrome.dockedBar.rawValue,
                 .detailHeader: SkinSlotVariant.DetailHeader.coverWall.rawValue,
                 .settingsRoot: SkinSlotVariant.SettingsRoot.hub.rawValue,
                 .homeLayout: SkinSlotVariant.HomeLayout.classic.rawValue,

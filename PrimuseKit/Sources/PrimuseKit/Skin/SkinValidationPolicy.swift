@@ -297,7 +297,7 @@ public enum SkinMigrationPolicy {
     public static func legacyNavigationModeRawValue(for skin: SkinDefinition) -> String {
         switch skin.navigationHeader {
         case .classic: return legacyStandardNavigationRawValue
-        case .minimal: return legacyMinimalNavigationRawValue
+        case .topTabs: return legacyMinimalNavigationRawValue
         }
     }
 }
