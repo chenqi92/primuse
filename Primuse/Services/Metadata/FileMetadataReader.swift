@@ -585,7 +585,18 @@ enum FileMetadataReader {
                     if metadata.coverArtData == nil, let data = value as? Data {
                         metadata.coverArtData = data
                     }
-                case .id3MetadataTrackNumber, .iTunesMetadataTrackNumber:
+                case .iTunesMetadataTrackNumber:
+                    // `trkn` comes back as its binary payload, not text.
+                    if let data = value as? Data {
+                        if let pair = MP4IndexPairAtom.decode(data) {
+                            metadata.trackNumber = pair.number
+                        }
+                    } else if let num = value as? Int {
+                        metadata.trackNumber = num
+                    } else if let str = decodedText(value) {
+                        metadata.trackNumber = Int(str.split(separator: "/").first.map(String.init) ?? "")
+                    }
+                case .id3MetadataTrackNumber:
                     if let str = decodedText(value) {
                         metadata.trackNumber = Int(str.split(separator: "/").first.map(String.init) ?? "")
                     } else if let num = value as? Int {
@@ -596,10 +607,15 @@ enum FileMetadataReader {
                         metadata.discNumber = Int(str.split(separator: "/").first.map(String.init) ?? "")
                     }
                 case .iTunesMetadataDiscNumber:
-                    if let str = decodedText(value) {
-                        metadata.discNumber = Int(str.split(separator: "/").first.map(String.init) ?? "")
+                    // `disk` has the same binary layout as `trkn`.
+                    if let data = value as? Data {
+                        if let pair = MP4IndexPairAtom.decode(data) {
+                            metadata.discNumber = pair.number
+                        }
                     } else if let num = value as? Int {
                         metadata.discNumber = num
+                    } else if let str = decodedText(value) {
+                        metadata.discNumber = Int(str.split(separator: "/").first.map(String.init) ?? "")
                     }
                 case .id3MetadataYear, .id3MetadataRecordingTime:
                     if let str = decodedText(value) {

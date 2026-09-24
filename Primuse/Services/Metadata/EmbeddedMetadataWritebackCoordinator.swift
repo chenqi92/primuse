@@ -266,8 +266,14 @@ enum EmbeddedMetadataWritebackCoordinator {
                 )
                 : nil,
             coverData: coverData,
-            lyrics: lyrics
+            lyrics: lyrics,
+            changedFields: TagMetadataWritebackField.changedFields(
+                from: original,
+                to: updated,
+                includesCover: false
+            )
         )
+        let previousTags = try? EmbeddedMetadataWriter.currentTags(at: workingURL)
         let verification = try await run(source: sourceName, stage: .edit) {
             try await Task.detached(priority: .userInitiated) {
                 try await EmbeddedMetadataWriter.writeAndVerify(edits, to: workingURL)
@@ -319,7 +325,8 @@ enum EmbeddedMetadataWritebackCoordinator {
                 revision: finalState.revision,
                 fileSHA256: readbackSHA256,
                 verification: verification,
-                filePath: replacementPath
+                filePath: replacementPath,
+                previousTags: previousTags
             )
         } catch {
             guard replacementPath != original.filePath else { throw error }

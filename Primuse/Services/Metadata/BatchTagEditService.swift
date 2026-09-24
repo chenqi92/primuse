@@ -21,6 +21,14 @@ enum BatchTagEditService {
         var coverChanged = false
     }
 
+    /// One successful write: the row as it is now, a note from the source,
+    /// and what the file held before (embedded writes only).
+    struct Written: Sendable {
+        let song: Song
+        let notice: String?
+        let previousFileTags: EmbeddedMetadataVerification?
+    }
+
     struct Failure: Identifiable, Error, Sendable {
         let id = UUID()
         let title: String
@@ -48,7 +56,7 @@ enum BatchTagEditService {
         guard !pending.isEmpty else { return outcome }
         onProgress(0, pending.count)
 
-        var results: [Int: Result<(Song, String?), Failure>] = [:]
+        var results: [Int: Result<Written, Failure>] = [:]
         var done = 0
         // Chunks of `concurrency` songs in flight. Each write is main-actor
         // work that spends its time awaiting the network, so the chunk
@@ -56,7 +64,7 @@ enum BatchTagEditService {
         var start = 0
         while start < pending.count {
             let end = min(start + concurrency, pending.count)
-            var inFlight: [(index: Int, task: Task<Result<(Song, String?), Failure>, Never>)] = []
+            var inFlight: [(index: Int, task: Task<Result<Written, Failure>, Never>)] = []
             for index in start..<end {
                 let change = pending[index]
                 inFlight.append((index, Task { @MainActor in
@@ -74,10 +82,14 @@ enum BatchTagEditService {
         var published: [Song] = []
         for index in pending.indices {
             switch results[index] {
-            case .success(let (song, notice))?:
-                published.append(song)
-                outcome.originals.append(pending[index].original)
-                if let notice { outcome.notices.append("\(song.title): \(notice)") }
+            case .success(let written)?:
+                published.append(written.song)
+                outcome.originals.append(Self.undoTarget(
+                    original: pending[index].original,
+                    updated: pending[index].updated,
+                    fileBefore: written.previousFileTags
+                ))
+                if let notice = written.notice { outcome.notices.append("\(written.song.title): \(notice)") }
             case .failure(let failure)?:
                 outcome.failures.append(failure)
             case nil:
@@ -121,7 +133,7 @@ enum BatchTagEditService {
         _ change: (original: Song, updated: Song),
         coverData: Data?,
         sourceManager: SourceManager
-    ) async -> Result<(Song, String?), Failure> {
+    ) async -> Result<Written, Failure> {
         var updated = change.updated
         updated.userMetadataEditedAt = Date()
         do {
@@ -137,10 +149,36 @@ enum BatchTagEditService {
                         ?? String(localized: "metadata_writeback_error_invalid_state")
                 ))
             }
-            return .success((report.updatedSong, report.issueMessage))
+            return .success(Written(
+                song: report.updatedSong,
+                notice: report.issueMessage,
+                previousFileTags: report.previousFileTags
+            ))
         } catch {
             return .failure(Failure(title: change.original.title, message: error.localizedDescription))
         }
+    }
+
+    /// What undo writes back for one song: the library row before the edit,
+    /// with each changed field taken from the file itself when the write
+    /// reported it. A row can lag its file (tags not read yet), and undo
+    /// must restore the file, not the gap.
+    static func undoTarget(
+        original: Song,
+        updated: Song,
+        fileBefore: EmbeddedMetadataVerification?
+    ) -> Song {
+        guard let before = fileBefore else { return original }
+        var target = original
+        let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: false)
+        if changed.contains(.title), let title = before.title { target.title = title }
+        if changed.contains(.artist) { target.artistName = before.artist }
+        if changed.contains(.album) { target.albumTitle = before.albumTitle }
+        if changed.contains(.genre) { target.genre = before.genre }
+        if changed.contains(.year) { target.year = before.year }
+        if changed.contains(.trackNumber) { target.trackNumber = before.trackNumber }
+        if changed.contains(.discNumber) { target.discNumber = before.discNumber }
+        return target
     }
 
     /// Builds the updated row for one song from the switched-on proposals.
