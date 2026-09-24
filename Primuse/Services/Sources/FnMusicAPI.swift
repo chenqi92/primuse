@@ -432,6 +432,7 @@ actor FnMusicAPI {
         path: String,
         queryItems: [URLQueryItem],
         body: [String: Any]?,
+        rawBody: FnMusicRawRequestBody? = nil,
         includeCookie: Bool,
         cookieToken: String?
     ) async throws -> Any {
@@ -452,7 +453,11 @@ actor FnMusicAPI {
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("zh-CN", forHTTPHeaderField: "Accept-Language")
-        if let bodyData {
+        if let rawBody {
+            request.httpBody = rawBody.data
+            request.setValue(rawBody.contentType, forHTTPHeaderField: "Content-Type")
+            request.timeoutInterval = 120
+        } else if let bodyData {
             request.httpBody = bodyData
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
@@ -466,7 +471,7 @@ actor FnMusicAPI {
         for (name, value) in FnMusicAPIProtocol.accessCodeHeaders(accessCode) {
             request.setValue(value, forHTTPHeaderField: name)
         }
-        FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: bodyData)
+        FnMusicAPIProtocol.applyAuthx(to: &request, bodyData: rawBody?.signedPayload ?? bodyData)
 
         let requestID = UUID().uuidString.prefix(8)
         let startedAt = ProcessInfo.processInfo.systemUptime
@@ -697,6 +702,14 @@ struct FnMusicRangeResponse: Sendable {
     let statusCode: Int
 }
 
+/// 非 JSON 正文（封面 multipart）的请求：签名串和实际正文分开给。浏览器对 FormData
+/// 做 `JSON.stringify` 得到 `{}`，网页端就拿它签名，服务端也照这个校验。
+private struct FnMusicRawRequestBody: Sendable {
+    let data: Data
+    let contentType: String
+    let signedPayload: Data
+}
+
 private func stringValue(_ value: Any?) -> String? {
     if let value = value as? String { return value }
     return nil
@@ -712,7 +725,7 @@ private func intValue(_ value: Any?) -> Int? {
 extension FnMusicAPI {
     /// The native editor accepts a complete metadata object, including entity
     /// IDs. Always obtain those IDs from fresh server data before changing it.
-    func updateTrackMetadata(original: Song, updated: Song, fields: Set<TagMetadataWritebackField>) async throws -> MediaServerWritebackResult {
+    func updateTrackMetadata(original: Song, updated: Song, fields: Set<TagMetadataWritebackField>, coverData: Data? = nil) async throws -> MediaServerWritebackResult {
         guard let guid = FnMusicAPIProtocol.trackGUID(from: original.filePath),
               original.sourceID == sourceID, updated.sourceID == sourceID,
               original.filePath == updated.filePath else { throw SourceError.fileNotFound(original.filePath) }
@@ -722,19 +735,34 @@ extension FnMusicAPI {
         let originalArtists = try entityIDs(current["artists"])
         let originalGenres = try entityIDs(current["genres"])
         let album = current["album"] as? [String: Any]
+        let currentAlbumName = stringValue(album?["name"]).flatMap { $0.isEmpty ? nil : $0 }
         var body: [String: Any] = [
             "guid": guid, "title": stringValue(current["title"]) ?? "",
-            "album": stringValue(album?["name"]) ?? "",
+            "album": currentAlbumName.map { $0 as Any } ?? NSNull(),
             "artistGUIDs": originalArtists, "genreGUIDs": originalGenres,
             "year": intValue(current["year"]).map { $0 as Any } ?? NSNull(),
             "trackNo": intValue(current["trackNo"]).map { $0 as Any } ?? NSNull(),
             "discNo": intValue(current["discNo"]).map { $0 as Any } ?? NSNull(),
         ]
-        if let albumID = stringValue(album?["guid"]), !albumID.isEmpty { body["albumGUID"] = albumID }
+        // 网页端的保存请求没有 albumGUID：专辑只按名字提交，服务端自己找或建专辑。
+        // 以前先查 /album/list-all 拿 GUID，那个端点在真服务器上返回的是网页，改专辑名一律失败。
         if let cover = stringValue(current["coverId"]), !cover.isEmpty {
             body["coverId"] = cover
-            let prefixes = ["track_", "album_", "artist_", "playlist_"]
-            body["coverGUID"] = prefixes.first(where: { cover.hasPrefix($0) }).map { String(cover.dropFirst($0.count)) } ?? cover
+            body["coverGUID"] = Self.coverGUID(from: cover)
+        }
+        var uploadedCoverID: String?
+        if let coverData, !coverData.isEmpty {
+            do {
+                let coverID = try await uploadTrackCover(coverData)
+                body["coverId"] = coverID
+                body["coverGUID"] = Self.coverGUID(from: coverID)
+                uploadedCoverID = coverID
+            } catch {
+                if OperationCancellationPolicy.isCancellation(error) { throw error }
+                let detail = error.localizedDescription
+                result.errors.append(detail)
+                result.fieldResults.append(TagMetadataFieldWritebackResult(field: .cover, disposition: .failed(detail)))
+            }
         }
         if fields.contains(.title) { body["title"] = updated.title }
         if fields.contains(.year) { body["year"] = updated.year.map { $0 as Any } ?? NSNull() }
@@ -742,22 +770,20 @@ extension FnMusicAPI {
         if fields.contains(.discNumber) { body["discNo"] = updated.discNumber.map { $0 as Any } ?? NSNull() }
         if fields.contains(.album) {
             let name = (updated.albumTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            body["album"] = name
-            body.removeValue(forKey: "albumGUID")
-            if !name.isEmpty {
-                let albums = try await metadataEntities(path: "/album/list-all")
-                if let existing = try uniqueEntity(named: name, in: albums) { body["albumGUID"] = existing }
-            }
+            body["album"] = name.isEmpty ? NSNull() as Any : name as Any
         }
         if fields.contains(.genre) {
             let name = (updated.genre ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if name.isEmpty { body["genreGUIDs"] = [String]() }
             else if let genreID = try await metadataGenreID(named: name) { body["genreGUIDs"] = [genreID] }
             else {
-                writable.remove(.genre)
-                let detail = String(localized: "metadata_writeback_error_unsupported")
-                result.unsupported.append(detail)
-                result.fieldResults.append(TagMetadataFieldWritebackResult(field: .genre, disposition: .unsupported(detail)))
+                // 网页端填了新流派就 POST /genre/create {name}；和艺术家创建一样不可重放。
+                let created = try await requestJSONOnce(method: "POST", path: "/genre/create", queryItems: [],
+                    body: ["name": name], includeCookie: true, cookieToken: nil)
+                guard let entity = created as? [String: Any], let id = stringValue(entity["guid"]), !id.isEmpty else {
+                    throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+                }
+                body["genreGUIDs"] = [id]
             }
         }
         if fields.contains(.artist) {
@@ -780,6 +806,7 @@ extension FnMusicAPI {
                 body["artistGUIDs"] = [artistID]
             }
         }
+        if uploadedCoverID != nil { writable.insert(.cover) }
         guard !writable.isEmpty else { return result }
         try Task.checkCancellation()
         _ = try await requestJSONOnce(method: "POST", path: "/track/metadata", queryItems: [], body: body, includeCookie: true, cookieToken: nil)
@@ -793,20 +820,20 @@ extension FnMusicAPI {
                 matches = Set(try entityIDs(readback["artists"])) == Set(body["artistGUIDs"] as? [String] ?? [])
                     && entityNames(readback["artists"]) == [(updated.artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }
             case .album:
-                matches = (stringValue(readbackAlbum?["name"]) ?? "") == body["album"] as? String
-                    && ((body["albumGUID"] as? String).map { stringValue(readbackAlbum?["guid"]) == $0 } ?? true)
+                matches = (stringValue(readbackAlbum?["name"]) ?? "") == (body["album"] as? String ?? "")
             case .genre:
                 matches = Set(try entityIDs(readback["genres"])) == Set(body["genreGUIDs"] as? [String] ?? [])
                     && entityNames(readback["genres"]) == [(updated.genre ?? "").trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }
             case .year: matches = intValue(readback["year"]) == intValue(body["year"])
             case .trackNumber: matches = intValue(readback["trackNo"]) == intValue(body["trackNo"])
             case .discNumber: matches = intValue(readback["discNo"]) == intValue(body["discNo"])
-            case .cover: matches = false
+            case .cover: matches = uploadedCoverID != nil && stringValue(readback["coverId"]) == uploadedCoverID
             }
             let detail = String(localized: "metadata_writeback_media_readback_mismatch")
             result.fieldResults.append(TagMetadataFieldWritebackResult(field: field, disposition: matches ? .written : .failed(detail)))
-            if matches { result.metadataWritten = true }
-            else if !result.errors.contains(detail) { result.errors.append(detail) }
+            if matches {
+                if field == .cover { result.coverWritten = true } else { result.metadataWritten = true }
+            } else if !result.errors.contains(detail) { result.errors.append(detail) }
         }
         return result
     }
@@ -818,6 +845,49 @@ extension FnMusicAPI {
             throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
         }
         return track
+    }
+
+    /// 网页端的封面上传：multipart 只有一个 `file` 字段，响应给 `coverId`（或 `guid`），
+    /// 拿到的 id 随同一次 /track/metadata 保存写进 coverId/coverGUID。
+    func uploadTrackCover(_ data: Data) async throws -> String {
+        let boundary = "----primuse-\(UUID().uuidString)"
+        let image = Self.imageType(of: data)
+        var body = Data()
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"cover.\(image.fileExtension)\"\r\n".utf8))
+        body.append(Data("Content-Type: \(image.mimeType)\r\n\r\n".utf8))
+        body.append(data)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        let payload = try await requestJSONOnce(
+            method: "POST", path: "/static/cover/track", queryItems: [], body: nil,
+            rawBody: FnMusicRawRequestBody(
+                data: body,
+                contentType: "multipart/form-data; boundary=\(boundary)",
+                signedPayload: Data("{}".utf8)
+            ),
+            includeCookie: true, cookieToken: nil
+        )
+        guard let entity = payload as? [String: Any],
+              let id = (stringValue(entity["coverId"]) ?? stringValue(entity["guid"]))?
+                  .trimmingCharacters(in: .whitespacesAndNewlines),
+              !id.isEmpty else {
+            throw SourceError.connectionFailed(String(localized: "metadata_writeback_error_invalid_state"))
+        }
+        return id
+    }
+
+    /// 网页端同时传 coverId 与去掉类型前缀的 coverGUID。
+    static func coverGUID(from coverID: String) -> String {
+        let prefixes = ["track_", "album_", "artist_", "playlist_"]
+        return prefixes.first(where: { coverID.hasPrefix($0) }).map { String(coverID.dropFirst($0.count)) } ?? coverID
+    }
+
+    private static func imageType(of data: Data) -> (mimeType: String, fileExtension: String) {
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return ("image/png", "png") }
+        if data.count >= 12, data.prefix(4).elementsEqual(Data("RIFF".utf8)),
+           data.dropFirst(8).prefix(4).elementsEqual(Data("WEBP".utf8)) { return ("image/webp", "webp") }
+        if data.starts(with: [0x47, 0x49, 0x46]) { return ("image/gif", "gif") }
+        return ("image/jpeg", "jpg")
     }
 
     private func metadataEntities(path: String) async throws -> [[String: Any]] {

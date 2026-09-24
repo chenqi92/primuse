@@ -662,23 +662,27 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
 
 extension FnMusicSource {
     func writeScrapedMetadata(original: Song, updated: Song, coverData: Data?, lyricsLines: [LyricLine]?, lyricsContent: String?) async -> MediaServerWritebackResult {
-        let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: coverData?.isEmpty == false)
+        let cover = coverData.flatMap { $0.isEmpty ? nil : $0 }
+        let changed = TagMetadataWritebackField.changedFields(from: original, to: updated, includesCover: cover != nil)
         let writable = changed.intersection(TagMetadataWritebackField.metadataFields)
-        let unsupported = changed.subtracting(writable)
+        // 封面经 /static/cover/track 上传后随同一次保存写进 coverId，不再算不支持。
+        let unsupported = changed.subtracting(writable).subtracting([.cover])
         var result = MediaServerWritebackResult()
-        if !writable.isEmpty {
+        if !writable.isEmpty || cover != nil {
             do {
                 try await connect()
                 let suffix = (original.filePath as NSString).pathExtension
                 let cache = audioCacheDirectory.appendingPathComponent(CacheFileNamePolicy.make(
                     path: original.filePath, preferredExtension: suffix.isEmpty ? "bin" : suffix))
                 defer { try? FileManager.default.removeItem(at: cache) }
-                result = try await api.updateTrackMetadata(original: original, updated: updated, fields: writable)
+                result = try await api.updateTrackMetadata(original: original, updated: updated, fields: writable, coverData: cover)
                 albumArtistByGUID.removeAll()
                 albumsWithoutArtist.removeAll()
             } catch {
                 result.errors.append(error.localizedDescription)
-                result.fieldResults = writable.map { TagMetadataFieldWritebackResult(field: $0, disposition: .failed(error.localizedDescription)) }
+                var failed = writable
+                if cover != nil { failed.insert(.cover) }
+                result.fieldResults = failed.map { TagMetadataFieldWritebackResult(field: $0, disposition: .failed(error.localizedDescription)) }
             }
         }
         let detail = String(localized: "metadata_writeback_error_unsupported")
