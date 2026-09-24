@@ -30,9 +30,11 @@ struct LibraryDetailEvidenceHost: View {
         var homeIndicator: CGFloat = 34
         var isCompactHeight = false
         var isRegularWidth = false
+        /// 实测的顶部遮挡(导航栏下沿),与「状态栏 + 导航栏」的推算不一样时写在这里。
+        var measuredTop: CGFloat? = nil
 
         var navigationBar: CGFloat { isCompactHeight ? 78 - statusTop : 54 }
-        var top: CGFloat { statusTop + navigationBar }
+        var top: CGFloat { measuredTop ?? statusTop + navigationBar }
     }
 
     private struct Frame: Identifiable {
@@ -47,16 +49,22 @@ struct LibraryDetailEvidenceHost: View {
         }
     }
 
-    /// 点数与安全区：SE / mini / 17e / Pro / Pro Max 按官方规格；折叠屏两块屏按像素与 @3x 推算，安全区是估值。
+    /// 点数与安全区：SE / mini / 17e / Pro / Pro Max 按官方规格。折叠屏外屏按 Duo 模拟器(Xcode 27.1 beta)实测:
+    /// 系统把工具栏竖排到侧边,竖握右侧 84、横握左侧 84,顶部安全区 0、底部 34,导航栏仍在顶部 24–82。
+    /// 内屏还没实测:官方像素推算的 890×626 与模拟器画面缓冲推算的 951×669 两种都摆上,安全区是估值。
     fileprivate static let viewports: [Viewport] = [
         Viewport(name: "SE", size: CGSize(width: 375, height: 667), statusTop: 20, leading: 0, trailing: 0, bottom: 139),
         Viewport(name: "13 mini", size: CGSize(width: 375, height: 812), statusTop: 50, leading: 0, trailing: 0, bottom: 147),
         Viewport(name: "17e", size: CGSize(width: 390, height: 844), statusTop: 47, leading: 0, trailing: 0, bottom: 147),
         Viewport(name: "18 Pro", size: CGSize(width: 402, height: 874), statusTop: 62, leading: 0, trailing: 0, bottom: 147),
         Viewport(name: "Pro Max", size: CGSize(width: 440, height: 956), statusTop: 62, leading: 0, trailing: 0, bottom: 147),
-        Viewport(name: "Duo cover", size: CGSize(width: 466, height: 678), statusTop: 44, leading: 0, trailing: 0, bottom: 139,
-                 homeIndicator: 21),
+        Viewport(name: "Duo cover", size: CGSize(width: 466, height: 678), statusTop: 0, leading: 0, trailing: 84, bottom: 139,
+                 measuredTop: 82),
+        Viewport(name: "Duo cover land", size: CGSize(width: 678, height: 466), statusTop: 0, leading: 84, trailing: 0, bottom: 120,
+                 isCompactHeight: true, measuredTop: 82),
         Viewport(name: "Duo inner", size: CGSize(width: 890, height: 626), statusTop: 24, leading: 0, trailing: 0, bottom: 139,
+                 homeIndicator: 20, isRegularWidth: true),
+        Viewport(name: "Duo inner sim", size: CGSize(width: 951, height: 669), statusTop: 24, leading: 0, trailing: 0, bottom: 139,
                  homeIndicator: 20, isRegularWidth: true),
         Viewport(name: "SE land", size: CGSize(width: 667, height: 375), statusTop: 0, leading: 0, trailing: 0, bottom: 120,
                  homeIndicator: 0, isCompactHeight: true),
@@ -94,7 +102,7 @@ struct LibraryDetailEvidenceHost: View {
             }
         }
         if set == "dock" {
-            let names = ["18 Pro", "Duo cover", "landscape", "Pro Max land", "Duo inner"]
+            let names = ["18 Pro", "Duo cover", "Duo cover land", "landscape", "Pro Max land", "Duo inner"]
             result += names.compactMap { name in
                 Self.viewports.first { $0.name == name }.map { Frame(page: .dock, viewport: $0, typeSize: .large) }
             }

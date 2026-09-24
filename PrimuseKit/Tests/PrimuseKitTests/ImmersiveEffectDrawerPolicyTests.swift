@@ -73,30 +73,31 @@ struct ImmersiveEffectDrawerPolicyTests {
         #expect(layout.wheelMargin == 39)
     }
 
+    /// 折叠屏外屏按 Duo 模拟器实测:竖握系统竖栏在右(右 84),横握在左(左 84),顶部 0、底部 34。
     @Test("左右安全区不相等时按侧分别消费")
     func asymmetricSafeAreaIsConsumedPerSide() {
         let bottom = ImmersiveEffectDrawerPolicy.layout(
             viewportWidth: 466,
             viewportHeight: 678,
-            safeAreaLeading: 20,
-            safeAreaTrailing: 0,
+            safeAreaLeading: 0,
+            safeAreaTrailing: 84,
             safeAreaTop: 0,
-            safeAreaBottom: 21
+            safeAreaBottom: 34
         )
         #expect(bottom.placement == .bottom)
-        #expect(bottom.contentLeading == 20)
-        #expect(bottom.contentTrailing == 0)
-        #expect(bottom.contentBottom == 31)
-        #expect(bottom.wheelLength == 446)
+        #expect(bottom.contentLeading == 0)
+        #expect(bottom.contentTrailing == 84)
+        #expect(bottom.contentBottom == 44)
+        #expect(bottom.wheelLength == 382)
 
         // 横屏时只有尾侧安全区影响抽屉，首侧安全区落在舞台上，不该被抽屉吃掉。
         let trailing = ImmersiveEffectDrawerPolicy.layout(
             viewportWidth: 678,
             viewportHeight: 466,
-            safeAreaLeading: 20,
+            safeAreaLeading: 84,
             safeAreaTrailing: 0,
             safeAreaTop: 0,
-            safeAreaBottom: 21
+            safeAreaBottom: 34
         )
         #expect(trailing.placement == .trailing)
         #expect(trailing.contentTrailing == 16)
@@ -107,23 +108,24 @@ struct ImmersiveEffectDrawerPolicyTests {
 
     @Test("四种目标视口下缩略图都保持 16:9，单元都短于转轮")
     func cardsStayWideAndFitTheWheel() {
-        let viewports: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (667, 375, 0, 0),
-            (852, 393, 59, 21),
-            (956, 440, 62, 21),
-            (678, 466, 20, 21),
-            (375, 667, 0, 0),
-            (393, 852, 0, 34),
-            (466, 678, 20, 21),
+        // 宽、高、首侧、尾侧、底部安全区。折叠屏外屏两行是实测值(竖栏那一侧 84)。
+        let viewports: [(CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (667, 375, 0, 0, 0),
+            (852, 393, 59, 59, 21),
+            (956, 440, 62, 62, 21),
+            (678, 466, 84, 0, 34),
+            (375, 667, 0, 0, 0),
+            (393, 852, 0, 0, 34),
+            (466, 678, 0, 84, 34),
         ]
         for viewport in viewports {
             let layout = ImmersiveEffectDrawerPolicy.layout(
                 viewportWidth: viewport.0,
                 viewportHeight: viewport.1,
                 safeAreaLeading: viewport.2,
-                safeAreaTrailing: viewport.2,
+                safeAreaTrailing: viewport.3,
                 safeAreaTop: 0,
-                safeAreaBottom: viewport.3
+                safeAreaBottom: viewport.4
             )
             // 两侧都取整之后 16:9 最多差一个点。
             let aspectDrift = abs(layout.cardWidth * 9 - layout.cardHeight * 16)

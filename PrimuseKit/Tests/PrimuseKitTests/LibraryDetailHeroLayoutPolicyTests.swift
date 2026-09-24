@@ -3,7 +3,9 @@ import Testing
 @testable import PrimuseKit
 
 /// 断言用的视口表。点数与安全区：SE / mini / 17e / Pro / Pro Max 按官方规格；
-/// 折叠屏两块屏是按像素与 @3x 推算的（见 iPhone Duo 适配记录），安全区也是估值。
+/// 折叠屏外屏按 Duo 模拟器（Xcode 27.1 beta）实测：系统把工具栏竖排到侧边，竖握时右侧让出 84、
+/// 横握时左侧让出 84，顶部安全区 0、底部 34，导航栏仍在顶部 24–82。内屏还没有实测，
+/// 按官方像素推算的 890×626 与模拟器画面缓冲推算的 951×669 两种都断言。
 private struct HeroDevice: CustomStringConvertible, Sendable {
     let name: String
     let width: Double
@@ -14,6 +16,8 @@ private struct HeroDevice: CustomStringConvertible, Sendable {
     let hardwareBottom: Double
     var isCompactHeight = false
     var isRegularWidth = false
+    /// 实测的顶部遮挡（导航栏下沿），与「状态栏 + 导航栏」的推算不一样时写在这里。
+    var measuredTop: Double? = nil
 
     var description: String { name }
 
@@ -25,7 +29,7 @@ private struct HeroDevice: CustomStringConvertible, Sendable {
     static let legacyTabBar: Double = 49
 
     func viewport(_ typeSize: LibraryDetailTypeSize) -> LibraryDetailHeroViewport {
-        let top = isCompactHeight ? Self.landscapeTop : statusTop + Self.navigationBar
+        let top = measuredTop ?? (isCompactHeight ? Self.landscapeTop : statusTop + Self.navigationBar)
         let bottom = isCompactHeight
             ? hardwareBottom
             : hardwareBottom + Self.legacyTabBar + LibraryDetailHeroLayoutPolicy.legacyMiniPlayerOverlay
@@ -47,9 +51,11 @@ private let portraitDevices: [HeroDevice] = [
     HeroDevice(name: "17e", width: 390, height: 844, statusTop: 47, hardwareBottom: 34),
     HeroDevice(name: "18 Pro", width: 402, height: 874, statusTop: 62, hardwareBottom: 34),
     HeroDevice(name: "Pro Max", width: 440, height: 956, statusTop: 62, hardwareBottom: 34),
-    HeroDevice(name: "Duo 外屏", width: 466, height: 678, statusTop: 44, hardwareBottom: 21),
+    // 竖握：466 宽里右侧 84 是系统竖栏，页面 382 宽。
+    HeroDevice(name: "Duo 外屏", width: 466 - 84, height: 678, statusTop: 0, hardwareBottom: 34, measuredTop: 82),
     HeroDevice(name: "Duo 内屏", width: 890, height: 626, statusTop: 24, hardwareBottom: 20, isRegularWidth: true),
     HeroDevice(name: "iPad", width: 820, height: 1180, statusTop: 24, hardwareBottom: 20, isRegularWidth: true),
+    HeroDevice(name: "Duo 内屏（模拟器）", width: 951, height: 669, statusTop: 24, hardwareBottom: 20, isRegularWidth: true),
 ]
 
 /// 手机横屏：宽度是左右安全区以内。顶部一律按 78（刘海机实测）算，SE 没有刘海、实际只会更矮，算多不算少。
@@ -59,6 +65,9 @@ private let landscapeDevices: [HeroDevice] = [
                isCompactHeight: true),
     HeroDevice(name: "Pro Max 横屏", width: 956 - 62 - 62, height: 440, statusTop: 0, hardwareBottom: 21,
                isCompactHeight: true),
+    // 横握：左侧 84 是系统竖栏。
+    HeroDevice(name: "Duo 外屏横握", width: 678 - 84, height: 466, statusTop: 0, hardwareBottom: 34,
+               isCompactHeight: true, measuredTop: 82),
 ]
 
 private let landscape = landscapeDevices[1]
