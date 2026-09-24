@@ -10,10 +10,7 @@ import AppKit
 
 struct SettingsView: View {
     @Environment(MusicIntelligenceService.self) private var musicIntelligence
-    @Environment(PlaybackSettingsStore.self) private var playbackSettings
-    @Environment(SourcesStore.self) private var sourcesStore
     @Environment(\.skin) private var skin
-    @Environment(\.openURL) private var openURL
     #if os(iOS)
     /// 顶部 tab 外壳里设置是从右上角推进来的一页:左上角要放返回键,标题改成导航栏下面的大标题。
     @Environment(\.usesTopTabsShell) private var usesTopTabsShell
@@ -37,22 +34,6 @@ struct SettingsView: View {
         false
     }
 
-    /// The issue form opens with this build's version, device and system
-    /// already filled in. None of those fields are required by the form, so the
-    /// user can edit or clear them before submitting.
-    private func feedbackURL(for template: IssueFeedbackLink.Template) -> URL {
-        IssueFeedbackLink.url(
-            for: template,
-            environment: RunningAppEnvironment.diagnosticEnvironment(),
-            platform: RunningAppEnvironment.issuePlatform
-        )
-    }
-
-    private var recentItems: [SettingDefinition] {
-        SettingsSearchHistory.shared.ids.compactMap { SettingsCatalog.byID[$0] }
-            .filter { musicIntelligence.shouldExposeRemoteConfiguration || $0.page != .intelligence }
-    }
-
     var body: some View {
         #if os(iOS)
         if #available(iOS 26.0, *), !usesMinimalSearch {
@@ -65,38 +46,22 @@ struct SettingsView: View {
         #endif
     }
 
+    /// 根页:两种组织方式都经过同一个入口(`SettingsRootContent`),收同一份 `SettingsRootModel`。
     private var settingsContent: some View {
-        SettingsFocusedPage(itemID: rootItemID) {
-            SkinList {
-                if search.content == .results {
-                    searchResults
-                }
-                if search.content == .recent, !recentItems.isEmpty {
-                    recentItemsSection
-                }
-                if search.showsSettingsRows {
-                    settingsRows
-                }
-            }
-            .scrollDismissesKeyboard(.interactively)
-        }
-        .id(rootFocusRevision)
+        SettingsRootContent(model: rootModel)
+            .id(rootFocusRevision)
     }
 
-    private var recentItemsSection: some View {
-        Section {
-            ForEach(recentItems) { item in
-                Button { open(item) } label: { SettingsSearchResultRow(item: item) }
-                    .buttonStyle(.plain)
-            }
-        } header: {
-            HStack {
-                Text(SettingsStrings.text("Recently used"))
-                Spacer()
-                Button(SettingsStrings.text("Clear")) { SettingsSearchHistory.shared.clear() }
-                    .textCase(nil)
-            }
-        }
+    private var rootModel: SettingsRootModel {
+        let showsIntelligence = musicIntelligence.shouldExposeRemoteConfiguration
+        return SettingsRootModel(
+            sections: SettingsRootModel.sections(showsIntelligence: showsIntelligence),
+            search: search,
+            showsIntelligence: showsIntelligence,
+            focusedItemID: rootItemID,
+            openItem: { open($0) },
+            openPage: { path.append(.page($0, nil)) }
+        )
     }
 
     @ViewBuilder private var searchableContent: some View {
@@ -168,259 +133,24 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder private var searchResults: some View {
-        let results = SettingsCatalog.search(search.query, showsIntelligence: musicIntelligence.shouldExposeRemoteConfiguration)
-        if results.isEmpty {
-            ContentUnavailableView.search(text: search.query)
-        } else {
-            ForEach(results) { item in
-                Button { open(item) } label: { SettingsSearchResultRow(item: item) }
-                    .buttonStyle(.plain)
-            }
-        }
-    }
-
     private func open(_ item: SettingDefinition) {
         guard let page = item.page else { return }
         SettingsSearchHistory.shared.record(item.id)
         if usesMinimalSearch { search.isPresented = false }
         if page == .about || page == .appleTV {
             search.isPresented = false
-            if usesSettingsHub {
-                // 枢纽根页上没有这些行,它们住在各自的分类页里。
-                path = [.category(page.category, item.id)]
-            } else {
+            // 这几行直接长在列表里,深链锚点落在哪一页由根页的组织方式决定。
+            switch skin.skin.settingsRoot {
+            case .classic:
                 path = []
                 rootItemID = item.id
                 rootFocusRevision = UUID()
+            case .hub:
+                // 枢纽根页上没有这些行,它们住在各自的分类页里。
+                path = [.category(page.category, item.id)]
             }
         } else {
             path.append(.page(page, item.isPage ? nil : item.id))
-        }
-    }
-
-    /// 单行设置入口。标题与图标由 SettingsCatalog 提供，这里只处理三处例外。
-    @ViewBuilder
-    private func settingsRow(for page: SettingsPage) -> some View {
-        switch page {
-        case .intelligence:
-            // 未开放远程配置的地区不显示这一项。
-            if musicIntelligence.shouldExposeRemoteConfiguration {
-                settingsPageLink(page)
-            }
-        case .domains:
-            NavigationLink(value: SettingsDestination.page(page, nil)) {
-                HStack {
-                    Label(LocalizedStringKey(page.titleKey), systemImage: page.icon)
-                    Spacer()
-                    Text("\(SSLTrustStore.shared.trustedDomains.count + SSLTrustStore.shared.insecureHTTPDomains.count)")
-                        .foregroundStyle(.secondary)
-                }
-            }
-        default:
-            settingsPageLink(page)
-        }
-    }
-
-    private func settingsPageLink(_ page: SettingsPage) -> some View {
-        NavigationLink(value: SettingsDestination.page(page, nil)) {
-            Label(LocalizedStringKey(page.titleKey), systemImage: page.icon)
-        }
-    }
-
-    /// 设置根页的组织方式由界面皮肤决定:分区长列表,或「常用 + 分类」的枢纽。
-    /// 两种组织方式用的是同一份 SettingsCatalog、同一批设置页、同一套搜索与锚点。
-    private var usesSettingsHub: Bool { skin.skin.settingsRoot == .hub }
-
-    private func listedPages(in category: SettingsCategory) -> [SettingsPage] {
-        SettingsPage.allCases.filter { page in
-            guard page.category == category, page.available, page.isListed else { return false }
-            // 未开放远程配置的地区不显示智能功能这一项。
-            return page != .intelligence || musicIntelligence.shouldExposeRemoteConfiguration
-        }
-    }
-
-    @ViewBuilder private var settingsRows: some View {
-        if usesSettingsHub {
-            hubRows
-        } else {
-            classicRows
-        }
-    }
-
-    // MARK: 枢纽
-
-    /// 常用入口。固定四项:没有音乐源就没有音乐;外观、播放与歌词是日常最常动的三处。
-    private var hubFavoritePages: [SettingsPage] {
-        [SettingsPage.sources, .appearance, .playback, .lyrics].filter { $0.available }
-    }
-
-    private var hubCategories: [SettingsCategory] {
-        SettingsCategory.allCases.filter { $0 == .about || !listedPages(in: $0).isEmpty }
-    }
-
-    @ViewBuilder private var hubRows: some View {
-        Section {
-            // 不用 LazyVGrid:List 行里放惰性网格会让行高与网格互相触发重新布局。
-            VStack(spacing: 10) {
-                ForEach(hubFavoriteRows, id: \.self) { row in
-                    HStack(spacing: 10) {
-                        ForEach(row) { page in
-                            hubFavoriteTile(page)
-                        }
-                    }
-                }
-            }
-            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-        } header: {
-            Text("settings_hub_frequent")
-        }
-
-        Section {
-            ForEach(hubCategories) { category in
-                NavigationLink(value: SettingsDestination.category(category, nil)) {
-                    hubCategoryLabel(category)
-                }
-                .listRowBackground(skin.color(.surface))
-            }
-        } header: {
-            Text("settings_hub_all")
-        }
-    }
-
-    private var hubFavoriteRows: [[SettingsPage]] {
-        let pages = hubFavoritePages
-        return stride(from: 0, to: pages.count, by: 2).map { index in
-            Array(pages[index..<min(index + 2, pages.count)])
-        }
-    }
-
-    private func hubFavoriteTile(_ page: SettingsPage) -> some View {
-        Button {
-            path.append(.page(page, nil))
-        } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Image(systemName: page.icon)
-                        .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(hubTint(for: page.category))
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.forward")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.skin(.textQuaternary))
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(LocalizedStringKey(hubFavoriteTitleKey(for: page)))
-                        .font(skin.font(.bodyStrong))
-                        .foregroundStyle(.skin(.textPrimary))
-                        .lineLimit(1)
-                    Text(hubFavoriteSummary(for: page) ?? " ")
-                        .font(skin.font(.meta))
-                        .foregroundStyle(.skin(.textSecondary))
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                skin.color(.surface),
-                in: RoundedRectangle(cornerRadius: skin.rawMetric(.radiusLarge), style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: skin.rawMetric(.radiusLarge), style: .continuous)
-                    .strokeBorder(skin.color(.surfaceBorder), lineWidth: skin.rawMetric(.borderWidth))
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("settings.hub.favorite.\(page.rawValue)")
-    }
-
-    /// 外观页在分类列表里按「改的是哪个界面」叫「设置页」;单独拎出来做常用入口时,
-    /// 这个名字说明不了它管什么,换成它真正的内容。
-    private func hubFavoriteTitleKey(for page: SettingsPage) -> String {
-        page == .appearance ? "settings_hub_appearance_title" : page.titleKey
-    }
-
-    /// 磁贴上的一句现状。取不到就留空,不编造。
-    private func hubFavoriteSummary(for page: SettingsPage) -> String? {
-        let service = SettingsActionService(
-            playback: playbackSettings,
-            showsIntelligence: musicIntelligence.shouldExposeRemoteConfiguration
-        )
-        switch page {
-        case .sources:
-            return String(
-                format: String(localized: "sources_count_format"),
-                sourcesStore.sources.count
-            )
-        case .appearance:
-            // 皮肤名在 PrimuseKit 的语言表里。
-            return PMString(skin.skin.nameKey)
-        case .playback:
-            return service.status(for: "playback.outputMode").value
-        case .lyrics:
-            guard let value = service.status(for: "lyrics.translationEnabled").value else {
-                return nil
-            }
-            return String(localized: "lyrics_translation_enabled") + " · " + value
-        default:
-            return nil
-        }
-    }
-
-    private func hubCategoryLabel(_ category: SettingsCategory) -> some View {
-        let pages = listedPages(in: category)
-        let preview = pages
-            .prefix(4)
-            .map(\.title)
-            .joined(separator: " · ")
-        let tint = hubTint(for: category)
-
-        return HStack(spacing: 12) {
-            Image(systemName: category.icon)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(tint)
-                .frame(width: 36, height: 36)
-                .background(
-                    tint.opacity(0.18),
-                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
-                )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(LocalizedStringKey(category.titleKey))
-                    .font(skin.font(.bodyStrong))
-                    .foregroundStyle(.skin(.textPrimary))
-                if !preview.isEmpty {
-                    Text(preview)
-                        .font(skin.font(.meta))
-                        .foregroundStyle(.skin(.textSecondary))
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            if !pages.isEmpty {
-                Text("\(pages.count)")
-                    .font(skin.font(.numeric))
-                    .foregroundStyle(.skin(.textTertiary))
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func hubTint(for category: SettingsCategory) -> Color {
-        switch category {
-        case .library: return .blue
-        case .playback: return .green
-        case .appearance: return skin.color(.accent)
-        case .sync: return .purple
-        case .integrations: return .orange
-        case .security, .about: return .gray
         }
     }
 
@@ -430,11 +160,14 @@ struct SettingsView: View {
     private func categoryPage(_ category: SettingsCategory) -> some View {
         SkinList {
             if category == .about {
-                aboutSection(showsHeader: false)
+                SettingsAboutSection(showsHeader: false)
             } else {
                 Section {
-                    ForEach(listedPages(in: category)) { page in
-                        settingsRow(for: page)
+                    ForEach(SettingsRootModel.listedPages(
+                        in: category,
+                        showsIntelligence: musicIntelligence.shouldExposeRemoteConfiguration
+                    )) { page in
+                        SettingsCatalogRow(page: page)
                     }
                     if category == .integrations {
                         AppleTVPushRow()
@@ -446,78 +179,6 @@ struct SettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
         #endif
-    }
-
-    // MARK: 分区长列表
-
-    @ViewBuilder private var classicRows: some View {
-        // 分组与顺序全部来自 SettingsCatalog。此前这里是一份手写的 Section
-        // 列表，和 macOS 侧栏各持一套定义，改一边不会同步另一边 —— 页面加了
-        // 却在某一端看不见，正是这么来的。
-        ForEach(SettingsCategory.allCases) { category in
-            let pages = SettingsPage.allCases.filter {
-                $0.category == category && $0.available && $0.isListed
-            }
-            if category != .about, !pages.isEmpty {
-                Section {
-                    ForEach(pages) { page in
-                        settingsRow(for: page)
-                    }
-                    if category == .integrations {
-                        AppleTVPushRow()
-                    }
-                } header: {
-                    Text(LocalizedStringKey(category.titleKey))
-                }
-            }
-        }
-
-        aboutSection(showsHeader: true)
-    }
-
-    @ViewBuilder
-    private func aboutSection(showsHeader: Bool) -> some View {
-        Section {
-            HStack {
-                Label("version", systemImage: "number")
-                Spacer()
-                Text("\(Bundle.main.appVersion) (\(Bundle.main.appBuildNumber))")
-                    .foregroundStyle(.secondary)
-            }
-            .settingsAnchor("about.version")
-
-            CheckForUpdateRow()
-
-            NavigationLink(value: SettingsDestination.page(.diagnostics, nil)) {
-                Label(String(localized: "diagnostics_title"), systemImage: "stethoscope")
-            }
-
-            NavigationLink(value: SettingsDestination.page(.licenses, nil)) {
-                Label("licenses", systemImage: "doc.text")
-            }
-
-            Button {
-                openURL(PrimuseAppStore.reviewURL)
-            } label: {
-                Label("rate_on_app_store", systemImage: "star.bubble")
-            }
-            .settingsAnchor("about.rate")
-
-            Link(destination: feedbackURL(for: .bugReport)) {
-                Label("github_bug_report", systemImage: "exclamationmark.bubble")
-            }
-            .settingsAnchor("about.bugReport")
-
-            Link(destination: feedbackURL(for: .featureRequest)) {
-                Label("github_feature_request", systemImage: "lightbulb")
-            }
-            .settingsAnchor("about.featureRequest")
-        } header: {
-            if showsHeader {
-                Text("about")
-            }
-        }
-        .settingsAnchor("page.about")
     }
 }
 
@@ -1236,7 +897,7 @@ private struct AIRecommendationIntentDetailView: View {
 /// - Checking: spinner replaces the chevron.
 /// - Result: inline status line under the title — "you're on the
 ///   latest version" or "version X.Y.Z available, tap to update".
-private struct CheckForUpdateRow: View {
+struct CheckForUpdateRow: View {
     @Environment(AppUpdateChecker.self) private var checker
 
     enum Status: Equatable {
@@ -2227,7 +1888,7 @@ struct PlaybackSettingsView: View {
 
 /// 一键把当前曲库 + 音乐源 + 凭据(含中继端点)立刻上传到 iCloud,供 Apple TV 拉取。
 /// 平时退后台也会自动上传;这个按钮是「立即、可见」的显式入口。
-private struct AppleTVPushRow: View {
+struct AppleTVPushRow: View {
     @AppStorage("primuse.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = true
     @Environment(MusicLibrary.self) private var musicLibrary
     @State private var pushing = false

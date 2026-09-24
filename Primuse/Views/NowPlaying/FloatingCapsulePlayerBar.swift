@@ -2,18 +2,16 @@
 import PrimuseKit
 import SwiftUI
 
-/// 底部播放条的「悬浮胶囊」实现(`SkinSlotVariant.BottomChrome.floatingCapsule`)。
-/// 现在没有皮肤选它(极简用的是 `DockedPlayerBar`),留作以后皮肤的 `bottomChrome` 实现。
+/// 底部播放条的「悬浮胶囊」实现(`SkinShell.NowPlayingBar.floatingCapsule`)。
+/// 现在没有皮肤选它(极简用的是 `DockedPlayerBar`),留作以后皮肤的外壳播放条。
 ///
-/// 功能契约与其它播放条完全一致 —— 点按打开播放页、左右滑切歌、播放 / 暂停、下一首 ——
-/// 这些都来自共用的 `MiniPlayerSwipeContent`,这里只负责画法,并补上两样原来没有的东西:
-/// 播放键外圈的进度环,和直接打开播放队列的入口。
+/// 功能契约与其它播放条完全一致 —— 只收 `NowPlayingBarModel`:点按打开播放页、左右滑切歌、
+/// 播放 / 暂停、下一首都来自那里与共用的 `MiniPlayerSwipeContent`,这里只负责画法,并补上两样
+/// 附件迷你条没有的东西:播放键外圈的进度环,和直接打开播放队列的入口。
 struct FloatingCapsulePlayerBar: View {
-    var onTap: () -> Void
-    var onOpenQueue: () -> Void
+    let model: NowPlayingBarModel
 
     @Environment(\.skin) private var skin
-    @Environment(AudioPlayerService.self) private var player
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.pmHeightClass) private var heightClass
@@ -29,7 +27,7 @@ struct FloatingCapsulePlayerBar: View {
         let capsuleAlignment = heightClass.pick(Alignment.center, compact: .trailing)
         return HStack(spacing: 0) {
             MiniPlayerSwipeContent(
-                onTap: onTap,
+                model: model,
                 artworkSize: 40,
                 artworkCornerRadius: 20,
                 artworkTrailingSpacing: 10,
@@ -38,13 +36,13 @@ struct FloatingCapsulePlayerBar: View {
                 contentHeight: contentHeight
             )
 
-            FloatingCapsulePlayButton()
+            FloatingCapsulePlayButton(model: model)
 
             if showsSecondaryControls {
-                if !player.isLiveRadio || player.canSwitchRadioStation {
+                if !model.isLiveRadio || model.canSwitchRadioStation {
                     nextButton
                 }
-                if !player.isLiveRadio {
+                if !model.isLiveRadio {
                     queueButton
                 }
             }
@@ -86,7 +84,7 @@ struct FloatingCapsulePlayerBar: View {
 
     private var nextButton: some View {
         Button {
-            Task { await player.next() }
+            Task { await model.next() }
         } label: {
             Image(systemName: "forward.fill")
                 .font(.system(size: 17, weight: .semibold))
@@ -96,14 +94,14 @@ struct FloatingCapsulePlayerBar: View {
         .buttonStyle(.plain)
         .foregroundStyle(.skin(.textPrimary))
         .accessibilityLabel(
-            player.isLiveRadio
+            model.isLiveRadio
                 ? String(localized: "radio_next_station")
                 : String(localized: "a11y_next_track")
         )
     }
 
     private var queueButton: some View {
-        Button(action: onOpenQueue) {
+        Button(action: model.onOpenQueue) {
             Image(systemName: "list.bullet")
                 .font(.system(size: 17, weight: .semibold))
                 .frame(width: 40, height: 44)
@@ -117,36 +115,35 @@ struct FloatingCapsulePlayerBar: View {
 
 /// 播放 / 暂停键:加载中是转圈,转圈与播放键之间淡入淡出。停靠条也用这一颗(不带进度环)。
 struct FloatingCapsulePlayButton: View {
+    let model: NowPlayingBarModel
     /// 外圈画进度环(悬浮胶囊);停靠条的进度在顶沿细线上,不要环。
     var showsProgressRing = true
 
-    @Environment(AudioPlayerService.self) private var player
-
     private var isStoppableRadio: Bool {
-        player.isLiveRadio && (player.isPlaybackActive || player.isLoading)
+        model.isLiveRadio && (model.isPlaying || model.isLoading)
     }
 
     private var symbolName: String {
         if isStoppableRadio { return "stop.fill" }
-        return player.isPlaybackActive ? "pause.fill" : "play.fill"
+        return model.isPlaying ? "pause.fill" : "play.fill"
     }
 
     private var label: String {
         if isStoppableRadio { return String(localized: "radio_stop") }
-        return player.isPlaybackActive
+        return model.isPlaying
             ? String(localized: "a11y_pause")
             : String(localized: "a11y_play")
     }
 
     var body: some View {
         Button {
-            player.togglePlayPause()
+            model.togglePlayPause()
         } label: {
             ZStack {
                 if showsProgressRing {
-                    FloatingCapsuleProgressRing()
+                    FloatingCapsuleProgressRing(model: model)
                 }
-                if player.isLoading && !player.isLiveRadio {
+                if model.isLoading && !model.isLiveRadio {
                     ProgressView().controlSize(.small)
                         .pmFadeTransition(motion: .control)
                 } else {
@@ -162,7 +159,7 @@ struct FloatingCapsulePlayButton: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.skin(.textPrimary))
-        .disabled(player.isLoading && !player.isLiveRadio)
+        .disabled(model.isLoading && !model.isLiveRadio)
         .accessibilityLabel(label)
     }
 }
@@ -170,19 +167,11 @@ struct FloatingCapsulePlayButton: View {
 /// 进度环单独成一个视图:`currentTime` 每半秒变一次,只让这一小块重绘,
 /// 不牵连歌名、封面和整条播放条。
 private struct FloatingCapsuleProgressRing: View {
-    @Environment(AudioPlayerService.self) private var player
+    let model: NowPlayingBarModel
     @Environment(\.skin) private var skin
 
-    private var fraction: CGFloat {
-        let duration = player.duration
-        let elapsed = player.currentTime
-        guard !player.isLiveRadio, duration > 0, elapsed.isFinite else { return 0 }
-        let ratio = min(max(elapsed / duration, 0), 1)
-        return CGFloat(ratio)
-    }
-
     var body: some View {
-        let progress = fraction
+        let progress = CGFloat(model.progress)
         ZStack {
             Circle()
                 .stroke(skin.color(.textQuaternary), lineWidth: 2)

@@ -2,19 +2,17 @@
 import PrimuseKit
 import SwiftUI
 
-/// 底部播放条的「通栏停靠条」实现(`SkinSlotVariant.BottomChrome.dockedBar`)。
+/// 底部播放条的「通栏停靠条」实现(`SkinShell.NowPlayingBar.dockedBar`)。
 ///
-/// 功能契约与其它播放条一致 —— 点按打开播放页、左右滑切歌、无障碍动作都来自共用的
-/// `MiniPlayerSwipeContent`,播放键沿用悬浮胶囊那颗(加载圈与播放键之间淡入淡出);
+/// 功能契约与其它播放条一致 —— 只收 `NowPlayingBarModel`:点按打开播放页、左右滑切歌、无障碍动作
+/// 都来自共用的 `MiniPlayerSwipeContent`,播放键沿用悬浮胶囊那颗(加载圈与播放键之间淡入淡出);
 /// 这里只负责画法:左右内缩的圆角条,顶沿一条进度细线,右侧是播放键和队列键。
 /// 手机横屏与折叠屏内屏这类宽视口里最宽 560、居中(`DockedPlayerBarLayoutPolicy`),
 /// 进度线、点击热区与滑动切歌都在条子里,跟着一起收窄;竖屏 iPhone 仍铺满整行。
 struct DockedPlayerBar: View {
-    var onTap: () -> Void
-    var onOpenQueue: () -> Void
+    let model: NowPlayingBarModel
 
     @Environment(\.skin) private var skin
-    @Environment(AudioPlayerService.self) private var player
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.pmHeightClass) private var heightClass
     /// 封面与两行文字那一块的高度,随字号放大;竖屏条高 = 它 + 上下各 10,横屏上下各 4。
@@ -27,7 +25,7 @@ struct DockedPlayerBar: View {
         let isCompactHeight = heightClass.isCompact
         HStack(spacing: 0) {
             MiniPlayerSwipeContent(
-                onTap: onTap,
+                model: model,
                 artworkSize: isCompactHeight ? 36 : 44,
                 artworkCornerRadius: 8,
                 artworkTrailingSpacing: 12,
@@ -36,9 +34,9 @@ struct DockedPlayerBar: View {
                 contentHeight: contentHeight
             )
 
-            FloatingCapsulePlayButton(showsProgressRing: false)
+            FloatingCapsulePlayButton(model: model, showsProgressRing: false)
 
-            if !player.isLiveRadio {
+            if !model.isLiveRadio {
                 queueButton
             }
         }
@@ -47,8 +45,8 @@ struct DockedPlayerBar: View {
         .padding(.vertical, isCompactHeight ? 4 : 10)
         .background { barFill(shape) }
         .overlay {
-            if !player.isLiveRadio {
-                DockedPlayerProgressLine()
+            if !model.isLiveRadio {
+                DockedPlayerProgressLine(model: model)
                     .clipShape(shape)
                     .allowsHitTesting(false)
             }
@@ -85,7 +83,7 @@ struct DockedPlayerBar: View {
     }
 
     private var queueButton: some View {
-        Button(action: onOpenQueue) {
+        Button(action: model.onOpenQueue) {
             Image(systemName: "list.bullet")
                 .font(.system(size: 17, weight: .semibold))
                 .frame(width: 44, height: 44)
@@ -100,38 +98,30 @@ struct DockedPlayerBar: View {
 
 /// 停靠条顶沿的进度细线。单独成一个视图:`currentTime` 每半秒变一次,只让这一条重绘。
 private struct DockedPlayerProgressLine: View {
-    @Environment(AudioPlayerService.self) private var player
+    let model: NowPlayingBarModel
     @Environment(\.skin) private var skin
     /// 上一次画到的比例,只用来判断这次变化是不是一次普通的时钟推进。
     @State private var previousProgress: CGFloat = 0
 
-    private var duration: Double {
-        let duration = player.duration
-        return duration.isFinite && duration > 0 ? duration : 0
-    }
-
-    private var progress: CGFloat {
-        let elapsed = player.currentTime
-        guard duration > 0, elapsed.isFinite else { return 0 }
-        return CGFloat(min(max(elapsed / duration, 0), 1))
-    }
-
-    /// 引擎每半秒报一次进度,正常推进时用同样时长的线性动画补平两次采样之间;
-    /// 换歌、拖动、跳转都硬跳 —— 否则换歌时细线会从上一首的位置一路倒扫回起点。
-    private var fillAnimation: Animation? {
-        guard !skin.reduceMotion, duration > 0 else { return nil }
-        let advanced = Double(progress - previousProgress) * duration
-        guard advanced > 0, advanced <= 1 else { return nil }
+    /// 正常推进时用引擎采样间隔同样时长的线性动画补平;换歌、拖动、跳转都硬跳
+    /// (`NowPlayingBarPresentationPolicy.isClockAdvance`)。
+    private func fillAnimation(for progress: CGFloat) -> Animation? {
+        guard !skin.reduceMotion,
+              NowPlayingBarPresentationPolicy.isClockAdvance(
+                from: Double(previousProgress),
+                to: Double(progress),
+                duration: model.duration
+              ) else { return nil }
         return .linear(duration: 0.5)
     }
 
     var body: some View {
-        let progress = progress
+        let progress = CGFloat(model.progress)
         GeometryReader { proxy in
             Rectangle()
                 .fill(skin.color(.accent))
                 .frame(width: proxy.size.width * progress, height: 2)
-                .animation(fillAnimation, value: progress)
+                .animation(fillAnimation(for: progress), value: progress)
         }
         .frame(height: 2)
         .frame(maxHeight: .infinity, alignment: .top)

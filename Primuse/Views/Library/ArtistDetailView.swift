@@ -191,7 +191,7 @@ struct ArtistDetailView: View {
     #if os(iOS)
     private var iosBody: some View {
         ImmersiveLibraryDetailScrollView(title: displayArtistName) { insets in
-            iosHero(insets: insets)
+            CollectionDetailHeader(model: headerModel, insets: insets)
         } content: {
             VStack(alignment: .leading, spacing: 30) {
                 if songs.isEmpty && releaseAlbums.isEmpty {
@@ -231,113 +231,20 @@ struct ArtistDetailView: View {
         }
     }
 
-    /// 两套基座共用的艺术家页头图:人像海报铺满上半屏,向下化进封面色;名字居中压在
-    /// 渐隐段上,下面一排「随机 · 播放 · 快捷收藏」。
-    ///
-    /// 手机横屏首屏只有两百点上下:名字靠前、按钮靠后排成一行压在海报下沿(Apple Music 横屏的做法),
-    /// 海报按首屏收(最高 230),按钮整排露在底部遮挡上面。
-    /// 竖屏海报高度由 `LibraryDetailHeroLayoutPolicy` 按首屏定:Pro 这类机型仍是 440,
-    /// SE、折叠屏外屏这类矮屏收小,按钮始终整排露在底部遮挡上面。横竖切换只换排法。
-    private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        let hero = insets.hero
-        let compact = hero.isCompactHeight
-        let reducedTitle = compact || hero.titleTier == .reduced
-        let posterHeight: CGFloat = insets.top + CGFloat(hero.artistPosterHeight)
-        let circleSize: CGFloat = compact ? CGFloat(LibraryDetailHeroLayoutPolicy.Compact.artistCircle) : 56
-        let blockLayout = compact
-            ? AnyLayout(HStackLayout(alignment: .center, spacing: 16))
-            : AnyLayout(VStackLayout(spacing: 10))
-
-        return ZStack(alignment: .bottom) {
-            GeometryReader { geometry in
-                ArtistArtworkView(
-                    artist: artist,
-                    size: max(geometry.size.width, geometry.size.height),
-                    cornerRadius: 0
-                )
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
-            }
-            .frame(height: posterHeight)
-            // 下半段渐隐成透明,底下会呼吸的整页底色透上来,看不出海报在哪儿结束。
-            .mask {
-                LinearGradient(
-                    stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black, location: 0.46),
-                        .init(color: .black.opacity(0.18), location: 0.8),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            .overlay {
-                // 顶部压一点暗让系统返回键读得清。
-                LinearGradient(
-                    stops: [
-                        .init(color: .black.opacity(0.22), location: 0),
-                        .init(color: .clear, location: 0.2),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            // iOS 26 起海报延伸到玻璃导航区与屏幕两侧。
-            .libraryDetailBackgroundExtension()
-            // 下拉时海报往下拉长、上滚时半速跟随;名字与按钮照常随正文走。
-            .libraryDetailHeroMotion(.poster)
-            .accessibilityHidden(true)
-
-            blockLayout {
-                VStack(alignment: compact ? .leading : .center, spacing: compact ? CGFloat(LibraryDetailHeroLayoutPolicy.Compact.artistNameToSummary) : 10) {
-                    Text(verbatim: displayArtistName)
-                        .font(reducedTitle ? .title.weight(.heavy) : .largeTitle.weight(.heavy))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(compact ? .leading : .center)
-                        .lineLimit(compact ? 1 : 2)
-                        .minimumScaleFactor(0.7)
-                        .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
-                        .libraryDetailHeroTitle()
-
-                    Text(verbatim: "\(monthlyListenText) \u{00B7} \(artistSummaryText)")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.78))
-                        .multilineTextAlignment(compact ? .leading : .center)
-                        .lineLimit(compact ? 1 : nil)
-                }
-                .frame(maxWidth: compact ? .infinity : nil, alignment: .leading)
-
-                HStack(spacing: compact ? 16 : 24) {
-                    LibraryDetailCircleButton(
-                        systemImage: "shuffle",
-                        label: "shuffle",
-                        size: circleSize,
-                        disabled: playableSongs.count < 2,
-                        action: shuffleAll
-                    )
-                    LibraryDetailPlayCircle(
-                        size: compact ? CGFloat(LibraryDetailHeroLayoutPolicy.Compact.artistPlayCircle) : 80,
-                        disabled: playableSongs.isEmpty,
-                        action: playAll
-                    )
-                    // 与随机键同一尺寸,三颗键左右对称。
-                    QuickAccessPinCircleButton(
-                        pin: LibraryPinReference(kind: .artist, itemID: artist.id),
-                        size: circleSize
-                    )
-                }
-                .fixedSize()
-                .padding(.top, compact ? 0 : 8)
-            }
-            .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
-            .padding(.leading, insets.leading + 24)
-            .padding(.trailing, insets.trailing + 24)
-            .padding(.bottom, compact ? 10 : 16)
-        }
-        .frame(maxWidth: .infinity)
-        // 只裁下沿:下拉拉长的海报要能长到顶部之外。
-        .libraryDetailClipBottomEdge()
+    /// 头图与操作行的数据:人像海报、名字、本月播放 · 歌曲与专辑数,「随机 · 播放 · 快捷收藏」。
+    /// 画法交给 `CollectionDetailHeader`。
+    private var headerModel: CollectionDetailHeaderModel {
+        CollectionDetailHeaderModel(
+            title: displayArtistName,
+            meta: "\(monthlyListenText) \u{00B7} \(artistSummaryText)",
+            artwork: .artistPoster(artist),
+            actions: .init(
+                shuffle: .init(isEnabled: playableSongs.count >= 2, perform: shuffleAll),
+                play: .init(isEnabled: !playableSongs.isEmpty, perform: { playAll() }),
+                playTitle: "play",
+                trailing: .quickAccessPin(LibraryPinReference(kind: .artist, itemID: artist.id))
+            )
+        )
     }
 
     private var artistSummaryText: String {

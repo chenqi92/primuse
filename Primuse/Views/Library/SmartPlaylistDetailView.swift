@@ -20,7 +20,6 @@ struct SmartPlaylistDetailView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
     @Environment(ScraperSettingsStore.self) private var scraperSettings
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
@@ -70,10 +69,11 @@ struct SmartPlaylistDetailView: View {
     #if os(iOS)
     /// 「N 首 · 总时长」。
     private func smartPlaylistMetaText(_ matched: [Song]) -> String {
-        let count = "\(matched.count) \(String(localized: "songs_count"))"
-        let total = matched.reduce(0.0) { $0 + $1.duration }
-        guard total > 0 else { return count }
-        return "\(count) \u{00B7} \(total.formattedShort)"
+        CollectionDetailHeaderPolicy.countAndDuration(
+            countText: "\(matched.count) \(String(localized: "songs_count"))",
+            totalSeconds: matched.reduce(0.0) { $0 + $1.duration },
+            durationText: { $0.formattedShort }
+        )
     }
 
     private func kindSymbol(_ smart: SmartPlaylist) -> String {
@@ -87,7 +87,7 @@ struct SmartPlaylistDetailView: View {
         Group {
             if let smart {
                 ImmersiveLibraryDetailScrollView(title: smart.name) { insets in
-                    smartHero(smart, matched: matched, insets: insets)
+                    CollectionDetailHeader(model: headerModel(smart, matched: matched), insets: insets)
                 } content: {
                     VStack(spacing: 16) {
                         VStack(spacing: 14) {
@@ -160,148 +160,27 @@ struct SmartPlaylistDetailView: View {
         }
     }
 
-    private func smartHero(
-        _ smart: SmartPlaylist,
-        matched: [Song],
-        insets: ImmersiveLibraryDetailInsets
-    ) -> some View {
-        let hero = insets.hero
-        let compact = hero.isCompactHeight
-        let summaryLines = compact ? 2 : LibraryDetailHeroLayoutPolicy.smartSummaryLineLimit(hero.titleTier)
-        // 手机横屏首屏只有两百点上下:操作行并进头图(墙面下沿 / 封面右栏),规则摘要排到头图下面。
-        return VStack(spacing: compact ? 10 : 14) {
-            CollectionCoverWallHeader(
-                title: smart.name,
-                subtitle: smartPlaylistMetaText(matched),
-                titleSymbol: kindSymbol(smart),
-                songs: matched,
-                nowPlaying: player.currentSong,
-                topInset: insets.top,
-                wallHeight: CGFloat(hero.smartPlaylistWallHeight),
-                leadingInset: insets.leading,
-                trailingInset: insets.trailing,
-                overlayActions: compact ? AnyView(smartActionRow(matched, arrangement: .singleRow)) : nil
-            ) {
-                smartSingleHeader(smart, matched: matched, insets: insets, includesActions: compact)
-            }
-
-            Text(playlistSummary(smart))
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.66))
-                .multilineTextAlignment(.center)
-                .lineLimit(summaryLines)
-                .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
-                // 横屏与折叠屏上左右安全区不一定相等,按侧让开。
-                .padding(.leading, insets.leading + 28)
-                .padding(.trailing, insets.trailing + 28)
-
-            if !compact {
-                smartActionRow(matched, arrangement: hero.actionRow)
-                    .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
-                    .padding(.leading, insets.leading + 20)
-                    .padding(.trailing, insets.trailing + 20)
-                    .padding(.top, 4)
-            }
-        }
-        .padding(.bottom, compact ? 8 : 14)
-        .frame(maxWidth: .infinity)
-    }
-
-    /// 封面不够铺一面墙时:原来那块渐变色块浮在整页底色上,标题与信息居中。
-    /// 手机横屏色块挪到左边、与右栏齐高,标题与操作行排进右栏(`includesActions`)。
-    private func smartSingleHeader(
-        _ smart: SmartPlaylist,
-        matched: [Song],
-        insets: ImmersiveLibraryDetailInsets,
-        includesActions: Bool
-    ) -> some View {
-        let hero = insets.hero
-        let compact = hero.isCompactHeight
-        let tier = hero.titleTier
-        let stacks = hero.stacksArtworkHeader(accessibilityType: dynamicTypeSize.isAccessibilitySize)
-        let headerLayout = hero.artworkHeaderLayout(
-            hero.smartPlaylistCover,
-            actionsSpacing: 18,
-            stacksVertically: stacks
-        )
-
-        return headerLayout {
-            LibraryDetailArtworkSlot { size in
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(LinearGradient(
-                            colors: smart.effectiveKind == .ai
-                                ? [.pink.opacity(0.78), .orange.opacity(0.72)]
-                                : [.purple.opacity(0.7), .blue.opacity(0.7)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ))
-                    // 图标跟着色块的边长走:原来 200 配 64、横屏 112 配 42。
-                    Image(systemName: kindSymbol(smart))
-                        .font(.system(size: max(32, size.width * 0.32)))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: size.width, height: size.height)
-                .shadow(color: .black.opacity(0.3), radius: 22, y: 12)
-            }
-            .libraryDetailHeroMotion(.artwork)
-            .accessibilityHidden(true)
-
-            VStack(alignment: stacks ? .center : .leading, spacing: 5) {
-                Text(smart.name)
-                    .font(tier == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
-                    .foregroundStyle(.white)
-                    .lineLimit(stacks ? LibraryDetailHeroLayoutPolicy.titleLineLimit(tier) : LibraryDetailHeroLayoutPolicy.compactTitleLineLimit)
-                    .minimumScaleFactor(stacks ? 1 : 0.8)
-                    .libraryDetailHeroTitle()
-                Text(verbatim: smartPlaylistMetaText(matched))
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.72))
-            }
-            .multilineTextAlignment(stacks ? .center : .leading)
-            .frame(maxWidth: .infinity, alignment: stacks ? .center : .leading)
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-
-            if includesActions {
-                smartActionRow(matched, arrangement: .singleRow, alignment: stacks ? .center : .leading)
-            }
-        }
-        .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
-        .padding(.leading, insets.leading + 20)
-        .padding(.trailing, insets.trailing + 20)
-        .padding(.top, insets.top + (compact ? 12 : 16))
-        .frame(maxWidth: .infinity)
-    }
-
-    /// 「随机 · 播放全部 · 下载」,与普通歌单页同一套按钮。
-    private func smartActionRow(
-        _ matched: [Song],
-        arrangement: LibraryDetailActionRowArrangement,
-        alignment: Alignment = .center
-    ) -> some View {
+    /// 头图与操作行的数据:封面墙(封面不够时是按类别着色的色块)、标题与类别符号、首数 · 总时长、
+    /// 规则 / 描述摘要,「随机 · 播放全部 · 下载」。画法交给 `CollectionDetailHeader`。
+    private func headerModel(_ smart: SmartPlaylist, matched: [Song]) -> CollectionDetailHeaderModel {
         let playable = matched.filteredPlayable()
-        return LibraryDetailActionRow(arrangement: arrangement, alignment: alignment) {
-            LibraryDetailCircleButton(
-                systemImage: "shuffle",
-                label: "shuffle",
-                disabled: matched.isEmpty
-            ) {
-                playAll(shuffled: true)
-            }
-            LibraryDetailPlayPill(title: "play_all", disabled: matched.isEmpty) {
-                playAll()
-            }
-            .frame(maxWidth: arrangement.primaryMaxWidth)
-            .libraryDetailPrimaryAction()
-            LibraryDetailCircleButton(
-                systemImage: "arrow.down",
-                label: "offline_download",
-                disabled: playable.isEmpty
-            ) {
-                sourceManager.downloadForOffline(songs: matched)
-            }
-        }
+        return CollectionDetailHeaderModel(
+            title: smart.name,
+            titleSymbol: kindSymbol(smart),
+            meta: smartPlaylistMetaText(matched),
+            summary: playlistSummary(smart),
+            artwork: .generatedCover(symbol: kindSymbol(smart), isAI: smart.effectiveKind == .ai),
+            songs: matched,
+            nowPlaying: player.currentSong,
+            actions: .init(
+                shuffle: .init(isEnabled: !matched.isEmpty, perform: { playAll(shuffled: true) }),
+                play: .init(isEnabled: !matched.isEmpty, perform: { playAll() }),
+                playTitle: "play_all",
+                trailing: .download(.init(isEnabled: !playable.isEmpty) {
+                    sourceManager.downloadForOffline(songs: matched)
+                })
+            )
+        )
     }
 
     private func smartTrackList(_ matched: [Song]) -> some View {

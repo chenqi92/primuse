@@ -903,6 +903,16 @@ struct ContentView: View {
         AppNavigationMode(skin.shell.navigation)
     }
 
+    /// 外壳播放条的功能契约:三种画法(标签栏附件、停靠条、悬浮胶囊)都只收它。
+    private var nowPlayingBarModel: NowPlayingBarModel {
+        NowPlayingBarModel(
+            player: player,
+            library: library,
+            onTap: presentNowPlaying,
+            onOpenQueue: { showQueueFromBottomChrome = true }
+        )
+    }
+
     private var rootLayout: AppNavigationRootLayout {
         AppNavigationLayoutPolicy.rootLayout(
             mode: navigationMode,
@@ -1208,19 +1218,13 @@ struct ContentView: View {
             Group {
                 switch skin.shell.nowPlayingBar {
                 case .dockedBar:
-                    DockedPlayerBar(
-                        onTap: presentNowPlaying,
-                        onOpenQueue: { showQueueFromBottomChrome = true }
-                    )
+                    DockedPlayerBar(model: nowPlayingBarModel)
                 case .floatingCapsule:
-                    FloatingCapsulePlayerBar(
-                        onTap: presentNowPlaying,
-                        onOpenQueue: { showQueueFromBottomChrome = true }
-                    )
+                    FloatingCapsulePlayerBar(model: nowPlayingBarModel)
                 case .tabAccessory:
                     // 顶部 tab 外壳没有标签栏可挂附件(`SkinShell.isValid` 拦下这种组合);
                     // 万一读到,仍画成附件里那一条,不让播放条消失。
-                    LegacyNowPlayingAccessory(onTap: presentNowPlaying)
+                    LegacyNowPlayingAccessory(model: nowPlayingBarModel)
                 }
             }
             // miniPlayerVisible 是派生量, 翻转由播放状态决定, 调用点包不住动画
@@ -1328,7 +1332,7 @@ struct ContentView: View {
                 // minimize when Now Playing can occupy that compact space.
                 .tabBarMinimizeBehavior(miniPlayerVisible ? .onScrollDown : .never)
                 .tabViewBottomAccessory(isEnabled: miniPlayerVisible) {
-                    NowPlayingAccessory(onTap: presentNowPlaying)
+                    NowPlayingAccessory(model: nowPlayingBarModel)
                 }
         } else if #available(iOS 26.0, *) {
             // 26.0 has no `isEnabled:` overload and an empty system accessory
@@ -1379,7 +1383,7 @@ struct ContentView: View {
                 .environment(\.librarySearchTab, sidebarSelection.rawValueTab)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     if miniPlayerVisible {
-                        PadNowPlayingAccessory(onTap: presentNowPlaying)
+                        PadNowPlayingAccessory(model: nowPlayingBarModel)
                             .pmSlideTransition(edge: .bottom, motion: .panel)
                     }
                 }
@@ -1519,7 +1523,7 @@ struct ContentView: View {
                 if #available(iOS 26.1, *) {
                     EmptyView()
                 } else {
-                    LegacyNowPlayingAccessory(onTap: presentNowPlaying)
+                    LegacyNowPlayingAccessory(model: nowPlayingBarModel)
                         .padding(.bottom, legacyTabBarClearance)
                         .pmSlideTransition(edge: .bottom, motion: .panel)
                         .zIndex(1)
@@ -2479,18 +2483,20 @@ struct PlayerOverlay: View {
 
 // MARK: - Now Playing Accessory (adapts to inline/expanded)
 
+/// 标签栏附件迷你条(`SkinShell.NowPlayingBar.tabAccessory`)在 iOS 26.1 之前的样子:贴在标签栏上沿。
 struct LegacyNowPlayingAccessory: View {
-    var onTap: () -> Void
+    let model: NowPlayingBarModel
 
     var body: some View {
-        MiniPlayerView(onTap: onTap)
+        MiniPlayerView(model: model)
             .frame(maxWidth: .infinity)
             .background(.ultraThinMaterial)
     }
 }
 
+/// iPad 侧边栏布局底部的播放条,收的是同一份 `NowPlayingBarModel`。
 struct PadNowPlayingAccessory: View {
-    var onTap: () -> Void
+    let model: NowPlayingBarModel
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .subheadline) private var contentHeight: CGFloat = 44
@@ -2535,7 +2541,7 @@ struct PadNowPlayingAccessory: View {
 
     private var trackInformation: some View {
         MiniPlayerSwipeContent(
-            onTap: onTap,
+            model: model,
             artworkSize: 30,
             artworkCornerRadius: 6,
             artworkTrailingSpacing: 8,
@@ -2546,15 +2552,17 @@ struct PadNowPlayingAccessory: View {
 
     private var transportControls: some View {
         MiniPlayerTransportControls(
+            model: model,
             showsNextButton: true,
             regularIconSize: 18
         )
     }
 }
 
+/// 标签栏附件迷你条(`SkinShell.NowPlayingBar.tabAccessory`),iOS 26.1 起挂在系统的标签栏附件里。
 @available(iOS 26.0, *)
 struct NowPlayingAccessory: View {
-    var onTap: () -> Void
+    let model: NowPlayingBarModel
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
     private var isInline: Bool { placement == .inline }
@@ -2562,7 +2570,7 @@ struct NowPlayingAccessory: View {
     var body: some View {
         HStack(spacing: 0) {
             MiniPlayerSwipeContent(
-                onTap: onTap,
+                model: model,
                 artworkSize: isInline ? 32 : 30,
                 artworkCornerRadius: 6,
                 artworkTrailingSpacing: isInline ? 10 : 8,
@@ -2570,6 +2578,7 @@ struct NowPlayingAccessory: View {
             )
 
             MiniPlayerTransportControls(
+                model: model,
                 isInline: isInline,
                 showsNextButton: !isInline,
                 regularIconSize: 18

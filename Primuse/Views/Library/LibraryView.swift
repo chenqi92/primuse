@@ -2416,7 +2416,8 @@ private struct LibraryGenreCard: View {
     }
 }
 
-private struct GenreArtworkMosaic: View {
+/// 风格的「封面」:几张代表封面叠成一小叠。详情页头图(`CollectionDetailHeader`)与 Mac 的风格页都用它。
+struct GenreArtworkMosaic: View {
     @Environment(MusicLibrary.self) private var library
     let genre: LibraryGenre
     let artworkSize: CGFloat
@@ -2521,7 +2522,7 @@ private struct GenreDetailView: View {
         Group {
             #if os(iOS)
             ImmersiveLibraryDetailScrollView(title: genre.name) { insets in
-                iosHero(insets: insets)
+                CollectionDetailHeader(model: headerModel, insets: insets)
             } content: {
                 VStack(alignment: .leading, spacing: 28) {
                     if !albums.isEmpty { albumShelf }
@@ -2565,75 +2566,21 @@ private struct GenreDetailView: View {
     }
 
     #if os(iOS)
-    /// 两套基座共用、与专辑页同一套版式:整页封面色,代表封面的马赛克居中当「封面」,
-    /// 下面是名字、数量和一排「随机 · 播放」。手机横屏马赛克挪到左边,名字与按钮排进右栏。
-    /// 马赛克按首屏收(`LibraryDetailHeroLayoutPolicy`),横竖切换只换排法。
-    private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        let hero = insets.hero
-        let compact = hero.isCompactHeight
-        let reducedTitle = compact || hero.titleTier == .reduced
-        let aspect: CGFloat = 1.9 / 1.3
-        let spacing: CGFloat = compact ? 12 : 20
-        let headerLayout = hero.artworkHeaderLayout(
-            hero.genreMosaic,
-            aspectRatio: aspect,
-            actionsSpacing: spacing,
-            stacksVertically: false
+    /// 头图与操作行的数据:代表封面的马赛克、名字、专辑与歌曲数,「随机 · 播放」与评分。
+    /// 画法交给 `CollectionDetailHeader`。
+    private var headerModel: CollectionDetailHeaderModel {
+        CollectionDetailHeaderModel(
+            title: genre.name,
+            meta: "\(albums.count) \(String(localized: "albums_count")) · \(songs.count) \(String(localized: "songs_count"))",
+            artwork: .genreMosaic(genre),
+            actions: .init(
+                shuffle: .init(isEnabled: playableSongs.count >= 2, perform: shuffleAll),
+                play: .init(isEnabled: !playableSongs.isEmpty, perform: playAll),
+                playTitle: "play",
+                trailing: nil
+            ),
+            review: .genre(genre.id)
         )
-
-        return VStack(spacing: spacing) {
-            headerLayout {
-                LibraryDetailArtworkSlot { size in
-                    GenreArtworkMosaic(genre: genre, artworkSize: size.height / 1.3)
-                        .frame(width: size.width, height: size.height)
-                        .shadow(color: .black.opacity(0.3), radius: 20, y: 12)
-                }
-                .libraryDetailHeroMotion(.artwork)
-                .accessibilityHidden(true)
-
-                VStack(alignment: compact ? .leading : .center, spacing: 4) {
-                    Text(verbatim: genre.name)
-                        .font(reducedTitle ? Font.title.weight(.heavy) : Font.largeTitle.weight(.heavy))
-                        .foregroundStyle(.white)
-                        .lineLimit(compact ? LibraryDetailHeroLayoutPolicy.compactTitleLineLimit : 2)
-                        .minimumScaleFactor(0.8)
-                        .libraryDetailHeroTitle()
-                    Text(
-                        verbatim:
-                            "\(albums.count) \(String(localized: "albums_count")) · \(songs.count) \(String(localized: "songs_count"))"
-                    )
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.74))
-                }
-                .multilineTextAlignment(compact ? .leading : .center)
-                .frame(maxWidth: compact ? .infinity : nil, alignment: .leading)
-                .frame(maxWidth: compact ? nil : .infinity)
-
-                LibraryDetailActionRow(arrangement: hero.actionRow, alignment: compact ? .leading : .center) {
-                    LibraryDetailCircleButton(
-                        systemImage: "shuffle",
-                        label: "shuffle",
-                        disabled: playableSongs.count < 2,
-                        action: shuffleAll
-                    )
-                    LibraryDetailPlayPill(disabled: playableSongs.isEmpty, action: playAll)
-                        .frame(maxWidth: hero.actionRow.primaryMaxWidth)
-                        .libraryDetailPrimaryAction()
-                }
-            }
-
-            LibraryReviewSection(
-                subject: .genre(genre.id),
-                compact: true,
-                onArtwork: true
-            )
-        }
-        .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
-        .padding(.leading, insets.leading + 20)
-        .padding(.trailing, insets.trailing + 20)
-        .padding(.top, insets.top + (compact ? 12 : 24))
-        .padding(.bottom, compact ? 12 : 18)
-        .frame(maxWidth: .infinity)
     }
     #endif
 

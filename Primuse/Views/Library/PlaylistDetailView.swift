@@ -14,7 +14,6 @@ struct PlaylistDetailView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(MusicScraperService.self) private var scraperService
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
@@ -286,9 +285,11 @@ struct PlaylistDetailView: View {
 
     /// 「N 首 · 总时长」。空歌单只写首数。
     private var playlistMetaText: String {
-        let total = songs.reduce(0.0) { $0 + $1.duration }
-        guard total > 0 else { return playlistSongCountText }
-        return "\(playlistSongCountText) \u{00B7} \(total.formattedShort)"
+        CollectionDetailHeaderPolicy.countAndDuration(
+            countText: playlistSongCountText,
+            totalSeconds: songs.reduce(0.0) { $0 + $1.duration },
+            durationText: { $0.formattedShort }
+        )
     }
 
     private var isLikedPlaylist: Bool {
@@ -300,7 +301,7 @@ struct PlaylistDetailView: View {
     /// 评分、源不可达提示、始终下载开关与曲目。
     private var legacyPlaylistDetail: some View {
         ImmersiveLibraryDetailScrollView(title: currentPlaylist?.name ?? playlist.name) { insets in
-            playlistHero(insets: insets)
+            CollectionDetailHeader(model: headerModel, insets: insets)
         } content: {
             VStack(spacing: 16) {
                 VStack(spacing: 14) {
@@ -470,128 +471,26 @@ struct PlaylistDetailView: View {
         } message: { Text(exportError ?? "") }
     }
 
-    /// 头图 + 操作行。封面墙自己带标题块;单封面时标题、信息由这里画。
-    /// 墙高与单封面边长都按首屏定(`LibraryDetailHeroLayoutPolicy`),矮屏上操作行也整条露出来。
-    /// 手机横屏首屏只有两百点上下,操作行并进头图:封面墙上与标题排成一行压在墙面下沿,
-    /// 单封面时排进封面右栏。
-    private func playlistHero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        let hero = insets.hero
-        let compact = hero.isCompactHeight
-        return VStack(spacing: compact ? 12 : 18) {
-            CollectionCoverWallHeader(
-                title: currentPlaylist?.name ?? playlist.name,
-                subtitle: playlistMetaText,
-                titleSymbol: isLikedPlaylist ? "heart.fill" : nil,
-                songs: songs,
-                nowPlaying: player.currentSong,
-                topInset: insets.top,
-                wallHeight: CGFloat(hero.playlistWallHeight),
-                leadingInset: insets.leading,
-                trailingInset: insets.trailing,
-                overlayActions: compact ? AnyView(playlistActionRow(.singleRow)) : nil
-            ) {
-                singleCoverHeader(insets: insets, includesActions: compact)
-            }
-
-            if !compact {
-                playlistActionRow(hero.actionRow)
-                    .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
-                    .padding(.leading, insets.leading + 20)
-                    .padding(.trailing, insets.trailing + 20)
-            }
-        }
-        .padding(.bottom, compact ? 8 : 14)
-        .frame(maxWidth: .infinity)
-    }
-
-    /// 封面不够铺一面墙时的头图,版式与专辑页一致:封面浮在整页底色上,标题与信息居中。
-    /// 手机横屏封面挪到左边、与右栏齐高,标题与操作行排进右栏(`includesActions`)。
-    private func singleCoverHeader(insets: ImmersiveLibraryDetailInsets, includesActions: Bool) -> some View {
-        let hero = insets.hero
-        let compact = hero.isCompactHeight
-        let tier = hero.titleTier
-        let stacks = hero.stacksArtworkHeader(accessibilityType: dynamicTypeSize.isAccessibilitySize)
-        let headerLayout = hero.artworkHeaderLayout(
-            hero.playlistCover,
-            actionsSpacing: 18,
-            stacksVertically: stacks
-        )
-
-        return headerLayout {
-            LibraryDetailArtworkSlot { size in
-                PlaylistArtworkView(
-                    playlist: currentPlaylist ?? playlist,
-                    size: size.width,
-                    cornerRadius: 14,
-                    placeholderIcon: coverPlaceholderIcon
-                )
-                .shadow(color: .black.opacity(0.32), radius: 24, y: 14)
-            }
-            .libraryDetailHeroMotion(.artwork)
-            .accessibilityHidden(true)
-
-            VStack(alignment: stacks ? .center : .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    if isLikedPlaylist {
-                        Image(systemName: "heart.fill")
-                            .font(tier == .regular ? .title3.weight(.semibold) : .headline)
-                            .foregroundStyle(.pink)
-                            .accessibilityHidden(true)
-                    }
-                    Text(currentPlaylist?.name ?? playlist.name)
-                        .font(tier == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
-                        .foregroundStyle(.white)
-                        .lineLimit(stacks ? LibraryDetailHeroLayoutPolicy.titleLineLimit(tier) : LibraryDetailHeroLayoutPolicy.compactTitleLineLimit)
-                        .minimumScaleFactor(stacks ? 1 : 0.8)
-                        .libraryDetailHeroTitle()
-                }
-                Text(verbatim: playlistMetaText)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.72))
-            }
-            .multilineTextAlignment(stacks ? .center : .leading)
-            .frame(maxWidth: .infinity, alignment: stacks ? .center : .leading)
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-
-            if includesActions {
-                playlistActionRow(.singleRow, alignment: stacks ? .center : .leading)
-            }
-        }
-        .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
-        .padding(.leading, insets.leading + 20)
-        .padding(.trailing, insets.trailing + 20)
-        .padding(.top, insets.top + (compact ? 12 : 16))
-        .frame(maxWidth: .infinity)
-    }
-
-    /// 「随机 · 播放全部 · 下载」:播放居中最宽,两侧是圆形玻璃键,与专辑页一致。
-    private func playlistActionRow(
-        _ arrangement: LibraryDetailActionRowArrangement,
-        alignment: Alignment = .center
-    ) -> some View {
+    /// 头图与操作行的数据:封面墙(封面不够时是歌单封面)、标题(「我喜欢」带一颗心)、首数 · 总时长,
+    /// 「随机 · 播放全部 · 下载」。画法交给 `CollectionDetailHeader`。
+    private var headerModel: CollectionDetailHeaderModel {
         let playable = songs.filteredPlayable()
-        return LibraryDetailActionRow(arrangement: arrangement, alignment: alignment) {
-            LibraryDetailCircleButton(
-                systemImage: "shuffle",
-                label: "shuffle",
-                disabled: playable.count < 2
-            ) {
-                playAll(shuffled: true)
-            }
-            LibraryDetailPlayPill(title: "play_all", disabled: playable.isEmpty) {
-                playAll()
-            }
-            .frame(maxWidth: arrangement.primaryMaxWidth)
-            .libraryDetailPrimaryAction()
-            LibraryDetailCircleButton(
-                systemImage: "arrow.down",
-                label: "offline_download",
-                disabled: playable.isEmpty
-            ) {
-                sourceManager.downloadForOffline(songs: songs)
-            }
-        }
+        return CollectionDetailHeaderModel(
+            title: currentPlaylist?.name ?? playlist.name,
+            titleSymbol: isLikedPlaylist ? "heart.fill" : nil,
+            meta: playlistMetaText,
+            artwork: .playlistCover(currentPlaylist ?? playlist, placeholderIcon: coverPlaceholderIcon),
+            songs: songs,
+            nowPlaying: player.currentSong,
+            actions: .init(
+                shuffle: .init(isEnabled: playable.count >= 2, perform: { playAll(shuffled: true) }),
+                play: .init(isEnabled: !playable.isEmpty, perform: { playAll() }),
+                playTitle: "play_all",
+                trailing: .download(.init(isEnabled: !playable.isEmpty) {
+                    sourceManager.downloadForOffline(songs: songs)
+                })
+            )
+        )
     }
 
     /// 曲目直接排在整页底色上,行间一条细线。行的全部能力(点按播放、长按多选、

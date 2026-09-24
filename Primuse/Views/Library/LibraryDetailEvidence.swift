@@ -13,6 +13,7 @@ import SwiftUI
 /// - `PRIMUSE_EVIDENCE_ALBUM` / `PRIMUSE_EVIDENCE_ARTIST`：标题片段，默认 evidence / nova。
 struct LibraryDetailEvidenceHost: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(AudioPlayerService.self) private var player
 
     private enum Page: String { case album, artist, dock }
 
@@ -184,7 +185,7 @@ struct LibraryDetailEvidenceHost: View {
     private func dockOverlay(_ frame: Frame) -> some View {
         if frame.page == .dock {
             let viewport = frame.viewport
-            DockedPlayerBar(onTap: {}, onOpenQueue: {})
+            DockedPlayerBar(model: NowPlayingBarModel(player: player, library: library, onTap: {}))
                 .environment(\.verticalSizeClass, viewport.isCompactHeight ? .compact : .regular)
                 .environment(\.horizontalSizeClass, viewport.isRegularWidth ? .regular : .compact)
                 .padding(.leading, viewport.leading)
