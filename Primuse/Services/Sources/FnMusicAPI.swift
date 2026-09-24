@@ -216,22 +216,8 @@ actor FnMusicAPI {
             path: "/lyric/list",
             queryItems: [URLQueryItem(name: "trackGUID", value: trackGUID)]
         )
-        let dictionary = payload as? [String: Any]
-        let rawLyrics = dictionary?["list"] as? [[String: Any]]
-            ?? payload as? [[String: Any]]
-            ?? []
-        let preferred = stringValue(dictionary?["preferred"])?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let lyrics = rawLyrics.compactMap { item -> (String, String)? in
-            guard let content = (stringValue(item["content"]) ?? stringValue(item["text"]))?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !content.isEmpty else { return nil }
-            return (stringValue(item["guid"]) ?? stringValue(item["id"]) ?? "", content)
-        }
-        if let preferred, !preferred.isEmpty {
-            return lyrics.first(where: { $0.0 == preferred })?.1
-        }
-        return lyrics.first?.1
+        // 候选选择与 Apple TV 共用一份规则，服务端校准过的偏移并进 `[offset:]` 标签。
+        return FnMusicLyricSelection.select(payload: payload)?.text
     }
 
     func libraryPayload(_ request: FnMusicLibraryRequest) async throws -> Data {
