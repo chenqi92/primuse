@@ -274,6 +274,12 @@ HAN_LITERAL_ALLOWLIST = {
   "PrimuseKit/Sources/PrimuseKit/KaraokeCompanionPolicy.swift" => [
     /"伴奏", "纯伴奏", "純伴奏", "消音版", "伴唱版"/
   ],
+  # Version markers and placeholder artist names matched against song titles
+  # from other music apps. They are data, never shown as UI copy.
+  "PrimuseKit/Sources/PrimuseKit/Library/ExternalTrackMatchPolicy.swift" => [
+    /现场|演唱会|伴奏|纯音乐|消音版|混音|不插电|小样|翻唱|加速版|主题曲|插曲|未知|群星|佚名/,
+    /hasSuffix\("版"\)/
+  ],
   "PrimuseKit/Sources/PrimuseKit/LogBacklogPolicy.swift" => [
     /日志积压超限, 已丢弃/,
     /上一行重复/

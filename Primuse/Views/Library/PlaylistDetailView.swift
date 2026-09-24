@@ -65,6 +65,21 @@ struct PlaylistDetailView: View {
         return SongListSnapshot.sortedSongs(storedSongs, order: order, sortValues: values)
     }
 
+    /// 列表里的行: 歌单顺序下置灰的占位留在原位; 选了别的排序时它们没有可比的
+    /// 值, 统一排到最后。
+    private var displayEntries: [MusicLibrary.PlaylistEntry] {
+        guard displaySortOrder != nil else { return library.entries(forPlaylist: playlist.id) }
+        let pending = library.entries(forPlaylist: playlist.id).filter {
+            if case .pending = $0 { return true }
+            return false
+        }
+        return songs.map { MusicLibrary.PlaylistEntry.song($0) } + pending
+    }
+
+    private var pendingEntryCount: Int {
+        library.pendingEntryCount(forPlaylist: playlist.id)
+    }
+
     /// 按播放次数排序和 macOS 的曲目表都要读它,所以放在平台分支之外。
     private var playCountsBySongID: [String: Int] {
         var dict: [String: Int] = [:]
@@ -279,6 +294,11 @@ struct PlaylistDetailView: View {
                         .padding(.horizontal)
                 }
 
+                if pendingEntryCount > 0 {
+                    PlaylistPendingNotice(count: pendingEntryCount)
+                        .padding(.horizontal)
+                }
+
                 if supportsAlwaysDownload {
                     alwaysDownloadControl
                         .padding(.horizontal)
@@ -287,35 +307,18 @@ struct PlaylistDetailView: View {
 
                 // Songs
                 LazyVStack(spacing: 0) {
-                    ForEach(songs) { song in
-                        // 「移出歌单」挂在行自己的长按菜单里 —— 在行外面再套一层
-                        // contextMenu 的话，SwiftUI 只认最里面那一份，外层永远弹不出来。
-                        // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
-                        // 下次同步也会覆盖任何临时改动，所以那些歌单不给这个入口。
-                        SongRowView(
-                            song: song,
-                            isPlaying: player.currentSong?.id == song.id,
-                            showsActions: false,
-                            onRemoveFromPlaylist: allowsPlaylistRemoval
-                                ? { library.remove(songID: song.id, fromPlaylist: playlist.id) }
-                                : nil,
-                            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
-                        )
-                        .songSelectable(
-                            songID: song.id,
-                            selection: selection,
-                            orderedIDs: { songs.map(\.id) },
-                            defaultAction: { playSong(song) }
-                        )
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if selection.isActive {
-                                selection.toggle(song.id)
-                            } else {
-                                playSong(song)
-                            }
+                    ForEach(displayEntries) { entry in
+                        switch entry {
+                        case .song(let song):
+                            songRow(song)
+                        case .pending(let pending):
+                            PlaylistPendingEntryRow(
+                                entry: pending,
+                                playlistID: playlist.id,
+                                allowsEditing: allowsPlaylistRemoval
+                            )
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
                         }
 
                         Divider().padding(.leading, 50)
@@ -554,6 +557,39 @@ struct PlaylistDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private func songRow(_ song: Song) -> some View {
+        // 「移出歌单」挂在行自己的长按菜单里 —— 在行外面再套一层
+        // contextMenu 的话，SwiftUI 只认最里面那一份，外层永远弹不出来。
+        // 所有外部镜像歌单都只读：本地无法把删除回写到源端，
+        // 下次同步也会覆盖任何临时改动，所以那些歌单不给这个入口。
+        SongRowView(
+            song: song,
+            isPlaying: player.currentSong?.id == song.id,
+            showsActions: false,
+            onRemoveFromPlaylist: allowsPlaylistRemoval
+                ? { library.remove(songID: song.id, fromPlaylist: playlist.id) }
+                : nil,
+            context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+        )
+        .songSelectable(
+            songID: song.id,
+            selection: selection,
+            orderedIDs: { songs.map(\.id) },
+            defaultAction: { playSong(song) }
+        )
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if selection.isActive {
+                selection.toggle(song.id)
+            } else {
+                playSong(song)
+            }
+        }
+    }
+
     /// The set is empty on a network that reaches everything, so the scan only
     /// runs during an outage.
     private var hasSongsFromUnreachableSources: Bool {
@@ -764,6 +800,10 @@ struct PlaylistDetailView: View {
                         unreachableSongsNotice
                     }
 
+                    if pendingEntryCount > 0 {
+                        PlaylistPendingNotice(count: pendingEntryCount)
+                    }
+
                     if supportsAlwaysDownload {
                         alwaysDownloadControl
                             .pmFadeTransition(motion: .list)
@@ -780,7 +820,7 @@ struct PlaylistDetailView: View {
                     // 设计稿里, 现在直接换成 toolbar (排序/导出/更多) 工具条。
                     macPlaylistToolbar
 
-                    if songs.isEmpty {
+                    if songs.isEmpty && pendingEntryCount == 0 {
                         EmptyStateView(
                             titleKey: "no_songs",
                             descriptionKey: "no_songs_desc",
@@ -965,7 +1005,13 @@ struct PlaylistDetailView: View {
     }
 
     private var macSongTable: some View {
-        let rows = Array(songs.enumerated())
+        // 序号只数真正的歌, 置灰的行不占号。
+        var songCounter = 0
+        let rows: [(entry: MusicLibrary.PlaylistEntry, songIndex: Int)] = displayEntries.map { entry in
+            guard case .song = entry else { return (entry, songCounter) }
+            defer { songCounter += 1 }
+            return (entry, songCounter)
+        }
         let playCounts = playCountsBySongID
         return VStack(spacing: 0) {
             // 设计稿 9 列: # / cover / 标题 / 艺术家 / 专辑 / 格式 / 时长 / 播放 / 源
@@ -994,14 +1040,25 @@ struct PlaylistDetailView: View {
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
             LazyVStack(spacing: 1) {
-                ForEach(rows, id: \.element.id) { index, song in
-                    macSongRow(song, index: index, playCount: playCounts[song.id, default: 0])
-                        .songSelectable(
-                            songID: song.id,
-                            selection: selection,
-                            orderedIDs: { songs.map(\.id) },
-                            defaultAction: { playSong(song) }
+                ForEach(rows, id: \.entry.id) { row in
+                    switch row.entry {
+                    case .song(let song):
+                        macSongRow(song, index: row.songIndex, playCount: playCounts[song.id, default: 0])
+                            .songSelectable(
+                                songID: song.id,
+                                selection: selection,
+                                orderedIDs: { songs.map(\.id) },
+                                defaultAction: { playSong(song) }
+                            )
+                    case .pending(let pending):
+                        PlaylistPendingEntryRow(
+                            entry: pending,
+                            playlistID: playlist.id,
+                            allowsEditing: allowsPlaylistRemoval
                         )
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                    }
                 }
             }
             .padding(.vertical, 4)

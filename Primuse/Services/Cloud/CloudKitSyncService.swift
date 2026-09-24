@@ -2770,6 +2770,10 @@ final class CloudKitSyncService {
                     filePath: song.filePath
                 )
             }
+            // 置灰的占位条目带着自己的元数据走, 接收方原位保留、用自己的曲库点亮。
+            if let pending = library.pendingEntry(id: id) {
+                return pending.syncIdentity
+            }
             return SongIdentity(
                 songID: id, title: "", artistName: nil,
                 duration: 0, cloudAccountID: nil, filePath: ""

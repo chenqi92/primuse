@@ -2990,6 +2990,13 @@ final class MusicLibrary {
     private var pendingPlaylistIdentities: [String: [PendingSongIdentity]] = [:]
     private var pendingHistoryIdentities: [PendingSongIdentity] = []
     @ObservationIgnored private var pendingIdentityFlushTask: Task<Void, Never>?
+    /// 歌单里置灰的占位条目(见 `PlaylistPendingEntry`), 键是占位 id —— 也就是
+    /// `playlistSongIDs` 里占着位置的那个元素。和上面的 pending identities 不同:
+    /// 它们在界面上看得见、保持原来的位置, 也不过期, 一直等到曲库里有了为止。
+    private(set) var playlistPendingEntries: [String: PlaylistPendingEntry] = [:]
+    @ObservationIgnored private var playlistPendingResolutionTask: Task<Void, Never>?
+    @ObservationIgnored private var playlistPendingResolutionGeneration: UInt64 = 0
+    @ObservationIgnored let playlistEntryMatchKeyCache = PlaylistEntryMatchKeyCache()
     #if os(iOS)
     @ObservationIgnored private var allowsPendingIdentityFlush = false
     #else
@@ -3596,6 +3603,8 @@ final class MusicLibrary {
         disabledSourceIDs = ids
         rebuildVisibleCache()
         spotlightIndexRevision &+= 1
+        // 重新启用一个源可能让置灰的歌有了着落。
+        schedulePlaylistPendingResolution()
     }
 
     /// Re-splits music from spoken word. Called when the listener corrects an
@@ -4920,6 +4929,11 @@ final class MusicLibrary {
 
         songs = mergedSongs
         songIndexByID = existingIndexByID
+        #if !os(tvOS)
+        // tvOS 的扫描剪枝可以回滚(`rollbackScanPruning`), 回滚按原成员表比对;
+        // 这里改写成员会让回滚认不出来, 所以电视上保持原来的直接清理。
+        reassignPlaylistMembers(ofRemoved: removedSongs, leavingPlaceholders: true)
+        #endif
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         // Newly-added songs may resolve identities that were stashed when
@@ -5210,6 +5224,7 @@ final class MusicLibrary {
             affectedSourceIDs: [song.sourceID],
             remainingCountsBySource: [song.sourceID: remaining]
         )
+        reassignPlaylistMembers(ofRemoved: [song], leavingPlaceholders: false)
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
@@ -5256,6 +5271,8 @@ final class MusicLibrary {
             affectedSourceIDs: affectedSourceIDs,
             remainingCountsBySource: remainingCounts
         )
+        // 清理重复歌曲删掉的多余版本, 在歌单里换成留下的那一份。
+        reassignPlaylistMembers(ofRemoved: songsToDelete, leavingPlaceholders: false)
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
@@ -5732,6 +5749,7 @@ final class MusicLibrary {
             remainingCountsBySource: [:]
         )
         invalidateSearchCaches()
+        reassignPlaylistMembers(ofRemoved: prepared.removedSongs, leavingPlaceholders: true)
         cleanPlaylistEntries()
         cleanPlaybackHistoryEntries()
         requestLibraryIndexMaintenance(.immediate)
@@ -6714,7 +6732,12 @@ final class MusicLibrary {
 
     /// `createPlaylist` / `createFolderPlaylist` / `ensurePlaylist` 新建分支共用的
     /// 插入尾巴, 也正是 S2 重放时执行的那一份。
-    private func insertCreatedPlaylist(_ playlist: Playlist, songIDs: [String]) {
+    private func insertCreatedPlaylist(
+        _ playlist: Playlist,
+        songIDs: [String],
+        pendingEntries: [PlaylistPendingEntry] = []
+    ) {
+        for entry in pendingEntries { playlistPendingEntries[entry.id] = entry }
         let entries = validUniqueSongIDs(songIDs)
         allPlaylists.append(playlist)
         playlistSongIDs[playlist.id] = entries
@@ -7340,7 +7363,7 @@ final class MusicLibrary {
         var seen = Set<String>()
         var result: [String] = []
         result.reserveCapacity(songIDs.count)
-        for songID in songIDs where songIndexByID[songID] != nil {
+        for songID in songIDs where songIndexByID[songID] != nil || playlistPendingEntries[songID] != nil {
             if seen.insert(songID).inserted {
                 result.append(songID)
             }
@@ -7526,6 +7549,318 @@ final class MusicLibrary {
                 likedStateMutationHandler?(songs[songIndex], true, false)
             }
         }
+    }
+
+    // MARK: - Pending (grayed-out) playlist entries
+
+    /// 歌单里的一行: 曲库里的歌, 或者还没有的歌(置灰占位)。
+    enum PlaylistEntry: Identifiable {
+        case song(Song)
+        case pending(PlaylistPendingEntry)
+
+        var id: String {
+            switch self {
+            case .song(let song): song.id
+            case .pending(let entry): entry.id
+            }
+        }
+    }
+
+    /// 导入时的一个成员: 已经对上的歌, 或者要置灰保留的占位。
+    enum PlaylistImportMember: Sendable {
+        case song(String)
+        case pending(PlaylistPendingEntry)
+    }
+
+    /// 歌单的完整条目, 按歌单顺序, 包括置灰的占位。停用源里的歌与
+    /// `songs(forPlaylist:)` 一样不出现。
+    func entries(forPlaylist playlistID: String) -> [PlaylistEntry] {
+        _ = visibleSongsReference
+        return (playlistSongIDs[playlistID] ?? []).compactMap { id -> PlaylistEntry? in
+            if let song = visibleSongByID[id] { return .song(song) }
+            if let entry = playlistPendingEntries[id] { return .pending(entry) }
+            return nil
+        }
+    }
+
+    func pendingEntryCount(forPlaylist playlistID: String) -> Int {
+        guard !playlistPendingEntries.isEmpty else { return 0 }
+        return (playlistSongIDs[playlistID] ?? []).reduce(0) { count, id in
+            playlistPendingEntries[id] == nil ? count : count + 1
+        }
+    }
+
+    func pendingEntry(id: String) -> PlaylistPendingEntry? {
+        playlistPendingEntries[id]
+    }
+
+    /// 导入别处的歌单: 对上的歌和置灰占位按原顺序一起写进新歌单。
+    @discardableResult
+    func createPlaylist(name: String, members: [PlaylistImportMember]) -> Playlist {
+        var songIDs: [String] = []
+        var pendingEntries: [PlaylistPendingEntry] = []
+        songIDs.reserveCapacity(members.count)
+        for member in members {
+            switch member {
+            case .song(let id):
+                songIDs.append(id)
+            case .pending(let entry):
+                songIDs.append(entry.id)
+                pendingEntries.append(entry)
+            }
+        }
+        let playlist = stampedPlaylist(Playlist(name: name))
+        if deferringUntilReady({ [weak self] in
+            self?.insertCreatedPlaylist(playlist, songIDs: songIDs, pendingEntries: pendingEntries)
+        }) { return playlist }
+        insertCreatedPlaylist(playlist, songIDs: songIDs, pendingEntries: pendingEntries)
+        return allPlaylists.first(where: { $0.id == playlist.id }) ?? playlist
+    }
+
+    /// 用户确认「就是这首」: 占位原位换成这首歌; 歌单里已经有这首时只摘掉占位。
+    func resolvePendingEntry(_ pendingID: String, inPlaylist playlistID: String, with songID: String) {
+        if deferringUntilReady({ [weak self] in
+            self?.resolvePendingEntry(pendingID, inPlaylist: playlistID, with: songID)
+        }) { return }
+        guard songIndexByID[songID] != nil,
+              let index = allPlaylists.firstIndex(where: { $0.id == playlistID }),
+              !allPlaylists[index].isDeleted,
+              let members = playlistSongIDs[playlistID],
+              members.contains(pendingID) else { return }
+        let alreadyPresent = members.contains(songID)
+        var next: [String] = []
+        next.reserveCapacity(members.count)
+        for id in members {
+            if id == pendingID {
+                if !alreadyPresent { next.append(songID) }
+            } else {
+                next.append(id)
+            }
+        }
+        playlistSongIDs[playlistID] = next
+        playlistPendingEntries = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
+        // 用户亲手确认的改动要推给别的设备, 和手动加歌一样。
+        allPlaylists[index] = stampedPlaylist(allPlaylists[index])
+        sortPlaylists()
+        persistPlaylistDurabilityLedger()
+        persistSnapshot()
+        notifyPlaylistsChanged([playlistID])
+    }
+
+    /// 曲库变了(扫描、回填、启用了一个源)之后, 在后台把占位和曲库重新对一遍:
+    /// 把握大的原位点亮, 只够得上「可能是」的记下候选等用户确认。
+    private func schedulePlaylistPendingResolution(after delay: Duration = .seconds(3)) {
+        guard !playlistPendingEntries.isEmpty, !isPreparing else { return }
+        playlistPendingResolutionTask?.cancel()
+        playlistPendingResolutionGeneration &+= 1
+        let generation = playlistPendingResolutionGeneration
+        playlistPendingResolutionTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            if self.isDeferringSceneTransitionPublications {
+                self.playlistPendingResolutionTask = nil
+                self.schedulePlaylistPendingResolution(after: .seconds(10))
+                return
+            }
+            let entries = self.playlistPendingEntries
+            let candidates = self.visibleSongs
+            let cache = self.playlistEntryMatchKeyCache
+            let outcome = await Task.detached(priority: .utility) {
+                Self.matchPendingEntries(entries, against: candidates, keyCache: cache)
+            }.value
+            guard generation == self.playlistPendingResolutionGeneration else { return }
+            self.playlistPendingResolutionTask = nil
+            self.applyPendingResolutions(outcome)
+        }
+    }
+
+    struct PendingEntryMatchOutcome: Sendable {
+        /// 占位 id → 点亮用的歌。
+        var resolved: [String: String] = [:]
+        /// 占位 id → 「可能是」的候选(nil 表示原来的候选已经不成立)。
+        var suggestions: [String: String?] = [:]
+    }
+
+    nonisolated static func matchPendingEntries(
+        _ entries: [String: PlaylistPendingEntry],
+        against songs: [Song],
+        keyCache: PlaylistEntryMatchKeyCache?
+    ) -> PendingEntryMatchOutcome {
+        var outcome = PendingEntryMatchOutcome()
+        guard !entries.isEmpty, !songs.isEmpty else { return outcome }
+        let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
+        for (id, entry) in entries where entry.hasPlayableMetadata {
+            let match = matcher.match(entry.matchSubject)
+            if let best = match.best {
+                outcome.resolved[id] = best.id
+            } else {
+                let suggestion = match.probable.first?.id
+                if suggestion != entry.suggestedSongID { outcome.suggestions[id] = suggestion }
+            }
+        }
+        return outcome
+    }
+
+    /// 点亮不改歌单的版本号、也不推给 iCloud: 别的设备用同一套规则会得出同样的
+    /// 结果, 各自点亮即可; 推上去反而会在几台设备之间来回覆盖。下一次用户编辑
+    /// 这个歌单时, 点亮后的成员表会随那次保存一起同步。
+    private func applyPendingResolutions(_ outcome: PendingEntryMatchOutcome) {
+        var membershipChanged = false
+        if !outcome.resolved.isEmpty {
+            for (playlistID, members) in playlistSongIDs
+            where members.contains(where: { outcome.resolved[$0] != nil }) {
+                var present = Set(members.filter { !PlaylistPendingEntry.isPendingID($0) })
+                var next: [String] = []
+                next.reserveCapacity(members.count)
+                for id in members {
+                    guard let songID = outcome.resolved[id], playlistPendingEntries[id] != nil,
+                          songIndexByID[songID] != nil else {
+                        next.append(id)
+                        continue
+                    }
+                    // 同一首已经在歌单里(手动加过, 或者两个占位对到同一首)时只摘掉占位。
+                    if present.insert(songID).inserted { next.append(songID) }
+                }
+                if next != members {
+                    playlistSongIDs[playlistID] = next
+                    membershipChanged = true
+                }
+            }
+        }
+        var suggestionsChanged = false
+        for (id, suggestion) in outcome.suggestions {
+            guard var entry = playlistPendingEntries[id], entry.suggestedSongID != suggestion else { continue }
+            entry.suggestedSongID = suggestion
+            playlistPendingEntries[id] = entry
+            suggestionsChanged = true
+        }
+        if membershipChanged {
+            playlistPendingEntries = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
+            plog("🎵 Lit \(outcome.resolved.count) pending playlist entr(y/ies)")
+        }
+        if membershipChanged || suggestionsChanged {
+            playlistCollectionRevision &+= 1
+            persistSnapshot()
+        }
+    }
+
+    /// 歌从曲库里消失时(`songs` 已是删除后的状态、`cleanPlaylistEntries` 之前)调用。
+    /// 引用了被删歌曲的手动歌单里: 别的源还有同一首就原位换过去; 没有时,
+    /// `leavingPlaceholders` 为真(音乐源被移除、文件从源里消失)留下置灰占位,
+    /// 以后有了再点亮; 为假(用户亲手删歌)照旧从歌单里去掉。「我喜欢」不留占位 ——
+    /// 它和服务端收藏双向同步, 占位在那边没有对应物。
+    private func reassignPlaylistMembers(ofRemoved removed: [Song], leavingPlaceholders: Bool) {
+        guard !removed.isEmpty, !playlistSongIDs.isEmpty else { return }
+        let removedByID = Dictionary(removed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var affectedPlaylistIDs: [String] = []
+        var referencedRemoved: [String: Song] = [:]
+        for playlist in allPlaylists where !playlist.isDeleted && playlist.allowsManualSongMembership {
+            guard let members = playlistSongIDs[playlist.id] else { continue }
+            var hit = false
+            for id in members {
+                if let song = removedByID[id] {
+                    referencedRemoved[id] = song
+                    hit = true
+                }
+            }
+            if hit { affectedPlaylistIDs.append(playlist.id) }
+        }
+        // 常见情况(没有歌单引用被删的歌)到这里就结束, 不碰整库。
+        guard !referencedRemoved.isEmpty else { return }
+
+        let replacements = siblingReplacements(for: Array(referencedRemoved.values))
+        var placeholders: [String: PlaylistPendingEntry] = [:]
+        var changed = false
+        for playlistID in affectedPlaylistIDs {
+            guard let members = playlistSongIDs[playlistID] else { continue }
+            let allowsPlaceholder = leavingPlaceholders && playlistID != Self.likedSongsPlaylistID
+            var present = Set(members.filter { removedByID[$0] == nil && !PlaylistPendingEntry.isPendingID($0) })
+            var next: [String] = []
+            next.reserveCapacity(members.count)
+            for id in members {
+                guard let song = referencedRemoved[id] else {
+                    next.append(id)
+                    continue
+                }
+                if let sibling = replacements[id] {
+                    if present.insert(sibling).inserted { next.append(sibling) }
+                } else if allowsPlaceholder, !song.title.isEmpty {
+                    // 同一首歌在几个歌单里共用一条占位, 点亮时一起亮。
+                    let entry = placeholders[id] ?? PlaylistPendingEntry(
+                        title: song.title,
+                        artists: PlaylistEntryMatcher.artists(of: song),
+                        album: song.albumTitle,
+                        duration: song.duration > 0 ? song.duration : nil,
+                        origin: "removed-source"
+                    )
+                    placeholders[id] = entry
+                    playlistPendingEntries[entry.id] = entry
+                    next.append(entry.id)
+                } else {
+                    // 留给紧随其后的 `cleanPlaylistEntries` 按老规矩清掉。
+                    next.append(id)
+                }
+            }
+            if next != members {
+                playlistSongIDs[playlistID] = next
+                changed = true
+            }
+        }
+        if changed {
+            plog("🎵 Reassigned \(replacements.count) removed playlist song(s) to other copies, \(placeholders.count) left as pending")
+            persistSnapshot()
+        }
+    }
+
+    /// 被删的歌 → 曲库里同一首歌的另一份(停用源除外)。只拿标题粗筛过的少数歌建索引,
+    /// 不对整库做繁简归一化。
+    private func siblingReplacements(for removed: [Song]) -> [String: String] {
+        let coarseKeys = Set(removed.map { Self.coarseTitleKey($0.title) }.filter { !$0.isEmpty })
+        guard !coarseKeys.isEmpty else { return [:] }
+        let removedIDs = Set(removed.map(\.id))
+        let candidates = songs.filter {
+            !removedIDs.contains($0.id)
+                && !disabledSourceIDs.contains($0.sourceID)
+                && coarseKeys.contains(Self.coarseTitleKey($0.title))
+        }
+        guard !candidates.isEmpty else { return [:] }
+        let matcher = PlaylistEntryMatcher(songs: candidates, keyCache: playlistEntryMatchKeyCache)
+        var result: [String: String] = [:]
+        for song in removed {
+            if let best = matcher.match(PlaylistEntryMatcher.subject(of: song)).best {
+                result[song.id] = best.id
+            }
+        }
+        return result
+    }
+
+    /// 这些歌各自在别的(启用中的)源里的其他版本, 不含自己。播放时原曲所在的源连不上,
+    /// 播放器从这里挑一份能播的。一次调用只扫一遍可见曲库。
+    func otherCopies(of targets: [Song]) -> [String: [Song]] {
+        guard !targets.isEmpty else { return [:] }
+        let coarseKeys = Set(targets.map { Self.coarseTitleKey($0.title) }.filter { !$0.isEmpty })
+        guard !coarseKeys.isEmpty else { return [:] }
+        let candidates = visibleSongs.filter { coarseKeys.contains(Self.coarseTitleKey($0.title)) }
+        guard candidates.count > 1 else { return [:] }
+        let matcher = PlaylistEntryMatcher(songs: candidates, keyCache: playlistEntryMatchKeyCache)
+        var result: [String: [Song]] = [:]
+        for song in targets {
+            let copies = matcher.match(PlaylistEntryMatcher.subject(of: song)).confident.filter {
+                $0.id != song.id && $0.sourceID != song.sourceID
+            }
+            if !copies.isEmpty { result[song.id] = copies }
+        }
+        return result
+    }
+
+    /// 标题在第一个括号之前的部分, 只折叠大小写与空白。用来粗筛候选, 不求精确。
+    nonisolated private static func coarseTitleKey(_ title: String) -> String {
+        let head = title.prefix { !"([（【［".contains($0) }
+        return String(head.lowercased().filter { !$0.isWhitespace })
     }
 
     // MARK: - Cloud sync hooks
@@ -7879,6 +8214,10 @@ final class MusicLibrary {
         for identity in identities {
             if let songID = resolveIdentity(identity, using: resolutionIndex) {
                 resolved.append(songID)
+            } else if let entry = PlaylistPendingEntry(syncIdentity: identity) {
+                // 别的设备上置灰的条目: 原位保留成本机的占位, 由本机曲库去点亮。
+                if playlistPendingEntries[entry.id] == nil { playlistPendingEntries[entry.id] = entry }
+                resolved.append(entry.id)
             } else {
                 unresolved.append(identity)
             }
@@ -8118,6 +8457,7 @@ final class MusicLibrary {
     /// the pending entries are durable, so this changes latency rather than
     /// correctness.
     private func schedulePendingIdentityFlush() {
+        schedulePlaylistPendingResolution()
         guard !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty else { return }
         guard allowsPendingIdentityFlush else { return }
         pendingIdentityFlushTask?.cancel()
@@ -9315,6 +9655,7 @@ final class MusicLibrary {
         var deletedSongIdentityDetails: [String: LibrarySongTombstoneDetail] = [:]
         var pendingPlaylistIdentities: [String: [PendingSongIdentity]] = [:]
         var pendingHistoryIdentities: [PendingSongIdentity] = []
+        var playlistPendingEntries: [String: PlaylistPendingEntry] = [:]
         var automaticArtistArtworkCatalogsBySource: [String: SourceArtistArtworkCatalog] = [:]
         var artworkOverridesByOwner: [String: LibraryArtworkOverride] = [:]
         var libraryReviewsBySubject: [String: LibraryReview] = [:]
@@ -9379,8 +9720,14 @@ final class MusicLibrary {
         }
         mutating func cleanPlaylistEntries() {
             for id in playlistSongIDs.keys {
-                playlistSongIDs[id] = playlistSongIDs[id]?.filter { songForSynchronization(id: $0) != nil }
+                playlistSongIDs[id] = playlistSongIDs[id]?.filter {
+                    songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil
+                }
             }
+            playlistPendingEntries = MusicLibrary.referencedPendingEntries(
+                playlistPendingEntries,
+                memberships: playlistSongIDs
+            )
         }
         mutating func cleanPlaybackHistoryEntries() {
             recentPlaybackSongIDs = recentPlaybackSongIDs.filter { songForSynchronization(id: $0) != nil }
@@ -9676,6 +10023,7 @@ final class MusicLibrary {
             deletedSongIdentityDetails = tombstoneLedger.details
             pendingPlaylistIdentities = snapshot.pendingPlaylistIdentities ?? [:]
             pendingHistoryIdentities = snapshot.pendingHistoryIdentities ?? []
+            playlistPendingEntries = snapshot.playlistPendingEntries ?? [:]
             cleanPlaylistEntries()
             cleanPlaybackHistoryEntries()
             // Songs may already include matches for pending entries from a
@@ -9884,6 +10232,7 @@ final class MusicLibrary {
             storage.deletedSongIdentityDetails = deletedSongIdentityDetails
             storage.pendingPlaylistIdentities = pendingPlaylistIdentities
             storage.pendingHistoryIdentities = pendingHistoryIdentities
+            storage.playlistPendingEntries = playlistPendingEntries
             storage.automaticArtistArtworkCatalogsBySource = automaticArtistArtworkCatalogsBySource
             storage.artworkOverridesByOwner = artworkOverridesByOwner
             storage.libraryReviewsBySubject = libraryReviewsBySubject
@@ -9941,6 +10290,7 @@ final class MusicLibrary {
             deletedSongIdentityDetails = storage.deletedSongIdentityDetails
             pendingPlaylistIdentities = storage.pendingPlaylistIdentities
             pendingHistoryIdentities = storage.pendingHistoryIdentities
+            playlistPendingEntries = storage.playlistPendingEntries
             automaticArtistArtworkCatalogsBySource = storage.automaticArtistArtworkCatalogsBySource
             let liveReviews = libraryReviewsBySubject
             libraryReviewsBySubject = storage.libraryReviewsBySubject
@@ -10615,7 +10965,8 @@ final class MusicLibrary {
                 ? nil
                 : deletedSongIdentityDetails,
             pendingPlaylistIdentities: pendingPlaylistIdentities.isEmpty ? nil : pendingPlaylistIdentities,
-            pendingHistoryIdentities: pendingHistoryIdentities.isEmpty ? nil : pendingHistoryIdentities
+            pendingHistoryIdentities: pendingHistoryIdentities.isEmpty ? nil : pendingHistoryIdentities,
+            playlistPendingEntries: playlistPendingEntries.isEmpty ? nil : playlistPendingEntries
         )
     }
 
@@ -10896,6 +11247,13 @@ final class MusicLibrary {
         }
         incoming.playlistSongIDs = membership
         incoming.pendingPlaylistIdentities = pending
+        // 占位条目按 id 取并集: 成员表里引用到谁, 谁就得有元数据; 多出来的
+        // 下次装载时由 `cleanPlaylistEntries` 回收。
+        var pendingEntries = incoming.playlistPendingEntries ?? [:]
+        for (id, entry) in local.playlistPendingEntries ?? [:] where pendingEntries[id] == nil {
+            pendingEntries[id] = entry
+        }
+        incoming.playlistPendingEntries = pendingEntries.isEmpty ? nil : pendingEntries
         var smart = incoming.smartPlaylists ?? []
         for playlist in local.smartPlaylists ?? [] {
             if let index = smart.firstIndex(where: { $0.id == playlist.id }) {
@@ -11008,7 +11366,7 @@ final class MusicLibrary {
             if var playlistSongIDs = snapshot.playlistSongIDs {
                 for playlistID in playlistSongIDs.keys {
                     playlistSongIDs[playlistID]?.removeAll {
-                        !retainedSongIDs.contains($0)
+                        !retainedSongIDs.contains($0) && !PlaylistPendingEntry.isPendingID($0)
                     }
                 }
                 snapshot.playlistSongIDs = playlistSongIDs
@@ -11321,10 +11679,30 @@ final class MusicLibrary {
 
     private func cleanPlaylistEntries() {
         for playlistID in playlistSongIDs.keys {
-            playlistSongIDs[playlistID] = (playlistSongIDs[playlistID] ?? []).filter {
-                songForSynchronization(id: $0) != nil
+            let current = playlistSongIDs[playlistID] ?? []
+            let kept = current.filter {
+                songForSynchronization(id: $0) != nil || playlistPendingEntries[$0] != nil
+            }
+            // 没变就别写: 每写一次都会让观察者以为成员变了。
+            if kept.count != current.count { playlistSongIDs[playlistID] = kept }
+        }
+        let referenced = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
+        if referenced.count != playlistPendingEntries.count { playlistPendingEntries = referenced }
+    }
+
+    /// 只留下仍被某个歌单引用的占位条目。
+    nonisolated static func referencedPendingEntries(
+        _ entries: [String: PlaylistPendingEntry],
+        memberships: [String: [String]]
+    ) -> [String: PlaylistPendingEntry] {
+        guard !entries.isEmpty else { return entries }
+        var referenced: [String: PlaylistPendingEntry] = [:]
+        for members in memberships.values {
+            for id in members where PlaylistPendingEntry.isPendingID(id) {
+                if let entry = entries[id] { referenced[id] = entry }
             }
         }
+        return referenced
     }
 
     private func cleanPlaybackHistoryEntries() {
@@ -11822,6 +12200,9 @@ final class MusicLibrary {
         /// match. Optional so old snapshots decode cleanly with no entries.
         var pendingPlaylistIdentities: [String: [PendingSongIdentity]]?
         var pendingHistoryIdentities: [PendingSongIdentity]?
+        /// 歌单里置灰的占位条目。Optional: 旧快照没有; 旧版本写回时会丢掉它,
+        /// 占位 id 随后被当成失效成员清掉 —— 退化成以前「没对上就不导入」的样子。
+        var playlistPendingEntries: [String: PlaylistPendingEntry]? = nil
     }
 
     private struct PlaylistDurabilityLedger: Codable, Sendable {

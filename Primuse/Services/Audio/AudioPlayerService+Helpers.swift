@@ -106,6 +106,7 @@ extension AudioPlayerService {
         }
 
         if let failedSourceID {
+            substituteQueuedCopies(fromUnavailableSource: failedSourceID)
             var skippedCount = 0
             while let candidate = nextSongInQueue(),
                   SourceFailureAdvancePolicy.shouldSkipCandidate(
@@ -256,6 +257,69 @@ extension AudioPlayerService {
             return false
         }
         return sourceManager?.hasUsableCachedAudioForPlayback(song) != true
+    }
+
+    /// 同一首歌在别的源里还有一份时, 原曲所在的源此刻连不上就换成能播的那一份
+    /// (本机有完整音频的优先, 其次音质高的)。只换这一次的队列, 歌单本身不动;
+    /// 原来的源恢复以后, 下次播放仍然用原来那一份。
+    func substitutingReachableCopies(in songs: [Song]) -> [Song] {
+        let blocked = songs.filter { isSongBlockedByUnreachableSource($0) }
+        guard !blocked.isEmpty, let library else { return songs }
+        let alternatives = library.otherCopies(of: blocked)
+        guard !alternatives.isEmpty else { return songs }
+        var present = Set(songs.map(\.id))
+        var replaced = 0
+        let result = songs.map { song -> Song in
+            guard let copies = alternatives[song.id],
+                  let replacement = preferredReachableCopy(among: copies),
+                  present.insert(replacement.id).inserted else { return song }
+            replaced += 1
+            return replacement
+        }
+        if replaced > 0 {
+            plog("🔁 Swapped \(replaced) unreachable queue song(s) for copies on other sources")
+        }
+        return result
+    }
+
+    /// 源整体失败之后, 队列里其余来自这个源、本机又没有完整音频的歌, 先换成别的源里的
+    /// 同一首; 换不了的再按原来的规则跳过。
+    func substituteQueuedCopies(fromUnavailableSource sourceID: String) {
+        let indices = queueEntries.indices.filter { index in
+            index != currentIndex
+                && queueEntries[index].song.sourceID == sourceID
+                && sourceManager?.hasUsableCachedAudioForPlayback(queueEntries[index].song) != true
+        }
+        guard !indices.isEmpty, let library else { return }
+        let alternatives = library.otherCopies(of: indices.map { queueEntries[$0].song })
+        guard !alternatives.isEmpty else { return }
+        var entries = queueEntries
+        var present = Set(entries.map(\.song.id))
+        var replaced = 0
+        for index in indices {
+            guard let copies = alternatives[entries[index].song.id],
+                  let replacement = preferredReachableCopy(among: copies.filter { $0.sourceID != sourceID }),
+                  present.insert(replacement.id).inserted else { continue }
+            entries[index].song = replacement
+            replaced += 1
+        }
+        guard replaced > 0 else { return }
+        invalidatePreparedQueueSuccessor()
+        queueEntries = entries
+        plog("🔁 Swapped \(replaced) queued song(s) from unavailable source \(sourceID.prefix(8)) for copies on other sources")
+    }
+
+    func preferredReachableCopy(among copies: [Song]) -> Song? {
+        let candidates = copies.map { copy in
+            PlayableCopyPreferencePolicy.Candidate(
+                id: copy.id,
+                isAvailable: isSongAvailableForNewPlayback(copy),
+                hasLocalAudio: sourceManager?.hasUsableCachedAudioForPlayback(copy) == true,
+                qualityScore: DuplicateDetector.qualityScore(of: copy)
+            )
+        }
+        guard let chosen = PlayableCopyPreferencePolicy.preferred(candidates) else { return nil }
+        return copies.first { $0.id == chosen.id }
     }
 
     /// The listener picked a song whose source is known to be unreachable.
