@@ -502,16 +502,18 @@ struct TagChangeReviewView: View {
                     Text(String(format: String(localized: "tag_review_selected_format"), selectedCount))
                         .font(.subheadline.weight(.semibold))
                     Spacer()
-                    Button {
-                        excluded = excluded.isEmpty ? Set(input.proposals.map(\.id)) : []
-                    } label: {
-                        if excluded.isEmpty {
-                            Text("tag_review_select_none")
-                        } else {
-                            Text("tag_review_select_all")
+                    if !input.proposals.isEmpty {
+                        Button {
+                            excluded = excluded.isEmpty ? Set(input.proposals.map(\.id)) : []
+                        } label: {
+                            if excluded.isEmpty {
+                                Text("tag_review_select_none")
+                            } else {
+                                Text("tag_review_select_all")
+                            }
                         }
+                        .font(.subheadline)
                     }
-                    .font(.subheadline)
                 }
                 Text("tag_review_footer")
                     .font(.caption)

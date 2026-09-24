@@ -4540,6 +4540,9 @@ final class AudioPlayerService {
             }
 
             let stream: AudioBufferStream
+            /// Where in the file the decoder starts; nonzero only for a
+            /// medley slice, whose stream is then trimmed relative to it.
+            var decoderSourceStartTime: TimeInterval = 0
             if isRemoteURL {
                 if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
                     || remoteWAVRequiresCompleteFile
@@ -4714,12 +4717,19 @@ final class AudioPlayerService {
                 stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: makeResolveLengthCallback(for: song))
             } else {
                 let reason = "local file path (file:// scheme)"
+                // A medley slice starts mid-file. Let the decoder seek there,
+                // as a seek does, instead of decoding and discarding
+                // everything before the slice.
+                if let start = song.cueStartTime, start > 0, medleySongIDs.contains(song.id) {
+                    decoderSourceStartTime = start
+                }
                 if await usesFFmpegDecoder(for: song, url: url) {
                     activeDecoderKind = .ffmpeg
                     plog("▶️ Decoder: FFmpeg (reason: \(reason)) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                     stream = ffmpegDecoder.decode(
                         from: url,
                         outputFormat: outputFormat,
+                        startingAt: decoderSourceStartTime > 0 ? decoderSourceStartTime : nil,
                         onResolveSourceLength: makeResolveLengthCallback(for: song)
                     )
                 } else {
@@ -4728,11 +4738,12 @@ final class AudioPlayerService {
                         from: url,
                         outputFormat: outputFormat,
                         dsdMode: activeDSDMode,
+                        startingAt: decoderSourceStartTime > 0 ? decoderSourceStartTime : nil,
                         onResolveSourceLength: makeResolveLengthCallback(for: song)
                     )
                 }
             }
-            let playbackStream = segmented(stream, for: song)
+            let playbackStream = segmented(stream, for: song, sourceStartTime: decoderSourceStartTime)
             let iteratorBox = BufferIteratorBox(playbackStream.makeAsyncIterator())
 
             // Await first buffer — ensures we have audio data before calling play()

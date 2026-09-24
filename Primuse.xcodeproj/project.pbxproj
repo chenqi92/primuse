@@ -142,6 +142,7 @@
 		049039634109B21268632190 /* FFmpegMusicVideoConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */; };
 		88205AF52E64848DDC50B1AC /* MP4IndexPairAtom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2800D1EEFBBB44AC03AE038D /* MP4IndexPairAtom.swift */; };
 		9A9392494CE05082F9138DFC /* PlaylistPendingEntryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB3B864D74D127C42CEBC00 /* PlaylistPendingEntryRow.swift */; };
+		9CDE3BDF32F40DDC8E57E684 /* ListeningFeaturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FDC2CF249B9B5DB8394AF9 /* ListeningFeaturesTests.swift */; };
 		A854F7F0E691B045F79EA1EB /* KaraokeCompanionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93405B61747DD571BF337CD2 /* KaraokeCompanionPolicy.swift */; };
 		BFC3EDDCBF5E1CA78A3E425F /* MusicVideoCompatibilityConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */; };
 		17F49E86FA92CB0D1341670E /* RelayStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99EF0A47317166C18FD865D /* RelayStreamResolver.swift */; };
@@ -2027,6 +2028,7 @@
 		52E544642E7DCB96C625600B /* FnMusicStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnMusicStreamResolver.swift; sourceTree = "<group>"; };
 		52E8A7E128086B5B634718F5 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/Localizable.strings; sourceTree = "<group>"; };
 		52F04429FA512B9FBE040C61 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		52FDC2CF249B9B5DB8394AF9 /* ListeningFeaturesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningFeaturesTests.swift; sourceTree = "<group>"; };
 		5331651FCE7FBFE2A8CC03EC /* AudioPlayerService+RemoteCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AudioPlayerService+RemoteCommands.swift"; sourceTree = "<group>"; };
 		53685355484484D363F001AF /* BrandTintStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandTintStore.swift; sourceTree = "<group>"; };
 		54676B57B5334C97A45A4886 /* SynologyAudioStationSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationSource.swift; sourceTree = "<group>"; };
@@ -4217,6 +4219,7 @@
 				37F2A8C498BD95803C47AA04 /* LibraryStartupHarnessTests.swift */,
 				6501ADF2A78A679B038D1826 /* LibraryStartupPreparationTests.swift */,
 				72EDF3F4D1CF10A41CE2DA3C /* LifecycleRegressionTests.swift */,
+				52FDC2CF249B9B5DB8394AF9 /* ListeningFeaturesTests.swift */,
 				6C0340425B4875EC8A446D0D /* MacVolumeSliderTests.swift */,
 				84E23C9293FD5D2A2D5CB33F /* MediaServerSTRMRedirectTests.swift */,
 				A50429232F7FCB8DE7649F32 /* MotionArtworkEndpointClientTests.swift */,
@@ -4910,6 +4913,7 @@
 				DCDA96AC3B149B7D18AAD1E5 /* LibraryStartupHarnessTests.swift in Sources */,
 				1FE2BC706AA7F2A36C401F13 /* LibraryStartupPreparationTests.swift in Sources */,
 				B6BBC2FD980B62AF838C437F /* LifecycleRegressionTests.swift in Sources */,
+				9CDE3BDF32F40DDC8E57E684 /* ListeningFeaturesTests.swift in Sources */,
 				C24664FF9B03E510B6F6ABB5 /* MacVolumeSliderTests.swift in Sources */,
 				95A46BF131D560E1897BAE8B /* MediaServerSTRMRedirectTests.swift in Sources */,
 				B2AEC2569A938C3843AFDFCC /* MotionArtworkEndpointClientTests.swift in Sources */,

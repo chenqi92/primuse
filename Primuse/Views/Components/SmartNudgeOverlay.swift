@@ -92,6 +92,9 @@ private struct SmartNudgeBanner: View {
                     Text("smart_nudge_action_set")
                         .font(.subheadline.weight(.semibold))
                 }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
                 .fixedSize()
             } else {
                 Button { onAccept(0) } label: {

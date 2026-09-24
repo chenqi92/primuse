@@ -120,6 +120,13 @@ final class UserNotificationService {
         case .denied:
             return false
         case .notDetermined:
+            #if DEBUG
+            // Unattended simulator runs: the system prompt would sit over
+            // every screenshot and cannot be answered from a script.
+            if ProcessInfo.processInfo.environment["PRIMUSE_NO_NOTIFICATION_PROMPT"] == "1" {
+                return false
+            }
+            #endif
             guard !permissionRequested else { return permissionGranted }
             permissionRequested = true
             do {
