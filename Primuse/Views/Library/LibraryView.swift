@@ -158,6 +158,7 @@ enum LibraryDebugNavigation {
     enum Target {
         case album(Album)
         case genre(LibraryGenre)
+        case smartPlaylist(SmartPlaylist)
     }
 
     struct Request {
@@ -174,6 +175,10 @@ enum LibraryDebugNavigation {
 
     static func push(_ genre: LibraryGenre, in section: LibrarySection) {
         post(Request(section: section, target: .genre(genre)))
+    }
+
+    static func push(_ smartPlaylist: SmartPlaylist, in section: LibrarySection) {
+        post(Request(section: section, target: .smartPlaylist(smartPlaylist)))
     }
 
     static func pop(in section: LibrarySection) {
@@ -408,6 +413,7 @@ struct LibraryView: View {
     /// 取证钩子推入的风格页。风格的值导航登记在分类页里，从外面往路径里追加找不到它，
     /// 所以在根上另挂一个按条目推入的目的地。
     @State private var debugGenre: LibraryGenre?
+    @State private var debugSmartPlaylist: SmartPlaylist?
     #endif
     /// 资料库这一层导航栈的 zoom 命名空间。
     @Namespace private var libraryZoomNamespace
@@ -546,11 +552,15 @@ struct LibraryView: View {
                 switch request.target {
                 case .album(let album): navigationPath.append(album)
                 case .genre(let genre): debugGenre = genre
+                case .smartPlaylist(let smart): debugSmartPlaylist = smart
                 case nil: if !navigationPath.isEmpty { navigationPath.removeLast() }
                 }
             }
             .navigationDestination(item: $debugGenre) { genre in
                 GenreDetailView(genre: genre)
+            }
+            .navigationDestination(item: $debugSmartPlaylist) { smart in
+                SmartPlaylistDetailView(smartPlaylistID: smart.id)
             }
             #endif
             .onChange(of: navigationPath.count) { _, count in

@@ -1960,7 +1960,8 @@ struct ContentView: View {
 /// `searchidle`（打开搜索但不弹键盘）。另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
 /// 详情页取证用：`playlist:<名字片段>`（`liked` 是「喜欢」）/ `genre:<名字片段>` /
 /// `zoom:<专辑标题片段>`（先停在专辑网格，再从网格推入专辑页、退回、再推入，录缩放转场用）。
-/// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）。
+/// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）；
+/// 另建两张同样形态的取证智能歌单（Evidence Smart Wall / Evidence Smart Single），用 `smart:<名字片段>` 打开。
 /// `scopedsearch:<专辑标题片段>`：打开专辑页，三秒后进「在这张专辑里搜索」（顶部 tab 外壳走详情页的放大镜，经典走搜索标签）。
 /// `PRIMUSE_DEBUG_SCROLL_BY=<点数>`：页面打开后把最大的纵向滚动视图滚动这么多，负数是下拉到顶部之外。
 extension ContentView {
@@ -2087,6 +2088,21 @@ extension ContentView {
                 guard !Task.isCancelled else { return }
             }
             plog("🧪 DebugLaunchAutomation: no genre matching '\(needle)'")
+        case "smart":
+            for _ in 0..<30 {
+                if let smart = library.smartPlaylists.first(where: {
+                    needle.isEmpty || $0.name.lowercased().contains(needle)
+                }) {
+                    debugOpenSection(.playlists)
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    LibraryDebugNavigation.push(smart, in: .playlists)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+            }
+            plog("🧪 DebugLaunchAutomation: no smart playlist matching '\(needle)'")
         case "zoom":
             // 从专辑网格里推入专辑页 —— 转场源(网格里的卡片)在屏幕上,才走得到缩放转场。
             guard let album = library.visibleAlbums.first(where: {
@@ -2157,6 +2173,20 @@ extension ContentView {
                 name: "Evidence Single",
                 songIDs: library.songs(forAlbum: album.id).map(\.id)
             )
+        }
+        // 智能歌单的两种头图:命中整库(封面墙)与只命中 Evidence 专辑(单封面)。
+        let smartNames = library.smartPlaylists.map(\.name)
+        if !smartNames.contains("Evidence Smart Wall") {
+            library.saveSmartPlaylist(SmartPlaylist(
+                name: "Evidence Smart Wall",
+                rules: [SmartPlaylistRule(field: .durationSec, op: .greaterThan, value: "0")]
+            ))
+        }
+        if !smartNames.contains("Evidence Smart Single") {
+            library.saveSmartPlaylist(SmartPlaylist(
+                name: "Evidence Smart Single",
+                rules: [SmartPlaylistRule(field: .albumTitle, op: .contains, value: "Evidence")]
+            ))
         }
     }
 
