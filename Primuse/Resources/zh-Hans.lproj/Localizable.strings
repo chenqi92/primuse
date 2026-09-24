@@ -3388,6 +3388,9 @@
 "ai_provider_preset_baidu_qianfan" = "百度千帆";
 "ai_provider_preset_stepfun" = "阶跃星辰";
 "ai_provider_preset_siliconflow" = "硅基流动";
+"ai_provider_preset_sensenova" = "商汤日日新";
+"ai_provider_preset_agnes" = "Agnes AI";
+"ai_provider_preset_agnes_mainland" = "Agnes AI · 国内版";
 "ai_provider_preset_openrouter" = "OpenRouter";
 "ai_provider_preset_nvidia_nim" = "NVIDIA NIM";
 "ai_provider_preset_xai" = "xAI";

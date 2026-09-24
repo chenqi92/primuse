@@ -3288,6 +3288,9 @@
 "ai_provider_preset_baidu_qianfan" = "Baidu Qianfan（中国）";
 "ai_provider_preset_stepfun" = "StepFun（中国）";
 "ai_provider_preset_siliconflow" = "SiliconFlow（中国）";
+"ai_provider_preset_sensenova" = "SenseNova（中国）";
+"ai_provider_preset_agnes" = "Agnes AI（グローバル）";
+"ai_provider_preset_agnes_mainland" = "Agnes AI（中国版）";
 "ai_provider_preset_openrouter" = "OpenRouter（グローバル）";
 "ai_provider_preset_nvidia_nim" = "NVIDIA NIM（グローバル）";
 "ai_provider_preset_xai" = "xAI（グローバル）";

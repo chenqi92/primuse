@@ -2053,6 +2053,9 @@
 "sidebar_playlists_empty" = "Пока нет плейлистов";
 "ai_provider_preset_stepfun" = "StepFun";
 "ai_provider_preset_siliconflow" = "SiliconFlow";
+"ai_provider_preset_sensenova" = "SenseNova";
+"ai_provider_preset_agnes" = "Agnes AI";
+"ai_provider_preset_agnes_mainland" = "Agnes AI (Китай)";
 "yearly_personality_lovm_description" = "Держит на повторе нескольких давних артистов даже в самые тихие часы.";
 "scrape_lyrics_diff_format" = "%1$@ → %2$d строки";
 "synced_credentials" = "Исходные пароли и вход в облако (Связка ключей)";
