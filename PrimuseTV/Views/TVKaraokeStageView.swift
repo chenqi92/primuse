@@ -156,6 +156,12 @@ private struct TVKaraokeStageContent: View {
         if !session.isVocalReductionAvailable {
             return String(localized: "karaoke_tv_unsupported")
         }
+        if session.usesPhoneStem {
+            return String(localized: "karaoke_tv_ai_active")
+        }
+        if let progress = session.phoneSeparationProgress {
+            return String(format: String(localized: "karaoke_tv_ai_preparing_format"), Int((progress * 100).rounded()))
+        }
         if session.isEffectivelyMono {
             return String(localized: "karaoke_mono_warning")
         }

@@ -54,6 +54,11 @@ public enum KaraokeMicLink {
         case hello(version: Int, key: String, deviceName: String)
         /// One analysis step: sung MIDI note, or nil for silence.
         case reading(sequence: Int, midiNote: Double?)
+        /// The phone is separating the TV's song with the AI model.
+        case separationProgress(songID: String, fraction: Double)
+        /// First line of a separate connection that then carries
+        /// `byteCount` bytes of a `KaraokeStemFile` for `songID`.
+        case stemUpload(key: String, songID: String, byteCount: Int)
         case goodbye
     }
 
@@ -62,7 +67,13 @@ public enum KaraokeMicLink {
         case accepted(songTitle: String)
         case rejected
         case status(songTitle: String, isPlaying: Bool, score: Int?)
+        /// The TV's current song, so the phone can provide its AI vocal.
+        case nowPlaying(songID: String?)
+        case stemReceived(songID: String)
     }
+
+    /// Largest vocal stem the TV accepts (about 15 minutes at 48 kHz).
+    public static let maximumStemBytes = 200_000_000
 
     public static func encode<T: Encodable>(_ message: T) -> Data {
         var data = (try? JSONEncoder().encode(message)) ?? Data()
@@ -92,6 +103,27 @@ public enum KaraokeMicLink {
                 buffer.removeAll()
             }
             return messages
+        }
+
+        /// Bytes received after the last complete line: the start of a raw
+        /// payload that follows a header line.
+        public mutating func takeRemainder() -> Data {
+            defer { buffer.removeAll() }
+            return buffer
+        }
+
+        /// Like `append(_:as:)` but stops after the first message, leaving
+        /// everything after it for `takeRemainder()`.
+        public mutating func firstMessage<T: Decodable>(_ data: Data, as type: T.Type) -> T? {
+            buffer.append(data)
+            guard let newline = buffer.firstIndex(of: 0x0A) else {
+                if buffer.count > Self.maximumLineLength { buffer.removeAll() }
+                return nil
+            }
+            let line = buffer[buffer.startIndex..<newline]
+            buffer.removeSubrange(buffer.startIndex...newline)
+            buffer = Data(buffer)
+            return try? JSONDecoder().decode(T.self, from: Data(line))
         }
     }
 

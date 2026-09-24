@@ -4490,3 +4490,8 @@
 "karaoke_remote_rejected" = "Apple TV ने यह कोड स्वीकार नहीं किया। TV पर दिख रहा कोड फिर से स्कैन करें।";
 "karaoke_remote_failed" = "Apple TV तक नहीं पहुँच सके। पक्का करें कि दोनों एक ही नेटवर्क पर हैं।";
 "karaoke_remote_hint" = "iPhone को मुँह के पास रखें। आपकी आवाज़ कमरे में वैसे ही सुनाई देगी; iPhone सिर्फ़ स्कोर देता है।";
+"karaoke_tv_ai_active" = "iPhone से AI वोकल सेपरेशन चालू है।";
+"karaoke_tv_ai_preparing_format" = "iPhone वोकल अलग कर रहा है… %d%%";
+"karaoke_remote_ai_preparing" = "TV के लिए AI वोकल";
+"karaoke_remote_ai_sending" = "TV पर AI वोकल भेजा जा रहा है…";
+"karaoke_remote_ai_sent" = "TV AI वोकल सेपरेशन इस्तेमाल कर रहा है।";

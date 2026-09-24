@@ -80,3 +80,28 @@ struct KaraokeMicLinkTests {
         #expect(abs(estimator.lag - lag) <= 0.03, "lag \(estimator.lag)")
     }
 }
+
+extension KaraokeMicLinkTests {
+    @Test("A stem upload header is split from the payload that follows it")
+    func stemUploadHeader() {
+        let payload = Data((0..<5_000).map { UInt8($0 % 251) })
+        let header = KaraokeMicLink.encode(KaraokeMicLink.PhoneMessage.stemUpload(key: "k", songID: "s", byteCount: payload.count))
+        let stream = header + payload
+        var framer = KaraokeMicLink.Framer()
+        // Header arrives in two pieces, the second already carrying payload.
+        #expect(framer.firstMessage(stream.prefix(10), as: KaraokeMicLink.PhoneMessage.self) == nil)
+        let message = framer.firstMessage(stream[10..<(header.count + 100)], as: KaraokeMicLink.PhoneMessage.self)
+        #expect(message == .stemUpload(key: "k", songID: "s", byteCount: payload.count))
+        var received = framer.takeRemainder()
+        received.append(stream[(header.count + 100)...])
+        #expect(received == payload)
+    }
+
+    @Test("New TV messages round-trip")
+    func tvMessages() {
+        var framer = KaraokeMicLink.Framer()
+        let messages: [KaraokeMicLink.TVMessage] = [.nowPlaying(songID: "abc"), .nowPlaying(songID: nil), .stemReceived(songID: "abc")]
+        let data = messages.map { KaraokeMicLink.encode($0) }.reduce(Data(), +)
+        #expect(framer.append(data, as: KaraokeMicLink.TVMessage.self) == messages)
+    }
+}

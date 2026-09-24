@@ -4490,3 +4490,8 @@
 "karaoke_remote_rejected" = "A Apple TV não aceitou este código. Escaneie de novo o código na TV.";
 "karaoke_remote_failed" = "Não foi possível acessar a Apple TV. Verifique se ambos estão na mesma rede.";
 "karaoke_remote_hint" = "Segure o iPhone perto da boca. Sua voz é ouvida normalmente na sala; o iPhone só avalia.";
+"karaoke_tv_ai_active" = "Separação vocal com IA do iPhone ativada.";
+"karaoke_tv_ai_preparing_format" = "O iPhone está separando a voz… %d%%";
+"karaoke_remote_ai_preparing" = "Preparando voz IA para a TV";
+"karaoke_remote_ai_sending" = "Enviando a voz IA para a TV…";
+"karaoke_remote_ai_sent" = "A TV está usando a separação vocal com IA.";

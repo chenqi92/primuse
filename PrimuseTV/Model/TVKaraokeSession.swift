@@ -1,4 +1,5 @@
 #if os(tvOS)
+import AVFoundation
 import Foundation
 import Observation
 import PrimuseKit
@@ -38,6 +39,10 @@ final class TVKaraokeSession {
     private(set) var runningScore: Int?
     private(set) var lagIsCalibrated = false
     var completedSummary: KaraokeScoreSummary?
+    /// The AI vocal the phone separated for the current song is in use.
+    private(set) var usesPhoneStem = false
+    /// The phone is separating the current song; 0...1.
+    private(set) var phoneSeparationProgress: Double?
 
     @ObservationIgnored private var songID: String?
     @ObservationIgnored private var lyricsRevision = -1
@@ -49,11 +54,18 @@ final class TVKaraokeSession {
     @ObservationIgnored private var detector: KaraokePitchDetector?
     @ObservationIgnored private var isAnalyzing = false
     @ObservationIgnored private var tickCount = 0
+    @ObservationIgnored private var stemTrack: TVKaraokeStemTrack?
+    @ObservationIgnored private var retiredStems: [TVKaraokeStemTrack] = []
 
     init(store: TVStore) {
         self.store = store
         vocalLevel = UserDefaults.standard.object(forKey: "karaokeVocalLevel") as? Double ?? 0.1
         micServer.onReading = { [weak self] note in self?.receive(sung: note) }
+        micServer.onStem = { [weak self] songID, data in self?.receiveStem(songID: songID, data: data) }
+        micServer.onSeparationProgress = { [weak self] songID, fraction in
+            guard let self, songID == self.songID, !self.usesPhoneStem else { return }
+            self.phoneSeparationProgress = fraction
+        }
     }
 
     var isVocalReductionAvailable: Bool { store.engine.isKaraokeTapInstalled }
@@ -84,6 +96,7 @@ final class TVKaraokeSession {
         tickTask?.cancel()
         tickTask = nil
         micServer.stop()
+        removeStem()
         store.engine.karaokeProcessor.update(.init())
         store.engine.setKaraokeTapEnabled(false)
     }
@@ -118,18 +131,27 @@ final class TVKaraokeSession {
     }
 
     private func applySettings() {
+        let stem = stemTrack.flatMap { $0.songID == songID ? $0 : nil }
         store.engine.karaokeProcessor.update(.init(
             isActive: isActive && isVocalReductionAvailable,
             reduction: Float(1 - vocalLevel),
-            capturesVocal: isActive && isMicConnected
+            capturesVocal: isActive && isMicConnected,
+            stemAddress: stem.map { UInt(bitPattern: $0.samples) } ?? 0,
+            stemFrames: stem?.frames ?? 0
         ))
     }
 
     private func songOrLyricsChanged() {
-        if songID != nil, songID != store.currentSongID {
+        let songChanged = songID != store.currentSongID
+        if songID != nil, songChanged {
             finishPerformance()
         }
         songID = store.currentSongID
+        if songChanged {
+            removeStem()
+            phoneSeparationProgress = nil
+            micServer.sendNowPlaying(songID: songID)
+        }
         lyricsRevision = store.lyricsRevision
         lyrics = store.lyrics.map(Self.lyricLine)
         windows = KaraokeLineWindowPolicy.windows(in: lyrics)
@@ -141,6 +163,74 @@ final class TVKaraokeSession {
         referenceTrack.removeAll()
         pitchHistory = []
         runningScore = nil
+    }
+
+    // MARK: AI stem from the phone
+
+    private func receiveStem(songID stemSongID: String, data: Data) {
+        guard stemSongID == songID else { return }
+        let targetRate = store.engine.karaokeProcessor.sampleRate
+        Task { @MainActor [weak self] in
+            let track = await Task.detached(priority: .userInitiated) { () -> TVKaraokeStemTrack? in
+                guard let stem = KaraokeStemFile.decode(data) else { return nil }
+                if abs(stem.header.sampleRate - targetRate) < 0.5 {
+                    return TVKaraokeStemTrack(songID: stemSongID, left: stem.left, right: stem.right, sampleRate: targetRate)
+                }
+                guard let resampled = Self.resample(left: stem.left, right: stem.right, from: stem.header.sampleRate, to: targetRate) else { return nil }
+                return TVKaraokeStemTrack(songID: stemSongID, left: resampled.left, right: resampled.right, sampleRate: targetRate)
+            }.value
+            guard let self, let track, track.songID == self.songID else { return }
+            self.removeStem()
+            self.stemTrack = track
+            self.usesPhoneStem = true
+            self.phoneSeparationProgress = nil
+            self.applySettings()
+        }
+    }
+
+    /// Takes the stem out of the tap; the samples stay alive a moment in
+    /// case a render cycle already read the old address.
+    private func removeStem() {
+        guard let track = stemTrack else { return }
+        stemTrack = nil
+        usesPhoneStem = false
+        applySettings()
+        retiredStems.append(track)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            self?.retiredStems.removeAll { $0 === track }
+        }
+    }
+
+    private nonisolated static func resample(
+        left: [Float],
+        right: [Float],
+        from sourceRate: Double,
+        to targetRate: Double
+    ) -> (left: [Float], right: [Float])? {
+        guard let sourceFormat = AVAudioFormat(standardFormatWithSampleRate: sourceRate, channels: 2),
+              let targetFormat = AVAudioFormat(standardFormatWithSampleRate: targetRate, channels: 2),
+              let converter = AVAudioConverter(from: sourceFormat, to: targetFormat),
+              let input = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(left.count)),
+              let channels = input.floatChannelData else { return nil }
+        input.frameLength = AVAudioFrameCount(left.count)
+        left.withUnsafeBufferPointer { channels[0].update(from: $0.baseAddress!, count: left.count) }
+        right.withUnsafeBufferPointer { channels[1].update(from: $0.baseAddress!, count: right.count) }
+        let capacity = AVAudioFrameCount(Double(left.count) * targetRate / sourceRate) + 4_096
+        guard let output = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return nil }
+        let pending = TVKaraokeOneShotBuffer(input)
+        var error: NSError?
+        let status = converter.convert(to: output, error: &error) { _, inputStatus in
+            guard let buffer = pending.take() else {
+                inputStatus.pointee = .endOfStream
+                return nil
+            }
+            inputStatus.pointee = .haveData
+            return buffer
+        }
+        guard status != .error, let out = output.floatChannelData else { return nil }
+        let count = Int(output.frameLength)
+        return (Array(UnsafeBufferPointer(start: out[0], count: count)), Array(UnsafeBufferPointer(start: out[1], count: count)))
     }
 
     static func lyricLine(_ line: TVLyricLine) -> LyricLine {
@@ -196,6 +286,15 @@ final class TVKaraokeSession {
         }
         let summary = scorer.summary()
         runningScore = summary.isEmpty ? nil : summary.totalScore
+    }
+}
+/// Hands one buffer to an AVAudioConverter input block, then ends.
+private final class TVKaraokeOneShotBuffer: @unchecked Sendable {
+    private var buffer: AVAudioPCMBuffer?
+    init(_ buffer: AVAudioPCMBuffer) { self.buffer = buffer }
+    func take() -> AVAudioPCMBuffer? {
+        defer { buffer = nil }
+        return buffer
     }
 }
 #endif

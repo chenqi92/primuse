@@ -4677,3 +4677,8 @@
 "karaoke_remote_rejected" = "Apple TV 没有接受这个二维码，请重新扫描电视上的码。";
 "karaoke_remote_failed" = "连不上 Apple TV，请确认两台设备在同一个网络。";
 "karaoke_remote_hint" = "把 iPhone 拿在嘴边。歌声照常唱给房间里的人听，手机只负责打分。";
+"karaoke_tv_ai_active" = "已使用 iPhone 提供的 AI 人声分离。";
+"karaoke_tv_ai_preparing_format" = "iPhone 正在分离人声… %d%%";
+"karaoke_remote_ai_preparing" = "正在为电视准备 AI 人声";
+"karaoke_remote_ai_sending" = "正在把 AI 人声发送到电视…";
+"karaoke_remote_ai_sent" = "电视已使用 AI 人声分离。";

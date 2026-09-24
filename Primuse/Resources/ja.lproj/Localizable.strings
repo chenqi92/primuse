@@ -4585,3 +4585,8 @@
 "karaoke_remote_rejected" = "Apple TVがこのコードを受け付けませんでした。テレビのコードをもう一度スキャンしてください。";
 "karaoke_remote_failed" = "Apple TVに接続できません。同じネットワークにあるか確認してください。";
 "karaoke_remote_hint" = "iPhoneを口元に持ってください。歌声はそのまま部屋に響き、iPhoneは採点だけします。";
+"karaoke_tv_ai_active" = "iPhoneのAIボーカル分離を使用中。";
+"karaoke_tv_ai_preparing_format" = "iPhoneでボーカルを分離中… %d%%";
+"karaoke_remote_ai_preparing" = "テレビ用にAIボーカルを準備中";
+"karaoke_remote_ai_sending" = "AIボーカルをテレビに送信中…";
+"karaoke_remote_ai_sent" = "テレビでAIボーカル分離を使用中です。";

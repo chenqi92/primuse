@@ -16,6 +16,11 @@ final class TVKaraokeProcessor: @unchecked Sendable {
         /// 0 keeps the vocal, 1 removes it.
         var reduction: Float = 1
         var capturesVocal = false
+        /// An AI-separated vocal to subtract instead of the spectral
+        /// remover: address and length of a `TVKaraokeStemTrack`'s samples,
+        /// kept alive by the session.
+        var stemAddress: UInt = 0
+        var stemFrames = 0
     }
 
     private struct Report: Sendable {
@@ -33,6 +38,7 @@ final class TVKaraokeProcessor: @unchecked Sendable {
     private var cachedSettings = Settings()
     private var vocal: UnsafeMutablePointer<Float>?
     private var vocalCapacity = 0
+    private var stemGain: Float = 0
     private(set) var sampleRate: Double = 44_100
 
     deinit {
@@ -71,10 +77,12 @@ final class TVKaraokeProcessor: @unchecked Sendable {
     }
 
     /// `process`, after the source audio was pulled into `bufferList`.
+    /// `sourceTime` is where the buffer starts in the song, in seconds.
     func process(
         bufferList: UnsafeMutablePointer<AudioBufferList>,
         frameCount: Int,
-        startOfStream: Bool
+        startOfStream: Bool,
+        sourceTime: Double?
     ) {
         if let latest = settings.withLockIfAvailable({ $0 }) {
             cachedSettings = latest
@@ -89,6 +97,41 @@ final class TVKaraokeProcessor: @unchecked Sendable {
             vocalRing.reset()
         }
         let settings = cachedSettings
+
+        // AI stem: the tap knows exactly which song samples this buffer
+        // holds, so the stem is subtracted sample for sample.
+        if settings.stemFrames > 0,
+           let stem = UnsafePointer<Int16>(bitPattern: settings.stemAddress),
+           let sourceTime, sourceTime.isFinite, frameCount <= vocalCapacity, let vocal {
+            let start = Int((sourceTime * sampleRate).rounded())
+            let target: Float = settings.isActive ? settings.reduction : 0
+            let from = stemGain
+            stemGain = target
+            let step = (target - from) / Float(frameCount)
+            let scale: Float = 1 / 32_767
+            for i in 0..<frameCount {
+                let index = start + i
+                guard index >= 0, index < settings.stemFrames else {
+                    vocal[i] = 0
+                    continue
+                }
+                let stemLeft = Float(stem[2 * index]) * scale
+                let stemRight = Float(stem[2 * index + 1]) * scale
+                let gain = from + step * Float(i)
+                left[i] -= gain * stemLeft
+                right[i] -= gain * stemRight
+                vocal[i] = (stemLeft + stemRight) * 0.5
+            }
+            if settings.capturesVocal {
+                vocalRing.write(vocal, count: frameCount)
+            }
+            if reducer.phase != .bypassed {
+                reducer.process(left: left, right: right, frameCount: frameCount, isActive: false, reduction: 0)
+            }
+            _ = report.withLockIfAvailable { $0 = Report(isEffectivelyMono: false, isProcessing: true) }
+            return
+        }
+        stemGain = 0
         if !settings.isActive, reducer.phase == .bypassed { return }
 
         // Very large pulls (rare) are processed in slices the scratch fits.
@@ -111,6 +154,30 @@ final class TVKaraokeProcessor: @unchecked Sendable {
         }
         let snapshot = Report(isEffectivelyMono: reducer.isEffectivelyMono, isProcessing: reducer.phase != .bypassed)
         _ = report.withLockIfAvailable { $0 = snapshot }
+    }
+}
+
+/// A vocal stem at the tap's sample rate, 16-bit interleaved stereo.
+/// Immutable once built so the render thread can read it by address.
+final class TVKaraokeStemTrack: @unchecked Sendable {
+    let songID: String
+    let frames: Int
+    let sampleRate: Double
+    let samples: UnsafeMutablePointer<Int16>
+
+    init(songID: String, left: [Float], right: [Float], sampleRate: Double) {
+        self.songID = songID
+        frames = min(left.count, right.count)
+        self.sampleRate = sampleRate
+        samples = .allocate(capacity: max(1, frames * 2))
+        for i in 0..<frames {
+            samples[2 * i] = Int16(max(-32_768, min(32_767, (left[i] * 32_767).rounded())))
+            samples[2 * i + 1] = Int16(max(-32_768, min(32_767, (right[i] * 32_767).rounded())))
+        }
+    }
+
+    deinit {
+        samples.deallocate()
     }
 }
 

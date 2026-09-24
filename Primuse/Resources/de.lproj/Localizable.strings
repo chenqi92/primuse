@@ -4584,3 +4584,8 @@
 "karaoke_remote_rejected" = "Das Apple TV hat den Code nicht angenommen. Scanne den Code auf dem Fernseher erneut.";
 "karaoke_remote_failed" = "Apple TV nicht erreichbar. Beide Geräte müssen im selben Netz sein.";
 "karaoke_remote_hint" = "Halte das iPhone nah an den Mund. Deine Stimme klingt wie gewohnt im Raum; das iPhone bewertet nur.";
+"karaoke_tv_ai_active" = "KI-Gesangstrennung vom iPhone ist aktiv.";
+"karaoke_tv_ai_preparing_format" = "iPhone trennt den Gesang … %d %%";
+"karaoke_remote_ai_preparing" = "KI-Gesang für den Fernseher";
+"karaoke_remote_ai_sending" = "KI-Gesang wird an den Fernseher gesendet …";
+"karaoke_remote_ai_sent" = "Der Fernseher nutzt die KI-Gesangstrennung.";

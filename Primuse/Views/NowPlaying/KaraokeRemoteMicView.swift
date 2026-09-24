@@ -31,6 +31,22 @@ final class KaraokeRemoteMicController {
     private(set) var score: Int?
     private(set) var currentNote: Double?
 
+    /// The AI vocal this phone provides for the TV's current song.
+    enum StemStatus: Equatable {
+        case none
+        case needsModel
+        case downloadingModel(Double)
+        case separating(Double)
+        case sending
+        case sent
+        case unavailable
+    }
+    private(set) var stemStatus: StemStatus = .none
+    @ObservationIgnored private var tvSongID: String?
+    @ObservationIgnored private var sentSongID: String?
+    @ObservationIgnored private var stemTask: Task<Void, Never>?
+    @ObservationIgnored private var uploadConnection: NWConnection?
+
     let endpoint: KaraokeMicLink.Endpoint
     @ObservationIgnored private let microphone = KaraokeMicrophone()
     @ObservationIgnored private var connection: NWConnection?
@@ -64,6 +80,10 @@ final class KaraokeRemoteMicController {
     func stop() {
         tickTask?.cancel()
         tickTask = nil
+        stemTask?.cancel()
+        stemTask = nil
+        uploadConnection?.cancel()
+        uploadConnection = nil
         if let connection {
             connection.send(
                 content: KaraokeMicLink.encode(KaraokeMicLink.PhoneMessage.goodbye),
@@ -136,6 +156,112 @@ final class KaraokeRemoteMicController {
             songTitle = title
             isTVPlaying = playing
             self.score = score
+        case .nowPlaying(let songID):
+            tvSongID = songID
+            provideStem()
+        case .stemReceived(let songID):
+            if songID == tvSongID { stemStatus = .sent }
+        }
+    }
+
+    // MARK: AI vocal for the TV
+
+    /// Makes sure the TV gets the AI vocal of its current song: separates it
+    /// here if needed, then uploads it.
+    func provideStem() {
+        stemTask?.cancel()
+        guard let songID = tvSongID else {
+            stemStatus = .none
+            return
+        }
+        guard sentSongID != songID else {
+            stemStatus = .sent
+            return
+        }
+        let services = AppServices.shared
+        guard let song = services.musicLibrary.song(id: songID) else {
+            stemStatus = .unavailable
+            return
+        }
+        let separation = KaraokeSeparationService.shared
+        stemTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.tvSongID == songID, self.state == .connected else { return }
+                switch separation.modelState {
+                case .unsupportedSystem:
+                    self.stemStatus = .unavailable
+                    return
+                case .notDownloaded, .failed:
+                    self.stemStatus = .needsModel
+                case .downloading(let fraction):
+                    self.stemStatus = .downloadingModel(fraction)
+                case .ready:
+                    switch separation.state(for: song) {
+                    case .ready:
+                        self.upload(song: song)
+                        return
+                    case .idle:
+                        separation.prepare(song, sourceManager: services.sourceManager)
+                        self.stemStatus = .separating(0)
+                    case .separating(let fraction):
+                        self.stemStatus = .separating(fraction)
+                        let progress = KaraokeMicLink.PhoneMessage.separationProgress(songID: songID, fraction: fraction)
+                        self.connection?.send(content: KaraokeMicLink.encode(progress), completion: .idempotent)
+                    case .unsupported, .failed:
+                        self.stemStatus = .unavailable
+                        return
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    func downloadModel() {
+        KaraokeSeparationService.shared.downloadModel()
+        provideStem()
+    }
+
+    /// Sends the cached stem on its own connection: a header line with the
+    /// key, then the file bytes.
+    private func upload(song: Song) {
+        stemStatus = .sending
+        let url = KaraokeSeparationService.stemURL(for: song)
+        let songID = song.id
+        guard let port = NWEndpoint.Port(rawValue: endpoint.port) else { return }
+        let key = endpoint.key
+        let connection = NWConnection(host: NWEndpoint.Host(endpoint.host), port: port, using: .tcp)
+        uploadConnection?.cancel()
+        uploadConnection = connection
+        Task { @MainActor [weak self] in
+            let data = await Task.detached(priority: .utility) { try? Data(contentsOf: url) }.value
+            guard let self, self.uploadConnection === connection else { return }
+            guard let data, data.count <= KaraokeMicLink.maximumStemBytes else {
+                self.stemStatus = .unavailable
+                return
+            }
+            // Built here, where `self` is a constant, so the network callbacks
+            // below never capture the weak variable themselves.
+            let markFailed: @Sendable () -> Void = { [weak self] in
+                Task { @MainActor in
+                    if self?.uploadConnection === connection { self?.stemStatus = .unavailable }
+                }
+            }
+            let markSent: @Sendable () -> Void = { [weak self] in
+                Task { @MainActor in
+                    guard let self, self.tvSongID == songID else { return }
+                    self.sentSongID = songID
+                }
+            }
+            connection.stateUpdateHandler = { update in
+                guard case .ready = update else {
+                    if case .failed = update { markFailed() }
+                    return
+                }
+                let header = KaraokeMicLink.encode(KaraokeMicLink.PhoneMessage.stemUpload(key: key, songID: songID, byteCount: data.count))
+                connection.send(content: header + data, completion: .contentProcessed { _ in markSent() })
+            }
+            connection.start(queue: self.queue)
         }
     }
 
@@ -225,6 +351,7 @@ struct KaraokeRemoteMicView: View {
                     .multilineTextAlignment(.center)
 
                 if controller.state == .connected {
+                    stemRow
                     noteDisplay
                     if let score = controller.score {
                         VStack(spacing: 2) {
@@ -254,6 +381,54 @@ struct KaraokeRemoteMicView: View {
             UIApplication.shared.isIdleTimerDisabled = false
             controller.stop()
         }
+    }
+
+    @ViewBuilder
+    private var stemRow: some View {
+        switch controller.stemStatus {
+        case .none, .unavailable:
+            EmptyView()
+        case .needsModel:
+            Button {
+                controller.downloadModel()
+            } label: {
+                Label(
+                    String(
+                        format: String(localized: "karaoke_ai_download_format"),
+                        ByteCountFormatter.string(fromByteCount: KaraokeVocalModel.approximateDownloadBytes, countStyle: .file)
+                    ),
+                    systemImage: "sparkles"
+                )
+            }
+            .buttonStyle(.bordered)
+            .tint(.white)
+        case .downloadingModel(let fraction):
+            progressRow(String(localized: "karaoke_ai_downloading"), fraction)
+        case .separating(let fraction):
+            progressRow(String(localized: "karaoke_remote_ai_preparing"), fraction)
+        case .sending:
+            Label("karaoke_remote_ai_sending", systemImage: "arrow.up.circle")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.75))
+        case .sent:
+            Label("karaoke_remote_ai_sent", systemImage: "checkmark.circle.fill")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.75))
+        }
+    }
+
+    private func progressRow(_ title: String, _ fraction: Double) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+            Text(title)
+            ProgressView(value: fraction)
+                .frame(width: 80)
+                .tint(.white)
+            Text(fraction, format: .percent.precision(.fractionLength(0)))
+                .monospacedDigit()
+        }
+        .font(.footnote)
+        .foregroundStyle(.white.opacity(0.75))
     }
 
     private var statusSymbol: String {

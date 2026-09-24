@@ -2114,22 +2114,25 @@ private enum TVAudioProcessingTapFactory {
                     .karaoke.unprepare()
             },
             process: { tap, frameCount, _, bufferList, frameCountOut, flagsOut in
+                var timeRange = CMTimeRange()
                 let status = MTAudioProcessingTapGetSourceAudio(
                     tap,
                     frameCount,
                     bufferList,
                     flagsOut,
-                    nil,
+                    &timeRange,
                     frameCountOut
                 )
                 guard status == noErr, frameCountOut.pointee > 0 else { return }
                 let context = Unmanaged<TVAudioTapContext>
                     .fromOpaque(MTAudioProcessingTapGetStorage(tap))
                     .takeUnretainedValue()
+                let start = timeRange.start
                 context.karaoke.process(
                     bufferList: bufferList,
                     frameCount: Int(frameCountOut.pointee),
-                    startOfStream: flagsOut.pointee & kMTAudioProcessingTapFlag_StartOfStream != 0
+                    startOfStream: flagsOut.pointee & kMTAudioProcessingTapFlag_StartOfStream != 0,
+                    sourceTime: start.isValid && start.isNumeric ? start.seconds : nil
                 )
                 context.pipeline.fill(from: bufferList, frameCount: frameCountOut.pointee)
             }
