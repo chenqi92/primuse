@@ -4590,3 +4590,8 @@
 "karaoke_remote_ai_preparing" = "テレビ用にAIボーカルを準備中";
 "karaoke_remote_ai_sending" = "AIボーカルをテレビに送信中…";
 "karaoke_remote_ai_sent" = "テレビでAIボーカル分離を使用中です。";
+"karaoke_vocal_assist" = "ガイドボーカル";
+"karaoke_vocal_assist_detail" = "歌えなくなると原曲の歌声が戻り、歌い出すと伴奏に戻ります";
+"karaoke_vocal_assist_active" = "ガイドボーカル再生中";
+"karaoke_vocal_assist_paused" = "マイクがスピーカーの音を拾っているため、ガイドボーカルを一時停止しました。ヘッドホンをお使いください。";
+"karaoke_ai_cooling" = "デバイスが熱いため、冷えてから再開します";

@@ -4495,3 +4495,8 @@
 "karaoke_remote_ai_preparing" = "Preparando voz IA para la TV";
 "karaoke_remote_ai_sending" = "Enviando la voz IA a la TV…";
 "karaoke_remote_ai_sent" = "La TV usa la separación vocal con IA.";
+"karaoke_vocal_assist" = "Asistencia vocal";
+"karaoke_vocal_assist_detail" = "Si te pierdes, la voz original vuelve hasta que cantes de nuevo";
+"karaoke_vocal_assist_active" = "La voz original te ayuda";
+"karaoke_vocal_assist_paused" = "Asistencia vocal en pausa: el micrófono capta la bocina. Usa audífonos.";
+"karaoke_ai_cooling" = "El dispositivo está caliente; seguirá cuando se enfríe";

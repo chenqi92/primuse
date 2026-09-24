@@ -4589,3 +4589,8 @@
 "karaoke_remote_ai_preparing" = "KI-Gesang für den Fernseher";
 "karaoke_remote_ai_sending" = "KI-Gesang wird an den Fernseher gesendet …";
 "karaoke_remote_ai_sent" = "Der Fernseher nutzt die KI-Gesangstrennung.";
+"karaoke_vocal_assist" = "Gesangshilfe";
+"karaoke_vocal_assist_detail" = "Wenn du rauskommst, singt das Original weiter, bis du wieder singst";
+"karaoke_vocal_assist_active" = "Originalgesang hilft";
+"karaoke_vocal_assist_paused" = "Gesangshilfe pausiert: Das Mikrofon hört den Lautsprecher. Verwende Kopfhörer.";
+"karaoke_ai_cooling" = "Gerät ist heiß, geht nach dem Abkühlen weiter";

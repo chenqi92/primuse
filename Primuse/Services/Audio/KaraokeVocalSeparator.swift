@@ -35,17 +35,26 @@ actor KaraokeVocalSeparator {
     }
 
     /// The vocal stem of a 44.1 kHz stereo song. `progress` receives the
-    /// finished share, 0...1, after each segment.
+    /// finished share, 0...1, after each segment; `cooling` whether work is
+    /// held back until the device cools down.
     func separateVocals(
         left: [Float],
         right: [Float],
-        progress: @Sendable (Double) -> Void = { _ in }
+        progress: @Sendable (Double) -> Void = { _ in },
+        cooling: @Sendable (Bool) -> Void = { _ in }
     ) async throws -> Stem {
         precondition(left.count == right.count)
         let plan = KaraokeSeparationPlan(totalLength: left.count, layout: layout)
         var accumulator = KaraokeSeparationAccumulator(plan: plan)
         for (index, segment) in plan.segments.enumerated() {
             try Task.checkCancellation()
+            if Self.needsCooling {
+                cooling(true)
+                while Self.needsCooling {
+                    try await Task.sleep(for: .seconds(3))
+                }
+                cooling(false)
+            }
             let windowLeft = plan.window(segment, of: left)
             let windowRight = plan.window(segment, of: right)
             let output = try predict(left: windowLeft, right: windowRight)
@@ -55,6 +64,13 @@ actor KaraokeVocalSeparator {
         }
         let stem = accumulator.finish()
         return Stem(left: stem.left, right: stem.right)
+    }
+
+    /// The GPU at full load for minutes heats a phone further; a hot device
+    /// throttles playback and the UI first.
+    private static var needsCooling: Bool {
+        let state = ProcessInfo.processInfo.thermalState
+        return state == .serious || state == .critical
     }
 
     /// One model call: vocals for a full-length segment window.

@@ -4495,3 +4495,8 @@
 "karaoke_remote_ai_preparing" = "TV के लिए AI वोकल";
 "karaoke_remote_ai_sending" = "TV पर AI वोकल भेजा जा रहा है…";
 "karaoke_remote_ai_sent" = "TV AI वोकल सेपरेशन इस्तेमाल कर रहा है।";
+"karaoke_vocal_assist" = "वोकल सहायता";
+"karaoke_vocal_assist_detail" = "बोल छूट जाएँ तो मूल आवाज़ लौट आती है, जब तक आप फिर से न गाएँ";
+"karaoke_vocal_assist_active" = "मूल आवाज़ मदद कर रही है";
+"karaoke_vocal_assist_paused" = "वोकल सहायता रोकी गई: माइक्रोफ़ोन स्पीकर की आवाज़ पकड़ रहा है। हेडफ़ोन इस्तेमाल करें।";
+"karaoke_ai_cooling" = "डिवाइस गर्म है, ठंडा होने पर जारी रहेगा";

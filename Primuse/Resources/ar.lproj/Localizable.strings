@@ -4495,3 +4495,8 @@
 "karaoke_remote_ai_preparing" = "تحضير الصوت للتلفاز";
 "karaoke_remote_ai_sending" = "جارٍ إرسال الصوت إلى التلفاز…";
 "karaoke_remote_ai_sent" = "يستخدم التلفاز فصل الصوت بالذكاء الاصطناعي.";
+"karaoke_vocal_assist" = "مساعدة الغناء";
+"karaoke_vocal_assist_detail" = "إذا ضاعت منك الكلمات يعود صوت المغني الأصلي حتى تغني من جديد";
+"karaoke_vocal_assist_active" = "الصوت الأصلي يساعدك";
+"karaoke_vocal_assist_paused" = "تم إيقاف مساعدة الغناء مؤقتًا: الميكروفون يلتقط صوت مكبر الصوت. استخدم سماعات الرأس.";
+"karaoke_ai_cooling" = "الجهاز ساخن، سيستمر بعد أن يبرد";

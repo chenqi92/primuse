@@ -47,6 +47,16 @@ private struct KaraokeStageContent: View {
                 Spacer(minLength: 12)
                 stage
                 Spacer(minLength: 12)
+                if session.isVocalAssisting {
+                    Label("karaoke_vocal_assist_active", systemImage: "person.wave.2.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.white.opacity(0.14), in: Capsule())
+                        .padding(.bottom, 6)
+                        .transition(.opacity)
+                }
                 if session.microphoneState == .on {
                     KaraokePitchLane(points: session.pitchHistory)
                         .frame(height: 72)
@@ -60,6 +70,7 @@ private struct KaraokeStageContent: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: session.microphoneState)
+        .animation(.easeInOut(duration: 0.25), value: session.isVocalAssisting)
         .sheet(item: $session.completedPerformance) { performance in
             KaraokeResultView(performance: performance, session: session)
         }
@@ -105,9 +116,7 @@ private struct KaraokeStageContent: View {
                 KaraokeScoreBadge(score: score)
                     .transition(.scale.combined(with: .opacity))
             }
-            if session.separation.modelState != .unsupportedSystem {
-                KaraokeStageMenu(session: session)
-            }
+            KaraokeStageMenu(session: session)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 16)
@@ -514,6 +523,7 @@ private struct KaraokeControlPanel: View {
         case .on where !session.canMonitor: return String(localized: "karaoke_monitor_needs_wired")
         default: break
         }
+        if session.isVocalAssistSuppressed { return String(localized: "karaoke_vocal_assist_paused") }
         if session.isMixingRecording { return String(localized: "karaoke_mixing") }
         if session.recordingFailed { return String(localized: "karaoke_recording_failed") }
         if session.lastRecordingURL != nil { return String(localized: "karaoke_recording_saved") }
@@ -528,15 +538,17 @@ private struct KaraokeAISeparationRow: View {
     var body: some View {
         if session.separation.modelState != .unsupportedSystem {
             HStack(spacing: 10) {
-                Label("karaoke_ai_title", systemImage: "sparkles")
-                    .font(.subheadline.weight(.semibold))
-                    .labelStyle(.titleAndIcon)
-                Spacer(minLength: 8)
-                if session.aiSeparationEnabled {
-                    status
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.75))
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("karaoke_ai_title", systemImage: "sparkles")
+                        .font(.subheadline.weight(.semibold))
+                        .labelStyle(.titleAndIcon)
+                    if session.aiSeparationEnabled {
+                        status
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
                 }
+                Spacer(minLength: 8)
                 Toggle("karaoke_ai_title", isOn: $session.aiSeparationEnabled)
                     .labelsHidden()
                     .tint(.white.opacity(0.6))
@@ -576,7 +588,10 @@ private struct KaraokeAISeparationRow: View {
     private var songStatus: some View {
         switch session.currentSeparationState {
         case .separating(let fraction):
-            progress(String(localized: "karaoke_ai_separating"), fraction)
+            progress(
+                isCooling ? String(localized: "karaoke_ai_cooling") : String(localized: "karaoke_ai_separating"),
+                fraction
+            )
         case .ready where session.isStemLocked:
             Label("karaoke_ai_active", systemImage: "checkmark.circle.fill")
         case .ready:
@@ -584,7 +599,7 @@ private struct KaraokeAISeparationRow: View {
         case .unsupported:
             Text("karaoke_ai_unsupported_song")
                 .lineLimit(2)
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(.leading)
         case .failed:
             Button("karaoke_ai_retry", action: session.retrySeparation)
                 .buttonStyle(.bordered)
@@ -594,11 +609,16 @@ private struct KaraokeAISeparationRow: View {
         }
     }
 
+    private var isCooling: Bool {
+        session.songID.map { session.separation.coolingSongIDs.contains($0) } ?? false
+    }
+
     private func progress(_ title: String, _ fraction: Double) -> some View {
         HStack(spacing: 6) {
             Text(title)
+                .lineLimit(1)
             ProgressView(value: fraction)
-                .frame(width: 60)
+                .frame(width: 90)
                 .tint(.white)
             Text(fraction, format: .percent.precision(.fractionLength(0)))
                 .monospacedDigit()
@@ -606,31 +626,20 @@ private struct KaraokeAISeparationRow: View {
     }
 }
 
-/// Stage housekeeping for the AI model and its cache.
+/// Stage options, and housekeeping for the AI model and its cache.
 private struct KaraokeStageMenu: View {
-    let session: KaraokeSession
+    @Bindable var session: KaraokeSession
     @State private var cacheSize: Int64 = 0
 
     var body: some View {
         Menu {
-            Button(role: .destructive) {
-                session.separation.clearCache()
-                cacheSize = 0
-            } label: {
-                Label(
-                    String(
-                        format: String(localized: "karaoke_ai_clear_cache_format"),
-                        ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file)
-                    ),
-                    systemImage: "trash"
-                )
+            Toggle(isOn: $session.vocalAssistEnabled) {
+                Text("karaoke_vocal_assist")
+                Text("karaoke_vocal_assist_detail")
             }
-            if session.separation.modelState == .ready {
-                Button(role: .destructive) {
-                    Task { await session.separation.removeModel() }
-                } label: {
-                    Label("karaoke_ai_remove_model", systemImage: "xmark.bin")
-                }
+            if session.separation.modelState != .unsupportedSystem {
+                Divider()
+                aiHousekeeping
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -643,6 +652,29 @@ private struct KaraokeStageMenu: View {
         .buttonStyle(.plain)
         .accessibilityLabel(Text("more"))
         .onAppear { cacheSize = session.separation.cacheSizeBytes() }
+    }
+
+    @ViewBuilder
+    private var aiHousekeeping: some View {
+        Button(role: .destructive) {
+            session.separation.clearCache()
+            cacheSize = 0
+        } label: {
+            Label(
+                String(
+                    format: String(localized: "karaoke_ai_clear_cache_format"),
+                    ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file)
+                ),
+                systemImage: "trash"
+            )
+        }
+        if session.separation.modelState == .ready {
+            Button(role: .destructive) {
+                Task { await session.separation.removeModel() }
+            } label: {
+                Label("karaoke_ai_remove_model", systemImage: "xmark.bin")
+            }
+        }
     }
 }
 

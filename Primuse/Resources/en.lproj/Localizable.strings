@@ -4352,3 +4352,8 @@
 "karaoke_remote_ai_preparing" = "Preparing AI vocals for the TV";
 "karaoke_remote_ai_sending" = "Sending AI vocals to the TV…";
 "karaoke_remote_ai_sent" = "The TV is using AI vocal separation.";
+"karaoke_vocal_assist" = "Vocal Assist";
+"karaoke_vocal_assist_detail" = "If you lose the words, the original singer comes back until you sing again";
+"karaoke_vocal_assist_active" = "Original vocal is helping";
+"karaoke_vocal_assist_paused" = "Vocal assist paused: the microphone is picking up the speaker. Use headphones.";
+"karaoke_ai_cooling" = "Device is hot, continuing once it cools";

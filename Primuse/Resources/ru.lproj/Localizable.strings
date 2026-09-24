@@ -4495,3 +4495,8 @@
 "karaoke_remote_ai_preparing" = "Готовим ИИ-вокал для ТВ";
 "karaoke_remote_ai_sending" = "Отправляем ИИ-вокал на ТВ…";
 "karaoke_remote_ai_sent" = "ТВ использует ИИ-отделение вокала.";
+"karaoke_vocal_assist" = "Подсказка голосом";
+"karaoke_vocal_assist_detail" = "Если вы сбились, возвращается оригинальный вокал — до тех пор, пока вы снова не запоёте";
+"karaoke_vocal_assist_active" = "Подпевает оригинал";
+"karaoke_vocal_assist_paused" = "Подсказка приостановлена: микрофон слышит динамик. Используйте наушники.";
+"karaoke_ai_cooling" = "Устройство нагрелось, продолжим после остывания";

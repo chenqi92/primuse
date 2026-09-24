@@ -2326,7 +2326,8 @@ private struct DebugLaunchAutomation: ViewModifier {
 /// - `PRIMUSE_DEBUG_SHOW_PLAYER=<秒>`：有歌在播后再等该秒数，打开播放页（iOS）。
 /// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
 /// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
-/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview`：弹出对应页面。
+/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke`：弹出对应页面
+///   （karaoke 等有歌在播后再弹；配合 `PRIMUSE_KARAOKE_MODEL` 可在不下载资源包的情况下走 AI 分离）。
 /// - `PRIMUSE_DEBUG_BATCH_APPLY=<专辑名>`：把全部音乐的专辑名批量改成该值并写回，再撤销（结果写日志）。
 /// - `PRIMUSE_DEBUG_TIDY_APPLY=1`：把规则整理出的所有建议写回（结果写日志）。
 private struct DebugListeningFeatureAutomation: ViewModifier {
@@ -2456,6 +2457,11 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                         guard services.playerService.hasChapters || services.playerService.currentItemIsSpokenWord else { continue }
                         try? await Task.sleep(for: .seconds(3))
                     }
+                    if page == "karaoke" {
+                        guard services.playerService.currentSong != nil else { continue }
+                        presented = Presented(page: page, songs: [], proposals: [])
+                        return
+                    }
                     let songs = services.musicLibrary.musicSongs
                     guard needsPlayback || page == "spokenWord" || songs.count >= 2 else { continue }
                     var proposals: [TagCleanupProposal] = []
@@ -2541,6 +2547,9 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
             NavigationStack { SpokenWordLibraryView() }
         case "chapters":
             ChapterListView()
+        case "karaoke":
+            KaraokeStageView()
+                .environment(services.playerService)
         case "batchEdit":
             BatchTagEditorView(songs: item.songs)
         case "tidy":

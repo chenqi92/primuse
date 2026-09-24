@@ -117,6 +117,8 @@ final class KaraokeSeparationService {
     }
 
     private(set) var modelState: ModelState
+    /// Songs whose separation waits for the device to cool down.
+    private(set) var coolingSongIDs: Set<String> = []
     private(set) var songStates: [String: SongState] = [:]
     @ObservationIgnored private var separator: KaraokeVocalSeparator?
     @ObservationIgnored private var jobs: [String: Task<Void, Never>] = [:]
@@ -185,6 +187,8 @@ final class KaraokeSeparationService {
         }
         songStates[song.id] = .separating(0)
         let destination = Self.stemURL(for: song)
+        let startedAt = Date()
+        plog("🎤 Karaoke: separating \(song.id.prefix(8))…")
         jobs[song.id] = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -196,14 +200,30 @@ final class KaraokeSeparationService {
                     end: song.cueEndTime
                 )
                 let songID = song.id
-                let stem = try await separator.separateVocals(left: audio.left, right: audio.right) { fraction in
-                    Task { @MainActor [weak self] in
-                        guard let self, case .separating = self.songStates[songID] else { return }
-                        self.songStates[songID] = .separating(fraction)
+                let stem = try await separator.separateVocals(
+                    left: audio.left,
+                    right: audio.right,
+                    progress: { fraction in
+                        Task { @MainActor [weak self] in
+                            guard let self, case .separating = self.songStates[songID] else { return }
+                            self.songStates[songID] = .separating(fraction)
+                        }
+                    },
+                    cooling: { isCooling in
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            plog("🎤 Karaoke: separation \(isCooling ? "paused to cool down" : "resumed") \(songID.prefix(8))")
+                            if isCooling {
+                                self.coolingSongIDs.insert(songID)
+                            } else {
+                                self.coolingSongIDs.remove(songID)
+                            }
+                        }
                     }
-                }
+                )
                 try await Self.write(stem: stem, to: destination)
                 self.songStates[song.id] = .ready
+                plog("🎤 Karaoke: separated \(song.id.prefix(8))… in \(String(format: "%.1f", Date().timeIntervalSince(startedAt)))s")
             } catch KaraokeSeparationError.unreadableAudio {
                 self.songStates[song.id] = .unsupported
             } catch KaraokeSeparationError.tooLong {
@@ -215,6 +235,7 @@ final class KaraokeSeparationService {
                 self.songStates[song.id] = .failed
             }
             self.jobs[song.id] = nil
+            self.coolingSongIDs.remove(song.id)
         }
     }
 

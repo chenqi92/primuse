@@ -4495,3 +4495,8 @@
 "karaoke_remote_ai_preparing" = "เตรียมเสียงร้อง AI ให้ทีวี";
 "karaoke_remote_ai_sending" = "กำลังส่งเสียงร้อง AI ไปที่ทีวี…";
 "karaoke_remote_ai_sent" = "ทีวีใช้การแยกเสียงร้องด้วย AI อยู่";
+"karaoke_vocal_assist" = "ตัวช่วยร้อง";
+"karaoke_vocal_assist_detail" = "ถ้าร้องไม่ทัน เสียงร้องต้นฉบับจะกลับมาจนกว่าคุณจะร้องต่อ";
+"karaoke_vocal_assist_active" = "เสียงต้นฉบับกำลังช่วยร้อง";
+"karaoke_vocal_assist_paused" = "หยุดตัวช่วยร้องชั่วคราว: ไมโครโฟนได้ยินเสียงลำโพง ใช้หูฟังจะดีกว่า";
+"karaoke_ai_cooling" = "อุปกรณ์ร้อน จะทำต่อเมื่อเย็นลง";
