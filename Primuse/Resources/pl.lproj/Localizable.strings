@@ -4463,3 +4463,8 @@
 "karaoke_remote_ai_preparing" = "Przygotowywanie wokalu AI dla TV";
 "karaoke_remote_ai_sending" = "Wysyłanie wokalu AI do TV…";
 "karaoke_remote_ai_sent" = "Telewizor używa separacji wokalu AI.";
+"karaoke_vocal_assist" = "Pomoc wokalna";
+"karaoke_vocal_assist_detail" = "Gdy się pogubisz, wraca oryginalny wokal, dopóki znów nie zaśpiewasz";
+"karaoke_vocal_assist_active" = "Pomaga oryginalny wokal";
+"karaoke_vocal_assist_paused" = "Pomoc wokalna wstrzymana: mikrofon słyszy głośnik. Użyj słuchawek.";
+"karaoke_ai_cooling" = "Urządzenie jest gorące, wznowi po ostygnięciu";

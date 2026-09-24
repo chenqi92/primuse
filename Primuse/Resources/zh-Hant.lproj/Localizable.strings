@@ -4534,3 +4534,8 @@
 "karaoke_remote_ai_preparing" = "正在為電視準備 AI 人聲";
 "karaoke_remote_ai_sending" = "正在把 AI 人聲傳送到電視…";
 "karaoke_remote_ai_sent" = "電視已使用 AI 人聲分離。";
+"karaoke_vocal_assist" = "原唱帶唱";
+"karaoke_vocal_assist_detail" = "唱不上來時原唱自動接上，一開口就退回伴奏";
+"karaoke_vocal_assist_active" = "原唱帶唱中";
+"karaoke_vocal_assist_paused" = "麥克風收到了外放的聲音，原唱帶唱已暫停；戴耳機效果更好。";
+"karaoke_ai_cooling" = "裝置較熱，降溫後繼續";

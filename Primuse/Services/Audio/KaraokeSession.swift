@@ -101,6 +101,7 @@ final class KaraokeSession {
 
     static let vocalLevelKey = "karaokeVocalLevel"
     static let aiSeparationKey = "karaokeAISeparationEnabled"
+    static let vocalAssistKey = "karaokeVocalAssistEnabled"
     static let defaultVocalLevel = 0.1
     /// Seconds of pitch history the stage draws.
     static let pitchHistoryDuration: TimeInterval = 5
@@ -157,6 +158,18 @@ final class KaraokeSession {
         }
     }
     let separation = KaraokeSeparationService.shared
+
+    /// Brings the original vocal back while the singer is silent in their line.
+    var vocalAssistEnabled: Bool {
+        didSet {
+            defaults.set(vocalAssistEnabled, forKey: Self.vocalAssistKey)
+            applyRenderSettings()
+        }
+    }
+    /// The original vocal is helping out right now.
+    private(set) var isVocalAssisting = false
+    /// Assist gave up for this song: the microphone hears the playback.
+    private(set) var isVocalAssistSuppressed = false
     /// The AI stem for this song is loaded into the playback graph.
     private(set) var isStemActive = false
     /// The stem is aligned with what is playing and being subtracted.
@@ -209,6 +222,9 @@ final class KaraokeSession {
     /// resume that is still settling does not end it.
     private static let recordingPauseTicks = 40
     @ObservationIgnored private var wordTimingSongID: String?
+    @ObservationIgnored private var vocalAssist = KaraokeVocalAssistPolicy()
+    /// Headphones: the returning original cannot reach the microphone.
+    @ObservationIgnored private var assistRouteAllows = false
     @ObservationIgnored private var wordTimingTask: Task<Void, Never>?
 
     init(player: AudioPlayerService, defaults: UserDefaults = .standard) {
@@ -217,6 +233,7 @@ final class KaraokeSession {
         self.defaults = defaults
         vocalLevel = defaults.object(forKey: Self.vocalLevelKey) as? Double ?? Self.defaultVocalLevel
         aiSeparationEnabled = defaults.object(forKey: Self.aiSeparationKey) as? Bool ?? true
+        vocalAssistEnabled = defaults.object(forKey: Self.vocalAssistKey) as? Bool ?? true
         let microphone = KaraokeMicrophone()
         self.microphone = microphone
         analyzer = KaraokePitchAnalyzer(
@@ -298,6 +315,7 @@ final class KaraokeSession {
         if microphoneState == .on {
             canMonitor = AudioSessionManager.shared.outputRouteSupportsMicrophoneMonitoring
             if !canMonitor, isMonitoring { isMonitoring = false }
+            assistRouteAllows = canMonitor || AudioSessionManager.shared.outputRouteIsBluetooth
             analyzeIfIdle()
         }
     }
@@ -311,10 +329,20 @@ final class KaraokeSession {
         control.capturesVocal = reduces && microphoneState == .on
         let time = player.interpolatedTime()
         let factor = KaraokeDuetGatePolicy.reductionFactor(windows: windows, part: part, at: time)
-        control.reduction = Float(1 - vocalLevel) * factor
+        if !vocalAssistApplies { vocalAssist.standDown() }
+        let assist = vocalAssist.advance(to: time)
+        control.reduction = Float((1 - vocalLevel) * assist) * factor
+        let assisting = vocalAssist.level > 0.5
+        if assisting != isVocalAssisting { isVocalAssisting = assisting }
+        if vocalAssist.isSuppressed != isVocalAssistSuppressed { isVocalAssistSuppressed = vocalAssist.isSuppressed }
         engine.applyKaraokePitch(
             cents: processes ? KaraokeKeyShiftPolicy.cents(forSemitones: keyShift) : 0
         )
+    }
+
+    private var vocalAssistApplies: Bool {
+        vocalAssistEnabled && microphoneState == .on && assistRouteAllows
+            && !isPlayingInstrumental && player.isPlaying
     }
 
     private func songDidChange(to song: Song?) {
@@ -328,6 +356,7 @@ final class KaraokeSession {
         }
         carriedSongID = nil
         pairedOriginal = nil
+        vocalAssist.reset()
         instrumentalCompanion = nil
         wordTimingTask?.cancel()
         wordTimingTask = nil
@@ -696,6 +725,14 @@ final class KaraokeSession {
         let sungTime = time - microphoneLag
         let reference = referenceTrack.note(at: sungTime)
         scorer.record(time: sungTime, reference: reference, sung: reading.sung)
+        if vocalAssistApplies {
+            vocalAssist.observe(
+                time: sungTime,
+                inOwnLine: KaraokeVocalAssistPolicy.isOwnLine(windows: windows, part: part, at: sungTime),
+                sung: reading.sung,
+                reference: reference
+            )
+        }
 
         pitchHistory.append(PitchPoint(time: sungTime, reference: reference, sung: reading.sung))
         let cutoff = sungTime - Self.pitchHistoryDuration

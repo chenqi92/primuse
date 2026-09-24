@@ -4463,3 +4463,8 @@
 "karaoke_remote_ai_preparing" = "TV için yapay zekâ vokali";
 "karaoke_remote_ai_sending" = "Yapay zekâ vokali TV’ye gönderiliyor…";
 "karaoke_remote_ai_sent" = "TV yapay zekâ vokal ayırmayı kullanıyor.";
+"karaoke_vocal_assist" = "Vokal desteği";
+"karaoke_vocal_assist_detail" = "Sözleri kaçırırsanız, siz yeniden söyleyene kadar orijinal vokal geri gelir";
+"karaoke_vocal_assist_active" = "Orijinal vokal yardım ediyor";
+"karaoke_vocal_assist_paused" = "Vokal desteği duraklatıldı: mikrofon hoparlörü duyuyor. Kulaklık kullanın.";
+"karaoke_ai_cooling" = "Cihaz ısındı, soğuyunca devam edecek";

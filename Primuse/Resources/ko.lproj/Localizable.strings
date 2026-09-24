@@ -4557,3 +4557,8 @@
 "karaoke_remote_ai_preparing" = "TV용 AI 보컬 준비 중";
 "karaoke_remote_ai_sending" = "TV로 AI 보컬을 보내는 중…";
 "karaoke_remote_ai_sent" = "TV에서 AI 보컬 분리를 사용 중입니다.";
+"karaoke_vocal_assist" = "가이드 보컬";
+"karaoke_vocal_assist_detail" = "가사를 놓치면 원곡 보컬이 이어 부르고, 다시 부르면 반주로 돌아갑니다";
+"karaoke_vocal_assist_active" = "원곡 보컬이 돕는 중";
+"karaoke_vocal_assist_paused" = "마이크에 스피커 소리가 들어가 가이드 보컬을 일시 중지했습니다. 헤드폰을 사용하세요.";
+"karaoke_ai_cooling" = "기기가 뜨거워 식은 후 계속합니다";

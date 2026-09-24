@@ -4463,3 +4463,8 @@
 "karaoke_remote_ai_preparing" = "Готуємо ШІ-вокал для ТБ";
 "karaoke_remote_ai_sending" = "Надсилаємо ШІ-вокал на ТБ…";
 "karaoke_remote_ai_sent" = "ТБ використовує ШІ-відокремлення вокалу.";
+"karaoke_vocal_assist" = "Підказка голосом";
+"karaoke_vocal_assist_detail" = "Якщо ви збилися, повертається оригінальний вокал — доки ви знову не заспіваєте";
+"karaoke_vocal_assist_active" = "Підспівує оригінал";
+"karaoke_vocal_assist_paused" = "Підказку призупинено: мікрофон чує динамік. Використовуйте навушники.";
+"karaoke_ai_cooling" = "Пристрій нагрівся, продовжимо після охолодження";
