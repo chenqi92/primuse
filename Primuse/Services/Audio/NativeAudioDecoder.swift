@@ -322,6 +322,11 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         if coreAudioPreferredExtensions.contains(url.pathExtension.lowercased()) {
             return try SFBAudioEngine.AudioDecoder(url: url, decoderName: .coreAudio)
         }
+        // Left to choose by content, SFB hands `.s3m` to its MPEG decoder and
+        // `.it` to one that fails on the first buffer; name DUMB outright.
+        if AudioFormat.from(fileExtension: url.pathExtension)?.isTrackerModule == true {
+            return try SFBAudioEngine.AudioDecoder(url: url, decoderName: .module)
+        }
         return try requireSafeDecoder(SFBAudioEngine.AudioDecoder(url: url))
     }
 
@@ -329,6 +334,10 @@ final class NativeAudioDecoder: PrimuseAudioDecoder {
         if let url = inputSource.url,
            coreAudioPreferredExtensions.contains(url.pathExtension.lowercased()) {
             return try SFBAudioEngine.AudioDecoder(inputSource: inputSource, decoderName: .coreAudio)
+        }
+        if let url = inputSource.url,
+           AudioFormat.from(fileExtension: url.pathExtension)?.isTrackerModule == true {
+            return try SFBAudioEngine.AudioDecoder(inputSource: inputSource, decoderName: .module)
         }
         return try requireSafeDecoder(SFBAudioEngine.AudioDecoder(inputSource: inputSource))
     }

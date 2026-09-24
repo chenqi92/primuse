@@ -48,6 +48,7 @@ public enum AudioFileSignatureKind: String, Codable, CaseIterable, Sendable {
     case rf64
     case wave64
     case realMedia
+    case trackerModule
 
     public var parserFileExtension: String? {
         switch self {
@@ -83,6 +84,9 @@ public enum AudioFileSignatureKind: String, Codable, CaseIterable, Sendable {
         case .rf64: "rf64"
         case .wave64: "w64"
         case .realMedia: "ra"
+        // The module family shares one signature; the declared extension
+        // still names which tracker wrote it.
+        case .trackerModule: nil
         }
     }
 }
@@ -171,6 +175,7 @@ public enum AudioFileSignaturePolicy {
         }
         if bytes.count >= 12,
            bytes[4..<8].elementsEqual(Data("ftyp".utf8)) { return .isoBaseMedia }
+        if TrackerModuleSignature.matches(bytes) { return .trackerModule }
         if startsWithDTSSync(bytes) { return .dts }
         if bytes.count >= 6, bytes[0] == 0x0B, bytes[1] == 0x77 {
             let bitstreamID = (bytes[5] >> 3) & 0x1F
@@ -320,6 +325,46 @@ public enum AudioFileSignaturePolicy {
         return dtsSyncPatterns.contains {
             data.prefix(4).elementsEqual($0)
         }
+    }
+}
+
+/// Magic numbers of the tracker formats DUMB renders. ProTracker keeps its
+/// tag at byte 1080, after the title and 31 sample headers; Scream Tracker 3
+/// and Poly Tracker put theirs at 44. Composer 669 (`if`/`JN`) is too short
+/// to trust and is left to its extension.
+public enum TrackerModuleSignature {
+    private static let proTrackerTags: Set<String> = [
+        "M.K.", "M!K!", "M&K!", "FLT4", "FLT8", "4CHN", "6CHN", "8CHN",
+        "CD81", "OKTA", "OCTA", "TDZ1", "TDZ2", "TDZ3", "NSMS", "LARD",
+    ]
+    private static let screamTracker2Tags: Set<String> = [
+        "!Scream!", "BMOD2STM", "WUZAMOD!", "SWavePro",
+    ]
+
+    public static func matches(_ bytes: Data) -> Bool {
+        if bytes.starts(with: Data("Extended Module: ".utf8)) { return true }
+        if bytes.starts(with: Data("IMPM".utf8)) { return true }
+        if bytes.starts(with: Data("OKTASONG".utf8)) { return true }
+        if bytes.count >= 4, bytes.starts(with: Data("MTM".utf8)), bytes[bytes.startIndex + 3] == 0x10 {
+            return true
+        }
+        if ascii(bytes, at: 44, count: 4) == "SCRM" || ascii(bytes, at: 44, count: 4) == "PTMF" {
+            return true
+        }
+        if let tag = ascii(bytes, at: 20, count: 8), screamTracker2Tags.contains(tag) { return true }
+        if let tag = ascii(bytes, at: 1080, count: 4) {
+            if proTrackerTags.contains(tag) { return true }
+            // `xxCH` / `xxCN`: FastTracker and TakeTracker channel counts.
+            let digits = tag.prefix(2)
+            if digits.allSatisfy(\.isNumber), tag.hasSuffix("CH") || tag.hasSuffix("CN") { return true }
+        }
+        return false
+    }
+
+    static func ascii(_ bytes: Data, at offset: Int, count: Int) -> String? {
+        guard bytes.count >= offset + count else { return nil }
+        let start = bytes.startIndex + offset
+        return String(bytes: bytes[start..<(start + count)], encoding: .ascii)
     }
 }
 

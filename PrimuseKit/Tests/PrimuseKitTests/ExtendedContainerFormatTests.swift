@@ -152,4 +152,120 @@ struct ExtendedContainerFormatTests {
         ))
         #expect(repeated.artists == ["A1"])
     }
+
+    // MARK: - Tracker modules
+
+    @Test("Tracker modules decode through SFB from a complete local copy")
+    func trackerModulesRouteToSFB() {
+        let modules: [String: AudioFormat] = [
+            "mod": .mod, "xm": .xm, "it": .it, "s3m": .s3m, "stm": .stm,
+            "mtm": .mtm, "ptm": .ptm, "okt": .okt, "669": .composer669,
+        ]
+        for (fileExtension, format) in modules {
+            #expect(AudioFormat.from(fileExtension: fileExtension.uppercased()) == format)
+            #expect(format.rawValue == fileExtension)
+            #expect(PrimuseConstants.supportedAudioExtensions.contains(fileExtension))
+            #expect(format.isTrackerModule)
+            #expect(format.requiresFFmpeg)
+            #expect(!format.prefersFFmpegDecoder)
+            #expect(!format.isLossless)
+            #expect(format.avPlayerContentType == nil)
+            #expect(TVPlaybackFormatRoutingPolicy.delivery(
+                for: format,
+                isVideo: false,
+                serverTranscodesWMA: false
+            ) == .decodedTemporaryFile(
+                fileExtension: fileExtension,
+                decoder: .sfbAudioEngine,
+                inspectWAVAfterDownload: false
+            ))
+        }
+        #expect(!AudioFormat.mka.isTrackerModule)
+        #expect(!AudioFormat.mp3.isTrackerModule)
+    }
+
+    private static func padded(_ text: String, to length: Int) -> Data {
+        var data = Data(text.utf8.prefix(length))
+        data.append(Data(count: length - data.count))
+        return data
+    }
+
+    private static func proTrackerHeader(title: String, tag: String = "M.K.") -> Data {
+        var data = padded(title, to: 20)
+        data.append(Data(count: 1080 - data.count))
+        data.append(Data(tag.utf8))
+        data.append(Data(count: 64))
+        return data
+    }
+
+    @Test("Each tracker's magic number is recognised and its song name read")
+    func trackerModuleSignaturesAndTitles() {
+        var xm = Data("Extended Module: ".utf8)
+        xm.append(Self.padded("Space Debris", to: 20))
+        xm.append(0x1A)
+        xm.append(Data(count: 64))
+
+        var it = Data("IMPM".utf8)
+        it.append(Self.padded("Hybrid Song", to: 26))
+        it.append(Data(count: 64))
+
+        var s3m = Self.padded("Unreal ][", to: 28)
+        s3m.append(Data([0x1A, 0x10, 0, 0]))
+        s3m.append(Data(count: 12))
+        s3m.append(Data("SCRM".utf8))
+        s3m.append(Data(count: 16))
+
+        var mtm = Data("MTM".utf8)
+        mtm.append(0x10)
+        mtm.append(Self.padded("Multi Song", to: 20))
+
+        var stm = Self.padded("Scream Two", to: 20)
+        stm.append(Data("!Scream!".utf8))
+        stm.append(Data(count: 20))
+
+        let cases: [(String, Data, String)] = [
+            ("xm", xm, "Space Debris"),
+            ("it", it, "Hybrid Song"),
+            ("s3m", s3m, "Unreal ]["),
+            ("mtm", mtm, "Multi Song"),
+            ("stm", stm, "Scream Two"),
+            ("mod", Self.proTrackerHeader(title: "Elysium"), "Elysium"),
+            ("mod", Self.proTrackerHeader(title: "Eight Voices", tag: "08CH"), "Eight Voices"),
+        ]
+        for (fileExtension, bytes, title) in cases {
+            #expect(AudioFileSignaturePolicy.inspect(bytes) == .trackerModule)
+            // The shared signature defers to the extension for the parser.
+            #expect(RemoteMetadataInspectionPolicy.parserFileExtension(
+                declaredFileExtension: fileExtension,
+                signature: .trackerModule
+            ) == fileExtension)
+            #expect(EmbeddedTagMetadataParser.parse(
+                head: bytes,
+                fileExtension: fileExtension
+            )?.title == title)
+        }
+        #expect(AudioFileSignaturePolicy.inspect(Data("OKTASONGCMOD".utf8)) == .trackerModule)
+    }
+
+    @Test("Empty or unverified module names fall back to the file name")
+    func trackerModuleTitlesNeedAHeader() {
+        // Blank name: nothing to show.
+        #expect(EmbeddedTagMetadataParser.parse(
+            head: Self.proTrackerHeader(title: "   "),
+            fileExtension: "mod"
+        ) == nil)
+        // A camcorder `.mod` (MPEG program stream) has no module header.
+        var programStream = Data([0x00, 0x00, 0x01, 0xBA])
+        programStream.append(Data("not a module title".utf8))
+        programStream.append(Data(count: 2048))
+        #expect(AudioFileSignaturePolicy.inspect(programStream) != .trackerModule)
+        #expect(EmbeddedTagMetadataParser.parse(
+            head: programStream,
+            fileExtension: "mod"
+        ) == nil)
+        // An XM header under the wrong extension is not read as IT.
+        var xm = Data("Extended Module: ".utf8)
+        xm.append(Self.padded("Name", to: 20))
+        #expect(EmbeddedTagMetadataParser.parse(head: xm, fileExtension: "it") == nil)
+    }
 }

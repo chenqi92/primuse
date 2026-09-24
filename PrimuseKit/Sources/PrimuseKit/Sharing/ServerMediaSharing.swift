@@ -329,6 +329,10 @@ public enum MediaRelaySourcePolicy {
         case .w64: return "audio/x-w64"
         case .rf64: return "audio/x-rf64"
         case .ra: return "audio/x-pn-realaudio"
+        case .mod, .stm, .mtm, .ptm, .okt, .composer669: return "audio/x-mod"
+        case .xm: return "audio/xm"
+        case .it: return "audio/it"
+        case .s3m: return "audio/s3m"
         }
     }
 }

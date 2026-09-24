@@ -294,6 +294,7 @@ enum FileMetadataReader {
             )
         }
         applySFBAudioFallback(to: &metadata, url: url)
+        applyTrackerModuleDuration(to: &metadata, url: url)
         await applyFFmpegContainerFallback(
             to: &metadata,
             url: url,
@@ -729,6 +730,7 @@ enum FileMetadataReader {
     private static let boundedContainerTagExtensions: Set<String> = [
         "ogg", "oga", "opus", "speex", "spx", "ape", "wv", "mpc", "mpp",
         "tta", "tak", "wma", "asf",
+        "mod", "xm", "it", "s3m", "stm", "mtm", "ptm",
     ]
     private static let apeTailTagExtensions: Set<String> = [
         "ape", "wv", "mpc", "mpp", "tta", "tak",
@@ -861,6 +863,22 @@ enum FileMetadataReader {
             bitRateKbps: properties.bitrate
         )
         metadata.fillMissing(from: fallback)
+    }
+
+    /// TagLib's module properties carry no length. DUMB works one out by
+    /// running through the pattern order when it opens the module (modules
+    /// are small, and nothing is rendered), so the decoder is the source.
+    private static func applyTrackerModuleDuration(to metadata: inout Metadata, url: URL) {
+        guard AudioFormat.from(fileExtension: url.pathExtension)?.isTrackerModule == true,
+              !(metadata.duration?.isFinite == true && (metadata.duration ?? 0) > 0),
+              // Named explicitly: SFB's content sniffing misroutes `.s3m`/`.it`.
+              let decoder = try? SFBAudioEngine.AudioDecoder(url: url, decoderName: .module),
+              (try? decoder.open()) != nil else { return }
+        defer { try? decoder.close() }
+        let sampleRate = decoder.processingFormat.sampleRate
+        let frames = decoder.length
+        guard sampleRate > 0, frames > 0 else { return }
+        metadata.duration = Double(frames) / sampleRate
     }
 
     /// Containers whose tags only FFmpeg's demuxer reads here: TagLib in this
