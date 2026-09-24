@@ -630,8 +630,10 @@ struct NowPlayingView: View {
     @State private var compactLandscapeHidesModeToggles = false
     @State private var showQueue = false
     @State private var lyrics: [LyricLine] = []
-    /// 歌词页算好的译文, 供歌词海报使用。
-    @State private var lyricTranslationsForSharing: [String: String] = [:]
+    /// 当前歌词各行的译文（文件自带的优先，其次是翻译任务给出的）。翻译任务挂在
+    /// 播放页常驻的零尺寸视图上，这份结果同时供歌词面板、全屏舞台和歌词海报读取。
+    @State private var lyricTranslationsByLineID: [String: String] = [:]
+    @State private var lyricsTranslationActivity: LyricsTranslationActivity = .idle
     @State private var lyricPosterComposer: LyricPosterComposer?
     @State private var lyricsWritingDirection: LyricWritingDirection = .natural
     @State private var lyricsRevision: UInt = 0
@@ -1030,7 +1032,7 @@ struct NowPlayingView: View {
         let composer = LyricPosterComposer.make(
             song: song,
             lyrics: lyrics,
-            translations: lyricTranslationsForSharing,
+            translations: lyricTranslationsByLineID,
             playbackPosition: player.currentTime,
             anchorLineID: anchorLineID,
             writingDirection: lyricsWritingDirection,
@@ -1326,6 +1328,25 @@ struct NowPlayingView: View {
                 )
                 #endif
 
+                // 歌词翻译由这层常驻的零尺寸视图负责，歌词面板与全屏舞台只读结果。
+                // 全屏打开时普通播放页整棵树会被卸载：任务若挂在歌词面板上，进全屏
+                // 就会被取消，全屏里切歌也没有人再算新一首的译文，只能退出再进。
+                // 只在歌词真的展示在某处时才挂上，封面模式不去请求翻译。
+                if showLyrics || isFullscreenPlayerPresented {
+                    Color.clear
+                        .frame(width: 0, height: 0)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .lyricsTranslationTaskIfAvailable(
+                            songID: player.currentSong?.id,
+                            lyricsRevision: lyricsRevision,
+                            lyrics: lyrics,
+                            settings: LyricsTranslationSettingsStore.shared,
+                            translatedTextByLineID: $lyricTranslationsByLineID,
+                            activity: $lyricsTranslationActivity
+                        )
+                }
+
                 if !isFullscreenPlayerPresented {
                     ZStack {
                         // Opaque base — prevents content bleeding through
@@ -1410,7 +1431,7 @@ struct NowPlayingView: View {
                         lyricCompanions: {
                             LyricsScrollView.companionTexts(
                                 for: $0,
-                                translatedTextByLineID: lyricTranslationsForSharing
+                                translatedTextByLineID: lyricTranslationsByLineID
                             )
                         },
                         lyricsWritingDirection: lyricsWritingDirection,
@@ -1469,9 +1490,9 @@ struct NowPlayingView: View {
         .task(id: initialLyricsLoadIdentity) {
             guard isPresentationSettled else { return }
             consumeAutomaticScrapeCompletion()
-            // 换歌就丢掉上一首的译文缓存: 歌词面板没展开时它不会自己清空,
+            // 换歌就丢掉上一首的译文: 翻译任务没挂着时(封面模式)它不会自己清空,
             // 从"更多"菜单做海报会带上一首的翻译。
-            lyricTranslationsForSharing = [:]
+            lyricTranslationsByLineID = [:]
             if player.isLiveRadio {
                 clearLyricsResolution()
                 lyrics = []
@@ -3705,7 +3726,8 @@ struct NowPlayingView: View {
             onShareLyricLine: { lineID in
                 presentLyricPoster(anchorLineID: lineID)
             },
-            exposedTranslations: $lyricTranslationsForSharing
+            translatedTextByLineID: lyricTranslationsByLineID,
+            translationActivity: lyricsTranslationActivity
         )
     }
 
@@ -6249,7 +6271,7 @@ private struct LyricsScaleEnvelopeLayout: Layout {
 ///
 /// 通过把 currentLineIndex 等内部状态封装在子 view 里,行切换只让本 view 重算,
 /// 父 view 的 Menu / sheet 不受影响。
-private enum LyricsTranslationActivity: Equatable {
+enum LyricsTranslationActivity: Equatable {
     case idle
     /// Preparation reached a terminal state without any machine-translation work.
     case notNeeded
@@ -6475,9 +6497,10 @@ struct LyricsScrollView: View {
     let onBackgroundTap: () -> Void
     /// 长按某一句 → 打开歌词海报, 并把这句作为选句起点。
     let onShareLyricLine: (String) -> Void
-    /// 把译文同步给播放页 —— 从"更多"菜单进海报时同样要带上翻译, 而翻译
-    /// 只在这棵歌词树里算过一次, 重算一遍既慢又可能触发系统下载语言包。
-    @Binding var exposedTranslations: [String: String]
+    /// 各行译文与翻译进度由播放页算好后传进来。这棵树进沉浸歌词、进全屏都会
+    /// 被重建，翻译任务不能跟着它一起消失。
+    let translatedTextByLineID: [String: String]
+    let translationActivity: LyricsTranslationActivity
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -6520,12 +6543,6 @@ struct LyricsScrollView: View {
     /// 下一次变化时尝试 scrollTo，遇到长句/间奏就会长期停在错误位置。
     @State private var lineAutoFollowResumeTask: Task<Void, Never>? = nil
     private static let manualScrollGracePeriod: TimeInterval = 3.0
-
-    // Translation —— system translation framework。切歌只自动使用已安装且
-    // 源语言明确的语言对；可能出现系统 UI 的准备流程必须由用户显式触发。
-    @State private var translatedTextByLineID: [String: String] = [:]
-    @State private var translationSettings = LyricsTranslationSettingsStore.shared
-    @State private var translationActivity: LyricsTranslationActivity = .idle
 
     private static let lyricsMinScale: Double = 0.7
     private static let lyricsMaxScale: Double = 1.8
@@ -6698,17 +6715,6 @@ struct LyricsScrollView: View {
             isPinchingLyrics = false
             lineAutoFollowResumeTask?.cancel()
         }
-        .lyricsTranslationTaskIfAvailable(
-            songID: songID,
-            lyricsRevision: lyricsRevision,
-            lyrics: lyrics,
-            settings: translationSettings,
-            translatedTextByLineID: $translatedTextByLineID,
-            activity: $translationActivity
-        )
-        .onChange(of: translatedTextByLineID) { _, updated in
-            exposedTranslations = updated
-        }
         .contentShape(Rectangle())
         .simultaneousGesture(
             SpatialTapGesture()
@@ -6756,7 +6762,7 @@ struct LyricsScrollView: View {
         case .systemPreparationRequired:
             Button {
                 lastLyricRowTapAt = Date()
-                translationSettings.requestSystemTranslationPreparation()
+                LyricsTranslationSettingsStore.shared.requestSystemTranslationPreparation()
             } label: {
                 Label(String(localized: "Translate Lyrics"), systemImage: "arrow.down.circle")
             }
