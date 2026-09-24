@@ -985,7 +985,7 @@ final class FnMusicMetadataWritebackTests: XCTestCase {
         let body = fixture.written
         XCTAssertEqual(body["title"] as? String, "正确歌名")
         XCTAssertEqual(body["album"] as? String, "Remote album")
-        XCTAssertEqual(body["albumGUID"] as? String, "old-album")
+        XCTAssertNil(body["albumGUID"], "网页端的保存请求没有 albumGUID")
         XCTAssertEqual(body["artistGUIDs"] as? [String], ["artist-a", "artist-b"])
         XCTAssertEqual(body["genreGUIDs"] as? [String], ["rock"])
         XCTAssertEqual(body["coverId"] as? String, "track_original-cover")
@@ -1010,13 +1010,14 @@ final class FnMusicMetadataWritebackTests: XCTestCase {
             XCTAssertEqual(result.fieldResults.filter { $0.disposition == .written }.count, 3)
             XCTAssertEqual(fixture.written["artistGUIDs"] as? [String], ["new-artist"])
             XCTAssertEqual(fixture.written["genreGUIDs"] as? [String], ["jazz"])
-            XCTAssertEqual(fixture.written["albumGUID"] as? String, existing ? "new-album" : nil)
+            XCTAssertNil(fixture.written["albumGUID"])
+            XCTAssertEqual(fixture.written["album"] as? String, "New album")
             XCTAssertEqual(fixture.artistCreations, existing ? 0 : 1)
             XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
         }
     }
 
-    func testUnsupportedCustomGenreAndCoverDoNotPreventVerifiedTitleSave() async {
+    func testNewGenreIsCreatedAndCoverIsUploadedWithTheSameSave() async {
         let fixture = FnMusicTagHTTPFixture()
         let source = makeSource(fixture)
         defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
@@ -1024,11 +1025,57 @@ final class FnMusicMetadataWritebackTests: XCTestCase {
         var updated = original
         updated.title = "New title"
         updated.genre = "Uncatalogued genre"
-        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: Data([1]), lyricsLines: nil, lyricsContent: nil)
+        let cover = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46])
+        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: cover, lyricsLines: nil, lyricsContent: "[00:01.00]x")
         XCTAssertTrue(result.metadataWritten)
-        XCTAssertTrue(result.errors.isEmpty)
-        XCTAssertEqual(fixture.written["genreGUIDs"] as? [String], ["rock"])
-        XCTAssertEqual(result.fieldResults.filter { if case .unsupported = $0.disposition { return true }; return false }.count, 2)
+        XCTAssertTrue(result.coverWritten)
+        XCTAssertTrue(result.errors.isEmpty, result.errors.description)
+        XCTAssertEqual(fixture.written["genreGUIDs"] as? [String], ["new-genre"])
+        XCTAssertEqual(fixture.genreCreations, 1)
+        XCTAssertEqual(fixture.written["coverId"] as? String, "track_new-cover")
+        XCTAssertEqual(fixture.written["coverGUID"] as? String, "new-cover")
+        XCTAssertEqual(fixture.uploadedCover, cover)
+        XCTAssertEqual(fixture.writeCount, 1)
+        XCTAssertEqual(result.fieldResults.filter { $0.disposition == .written }.map(\.field).sorted { $0.rawValue < $1.rawValue }, [.cover, .genre, .title])
+        // 歌词文本仍然没有服务端写接口。
+        XCTAssertEqual(result.unsupported.count, 1)
+        XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
+    }
+
+    func testCoverOnlyChangeAndClearedAlbumRoundTrip() async {
+        let fixture = FnMusicTagHTTPFixture()
+        let source = makeSource(fixture)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        let coverOnly = await source.writeScrapedMetadata(original: original, updated: original, coverData: Data([0x89, 0x50, 0x4E, 0x47, 1]), lyricsLines: nil, lyricsContent: nil)
+        XCTAssertTrue(coverOnly.coverWritten)
+        XCTAssertFalse(coverOnly.metadataWritten)
+        XCTAssertTrue(coverOnly.errors.isEmpty, coverOnly.errors.description)
+        XCTAssertEqual(fixture.writeCount, 1)
+        XCTAssertEqual(fixture.uploadedFilename, "cover.png")
+        XCTAssertEqual(fixture.written["title"] as? String, "Old title")
+
+        var cleared = original
+        cleared.albumTitle = nil
+        let result = await source.writeScrapedMetadata(original: original, updated: cleared, coverData: nil, lyricsLines: nil, lyricsContent: nil)
+        XCTAssertTrue(result.metadataWritten, result.errors.description)
+        XCTAssertTrue(fixture.written["album"] is NSNull, "清空专辑照网页端传 null")
+        XCTAssertTrue(fixture.problems.isEmpty, fixture.problems.description)
+    }
+
+    func testCoverUploadFailureStillSavesVerifiedFieldsAndReportsCover() async {
+        let fixture = FnMusicTagHTTPFixture(mode: .coverUploadFails)
+        let source = makeSource(fixture)
+        defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
+        let original = song(fixture)
+        var updated = original
+        updated.title = "New title"
+        let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: Data([1, 2, 3]), lyricsLines: nil, lyricsContent: nil)
+        XCTAssertTrue(result.metadataWritten)
+        XCTAssertFalse(result.coverWritten)
+        XCTAssertFalse(result.errors.isEmpty)
+        XCTAssertEqual(fixture.written["coverId"] as? String, "track_original-cover", "上传失败时保留原封面引用")
+        XCTAssertEqual(result.fieldResults.first { $0.field == .cover }.map { if case .failed = $0.disposition { return true }; return false }, true)
     }
 
     func testInvalidMetadataPermissionAndReadbackCannotReportSuccess() async {
@@ -1052,7 +1099,7 @@ final class FnMusicMetadataWritebackTests: XCTestCase {
         defer { FnMusicTagHTTPProtocol.remove(host: fixture.host) }
         let original = song(fixture)
         var updated = original
-        updated.albumTitle = "New album"
+        updated.artistName = "New artist"
         let result = await source.writeScrapedMetadata(original: original, updated: updated, coverData: nil, lyricsLines: nil, lyricsContent: nil)
         XCTAssertFalse(result.errors.isEmpty)
         XCTAssertEqual(fixture.writeCount, 0)
@@ -1076,7 +1123,7 @@ final class FnMusicMetadataWritebackTests: XCTestCase {
 }
 
 private final class FnMusicTagHTTPFixture: @unchecked Sendable {
-    enum Mode { case success, existingEntities, missingIDs, wrongTrack, permissionDenied, businessError, mismatchedReadback, ambiguousEntities }
+    enum Mode { case success, existingEntities, missingIDs, wrongTrack, permissionDenied, businessError, mismatchedReadback, ambiguousEntities, coverUploadFails }
     let host = "fnmusic-tags-\(UUID().uuidString.lowercased()).invalid"
     let mode: Mode
     private let lock = NSLock()
@@ -1084,11 +1131,17 @@ private final class FnMusicTagHTTPFixture: @unchecked Sendable {
     private var reads = 0
     private var writes = 0
     private var creations = 0
+    private var genreCreated = 0
+    private var cover: Data?
+    private var coverFilename: String?
     private var failures: [String] = []
     var written: [String: Any] { lock.withLock { body } }
     var readCount: Int { lock.withLock { reads } }
     var writeCount: Int { lock.withLock { writes } }
     var artistCreations: Int { lock.withLock { creations } }
+    var genreCreations: Int { lock.withLock { genreCreated } }
+    var uploadedCover: Data? { lock.withLock { cover } }
+    var uploadedFilename: String? { lock.withLock { coverFilename } }
     var problems: [String] { lock.withLock { failures } }
     init(mode: Mode = .success) { self.mode = mode }
 
@@ -1104,12 +1157,32 @@ private final class FnMusicTagHTTPFixture: @unchecked Sendable {
             if request.value(forHTTPHeaderField: "authx") == nil { failures.append("Missing Authx signature") }
             switch path {
             case "/music/api/v1/artist/list-all":
-                return try response(["list": mode == .existingEntities ? [["guid": "new-artist", "name": "New artist"]] : []])
-            case "/music/api/v1/album/list-all":
-                let albums = mode == .existingEntities ? [["guid": "new-album", "name": "New album"]] :
-                    (mode == .ambiguousEntities ? [["guid": "one", "name": "New album"], ["guid": "two", "name": "New album"]] : [])
-                return try response(["list": albums])
+                let artists = mode == .existingEntities ? [["guid": "new-artist", "name": "New artist"]] :
+                    (mode == .ambiguousEntities ? [["guid": "one", "name": "New artist"], ["guid": "two", "name": "New artist"]] : [])
+                return try response(["list": artists])
             case "/music/api/v1/genre/list": return try response(["list": [["guid": "rock", "name": "Rock"], ["guid": "jazz", "name": "Jazz"]], "total": 2])
+            case "/music/api/v1/genre/create":
+                genreCreated += 1
+                let value = try JSONSerialization.jsonObject(with: Self.requestBody(request)) as! [String: Any]
+                guard let name = value["name"] as? String, value.count == 1 else { failures.append("Genre creation payload"); return try response(NSNull()) }
+                return try response(["guid": "new-genre", "name": name])
+            case "/music/api/v1/static/cover/track":
+                if mode == .coverUploadFails { return try response([String: String](), code: 50001) }
+                guard request.httpMethod == "POST",
+                      let contentType = request.value(forHTTPHeaderField: "Content-Type"),
+                      let boundary = contentType.components(separatedBy: "boundary=").last, contentType.hasPrefix("multipart/form-data;") else {
+                    failures.append("Cover upload is not multipart"); return try response(NSNull())
+                }
+                let raw = Self.requestBody(request)
+                guard let upload = Self.multipartFile(raw, boundary: boundary, field: "file") else {
+                    failures.append("Cover upload has no file field"); return try response(NSNull())
+                }
+                cover = upload.data
+                coverFilename = upload.filename
+                if let authx = request.value(forHTTPHeaderField: "authx"), !Self.signatureMatches(authx, request: request, signed: Data("{}".utf8)) {
+                    failures.append("Cover upload signature is not over {}")
+                }
+                return try response(["coverId": "track_new-cover"])
             case "/music/api/v1/artist/create":
                 creations += 1
                 let value = try JSONSerialization.jsonObject(with: Self.requestBody(request)) as! [String: Any]
@@ -1131,14 +1204,41 @@ private final class FnMusicTagHTTPFixture: @unchecked Sendable {
                 if mode == .missingIDs { track["artists"] = [["name": "Artist A"]] }
                 if !body.isEmpty && mode != .mismatchedReadback {
                     for key in ["title", "year", "trackNo", "discNo"] { track[key] = body[key] }
-                    track["album"] = ["guid": body["albumGUID"] as? String ?? "created-album", "name": body["album"] as? String ?? ""]
+                    track["album"] = ["guid": "created-album", "name": body["album"] as? String ?? ""]
                     track["artists"] = (body["artistGUIDs"] as? [String] ?? []).map { ["guid": $0, "name": ["new-artist": "New artist", "artist-a": "Artist A", "artist-b": "Artist B"][$0] ?? $0] }
-                    track["genres"] = (body["genreGUIDs"] as? [String] ?? []).map { ["guid": $0, "name": ["rock": "Rock", "jazz": "Jazz"][$0] ?? $0] }
+                    track["genres"] = (body["genreGUIDs"] as? [String] ?? []).map { ["guid": $0, "name": ["rock": "Rock", "jazz": "Jazz", "new-genre": "Uncatalogued genre"][$0] ?? $0] }
+                    if let coverID = body["coverId"] as? String { track["coverId"] = coverID }
                 }
                 return try response(["track": track, "audioSpec": [:]])
             default: throw URLError(.badURL)
             }
         }
+    }
+
+    /// 只认最简单的单文件 multipart：一个 part、`name="file"`、带 filename。
+    private static func multipartFile(_ body: Data, boundary: String, field: String) -> (filename: String, data: Data)? {
+        let head = Data("--\(boundary)\r\n".utf8)
+        let tail = Data("\r\n--\(boundary)--\r\n".utf8)
+        guard body.starts(with: head), body.suffix(tail.count).elementsEqual(tail) else { return nil }
+        let inner = body.dropFirst(head.count).dropLast(tail.count)
+        guard let separator = inner.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+        let headers = String(decoding: inner[inner.startIndex..<separator.lowerBound], as: UTF8.self)
+        guard headers.contains("Content-Disposition: form-data; name=\"\(field)\"; filename=\""),
+              let filenameStart = headers.range(of: "filename=\""),
+              let filenameEnd = headers[filenameStart.upperBound...].firstIndex(of: "\"") else { return nil }
+        return (String(headers[filenameStart.upperBound..<filenameEnd]), Data(inner[separator.upperBound...]))
+    }
+
+    private static func signatureMatches(_ header: String, request: URLRequest, signed: Data) -> Bool {
+        let fields = Dictionary(uniqueKeysWithValues: header.components(separatedBy: "&").compactMap { pair -> (String, String)? in
+            let parts = pair.components(separatedBy: "=")
+            return parts.count == 2 ? (parts[0], parts[1]) : nil
+        })
+        guard let nonce = fields["nonce"], let timestamp = fields["timestamp"].flatMap(Int64.init), let url = request.url else { return false }
+        let expected = FnMusicAPIProtocol.authxHeader(
+            method: request.httpMethod ?? "POST", path: FnMusicAPIProtocol.authxPath(for: url),
+            queryItems: [], bodyData: signed, nonce: nonce, timestampMilliseconds: timestamp)
+        return expected == header
     }
 
     private static func requestBody(_ request: URLRequest) -> Data {

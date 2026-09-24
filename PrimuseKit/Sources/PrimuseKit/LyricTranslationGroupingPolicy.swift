@@ -265,10 +265,13 @@ public enum LyricManualTranslationPolicy {
     ///
     /// 未标语言的行只看文字系统：双语 LRC 里同一时间戳下的假名读音、罗马音或
     /// 英译都不可能是中文译文，把它们当成「已有译文」会让这首歌永远等不到翻译；
-    /// 汉字行则既可能是中文也可能是日文，照旧算数。
+    /// 汉字行则既可能是中文也可能是日文，照旧算数。`readingIDs` 是整篇里已判定
+    /// 为读音（罗马音、拼音、韩文罗马字）的行，它们对任何目标语言都不是译文 ——
+    /// 文字系统分不开英文和罗马音，这一步靠 ``LyricRomanizedReadingPolicy``。
     public static func preferredTranslation(
         for line: LyricLine,
-        targetLanguageCode: String
+        targetLanguageCode: String,
+        readingIDs: Set<String> = []
     ) -> LyricManualTranslation? {
         let candidates = line.allManualTranslations.filter {
             !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -288,6 +291,7 @@ public enum LyricManualTranslationPolicy {
 
         let untagged = candidates.filter {
             languageIdentity($0.languageCode) == nil
+                && !readingIDs.contains($0.id)
                 && LyricBilingualPairingPolicy.textCouldBeWritten(
                     in: targetLanguageCode,
                     text: $0.text
@@ -296,18 +300,22 @@ public enum LyricManualTranslationPolicy {
         return preferredBySourcePriority(in: untagged)
     }
 
+    /// `readingIDs` 传 nil 时按整篇现算；调用方已经算过一次就传进来，别每行重算。
     public static func hasCompleteCoverage(
         in lines: [LyricLine],
-        targetLanguageCode: String
+        targetLanguageCode: String,
+        readingIDs: Set<String>? = nil
     ) -> Bool {
         let contentLines = lines.filter {
             !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         guard !contentLines.isEmpty else { return false }
+        let readingIDs = readingIDs ?? LyricRomanizedReadingPolicy.readingIDs(in: lines)
         return contentLines.allSatisfy {
             preferredTranslation(
                 for: $0,
-                targetLanguageCode: targetLanguageCode
+                targetLanguageCode: targetLanguageCode,
+                readingIDs: readingIDs
             ) != nil
         }
     }
@@ -1097,6 +1105,146 @@ public enum LyricCompanionTextPolicy {
         guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+}
+
+/// 双语 LRC 里跟在原文后面的拉丁字母行，是这句的读音（罗马音、拼音、韩文罗马字）
+/// 还是译文（英文等），光看文字系统分不出来，两者都是拉丁字母。读音行有很强的
+/// 音节结构：每个词都能拆成该语言的音节，而英文里 and / with / world 这类词拆不开。
+/// 单独一行太短，"take me home" 这样的短句也能整句拆成音节，所以按整篇投票：
+/// 大多数拉丁字母行都像读音，这一列就是读音列；一半左右像（「原文 + 罗马音 +
+/// 中译 + 英译」四行文件）就只认像的那些行；更少就一行都不认。
+public enum LyricRomanizedReadingPolicy {
+    /// 整篇里被判定为读音的附属行，以 `LyricManualTranslation.id` 标识。
+    public static func readingIDs(in lines: [LyricLine]) -> Set<String> {
+        let documentHasKana = lines.contains { containsKana($0.text) }
+        var rows: [(id: String, tokenCount: Int, isLike: Bool)] = []
+        for line in lines {
+            guard let script = sourceScript(of: line.text, documentHasKana: documentHasKana) else {
+                continue
+            }
+            for translation in line.allManualTranslations
+            where translation.source == .bilingualLRC && translation.languageCode == nil {
+                guard let evidence = syllableEvidence(of: translation.text, script: script) else {
+                    continue
+                }
+                rows.append((
+                    translation.id,
+                    evidence.tokenCount,
+                    evidence.ratio >= rowThreshold
+                ))
+            }
+        }
+
+        let voting = rows.filter { $0.tokenCount >= 2 }
+        guard voting.count >= minimumVotingRows else { return [] }
+        let share = Double(voting.filter(\.isLike).count) / Double(voting.count)
+        if share >= documentThreshold {
+            return Set(rows.map(\.id))
+        }
+        if share >= mixedDocumentThreshold {
+            return Set(rows.filter(\.isLike).map(\.id))
+        }
+        return []
+    }
+
+    enum SourceScript {
+        case japanese
+        case chinese
+        case korean
+    }
+
+    struct SyllableEvidence: Equatable {
+        var tokenCount: Int
+        var ratio: Double
+    }
+
+    /// 一行里能整词拆成音节的词占比；没有拉丁字母的词、或者夹着别的文字时为 nil。
+    static func syllableEvidence(of text: String, script: SourceScript) -> SyllableEvidence? {
+        guard let tokens = latinTokens(in: text), !tokens.isEmpty else { return nil }
+        let pattern = tokenPattern(for: script)
+        let matched = tokens.filter { $0.wholeMatch(of: pattern) != nil }.count
+        return SyllableEvidence(
+            tokenCount: tokens.count,
+            ratio: Double(matched) / Double(tokens.count)
+        )
+    }
+
+    private static let rowThreshold = 0.8
+    private static let documentThreshold = 0.75
+    private static let mixedDocumentThreshold = 0.4
+    private static let minimumVotingRows = 6
+
+    /// 每行取一次；`Regex` 不是 Sendable，不能放在静态常量里。
+    private static func tokenPattern(for script: SourceScript) -> Regex<Substring> {
+        switch script {
+        case .japanese:
+            // 罗马音：可选促音前缀 + 可选辅音（含拗音、sh/ch/ts）+ 元音，或独立的拨音 n。
+            return #/^(?:[kstpgdbzj]?(?:ch|sh|ts|ky|gy|ny|hy|my|ry|by|py|dz|dj|[kgsztdnhbpmyrwjf])?[aiueo]|n(?![aiueoy]))+$/#
+        case .chinese:
+            // 拼音：可选声母 + 韵母，一词可以连写多个音节；ü 折成 u 或写作 v。
+            return #/^(?:(?:zh|ch|sh|[bpmfdtnlgkhjqxrzcsyw])?(?:iang|iong|uang|ueng|ang|eng|ing|ong|ian|iao|uai|uan|van|ai|ao|an|ei|en|er|ia|ie|in|iu|ou|ua|uo|ue|ui|un|ve|vn|a|o|e|i|u|v))+$/#
+        case .korean:
+            // 韩文罗马字（文化观光部 2000 年式）：可选初声 + 中声 + 可选终声，一词多音节连写。
+            return #/^(?:(?:ch|kk|tt|pp|ss|jj|[gndrmbsjkthp])?(?:yae|yeo|wae|ae|ya|eo|ye|wa|oe|yo|wo|we|wi|yu|eu|ui|[aeoiu])(?:ng|[kntlmp])?)+$/#
+        }
+    }
+
+    /// 小写、去掉变音符号后按非字母切词。任何一个字母不是拉丁字母就返回 nil ——
+    /// 这一行夹着原文文字，不是读音行。
+    private static func latinTokens(in text: String) -> [String]? {
+        let folded = text.lowercased().decomposedStringWithCanonicalMapping
+        var tokens: [String] = []
+        var current = ""
+        var letterCount = 0
+        for scalar in folded.unicodeScalars {
+            if scalar.properties.generalCategory == .nonspacingMark { continue }
+            if ("a"..."z").contains(scalar) {
+                current.unicodeScalars.append(scalar)
+                letterCount += 1
+                continue
+            }
+            if scalar.properties.isAlphabetic { return nil }
+            if !current.isEmpty {
+                tokens.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        guard letterCount >= 2 else { return nil }
+        return tokens
+    }
+
+    static func sourceScript(of text: String, documentHasKana: Bool) -> SourceScript? {
+        var han = 0
+        var kana = 0
+        var hangul = 0
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x3040...0x30FF, 0x31F0...0x31FF, 0xFF66...0xFF9D:
+                kana += 1
+            case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0x20000...0x3134F:
+                han += 1
+            case 0x1100...0x11FF, 0x3130...0x318F, 0xA960...0xA97F,
+                 0xAC00...0xD7AF, 0xD7B0...0xD7FF, 0xFFA0...0xFFDC:
+                hangul += 1
+            default:
+                break
+            }
+        }
+        if kana > 0 { return .japanese }
+        if hangul > 0 { return .korean }
+        if han > 0 { return documentHasKana ? .japanese : .chinese }
+        return nil
+    }
+
+    private static func containsKana(_ text: String) -> Bool {
+        text.unicodeScalars.contains {
+            switch $0.value {
+            case 0x3040...0x30FF, 0x31F0...0x31FF, 0xFF66...0xFF9D: return true
+            default: return false
+            }
+        }
     }
 }
 

@@ -465,26 +465,8 @@ public actor FnMusicServiceClient {
             path: "/lyric/list",
             queryItems: [URLQueryItem(name: "trackGUID", value: trackGUID)]
         )
-        let dictionary = payload as? [String: Any]
-        let rawLyrics = dictionary?["list"] as? [[String: Any]]
-            ?? payload as? [[String: Any]]
-            ?? []
-        let preferred = fnMusicNonemptyString(dictionary?["preferred"])
-        let lyrics = rawLyrics.compactMap {
-            item -> (guid: String, content: String)? in
-            guard let content = fnMusicNonemptyString(item["content"])
-                    ?? fnMusicNonemptyString(item["text"]) else { return nil }
-            return (
-                fnMusicNonemptyString(item["guid"])
-                    ?? fnMusicNonemptyString(item["id"])
-                    ?? "",
-                content
-            )
-        }
-        if let preferred {
-            return lyrics.first(where: { $0.guid == preferred })?.content
-        }
-        return lyrics.first?.content
+        // 候选选择与 iPhone/Mac 共用一份规则，服务端校准过的偏移并进 `[offset:]` 标签。
+        return FnMusicLyricSelection.select(payload: payload)?.text
     }
 
     /// Retry one authenticated API request after the exact 401/403/session
@@ -653,7 +635,8 @@ public actor FnMusicServiceClient {
             throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidFnMusicJSON"))
         }
         guard code == 0 || code == 200 else {
-            if code == 120001 || code == 401 || code == 403 {
+            // 99999 与 120001 都表示会话已失效，iPhone/Mac 侧早已两个都认。
+            if code == 99999 || code == 120001 || code == 401 || code == 403 {
                 if includeCookie { invalidateToken(ifMatching: requestToken) }
                 throw FnMusicServiceError.authenticationFailed
             }
@@ -727,7 +710,8 @@ public actor FnMusicServiceClient {
         }
         if let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let code = fnMusicInt(envelope["code"]) {
-            if code == 120001 || code == 401 || code == 403 {
+            // 99999 与 120001 都表示会话已失效，iPhone/Mac 侧早已两个都认。
+            if code == 99999 || code == 120001 || code == 401 || code == 403 {
                 invalidateToken(ifMatching: requestToken)
                 throw FnMusicServiceError.authenticationFailed
             }
