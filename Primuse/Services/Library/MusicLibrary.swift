@@ -2903,6 +2903,12 @@ final class MusicLibrary {
         }
     }
     private(set) var artistNameConfiguration: ArtistNameConfiguration
+    /// 按「原始艺术家字段 + 源给的艺术家数组」记住解析出来的显示名。列表每一行都要
+    /// 问一次 `artistDisplayName(for:)`,而解析要折叠整套分隔符/保护名再逐字比对,
+    /// Mac 端一次窗口跳变重建几十行时就是明显的掉帧 (#156)。同一串字段的结果只跟
+    /// 命名配置有关,所以配置一换就整个清掉。
+    @ObservationIgnored
+    private var artistDisplayNameCache: [ArtistDisplayNameCacheKey: ArtistDisplayNameCacheEntry] = [:]
     /// Backing storage that includes soft-deleted entries. UI-facing
     /// `playlists` filters this down.
     private(set) var allPlaylists: [Playlist] = []
@@ -2959,7 +2965,14 @@ final class MusicLibrary {
             .filter { $0.isDeleted }
             .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
-    private var playlistSongIDs: [String: [String]] = [:]
+    private var playlistSongIDs: [String: [String]] = [:] {
+        didSet { playlistMembershipRevision &+= 1 }
+    }
+    /// `playlistSongIDs` 每改一次就加一。`isLiked(songID:)` 靶着它决定要不要重建
+    /// 「我喜欢」的 Set —— 曲目表本身是有序数组 (顺序要保住),但列表每行都要判一次
+    /// 喜欢没喜欢,按数组 `contains` 走是 O(喜欢数) 的线性扫描 (#156)。
+    @ObservationIgnored private var playlistMembershipRevision: UInt64 = 0
+    @ObservationIgnored private var likedSongIDLookup: (revision: UInt64, ids: Set<String>)?
     /// 每个歌单上一次与云端一致时的曲目表(远端套用后、合并后、本机保存成功后都会
     /// 更新)。冲突合并拿它当三方合并的基线: 基线里有、一边没有的, 就是那一边删掉的。
     private var playlistSyncBaseSongIDs: [String: [String]] = [:]
@@ -6425,7 +6438,36 @@ final class MusicLibrary {
     }
 
     func artistDisplayName(for song: Song) -> String? {
-        song.displayArtistName(configuration: artistNameConfiguration)
+        let key = ArtistDisplayNameCacheKey(
+            rawName: song.artistName,
+            sourceNames: song.sourceArtistNames
+        )
+        if let cached = artistDisplayNameCache[key] { return cached.value }
+        let value = song.displayArtistName(configuration: artistNameConfiguration)
+        // 不同的原始字段远少于歌曲数 (同一艺术家成百上千首),这个上限只防极端库
+        // 把内存吃满;真到了就整个清掉重来,不做 LRU。
+        if artistDisplayNameCache.count >= Self.artistDisplayNameCacheLimit {
+            artistDisplayNameCache.removeAll(keepingCapacity: true)
+        }
+        artistDisplayNameCache[key] = ArtistDisplayNameCacheEntry(value: value)
+        return value
+    }
+
+    private static let artistDisplayNameCacheLimit = 20_000
+
+    private func invalidateArtistDisplayNameCache() {
+        artistDisplayNameCache.removeAll(keepingCapacity: true)
+    }
+
+    private struct ArtistDisplayNameCacheKey: Hashable {
+        let rawName: String?
+        let sourceNames: [String]?
+    }
+
+    /// 字典值要能装下 `nil`(字段为空时显示名就是 nil),裸 `String?` 当值会让赋 nil
+    /// 变成删键,下次照样重算。
+    private struct ArtistDisplayNameCacheEntry {
+        let value: String?
     }
 
     func artistIDs(for song: Song) -> [String] {
@@ -6461,6 +6503,7 @@ final class MusicLibrary {
         let value = value.normalized()
         guard artistNameConfiguration != value else { return }
         artistNameConfiguration = value
+        invalidateArtistDisplayNameCache()
 
         var nextSongs = songs
         var changedSongs: [Song] = []
@@ -7341,7 +7384,15 @@ final class MusicLibrary {
     }
 
     func isLiked(songID: String) -> Bool {
-        contains(songID: songID, inPlaylist: Self.likedSongsPlaylistID)
+        // 读一次存储属性把 Observation 依赖登记上 (喜欢/取消喜欢时行要刷新),
+        // 判定本身走按修订号缓存的 Set,不再逐个比对整张「我喜欢」曲目表。
+        let membership = playlistSongIDs
+        if let cached = likedSongIDLookup, cached.revision == playlistMembershipRevision {
+            return cached.ids.contains(songID)
+        }
+        let ids = Set(membership[Self.likedSongsPlaylistID] ?? [])
+        likedSongIDLookup = (playlistMembershipRevision, ids)
+        return ids.contains(songID)
     }
 
     func setLiked(
@@ -9809,6 +9860,7 @@ final class MusicLibrary {
             // songs(forArtist:) 与 visibleArtists 会按另一份配置分组, 直到下一次
             // 全量重建才纠正。`.preparing` 期间进来的新配置由第 2.5 步对账。
             artistNameConfiguration = storage.artistNameConfiguration
+            invalidateArtistDisplayNameCache()
             // `.preparing` 构造的库此时才拿到准备阶段打开的存储句柄。
             songStore = storage.songStore
         } else {

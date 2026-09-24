@@ -106,6 +106,12 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
         return String(value.prefix(16))
     }
 
+    /// Shared by every fold and anchored compare below. `Locale(identifier:)`
+    /// is not free, and the parser used to build a fresh one for every
+    /// character it looked at — visible as scroll jank once a song list
+    /// re-evaluated a window of rows at once.
+    fileprivate static let comparisonLocale = Locale(identifier: "en_US_POSIX")
+
     fileprivate static func comparisonKey(
         _ value: String,
         widthInsensitive: Bool = true
@@ -114,7 +120,7 @@ public struct ArtistNameConfiguration: Codable, Hashable, Sendable {
         if widthInsensitive { options.insert(.widthInsensitive) }
         return value.precomposedStringWithCanonicalMapping.folding(
             options: options,
-            locale: Locale(identifier: "en_US_POSIX")
+            locale: comparisonLocale
         )
     }
 }
@@ -130,6 +136,22 @@ public enum ArtistNameParser {
         sourceNames: [String]? = nil,
         configuration: ArtistNameConfiguration = .defaultValue
     ) -> [String] {
+        names(
+            rawName: rawName,
+            sourceNames: sourceNames,
+            normalizedConfiguration: configuration.normalized()
+        )
+    }
+
+    /// `normalizedConfiguration` must already be the output of
+    /// `ArtistNameConfiguration.normalized()`: normalizing folds every
+    /// separator and protected name, so callers that need the configuration
+    /// twice (names + display separator) normalize once and pass it here.
+    private static func names(
+        rawName: String?,
+        sourceNames: [String]?,
+        normalizedConfiguration configuration: ArtistNameConfiguration
+    ) -> [String] {
         let nativeNames = distinctNormalizedNames(sourceNames ?? [])
         if nativeNames.count > 1 {
             return nativeNames
@@ -138,8 +160,16 @@ public enum ArtistNameParser {
         let candidate = normalizedName(rawName) ?? nativeNames.first
         guard let candidate else { return [] }
 
-        let configuration = configuration.normalized()
         guard !configuration.separators.isEmpty else { return [candidate] }
+
+        // Fast path for the common single-artist field: when no separator
+        // occurs anywhere in the candidate, the character walk below can never
+        // split it and returns `[candidate]` unchanged. One unanchored search
+        // per separator replaces one anchored search per character per
+        // separator (and per protected name).
+        guard containsAnySeparator(candidate, separators: configuration.separators) else {
+            return [candidate]
+        }
 
         let separators = configuration.separators.sorted(by: longestFirst)
         let protectedNames = configuration.protectedNames.sorted(by: longestFirst)
@@ -185,13 +215,14 @@ public enum ArtistNameParser {
         sourceNames: [String]? = nil,
         configuration: ArtistNameConfiguration = .defaultValue
     ) -> String? {
+        let configuration = configuration.normalized()
         let names = names(
             rawName: rawName,
             sourceNames: sourceNames,
-            configuration: configuration
+            normalizedConfiguration: configuration
         )
         guard !names.isEmpty else { return normalizedName(rawName) }
-        return names.joined(separator: configuration.normalized().displaySeparator)
+        return names.joined(separator: configuration.displaySeparator)
     }
 
     public static func contains(
@@ -236,6 +267,18 @@ public enum ArtistNameParser {
         return lhs < rhs
     }
 
+    /// Same compare options as the separator branch of `firstMatch`, minus
+    /// `.anchored`, so a miss here guarantees the anchored walk misses too.
+    private static func containsAnySeparator(_ value: String, separators: [String]) -> Bool {
+        separators.contains { separator in
+            value.range(
+                of: separator,
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: ArtistNameConfiguration.comparisonLocale
+            ) != nil
+        }
+    }
+
     private static func firstMatch(
         in value: String,
         at index: String.Index,
@@ -250,7 +293,7 @@ public enum ArtistNameParser {
                 of: candidate,
                 options: options,
                 range: searchRange,
-                locale: Locale(identifier: "en_US_POSIX")
+                locale: ArtistNameConfiguration.comparisonLocale
             ), range.lowerBound == index else { continue }
             return range
         }
