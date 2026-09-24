@@ -137,6 +137,24 @@ private struct TVKaraokeStageContent: View {
                     stepButton(systemImage: "plus", enabled: session.isVocalReductionAvailable) {
                         session.vocalLevel = min(1, session.vocalLevel + 0.1)
                     }
+                    stepButton(systemImage: "minus", enabled: session.isVocalReductionAvailable
+                               && session.keyShift > KaraokeKeyShiftPolicy.range.lowerBound) {
+                        session.keyShift -= 1
+                    }
+                    VStack(spacing: 2) {
+                        Text(String(localized: "karaoke_key"))
+                            .tvFont(.caption)
+                            .foregroundStyle(TVColor.textFaint)
+                        Text(session.keyShift == 0 ? String(localized: "karaoke_key_original") : String(format: "%+d", session.keyShift))
+                            .tvFont(.sectionTitle)
+                            .monospacedDigit()
+                            .foregroundStyle(TVColor.text)
+                    }
+                    .frame(minWidth: 140)
+                    stepButton(systemImage: "plus", enabled: session.isVocalReductionAvailable
+                               && session.keyShift < KaraokeKeyShiftPolicy.range.upperBound) {
+                        session.keyShift += 1
+                    }
                     if session.hasDuetParts {
                         partButton(.all, "karaoke_part_all")
                         partButton(.primary, "karaoke_part_primary")

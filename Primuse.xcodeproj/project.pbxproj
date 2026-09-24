@@ -67,6 +67,7 @@
 		0A29AD1261453B6735CB9962 /* MusicLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A2105927D98B1DF9885EB81 /* MusicLibrary.swift */; };
 		0A6519792957182F0B026F08 /* SFBAudioEngine in Frameworks */ = {isa = PBXBuildFile; productRef = F018F7A8A3643BE3A12DF666 /* SFBAudioEngine */; };
 		0A7502E27B419FCFBD15D42E /* CarPlayLayoutBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C3403EC845D6ACC43FC90C /* CarPlayLayoutBlock.swift */; };
+		0A8040261FABE4FD6C8F1379 /* KaraokePitchShifter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB2837C7A0F8AD8CCA36AD0E /* KaraokePitchShifter.swift */; };
 		0ACA25C2348D8CA0D4AE2966 /* EmbyLyricsTrackEventParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98C6228B8950A5EAB88F9960 /* EmbyLyricsTrackEventParser.swift */; };
 		0ACB1D658F47D5EAA17E73DF /* SongloftSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A373D69542A894AC0E311DF /* SongloftSource.swift */; };
 		0ADD6ADCDD5C664E159B9F76 /* CarPlayLayoutConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA81D957BD070901D2869F60 /* CarPlayLayoutConfiguration.swift */; };
@@ -2232,6 +2233,7 @@
 		BA20E9464F75F9EE11DA88D5 /* TVKaraokeProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVKaraokeProcessor.swift; sourceTree = "<group>"; };
 		CF6F0110C062A2AAD532FA0E /* KaraokeRemoteMicView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeRemoteMicView.swift; sourceTree = "<group>"; };
 		D9DE1060FBA3D9D6391E5F17 /* KaraokeDemucsFrontEnd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeDemucsFrontEnd.swift; sourceTree = "<group>"; };
+		DB2837C7A0F8AD8CCA36AD0E /* KaraokePitchShifter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokePitchShifter.swift; sourceTree = "<group>"; };
 		F0D0DA0573BAB8FCD51CEBEB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FE6A508FC824D9EA0624954F /* TVKaraokeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVKaraokeSession.swift; sourceTree = "<group>"; };
 		FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FFmpegMusicVideoConverter.m; sourceTree = "<group>"; };
@@ -3207,6 +3209,7 @@
 				5975695B72BB04A271618C06 /* KaraokeLyricsPolicy.swift */,
 				8E76DF5932E1BF9252DF9F17 /* KaraokeMicLink.swift */,
 				31A636FBDCA9499A93CBBE92 /* KaraokePitchDetector.swift */,
+				DB2837C7A0F8AD8CCA36AD0E /* KaraokePitchShifter.swift */,
 				5D4680EDC56996FEA9846CDE /* KaraokeScoring.swift */,
 				29DE675D69CEFF865B8DE539 /* KaraokeStemAlignment.swift */,
 				A3904F625D70F0A74C6ABB60 /* KaraokeVocalReducer.swift */,
@@ -5196,6 +5199,7 @@
 				3A59763468B2114EC4EE7FC0 /* KaraokeLyricsPolicy.swift in Sources */,
 				7B2635DFEDE392F37D291CF6 /* KaraokeMicLink.swift in Sources */,
 				7E08BF2C5D778F2C58D4078D /* KaraokePitchDetector.swift in Sources */,
+				0A8040261FABE4FD6C8F1379 /* KaraokePitchShifter.swift in Sources */,
 				2134525A1BECF69380B99911 /* KaraokeScoring.swift in Sources */,
 				B92F64F9B6008149F422C6E7 /* KaraokeStemAlignment.swift in Sources */,
 				8840017D0A5B378F3A9A91E2 /* KaraokeVocalReducer.swift in Sources */,

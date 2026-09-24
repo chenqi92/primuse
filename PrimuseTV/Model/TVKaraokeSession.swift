@@ -40,6 +40,13 @@ final class TVKaraokeSession {
         }
     }
     private(set) var hasDuetParts = false
+    /// Key change in semitones for the karaoke track.
+    var keyShift = 0 {
+        didSet {
+            keyShift = KaraokeKeyShiftPolicy.clamped(keyShift)
+            applySettings()
+        }
+    }
     private(set) var isActive = false
     private(set) var windows: [KaraokeLineWindow] = []
     private(set) var stageLines: [LyricLine] = []
@@ -152,7 +159,8 @@ final class TVKaraokeSession {
             reduction: Float(1 - vocalLevel) * duetFactor,
             capturesVocal: isActive && isMicConnected,
             stemAddress: stem.map { UInt(bitPattern: $0.samples) } ?? 0,
-            stemFrames: stem?.frames ?? 0
+            stemFrames: stem?.frames ?? 0,
+            keyShift: keyShift
         ))
     }
 
@@ -286,7 +294,10 @@ final class TVKaraokeSession {
             }.value
             guard let self else { return }
             self.isAnalyzing = false
-            self.referenceTrack.append(time: time, midiNote: note)
+            // The vocal is taken before the key change; the singer follows
+            // the shifted key.
+            let shift = Double(self.isVocalReductionAvailable ? self.keyShift : 0)
+            self.referenceTrack.append(time: time, midiNote: note.map { $0 + shift })
         }
     }
 
