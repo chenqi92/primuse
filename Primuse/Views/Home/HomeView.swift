@@ -493,7 +493,6 @@ struct HomeView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(\.skin) private var skin
     #if os(iOS)
-    @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     #endif
@@ -668,7 +667,7 @@ struct HomeView: View {
             #endif
             .toolbar {
                 #if os(iOS)
-                if showRadioOnHome && appNavigationMode != .minimal {
+                if showRadioOnHome {
                     if #available(iOS 26.0, *) {
                         ToolbarItem(placement: .topBarTrailing) {
                             modeToggleButton
@@ -1316,8 +1315,11 @@ struct HomeView: View {
                             toggleHomeRadio(station)
                         } label: {
                             Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                                .font(.system(size: 17, weight: .bold))
-                                .frame(width: 46, height: 46)
+                                .font(.system(size: skin.usesPosterHome ? 17 : 15, weight: .bold))
+                                .frame(
+                                    width: skin.usesPosterHome ? 46 : 38,
+                                    height: skin.usesPosterHome ? 46 : 38
+                                )
                                 .contentTransition(.symbolEffect(.replace))
                                 .pmAnimation(.control, value: isPlaying)
                         }
@@ -1349,9 +1351,9 @@ struct HomeView: View {
         )
         .background {
             radioSpotlightBackdrop
-                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: radioSpotlightRadius, style: .continuous))
         }
-        .contentShape(RoundedRectangle(cornerRadius: 26))
+        .contentShape(RoundedRectangle(cornerRadius: radioSpotlightRadius))
         .simultaneousGesture(
             DragGesture(minimumDistance: 24).onEnded { value in
                 guard abs(value.translation.width) > abs(value.translation.height) * 1.25 else { return }
@@ -1360,6 +1362,8 @@ struct HomeView: View {
         )
         .pmAnimation(.contentAppear, value: station.id)
     }
+
+    private var radioSpotlightRadius: CGFloat { skin.usesPosterHome ? 26 : 22 }
 
     private var radioSpotlightBackdrop: some View {
         ZStack {
@@ -1773,10 +1777,12 @@ struct HomeView: View {
     private var initialLoadingView: some View {
         LoadingSkeletonGroup {
             VStack(alignment: .leading, spacing: 24) {
-                // 与封面墙头图同尺寸,数据到位时版面不跳。
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                // 与头图同尺寸,数据到位时版面不跳。
+                RoundedRectangle(cornerRadius: skin.usesPosterHome ? 26 : 20, style: .continuous)
                     .fill(homeCardSurface)
-                    .frame(height: heightClass.value(318, compact: 196))
+                    .frame(height: skin.usesPosterHome
+                        ? heightClass.value(318, compact: 196)
+                        : heightClass.value(154, compact: 96))
                     .padding(.horizontal, 16)
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -2153,27 +2159,24 @@ struct HomeView: View {
                 .minimalNavigationDetail()
                 #endif
         } label: {
-            // 本周听歌:大号时长做主角,次数与活跃天数一行小字,右边一个统计图标。
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("stats_title")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                HStack(alignment: .lastTextBaseline) {
-                    Text(verbatim: formattedDuration(summary.totalSec))
-                        .font(.system(.title, design: .rounded).weight(.bold))
-                        .monospacedDigit()
-                        .foregroundStyle(.primary)
-                    Spacer(minLength: 8)
-                    Image(systemName: "chart.bar.xaxis")
-                        .font(.title2)
-                        .foregroundStyle(.tint)
-                }
+            if skin.usesPosterHome {
+                posterStatsGlimpseLabel(summary)
+            } else {
+                statsGlimpseLabel(summary)
+            }
+        }
+        .buttonStyle(.pmPressable)
+    }
+
+    private func statsGlimpseLabel(_ summary: PlayHistoryStore.Summary) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "chart.bar.xaxis")
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("stats_title")
+                    .font(.subheadline.weight(.semibold))
                 Text(String(
                     format: String(localized: "home_stats_glimpse_format"),
                     summary.totalPlays,
@@ -2183,14 +2186,60 @@ struct HomeView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-            .padding(16)
-            .background {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(homeCardSurface)
-            }
-            .padding(.horizontal, 16)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
-        .buttonStyle(.pmPressable)
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(homeCardSurface)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(.primary.opacity(0.06), lineWidth: 0.5)
+                }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// 海报版式的本周听歌:大号时长做主角,次数与活跃天数一行小字,右边一个统计图标。
+    private func posterStatsGlimpseLabel(_ summary: PlayHistoryStore.Summary) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("stats_title")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            HStack(alignment: .lastTextBaseline) {
+                Text(verbatim: formattedDuration(summary.totalSec))
+                    .font(.system(.title, design: .rounded).weight(.bold))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.title2)
+                    .foregroundStyle(.tint)
+            }
+            Text(String(
+                format: String(localized: "home_stats_glimpse_format"),
+                summary.totalPlays,
+                formattedDuration(summary.totalSec),
+                summary.activeDays
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(homeCardSurface)
+        }
+        .padding(.horizontal, 16)
     }
 
     /// Compact "Xh Ym" / "Ym" formatter for the stats glimpse line.
@@ -2251,7 +2300,11 @@ struct HomeView: View {
     /// 用户反馈不好看, 暂时不用; 代码保留方便将来需要时切回去。
     @ViewBuilder
     private var libraryHeroSection: some View {
-        libraryMixHeroFallback
+        if skin.usesPosterHome {
+            posterLibraryHero
+        } else {
+            libraryMixHeroFallback
+        }
     }
 
     @ViewBuilder
@@ -2275,7 +2328,7 @@ struct HomeView: View {
                         .font(.caption).fontWeight(.medium)
                         .foregroundStyle(.secondary)
                     Text("home_todays_pick_title")
-                        .font(.title3.weight(.heavy))
+                        .font(.title3).fontWeight(skin.usesPosterHome ? .heavy : .bold)
                         .lineLimit(1)
                     Text(pick.title)
                         .font(.subheadline).fontWeight(.medium)
@@ -2342,10 +2395,135 @@ struct HomeView: View {
         }
     }
 
-    /// 首页头图:资料库里的封面斜着铺成一面墙,向下压暗,问候语、标题和两颗按钮压在
-    /// 压暗的那一段上。整块仍是「打开全部歌曲」的入口(按钮以外的地方点下去就进歌曲)。
-    /// 两套基座共用 —— 颜色全部来自封面,不依赖皮肤底色。
+    /// Cold-start: no songs eligible for the today's pick. Keep the
+    /// old library-mix CTA so the user always has something to tap.
     private var libraryMixHeroFallback: some View {
+        VStack(spacing: heightClass.value(14, compact: 10)) {
+            homeFaceHeader(.music)
+
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(greeting)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text("home_library_mix_title")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .lineLimit(heightClass.pick(2, compact: 1))
+                        .minimumScaleFactor(0.85)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                heroCoverCollage
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    playLibrary(shuffled: true)
+                } label: {
+                    Label("shuffle", systemImage: "shuffle")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                }
+                .buttonStyle(.borderedProminent)
+                .clipShape(Capsule())
+
+                Button {
+                    playLibrary(shuffled: false)
+                } label: {
+                    Label("play_all", systemImage: "play.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                }
+                .buttonStyle(.bordered)
+                .clipShape(Capsule())
+            }
+        }
+        .padding(heroPadding)
+        .background {
+            Button(action: openLibrarySongs) {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(homeCardSurface)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(.primary.opacity(0.06), lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("tab_songs"))
+            .accessibilityHint(Text("library_browse"))
+            .accessibilityIdentifier("homeLibraryHeroOpenSongs")
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// 4 张封面错落叠放 — 用 ZStack 加旋转 + 偏移, 跟 Spotify Mix /
+    /// Apple Music「For You」拼贴风格一致。封面来自最近添加 + 最近播放
+    /// 的随机抽样, 每次 view 出现重洗一次。
+    @ViewBuilder
+    private var heroCoverCollage: some View {
+        // 手机横屏整块 hero 要压到视口四成以内,拼贴跟着等比缩一档:
+        // 封面、错开的距离、外框三处必须一起缩,只改外框会让封面溢出去压到文字。
+        let size = heightClass.value(50, compact: 38)
+        let radius = heightClass.value(8, compact: 6)
+        let spread = heightClass.value(1, compact: 0.75)
+        ZStack {
+            // 4 张依次叠, 角度 + 偏移让它们看起来散开
+            ForEach(Array(model.snapshot.heroCoverSongs.prefix(4).enumerated()), id: \.element.id) { index, song in
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName,
+                    songID: song.id,
+                    size: size,
+                    cornerRadius: radius,
+                    sourceID: song.sourceID,
+                    filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                .rotationEffect(.degrees(coverRotation(for: index)))
+                .offset(coverOffset(for: index, spread: spread))
+                .zIndex(Double(4 - index))
+            }
+            if model.snapshot.heroCoverSongs.isEmpty {
+                Image(systemName: "music.note.list")
+                    .font(.title)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(
+            width: heightClass.value(110, compact: 90),
+            height: heightClass.value(80, compact: 56)
+        )
+    }
+
+    private func coverRotation(for index: Int) -> Double {
+        switch index {
+        case 0: return -10
+        case 1: return -3
+        case 2: return 5
+        case 3: return 12
+        default: return 0
+        }
+    }
+
+    private func coverOffset(for index: Int, spread: CGFloat) -> CGSize {
+        let base: CGSize
+        switch index {
+        case 0: base = CGSize(width: -28, height: 0)
+        case 1: base = CGSize(width: -10, height: -4)
+        case 2: base = CGSize(width: 10, height: 2)
+        case 3: base = CGSize(width: 28, height: 0)
+        default: base = .zero
+        }
+        return CGSize(width: base.width * spread, height: base.height * spread)
+    }
+
+    /// 海报版式的首页头图:资料库里的封面斜着铺成一面墙,向下压暗,问候语、标题和两颗按钮
+    /// 压在压暗的那一段上。整块仍是「打开全部歌曲」的入口(按钮以外的地方点下去就进歌曲)。
+    /// 颜色全部来自封面,不依赖皮肤底色。
+    private var posterLibraryHero: some View {
         let compact = heightClass.isCompact
         let heroHeight: CGFloat = compact ? 196 : 318
         return ZStack(alignment: .bottomLeading) {
@@ -2500,7 +2678,7 @@ struct HomeView: View {
             pool.append(song)
         }
         let withCover = pool.filter { $0.coverArtFileName?.isEmpty == false }
-        // 头图是一面封面墙,抽 12 张;不够时墙面会循环使用。
+        // 海报版式的头图是一面封面墙,抽 12 张(不够时墙面循环使用);经典头图只取前 4 张。
         return Array(withCover.shuffled().prefix(12))
     }
 
@@ -2523,8 +2701,8 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                 }
-            } else {
-                // 网格档是两列胶囊磁贴:左边封面、右边名称与一行说明,
+            } else if skin.usesPosterHome {
+                // 海报版式的网格档是两列胶囊磁贴:左边封面、右边名称与一行说明,
                 // 一屏能放六个,比一排小图标好认。
                 LazyVGrid(
                     columns: Array(
@@ -2536,6 +2714,28 @@ struct HomeView: View {
                     ForEach(model.snapshot.quickItems) { item in
                         homeQuickDockItem(item, pill: true)
                     }
+                }
+                .padding(.horizontal, 20)
+            } else {
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.flexible(), spacing: 10),
+                        count: 3
+                    ),
+                    spacing: 14
+                ) {
+                    ForEach(model.snapshot.quickItems) { item in
+                        homeQuickDockItem(item)
+                    }
+                }
+                .padding(14)
+                .background {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(homeCardSurface)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(.primary.opacity(0.06), lineWidth: 0.5)
+                        }
                 }
                 .padding(.horizontal, 20)
             }
@@ -2920,12 +3120,15 @@ struct HomeView: View {
 
     @ViewBuilder
     private func recommendationCardBackground(for song: Song) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        let poster = skin.usesPosterHome
+        let shape = RoundedRectangle(cornerRadius: poster ? 20 : 18, style: .continuous)
         if let tint = tintProvider.tint(forSongID: song.id) {
-            // 推荐卡整张铺这首歌的封面色,一眼看得出是哪一首。
+            // 海报版式的推荐卡整张铺这首歌的封面色,一眼看得出是哪一首。
             shape.fill(
                 LinearGradient(
-                    colors: [tint.opacity(0.46), tint.opacity(0.14)],
+                    colors: poster
+                        ? [tint.opacity(0.46), tint.opacity(0.14)]
+                        : [tint.opacity(0.28), tint.opacity(0.08)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -2952,15 +3155,28 @@ struct HomeView: View {
             // 只是不让任何意外取值渲染成一片空白。
             case .carousel, .grid:
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHGrid(
-                        rows: carouselRows(.continueListening, height: continueCardSide + 46, spacing: 16),
-                        spacing: 14
-                    ) {
-                        ForEach(songs.prefix(sectionItemCount(.continueListening, 12)), id: \.id) { song in
-                            Button { playSong(song) } label: {
-                                continueListeningCard(song)
+                    Group {
+                        if skin.usesPosterHome {
+                            LazyHGrid(
+                                rows: carouselRows(.continueListening, height: continueCardSide + 46, spacing: 16),
+                                spacing: 14
+                            ) {
+                                ForEach(songs.prefix(sectionItemCount(.continueListening, 12)), id: \.id) { song in
+                                    Button { playSong(song) } label: {
+                                        continueListeningCard(song)
+                                    }
+                                    .buttonStyle(.pmPressable)
+                                }
                             }
-                            .buttonStyle(.pmPressable)
+                        } else {
+                            LazyHGrid(rows: carouselRows(.continueListening, height: 60, spacing: 10), spacing: 10) {
+                                ForEach(songs.prefix(sectionItemCount(.continueListening, 12)), id: \.id) { song in
+                                    Button { playSong(song) } label: {
+                                        continueListeningRow(song)
+                                    }
+                                    .buttonStyle(.pmPressable)
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -3061,10 +3277,10 @@ struct HomeView: View {
         .contentShape(Rectangle())
     }
 
-    /// 首页各区块的标题。字重比系统默认再重一档,区块之间靠标题分隔,不再靠卡片边框。
+    /// 首页各区块的标题。海报版式的字重再重一档,区块之间靠标题分隔,不再靠卡片边框。
     private func homeSectionTitle(_ key: LocalizedStringKey) -> some View {
         Text(key)
-            .font(.title3.weight(.heavy))
+            .font(.title3.weight(skin.usesPosterHome ? .heavy : .bold))
             .padding(.horizontal, 20)
             .accessibilityAddTraits(.isHeader)
     }
@@ -3120,7 +3336,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: style == .grid ? 14 : 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text(HomeDiscoveryText.string("recent_albums"))
-                    .font(.title3.weight(.heavy))
+                    .font(.title3).fontWeight(skin.usesPosterHome ? .heavy : .bold)
                 Spacer()
                 NavigationLink {
                     RecentlyAddedAlbumsView()

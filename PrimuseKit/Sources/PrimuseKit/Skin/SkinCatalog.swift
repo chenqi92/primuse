@@ -154,6 +154,11 @@ public enum SkinCatalog {
             .panel: .easeInOut(duration: 0.25),
             .trackChange: .easeInOut(duration: 0.28),
             .ambient: .easeInOut(duration: 0.5),
-        ]
+        ],
+        // 每个插槽都是经典实现:除集合详情页以外,经典的每一页都和 2.0 之前一样。
+        slots: SkinSlotRegistry.allClassic,
+        companions: .none,
+        // 详情页(专辑、艺术家、歌单、风格)整页铺封面色,是经典在 2.0 里唯一改了样子的地方。
+        traits: SkinTraits(collectionBackdrop: .artworkTint, chromeMaterial: .glass)
     )
 }

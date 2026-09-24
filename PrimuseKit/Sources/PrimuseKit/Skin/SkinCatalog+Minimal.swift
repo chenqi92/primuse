@@ -155,9 +155,9 @@ extension SkinCatalog {
                 .bottomChrome: SkinSlotVariant.BottomChrome.floatingCapsule.rawValue,
                 .detailHeader: SkinSlotVariant.DetailHeader.coverWall.rawValue,
                 .settingsRoot: SkinSlotVariant.SettingsRoot.hub.rawValue,
-                .homeLayout: SkinSlotVariant.HomeLayout.classic.rawValue,
-                .listRow: SkinSlotVariant.ListRow.classic.rawValue,
-                .card: SkinSlotVariant.Card.classic.rawValue,
+                .homeLayout: SkinSlotVariant.HomeLayout.poster.rawValue,
+                .listRow: SkinSlotVariant.ListRow.playHeader.rawValue,
+                .card: SkinSlotVariant.Card.tile.rawValue,
                 .playerStage: SkinSlotVariant.PlayerStage.sheetActions.rawValue,
             ],
             companions: SkinCompanions(
@@ -165,7 +165,8 @@ extension SkinCatalog {
                 lyricPosterStyleIDs: ["deep_sea"],
                 preferredImmersiveStageID: "coverMosaic",
                 preferredLyricPosterStyleID: "deep_sea"
-            )
+            ),
+            traits: SkinTraits(collectionBackdrop: .artworkTint, chromeMaterial: .glass)
         )
     }()
 }

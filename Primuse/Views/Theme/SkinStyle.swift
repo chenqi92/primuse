@@ -113,6 +113,43 @@ struct SkinStyle: Equatable, Sendable {
     /// 悬浮控件用不透明底(样式声明了 solid,或系统开了「降低透明度」由调用处另判)。
     var usesSolidChrome: Bool { skin.traits.chromeMaterial == .solid }
 
+    // MARK: - 页面实现
+
+    // 下面几项按插槽取值做穷尽 switch:插槽多登记一个实现时,这里编译不过,逼着把画法补上。
+    // 经典的每一项都是 false —— 经典下这些页面与 2.0 之前一模一样。
+
+    /// 首页用封面墙海报版式(`HomeLayout.poster`)。
+    var usesPosterHome: Bool {
+        switch skin.homeLayout {
+        case .classic: return false
+        case .poster: return true
+        }
+    }
+
+    /// 卡片与入口画成大一号的方块(`Card.tile`)。
+    var usesTileCards: Bool {
+        switch skin.card {
+        case .classic: return false
+        case .tile: return true
+        }
+    }
+
+    /// 平铺的歌曲列表顶上带一排「播放 · 随机」(`ListRow.playHeader`)。
+    var showsSongListPlayHeader: Bool {
+        switch skin.listRow {
+        case .classic: return false
+        case .playHeader: return true
+        }
+    }
+
+    /// 播放页与队列用分组面板那一套画法(`PlayerStage.sheetActions`)。
+    var usesSheetActionsPlayer: Bool {
+        switch skin.playerStage {
+        case .classic: return false
+        case .sheetActions: return true
+        }
+    }
+
     // MARK: - 几何
 
     /// 已按 Dynamic Type 缩放的点值。圆角、描边、阴影这类形状语言不参与缩放

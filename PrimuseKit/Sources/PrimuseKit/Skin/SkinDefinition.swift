@@ -61,12 +61,31 @@ public enum SkinSlotVariant {
         case hub
     }
 
-    public enum HomeLayout: String, CaseIterable, Sendable { case classic }
-    public enum ListRow: String, CaseIterable, Sendable { case classic }
-    public enum Card: String, CaseIterable, Sendable { case classic }
+    public enum HomeLayout: String, CaseIterable, Sendable {
+        case classic
+        /// 头图是一面斜铺的封面墙海报;区块标题加重,快速访问是两列胶囊,继续听是方形大卡,
+        /// 本周统计以大号时长为主。
+        case poster
+    }
+
+    public enum ListRow: String, CaseIterable, Sendable {
+        case classic
+        /// 平铺的歌曲列表顶上多一排「播放 · 随机」胶囊与歌曲数。
+        case playHeader
+    }
+
+    public enum Card: String, CaseIterable, Sendable {
+        case classic
+        /// 大一号的卡片:专辑卡标题加重;资料库分类、搜索起始页(最近搜索、按流派浏览、最佳结果)
+        /// 与电台页(正在直播、添加电台)画成方块与大卡,而不是分组列表的行。
+        case tile
+    }
+
     public enum PlayerStage: String, CaseIterable, Sendable {
         case classic
-        /// 播放页的「更多」以分组面板呈现(常用的几项提到第一排),而不是一长条系统菜单。
+        /// 播放页的「更多」以分组面板呈现(常用的几项提到第一排),而不是一长条系统菜单;
+        /// 竖屏播放键是实心圆,音质与来源收进底栏的胶囊;队列页带循环键,正在播放单独成卡,
+        /// 已播放默认收起。
         case sheetActions
     }
 }

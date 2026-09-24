@@ -113,7 +113,9 @@ struct HomeListeningRankingSection: View {
 
     private var heading: some View {
         Text(HomeDiscoveryText.string("ranking"))
-            .font(.title3.weight(.heavy)).fixedSize(horizontal: true, vertical: false)
+            // 海报版式的首页区块标题重一档,排行的标题跟着一起。
+            .font(skin.usesPosterHome ? .title3.weight(.heavy) : .title3.bold())
+            .fixedSize(horizontal: true, vertical: false)
             .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("home.listeningRanking")
     }

@@ -277,11 +277,38 @@ struct SkinCatalogTests {
         #expect(skin.detailHeader == .coverWall)
         #expect(skin.settingsRoot == .hub)
         #expect(skin.playerStage == .sheetActions)
-        #expect(SkinCatalog.classic.playerStage == .classic)
-        #expect(SkinCatalog.classic.navigationHeader == .classic)
-        #expect(SkinCatalog.classic.bottomChrome == .classic)
-        #expect(SkinCatalog.classic.detailHeader == .classic)
-        #expect(SkinCatalog.classic.settingsRoot == .classic)
+        #expect(skin.homeLayout == .poster)
+        #expect(skin.card == .tile)
+        #expect(skin.listRow == .playHeader)
+    }
+
+    @Test("经典的每个插槽都是经典实现,插槽与特征位都显式写在定义里")
+    func classicSlotChoicesAreExplicit() {
+        let classic = SkinCatalog.classic
+        for slot in SkinSlot.allCases {
+            #expect(classic.slots[slot] == SkinSlotRegistry.classicVariant, "\(slot)")
+        }
+        #expect(classic.playerStage == .classic)
+        #expect(classic.navigationHeader == .classic)
+        #expect(classic.bottomChrome == .classic)
+        #expect(classic.detailHeader == .classic)
+        #expect(classic.settingsRoot == .classic)
+        #expect(classic.homeLayout == .classic)
+        #expect(classic.card == .classic)
+        #expect(classic.listRow == .classic)
+        // 经典的详情页染封面色,浮层是玻璃。
+        #expect(classic.traits.collectionBackdrop == .artworkTint)
+        #expect(classic.traits.chromeMaterial == .glass)
+    }
+
+    @Test("每个插槽登记的实现里都有经典实现")
+    func everySlotRegistersClassic() {
+        for slot in SkinSlot.allCases {
+            #expect(SkinSlotRegistry.builtIn[slot]?.contains(SkinSlotRegistry.classicVariant) == true, "\(slot)")
+        }
+        #expect(SkinSlotRegistry.variants(of: .homeLayout).contains(SkinSlotVariant.HomeLayout.poster.rawValue))
+        #expect(SkinSlotRegistry.variants(of: .card).contains(SkinSlotVariant.Card.tile.rawValue))
+        #expect(SkinSlotRegistry.variants(of: .listRow).contains(SkinSlotVariant.ListRow.playHeader.rawValue))
     }
 
     @Test("读不出来的插槽取值落到经典实现")
