@@ -7218,27 +7218,16 @@ struct LyricsScrollView: View {
     /// 一句歌词下面要显示的附属文本, 顺序与歌词文件里写的一致。
     ///
     /// 同一个时间戳上的多行(外语歌常见「原文 + 注音 + 译文」)在解析时已经并进
-    /// 原文, 三行讲的是同一句, 全部列出来才不会把注音或者译文藏掉。文件本身
-    /// 没带译文时才回落到翻译任务给出的那一条。
+    /// 原文, 三行讲的是同一句, 全部列出来才不会把注音或者译文藏掉; 翻译任务给出
+    /// 的那一条排在最后, 文件里已有同样文字时不重复。规则在 kit 里, 便于测试。
     static func companionTexts(
         for line: LyricLine,
         translatedTextByLineID: [String: String]
     ) -> [String] {
-        // A romanization reads the original line out loud, so it sits between
-        // the sung text and any translation.
-        let romanization = (line.romanization ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let leading = romanization.isEmpty ? [] : [romanization]
-
-        let embedded = line.allManualTranslations
-            .filter { $0.source == .bilingualLRC }
-            .map(\.text)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if !embedded.isEmpty { return leading + embedded }
-        guard let translated = translatedTextByLineID[line.id], !translated.isEmpty else {
-            return leading
-        }
-        return leading + [translated]
+        LyricCompanionTextPolicy.texts(
+            for: line,
+            translatedText: translatedTextByLineID[line.id]
+        )
     }
 
     /// dimmedByAmbient: 统一动效模式调用时传 true ── 表明行整体明暗由外层
