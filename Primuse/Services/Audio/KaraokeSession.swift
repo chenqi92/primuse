@@ -198,11 +198,16 @@ final class KaraokeSession {
     @ObservationIgnored private var pairedOriginal: Song?
     @ObservationIgnored private var stemSongID: String?
     @ObservationIgnored private var stemTrack: KaraokeStemTrack?
+    @ObservationIgnored private var retiredStems: [KaraokeStemTrack] = []
     @ObservationIgnored private var stemLoadTask: Task<Void, Never>?
     @ObservationIgnored private var lockPolicy = KaraokeStemLockPolicy()
     @ObservationIgnored private var lockPolicyEpoch = -1
     @ObservationIgnored private var isAligning = false
     @ObservationIgnored private var tickCount = 0
+    @ObservationIgnored private var pausedRecordingTicks = 0
+    /// Ticks (50 ms) of continuous pause before a take is closed, so a
+    /// resume that is still settling does not end it.
+    private static let recordingPauseTicks = 40
     @ObservationIgnored private var wordTimingSongID: String?
     @ObservationIgnored private var wordTimingTask: Task<Void, Never>?
 
@@ -282,8 +287,13 @@ final class KaraokeSession {
             alignStemIfIdle()
         }
 
+        // A take ends when playback stays paused. Resuming can take a moment
+        // (a seek, a restart after the song ended), so a start is given time.
         if isRecording, !player.isPlaying {
-            finishRecording()
+            pausedRecordingTicks += 1
+            if pausedRecordingTicks >= Self.recordingPauseTicks { finishRecording() }
+        } else {
+            pausedRecordingTicks = 0
         }
         if microphoneState == .on {
             canMonitor = AudioSessionManager.shared.outputRouteSupportsMicrophoneMonitoring
@@ -463,11 +473,20 @@ final class KaraokeSession {
         stemLoadTask?.cancel()
         stemLoadTask = nil
         stemSongID = nil
+        // Withdraw it from the render thread first, then keep the samples
+        // alive a moment: a render cycle may already hold their address.
+        engine.karaokeControl.installStem(nil)
+        if let track = stemTrack {
+            retiredStems.append(track)
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                self?.retiredStems.removeAll { $0 === track }
+            }
+        }
         stemTrack = nil
         isStemActive = false
         isStemLocked = false
         lockPolicy.reset()
-        engine.karaokeControl.installStem(nil)
     }
 
     /// Correlates the newest playback with the stem off the main actor and
@@ -785,6 +804,7 @@ final class KaraokeSession {
             accompanimentWriter = writer
             accompanimentTapNode = node
             isRecording = true
+            pausedRecordingTicks = 0
             recordingFailed = false
             lastRecordingURL = nil
             if !player.isPlaying { player.togglePlayPause() }

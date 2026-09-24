@@ -217,14 +217,14 @@ final class TVAudioEngine {
     @ObservationIgnored private var spectrumAnalysisEnabled = false
     /// Karaoke vocal reduction runs in the same AVPlayer tap as the spectrum.
     @ObservationIgnored let karaokeProcessor = TVKaraokeProcessor()
-    @ObservationIgnored private lazy var tapContext = TVAudioTapContext(
-        pipeline: spectrumPipeline,
-        karaoke: karaokeProcessor
-    )
     @ObservationIgnored private var karaokeTapWanted = false
     /// The karaoke processor sits in the playing item's tap. False on the
     /// SFB / live PCM paths, which karaoke does not cover.
     private(set) var isKaraokeTapInstalled = false
+
+    /// Where the playing song starts inside its file: a CUE track's start,
+    /// 0 for an ordinary file. The karaoke tap sees file time.
+    var playbackPhysicalStart: TimeInterval { playbackSegment.physicalStart }
     @ObservationIgnored private var remotePreviousTrackCommandEnabled = false
     @ObservationIgnored private var remoteNextTrackCommandEnabled = false
 
@@ -1119,7 +1119,10 @@ final class TVAudioEngine {
                       self.spectrumAnalysisEnabled || self.karaokeTapWanted,
                       self.activeItemID == expectedItemID,
                       let track = tracks.first,
-                      let tap = TVAudioProcessingTapFactory.make(context: self.tapContext) else {
+                      let tap = TVAudioProcessingTapFactory.make(context: TVAudioTapContext(
+                          pipeline: self.spectrumPipeline,
+                          karaoke: TVKaraokeTapRenderer(processor: self.karaokeProcessor)
+                      )) else {
                     return
                 }
 
@@ -2078,14 +2081,14 @@ private enum TVMixerSpectrumTap {
     }
 }
 
-/// What the AVPlayer tap feeds: the spectrum pipeline always reads, the
-/// karaoke processor may rewrite the audio first. Owned by the engine for
-/// its whole life, so the tap can hold it unretained.
+/// What one AVPlayer tap feeds: the spectrum pipeline always reads, the
+/// karaoke renderer may rewrite the audio first. The tap owns it: retained
+/// at creation, released in the tap's `finalize`.
 private final class TVAudioTapContext: @unchecked Sendable {
     let pipeline: TVRealtimeSpectrumPipeline
-    let karaoke: TVKaraokeProcessor
+    let karaoke: TVKaraokeTapRenderer
 
-    init(pipeline: TVRealtimeSpectrumPipeline, karaoke: TVKaraokeProcessor) {
+    init(pipeline: TVRealtimeSpectrumPipeline, karaoke: TVKaraokeTapRenderer) {
         self.pipeline = pipeline
         self.karaoke = karaoke
     }
@@ -2095,11 +2098,13 @@ private enum TVAudioProcessingTapFactory {
     static func make(context: TVAudioTapContext) -> MTAudioProcessingTap? {
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
-            clientInfo: Unmanaged.passUnretained(context).toOpaque(),
+            clientInfo: Unmanaged.passRetained(context).toOpaque(),
             init: { _, clientInfo, storageOut in
                 storageOut.pointee = clientInfo
             },
-            finalize: nil,
+            finalize: { tap in
+                Unmanaged<TVAudioTapContext>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release()
+            },
             prepare: { tap, maxFrames, processingFormat in
                 let context = Unmanaged<TVAudioTapContext>
                     .fromOpaque(MTAudioProcessingTapGetStorage(tap))
@@ -2144,7 +2149,12 @@ private enum TVAudioProcessingTapFactory {
             kMTAudioProcessingTapCreationFlag_PostEffects,
             &tap
         )
-        return status == noErr ? tap : nil
+        guard status == noErr, let tap else {
+            // No tap means no finalize: balance the retain here.
+            Unmanaged<TVAudioTapContext>.fromOpaque(callbacks.clientInfo!).release()
+            return nil
+        }
+        return tap
     }
 }
 

@@ -105,3 +105,26 @@ extension KaraokeMicLinkTests {
         #expect(framer.append(data, as: KaraokeMicLink.TVMessage.self) == messages)
     }
 }
+
+extension KaraokeMicLinkTests {
+    @Test("Seeking backwards drops readings from the old timeline")
+    func lagEstimatorBackwardSeek() {
+        var reference = KaraokePitchTrack(capacity: 2_000)
+        var estimator = KaraokeLagEstimator()
+        var t = 0.0
+        while t < 20 {
+            reference.append(time: t, midiNote: 60 + Double(Int(t / 0.4) % 5))
+            estimator.record(time: t, sung: 60 + Double(Int((t - 0.3) / 0.4) % 5))
+            t += 0.05
+        }
+        estimator.update(reference: reference)
+        #expect(estimator.isCalibrated)
+        // Back to the start: the old readings must not pair with new times.
+        estimator.record(time: 1, sung: 60)
+        estimator.update(reference: reference)
+        #expect(estimator.lag >= 0)
+        estimator.reset()
+        #expect(!estimator.isCalibrated)
+        #expect(estimator.lag == KaraokeLagEstimator.defaultLag)
+    }
+}

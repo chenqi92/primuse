@@ -160,6 +160,7 @@ final class TVKaraokeSession {
             capturesVocal: isActive && isMicConnected,
             stemAddress: stem.map { UInt(bitPattern: $0.samples) } ?? 0,
             stemFrames: stem?.frames ?? 0,
+            stemTimeOffset: store.engine.playbackPhysicalStart,
             keyShift: keyShift
         ))
     }
@@ -186,6 +187,11 @@ final class TVKaraokeSession {
         if songChanged || !hasDuetParts { part = .all }
         scorer = KaraokeScorer(lines: lyrics, part: hasDuetParts ? part : .all)
         referenceTrack.removeAll()
+        if songChanged {
+            // Readings from the last song would pull the new estimate.
+            lagEstimator.reset()
+            lagIsCalibrated = false
+        }
         pitchHistory = []
         runningScore = nil
     }
@@ -193,7 +199,7 @@ final class TVKaraokeSession {
     // MARK: AI stem from the phone
 
     private func receiveStem(songID stemSongID: String, data: Data) {
-        guard stemSongID == songID else { return }
+        guard isActive, stemSongID == songID else { return }
         let targetRate = store.engine.karaokeProcessor.sampleRate
         Task { @MainActor [weak self] in
             let track = await Task.detached(priority: .userInitiated) { () -> TVKaraokeStemTrack? in
@@ -204,7 +210,7 @@ final class TVKaraokeSession {
                 guard let resampled = Self.resample(left: stem.left, right: stem.right, from: stem.header.sampleRate, to: targetRate) else { return nil }
                 return TVKaraokeStemTrack(songID: stemSongID, left: resampled.left, right: resampled.right, sampleRate: targetRate)
             }.value
-            guard let self, let track, track.songID == self.songID else { return }
+            guard let self, self.isActive, let track, track.songID == self.songID else { return }
             self.removeStem()
             self.stemTrack = track
             self.usesPhoneStem = true
