@@ -43,6 +43,41 @@ struct ReplayGainPolicyTests {
         #expect(ReplayGainPolicy.linearGain(gainDB: 30, peak: 0.1) == ceiling)
     }
 
+    @Test("Equalizer boost holds back positive gain but never cuts below unity")
+    func equalizerHeadroom() {
+        // +6 dB tag, peak 0.5: 1/peak allows 2.0; a +3 dB EQ boost leaves
+        // room for 2.0 / 1.413 ≈ 1.415.
+        let held = ReplayGainPolicy.linearGain(gainDB: 6.0206, peak: 0.5, equalizerBoostDB: 3)
+        #expect(abs(held - 1.4155) < 0.001)
+        // A boost larger than the whole headroom stops at unity, not below.
+        let floor = ReplayGainPolicy.linearGain(gainDB: 6.0206, peak: 0.9, equalizerBoostDB: 12)
+        #expect(floor == 1)
+        // Negative gain is left alone: the EQ would clip it without ReplayGain too.
+        let quieter = ReplayGainPolicy.linearGain(gainDB: -6.0206, peak: 0.9, equalizerBoostDB: 12)
+        #expect(abs(quieter - 0.5) < 0.001)
+        // Without a peak there is nothing to reason about.
+        let noPeak = ReplayGainPolicy.linearGain(gainDB: 6.0206, peak: nil, equalizerBoostDB: 12)
+        #expect(abs(noPeak - 2) < 0.001)
+        // A flat or cut-only EQ changes nothing.
+        let flat = ReplayGainPolicy.linearGain(gainDB: 6.0206, peak: 0.5, equalizerBoostDB: 0)
+        #expect(abs(flat - 2) < 0.001)
+    }
+
+    @Test("Gapless successor samples carry the ratio to the shared node volume")
+    func gaplessSampleScale() {
+        let scale = ReplayGainPolicy.gaplessSampleScale(targetVolume: 0.8, nodeVolume: 0.5)
+        #expect(scale.map { abs($0 - 1.6) < 0.0001 } == true)
+        // The node plays at its own volume, so node × scale is the target.
+        let effective = 0.5 * (scale ?? 1)
+        #expect(abs(effective - 0.8) < 0.0001)
+        #expect(ReplayGainPolicy.gaplessSampleScale(targetVolume: 0.5, nodeVolume: 0.5) == nil)
+        #expect(ReplayGainPolicy.gaplessSampleScale(targetVolume: 1, nodeVolume: 0) == nil)
+        #expect(ReplayGainPolicy.gaplessSampleScale(targetVolume: .nan, nodeVolume: 1) == nil)
+        // Turning ReplayGain off between two gapless songs lands on unity.
+        let backToUnity = ReplayGainPolicy.gaplessSampleScale(targetVolume: 1, nodeVolume: 0.4)
+        #expect(backToUnity.map { abs($0 - 2.5) < 0.0001 } == true)
+    }
+
     @Test("Crossfade starts on the outgoing program volume and lands on the incoming one")
     func crossfadeEndpoints() {
         let start = ReplayGainPolicy.crossfadeVolumes(

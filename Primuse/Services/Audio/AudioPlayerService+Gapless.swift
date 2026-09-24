@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import CryptoKit
 import Foundation
@@ -191,20 +192,26 @@ extension AudioPlayerService {
             return
         }
 
-        let settings = playbackSettings.snapshot()
-        if shouldApplyReplayGain(settings) {
-            Task { [id] in
-                await self.applyReplayGain(
-                    for: activatedSong,
-                    url: prepared.url,
-                    mode: settings.replayGainMode,
-                    allowFileRead: prepared.decoderKind != .cloudStream && prepared.decoderKind != .httpStream,
-                    expectedPlayID: id,
-                    expectedSongID: activatedSong.id
-                )
+        // Normally the successor's samples already carry its ReplayGain and
+        // the node volume must stay where it is. Only a successor that could
+        // not be scaled falls back to changing the node volume here, which
+        // lands a moment after the boundary.
+        if !prepared.carriesProgramGain {
+            let settings = playbackSettings.snapshot()
+            if shouldApplyReplayGain(settings) {
+                Task { [id] in
+                    await self.applyReplayGain(
+                        for: activatedSong,
+                        url: prepared.url,
+                        mode: settings.replayGainMode,
+                        allowFileRead: prepared.decoderKind != .cloudStream && prepared.decoderKind != .httpStream,
+                        expectedPlayID: id,
+                        expectedSongID: activatedSong.id
+                    )
+                }
+            } else {
+                audioEngine.resetPlayerVolume()
             }
-        } else {
-            audioEngine.resetPlayerVolume()
         }
 
         if duration <= 0,
@@ -363,6 +370,30 @@ extension AudioPlayerService {
             return
         }
 
+        // The boundary is only observed after the old song's last buffer has
+        // been heard, so a node-volume change there would let the new song
+        // start at the old song's gain. Multiply the successor's own gain
+        // into its samples instead, relative to the node volume it shares.
+        let baseNodeVolume = await gaplessBaseNodeVolume(playID: id)
+        let targetVolume = await targetProgramVolume(
+            for: nextSong,
+            url: nextURL,
+            allowFileRead: true
+        )
+        guard playID == id,
+              queueGeneration == transition.queueGeneration,
+              !transition.shouldCancelPreparation else { return }
+        let sampleScale = ReplayGainPolicy.gaplessSampleScale(
+            targetVolume: targetVolume,
+            nodeVolume: baseNodeVolume
+        )
+        let canScaleSamples = outputFormat.commonFormat == .pcmFormatFloat32
+        let carriesProgramGain = sampleScale == nil || canScaleSamples
+        let appliedScale = canScaleSamples ? sampleScale : nil
+        if let appliedScale {
+            plog("🎚️ gapless ReplayGain: '\(nextSong.title)' samples ×\(appliedScale)")
+        }
+
         guard let followingTicket = preparedAutomaticAdvanceTicket(itemID: nextSong.id) else {
             return
         }
@@ -391,7 +422,8 @@ extension AudioPlayerService {
                 song: nextSong,
                 url: nextURL,
                 decoderKind: nextDecoderKind,
-                followingTransition: followingTransition
+                followingTransition: followingTransition,
+                carriesProgramGain: carriesProgramGain
             )
             plog("🔄 gapless prepared next track '\(nextSong.title)'")
         }
@@ -410,6 +442,9 @@ extension AudioPlayerService {
         do {
             for try await buffer in stream {
                 guard mayContinue() else { return }
+                if let appliedScale {
+                    Self.scaleSamples(of: buffer, by: appliedScale)
+                }
 
                 if let prev = lastBuffer {
                     let bufferedDuration = Self.decodedBufferDuration(prev)
@@ -469,5 +504,24 @@ extension AudioPlayerService {
         }
         markPreparedIfNeeded()
         transition.isFullyScheduled = true
+    }
+
+    /// Multiplies a freshly decoded float buffer in place before it is
+    /// scheduled. Nothing else holds the buffer yet.
+    nonisolated static func scaleSamples(of buffer: AVAudioPCMBuffer, by scale: Float) {
+        guard let channels = buffer.floatChannelData else { return }
+        let format = buffer.format
+        let channelCount = Int(format.channelCount)
+        let frameCount = Int(buffer.frameLength)
+        guard channelCount > 0, frameCount > 0 else { return }
+        var factor = scale
+        if format.isInterleaved {
+            let sampleCount = vDSP_Length(frameCount * channelCount)
+            vDSP_vsmul(channels[0], 1, &factor, channels[0], 1, sampleCount)
+        } else {
+            for channel in 0..<channelCount {
+                vDSP_vsmul(channels[channel], 1, &factor, channels[channel], 1, vDSP_Length(frameCount))
+            }
+        }
     }
 }

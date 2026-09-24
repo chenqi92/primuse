@@ -166,8 +166,9 @@ final class AudioEngine {
     private var transportFadeTask: Task<Void, Never>?
     private var transportFadeRestoreVolume: Float?
     /// The primary node's steady-state volume: unity, or the ReplayGain volume
-    /// of the song it is playing. Transport fades and crossfade ramps move the
-    /// node away from it and come back to it.
+    /// of the song it started playing. Transport fades and crossfade ramps move
+    /// the node away from it and come back to it. Gapless successors keep it
+    /// and carry their own gain in their samples instead.
     private(set) var primaryProgramVolume: Float = 1
 
     private static let transportFadeStepCount = 6
@@ -401,6 +402,8 @@ final class AudioEngine {
         self.engine = eng
         self.playerNode = playerA
         self.crossfadePlayerNode = playerB
+        // Fresh nodes play at unity; the caller re-applies ReplayGain.
+        primaryProgramVolume = 1
         nodeRegistry.attach(playerA, to: .primary)
         nodeRegistry.attach(playerB, to: .crossfade)
         self.playerMixer = mixer
@@ -1090,7 +1093,8 @@ final class AudioEngine {
             }
             guard !Task.isCancelled else { return }
             self.pauseImmediately()
-            self.playerNode?.volume = targetVolume
+            // ReplayGain may have landed mid-fade and moved the target.
+            self.playerNode?.volume = self.transportFadeRestoreVolume ?? targetVolume
             self.transportFadeRestoreVolume = nil
             self.transportFadeTask = nil
         }
@@ -1142,11 +1146,12 @@ final class AudioEngine {
                 }
                 guard !Task.isCancelled else { return }
                 let progress = Float(step) / Float(Self.transportFadeStepCount)
+                let liveTarget = self.transportFadeRestoreVolume ?? targetVolume
                 self.playerNode?.volume = startVolume
-                    + (targetVolume - startVolume) * Self.fadeInGain(at: progress)
+                    + (liveTarget - startVolume) * Self.fadeInGain(at: progress)
             }
             guard !Task.isCancelled else { return }
-            self.playerNode?.volume = targetVolume
+            self.playerNode?.volume = self.transportFadeRestoreVolume ?? targetVolume
             self.transportFadeRestoreVolume = nil
             self.transportFadeTask = nil
         }
@@ -1346,18 +1351,18 @@ final class AudioEngine {
 
     // MARK: - ReplayGain
 
-    /// Apply ReplayGain adjustment to the primary player node.
-    /// gain: dB value from ReplayGain tag
-    /// peak: peak sample value (0-1 range), used to prevent clipping
-    func applyReplayGain(gain: Double?, peak: Double?) {
-        guard outputMode == .effects else {
-            primaryProgramVolume = 1
-            playerNode?.volume = 1
-            return
+    /// Sets the primary node's steady-state volume, normally a song's
+    /// ReplayGain volume from `ReplayGainPolicy.linearGain`. While a pause or
+    /// resume fade is running it only moves that fade's target, so the fade
+    /// cannot finish by restoring the volume it started from.
+    func applyProgramVolume(_ volume: Float) {
+        let linear = outputMode == .effects && volume.isFinite ? max(0, volume) : 1
+        primaryProgramVolume = linear
+        if transportFadeTask != nil {
+            transportFadeRestoreVolume = linear
+        } else {
+            playerNode?.volume = linear
         }
-        let linearGain = ReplayGainPolicy.linearGain(gainDB: gain, peak: peak)
-        primaryProgramVolume = linearGain
-        playerNode?.volume = linearGain
     }
 
     func resetPlayerVolume() {

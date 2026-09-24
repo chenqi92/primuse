@@ -102,6 +102,10 @@ struct GaplessPreparedTrack: @unchecked Sendable {
     let url: URL
     let decoderKind: AudioPlayerService.DecoderKind
     let followingTransition: GaplessTransitionState
+    /// True when the successor's samples already carry its ReplayGain
+    /// relative to the shared node volume, so activation must leave the node
+    /// volume alone.
+    let carriesProgramGain: Bool
 }
 
 /// One slot in the play queue. Wraps a `Song` with a per-slot UUID so
@@ -1297,6 +1301,7 @@ final class AudioPlayerService {
         observeSpatialAudioSettings()
         observePlaybackRate()
         observeOutputPipelineSettings()
+        observeReplayGainSettings()
         NotificationCenter.default.addObserver(
             forName: .primuseArtistNameConfigurationDidChange,
             object: nil,

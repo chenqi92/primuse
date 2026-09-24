@@ -589,7 +589,7 @@ extension AudioPlayerService {
                 failCrossfadeAttempt(attemptID)
                 return
             }
-            let incomingProgramVolume = incomingReplayGain.linearGain
+            let incomingProgramVolume = programVolume(for: incomingReplayGain)
             isCrossfading = true
             lastCommittedCrossfadeAttemptID = attemptID
             let nextPlayID = UUID()

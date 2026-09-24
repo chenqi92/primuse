@@ -1244,6 +1244,10 @@ extension AudioPlayerService {
                         expectedSongID: song.id
                     )
                     guard !Task.isCancelled, playID == id else { return }
+                } else {
+                    // The rebuilt transport schedules unscaled samples, so the
+                    // node must drop any gain left by an earlier setting.
+                    audioEngine.resetPlayerVolume()
                 }
 
                 // Use the same decoder that was used for initial playback.
