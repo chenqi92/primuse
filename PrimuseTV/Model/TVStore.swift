@@ -300,6 +300,8 @@ struct TVLyricLine: Identifiable, Hashable {
     /// translation.
     let romanization: String
     let writingDirection: LyricWritingDirection
+    /// Which singer a duet row belongs to.
+    let voice: LyricVoice
     /// Backing vocals answering this line. They keep their own time window, so
     /// they are nested rather than placed in the list as rows of their own.
     let background: [TVLyricLine]
@@ -313,6 +315,7 @@ struct TVLyricLine: Identifiable, Hashable {
         translation: String = "",
         romanization: String = "",
         writingDirection: LyricWritingDirection = .natural,
+        voice: LyricVoice = .primary,
         background: [TVLyricLine] = []
     ) {
         self.id = id
@@ -323,6 +326,7 @@ struct TVLyricLine: Identifiable, Hashable {
         self.translation = translation
         self.romanization = romanization
         self.writingDirection = writingDirection
+        self.voice = voice
         self.background = background
     }
 }

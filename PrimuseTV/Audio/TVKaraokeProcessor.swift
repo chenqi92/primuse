@@ -21,6 +21,8 @@ final class TVKaraokeProcessor: @unchecked Sendable {
         /// kept alive by the session.
         var stemAddress: UInt = 0
         var stemFrames = 0
+        /// Karaoke key change in semitones; 0 bypasses the shifter.
+        var keyShift = 0
     }
 
     private struct Report: Sendable {
@@ -39,10 +41,17 @@ final class TVKaraokeProcessor: @unchecked Sendable {
     private var vocal: UnsafeMutablePointer<Float>?
     private var vocalCapacity = 0
     private var stemGain: Float = 0
+    private var shifter: KaraokePitchShifter?
+    private var shiftedLastBuffer = false
+    private let shiftPointers: UnsafeMutablePointer<UnsafeMutablePointer<Float>> = {
+        let pointers = UnsafeMutablePointer<UnsafeMutablePointer<Float>>.allocate(capacity: 2)
+        return pointers
+    }()
     private(set) var sampleRate: Double = 44_100
 
     deinit {
         vocal?.deallocate()
+        shiftPointers.deallocate()
     }
 
     // MARK: Main actor
@@ -63,8 +72,10 @@ final class TVKaraokeProcessor: @unchecked Sendable {
         sampleRate = format.mSampleRate > 0 ? format.mSampleRate : 44_100
         if isFloat, isPlanar, format.mChannelsPerFrame == 2, format.mBitsPerChannel == 32 {
             reducer = KaraokeVocalReducer(sampleRate: sampleRate)
+            shifter = KaraokePitchShifter(sampleRate: sampleRate, channelCount: 2)
         } else {
             reducer = nil
+            shifter = nil
         }
         vocal?.deallocate()
         vocalCapacity = max(4_096, maxFrames)
@@ -72,8 +83,34 @@ final class TVKaraokeProcessor: @unchecked Sendable {
         vocal?.initialize(repeating: 0, count: vocalCapacity)
     }
 
+    /// The key change runs last, on whatever the vocal remover left.
+    private func shiftKey(
+        left: UnsafeMutablePointer<Float>,
+        right: UnsafeMutablePointer<Float>,
+        frameCount: Int,
+        settings: Settings
+    ) {
+        guard let shifter else { return }
+        let active = settings.isActive && settings.keyShift != 0
+        if !active {
+            shiftedLastBuffer = false
+            return
+        }
+        // Starting afresh avoids replaying stale audio from an earlier use.
+        if !shiftedLastBuffer { shifter.reset() }
+        shiftedLastBuffer = true
+        shiftPointers[0] = left
+        shiftPointers[1] = right
+        shifter.process(
+            UnsafeMutableBufferPointer(start: shiftPointers, count: 2),
+            frameCount: frameCount,
+            semitones: Double(settings.keyShift)
+        )
+    }
+
     func unprepare() {
         reducer = nil
+        shifter = nil
     }
 
     /// `process`, after the source audio was pulled into `bufferList`.
@@ -95,8 +132,10 @@ final class TVKaraokeProcessor: @unchecked Sendable {
         if startOfStream {
             reducer.restartAfterDiscontinuity()
             vocalRing.reset()
+            shifter?.reset()
         }
         let settings = cachedSettings
+        defer { shiftKey(left: left, right: right, frameCount: frameCount, settings: settings) }
 
         // AI stem: the tap knows exactly which song samples this buffer
         // holds, so the stem is subtracted sample for sample.

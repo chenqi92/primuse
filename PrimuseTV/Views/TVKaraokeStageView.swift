@@ -137,6 +137,29 @@ private struct TVKaraokeStageContent: View {
                     stepButton(systemImage: "plus", enabled: session.isVocalReductionAvailable) {
                         session.vocalLevel = min(1, session.vocalLevel + 0.1)
                     }
+                    stepButton(systemImage: "minus", enabled: session.isVocalReductionAvailable
+                               && session.keyShift > KaraokeKeyShiftPolicy.range.lowerBound) {
+                        session.keyShift -= 1
+                    }
+                    VStack(spacing: 2) {
+                        Text(String(localized: "karaoke_key"))
+                            .tvFont(.caption)
+                            .foregroundStyle(TVColor.textFaint)
+                        Text(session.keyShift == 0 ? String(localized: "karaoke_key_original") : String(format: "%+d", session.keyShift))
+                            .tvFont(.sectionTitle)
+                            .monospacedDigit()
+                            .foregroundStyle(TVColor.text)
+                    }
+                    .frame(minWidth: 140)
+                    stepButton(systemImage: "plus", enabled: session.isVocalReductionAvailable
+                               && session.keyShift < KaraokeKeyShiftPolicy.range.upperBound) {
+                        session.keyShift += 1
+                    }
+                    if session.hasDuetParts {
+                        partButton(.all, "karaoke_part_all")
+                        partButton(.primary, "karaoke_part_primary")
+                        partButton(.secondary, "karaoke_part_secondary")
+                    }
                     if session.runningScore != nil {
                         TVFocusButton(radius: 18, scale: 1.05, lift: 4, action: session.finishPerformance) { _ in
                             Label(String(localized: "karaoke_finish"), systemImage: "flag.checkered")
@@ -150,6 +173,18 @@ private struct TVKaraokeStageContent: View {
             Spacer()
             micPanel
         }
+    }
+
+    private func partButton(_ part: KaraokePart, _ key: String.LocalizationValue) -> some View {
+        let selected = session.part == part
+        return TVFocusButton(radius: 18, scale: 1.05, lift: 4, action: { session.part = part }) { _ in
+            Text(String(localized: key))
+                .tvFont(.button)
+                .padding(.horizontal, 24)
+                .frame(height: 72)
+                .background(selected ? TVColor.text.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 18))
+        }
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
     private var notice: String? {
@@ -257,7 +292,10 @@ private struct TVKaraokeLyrics: View {
     private func sweptLine(_ window: KaraokeLineWindow) -> some View {
         let line = session.stageLines[window.lineIndex]
         let syllables = line.syllables ?? [LyricSyllable(text: line.text, start: window.start, end: window.end)]
-        let sung = Color(red: 0.42, green: 0.86, blue: 1.0)
+        // Duets: the two singers in different colours, as on the phone.
+        let sung = window.voice == .secondary
+            ? Color(red: 1.0, green: 0.55, blue: 0.78)
+            : Color(red: 0.42, green: 0.86, blue: 1.0)
         let pending = TVColor.text.opacity(0.55)
         var text = Text("")
         for syllable in syllables {
@@ -267,11 +305,21 @@ private struct TVKaraokeLyrics: View {
             let piece = Text(syllable.text).foregroundStyle(progress >= 1 ? sung : (progress > 0 ? sung.opacity(0.55 + 0.45 * progress) : pending))
             text = Text("\(text)\(piece)")
         }
-        return text
-            .tvFont(size: 64, weight: .bold, relativeTo: .largeTitle)
-            .multilineTextAlignment(.center)
-            .lineLimit(3)
-            .id(window.lineID)
+        let mine = !session.hasDuetParts || session.part == .all
+            || (session.part == .primary) == (window.voice == .primary)
+        return VStack(spacing: 10) {
+            if session.hasDuetParts, session.part != .all {
+                Text(String(localized: mine ? "karaoke_you" : "karaoke_partner"))
+                    .tvFont(.eyebrow)
+                    .foregroundStyle(sung)
+            }
+            text
+                .tvFont(size: 64, weight: .bold, relativeTo: .largeTitle)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .opacity(mine ? 1 : 0.7)
+        }
+        .id(window.lineID)
     }
 }
 

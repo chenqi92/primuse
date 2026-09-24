@@ -31,6 +31,22 @@ final class TVKaraokeSession {
         }
     }
 
+    /// Which singer the user takes when the lyrics mark a duet.
+    var part: KaraokePart = .all {
+        didSet {
+            guard part != oldValue else { return }
+            scorer = KaraokeScorer(lines: lyrics, part: hasDuetParts ? part : .all)
+            runningScore = nil
+        }
+    }
+    private(set) var hasDuetParts = false
+    /// Key change in semitones for the karaoke track.
+    var keyShift = 0 {
+        didSet {
+            keyShift = KaraokeKeyShiftPolicy.clamped(keyShift)
+            applySettings()
+        }
+    }
     private(set) var isActive = false
     private(set) var windows: [KaraokeLineWindow] = []
     private(set) var stageLines: [LyricLine] = []
@@ -132,12 +148,19 @@ final class TVKaraokeSession {
 
     private func applySettings() {
         let stem = stemTrack.flatMap { $0.songID == songID ? $0 : nil }
+        // In a duet the partner's rows keep the original vocal.
+        let duetFactor = KaraokeDuetGatePolicy.reductionFactor(
+            windows: windows,
+            part: hasDuetParts ? part : .all,
+            at: store.interpolatedTime()
+        )
         store.engine.karaokeProcessor.update(.init(
             isActive: isActive && isVocalReductionAvailable,
-            reduction: Float(1 - vocalLevel),
+            reduction: Float(1 - vocalLevel) * duetFactor,
             capturesVocal: isActive && isMicConnected,
             stemAddress: stem.map { UInt(bitPattern: $0.samples) } ?? 0,
-            stemFrames: stem?.frames ?? 0
+            stemFrames: stem?.frames ?? 0,
+            keyShift: keyShift
         ))
     }
 
@@ -159,7 +182,9 @@ final class TVKaraokeSession {
         stageLines = lyrics.enumerated().map { index, line in
             byIndex[index].map { KaraokeSweepPolicy.sweepLine(line, window: $0) } ?? line
         }
-        scorer = KaraokeScorer(lines: lyrics)
+        hasDuetParts = KaraokeDuetGatePolicy.hasDuetParts(lyrics)
+        if songChanged || !hasDuetParts { part = .all }
+        scorer = KaraokeScorer(lines: lyrics, part: hasDuetParts ? part : .all)
         referenceTrack.removeAll()
         pitchHistory = []
         runningScore = nil
@@ -241,7 +266,8 @@ final class TVKaraokeSession {
             isSynchronized: line.isSynchronized,
             syllables: line.syllables.isEmpty ? nil : line.syllables.map {
                 LyricSyllable(text: $0.w, start: $0.start, end: $0.end, endTiming: $0.endTiming)
-            }
+            },
+            voice: line.voice
         )
     }
 
@@ -268,7 +294,10 @@ final class TVKaraokeSession {
             }.value
             guard let self else { return }
             self.isAnalyzing = false
-            self.referenceTrack.append(time: time, midiNote: note)
+            // The vocal is taken before the key change; the singer follows
+            // the shifted key.
+            let shift = Double(self.isVocalReductionAvailable ? self.keyShift : 0)
+            self.referenceTrack.append(time: time, midiNote: note.map { $0 + shift })
         }
     }
 

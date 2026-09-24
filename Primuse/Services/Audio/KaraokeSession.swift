@@ -667,7 +667,10 @@ final class KaraokeSession {
     }
 
     private func record(_ reading: KaraokePitchAnalyzer.Reading, at time: TimeInterval, microphoneLag: TimeInterval) {
-        referenceTrack.append(time: time, midiNote: reading.reference)
+        // The reference comes from before the key change; the singer follows
+        // the shifted key.
+        let shift = Double(availability == .available ? keyShift : 0)
+        referenceTrack.append(time: time, midiNote: reading.reference.map { $0 + shift })
         // The voice heard now answers audio rendered `lag` earlier.
         let sungTime = time - microphoneLag
         let reference = referenceTrack.note(at: sungTime)
