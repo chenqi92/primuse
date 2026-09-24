@@ -143,8 +143,11 @@
 		049039634109B21268632190 /* FFmpegMusicVideoConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */; };
 		25EE7EFA60953A236353A836 /* KaraokeVocalSeparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06FB9EDBFDA5127BC46021FD /* KaraokeVocalSeparator.swift */; };
 		40EEF7923FB22B47FAE64BC5 /* KaraokeModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBDFD0829578F2A1FF902B4 /* KaraokeModelDownloader.swift */; };
+		5D046751B650BE46200A1B67 /* KaraokeRemoteMicView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF6F0110C062A2AAD532FA0E /* KaraokeRemoteMicView.swift */; };
 		61BB53CB84BF202C0ED04229 /* KaraokeSeparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04E9287681F55EAF240DBC4 /* KaraokeSeparationService.swift */; };
+		6A49A8BDFDCCE8C0247CDBD3 /* TVKaraokeStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DC006AE2CC3DB668107C683 /* TVKaraokeStageView.swift */; };
 		6E9562DB8E9468CABFD269CA /* KaraokeWordTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A93F0B0312DCF4D0D6A349C9 /* KaraokeWordTiming.swift */; };
+		7B2635DFEDE392F37D291CF6 /* KaraokeMicLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E76DF5932E1BF9252DF9F17 /* KaraokeMicLink.swift */; };
 		80F9CD8369013DD185FF0520 /* KaraokeVocalSeparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06FB9EDBFDA5127BC46021FD /* KaraokeVocalSeparator.swift */; };
 		88205AF52E64848DDC50B1AC /* MP4IndexPairAtom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2800D1EEFBBB44AC03AE038D /* MP4IndexPairAtom.swift */; };
 		9A9392494CE05082F9138DFC /* PlaylistPendingEntryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB3B864D74D127C42CEBC00 /* PlaylistPendingEntryRow.swift */; };
@@ -152,7 +155,9 @@
 		9CDE3BDF32F40DDC8E57E684 /* ListeningFeaturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FDC2CF249B9B5DB8394AF9 /* ListeningFeaturesTests.swift */; };
 		A854F7F0E691B045F79EA1EB /* KaraokeCompanionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93405B61747DD571BF337CD2 /* KaraokeCompanionPolicy.swift */; };
 		A9FEAE8AD19FAF80E659104B /* PrimuseKaraokeModelDownloader.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = B1307B15E380375EA1E59C21 /* PrimuseKaraokeModelDownloader.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B3F2E878DFDF157EBC37B804 /* TVKaraokeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6A508FC824D9EA0624954F /* TVKaraokeSession.swift */; };
 		B92F64F9B6008149F422C6E7 /* KaraokeStemAlignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29DE675D69CEFF865B8DE539 /* KaraokeStemAlignment.swift */; };
+		BAD2EE8A969329DD70EE3049 /* TVKaraokeMicServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3B9A9B695B3FFEF4D7C4E8 /* TVKaraokeMicServer.swift */; };
 		BFC3EDDCBF5E1CA78A3E425F /* MusicVideoCompatibilityConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */; };
 		17F49E86FA92CB0D1341670E /* RelayStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99EF0A47317166C18FD865D /* RelayStreamResolver.swift */; };
 		184E4A32C4D50AC805AB9DDC /* ScraperTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D668FE9811EE6FEF380039 /* ScraperTypes.swift */; };
@@ -1313,6 +1318,7 @@
 		E2AAEF7990A1A92CD2935EB2 /* UgreenAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACF669ECDE8745A546EE459 /* UgreenAPI.swift */; };
 		E3827C74776512E06FC6DFEF /* PlaybackSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80BF155F8BD6EBFBBAA9B83A /* PlaybackSettingsStore.swift */; };
 		E3900CCC1A7A9AEC7FAB20FE /* PMTitleBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC94F5ED881A05601F6B7D65 /* PMTitleBar.swift */; };
+		E39431772215DAEB667417D7 /* TVKaraokeProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA20E9464F75F9EE11DA88D5 /* TVKaraokeProcessor.swift */; };
 		E3BC1CEE809FEA33ECDED2AB /* libavformat.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9ED8DF4FB0288A04F35DE51C /* libavformat.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E43A039C4C8FB967DEC92C20 /* ServerListeningStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27678E1E349C28A0B8CFA6BE /* ServerListeningStats.swift */; };
 		E48AD76C5E322FC57CE2B0F2 /* SongBatchActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368E7734000B96CD7A810C23 /* SongBatchActionBar.swift */; };
@@ -1395,6 +1401,7 @@
 		F2653E4EE8C4DDEF022FCB9F /* FilenameTagParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFBAC811D0608D247E8F6CF3 /* FilenameTagParser.swift */; };
 		F2F52D35807F227E5541E92D /* CachedArtworkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 128F97B910573229B86FAD8A /* CachedArtworkView.swift */; };
 		F352BC46B53156D1E4C9B924 /* SettingsSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBFD411F0195479667050DF /* SettingsSearchIndex.swift */; };
+		F36B74152905D0EC67C6A493 /* KaraokeRemoteMicView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF6F0110C062A2AAD532FA0E /* KaraokeRemoteMicView.swift */; };
 		F3E8C3E3C7DA98A5BA56ABB9 /* ArtistListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F0CA17DCBE23FCB6FF6791 /* ArtistListView.swift */; };
 		F3EA7BACCB01D8BF92192A3E /* AudioEffectsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78324748ACDF339A48E0E8D4 /* AudioEffectsService.swift */; };
 		F41811AEA0646B4F680416AA /* RadioCandidateLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC6F2F1E70E26868240EDF8 /* RadioCandidateLogoView.swift */; };
@@ -1828,6 +1835,7 @@
 		1CD9A6D4BA87A569998C91D0 /* LyricPosterNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricPosterNote.swift; sourceTree = "<group>"; };
 		1CEBA275253A5F2B114FAAC9 /* OperationCancellationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationCancellationPolicy.swift; sourceTree = "<group>"; };
 		1D1902C6473F80DF2A01D28D /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/HomeDiscovery.strings; sourceTree = "<group>"; };
+		1D3B9A9B695B3FFEF4D7C4E8 /* TVKaraokeMicServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVKaraokeMicServer.swift; sourceTree = "<group>"; };
 		1D6CD16F36EEEA61C94435DA /* PrimuseWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PrimuseWidgetExtension.entitlements; sourceTree = "<group>"; };
 		1D93A8CFB64630F7615B9485 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		1D95026A4255446C98BA2456 /* MacImmersivePlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacImmersivePlayerView.swift; sourceTree = "<group>"; };
@@ -2214,13 +2222,18 @@
 		723B40AEE60B558ABC631E76 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		7260D7B8AC73152F8C03B3F9 /* FFmpegDecoderBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FFmpegDecoderBridge.h; sourceTree = "<group>"; };
 		041D8BEABE7186812BFA28E7 /* FFmpegMusicVideoConverter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FFmpegMusicVideoConverter.h; sourceTree = "<group>"; };
+		8DC006AE2CC3DB668107C683 /* TVKaraokeStageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVKaraokeStageView.swift; sourceTree = "<group>"; };
+		8E76DF5932E1BF9252DF9F17 /* KaraokeMicLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeMicLink.swift; sourceTree = "<group>"; };
 		8EB6282CC6896D8B14D6E71A /* ExternalTrackMatchPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalTrackMatchPolicy.swift; sourceTree = "<group>"; };
 		93405B61747DD571BF337CD2 /* KaraokeCompanionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeCompanionPolicy.swift; sourceTree = "<group>"; };
 		A04E9287681F55EAF240DBC4 /* KaraokeSeparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeSeparationService.swift; sourceTree = "<group>"; };
 		A93F0B0312DCF4D0D6A349C9 /* KaraokeWordTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeWordTiming.swift; sourceTree = "<group>"; };
 		B1307B15E380375EA1E59C21 /* PrimuseKaraokeModelDownloader.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = PrimuseKaraokeModelDownloader.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA20E9464F75F9EE11DA88D5 /* TVKaraokeProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVKaraokeProcessor.swift; sourceTree = "<group>"; };
+		CF6F0110C062A2AAD532FA0E /* KaraokeRemoteMicView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeRemoteMicView.swift; sourceTree = "<group>"; };
 		D9DE1060FBA3D9D6391E5F17 /* KaraokeDemucsFrontEnd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeDemucsFrontEnd.swift; sourceTree = "<group>"; };
 		F0D0DA0573BAB8FCD51CEBEB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FE6A508FC824D9EA0624954F /* TVKaraokeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVKaraokeSession.swift; sourceTree = "<group>"; };
 		FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FFmpegMusicVideoConverter.m; sourceTree = "<group>"; };
 		E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVideoCompatibilityConverter.swift; sourceTree = "<group>"; };
 		728BAEB07B8C593506D9CD6A /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
@@ -3192,6 +3205,7 @@
 				93405B61747DD571BF337CD2 /* KaraokeCompanionPolicy.swift */,
 				D9DE1060FBA3D9D6391E5F17 /* KaraokeDemucsFrontEnd.swift */,
 				5975695B72BB04A271618C06 /* KaraokeLyricsPolicy.swift */,
+				8E76DF5932E1BF9252DF9F17 /* KaraokeMicLink.swift */,
 				31A636FBDCA9499A93CBBE92 /* KaraokePitchDetector.swift */,
 				5D4680EDC56996FEA9846CDE /* KaraokeScoring.swift */,
 				29DE675D69CEFF865B8DE539 /* KaraokeStemAlignment.swift */,
@@ -3430,6 +3444,7 @@
 			children = (
 				A167640E5C9A14EEEF77F034 /* TopShelfPublisher.swift */,
 				455D2BB99BCD406F4DE671D6 /* TVArtwork.swift */,
+				FE6A508FC824D9EA0624954F /* TVKaraokeSession.swift */,
 				2474EEEF51EE0A4D71B215E4 /* TVServerFeedbackService.swift */,
 				BE9678E678B62A15290407A4 /* TVStore.swift */,
 			);
@@ -3513,6 +3528,7 @@
 				471FBD82B7B84A3591677C6D /* ImmersiveStageScenery.swift */,
 				4BD6D04DA8CE429DC75434F6 /* ImmersiveStageView.swift */,
 				8AC7465EC4D7BFF7A5D825BF /* KaraokeLineView.swift */,
+				CF6F0110C062A2AAD532FA0E /* KaraokeRemoteMicView.swift */,
 				687F3C3C65037E39E9F006CD /* KaraokeStageView.swift */,
 				973D5A18BC4228928E42C0C1 /* MiniPlayerView.swift */,
 				5A65207E9AE0A7B6C259E92C /* NowPlayingView.swift */,
@@ -3775,6 +3791,7 @@
 				09105CBB70BE11A856DB8F07 /* Cloud */,
 				C512B34CBD22685C59F4312A /* Protocol */,
 				F3C8CEC911997BAD1A995D08 /* TVConfigServer.swift */,
+				1D3B9A9B695B3FFEF4D7C4E8 /* TVKaraokeMicServer.swift */,
 				C53D95B464F9DAE95E595DC2 /* TVPlayMediaIntentHandler.swift */,
 				139EF58C77552DC03F51190D /* TVSourceAssetReader.swift */,
 				FC760A27FC544A0A10359129 /* TVSourceErrorText.swift */,
@@ -3791,6 +3808,7 @@
 				1FFB43F39C3A62C7EBDB2D72 /* TVCredentialStore.swift */,
 				31C8E4F5392F863F9EC13EE3 /* TVFFmpegPCMDecoder.h */,
 				71CBE75F71EE6BCE7F1A7252 /* TVFFmpegPCMDecoder.m */,
+				BA20E9464F75F9EE11DA88D5 /* TVKaraokeProcessor.swift */,
 				EC2F73BEA2E43BC8044D942F /* TVPlaybackCoordinator.swift */,
 				B88D3209CC930468F07419E8 /* TVSFBEngine.swift */,
 				4CC2DE503F1A852AEF610314 /* TVStreamResourceLoader.swift */,
@@ -4339,6 +4357,7 @@
 				42193A6C0C18AFAAAE77B2B7 /* TVComponents.swift */,
 				43740BC5ACC88D24034B941C /* TVHomeView.swift */,
 				4E1B508C874118EA9DD7CFCD /* TVImmersivePlayerView.swift */,
+				8DC006AE2CC3DB668107C683 /* TVKaraokeStageView.swift */,
 				D2F45D54CE3E2AA16C90E362 /* TVLibraryBrowseView.swift */,
 				8CBB2FFF8359202218FA16DB /* TVLibraryView.swift */,
 				5FBCC291DEF77EA9096556D6 /* TVNowPlayingView.swift */,
@@ -5175,6 +5194,7 @@
 				A854F7F0E691B045F79EA1EB /* KaraokeCompanionPolicy.swift in Sources */,
 				C195A748A48979B7CCBC3AB0 /* KaraokeDemucsFrontEnd.swift in Sources */,
 				3A59763468B2114EC4EE7FC0 /* KaraokeLyricsPolicy.swift in Sources */,
+				7B2635DFEDE392F37D291CF6 /* KaraokeMicLink.swift in Sources */,
 				7E08BF2C5D778F2C58D4078D /* KaraokePitchDetector.swift in Sources */,
 				2134525A1BECF69380B99911 /* KaraokeScoring.swift in Sources */,
 				B92F64F9B6008149F422C6E7 /* KaraokeStemAlignment.swift in Sources */,
@@ -5534,6 +5554,7 @@
 				507AA6C3F829E444FD797DCD /* FFmpegAudioDecoder.swift in Sources */,
 				492539B48E07763332756465 /* FFmpegDecoderBridge.m in Sources */,
 				28D99DA5000463ACD8D1567B /* FFmpegMusicVideoConverter.m in Sources */,
+				5D046751B650BE46200A1B67 /* KaraokeRemoteMicView.swift in Sources */,
 				61BB53CB84BF202C0ED04229 /* KaraokeSeparationService.swift in Sources */,
 				25EE7EFA60953A236353A836 /* KaraokeVocalSeparator.swift in Sources */,
 				6FD72D72AA73FBDAE66723D0 /* MusicVideoCompatibilityConverter.swift in Sources */,
@@ -5931,6 +5952,10 @@
 				FE254B5A76A25AC12D72FD33 /* TVFFmpegPCMDecoder.m in Sources */,
 				7258090A027D03CC03978666 /* TVHomeView.swift in Sources */,
 				3AB525EF500B516888C05EC6 /* TVImmersivePlayerView.swift in Sources */,
+				BAD2EE8A969329DD70EE3049 /* TVKaraokeMicServer.swift in Sources */,
+				E39431772215DAEB667417D7 /* TVKaraokeProcessor.swift in Sources */,
+				B3F2E878DFDF157EBC37B804 /* TVKaraokeSession.swift in Sources */,
+				6A49A8BDFDCCE8C0247CDBD3 /* TVKaraokeStageView.swift in Sources */,
 				EB10E6F5FE937A63B1B916C0 /* TVLibraryBrowseView.swift in Sources */,
 				0C5962333D3B2CEDE959469C /* TVLibraryView.swift in Sources */,
 				0C1F8D0868116976B3A5D3A0 /* TVLocalTransferSource.swift in Sources */,
@@ -6098,6 +6123,7 @@
 				88744C4DE23E697ACA4B7337 /* FFmpegAudioDecoder.swift in Sources */,
 				17D95A4CEEC7D70C93C43169 /* FFmpegDecoderBridge.m in Sources */,
 				049039634109B21268632190 /* FFmpegMusicVideoConverter.m in Sources */,
+				F36B74152905D0EC67C6A493 /* KaraokeRemoteMicView.swift in Sources */,
 				0162B98047CF6DE7E830A601 /* KaraokeSeparationService.swift in Sources */,
 				80F9CD8369013DD185FF0520 /* KaraokeVocalSeparator.swift in Sources */,
 				BFC3EDDCBF5E1CA78A3E425F /* MusicVideoCompatibilityConverter.swift in Sources */,

@@ -71,6 +71,12 @@ public struct KaraokePitchTrack: Sendable {
 
     /// The reading closest to `time` within `tolerance`, or nil.
     public func note(at time: TimeInterval, tolerance: TimeInterval = 0.08) -> Double? {
+        reading(at: time, tolerance: tolerance)?.midiNote
+    }
+
+    /// Like `note(at:)` but tells "no reading here" (nil) apart from "a
+    /// reading of silence" (a reading whose note is nil).
+    public func reading(at time: TimeInterval, tolerance: TimeInterval = 0.08) -> Reading? {
         guard !readings.isEmpty else { return nil }
         var lower = 0
         var upper = readings.count
@@ -92,7 +98,7 @@ public struct KaraokePitchTrack: Sendable {
             }
         }
         guard bestDistance <= tolerance else { return nil }
-        return best?.midiNote
+        return best
     }
 }
 

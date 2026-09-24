@@ -4519,3 +4519,13 @@
 "karaoke_ai_clear_cache_format" = "清除 AI 分離快取（%@）";
 "karaoke_ai_remove_model" = "刪除 AI 模型";
 "karaoke_ai_word_timing" = "逐字時間由 AI 推斷";
+"karaoke_tv_unsupported" = "這首歌的格式在 Apple TV 上無法降低人聲。";
+"karaoke_tv_scan_title" = "用 iPhone 當麥克風";
+"karaoke_tv_scan_hint" = "用相機掃碼。iPhone 負責評分，歌聲不經電視播放。";
+"karaoke_tv_mic_connected_format" = "%@ 已連接";
+"karaoke_remote_title" = "為 Apple TV 當麥克風";
+"karaoke_remote_connecting" = "正在連接 Apple TV…";
+"karaoke_remote_connected" = "已連接，開始唱吧。";
+"karaoke_remote_rejected" = "Apple TV 沒有接受這個 QR 碼，請重新掃描電視上的碼。";
+"karaoke_remote_failed" = "連不上 Apple TV，請確認兩台裝置在同一個網路。";
+"karaoke_remote_hint" = "把 iPhone 拿在嘴邊。歌聲照常唱給房間裡的人聽，手機只負責評分。";

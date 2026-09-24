@@ -4542,3 +4542,13 @@
 "karaoke_ai_clear_cache_format" = "Getrennte Titel löschen (%@)";
 "karaoke_ai_remove_model" = "KI-Modell entfernen";
 "karaoke_ai_word_timing" = "Worttiming von KI geschätzt";
+"karaoke_tv_unsupported" = "Bei diesem Format lässt sich der Gesang auf Apple TV nicht absenken.";
+"karaoke_tv_scan_title" = "Mit dem iPhone singen";
+"karaoke_tv_scan_hint" = "Mit der Kamera scannen. Das iPhone bewertet den Gesang; deine Stimme kommt nicht aus dem Fernseher.";
+"karaoke_tv_mic_connected_format" = "%@ hört zu";
+"karaoke_remote_title" = "Mikrofon für Apple TV";
+"karaoke_remote_connecting" = "Verbindung mit Apple TV …";
+"karaoke_remote_connected" = "Verbunden. Los geht’s.";
+"karaoke_remote_rejected" = "Das Apple TV hat den Code nicht angenommen. Scanne den Code auf dem Fernseher erneut.";
+"karaoke_remote_failed" = "Apple TV nicht erreichbar. Beide Geräte müssen im selben Netz sein.";
+"karaoke_remote_hint" = "Halte das iPhone nah an den Mund. Deine Stimme klingt wie gewohnt im Raum; das iPhone bewertet nur.";

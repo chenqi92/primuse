@@ -4635,3 +4635,13 @@
 "karaoke_ai_clear_cache_format" = "清除 AI 分离缓存（%@）";
 "karaoke_ai_remove_model" = "删除 AI 模型";
 "karaoke_ai_word_timing" = "逐字时间由 AI 推断";
+"karaoke_tv_unsupported" = "这首歌的格式在 Apple TV 上无法降低人声。";
+"karaoke_tv_scan_title" = "用 iPhone 当麦克风";
+"karaoke_tv_scan_hint" = "用相机扫码。iPhone 负责打分，歌声不经电视播放。";
+"karaoke_tv_mic_connected_format" = "%@ 已连接";
+"karaoke_remote_title" = "为 Apple TV 当麦克风";
+"karaoke_remote_connecting" = "正在连接 Apple TV…";
+"karaoke_remote_connected" = "已连接，开始唱吧。";
+"karaoke_remote_rejected" = "Apple TV 没有接受这个二维码，请重新扫描电视上的码。";
+"karaoke_remote_failed" = "连不上 Apple TV，请确认两台设备在同一个网络。";
+"karaoke_remote_hint" = "把 iPhone 拿在嘴边。歌声照常唱给房间里的人听，手机只负责打分。";

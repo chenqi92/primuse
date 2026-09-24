@@ -1302,6 +1302,10 @@ struct PrimuseApp: App {
     @State private var deepLinkAddSource = false
     /// Apple TV 局域网扫码(primuse://pair)解析出的端点,触发「直传到 Apple TV」sheet。
     @State private var pairTarget: PairTarget?
+    #if os(iOS)
+    /// Apple TV 卡拉OK舞台的二维码(primuse://karaoke-mic)：手机当打分麦克风。
+    @State private var karaokeMicTarget: KaraokeRemoteMicTarget?
+    #endif
     /// 分享页签发的一次性导入凭证，仅在本地内存中保留。
     @State private var mediaRelayImportRequest: MediaRelayImportRequest?
 
@@ -1714,6 +1718,12 @@ struct PrimuseApp: App {
                         pairTarget = PairTarget(link: link)
                         return
                     }
+                    #if os(iOS)
+                    if let endpoint = KaraokeMicLink.Endpoint(url: url) {
+                        karaokeMicTarget = KaraokeRemoteMicTarget(endpoint: endpoint)
+                        return
+                    }
+                    #endif
                     #if os(macOS)
                     // macOS OAuth 走系统浏览器,callback 通过 primuse:// 回到 app。
                     if MacOAuthBridge.shared.handle(url) {
@@ -2093,6 +2103,11 @@ struct PrimuseApp: App {
                 .sheet(item: $mediaRelayImportRequest) { request in
                     MediaRelayImportSheet(request: request)
                 }
+                #if os(iOS)
+                .fullScreenCover(item: $karaokeMicTarget) { target in
+                    KaraokeRemoteMicView(endpoint: target.endpoint)
+                }
+                #endif
             }
         }
         #if os(iOS)

@@ -4448,3 +4448,13 @@
 "karaoke_ai_clear_cache_format" = "Ayrılmış şarkıları temizle (%@)";
 "karaoke_ai_remove_model" = "Yapay zekâ modelini kaldır";
 "karaoke_ai_word_timing" = "Kelime zamanlaması yapay zekâ tahmini";
+"karaoke_tv_unsupported" = "Bu şarkının biçiminde Apple TV’de vokal kısılamaz.";
+"karaoke_tv_scan_title" = "iPhone ile söyle";
+"karaoke_tv_scan_hint" = "Kamerayla tarayın. iPhone şarkıyı puanlar; sesiniz TV’den çalınmaz.";
+"karaoke_tv_mic_connected_format" = "%@ bağlı";
+"karaoke_remote_title" = "Apple TV için mikrofon";
+"karaoke_remote_connecting" = "Apple TV’ye bağlanılıyor…";
+"karaoke_remote_connected" = "Bağlandı. Söylemeye başla.";
+"karaoke_remote_rejected" = "Apple TV bu kodu kabul etmedi. TV’deki kodu yeniden tarayın.";
+"karaoke_remote_failed" = "Apple TV’ye ulaşılamadı. İki cihazın da aynı ağda olduğundan emin olun.";
+"karaoke_remote_hint" = "iPhone’u ağzınıza yakın tutun. Sesiniz odada her zamanki gibi duyulur; iPhone yalnızca puanlar.";
