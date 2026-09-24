@@ -129,21 +129,25 @@ struct SongRowView: View {
                 rowContent
             }
         }
-        .songRowContextMenu(isEnabled: usesContextMenu && actionRequest == nil) {
-            if let selection {
-                Section {
-                    Button {
-                        selection.activate(seed: song.id)
-                    } label: {
-                        Label(String(localized: "batch_select"), systemImage: "checkmark.circle")
+        // 菜单修饰符跨选择态常驻，iPhone 选择中只把内容清空（空菜单不弹出）：
+        // 按开关拆掉修饰符会替换承载菜单的子树，正是 77906e03 修过的崩溃形态。
+        .songRowContextMenu(isEnabled: actionRequest == nil) {
+            if !hidesContextMenuDuringSelection {
+                if let selection {
+                    Section {
+                        Button {
+                            activateSelectionAfterMenuDismissal(selection)
+                        } label: {
+                            Label(String(localized: "batch_select"), systemImage: "checkmark.circle")
+                        }
                     }
                 }
-            }
 
-            songActionMenuContent(
-                entryPoint: .songRowContextMenu,
-                offline: offlineSnapshot
-            )
+                songActionMenuContent(
+                    entryPoint: .songRowContextMenu,
+                    offline: offlineSnapshot
+                )
+            }
         }
         #if os(macOS)
         .similarSongsPanel(isPresented: $showSimilarSongs, seed: song)
@@ -633,15 +637,27 @@ struct SongRowView: View {
     }
 
 
-    private var usesContextMenu: Bool {
+    /// iPhone 上多选中长按不再弹单曲菜单；Mac 的右键菜单在选择态下照旧可用。
+    private var hidesContextMenuDuringSelection: Bool {
         #if os(iOS)
-        // SwiftUI's context-menu recognizer wins the same long press that the
-        // selection modifier uses. Selection-enabled rows already expose every
-        // single-song action in their trailing ellipsis menu, so reserve the
-        // row long press for direct multi-selection.
-        selection == nil
+        selection?.isActive == true
         #else
-        true
+        false
+        #endif
+    }
+
+    /// 长按菜单里的「选择」。歌曲库大列表进入多选时会把整行换成精简行，
+    /// 菜单还在收起就换掉它的宿主会崩，所以等收起动画走完再进入多选。
+    private func activateSelectionAfterMenuDismissal(_ selection: SongSelectionModel) {
+        let songID = song.id
+        #if os(iOS)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !selection.isActive else { return }
+            selection.activate(seed: songID)
+        }
+        #else
+        selection.activate(seed: songID)
         #endif
     }
 

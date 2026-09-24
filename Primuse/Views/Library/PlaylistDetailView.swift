@@ -578,6 +578,7 @@ struct PlaylistDetailView: View {
                     song: song,
                     isPlaying: player.currentSong?.id == song.id,
                     showsActions: false,
+                    selection: selection,
                     onRemoveFromPlaylist: allowsPlaylistRemoval
                         ? { library.remove(songID: song.id, fromPlaylist: playlist.id) }
                         : nil,

@@ -120,6 +120,7 @@ private struct SongSelectableModifier: ViewModifier {
             ? Text(isSelected ? "library_folder_selection_all" : "library_folder_selection_none")
             : Text(verbatim: ""))
         .accessibilityAddTraits(isActive ? (isSelected ? [.isButton, .isSelected] : .isButton) : [])
+        // 长按留给行自己的单曲菜单，菜单首项「选择」进入多选。
         .accessibilityActions {
             Button("batch_select") {
                 if selection.isActive {
@@ -132,7 +133,6 @@ private struct SongSelectableModifier: ViewModifier {
                 Button("play", action: defaultAction)
             }
         }
-        .highPriorityGesture(longPressGesture, including: isActive ? .subviews : .all)
     }
     #endif
 
@@ -243,16 +243,6 @@ private struct SongSelectableModifier: ViewModifier {
         }
         #endif
     }
-
-    #if os(iOS)
-    private var longPressGesture: some Gesture {
-        LongPressGesture(minimumDuration: 0.45)
-            .onEnded { _ in
-                guard !selection.isActive else { return }
-                selection.activate(seed: songID)
-            }
-    }
-    #endif
 
     private func handleTap() {
         #if os(macOS)

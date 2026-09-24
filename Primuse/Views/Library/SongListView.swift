@@ -6002,13 +6002,7 @@ private struct IOSSongListRow: View {
             }
         }
         #if os(iOS)
-        .highPriorityGesture(
-            LongPressGesture(minimumDuration: 0.45)
-                .onEnded { _ in
-                    guard !selection.isActive else { return }
-                    selection.activate(seed: song.id)
-                }
-        )
+        // 长按由 SongRowView 的单曲菜单接管，菜单首项「选择」进入多选。
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(
             selection.isActive
