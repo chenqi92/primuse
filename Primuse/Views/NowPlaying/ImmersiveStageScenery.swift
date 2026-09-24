@@ -848,7 +848,9 @@ struct ImmersiveAmbientRestOverlay: View {
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, max(metrics.safeArea.leading + 28, metrics.s(30)))
+            // 两侧各按自己的安全区让位(折叠屏的系统竖栏只在一侧)。
+            .padding(.leading, max(metrics.safeArea.leading + 28, metrics.s(30)))
+            .padding(.trailing, max(metrics.safeArea.trailing + 28, metrics.s(30)))
             .padding(.bottom, max(metrics.safeArea.bottom + 38, metrics.s(54)))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }

@@ -20,6 +20,9 @@ struct ImmersivePlayerView: View {
     let onDismiss: () -> Void
     let onMinimize: () -> Void
     let onShowQueue: () -> Void
+    /// 系统竖栏那一侧的安全区(iPhone Duo 等)。全屏页挂在忽略安全区的播放页里,自己量到的左右安全区是 0,
+    /// 竖栏那条安全区里还有前置摄像头,由播放页按窗口实际的安全区交进来;没有竖栏的设备为 0,排版不变。
+    var verticalBarInsets = EdgeInsets()
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioVisualizerService.self) private var visualizer
@@ -67,7 +70,8 @@ struct ImmersivePlayerView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let metrics = ImmersiveStageMetrics(size: geometry.size, safeArea: geometry.safeAreaInsets)
+            let safeArea = stageSafeArea(geometry.safeAreaInsets)
+            let metrics = ImmersiveStageMetrics(size: geometry.size, safeArea: safeArea)
 
             ZStack {
                 stage(metrics: metrics)
@@ -125,7 +129,7 @@ struct ImmersivePlayerView: View {
                         palette: artworkPalette,
                         appliesOnSettle: true,
                         viewportSize: geometry.size,
-                        safeAreaInsets: geometry.safeAreaInsets,
+                        safeAreaInsets: safeArea,
                         onClose: { showsEffectPicker = false }
                     )
                     .pmSlideTransition(
@@ -322,8 +326,10 @@ struct ImmersivePlayerView: View {
 
     private func chrome(metrics: ImmersiveStageMetrics) -> some View {
         VStack(spacing: 0) {
+            // 左右安全区按侧取值:折叠屏的系统竖栏只在一侧,另一侧不该陪着空出同样宽。
             topChrome(metrics: metrics)
-            .padding(.horizontal, max(max(metrics.safeArea.leading, metrics.safeArea.trailing) + 16, 20))
+            .padding(.leading, max(metrics.safeArea.leading + 16, 20))
+            .padding(.trailing, max(metrics.safeArea.trailing + 16, 20))
             .padding(.top, topChromeInset(metrics))
 
             if let error = player.lastPlaybackError {
@@ -334,7 +340,8 @@ struct ImmersivePlayerView: View {
             Spacer()
 
             bottomChrome(metrics: metrics)
-            .padding(.horizontal, max(metrics.safeArea.leading, metrics.safeArea.trailing) + 20)
+            .padding(.leading, metrics.safeArea.leading + 20)
+            .padding(.trailing, metrics.safeArea.trailing + 20)
             .padding(.bottom, max(metrics.safeArea.bottom + 10, 18))
         }
     }
@@ -359,6 +366,16 @@ struct ImmersivePlayerView: View {
             .padding(.vertical, 8)
             .background(.red.opacity(0.82), in: Capsule())
             .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// 左右各取自己量到的与播放页交进来的竖栏安全区中较大的那个。
+    private func stageSafeArea(_ measured: EdgeInsets) -> EdgeInsets {
+        EdgeInsets(
+            top: measured.top,
+            leading: max(measured.leading, verticalBarInsets.leading),
+            bottom: measured.bottom,
+            trailing: max(measured.trailing, verticalBarInsets.trailing)
+        )
     }
 
     @ViewBuilder

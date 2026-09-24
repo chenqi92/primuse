@@ -164,10 +164,21 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
             min(preferredArtwork, artworkWidthCap),
             min(minimumArtworkSize, artworkWidthCap)
         )
-        let artworkSize = max(0, min(widthBoundArtwork, availableContentHeight))
-        let detailColumnWidth = max(0, contentWidth - artworkSize - columnSpacing)
+        var artworkSize = max(0, min(widthBoundArtwork, availableContentHeight))
+        var detailColumnWidth = max(0, contentWidth - artworkSize - columnSpacing)
 
-        let showsEdgeToggles = detailColumnWidth >= minimumTransportWidth(includesEdgeToggles: true)
+        // 右栏差一点放不下两端的随机 / 循环时,封面让出这一点 —— 让完仍不小于封面下限才让。
+        // 折叠屏外屏横握(一侧 84 的系统竖栏)正落在这一档;其它手机的右栏本来就放得下,取值不变。
+        let togglesWidth = minimumTransportWidth(includesEdgeToggles: true)
+        if detailColumnWidth < togglesWidth {
+            let yielded = contentWidth - columnSpacing - togglesWidth
+            if yielded >= minimumArtworkSize, yielded < artworkSize {
+                artworkSize = yielded
+                detailColumnWidth = togglesWidth
+            }
+        }
+
+        let showsEdgeToggles = detailColumnWidth >= togglesWidth
 
         let titleScale = 1 + (scale - 1) * titleScaleDamping
         let twoLineTitle = titleBlockHeight * titleScale

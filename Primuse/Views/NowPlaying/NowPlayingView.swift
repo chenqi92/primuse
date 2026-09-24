@@ -675,6 +675,8 @@ struct NowPlayingView: View {
     @State private var showMusicVideoFullScreen = false
     #if os(iOS)
     @State private var windowSafeAreaInsets = UIEdgeInsets.zero
+    /// 系统竖栏在哪一侧(iPhone Duo 等);没有竖栏的设备与 Xcode 27.0 构建为 nil。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     #endif
     @State private var fullScreenMusicVideoPlayer: AVPlayer?
     @Environment(ThemeService.self) private var theme
@@ -1312,8 +1314,12 @@ struct NowPlayingView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let artSize = min(geo.size.width - 60, geo.size.height * 0.38)
             let safeInsets = resolvedSafeAreaInsets(for: geo)
+            // 竖屏布局左右按侧让出安全区(折叠屏的系统竖栏只在一侧),封面按让完之后的宽度取值。
+            let artSize = min(
+                geo.size.width - safeInsets.leading - safeInsets.trailing - 60,
+                geo.size.height * 0.38
+            )
             let verticalDismissStartMaximumY = showLyrics
                 ? CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY)
                 : max(
@@ -1465,7 +1471,10 @@ struct NowPlayingView: View {
                         isSceneActive: isVisualSceneActive,
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
-                        onShowQueue: { showQueue = true }
+                        onShowQueue: { showQueue = true },
+                        verticalBarInsets: verticalBarEdge == nil
+                            ? EdgeInsets()
+                            : EdgeInsets(top: 0, leading: safeInsets.leading, bottom: 0, trailing: safeInsets.trailing)
                     )
                     .zIndex(100)
                 }

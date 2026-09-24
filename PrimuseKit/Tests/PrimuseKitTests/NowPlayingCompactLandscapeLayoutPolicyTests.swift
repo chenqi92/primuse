@@ -46,14 +46,14 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
         )
     }
 
-    /// iPhone Duo 外屏横屏：左右安全区**不对称**，右侧为 0。
+    /// iPhone Duo 外屏横握（Duo 模拟器实测）：系统竖栏在左，左右安全区**不对称**，左 84、右 0，底部 34。
     private var iPhoneDuoCover: Metrics {
         Policy.metrics(
             viewportWidth: 678,
             viewportHeight: 466,
             safeAreaTop: 0,
-            safeAreaBottom: 21,
-            safeAreaLeading: 20,
+            safeAreaBottom: 34,
+            safeAreaLeading: 84,
             safeAreaTrailing: 0,
             prefersVolumeBar: true
         )
@@ -89,8 +89,11 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
     @Test("左右安全区按侧消费，不假设两侧相等")
     func asymmetricSafeAreaIsConsumedPerSide() {
         let duo = iPhoneDuoCover
-        #expect(duo.leadingInset == 40)
+        #expect(duo.leadingInset == 104)
         #expect(duo.trailingInset == 20)
+        // 左侧 84 的竖栏吃掉了宽度:封面从 0.38 的比例(210)让到 186,右栏正好放下两端的随机 / 循环。
+        #expect(duo.artworkSize == 186)
+        #expect(duo.detailColumnWidth == Policy.minimumTransportWidth(includesEdgeToggles: true))
 
         let phone = iPhone15
         #expect(phone.leadingInset == 79)
@@ -328,7 +331,7 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
             Viewport(name: "SE", width: 667, height: 375, bottom: 0, leading: 0, trailing: 0),
             Viewport(name: "15", width: 852, height: 393, bottom: 21, leading: 59, trailing: 59),
             Viewport(name: "16 Pro Max", width: 956, height: 440, bottom: 21, leading: 62, trailing: 62),
-            Viewport(name: "Duo cover", width: 678, height: 466, bottom: 21, leading: 20, trailing: 0),
+            Viewport(name: "Duo cover", width: 678, height: 466, bottom: 34, leading: 84, trailing: 0),
         ]
     }
 
