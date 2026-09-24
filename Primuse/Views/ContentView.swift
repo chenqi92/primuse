@@ -1586,6 +1586,7 @@ struct ContentView: View {
         #if DEBUG
         .task { await runDebugOpenPage() }
         .task { await runDebugScrollToEnd() }
+        .task { await runDebugScrollBy() }
         .sheet(isPresented: $debugQueuePresented) {
             QueueView(player: player)
                 .presentationDetents([.large])
@@ -1929,6 +1930,10 @@ struct ContentView: View {
 /// `album:<标题片段>` / `albumback:<标题片段>`（打开后三秒退回）/ `artist:<名字片段>` / `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `queue` / `search` / `settings` /
 /// `lasttab`（顶部 tab 外壳：先停在歌曲，两秒半后切到最后一个 tab，看指示器与自动滚动）。
 /// `searchidle`（打开搜索但不弹键盘）。另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
+/// 详情页取证用：`playlist:<名字片段>`（`liked` 是「喜欢」）/ `genre:<名字片段>` /
+/// `zoom:<专辑标题片段>`（先停在专辑网格，再从网格推入专辑页、退回、再推入，录缩放转场用）。
+/// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）。
+/// `PRIMUSE_DEBUG_SCROLL_BY=<点数>`：页面打开后把最大的纵向滚动视图滚动这么多，负数是下拉到顶部之外。
 extension ContentView {
     @MainActor
     private func runDebugOpenPage() async {
@@ -1946,6 +1951,7 @@ extension ContentView {
         }
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
+        debugSeedPlaylistsIfRequested()
         if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
            orientation == "landscape" || orientation == "portrait" {
             InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
@@ -2023,6 +2029,52 @@ extension ContentView {
                 guard !Task.isCancelled else { return }
                 debugQueuePresented = true
             }
+        case "playlist":
+            for _ in 0..<30 {
+                let liked = library.playlist(id: MusicLibrary.likedSongsPlaylistID)
+                let match = needle == "liked"
+                    ? liked
+                    : library.playlists.first(where: { needle.isEmpty || $0.name.lowercased().contains(needle) })
+                if let match {
+                    openLibraryDeepLink(.playlist(match))
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+            }
+            plog("🧪 DebugLaunchAutomation: no playlist matching '\(needle)'")
+        case "genre":
+            for _ in 0..<30 {
+                if let genre = library.visibleGenres.first(where: {
+                    needle.isEmpty || $0.name.lowercased().contains(needle)
+                }) {
+                    debugOpenSection(.genres)
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    LibraryDebugNavigation.push(genre, in: .genres)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+            }
+            plog("🧪 DebugLaunchAutomation: no genre matching '\(needle)'")
+        case "zoom":
+            // 从专辑网格里推入专辑页 —— 转场源(网格里的卡片)在屏幕上,才走得到缩放转场。
+            guard let album = library.visibleAlbums.first(where: {
+                needle.isEmpty || $0.title.lowercased().contains(needle)
+            }) else {
+                plog("🧪 DebugLaunchAutomation: no album matching '\(needle)'")
+                return
+            }
+            debugOpenSection(.albums)
+            for _ in 0..<2 {
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                LibraryDebugNavigation.push(album, in: .albums)
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                LibraryDebugNavigation.pop(in: .albums)
+            }
         case "search":
             selectMinimalPage(.search)
         case "searchidle":
@@ -2039,6 +2091,67 @@ extension ContentView {
     @MainActor
     private func debugOpenSection(_ section: LibrarySection) {
         openLibraryDeepLink(.section(section))
+    }
+
+    /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1`：没有就建两张取证歌单，名字固定，重复启动不会重复建。
+    @MainActor
+    private func debugSeedPlaylistsIfRequested() {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_PLAYLISTS"] == "1" else { return }
+        let names = library.playlists.map(\.name)
+        if !names.contains("Evidence Wall") {
+            _ = library.createPlaylist(name: "Evidence Wall", songIDs: library.visibleSongs.map(\.id))
+        }
+        if !names.contains("Evidence Single"),
+           let album = library.visibleAlbums.first(where: { $0.title.lowercased().contains("evidence") }) {
+            _ = library.createPlaylist(
+                name: "Evidence Single",
+                songIDs: library.songs(forAlbum: album.id).map(\.id)
+            )
+        }
+    }
+
+    /// `PRIMUSE_DEBUG_SCROLL_BY=<点数>`：页面打开后把屏幕上最大的纵向滚动视图滚这么多。
+    /// 负数是把内容往下拉出顶部（看头图拉伸），正数是往上滚（看视差与导航栏标题）。
+    @MainActor
+    private func runDebugScrollBy() async {
+        guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SCROLL_BY"],
+              let distance = Double(raw) else { return }
+        for _ in 0..<30 where library.visibleSongs.isEmpty {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+        }
+        try? await Task.sleep(for: .seconds(8))
+        guard !Task.isCancelled,
+              let scroll = debugLargestScrollView() else { return }
+        let top = -scroll.adjustedContentInset.top
+        scroll.setContentOffset(
+            CGPoint(x: scroll.contentOffset.x, y: top + CGFloat(distance)),
+            animated: false
+        )
+        plog("🧪 DebugLaunchAutomation: scrolled by \(distance), top inset \(scroll.adjustedContentInset.top)")
+    }
+
+    @MainActor
+    private func debugLargestScrollView() -> UIScrollView? {
+        guard let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow) else { return nil }
+        var best: UIScrollView?
+        func visit(_ view: UIView) {
+            if let scroll = view as? UIScrollView, !scroll.isHidden,
+               scroll.bounds.height > 200,
+               scroll.contentSize.height > scroll.bounds.height,
+               scroll.convert(scroll.bounds, to: window).intersects(window.bounds) {
+                let area = scroll.bounds.width * scroll.bounds.height
+                if area > (best.map { $0.bounds.width * $0.bounds.height } ?? 0) {
+                    best = scroll
+                }
+            }
+            view.subviews.forEach(visit)
+        }
+        visit(window)
+        return best
     }
 
     /// `PRIMUSE_DEBUG_SCROLL_END=1`：页面打开后把屏幕上最大的那个纵向滚动视图拉到底，

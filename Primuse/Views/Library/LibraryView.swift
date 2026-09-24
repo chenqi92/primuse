@@ -150,6 +150,42 @@ enum LibraryDisplayConfiguration {
     }
 }
 
+#if DEBUG
+/// 编译机上无人值守取证用：往资料库某一页的导航栈里推一个值、或退一层。
+/// 推入走的是和点卡片一样的值导航，转场源在屏幕上时就是缩放转场。
+@MainActor
+enum LibraryDebugNavigation {
+    enum Target {
+        case album(Album)
+        case genre(LibraryGenre)
+    }
+
+    struct Request {
+        let section: LibrarySection
+        /// nil 表示退一层。
+        let target: Target?
+    }
+
+    static let notification = Notification.Name("primuse.debug.libraryNavigation")
+
+    static func push(_ album: Album, in section: LibrarySection) {
+        post(Request(section: section, target: .album(album)))
+    }
+
+    static func push(_ genre: LibraryGenre, in section: LibrarySection) {
+        post(Request(section: section, target: .genre(genre)))
+    }
+
+    static func pop(in section: LibrarySection) {
+        post(Request(section: section, target: nil))
+    }
+
+    private static func post(_ request: Request) {
+        NotificationCenter.default.post(name: notification, object: request)
+    }
+}
+#endif
+
 enum LibraryDeepLink: Equatable, Sendable {
     case root
     case section(LibrarySection)
@@ -368,6 +404,11 @@ struct LibraryView: View {
     private let rootSection: LibrarySection?
     private let onActiveSectionChange: (LibrarySection?) -> Void
     @State private var navigationPath = NavigationPath()
+    #if DEBUG
+    /// 取证钩子推入的风格页。风格的值导航登记在分类页里，从外面往路径里追加找不到它，
+    /// 所以在根上另挂一个按条目推入的目的地。
+    @State private var debugGenre: LibraryGenre?
+    #endif
     /// 资料库这一层导航栈的 zoom 命名空间。
     @Namespace private var libraryZoomNamespace
     @State private var songLocationRequest: SongLibraryLocationRequest?
@@ -497,6 +538,21 @@ struct LibraryView: View {
             .onChange(of: deepLink) { _, newValue in
                 applyDeepLink(newValue)
             }
+            #if DEBUG
+            .onReceive(NotificationCenter.default.publisher(for: LibraryDebugNavigation.notification)) { note in
+                // 经典外观只有一个资料库栈(rootSection 为 nil);顶部 tab 外壳里每个分类各有一个,只认点名的那个。
+                guard let request = note.object as? LibraryDebugNavigation.Request,
+                      rootSection == nil || rootSection == request.section else { return }
+                switch request.target {
+                case .album(let album): navigationPath.append(album)
+                case .genre(let genre): debugGenre = genre
+                case nil: if !navigationPath.isEmpty { navigationPath.removeLast() }
+                }
+            }
+            .navigationDestination(item: $debugGenre) { genre in
+                GenreDetailView(genre: genre)
+            }
+            #endif
             .onChange(of: navigationPath.count) { _, count in
                 if didRestorePersistedPage && count == 0 {
                     persistedPageID = ""

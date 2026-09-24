@@ -1439,6 +1439,8 @@ struct PrimuseApp: App {
         #if DEBUG
         if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "immersiveStage" {
             ImmersiveStageEvidenceHost()
+        } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "libraryDetail" {
+            LibraryDetailEvidenceHost()
         } else {
             iosAppContent
         }
