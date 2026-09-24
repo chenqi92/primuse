@@ -1653,7 +1653,9 @@ struct SongListView: View {
                         .equatable()
                     } else {
                         VStack(spacing: 0) {
-                            songListActionHeader
+                            if skin.showsSongListPlayHeader {
+                                songListActionHeader
+                            }
                             IOSSongListContainer(
                                 cache: listCache,
                                 rowOrderRevision: listCache.rowOrderRevision,
@@ -1683,33 +1685,49 @@ struct SongListView: View {
         }
     }
 
-    /// 平铺列表顶上那一排「播放 · 随机」和数量。数量取投影里存好的值,不遍历整张列表。
+    /// 平铺列表顶上那一排「播放 · 随机」和数量(`ListRow.playHeader`)。数量取投影里存好的值,不遍历整张列表。
+    ///
+    /// 窄屏配大字号时两颗胶囊优先,放不下就先把歌曲数拿掉,胶囊里的字不折行。
     private var songListActionHeader: some View {
         let playableCount = filteredProjection.playableCount
-        return HStack(spacing: 10) {
+        return ViewThatFits(in: .horizontal) {
+            songListActionHeaderRow(playableCount: playableCount, showsCount: true)
+            songListActionHeaderRow(playableCount: playableCount, showsCount: false)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .opacity(selection.isActive ? 0.4 : 1)
+        .allowsHitTesting(!selection.isActive)
+    }
+
+    private func songListActionHeaderRow(playableCount: Int, showsCount: Bool) -> some View {
+        HStack(spacing: 10) {
             Button(action: playVisibleFromStart) {
                 Label("play", systemImage: "play.fill")
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .buttonStyle(SongListHeaderPillStyle(prominent: true, skin: skin))
             .disabled(playableCount == 0)
 
             Button(action: shuffleVisibleSongs) {
                 Label("shuffle", systemImage: "shuffle")
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .buttonStyle(SongListHeaderPillStyle(prominent: false, skin: skin))
             .disabled(playableCount < 2)
 
             Spacer(minLength: 8)
 
-            Text(verbatim: "\(playableCount) \(String(localized: "songs_count"))")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            if showsCount {
+                Text(verbatim: "\(playableCount) \(String(localized: "songs_count"))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .opacity(selection.isActive ? 0.4 : 1)
-        .allowsHitTesting(!selection.isActive)
     }
 
     private var presentedShowsFolderBrowser: Bool {

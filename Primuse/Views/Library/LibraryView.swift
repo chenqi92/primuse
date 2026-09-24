@@ -340,12 +340,28 @@ private struct LibraryBrowseRun: Identifiable {
     let sections: [LibrarySection]
 }
 
+/// 分类入口右侧那一叠代表封面的尺寸。`row` 是分组列表行里的原尺寸,`tile` 是方块卡片右上角的大一号。
+struct LibraryCategoryPreviewMetrics {
+    let size: CGFloat
+    let cornerRadius: CGFloat
+    /// 相邻两张叠住的宽度。
+    let overlap: CGFloat
+    let width: CGFloat
+    let placeholderGlyphSize: CGFloat
+
+    static let row = LibraryCategoryPreviewMetrics(
+        size: 36, cornerRadius: 7, overlap: 10, width: 68, placeholderGlyphSize: 13
+    )
+    static let tile = LibraryCategoryPreviewMetrics(
+        size: 50, cornerRadius: 10, overlap: 14, width: 95, placeholderGlyphSize: 18
+    )
+}
+
 struct LibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStationsStore
     @Environment(\.skin) private var skin
     #if os(iOS)
-    @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.pmHeightClass) private var heightClass
     #endif
     @Binding private var deepLink: LibraryDeepLink?
@@ -538,7 +554,6 @@ struct LibraryView: View {
             .toolbarTitleDisplayMode(.inline)
             #if os(iOS)
             .minimalNavigationRoot()
-            .navigationBarBackButtonHidden(appNavigationMode == .minimal)
             #endif
             .onAppear {
                 persistedPageID = "section:\(section.rawValue)"
@@ -579,24 +594,13 @@ struct LibraryView: View {
                 .font(.subheadline.weight(.medium))
             }
 
-            if usesMinimalSectionControls {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 140), spacing: 16, alignment: .topLeading)],
-                    alignment: .leading,
-                    spacing: 24
-                ) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
                     quickAccessItems
                 }
                 .padding(.horizontal, 16)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 14) {
-                        quickAccessItems
-                    }
-                    .padding(.horizontal, 16)
-                }
-                .contentMargins(.horizontal, 0, for: .scrollContent)
             }
+            .contentMargins(.horizontal, 0, for: .scrollContent)
         }
     }
 
@@ -628,12 +632,22 @@ struct LibraryView: View {
     /// 行宽有 700 多点, 一列只放得下一张 72pt 高的卡片, 右边整片空着。
     private var browseCategoryColumns: [GridItem] {
         #if os(iOS)
-        // 分类入口是带封面预览的方块:竖屏两列,横屏与 iPad 按宽度铺开。
-        [GridItem(.adaptive(minimum: usesCompactBrowseLayout ? 180 : 150), spacing: 10, alignment: .top)]
-        #else
-        usesCompactBrowseLayout
+        if usesCategoryTiles {
+            // 方块卡片的分类入口:竖屏两列,横屏与 iPad 按宽度铺开。
+            return [GridItem(.adaptive(minimum: usesCompactBrowseLayout ? 180 : 150), spacing: 10, alignment: .top)]
+        }
+        #endif
+        return usesCompactBrowseLayout
             ? [GridItem(.adaptive(minimum: 300), spacing: 0, alignment: .top)]
             : [GridItem(.flexible())]
+    }
+
+    /// 分类入口画成带封面预览的方块(`Card.tile`),还是分组列表的行。
+    private var usesCategoryTiles: Bool {
+        #if os(iOS)
+        skin.usesTileCards
+        #else
+        false
         #endif
     }
 
@@ -648,7 +662,7 @@ struct LibraryView: View {
                             if run.isQuickAccess {
                                 quickAccessSection
                                     .padding(.vertical, 8)
-                            } else {
+                            } else if usesCategoryTiles {
                                 #if os(iOS)
                                 LazyVGrid(columns: browseCategoryColumns, spacing: 10) {
                                     ForEach(run.sections) { section in
@@ -659,7 +673,8 @@ struct LibraryView: View {
                                     }
                                 }
                                 .padding(.horizontal, 16)
-                                #else
+                                #endif
+                            } else {
                                 LazyVGrid(columns: browseCategoryColumns, spacing: 10) {
                                     ForEach(run.sections) { section in
                                         NavigationLink(value: section) {
@@ -669,7 +684,6 @@ struct LibraryView: View {
                                         .padding(.horizontal, 16)
                                     }
                                 }
-                                #endif
                             }
                         }
                     }
@@ -756,28 +770,20 @@ struct LibraryView: View {
         @ViewBuilder artwork: @escaping (CGFloat) -> Artwork
     ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            if usesMinimalSectionControls {
-                GeometryReader { geometry in
-                    artwork(geometry.size.width)
-                }
-                .aspectRatio(1, contentMode: .fit)
-            } else {
-                artwork(116)
-                    .frame(width: 116, height: 116)
-            }
+            artwork(116)
+                .frame(width: 116, height: 116)
 
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
-                .lineLimit(usesMinimalSectionControls ? 2 : 1)
+                .lineLimit(1)
 
             Text(subtitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-        .frame(width: usesMinimalSectionControls ? nil : 116, alignment: .leading)
-        .frame(maxWidth: usesMinimalSectionControls ? .infinity : nil, alignment: .leading)
+        .frame(width: 116, alignment: .leading)
         .contentShape(Rectangle())
     }
 
@@ -873,8 +879,8 @@ struct LibraryView: View {
     }
 
     #if os(iOS)
-    /// 资料库入口的方块:左上是分类色块图标,右上叠三张代表封面,左下是名字与数量。
-    /// 两套基座共用;底色经典下是原来那层淡灰,自己画底色的皮肤下换成皮肤的卡片底。
+    /// 资料库入口的方块(`Card.tile`):左上是分类色块图标,右上叠三张代表封面,左下是名字与数量。
+    /// 底色是一层淡灰,自己画底色的皮肤下换成皮肤的卡片底。
     private func libraryCategoryTile(_ section: LibrarySection) -> some View {
         let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
         return VStack(alignment: .leading, spacing: 2) {
@@ -899,7 +905,7 @@ struct LibraryView: View {
         .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
         .padding(14)
         .overlay(alignment: .topTrailing) {
-            categoryPreview(section, size: 50)
+            categoryPreview(section, metrics: .tile)
                 .padding(.top, 12)
                 .padding(.trailing, 12)
                 .accessibilityHidden(true)
@@ -950,13 +956,17 @@ struct LibraryView: View {
     }
 
     @ViewBuilder
-    private func categoryPreview(_ section: LibrarySection, size: CGFloat = 36) -> some View {
-        let radius = size * 0.2
+    private func categoryPreview(
+        _ section: LibrarySection,
+        metrics: LibraryCategoryPreviewMetrics = .row
+    ) -> some View {
+        let size = metrics.size
+        let radius = metrics.cornerRadius
         switch section {
         case .favorites, .folders, .statistics:
             EmptyView()
         case .recommendations:
-            overlappingPreview(size: size, previewSongs) { song in
+            overlappingPreview(metrics: metrics, previewSongs) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -968,7 +978,7 @@ struct LibraryView: View {
                 )
             }
         case .songs:
-            overlappingPreview(size: size, previewSongs) { song in
+            overlappingPreview(metrics: metrics, previewSongs) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -980,7 +990,7 @@ struct LibraryView: View {
                 )
             }
         case .spokenWord:
-            overlappingPreview(size: size, Array(library.spokenWordSongs.prefix(3))) { song in
+            overlappingPreview(metrics: metrics, Array(library.spokenWordSongs.prefix(3))) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -993,7 +1003,7 @@ struct LibraryView: View {
             }
         case .albums:
             artworkPreview(
-                size: size,
+                metrics: metrics,
                 previewAlbums,
                 placeholderIcon: "square.stack",
                 cornerRadius: radius
@@ -1007,7 +1017,7 @@ struct LibraryView: View {
             }
         case .artists:
             artworkPreview(
-                size: size,
+                metrics: metrics,
                 previewArtists,
                 placeholderIcon: "music.mic",
                 cornerRadius: size / 2
@@ -1020,7 +1030,7 @@ struct LibraryView: View {
                 )
             }
         case .genres:
-            overlappingPreview(size: size, previewGenreSongs) { song in
+            overlappingPreview(metrics: metrics, previewGenreSongs) { song in
                 CachedArtworkView(
                     coverRef: song.coverArtFileName,
                     songID: song.id,
@@ -1032,11 +1042,11 @@ struct LibraryView: View {
                 )
             }
         case .playlists:
-            overlappingPreview(size: size, previewPlaylists) { playlist in
+            overlappingPreview(metrics: metrics, previewPlaylists) { playlist in
                 playlistArtwork(playlist, size: size, cornerRadius: radius)
             }
         case .radio:
-            overlappingPreview(size: size, previewRadioStations) { station in
+            overlappingPreview(metrics: metrics, previewRadioStations) { station in
                 RadioStationArtworkView(station: station, size: size, cornerRadius: radius)
             }
         }
@@ -1183,12 +1193,13 @@ struct LibraryView: View {
     }
 
     private func overlappingPreview<Item: Identifiable, Content: View>(
-        size: CGFloat = 36,
+        metrics: LibraryCategoryPreviewMetrics = .row,
         _ items: [Item],
         @ViewBuilder content: @escaping (Item) -> Content
     ) -> some View {
-        let radius = size * 0.2
-        return HStack(spacing: -size * 0.28) {
+        let size = metrics.size
+        let radius = metrics.cornerRadius
+        return HStack(spacing: -metrics.overlap) {
             if items.isEmpty {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .fill(Color.secondary.opacity(0.1))
@@ -1203,11 +1214,11 @@ struct LibraryView: View {
                 }
             }
         }
-        .frame(width: size * 1.9, alignment: .trailing)
+        .frame(width: metrics.width, alignment: .trailing)
     }
 
     private func artworkPreview<Item: Identifiable, Content: View>(
-        size: CGFloat = 36,
+        metrics: LibraryCategoryPreviewMetrics = .row,
         _ items: [Item],
         placeholderIcon: String,
         cornerRadius: CGFloat,
@@ -1218,18 +1229,18 @@ struct LibraryView: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.secondary.opacity(0.1))
                 Image(systemName: placeholderIcon)
-                    .font(.system(size: size * 0.36, weight: .medium))
+                    .font(.system(size: metrics.placeholderGlyphSize, weight: .medium))
                     .foregroundStyle(.tertiary)
             }
-            .frame(width: size, height: size)
+            .frame(width: metrics.size, height: metrics.size)
 
-            HStack(spacing: -size * 0.28) {
+            HStack(spacing: -metrics.overlap) {
                 ForEach(items) { item in
                     content(item)
                 }
             }
         }
-        .frame(width: size * 1.9, height: size, alignment: .trailing)
+        .frame(width: metrics.width, height: metrics.size, alignment: .trailing)
     }
 
     @ViewBuilder
@@ -1427,14 +1438,6 @@ struct LibraryView: View {
         "\(count.formatted()) \(String(localized: unitKey))"
     }
 
-    private var usesMinimalSectionControls: Bool {
-        #if os(iOS)
-        appNavigationMode == .minimal
-        #else
-        false
-        #endif
-    }
-
     @ViewBuilder
     private func destination(for section: LibrarySection) -> some View {
         switch section {
@@ -1444,9 +1447,9 @@ struct LibraryView: View {
                     .padding(.vertical, 16)
             }
         case .folders:
-            HomeFolderManagementView(usesInlineControls: usesMinimalSectionControls)
+            HomeFolderManagementView()
         case .statistics:
-            ListeningStatsView(usesInlineSourcePicker: usesMinimalSectionControls)
+            ListeningStatsView()
         case .recommendations:
             AIRecommendationLibraryView()
         case .songs:

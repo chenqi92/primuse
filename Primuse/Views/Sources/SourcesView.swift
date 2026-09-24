@@ -420,6 +420,7 @@ struct SourcesView: View {
 /// nested stacks resetting the back button or immediately dismissing the page.
 struct SourcesContentView: View {
     @Environment(SourceManager.self) private var sourceManager
+    @Environment(\.skin) private var skin
     @Environment(SourcesStore.self) private var sourceStore
     @Environment(MusicLibrary.self) private var library
     @Environment(AppleMusicLibraryService.self) private var appleMusicLibrary
@@ -752,17 +753,19 @@ struct SourcesContentView: View {
         let isAnotherSourceCaching = cachePresentation.isBlockedByAnotherSource
         let cacheButtonTitle: LocalizedStringKey = isSourceCacheBusy ? "source_cache_all_loading" : "source_cache_all_short"
 
+        // 大一号卡片(`Card.tile`)下品牌色图标块稍放大、圆角跟着放大:卡片的第一眼是「这是哪家的源」。
+        let tileCard = skin.usesTileCards
+        let iconSide: CGFloat = tileCard ? 42 : 38
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                // 品牌色图标块稍放大、圆角跟着放大:卡片的第一眼是「这是哪家的源」。
                 Image(systemName: source.type.iconName)
-                    .font(.title3.weight(.semibold)).foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
+                    .font(tileCard ? .title3.weight(.semibold) : .title3).foregroundStyle(.white)
+                    .frame(width: iconSide, height: iconSide)
                     .background(source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient)
-                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: tileCard ? 11 : 9, style: tileCard ? .continuous : .circular))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(source.name).font(.body).fontWeight(.semibold)
+                        Text(source.name).font(.body).fontWeight(tileCard ? .semibold : .medium)
                         if !source.isEnabled {
                             Text(String(localized: "disabled"))
                                 .font(.caption2).fontWeight(.medium)
