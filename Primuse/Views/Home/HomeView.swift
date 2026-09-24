@@ -704,15 +704,21 @@ struct HomeView: View {
             // 更新提示改成 sheet 弹框 ── 之前内嵌在首页顶部当 banner 用,
             // 用户更想要"弹框"的 modal 体感, 也避免占用首页空间。
             // checker.availableUpdate 从 nil 变非 nil 时自动弹出。
+            // 首页不在屏幕上时不弹 —— 设置里手动检查到新版会自己弹同一张卡片,
+            // 这里再弹就成了从隐藏的标签页里叠出第二个。
             .onChange(of: updateChecker.availableUpdate) { _, newValue in
-                showUpdateSheet = newValue != nil
+                guard newValue != nil else { return }
+                guard isHomeVisible, !showUpdateSheet else { return }
+                UpdateBannerSheet.presentWithoutSystemTransition { showUpdateSheet = true }
             }
             .onAppear {
                 isHomeVisible = true
                 if !showRadioOnHome {
                     homeModeRawValue = HomeMode.music.rawValue
                 }
-                if updateChecker.availableUpdate != nil { showUpdateSheet = true }
+                if updateChecker.availableUpdate != nil {
+                    UpdateBannerSheet.presentWithoutSystemTransition { showUpdateSheet = true }
+                }
             }
             .onChange(of: showRadioOnHome) { _, isVisible in
                 guard !isVisible else { return }
@@ -739,7 +745,7 @@ struct HomeView: View {
                     pendingInsecureHomeStation?.url.flatMap(TrustedHTTPTransport.trustTarget(for:)) ?? ""
                 ))
             }
-            // 改用 fullScreenCover + 透明背景实现居中 modal 弹框, 替代之前
+            // fullScreenCover + 透明背景实现居中 modal 弹框, 替代之前
             // 的底部 sheet (sheet 视觉上像"双层弹框", 用户反馈丑)。
             // macOS 没有 fullScreenCover, 退化成普通 sheet。
             #if os(iOS)

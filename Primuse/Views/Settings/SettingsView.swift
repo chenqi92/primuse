@@ -987,12 +987,12 @@ private struct AIRecommendationIntentDetailView: View {
     }
 }
 
-/// Settings row that lets the user manually poll the App Store. Three
-/// visual states:
+/// Settings row that lets the user manually poll the App Store. Visual states:
 /// - Idle: tappable "Check for updates" row.
 /// - Checking: spinner replaces the chevron.
 /// - Result: inline status line under the title — "you're on the
-///   latest version" or "version X.Y.Z available, tap to update".
+///   latest version", "version X.Y.Z available, tap to update" or a
+///   connection failure. A found update also pops the update card right here.
 private struct CheckForUpdateRow: View {
     @Environment(AppUpdateChecker.self) private var checker
 
@@ -1000,17 +1000,23 @@ private struct CheckForUpdateRow: View {
         case idle
         case checking
         case upToDate
+        case failed
         case available(version: String)
     }
 
     @State private var status: Status = .idle
+    @State private var showUpdateCard = false
 
     var body: some View {
         Button {
             switch status {
             case .available:
-                checker.openAppStore()
-            case .idle, .upToDate:
+                if checker.availableUpdate != nil {
+                    UpdateBannerSheet.presentWithoutSystemTransition { showUpdateCard = true }
+                } else {
+                    checker.openAppStore()
+                }
+            case .idle, .upToDate, .failed:
                 Task { await runCheck() }
             case .checking:
                 break
@@ -1038,6 +1044,16 @@ private struct CheckForUpdateRow: View {
         }
         .buttonStyle(.plain)
         .disabled(status == .checking)
+        .pmAnimation(.control, value: status)
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showUpdateCard) {
+            UpdateBannerSheet()
+        }
+        #else
+        .sheet(isPresented: $showUpdateCard) {
+            UpdateBannerSheet()
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -1061,6 +1077,8 @@ private struct CheckForUpdateRow: View {
             return nil
         case .upToDate:
             return String(localized: "check_for_updates_up_to_date")
+        case .failed:
+            return String(localized: "connection_failed")
         case .available(let v):
             return String(format: String(localized: "check_for_updates_available_format"), v)
         }
@@ -1069,6 +1087,7 @@ private struct CheckForUpdateRow: View {
     private var statusColor: Color {
         switch status {
         case .available: return .accentColor
+        case .failed: return .red
         default: return .secondary
         }
     }
@@ -1077,9 +1096,12 @@ private struct CheckForUpdateRow: View {
         status = .checking
         // force=true bypasses the 6h throttle so the manual button
         // always actually hits the network.
-        await checker.checkForUpdate(force: true)
+        await checker.checkForUpdate(force: true, userInitiated: true)
         if let info = checker.availableUpdate {
             status = .available(version: info.version)
+            UpdateBannerSheet.presentWithoutSystemTransition { showUpdateCard = true }
+        } else if checker.lastErrorMessage != nil {
+            status = .failed
         } else {
             status = .upToDate
         }

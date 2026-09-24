@@ -62,7 +62,14 @@ final class AppUpdateChecker {
     init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
         let info = Bundle.main.infoDictionary
         self.bundleID = info?["CFBundleIdentifier"] as? String ?? "com.welape.yuanyin"
+        #if DEBUG
+        // 调试构建用 `PRIMUSE_DEBUG_INSTALLED_VERSION=1.9.7` 冒充旧版,在模拟器上走一遍
+        // 真实的 App Store 查询与更新弹框。
+        self.currentVersion = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_INSTALLED_VERSION"]
+            ?? info?["CFBundleShortVersionString"] as? String ?? "0"
+        #else
         self.currentVersion = info?["CFBundleShortVersionString"] as? String ?? "0"
+        #endif
         #if os(macOS)
         self.explicitAppStoreID = Self.cleanInfoString(info?["PrimuseMacAppStoreID"] as? String)
             ?? Self.cleanInfoString(info?["PrimuseAppStoreID"] as? String)
@@ -103,9 +110,10 @@ final class AppUpdateChecker {
         #endif
     }
 
-    /// Throttled to once per `throttleInterval` unless `force` is true
-    /// (manual "check for updates" tap from settings, if/when added).
-    func checkForUpdate(force: Bool = false) async {
+    /// Throttled to once per `throttleInterval` unless `force` is true.
+    /// `userInitiated` 是设置里手动点「检查更新」:此时不理会之前的「稍后提醒 /
+    /// 跳过此版本」—— 用户主动问了,有新版就要告诉他。
+    func checkForUpdate(force: Bool = false, userInitiated: Bool = false) async {
         if !force,
            let last = defaults.object(forKey: Self.lastCheckKey) as? Date,
            Date().timeIntervalSince(last) < Self.throttleInterval {
@@ -132,6 +140,11 @@ final class AppUpdateChecker {
 
         guard let info, isVersion(info.version, newerThan: currentVersion) else {
             availableUpdate = nil
+            return
+        }
+        if userInitiated {
+            defaults.removeObject(forKey: Self.snoozeUntilKey)
+            availableUpdate = info
             return
         }
 
@@ -194,16 +207,48 @@ final class AppUpdateChecker {
         let results: [Result]
     }
 
+    /// 当前地区与默认 storefront 两边都查,取版本号更新的那条。App 也可能尚未在
+    /// 当前地区上架,那时只剩默认 storefront 的结果。
+    ///
+    /// lookup 接口前面挂着 Akamai,按完整查询串缓存,max-age 可达数小时;新版上架
+    /// 当天各 storefront 的缓存各自过期 —— 2026-09-25 实测 1.9.8 已发布,
+    /// `country=CN` 与 `country=US` 仍返回 1.9.7,只有不带地区的查询是 1.9.8。
+    /// 只信地区结果就会把「已是最新」报给还停在旧版的用户。
     private func fetchLatest() async throws -> UpdateInfo? {
         let countryCode = Locale.current.region?.identifier.uppercased()
-        if let countryCode,
-           let regionalResult = try await fetchLatest(countryCode: countryCode) {
-            return regionalResult
+        var regional: UpdateInfo?
+        var fallback: UpdateInfo?
+        var firstError: Error?
+        do {
+            if let countryCode {
+                regional = try await fetchLatest(countryCode: countryCode)
+            }
+        } catch {
+            firstError = error
+        }
+        do {
+            fallback = try await fetchLatest(countryCode: nil)
+        } catch {
+            firstError = firstError ?? error
         }
 
-        // App 可能尚未在用户当前 storefront 上架，或 Apple 返回空结果。
-        // 再查一次不带地区的默认 storefront，避免因此完全失去更新检测。
-        return try await fetchLatest(countryCode: nil)
+        guard let regional else {
+            if let fallback { return fallback }
+            if let firstError { throw firstError }
+            return nil
+        }
+        guard let fallback, isVersion(fallback.version, newerThan: regional.version) else {
+            return regional
+        }
+        // 版本信息取更新的那条,商店链接仍用本地区的,免得跳到别国商店页。
+        return UpdateInfo(
+            version: fallback.version,
+            storeURL: regional.storeURL,
+            releaseNotes: fallback.releaseNotes ?? regional.releaseNotes,
+            releaseDate: fallback.releaseDate,
+            minimumOSVersion: fallback.minimumOSVersion,
+            trackName: regional.trackName ?? fallback.trackName
+        )
     }
 
     private func fetchLatest(countryCode: String?) async throws -> UpdateInfo? {
@@ -244,6 +289,9 @@ final class AppUpdateChecker {
         if let countryCode {
             queryItems.append(URLQueryItem(name: "country", value: countryCode))
         }
+        // CDN 的缓存键包含整条查询串;带一个一次性参数直接回源。自动检查一天只有
+        // 一次,手动检查本来就要当前结果,都不该吃到几小时前的缓存。
+        queryItems.append(URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970))))
         components?.queryItems = queryItems
         return components?.url
     }
