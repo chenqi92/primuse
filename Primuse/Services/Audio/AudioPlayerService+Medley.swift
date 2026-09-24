@@ -1,0 +1,113 @@
+import Foundation
+import PrimuseKit
+
+/// Medley ("串烧"): a run of songs where each plays only its recognisable
+/// slice and neighbouring slices are joined by a short crossfade.
+///
+/// Each queue entry is a copy of the song carrying the slice as its segment
+/// window (`cueStartTime` / `cueEndTime`), the same window CUE tracks use. The
+/// decoders, the crossfade successor and seeking all already honour that
+/// window, so the slice's length becomes the item's duration everywhere —
+/// progress bar, Now Playing, end-of-track — without a second timeline. What
+/// must not happen is the slice leaking into the library: `medleySongIDs`
+/// guards the duration write-back and keeps a metadata refresh from widening
+/// the entry back to the whole song.
+extension AudioPlayerService {
+    /// Songs that cannot be sliced: Apple Music (MusicKit plays them, not our
+    /// decoder), real CUE tracks (already a window into an image) and spoken
+    /// word.
+    func canIncludeInMedley(_ song: Song) -> Bool {
+        song.sourceID != AppleMusicLibraryService.systemSourceID
+            && !song.isCueTrack
+            && song.mvPath == nil
+            && !SpokenWordStore.shared.isSpokenWord(song)
+    }
+
+    /// What "medley from the queue" plays: the current song and the rest of
+    /// this round of the queue.
+    var medleyCandidatesFromQueue: [Song] {
+        guard let current = currentSong else { return [] }
+        let upcoming = upcomingQueueEntries
+            .filter { $0.id.roundOffset == 0 }
+            .map(\.entry.song)
+        return ([current] + upcoming).filter(canIncludeInMedley)
+    }
+
+    /// Builds the slices for `songs` and starts playing them.
+    /// - Returns: false when none of the songs can be sliced.
+    @discardableResult
+    func playMedley(_ songs: [Song]) async -> Bool {
+        let length = playbackSettings.medleySegmentSeconds
+        var seen = Set<String>()
+        var slices: [Song] = []
+        for song in songs where canIncludeInMedley(song) && seen.insert(song.id).inserted {
+            // Structure analysis from Apple's music understanding covers the
+            // complete file on its real timeline; the streaming analyser only
+            // saw what was played, so its boundaries are not used.
+            let sections = smartMixAnalyses[song.id].flatMap {
+                $0.backend == .musicUnderstanding ? $0.sectionStartTimes : nil
+            } ?? []
+            guard let segment = MedleySegmentPolicy.segment(
+                duration: song.duration,
+                segmentLength: length,
+                sectionStarts: sections
+            ) else { continue }
+            var slice = song
+            slice.cueStartTime = segment.start
+            slice.cueEndTime = segment.end
+            slice.duration = segment.length
+            slices.append(slice)
+        }
+        guard !slices.isEmpty else { return false }
+
+        plog("🎛️ Medley: \(slices.count) slices of \(length)s")
+        isInstallingMedleyQueue = true
+        endMedleyIfNeeded()
+        medleySongIDs = Set(slices.map(\.id))
+        isMedleyActive = true
+        PlayHistoryStore.shared.endSession()
+        PlayHistoryStore.shared.isRecordingSuspended = true
+        ScrobbleService.shared.isSuspended = true
+        // Repeat-one would hold the first slice forever, and never crossfade.
+        if repeatMode == .one { repeatMode = .off }
+        setQueue(slices, startAt: 0)
+        isInstallingMedleyQueue = false
+        // `setQueue` keeps a transport that is already playing the selected
+        // song; a medley must restart it on its slice.
+        await play(song: slices[0])
+        return true
+    }
+
+    /// Leaves medley mode. The queue itself is left alone: this runs when a
+    /// new queue is being installed, which replaces it anyway.
+    func endMedleyIfNeeded() {
+        guard isMedleyActive || !medleySongIDs.isEmpty else { return }
+        isMedleyActive = false
+        medleySongIDs = []
+        PlayHistoryStore.shared.isRecordingSuspended = false
+        ScrobbleService.shared.isSuspended = false
+        plog("🎛️ Medley ended")
+    }
+
+    /// "Keep listening to this one": leaves the medley and plays the current
+    /// song whole, from where its slice has got to.
+    func continueCurrentMedleySongInFull() async {
+        guard isMedleyActive, let slice = currentSong else { return }
+        let absolutePosition = (slice.cueStartTime ?? 0) + max(0, currentTime)
+        let full = library?.song(id: slice.id) ?? {
+            var restored = slice
+            restored.cueStartTime = nil
+            restored.cueEndTime = nil
+            return restored
+        }()
+        // The rest of the medley becomes ordinary songs after this one.
+        let upcoming = upcomingQueueEntries
+            .filter { $0.id.roundOffset == 0 }
+            .compactMap { presented -> Song? in library?.song(id: presented.entry.song.id) }
+        setQueue([full] + upcoming, startAt: 0)
+        await play(song: full)
+        if absolutePosition > 1 {
+            seek(to: absolutePosition, startPlaying: true)
+        }
+    }
+}

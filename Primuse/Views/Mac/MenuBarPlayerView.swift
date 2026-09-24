@@ -152,7 +152,7 @@ struct MenuBarPlayerView: View {
             Spacer()
             if player.currentItemIsSpokenWord, !player.isLiveRadio {
                 Button { player.skipSpokenWordBackward() } label: {
-                    Image(systemName: "gobackward.15")
+                    Image(systemName: player.spokenWordSkipBackwardSymbol)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                         .frame(width: 30, height: 30)
@@ -204,7 +204,7 @@ struct MenuBarPlayerView: View {
 
             if player.currentItemIsSpokenWord, !player.isLiveRadio {
                 Button { player.skipSpokenWordForward() } label: {
-                    Image(systemName: "goforward.30")
+                    Image(systemName: player.spokenWordSkipForwardSymbol)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(PMColor.text)
                         .frame(width: 30, height: 30)

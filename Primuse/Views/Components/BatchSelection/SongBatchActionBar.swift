@@ -205,6 +205,8 @@ private struct SongBatchActionsModifier: ViewModifier {
     @State private var queueFeedback: String?
     @State private var queueFeedbackTask: Task<Void, Never>?
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
+    @State private var batchEditSelection: BatchSongSelection?
+    @State private var tagTidySelection: BatchSongSelection?
 
     private struct PendingDeletion: Identifiable {
         let id = UUID()
@@ -229,6 +231,16 @@ private struct SongBatchActionsModifier: ViewModifier {
             }
             .sheet(item: $serverMediaShareTarget) { target in
                 ServerMediaShareSheet(target: target)
+            }
+            .sheet(item: $batchEditSelection) { batch in
+                BatchTagEditorView(songs: batch.songs) {
+                    selection.deactivate()
+                }
+            }
+            .sheet(item: $tagTidySelection) { batch in
+                TagTidyView(songs: batch.songs) {
+                    selection.deactivate()
+                }
             }
             .alert(
                 deletionAlertTitle,
@@ -422,10 +434,36 @@ private struct SongBatchActionsModifier: ViewModifier {
         let removesFromPlaylist = context.playlistID != nil && context.allowsRemoveFromPlaylist
         let removesFromLibrary = context.allowsLibraryRemoval && !selectionContainsAppleMusic
         let deletesSourceFiles = context.allowsSourceFileDeletion && hasDeletableSourceSelection
+        let onlyAppleMusic = selectionContainsOnlyAppleMusic
         // 「从资料库移除」和「从本机移除」是两项。
         let removalCount = (removesFromPlaylist ? 1 : 0)
             + (removesFromLibrary ? 2 : 0)
             + (deletesSourceFiles ? 1 : 0)
+
+        Section {
+            Button {
+                startMedley()
+            } label: {
+                Label("medley_play_selection", systemImage: "rectangle.stack.badge.play")
+            }
+            .disabled(selection.count < 2)
+
+            Button {
+                let songs = editableSelection()
+                if !songs.isEmpty { batchEditSelection = BatchSongSelection(songs: songs) }
+            } label: {
+                Label("batch_edit_title", systemImage: "square.and.pencil")
+            }
+            .disabled(onlyAppleMusic)
+
+            Button {
+                let songs = editableSelection()
+                if !songs.isEmpty { tagTidySelection = BatchSongSelection(songs: songs) }
+            } label: {
+                Label("tag_tidy_title", systemImage: "wand.and.sparkles")
+            }
+            .disabled(onlyAppleMusic)
+        }
 
         Section {
             if includesAddToQueue {
@@ -560,6 +598,25 @@ private struct SongBatchActionsModifier: ViewModifier {
             songs: songs,
             source: source
         )
+    }
+
+    /// Apple Music rows have no tags of ours to edit.
+    private func editableSelection() -> [Song] {
+        selectedSongs().filter { $0.sourceID != AppleMusicLibraryService.systemSourceID }
+    }
+
+    private var selectionContainsOnlyAppleMusic: Bool {
+        editableSelection().isEmpty
+    }
+
+    private func startMedley() {
+        let songs = playableSelection()
+        guard songs.count >= 2 else { return }
+        Task {
+            if await player.playMedley(songs) {
+                selection.deactivate()
+            }
+        }
     }
 
     private func appendSelectionToQueue() {

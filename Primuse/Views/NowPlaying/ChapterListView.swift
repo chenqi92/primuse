@@ -1,36 +1,104 @@
 import PrimuseKit
 import SwiftUI
 
-/// The chapter marks of the item that is playing, as a jump list.
-///
-/// Only shown when the file actually carries marks, so there is no empty
-/// state: the entry point that presents this is hidden otherwise.
+/// The chapter marks and the bookmarks of the item that is playing, as a
+/// jump list. Chapters come from the file; bookmarks are the listener's own.
+/// The entry point is hidden when neither exists, so there is no empty state
+/// for the whole sheet — only for a tab that happens to be empty.
 struct ChapterListView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.dismiss) private var dismiss
 
+    private enum Tab: Hashable { case chapters, bookmarks }
+
+    @State private var tab: Tab?
+
+    private var store: SpokenWordStore { SpokenWordStore.shared }
+
+    private var bookmarks: [SpokenWordBookmark] {
+        _ = store.revision
+        guard let songID = player.currentSong?.id else { return [] }
+        return store.bookmarks(forSongID: songID)
+    }
+
+    private var selectedTab: Tab {
+        tab ?? (player.hasChapters ? .chapters : .bookmarks)
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                ForEach(Array(player.spokenWordChapters.enumerated()), id: \.offset) { index, chapter in
-                    Button {
-                        player.seekToChapter(at: index)
-                        dismiss()
-                    } label: {
-                        ChapterRow(
-                            chapter: chapter,
-                            number: index + 1,
-                            isCurrent: index == player.currentChapterIndex
-                        )
+                if player.hasChapters {
+                    Section {
+                        Picker(selection: Binding(get: { selectedTab }, set: { tab = $0 })) {
+                            Text("chapters_title").tag(Tab.chapters)
+                            Text("spoken_word_bookmarks_title").tag(Tab.bookmarks)
+                        } label: {
+                            EmptyView()
+                        }
+                        .pickerStyle(.segmented)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
-                    .buttonStyle(.plain)
-                    // buttonStyle(.plain) only reacts to the shape of its
-                    // content, so the row's padding would be dead space.
-                    .contentShape(Rectangle())
+                }
+
+                switch selectedTab {
+                case .chapters:
+                    ForEach(Array(player.spokenWordChapters.enumerated()), id: \.offset) { index, chapter in
+                        Button {
+                            player.seekToChapter(at: index)
+                            dismiss()
+                        } label: {
+                            ChapterRow(
+                                chapter: chapter,
+                                number: index + 1,
+                                isCurrent: index == player.currentChapterIndex
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        // buttonStyle(.plain) only reacts to the shape of its
+                        // content, so the row's padding would be dead space.
+                        .contentShape(Rectangle())
+                    }
+                case .bookmarks:
+                    if bookmarks.isEmpty {
+                        Text("spoken_word_bookmarks_empty")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .listRowSeparator(.hidden)
+                    }
+                    ForEach(bookmarks) { bookmark in
+                        Button {
+                            player.seekToSpokenWordBookmark(bookmark)
+                            dismiss()
+                        } label: {
+                            BookmarkRow(bookmark: bookmark)
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                store.removeBookmark(id: bookmark.id, songID: bookmark.songID)
+                            } label: {
+                                Label(String(localized: "spoken_word_delete_bookmark"), systemImage: "trash")
+                            }
+                        }
+                        #if os(iOS)
+                        .swipeActions {
+                            Button(role: .destructive) {
+                                store.removeBookmark(id: bookmark.id, songID: bookmark.songID)
+                            } label: {
+                                Label(String(localized: "spoken_word_delete_bookmark"), systemImage: "trash")
+                            }
+                        }
+                        #endif
+                    }
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("chapters_title")
+            .navigationTitle(selectedTab == .chapters
+                ? String(localized: "chapters_title")
+                : String(localized: "spoken_word_bookmarks_title"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -38,8 +106,43 @@ struct ChapterListView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("done") { dismiss() }
                 }
+                if player.currentItemIsSpokenWord {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            player.addSpokenWordBookmark()
+                            tab = .bookmarks
+                        } label: {
+                            Label(String(localized: "spoken_word_add_bookmark"), systemImage: "bookmark.fill")
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+private struct BookmarkRow: View {
+    let bookmark: SpokenWordBookmark
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "bookmark.fill")
+                .font(.footnote)
+                .foregroundStyle(Color.accentColor)
+                .frame(minWidth: 26)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(bookmark.title)
+                    .font(.body)
+                    .lineLimit(2)
+                Text(ChapterTimeFormatter.string(from: bookmark.position))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 }
 

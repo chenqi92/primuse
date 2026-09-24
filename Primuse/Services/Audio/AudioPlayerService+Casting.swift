@@ -841,6 +841,13 @@ extension AudioPlayerService {
         // too, so a real press is told apart by `isAutomaticAdvance`: by then
         // the outgoing node has nothing left to blend out of.
         let isManualSkip = !isAutomaticAdvance && context == .userInitiated
+        if isManualSkip {
+            SmartNudgeCenter.shared.noteManualSkip(
+                of: currentSong,
+                listened: currentTime,
+                duration: duration
+            )
+        }
         // An earlier skip is still preparing its short crossfade and has not
         // moved the queue yet. A second press counts that one first and then
         // cuts, so two presses still travel two songs; track end arriving in
@@ -1863,6 +1870,8 @@ extension AudioPlayerService {
         startAt index: Int,
         transition: QueueReplacementTransition
     ) {
+        // Any other queue replaces the medley.
+        if !isInstallingMedleyQueue { endMedleyIfNeeded() }
         guard !songs.isEmpty else {
             plog("🎶 setQueue empty — clearing queue")
             clearQueue()
@@ -2028,6 +2037,7 @@ extension AudioPlayerService {
     /// Wipe the queue. Replaces the legacy `player.queue = []` setter,
     /// which is no longer accessible since `queue` is now computed.
     func clearQueue() {
+        endMedleyIfNeeded()
         let retainedAppleMusicTransport = isAppleMusicMode && isPrimuseManagingAppleMusicQueue
         appleMusicQueueUpdateTask?.cancel()
         appleMusicQueueUpdateTask = nil
@@ -2339,7 +2349,15 @@ extension AudioPlayerService {
         }
     }
 
-    func syncSongMetadata(_ updatedSong: Song) {
+    func syncSongMetadata(_ incomingSong: Song) {
+        // A medley slice keeps its window when the library row changes.
+        var updatedSong = incomingSong
+        if medleySongIDs.contains(incomingSong.id),
+           let slice = queueEntries.first(where: { $0.song.id == incomingSong.id })?.song {
+            updatedSong.cueStartTime = slice.cueStartTime
+            updatedSong.cueEndTime = slice.cueEndTime
+            updatedSong.duration = slice.duration
+        }
         if currentSong?.id == updatedSong.id {
             currentSong = updatedSong
             let updatedDuration = updatedSong.duration.sanitizedDuration

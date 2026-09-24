@@ -1234,6 +1234,7 @@ struct ContentView: View {
         .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
         .onPreferenceChange(CarPlayEditorActivePreferenceKey.self) { carPlayEditorActive = $0 }
         .songBatchRemovalFeedback()
+        .smartNudges()
         .appleMusicSubscriptionOffer()
         .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { isActive in
             batchSelectionActive = isActive

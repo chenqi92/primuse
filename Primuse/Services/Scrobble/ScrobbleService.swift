@@ -94,7 +94,15 @@ final class ScrobbleService {
     // MARK: - Public API (AudioPlayerService 调用)
 
     /// 用户开始播放新歌 — 创建 session, 同步发 nowPlaying。
+    /// A medley plays slices of songs; none of them is a listen to report.
+    var isSuspended = false
+
     func handlePlaybackStarted(song: Song) {
+        guard !isSuspended else {
+            currentSong = nil
+            currentSession = nil
+            return
+        }
         currentSong = song
         let entry = makeEntry(from: song)
         // session 总是建立 —— 它同时驱动服务端源(Subsonic)的 submission 阈值,

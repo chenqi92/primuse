@@ -108,6 +108,9 @@ extension AudioPlayerService {
                     if !self.spokenWordChapters.isEmpty {
                         self.refreshCurrentChapter()
                     }
+                    if self.sleepStopAfterChapter != nil {
+                        self.enforceChapterSleepLockIfNeeded()
+                    }
                 }
                 if !transitionWasActive {
                     await self.sampleDecodedBufferHealth(clockTicket: clockTicket)

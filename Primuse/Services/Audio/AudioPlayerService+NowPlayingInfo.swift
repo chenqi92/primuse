@@ -45,8 +45,8 @@ extension AudioPlayerService {
         #endif
         let actualPlaybackIsActive = isPlaybackActuallyActive
         lastPublishedPlaybackWasActive = actualPlaybackIsActive
-        let preferredRate = !isSystemAudioPlaybackActive && playbackSettings.outputMode == .effects
-            ? Double(playbackSettings.playbackRate)
+        let preferredRate = !isSystemAudioPlaybackActive
+            ? Double(requestedPlaybackRate)
             : 1
         let projection = NowPlayingPlaybackProjectionPolicy.projection(
             hasCurrentItem: currentSong != nil,

@@ -334,6 +334,32 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         )
     }
 
+    /// Proposed tag corrections for up to one batch of songs. Returns
+    /// proposals only; the review screen decides what is applied.
+    func proposeTagCleanup(
+        _ songs: [TagCleanupSong],
+        languageCode: String,
+        currentYear: Int
+    ) async throws -> [TagCleanupProposal] {
+        guard let payload = TagCleanupAIExchange.payload(for: songs, languageCode: languageCode) else {
+            return []
+        }
+        let output = try await generateText(
+            instructions: TagCleanupAIExchange.instructions,
+            input: payload.json,
+            maximumTokens: 4_000
+        )
+        do {
+            return try TagCleanupAIExchange.proposals(
+                from: output,
+                songsByToken: payload.songsByToken,
+                currentYear: currentYear
+            )
+        } catch {
+            throw OpenAICompatibleProviderError.invalidResponse
+        }
+    }
+
     func recommendations(
         _ request: AIRecommendationRequest
     ) async throws -> AIRecommendationPlan {

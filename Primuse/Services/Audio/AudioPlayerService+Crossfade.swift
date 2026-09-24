@@ -337,23 +337,29 @@ extension AudioPlayerService {
         // This runs on every playback progress tick. Avoid copying the full
         // settings payload in the overwhelmingly common disabled case.
         guard playbackSettings.outputMode == .effects,
-              playbackSettings.crossfadeEnabled,
+              playbackSettings.crossfadeEnabled || isMedleyActive,
               !crossfadeTriggered else { return }
         let settings = playbackSettings.snapshot()
         let songID = currentSong?.id
-        let silenceProfile = songID.flatMap { silenceProfiles[$0] }
+        // A medley slice is timed by its own window: the silence profile and
+        // the structure analysis cached for the song describe the whole file.
+        let isMedleySlice = isMedleyActive && songID.map { medleySongIDs.contains($0) } == true
+        let silenceProfile = isMedleySlice ? nil : songID.flatMap { silenceProfiles[$0] }
         let analyzedDuration = silenceProfile?.playableDuration
         let nominalDuration = duration > 0 ? duration : (analyzedDuration ?? 0)
-        let smartMixAnalysis = settings.crossfadeMode == .smart
+        let smartMixAnalysis = settings.crossfadeMode == .smart && !isMedleySlice
             ? songID.flatMap { smartMixAnalyses[$0] }
             : nil
+        let requestedOverlap = isMedleyActive
+            ? MedleySegmentPolicy.overlap(segmentLength: nominalDuration)
+            : settings.crossfadeDuration
         let sourceTimelineOffset = smartMixAnalysis?.backend == .musicUnderstanding
             ? (currentSong?.cueStartTime ?? 0)
             : 0
         guard let transitionPlan = SmartMixTransitionPlanner.plan(
             nominalDuration: nominalDuration,
             analyzedPlayableDuration: analyzedDuration,
-            requestedOverlap: settings.crossfadeDuration,
+            requestedOverlap: requestedOverlap,
             analysis: smartMixAnalysis,
             analysisTimelineOffset: sourceTimelineOffset
                 + (silenceProfile?.leadingTrimmedDuration ?? 0)

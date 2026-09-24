@@ -27,6 +27,12 @@ extension AudioPlayerService {
         lastSpokenWordPositionSave = 0
         pendingSpokenWordResumeSongID = nil
 
+        let wasSpokenWord = currentItemIsSpokenWord
+        defer {
+            // Spoken word runs at its own speed; switching between a book and a
+            // song switches the rate with it.
+            if wasSpokenWord != currentItemIsSpokenWord { applyPlaybackRate() }
+        }
         guard let song else {
             currentItemIsSpokenWord = false
             updateSpokenWordRemoteCommands()
@@ -111,11 +117,112 @@ extension AudioPlayerService {
     }
 
     func skipSpokenWordForward() {
-        skipSpokenWord(by: SpokenWordSkipPolicy.forwardInterval)
+        skipSpokenWord(by: TimeInterval(spokenWordSkipForwardSeconds))
     }
 
     func skipSpokenWordBackward() {
-        skipSpokenWord(by: -SpokenWordSkipPolicy.backwardInterval)
+        skipSpokenWord(by: -TimeInterval(spokenWordSkipBackwardSeconds))
+    }
+
+    var spokenWordSkipForwardSeconds: Int {
+        SpokenWordSkipPolicy.clampedInterval(playbackSettings.spokenWordSkipForwardSeconds)
+    }
+
+    var spokenWordSkipBackwardSeconds: Int {
+        SpokenWordSkipPolicy.clampedInterval(playbackSettings.spokenWordSkipBackwardSeconds)
+    }
+
+    /// `goforward.N` / `gobackward.N` for the configured intervals, shared by
+    /// every transport that swaps track buttons for skips.
+    var spokenWordSkipForwardSymbol: String {
+        SpokenWordSkipPolicy.symbolName(forward: true, interval: spokenWordSkipForwardSeconds)
+    }
+
+    var spokenWordSkipBackwardSymbol: String {
+        SpokenWordSkipPolicy.symbolName(forward: false, interval: spokenWordSkipBackwardSeconds)
+    }
+
+    // MARK: - Playback rate
+
+    /// The rate `song` should play at: the spoken-word rate for spoken word,
+    /// the music rate otherwise, 1× where the output cannot time-stretch.
+    func requestedPlaybackRate(for song: Song?) -> Float {
+        SpokenWordPlaybackRatePolicy.effectiveRate(
+            isSpokenWord: song.map { SpokenWordStore.shared.isSpokenWord($0) } ?? false,
+            musicRate: playbackSettings.playbackRate,
+            spokenWordRate: playbackSettings.spokenWordPlaybackRate,
+            rateAllowed: playbackSettings.outputMode == .effects
+        )
+    }
+
+    /// The rate for the item that is playing now.
+    var requestedPlaybackRate: Float {
+        SpokenWordPlaybackRatePolicy.effectiveRate(
+            isSpokenWord: currentItemIsSpokenWord,
+            musicRate: playbackSettings.playbackRate,
+            spokenWordRate: playbackSettings.spokenWordPlaybackRate,
+            rateAllowed: playbackSettings.outputMode == .effects
+        )
+    }
+
+    // MARK: - Bookmarks
+
+    /// Marks where the listener is, titled after the chapter when there is
+    /// one. Returns false when a mark already sits within two seconds.
+    @discardableResult
+    func addSpokenWordBookmark() -> Bool {
+        guard let song = currentSong, !isLiveRadio else { return false }
+        let position = max(0, currentTime)
+        let time = ChapterTimeFormatter.string(from: position)
+        let title = currentChapter.map { "\($0.title) · \(time)" } ?? time
+        let added = SpokenWordStore.shared.addBookmark(SpokenWordBookmark(
+            songID: song.id,
+            position: position,
+            title: title
+        ))
+        if added { rememberSpokenWordPosition(force: true) }
+        return added
+    }
+
+    func seekToSpokenWordBookmark(_ bookmark: SpokenWordBookmark) {
+        guard currentSong?.id == bookmark.songID else { return }
+        seek(to: bookmark.position, startPlaying: isPlaying ? true : nil)
+        rememberSpokenWordPosition(force: true)
+    }
+
+    // MARK: - Sleep at chapter end
+
+    /// Arms "stop at the end of this chapter" on the chapter under the play
+    /// head. Replaces any other sleep timer.
+    func scheduleSleepAtChapterEnd() {
+        guard let song = currentSong, let index = currentChapterIndex else { return }
+        // The last chapter ends with the item, and the end of an item already
+        // has a stop path through every transition (plain, gapless,
+        // crossfade). Reuse it rather than racing it.
+        guard index < spokenWordChapters.count - 1 else {
+            scheduleSleepAtTrackEnd()
+            return
+        }
+        cancelSleep()
+        sleepStopAfterChapter = SpokenWordChapterSleepLock(songID: song.id, chapterIndex: index)
+    }
+
+    /// Called on every clock tick while the lock is armed.
+    func enforceChapterSleepLockIfNeeded() {
+        guard let lock = sleepStopAfterChapter else { return }
+        // A different item means the listener chose something else; the
+        // lock belonged to the book they left.
+        guard let song = currentSong, song.id == lock.songID else {
+            sleepStopAfterChapter = nil
+            return
+        }
+        guard SpokenWordChapterSleepPolicy.shouldStop(
+            lockedChapterIndex: lock.chapterIndex,
+            currentChapterIndex: currentChapterIndex
+        ) else { return }
+        sleepStopAfterChapter = nil
+        plog("🎧 Sleep: chapter \(lock.chapterIndex + 1) ended, pausing")
+        pause()
     }
 
     // MARK: - Remote commands
@@ -125,23 +232,32 @@ extension AudioPlayerService {
     /// Which pair is live is decided in one place — the Now Playing
     /// availability projection — because iOS gives both the same two slots.
     func updateSpokenWordRemoteCommands() {
+        applySpokenWordSkipIntervals(to: MPRemoteCommandCenter.shared())
         updateNowPlayingInfo()
+    }
+
+    /// The lock screen draws the interval it is given, so it follows the
+    /// setting. Written only when it changed: each write is an XPC.
+    private func applySpokenWordSkipIntervals(to center: MPRemoteCommandCenter) {
+        let forward = NSNumber(value: spokenWordSkipForwardSeconds)
+        let backward = NSNumber(value: spokenWordSkipBackwardSeconds)
+        if center.skipForwardCommand.preferredIntervals != [forward] {
+            center.skipForwardCommand.preferredIntervals = [forward]
+        }
+        if center.skipBackwardCommand.preferredIntervals != [backward] {
+            center.skipBackwardCommand.preferredIntervals = [backward]
+        }
     }
 
     func setupSpokenWordRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
-        center.skipForwardCommand.preferredIntervals = [
-            NSNumber(value: SpokenWordSkipPolicy.forwardInterval)
-        ]
-        center.skipBackwardCommand.preferredIntervals = [
-            NSNumber(value: SpokenWordSkipPolicy.backwardInterval)
-        ]
+        applySpokenWordSkipIntervals(to: center)
         center.skipForwardCommand.addTarget { [weak self] event in
             guard let self, self.currentSong != nil else {
                 return .noActionableNowPlayingItem
             }
             let interval = (event as? MPSkipIntervalCommandEvent)?.interval
-                ?? SpokenWordSkipPolicy.forwardInterval
+                ?? TimeInterval(self.spokenWordSkipForwardSeconds)
             self.skipSpokenWord(by: interval)
             return .success
         }
@@ -150,7 +266,7 @@ extension AudioPlayerService {
                 return .noActionableNowPlayingItem
             }
             let interval = (event as? MPSkipIntervalCommandEvent)?.interval
-                ?? SpokenWordSkipPolicy.backwardInterval
+                ?? TimeInterval(self.spokenWordSkipBackwardSeconds)
             self.skipSpokenWord(by: -interval)
             return .success
         }
@@ -241,4 +357,10 @@ extension AudioPlayerService {
     /// Below 20 minutes an item is not something chapters are written for, and
     /// the lookup would map a file for nothing on every track change.
     static let chapterLookupMinimumDuration: TimeInterval = 20 * 60
+}
+
+/// "Stop after this chapter", armed on one chapter of one item.
+struct SpokenWordChapterSleepLock: Equatable {
+    let songID: String
+    let chapterIndex: Int
 }

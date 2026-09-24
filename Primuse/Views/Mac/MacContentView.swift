@@ -291,6 +291,7 @@ struct MacContentView: View {
             }
         }
         .songBatchRemovalFeedback()
+        .smartNudges()
         .macPlaybackErrorFeedback()
         .appleMusicSubscriptionOffer()
         .environment(\.pmAppearance, preferences.appearance)

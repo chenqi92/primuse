@@ -84,8 +84,14 @@ final class PlayHistoryStore {
     // MARK: - Session lifecycle (AudioPlayerService 调用)
 
     /// 用户开始播放新歌 — 启动 session, 如果有上一首未结算的先 flush。
+    /// Set while a medley plays: slices of songs are not listens, and counting
+    /// them would crowd the stats and the recommendations with every song
+    /// the medley touched.
+    var isRecordingSuspended = false
+
     func beginSession(song: Song) {
         endSession()
+        guard !isRecordingSuspended else { return }
         currentSong = song
         currentStartedAt = Date()
         currentListenedSec = 0
