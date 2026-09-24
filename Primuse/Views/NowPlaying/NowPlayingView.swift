@@ -7767,10 +7767,13 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         // 双语 LRC 把它和原文写在一起，用户不开「歌词翻译」也应该看得见。
         // 那个开关管的是「要不要再去翻译一遍」，不该连内容一起藏掉。
         let translationLines = LyricVoiceTimelinePolicy.flattenedLines(lyrics)
+        // 罗马音 / 拼音这类读音行按整篇判一次，逐行选译文时把它们排除掉。
+        let readingIDs = LyricRomanizedReadingPolicy.readingIDs(in: translationLines)
         let manualTranslations = translationLines.reduce(into: [String: String]()) { result, line in
             guard let manualTranslation = LyricManualTranslationPolicy.preferredTranslation(
                 for: line,
-                targetLanguageCode: identity.targetLanguageCode
+                targetLanguageCode: identity.targetLanguageCode,
+                readingIDs: readingIDs
             ) else { return }
             let text = manualTranslation.text
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -7784,7 +7787,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         }
         if LyricManualTranslationPolicy.hasCompleteCoverage(
             in: translationLines,
-            targetLanguageCode: identity.targetLanguageCode
+            targetLanguageCode: identity.targetLanguageCode,
+            readingIDs: readingIDs
         ) {
             activity = .notNeeded
             return
