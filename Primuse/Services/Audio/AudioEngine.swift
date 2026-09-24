@@ -1204,6 +1204,9 @@ final class AudioEngine {
     }
 
     func stopPlayback() {
+        // A seek or song change: the karaoke stem lock and the vocal
+        // remover's delay line both belong to the old position.
+        karaokeControl.markDiscontinuity()
         cancelTransportFade(restoreVolume: true)
         playbackClockReadsSuspended = true
         nodeRegistry.resetTimeline(for: .primary)

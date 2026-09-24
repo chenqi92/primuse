@@ -25,6 +25,12 @@ final class TVKaraokeMicServer {
     /// The phone's AI separation progress for a song.
     @ObservationIgnored var onSeparationProgress: (@MainActor (String, Double) -> Void)?
     @ObservationIgnored private var lastNowPlaying: String??
+    /// Connections that have not proven the key yet, oldest first, plus
+    /// uploads in progress. Bounded so nobody on the network can pile them up.
+    @ObservationIgnored private var pending: [NWConnection] = []
+    @ObservationIgnored private var uploads: [NWConnection] = []
+    static let maximumPendingConnections = 4
+    static let handshakeTimeout: Duration = .seconds(5)
 
     @ObservationIgnored private var listener: NWListener?
     @ObservationIgnored private var connection: NWConnection?
@@ -58,6 +64,9 @@ final class TVKaraokeMicServer {
     }
 
     func stop() {
+        for other in pending + uploads { other.cancel() }
+        pending.removeAll()
+        uploads.removeAll()
         if let connection {
             connection.send(content: KaraokeMicLink.encode(KaraokeMicLink.TVMessage.rejected), completion: .idempotent)
             connection.cancel()
@@ -109,8 +118,23 @@ final class TVKaraokeMicServer {
                 Task { @MainActor [weak self] in self?.dropped(incoming) }
             }
         }
+        pending.append(incoming)
+        if pending.count > Self.maximumPendingConnections {
+            pending.removeFirst().cancel()
+        }
         incoming.start(queue: queue)
         receiveFirst(on: incoming, framer: KaraokeMicLink.Framer())
+        Task { @MainActor [weak self, weak incoming] in
+            try? await Task.sleep(for: Self.handshakeTimeout)
+            guard let self, let incoming, self.pending.contains(where: { $0 === incoming }) else { return }
+            self.pending.removeAll { $0 === incoming }
+            incoming.cancel()
+        }
+    }
+
+    /// The connection proved the key (or failed to): it is no longer pending.
+    private func settle(_ incoming: NWConnection) {
+        pending.removeAll { $0 === incoming }
     }
 
     /// The first line decides what the connection is: the phone's control
@@ -121,13 +145,16 @@ final class TVKaraokeMicServer {
                 guard let self else { return }
                 var framer = framer
                 if let data, let first = framer.firstMessage(data, as: KaraokeMicLink.PhoneMessage.self) {
+                    self.settle(incoming)
                     if case .stemUpload(let offeredKey, let songID, let byteCount) = first {
                         guard offeredKey == self.key,
                               byteCount > 0,
-                              byteCount <= KaraokeMicLink.maximumStemBytes else {
+                              byteCount <= KaraokeMicLink.maximumStemBytes,
+                              self.uploads.count < 2 else {
                             incoming.cancel()
                             return
                         }
+                        self.uploads.append(incoming)
                         let payload = TVKaraokePayloadBuffer(capacity: byteCount)
                         payload.data.append(framer.takeRemainder())
                         self.receivePayload(on: incoming, songID: songID, expected: byteCount, payload: payload)
@@ -152,6 +179,7 @@ final class TVKaraokeMicServer {
 
     private func receivePayload(on incoming: NWConnection, songID: String, expected: Int, payload: TVKaraokePayloadBuffer) {
         if payload.data.count >= expected {
+            uploads.removeAll { $0 === incoming }
             onStem?(songID, payload.data.prefix(expected))
             incoming.send(
                 content: KaraokeMicLink.encode(KaraokeMicLink.TVMessage.stemReceived(songID: songID)),
@@ -162,8 +190,10 @@ final class TVKaraokeMicServer {
         incoming.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [weak self] data, _, isComplete, error in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard self.uploads.contains(where: { $0 === incoming }) else { return }
                 if let data { payload.data.append(data) }
                 if payload.data.count < expected, isComplete || error != nil {
+                    self.uploads.removeAll { $0 === incoming }
                     incoming.cancel()
                     return
                 }
@@ -230,6 +260,8 @@ final class TVKaraokeMicServer {
     }
 
     private func dropped(_ incoming: NWConnection) {
+        pending.removeAll { $0 === incoming }
+        uploads.removeAll { $0 === incoming }
         guard incoming === connection else { return }
         connection = nil
         if let endpoint { state = .listening(endpoint) }

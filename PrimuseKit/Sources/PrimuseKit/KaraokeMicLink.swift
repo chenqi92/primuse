@@ -159,6 +159,10 @@ public struct KaraokeLagEstimator: Sendable {
 
     /// Adds a sung reading received at song time `time`.
     public mutating func record(time: TimeInterval, sung midiNote: Double?) {
+        // A backwards seek: earlier readings now overlap the new timeline.
+        if let last = readings.last, time < last.time - 0.5 {
+            readings.removeAll()
+        }
         guard let midiNote else { return }
         readings.append(Reading(time: time, midiNote: midiNote))
         if readings.count > 600 { readings.removeFirst(readings.count - 600) }
