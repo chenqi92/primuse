@@ -126,6 +126,29 @@ enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
         case .settings: return String(localized: "settings_title")
         }
     }
+
+    /// 侧边竖栏里标签上面的图标(系统竖排工具栏时,见 `TopTabsChrome`)。都是线条版,选中时换填充版。
+    var railSymbol: String {
+        switch self {
+        case .home: return "house"
+        case .search: return "magnifyingglass"
+        case .settings: return "gearshape"
+        case .librarySection(let section):
+            switch section {
+            case .recommendations: return "sparkles"
+            case .favorites: return "heart"
+            case .folders: return "folder"
+            case .statistics: return "chart.bar"
+            case .playlists: return "music.note.list"
+            case .artists: return "music.mic"
+            case .genres: return "tag"
+            case .albums: return "square.stack"
+            case .songs: return "music.note"
+            case .spokenWord: return "books.vertical"
+            case .radio: return "radio"
+            }
+        }
+    }
 }
 
 enum MinimalNavigationPolicy {
@@ -207,6 +230,7 @@ struct MinimalDeepLinkRequest: Equatable {
 /// 顶部 tab 外壳交给各根页的几样东西。
 struct TopTabsShellContext {
     /// tab 条那一行的高度。根页在顶部留出同样高度的空白,内容才不会被 tab 条压住。
+    /// 系统竖排工具栏、tab 条改成侧边竖栏时,它只是顶端一小段留白。
     var chromeHeight: CGFloat
     /// 底部停靠条(连同它的外边距)此刻占的高度,不显示时为 0。各页在底部留出同样的空白:
     /// 停靠条浮在整个外壳上,挂在外壳上的安全区传不进 TabView 里的页面。
@@ -864,6 +888,10 @@ struct ContentView: View {
     @State private var minimalKeyboardVisible = false
     /// 底部停靠条此刻的高度(含外边距),各页据此在底部留白。
     @State private var minimalDockedBarHeight: CGFloat = 0
+    /// 外壳左右两侧的安全区。系统把工具栏竖排到侧边(iPhone Duo 等)时,那一侧让出的宽度就是 tab 竖栏的宽度。
+    @State private var minimalHorizontalSafeArea = EdgeInsets()
+    /// 系统竖栏在哪一侧;普通 iPhone 与 Xcode 27.0 构建恒为 nil。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @State private var minimalDetailLedger =
         MinimalNavigationDetailLedger<MinimalNavigationPage>()
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
@@ -1008,6 +1036,25 @@ struct ContentView: View {
         heightClass.isCompact ? 36 : skin.metric(.chromeChipRowHeight)
     }
 
+    /// 系统把工具栏竖排到侧边时,tab 条改成同一侧的竖栏(`TopTabsRailLayoutPolicy`);顶部横排时为 nil。
+    private var topTabsRailEdge: HorizontalEdge? {
+        guard let edge = verticalBarEdge else { return nil }
+        return TopTabsRailLayoutPolicy.usesRail(
+            hasVerticalBarEdge: true,
+            verticalBarInset: Double(topTabsRailWidth(for: edge))
+        ) ? edge : nil
+    }
+
+    private func topTabsRailWidth(for edge: HorizontalEdge) -> CGFloat {
+        edge == .leading ? minimalHorizontalSafeArea.leading : minimalHorizontalSafeArea.trailing
+    }
+
+    /// 根页顶部要让出的高度:横排时是 tab 条那一行;竖栏时 tab 条不占顶部,只留一小段不贴着屏幕上沿。
+    private var topTabsContentTopInset: CGFloat {
+        guard topTabsRailEdge != nil else { return topTabsRowHeight }
+        return CGFloat(TopTabsRailLayoutPolicy.contentTopInset(isCompactHeight: heightClass.isCompact))
+    }
+
     /// 编辑态(歌曲多选、电台整理、歌单管理)的根页:它们的系统导航栏要回来,tab 条收起。按页记。
     private var minimalRevealedRootPages: Set<MinimalNavigationPage> {
         minimalEditingPages
@@ -1030,6 +1077,7 @@ struct ContentView: View {
     private var minimalRoot: some View {
         let pages = minimalTopTabPages
         let chromeVisible = topTabsChromeVisible
+        let railEdge = topTabsRailEdge
         ZStack {
             TabView(selection: topTabSlotSelection) {
                 ForEach(0..<topTabSlots.capacity, id: \.self) { slot in
@@ -1052,6 +1100,11 @@ struct ContentView: View {
             }
         }
         .softNavigationScrollEdges()
+        .onGeometryChange(for: EdgeInsets.self) { proxy in
+            EdgeInsets(top: 0, leading: proxy.safeAreaInsets.leading, bottom: 0, trailing: proxy.safeAreaInsets.trailing)
+        } action: { insets in
+            minimalHorizontalSafeArea = insets
+        }
         .environment(\.minimalNavigationDetailTransitionHandler) {
             transitionID, detailScope, event in
             updateMinimalNavigationDetailTransition(
@@ -1067,7 +1120,7 @@ struct ContentView: View {
         .environment(
             \.topTabsShellContext,
             TopTabsShellContext(
-                chromeHeight: topTabsRowHeight,
+                chromeHeight: topTabsContentTopInset,
                 bottomBarHeight: minimalDockedBarHeight,
                 revealedRootPages: minimalRevealedRootPages,
                 closeUtility: { closeMinimalUtility() }
@@ -1091,12 +1144,19 @@ struct ContentView: View {
                 actions: currentTopTabPage.flatMap { actions[$0]?.content },
                 filter: currentTopTabPage.flatMap { actions[$0]?.filter },
                 rowHeight: topTabsRowHeight,
+                railEdge: railEdge,
+                railWidth: railEdge.map { topTabsRailWidth(for: $0) } ?? 0,
+                railContentTopInset: topTabsContentTopInset,
                 onSelect: { selectMinimalPage($0) },
                 onSearch: { openMinimalUtility(.search) },
                 onSettings: { openMinimalUtility(.settings) }
             )
             .opacity(chromeVisible ? 1 : 0)
-            .offset(y: chromeVisible ? 0 : -6)
+            // 收起时往自己那一侧缩一点:横排往上,竖栏往屏幕边上。
+            .offset(
+                x: chromeVisible || railEdge == nil ? 0 : (railEdge == .leading ? -6 : 6),
+                y: chromeVisible || railEdge != nil ? 0 : -6
+            )
             .allowsHitTesting(chromeVisible)
             .accessibilityHidden(!chromeVisible)
             .animation(skin.animation(.chromeReveal), value: chromeVisible)

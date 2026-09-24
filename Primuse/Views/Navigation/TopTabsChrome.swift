@@ -188,6 +188,10 @@ private struct MinimalRootEditingModifier: ViewModifier {
 ///
 /// 整个外壳只有这一份实例,挂在所有页面之上,所以切 tab 时选中指示器能从旧位置滑到新位置,
 /// tab 条也记得自己滚到了哪里。它只负责画法:有哪些 tab、选中哪个、点了去哪都由外壳给。
+///
+/// 系统把工具栏竖排到侧边时(iPhone Duo 等,`railEdge` 不为 nil),同一份内容改排成那一侧的竖栏:
+/// 住进系统竖栏让出的那条安全区,tab 纵向滚动,动作、搜索、设置收在竖栏底部,顶部的高度还给页面。
+/// 横排与竖排只是排法不同(同一棵视图树换布局参数),开合、转屏时 tab 条的状态都还在。
 struct TopTabsChrome: View {
     let pages: [MinimalNavigationPage]
     let selection: MinimalNavigationPage?
@@ -196,6 +200,12 @@ struct TopTabsChrome: View {
     var filter: MinimalRootFilterContent? = nil
     /// 这一行的高度。外壳用同一个值给根页留出顶部空间,两边必须一致。
     let rowHeight: CGFloat
+    /// 系统竖栏在哪一侧。为 nil 时是顶部横排的一行(普通 iPhone、Xcode 27.0 构建)。
+    var railEdge: HorizontalEdge? = nil
+    /// 竖栏宽度:系统竖栏那一侧让出的安全区。
+    var railWidth: CGFloat = 0
+    /// 竖栏时根页顶部的留白。外壳给根页留的是同一个值,筛选框从它下面开始。
+    var railContentTopInset: CGFloat = 0
     let onSelect: (MinimalNavigationPage) -> Void
     let onSearch: () -> Void
     let onSettings: () -> Void
@@ -205,35 +215,92 @@ struct TopTabsChrome: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.pmHeightClass) private var heightClass
     @Namespace private var indicatorNamespace
+    /// 竖栏顶端要让开的遮挡(竖排的状态栏与摄像头),按系统报的遮挡区量出来。
+    @State private var railTopClearance = CGFloat(TopTabsRailLayoutPolicy.minimumTopClearance)
+
+    private var isRail: Bool { railEdge != nil }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                tabStrip
-                trailingCluster
-            }
-            .frame(height: rowHeight)
+        let isRail = isRail
+        let layout = isRail
+            ? AnyLayout(TopTabsRailChromeLayout(edge: railEdge ?? .trailing, railWidth: railWidth))
+            : AnyLayout(VStackLayout(spacing: 0))
+        layout {
+            bar
 
             if let filter, filter.isPresented.wrappedValue {
                 MinimalRootFilterField(filter: filter) {
                     dismissFilter(filter)
                 }
                 .frame(height: MinimalRootFilterField.rowHeight(dynamicTypeSize, isCompactHeight: heightClass.isCompact))
+                // 竖栏时筛选框自己是页面顶上的一行:底色与分隔线跟着它走。
+                .padding(.top, isRail ? railContentTopInset : 0)
+                .background {
+                    if isRail {
+                        chromeFill.ignoresSafeArea(.container, edges: .top)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if isRail {
+                        hairline(vertical: false)
+                    }
+                }
                 .transition(.opacity)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: isRail ? .infinity : nil)
         .background {
-            chromeFill
-                .ignoresSafeArea(.container, edges: [.top, .horizontal])
+            if !isRail {
+                chromeFill
+                    .ignoresSafeArea(.container, edges: [.top, .horizontal])
+            }
         }
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(skin.color(.separator))
-                .frame(height: skin.rawMetric(.hairline))
-                .ignoresSafeArea(.container, edges: .horizontal)
-                .allowsHitTesting(false)
+            if !isRail {
+                hairline(vertical: false)
+                    .ignoresSafeArea(.container, edges: .horizontal)
+            }
         }
+    }
+
+    /// tab 与右侧(竖栏时是底部)那组按钮。
+    private var bar: some View {
+        let isRail = isRail
+        let layout = isRail ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        return layout {
+            tabStrip
+            trailingCluster
+        }
+        .frame(height: isRail ? nil : rowHeight)
+        .padding(.top, isRail ? railTopClearance : 0)
+        .background {
+            if isRail {
+                chromeFill
+                    .ignoresSafeArea(.container, edges: [.vertical, .horizontal])
+            }
+        }
+        .overlay(alignment: railEdge == .leading ? .trailing : .leading) {
+            if isRail {
+                hairline(vertical: true)
+                    .ignoresSafeArea(.container, edges: .vertical)
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            guard isRail else { return CGFloat(TopTabsRailLayoutPolicy.minimumTopClearance) }
+            return CGFloat(TopTabsRailLayoutPolicy.topClearance(
+                occlusions: PMReservedRegions.activeOcclusionSpans(in: proxy),
+                railHeight: Double(proxy.size.height)
+            ))
+        } action: { clearance in
+            railTopClearance = clearance
+        }
+    }
+
+    private func hairline(vertical: Bool) -> some View {
+        Rectangle()
+            .fill(skin.color(.separator))
+            .frame(width: vertical ? skin.rawMetric(.hairline) : nil, height: vertical ? nil : skin.rawMetric(.hairline))
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -250,22 +317,27 @@ struct TopTabsChrome: View {
     }
 
     private var tabStrip: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: skin.rawMetric(.chromeItemSpacing) * 2) {
+        let isRail = isRail
+        let stack = isRail
+            ? AnyLayout(VStackLayout(spacing: 2))
+            : AnyLayout(HStackLayout(spacing: skin.rawMetric(.chromeItemSpacing) * 2))
+        return ScrollViewReader { proxy in
+            ScrollView(isRail ? .vertical : .horizontal, showsIndicators: false) {
+                stack {
                     ForEach(pages) { page in
                         TopTabsChromeTab(
                             page: page,
                             isSelected: page == selection,
-                            namespace: indicatorNamespace
+                            namespace: indicatorNamespace,
+                            railEdge: railEdge
                         ) {
                             onSelect(page)
                         }
                         .id(page)
                     }
                 }
-                .padding(.horizontal, skin.rawMetric(.chromeHorizontalInset) + 4)
-                .frame(maxHeight: .infinity)
+                .padding(isRail ? .vertical : .horizontal, isRail ? 4 : skin.rawMetric(.chromeHorizontalInset) + 4)
+                .frame(maxWidth: isRail ? .infinity : nil, maxHeight: isRail ? nil : .infinity)
                 .animation(skin.animation(.selection), value: selection)
             }
             .mask { edgeFade }
@@ -279,17 +351,28 @@ struct TopTabsChrome: View {
                     proxy.scrollTo(selected, anchor: .center)
                 }
             }
+            .onChange(of: isRail) { _, _ in
+                // 横竖互换后滚动方向变了,原来的偏移没有意义:让选中项回到可见处。
+                guard let selection else { return }
+                proxy.scrollTo(selection, anchor: .center)
+            }
         }
     }
 
-    /// 两端淡出,提示这一行还能往两边滚。
+    /// 两端淡出,提示这一行(一列)还能往两边滚。
     private var edgeFade: some View {
-        HStack(spacing: 0) {
-            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                .frame(width: 10)
+        let isRail = isRail
+        let layout = isRail ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        return layout {
+            LinearGradient(colors: [.clear, .black],
+                           startPoint: isRail ? .top : .leading,
+                           endPoint: isRail ? .bottom : .trailing)
+                .frame(width: isRail ? nil : 10, height: isRail ? 10 : nil)
             Rectangle().fill(.black)
-            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                .frame(width: 18)
+            LinearGradient(colors: [.black, .clear],
+                           startPoint: isRail ? .top : .leading,
+                           endPoint: isRail ? .bottom : .trailing)
+                .frame(width: isRail ? nil : 18, height: isRail ? 18 : nil)
         }
     }
 
@@ -312,7 +395,11 @@ struct TopTabsChrome: View {
     }
 
     private var trailingCluster: some View {
-        HStack(spacing: 0) {
+        let isRail = isRail
+        let layout = isRail
+            ? AnyLayout(TopTabsRailClusterLayout(width: railWidth))
+            : AnyLayout(HStackLayout(spacing: 0))
+        return layout {
             if let filter {
                 let isOpen = filter.isPresented.wrappedValue
                 Button {
@@ -346,11 +433,93 @@ struct TopTabsChrome: View {
             .accessibilityLabel(Text("settings_title"))
             .accessibilityIdentifier("topTabs.settings")
         }
-        .buttonStyle(TopTabsChromeButtonStyle(height: rowHeight))
+        .buttonStyle(TopTabsChromeButtonStyle(height: isRail ? Self.railButtonHeight : rowHeight))
         .font(.system(size: skin.metric(.iconSizeMedium), weight: .semibold))
         .foregroundStyle(.skin(.textPrimary))
-        .padding(.trailing, max(0, skin.rawMetric(.chromeHorizontalInset) - 6))
-        .fixedSize(horizontal: true, vertical: false)
+        .padding(isRail ? .bottom : .trailing, isRail ? 4 : max(0, skin.rawMetric(.chromeHorizontalInset) - 6))
+        // 竖栏里这组按钮紧接在 tab 下面:上沿一道短分隔线,页面动作不会被看成又一个 tab。
+        .padding(.top, isRail ? 9 : 0)
+        .overlay(alignment: .top) {
+            if isRail {
+                Capsule()
+                    .fill(skin.color(.separator))
+                    .frame(width: 28, height: 1)
+                    .allowsHitTesting(false)
+            }
+        }
+        .fixedSize(horizontal: !isRail, vertical: isRail)
+    }
+
+    /// 竖栏底部按钮的高度(宽度仍是 40 起)。
+    private static let railButtonHeight: CGFloat = 44
+}
+
+/// 竖栏时 tab 条的外层排法:第一个子视图(tab 与按钮那一列)放进系统竖栏让出的那条安全区 ——
+/// 它在这个容器(安全区以内)的外侧,紧贴着容器那一边;筛选框(如果展开)是页面顶上的一行。
+private struct TopTabsRailChromeLayout: Layout {
+    let edge: HorizontalEdge
+    let railWidth: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let rail = subviews.first else { return }
+        let railX = edge == .trailing ? bounds.maxX : bounds.minX - railWidth
+        rail.place(
+            at: CGPoint(x: railX, y: bounds.minY),
+            proposal: ProposedViewSize(width: railWidth, height: bounds.height)
+        )
+        for row in subviews.dropFirst() {
+            let height = row.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)).height
+            row.place(
+                at: CGPoint(x: bounds.minX, y: bounds.minY),
+                proposal: ProposedViewSize(width: bounds.width, height: height)
+            )
+        }
+    }
+}
+
+/// 竖栏底部那组按钮:从末尾往前每行放满(`TopTabsRailLayoutPolicy.clusterRows`),每行居中。
+private struct TopTabsRailClusterLayout: Layout {
+    let width: CGFloat
+
+    private func rows(_ subviews: Subviews) -> (rows: [Range<Int>], sizes: [CGSize]) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let rows = TopTabsRailLayoutPolicy.clusterRows(
+            itemWidths: sizes.map { Double($0.width) },
+            railWidth: Double(width)
+        )
+        return (rows, sizes)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let layout = rows(subviews)
+        let height = layout.rows.reduce(CGFloat(0)) { total, row in
+            total + (layout.sizes[row].map(\.height).max() ?? 0)
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let layout = rows(subviews)
+        var y = bounds.minY
+        for row in layout.rows {
+            let sizes = layout.sizes[row]
+            let rowWidth = sizes.reduce(CGFloat(0)) { $0 + $1.width }
+            let rowHeight = sizes.map(\.height).max() ?? 0
+            var x = bounds.midX - rowWidth / 2
+            for index in row {
+                let size = layout.sizes[index]
+                subviews[index].place(
+                    at: CGPoint(x: x, y: y + (rowHeight - size.height) / 2),
+                    proposal: ProposedViewSize(size)
+                )
+                x += size.width
+            }
+            y += rowHeight
+        }
     }
 }
 
@@ -358,31 +527,49 @@ private struct TopTabsChromeTab: View {
     let page: MinimalNavigationPage
     let isSelected: Bool
     let namespace: Namespace.ID
+    /// 竖栏时在哪一侧;横排为 nil。
+    var railEdge: HorizontalEdge? = nil
     let action: () -> Void
 
     @Environment(\.skin) private var skin
 
     var body: some View {
+        let isRail = railEdge != nil
         Button(action: action) {
-            ZStack {
-                // 按选中时的粗体占好宽度,切换选中时文字不会把两边的 tab 挤得跳一下。
-                Text(verbatim: page.localizedTitle)
-                    .font(skin.font(.chromeCompact))
-                    .hidden()
-                Text(verbatim: page.localizedTitle)
-                    .font(skin.font(isSelected ? .chromeCompact : .chrome))
-                    .foregroundStyle(isSelected ? skin.color(.textPrimary) : skin.color(.chromeItem))
+            // 竖栏只有七八十点宽,放不下整行文字:图标在上、两行小字在下,像系统竖排的标签栏那样。
+            VStack(spacing: 3) {
+                if isRail {
+                    Image(systemName: page.railSymbol)
+                        .symbolVariant(isSelected ? .fill : .none)
+                        .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? skin.color(.accent) : skin.color(.chromeItem))
+                        .frame(height: 24)
+                }
+                ZStack {
+                    // 按选中时的粗体占好宽度,切换选中时文字不会把两边的 tab 挤得跳一下。
+                    Text(verbatim: page.localizedTitle)
+                        .font(labelFont(selected: true, isRail: isRail))
+                        .hidden()
+                    Text(verbatim: page.localizedTitle)
+                        .font(labelFont(selected: isSelected, isRail: isRail))
+                        .foregroundStyle(isSelected ? skin.color(.textPrimary) : skin.color(.chromeItem))
+                }
+                // 竖栏里多个词的标题折成两行;一个长词(德语、俄语常见)不在词中间断开,缩小到放得下。
+                .lineLimit(isRail && page.localizedTitle.contains(" ") ? 2 : 1)
+                .multilineTextAlignment(isRail ? .center : .leading)
+                .minimumScaleFactor(isRail ? 0.6 : 1)
+                .fixedSize(horizontal: !isRail, vertical: true)
             }
-            .lineLimit(1)
-            .fixedSize()
-            .frame(maxHeight: .infinity)
-            .overlay(alignment: .bottom) {
+            .frame(maxWidth: isRail ? .infinity : nil, maxHeight: isRail ? nil : .infinity)
+            .padding(.vertical, isRail ? 8 : 0)
+            .padding(.horizontal, isRail ? 5 : 0)
+            .overlay(alignment: indicatorAlignment) {
                 if isSelected {
                     Capsule()
                         .fill(skin.color(.accent))
-                        .frame(width: 18, height: 3)
+                        .frame(width: isRail ? 3 : 18, height: isRail ? 22 : 3)
                         .matchedGeometryEffect(id: "topTabs.indicator", in: namespace)
-                        .padding(.bottom, 4)
+                        .padding(.bottom, isRail ? 0 : 4)
                 }
             }
             // plain 样式的点击热区只有文字本身,整格(含上下留白)都要能点。
@@ -391,6 +578,22 @@ private struct TopTabsChromeTab: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("topTabs.tab.\(page.id)")
+    }
+
+    /// 横排时指示器是标签下面的短横线;竖栏时是贴着页面那一侧的短竖线。
+    private var indicatorAlignment: Alignment {
+        switch railEdge {
+        case .none: return .bottom
+        case .trailing: return .leading
+        case .leading: return .trailing
+        }
+    }
+
+    private func labelFont(selected: Bool, isRail: Bool) -> Font {
+        if isRail {
+            return .caption.weight(selected ? .semibold : .medium)
+        }
+        return skin.font(selected ? .chromeCompact : .chrome)
     }
 }
 
