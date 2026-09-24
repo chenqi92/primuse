@@ -580,6 +580,7 @@ struct NowPlayingView: View {
     var isPresentationSettled = true
     var isPresentationActive = true
     @State private var showChapterList = false
+    @State private var bookmarkFeedbackToken = 0
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(MusicScraperService.self) private var scraperService
@@ -1676,6 +1677,10 @@ struct NowPlayingView: View {
             } else {
                 Button(String(localized: "sleep_at_track_end")) { player.scheduleSleepAtTrackEnd() }
                     .disabled(player.currentSong == nil)
+                if player.hasChapters {
+                    Button(String(localized: "sleep_at_chapter_end")) { player.scheduleSleepAtChapterEnd() }
+                        .disabled(player.currentChapterIndex == nil)
+                }
             }
             if player.isSleepTimerActive {
                 Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
@@ -2336,11 +2341,11 @@ struct NowPlayingView: View {
     }
 
     private var transportBackwardSymbol: String {
-        usesSpokenWordTransport ? "gobackward.15" : "backward.fill"
+        usesSpokenWordTransport ? player.spokenWordSkipBackwardSymbol : "backward.fill"
     }
 
     private var transportForwardSymbol: String {
-        usesSpokenWordTransport ? "goforward.30" : "forward.fill"
+        usesSpokenWordTransport ? player.spokenWordSkipForwardSymbol : "forward.fill"
     }
 
     private var transportBackwardLabel: String {
@@ -3575,11 +3580,19 @@ struct NowPlayingView: View {
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
             canChangePlaybackRate: playbackSettings.outputMode == .effects,
-            playbackRate: playbackSettings.outputMode == .highFidelity ? 1 : playbackSettings.playbackRate,
+            playbackRate: playbackSettings.outputMode == .highFidelity
+                ? 1
+                : (player.currentItemIsSpokenWord
+                    ? playbackSettings.spokenWordPlaybackRate
+                    : playbackSettings.playbackRate),
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
             showsPlaybackModeActions: compactLandscapeHidesModeToggles,
             isShuffleEnabled: player.shuffleEnabled,
             repeatMode: player.repeatMode,
+            isMedleyActive: player.isMedleyActive,
+            canStartMedley: !player.isAppleMusicMode && !player.isLiveRadio
+                && medleyCandidateSongs.count >= 2,
+            medleySegmentSeconds: playbackSettings.medleySegmentSeconds,
             colorScheme: colorScheme,
             colorSchemeContrast: colorSchemeContrast
         )
@@ -3588,11 +3601,25 @@ struct NowPlayingView: View {
             snapshot: snapshot,
             lyricsFontScale: $lyricsFontScale,
             playbackRate: Binding(
-                get: { playbackSettings.outputMode == .highFidelity ? 1 : playbackSettings.playbackRate },
+                get: {
+                    guard playbackSettings.outputMode != .highFidelity else { return 1 }
+                    return player.currentItemIsSpokenWord
+                        ? playbackSettings.spokenWordPlaybackRate
+                        : playbackSettings.playbackRate
+                },
                 set: {
                     guard playbackSettings.outputMode == .effects else { return }
-                    playbackSettings.playbackRate = $0
+                    // 有声内容与音乐各记一档速度, 菜单改的是正在播的这一类。
+                    if player.currentItemIsSpokenWord {
+                        playbackSettings.spokenWordPlaybackRate = $0
+                    } else {
+                        playbackSettings.playbackRate = $0
+                    }
                 }
+            ),
+            medleySegmentSeconds: Binding(
+                get: { playbackSettings.medleySegmentSeconds },
+                set: { playbackSettings.medleySegmentSeconds = $0 }
             ),
             immersiveChrome: immersiveChrome,
             chromeGlass: chromeGlass,
@@ -3630,6 +3657,13 @@ struct NowPlayingView: View {
             onShowSleepTimer: { showSleepTimer = true },
             onToggleShuffle: { player.shuffleEnabled.toggle() },
             onCycleRepeatMode: { cycleRepeatMode() },
+            onStartMedley: {
+                let songs = medleyCandidateSongs
+                Task { await player.playMedley(songs) }
+            },
+            onContinueMedleySongInFull: {
+                Task { await player.continueCurrentMedleySongInFull() }
+            },
             onDelete: { showDeleteConfirm = true }
         )
         .equatable()
@@ -3786,23 +3820,122 @@ struct NowPlayingView: View {
             }
             nowPlayingMetadataLinks(font: metadataFont)
             nowPlayingChapterLink
+            nowPlayingMedleyBadge
         }
     }
 
-    /// 当前章节 —— 只在文件真的带章节时出现, 所以没有空状态。点开是跳转列表。
-    /// 放在这里而不是控件区: 三套布局共用这个头部, 章节因此在竖屏、横屏和
-    /// iPad 上都在同一个位置。
+    /// 有声内容的一行小控件: 当前章节(点开是章节与书签列表)、上一章/下一章、
+    /// 加书签、听书速度。放在这里而不是控件区: 三套布局共用这个头部, 所以在
+    /// 竖屏、横屏和 iPad 上都在同一个位置。音乐且不带章节时整行不出现。
     @ViewBuilder
     private var nowPlayingChapterLink: some View {
-        if player.hasChapters {
-            Button { showChapterList = true } label: {
+        let isSpokenWord = player.currentItemIsSpokenWord && !player.isLiveRadio
+        if player.hasChapters || isSpokenWord {
+            HStack(spacing: 14) {
+                if player.hasChapters || hasCurrentBookmarks {
+                    Button { showChapterList = true } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: player.hasChapters ? "list.bullet.indent" : "bookmark")
+                                .font(.caption2)
+                            Text(player.hasChapters
+                                ? (player.currentChapter?.title ?? String(localized: "chapters_title"))
+                                : String(localized: "spoken_word_bookmarks_title"))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("chapters_title"))
+                    .layoutPriority(1)
+                }
+
+                if player.hasChapters {
+                    Button { player.seekToPreviousChapter() } label: {
+                        Image(systemName: "backward.end")
+                            .frame(minWidth: 28, minHeight: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(player.currentChapterIndex == nil)
+                    .accessibilityLabel(Text("spoken_word_previous_chapter"))
+
+                    Button { player.seekToNextChapter() } label: {
+                        Image(systemName: "forward.end")
+                            .frame(minWidth: 28, minHeight: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled((player.currentChapterIndex ?? -1) + 1 >= player.spokenWordChapters.count)
+                    .accessibilityLabel(Text("spoken_word_next_chapter"))
+                }
+
+                if isSpokenWord {
+                    Button {
+                        if player.addSpokenWordBookmark() { bookmarkFeedbackToken += 1 }
+                    } label: {
+                        Image(systemName: "bookmark")
+                            .symbolEffect(.bounce, value: bookmarkFeedbackToken)
+                            .frame(minWidth: 28, minHeight: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .sensoryFeedback(.success, trigger: bookmarkFeedbackToken)
+                    .accessibilityLabel(Text("spoken_word_add_bookmark"))
+
+                    Menu {
+                        Picker(selection: spokenWordRateBinding) {
+                            ForEach(SpokenWordPlaybackRatePolicy.presets, id: \.self) { rate in
+                                Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)).tag(rate)
+                            }
+                        } label: {
+                            Text("spoken_word_playback_rate")
+                        }
+                    } label: {
+                        Text(verbatim: SpokenWordPlaybackRatePolicy.label(
+                            for: playbackSettings.outputMode == .effects
+                                ? playbackSettings.spokenWordPlaybackRate
+                                : 1
+                        ))
+                        .font(.footnote.monospacedDigit().weight(.semibold))
+                        .frame(minWidth: 36, minHeight: 28)
+                        .contentShape(Rectangle())
+                    }
+                    .disabled(playbackSettings.outputMode != .effects)
+                    .accessibilityLabel(Text("spoken_word_playback_rate"))
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(appearance.secondary)
+            .padding(.top, 2)
+        }
+    }
+
+    /// What "medley from the queue" plays: the current song and what is
+    /// still to come in this round, as their library rows.
+    private var medleyCandidateSongs: [Song] { player.medleyCandidatesFromQueue }
+
+    /// Shown while a medley plays, with the way out: keep listening to this
+    /// song in full.
+    @ViewBuilder
+    private var nowPlayingMedleyBadge: some View {
+        if player.isMedleyActive {
+            Button {
+                Task { await player.continueCurrentMedleySongInFull() }
+            } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "list.bullet.indent")
+                    Image(systemName: "rectangle.stack.badge.play")
                         .font(.caption2)
-                    Text(player.currentChapter?.title ?? String(localized: "chapters_title"))
+                    Text(String(
+                        format: String(localized: "medley_badge_format"),
+                        playbackSettings.medleySegmentSeconds
+                    ))
+                    .lineLimit(1)
+                    Text("·")
+                    Text("medley_continue_full_short")
+                        .fontWeight(.semibold)
                         .lineLimit(1)
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
                 }
                 .font(.footnote)
                 .foregroundStyle(appearance.secondary)
@@ -3810,8 +3943,21 @@ struct NowPlayingView: View {
             }
             .buttonStyle(.plain)
             .padding(.top, 2)
-            .accessibilityLabel(Text("chapters_title"))
+            .accessibilityLabel(Text("medley_continue_full"))
         }
+    }
+
+    private var hasCurrentBookmarks: Bool {
+        guard let songID = player.currentSong?.id else { return false }
+        _ = SpokenWordStore.shared.revision
+        return !SpokenWordStore.shared.bookmarks(forSongID: songID).isEmpty
+    }
+
+    private var spokenWordRateBinding: Binding<Float> {
+        Binding(
+            get: { playbackSettings.spokenWordPlaybackRate },
+            set: { playbackSettings.spokenWordPlaybackRate = $0 }
+        )
     }
 
     @ViewBuilder
@@ -6075,6 +6221,9 @@ struct NowPlayingMoreMenuSnapshot: Equatable {
     let showsPlaybackModeActions: Bool
     let isShuffleEnabled: Bool
     let repeatMode: RepeatMode
+    let isMedleyActive: Bool
+    let canStartMedley: Bool
+    let medleySegmentSeconds: Int
     let colorScheme: ColorScheme
     let colorSchemeContrast: ColorSchemeContrast
 }
@@ -6086,6 +6235,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let snapshot: NowPlayingMoreMenuSnapshot
     @Binding var lyricsFontScale: Double
     @Binding var playbackRate: Float
+    @Binding var medleySegmentSeconds: Int
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     let immersiveChrome: Bool
@@ -6114,6 +6264,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShowSleepTimer: () -> Void
     let onToggleShuffle: () -> Void
     let onCycleRepeatMode: () -> Void
+    let onStartMedley: () -> Void
+    let onContinueMedleySongInFull: () -> Void
     let onDelete: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -6262,6 +6414,32 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(String(localized: "delete"), systemImage: "trash")
                     }
                     .disabled(!snapshot.hasSong)
+                }
+            }
+
+            if snapshot.isMedleyActive || snapshot.canStartMedley {
+                Section {
+                    if snapshot.isMedleyActive {
+                        Button(action: onContinueMedleySongInFull) {
+                            Label(String(localized: "medley_continue_full"), systemImage: "music.note")
+                        }
+                    } else {
+                        Menu {
+                            Button(action: onStartMedley) {
+                                Label(String(localized: "medley_start_queue"), systemImage: "play.fill")
+                            }
+                            Picker(selection: $medleySegmentSeconds) {
+                                ForEach(MedleySegmentPolicy.allowedSegmentLengths, id: \.self) { seconds in
+                                    Text(String(format: String(localized: "seconds_value_format"), seconds))
+                                        .tag(seconds)
+                                }
+                            } label: {
+                                Text("medley_segment_length")
+                            }
+                        } label: {
+                            Label(String(localized: "medley_title"), systemImage: "rectangle.stack.badge.play")
+                        }
+                    }
                 }
             }
 

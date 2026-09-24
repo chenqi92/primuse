@@ -33,6 +33,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var lyricsEditorTargetSong: Song?
     @State private var showSimilarSongs = false
     @State private var showSleepTimer = false
+    @State private var showChapterList = false
     @State private var showDeleteConfirm = false
     @State private var deleteErrorMessage: String?
     @State private var scrapeAlertMessage: String?
@@ -104,6 +105,10 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             if let song = player.currentSong {
                 SongInfoSheet(song: song)
             }
+        }
+        .sheet(isPresented: $showChapterList) {
+            ChapterListView()
+                .frame(minWidth: 380, minHeight: 440)
         }
         .sheet(item: $shareSong) { song in
             SongShareSheet(song: song)
@@ -309,6 +314,30 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 fontPickerPopover
             }
             divider()
+            if player.isMedleyActive {
+                menuRow(title: "medley_continue_full", symbol: "music.note") {
+                    Task { await player.continueCurrentMedleySongInFull() }
+                }
+            } else if !player.isLiveRadio, !player.isAppleMusicMode,
+                      player.medleyCandidatesFromQueue.count >= 2 {
+                menuRow(titleText: String(
+                    format: String(localized: "medley_start_queue_format"),
+                    player.playbackSettings.medleySegmentSeconds
+                ), symbol: "rectangle.stack.badge.play") {
+                    let songs = player.medleyCandidatesFromQueue
+                    Task { await player.playMedley(songs) }
+                }
+            }
+            if player.currentItemIsSpokenWord, !player.isLiveRadio {
+                menuRow(title: "spoken_word_add_bookmark", symbol: "bookmark") {
+                    player.addSpokenWordBookmark()
+                }
+            }
+            if player.hasChapters || player.currentItemIsSpokenWord {
+                menuRow(title: "spoken_word_chapters_and_bookmarks", symbol: "list.bullet.indent") {
+                    showChapterList = true
+                }
+            }
             menuRow(title: player.isSleepTimerActive ? "sleep_timer_active" : "sleep_timer",
                     symbol: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz") {
                 showSleepTimer = true
@@ -720,6 +749,35 @@ private struct MacSleepTimerPopover: View {
                     .buttonStyle(.plain)
                 }
 
+                if player.hasChapters, !player.isLiveRadio {
+                    Button {
+                        player.scheduleSleepAtChapterEnd()
+                        onClose()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "list.bullet.indent")
+                                .font(.system(size: 10))
+                            Text("sleep_at_chapter_end")
+                                .font(.system(size: 12, weight: .medium))
+                            Spacer()
+                            if player.sleepStopAfterChapter != nil {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                            }
+                        }
+                        .foregroundStyle(PMColor.text)
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(player.currentChapterIndex == nil)
+                }
+
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(Lz("Custom (minutes)"))
@@ -832,6 +890,9 @@ private struct MacSleepTimerPopover: View {
         }
         if player.sleepStopAfterSongID != nil {
             return Lz("Stop After Current Song")
+        }
+        if player.sleepStopAfterChapter != nil {
+            return String(localized: "sleep_at_chapter_end")
         }
         return Lz("Not Enabled")
     }

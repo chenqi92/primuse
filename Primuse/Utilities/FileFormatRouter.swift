@@ -19,6 +19,13 @@ enum FileFormatRouter {
                 return ffmpegDecoder
             }
         }
+        // The shared FFmpeg list wins over whatever SFB's Core Audio or
+        // libsndfile backends happen to claim on this platform (MP2, Wave64,
+        // RF64, ADTS AAC), so a downloaded file decodes the same way the
+        // player routes it by format.
+        if AudioFormat.from(fileExtension: url.pathExtension)?.prefersFFmpegDecoder == true {
+            return ffmpegDecoder
+        }
         // SFBAudioEngine is the high-fidelity primary path for Core Audio,
         // lossless/legacy formats and DSD/DoP-capable sources.
         if nativeDecoder.canDecode(url: url) { return nativeDecoder }

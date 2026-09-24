@@ -1611,6 +1611,68 @@ private struct MacSTPlaybackView: View {
             }
         }
 
+        MacSTSection(String(localized: "spoken_word_settings_section")) {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "spoken_word_playback_rate"),
+                    hint: String(localized: "spoken_word_settings_footer"),
+                    hintLineLimit: 3,
+                    divider: false
+                ) {
+                    MacSTPicker(
+                        selection: $s.spokenWordPlaybackRate,
+                        options: SpokenWordPlaybackRatePolicy.presets.map {
+                            ($0, SpokenWordPlaybackRatePolicy.label(for: $0))
+                        },
+                        width: 120
+                    )
+                }
+                .settingsAnchor("playback.spokenWordRate")
+                .disabled(s.outputMode == .highFidelity)
+                MacSTRow(String(localized: "spoken_word_skip_backward")) {
+                    MacSTPicker(
+                        selection: $s.spokenWordSkipBackwardSeconds,
+                        options: SpokenWordSkipPolicy.allowedIntervals.map {
+                            ($0, String(format: String(localized: "seconds_value_format"), $0))
+                        },
+                        width: 120
+                    )
+                }
+                .settingsAnchor("playback.spokenWordSkip")
+                MacSTRow(String(localized: "spoken_word_skip_forward")) {
+                    MacSTPicker(
+                        selection: $s.spokenWordSkipForwardSeconds,
+                        options: SpokenWordSkipPolicy.allowedIntervals.map {
+                            ($0, String(format: String(localized: "seconds_value_format"), $0))
+                        },
+                        width: 120
+                    )
+                }
+            }
+        }
+
+        MacSTSection(String(localized: "medley_title")) {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "medley_segment_length"),
+                    hint: String(localized: "medley_settings_footer"),
+                    hintLineLimit: 3,
+                    divider: false
+                ) {
+                    MacSTPicker(
+                        selection: $s.medleySegmentSeconds,
+                        options: MedleySegmentPolicy.allowedSegmentLengths.map {
+                            ($0, String(format: String(localized: "seconds_value_format"), $0))
+                        },
+                        width: 120
+                    )
+                }
+                .settingsAnchor("playback.medley")
+            }
+        }
+
+        MacSmartNudgeSettings()
+
         MacSTSection(Lz("Transitions & Gapless")) {
             MacSTGroup {
                 MacSTRow(Lz("Gapless Playback"), divider: false) {
@@ -7726,4 +7788,38 @@ extension View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
+
+/// Playback suggestions, in the Mac settings' own row style.
+private struct MacSmartNudgeSettings: View {
+    var body: some View {
+        @Bindable var center = SmartNudgeCenter.shared
+        MacSTSection(String(localized: "smart_nudge_section")) {
+            MacSTGroup {
+                MacSTRow(
+                    String(localized: "smart_nudge_enabled"),
+                    hint: String(localized: "smart_nudge_footer"),
+                    hintLineLimit: 4,
+                    divider: false
+                ) {
+                    MacSTToggle(isOn: $center.isEnabled)
+                }
+                .settingsAnchor("playback.smartNudges")
+                if center.isEnabled {
+                    ForEach(SmartNudgeKind.allCases, id: \.self) { kind in
+                        MacSTRow(String(localized: String.LocalizationValue(kind.settingsTitleKey))) {
+                            MacSTToggle(isOn: Binding(
+                                get: { center.isKindEnabled(kind) },
+                                set: { center.setKind(kind, enabled: $0) }
+                            ))
+                        }
+                    }
+                    MacSTRow(String(localized: "smart_nudge_reset")) {
+                        Button("smart_nudge_reset_button") { center.resetHistory() }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #endif

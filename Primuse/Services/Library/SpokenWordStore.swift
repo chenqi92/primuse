@@ -29,6 +29,9 @@ final class SpokenWordStore {
     private struct Payload: Codable {
         var overrides: [String: String]
         var positions: [String: StoredPosition]
+        // Optional so files written before bookmarks existed still decode.
+        var bookmarks: [String: [SpokenWordBookmark]]?
+        var finishedAt: [String: Date]?
     }
 
     static let shared = SpokenWordStore()
@@ -36,6 +39,11 @@ final class SpokenWordStore {
     /// Explicit per-song corrections. Absent means "whatever the file says".
     private(set) var overrides: [String: ListeningContentKind] = [:]
     private(set) var positions: [String: StoredPosition] = [:]
+    /// Marks the listener set inside items, ordered by position.
+    private(set) var bookmarks: [String: [SpokenWordBookmark]] = [:]
+    /// Items listened to the end (or marked so by hand). A book's shelf
+    /// progress and "continue from" are built from this and `positions`.
+    private(set) var finishedAt: [String: Date] = [:]
     /// Bumped on every change so views and the library aggregation can depend
     /// on one cheap value instead of observing two dictionaries.
     @ObservationIgnored private(set) var revision = 0
@@ -97,8 +105,9 @@ final class SpokenWordStore {
         // Music does not carry a resume position, so dropping it here keeps a
         // reclassified item from resuming mid-file later.
         if kind == .music {
-            for songID in songIDs where positions.removeValue(forKey: songID) != nil {
-                changed = true
+            for songID in songIDs {
+                if positions.removeValue(forKey: songID) != nil { changed = true }
+                if finishedAt.removeValue(forKey: songID) != nil { changed = true }
             }
         }
         guard changed else { return }
@@ -127,7 +136,15 @@ final class SpokenWordStore {
             position: position,
             duration: duration
         ) else {
-            clearPosition(forSongID: songID)
+            // Inside the closing stretch the item counts as heard: the
+            // position goes and the item is marked finished, so the book
+            // moves on to the next chapter.
+            if duration > 0, position.isFinite,
+               position > duration - SpokenWordProgressPolicy.completionTailThreshold {
+                markFinished(true, songIDs: [songID])
+            } else {
+                clearPosition(forSongID: songID)
+            }
             return
         }
         let stored = StoredPosition(
@@ -137,7 +154,72 @@ final class SpokenWordStore {
         )
         guard positions[songID] != stored else { return }
         positions[songID] = stored
+        // Listening again to a finished item reopens it.
+        finishedAt.removeValue(forKey: songID)
         evictOldestIfNeeded()
+        didChange()
+    }
+
+    // MARK: - Finished
+
+    func isFinished(songID: String) -> Bool { finishedAt[songID] != nil }
+
+    func finishedDate(forSongID songID: String) -> Date? { finishedAt[songID] }
+
+    /// Marks items heard (or not). Marking heard drops the resume position;
+    /// marking unheard only clears the mark.
+    func markFinished(_ finished: Bool, songIDs: [String]) {
+        guard !songIDs.isEmpty else { return }
+        var changed = false
+        let now = Date()
+        for songID in songIDs {
+            if finished {
+                if finishedAt[songID] == nil {
+                    finishedAt[songID] = now
+                    changed = true
+                }
+                if positions.removeValue(forKey: songID) != nil { changed = true }
+            } else if finishedAt.removeValue(forKey: songID) != nil {
+                changed = true
+            }
+        }
+        guard changed else { return }
+        evictOldestIfNeeded()
+        didChange()
+    }
+
+    // MARK: - Bookmarks
+
+    func bookmarks(forSongID songID: String) -> [SpokenWordBookmark] {
+        bookmarks[songID] ?? []
+    }
+
+    @discardableResult
+    func addBookmark(_ bookmark: SpokenWordBookmark) -> Bool {
+        let existing = bookmarks[bookmark.songID] ?? []
+        let updated = SpokenWordBookmarkPolicy.inserting(bookmark, into: existing)
+        guard updated != existing else { return false }
+        bookmarks[bookmark.songID] = updated
+        didChange()
+        return true
+    }
+
+    func removeBookmark(id: UUID, songID: String) {
+        guard var list = bookmarks[songID] else { return }
+        let before = list.count
+        list.removeAll { $0.id == id }
+        guard list.count != before else { return }
+        bookmarks[songID] = list.isEmpty ? nil : list
+        didChange()
+    }
+
+    func renameBookmark(id: UUID, songID: String, title: String) {
+        guard var list = bookmarks[songID],
+              let index = list.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, list[index].title != trimmed else { return }
+        list[index].title = trimmed
+        bookmarks[songID] = list
         didChange()
     }
 
@@ -152,9 +234,14 @@ final class SpokenWordStore {
     func pruneMissingSongs(existingIDs: Set<String>) {
         let stale = positions.keys.filter { !existingIDs.contains($0) }
         let staleOverrides = overrides.keys.filter { !existingIDs.contains($0) }
-        guard !stale.isEmpty || !staleOverrides.isEmpty else { return }
+        let staleBookmarks = bookmarks.keys.filter { !existingIDs.contains($0) }
+        let staleFinished = finishedAt.keys.filter { !existingIDs.contains($0) }
+        guard !stale.isEmpty || !staleOverrides.isEmpty
+            || !staleBookmarks.isEmpty || !staleFinished.isEmpty else { return }
         for songID in stale { positions.removeValue(forKey: songID) }
         for songID in staleOverrides { overrides.removeValue(forKey: songID) }
+        for songID in staleBookmarks { bookmarks.removeValue(forKey: songID) }
+        for songID in staleFinished { finishedAt.removeValue(forKey: songID) }
         didChange()
     }
 
@@ -165,10 +252,17 @@ final class SpokenWordStore {
 
     private func evictOldestIfNeeded() {
         let limit = SpokenWordProgressPolicy.maximumRememberedItems
-        guard positions.count > limit else { return }
-        let ordered = positions.sorted { $0.value.updatedAt < $1.value.updatedAt }
-        for (songID, _) in ordered.prefix(positions.count - limit) {
-            positions.removeValue(forKey: songID)
+        if positions.count > limit {
+            let ordered = positions.sorted { $0.value.updatedAt < $1.value.updatedAt }
+            for (songID, _) in ordered.prefix(positions.count - limit) {
+                positions.removeValue(forKey: songID)
+            }
+        }
+        if finishedAt.count > limit * 4 {
+            let ordered = finishedAt.sorted { $0.value < $1.value }
+            for (songID, _) in ordered.prefix(finishedAt.count - limit * 4) {
+                finishedAt.removeValue(forKey: songID)
+            }
         }
     }
 
@@ -185,6 +279,8 @@ final class SpokenWordStore {
               let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return }
         overrides = payload.overrides.compactMapValues(ListeningContentKind.init(rawValue:))
         positions = payload.positions
+        bookmarks = payload.bookmarks ?? [:]
+        finishedAt = payload.finishedAt ?? [:]
     }
 
     private func scheduleSave() {
@@ -207,7 +303,9 @@ final class SpokenWordStore {
     private func saveNow() {
         let payload = Payload(
             overrides: overrides.mapValues(\.rawValue),
-            positions: positions
+            positions: positions,
+            bookmarks: bookmarks,
+            finishedAt: finishedAt
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? data.write(to: storeURL, options: .atomic)

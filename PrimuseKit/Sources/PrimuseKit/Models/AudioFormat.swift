@@ -42,6 +42,16 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     case speex
     case qoa
 
+    // Containers only FFmpeg opens on every platform. Matroska/WebM carry
+    // FLAC, Opus, Vorbis or AAC; `.w64`/`.rf64` are the >4 GB successors of
+    // WAV; `.ra` is RealAudio (Cook/Sipr/ATRAC3 and friends).
+    case mka
+    case webm
+    case mp2
+    case w64
+    case rf64
+    case ra
+
     public var requiresFFmpeg: Bool {
         // Kept as the historical API name. In practice this means the format
         // needs the SFBAudioEngine/FFmpeg custom decode pipeline.
@@ -50,19 +60,23 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
             return false
         case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
              .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
-             .mpc, .shn, .speex, .qoa:
+             .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra:
             return true
         }
     }
 
     /// Formats that go straight to FFmpeg instead of SFBAudioEngine. SFB has
-    /// no decoder for most of them (WMA, DTS, TrueHD, ATRAC, TAK, QOA); raw
-    /// ADTS AAC reports a short frame count through it, and its packed 24-bit
-    /// True Audio path crashes while releasing PCM buffers.
+    /// no decoder for most of them (WMA, DTS, TrueHD, ATRAC, TAK, QOA,
+    /// Matroska/WebM, RealAudio); raw ADTS AAC reports a short frame count
+    /// through it, and its packed 24-bit True Audio path crashes while
+    /// releasing PCM buffers. MP2, Wave64 and RF64 are claimed by Core Audio
+    /// or libsndfile on some platforms only, so FFmpeg keeps them identical
+    /// everywhere.
     /// iOS, macOS and tvOS all route by this one list.
     public var prefersFFmpegDecoder: Bool {
         switch self {
-        case .aac, .dts, .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .wma, .qoa, .tta:
+        case .aac, .dts, .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .wma, .qoa, .tta,
+             .mka, .webm, .mp2, .w64, .rf64, .ra:
             return true
         case .mp3, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf,
              .ape, .dsf, .dff, .ogg, .opus, .wv, .mpc, .shn, .speex:
@@ -104,16 +118,24 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .shn: return "Shorten"
         case .speex: return "Speex"
         case .qoa: return "QOA"
+        case .mka: return "Matroska"
+        case .webm: return "WebM"
+        case .mp2: return "MP2"
+        case .w64: return "Wave64"
+        case .rf64: return "RF64"
+        case .ra: return "RealAudio"
         }
     }
 
     public var isLossless: Bool {
         switch self {
         case .flac, .alac, .wav, .aiff, .aif, .au, .caf, .ape, .dsf, .dff,
-             .wv, .mlp, .truehd, .tak, .tta, .shn:
+             .wv, .mlp, .truehd, .tak, .tta, .shn, .w64, .rf64:
             return true
+        // Matroska is a container: FLAC inside `.mka` is lossless, Opus is
+        // not. Without the codec on the song, claim nothing.
         case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .ogg, .opus, .wma, .dts,
-             .ac3, .eac3, .amr, .atrac, .mpc, .speex, .qoa:
+             .ac3, .eac3, .amr, .atrac, .mpc, .speex, .qoa, .mka, .webm, .mp2, .ra:
             return false
         }
     }
@@ -125,6 +147,16 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         // here keeps scan and backfill on one value: the ISO base-media
         // signature also resolves to `m4a`, so the two can never disagree.
         case "m4b": return .m4a
+        // iPhone ringtones: an AAC `.m4a` under another name.
+        case "m4r": return .m4a
+        // Compressed AIFF and Broadcast WAV are the same containers the
+        // native decoders and the AIFF/RIFF parsers already read; the file
+        // signature resolves them to `aiff`/`wav` as well.
+        case "aifc": return .aiff
+        case "bwf": return .wav
+        case "weba": return .webm
+        case "mpa", "mp1", "m2a": return .mp2
+        case "bw64": return .rf64
         case "oga": return .ogg
         case "wave": return .wav
         case "awb": return .amr
@@ -174,7 +206,7 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .caf: return "com.apple.coreaudio-format"
         case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
              .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
-             .mpc, .shn, .speex, .qoa: return nil
+             .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra: return nil
         }
     }
 }

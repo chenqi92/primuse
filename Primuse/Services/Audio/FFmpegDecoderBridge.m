@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 static NSString *const FFmpegDecoderErrorDomain = @"com.welape.yuanyin.ffmpeg-decoder";
@@ -214,7 +215,50 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
 }
 
 @implementation FFmpegAudioFileInfo
+- (instancetype)init {
+    self = [super init];
+    if (self) _tags = @[];
+    return self;
+}
 @end
+
+/// Largest attached picture copied out of a container. Anything bigger is
+/// not a cover a list row or the lock screen needs.
+static const int FFmpegMaximumAttachedPictureBytes = 16 * 1024 * 1024;
+
+static void FFmpegAppendTags(const AVDictionary *dictionary,
+                             NSMutableArray<NSArray<NSString *> *> *tags) {
+    const AVDictionaryEntry *entry = NULL;
+    while ((entry = av_dict_iterate(dictionary, entry))) {
+        if (!entry->key || !entry->value) continue;
+        // Invalid UTF-8 yields nil, which the length checks also reject.
+        NSString *key = [NSString stringWithUTF8String:entry->key];
+        NSString *value = [NSString stringWithUTF8String:entry->value];
+        if (key.length == 0 || value.length == 0) continue;
+        [tags addObject:@[key, value]];
+    }
+}
+
+static NSData *FFmpegAttachedPicture(const AVFormatContext *context) {
+    NSData *fallback = nil;
+    for (unsigned int index = 0; index < context->nb_streams; index++) {
+        const AVStream *stream = context->streams[index];
+        if (!(stream->disposition & AV_DISPOSITION_ATTACHED_PIC)) continue;
+        const AVPacket *picture = &stream->attached_pic;
+        if (!picture->data || picture->size <= 0 ||
+            picture->size > FFmpegMaximumAttachedPictureBytes) continue;
+        NSData *data = [NSData dataWithBytes:picture->data
+                                      length:(NSUInteger)picture->size];
+        const AVDictionaryEntry *name = av_dict_get(stream->metadata, "filename", NULL, 0);
+        const AVDictionaryEntry *comment = av_dict_get(stream->metadata, "comment", NULL, 0);
+        if ((name && strncasecmp(name->value, "cover", 5) == 0) ||
+            (comment && strcasecmp(comment->value, "Cover (front)") == 0)) {
+            return data;
+        }
+        if (!fallback) fallback = data;
+    }
+    return fallback;
+}
 
 @implementation FFmpegAudioReadResult
 @end
@@ -226,6 +270,7 @@ static NSTimeInterval FFmpegPacketDuration(NSURL *url,
                        error:(NSError **)error;
 - (instancetype)initWithURL:(NSURL *)url
           scanPacketDuration:(BOOL)scanPacketDuration
+            includeContainerMetadata:(BOOL)includeContainerMetadata
                    ioTimeout:(NSTimeInterval)ioTimeout
                        error:(NSError **)error;
 @end
@@ -445,6 +490,17 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc]
         initWithURL:url
         scanPacketDuration:YES
+        includeContainerMetadata:NO
+        ioTimeout:FFmpegDefaultIOTimeout
+        error:error];
+    return decoder.fileInfo;
+}
+
++ (FFmpegAudioFileInfo *)probeMetadataForURL:(NSURL *)url error:(NSError **)error {
+    FFmpegDecoderBridge *decoder = [[FFmpegDecoderBridge alloc]
+        initWithURL:url
+        scanPacketDuration:YES
+        includeContainerMetadata:YES
         ioTimeout:FFmpegDefaultIOTimeout
         error:error];
     return decoder.fileInfo;
@@ -459,12 +515,14 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
                        error:(NSError **)error {
     return [self initWithURL:url
           scanPacketDuration:NO
+            includeContainerMetadata:NO
                    ioTimeout:ioTimeout
                        error:error];
 }
 
 - (instancetype)initWithURL:(NSURL *)url
           scanPacketDuration:(BOOL)scanPacketDuration
+            includeContainerMetadata:(BOOL)includeContainerMetadata
                    ioTimeout:(NSTimeInterval)ioTimeout
                        error:(NSError **)error {
     self = [super init];
@@ -600,6 +658,13 @@ static BOOL FFmpegWAVEContainsDTSSync(const uint8_t *bytes, NSUInteger length) {
     _fileInfo.formatName = formatName ? [NSString stringWithUTF8String:formatName] : @"unknown";
     _fileInfo.lossless = descriptor && (descriptor->props & AV_CODEC_PROP_LOSSLESS);
     _fileInfo.DSD = FFmpegCodecIsDSD(_codecContext->codec_id);
+    if (includeContainerMetadata) {
+        NSMutableArray<NSArray<NSString *> *> *tags = [NSMutableArray array];
+        FFmpegAppendTags(_formatContext->metadata, tags);
+        FFmpegAppendTags(stream->metadata, tags);
+        _fileInfo.tags = tags;
+        _fileInfo.coverArtData = FFmpegAttachedPicture(_formatContext);
+    }
 
     if (stream->duration != AV_NOPTS_VALUE && stream->duration > 0) {
         _fileInfo.duration = stream->duration * av_q2d(stream->time_base);

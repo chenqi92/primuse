@@ -323,6 +323,12 @@ public enum MediaRelaySourcePolicy {
         case .shn: return "audio/x-shorten"
         case .speex: return "audio/speex"
         case .qoa: return "audio/qoa"
+        case .mka: return "audio/x-matroska"
+        case .webm: return "audio/webm"
+        case .mp2: return "audio/mpeg"
+        case .w64: return "audio/x-w64"
+        case .rf64: return "audio/x-rf64"
+        case .ra: return "audio/x-pn-realaudio"
         }
     }
 }

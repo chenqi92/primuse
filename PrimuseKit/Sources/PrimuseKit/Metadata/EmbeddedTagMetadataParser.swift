@@ -207,6 +207,59 @@ public enum EmbeddedTagMetadataParser {
         return result.isEmpty ? nil : result
     }
 
+    /// Folds the tags an FFmpeg demuxer exported onto the shared field map.
+    /// Used for containers no bounded parser here reads (Matroska/WebM,
+    /// RealAudio, Wave64, RF64). Keys arrive in FFmpeg's spelling: mixed case,
+    /// and for Matroska tags scoped to a target type, a prefix such as
+    /// `ALBUM/TITLE` — which is the album name, not the song title.
+    public static func parseContainerTags(
+        _ entries: [(key: String, value: String)],
+        coverArtData: Data? = nil
+    ) -> EmbeddedTagMetadata? {
+        var values: [String: [String]] = [:]
+        for entry in entries {
+            let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty, let key = containerTagKey(entry.key),
+                  values[key]?.contains(value) != true else { continue }
+            values[key, default: []].append(value)
+        }
+        var result = metadata(from: values)
+        if result.coverArtData == nil, let coverArtData {
+            result.coverArtData = normalizedImageData(coverArtData)
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    private static func containerTagKey(_ rawKey: String) -> String? {
+        let key = normalizedKey(rawKey)
+        guard let slash = key.lastIndex(of: "/") else {
+            switch key {
+            // Matroska's own names, where FFmpeg left them unconverted.
+            case "PART_NUMBER": return "TRACKNUMBER"
+            case "DATE_RELEASED", "DATE_RECORDED": return "DATE"
+            default: return key
+            }
+        }
+        let name = String(key[key.index(after: slash)...])
+        switch key[..<slash] {
+        case "ALBUM":
+            switch name {
+            case "TITLE": return "ALBUM"
+            case "ARTIST": return "ALBUMARTIST"
+            case "DATE", "DATE_RELEASED", "DATE_RECORDED": return "DATE"
+            case "GENRE": return "GENRE"
+            default: return nil
+            }
+        case "TRACK", "SONG":
+            return containerTagKey(name)
+        case "PART", "SESSION":
+            return name == "PART_NUMBER" ? "DISCNUMBER" : nil
+        default:
+            // `WM/…` and other vendor keys contain a slash of their own.
+            return key
+        }
+    }
+
     /// Returns the next exact/bounded prefix size required to complete an ASF
     /// header or an Ogg comment packet. A nil result means the relevant tag
     /// region is already complete or the format has no head-size declaration.
@@ -1040,6 +1093,8 @@ public enum EmbeddedTagMetadataParser {
         case "oga": "ogg"
         case "mpp": "mpc"
         case "spx": "speex"
+        case "aifc": "aiff"
+        case "bwf": "wav"
         default: value.lowercased()
         }
     }

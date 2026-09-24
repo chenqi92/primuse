@@ -106,7 +106,7 @@ extension AudioPlayerService {
         crossfadeSwapDone = false
         if hadAudibleTransition {
             audioEngine.stopCrossfadeNode()
-            audioEngine.resetPlayerVolume()
+            audioEngine.restorePrimaryProgramVolume()
         }
     }
 
@@ -130,6 +130,7 @@ extension AudioPlayerService {
                 nextSong: committedCrossfade.song,
                 nextURL: committedCrossfade.url,
                 nextDecoderKind: committedCrossfade.decoderKind,
+                programVolume: committedCrossfade.programVolume,
                 completionMode: completionMode
             )
             return
@@ -157,7 +158,7 @@ extension AudioPlayerService {
             audioEngine.stopCrossfadeNode()
         }
         if hadAudibleTransition {
-            audioEngine.resetPlayerVolume()
+            audioEngine.restorePrimaryProgramVolume()
         }
     }
 
@@ -336,23 +337,29 @@ extension AudioPlayerService {
         // This runs on every playback progress tick. Avoid copying the full
         // settings payload in the overwhelmingly common disabled case.
         guard playbackSettings.outputMode == .effects,
-              playbackSettings.crossfadeEnabled,
+              playbackSettings.crossfadeEnabled || isMedleyActive,
               !crossfadeTriggered else { return }
         let settings = playbackSettings.snapshot()
         let songID = currentSong?.id
-        let silenceProfile = songID.flatMap { silenceProfiles[$0] }
+        // A medley slice is timed by its own window: the silence profile and
+        // the structure analysis cached for the song describe the whole file.
+        let isMedleySlice = isMedleyActive && songID.map { medleySongIDs.contains($0) } == true
+        let silenceProfile = isMedleySlice ? nil : songID.flatMap { silenceProfiles[$0] }
         let analyzedDuration = silenceProfile?.playableDuration
         let nominalDuration = duration > 0 ? duration : (analyzedDuration ?? 0)
-        let smartMixAnalysis = settings.crossfadeMode == .smart
+        let smartMixAnalysis = settings.crossfadeMode == .smart && !isMedleySlice
             ? songID.flatMap { smartMixAnalyses[$0] }
             : nil
+        let requestedOverlap = isMedleyActive
+            ? MedleySegmentPolicy.overlap(segmentLength: nominalDuration)
+            : settings.crossfadeDuration
         let sourceTimelineOffset = smartMixAnalysis?.backend == .musicUnderstanding
             ? (currentSong?.cueStartTime ?? 0)
             : 0
         guard let transitionPlan = SmartMixTransitionPlanner.plan(
             nominalDuration: nominalDuration,
             analyzedPlayableDuration: analyzedDuration,
-            requestedOverlap: settings.crossfadeDuration,
+            requestedOverlap: requestedOverlap,
             analysis: smartMixAnalysis,
             analysisTimelineOffset: sourceTimelineOffset
                 + (silenceProfile?.leadingTrimmedDuration ?? 0)
@@ -488,8 +495,20 @@ extension AudioPlayerService {
             // 曲末 watchdog，并出现
             // 「UI 已切到下一首、声音还停在上一首、isCrossfading 卡 true 进度永久冻结」。
 
-            // Note: ReplayGain for crossfade node would need per-node volume tracking
-            // For now, apply after swap
+            // 下一首的回放增益和解码准备并行解析。ramp 要直接淡入到它的稳态
+            // 音量, 而不是先淡到 1.0、换节点后再跳一次; 出去那首同样从自己的
+            // 稳态音量淡出, 而不是第一拍先跳回 1.0。
+            let startupSettings = playbackSettings.snapshot()
+            let replayGainResolution: Task<ReplayGainValues, Never>? = shouldApplyReplayGain(startupSettings)
+                ? Task { [nextSong, nextURL] in
+                    await self.resolveReplayGainValues(
+                        for: nextSong,
+                        url: nextURL,
+                        mode: startupSettings.replayGainMode,
+                        allowFileRead: true
+                    )
+                }
+                : nil
 
             // Decode into crossfade node — 先确保能解码并拿到首个 buffer。
             guard let stream = await decodeStream(
@@ -544,6 +563,31 @@ extension AudioPlayerService {
                 nextEntryID: nextEntryID,
                 successorRule: successorRule
             ) else { return }
+            // 回放增益的解析通常早就完成了(本机文件只要几毫秒)。等它是为了
+            // 让 ramp 拿到确定的目标音量; 等完要重验一次尝试是否仍然有效。
+            let commitSettings = playbackSettings.snapshot()
+            var incomingReplayGain = ReplayGainValues()
+            if shouldApplyReplayGain(commitSettings) {
+                if let replayGainResolution {
+                    incomingReplayGain = await replayGainResolution.value
+                } else {
+                    incomingReplayGain = await resolveReplayGainValues(
+                        for: nextSong,
+                        url: nextURL,
+                        mode: commitSettings.replayGainMode,
+                        allowFileRead: true
+                    )
+                }
+            } else {
+                replayGainResolution?.cancel()
+            }
+            guard isCurrentCrossfadeAttempt(
+                attemptID,
+                sourcePlayID: sourcePlayID,
+                queueGeneration: sourceQueueGeneration,
+                nextEntryID: nextEntryID,
+                successorRule: successorRule
+            ) else { return }
             // Settings and the sleep lock can change while remote resolution
             // or prefetch is in flight. Revalidate at the commit boundary.
             guard shouldUseCrossfade(playbackSettings.snapshot()),
@@ -551,6 +595,7 @@ extension AudioPlayerService {
                 failCrossfadeAttempt(attemptID)
                 return
             }
+            let incomingProgramVolume = programVolume(for: incomingReplayGain)
             isCrossfading = true
             lastCommittedCrossfadeAttemptID = attemptID
             let nextPlayID = UUID()
@@ -561,7 +606,8 @@ extension AudioPlayerService {
                 song: activatedSong,
                 url: nextURL,
                 decoderKind: nextDecoderKind,
-                outgoingPlayID: sourcePlayID
+                outgoingPlayID: sourcePlayID,
+                programVolume: incomingProgramVolume
             )
             playID = nextPlayID
             beginAutomaticAdvanceTransport(
@@ -683,7 +729,8 @@ extension AudioPlayerService {
                 playID: nextPlayID,
                 nextSong: nextSong,
                 nextURL: nextURL,
-                nextDecoderKind: nextDecoderKind
+                nextDecoderKind: nextDecoderKind,
+                programVolume: incomingProgramVolume
             )
         } catch {
             guard crossfadeAttemptID == attemptID else { return }
@@ -698,11 +745,14 @@ extension AudioPlayerService {
         playID rampPlayID: UUID,
         nextSong: Song,
         nextURL: URL,
-        nextDecoderKind: DecoderKind
+        nextDecoderKind: DecoderKind,
+        programVolume incomingProgramVolume: Float
     ) {
         guard crossfadeAttemptID == attemptID,
               playID == rampPlayID,
               committedCrossfade?.attemptID == attemptID else { return }
+        // primary 此刻还是出去的那首, 它的稳态音量就是淡出的起点。
+        let outgoingProgramVolume = audioEngine.primaryProgramVolume
         let totalSteps = max(1, (duration / 0.05).finiteInt(or: 1))
         let stepCounter = StepCounter()
         crossfadeTimerAttemptID = attemptID
@@ -735,15 +785,22 @@ extension AudioPlayerService {
                         playID: rampPlayID,
                         nextSong: nextSong,
                         nextURL: nextURL,
-                        nextDecoderKind: nextDecoderKind
+                        nextDecoderKind: nextDecoderKind,
+                        programVolume: incomingProgramVolume
                     )
                 } else {
-                    // Equal-power crossfade curve: maintains perceived loudness
-                    // through the transition (no "dip" in the middle like linear)
-                    let angle = Double(progress) * .pi / 2
+                    // Equal-power curve between the two songs' own program
+                    // volumes: the outgoing song fades out from its ReplayGain
+                    // level and the incoming one fades in to its own, so the
+                    // transition never steps through unity gain.
+                    let volumes = ReplayGainPolicy.crossfadeVolumes(
+                        progress: Double(progress),
+                        outgoingGain: outgoingProgramVolume,
+                        incomingGain: incomingProgramVolume
+                    )
                     self.audioEngine.setCrossfadeVolumes(
-                        primary: Float(cos(angle)),
-                        crossfade: Float(sin(angle))
+                        primary: volumes.outgoing,
+                        crossfade: volumes.incoming
                     )
                 }
             }
@@ -758,6 +815,7 @@ extension AudioPlayerService {
         nextSong: Song,
         nextURL: URL,
         nextDecoderKind: DecoderKind,
+        programVolume: Float,
         completionMode: CrossfadeCompletionMode = .activePlayback
     ) {
         guard crossfadeAttemptID == attemptID, playID == completedPlayID else { return }
@@ -775,8 +833,9 @@ extension AudioPlayerService {
         // 解码任务从下一个 buffer 起改投 primary 节点, 不再喂换出的旧节点。
         crossfadeSwapDone = true
 
-        // Swap nodes
-        audioEngine.swapPlayerNodes()
+        // Swap nodes. The ramp already faded the incoming song in to its
+        // program volume; the swap hands that volume over unchanged.
+        audioEngine.swapPlayerNodes(programVolume: programVolume)
 
         // Transfer crossfade decoding task to main
         decodingTask = crossfadeDecodingTask
@@ -795,21 +854,6 @@ extension AudioPlayerService {
             startTimeUpdater()
         }
         plog("🔄 completeCrossfade: swap done, currentSong=\(nextSong.title)")
-
-        // Apply ReplayGain (now on the swapped primary node)
-        let settings = playbackSettings.snapshot()
-        if shouldApplyReplayGain(settings) {
-            Task {
-                await applyReplayGain(
-                    for: nextSong,
-                    url: nextURL,
-                    mode: settings.replayGainMode,
-                    allowFileRead: nextDecoderKind != .cloudStream && nextDecoderKind != .httpStream,
-                    expectedPlayID: completedPlayID,
-                    expectedSongID: nextSong.id
-                )
-            }
-        }
 
         if !nextSong.isCueTrack,
            nextDecoderKind != .cloudStream,

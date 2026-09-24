@@ -761,6 +761,88 @@ final class MusicIntelligenceService {
         return nil
     }
 
+    /// Whether an AI service is set up that tag cleanup can use: a
+    /// user-configured provider with a generation model, remote processing
+    /// agreed to, and the region allowing it. The Primuse relay has no tag
+    /// endpoint, so it does not count.
+    var isTagCleanupAvailable: Bool {
+        guard settingsStore.hasExplicitRemoteConsent else { return false }
+        let snapshot = regionAvailability.snapshot
+        guard AIAvailabilityPolicy.decision(
+            for: .userConfiguredRemote,
+            regionContext: snapshot.context
+        ).isAllowed else { return false }
+        return settingsStore.providerSet.routedProviders.contains {
+            !$0.generationModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// Asks the configured AI service for tag corrections, batch by batch.
+    /// Each batch goes to the first provider that answers; a batch no
+    /// provider answers is skipped and counted, so a partial result is still
+    /// usable. `onProgress` gets (batches done, batches total).
+    func tagCleanupProposals(
+        for songs: [TagCleanupSong],
+        onProgress: @escaping @MainActor (Int, Int) -> Void
+    ) async -> (proposals: [TagCleanupProposal], failedBatches: Int, providerName: String?) {
+        guard isTagCleanupAvailable, !songs.isEmpty else { return ([], 0, nil) }
+        let consent = settingsStore.hasExplicitRemoteConsent
+        let languageCode = Locale.current.language.languageCode?.identifier ?? "en"
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let limited = Array(songs.prefix(TagCleanupAIExchange.maximumSongs))
+        let batches = stride(from: 0, to: limited.count, by: TagCleanupAIExchange.batchSize).map {
+            Array(limited[$0..<min($0 + TagCleanupAIExchange.batchSize, limited.count)])
+        }
+        var result: [TagCleanupProposal] = []
+        var failed = 0
+        var usedProvider: String?
+        onProgress(0, batches.count)
+        for (index, batch) in batches.enumerated() {
+            if Task.isCancelled { break }
+            let regionSnapshot = regionAvailability.snapshot
+            var answered = false
+            for configuration in settingsStore.providerSet.routedProviders {
+                guard !configuration.generationModel
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      AIRegionRequestPolicy.canSendRemoteRequest(
+                        captured: regionSnapshot,
+                        latest: regionAvailability.snapshot,
+                        configuration: configuration
+                      ) else { continue }
+                do {
+                    let proposals = try await engine.proposeTagCleanup(
+                        batch,
+                        languageCode: languageCode,
+                        currentYear: currentYear,
+                        configuration: configuration,
+                        regionContext: regionSnapshot.context,
+                        hasExplicitRemoteConsent: consent,
+                        requestAuthorization: regionAuthorization(
+                            for: regionSnapshot,
+                            configuration: configuration
+                        )
+                    )
+                    guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                        captured: regionSnapshot,
+                        latest: regionAvailability.snapshot,
+                        configuration: configuration
+                    ) else { continue }
+                    result += proposals
+                    usedProvider = usedProvider ?? configuration.displayName
+                    answered = true
+                    break
+                } catch is CancellationError {
+                    return (result, failed, usedProvider)
+                } catch {
+                    continue
+                }
+            }
+            if !answered { failed += 1 }
+            onProgress(index + 1, batches.count)
+        }
+        return (result, failed, usedProvider)
+    }
+
     func recommendationOutcome(
         for request: AIRecommendationRequest,
         forceRefresh: Bool = false,
@@ -2110,6 +2192,51 @@ private actor MusicIntelligenceEngine {
             try await provider.translateLyrics(
                 candidates,
                 targetLanguageCode: targetLanguageCode
+            )
+        }
+    }
+
+    /// Tag cleanup is plain text generation over song titles and names —
+    /// the same data and the same consent as lyric translation — so it is
+    /// routed through that capability rather than a new one.
+    func proposeTagCleanup(
+        _ songs: [TagCleanupSong],
+        languageCode: String,
+        currentYear: Int,
+        configuration: AIRemoteProviderConfiguration,
+        regionContext: AIRegionContext,
+        hasExplicitRemoteConsent: Bool,
+        requestAuthorization: @escaping @Sendable () async -> Bool
+    ) async throws -> [TagCleanupProposal] {
+        let routed = AIProviderRoutingPolicy.candidates(
+            from: [configuration.descriptor],
+            capability: .lyricsTranslation,
+            regionContext: regionContext,
+            hasExplicitRemoteConsent: hasExplicitRemoteConsent
+        )
+        guard routed.first?.id == configuration.id else {
+            let reason: AIProviderUnavailableReason = regionContext.region == .mainlandChina
+                ? .regionRestricted
+                : .disabled
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        let provider = OpenAICompatibleProvider(
+            configuration: configuration,
+            credentialStore: credentialStore,
+            requestAuthorization: requestAuthorization
+        )
+        switch await provider.runtimeAvailability() {
+        case .available:
+            break
+        case .unavailable(let reason):
+            throw MusicIntelligenceError.unavailable(reason)
+        }
+        // A batch answer is long; give it more room than a single request.
+        return try await withTimeout(seconds: max(configuration.requestTimeout, 45)) {
+            try await provider.proposeTagCleanup(
+                songs,
+                languageCode: languageCode,
+                currentYear: currentYear
             )
         }
     }

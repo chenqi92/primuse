@@ -113,6 +113,13 @@ struct PlaybackSettings: Codable, Sendable {
     /// 播放速度倍率, 0.5x ~ 2.0x。1.0 = 正常。走 AVAudioUnitTimePitch
     /// 节点，自动保持音调不变。
     var playbackRate: Float = 1.0
+    /// 有声内容单独一档速度: 听书常用 1.25×–1.5×, 不能带到下一首歌上。
+    var spokenWordPlaybackRate: Float = 1.0
+    /// 有声内容的后退 / 前进秒数, 取值见 `SpokenWordSkipPolicy.allowedIntervals`。
+    var spokenWordSkipBackwardSeconds: Int = 15
+    var spokenWordSkipForwardSeconds: Int = 30
+    /// 串烧每首截取的秒数。
+    var medleySegmentSeconds: Int = 45
     /// Uses the current synchronized lyric as the system Now Playing title.
     /// Users can still opt out because the remapped metadata is also visible
     /// to Control Center, Bluetooth receivers and in-car Now Playing surfaces.
@@ -164,6 +171,10 @@ struct PlaybackSettings: Codable, Sendable {
         skipTrailingSilenceEnabled = try c.decodeIfPresent(Bool.self, forKey: .skipTrailingSilenceEnabled) ?? false
         prewarmQueueCount = try c.decodeIfPresent(Int.self, forKey: .prewarmQueueCount) ?? 3
         playbackRate = try c.decodeIfPresent(Float.self, forKey: .playbackRate) ?? 1.0
+        spokenWordPlaybackRate = try c.decodeIfPresent(Float.self, forKey: .spokenWordPlaybackRate) ?? 1.0
+        spokenWordSkipBackwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipBackwardSeconds) ?? 15
+        spokenWordSkipForwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipForwardSeconds) ?? 30
+        medleySegmentSeconds = try c.decodeIfPresent(Int.self, forKey: .medleySegmentSeconds) ?? 45
         lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
         effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
@@ -199,6 +210,10 @@ struct PlaybackSettings: Codable, Sendable {
         skipTrailingSilenceEnabled: Bool = false,
         prewarmQueueCount: Int = 3,
         playbackRate: Float = 1.0,
+        spokenWordPlaybackRate: Float = 1.0,
+        spokenWordSkipBackwardSeconds: Int = 15,
+        spokenWordSkipForwardSeconds: Int = 30,
+        medleySegmentSeconds: Int = 45,
         lockScreenLyricsEnabled: Bool = true,
         matchOutputSampleRate: Bool = false,
         effectChainEnabled: Bool = true,
@@ -232,6 +247,10 @@ struct PlaybackSettings: Codable, Sendable {
         self.skipTrailingSilenceEnabled = skipTrailingSilenceEnabled
         self.prewarmQueueCount = prewarmQueueCount
         self.playbackRate = playbackRate
+        self.spokenWordPlaybackRate = spokenWordPlaybackRate
+        self.spokenWordSkipBackwardSeconds = spokenWordSkipBackwardSeconds
+        self.spokenWordSkipForwardSeconds = spokenWordSkipForwardSeconds
+        self.medleySegmentSeconds = medleySegmentSeconds
         self.lockScreenLyricsEnabled = lockScreenLyricsEnabled
         self.matchOutputSampleRate = matchOutputSampleRate
         self.effectChainEnabled = effectChainEnabled
@@ -402,6 +421,46 @@ final class PlaybackSettingsStore {
             persist()
         }
     }
+    var spokenWordPlaybackRate: Float {
+        didSet {
+            let clamped = SpokenWordPlaybackRatePolicy.clamped(spokenWordPlaybackRate)
+            if clamped != spokenWordPlaybackRate {
+                spokenWordPlaybackRate = clamped
+                return
+            }
+            persist()
+        }
+    }
+    var spokenWordSkipBackwardSeconds: Int {
+        didSet {
+            let clamped = SpokenWordSkipPolicy.clampedInterval(spokenWordSkipBackwardSeconds)
+            if clamped != spokenWordSkipBackwardSeconds {
+                spokenWordSkipBackwardSeconds = clamped
+                return
+            }
+            persist()
+        }
+    }
+    var spokenWordSkipForwardSeconds: Int {
+        didSet {
+            let clamped = SpokenWordSkipPolicy.clampedInterval(spokenWordSkipForwardSeconds)
+            if clamped != spokenWordSkipForwardSeconds {
+                spokenWordSkipForwardSeconds = clamped
+                return
+            }
+            persist()
+        }
+    }
+    var medleySegmentSeconds: Int {
+        didSet {
+            let clamped = MedleySegmentPolicy.clampedSegmentLength(medleySegmentSeconds)
+            if clamped != medleySegmentSeconds {
+                medleySegmentSeconds = clamped
+                return
+            }
+            persist()
+        }
+    }
     var lockScreenLyricsEnabled: Bool { didSet { persist() } }
     var matchOutputSampleRate: Bool { didSet { persist() } }
 
@@ -446,6 +505,10 @@ final class PlaybackSettingsStore {
         self.skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         self.prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
         self.playbackRate = max(0.5, min(2.0, s.playbackRate))
+        self.spokenWordPlaybackRate = SpokenWordPlaybackRatePolicy.clamped(s.spokenWordPlaybackRate)
+        self.spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
+        self.spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
+        self.medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(s.medleySegmentSeconds)
         self.lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         self.matchOutputSampleRate = s.matchOutputSampleRate
         self.effectChainEnabled = s.effectChainEnabled
@@ -514,6 +577,10 @@ final class PlaybackSettingsStore {
         skipTrailingSilenceEnabled = s.skipTrailingSilenceEnabled
         prewarmQueueCount = max(0, min(8, s.prewarmQueueCount))
         playbackRate = max(0.5, min(2.0, s.playbackRate))
+        spokenWordPlaybackRate = SpokenWordPlaybackRatePolicy.clamped(s.spokenWordPlaybackRate)
+        spokenWordSkipBackwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipBackwardSeconds)
+        spokenWordSkipForwardSeconds = SpokenWordSkipPolicy.clampedInterval(s.spokenWordSkipForwardSeconds)
+        medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(s.medleySegmentSeconds)
         lockScreenLyricsEnabled = s.lockScreenLyricsEnabled
         matchOutputSampleRate = s.matchOutputSampleRate
         effectChainEnabled = s.effectChainEnabled
@@ -556,6 +623,10 @@ final class PlaybackSettingsStore {
             skipTrailingSilenceEnabled: skipTrailingSilenceEnabled,
             prewarmQueueCount: prewarmQueueCount,
             playbackRate: playbackRate,
+            spokenWordPlaybackRate: spokenWordPlaybackRate,
+            spokenWordSkipBackwardSeconds: spokenWordSkipBackwardSeconds,
+            spokenWordSkipForwardSeconds: spokenWordSkipForwardSeconds,
+            medleySegmentSeconds: medleySegmentSeconds,
             lockScreenLyricsEnabled: lockScreenLyricsEnabled,
             matchOutputSampleRate: matchOutputSampleRate,
             effectChainEnabled: effectChainEnabled,

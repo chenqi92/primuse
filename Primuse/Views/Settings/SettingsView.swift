@@ -2161,6 +2161,46 @@ struct PlaybackSettingsView: View {
             }
             .disabled(settings.outputMode == .highFidelity)
 
+            Section {
+                Picker("spoken_word_playback_rate", selection: $settings.spokenWordPlaybackRate) {
+                    ForEach(SpokenWordPlaybackRatePolicy.presets, id: \.self) { rate in
+                        Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)).tag(rate)
+                    }
+                }
+                .settingsAnchor("playback.spokenWordRate")
+                .disabled(settings.outputMode == .highFidelity)
+                Picker("spoken_word_skip_backward", selection: $settings.spokenWordSkipBackwardSeconds) {
+                    ForEach(SpokenWordSkipPolicy.allowedIntervals, id: \.self) { seconds in
+                        Text(String(format: String(localized: "seconds_value_format"), seconds)).tag(seconds)
+                    }
+                }
+                .settingsAnchor("playback.spokenWordSkip")
+                Picker("spoken_word_skip_forward", selection: $settings.spokenWordSkipForwardSeconds) {
+                    ForEach(SpokenWordSkipPolicy.allowedIntervals, id: \.self) { seconds in
+                        Text(String(format: String(localized: "seconds_value_format"), seconds)).tag(seconds)
+                    }
+                }
+            } header: {
+                Text("spoken_word_settings_section")
+            } footer: {
+                Text("spoken_word_settings_footer")
+            }
+
+            Section {
+                Picker("medley_segment_length", selection: $settings.medleySegmentSeconds) {
+                    ForEach(MedleySegmentPolicy.allowedSegmentLengths, id: \.self) { seconds in
+                        Text(String(format: String(localized: "seconds_value_format"), seconds)).tag(seconds)
+                    }
+                }
+                .settingsAnchor("playback.medley")
+            } header: {
+                Text("medley_title")
+            } footer: {
+                Text("medley_settings_footer")
+            }
+
+            SmartNudgeSettingsSection()
+
             #if os(iOS)
             Section {
                 Toggle("lock_screen_lyrics", isOn: $settings.lockScreenLyricsEnabled)

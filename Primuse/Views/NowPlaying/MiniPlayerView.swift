@@ -258,7 +258,7 @@ struct MiniPlayerTransportControls: View {
                 Button {
                     player.skipSpokenWordForward()
                 } label: {
-                    Image(systemName: "goforward.30")
+                    Image(systemName: player.spokenWordSkipForwardSymbol)
                         .font(iconFont)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())

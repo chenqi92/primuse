@@ -102,6 +102,10 @@ struct GaplessPreparedTrack: @unchecked Sendable {
     let url: URL
     let decoderKind: AudioPlayerService.DecoderKind
     let followingTransition: GaplessTransitionState
+    /// True when the successor's samples already carry its ReplayGain
+    /// relative to the shared node volume, so activation must leave the node
+    /// volume alone.
+    let carriesProgramGain: Bool
 }
 
 /// One slot in the play queue. Wraps a `Song` with a per-slot UUID so
@@ -930,6 +934,9 @@ final class AudioPlayerService {
         /// 提交交叉淡入时正在播放的那一首的 playID。ramp 结束前它仍然拥有
         /// primary 节点, 解码泵靠它判断自己还能不能继续投递。
         let outgoingPlayID: UUID
+        /// 下一首的稳态音量(回放增益换算后的线性值, 没有标签就是 1)。
+        /// ramp 直接淡入到这个值, 换节点时原样交给 primary。
+        let programVolume: Float
     }
     enum CrossfadeCompletionMode: Equatable {
         case activePlayback
@@ -967,7 +974,11 @@ final class AudioPlayerService {
     var sleepStopAfterSongID: String? {
         didSet { if sleepStopAfterSongID != oldValue { synchronizeAppleMusicQueue() } }
     }
-    var isSleepTimerActive: Bool { sleepTimerEndDate != nil || sleepStopAfterSongID != nil }
+    /// "本章结束后停止": 锁在当前条目的当前章节上, 播放头越过它就暂停。
+    var sleepStopAfterChapter: SpokenWordChapterSleepLock?
+    var isSleepTimerActive: Bool {
+        sleepTimerEndDate != nil || sleepStopAfterSongID != nil || sleepStopAfterChapter != nil
+    }
 
     // MARK: - Spoken word
 
@@ -988,6 +999,16 @@ final class AudioPlayerService {
     /// Set while a resume seek is in flight so the position writer cannot
     /// store the zero the clock reports before the seek lands.
     @ObservationIgnored var pendingSpokenWordResumeSongID: String?
+
+    // MARK: - Medley
+
+    /// True while the queue is a medley: slices of songs joined by
+    /// crossfades. See `AudioPlayerService+Medley`.
+    var isMedleyActive = false
+    /// Songs in the queue that carry a medley slice rather than their own
+    /// timeline. Their library rows must never learn the slice's length.
+    @ObservationIgnored var medleySongIDs: Set<String> = []
+    @ObservationIgnored var isInstallingMedleyQueue = false
 
     var displayLink: Timer?
     @ObservationIgnored var playbackClockTickGate = PlaybackClockTickGate()
@@ -1294,6 +1315,7 @@ final class AudioPlayerService {
         observeSpatialAudioSettings()
         observePlaybackRate()
         observeOutputPipelineSettings()
+        observeReplayGainSettings()
         NotificationCenter.default.addObserver(
             forName: .primuseArtistNameConfigurationDidChange,
             object: nil,
@@ -1564,9 +1586,7 @@ final class AudioPlayerService {
 
     /// 同步当前 playbackRate 到 engine. 设置变化或新歌开播都会调它。
     func applyPlaybackRate() {
-        let requestedRate = playbackSettings.outputMode == .effects
-            ? playbackSettings.playbackRate
-            : 1
+        let requestedRate = requestedPlaybackRate
         if isSystemAudioPlaybackActive,
            abs(requestedRate - 1) >= 0.001,
            let id = playID {
@@ -1610,7 +1630,9 @@ final class AudioPlayerService {
     }
 
     func shouldUseCrossfade(_ settings: PlaybackSettings) -> Bool {
-        settings.outputMode == .effects && settings.crossfadeEnabled
+        // A medley is joined by crossfades whether or not they are on for
+        // ordinary listening.
+        settings.outputMode == .effects && (settings.crossfadeEnabled || isMedleyActive)
     }
 
     /// Builds a direct PCM graph only from the rate reported by the active
@@ -1790,6 +1812,7 @@ final class AudioPlayerService {
     private func observePlaybackRate() {
         withObservationTracking {
             _ = playbackSettings.playbackRate
+            _ = playbackSettings.spokenWordPlaybackRate
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -2924,9 +2947,7 @@ final class AudioPlayerService {
         playID id: UUID,
         sourceStreamEpoch: UInt64
     ) async -> Bool {
-        let requestedPlaybackRate = playbackSettings.outputMode == .effects
-            ? playbackSettings.playbackRate
-            : 1
+        let requestedPlaybackRate = self.requestedPlaybackRate(for: song)
         // The established PCM graph owns variable-speed playback. Keep that
         // path whenever the user requests a non-default rate so the UI and
         // audible transport cannot disagree about elapsed time.
@@ -5677,7 +5698,10 @@ final class AudioPlayerService {
                 if self.applyResolvedDuration(effectiveDuration, toSongID: songID) {
                     self.updateNowPlayingInfo()
                 }
-                if let library = self.library, var existing = library.song(id: songID) {
+                // A medley slice reports the slice's length; the song itself
+                // is as long as it always was.
+                if !self.medleySongIDs.contains(songID),
+                   let library = self.library, var existing = library.song(id: songID) {
                     existing.duration = effectiveDuration
                     library.replaceSong(existing)
                 }
@@ -5691,6 +5715,8 @@ final class AudioPlayerService {
     /// Merge the newest usable duration immediately before playback ownership
     /// moves to that snapshot.
     func songRefreshingLatestDuration(_ song: Song) -> Song {
+        // A medley slice's duration is the slice, not the library's length.
+        guard !medleySongIDs.contains(song.id) else { return song }
         var refreshed = song
         refreshed.duration = AudioDurationPolicy.playbackHandoffDuration(
             snapshot: song.duration,

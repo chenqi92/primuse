@@ -454,7 +454,7 @@ struct MacMiniPlayerView: View {
                 }
             } label: {
                 Image(systemName: player.currentItemIsSpokenWord
-                    ? "gobackward.15"
+                    ? player.spokenWordSkipBackwardSymbol
                     : "backward.end.fill")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(PMColor.text)
@@ -494,7 +494,7 @@ struct MacMiniPlayerView: View {
                 }
             } label: {
                 Image(systemName: player.currentItemIsSpokenWord
-                    ? "goforward.30"
+                    ? player.spokenWordSkipForwardSymbol
                     : "forward.end.fill")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(PMColor.text)

@@ -203,5 +203,6 @@ extension AudioPlayerService {
         sleepTimerTask = nil
         sleepTimerEndDate = nil
         sleepStopAfterSongID = nil
+        sleepStopAfterChapter = nil
     }
 }

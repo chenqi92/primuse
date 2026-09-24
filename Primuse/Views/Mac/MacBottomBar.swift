@@ -156,7 +156,7 @@ struct MacBottomBar: View {
                     .pmFadeTransition()
                 }
                 if player.currentItemIsSpokenWord, !player.isLiveRadio {
-                    transportBtn("gobackward.15", size: 13, help: "a11y_skip_backward") {
+                    transportBtn(player.spokenWordSkipBackwardSymbol, size: 13, help: "a11y_skip_backward") {
                         player.skipSpokenWordBackward()
                     }
                     .pmFadeTransition()
@@ -193,7 +193,7 @@ struct MacBottomBar: View {
                     : (player.isPlaying ? "pause" : "play")))
 
                 if player.currentItemIsSpokenWord, !player.isLiveRadio {
-                    transportBtn("goforward.30", size: 13, help: "a11y_skip_forward") {
+                    transportBtn(player.spokenWordSkipForwardSymbol, size: 13, help: "a11y_skip_forward") {
                         player.skipSpokenWordForward()
                     }
                     .pmFadeTransition()

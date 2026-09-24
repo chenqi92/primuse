@@ -165,6 +165,11 @@ final class AudioEngine {
     private var headphoneMotionManager: CMHeadphoneMotionManager?
     private var transportFadeTask: Task<Void, Never>?
     private var transportFadeRestoreVolume: Float?
+    /// The primary node's steady-state volume: unity, or the ReplayGain volume
+    /// of the song it started playing. Transport fades and crossfade ramps move
+    /// the node away from it and come back to it. Gapless successors keep it
+    /// and carry their own gain in their samples instead.
+    private(set) var primaryProgramVolume: Float = 1
 
     private static let transportFadeStepCount = 6
     private static let transportFadeStepDuration: Duration = .milliseconds(8)
@@ -397,6 +402,8 @@ final class AudioEngine {
         self.engine = eng
         self.playerNode = playerA
         self.crossfadePlayerNode = playerB
+        // Fresh nodes play at unity; the caller re-applies ReplayGain.
+        primaryProgramVolume = 1
         nodeRegistry.attach(playerA, to: .primary)
         nodeRegistry.attach(playerB, to: .crossfade)
         self.playerMixer = mixer
@@ -1086,7 +1093,8 @@ final class AudioEngine {
             }
             guard !Task.isCancelled else { return }
             self.pauseImmediately()
-            self.playerNode?.volume = targetVolume
+            // ReplayGain may have landed mid-fade and moved the target.
+            self.playerNode?.volume = self.transportFadeRestoreVolume ?? targetVolume
             self.transportFadeRestoreVolume = nil
             self.transportFadeTask = nil
         }
@@ -1138,11 +1146,12 @@ final class AudioEngine {
                 }
                 guard !Task.isCancelled else { return }
                 let progress = Float(step) / Float(Self.transportFadeStepCount)
+                let liveTarget = self.transportFadeRestoreVolume ?? targetVolume
                 self.playerNode?.volume = startVolume
-                    + (targetVolume - startVolume) * Self.fadeInGain(at: progress)
+                    + (liveTarget - startVolume) * Self.fadeInGain(at: progress)
             }
             guard !Task.isCancelled else { return }
-            self.playerNode?.volume = targetVolume
+            self.playerNode?.volume = self.transportFadeRestoreVolume ?? targetVolume
             self.transportFadeRestoreVolume = nil
             self.transportFadeTask = nil
         }
@@ -1307,9 +1316,11 @@ final class AudioEngine {
 
     // MARK: - Crossfade Volume
 
-    /// Set volumes for crossfade transition.
-    /// primaryVolume: volume of current playerNode (1→0 during fade out)
-    /// crossfadeVolume: volume of crossfade node (0→1 during fade in)
+    /// Set volumes for crossfade transition. The caller passes volumes that
+    /// are already scaled by each song's program volume, see
+    /// `ReplayGainPolicy.crossfadeVolumes`.
+    /// primary: volume of the current playerNode (program volume → 0 while fading out)
+    /// crossfade: volume of the crossfade node (0 → program volume while fading in)
     func setCrossfadeVolumes(primary: Float, crossfade: Float) {
         guard outputMode == .effects else { return }
         cancelTransportFade(restoreVolume: true)
@@ -1318,7 +1329,9 @@ final class AudioEngine {
     }
 
     /// Swap primary and crossfade player nodes after a crossfade completes.
-    func swapPlayerNodes() {
+    /// `programVolume` is the incoming song's steady-state volume. The ramp has
+    /// already landed there, so the swap itself changes nothing audible.
+    func swapPlayerNodes(programVolume: Float) {
         let temp = playerNode
         playerNode = crossfadePlayerNode
         crossfadePlayerNode = temp
@@ -1331,41 +1344,38 @@ final class AudioEngine {
         crossfadePlayerNode?.reset()
         crossfadePlayerNode?.volume = 0
 
-        // Ensure primary is at full volume
-        playerNode?.volume = 1.0
+        // The incoming song keeps the volume the ramp faded it in to.
+        primaryProgramVolume = programVolume
+        playerNode?.volume = programVolume
     }
 
     // MARK: - ReplayGain
 
-    /// Apply ReplayGain adjustment to the primary player node.
-    /// gain: dB value from ReplayGain tag
-    /// peak: peak sample value (0-1 range), used to prevent clipping
-    func applyReplayGain(gain: Double?, peak: Double?) {
-        guard outputMode == .effects else {
-            playerNode?.volume = 1
-            return
+    /// Sets the primary node's steady-state volume, normally a song's
+    /// ReplayGain volume from `ReplayGainPolicy.linearGain`. While a pause or
+    /// resume fade is running it only moves that fade's target, so the fade
+    /// cannot finish by restoring the volume it started from.
+    func applyProgramVolume(_ volume: Float) {
+        let linear = outputMode == .effects && volume.isFinite ? max(0, volume) : 1
+        primaryProgramVolume = linear
+        if transportFadeTask != nil {
+            transportFadeRestoreVolume = linear
+        } else {
+            playerNode?.volume = linear
         }
-        guard let gain else {
-            playerNode?.volume = 1.0
-            return
-        }
-
-        var linearGain = Float(pow(10.0, gain / 20.0))
-
-        // Prevent clipping using peak value
-        if let peak, peak > 0 {
-            let maxGain = Float(1.0 / peak)
-            linearGain = min(linearGain, maxGain)
-        }
-
-        // Clamp to reasonable range
-        linearGain = max(0.0, min(linearGain, 4.0))
-        playerNode?.volume = linearGain
     }
 
     func resetPlayerVolume() {
         cancelTransportFade(restoreVolume: false)
+        primaryProgramVolume = 1
         playerNode?.volume = 1.0
+    }
+
+    /// Puts the primary node back on its program volume after a crossfade
+    /// ramp was abandoned before the swap.
+    func restorePrimaryProgramVolume() {
+        cancelTransportFade(restoreVolume: false)
+        playerNode?.volume = primaryProgramVolume
     }
 
     /// A paused AVAudioEngine freezes its whole render graph. The spatial
@@ -1433,29 +1443,6 @@ final class AudioEngine {
 
     private static func fadeOutGain(at progress: Float) -> Float {
         1 - fadeInGain(at: progress)
-    }
-
-    /// Apply ReplayGain to the crossfade node (before crossfade starts).
-    /// The crossfade volume ramp is applied on top of this base volume.
-    func applyCrossfadeReplayGain(gain: Double?, peak: Double?) {
-        guard outputMode == .effects else { return }
-        guard let gain else {
-            // Store base volume as 1.0; crossfade ramp will modulate from 0→1
-            crossfadePlayerNode?.volume = 0 // will be ramped by crossfade
-            return
-        }
-
-        var linearGain = Float(pow(10.0, gain / 20.0))
-        if let peak, peak > 0 {
-            let maxGain = Float(1.0 / peak)
-            linearGain = min(linearGain, maxGain)
-        }
-        linearGain = max(0.0, min(linearGain, 4.0))
-
-        // Store in a tag property — the crossfade ramp will multiply by this
-        // For now, we'll apply after swap since crossfade ramp controls volume 0→1
-        // The RG volume is applied after the swap completes
-        crossfadePlayerNode?.volume = 0 // crossfade starts silent, ramp handles it
     }
 
     // MARK: - Time Tracking

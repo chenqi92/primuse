@@ -125,6 +125,14 @@ private struct FFmpegFileInfoSnapshot: Sendable {
     let codecName: String
 }
 
+/// What FFmpeg's demuxer knows about a file beyond its PCM: technical
+/// properties plus the container's own tags and attached cover.
+struct FFmpegContainerMetadata: Sendable {
+    let info: AudioFileInfo
+    let tags: [(key: String, value: String)]
+    let coverArtData: Data?
+}
+
 /// Runs all potentially blocking FFmpeg calls on a private serial queue. The
 /// bridge's AVIO interrupt callback normally aborts stalled I/O first; this
 /// outer deadline is the control-plane fallback for a dead mounted filesystem
@@ -196,6 +204,26 @@ private final class FFmpegBridgeWorker: @unchecked Sendable {
                 bitDepth: info.bitDepth,
                 bitRateKbps: info.bitRateKbps,
                 codecName: info.codecName
+            )
+        }
+    }
+
+    func probeMetadata(_ url: URL) async throws -> FFmpegContainerMetadata {
+        try await performBlocking {
+            let info = try FFmpegDecoderBridge.probeMetadata(for: url)
+            return FFmpegContainerMetadata(
+                info: AudioFileInfo(
+                    duration: info.duration,
+                    sampleRate: info.sampleRate,
+                    channelCount: info.channelCount,
+                    bitDepth: info.bitDepth > 0 ? info.bitDepth : nil,
+                    bitRate: info.bitRateKbps > 0 ? info.bitRateKbps : nil,
+                    format: info.codecName.uppercased()
+                ),
+                tags: info.tags.compactMap { pair in
+                    pair.count == 2 ? (key: pair[0], value: pair[1]) : nil
+                },
+                coverArtData: info.coverArtData
             )
         }
     }
@@ -591,7 +619,8 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
         "aac", "dts", "dtshd", "ac3", "eac3", "ec3", "mlp", "truehd", "thd",
         "wma", "asf", "xma", "oma", "aa3", "at3", "atrac", "amr",
         "awb", "tak", "tta", "wv", "ape", "mpc", "mpp", "shn", "spx",
-        "qoa", "dsf", "dff", "dtswav"
+        "qoa", "dsf", "dff", "dtswav",
+        "mka", "webm", "weba", "mp2", "mpa", "mp1", "m2a", "w64", "rf64", "bw64", "ra"
     ]
 
     func canDecode(url: URL) -> Bool {
@@ -616,6 +645,13 @@ final class FFmpegAudioDecoder: PrimuseAudioDecoder {
 
     static func dataContainsDTSSync(_ data: Data) -> Bool {
         FFmpegDecoderBridge.dataContainsDTSSync(data)
+    }
+
+    /// Tags and cover for containers only FFmpeg opens. Runs on the bounded
+    /// probe lane like `fileInfo(for:)`.
+    func containerMetadata(for url: URL) async throws -> FFmpegContainerMetadata {
+        guard url.isFileURL else { throw AudioDecoderError.unsupportedFormat(url.pathExtension) }
+        return try await FFmpegBridgeWorker(laneKind: .probe).probeMetadata(url)
     }
 
     func fileInfo(for url: URL) async throws -> AudioFileInfo {

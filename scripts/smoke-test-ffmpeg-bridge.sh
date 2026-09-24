@@ -39,6 +39,32 @@ trap cleanup EXIT
   -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
   -ac 2 -c:a truehd -strict -2 -f truehd "$SMOKE_DIR/tone.truehd"
 
+# Containers only FFmpeg opens. `tagged-`/`covered-` prefixes tell the smoke
+# binary to require the title tag (and cover) from the metadata probe.
+SMOKE_TAGS=(-metadata "title=Smoke Title" -metadata artist=Smoke -metadata album=Fixtures)
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "color=c=red:s=64x64" -frames:v 1 "$SMOKE_DIR/cover.jpg"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=44100" \
+  -ac 2 -c:a flac "${SMOKE_TAGS[@]}" \
+  -attach "$SMOKE_DIR/cover.jpg" -metadata:s:t mimetype=image/jpeg -metadata:s:t filename=cover.jpg \
+  "$SMOKE_DIR/covered-tone.mka"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
+  -ac 2 -c:a opus -strict -2 "${SMOKE_TAGS[@]}" "$SMOKE_DIR/tagged-tone.webm"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
+  -ac 2 -c:a mp2 "$SMOKE_DIR/tone.mp2"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=96000" \
+  -ac 2 -c:a pcm_s24le -f w64 "$SMOKE_DIR/tone.w64"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
+  -ac 2 -c:a pcm_s16le -rf64 always "${SMOKE_TAGS[@]}" -f wav "$SMOKE_DIR/tagged-tone.rf64"
+"$FFMPEG_BIN" -hide_banner -loglevel error \
+  -f lavfi -i "sine=frequency=997:duration=1.5:sample_rate=48000" \
+  -ac 2 -c:a ac3 "${SMOKE_TAGS[@]}" -f rm "$SMOKE_DIR/tagged-tone.ra"
+
 FRAMEWORK_ROOT="$ROOT_DIR/Frameworks/FFmpeg"
 RUNTIME_DIR="$SMOKE_DIR/Frameworks"
 mkdir -p "$RUNTIME_DIR"
@@ -97,4 +123,10 @@ mkfifo "$SMOKE_DIR/queued-b.dts"
   "$SMOKE_DIR/tone.aac" \
   "$SMOKE_DIR/tone.mlp" \
   "$SMOKE_DIR/tone.truehd" \
+  "$SMOKE_DIR/covered-tone.mka" \
+  "$SMOKE_DIR/tagged-tone.webm" \
+  "$SMOKE_DIR/tone.mp2" \
+  "$SMOKE_DIR/tone.w64" \
+  "$SMOKE_DIR/tagged-tone.rf64" \
+  "$SMOKE_DIR/tagged-tone.ra" \
   "$@"
