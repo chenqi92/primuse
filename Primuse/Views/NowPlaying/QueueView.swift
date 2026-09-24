@@ -10,17 +10,21 @@ struct QueueView: View {
     /// 队列以半屏 sheet 呈现, 手机横屏下可视高度只够两行出头, 行距与底部留白收一档。
     @Environment(\.pmHeightClass) private var heightClass
     @State private var dropTarget: QueueReorderOccurrenceID?
-    /// 已播放默认收起:队列页要看的是接下来放什么,听过的列表越放越长会把它挤下去。
+    /// 分组面板那一套播放页(`PlayerStage.sheetActions`)下,已播放默认收起:队列页要看的是
+    /// 接下来放什么,听过的列表越放越长会把它挤下去。
     @State private var showsPlayed = false
+    @Environment(\.skin) private var skin
 
     var body: some View {
+        // 在这里取值再传给工具栏:导航栏条目由独立宿主渲染,不在那里读环境。
+        let extendedQueue = skin.usesSheetActionsPlayer
         NavigationStack {
-            content
+            content(extended: extendedQueue)
                 .navigationTitle("queue_title")
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
                 #endif
-                .toolbar { shuffleToolbarContent }
+                .toolbar { shuffleToolbarContent(showsRepeat: extendedQueue) }
         }
     }
 
@@ -29,7 +33,7 @@ struct QueueView: View {
     /// 只读 `player` 这个存储属性, 不碰 @Environment: 导航栏条目会在转场期间
     /// 由独立的宿主渲染, 在那里读必需的环境值会直接崩。
     @ToolbarContentBuilder
-    private var shuffleToolbarContent: some ToolbarContent {
+    private func shuffleToolbarContent(showsRepeat: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             let isOn = player.shuffleEnabled
             Button {
@@ -45,26 +49,28 @@ struct QueueView: View {
             .accessibilityValue(Text(isOn ? "a11y_value_on" : "a11y_value_off"))
         }
         // 循环也放在这里:关 → 全部 → 单曲,和播放页的循环键同一个顺序。
-        ToolbarItem(placement: .primaryAction) {
-            let mode = player.repeatMode
-            Button {
-                switch mode {
-                case .off: player.repeatMode = .all
-                case .all: player.repeatMode = .one
-                case .one: player.repeatMode = .off
+        if showsRepeat {
+            ToolbarItem(placement: .primaryAction) {
+                let mode = player.repeatMode
+                Button {
+                    switch mode {
+                    case .off: player.repeatMode = .all
+                    case .all: player.repeatMode = .one
+                    case .one: player.repeatMode = .off
+                    }
+                } label: {
+                    Image(systemName: mode == .one ? "repeat.1" : "repeat")
+                        .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
+                        .contentTransition(.symbolEffect(.replace))
                 }
-            } label: {
-                Image(systemName: mode == .one ? "repeat.1" : "repeat")
-                    .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
-                    .contentTransition(.symbolEffect(.replace))
+                .accessibilityLabel(Text("a11y_repeat"))
+                .accessibilityValue(Text(mode == .off ? "a11y_value_off" : "a11y_value_on"))
             }
-            .accessibilityLabel(Text("a11y_repeat"))
-            .accessibilityValue(Text(mode == .off ? "a11y_value_off" : "a11y_value_on"))
         }
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(extended: Bool) -> some View {
         let entries = player.queueEntries
         if entries.isEmpty {
             EmptyStateView(
@@ -84,15 +90,15 @@ struct QueueView: View {
                     let currentIndex = min(max(player.currentIndex, 0), entries.count - 1)
                     let currentEntry = entries[currentIndex]
                     queueSection(title: "now_playing") {
-                        // 正在播放单独成一张卡片,和下面的列表分开。
+                        // 分组面板那一套下,正在播放单独成一张卡片,和下面的列表分开。
                         queueRow(
                             entry: currentEntry,
                             displayedSong: player.currentSong ?? currentEntry.song,
                             isPlaying: true
                         )
-                        .padding(.vertical, 4)
+                        .padding(.vertical, extended ? 4 : 0)
                         .background(
-                            Color.accentColor.opacity(0.12),
+                            extended ? Color.accentColor.opacity(0.12) : Color.clear,
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
                     }
@@ -116,7 +122,13 @@ struct QueueView: View {
                     }
 
                     let played = player.playedQueueEntries
-                    if !played.isEmpty {
+                    if !played.isEmpty, !extended {
+                        queueSection(title: "played") {
+                            ForEach(played) { presentation in
+                                queueRow(entry: presentation.entry, dimmed: true)
+                            }
+                        }
+                    } else if !played.isEmpty {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             Button {
                                 pmWithAnimation(.list) { showsPlayed.toggle() }
