@@ -4480,3 +4480,13 @@
 "karaoke_ai_clear_cache_format" = "مسح الأغاني المفصولة (%@)";
 "karaoke_ai_remove_model" = "إزالة نموذج الذكاء الاصطناعي";
 "karaoke_ai_word_timing" = "توقيت الكلمات مقدّر بالذكاء الاصطناعي";
+"karaoke_tv_unsupported" = "لا يمكن خفض صوت المغني لصيغة هذه الأغنية على Apple TV.";
+"karaoke_tv_scan_title" = "غنِّ باستخدام iPhone";
+"karaoke_tv_scan_hint" = "امسح بالكاميرا. يقيّم iPhone الغناء، ولا يُشغَّل صوتك عبر التلفاز.";
+"karaoke_tv_mic_connected_format" = "%@ متصل";
+"karaoke_remote_title" = "ميكروفون لـ Apple TV";
+"karaoke_remote_connecting" = "جارٍ الاتصال بـ Apple TV…";
+"karaoke_remote_connected" = "تم الاتصال. ابدأ الغناء.";
+"karaoke_remote_rejected" = "لم يقبل Apple TV هذا الرمز. امسح الرمز على التلفاز مرة أخرى.";
+"karaoke_remote_failed" = "تعذّر الوصول إلى Apple TV. تأكد من أن الجهازين على الشبكة نفسها.";
+"karaoke_remote_hint" = "أمسك iPhone قرب فمك. يُسمع صوتك في الغرفة كالمعتاد، وiPhone يقيّم فقط.";

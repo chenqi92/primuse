@@ -4480,3 +4480,13 @@
 "karaoke_ai_clear_cache_format" = "अलग किए गए गाने हटाएँ (%@)";
 "karaoke_ai_remove_model" = "AI मॉडल हटाएँ";
 "karaoke_ai_word_timing" = "शब्दों का समय AI का अनुमान";
+"karaoke_tv_unsupported" = "इस गाने के फ़ॉर्मैट में Apple TV पर वोकल कम नहीं किया जा सकता।";
+"karaoke_tv_scan_title" = "iPhone से गाएँ";
+"karaoke_tv_scan_hint" = "कैमरा से स्कैन करें। iPhone गाने का स्कोर देता है; आपकी आवाज़ TV पर नहीं चलती।";
+"karaoke_tv_mic_connected_format" = "%@ जुड़ा है";
+"karaoke_remote_title" = "Apple TV के लिए माइक";
+"karaoke_remote_connecting" = "Apple TV से जुड़ रहा है…";
+"karaoke_remote_connected" = "जुड़ गया। गाना शुरू करें।";
+"karaoke_remote_rejected" = "Apple TV ने यह कोड स्वीकार नहीं किया। TV पर दिख रहा कोड फिर से स्कैन करें।";
+"karaoke_remote_failed" = "Apple TV तक नहीं पहुँच सके। पक्का करें कि दोनों एक ही नेटवर्क पर हैं।";
+"karaoke_remote_hint" = "iPhone को मुँह के पास रखें। आपकी आवाज़ कमरे में वैसे ही सुनाई देगी; iPhone सिर्फ़ स्कोर देता है।";

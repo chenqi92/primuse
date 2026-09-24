@@ -7,6 +7,7 @@ import PrimuseKit
 struct TVOptionsView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    @State private var showKaraoke = false
 
     private struct Action: Identifiable {
         let id = UUID()
@@ -21,7 +22,10 @@ struct TVOptionsView: View {
     private var actions: [Action] {
         let liked = store.currentSongID.map(store.isLiked) ?? false
         let sleepOn = store.sleepTimerMinutes > 0
-        return [
+        let karaoke: [Action] = store.currentSongID == nil ? [] : [
+            .init(icon: "music.mic", label: String(localized: "karaoke_title"), run: { showKaraoke = true }),
+        ]
+        return karaoke + [
             .init(icon: liked ? "heart.fill" : "heart",
                   label: liked ? PMString("ext.tv.options.loved") : PMString("ext.tv.options.love"), on: liked,
                   run: { if let id = store.currentSongID { store.toggleLiked(id) } }),
@@ -73,6 +77,9 @@ struct TVOptionsView: View {
         }
         .onExitCommand { dismiss() }
         .onAppear { FullscreenPlayerEffectSync.shared.install() }
+        .fullScreenCover(isPresented: $showKaraoke) {
+            TVKaraokeStageView()
+        }
     }
 
     private func actionTile(_ a: Action) -> some View {

@@ -4575,3 +4575,13 @@
 "karaoke_ai_clear_cache_format" = "分離済みの曲を削除（%@）";
 "karaoke_ai_remove_model" = "AIモデルを削除";
 "karaoke_ai_word_timing" = "単語のタイミングはAIによる推定";
+"karaoke_tv_unsupported" = "この曲の形式ではApple TVでボーカルを下げられません。";
+"karaoke_tv_scan_title" = "iPhoneをマイクにする";
+"karaoke_tv_scan_hint" = "カメラでスキャン。iPhoneが採点し、歌声はテレビから流れません。";
+"karaoke_tv_mic_connected_format" = "%@ が接続中";
+"karaoke_remote_title" = "Apple TVのマイク";
+"karaoke_remote_connecting" = "Apple TVに接続中…";
+"karaoke_remote_connected" = "接続しました。歌いましょう。";
+"karaoke_remote_rejected" = "Apple TVがこのコードを受け付けませんでした。テレビのコードをもう一度スキャンしてください。";
+"karaoke_remote_failed" = "Apple TVに接続できません。同じネットワークにあるか確認してください。";
+"karaoke_remote_hint" = "iPhoneを口元に持ってください。歌声はそのまま部屋に響き、iPhoneは採点だけします。";

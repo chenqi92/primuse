@@ -215,6 +215,16 @@ final class TVAudioEngine {
     @ObservationIgnored private var spectrumTask: Task<Void, Never>?
     @ObservationIgnored private var spectrumSetupTask: Task<Void, Never>?
     @ObservationIgnored private var spectrumAnalysisEnabled = false
+    /// Karaoke vocal reduction runs in the same AVPlayer tap as the spectrum.
+    @ObservationIgnored let karaokeProcessor = TVKaraokeProcessor()
+    @ObservationIgnored private lazy var tapContext = TVAudioTapContext(
+        pipeline: spectrumPipeline,
+        karaoke: karaokeProcessor
+    )
+    @ObservationIgnored private var karaokeTapWanted = false
+    /// The karaoke processor sits in the playing item's tap. False on the
+    /// SFB / live PCM paths, which karaoke does not cover.
+    private(set) var isKaraokeTapInstalled = false
     @ObservationIgnored private var remotePreviousTrackCommandEnabled = false
     @ObservationIgnored private var remoteNextTrackCommandEnabled = false
 
@@ -748,7 +758,7 @@ final class TVAudioEngine {
         }
         installSegmentBoundaryObserver(expectedItemID: observedItemID)
         installStalledObserver(for: item, expectedItemID: observedItemID)
-        if spectrumAnalysisEnabled {
+        if spectrumAnalysisEnabled || karaokeTapWanted {
             installAVPlayerSpectrumTap(on: item, expectedItemID: observedItemID)
         }
         endObserver = NotificationCenter.default.addObserver(
@@ -1059,7 +1069,26 @@ final class TVAudioEngine {
             installCurrentSpectrumSource()
         } else {
             clearSpectrumSource()
+            if karaokeTapWanted { installCurrentKaraokeTap() }
         }
+    }
+
+    /// Puts the karaoke processor into (or takes it out of) the playing
+    /// item's audio tap.
+    func setKaraokeTapEnabled(_ enabled: Bool) {
+        guard karaokeTapWanted != enabled else { return }
+        karaokeTapWanted = enabled
+        if enabled {
+            installCurrentKaraokeTap()
+        } else if !spectrumAnalysisEnabled {
+            clearSpectrumSource()
+        }
+    }
+
+    private func installCurrentKaraokeTap() {
+        guard karaokeTapWanted, !usingSFB, !usingLivePCM, processingTap == nil,
+              let item = player.currentItem, let activeItemID else { return }
+        installAVPlayerSpectrumTap(on: item, expectedItemID: activeItemID)
     }
 
     private func installCurrentSpectrumSource() {
@@ -1079,7 +1108,7 @@ final class TVAudioEngine {
         on item: AVPlayerItem,
         expectedItemID: ObjectIdentifier
     ) {
-        guard spectrumAnalysisEnabled else { return }
+        guard spectrumAnalysisEnabled || karaokeTapWanted else { return }
         spectrumSetupTask?.cancel()
         spectrumSetupTask = Task { [weak self, weak item] in
             guard let item else { return }
@@ -1087,10 +1116,10 @@ final class TVAudioEngine {
                 let tracks = try await item.asset.loadTracks(withMediaType: .audio)
                 guard !Task.isCancelled,
                       let self,
-                      self.spectrumAnalysisEnabled,
+                      self.spectrumAnalysisEnabled || self.karaokeTapWanted,
                       self.activeItemID == expectedItemID,
                       let track = tracks.first,
-                      let tap = TVAudioProcessingTapFactory.make(pipeline: self.spectrumPipeline) else {
+                      let tap = TVAudioProcessingTapFactory.make(context: self.tapContext) else {
                     return
                 }
 
@@ -1100,7 +1129,8 @@ final class TVAudioEngine {
                 mix.inputParameters = [parameters]
                 item.audioMix = mix
                 self.processingTap = tap
-                self.startSpectrumPolling()
+                self.isKaraokeTapInstalled = true
+                if self.spectrumAnalysisEnabled { self.startSpectrumPolling() }
             } catch {
                 // 部分直播流没有可枚举的 AVAssetTrack；这时保持零频谱，绝不伪造数据。
                 plog("TVAudioEngine: spectrum track unavailable — \(error.localizedDescription)")
@@ -1171,6 +1201,7 @@ final class TVAudioEngine {
         tappedMixer = nil
         player.currentItem?.audioMix = nil
         processingTap = nil
+        isKaraokeTapInstalled = false
         spectrumPipeline.reset()
         resetSpectrumLevels()
     }
@@ -2047,22 +2078,41 @@ private enum TVMixerSpectrumTap {
     }
 }
 
+/// What the AVPlayer tap feeds: the spectrum pipeline always reads, the
+/// karaoke processor may rewrite the audio first. Owned by the engine for
+/// its whole life, so the tap can hold it unretained.
+private final class TVAudioTapContext: @unchecked Sendable {
+    let pipeline: TVRealtimeSpectrumPipeline
+    let karaoke: TVKaraokeProcessor
+
+    init(pipeline: TVRealtimeSpectrumPipeline, karaoke: TVKaraokeProcessor) {
+        self.pipeline = pipeline
+        self.karaoke = karaoke
+    }
+}
+
 private enum TVAudioProcessingTapFactory {
-    static func make(pipeline: TVRealtimeSpectrumPipeline) -> MTAudioProcessingTap? {
+    static func make(context: TVAudioTapContext) -> MTAudioProcessingTap? {
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
-            clientInfo: Unmanaged.passUnretained(pipeline).toOpaque(),
+            clientInfo: Unmanaged.passUnretained(context).toOpaque(),
             init: { _, clientInfo, storageOut in
                 storageOut.pointee = clientInfo
             },
             finalize: nil,
-            prepare: { tap, _, processingFormat in
-                let pipeline = Unmanaged<TVRealtimeSpectrumPipeline>
+            prepare: { tap, maxFrames, processingFormat in
+                let context = Unmanaged<TVAudioTapContext>
                     .fromOpaque(MTAudioProcessingTapGetStorage(tap))
                     .takeUnretainedValue()
-                pipeline.configure(format: processingFormat.pointee)
+                context.pipeline.configure(format: processingFormat.pointee)
+                context.karaoke.configure(format: processingFormat.pointee, maxFrames: Int(maxFrames))
             },
-            unprepare: nil,
+            unprepare: { tap in
+                Unmanaged<TVAudioTapContext>
+                    .fromOpaque(MTAudioProcessingTapGetStorage(tap))
+                    .takeUnretainedValue()
+                    .karaoke.unprepare()
+            },
             process: { tap, frameCount, _, bufferList, frameCountOut, flagsOut in
                 let status = MTAudioProcessingTapGetSourceAudio(
                     tap,
@@ -2073,10 +2123,15 @@ private enum TVAudioProcessingTapFactory {
                     frameCountOut
                 )
                 guard status == noErr, frameCountOut.pointee > 0 else { return }
-                let pipeline = Unmanaged<TVRealtimeSpectrumPipeline>
+                let context = Unmanaged<TVAudioTapContext>
                     .fromOpaque(MTAudioProcessingTapGetStorage(tap))
                     .takeUnretainedValue()
-                pipeline.fill(from: bufferList, frameCount: frameCountOut.pointee)
+                context.karaoke.process(
+                    bufferList: bufferList,
+                    frameCount: Int(frameCountOut.pointee),
+                    startOfStream: flagsOut.pointee & kMTAudioProcessingTapFlag_StartOfStream != 0
+                )
+                context.pipeline.fill(from: bufferList, frameCount: frameCountOut.pointee)
             }
         )
         var tap: MTAudioProcessingTap?

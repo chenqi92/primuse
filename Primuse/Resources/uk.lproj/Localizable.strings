@@ -4480,3 +4480,13 @@
 "karaoke_ai_clear_cache_format" = "Очистити розділені пісні (%@)";
 "karaoke_ai_remove_model" = "Видалити модель ШІ";
 "karaoke_ai_word_timing" = "Розбивку за словами оцінено ШІ";
+"karaoke_tv_unsupported" = "Для формату цієї пісні не можна приглушити вокал на Apple TV.";
+"karaoke_tv_scan_title" = "Співайте з iPhone";
+"karaoke_tv_scan_hint" = "Відскануйте камерою. iPhone оцінює спів, голос не виводиться через ТБ.";
+"karaoke_tv_mic_connected_format" = "%@ під’єднано";
+"karaoke_remote_title" = "Мікрофон для Apple TV";
+"karaoke_remote_connecting" = "Під’єднання до Apple TV…";
+"karaoke_remote_connected" = "Під’єднано. Співайте!";
+"karaoke_remote_rejected" = "Apple TV не прийняв цей код. Відскануйте код на ТБ ще раз.";
+"karaoke_remote_failed" = "Не вдається зв’язатися з Apple TV. Переконайтеся, що пристрої в одній мережі.";
+"karaoke_remote_hint" = "Тримайте iPhone біля рота. Голос чути в кімнаті як зазвичай; iPhone лише оцінює.";

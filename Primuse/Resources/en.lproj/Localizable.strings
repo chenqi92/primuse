@@ -4337,3 +4337,13 @@
 "karaoke_ai_clear_cache_format" = "Clear Separated Songs (%@)";
 "karaoke_ai_remove_model" = "Remove AI Model";
 "karaoke_ai_word_timing" = "Word timing estimated by AI";
+"karaoke_tv_unsupported" = "Vocals can’t be reduced for this song’s format on Apple TV.";
+"karaoke_tv_scan_title" = "Sing with your iPhone";
+"karaoke_tv_scan_hint" = "Scan with the Camera. Your iPhone scores the singing; your voice isn’t played through the TV.";
+"karaoke_tv_mic_connected_format" = "%@ is listening";
+"karaoke_remote_title" = "Microphone for Apple TV";
+"karaoke_remote_connecting" = "Connecting to Apple TV…";
+"karaoke_remote_connected" = "Connected. Start singing.";
+"karaoke_remote_rejected" = "The Apple TV didn’t accept this code. Scan the code on the TV again.";
+"karaoke_remote_failed" = "Couldn’t reach the Apple TV. Make sure both are on the same network.";
+"karaoke_remote_hint" = "Hold the iPhone near your mouth. Your voice is heard in the room as usual; the iPhone only scores it.";
