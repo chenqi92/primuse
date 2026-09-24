@@ -22,22 +22,12 @@ struct SmartPlaylistDetailView: View {
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if os(iOS)
-    @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     #endif
 
     @State private var showEditor = false
     @State private var showNoScraperSourceAlert = false
-
-    /// 手机横屏 (纵向紧凑) 才把头部换成矮横带。Mac 没有纵向尺寸等级, 恒为 false。
-    private var usesCompactHeaderLayout: Bool {
-        #if os(iOS)
-        heightClass.isCompact
-        #else
-        false
-        #endif
-    }
 
     private var smart: SmartPlaylist? {
         library.smartPlaylists.first(where: { $0.id == smartPlaylistID })
@@ -175,7 +165,9 @@ struct SmartPlaylistDetailView: View {
         matched: [Song],
         insets: ImmersiveLibraryDetailInsets
     ) -> some View {
-        let compact = usesCompactHeaderLayout
+        let hero = insets.hero
+        let compact = hero.isCompactHeight
+        let summaryLines = compact ? 2 : LibraryDetailHeroLayoutPolicy.smartSummaryLineLimit(hero.titleTier)
         return VStack(spacing: compact ? 10 : 14) {
             CollectionCoverWallHeader(
                 title: smart.name,
@@ -183,7 +175,10 @@ struct SmartPlaylistDetailView: View {
                 titleSymbol: kindSymbol(smart),
                 songs: matched,
                 nowPlaying: player.currentSong,
-                topInset: insets.top
+                topInset: insets.top,
+                wallHeight: CGFloat(hero.smartPlaylistWallHeight),
+                leadingInset: insets.leading,
+                trailingInset: insets.trailing
             ) {
                 smartSingleHeader(smart, matched: matched, insets: insets)
             }
@@ -192,10 +187,14 @@ struct SmartPlaylistDetailView: View {
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.66))
                 .multilineTextAlignment(.center)
-                .lineLimit(compact ? 2 : 3)
-                .padding(.horizontal, 28)
+                .lineLimit(summaryLines)
+                .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
+                // 横屏与折叠屏上左右安全区不一定相等,按侧让开。
+                .padding(.leading, insets.leading + 28)
+                .padding(.trailing, insets.trailing + 28)
 
-            smartActionRow(matched)
+            smartActionRow(matched, arrangement: hero.actionRow)
+                .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
                 .padding(.leading, insets.leading + 20)
                 .padding(.trailing, insets.trailing + 20)
                 .padding(.top, 4)
@@ -211,37 +210,44 @@ struct SmartPlaylistDetailView: View {
         matched: [Song],
         insets: ImmersiveLibraryDetailInsets
     ) -> some View {
-        let compact = usesCompactHeaderLayout
+        let hero = insets.hero
+        let compact = hero.isCompactHeight
+        let tier = hero.titleTier
         let stacks = !compact || dynamicTypeSize.isAccessibilitySize
-        let coverSide: CGFloat = compact ? 112 : 200
-        let glyphSize: CGFloat = compact ? 42 : 64
+        let stack = compact
+            ? LibraryDetailArtworkStack(ideal: 112, minimum: 112, budget: .infinity, spacing: 20)
+            : hero.smartPlaylistCover
         let identityLayout = stacks
-            ? AnyLayout(VStackLayout(spacing: 20))
+            ? AnyLayout(LibraryDetailArtworkStackLayout(stack: stack))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
 
         return identityLayout {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(LinearGradient(
-                        colors: smart.effectiveKind == .ai
-                            ? [.pink.opacity(0.78), .orange.opacity(0.72)]
-                            : [.purple.opacity(0.7), .blue.opacity(0.7)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ))
-                Image(systemName: kindSymbol(smart))
-                    .font(.system(size: glyphSize))
-                    .foregroundStyle(.white)
+            LibraryDetailArtworkSlot { size in
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(LinearGradient(
+                            colors: smart.effectiveKind == .ai
+                                ? [.pink.opacity(0.78), .orange.opacity(0.72)]
+                                : [.purple.opacity(0.7), .blue.opacity(0.7)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                    // 图标跟着色块的边长走:原来 200 配 64、横屏 112 配 42。
+                    Image(systemName: kindSymbol(smart))
+                        .font(.system(size: compact ? 42 : max(32, size.width * 0.32)))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: size.width, height: size.height)
+                .shadow(color: .black.opacity(0.3), radius: 22, y: 12)
             }
-            .frame(width: coverSide, height: coverSide)
-            .shadow(color: .black.opacity(0.3), radius: 22, y: 12)
+            .frame(width: compact ? 112 : nil, height: compact ? 112 : nil)
             .accessibilityHidden(true)
 
             VStack(alignment: stacks ? .center : .leading, spacing: 5) {
                 Text(smart.name)
-                    .font(.title2.weight(.heavy))
+                    .font(tier == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
                     .foregroundStyle(.white)
-                    .lineLimit(compact ? 2 : 3)
+                    .lineLimit(compact ? 2 : LibraryDetailHeroLayoutPolicy.titleLineLimit(tier))
                 Text(verbatim: smartPlaylistMetaText(matched))
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.72))
@@ -251,6 +257,7 @@ struct SmartPlaylistDetailView: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
         }
+        .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
         .padding(.leading, insets.leading + 20)
         .padding(.trailing, insets.trailing + 20)
         .padding(.top, insets.top + (compact ? 12 : 16))
@@ -258,9 +265,12 @@ struct SmartPlaylistDetailView: View {
     }
 
     /// 「随机 · 播放全部 · 下载」,与普通歌单页同一套按钮。
-    private func smartActionRow(_ matched: [Song]) -> some View {
+    private func smartActionRow(
+        _ matched: [Song],
+        arrangement: LibraryDetailActionRowArrangement
+    ) -> some View {
         let playable = matched.filteredPlayable()
-        return HStack(spacing: 14) {
+        return LibraryDetailActionRow(arrangement: arrangement) {
             LibraryDetailCircleButton(
                 systemImage: "shuffle",
                 label: "shuffle",
@@ -271,7 +281,8 @@ struct SmartPlaylistDetailView: View {
             LibraryDetailPlayPill(title: "play_all", disabled: matched.isEmpty) {
                 playAll()
             }
-            .frame(maxWidth: 220)
+            .frame(maxWidth: arrangement.primaryMaxWidth)
+            .libraryDetailPrimaryAction()
             LibraryDetailCircleButton(
                 systemImage: "arrow.down",
                 label: "offline_download",
@@ -280,7 +291,6 @@ struct SmartPlaylistDetailView: View {
                 sourceManager.downloadForOffline(songs: matched)
             }
         }
-        .frame(maxWidth: .infinity)
     }
 
     private func smartTrackList(_ matched: [Song]) -> some View {

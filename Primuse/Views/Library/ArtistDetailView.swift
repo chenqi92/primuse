@@ -17,7 +17,6 @@ struct ArtistDetailView: View {
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
-    @Environment(\.pmHeightClass) private var heightClass
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
     #endif
@@ -236,9 +235,13 @@ struct ArtistDetailView: View {
     /// 渐隐段上,下面一排「随机 · 播放 · 快捷收藏」。
     ///
     /// 手机横屏只剩三百多点高,海报压到 230,名字与按钮跟着降一档,首屏才露得出热门单曲。
+    /// 竖屏海报高度由 `LibraryDetailHeroLayoutPolicy` 按首屏定:Pro 这类机型仍是 440,
+    /// SE、折叠屏外屏这类矮屏收小,按钮始终整排露在底部遮挡上面。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        let compact = heightClass.isCompact
-        let posterHeight: CGFloat = insets.top + (compact ? 230 : 440)
+        let hero = insets.hero
+        let compact = hero.isCompactHeight
+        let reducedTitle = compact || hero.titleTier == .reduced
+        let posterHeight: CGFloat = insets.top + CGFloat(hero.artistPosterHeight)
         let heroBase = tint?.top ?? .black
 
         return ZStack(alignment: .bottom) {
@@ -270,7 +273,7 @@ struct ArtistDetailView: View {
 
             VStack(spacing: compact ? 8 : 10) {
                 Text(verbatim: displayArtistName)
-                    .font(compact ? .title.weight(.heavy) : .largeTitle.weight(.heavy))
+                    .font(reducedTitle ? .title.weight(.heavy) : .largeTitle.weight(.heavy))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -299,6 +302,7 @@ struct ArtistDetailView: View {
                 }
                 .padding(.top, compact ? 4 : 8)
             }
+            .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
             .padding(.leading, insets.leading + 24)
             .padding(.trailing, insets.trailing + 24)
             .padding(.bottom, compact ? 10 : 16)

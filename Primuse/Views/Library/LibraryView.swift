@@ -2500,42 +2500,48 @@ private struct GenreDetailView: View {
     #if os(iOS)
     /// 两套基座共用、与专辑页同一套版式:整页封面色,代表封面的马赛克居中当「封面」,
     /// 下面是名字、数量和一排「随机 · 播放」。手机横屏马赛克缩小并挪到左边。
+    /// 竖屏马赛克按首屏收(`LibraryDetailHeroLayoutPolicy`),横竖切换只换排法。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        let compact = usesCompactHero
-        let mosaicArtworkSize: CGFloat = compact ? 72 : 132
-
-        let identity = VStack(alignment: compact ? .leading : .center, spacing: 4) {
-            Text(verbatim: genre.name)
-                .font(compact ? Font.title.weight(.heavy) : Font.largeTitle.weight(.heavy))
-                .foregroundStyle(.white)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-            Text(
-                verbatim:
-                    "\(albums.count) \(String(localized: "albums_count")) · \(songs.count) \(String(localized: "songs_count"))"
-            )
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.74))
-        }
-        .multilineTextAlignment(compact ? .leading : .center)
-
-        let mosaic = GenreArtworkMosaic(genre: genre, artworkSize: mosaicArtworkSize)
-            .frame(width: mosaicArtworkSize * 1.9, height: mosaicArtworkSize * 1.3)
-            .shadow(color: .black.opacity(0.3), radius: 20, y: 12)
-            .accessibilityHidden(true)
+        let hero = insets.hero
+        let compact = hero.isCompactHeight
+        let reducedTitle = compact || hero.titleTier == .reduced
+        let aspect: CGFloat = 1.9 / 1.3
+        let stack = compact
+            ? LibraryDetailArtworkStack(ideal: 72 * 1.3, minimum: 72 * 1.3, budget: .infinity, spacing: 18)
+            : hero.genreMosaic
+        let identityLayout = compact
+            ? AnyLayout(HStackLayout(spacing: 18))
+            : AnyLayout(LibraryDetailArtworkStackLayout(stack: stack, aspectRatio: aspect))
 
         return VStack(spacing: compact ? 12 : 20) {
-            if compact {
-                HStack(spacing: 18) {
-                    mosaic
-                    identity.frame(maxWidth: .infinity, alignment: .leading)
+            identityLayout {
+                LibraryDetailArtworkSlot { size in
+                    GenreArtworkMosaic(genre: genre, artworkSize: size.height / 1.3)
+                        .frame(width: size.width, height: size.height)
+                        .shadow(color: .black.opacity(0.3), radius: 20, y: 12)
                 }
-            } else {
-                mosaic
-                identity
+                .frame(width: compact ? 72 * 1.9 : nil, height: compact ? 72 * 1.3 : nil)
+                .accessibilityHidden(true)
+
+                VStack(alignment: compact ? .leading : .center, spacing: 4) {
+                    Text(verbatim: genre.name)
+                        .font(reducedTitle ? Font.title.weight(.heavy) : Font.largeTitle.weight(.heavy))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                    Text(
+                        verbatim:
+                            "\(albums.count) \(String(localized: "albums_count")) · \(songs.count) \(String(localized: "songs_count"))"
+                    )
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.74))
+                }
+                .multilineTextAlignment(compact ? .leading : .center)
+                .frame(maxWidth: compact ? .infinity : nil, alignment: .leading)
+                .frame(maxWidth: compact ? nil : .infinity)
             }
 
-            HStack(spacing: 14) {
+            LibraryDetailActionRow(arrangement: hero.actionRow) {
                 LibraryDetailCircleButton(
                     systemImage: "shuffle",
                     label: "shuffle",
@@ -2543,9 +2549,9 @@ private struct GenreDetailView: View {
                     action: shuffleAll
                 )
                 LibraryDetailPlayPill(disabled: playableSongs.isEmpty, action: playAll)
-                    .frame(maxWidth: 220)
+                    .frame(maxWidth: hero.actionRow.primaryMaxWidth)
+                    .libraryDetailPrimaryAction()
             }
-            .frame(maxWidth: .infinity)
 
             LibraryReviewSection(
                 subject: .genre(genre.id),
@@ -2553,6 +2559,7 @@ private struct GenreDetailView: View {
                 onArtwork: true
             )
         }
+        .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
         .padding(.leading, insets.leading + 20)
         .padding(.trailing, insets.trailing + 20)
         .padding(.top, insets.top + (compact ? 12 : 24))

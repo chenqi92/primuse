@@ -163,30 +163,38 @@ struct AlbumDetailView: View {
     }
 
     /// 手机横屏只剩三百多点高:封面缩到 112 并挪到左边,头图压到 200pt 以内,首屏才露得出歌。
+    /// 竖屏的封面边长由 `LibraryDetailHeroLayoutPolicy` 按首屏高度定,再按标题块实际高度收,
+    /// SE 这类矮屏上操作行也整条露在迷你条上面。横竖切换只换排法,不换视图。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
-        let compact = heightClass.isCompact
+        let hero = insets.hero
+        let compact = hero.isCompactHeight
+        let tier = hero.titleTier
         // 无障碍字号下横排放不下, 一律回到竖排居中。
         let stacksIdentity = !compact || dynamicTypeSize.isAccessibilitySize
-        let coverSide: CGFloat = compact ? 112 : 262
+        let stack = compact
+            ? LibraryDetailArtworkStack(ideal: 112, minimum: 112, budget: .infinity, spacing: 22)
+            : hero.album
+        let identityLayout = stacksIdentity
+            ? AnyLayout(LibraryDetailArtworkStackLayout(stack: stack))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
+        let actionSpacing = compact ? 14 : CGFloat(LibraryDetailHeroLayoutPolicy.albumIdentityToActions(tier))
 
-        return VStack(spacing: compact ? 14 : 22) {
-            if stacksIdentity {
-                VStack(spacing: 22) {
-                    heroCover(side: coverSide)
-                    heroIdentityText(centered: true)
+        return VStack(spacing: actionSpacing) {
+            identityLayout {
+                LibraryDetailArtworkSlot { size in
+                    heroCover(side: size.width)
                 }
-                .frame(maxWidth: .infinity)
-            } else {
-                HStack(alignment: .center, spacing: 18) {
-                    heroCover(side: coverSide)
-                    heroIdentityText(centered: false)
-                }
+                .frame(width: compact ? 112 : nil, height: compact ? 112 : nil)
+
+                heroIdentityText(centered: stacksIdentity, tier: tier)
             }
+            .frame(maxWidth: .infinity)
 
-            albumActionRow
+            albumActionRow(hero.actionRow)
 
             LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
         }
+        .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
         // 底色铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
         .padding(.leading, insets.leading + 20)
         .padding(.trailing, insets.trailing + 20)
@@ -206,15 +214,15 @@ struct AlbumDetailView: View {
         .accessibilityHidden(true)
     }
 
-    private func heroIdentityText(centered: Bool) -> some View {
+    private func heroIdentityText(centered: Bool, tier: LibraryDetailTitleTier) -> some View {
         VStack(alignment: centered ? .center : .leading, spacing: 4) {
             Text(album.title)
-                .font(.title2.weight(.heavy))
+                .font(tier == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
                 .foregroundStyle(.white)
-                .lineLimit(heightClass.isCompact ? 2 : 3)
+                .lineLimit(heightClass.isCompact ? 2 : LibraryDetailHeroLayoutPolicy.titleLineLimit(tier))
                 .fixedSize(horizontal: false, vertical: true)
 
-            artistLink
+            artistLink(tier: tier)
 
             if !heroMetaLine.isEmpty {
                 Text(verbatim: heroMetaLine)
@@ -230,9 +238,9 @@ struct AlbumDetailView: View {
     /// 艺术家名可点进艺术家页。专辑页也会从播放页的 sheet 里打开,那个导航栈没登记
     /// `Artist` 目的地,所以这里用视图目的地而不是 value 链接。
     @ViewBuilder
-    private var artistLink: some View {
+    private func artistLink(tier: LibraryDetailTitleTier) -> some View {
         let name = Text(album.artistName ?? String(localized: "unknown_artist"))
-            .font(.title3.weight(.semibold))
+            .font(tier == .regular ? .title3.weight(.semibold) : .headline)
             .foregroundStyle(.white.opacity(0.9))
         if let artistID = album.artistID, let artist = library.visibleArtist(id: artistID) {
             NavigationLink {
@@ -260,28 +268,29 @@ struct AlbumDetailView: View {
         return parts.joined(separator: " \u{00B7} ")
     }
 
-    /// 「随机 · 播放 · 下载」:播放居中最宽,两侧是圆形玻璃键。
-    private var albumActionRow: some View {
-        HStack(spacing: 14) {
+    /// 「随机 · 播放 · 下载」:播放居中最宽,两侧是圆形玻璃键。窄屏或无障碍字号下胶囊独占一行。
+    private func albumActionRow(_ arrangement: LibraryDetailActionRowArrangement) -> some View {
+        let playable = songs.filteredPlayable()
+        return LibraryDetailActionRow(arrangement: arrangement) {
             LibraryDetailCircleButton(
                 systemImage: "shuffle",
                 label: "shuffle",
-                disabled: songs.filteredPlayable().count < 2,
+                disabled: playable.count < 2,
                 action: shuffleAll
             )
-            LibraryDetailPlayPill(disabled: songs.filteredPlayable().isEmpty) {
+            LibraryDetailPlayPill(disabled: playable.isEmpty) {
                 playAll()
             }
-            .frame(maxWidth: 220)
+            .frame(maxWidth: arrangement.primaryMaxWidth)
+            .libraryDetailPrimaryAction()
             LibraryDetailCircleButton(
                 systemImage: "arrow.down",
                 label: "offline_download",
-                disabled: songs.filteredPlayable().isEmpty
+                disabled: playable.isEmpty
             ) {
                 sourceManager.downloadForOffline(songs: songs)
             }
         }
-        .frame(maxWidth: .infinity)
     }
 
     private func trackList(discs: [DiscSection], showsDiscHeaders: Bool) -> some View {

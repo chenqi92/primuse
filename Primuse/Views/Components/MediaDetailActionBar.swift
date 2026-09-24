@@ -13,6 +13,8 @@ struct ImmersiveLibraryDetailInsets: Equatable {
     var top: CGFloat = 0
     var leading: CGFloat = 0
     var trailing: CGFloat = 0
+    /// 头图几何：按这一刻的视口（首屏高度、字号、尺寸等级）算好，各页直接取值。
+    var hero: LibraryDetailHeroLayout = LibraryDetailHeroLayoutPolicy.standard
 }
 
 #if os(iOS)
@@ -170,6 +172,10 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
 
     @Environment(\.libraryDetailTint) private var tint
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.legacyBottomChromeOverlayActive) private var legacyBottomChromeOverlayActive
 
     init(
         @ViewBuilder header: @escaping (ImmersiveLibraryDetailInsets) -> Header,
@@ -182,10 +188,22 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     var body: some View {
         GeometryReader { geometry in
             let safeArea = geometry.safeAreaInsets
+            // 底部遮挡按实测：系统标签栏与附件迷你条在安全区里，iOS 18–26.0 的叠加式迷你条不在，要另加。
+            let viewport = LibraryDetailHeroViewport(
+                width: Double(geometry.size.width),
+                height: Double(geometry.size.height + safeArea.top + safeArea.bottom),
+                topInset: Double(safeArea.top),
+                bottomInset: Double(safeArea.bottom)
+                    + (legacyBottomChromeOverlayActive ? LibraryDetailHeroLayoutPolicy.legacyMiniPlayerOverlay : 0),
+                isCompactHeight: heightClass.isCompact,
+                isRegularWidth: horizontalSizeClass == .regular,
+                typeSize: LibraryDetailTypeSize(dynamicTypeSize)
+            )
             let insets = ImmersiveLibraryDetailInsets(
                 top: safeArea.top,
                 leading: safeArea.leading,
-                trailing: safeArea.trailing
+                trailing: safeArea.trailing,
+                hero: LibraryDetailHeroLayoutPolicy.layout(for: viewport)
             )
             // 头图要铺满整幅屏幕, 正文不能钻到灵动岛和圆角下面。所以整页在这里
             // 连左右安全区一起出血, 正文再把左右安全区按侧加回来 —— 头部自己

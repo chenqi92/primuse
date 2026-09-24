@@ -18,6 +18,9 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     private let coverSongs: [String: Song]
     private let focusCoverID: String?
     private let topInset: CGFloat
+    private let wallHeight: CGFloat?
+    private let leadingInset: CGFloat
+    private let trailingInset: CGFloat
     private let fallback: Fallback
 
     @Environment(\.skin) private var skin
@@ -31,6 +34,8 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     ///   - nowPlaying: 正在播放的歌。它的封面在这面墙里时会成为焦点。
     ///   - topInset: 头图铺到导航栏后面时多出来的那段高度(整页取色的详情页传安全区上沿)。
     ///     墙面向上延伸这么多,标题块的位置不变。
+    ///   - wallHeight: 墙面高度(不含 `topInset`)。详情页按首屏算好传进来;不传时竖屏 320、横屏 150。
+    ///   - leadingInset / trailingInset: 墙面铺满整幅屏幕时左右安全区,标题块按侧让开 —— 两侧不一定相等。
     init(
         title: String,
         subtitle: String,
@@ -39,10 +44,16 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
         songs: [Song],
         nowPlaying: Song?,
         topInset: CGFloat = 0,
+        wallHeight: CGFloat? = nil,
+        leadingInset: CGFloat = 0,
+        trailingInset: CGFloat = 0,
         @ViewBuilder fallback: () -> Fallback
     ) {
         self.title = title
         self.topInset = topInset
+        self.wallHeight = wallHeight
+        self.leadingInset = leadingInset
+        self.trailingInset = trailingInset
         self.subtitle = subtitle
         self.titleSymbol = titleSymbol
         self.titleAccessory = titleAccessory
@@ -115,13 +126,14 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
             .accessibilityHidden(true)
 
             titleBlock
-                .padding(.horizontal, 24)
+                .padding(.leading, leadingInset + 24)
+                .padding(.trailing, trailingInset + 24)
                 .padding(.bottom, heightClass.value(14, compact: 10))
         }
         // 手机横屏下整幅内容区只有两百多点高,320 的墙会把曲目整个挤出首屏。
         // 墙面几何本来就按传进来的尺寸算,收高不改结构:150 里标题块占 46,
         // 剩下的一条墙面仍能铺满一行封面。
-        .frame(height: heightClass.value(320, compact: 150) + topInset)
+        .frame(height: (wallHeight ?? heightClass.value(320, compact: 150)) + topInset)
         .frame(maxWidth: .infinity)
         .task(id: isCycling) {
             guard isCycling else { return }
