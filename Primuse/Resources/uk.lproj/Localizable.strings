@@ -4439,3 +4439,4 @@
 "karaoke_ai_preparing" = "Підготовка…";
 "karaoke_ai_clear_cache_format" = "Очистити розділені пісні (%@)";
 "karaoke_ai_remove_model" = "Видалити модель ШІ";
+"karaoke_ai_word_timing" = "Розбивку за словами оцінено ШІ";

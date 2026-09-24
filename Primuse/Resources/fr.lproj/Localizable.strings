@@ -4533,3 +4533,4 @@
 "karaoke_ai_preparing" = "Préparation…";
 "karaoke_ai_clear_cache_format" = "Effacer les morceaux séparés (%@)";
 "karaoke_ai_remove_model" = "Supprimer le modèle IA";
+"karaoke_ai_word_timing" = "Minutage des mots estimé par l’IA";

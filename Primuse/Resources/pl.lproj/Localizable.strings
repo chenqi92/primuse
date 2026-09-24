@@ -4439,3 +4439,4 @@
 "karaoke_ai_preparing" = "Przygotowywanie…";
 "karaoke_ai_clear_cache_format" = "Wyczyść rozdzielone utwory (%@)";
 "karaoke_ai_remove_model" = "Usuń model AI";
+"karaoke_ai_word_timing" = "Czas słów oszacowany przez AI";

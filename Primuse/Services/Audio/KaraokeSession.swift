@@ -161,6 +161,8 @@ final class KaraokeSession {
     private(set) var isStemActive = false
     /// The stem is aligned with what is playing and being subtracted.
     private(set) var isStemLocked = false
+    /// Line-level lyrics are being swept word by word on the sung vocal.
+    private(set) var usesInferredWordTiming = false
 
     private(set) var microphoneState: MicrophoneState = .off
     private(set) var canMonitor = false
@@ -201,6 +203,8 @@ final class KaraokeSession {
     @ObservationIgnored private var lockPolicyEpoch = -1
     @ObservationIgnored private var isAligning = false
     @ObservationIgnored private var tickCount = 0
+    @ObservationIgnored private var wordTimingSongID: String?
+    @ObservationIgnored private var wordTimingTask: Task<Void, Never>?
 
     init(player: AudioPlayerService, defaults: UserDefaults = .standard) {
         self.player = player
@@ -270,6 +274,7 @@ final class KaraokeSession {
             songDidChange(to: song)
         }
         updateStem()
+        updateWordTiming()
         applyRenderSettings()
         isEffectivelyMono = !isStemActive && engine.karaokeControl.isEffectivelyMono
         tickCount &+= 1
@@ -314,6 +319,10 @@ final class KaraokeSession {
         carriedSongID = nil
         pairedOriginal = nil
         instrumentalCompanion = nil
+        wordTimingTask?.cancel()
+        wordTimingTask = nil
+        wordTimingSongID = nil
+        usesInferredWordTiming = false
         isPlayingInstrumental = false
         lyricsBorrowedFromTitle = nil
         companionTask?.cancel()
@@ -580,13 +589,52 @@ final class KaraokeSession {
         lyrics = loaded
         let windows = KaraokeLineWindowPolicy.windows(in: loaded)
         self.windows = windows
+        buildStageLines(onsets: nil)
+        hasDuetParts = KaraokeDuetGatePolicy.hasDuetParts(loaded)
+        wordTimingSongID = nil
+        rebuildScorer()
+    }
+
+    /// Word-timed rows stay as authored; line-level rows are swept evenly,
+    /// or on the vocal's syllable onsets when the AI stem is available.
+    private func buildStageLines(onsets: [KaraokeOnset]?) {
         let byIndex = Dictionary(uniqueKeysWithValues: windows.map { ($0.lineIndex, $0) })
-        stageLines = loaded.enumerated().map { index, line in
+        var inferred = false
+        stageLines = lyrics.enumerated().map { index, line in
             guard let window = byIndex[index] else { return line }
+            if let onsets, let timed = KaraokeWordTimingPolicy.timedLine(line, window: window, onsets: onsets) {
+                inferred = true
+                return timed
+            }
             return KaraokeSweepPolicy.sweepLine(line, window: window)
         }
-        hasDuetParts = KaraokeDuetGatePolicy.hasDuetParts(loaded)
-        rebuildScorer()
+        usesInferredWordTiming = inferred
+    }
+
+    /// Once per song, when its AI stem exists and the lyrics are line-level.
+    private func updateWordTiming() {
+        guard aiSeparationEnabled,
+              let song = player.currentSong,
+              song.id == songID,
+              wordTimingSongID != song.id,
+              wordTimingTask == nil,
+              !lyrics.isEmpty,
+              lyrics.contains(where: { $0.isSynchronized && !$0.isWordLevel }) else { return }
+        // A backing track borrows the original's lyrics and its stem.
+        let source = isPlayingInstrumental ? pairedOriginal : song
+        guard let source, separation.state(for: source) == .ready else { return }
+        let expectedSongID = songID
+        let expectedLyrics = lyrics
+        wordTimingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let onsets = await self.separation.onsets(for: source)
+            self.wordTimingTask = nil
+            guard self.songID == expectedSongID, self.lyrics == expectedLyrics else { return }
+            self.wordTimingSongID = expectedSongID
+            if let onsets, !onsets.isEmpty {
+                self.buildStageLines(onsets: onsets)
+            }
+        }
     }
 
     private func rebuildScorer() {

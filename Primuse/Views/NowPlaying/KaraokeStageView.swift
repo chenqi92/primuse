@@ -87,6 +87,12 @@ private struct KaraokeStageContent: View {
                         .foregroundStyle(.white.opacity(0.6))
                         .lineLimit(1)
                 }
+                if session.usesInferredWordTiming {
+                    Label("karaoke_ai_word_timing", systemImage: "sparkles")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                }
                 if let source = session.lyricsBorrowedFromTitle {
                     Text(String(format: String(localized: "karaoke_lyrics_from_format"), source))
                         .font(.caption)

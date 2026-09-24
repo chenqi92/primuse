@@ -4626,3 +4626,4 @@
 "karaoke_ai_preparing" = "准备中…";
 "karaoke_ai_clear_cache_format" = "清除 AI 分离缓存（%@）";
 "karaoke_ai_remove_model" = "删除 AI 模型";
+"karaoke_ai_word_timing" = "逐字时间由 AI 推断";

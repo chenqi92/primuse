@@ -4533,3 +4533,4 @@
 "karaoke_ai_preparing" = "준비 중…";
 "karaoke_ai_clear_cache_format" = "분리된 곡 삭제(%@)";
 "karaoke_ai_remove_model" = "AI 모델 삭제";
+"karaoke_ai_word_timing" = "단어 타이밍은 AI 추정";

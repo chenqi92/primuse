@@ -144,6 +144,7 @@
 		25EE7EFA60953A236353A836 /* KaraokeVocalSeparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06FB9EDBFDA5127BC46021FD /* KaraokeVocalSeparator.swift */; };
 		40EEF7923FB22B47FAE64BC5 /* KaraokeModelDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBDFD0829578F2A1FF902B4 /* KaraokeModelDownloader.swift */; };
 		61BB53CB84BF202C0ED04229 /* KaraokeSeparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04E9287681F55EAF240DBC4 /* KaraokeSeparationService.swift */; };
+		6E9562DB8E9468CABFD269CA /* KaraokeWordTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A93F0B0312DCF4D0D6A349C9 /* KaraokeWordTiming.swift */; };
 		80F9CD8369013DD185FF0520 /* KaraokeVocalSeparator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06FB9EDBFDA5127BC46021FD /* KaraokeVocalSeparator.swift */; };
 		88205AF52E64848DDC50B1AC /* MP4IndexPairAtom.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2800D1EEFBBB44AC03AE038D /* MP4IndexPairAtom.swift */; };
 		9A9392494CE05082F9138DFC /* PlaylistPendingEntryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB3B864D74D127C42CEBC00 /* PlaylistPendingEntryRow.swift */; };
@@ -2216,6 +2217,7 @@
 		8EB6282CC6896D8B14D6E71A /* ExternalTrackMatchPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalTrackMatchPolicy.swift; sourceTree = "<group>"; };
 		93405B61747DD571BF337CD2 /* KaraokeCompanionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeCompanionPolicy.swift; sourceTree = "<group>"; };
 		A04E9287681F55EAF240DBC4 /* KaraokeSeparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeSeparationService.swift; sourceTree = "<group>"; };
+		A93F0B0312DCF4D0D6A349C9 /* KaraokeWordTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeWordTiming.swift; sourceTree = "<group>"; };
 		B1307B15E380375EA1E59C21 /* PrimuseKaraokeModelDownloader.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = PrimuseKaraokeModelDownloader.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9DE1060FBA3D9D6391E5F17 /* KaraokeDemucsFrontEnd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeDemucsFrontEnd.swift; sourceTree = "<group>"; };
 		F0D0DA0573BAB8FCD51CEBEB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -3194,6 +3196,7 @@
 				5D4680EDC56996FEA9846CDE /* KaraokeScoring.swift */,
 				29DE675D69CEFF865B8DE539 /* KaraokeStemAlignment.swift */,
 				A3904F625D70F0A74C6ABB60 /* KaraokeVocalReducer.swift */,
+				A93F0B0312DCF4D0D6A349C9 /* KaraokeWordTiming.swift */,
 				CC568C1F987228DD17220D96 /* Library */,
 				42A02061FE5991E3561E66FB /* MedleySegmentPolicy.swift */,
 				AFC591E3A4BEE6456BA66E38 /* Metadata */,
@@ -5176,6 +5179,7 @@
 				2134525A1BECF69380B99911 /* KaraokeScoring.swift in Sources */,
 				B92F64F9B6008149F422C6E7 /* KaraokeStemAlignment.swift in Sources */,
 				8840017D0A5B378F3A9A91E2 /* KaraokeVocalReducer.swift in Sources */,
+				6E9562DB8E9468CABFD269CA /* KaraokeWordTiming.swift in Sources */,
 				8F095C75B71E55976268E94D /* KeyedRunRegistry.swift in Sources */,
 				72DE4A2D47DAEB67BBDB4492 /* LANSync.swift in Sources */,
 				3A447F9292183A2E25B9F7D5 /* LegacyAudioCacheMigrationPolicy.swift in Sources */,

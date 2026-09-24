@@ -4439,3 +4439,4 @@
 "karaoke_ai_preparing" = "جارٍ التحضير…";
 "karaoke_ai_clear_cache_format" = "مسح الأغاني المفصولة (%@)";
 "karaoke_ai_remove_model" = "إزالة نموذج الذكاء الاصطناعي";
+"karaoke_ai_word_timing" = "توقيت الكلمات مقدّر بالذكاء الاصطناعي";

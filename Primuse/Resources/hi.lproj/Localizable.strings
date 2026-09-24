@@ -4439,3 +4439,4 @@
 "karaoke_ai_preparing" = "तैयार हो रहा है…";
 "karaoke_ai_clear_cache_format" = "अलग किए गए गाने हटाएँ (%@)";
 "karaoke_ai_remove_model" = "AI मॉडल हटाएँ";
+"karaoke_ai_word_timing" = "शब्दों का समय AI का अनुमान";

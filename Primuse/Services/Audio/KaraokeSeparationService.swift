@@ -121,6 +121,7 @@ final class KaraokeSeparationService {
     @ObservationIgnored private var separator: KaraokeVocalSeparator?
     @ObservationIgnored private var jobs: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
+    @ObservationIgnored private var onsetCache: [String: [KaraokeOnset]] = [:]
 
     /// Songs longer than this are not separated: the whole song is held in
     /// memory while the model runs.
@@ -240,6 +241,25 @@ final class KaraokeSeparationService {
         }.value
     }
 
+    /// Syllable onsets of a separated song's vocal, for timing line-level
+    /// lyrics word by word. Computed once per song and kept in memory.
+    func onsets(for song: Song) async -> [KaraokeOnset]? {
+        if let cached = onsetCache[song.id] { return cached }
+        guard state(for: song) == .ready else { return nil }
+        let url = Self.stemURL(for: song)
+        let onsets = await Task.detached(priority: .utility) { () -> [KaraokeOnset]? in
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                  let stem = KaraokeStemFile.decode(data) else { return nil }
+            let mono = zip(stem.left, stem.right).map { ($0 + $1) * 0.5 }
+            return KaraokeOnsetDetector.onsets(in: mono, sampleRate: stem.header.sampleRate)
+        }.value
+        if let onsets {
+            if onsetCache.count > 20 { onsetCache.removeAll() }
+            onsetCache[song.id] = onsets
+        }
+        return onsets
+    }
+
     // MARK: Cache
 
     nonisolated static var cacheDirectory: URL {
@@ -270,6 +290,7 @@ final class KaraokeSeparationService {
         for job in jobs.values { job.cancel() }
         jobs.removeAll()
         songStates.removeAll()
+        onsetCache.removeAll()
         try? FileManager.default.removeItem(at: Self.cacheDirectory)
     }
 

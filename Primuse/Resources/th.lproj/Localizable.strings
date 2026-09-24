@@ -4439,3 +4439,4 @@
 "karaoke_ai_preparing" = "กำลังเตรียม…";
 "karaoke_ai_clear_cache_format" = "ล้างเพลงที่แยกแล้ว (%@)";
 "karaoke_ai_remove_model" = "ลบโมเดล AI";
+"karaoke_ai_word_timing" = "จังหวะคำประมาณโดย AI";

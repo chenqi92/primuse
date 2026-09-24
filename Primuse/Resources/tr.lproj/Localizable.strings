@@ -4439,3 +4439,4 @@
 "karaoke_ai_preparing" = "Hazırlanıyor…";
 "karaoke_ai_clear_cache_format" = "Ayrılmış şarkıları temizle (%@)";
 "karaoke_ai_remove_model" = "Yapay zekâ modelini kaldır";
+"karaoke_ai_word_timing" = "Kelime zamanlaması yapay zekâ tahmini";
