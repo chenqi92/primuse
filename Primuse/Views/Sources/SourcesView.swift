@@ -762,7 +762,7 @@ struct SourcesContentView: View {
                     .font(tileCard ? .title3.weight(.semibold) : .title3).foregroundStyle(.white)
                     .frame(width: iconSide, height: iconSide)
                     .background(source.isEnabled ? source.type.brandTint.gradient : Color.gray.gradient)
-                    .clipShape(RoundedRectangle(cornerRadius: tileCard ? 11 : 9, style: tileCard ? .continuous : .circular))
+                    .clipShape(RoundedRectangle(cornerRadius: tileCard ? 11 : 9))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(source.name).font(.body).fontWeight(tileCard ? .semibold : .medium)
