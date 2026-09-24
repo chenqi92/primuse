@@ -1951,6 +1951,7 @@ final class TVPlaybackCoordinator {
                             for: line,
                             documentFallback: documentWritingDirection
                         ),
+                        voice: line.voice,
                         // Backing groups keep their own timeline; nesting them
                         // stops them from competing for the current row.
                         background: (line.background ?? []).map {
