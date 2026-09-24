@@ -4428,3 +4428,14 @@
 "karaoke_backing_track" = "Podkład";
 "karaoke_backing_track_playing" = "Odtwarzany jest podkład, więc nie ma wokalu do regulacji.";
 "karaoke_lyrics_from_format" = "Tekst z „%@”";
+"karaoke_ai_title" = "Separacja wokalu AI";
+"karaoke_ai_download_format" = "Pobierz (%@)";
+"karaoke_ai_downloading" = "Pobieranie";
+"karaoke_ai_separating" = "Separowanie";
+"karaoke_ai_active" = "Włączona";
+"karaoke_ai_aligning" = "Synchronizacja…";
+"karaoke_ai_unsupported_song" = "Niedostępne dla tego utworu – używane jest zwykłe usuwanie.";
+"karaoke_ai_retry" = "Ponów";
+"karaoke_ai_preparing" = "Przygotowywanie…";
+"karaoke_ai_clear_cache_format" = "Wyczyść rozdzielone utwory (%@)";
+"karaoke_ai_remove_model" = "Usuń model AI";

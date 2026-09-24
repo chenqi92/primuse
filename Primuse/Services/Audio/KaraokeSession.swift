@@ -100,6 +100,7 @@ final class KaraokeSession {
     }
 
     static let vocalLevelKey = "karaokeVocalLevel"
+    static let aiSeparationKey = "karaokeAISeparationEnabled"
     static let defaultVocalLevel = 0.1
     /// Seconds of pitch history the stage draws.
     static let pitchHistoryDuration: TimeInterval = 5
@@ -148,6 +149,19 @@ final class KaraokeSession {
     private(set) var lyricsBorrowedFromTitle: String?
     private(set) var isSwitchingTrack = false
 
+    /// Use the AI-separated vocal when this device has the model.
+    var aiSeparationEnabled: Bool {
+        didSet {
+            defaults.set(aiSeparationEnabled, forKey: Self.aiSeparationKey)
+            if !aiSeparationEnabled { removeStem() }
+        }
+    }
+    let separation = KaraokeSeparationService.shared
+    /// The AI stem for this song is loaded into the playback graph.
+    private(set) var isStemActive = false
+    /// The stem is aligned with what is playing and being subtracted.
+    private(set) var isStemLocked = false
+
     private(set) var microphoneState: MicrophoneState = .off
     private(set) var canMonitor = false
     var isMonitoring = false {
@@ -180,12 +194,20 @@ final class KaraokeSession {
     /// this id keeps the lyrics, timing and score of the performance.
     @ObservationIgnored private var carriedSongID: String?
     @ObservationIgnored private var pairedOriginal: Song?
+    @ObservationIgnored private var stemSongID: String?
+    @ObservationIgnored private var stemTrack: KaraokeStemTrack?
+    @ObservationIgnored private var stemLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var lockPolicy = KaraokeStemLockPolicy()
+    @ObservationIgnored private var lockPolicyEpoch = -1
+    @ObservationIgnored private var isAligning = false
+    @ObservationIgnored private var tickCount = 0
 
     init(player: AudioPlayerService, defaults: UserDefaults = .standard) {
         self.player = player
         engine = player.audioEngine
         self.defaults = defaults
         vocalLevel = defaults.object(forKey: Self.vocalLevelKey) as? Double ?? Self.defaultVocalLevel
+        aiSeparationEnabled = defaults.object(forKey: Self.aiSeparationKey) as? Bool ?? true
         let microphone = KaraokeMicrophone()
         self.microphone = microphone
         analyzer = KaraokePitchAnalyzer(
@@ -221,6 +243,7 @@ final class KaraokeSession {
         companionTask = nil
         if isRecording { finishRecording() }
         stopMicrophone()
+        removeStem()
         let control = engine.karaokeControl
         control.isActive = false
         control.capturesVocal = false
@@ -246,8 +269,13 @@ final class KaraokeSession {
         if song?.id != songID {
             songDidChange(to: song)
         }
+        updateStem()
         applyRenderSettings()
-        isEffectivelyMono = engine.karaokeControl.isEffectivelyMono
+        isEffectivelyMono = !isStemActive && engine.karaokeControl.isEffectivelyMono
+        tickCount &+= 1
+        if isStemActive, tickCount % 5 == 0 {
+            alignStemIfIdle()
+        }
 
         if isRecording, !player.isPlaying {
             finishRecording()
@@ -263,7 +291,8 @@ final class KaraokeSession {
         let control = engine.karaokeControl
         let processes = isActive && availability == .available && engine.supportsKaraokeVocalReduction
         let reduces = processes && !isPlayingInstrumental
-        control.isActive = reduces
+        // With an AI stem loaded the graph subtracts it instead.
+        control.isActive = reduces && !isStemActive
         control.capturesVocal = reduces && microphoneState == .on
         let time = player.interpolatedTime()
         let factor = KaraokeDuetGatePolicy.reductionFactor(windows: windows, part: part, at: time)
@@ -359,6 +388,122 @@ final class KaraokeSession {
             } else {
                 self.instrumentalCompanion = match
             }
+        }
+    }
+
+    // MARK: - AI separation
+
+    /// Loads, prepares or drops the AI stem to match what is playing.
+    private func updateStem() {
+        let song = player.currentSong
+        let wanted = aiSeparationEnabled
+            && separation.modelState == .ready
+            && availability == .available
+            && engine.supportsKaraokeVocalReduction
+            && !isPlayingInstrumental
+            ? song : nil
+        guard let wanted else {
+            if stemSongID != nil { removeStem() }
+            return
+        }
+        let graphRate = engine.outputFormat?.sampleRate ?? 0
+        if stemSongID == wanted.id, stemTrack.map({ abs($0.sampleRate - graphRate) < 0.5 }) ?? true {
+            return
+        }
+        if stemSongID != wanted.id || stemTrack != nil {
+            removeStem()
+        }
+        switch separation.state(for: wanted) {
+        case .ready:
+            guard graphRate > 0, stemLoadTask == nil else { return }
+            stemSongID = wanted.id
+            stemLoadTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                let track = await self.separation.loadStem(for: wanted, graphSampleRate: graphRate)
+                self.stemLoadTask = nil
+                guard self.stemSongID == wanted.id, let track else {
+                    if self.stemSongID == wanted.id { self.stemSongID = nil }
+                    return
+                }
+                self.stemTrack = track
+                self.engine.karaokeControl.installStem(track)
+                self.isStemActive = true
+                self.lockPolicy.reset()
+            }
+        case .idle:
+            if let sourceManager = player.sourceManager {
+                separation.prepare(wanted, sourceManager: sourceManager)
+            }
+        case .separating, .unsupported, .failed:
+            // A failure is retried only when the user asks.
+            break
+        }
+    }
+
+    /// The separation state of what is playing, for the stage.
+    var currentSeparationState: KaraokeSeparationService.SongState? {
+        player.currentSong.map { separation.state(for: $0) }
+    }
+
+    func retrySeparation() {
+        guard let song = player.currentSong, let sourceManager = player.sourceManager else { return }
+        separation.prepare(song, sourceManager: sourceManager)
+    }
+
+    private func removeStem() {
+        stemLoadTask?.cancel()
+        stemLoadTask = nil
+        stemSongID = nil
+        stemTrack = nil
+        isStemActive = false
+        isStemLocked = false
+        lockPolicy.reset()
+        engine.karaokeControl.installStem(nil)
+    }
+
+    /// Correlates the newest playback with the stem off the main actor and
+    /// publishes the offset once two matches agree.
+    private func alignStemIfIdle() {
+        guard !isAligning, let track = stemTrack, player.isPlaying else { return }
+        let control = engine.karaokeControl
+        let epoch = control.currentEpoch
+        if epoch != lockPolicyEpoch {
+            lockPolicy.reset()
+            lockPolicyEpoch = epoch
+        }
+        isStemLocked = control.isStemLocked
+        let window = 8_192
+        guard let live = control.inputRing.latestWindow(window) else { return }
+        let rate = track.sampleRate
+        // The window ends at what was just rendered, roughly the song time.
+        let predicted = Int(player.interpolatedTime() * rate) - window
+        let radius = Int(0.3 * rate)
+        isAligning = true
+        Task { @MainActor [weak self] in
+            let match = await Task.detached(priority: .utility) { () -> KaraokeStemAligner.Match? in
+                guard let range = KaraokeStemAligner.searchRange(
+                    stemLength: track.frames,
+                    windowLength: window,
+                    predictedIndex: predicted,
+                    radius: radius
+                ) else { return nil }
+                return KaraokeStemAligner.match(
+                    live: live.samples,
+                    excerpt: track.monoExcerpt(range),
+                    excerptStart: range.lowerBound
+                )
+            }.value
+            guard let self else { return }
+            self.isAligning = false
+            guard self.stemTrack === track,
+                  control.currentEpoch == epoch,
+                  let match,
+                  match.confidence >= KaraokeStemAligner.lockConfidence else { return }
+            let delta = match.stemIndex - (live.endIndex - window)
+            if let adopted = self.lockPolicy.record(delta: delta) {
+                control.publishLock(delta: adopted, epoch: epoch)
+            }
+            self.isStemLocked = control.isStemLocked
         }
     }
 

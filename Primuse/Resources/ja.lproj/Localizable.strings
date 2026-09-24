@@ -4523,3 +4523,14 @@
 "karaoke_backing_track" = "伴奏トラック";
 "karaoke_backing_track_playing" = "伴奏トラックを再生中のため、ボーカルは調整できません。";
 "karaoke_lyrics_from_format" = "歌詞：「%@」より";
+"karaoke_ai_title" = "AIボーカル分離";
+"karaoke_ai_download_format" = "ダウンロード（%@）";
+"karaoke_ai_downloading" = "ダウンロード中";
+"karaoke_ai_separating" = "分離中";
+"karaoke_ai_active" = "オン";
+"karaoke_ai_aligning" = "同期中…";
+"karaoke_ai_unsupported_song" = "この曲はAI分離できないため、通常の除去を使います。";
+"karaoke_ai_retry" = "再試行";
+"karaoke_ai_preparing" = "準備中…";
+"karaoke_ai_clear_cache_format" = "分離済みの曲を削除（%@）";
+"karaoke_ai_remove_model" = "AIモデルを削除";

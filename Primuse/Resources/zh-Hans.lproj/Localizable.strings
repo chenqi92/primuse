@@ -4615,3 +4615,14 @@
 "karaoke_backing_track" = "伴奏音轨";
 "karaoke_backing_track_playing" = "正在播放伴奏音轨，没有人声可调。";
 "karaoke_lyrics_from_format" = "歌词来自《%@》";
+"karaoke_ai_title" = "AI 人声分离";
+"karaoke_ai_download_format" = "下载模型（%@）";
+"karaoke_ai_downloading" = "正在下载";
+"karaoke_ai_separating" = "正在分离";
+"karaoke_ai_active" = "已开启";
+"karaoke_ai_aligning" = "正在对齐…";
+"karaoke_ai_unsupported_song" = "这首歌无法 AI 分离，已改用普通消除。";
+"karaoke_ai_retry" = "重试";
+"karaoke_ai_preparing" = "准备中…";
+"karaoke_ai_clear_cache_format" = "清除 AI 分离缓存（%@）";
+"karaoke_ai_remove_model" = "删除 AI 模型";

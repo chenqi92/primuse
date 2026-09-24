@@ -4428,3 +4428,14 @@
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "O playback está tocando, não há voz para ajustar.";
 "karaoke_lyrics_from_format" = "Letra de “%@”";
+"karaoke_ai_title" = "Separação vocal com IA";
+"karaoke_ai_download_format" = "Baixar (%@)";
+"karaoke_ai_downloading" = "Baixando";
+"karaoke_ai_separating" = "Separando";
+"karaoke_ai_active" = "Ativada";
+"karaoke_ai_aligning" = "Sincronizando…";
+"karaoke_ai_unsupported_song" = "Indisponível para esta música; usando a remoção padrão.";
+"karaoke_ai_retry" = "Tentar de novo";
+"karaoke_ai_preparing" = "Preparando…";
+"karaoke_ai_clear_cache_format" = "Limpar músicas separadas (%@)";
+"karaoke_ai_remove_model" = "Remover modelo de IA";

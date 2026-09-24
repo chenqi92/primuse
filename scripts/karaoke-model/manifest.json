@@ -1,0 +1,18 @@
+{
+	"assetPackID": "KaraokeVocalModel",
+	"downloadPolicy": {
+		"onDemand": {}
+	},
+	"fileSelectors": [
+		{
+			"directory": "HTDemucsVocals.mlmodelc"
+		},
+		{
+			"file": "LICENSE-demucs.txt"
+		}
+	],
+	"platforms": [
+		"iOS",
+		"macOS"
+	]
+}

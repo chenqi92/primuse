@@ -52,6 +52,57 @@ final class KaraokeSampleRing: @unchecked Sendable {
     func reset() {
         consumed.store(written.load(ordering: .relaxed), ordering: .relaxed)
     }
+
+    /// Samples written so far; the absolute index of the next sample.
+    var totalWritten: Int {
+        written.load(ordering: .acquiring)
+    }
+
+    /// The newest `count` samples and the absolute index just past them,
+    /// without consuming anything.
+    func latestWindow(_ count: Int) -> (samples: [Float], endIndex: Int)? {
+        let end = written.load(ordering: .acquiring)
+        let start = end - count
+        guard count <= capacity, start >= 0 else { return nil }
+        var samples = [Float](repeating: 0, count: count)
+        for offset in 0..<count {
+            samples[offset] = storage[(start + offset) % capacity]
+        }
+        guard written.load(ordering: .acquiring) - start <= capacity else { return nil }
+        return (samples, end)
+    }
+}
+
+/// A pre-separated vocal stem at the playback graph's sample rate, as
+/// 16-bit interleaved stereo. Immutable once built, so the render thread can
+/// read it through a raw pointer.
+final class KaraokeStemTrack: @unchecked Sendable {
+    let frames: Int
+    let sampleRate: Double
+    let samples: UnsafeMutablePointer<Int16>
+
+    init(left: [Float], right: [Float], sampleRate: Double) {
+        precondition(left.count == right.count)
+        frames = left.count
+        self.sampleRate = sampleRate
+        samples = .allocate(capacity: max(1, frames * 2))
+        for i in 0..<frames {
+            samples[2 * i] = Int16(max(-32_768, min(32_767, (left[i] * 32_767).rounded())))
+            samples[2 * i + 1] = Int16(max(-32_768, min(32_767, (right[i] * 32_767).rounded())))
+        }
+    }
+
+    deinit {
+        samples.deallocate()
+    }
+
+    /// Mono samples of `range` for alignment searches.
+    func monoExcerpt(_ range: Range<Int>) -> [Float] {
+        let scale: Float = 0.5 / 32_767
+        return range.map { i in
+            (Float(samples[2 * i]) + Float(samples[2 * i + 1])) * scale
+        }
+    }
 }
 
 /// Settings the main actor writes and the render thread reads, plus what the
@@ -63,6 +114,20 @@ final class KaraokeRenderControl: Sendable {
     private let effectivelyMonoFlag = Atomic<Bool>(false)
     private let processingFlag = Atomic<Bool>(false)
     private let discontinuityFlag = Atomic<Bool>(false)
+    // Stem subtraction. The track pointer and length are published
+    // separately; a zero length disables it, so the pointer is always read
+    // after a non-zero length. Old tracks stay alive on the main actor for a
+    // second after a swap, far longer than any render cycle.
+    private let stemAddress = Atomic<UInt>(0)
+    private let stemFrames = Atomic<Int>(0)
+    /// Advances on every discontinuity and stem swap; a lock is only valid
+    /// for the epoch it was computed in.
+    private let inputEpoch = Atomic<Int>(0)
+    private let lockEpoch = Atomic<Int>(-1)
+    private let lockDelta = Atomic<Int>(0)
+    /// Mono copy of the playback input with absolute sample indices, for
+    /// aligning the stem.
+    let inputRing = KaraokeSampleRing(capacity: 1 << 17)
     /// Mono estimate of the removed lead vocal, for the reference melody.
     let vocalRing = KaraokeSampleRing(capacity: 1 << 16)
 
@@ -94,6 +159,60 @@ final class KaraokeRenderControl: Sendable {
 
     func takeDiscontinuity() -> Bool {
         discontinuityFlag.exchange(false, ordering: .relaxed)
+    }
+
+    // MARK: Stem
+
+    /// Main actor: installs (or with nil removes) the stem to subtract.
+    func installStem(_ track: KaraokeStemTrack?) {
+        stemFrames.store(0, ordering: .releasing)
+        inputEpoch.add(1, ordering: .releasing)
+        guard let track else {
+            stemAddress.store(0, ordering: .releasing)
+            return
+        }
+        stemAddress.store(UInt(bitPattern: track.samples), ordering: .releasing)
+        stemFrames.store(track.frames, ordering: .releasing)
+    }
+
+    var currentEpoch: Int { inputEpoch.load(ordering: .acquiring) }
+
+    /// Publishes an alignment: input sample `i` lines up with stem frame
+    /// `i + delta`. Ignored by the render thread if the epoch moved on.
+    func publishLock(delta: Int, epoch: Int) {
+        lockDelta.store(delta, ordering: .relaxed)
+        lockEpoch.store(epoch, ordering: .releasing)
+    }
+
+    var isStemLocked: Bool {
+        stemFrames.load(ordering: .acquiring) > 0
+            && lockEpoch.load(ordering: .acquiring) == inputEpoch.load(ordering: .acquiring)
+    }
+
+    var lockedDelta: Int? {
+        isStemLocked ? lockDelta.load(ordering: .relaxed) : nil
+    }
+
+    /// Render thread: the stem to subtract right now, if any.
+    struct RenderStem {
+        var samples: UnsafePointer<Int16>
+        var frames: Int
+        var delta: Int?
+    }
+
+    func renderStem() -> RenderStem? {
+        let frames = stemFrames.load(ordering: .acquiring)
+        guard frames > 0,
+              let pointer = UnsafePointer<Int16>(bitPattern: stemAddress.load(ordering: .acquiring)) else {
+            return nil
+        }
+        let epoch = inputEpoch.load(ordering: .acquiring)
+        let delta = lockEpoch.load(ordering: .acquiring) == epoch ? lockDelta.load(ordering: .relaxed) : nil
+        return RenderStem(samples: pointer, frames: frames, delta: delta)
+    }
+
+    fileprivate func advanceEpoch() {
+        inputEpoch.add(1, ordering: .releasing)
     }
 
     func report(isEffectivelyMono: Bool, isProcessing: Bool) {
@@ -145,7 +264,10 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
         let control: KaraokeRenderControl
         let scratch: UnsafeMutablePointer<Float>
         let vocal: UnsafeMutablePointer<Float>
+        let mono: UnsafeMutablePointer<Float>
         let capacity: Int
+        /// Last applied stem gain, ramped per block.
+        var stemGain: Float = 0
 
         init(reducer: KaraokeVocalReducer?, control: KaraokeRenderControl, capacity: Int, channels: Int) {
             self.reducer = reducer
@@ -155,11 +277,14 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
             scratch.initialize(repeating: 0, count: capacity * max(1, channels))
             vocal = .allocate(capacity: capacity)
             vocal.initialize(repeating: 0, count: capacity)
+            mono = .allocate(capacity: capacity)
+            mono.initialize(repeating: 0, count: capacity)
         }
 
         deinit {
             scratch.deallocate()
             vocal.deallocate()
+            mono.deallocate()
         }
     }
 
@@ -260,7 +385,50 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
             if control.takeDiscontinuity() {
                 reducer.restartAfterDiscontinuity()
                 control.vocalRing.reset()
+                control.advanceEpoch()
             }
+
+            // Stem mode: subtract the pre-separated vocal where it is locked
+            // to the playback. The spectral reducer stays off meanwhile.
+            if let stem = control.renderStem() {
+                let startIndex = control.inputRing.totalWritten
+                for i in 0..<frames {
+                    resources.mono[i] = (left[i] + right[i]) * 0.5
+                }
+                control.inputRing.write(resources.mono, count: frames)
+                let target: Float = stem.delta == nil ? 0 : control.reduction
+                let from = resources.stemGain
+                resources.stemGain = target
+                let captures = control.capturesVocal
+                if let delta = stem.delta, from > 0 || target > 0 || captures {
+                    let scale: Float = 1 / 32_767
+                    let step = (target - from) / Float(frames)
+                    for i in 0..<frames {
+                        let index = startIndex + i + delta
+                        guard index >= 0, index < stem.frames else {
+                            resources.vocal[i] = 0
+                            continue
+                        }
+                        let stemLeft = Float(stem.samples[2 * index]) * scale
+                        let stemRight = Float(stem.samples[2 * index + 1]) * scale
+                        let gain = from + step * Float(i)
+                        left[i] -= gain * stemLeft
+                        right[i] -= gain * stemRight
+                        resources.vocal[i] = (stemLeft + stemRight) * 0.5
+                    }
+                    // The separated vocal is the cleanest melody reference.
+                    if captures {
+                        control.vocalRing.write(resources.vocal, count: frames)
+                    }
+                }
+                if reducer.phase != .bypassed {
+                    reducer.process(left: left, right: right, frameCount: frames, isActive: false, reduction: 0)
+                }
+                control.report(isEffectivelyMono: false, isProcessing: stem.delta != nil)
+                return noErr
+            }
+            resources.stemGain = 0
+
             let active = control.isActive
             if !active, reducer.phase == .bypassed {
                 return noErr

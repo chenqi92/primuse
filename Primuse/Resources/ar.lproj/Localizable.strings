@@ -4428,3 +4428,14 @@
 "karaoke_backing_track" = "المسار المرافق";
 "karaoke_backing_track_playing" = "يتم تشغيل المسار المرافق، لذا لا يوجد غناء لضبطه.";
 "karaoke_lyrics_from_format" = "الكلمات من “%@”";
+"karaoke_ai_title" = "فصل الصوت بالذكاء الاصطناعي";
+"karaoke_ai_download_format" = "تنزيل (%@)";
+"karaoke_ai_downloading" = "جارٍ التنزيل";
+"karaoke_ai_separating" = "جارٍ الفصل";
+"karaoke_ai_active" = "مفعّل";
+"karaoke_ai_aligning" = "جارٍ المزامنة…";
+"karaoke_ai_unsupported_song" = "غير متاح لهذه الأغنية؛ تُستخدم الإزالة العادية.";
+"karaoke_ai_retry" = "إعادة المحاولة";
+"karaoke_ai_preparing" = "جارٍ التحضير…";
+"karaoke_ai_clear_cache_format" = "مسح الأغاني المفصولة (%@)";
+"karaoke_ai_remove_model" = "إزالة نموذج الذكاء الاصطناعي";

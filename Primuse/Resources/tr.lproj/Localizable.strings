@@ -4428,3 +4428,14 @@
 "karaoke_backing_track" = "Altyapı";
 "karaoke_backing_track_playing" = "Altyapı çalıyor, ayarlanacak vokal yok.";
 "karaoke_lyrics_from_format" = "Sözler: “%@”";
+"karaoke_ai_title" = "Yapay zekâ ile vokal ayırma";
+"karaoke_ai_download_format" = "İndir (%@)";
+"karaoke_ai_downloading" = "İndiriliyor";
+"karaoke_ai_separating" = "Ayrılıyor";
+"karaoke_ai_active" = "Açık";
+"karaoke_ai_aligning" = "Eşitleniyor…";
+"karaoke_ai_unsupported_song" = "Bu şarkı için kullanılamıyor; standart kaldırma kullanılıyor.";
+"karaoke_ai_retry" = "Yeniden dene";
+"karaoke_ai_preparing" = "Hazırlanıyor…";
+"karaoke_ai_clear_cache_format" = "Ayrılmış şarkıları temizle (%@)";
+"karaoke_ai_remove_model" = "Yapay zekâ modelini kaldır";

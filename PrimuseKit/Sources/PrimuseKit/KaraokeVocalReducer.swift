@@ -1,17 +1,27 @@
 import Foundation
+#if canImport(Accelerate)
+import Accelerate
+#endif
 
-/// In-place iterative radix-2 complex FFT over split real/imaginary storage.
+/// In-place complex FFT over split real/imaginary storage.
 ///
 /// Written for the audio render thread: every table is built in `init`, and
 /// `forward`/`inverse` touch only the caller's buffers, so a transform never
 /// allocates. The inverse is unnormalized; callers fold `1/size` into their
-/// own output scale.
+/// own output scale. Apple platforms use vDSP; elsewhere (the Linux test
+/// host) an iterative radix-2 transform with the same sign convention.
 public final class KaraokeComplexFFT: @unchecked Sendable {
     public let size: Int
     private let log2Size: Int
     private let cosTable: UnsafeMutablePointer<Float>
     private let sinTable: UnsafeMutablePointer<Float>
     private let bitReversed: UnsafeMutablePointer<Int>
+    #if canImport(Accelerate)
+    private let forwardSetup: vDSP_DFT_Setup
+    private let inverseSetup: vDSP_DFT_Setup
+    private let scratchReal: UnsafeMutablePointer<Float>
+    private let scratchImag: UnsafeMutablePointer<Float>
+    #endif
 
     public init(size: Int) {
         precondition(size >= 4 && size & (size - 1) == 0, "FFT size must be a power of two")
@@ -39,21 +49,58 @@ public final class KaraokeComplexFFT: @unchecked Sendable {
             }
             bitReversed[index] = reversed
         }
+
+        #if canImport(Accelerate)
+        guard let forwardSetup = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(size), .FORWARD),
+              let inverseSetup = vDSP_DFT_zop_CreateSetup(forwardSetup, vDSP_Length(size), .INVERSE) else {
+            fatalError("vDSP DFT setup failed for size \(size)")
+        }
+        self.forwardSetup = forwardSetup
+        self.inverseSetup = inverseSetup
+        scratchReal = .allocate(capacity: size)
+        scratchImag = .allocate(capacity: size)
+        scratchReal.initialize(repeating: 0, count: size)
+        scratchImag.initialize(repeating: 0, count: size)
+        #endif
     }
 
     deinit {
         cosTable.deallocate()
         sinTable.deallocate()
         bitReversed.deallocate()
+        #if canImport(Accelerate)
+        vDSP_DFT_DestroySetup(forwardSetup)
+        vDSP_DFT_DestroySetup(inverseSetup)
+        scratchReal.deallocate()
+        scratchImag.deallocate()
+        #endif
     }
 
     public func forward(real: UnsafeMutablePointer<Float>, imag: UnsafeMutablePointer<Float>) {
+        #if canImport(Accelerate)
+        accelerated(forwardSetup, real: real, imag: imag)
+        #else
         transform(real: real, imag: imag, inverse: false)
+        #endif
     }
 
     public func inverse(real: UnsafeMutablePointer<Float>, imag: UnsafeMutablePointer<Float>) {
+        #if canImport(Accelerate)
+        accelerated(inverseSetup, real: real, imag: imag)
+        #else
         transform(real: real, imag: imag, inverse: true)
+        #endif
     }
+
+    #if canImport(Accelerate)
+    /// vDSP writes out of place; the result is copied back so callers keep
+    /// the in-place contract.
+    private func accelerated(_ setup: vDSP_DFT_Setup, real: UnsafeMutablePointer<Float>, imag: UnsafeMutablePointer<Float>) {
+        vDSP_DFT_Execute(setup, real, imag, scratchReal, scratchImag)
+        real.update(from: scratchReal, count: size)
+        imag.update(from: scratchImag, count: size)
+    }
+    #endif
 
     private func transform(
         real: UnsafeMutablePointer<Float>,

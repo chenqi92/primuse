@@ -4428,3 +4428,14 @@
 "karaoke_backing_track" = "Минусовка";
 "karaoke_backing_track_playing" = "Играет минусовка, регулировать нечего.";
 "karaoke_lyrics_from_format" = "Текст из «%@»";
+"karaoke_ai_title" = "ИИ-отделение вокала";
+"karaoke_ai_download_format" = "Загрузить (%@)";
+"karaoke_ai_downloading" = "Загрузка";
+"karaoke_ai_separating" = "Отделение";
+"karaoke_ai_active" = "Включено";
+"karaoke_ai_aligning" = "Синхронизация…";
+"karaoke_ai_unsupported_song" = "Для этой песни недоступно — используется обычное удаление.";
+"karaoke_ai_retry" = "Повторить";
+"karaoke_ai_preparing" = "Подготовка…";
+"karaoke_ai_clear_cache_format" = "Очистить разделённые песни (%@)";
+"karaoke_ai_remove_model" = "Удалить модель ИИ";

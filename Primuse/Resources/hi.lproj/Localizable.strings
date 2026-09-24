@@ -4428,3 +4428,14 @@
 "karaoke_backing_track" = "बैकिंग ट्रैक";
 "karaoke_backing_track_playing" = "बैकिंग ट्रैक चल रहा है, इसलिए समायोजित करने को कोई वोकल नहीं है।";
 "karaoke_lyrics_from_format" = "बोल “%@” से";
+"karaoke_ai_title" = "AI वोकल सेपरेशन";
+"karaoke_ai_download_format" = "डाउनलोड (%@)";
+"karaoke_ai_downloading" = "डाउनलोड हो रहा है";
+"karaoke_ai_separating" = "अलग किया जा रहा है";
+"karaoke_ai_active" = "चालू";
+"karaoke_ai_aligning" = "सिंक हो रहा है…";
+"karaoke_ai_unsupported_song" = "इस गाने के लिए उपलब्ध नहीं; सामान्य हटाना इस्तेमाल हो रहा है।";
+"karaoke_ai_retry" = "फिर से कोशिश करें";
+"karaoke_ai_preparing" = "तैयार हो रहा है…";
+"karaoke_ai_clear_cache_format" = "अलग किए गए गाने हटाएँ (%@)";
+"karaoke_ai_remove_model" = "AI मॉडल हटाएँ";

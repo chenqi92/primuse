@@ -4428,3 +4428,14 @@
 "karaoke_backing_track" = "Мінусовка";
 "karaoke_backing_track_playing" = "Грає мінусовка, регулювати нічого.";
 "karaoke_lyrics_from_format" = "Текст із «%@»";
+"karaoke_ai_title" = "ШІ-відокремлення вокалу";
+"karaoke_ai_download_format" = "Завантажити (%@)";
+"karaoke_ai_downloading" = "Завантаження";
+"karaoke_ai_separating" = "Відокремлення";
+"karaoke_ai_active" = "Увімкнено";
+"karaoke_ai_aligning" = "Синхронізація…";
+"karaoke_ai_unsupported_song" = "Для цієї пісні недоступно — використовується звичайне видалення.";
+"karaoke_ai_retry" = "Повторити";
+"karaoke_ai_preparing" = "Підготовка…";
+"karaoke_ai_clear_cache_format" = "Очистити розділені пісні (%@)";
+"karaoke_ai_remove_model" = "Видалити модель ШІ";

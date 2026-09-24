@@ -4522,3 +4522,14 @@
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "Das Playback läuft, es gibt keinen Gesang zum Anpassen.";
 "karaoke_lyrics_from_format" = "Songtext aus „%@“";
+"karaoke_ai_title" = "KI-Gesangstrennung";
+"karaoke_ai_download_format" = "Laden (%@)";
+"karaoke_ai_downloading" = "Wird geladen";
+"karaoke_ai_separating" = "Trennung läuft";
+"karaoke_ai_active" = "Aktiv";
+"karaoke_ai_aligning" = "Wird synchronisiert …";
+"karaoke_ai_unsupported_song" = "Für diesen Titel nicht verfügbar – normale Entfernung aktiv.";
+"karaoke_ai_retry" = "Erneut versuchen";
+"karaoke_ai_preparing" = "Wird vorbereitet …";
+"karaoke_ai_clear_cache_format" = "Getrennte Titel löschen (%@)";
+"karaoke_ai_remove_model" = "KI-Modell entfernen";
