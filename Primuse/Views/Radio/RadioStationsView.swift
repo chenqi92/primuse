@@ -631,43 +631,52 @@ struct RadioStationsView: View {
         let priorities = store.priorityByID
         let total = store.stations.count
         return ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-            #if os(iOS)
-            // 正在播的电台放在最上面一张大卡:台名、节目、上下台与停止、睡眠定时都在这里。
-            // 卡片自己读播放状态,节目标题更新不会把整页网格拉着重画。
-            RadioOnAirHero()
-            #endif
-            LazyVGrid(
-                columns: columns,
-                alignment: .leading,
-                spacing: layoutMode == .cover ? 14 : 16,
-                pinnedViews: [.sectionHeaders]
-            ) {
-                if showsFolderSections {
-                    // 分段只在没筛选时出现，这时可见的就是全部电台，直接用存储里分好的。
-                    ForEach(store.folderGroups) { group in
-                        Section {
-                            ForEach(group.stations) { station in
-                                stationItem(
-                                    station,
-                                    priority: priorities[station.id] ?? 1,
-                                    total: total
-                                )
-                            }
-                        } header: {
-                            folderSectionHeader(group)
+            if skin.usesTileCards {
+                VStack(alignment: .leading, spacing: 16) {
+                    #if os(iOS)
+                    // 正在播的电台放在最上面一张大卡:台名、节目、上下台与停止、睡眠定时都在这里。
+                    // 卡片自己读播放状态,节目标题更新不会把整页网格拉着重画。
+                    RadioOnAirHero()
+                    #endif
+                    stationLazyGrid(priorities: priorities, total: total)
+                    // 末尾一格「添加电台」,和首页电台墙的添加卡一样打开批量添加。
+                    RadioAddStationTile(layoutMode: layoutMode) { showingBatchAdd = true }
+                }
+                .padding(16)
+            } else {
+                stationLazyGrid(priorities: priorities, total: total)
+                    .padding(16)
+            }
+        }
+    }
+
+    private func stationLazyGrid(priorities: [String: Int], total: Int) -> some View {
+        LazyVGrid(
+            columns: columns,
+            alignment: .leading,
+            spacing: layoutMode == .cover ? 14 : 16,
+            pinnedViews: [.sectionHeaders]
+        ) {
+            if showsFolderSections {
+                // 分段只在没筛选时出现，这时可见的就是全部电台，直接用存储里分好的。
+                ForEach(store.folderGroups) { group in
+                    Section {
+                        ForEach(group.stations) { station in
+                            stationItem(
+                                station,
+                                priority: priorities[station.id] ?? 1,
+                                total: total
+                            )
                         }
-                    }
-                } else {
-                    ForEach(visibleStations) { station in
-                        stationItem(station, priority: priorities[station.id] ?? 1, total: total)
+                    } header: {
+                        folderSectionHeader(group)
                     }
                 }
+            } else {
+                ForEach(visibleStations) { station in
+                    stationItem(station, priority: priorities[station.id] ?? 1, total: total)
+                }
             }
-            // 末尾一格「添加电台」,和首页电台墙的添加卡一样打开批量添加。
-            RadioAddStationTile(layoutMode: layoutMode) { showingBatchAdd = true }
-            }
-            .padding(16)
         }
     }
 

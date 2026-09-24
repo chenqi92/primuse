@@ -442,9 +442,6 @@ struct SearchView: View {
     @AppStorage(SearchResultSectionLayout.hiddenKey)
     private var hiddenResultSectionsRawValue = ""
     @State private var showsResultLayoutEditor = false
-    #if os(iOS)
-    @Environment(\.appNavigationMode) private var appNavigationMode
-    #endif
     // Mac 上恒为经典样式;结果列表与最近搜索的行底两端共用这一份判断。
     @Environment(\.skin) private var skin
     /// 手机横屏时结果区只剩两百多点, 范围卡片与专辑架都要收一档。
@@ -499,14 +496,6 @@ struct SearchView: View {
         self._requestsResultLayoutEditor = requestsResultLayoutEditor
         self.contextualScope = contextualScope
         self.onShowInLibrary = onShowInLibrary
-    }
-
-    private var usesMinimalNavigation: Bool {
-        #if os(iOS)
-        appNavigationMode == .minimal
-        #else
-        false
-        #endif
     }
 
     private var visibleSemanticResults: [SemanticLibrarySearchResult] {
@@ -693,28 +682,22 @@ struct SearchView: View {
         .onDisappear { workCoordinator.cancelSearch() }
     }
 
-    @ViewBuilder
     private var iosBody: some View {
-        if usesMinimalNavigation {
-            iosSearchContent
-                .floatingInputPanelClearance()
-        } else {
-            iosSearchContent
-                .searchable(
-                    text: $searchText,
-                    isPresented: $isSearchFieldPresented,
-                    prompt: Text(searchPrompt)
-                )
-                .onSubmit(of: .search) { addRecentSearch(searchText) }
-                .floatingInputPanelClearance()
-                .onChange(of: activatesSearchField, initial: true) { _, requested in
-                    guard requested else { return }
-                    activatesSearchField = false
-                    // 点进搜索就直接弹出键盘。刚切过来的这一帧搜索框还没挂上,
-                    // 当场设 true 会被忽略, 所以放到下一轮主线程再激活。
-                    Task { @MainActor in isSearchFieldPresented = true }
-                }
-        }
+        iosSearchContent
+            .searchable(
+                text: $searchText,
+                isPresented: $isSearchFieldPresented,
+                prompt: Text(searchPrompt)
+            )
+            .onSubmit(of: .search) { addRecentSearch(searchText) }
+            .floatingInputPanelClearance()
+            .onChange(of: activatesSearchField, initial: true) { _, requested in
+                guard requested else { return }
+                activatesSearchField = false
+                // 点进搜索就直接弹出键盘。刚切过来的这一帧搜索框还没挂上,
+                // 当场设 true 会被忽略, 所以放到下一轮主线程再激活。
+                Task { @MainActor in isSearchFieldPresented = true }
+            }
     }
 
     private var iosSearchContent: some View {
@@ -730,22 +713,20 @@ struct SearchView: View {
             iosSearchResults
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle(usesMinimalNavigation ? Text("") : Text("search_title"))
-        .toolbarTitleDisplayMode(usesMinimalNavigation ? .inline : .inlineLarge)
+        .navigationTitle(Text("search_title"))
+        .toolbarTitleDisplayMode(.inlineLarge)
         #if os(iOS)
         .minimalNavigationRoot()
         .toolbar {
-            if !usesMinimalNavigation, let contextualScope {
+            if let contextualScope {
                 ToolbarItem(placement: .topBarTrailing) {
                     SearchScopeSwitchButton(scope: $scope, context: contextualScope)
                         .labelStyle(.iconOnly)
                 }
             }
             // 放在最后, 始终贴着右边缘; 有范围按钮时它排在左边。
-            if !usesMinimalNavigation {
-                ToolbarItem(placement: .topBarTrailing) {
-                    SearchResultLayoutButton { showsResultLayoutEditor = true }
-                }
+            ToolbarItem(placement: .topBarTrailing) {
+                SearchResultLayoutButton { showsResultLayoutEditor = true }
             }
         }
         .sheet(isPresented: $showsResultLayoutEditor) {
@@ -2470,8 +2451,61 @@ struct SearchView: View {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
-    /// 还没输入时的搜索页:最近搜索排成一行行胶囊,下面是按流派浏览,最后一行资料库计数。
+    /// 还没输入时的搜索页。大一号卡片(`Card.tile`)下是胶囊、流派磁贴与一行计数,经典是分组列表。
+    @ViewBuilder
     private var recentSearchView: some View {
+        if skin.usesTileCards {
+            recentSearchGallery
+        } else {
+            recentSearchList
+        }
+    }
+
+    private var recentSearchList: some View {
+        List {
+            if !recentSearches.isEmpty {
+                Section {
+                    ForEach(recentSearches, id: \.self) { query in
+                        Button {
+                            addRecentSearch(query)
+                            searchText = query
+                        } label: {
+                            Label(query, systemImage: "clock")
+                        }
+                    }
+                    .onDelete(perform: deleteRecentSearches)
+                } header: {
+                    HStack {
+                        Text("recent_searches")
+                        Spacer()
+                        Button("clear_all", role: .destructive, action: clearRecentSearches)
+                            .font(.caption)
+                    }
+                }
+            }
+
+            Section {
+                HStack {
+                    Image(systemName: "music.note.list")
+                        .foregroundStyle(.secondary)
+                    Text("\(scope?.songIDs.count ?? library.visibleSongs.count) \(String(localized: "tab_songs"))")
+                    if scope == nil {
+                        Spacer()
+                        Text("\(library.visibleAlbums.count) \(String(localized: "tab_albums"))")
+                        Text("·")
+                        Text("\(library.visibleArtists.count) \(String(localized: "tab_artists"))")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            } header: {
+                Text(scope?.title ?? String(localized: "library"))
+            }
+        }
+    }
+
+    /// 最近搜索排成一行行胶囊,下面是按流派浏览,最后一行资料库计数。
+    private var recentSearchGallery: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 if !recentSearches.isEmpty {
@@ -2643,7 +2677,8 @@ struct SearchView: View {
                 }
             }
 
-            if scope == nil, let top = topResult {
+            // 最佳结果只在大一号卡片(`Card.tile`)那一套里出现。
+            if skin.usesTileCards, scope == nil, let top = topResult {
                 Section {
                     topResultCard(top)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 10, trailing: 16))
@@ -2664,12 +2699,18 @@ struct SearchView: View {
         .songRowColumnsContainer()
     }
 
+    /// 结果分区的标题。大一号卡片那一套用加粗的大标题,经典是分组列表的系统标题。
+    @ViewBuilder
     private func searchResultHeader(_ key: LocalizedStringKey) -> some View {
-        Text(key)
-            .font(.title3.weight(.bold))
-            .foregroundStyle(.primary)
-            .textCase(nil)
-            .padding(.top, 6)
+        if skin.usesTileCards {
+            Text(key)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.primary)
+                .textCase(nil)
+                .padding(.top, 6)
+        } else {
+            Text(key)
+        }
     }
 
     /// 标题 / 艺术家命中里排第一的那首。只在全局搜索里出现 —— 范围内搜索本来就是在
@@ -2799,9 +2840,14 @@ struct SearchView: View {
                     searchResultHeader("tab_albums")
                     Spacer()
                     #if os(iOS)
-                    NavigationLink("see_all", value: SearchCatalogDestination.albums)
-                    .font(.subheadline)
-                    .textCase(nil)
+                    if skin.usesTileCards {
+                        NavigationLink("see_all", value: SearchCatalogDestination.albums)
+                        .font(.subheadline)
+                        .textCase(nil)
+                    } else {
+                        NavigationLink("see_all", value: SearchCatalogDestination.albums)
+                        .textCase(nil)
+                    }
                     #endif
                 }
             }
@@ -2873,12 +2919,19 @@ struct SearchView: View {
                 }
             }
         } header: {
-            HStack(spacing: 6) {
-                Image(systemName: "applelogo")
-                    .font(.headline)
-                searchResultHeader("search_section_apple_music")
+            if skin.usesTileCards {
+                HStack(spacing: 6) {
+                    Image(systemName: "applelogo")
+                        .font(.headline)
+                    searchResultHeader("search_section_apple_music")
+                }
+                .foregroundStyle(.primary)
+            } else {
+                HStack {
+                    Image(systemName: "applelogo")
+                    Text("search_section_apple_music")
+                }
             }
-            .foregroundStyle(.primary)
         }
     }
 
