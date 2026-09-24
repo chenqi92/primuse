@@ -2185,6 +2185,7 @@ struct GenreLibraryView: View {
         iosBody
             .navigationDestination(for: LibraryGenre.self) { genre in
                 GenreDetailView(genre: genre)
+                    .mediaZoomDestination(.genre, id: genre.id)
             }
         #endif
     }
@@ -2219,6 +2220,7 @@ struct GenreLibraryView: View {
                                 LibraryGenreCard(genre: genre, height: cardHeight)
                             }
                             .buttonStyle(.pmPressable)
+                            .mediaZoomSource(.genre, id: genre.id)
                         }
                     }
                     .padding(16)

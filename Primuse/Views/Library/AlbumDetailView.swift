@@ -380,6 +380,7 @@ struct AlbumDetailView: View {
                         ForEach(others) { other in
                             NavigationLink {
                                 AlbumDetailView(album: other)
+                                    .mediaZoomDestination(.album, id: other.id)
                             } label: {
                                 VStack(alignment: .leading, spacing: 7) {
                                     AlbumArtworkView(album: other, cornerRadius: 12)
@@ -397,6 +398,7 @@ struct AlbumDetailView: View {
                                 .frame(width: 150, alignment: .leading)
                             }
                             .buttonStyle(.plain)
+                            .mediaZoomSource(.album, id: other.id)
                         }
                     }
                     .padding(.horizontal, 20)

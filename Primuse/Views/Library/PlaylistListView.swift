@@ -122,6 +122,7 @@ struct PlaylistListView: View {
                                 NavigationLink(value: smart) {
                                     smartPlaylistRow(smart)
                                 }
+                                .mediaZoomSource(.smartPlaylist, id: smart.id)
                             }
                             .onDelete { offsets in
                                 deleteSmartPlaylists(at: offsets, in: aiSmartPlaylists)
@@ -137,6 +138,7 @@ struct PlaylistListView: View {
                                 NavigationLink(value: smart) {
                                     smartPlaylistRow(smart)
                                 }
+                                .mediaZoomSource(.smartPlaylist, id: smart.id)
                             }
                             .onDelete { offsets in
                                 deleteSmartPlaylists(at: offsets, in: ruleSmartPlaylists)
@@ -223,6 +225,7 @@ struct PlaylistListView: View {
         }
         .navigationDestination(for: SmartPlaylist.self) { smart in
             SmartPlaylistDetailView(smartPlaylistID: smart.id)
+                .mediaZoomDestination(.smartPlaylist, id: smart.id)
         }
     }
 

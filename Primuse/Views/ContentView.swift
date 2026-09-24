@@ -285,13 +285,15 @@ extension EnvironmentValues {
 
 // MARK: - 详情页 zoom 展开
 
-/// 列表卡片与详情页之间的转场标识。专辑 / 艺术家 / 歌单共用一层导航栈的
+/// 列表卡片与详情页之间的转场标识。专辑 / 艺术家 / 歌单 / 智能歌单 / 风格共用一层导航栈的
 /// 命名空间,靠 kind 区分,免得不同类型撞上同一个 ID 时互相匹配。
 struct MediaZoomTransitionID: Hashable {
     enum Kind: String {
         case album
         case artist
         case playlist
+        case smartPlaylist
+        case genre
     }
 
     let kind: Kind
