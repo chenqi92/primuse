@@ -28,7 +28,7 @@
 "skin.classic.name"          = "クラシック";
 "skin.classic.description"   = "タブバー、システムの外観に従います";
 "skin.minimal.name"          = "ミニマル";
-"skin.minimal.description"   = "カバーウォール、フローティングプレーヤー、検索中心のナビゲーション";
+"skin.minimal.description"   = "上部のタブで切り替え、下部に固定されたプレーヤーバー、カバーの色に染まる詳細ページ";
 
 // ウィジェット・コントロールセンター拡張
 "ext.widget.appName"                       = "Primuse";

@@ -28,7 +28,7 @@
 "skin.classic.name"          = "Classique";
 "skin.classic.description"   = "Barre d’onglets, suit l’apparence du système";
 "skin.minimal.name"          = "Minimal";
-"skin.minimal.description"   = "Mur de pochettes, lecteur flottant, navigation par la recherche";
+"skin.minimal.description"   = "Onglets en haut, barre de lecture ancrée en bas et pages de détail aux couleurs de la pochette";
 
 // Extensions widget et centre de contrôle
 "ext.widget.appName"                       = "Primuse";

@@ -694,7 +694,7 @@
 "skin.classic.name"          = "คลาสสิก";
 "skin.classic.description"   = "แถบแท็บ ตามลักษณะที่ปรากฏของระบบ";
 "skin.minimal.name"          = "มินิมอล";
-"skin.minimal.description"   = "กำแพงปก เครื่องเล่นแบบลอย และการนำทางที่เริ่มจากการค้นหา";
+"skin.minimal.description"   = "แท็บด้านบน แถบเครื่องเล่นติดด้านล่าง และหน้ารายละเอียดที่ใช้สีจากปก";
 "src.subtitle.plex" = "Plex เซิร์ฟเวอร์สื่อ";
 "src.subtitle.sftp" = "SSH · การรับรองความถูกต้องของคีย์";
 "src.subtitle.upnp" = "การค้นพบอัตโนมัติ";

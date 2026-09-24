@@ -694,7 +694,7 @@
 "skin.classic.name"          = "Klasyczna";
 "skin.classic.description"   = "Pasek kart, zgodna z wyglądem systemu";
 "skin.minimal.name"          = "Minimalna";
-"skin.minimal.description"   = "Ściana okładek, pływający odtwarzacz, nawigacja przez wyszukiwanie";
+"skin.minimal.description"   = "Karty u góry, przypięty pasek odtwarzacza na dole i strony szczegółów w kolorach okładki";
 "src.subtitle.plex" = "Serwer multimediów Plex";
 "src.subtitle.sftp" = "SSH · Uwierzytelnianie kluczem";
 "src.subtitle.upnp" = "Automatyczne wykrywanie";

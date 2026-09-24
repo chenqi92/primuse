@@ -25,7 +25,7 @@
 "skin.classic.name"          = "经典";
 "skin.classic.description"   = "标签栏导航,跟随系统外观";
 "skin.minimal.name"          = "极简";
-"skin.minimal.description"   = "封面墙、悬浮播放条、搜索优先的导航";
+"skin.minimal.description"   = "顶部标签切换、底部停靠播放条、随封面取色的详情页";
 
 // 小组件与控制中心扩展
 "ext.widget.appName"                       = "Primuse";

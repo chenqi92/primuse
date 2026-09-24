@@ -694,7 +694,7 @@
 "skin.classic.name"          = "Clássico";
 "skin.classic.description"   = "Barra de abas, segue a aparência do sistema";
 "skin.minimal.name"          = "Mínimo";
-"skin.minimal.description"   = "Mural de capas, player flutuante e navegação centrada na busca";
+"skin.minimal.description"   = "Abas no topo, barra de reprodução fixa embaixo e páginas de detalhes com as cores da capa";
 "src.subtitle.plex" = "Servidor de mídia Plex";
 "src.subtitle.sftp" = "SSH · Autenticação de chave";
 "src.subtitle.upnp" = "Descoberta automática";

@@ -694,7 +694,7 @@
 "skin.classic.name"          = "Clásico";
 "skin.classic.description"   = "Barra de pestañas, sigue la apariencia del sistema";
 "skin.minimal.name"          = "Mínimo";
-"skin.minimal.description"   = "Muro de portadas, reproductor flotante y navegación centrada en la búsqueda";
+"skin.minimal.description"   = "Pestañas arriba, barra de reproducción fija abajo y páginas de detalle con los colores de la portada";
 "src.subtitle.plex" = "Servidor de medios Plex";
 "src.subtitle.sftp" = "SSH · Autenticación de clave";
 "src.subtitle.upnp" = "Descubrimiento automático";

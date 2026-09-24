@@ -398,7 +398,7 @@
 "skin.classic.name"          = "Klasik";
 "skin.classic.description"   = "Sekme çubuğu, sistem görünümünü izler";
 "skin.minimal.name"          = "Minimal";
-"skin.minimal.description"   = "Kapak duvarı, yüzen oynatıcı, arama odaklı gezinme";
+"skin.minimal.description"   = "Üstte sekmeler, altta sabit oynatıcı çubuğu ve kapak renkleriyle detay sayfaları";
 "serverShare.error.unsupported" = "Bu sunucu genel medya bağlantılarını desteklemiyor veya paylaşım devre dışı.";
 "error.catalog.invalidTrackReference" = "Parça referansı geçersiz.";
 "ext.widget.stats.last30Days" = "Son 30 gün";

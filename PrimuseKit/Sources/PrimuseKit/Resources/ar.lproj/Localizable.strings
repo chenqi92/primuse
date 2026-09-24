@@ -694,7 +694,7 @@
 "skin.classic.name"          = "كلاسيكي";
 "skin.classic.description"   = "شريط علامات التبويب، يتبع مظهر النظام";
 "skin.minimal.name"          = "الأدنى";
-"skin.minimal.description"   = "جدار أغلفة، مشغّل عائم، وتنقّل يبدأ بالبحث";
+"skin.minimal.description"   = "علامات تبويب في الأعلى، وشريط تشغيل ثابت في الأسفل، وصفحات تفاصيل بألوان الغلاف";
 "src.subtitle.plex" = "Plex خادم الوسائط";
 "src.subtitle.sftp" = "SSH · مفتاح التوثيق";
 "src.subtitle.upnp" = "الاكتشاف التلقائي";

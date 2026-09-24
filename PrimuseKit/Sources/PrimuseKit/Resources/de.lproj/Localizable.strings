@@ -28,7 +28,7 @@
 "skin.classic.name"          = "Klassisch";
 "skin.classic.description"   = "Tab-Leiste, folgt dem Systemerscheinungsbild";
 "skin.minimal.name"          = "Minimal";
-"skin.minimal.description"   = "Cover-Wand, schwebender Player, Navigation über die Suche";
+"skin.minimal.description"   = "Tabs oben, eine angedockte Wiedergabeleiste unten und Detailseiten in den Farben des Covers";
 
 // Widget- und Kontrollzentrum-Erweiterungen
 "ext.widget.appName"                       = "Primuse";

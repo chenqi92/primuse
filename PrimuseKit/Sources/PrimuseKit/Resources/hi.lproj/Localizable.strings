@@ -694,7 +694,7 @@
 "skin.classic.name"          = "क्लासिक";
 "skin.classic.description"   = "टैब बार, सिस्टम के स्वरूप का पालन करती है";
 "skin.minimal.name"          = "न्यूनतम";
-"skin.minimal.description"   = "कवर वॉल, फ़्लोटिंग प्लेयर, खोज-केंद्रित नेविगेशन";
+"skin.minimal.description"   = "ऊपर टैब, नीचे टिका हुआ प्लेयर बार, और कवर के रंगों वाले विवरण पेज";
 "src.subtitle.plex" = "Plex मीडिया सर्वर";
 "src.subtitle.sftp" = "SSH · कुंजी प्रमाणीकरण";
 "src.subtitle.upnp" = "स्वचालित खोज";

@@ -26,7 +26,7 @@
 "skin.classic.name"          = "Classic";
 "skin.classic.description"   = "Tab bar, follows the system appearance";
 "skin.minimal.name"          = "Minimal";
-"skin.minimal.description"   = "Cover wall, floating player, search-first navigation";
+"skin.minimal.description"   = "Tabs along the top, a docked player bar at the bottom, and detail pages tinted by their artwork";
 
 // Widget & Control Center extensions
 "ext.widget.appName"                       = "Primuse";

@@ -398,7 +398,7 @@
 "skin.classic.name"          = "Класична";
 "skin.classic.description"   = "Панель вкладок, дотримується системного оформлення";
 "skin.minimal.name"          = "Мінімальний";
-"skin.minimal.description"   = "Стіна обкладинок, плаваючий плеєр, навігація через пошук";
+"skin.minimal.description"   = "Вкладки вгорі, закріплена панель плеєра внизу та сторінки в кольорах обкладинки";
 "serverShare.error.unsupported" = "Цей сервер не підтримує загальнодоступні медіапосилання, або спільний доступ вимкнено.";
 "error.catalog.invalidTrackReference" = "Посилання на трек недійсне.";
 "ext.widget.stats.last30Days" = "Останні 30 днів";

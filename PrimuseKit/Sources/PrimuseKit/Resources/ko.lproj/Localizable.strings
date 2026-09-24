@@ -28,7 +28,7 @@
 "skin.classic.name"          = "클래식";
 "skin.classic.description"   = "탭 막대, 시스템 화면 표시를 따릅니다";
 "skin.minimal.name"          = "미니멀";
-"skin.minimal.description"   = "커버 월, 플로팅 플레이어, 검색 중심 내비게이션";
+"skin.minimal.description"   = "상단 탭으로 전환, 하단에 고정된 재생 막대, 커버 색을 입은 상세 페이지";
 
 // 위젯 및 제어 센터 확장
 "ext.widget.appName"                       = "Primuse";
