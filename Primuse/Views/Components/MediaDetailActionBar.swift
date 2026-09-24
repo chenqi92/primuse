@@ -258,6 +258,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 .tint(tint == nil ? nil : Color.white)
             }
             .ignoresSafeArea(.container, edges: [.top, .horizontal])
+            .libraryDetailSoftTopEdge()
             .onScrollGeometryChange(for: CGFloat.self) { scroll in
                 scroll.contentOffset.y + scroll.contentInsets.top
             } action: { _, scrolled in
@@ -304,7 +305,6 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     }
 }
 
-/// 详情页头图下那一排的圆形次按钮(随机、下载、加入快速访问)。
 /// 详情页会呼吸的整页底色：3×3 网格渐变，控制点在固定幅度里慢慢漂。
 ///
 /// 换专辑（或者取色晚到）时新旧两层在 ZStack 里交叉淡入，漂移不被打断；
@@ -373,6 +373,7 @@ private struct LibraryDetailMeshLayer: View {
     }
 }
 
+/// 详情页头图下那一排的圆形次按钮(随机、下载、加入快速访问)。
 ///
 /// 压在封面取色的整页底色上:iOS 26 起用系统玻璃,更早的系统用半透明白叠材质。
 /// 两套基座共用 —— 这一排的版式由详情页自己决定,不随皮肤变。

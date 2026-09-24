@@ -278,6 +278,8 @@ struct ArtistDetailView: View {
                     endPoint: .bottom
                 )
             }
+            // iOS 26 起海报延伸到玻璃导航区与屏幕两侧。
+            .libraryDetailBackgroundExtension()
             // 下拉时海报往下拉长、上滚时半速跟随;名字与按钮照常随正文走。
             .libraryDetailHeroMotion(.poster)
             .accessibilityHidden(true)

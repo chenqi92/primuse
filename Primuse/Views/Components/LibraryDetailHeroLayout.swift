@@ -301,6 +301,30 @@ struct LibraryDetailInlineTitle: View {
     }
 }
 
+// MARK: - iOS 26 的玻璃导航区
+
+extension View {
+    /// 海报延伸到玻璃导航区与屏幕两侧(iOS 26 起)。更早的系统原样返回。
+    @ViewBuilder
+    func libraryDetailBackgroundExtension() -> some View {
+        if #available(iOS 26.0, *) {
+            backgroundExtensionEffect()
+        } else {
+            self
+        }
+    }
+
+    /// 正文滚到顶部玻璃圆钮下面时柔化(iOS 26 起)。更早的系统原样返回。
+    @ViewBuilder
+    func libraryDetailSoftTopEdge() -> some View {
+        if #available(iOS 26.0, *) {
+            scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            self
+        }
+    }
+}
+
 extension LibraryDetailActionRowArrangement {
     /// 播放胶囊的最大宽度：一行时 220，两行时通栏。
     var primaryMaxWidth: CGFloat {
