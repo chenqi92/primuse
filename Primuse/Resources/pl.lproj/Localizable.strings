@@ -4458,3 +4458,8 @@
 "karaoke_remote_rejected" = "Apple TV nie przyjął tego kodu. Zeskanuj kod z telewizora ponownie.";
 "karaoke_remote_failed" = "Nie można połączyć się z Apple TV. Upewnij się, że oba urządzenia są w tej samej sieci.";
 "karaoke_remote_hint" = "Trzymaj iPhone’a przy ustach. Głos słychać w pokoju jak zwykle; iPhone tylko ocenia.";
+"karaoke_tv_ai_active" = "Używana jest separacja wokalu AI z iPhone’a.";
+"karaoke_tv_ai_preparing_format" = "iPhone oddziela wokal… %d%%";
+"karaoke_remote_ai_preparing" = "Przygotowywanie wokalu AI dla TV";
+"karaoke_remote_ai_sending" = "Wysyłanie wokalu AI do TV…";
+"karaoke_remote_ai_sent" = "Telewizor używa separacji wokalu AI.";

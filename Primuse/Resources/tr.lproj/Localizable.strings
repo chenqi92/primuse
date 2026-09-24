@@ -4458,3 +4458,8 @@
 "karaoke_remote_rejected" = "Apple TV bu kodu kabul etmedi. TV’deki kodu yeniden tarayın.";
 "karaoke_remote_failed" = "Apple TV’ye ulaşılamadı. İki cihazın da aynı ağda olduğundan emin olun.";
 "karaoke_remote_hint" = "iPhone’u ağzınıza yakın tutun. Sesiniz odada her zamanki gibi duyulur; iPhone yalnızca puanlar.";
+"karaoke_tv_ai_active" = "iPhone’dan gelen yapay zekâ vokal ayırma açık.";
+"karaoke_tv_ai_preparing_format" = "iPhone vokali ayırıyor… %%%d";
+"karaoke_remote_ai_preparing" = "TV için yapay zekâ vokali";
+"karaoke_remote_ai_sending" = "Yapay zekâ vokali TV’ye gönderiliyor…";
+"karaoke_remote_ai_sent" = "TV yapay zekâ vokal ayırmayı kullanıyor.";

@@ -4458,3 +4458,8 @@
 "karaoke_remote_rejected" = "Apple TV не принял этот код. Отсканируйте код на ТВ ещё раз.";
 "karaoke_remote_failed" = "Не удаётся связаться с Apple TV. Убедитесь, что устройства в одной сети.";
 "karaoke_remote_hint" = "Держите iPhone у рта. Голос слышно в комнате как обычно; iPhone только оценивает.";
+"karaoke_tv_ai_active" = "Используется ИИ-отделение вокала с iPhone.";
+"karaoke_tv_ai_preparing_format" = "iPhone отделяет вокал… %d%%";
+"karaoke_remote_ai_preparing" = "Готовим ИИ-вокал для ТВ";
+"karaoke_remote_ai_sending" = "Отправляем ИИ-вокал на ТВ…";
+"karaoke_remote_ai_sent" = "ТВ использует ИИ-отделение вокала.";
