@@ -1500,6 +1500,15 @@ struct NowPlayingView: View {
             }
         }
         .onAppear { FullscreenPlayerEffectSync.shared.install() }
+        #if DEBUG
+        // 编译机截图用:`PRIMUSE_DEBUG_FULLSCREEN=1` 时播放页打开三秒后进全屏(沉浸歌词或当前全屏效果)。
+        .task {
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_FULLSCREEN"] == "1" else { return }
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            presentImmersiveLyrics()
+        }
+        #endif
         .onChange(of: isVisualSceneActive) { _, isActive in
             if isActive {
                 if isLyricsImmersive, immersiveControlsState.isVisible {
