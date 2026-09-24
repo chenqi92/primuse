@@ -439,6 +439,7 @@
 		4C615F3D68FAC9144B366F52 /* SongBatchActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368E7734000B96CD7A810C23 /* SongBatchActionBar.swift */; };
 		4C76D177E116956DDA891DF1 /* AudioPlayerService+PlaybackClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68ECA7BCBB767E4D228AD301 /* AudioPlayerService+PlaybackClock.swift */; };
 		4CBDA8F19CD5B69C0161648F /* SpokenWordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D24D75902E225384315DFADB /* SpokenWordStore.swift */; };
+		4D10AB8F37BF0731122ED023 /* ReplayGainPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28AAE963E761C1CD3B05B3AC /* ReplayGainPolicy.swift */; };
 		4D2711DD289A920BBAFB66F3 /* MacRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFCB474474519BE89590D828 /* MacRoute.swift */; };
 		4D3A4ACF3185CCECCC8DF8B7 /* STRMDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A808E934F62A6E8AB8548E11 /* STRMDescriptor.swift */; };
 		4D3A6BFB31C8699E95C3469D /* TVCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FFB43F39C3A62C7EBDB2D72 /* TVCredentialStore.swift */; };
@@ -1797,6 +1798,7 @@
 		28344C4A76C56EC6BE57ED3B /* PlaybackSourceAvailabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSourceAvailabilityTests.swift; sourceTree = "<group>"; };
 		285C1472009479A6CC7B2177 /* PlaylistExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistExporter.swift; sourceTree = "<group>"; };
 		285DF2C9DD2043B4D2C937FC /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		28AAE963E761C1CD3B05B3AC /* ReplayGainPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayGainPolicy.swift; sourceTree = "<group>"; };
 		28EE6B136CE82FFC872F9E86 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		291FDF1C384E333B90E3337E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/SettingsSearch.strings; sourceTree = "<group>"; };
 		29281CC03025CD5519BC481C /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
@@ -3057,6 +3059,7 @@
 				AFC591E3A4BEE6456BA66E38 /* Metadata */,
 				6B4555C595F754161FB68F73 /* Models */,
 				AE8026A8E49A84C9F273845F /* Radio */,
+				28AAE963E761C1CD3B05B3AC /* ReplayGainPolicy.swift */,
 				D7B9A30E7467B10B25922382 /* Resources */,
 				1FA61E5EA3526337A1F7518F /* Sharing */,
 				982CFDD034CB574AA740A619 /* Storage */,
@@ -5076,6 +5079,7 @@
 				17F49E86FA92CB0D1341670E /* RelayStreamResolver.swift in Sources */,
 				B4757F43F22197C6497DF963 /* RemoteGatewayBackoffPolicy.swift in Sources */,
 				074C490AB30D658DDDA8DED6 /* RemoteRendererTransportPolicy.swift in Sources */,
+				4D10AB8F37BF0731122ED023 /* ReplayGainPolicy.swift in Sources */,
 				29450CDECCC58A4F4C8D4FE9 /* RunningAppEnvironment.swift in Sources */,
 				055E8F5093B42BCBDF08DA4F /* S3StreamResolver.swift in Sources */,
 				12C7978BCBFE0B91090B8657 /* SSDPNetworkInterfaces.swift in Sources */,

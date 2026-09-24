@@ -930,6 +930,9 @@ final class AudioPlayerService {
         /// 提交交叉淡入时正在播放的那一首的 playID。ramp 结束前它仍然拥有
         /// primary 节点, 解码泵靠它判断自己还能不能继续投递。
         let outgoingPlayID: UUID
+        /// 下一首的稳态音量(回放增益换算后的线性值, 没有标签就是 1)。
+        /// ramp 直接淡入到这个值, 换节点时原样交给 primary。
+        let programVolume: Float
     }
     enum CrossfadeCompletionMode: Equatable {
         case activePlayback
