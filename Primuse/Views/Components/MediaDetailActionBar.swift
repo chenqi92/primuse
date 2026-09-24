@@ -457,6 +457,7 @@ struct LibraryDetailPlayCircle: View {
 /// 与「编辑快捷收藏」页同一套规则:满了就不能再加。
 struct QuickAccessPinCircleButton: View {
     let pin: LibraryPinReference
+    var size: CGFloat = 54
 
     @AppStorage(LibraryPinStorage.defaultsKey) private var pinsRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
@@ -471,6 +472,7 @@ struct QuickAccessPinCircleButton: View {
         LibraryDetailCircleButton(
             systemImage: isPinned ? "pin.fill" : "pin",
             label: isPinned ? "library_remove_quick_access" : "library_add_quick_access",
+            size: size,
             isOn: isPinned,
             disabled: !isPinned && current.count >= limit
         ) {

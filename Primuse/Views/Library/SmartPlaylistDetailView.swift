@@ -168,6 +168,7 @@ struct SmartPlaylistDetailView: View {
         let hero = insets.hero
         let compact = hero.isCompactHeight
         let summaryLines = compact ? 2 : LibraryDetailHeroLayoutPolicy.smartSummaryLineLimit(hero.titleTier)
+        // 手机横屏首屏只有两百点上下:操作行并进头图(墙面下沿 / 封面右栏),规则摘要排到头图下面。
         return VStack(spacing: compact ? 10 : 14) {
             CollectionCoverWallHeader(
                 title: smart.name,
@@ -178,9 +179,10 @@ struct SmartPlaylistDetailView: View {
                 topInset: insets.top,
                 wallHeight: CGFloat(hero.smartPlaylistWallHeight),
                 leadingInset: insets.leading,
-                trailingInset: insets.trailing
+                trailingInset: insets.trailing,
+                overlayActions: compact ? AnyView(smartActionRow(matched, arrangement: .singleRow)) : nil
             ) {
-                smartSingleHeader(smart, matched: matched, insets: insets)
+                smartSingleHeader(smart, matched: matched, insets: insets, includesActions: compact)
             }
 
             Text(playlistSummary(smart))
@@ -193,35 +195,37 @@ struct SmartPlaylistDetailView: View {
                 .padding(.leading, insets.leading + 28)
                 .padding(.trailing, insets.trailing + 28)
 
-            smartActionRow(matched, arrangement: hero.actionRow)
-                .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
-                .padding(.leading, insets.leading + 20)
-                .padding(.trailing, insets.trailing + 20)
-                .padding(.top, 4)
+            if !compact {
+                smartActionRow(matched, arrangement: hero.actionRow)
+                    .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
+                    .padding(.leading, insets.leading + 20)
+                    .padding(.trailing, insets.trailing + 20)
+                    .padding(.top, 4)
+            }
         }
         .padding(.bottom, compact ? 8 : 14)
         .frame(maxWidth: .infinity)
     }
 
     /// 封面不够铺一面墙时:原来那块渐变色块浮在整页底色上,标题与信息居中。
-    /// 手机横屏缩到 112 并挪到左边。
+    /// 手机横屏色块挪到左边、与右栏齐高,标题与操作行排进右栏(`includesActions`)。
     private func smartSingleHeader(
         _ smart: SmartPlaylist,
         matched: [Song],
-        insets: ImmersiveLibraryDetailInsets
+        insets: ImmersiveLibraryDetailInsets,
+        includesActions: Bool
     ) -> some View {
         let hero = insets.hero
         let compact = hero.isCompactHeight
         let tier = hero.titleTier
-        let stacks = !compact || dynamicTypeSize.isAccessibilitySize
-        let stack = compact
-            ? LibraryDetailArtworkStack(ideal: 112, minimum: 112, budget: .infinity, spacing: 20)
-            : hero.smartPlaylistCover
-        let identityLayout = stacks
-            ? AnyLayout(LibraryDetailArtworkStackLayout(stack: stack))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
+        let stacks = hero.stacksArtworkHeader(accessibilityType: dynamicTypeSize.isAccessibilitySize)
+        let headerLayout = hero.artworkHeaderLayout(
+            hero.smartPlaylistCover,
+            actionsSpacing: 18,
+            stacksVertically: stacks
+        )
 
-        return identityLayout {
+        return headerLayout {
             LibraryDetailArtworkSlot { size in
                 ZStack {
                     RoundedRectangle(cornerRadius: 14)
@@ -234,13 +238,12 @@ struct SmartPlaylistDetailView: View {
                         ))
                     // 图标跟着色块的边长走:原来 200 配 64、横屏 112 配 42。
                     Image(systemName: kindSymbol(smart))
-                        .font(.system(size: compact ? 42 : max(32, size.width * 0.32)))
+                        .font(.system(size: max(32, size.width * 0.32)))
                         .foregroundStyle(.white)
                 }
                 .frame(width: size.width, height: size.height)
                 .shadow(color: .black.opacity(0.3), radius: 22, y: 12)
             }
-            .frame(width: compact ? 112 : nil, height: compact ? 112 : nil)
             .libraryDetailHeroMotion(.artwork)
             .accessibilityHidden(true)
 
@@ -248,7 +251,8 @@ struct SmartPlaylistDetailView: View {
                 Text(smart.name)
                     .font(tier == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
                     .foregroundStyle(.white)
-                    .lineLimit(compact ? 2 : LibraryDetailHeroLayoutPolicy.titleLineLimit(tier))
+                    .lineLimit(stacks ? LibraryDetailHeroLayoutPolicy.titleLineLimit(tier) : LibraryDetailHeroLayoutPolicy.compactTitleLineLimit)
+                    .minimumScaleFactor(stacks ? 1 : 0.8)
                     .libraryDetailHeroTitle()
                 Text(verbatim: smartPlaylistMetaText(matched))
                     .font(.footnote.weight(.semibold))
@@ -258,6 +262,10 @@ struct SmartPlaylistDetailView: View {
             .frame(maxWidth: .infinity, alignment: stacks ? .center : .leading)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
+
+            if includesActions {
+                smartActionRow(matched, arrangement: .singleRow, alignment: stacks ? .center : .leading)
+            }
         }
         .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
         .padding(.leading, insets.leading + 20)
@@ -269,10 +277,11 @@ struct SmartPlaylistDetailView: View {
     /// 「随机 · 播放全部 · 下载」,与普通歌单页同一套按钮。
     private func smartActionRow(
         _ matched: [Song],
-        arrangement: LibraryDetailActionRowArrangement
+        arrangement: LibraryDetailActionRowArrangement,
+        alignment: Alignment = .center
     ) -> some View {
         let playable = matched.filteredPlayable()
-        return LibraryDetailActionRow(arrangement: arrangement) {
+        return LibraryDetailActionRow(arrangement: arrangement, alignment: alignment) {
             LibraryDetailCircleButton(
                 systemImage: "shuffle",
                 label: "shuffle",

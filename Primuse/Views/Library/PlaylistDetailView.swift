@@ -453,6 +453,8 @@ struct PlaylistDetailView: View {
 
     /// 头图 + 操作行。封面墙自己带标题块;单封面时标题、信息由这里画。
     /// 墙高与单封面边长都按首屏定(`LibraryDetailHeroLayoutPolicy`),矮屏上操作行也整条露出来。
+    /// 手机横屏首屏只有两百点上下,操作行并进头图:封面墙上与标题排成一行压在墙面下沿,
+    /// 单封面时排进封面右栏。
     private func playlistHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let hero = insets.hero
         let compact = hero.isCompactHeight
@@ -466,35 +468,37 @@ struct PlaylistDetailView: View {
                 topInset: insets.top,
                 wallHeight: CGFloat(hero.playlistWallHeight),
                 leadingInset: insets.leading,
-                trailingInset: insets.trailing
+                trailingInset: insets.trailing,
+                overlayActions: compact ? AnyView(playlistActionRow(.singleRow)) : nil
             ) {
-                singleCoverHeader(insets: insets)
+                singleCoverHeader(insets: insets, includesActions: compact)
             }
 
-            playlistActionRow(hero.actionRow)
-                .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
-                .padding(.leading, insets.leading + 20)
-                .padding(.trailing, insets.trailing + 20)
+            if !compact {
+                playlistActionRow(hero.actionRow)
+                    .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
+                    .padding(.leading, insets.leading + 20)
+                    .padding(.trailing, insets.trailing + 20)
+            }
         }
         .padding(.bottom, compact ? 8 : 14)
         .frame(maxWidth: .infinity)
     }
 
     /// 封面不够铺一面墙时的头图,版式与专辑页一致:封面浮在整页底色上,标题与信息居中。
-    /// 手机横屏只剩三百多点高,封面缩到 112 并挪到左边。
-    private func singleCoverHeader(insets: ImmersiveLibraryDetailInsets) -> some View {
+    /// 手机横屏封面挪到左边、与右栏齐高,标题与操作行排进右栏(`includesActions`)。
+    private func singleCoverHeader(insets: ImmersiveLibraryDetailInsets, includesActions: Bool) -> some View {
         let hero = insets.hero
         let compact = hero.isCompactHeight
         let tier = hero.titleTier
-        let stacks = !compact || dynamicTypeSize.isAccessibilitySize
-        let stack = compact
-            ? LibraryDetailArtworkStack(ideal: 112, minimum: 112, budget: .infinity, spacing: 20)
-            : hero.playlistCover
-        let identityLayout = stacks
-            ? AnyLayout(LibraryDetailArtworkStackLayout(stack: stack))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
+        let stacks = hero.stacksArtworkHeader(accessibilityType: dynamicTypeSize.isAccessibilitySize)
+        let headerLayout = hero.artworkHeaderLayout(
+            hero.playlistCover,
+            actionsSpacing: 18,
+            stacksVertically: stacks
+        )
 
-        return identityLayout {
+        return headerLayout {
             LibraryDetailArtworkSlot { size in
                 PlaylistArtworkView(
                     playlist: currentPlaylist ?? playlist,
@@ -504,7 +508,6 @@ struct PlaylistDetailView: View {
                 )
                 .shadow(color: .black.opacity(0.32), radius: 24, y: 14)
             }
-            .frame(width: compact ? 112 : nil, height: compact ? 112 : nil)
             .libraryDetailHeroMotion(.artwork)
             .accessibilityHidden(true)
 
@@ -519,7 +522,8 @@ struct PlaylistDetailView: View {
                     Text(currentPlaylist?.name ?? playlist.name)
                         .font(tier == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
                         .foregroundStyle(.white)
-                        .lineLimit(compact ? 2 : LibraryDetailHeroLayoutPolicy.titleLineLimit(tier))
+                        .lineLimit(stacks ? LibraryDetailHeroLayoutPolicy.titleLineLimit(tier) : LibraryDetailHeroLayoutPolicy.compactTitleLineLimit)
+                        .minimumScaleFactor(stacks ? 1 : 0.8)
                         .libraryDetailHeroTitle()
                 }
                 Text(verbatim: playlistMetaText)
@@ -530,6 +534,10 @@ struct PlaylistDetailView: View {
             .frame(maxWidth: .infinity, alignment: stacks ? .center : .leading)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
+
+            if includesActions {
+                playlistActionRow(.singleRow, alignment: stacks ? .center : .leading)
+            }
         }
         .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
         .padding(.leading, insets.leading + 20)
@@ -539,9 +547,12 @@ struct PlaylistDetailView: View {
     }
 
     /// 「随机 · 播放全部 · 下载」:播放居中最宽,两侧是圆形玻璃键,与专辑页一致。
-    private func playlistActionRow(_ arrangement: LibraryDetailActionRowArrangement) -> some View {
+    private func playlistActionRow(
+        _ arrangement: LibraryDetailActionRowArrangement,
+        alignment: Alignment = .center
+    ) -> some View {
         let playable = songs.filteredPlayable()
-        return LibraryDetailActionRow(arrangement: arrangement) {
+        return LibraryDetailActionRow(arrangement: arrangement, alignment: alignment) {
             LibraryDetailCircleButton(
                 systemImage: "shuffle",
                 label: "shuffle",

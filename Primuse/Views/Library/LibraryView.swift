@@ -2557,28 +2557,28 @@ private struct GenreDetailView: View {
 
     #if os(iOS)
     /// 两套基座共用、与专辑页同一套版式:整页封面色,代表封面的马赛克居中当「封面」,
-    /// 下面是名字、数量和一排「随机 · 播放」。手机横屏马赛克缩小并挪到左边。
-    /// 竖屏马赛克按首屏收(`LibraryDetailHeroLayoutPolicy`),横竖切换只换排法。
+    /// 下面是名字、数量和一排「随机 · 播放」。手机横屏马赛克挪到左边,名字与按钮排进右栏。
+    /// 马赛克按首屏收(`LibraryDetailHeroLayoutPolicy`),横竖切换只换排法。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let hero = insets.hero
         let compact = hero.isCompactHeight
         let reducedTitle = compact || hero.titleTier == .reduced
         let aspect: CGFloat = 1.9 / 1.3
-        let stack = compact
-            ? LibraryDetailArtworkStack(ideal: 72 * 1.3, minimum: 72 * 1.3, budget: .infinity, spacing: 18)
-            : hero.genreMosaic
-        let identityLayout = compact
-            ? AnyLayout(HStackLayout(spacing: 18))
-            : AnyLayout(LibraryDetailArtworkStackLayout(stack: stack, aspectRatio: aspect))
+        let spacing: CGFloat = compact ? 12 : 20
+        let headerLayout = hero.artworkHeaderLayout(
+            hero.genreMosaic,
+            aspectRatio: aspect,
+            actionsSpacing: spacing,
+            stacksVertically: false
+        )
 
-        return VStack(spacing: compact ? 12 : 20) {
-            identityLayout {
+        return VStack(spacing: spacing) {
+            headerLayout {
                 LibraryDetailArtworkSlot { size in
                     GenreArtworkMosaic(genre: genre, artworkSize: size.height / 1.3)
                         .frame(width: size.width, height: size.height)
                         .shadow(color: .black.opacity(0.3), radius: 20, y: 12)
                 }
-                .frame(width: compact ? 72 * 1.9 : nil, height: compact ? 72 * 1.3 : nil)
                 .libraryDetailHeroMotion(.artwork)
                 .accessibilityHidden(true)
 
@@ -2586,7 +2586,7 @@ private struct GenreDetailView: View {
                     Text(verbatim: genre.name)
                         .font(reducedTitle ? Font.title.weight(.heavy) : Font.largeTitle.weight(.heavy))
                         .foregroundStyle(.white)
-                        .lineLimit(2)
+                        .lineLimit(compact ? LibraryDetailHeroLayoutPolicy.compactTitleLineLimit : 2)
                         .minimumScaleFactor(0.8)
                         .libraryDetailHeroTitle()
                     Text(
@@ -2599,18 +2599,18 @@ private struct GenreDetailView: View {
                 .multilineTextAlignment(compact ? .leading : .center)
                 .frame(maxWidth: compact ? .infinity : nil, alignment: .leading)
                 .frame(maxWidth: compact ? nil : .infinity)
-            }
 
-            LibraryDetailActionRow(arrangement: hero.actionRow) {
-                LibraryDetailCircleButton(
-                    systemImage: "shuffle",
-                    label: "shuffle",
-                    disabled: playableSongs.count < 2,
-                    action: shuffleAll
-                )
-                LibraryDetailPlayPill(disabled: playableSongs.isEmpty, action: playAll)
-                    .frame(maxWidth: hero.actionRow.primaryMaxWidth)
-                    .libraryDetailPrimaryAction()
+                LibraryDetailActionRow(arrangement: hero.actionRow, alignment: compact ? .leading : .center) {
+                    LibraryDetailCircleButton(
+                        systemImage: "shuffle",
+                        label: "shuffle",
+                        disabled: playableSongs.count < 2,
+                        action: shuffleAll
+                    )
+                    LibraryDetailPlayPill(disabled: playableSongs.isEmpty, action: playAll)
+                        .frame(maxWidth: hero.actionRow.primaryMaxWidth)
+                        .libraryDetailPrimaryAction()
+                }
             }
 
             LibraryReviewSection(

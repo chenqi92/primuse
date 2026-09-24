@@ -14,7 +14,6 @@ struct AlbumDetailView: View {
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
-    @Environment(\.pmHeightClass) private var heightClass
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
     #endif
@@ -162,36 +161,35 @@ struct AlbumDetailView: View {
         }
     }
 
-    /// 手机横屏只剩三百多点高:封面缩到 112 并挪到左边,头图压到 200pt 以内,首屏才露得出歌。
-    /// 竖屏的封面边长由 `LibraryDetailHeroLayoutPolicy` 按首屏高度定,再按标题块实际高度收,
+    /// 手机横屏只剩两百点上下:封面挪到左边、与右栏齐高,标题块和操作行都排进右栏,
+    /// 操作行整条露在底部遮挡上面(`LibraryDetailHeroLayoutPolicy` 的横屏不变量)。
+    /// 竖屏的封面边长由同一个策略按首屏高度定,再按标题块实际高度收,
     /// SE 这类矮屏上操作行也整条露在迷你条上面。横竖切换只换排法,不换视图。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let hero = insets.hero
         let compact = hero.isCompactHeight
         let tier = hero.titleTier
         // 无障碍字号下横排放不下, 一律回到竖排居中。
-        let stacksIdentity = !compact || dynamicTypeSize.isAccessibilitySize
-        let stack = compact
-            ? LibraryDetailArtworkStack(ideal: 112, minimum: 112, budget: .infinity, spacing: 22)
-            : hero.album
-        let identityLayout = stacksIdentity
-            ? AnyLayout(LibraryDetailArtworkStackLayout(stack: stack))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
+        let stacksIdentity = hero.stacksArtworkHeader(accessibilityType: dynamicTypeSize.isAccessibilitySize)
         let actionSpacing = compact ? 14 : CGFloat(LibraryDetailHeroLayoutPolicy.albumIdentityToActions(tier))
+        let headerLayout = hero.artworkHeaderLayout(
+            hero.album,
+            actionsSpacing: actionSpacing,
+            stacksVertically: stacksIdentity
+        )
 
         return VStack(spacing: actionSpacing) {
-            identityLayout {
+            headerLayout {
                 LibraryDetailArtworkSlot { size in
                     heroCover(side: size.width)
                 }
-                .frame(width: compact ? 112 : nil, height: compact ? 112 : nil)
                 .libraryDetailHeroMotion(.artwork)
 
                 heroIdentityText(centered: stacksIdentity, tier: tier)
+
+                albumActionRow(hero.actionRow, alignment: stacksIdentity ? .center : .leading)
             }
             .frame(maxWidth: .infinity)
-
-            albumActionRow(hero.actionRow)
 
             LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
         }
@@ -220,7 +218,8 @@ struct AlbumDetailView: View {
             Text(album.title)
                 .font(tier == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
                 .foregroundStyle(.white)
-                .lineLimit(heightClass.isCompact ? 2 : LibraryDetailHeroLayoutPolicy.titleLineLimit(tier))
+                .lineLimit(centered ? LibraryDetailHeroLayoutPolicy.titleLineLimit(tier) : LibraryDetailHeroLayoutPolicy.compactTitleLineLimit)
+                .minimumScaleFactor(centered ? 1 : 0.8)
                 .fixedSize(horizontal: false, vertical: true)
                 .libraryDetailHeroTitle()
 
@@ -271,9 +270,13 @@ struct AlbumDetailView: View {
     }
 
     /// 「随机 · 播放 · 下载」:播放居中最宽,两侧是圆形玻璃键。窄屏或无障碍字号下胶囊独占一行。
-    private func albumActionRow(_ arrangement: LibraryDetailActionRowArrangement) -> some View {
+    /// 手机横屏排在封面右栏时靠前对齐。
+    private func albumActionRow(
+        _ arrangement: LibraryDetailActionRowArrangement,
+        alignment: Alignment = .center
+    ) -> some View {
         let playable = songs.filteredPlayable()
-        return LibraryDetailActionRow(arrangement: arrangement) {
+        return LibraryDetailActionRow(arrangement: arrangement, alignment: alignment) {
             LibraryDetailCircleButton(
                 systemImage: "shuffle",
                 label: "shuffle",

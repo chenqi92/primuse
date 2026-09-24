@@ -234,14 +234,19 @@ struct ArtistDetailView: View {
     /// 两套基座共用的艺术家页头图:人像海报铺满上半屏,向下化进封面色;名字居中压在
     /// 渐隐段上,下面一排「随机 · 播放 · 快捷收藏」。
     ///
-    /// 手机横屏只剩三百多点高,海报压到 230,名字与按钮跟着降一档,首屏才露得出热门单曲。
+    /// 手机横屏首屏只有两百点上下:名字靠前、按钮靠后排成一行压在海报下沿(Apple Music 横屏的做法),
+    /// 海报按首屏收(最高 230),按钮整排露在底部遮挡上面。
     /// 竖屏海报高度由 `LibraryDetailHeroLayoutPolicy` 按首屏定:Pro 这类机型仍是 440,
-    /// SE、折叠屏外屏这类矮屏收小,按钮始终整排露在底部遮挡上面。
+    /// SE、折叠屏外屏这类矮屏收小,按钮始终整排露在底部遮挡上面。横竖切换只换排法。
     private func iosHero(insets: ImmersiveLibraryDetailInsets) -> some View {
         let hero = insets.hero
         let compact = hero.isCompactHeight
         let reducedTitle = compact || hero.titleTier == .reduced
         let posterHeight: CGFloat = insets.top + CGFloat(hero.artistPosterHeight)
+        let circleSize: CGFloat = compact ? CGFloat(LibraryDetailHeroLayoutPolicy.Compact.artistCircle) : 56
+        let blockLayout = compact
+            ? AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+            : AnyLayout(VStackLayout(spacing: 10))
 
         return ZStack(alignment: .bottom) {
             GeometryReader { geometry in
@@ -284,37 +289,46 @@ struct ArtistDetailView: View {
             .libraryDetailHeroMotion(.poster)
             .accessibilityHidden(true)
 
-            VStack(spacing: compact ? 8 : 10) {
-                Text(verbatim: displayArtistName)
-                    .font(reducedTitle ? .title.weight(.heavy) : .largeTitle.weight(.heavy))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
-                    .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
-                    .libraryDetailHeroTitle()
+            blockLayout {
+                VStack(alignment: compact ? .leading : .center, spacing: compact ? CGFloat(LibraryDetailHeroLayoutPolicy.Compact.artistNameToSummary) : 10) {
+                    Text(verbatim: displayArtistName)
+                        .font(reducedTitle ? .title.weight(.heavy) : .largeTitle.weight(.heavy))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(compact ? .leading : .center)
+                        .lineLimit(compact ? 1 : 2)
+                        .minimumScaleFactor(0.7)
+                        .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
+                        .libraryDetailHeroTitle()
 
-                Text(verbatim: "\(monthlyListenText) \u{00B7} \(artistSummaryText)")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .multilineTextAlignment(.center)
+                    Text(verbatim: "\(monthlyListenText) \u{00B7} \(artistSummaryText)")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.78))
+                        .multilineTextAlignment(compact ? .leading : .center)
+                        .lineLimit(compact ? 1 : nil)
+                }
+                .frame(maxWidth: compact ? .infinity : nil, alignment: .leading)
 
-                HStack(spacing: compact ? 18 : 24) {
+                HStack(spacing: compact ? 16 : 24) {
                     LibraryDetailCircleButton(
                         systemImage: "shuffle",
                         label: "shuffle",
-                        size: compact ? 48 : 56,
+                        size: circleSize,
                         disabled: playableSongs.count < 2,
                         action: shuffleAll
                     )
                     LibraryDetailPlayCircle(
-                        size: compact ? 64 : 80,
+                        size: compact ? CGFloat(LibraryDetailHeroLayoutPolicy.Compact.artistPlayCircle) : 80,
                         disabled: playableSongs.isEmpty,
                         action: playAll
                     )
-                    QuickAccessPinCircleButton(pin: LibraryPinReference(kind: .artist, itemID: artist.id))
+                    // 与随机键同一尺寸,三颗键左右对称。
+                    QuickAccessPinCircleButton(
+                        pin: LibraryPinReference(kind: .artist, itemID: artist.id),
+                        size: circleSize
+                    )
                 }
-                .padding(.top, compact ? 4 : 8)
+                .fixedSize()
+                .padding(.top, compact ? 0 : 8)
             }
             .frame(maxWidth: hero.bodyMaxWidth.map { CGFloat($0) })
             .padding(.leading, insets.leading + 24)

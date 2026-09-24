@@ -92,6 +92,14 @@ public enum LibraryDetailActionRowArrangement: Sendable, Equatable {
     case twoRows
 }
 
+/// 手机横屏（紧凑高度）头部的排法。首屏只有两百点上下，操作行不能再单独占一行。
+public enum LibraryDetailCompactHeaderStyle: Sendable, Equatable {
+    /// 封面在前，右栏上面是标题块、下面是操作行，都靠前对齐。
+    case besideArtwork
+    /// 封面、标题块、操作行排成一行：字号大到右栏叠不下两层时用。
+    case inline
+}
+
 /// 封面（或风格页的马赛克）与标题块叠在一起的那一段。
 ///
 /// 封面边长到页面上才最终定下：标题块实际多高要排版以后才知道，所以这里给理想值、下限和整段的预算，
@@ -124,7 +132,7 @@ public struct LibraryDetailArtworkStack: Equatable, Sendable {
         resolvedExtent(identityHeight: identityHeight) + spacing + identityHeight
     }
 
-    /// 横屏那几支用的定值：不量标题，封面固定。
+    /// 横屏那几支用的定值：不量标题，封面固定。`spacing` 是封面与右栏之间的横向间距。
     static func fixed(_ extent: Double, spacing: Double) -> LibraryDetailArtworkStack {
         LibraryDetailArtworkStack(ideal: extent, minimum: extent, budget: .infinity, spacing: spacing)
     }
@@ -135,6 +143,8 @@ public struct LibraryDetailHeroLayout: Equatable, Sendable {
     /// 首屏：顶部安全区以下、底部遮挡以上的那段高度。头图 + 标题块 + 操作行必须整个落在这里面。
     public let firstScreenHeight: Double
     public let isCompactHeight: Bool
+    /// 手机横屏头部的排法；竖屏恒为 nil。
+    public let compactStyle: LibraryDetailCompactHeaderStyle?
     public let titleTier: LibraryDetailTitleTier
     public let actionRow: LibraryDetailActionRowArrangement
     /// 操作行（随机 · 播放 · 下载）的高度，两行时是两行加起来。
@@ -147,9 +157,9 @@ public struct LibraryDetailHeroLayout: Equatable, Sendable {
     public let smartPlaylistCover: LibraryDetailArtworkStack
     /// 风格页马赛克的高度（宽度是高度的 1.9 / 1.3）。
     public let genreMosaic: LibraryDetailArtworkStack
-    /// 艺术家海报高度，不含顶部安全区。
+    /// 艺术家海报高度，不含顶部安全区。手机横屏下名字与按钮排成一行压在海报下沿。
     public let artistPosterHeight: Double
-    /// 歌单页封面墙高度，不含顶部安全区。
+    /// 歌单页封面墙高度，不含顶部安全区。手机横屏下标题与操作行排成一行压在墙面下沿。
     public let playlistWallHeight: Double
     /// 智能歌单页封面墙高度（墙下还要放一段规则摘要）。
     public let smartPlaylistWallHeight: Double
@@ -162,7 +172,11 @@ public struct LibraryDetailHeroLayout: Equatable, Sendable {
 /// 这些头图原来都是竖屏常量（封面 262、海报 440、封面墙 320），按 iPhone Pro 标定；
 /// SE 与折叠屏外屏这类「宽而矮」的视口上，操作行会被标签栏和迷你条压住一半。
 /// 这里按首屏高度统一取值，**不变量：头图 + 标题块 + 操作行 ≤ 首屏 − 16**，
-/// 放得下的机型保持原来的尺寸不动。手机横屏（紧凑高度）沿用原来那套矮横带取值，只在测试里断言。
+/// 放得下的机型保持原来的尺寸不动。
+///
+/// 手机横屏（紧凑高度）首屏只有 SE 177、15 Pro 195、Pro Max 242 点，同一个不变量靠换排法守住：
+/// 封面类头部把操作行挪进封面右栏（`LibraryDetailCompactHeaderStyle`），
+/// 艺术家海报与封面墙把标题和操作行排成一行、压在下沿的渐隐段上，头图高度按首屏收。
 public enum LibraryDetailHeroLayoutPolicy {
     // MARK: 让位与留白
 
@@ -237,13 +251,32 @@ public enum LibraryDetailHeroLayoutPolicy {
         public static let artistBottom: Double = 16
     }
 
-    // MARK: 横屏（紧凑高度）的原值
+    // MARK: 横屏（紧凑高度）
 
     public enum Compact {
-        public static let coverSide: Double = 112
-        public static let genreMosaic: Double = 72 * 1.3
-        public static let artistPosterHeight: Double = 230
-        public static let wallHeight: Double = 150
+        /// 头部上沿（顶部安全区以下）与下沿的留白。
+        public static let top: Double = 12
+        public static let bottom: Double = 12
+        /// 封面与右栏之间的横向间距。
+        public static let artworkToColumn: Double = 18
+        /// 右栏里标题块与操作行之间。
+        public static let identityToActions: Double = 12
+        /// 封面边长跟着右栏高度走，夹在这个区间里。
+        public static let artworkSideRange: ClosedRange<Double> = 112...168
+        /// 风格马赛克的高度区间（宽是高的 1.9 / 1.3）。
+        public static let genreMosaicRange: ClosedRange<Double> = (72 * 1.3)...120
+        /// 艺术家海报最高 230（原来的横屏取值），矮屏按首屏收。
+        public static let artistPosterMaximum: Double = 230
+        /// 封面墙按首屏的这个比例取，夹在区间里：留一截给第一首歌，看得出下面还有内容。
+        public static let wallRatio: Double = 0.72
+        public static let wallRange: ClosedRange<Double> = 150...200
+        /// 压在海报 / 墙面下沿的那一行离下沿多远。
+        public static let overlayBottom: Double = 10
+        /// 艺术家那一行的圆钮：随机 / 快捷收藏 48，播放 64。
+        public static let artistCircle: Double = 48
+        public static let artistPlayCircle: Double = 64
+        /// 名字与摘要之间。
+        public static let artistNameToSummary: Double = 4
     }
 
     // MARK: - 计算
@@ -346,6 +379,7 @@ public enum LibraryDetailHeroLayoutPolicy {
         return LibraryDetailHeroLayout(
             firstScreenHeight: first,
             isCompactHeight: false,
+            compactStyle: nil,
             titleTier: tier,
             actionRow: arrangement,
             actionRowHeight: actions,
@@ -440,6 +474,26 @@ public enum LibraryDetailHeroLayoutPolicy {
         tier == .regular ? 3 : 2
     }
 
+    /// 手机横屏下标题只排一行（右栏有五六百点宽，放不下的按比例缩一点再截断）。
+    public static let compactTitleLineLimit = 1
+
+    /// 手机横屏压在海报下沿那一行的高度：名字（一行）+ 摘要，与三颗圆钮取高的那个。
+    public static func estimatedArtistCompactRowHeight(typeSize: LibraryDetailTypeSize) -> Double {
+        let name = artistNameStyle(.reduced).lineHeight(at: typeSize)
+        let summary = LibraryDetailTextStyle.footnote.lineHeight(at: typeSize)
+        let text = name + Compact.artistNameToSummary + summary
+        return max(text, Compact.artistPlayCircle)
+    }
+
+    /// 手机横屏压在封面墙下沿那一行的高度：标题（一行）+ 摘要，与操作行取高的那个。
+    public static func estimatedWallCompactRowHeight(
+        typeSize: LibraryDetailTypeSize
+    ) -> Double {
+        let title = LibraryDetailTextStyle.title2.lineHeight(at: typeSize)
+        let summary = LibraryDetailTextStyle.footnote.lineHeight(at: typeSize)
+        return max(title + 6 + summary, actionRowHeight(.singleRow, typeSize: typeSize))
+    }
+
     /// 风格页只有「随机 · 播放」两颗，两行排时第二行只有一颗圆钮，高度一样。
     public static func genreActionRowHeight(
         _ arrangement: LibraryDetailActionRowArrangement,
@@ -465,25 +519,63 @@ public enum LibraryDetailHeroLayoutPolicy {
         )
     }
 
+    /// 手机横屏：先试「操作行挪进封面右栏」，右栏叠不下两层（大字号）时封面、标题、操作行排成一行；
+    /// 两种排法都先用常规标题档，放不下再降一档。专辑的标题块最高（标题 + 艺术家 + 信息行），按它来定。
     private static func compactLayout(
         firstScreen: Double,
         typeSize: LibraryDetailTypeSize
     ) -> LibraryDetailHeroLayout {
         let actions = actionRowHeight(.singleRow, typeSize: typeSize)
+        let usable = firstScreen - firstScreenMargin - Compact.top
+        let identity: (LibraryDetailTitleTier) -> Double = { tier in
+            estimatedIdentityHeight(.album, tier: tier, typeSize: typeSize, titleLines: compactTitleLineLimit)
+        }
+
+        var choice: (style: LibraryDetailCompactHeaderStyle, tier: LibraryDetailTitleTier, column: Double)?
+        for tier in [LibraryDetailTitleTier.regular, .reduced] {
+            let column = identity(tier) + Compact.identityToActions + actions
+            if column <= usable {
+                choice = (.besideArtwork, tier, column)
+                break
+            }
+        }
+        if choice == nil {
+            for tier in [LibraryDetailTitleTier.regular, .reduced] {
+                let row = max(identity(tier), actions)
+                if row <= usable || tier == .reduced {
+                    choice = (.inline, tier, row)
+                    break
+                }
+            }
+        }
+        let resolved = choice ?? (.inline, .reduced, max(identity(.reduced), actions))
+
+        // 封面与右栏齐高：右栏多高封面就多大，夹在区间里，也不超出首屏。
+        let side = min(clamp(resolved.column, Compact.artworkSideRange), max(Compact.artworkSideRange.lowerBound, usable))
+            .rounded(.down)
+        let mosaic = min(clamp(side * 0.8, Compact.genreMosaicRange), side).rounded(.down)
+        let spacing = Compact.artworkToColumn
+
+        // 海报与墙面：标题和操作行压在下沿，底边离首屏下沿至少 16。
+        let overlayCeiling = firstScreen - firstScreenMargin + Compact.overlayBottom
+        let poster = min(Compact.artistPosterMaximum, overlayCeiling)
+        let wall = min(clamp(firstScreen * Compact.wallRatio, Compact.wallRange), overlayCeiling)
+
         return LibraryDetailHeroLayout(
             firstScreenHeight: firstScreen,
             isCompactHeight: true,
-            titleTier: .regular,
+            compactStyle: resolved.style,
+            titleTier: resolved.tier,
             actionRow: .singleRow,
             actionRowHeight: actions,
             bodyMaxWidth: nil,
-            album: .fixed(Compact.coverSide, spacing: 18),
-            playlistCover: .fixed(Compact.coverSide, spacing: 18),
-            smartPlaylistCover: .fixed(Compact.coverSide, spacing: 18),
-            genreMosaic: .fixed(Compact.genreMosaic, spacing: 18),
-            artistPosterHeight: Compact.artistPosterHeight,
-            playlistWallHeight: Compact.wallHeight,
-            smartPlaylistWallHeight: Compact.wallHeight
+            album: .fixed(side, spacing: spacing),
+            playlistCover: .fixed(side, spacing: spacing),
+            smartPlaylistCover: .fixed(side, spacing: spacing),
+            genreMosaic: .fixed(mosaic, spacing: spacing),
+            artistPosterHeight: max(0, poster).rounded(.down),
+            playlistWallHeight: max(0, wall).rounded(.down),
+            smartPlaylistWallHeight: max(0, wall).rounded(.down)
         )
     }
 

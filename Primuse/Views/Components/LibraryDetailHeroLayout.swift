@@ -22,15 +22,19 @@ extension LibraryDetailTypeSize {
     }
 }
 
-/// 详情页头部「封面 + 标题块」那一段的排法。
+/// 详情页头部「封面 + 标题块（+ 操作行）」那一段的竖屏排法。
 ///
 /// 封面边长要等标题块排完才知道：先按宽度量出标题块多高，再用剩下的预算定封面
 /// （`LibraryDetailArtworkStack.resolvedExtent`），一次排版就定下来，不经过状态、不会来回跳。
-/// 第一个子视图是封面槽（`LibraryDetailArtworkSlot`），第二个是标题块。
+/// 第一个子视图是封面槽（`LibraryDetailArtworkSlot`），第二个是标题块，第三个（可选）是操作行，
+/// 排在标题块下面 `actionsSpacing` 处、占满整宽 —— 手机横屏换成 `LibraryDetailCompactHeroLayout`，
+/// 经 `AnyLayout` 互换时三件视图的身份不变。
 struct LibraryDetailArtworkStackLayout: Layout {
     var stack: LibraryDetailArtworkStack
     /// 封面宽 / 高。专辑封面是 1，风格页马赛克是 1.9 / 1.3。
     var aspectRatio: CGFloat = 1
+    /// 操作行（第三个子视图）与标题块之间的间距。
+    var actionsSpacing: CGFloat = 0
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let metrics = measure(proposal: proposal, subviews: subviews)
@@ -46,10 +50,17 @@ struct LibraryDetailArtworkStackLayout: Layout {
             proposal: ProposedViewSize(width: metrics.artworkWidth, height: metrics.extent)
         )
         guard subviews.count > 1 else { return }
+        let identityTop = bounds.minY + metrics.extent + CGFloat(stack.spacing)
         subviews[1].place(
-            at: CGPoint(x: bounds.minX, y: bounds.minY + metrics.extent + CGFloat(stack.spacing)),
+            at: CGPoint(x: bounds.minX, y: identityTop),
             anchor: .topLeading,
             proposal: ProposedViewSize(width: metrics.width, height: metrics.identityHeight)
+        )
+        guard subviews.count > 2 else { return }
+        subviews[2].place(
+            at: CGPoint(x: bounds.minX, y: identityTop + metrics.identityHeight + actionsSpacing),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: metrics.width, height: metrics.actionsHeight)
         )
     }
 
@@ -59,6 +70,7 @@ struct LibraryDetailArtworkStackLayout: Layout {
         var extent: CGFloat
         var artworkWidth: CGFloat
         var identityHeight: CGFloat
+        var actionsHeight: CGFloat
     }
 
     private func measure(proposal: ProposedViewSize, subviews: Subviews) -> Metrics {
@@ -72,13 +84,156 @@ struct LibraryDetailArtworkStackLayout: Layout {
             extent = (width / aspectRatio).rounded(.down)
         }
         let spacing = identity == nil ? 0 : CGFloat(stack.spacing)
+        let actionsHeight = subviews.count > 2
+            ? subviews[2].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+            : 0
+        let actionsBlock = subviews.count > 2 ? actionsSpacing + actionsHeight : 0
         return Metrics(
             width: width,
-            height: extent + spacing + identityHeight,
+            height: extent + spacing + identityHeight + actionsBlock,
             extent: extent,
             artworkWidth: extent * aspectRatio,
-            identityHeight: identityHeight
+            identityHeight: identityHeight,
+            actionsHeight: actionsHeight
         )
+    }
+}
+
+/// 手机横屏（紧凑高度）头部的排法：封面在前，标题块与操作行在右栏（`.besideArtwork`，
+/// 操作行在标题块下面、靠前对齐），或者三件排成一行（`.inline`，操作行靠后）。
+///
+/// 子视图与竖屏的 `LibraryDetailArtworkStackLayout` 一致：封面槽、标题块、操作行（可选）。
+/// 封面尺寸由 `LibraryDetailHeroLayoutPolicy` 按首屏定，右栏按封面竖向居中。
+struct LibraryDetailCompactHeroLayout: Layout {
+    var style: LibraryDetailCompactHeaderStyle
+    /// 封面高度（风格马赛克是高度，宽度按比例）。
+    var artworkHeight: CGFloat
+    var aspectRatio: CGFloat = 1
+    /// 封面与右栏之间的横向间距。
+    var spacing: CGFloat = CGFloat(LibraryDetailHeroLayoutPolicy.Compact.artworkToColumn)
+    /// 右栏里标题块与操作行之间。
+    var identityToActions: CGFloat = CGFloat(LibraryDetailHeroLayoutPolicy.Compact.identityToActions)
+    /// 排成一行时操作行最多占多宽。
+    var inlineActionsMaxWidth: CGFloat = 320
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? (artworkHeight * aspectRatio + spacing + 420)
+        let metrics = measure(width: width, subviews: subviews)
+        return CGSize(width: width, height: metrics.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let metrics = measure(width: bounds.width, subviews: subviews)
+        let artworkWidth = artworkHeight * aspectRatio
+        subviews.first?.place(
+            at: CGPoint(x: bounds.minX, y: bounds.midY),
+            anchor: .leading,
+            proposal: ProposedViewSize(width: artworkWidth, height: artworkHeight)
+        )
+        guard subviews.count > 1 else { return }
+        let columnX = bounds.minX + artworkWidth + spacing
+        switch style {
+        case .besideArtwork:
+            var y = bounds.midY - metrics.columnHeight / 2
+            subviews[1].place(
+                at: CGPoint(x: columnX, y: y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: metrics.columnWidth, height: metrics.identityHeight)
+            )
+            guard subviews.count > 2 else { return }
+            y += metrics.identityHeight + identityToActions
+            subviews[2].place(
+                at: CGPoint(x: columnX, y: y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: metrics.columnWidth, height: metrics.actionsHeight)
+            )
+        case .inline:
+            subviews[1].place(
+                at: CGPoint(x: columnX, y: bounds.midY),
+                anchor: .leading,
+                proposal: ProposedViewSize(width: metrics.identityWidth, height: metrics.identityHeight)
+            )
+            guard subviews.count > 2 else { return }
+            subviews[2].place(
+                at: CGPoint(x: bounds.maxX, y: bounds.midY),
+                anchor: .trailing,
+                proposal: ProposedViewSize(width: metrics.actionsWidth, height: metrics.actionsHeight)
+            )
+        }
+    }
+
+    private struct Metrics {
+        var height: CGFloat
+        var columnWidth: CGFloat
+        var columnHeight: CGFloat
+        var identityWidth: CGFloat
+        var identityHeight: CGFloat
+        var actionsWidth: CGFloat
+        var actionsHeight: CGFloat
+    }
+
+    private func measure(width: CGFloat, subviews: Subviews) -> Metrics {
+        let columnWidth = max(0, width - artworkHeight * aspectRatio - spacing)
+        let identity = subviews.count > 1 ? subviews[1] : nil
+        let actions = subviews.count > 2 ? subviews[2] : nil
+        switch style {
+        case .besideArtwork:
+            let identityHeight = identity?.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height ?? 0
+            let actionsHeight = actions?.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height ?? 0
+            let columnHeight = identityHeight + (actions == nil ? 0 : identityToActions + actionsHeight)
+            return Metrics(
+                height: max(artworkHeight, columnHeight),
+                columnWidth: columnWidth,
+                columnHeight: columnHeight,
+                identityWidth: columnWidth,
+                identityHeight: identityHeight,
+                actionsWidth: columnWidth,
+                actionsHeight: actionsHeight
+            )
+        case .inline:
+            let actionsWidth = actions == nil ? 0 : min(columnWidth * 0.46, inlineActionsMaxWidth)
+            let identityWidth = max(0, columnWidth - (actions == nil ? 0 : actionsWidth + spacing))
+            let identityHeight = identity?.sizeThatFits(ProposedViewSize(width: identityWidth, height: nil)).height ?? 0
+            let actionsHeight = actions?.sizeThatFits(ProposedViewSize(width: actionsWidth, height: nil)).height ?? 0
+            return Metrics(
+                height: max(artworkHeight, identityHeight, actionsHeight),
+                columnWidth: columnWidth,
+                columnHeight: max(identityHeight, actionsHeight),
+                identityWidth: identityWidth,
+                identityHeight: identityHeight,
+                actionsWidth: actionsWidth,
+                actionsHeight: actionsHeight
+            )
+        }
+    }
+}
+
+extension LibraryDetailHeroLayout {
+    /// 头部「封面 + 标题块 + 操作行」这一段的排法：竖屏（以及横屏的无障碍字号）叠成一列，手机横屏换成右栏或一行。
+    /// 两种排法经 `AnyLayout` 互换，横竖切换不换视图。
+    func artworkHeaderLayout(
+        _ stack: LibraryDetailArtworkStack,
+        aspectRatio: CGFloat = 1,
+        actionsSpacing: CGFloat,
+        stacksVertically: Bool
+    ) -> AnyLayout {
+        if stacksVertically || !isCompactHeight {
+            return AnyLayout(LibraryDetailArtworkStackLayout(
+                stack: stack,
+                aspectRatio: aspectRatio,
+                actionsSpacing: actionsSpacing
+            ))
+        }
+        return AnyLayout(LibraryDetailCompactHeroLayout(
+            style: compactStyle ?? .besideArtwork,
+            artworkHeight: CGFloat(stack.ideal),
+            aspectRatio: aspectRatio
+        ))
+    }
+
+    /// 标题块与操作行靠前对齐（手机横屏右栏 / 一行）还是居中（竖屏一列）。
+    func stacksArtworkHeader(accessibilityType: Bool) -> Bool {
+        !isCompactHeight || accessibilityType
     }
 }
 
@@ -163,9 +318,10 @@ extension View {
 }
 
 /// 「随机 · 播放 · 下载」这一排。一行时两颗圆钮夹着宽度至多 220 的胶囊；两行时胶囊通栏、圆钮在下一行。
-/// 切换只换排法，按钮还是那几个视图。
+/// 切换只换排法，按钮还是那几个视图。手机横屏排在封面右栏时靠前对齐。
 struct LibraryDetailActionRow<Content: View>: View {
     let arrangement: LibraryDetailActionRowArrangement
+    var alignment: Alignment = .center
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -173,7 +329,7 @@ struct LibraryDetailActionRow<Content: View>: View {
             ? AnyLayout(HStackLayout(spacing: CGFloat(LibraryDetailHeroLayoutPolicy.actionRowSpacing)))
             : AnyLayout(LibraryDetailTwoRowActionLayout())
         layout { content }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 

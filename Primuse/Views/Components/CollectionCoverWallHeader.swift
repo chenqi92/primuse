@@ -21,6 +21,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     private let wallHeight: CGFloat?
     private let leadingInset: CGFloat
     private let trailingInset: CGFloat
+    private let overlayActions: AnyView?
     private let fallback: Fallback
 
     @Environment(\.skin) private var skin
@@ -36,6 +37,9 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
     ///     墙面向上延伸这么多,标题块的位置不变。
     ///   - wallHeight: 墙面高度(不含 `topInset`)。详情页按首屏算好传进来;不传时竖屏 320、横屏 150。
     ///   - leadingInset / trailingInset: 墙面铺满整幅屏幕时左右安全区,标题块按侧让开 —— 两侧不一定相等。
+    ///   - overlayActions: 页面的操作行。给了就和标题排成一行压在墙面下沿(手机横屏首屏放不下
+    ///     「墙 + 标题 + 下面一排按钮」);不给时操作行由页面自己排在头图下面。只在墙面上用,
+    ///     铺不起墙时页面自己把它放进 `fallback`。
     init(
         title: String,
         subtitle: String,
@@ -47,9 +51,11 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
         wallHeight: CGFloat? = nil,
         leadingInset: CGFloat = 0,
         trailingInset: CGFloat = 0,
+        overlayActions: AnyView? = nil,
         @ViewBuilder fallback: () -> Fallback
     ) {
         self.title = title
+        self.overlayActions = overlayActions
         self.topInset = topInset
         self.wallHeight = wallHeight
         self.leadingInset = leadingInset
@@ -128,10 +134,22 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
             .libraryDetailClipBottomEdge()
             .accessibilityHidden(true)
 
-            titleBlock
-                .padding(.leading, leadingInset + 24)
-                .padding(.trailing, trailingInset + 24)
-                .padding(.bottom, heightClass.value(14, compact: 10))
+            Group {
+                if let overlayActions {
+                    // 标题靠前、操作行靠后,一起压在墙面下沿已经化进底色的那一段上。
+                    HStack(alignment: .center, spacing: 16) {
+                        titleBlock(leading: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        overlayActions
+                            .frame(width: Self.overlayActionsWidth)
+                    }
+                } else {
+                    titleBlock(leading: false)
+                }
+            }
+            .padding(.leading, leadingInset + 24)
+            .padding(.trailing, trailingInset + 24)
+            .padding(.bottom, heightClass.value(14, compact: CGFloat(LibraryDetailHeroLayoutPolicy.Compact.overlayBottom)))
         }
         // 手机横屏下整幅内容区只有两百多点高,320 的墙会把曲目整个挤出首屏。
         // 墙面几何本来就按传进来的尺寸算,收高不改结构:150 里标题块占 46,
@@ -148,8 +166,11 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
         }
     }
 
-    private var titleBlock: some View {
-        VStack(spacing: 6) {
+    /// 墙面上压着的操作行宽度:两颗圆钮加一颗 164 宽的播放胶囊。(泛型类型里不能有存储型静态属性。)
+    private static var overlayActionsWidth: CGFloat { 300 }
+
+    private func titleBlock(leading: Bool) -> some View {
+        VStack(alignment: leading ? .leading : .center, spacing: 6) {
             if let titleAccessory {
                 titleAccessory
                     .padding(.bottom, 6)
@@ -164,8 +185,9 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
                 Text(title)
                     .font(skin.font(.pageTitle))
                     .foregroundStyle(.skin(.textPrimary))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    .multilineTextAlignment(leading ? .leading : .center)
+                    .lineLimit(leading ? 1 : 2)
+                    .minimumScaleFactor(leading ? 0.8 : 1)
                     .libraryDetailHeroTitle()
             }
             Text(subtitle)

@@ -52,10 +52,16 @@ private let portraitDevices: [HeroDevice] = [
     HeroDevice(name: "iPad", width: 820, height: 1180, statusTop: 24, hardwareBottom: 20, isRegularWidth: true),
 ]
 
-private let landscape = HeroDevice(
-    name: "横屏", width: 852 - 59 - 59, height: 393, statusTop: 0, hardwareBottom: 21,
-    isCompactHeight: true
-)
+/// 手机横屏：宽度是左右安全区以内。顶部一律按 78（刘海机实测）算，SE 没有刘海、实际只会更矮，算多不算少。
+private let landscapeDevices: [HeroDevice] = [
+    HeroDevice(name: "SE 横屏", width: 667, height: 375, statusTop: 0, hardwareBottom: 0, isCompactHeight: true),
+    HeroDevice(name: "15 Pro 横屏", width: 852 - 59 - 59, height: 393, statusTop: 0, hardwareBottom: 21,
+               isCompactHeight: true),
+    HeroDevice(name: "Pro Max 横屏", width: 956 - 62 - 62, height: 440, statusTop: 0, hardwareBottom: 21,
+               isCompactHeight: true),
+]
+
+private let landscape = landscapeDevices[1]
 
 private let checkedTypeSizes: [LibraryDetailTypeSize] = [.large, .xxxLarge, .accessibility1]
 
@@ -106,6 +112,52 @@ private func actionRowBottom(
 
 private let heroKinds = ["album", "artist", "playlistWall", "playlistCover", "smartWall", "smartCover", "genre"]
 
+/// 手机横屏下操作行底边离顶部安全区下沿多远（照抄视图层的横屏结构）。标题一行。
+private func compactActionRowBottom(
+    _ kind: String,
+    layout: LibraryDetailHeroLayout,
+    typeSize: LibraryDetailTypeSize
+) -> Double {
+    let tier = layout.titleTier
+    let actions = layout.actionRowHeight
+    let lines = Policy.compactTitleLineLimit
+    func besideArtwork(artwork: Double, identity: Double) -> Double {
+        switch layout.compactStyle {
+        case .besideArtwork:
+            return Policy.Compact.top + max(artwork, identity + Policy.Compact.identityToActions + actions)
+        case .inline:
+            return Policy.Compact.top + max(artwork, identity, actions)
+        case nil:
+            Issue.record("横屏必须给出头部排法")
+            return .infinity
+        }
+    }
+    switch kind {
+    case "album":
+        let identity = Policy.estimatedIdentityHeight(.album, tier: tier, typeSize: typeSize, titleLines: lines)
+        return besideArtwork(artwork: layout.album.ideal, identity: identity)
+    case "playlistCover":
+        let identity = Policy.estimatedIdentityHeight(.playlistCover, tier: tier, typeSize: typeSize, titleLines: lines)
+        return besideArtwork(artwork: layout.playlistCover.ideal, identity: identity)
+    case "smartCover":
+        // 规则摘要排在头部下面，不占首屏。
+        let identity = Policy.estimatedIdentityHeight(.smartCover, tier: tier, typeSize: typeSize, titleLines: lines)
+        return besideArtwork(artwork: layout.smartPlaylistCover.ideal, identity: identity)
+    case "genre":
+        let identity = Policy.estimatedIdentityHeight(.genre, tier: tier, typeSize: typeSize, titleLines: lines)
+        return besideArtwork(artwork: layout.genreMosaic.ideal, identity: identity)
+    case "artist":
+        return layout.artistPosterHeight - Policy.Compact.overlayBottom
+    case "playlistWall":
+        return layout.playlistWallHeight - Policy.Compact.overlayBottom
+    case "smartWall":
+        return layout.smartPlaylistWallHeight - Policy.Compact.overlayBottom
+    default:
+        Issue.record("unknown kind \(kind)")
+        return .infinity
+    }
+}
+
 @Suite("详情页头图几何")
 struct LibraryDetailHeroLayoutPolicyTests {
     @Test("竖屏各视口 × 字号：首屏露出整条操作行", arguments: portraitDevices)
@@ -126,28 +178,69 @@ struct LibraryDetailHeroLayoutPolicyTests {
         }
     }
 
-    @Test("手机横屏沿用原来的矮横带取值，首屏同样露出操作行")
-    func compactLandscapeKeepsOriginalValues() {
-        let layout = Policy.layout(for: landscape.viewport(.large))
-        #expect(layout.isCompactHeight)
-        #expect(layout.album.resolvedExtent(identityHeight: 500) == 112)
-        #expect(layout.playlistCover.resolvedExtent(identityHeight: 500) == 112)
-        #expect(layout.smartPlaylistCover.resolvedExtent(identityHeight: 500) == 112)
-        #expect(layout.artistPosterHeight == 230)
-        #expect(layout.playlistWallHeight == 150)
-        #expect(layout.actionRow == .singleRow)
-        #expect(layout.bodyMaxWidth == nil)
+    @Test("手机横屏三种视口 × 字号：首屏露出整条操作行", arguments: landscapeDevices)
+    fileprivate func compactLandscapeShowsActionRow(device: HeroDevice) {
+        for typeSize in [LibraryDetailTypeSize.large, .xxxLarge] {
+            let layout = Policy.layout(for: device.viewport(typeSize))
+            #expect(layout.isCompactHeight)
+            #expect(layout.actionRow == .singleRow)
+            #expect(layout.bodyMaxWidth == nil)
+            let limit = layout.firstScreenHeight - Policy.firstScreenMargin
+            for kind in heroKinds {
+                let bottom = compactActionRowBottom(kind, layout: layout, typeSize: typeSize)
+                #expect(
+                    bottom <= limit,
+                    "\(device) \(typeSize) \(kind): 操作行底边 \(bottom) 超出首屏 \(limit)"
+                )
+            }
+            // 压在海报 / 墙面下沿的那一行放得进头图里。
+            let artistRow = Policy.estimatedArtistCompactRowHeight(typeSize: typeSize)
+            #expect(artistRow + Policy.Compact.overlayBottom <= layout.artistPosterHeight, "\(device) \(typeSize)")
+            let wallRow = Policy.estimatedWallCompactRowHeight(typeSize: typeSize)
+            #expect(wallRow + Policy.Compact.overlayBottom <= layout.playlistWallHeight, "\(device) \(typeSize)")
+        }
+    }
 
-        // 专辑横带：12 + 封面 112 + 14 + 操作行；艺术家：海报 230 − 10；封面墙：150 + 12 + 操作行。
-        // 横屏沿用原来的取值，经典外观下标签栏 + 迷你条占 120，852×393 上专辑横带只剩几点余量，
-        // 达不到竖屏那 16 点，这里只断言操作行整条露出。
-        let limit = layout.firstScreenHeight
-        #expect(12 + 112 + 14 + layout.actionRowHeight <= limit)
-        // 艺术家海报与封面墙的横屏取值比首屏还高，按钮被迷你条压住下半截（改前就是这样，
-        // Pro 横屏截图可见）。横屏这一支这次只断言不改，留作已知问题。
-        withKnownIssue("经典外观横屏：艺术家海报与封面墙下的操作行被标签栏与迷你条压住") {
-            #expect(230 - 10 <= limit)
-            #expect(150 + 12 + layout.actionRowHeight <= limit)
+    @Test("手机横屏默认字号：操作行挪进封面右栏，封面与右栏齐高")
+    func compactLandscapeMovesActionsBesideArtwork() {
+        for device in landscapeDevices {
+            let layout = Policy.layout(for: device.viewport(.large))
+            #expect(layout.compactStyle == .besideArtwork, "\(device)")
+            let identity = Policy.estimatedIdentityHeight(.album, tier: layout.titleTier, typeSize: .large, titleLines: 1)
+            let column = identity + Policy.Compact.identityToActions + layout.actionRowHeight
+            #expect(layout.album.ideal == min(max(column, 112), 168).rounded(.down), "\(device)")
+            #expect(layout.album.ideal >= 112, "\(device)")
+        }
+        // 15 Pro 与 Pro Max 用常规标题档；SE 首屏只有 177，标题降一档。
+        #expect(Policy.layout(for: landscapeDevices[1].viewport(.large)).titleTier == .regular)
+        #expect(Policy.layout(for: landscapeDevices[2].viewport(.large)).titleTier == .regular)
+        #expect(Policy.layout(for: landscapeDevices[0].viewport(.large)).titleTier == .reduced)
+        // 专辑页原来在 852×393 上只剩 3 点余量，现在操作行底下至少留出 16 + 12。
+        let pro = Policy.layout(for: landscape.viewport(.large))
+        let bottom = compactActionRowBottom("album", layout: pro, typeSize: .large)
+        #expect(pro.firstScreenHeight - bottom >= Policy.firstScreenMargin + 12)
+    }
+
+    @Test("手机横屏大字号：右栏叠不下两层时排成一行")
+    func compactLandscapeFallsBackToInlineRow() {
+        let se = landscapeDevices[0]
+        let layout = Policy.layout(for: se.viewport(.xxxLarge))
+        #expect(layout.compactStyle == .inline)
+        #expect(Policy.layout(for: se.viewport(.large)).compactStyle == .besideArtwork)
+    }
+
+    @Test("手机横屏的海报与封面墙按首屏收，大屏不超过原来的取值")
+    func compactLandscapePosterAndWall() {
+        let proMax = Policy.layout(for: landscapeDevices[2].viewport(.large))
+        #expect(proMax.artistPosterHeight == 230)
+        let pro = Policy.layout(for: landscape.viewport(.large))
+        #expect(pro.artistPosterHeight < 230)
+        #expect(pro.artistPosterHeight == (pro.firstScreenHeight - Policy.firstScreenMargin + Policy.Compact.overlayBottom).rounded(.down))
+        for device in landscapeDevices {
+            let layout = Policy.layout(for: device.viewport(.large))
+            #expect(layout.playlistWallHeight >= 150, "\(device)")
+            #expect(layout.playlistWallHeight <= 200, "\(device)")
+            #expect(layout.smartPlaylistWallHeight == layout.playlistWallHeight, "\(device)")
         }
     }
 
@@ -251,17 +344,21 @@ struct LibraryDetailHeroLayoutPolicyTests {
     @Test("视口表一览（供回报对照）")
     func printTable() {
         var rows: [String] = []
-        for device in portraitDevices + [landscape] {
+        for device in portraitDevices + landscapeDevices {
             for typeSize in [LibraryDetailTypeSize.large, .accessibility1] {
                 let layout = Policy.layout(for: device.viewport(typeSize))
-                let lines = layout.isCompactHeight ? 1 : Policy.titleLineLimit(layout.titleTier)
+                let lines = Policy.titleLineLimit(layout.titleTier)
                 let albumIdentity = Policy.estimatedIdentityHeight(.album, tier: layout.titleTier, typeSize: typeSize, titleLines: 1)
                 let cover = layout.album.resolvedExtent(identityHeight: albumIdentity)
-                let fits = layout.isCompactHeight || heroKinds.allSatisfy {
-                    actionRowBottom($0, layout: layout, typeSize: typeSize, titleLines: lines)
-                        <= layout.firstScreenHeight - Policy.firstScreenMargin
+                let limit = layout.firstScreenHeight - Policy.firstScreenMargin
+                let fits = heroKinds.allSatisfy { kind in
+                    let bottom = layout.isCompactHeight
+                        ? compactActionRowBottom(kind, layout: layout, typeSize: typeSize)
+                        : actionRowBottom(kind, layout: layout, typeSize: typeSize, titleLines: lines)
+                    return bottom <= limit
                 }
-                rows.append("\(device.name)\t\(typeSize)\tF=\(Int(layout.firstScreenHeight))\tcover=\(Int(cover))/\(Int(layout.album.ideal))\tposter=\(Int(layout.artistPosterHeight))\twall=\(Int(layout.playlistWallHeight))\t\(layout.actionRow)\t\(layout.titleTier)\tfits=\(fits)")
+                let style = layout.compactStyle.map { "\t\($0)" } ?? ""
+                rows.append("\(device.name)\t\(typeSize)\tF=\(Int(layout.firstScreenHeight))\tcover=\(Int(cover))/\(Int(layout.album.ideal))\tposter=\(Int(layout.artistPosterHeight))\twall=\(Int(layout.playlistWallHeight))\t\(layout.actionRow)\t\(layout.titleTier)\tfits=\(fits)\(style)")
             }
         }
         print("HERO_TABLE\n" + rows.joined(separator: "\n"))
