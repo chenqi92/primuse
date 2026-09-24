@@ -2400,7 +2400,7 @@
 "radio_manage_delete_count %lld" = "ลบ %lld สถานี";
 "radio_manage_deselect_all" = "ยกเลิกการเลือกทั้งหมด";
 "radio_manage_export" = "ส่งออก";
-"radio_manage_footer" = "ลากเพื่อเรียงลำดับใหม่ ปัดแถวเพื่อเปลี่ยนชื่อ ปักหมุด หรือลบ";
+"radio_manage_footer" = "ลากเพื่อเรียงลำดับใหม่ ปัดแถวเพื่อลบ เปลี่ยนชื่อและปักหมุดได้จากเมนู ⋯";
 "radio_manage_pin_top" = "ปักหมุดไว้ด้านบน";
 "radio_manage_pin_top_short" = "ไว้บนสุด";
 "select_all_short" = "เลือกทั้งหมด";
@@ -3622,6 +3622,7 @@
 "yearly_month_9" = "กันยายน";
 "yearly_month_n_format" = "เดือน %d";
 "yearly_next_card" = "การ์ดถัดไป";
+"yearly_previous_card" = "การ์ดก่อนหน้า";
 "yearly_no_artist" = "ยังไม่มีศิลปิน";
 "yearly_no_date" = "ไม่มีวันที่";
 "yearly_no_record" = "ยังไม่มีบันทึก";

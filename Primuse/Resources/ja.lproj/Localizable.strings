@@ -2161,6 +2161,7 @@
 "yearly_wrapped_brand" = "Primuse Wrapped";
 "yearly_share_card" = "カードを共有";
 "yearly_next_card" = "次のカード";
+"yearly_previous_card" = "前のカード";
 "yearly_share_footer" = "Primuse で作成";
 "yearly_no_record" = "記録なし";
 "yearly_no_artist" = "アーティストなし";
@@ -2875,7 +2876,7 @@
 "radio_batch_error_title" = "読み込みに失敗しました";
 
 /* MARK: - Radio manage */
-"radio_manage_footer" = "ドラッグで並べ替え。行をスワイプで名称変更・先頭固定・削除。";
+"radio_manage_footer" = "ドラッグで並べ替え。行をスワイプで削除。名称変更と先頭固定は ⋯ メニューから。";
 "radio_manage_pin_top" = "先頭に固定";
 "radio_manage_pin_top_short" = "先頭に固定";
 "select_all_short" = "すべて選択";

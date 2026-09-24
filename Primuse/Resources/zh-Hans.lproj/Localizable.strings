@@ -2139,8 +2139,8 @@
 "Click to copy this log line" = "点击复制该行日志";
 
 // MARK: - Common (extra)
-"back" = "上一张";
-"next" = "下一张";
+"back" = "返回";
+"next" = "下一步";
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "系统浏览器授权";
@@ -2261,6 +2261,7 @@
 "yearly_wrapped_brand" = "Primuse Wrapped";
 "yearly_share_card" = "分享卡片";
 "yearly_next_card" = "下一张";
+"yearly_previous_card" = "上一张";
 "yearly_share_footer" = "由 Primuse · Primuse 生成";
 "yearly_no_record" = "暂无记录";
 "yearly_no_artist" = "暂无艺术家";
@@ -2975,7 +2976,7 @@
 "radio_batch_error_title" = "导入失败";
 
 /* MARK: - 电台管理 */
-"radio_manage_footer" = "拖动可调序，左右滑动单行可重命名、置顶或删除。";
+"radio_manage_footer" = "拖动可调序，左滑单行可删除；重命名和置顶在右上角的 ⋯ 菜单里。";
 "radio_manage_pin_top" = "置顶";
 "radio_manage_pin_top_short" = "置顶";
 "select_all_short" = "全选";

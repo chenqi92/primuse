@@ -2023,8 +2023,8 @@
 "Click to copy this log line" = "點按複製該行紀錄";
 
 // MARK: - Common (extra)
-"back" = "上一張";
-"next" = "下一張";
+"back" = "返回";
+"next" = "下一步";
 
 // MARK: - Cloud Drive OAuth Connection
 "cloud_oauth_browser_subtitle" = "系統瀏覽器授權";
@@ -2145,6 +2145,7 @@
 "yearly_wrapped_brand" = "Primuse Wrapped";
 "yearly_share_card" = "分享卡片";
 "yearly_next_card" = "下一張";
+"yearly_previous_card" = "上一張";
 "yearly_share_footer" = "由 Primuse · Primuse 製作";
 "yearly_no_record" = "暫無紀錄";
 "yearly_no_artist" = "暫無藝人";
@@ -2859,7 +2860,7 @@
 "radio_batch_error_title" = "匯入失敗";
 
 /* MARK: - 電台管理 */
-"radio_manage_footer" = "拖動可調整順序，左右滑動單列可重新命名、置頂或刪除。";
+"radio_manage_footer" = "拖動可調整順序，左滑單列可刪除；重新命名和置頂在右上角的 ⋯ 選單裡。";
 "radio_manage_pin_top" = "置頂";
 "radio_manage_pin_top_short" = "置頂";
 "select_all_short" = "全選";

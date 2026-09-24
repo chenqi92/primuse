@@ -2400,7 +2400,7 @@
 "radio_manage_delete_count %lld" = "حذف %lld محطات";
 "radio_manage_deselect_all" = "إلغاء تحديد الكل";
 "radio_manage_export" = "تصدير";
-"radio_manage_footer" = "اسحب لإعادة الترتيب. اسحب صفًا لإعادة تسميته أو تثبيته أو حذفه.";
+"radio_manage_footer" = "اسحب لإعادة الترتيب. اسحب صفًا لحذفه؛ أعد التسمية أو التثبيت من القائمة ⋯.";
 "radio_manage_pin_top" = "دبوس إلى الأعلى";
 "radio_manage_pin_top_short" = "للأعلى";
 "select_all_short" = "الكل";
@@ -3622,6 +3622,7 @@
 "yearly_month_9" = "سبتمبر";
 "yearly_month_n_format" = "الشهر %d";
 "yearly_next_card" = "البطاقة التالية";
+"yearly_previous_card" = "البطاقة السابقة";
 "yearly_no_artist" = "لا يوجد فنان بعد";
 "yearly_no_date" = "بدون تاريخ";
 "yearly_no_record" = "لا يوجد سجل بعد";

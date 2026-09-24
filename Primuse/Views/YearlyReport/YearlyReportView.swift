@@ -301,7 +301,7 @@ struct YearlyReportView: View {
 
     private var macFooter: some View {
         HStack(spacing: 10) {
-            PMRoundBtn(icon: "chevron.left", size: 32, iconSize: 13, style: .glass, help: "back") {
+            PMRoundBtn(icon: "chevron.left", size: 32, iconSize: 13, style: .glass, help: "yearly_previous_card") {
                 macBack()
             }
 
@@ -322,7 +322,7 @@ struct YearlyReportView: View {
                 }
             }
 
-            PMRoundBtn(icon: "chevron.right", size: 32, iconSize: 13, style: .glass, help: "next") {
+            PMRoundBtn(icon: "chevron.right", size: 32, iconSize: 13, style: .glass, help: "yearly_next_card") {
                 macAdvance()
             }
             PMRoundBtn(icon: "square.and.arrow.down", size: 32, iconSize: 13, style: .glass, help: "share") {

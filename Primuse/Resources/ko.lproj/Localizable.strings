@@ -2160,6 +2160,7 @@
 "yearly_wrapped_brand" = "Primuse Wrapped";
 "yearly_share_card" = "카드 공유";
 "yearly_next_card" = "다음 카드";
+"yearly_previous_card" = "이전 카드";
 "yearly_share_footer" = "Primuse로 생성됨";
 "yearly_no_record" = "기록 없음";
 "yearly_no_artist" = "아티스트 없음";
@@ -2874,7 +2875,7 @@
 "radio_batch_error_title" = "가져오기 실패";
 
 /* MARK: - Radio manage */
-"radio_manage_footer" = "끌어서 순서 변경. 행을 쓸어넘겨 이름 변경, 맨 위 고정, 삭제.";
+"radio_manage_footer" = "끌어서 순서 변경. 행을 쓸어넘겨 삭제. 이름 변경과 맨 위 고정은 ⋯ 메뉴에서.";
 "radio_manage_pin_top" = "맨 위로";
 "radio_manage_pin_top_short" = "맨 위로";
 "select_all_short" = "전체 선택";

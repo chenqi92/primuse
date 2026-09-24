@@ -2160,6 +2160,7 @@
 "yearly_wrapped_brand" = "Primuse Wrapped";
 "yearly_share_card" = "Karte teilen";
 "yearly_next_card" = "Nächste Karte";
+"yearly_previous_card" = "Vorherige Karte";
 "yearly_share_footer" = "Erstellt mit Primuse";
 "yearly_no_record" = "Noch keine Daten";
 "yearly_no_artist" = "Noch kein Künstler";
@@ -2874,7 +2875,7 @@
 "radio_batch_error_title" = "Import fehlgeschlagen";
 
 /* MARK: - Radio: Verwaltung */
-"radio_manage_footer" = "Zum Sortieren ziehen. Zeile streichen zum Umbenennen, Anheften oder Löschen.";
+"radio_manage_footer" = "Zum Sortieren ziehen. Zeile streichen zum Löschen; Umbenennen und Anheften über das ⋯-Menü.";
 "radio_manage_pin_top" = "Nach oben";
 "radio_manage_pin_top_short" = "Nach oben";
 "select_all_short" = "Alle";

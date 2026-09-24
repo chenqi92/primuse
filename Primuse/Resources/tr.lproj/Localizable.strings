@@ -215,7 +215,7 @@
 "source_diag_advice_server_title" = "Kaynak yanıt hatası";
 "ext.tv.certificate.title" = "Sunucu Sertifikası Onay Gerektiriyor";
 "metadata_status_filter" = "Durum Filtresi";
-"radio_manage_footer" = "Yeniden sıralamak için sürükleyin. Bir satırı yeniden adlandırmak, sabitlemek veya silmek için kaydırın.";
+"radio_manage_footer" = "Yeniden sıralamak için sürükleyin. Silmek için bir satırı kaydırın; yeniden adlandırma ve sabitleme ⋯ menüsünde.";
 "radio_batch_paste_hint" = "Hat başına bir akış URL. “Ad, URL” de işe yarar.";
 "current" = "Güncel";
 "playlist_import_create_matched_only_format" = "Yalnızca Eşleşenler Oluştur (%d)";
@@ -2115,6 +2115,7 @@
 "C-07 · Newly Written Credentials" = "C-07 · Yeni Yazılmış Kimlik Bilgileri";
 "fnmusic_account_hint" = "Feiniu Music'te oturum açabilen ve arşiv erişimi olan bir hesap kullanın.";
 "yearly_next_card" = "Sonraki kart";
+"yearly_previous_card" = "Önceki kart";
 "library_folder_selection_none" = "Seçilmedi";
 "cache_size" = "Önbellek Boyutu";
 "dup_mac_keep_read_only" = "Sakla (Salt Okunur)";

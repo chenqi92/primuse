@@ -2400,7 +2400,7 @@
 "radio_manage_delete_count %lld" = "%lld स्टेशन हटाएं";
 "radio_manage_deselect_all" = "सभी को अचयनित करें";
 "radio_manage_export" = "निर्यात";
-"radio_manage_footer" = "पुन: व्यवस्थित करने के लिए खींचें। किसी पंक्ति का नाम बदलने, पिन करने या हटाने के लिए उसे स्वाइप करें।";
+"radio_manage_footer" = "पुन: व्यवस्थित करने के लिए खींचें। किसी पंक्ति को हटाने के लिए उसे स्वाइप करें; नाम बदलना और पिन करना ⋯ मेनू में है।";
 "radio_manage_pin_top" = "शीर्ष पर पिन करें";
 "radio_manage_pin_top_short" = "शीर्ष पर";
 "select_all_short" = "सभी";
@@ -3622,6 +3622,7 @@
 "yearly_month_9" = "सितंबर";
 "yearly_month_n_format" = "महीना %d";
 "yearly_next_card" = "अगला कार्ड";
+"yearly_previous_card" = "पिछला कार्ड";
 "yearly_no_artist" = "अभी तक कोई कलाकार नहीं";
 "yearly_no_date" = "कोई तारीख नहीं";
 "yearly_no_record" = "अभी तक कोई रिकॉर्ड नहीं";

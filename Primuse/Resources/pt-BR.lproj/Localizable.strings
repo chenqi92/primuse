@@ -2400,7 +2400,7 @@
 "radio_manage_delete_count %lld" = "Excluir Estações %lld";
 "radio_manage_deselect_all" = "Desmarcar tudo";
 "radio_manage_export" = "Exportar";
-"radio_manage_footer" = "Arraste para reordenar. Deslize uma linha para renomeá-la, fixá-la ou excluí-la.";
+"radio_manage_footer" = "Arraste para reordenar. Deslize uma linha para excluí-la; renomeie ou fixe pelo menu ⋯.";
 "radio_manage_pin_top" = "Fixar no topo";
 "radio_manage_pin_top_short" = "No topo";
 "select_all_short" = "Tudo";
@@ -3622,6 +3622,7 @@
 "yearly_month_9" = "Setembro";
 "yearly_month_n_format" = "Mês %d";
 "yearly_next_card" = "Próximo cartão";
+"yearly_previous_card" = "Cartão anterior";
 "yearly_no_artist" = "Nenhum artista ainda";
 "yearly_no_date" = "Sem data";
 "yearly_no_record" = "Nenhum registro ainda";

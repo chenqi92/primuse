@@ -215,7 +215,7 @@
 "source_diag_advice_server_title" = "Ошибка ответа источника";
 "ext.tv.certificate.title" = "Сертификат сервера требует подтверждения";
 "metadata_status_filter" = "Фильтр состояния";
-"radio_manage_footer" = "Перетащите, чтобы изменить порядок. Проведите по строке, чтобы переименовать, закрепить или удалить ее.";
+"radio_manage_footer" = "Перетащите, чтобы изменить порядок. Проведите по строке, чтобы удалить ее; переименовать и закрепить можно в меню ⋯.";
 "radio_batch_paste_hint" = "Один поток URL на строку. «Имя, URL» также работает.";
 "current" = "Текущий";
 "playlist_import_create_matched_only_format" = "Создать только совпадающие (%d)";
@@ -2115,6 +2115,7 @@
 "C-07 · Newly Written Credentials" = "C-07 · Недавно выписанные полномочия";
 "fnmusic_account_hint" = "Используйте учетную запись, которая позволяет войти в Feiniu Music и имеет доступ к медиатеке.";
 "yearly_next_card" = "Следующая карта";
+"yearly_previous_card" = "Предыдущая карта";
 "library_folder_selection_none" = "Не выбрано";
 "cache_size" = "Размер кэша";
 "dup_mac_keep_read_only" = "Сохранить (только чтение)";
