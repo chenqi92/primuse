@@ -25,8 +25,8 @@ struct MinimalRootActionsPreferenceKey: PreferenceKey {
     }
 }
 
-/// 根页正处在自己的编辑态(电台整理、歌单批量管理)。这时外壳收起 tab 条、把系统导航栏
-/// 还给这一页 —— 编辑态的「完成」、选中计数与批量菜单都在那里。
+/// 根页正处在自己的编辑态(电台整理、歌单批量管理;歌曲多选由根页修饰符按页转进来)。
+/// 这时外壳收起 tab 条、把系统导航栏还给这一页 —— 编辑态的「完成」、选中计数与批量菜单都在那里。
 struct MinimalRootEditingPreferenceKey: PreferenceKey {
     static let defaultValue: Set<MinimalNavigationPage> = []
 

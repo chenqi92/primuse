@@ -130,9 +130,9 @@ struct RadioStationsView: View {
             RadioLogoDiscoveryService.shared.discoverIfNeeded(for: store.stations)
         }
         #if DEBUG
-        // 编译机截图用:`PRIMUSE_DEBUG_EDIT=1` 时进页两秒后进入整理,看导航栏是否回到根页。
+        // 编译机截图用:`PRIMUSE_DEBUG_EDIT=radio` 时进页两秒后进入整理,看导航栏是否回到根页。
         .task {
-            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EDIT"] == "1" else { return }
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EDIT"] == "radio" else { return }
             try? await Task.sleep(for: .seconds(2))
             isManaging = true
         }

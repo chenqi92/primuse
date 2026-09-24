@@ -421,12 +421,15 @@ private struct MinimalNavigationRootModifier: ViewModifier {
     @Environment(\.usesTopTabsShell) private var usesTopTabsShell
     @Environment(\.minimalNavigationDetailScope) private var scope
     @Environment(\.topTabsShellContext) private var shell
+    /// 这一页自己的歌曲多选。按页记:常驻在别的槽位里的页面还在多选,不该让当前页也交出导航栏。
+    @State private var selectsSongs = false
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if usesTopTabsShell, let scope, let shell {
             if scope.isTopTab {
                 let revealsNavigationBar = shell.revealedRootPages.contains(scope)
+                let selectingSongs = selectsSongs
                 content
                     // Empty states have an intrinsic height; bars need the full page bounds.
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -439,6 +442,12 @@ private struct MinimalNavigationRootModifier: ViewModifier {
                     }
                     .minimalSafeAreaBar(edge: .bottom) {
                         Color.clear.frame(height: shell.bottomBarHeight)
+                    }
+                    .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { isActive in
+                        self.selectsSongs = isActive
+                    }
+                    .transformPreference(MinimalRootEditingPreferenceKey.self) { pages in
+                        if selectingSongs { pages.insert(scope) }
                     }
             } else {
                 let close = shell.closeUtility
@@ -978,13 +987,9 @@ struct ContentView: View {
         heightClass.isCompact ? 36 : skin.metric(.chromeChipRowHeight)
     }
 
-    /// 编辑态的根页:它们的系统导航栏要回来,tab 条收起。
+    /// 编辑态(歌曲多选、电台整理、歌单管理)的根页:它们的系统导航栏要回来,tab 条收起。按页记。
     private var minimalRevealedRootPages: Set<MinimalNavigationPage> {
-        var pages = minimalEditingPages
-        if batchSelectionActive, minimalUtilityPage == nil, let current = currentTopTabPage {
-            pages.insert(current)
-        }
-        return pages
+        minimalEditingPages
     }
 
     /// tab 条只在 tab 页的根页上出现:推入详情页、打开搜索或设置、进入编辑态时都收起。

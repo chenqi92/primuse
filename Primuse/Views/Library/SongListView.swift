@@ -1703,9 +1703,9 @@ struct SongListView: View {
             )
         }
         #if DEBUG
-        // 编译机截图用:`PRIMUSE_DEBUG_EDIT=1` 时进页两秒后进入多选,看导航栏是否回到根页。
+        // 编译机截图用:`PRIMUSE_DEBUG_EDIT=songs` 时进页两秒后进入多选,看导航栏是否回到根页。
         .task {
-            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EDIT"] == "1" else { return }
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EDIT"] == "songs" else { return }
             try? await Task.sleep(for: .seconds(2))
             selection.activate()
         }
