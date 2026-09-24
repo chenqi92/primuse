@@ -269,6 +269,8 @@ struct ArtistDetailView: View {
                     endPoint: .bottom
                 )
             }
+            // 下拉时海报往下拉长、上滚时半速跟随;名字与按钮照常随正文走。
+            .libraryDetailHeroMotion(.poster)
             .accessibilityHidden(true)
 
             VStack(spacing: compact ? 8 : 10) {
@@ -308,7 +310,8 @@ struct ArtistDetailView: View {
             .padding(.bottom, compact ? 10 : 16)
         }
         .frame(maxWidth: .infinity)
-        .clipped()
+        // 只裁下沿:下拉拉长的海报要能长到顶部之外。
+        .libraryDetailClipBottomEdge()
     }
 
     private var artistSummaryText: String {

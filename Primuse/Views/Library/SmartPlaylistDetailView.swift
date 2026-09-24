@@ -241,6 +241,7 @@ struct SmartPlaylistDetailView: View {
                 .shadow(color: .black.opacity(0.3), radius: 22, y: 12)
             }
             .frame(width: compact ? 112 : nil, height: compact ? 112 : nil)
+            .libraryDetailHeroMotion(.artwork)
             .accessibilityHidden(true)
 
             VStack(alignment: stacks ? .center : .leading, spacing: 5) {

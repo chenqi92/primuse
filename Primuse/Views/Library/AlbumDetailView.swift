@@ -185,6 +185,7 @@ struct AlbumDetailView: View {
                     heroCover(side: size.width)
                 }
                 .frame(width: compact ? 112 : nil, height: compact ? 112 : nil)
+                .libraryDetailHeroMotion(.artwork)
 
                 heroIdentityText(centered: stacksIdentity, tier: tier)
             }

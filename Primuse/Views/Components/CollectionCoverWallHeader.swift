@@ -123,6 +123,9 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
                     endPoint: .bottom
                 )
             }
+            // 下拉时墙面往下拉长、上滚时半速跟随;标题块照常随正文走。
+            .libraryDetailHeroMotion(.poster)
+            .libraryDetailClipBottomEdge()
             .accessibilityHidden(true)
 
             titleBlock

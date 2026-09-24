@@ -222,6 +222,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 // 取值 —— 否则浅色模式下会是黑字压在深底上。
                 .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
                 // 链接和图标按钮改用白色: 主题色来自正在播放的那首歌, 跟本页底色撞色
+                        .coordinateSpace(.named(LibraryDetailHeroSpace.name))
                 // 的概率不低。
                 .tint(tint == nil ? nil : Color.white)
             }

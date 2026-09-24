@@ -2579,6 +2579,7 @@ private struct GenreDetailView: View {
                         .shadow(color: .black.opacity(0.3), radius: 20, y: 12)
                 }
                 .frame(width: compact ? 72 * 1.9 : nil, height: compact ? 72 * 1.3 : nil)
+                .libraryDetailHeroMotion(.artwork)
                 .accessibilityHidden(true)
 
                 VStack(alignment: compact ? .leading : .center, spacing: 4) {

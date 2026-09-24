@@ -177,6 +177,60 @@ struct LibraryDetailActionRow<Content: View>: View {
     }
 }
 
+// MARK: - 跟着滚动的头图
+
+/// 详情页头部的坐标空间。头部根视图挂上它，里面的封面、海报据此算出头部被拉开或滚走了多少。
+enum LibraryDetailHeroSpace {
+    static let name = "primuse.libraryDetailHero"
+}
+
+/// 头图跟着滚动的两种动法。
+enum LibraryDetailHeroMotionStyle: Sendable, Equatable {
+    /// 铺满整幅的海报与封面墙：下拉时上沿钉住、往下拉长，上滚时半速跟随。
+    case poster
+    /// 浮在底色上的封面：只在下拉时从下沿往上放大。
+    case artwork
+}
+
+extension View {
+    /// 头图的拉伸与视差。只动变换，不改布局尺寸；开了「减弱动态效果」就不动。
+    func libraryDetailHeroMotion(_ style: LibraryDetailHeroMotionStyle) -> some View {
+        modifier(LibraryDetailHeroMotionModifier(style: style))
+    }
+
+    /// 只裁掉下沿以外的部分：海报下拉时要能长出上沿，上滚跟随时不能漏到正文里。
+    func libraryDetailClipBottomEdge() -> some View {
+        mask(alignment: .bottom) {
+            Rectangle().padding(.top, -4000)
+        }
+    }
+}
+
+private struct LibraryDetailHeroMotionModifier: ViewModifier {
+    let style: LibraryDetailHeroMotionStyle
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let enabled = !reduceMotion
+        let style = style
+        content.visualEffect { effect, proxy in
+            // 头部在滚动视图里的位置减去自己在头部里的位置，就是头部离静止处被拉开（正）或滚走（负）了多少。
+            let pull = enabled
+                ? proxy.frame(in: .scrollView(axis: .vertical)).minY
+                    - proxy.frame(in: .named(LibraryDetailHeroSpace.name)).minY
+                : 0
+            let height = Double(proxy.size.height)
+            let transform = style == .poster
+                ? LibraryDetailHeroMotionPolicy.poster(pull: Double(pull), height: height)
+                : LibraryDetailHeroMotionPolicy.artwork(pull: Double(pull), extent: height)
+            return effect
+                .scaleEffect(CGFloat(transform.scale), anchor: style == .poster ? .top : .bottom)
+                .offset(y: CGFloat(transform.offsetY))
+        }
+    }
+}
+
 extension LibraryDetailActionRowArrangement {
     /// 播放胶囊的最大宽度：一行时 220，两行时通栏。
     var primaryMaxWidth: CGFloat {
