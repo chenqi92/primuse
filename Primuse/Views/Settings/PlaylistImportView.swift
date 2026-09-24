@@ -38,6 +38,8 @@ struct PlaylistImportView: View {
     /// 没对上的歌以置灰占位保留(只对新建歌单有效; 「我喜欢」只收对上的)。
     @State private var keepMissing = true
     @State private var loadTask: Task<Void, Never>?
+    /// 对方只公开了歌单的一部分时的提示(平台名 + 读到的条数)。
+    @State private var partialImportNote: String?
 
     enum ImportSourceMode: String, CaseIterable, Identifiable {
         case file
@@ -448,6 +450,18 @@ struct PlaylistImportView: View {
             }
 
             macSegmentedProgress(p)
+
+            if let partialImportNote {
+                Label {
+                    Text(verbatim: partialImportNote)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(PMColor.warn)
+                }
+                .font(.system(size: 11.5))
+                .foregroundStyle(PMColor.textMuted)
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("playlist_import_destination_header")
@@ -927,8 +941,18 @@ struct PlaylistImportView: View {
                 }
             }
         } footer: {
-            if p.missingCount > 0 {
-                Text(missingFooterKey)
+            VStack(alignment: .leading, spacing: 6) {
+                if let partialImportNote {
+                    Label {
+                        Text(verbatim: partialImportNote)
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                }
+                if p.missingCount > 0 {
+                    Text(missingFooterKey)
+                }
             }
         }
     }
@@ -1076,6 +1100,7 @@ struct PlaylistImportView: View {
                     likedPlaylistNames: PlaylistImporter.likedPlaylistNamesInEveryLanguage()
                 )
                 importedFromName = fileName
+                partialImportNote = nil
             } catch {
                 importError = error.localizedDescription
             }
@@ -1455,6 +1480,13 @@ struct PlaylistImportView: View {
                 playlistName = p.suggestedName
                 destination = .newPlaylist
                 importedFromName = playlist.platform.map(platformName) ?? p.suggestedName
+                partialImportNote = playlist.isPartial
+                    ? String(
+                        format: String(localized: "playlist_import_partial_format"),
+                        playlist.platform.map(platformName) ?? "",
+                        playlist.tracks.count
+                    )
+                    : nil
             } catch is CancellationError {
                 return
             } catch {
@@ -1469,6 +1501,11 @@ struct PlaylistImportView: View {
         case .qqMusic: String(localized: "playlist_import_platform_qqmusic")
         case .kuwo: String(localized: "playlist_import_platform_kuwo")
         case .bodian: String(localized: "playlist_import_platform_bodian")
+        case .kugou: String(localized: "playlist_import_platform_kugou")
+        case .migu: String(localized: "playlist_import_platform_migu")
+        case .soda: String(localized: "playlist_import_platform_soda")
+        case .appleMusic: String(localized: "playlist_import_platform_apple_music")
+        case .spotify: String(localized: "playlist_import_platform_spotify")
         }
     }
 

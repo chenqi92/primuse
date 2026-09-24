@@ -4258,7 +4258,7 @@
 "playlist_import_mode_file" = "File";
 "playlist_import_mode_link" = "Share Link";
 "playlist_import_mode_text" = "Text List";
-"playlist_import_link_placeholder" = "Paste a playlist share link from NetEase Cloud Music, QQ Music, Kuwo or Bodian";
+"playlist_import_link_placeholder" = "Paste a playlist share link from NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music or Spotify";
 "playlist_import_link_desc" = "Only song titles, artists, albums and durations of public playlists are read; no audio is downloaded. Make a private playlist public in its app first.";
 "playlist_import_link_fetch" = "Read Playlist";
 "playlist_import_text_order" = "Line Format";
@@ -4274,7 +4274,7 @@
 "playlist_import_confirm_all_probable_format" = "Confirm All %d";
 "playlist_import_create_with_pending_format" = "Create Playlist (%1$d, %2$d in gray)";
 "playlist_import_pending_kept_hint" = "Unmatched items will be kept in gray";
-"playlist_import_link_err_unrecognized" = "No playlist link found. Share links from NetEase Cloud Music, QQ Music, Kuwo and Bodian are supported.";
+"playlist_import_link_err_unrecognized" = "No playlist link found. Share links from NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music and Spotify are supported.";
 "playlist_import_link_err_private" = "This playlist can't be read. It may have been deleted or be private. Make it public in its app and try again.";
 "playlist_import_link_err_changed" = "The service returned something unexpected; its interface may have changed. You can import with a text list instead.";
 "playlist_import_link_err_network_format" = "Network request failed: %@";
@@ -4282,6 +4282,14 @@
 "playlist_import_platform_qqmusic" = "QQ Music";
 "playlist_import_platform_kuwo" = "Kuwo Music";
 "playlist_import_platform_bodian" = "Bodian Music";
+"playlist_import_link_err_discontinued" = "Xiami Music shut down in February 2021 and its playlist links no longer open. If you still have the playlist as text, import it as a text list.";
+"playlist_import_link_err_apple_music_auth" = "Reading an Apple Music playlist requires allowing Primuse to access Media & Apple Music.";
+"playlist_import_partial_format" = "%1$@ only shows the first %2$d songs of this playlist. Add the rest with a text list.";
+"playlist_import_platform_kugou" = "Kugou Music";
+"playlist_import_platform_migu" = "Migu Music";
+"playlist_import_platform_soda" = "Soda Music";
+"playlist_import_platform_apple_music" = "Apple Music";
+"playlist_import_platform_spotify" = "Spotify";
 "karaoke_backing_track" = "Backing Track";
 "karaoke_backing_track_playing" = "Playing the backing track, so there are no vocals to adjust.";
 "karaoke_lyrics_from_format" = "Lyrics from “%@”";

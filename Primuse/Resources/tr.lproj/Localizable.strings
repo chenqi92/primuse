@@ -4401,7 +4401,7 @@
 "playlist_import_mode_file" = "Dosya";
 "playlist_import_mode_link" = "Paylaşım bağlantısı";
 "playlist_import_mode_text" = "Metin listesi";
-"playlist_import_link_placeholder" = "NetEase Cloud Music, QQ Music, Kuwo veya Bodian çalma listesi bağlantısını yapıştırın";
+"playlist_import_link_placeholder" = "Çalma listesi bağlantısını yapıştırın (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music veya Spotify)";
 "playlist_import_link_desc" = "Yalnızca herkese açık listelerin şarkı adı, sanatçı, albüm ve süreleri okunur; ses indirilmez. Gizli listeyi önce kendi uygulamasında herkese açık yapın.";
 "playlist_import_link_fetch" = "Listeyi oku";
 "playlist_import_text_order" = "Satır biçimi";
@@ -4417,7 +4417,7 @@
 "playlist_import_confirm_all_probable_format" = "Tümünü onayla (%d)";
 "playlist_import_create_with_pending_format" = "Liste oluştur (%1$d, gri %2$d)";
 "playlist_import_pending_kept_hint" = "Eşleşmeyen öğeler gri olarak tutulacak";
-"playlist_import_link_err_unrecognized" = "Çalma listesi bağlantısı tanınmadı. NetEase Cloud Music, QQ Music, Kuwo ve Bodian bağlantıları desteklenir.";
+"playlist_import_link_err_unrecognized" = "Çalma listesi bağlantısı tanınmadı. NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music ve Spotify bağlantıları desteklenir.";
 "playlist_import_link_err_private" = "Bu liste okunamıyor. Silinmiş ya da gizli olabilir. Kendi uygulamasında herkese açık yapıp yeniden deneyin.";
 "playlist_import_link_err_changed" = "Hizmet beklenmedik bir yanıt verdi; arayüzü değişmiş olabilir. Bunun yerine metin listesiyle içe aktarın.";
 "playlist_import_link_err_network_format" = "Ağ isteği başarısız: %@";
@@ -4425,6 +4425,14 @@
 "playlist_import_platform_qqmusic" = "QQ Music";
 "playlist_import_platform_kuwo" = "Kuwo Music";
 "playlist_import_platform_bodian" = "Bodian Music";
+"playlist_import_link_err_discontinued" = "Xiami Music Şubat 2021'de kapandı ve liste bağlantıları artık açılmıyor. Listeyi metin olarak sakladıysanız metin listesiyle içe aktarın.";
+"playlist_import_link_err_apple_music_auth" = "Apple Music listesini okumak için Primuse'un Medya ve Apple Music'e erişmesine izin verin.";
+"playlist_import_partial_format" = "%1$@ bu listenin yalnızca ilk %2$d şarkısını gösteriyor. Kalanları metin listesiyle ekleyin.";
+"playlist_import_platform_kugou" = "Kugou Music";
+"playlist_import_platform_migu" = "Migu Music";
+"playlist_import_platform_soda" = "Soda Music";
+"playlist_import_platform_apple_music" = "Apple Music";
+"playlist_import_platform_spotify" = "Spotify";
 "karaoke_backing_track" = "Altyapı";
 "karaoke_backing_track_playing" = "Altyapı çalıyor, ayarlanacak vokal yok.";
 "karaoke_lyrics_from_format" = "Sözler: “%@”";

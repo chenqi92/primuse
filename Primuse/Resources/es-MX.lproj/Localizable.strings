@@ -4401,7 +4401,7 @@
 "playlist_import_mode_file" = "Archivo";
 "playlist_import_mode_link" = "Enlace";
 "playlist_import_mode_text" = "Lista de texto";
-"playlist_import_link_placeholder" = "Pega el enlace de una playlist de NetEase Cloud Music, QQ Music, Kuwo o Bodian";
+"playlist_import_link_placeholder" = "Pega el enlace de una playlist (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music o Spotify)";
 "playlist_import_link_desc" = "Solo se leen títulos, artistas, álbumes y duraciones de playlists públicas; no se descarga audio. Haz pública una playlist privada en su app primero.";
 "playlist_import_link_fetch" = "Leer playlist";
 "playlist_import_text_order" = "Formato de línea";
@@ -4417,7 +4417,7 @@
 "playlist_import_confirm_all_probable_format" = "Confirmar las %d";
 "playlist_import_create_with_pending_format" = "Crear playlist (%1$d, %2$d en gris)";
 "playlist_import_pending_kept_hint" = "Los elementos sin coincidencia se conservarán en gris";
-"playlist_import_link_err_unrecognized" = "No se reconoció un enlace de playlist. Se admiten enlaces de NetEase Cloud Music, QQ Music, Kuwo y Bodian.";
+"playlist_import_link_err_unrecognized" = "No se reconoció un enlace de playlist. Se admiten enlaces de NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music y Spotify.";
 "playlist_import_link_err_private" = "No se puede leer esta playlist. Quizá se eliminó o es privada. Hazla pública en su app e inténtalo de nuevo.";
 "playlist_import_link_err_changed" = "El servicio devolvió algo inesperado; su interfaz pudo haber cambiado. Importa con una lista de texto.";
 "playlist_import_link_err_network_format" = "Falló la solicitud de red: %@";
@@ -4425,6 +4425,14 @@
 "playlist_import_platform_qqmusic" = "QQ Music";
 "playlist_import_platform_kuwo" = "Kuwo Music";
 "playlist_import_platform_bodian" = "Bodian Music";
+"playlist_import_link_err_discontinued" = "Xiami Music cerró en febrero de 2021 y sus enlaces ya no abren. Si conservas la playlist como texto, impórtala como lista de texto.";
+"playlist_import_link_err_apple_music_auth" = "Para leer una playlist de Apple Music, permite que Primuse acceda a Multimedia y Apple Music.";
+"playlist_import_partial_format" = "%1$@ solo muestra las primeras %2$d canciones de esta playlist. Agrega el resto con una lista de texto.";
+"playlist_import_platform_kugou" = "Kugou Music";
+"playlist_import_platform_migu" = "Migu Music";
+"playlist_import_platform_soda" = "Soda Music";
+"playlist_import_platform_apple_music" = "Apple Music";
+"playlist_import_platform_spotify" = "Spotify";
 "karaoke_backing_track" = "Pista de acompañamiento";
 "karaoke_backing_track_playing" = "Se está reproduciendo la pista de acompañamiento, no hay voz que ajustar.";
 "karaoke_lyrics_from_format" = "Letra de “%@”";

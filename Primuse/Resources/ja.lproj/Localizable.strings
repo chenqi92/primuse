@@ -4496,7 +4496,7 @@
 "playlist_import_mode_file" = "ファイル";
 "playlist_import_mode_link" = "共有リンク";
 "playlist_import_mode_text" = "テキスト";
-"playlist_import_link_placeholder" = "NetEase Cloud Music、QQ Music、Kuwo、Bodian のプレイリスト共有リンクを貼り付け";
+"playlist_import_link_placeholder" = "プレイリストの共有リンクを貼り付け（NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify）";
 "playlist_import_link_desc" = "公開プレイリストの曲名・アーティスト・アルバム・長さのみを読み込み、音声はダウンロードしません。非公開のプレイリストは元のアプリで公開してください。";
 "playlist_import_link_fetch" = "プレイリストを読み込む";
 "playlist_import_text_order" = "行の形式";
@@ -4512,7 +4512,7 @@
 "playlist_import_confirm_all_probable_format" = "%d 曲すべて確定";
 "playlist_import_create_with_pending_format" = "プレイリストを作成（%1$d 曲、グレー %2$d 曲）";
 "playlist_import_pending_kept_hint" = "一致しない項目はグレーで残ります";
-"playlist_import_link_err_unrecognized" = "プレイリストのリンクが見つかりません。NetEase Cloud Music、QQ Music、Kuwo、Bodian の共有リンクに対応しています。";
+"playlist_import_link_err_unrecognized" = "プレイリストのリンクが見つかりません。NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify の共有リンクに対応しています。";
 "playlist_import_link_err_private" = "このプレイリストを読み込めません。削除されたか非公開の可能性があります。元のアプリで公開してから再試行してください。";
 "playlist_import_link_err_changed" = "サービスから想定外の応答がありました。仕様が変わった可能性があります。テキストでの読み込みをお試しください。";
 "playlist_import_link_err_network_format" = "ネットワーク要求に失敗しました: %@";
@@ -4520,6 +4520,14 @@
 "playlist_import_platform_qqmusic" = "QQ Music";
 "playlist_import_platform_kuwo" = "Kuwo Music";
 "playlist_import_platform_bodian" = "Bodian Music";
+"playlist_import_link_err_discontinued" = "Xiami Music は 2021 年 2 月にサービスを終了したため、そのプレイリストのリンクは開けません。テキストが残っていれば「テキスト」から読み込めます。";
+"playlist_import_link_err_apple_music_auth" = "Apple Music のプレイリストを読み込むには、Primuse に「メディアと Apple Music」へのアクセスを許可してください。";
+"playlist_import_partial_format" = "%1$@ ではこのプレイリストの最初の %2$d 曲しか公開されていません。残りはテキストで追加してください。";
+"playlist_import_platform_kugou" = "Kugou Music";
+"playlist_import_platform_migu" = "Migu Music";
+"playlist_import_platform_soda" = "Soda Music";
+"playlist_import_platform_apple_music" = "Apple Music";
+"playlist_import_platform_spotify" = "Spotify";
 "karaoke_backing_track" = "伴奏トラック";
 "karaoke_backing_track_playing" = "伴奏トラックを再生中のため、ボーカルは調整できません。";
 "karaoke_lyrics_from_format" = "歌詞：「%@」より";

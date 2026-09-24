@@ -4495,7 +4495,7 @@
 "playlist_import_mode_file" = "파일";
 "playlist_import_mode_link" = "공유 링크";
 "playlist_import_mode_text" = "텍스트 목록";
-"playlist_import_link_placeholder" = "NetEase Cloud Music, QQ Music, Kuwo, Bodian의 플레이리스트 공유 링크를 붙여넣기";
+"playlist_import_link_placeholder" = "플레이리스트 공유 링크 붙여넣기 (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify)";
 "playlist_import_link_desc" = "공개 플레이리스트의 곡명, 아티스트, 앨범, 길이만 읽으며 오디오는 다운로드하지 않습니다. 비공개 플레이리스트는 원래 앱에서 먼저 공개로 바꿔 주세요.";
 "playlist_import_link_fetch" = "플레이리스트 읽기";
 "playlist_import_text_order" = "줄 형식";
@@ -4511,7 +4511,7 @@
 "playlist_import_confirm_all_probable_format" = "%d곡 모두 확인";
 "playlist_import_create_with_pending_format" = "플레이리스트 만들기 (%1$d곡, 회색 %2$d곡)";
 "playlist_import_pending_kept_hint" = "일치하지 않는 항목은 회색으로 유지됩니다";
-"playlist_import_link_err_unrecognized" = "플레이리스트 링크를 찾지 못했습니다. NetEase Cloud Music, QQ Music, Kuwo, Bodian 공유 링크를 지원합니다.";
+"playlist_import_link_err_unrecognized" = "플레이리스트 링크를 찾지 못했습니다. NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify 공유 링크를 지원합니다.";
 "playlist_import_link_err_private" = "이 플레이리스트를 읽을 수 없습니다. 삭제되었거나 비공개일 수 있습니다. 원래 앱에서 공개로 바꾼 뒤 다시 시도하세요.";
 "playlist_import_link_err_changed" = "서비스가 예상과 다른 응답을 보냈습니다. 인터페이스가 바뀌었을 수 있습니다. 텍스트 목록으로 가져오세요.";
 "playlist_import_link_err_network_format" = "네트워크 요청 실패: %@";
@@ -4519,6 +4519,14 @@
 "playlist_import_platform_qqmusic" = "QQ Music";
 "playlist_import_platform_kuwo" = "Kuwo Music";
 "playlist_import_platform_bodian" = "Bodian Music";
+"playlist_import_link_err_discontinued" = "Xiami Music은 2021년 2월에 서비스를 종료해 플레이리스트 링크가 더 이상 열리지 않습니다. 텍스트가 남아 있다면 텍스트 목록으로 가져오세요.";
+"playlist_import_link_err_apple_music_auth" = "Apple Music 플레이리스트를 읽으려면 Primuse가 미디어 및 Apple Music에 접근하도록 허용해야 합니다.";
+"playlist_import_partial_format" = "%1$@에서 이 플레이리스트의 처음 %2$d곡만 공개합니다. 나머지는 텍스트 목록으로 추가하세요.";
+"playlist_import_platform_kugou" = "Kugou Music";
+"playlist_import_platform_migu" = "Migu Music";
+"playlist_import_platform_soda" = "Soda Music";
+"playlist_import_platform_apple_music" = "Apple Music";
+"playlist_import_platform_spotify" = "Spotify";
 "karaoke_backing_track" = "반주 트랙";
 "karaoke_backing_track_playing" = "반주 트랙을 재생 중이라 조절할 보컬이 없습니다.";
 "karaoke_lyrics_from_format" = "가사 출처: “%@”";

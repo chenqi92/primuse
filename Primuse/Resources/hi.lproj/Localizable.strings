@@ -4401,7 +4401,7 @@
 "playlist_import_mode_file" = "फ़ाइल";
 "playlist_import_mode_link" = "शेयर लिंक";
 "playlist_import_mode_text" = "टेक्स्ट सूची";
-"playlist_import_link_placeholder" = "NetEase Cloud Music, QQ Music, Kuwo या Bodian की प्लेलिस्ट का शेयर लिंक चिपकाएँ";
+"playlist_import_link_placeholder" = "प्लेलिस्ट का शेयर लिंक चिपकाएँ (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music या Spotify)";
 "playlist_import_link_desc" = "सिर्फ़ सार्वजनिक प्लेलिस्ट के गानों के नाम, कलाकार, एल्बम और अवधि पढ़ी जाती है; ऑडियो डाउनलोड नहीं होता। निजी प्लेलिस्ट को पहले उसके ऐप में सार्वजनिक करें।";
 "playlist_import_link_fetch" = "प्लेलिस्ट पढ़ें";
 "playlist_import_text_order" = "पंक्ति का प्रारूप";
@@ -4417,7 +4417,7 @@
 "playlist_import_confirm_all_probable_format" = "सभी %d की पुष्टि करें";
 "playlist_import_create_with_pending_format" = "प्लेलिस्ट बनाएँ (%1$d, धूसर %2$d)";
 "playlist_import_pending_kept_hint" = "न मिली प्रविष्टियाँ धूसर रखी जाएँगी";
-"playlist_import_link_err_unrecognized" = "प्लेलिस्ट लिंक नहीं पहचाना गया। NetEase Cloud Music, QQ Music, Kuwo और Bodian के शेयर लिंक समर्थित हैं।";
+"playlist_import_link_err_unrecognized" = "प्लेलिस्ट लिंक नहीं पहचाना गया। NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music और Spotify के शेयर लिंक समर्थित हैं।";
 "playlist_import_link_err_private" = "यह प्लेलिस्ट पढ़ी नहीं जा सकी। हो सकता है वह हटा दी गई हो या निजी हो। उसे ऐप में सार्वजनिक करके फिर से कोशिश करें।";
 "playlist_import_link_err_changed" = "सेवा ने अनपेक्षित जवाब दिया; शायद उसका इंटरफ़ेस बदल गया है। टेक्स्ट सूची से आयात करें।";
 "playlist_import_link_err_network_format" = "नेटवर्क अनुरोध विफल: %@";
@@ -4425,6 +4425,14 @@
 "playlist_import_platform_qqmusic" = "QQ Music";
 "playlist_import_platform_kuwo" = "Kuwo Music";
 "playlist_import_platform_bodian" = "Bodian Music";
+"playlist_import_link_err_discontinued" = "Xiami Music फ़रवरी 2021 में बंद हो गया, इसलिए उसके प्लेलिस्ट लिंक अब नहीं खुलते। अगर प्लेलिस्ट टेक्स्ट में है तो टेक्स्ट सूची से आयात करें।";
+"playlist_import_link_err_apple_music_auth" = "Apple Music प्लेलिस्ट पढ़ने के लिए Primuse को मीडिया और Apple Music की अनुमति दें।";
+"playlist_import_partial_format" = "%1$@ इस प्लेलिस्ट के सिर्फ़ पहले %2$d गाने दिखाता है। बाकी टेक्स्ट सूची से जोड़ें।";
+"playlist_import_platform_kugou" = "Kugou Music";
+"playlist_import_platform_migu" = "Migu Music";
+"playlist_import_platform_soda" = "Soda Music";
+"playlist_import_platform_apple_music" = "Apple Music";
+"playlist_import_platform_spotify" = "Spotify";
 "karaoke_backing_track" = "बैकिंग ट्रैक";
 "karaoke_backing_track_playing" = "बैकिंग ट्रैक चल रहा है, इसलिए समायोजित करने को कोई वोकल नहीं है।";
 "karaoke_lyrics_from_format" = "बोल “%@” से";

@@ -4495,7 +4495,7 @@
 "playlist_import_mode_file" = "Datei";
 "playlist_import_mode_link" = "Freigabelink";
 "playlist_import_mode_text" = "Textliste";
-"playlist_import_link_placeholder" = "Freigabelink einer Playlist aus NetEase Cloud Music, QQ Music, Kuwo oder Bodian einfügen";
+"playlist_import_link_placeholder" = "Playlist-Freigabelink einfügen (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music oder Spotify)";
 "playlist_import_link_desc" = "Es werden nur Titel, Interpreten, Alben und Längen öffentlicher Playlists gelesen, keine Audiodaten. Private Playlists zuerst in der jeweiligen App öffentlich machen.";
 "playlist_import_link_fetch" = "Playlist lesen";
 "playlist_import_text_order" = "Zeilenformat";
@@ -4511,7 +4511,7 @@
 "playlist_import_confirm_all_probable_format" = "Alle %d bestätigen";
 "playlist_import_create_with_pending_format" = "Playlist erstellen (%1$d, %2$d grau)";
 "playlist_import_pending_kept_hint" = "Nicht gefundene Einträge bleiben grau erhalten";
-"playlist_import_link_err_unrecognized" = "Kein Playlist-Link erkannt. Unterstützt werden Freigabelinks von NetEase Cloud Music, QQ Music, Kuwo und Bodian.";
+"playlist_import_link_err_unrecognized" = "Kein Playlist-Link erkannt. Unterstützt werden Links von NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music und Spotify.";
 "playlist_import_link_err_private" = "Diese Playlist kann nicht gelesen werden. Sie wurde vielleicht gelöscht oder ist privat. Mache sie in der App öffentlich und versuche es erneut.";
 "playlist_import_link_err_changed" = "Der Dienst hat etwas Unerwartetes geliefert; die Schnittstelle hat sich vielleicht geändert. Importiere stattdessen per Textliste.";
 "playlist_import_link_err_network_format" = "Netzwerkanfrage fehlgeschlagen: %@";
@@ -4519,6 +4519,14 @@
 "playlist_import_platform_qqmusic" = "QQ Music";
 "playlist_import_platform_kuwo" = "Kuwo Music";
 "playlist_import_platform_bodian" = "Bodian Music";
+"playlist_import_link_err_discontinued" = "Xiami Music wurde im Februar 2021 eingestellt, seine Playlist-Links funktionieren nicht mehr. Hast du die Playlist noch als Text, importiere sie als Textliste.";
+"playlist_import_link_err_apple_music_auth" = "Zum Lesen einer Apple Music-Playlist muss Primuse Zugriff auf „Medien & Apple Music“ erhalten.";
+"playlist_import_partial_format" = "%1$@ zeigt nur die ersten %2$d Titel dieser Playlist. Ergänze den Rest per Textliste.";
+"playlist_import_platform_kugou" = "Kugou Music";
+"playlist_import_platform_migu" = "Migu Music";
+"playlist_import_platform_soda" = "Soda Music";
+"playlist_import_platform_apple_music" = "Apple Music";
+"playlist_import_platform_spotify" = "Spotify";
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "Das Playback läuft, es gibt keinen Gesang zum Anpassen.";
 "karaoke_lyrics_from_format" = "Songtext aus „%@“";

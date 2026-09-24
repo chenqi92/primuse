@@ -4401,7 +4401,7 @@
 "playlist_import_mode_file" = "ไฟล์";
 "playlist_import_mode_link" = "ลิงก์แชร์";
 "playlist_import_mode_text" = "รายการข้อความ";
-"playlist_import_link_placeholder" = "วางลิงก์แชร์เพลย์ลิสต์จาก NetEase Cloud Music, QQ Music, Kuwo หรือ Bodian";
+"playlist_import_link_placeholder" = "วางลิงก์แชร์เพลย์ลิสต์ (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music หรือ Spotify)";
 "playlist_import_link_desc" = "อ่านเฉพาะชื่อเพลง ศิลปิน อัลบั้ม และความยาวของเพลย์ลิสต์สาธารณะ ไม่ดาวน์โหลดเสียง เพลย์ลิสต์ส่วนตัวต้องตั้งเป็นสาธารณะในแอปต้นทางก่อน";
 "playlist_import_link_fetch" = "อ่านเพลย์ลิสต์";
 "playlist_import_text_order" = "รูปแบบบรรทัด";
@@ -4417,7 +4417,7 @@
 "playlist_import_confirm_all_probable_format" = "ยืนยันทั้งหมด %d เพลง";
 "playlist_import_create_with_pending_format" = "สร้างเพลย์ลิสต์ (%1$d เพลง, สีเทา %2$d เพลง)";
 "playlist_import_pending_kept_hint" = "รายการที่ไม่ตรงกันจะเก็บไว้เป็นสีเทา";
-"playlist_import_link_err_unrecognized" = "ไม่พบลิงก์เพลย์ลิสต์ รองรับลิงก์แชร์จาก NetEase Cloud Music, QQ Music, Kuwo และ Bodian";
+"playlist_import_link_err_unrecognized" = "ไม่พบลิงก์เพลย์ลิสต์ รองรับลิงก์จาก NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music และ Spotify";
 "playlist_import_link_err_private" = "อ่านเพลย์ลิสต์นี้ไม่ได้ อาจถูกลบหรือเป็นแบบส่วนตัว ตั้งเป็นสาธารณะในแอปต้นทางแล้วลองอีกครั้ง";
 "playlist_import_link_err_changed" = "บริการส่งข้อมูลที่ไม่คาดคิดกลับมา อินเทอร์เฟซอาจเปลี่ยนไป ลองนำเข้าด้วยรายการข้อความแทน";
 "playlist_import_link_err_network_format" = "คำขอเครือข่ายล้มเหลว: %@";
@@ -4425,6 +4425,14 @@
 "playlist_import_platform_qqmusic" = "QQ Music";
 "playlist_import_platform_kuwo" = "Kuwo Music";
 "playlist_import_platform_bodian" = "Bodian Music";
+"playlist_import_link_err_discontinued" = "Xiami Music ปิดบริการเมื่อกุมภาพันธ์ 2021 ลิงก์เพลย์ลิสต์จึงเปิดไม่ได้แล้ว หากยังมีรายชื่อเพลงเป็นข้อความ ให้นำเข้าด้วยรายการข้อความ";
+"playlist_import_link_err_apple_music_auth" = "การอ่านเพลย์ลิสต์ Apple Music ต้องอนุญาตให้ Primuse เข้าถึงสื่อและ Apple Music";
+"playlist_import_partial_format" = "%1$@ แสดงเพียง %2$d เพลงแรกของเพลย์ลิสต์นี้ เพิ่มเพลงที่เหลือด้วยรายการข้อความ";
+"playlist_import_platform_kugou" = "Kugou Music";
+"playlist_import_platform_migu" = "Migu Music";
+"playlist_import_platform_soda" = "Soda Music";
+"playlist_import_platform_apple_music" = "Apple Music";
+"playlist_import_platform_spotify" = "Spotify";
 "karaoke_backing_track" = "แทร็กดนตรี";
 "karaoke_backing_track_playing" = "กำลังเล่นแทร็กดนตรี จึงไม่มีเสียงร้องให้ปรับ";
 "karaoke_lyrics_from_format" = "เนื้อเพลงจาก “%@”";
