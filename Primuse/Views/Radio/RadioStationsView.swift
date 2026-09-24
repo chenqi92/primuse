@@ -689,7 +689,7 @@ struct RadioStationsView: View {
         let priorities = store.priorityByID
         let total = store.stations.count
         return ScrollView {
-            if skin.usesTileCards {
+            if skin.usesOnAirRadio {
                 VStack(alignment: .leading, spacing: 16) {
                     #if os(iOS)
                     // 正在播的电台放在最上面一张大卡:台名、节目、上下台与停止、睡眠定时都在这里。

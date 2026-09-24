@@ -15,20 +15,22 @@ struct SkinCatalogTests {
         #expect(issues.isEmpty, "\(issues)")
     }
 
-    @Test("每套样式都覆盖全部 token,且插槽已登记")
+    @Test("每套样式都覆盖全部 token,外壳成立,每个表面的实现都已登记")
     func everySkinCoversEveryToken() {
-        for skin in SkinCatalog.all + SkinCatalog.lab {
+        for skin in SkinFixtures.catalogWithUnlockable {
             #expect(skin.colors.count == SkinColorToken.allCases.count)
             #expect(skin.metrics.count == SkinMetricToken.allCases.count)
             #expect(skin.typography.count == SkinTypographyToken.allCases.count)
             #expect(skin.motion.count == SkinMotionToken.allCases.count)
-            for slot in SkinSlot.allCases {
+            #expect(skin.shell.isValid, "\(skin.id) 的外壳凑不成一对")
+            for surface in SkinSurface.allCases {
                 #expect(
-                    SkinSlotRegistry.builtIn[slot]?.contains(skin.variant(for: slot)) == true,
-                    "\(skin.id) 的 \(slot.rawValue) 插槽未登记"
+                    SkinSurfaceRegistry.builtIn[surface]?.contains(skin.variantID(for: surface)) == true,
+                    "\(skin.id) 的 \(surface.rawValue) 表面实现未登记"
                 )
             }
         }
+        #expect(SkinValidationPolicy.catalogIssues(SkinFixtures.catalogWithUnlockable).isEmpty)
     }
 
     @Test("缺 token 会被判为不合格")
@@ -42,7 +44,8 @@ struct SkinCatalogTests {
             colors: colors,
             metrics: SkinCatalog.classic.metrics,
             typography: SkinCatalog.classic.typography,
-            motion: SkinCatalog.classic.motion
+            motion: SkinCatalog.classic.motion,
+            shell: .tabBar
         )
         #expect(
             SkinValidationPolicy.issues(in: broken)
@@ -61,7 +64,8 @@ struct SkinCatalogTests {
             colors: SkinCatalog.classic.colors,
             metrics: SkinCatalog.classic.metrics,
             typography: SkinCatalog.classic.typography,
-            motion: motion
+            motion: motion,
+            shell: .tabBar
         )
         #expect(
             SkinValidationPolicy.issues(in: broken)
@@ -72,29 +76,27 @@ struct SkinCatalogTests {
         #expect(SkinMotionSpec.none.isWellFormed)
     }
 
-    @Test("未登记的插槽实现会被判为不合格")
-    func unregisteredSlotVariantIsRejected() {
-        var slots = SkinSlotRegistry.allClassic
-        slots[.playerStage] = "not-built"
+    @Test("未登记的表面实现会被判为不合格")
+    func unregisteredSurfaceVariantIsRejected() {
         let broken = SkinDefinition(
-            id: "broken-slot",
+            id: "broken-surface",
             nameKey: "k",
             descriptionKey: "k",
             colors: SkinCatalog.classic.colors,
             metrics: SkinCatalog.classic.metrics,
             typography: SkinCatalog.classic.typography,
             motion: SkinCatalog.classic.motion,
-            slots: slots
+            shell: .tabBar,
+            surfaces: [.player: "not-built"]
         )
         #expect(
-            SkinValidationPolicy.issues(in: broken)
-                .contains(
-                    .unregisteredSlotVariant(
-                        skinID: "broken-slot",
-                        slot: .playerStage,
-                        variant: "not-built"
-                    )
-                )
+            SkinValidationPolicy.issues(in: broken) == [
+                .unregisteredSurfaceVariant(
+                    skinID: "broken-surface",
+                    surface: .player,
+                    variant: "not-built"
+                ),
+            ]
         )
     }
 
@@ -109,7 +111,8 @@ struct SkinCatalogTests {
             colors: SkinCatalog.classic.colors,
             metrics: SkinCatalog.classic.metrics,
             typography: SkinCatalog.classic.typography,
-            motion: SkinCatalog.classic.motion
+            motion: SkinCatalog.classic.motion,
+            shell: .tabBar
         )
         #expect(
             SkinValidationPolicy.catalogIssues(
@@ -119,15 +122,30 @@ struct SkinCatalogTests {
         )
     }
 
-    @Test("正式目录里的样式都随 App 提供,经典与极简都在")
+    @Test("目录里的样式都随 App 提供,经典与极简都在,只换色的夹具不在")
     func shippingCatalogIsIncluded() {
         #expect(SkinCatalog.all.map(\.id) == [SkinCatalog.classicID, SkinCatalog.minimalID])
         for skin in SkinCatalog.all {
             #expect(skin.access == .included, "\(skin.id) 不该需要解锁")
         }
-        // 打磨中的样式不进正式目录,按 id 默认也查不到。
-        #expect(SkinCatalog.skin(id: "midnight") == nil)
-        #expect(SkinCatalog.skin(id: "midnight", includingLab: true) != nil)
+        #expect(SkinCatalog.skin(id: SkinCatalog.minimalID) == SkinCatalog.minimal)
+        for fixture in SkinFixtures.unlockable {
+            #expect(SkinCatalog.skin(id: fixture.id) == nil, "\(fixture.id) 只是测试夹具")
+        }
+    }
+
+    /// 一套皮肤 = 自己的排版结构与交互。和经典只差 token 的一组数据不构成一套皮肤,不能进目录。
+    @Test("目录里除经典外的每套样式,外壳或至少一个表面与经典不同")
+    func everyCatalogSkinChangesStructure() {
+        for skin in SkinCatalog.all where skin.id != SkinCatalog.classicID {
+            let changedSurfaces = SkinSurface.allCases.filter {
+                skin.variantID(for: $0) != SkinCatalog.classic.variantID(for: $0)
+            }
+            #expect(
+                skin.shell != SkinCatalog.classic.shell || !changedSurfaces.isEmpty,
+                "\(skin.id) 只换了 token"
+            )
+        }
     }
 
     // MARK: - classic 必须等同于改造前的观感
@@ -223,28 +241,28 @@ struct SkinCatalogTests {
 
     @Test("样式之间确有差异,否则换样式只是摆设")
     func skinsDifferSubstantially() {
-        for other in [SkinCatalog.minimal, SkinCatalog.midnight] {
+        for other in [SkinCatalog.minimal, SkinFixtures.midnight] {
             let differingColors = SkinColorToken.allCases.filter {
                 SkinCatalog.classic.colors[$0] != other.colors[$0]
             }
             #expect(differingColors.count >= 20, "\(other.id) 与经典只差 \(differingColors.count) 个色位")
         }
         let differingMetrics = SkinMetricToken.allCases.filter {
-            SkinCatalog.classic.metrics[$0] != SkinCatalog.midnight.metrics[$0]
+            SkinCatalog.classic.metrics[$0] != SkinFixtures.midnight.metrics[$0]
         }
         #expect(differingMetrics.count >= 20)
-        #expect(SkinCatalog.midnight.appearance == .forcesDark)
+        #expect(SkinFixtures.midnight.appearance == .forcesDark)
         // 极简跟随系统深浅色:「外观」设置在这套样式下必须继续有效。
         #expect(SkinCatalog.minimal.appearance == .adaptive)
         #expect(SkinCatalog.minimal.pageBackground == .canvas)
         #expect(SkinCatalog.classic.pageBackground == .system)
     }
 
-    /// 光脊这一步只有配色:锁定深色、待解锁、不认领任何配套。最后一条是硬约束 ——
+    /// 光脊夹具只有配色:锁定深色、待解锁、不认领任何配套。最后一条是硬约束 ——
     /// 待解锁的皮肤一旦认领基础全屏效果或海报,没解锁的人就再也看不到那一款。
-    @Test("光脊是一套完整、读得清、不认领配套的深色配色")
+    @Test("光脊夹具是一套完整、读得清、不认领配套的深色配色")
     func nocturneIsADarkPaletteOnly() {
-        let skin = SkinCatalog.nocturne
+        let skin = SkinFixtures.nocturne
         #expect(SkinValidationPolicy.catalogIssues([SkinCatalog.classic, skin]).isEmpty)
         let findings = SkinContrastPolicy.findings(in: skin)
         #expect(findings.isEmpty, "\(findings)")
@@ -255,9 +273,8 @@ struct SkinCatalogTests {
         #expect(skin.companions.isEmpty)
         // 强调色仍跟着主题色设置走,「跟随封面取色」这条链路不断。
         #expect(skin.colors[.accent] == .system(.tint))
-        // 打磨中的样式只在开发构建里出现。
+        // 只换色,不进目录。
         #expect(SkinCatalog.skin(id: "nocturne") == nil)
-        #expect(SkinCatalog.skin(id: "nocturne", includingLab: true) != nil)
     }
 
     @Test("极简的强调色跟随主题色设置,不切断封面取色")
@@ -269,52 +286,47 @@ struct SkinCatalogTests {
         }
     }
 
-    @Test("极简选用的结构实现")
-    func minimalSlotChoices() {
+    @Test("极简选用的表面实现与组件样式")
+    func minimalSurfaceChoices() {
         let skin = SkinCatalog.minimal
-        #expect(skin.navigationHeader == .topTabs)
-        #expect(skin.bottomChrome == .dockedBar)
-        #expect(skin.detailHeader == .coverWall)
+        #expect(skin.home == .poster)
+        #expect(skin.libraryRoot == .tiles)
+        #expect(skin.songList == .playHeader)
+        #expect(skin.collectionDetail == .classic)
+        #expect(skin.player == .sheetActions)
+        #expect(skin.queue == .nowPlayingCard)
+        #expect(skin.search == .browse)
+        #expect(skin.radio == .onAir)
         #expect(skin.settingsRoot == .hub)
-        #expect(skin.playerStage == .sheetActions)
-        #expect(skin.homeLayout == .poster)
-        #expect(skin.card == .tile)
-        #expect(skin.listRow == .playHeader)
+        #expect(skin.components.card == .tile)
+        // 每个表面都显式写在定义里,不靠「没写就是经典」。
+        #expect(Set(skin.surfaces.keys) == Set(SkinSurface.allCases))
     }
 
-    @Test("经典的每个插槽都是经典实现,插槽与特征位都显式写在定义里")
-    func classicSlotChoicesAreExplicit() {
+    @Test("经典的每个表面都是经典实现,外壳、表面与特征位都显式写在定义里")
+    func classicSurfaceChoicesAreExplicit() {
         let classic = SkinCatalog.classic
-        for slot in SkinSlot.allCases {
-            #expect(classic.slots[slot] == SkinSlotRegistry.classicVariant, "\(slot)")
+        for surface in SkinSurface.allCases {
+            #expect(classic.surfaces[surface] == SkinSurfaceRegistry.classicVariant, "\(surface)")
         }
-        #expect(classic.playerStage == .classic)
-        #expect(classic.navigationHeader == .classic)
-        #expect(classic.bottomChrome == .classic)
-        #expect(classic.detailHeader == .classic)
+        #expect(classic.home == .classic)
+        #expect(classic.libraryRoot == .classic)
+        #expect(classic.songList == .classic)
+        #expect(classic.collectionDetail == .classic)
+        #expect(classic.player == .classic)
+        #expect(classic.queue == .classic)
+        #expect(classic.search == .classic)
+        #expect(classic.radio == .classic)
         #expect(classic.settingsRoot == .classic)
-        #expect(classic.homeLayout == .classic)
-        #expect(classic.card == .classic)
-        #expect(classic.listRow == .classic)
+        #expect(classic.components == .classic)
+        #expect(classic.shell == .tabBar)
         // 经典的详情页染封面色,浮层是玻璃。
         #expect(classic.traits.collectionBackdrop == .artworkTint)
         #expect(classic.traits.chromeMaterial == .glass)
     }
 
-    @Test("每个插槽登记的实现里都有经典实现")
-    func everySlotRegistersClassic() {
-        for slot in SkinSlot.allCases {
-            #expect(SkinSlotRegistry.builtIn[slot]?.contains(SkinSlotRegistry.classicVariant) == true, "\(slot)")
-        }
-        #expect(SkinSlotRegistry.variants(of: .homeLayout).contains(SkinSlotVariant.HomeLayout.poster.rawValue))
-        #expect(SkinSlotRegistry.variants(of: .card).contains(SkinSlotVariant.Card.tile.rawValue))
-        #expect(SkinSlotRegistry.variants(of: .listRow).contains(SkinSlotVariant.ListRow.playHeader.rawValue))
-    }
-
-    @Test("读不出来的插槽取值落到经典实现")
-    func unknownSlotVariantReadsAsClassic() {
-        var slots = SkinSlotRegistry.allClassic
-        slots[.bottomChrome] = "from-a-future-build"
+    @Test("读不出来或没写的表面取值落到经典实现")
+    func unknownSurfaceVariantReadsAsClassic() {
         let skin = SkinDefinition(
             id: "future",
             nameKey: "k",
@@ -323,19 +335,45 @@ struct SkinCatalogTests {
             metrics: SkinCatalog.classic.metrics,
             typography: SkinCatalog.classic.typography,
             motion: SkinCatalog.classic.motion,
-            slots: slots
+            shell: .topTabs,
+            surfaces: [.player: "from-a-future-build", .home: SkinSurfaceVariant.Home.poster.rawValue]
         )
-        #expect(skin.bottomChrome == .classic)
+        #expect(skin.player == .classic)
+        #expect(skin.home == .poster)
+        // 没写的表面。
+        #expect(skin.queue == .classic)
+        #expect(skin.variantID(for: .search) == SkinSurfaceRegistry.classicVariant)
+        #expect(skin.implementation(SkinSurfaceVariant.SettingsRoot.self) == .classic)
     }
 
-    @Test("登记表由实现枚举推导,每个插槽至少有经典实现")
+    @Test("登记表由实现枚举推导,每个表面都有经典实现")
     func registryIsDerivedFromVariantEnums() {
-        for slot in SkinSlot.allCases {
-            #expect(SkinSlotRegistry.builtIn[slot]?.contains(SkinSlotRegistry.classicVariant) == true)
+        for surface in SkinSurface.allCases {
+            #expect(
+                SkinSurfaceRegistry.builtIn[surface]?.contains(SkinSurfaceRegistry.classicVariant) == true,
+                "\(surface)"
+            )
+            #expect(SkinSurfaceRegistry.variants(of: surface).first == SkinSurfaceRegistry.classicVariant)
         }
-        #expect(SkinSlotRegistry.builtIn[.navigationHeader] == ["classic", "topTabs"])
-        #expect(SkinSlotRegistry.builtIn[.bottomChrome] == ["classic", "floatingCapsule", "dockedBar"])
-        #expect(SkinSlotRegistry.builtIn[.detailHeader] == ["classic", "coverWall"])
+        #expect(SkinSurfaceRegistry.builtIn[.home] == ["classic", "poster"])
+        #expect(SkinSurfaceRegistry.builtIn[.libraryRoot] == ["classic", "tiles"])
+        #expect(SkinSurfaceRegistry.builtIn[.songList] == ["classic", "playHeader"])
+        #expect(SkinSurfaceRegistry.builtIn[.collectionDetail] == ["classic"])
+        #expect(SkinSurfaceRegistry.builtIn[.player] == ["classic", "sheetActions"])
+        #expect(SkinSurfaceRegistry.builtIn[.queue] == ["classic", "nowPlayingCard"])
+        #expect(SkinSurfaceRegistry.builtIn[.search] == ["classic", "browse"])
+        #expect(SkinSurfaceRegistry.builtIn[.radio] == ["classic", "onAir"])
+        #expect(SkinSurfaceRegistry.builtIn[.settingsRoot] == ["classic", "hub"])
+        // 每个实现枚举报的表面与登记表里的位置一致。
+        #expect(SkinSurfaceVariant.Home.surface == .home)
+        #expect(SkinSurfaceVariant.LibraryRoot.surface == .libraryRoot)
+        #expect(SkinSurfaceVariant.SongList.surface == .songList)
+        #expect(SkinSurfaceVariant.CollectionDetail.surface == .collectionDetail)
+        #expect(SkinSurfaceVariant.Player.surface == .player)
+        #expect(SkinSurfaceVariant.Queue.surface == .queue)
+        #expect(SkinSurfaceVariant.Search.surface == .search)
+        #expect(SkinSurfaceVariant.Radio.surface == .radio)
+        #expect(SkinSurfaceVariant.SettingsRoot.surface == .settingsRoot)
     }
 
     @Test("经典的动效取自视图里原有的曲线")
@@ -360,13 +398,13 @@ struct SkinCatalogTests {
 
     @Test("待解锁的样式未解锁时不生效")
     func lockedSkinDoesNotApply() {
-        let catalog = SkinCatalog.all + SkinCatalog.lab
+        let catalog = SkinFixtures.catalogWithUnlockable
         let unlockID = "skin.midnight"
         #expect(SkinSelectionPolicy.availability(of: SkinCatalog.classic, unlocked: []) == .included)
         #expect(SkinSelectionPolicy.availability(of: SkinCatalog.minimal, unlocked: []) == .included)
-        #expect(SkinSelectionPolicy.availability(of: SkinCatalog.midnight, unlocked: []) == .locked)
+        #expect(SkinSelectionPolicy.availability(of: SkinFixtures.midnight, unlocked: []) == .locked)
         #expect(
-            SkinSelectionPolicy.availability(of: SkinCatalog.midnight, unlocked: [unlockID]) == .unlocked
+            SkinSelectionPolicy.availability(of: SkinFixtures.midnight, unlocked: [unlockID]) == .unlocked
         )
         #expect(SkinSelectionPolicy.effectiveSkinID(requested: "midnight", catalog: catalog) == "classic")
         #expect(
@@ -390,7 +428,7 @@ struct SkinCatalogTests {
     /// 换设备后同步来一个本机没有的样式 id。打开 App 用肉眼验证不了。
     @Test("异常来源的样式选择一律回落")
     func unknownOrRevokedSkinFallsBack() {
-        let catalog = SkinCatalog.all + SkinCatalog.lab
+        let catalog = SkinFixtures.catalogWithUnlockable
         #expect(SkinSelectionPolicy.effectiveSkinID(requested: nil) == "classic")
         #expect(
             SkinSelectionPolicy.effectiveSkinID(
@@ -398,7 +436,7 @@ struct SkinCatalogTests {
                 unlocked: ["from-a-future-build"]
             ) == "classic"
         )
-        // 打磨中的样式在正式目录里查不到,同步过来也只会回落。
+        // 目录里没有的样式(夹具、别的构建里的皮肤)同步过来也只会回落。
         #expect(SkinSelectionPolicy.effectiveSkinID(requested: "midnight", unlocked: ["skin.midnight"]) == "classic")
         #expect(SkinSelectionPolicy.requiresFallback(current: "midnight", catalog: catalog, unlocked: []))
         #expect(
@@ -414,7 +452,7 @@ struct SkinCatalogTests {
 
     @Test("样式定义可 JSON 往返,为将来下发样式留口子")
     func skinDefinitionRoundTripsThroughJSON() throws {
-        for skin in SkinCatalog.all + SkinCatalog.lab {
+        for skin in SkinFixtures.catalogWithUnlockable {
             let data = try JSONEncoder().encode(skin)
             let decoded = try JSONDecoder().decode(SkinDefinition.self, from: data)
             #expect(decoded == skin)

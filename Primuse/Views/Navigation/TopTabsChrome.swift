@@ -183,7 +183,7 @@ private struct MinimalRootEditingModifier: ViewModifier {
 
 // MARK: - tab 条
 
-/// 顶部 tab 外壳(`SkinSlotVariant.NavigationHeader.topTabs`)的那一行:左边是横向可滚的 tab 条,
+/// 顶部 tab 外壳(`SkinShell.Navigation.topTabs`)的那一行:左边是横向可滚的 tab 条,
 /// 右边固定是当前页的动作、搜索和设置。
 ///
 /// 整个外壳只有这一份实例,挂在所有页面之上,所以切 tab 时选中指示器能从旧位置滑到新位置,

@@ -1,132 +1,5 @@
 import Foundation
 
-// MARK: - 结构插槽
-
-/// 样式可以整块替换 UI 的位置。
-///
-/// 纯 token 换不出「详情页头图从一张封面变成一面封面墙」这种结构性差异,所以留出
-/// 这些插槽,由样式挑一个实现。**插槽数量是封死的**:一旦允许随手再开一个口子,就会
-/// 退回「每个视图里 if 样式」的老路 —— 那条路上一套样式要改两千行,第四套样式时
-/// 这些视图就没人敢动了。
-///
-/// 需要新插槽时,应当先问「这能不能用 token 表达」,只有确实是结构差异才加,并且要
-/// 同时在 `SkinSlotVariant` 里给出它的实现枚举、更新相应测试。
-public enum SkinSlot: String, CaseIterable, Sendable, Codable {
-    /// 根导航:系统标签栏,还是顶部 tab 条(首页、电台与资料库各分类,右侧搜索与设置)。
-    case navigationHeader
-    /// 底部 chrome(迷你播放器所在的那条)。
-    case bottomChrome
-    /// 专辑 / 歌单 / 艺术家 / 流派等集合详情页的头图。
-    case detailHeader
-    /// 设置根页的组织方式。
-    case settingsRoot
-    /// 首页区块的排布方式。
-    case homeLayout
-    /// 曲目列表的行样式。
-    case listRow
-    /// 专辑 / 歌单卡片样式。
-    case card
-    /// 全屏播放页的舞台。
-    case playerStage
-}
-
-/// 每个插槽已有的实现。
-///
-/// 写成枚举而不是裸字符串:App 层对它做穷尽 `switch`,Kit 里多登记一个实现而 App
-/// 没画出来时,构建直接失败 —— 「登记了却拿不到视图」这种缺陷因此不会流到运行时。
-public enum SkinSlotVariant {
-    public enum NavigationHeader: String, CaseIterable, Sendable {
-        /// 系统标签栏 + 各页自己的导航栏。
-        case classic
-        /// 顶部一行横向可滚的 tab 条(首页、资料库各分类、电台),右侧是页面动作、搜索与设置;
-        /// 不显示标签栏,根页不显示系统导航栏,推入详情页时 tab 条让位给系统导航栏。
-        case topTabs
-    }
-
-    public enum BottomChrome: String, CaseIterable, Sendable {
-        case classic
-        /// 悬浮胶囊:圆形封面、进度环、队列入口。现在没有皮肤选它,留给以后的皮肤。
-        case floatingCapsule
-        /// 通栏停靠条:左右内缩的圆角条,封面 + 两行文字 + 播放键 + 队列键,顶沿一条进度细线。
-        case dockedBar
-    }
-
-    public enum DetailHeader: String, CaseIterable, Sendable {
-        case classic
-        /// 多封面时是一面缓慢重排的封面墙,单封面时是带光晕的大图。
-        case coverWall
-    }
-
-    public enum SettingsRoot: String, CaseIterable, Sendable {
-        /// 分区长列表。
-        case classic
-        /// 常用磁贴 + 分类入口,其余设置页收进分类里。
-        case hub
-    }
-
-    public enum HomeLayout: String, CaseIterable, Sendable {
-        case classic
-        /// 头图是一面斜铺的封面墙海报;区块标题加重,快速访问是两列胶囊,继续听是方形大卡,
-        /// 本周统计以大号时长为主。
-        case poster
-    }
-
-    public enum ListRow: String, CaseIterable, Sendable {
-        case classic
-        /// 平铺的歌曲列表顶上多一排「播放 · 随机」胶囊与歌曲数。
-        case playHeader
-    }
-
-    public enum Card: String, CaseIterable, Sendable {
-        case classic
-        /// 大一号的卡片:专辑卡标题加重;资料库分类、搜索起始页(最近搜索、按流派浏览、最佳结果)
-        /// 与电台页(正在直播、添加电台)画成方块与大卡,而不是分组列表的行。
-        case tile
-    }
-
-    public enum PlayerStage: String, CaseIterable, Sendable {
-        case classic
-        /// 播放页的「更多」以分组面板呈现(常用的几项提到第一排),而不是一长条系统菜单;
-        /// 竖屏播放键是实心圆,音质与来源收进底栏的胶囊;队列页带循环键,正在播放单独成卡,
-        /// 已播放默认收起。
-        case sheetActions
-    }
-}
-
-/// 插槽实现的标识。样式定义里存的是这个字符串,读取时再还原成枚举。
-public typealias SkinSlotVariantID = String
-
-/// 已登记的插槽实现,由 `SkinSlotVariant` 的各个枚举推导,不单独维护。
-public enum SkinSlotRegistry {
-    public static let classicVariant: SkinSlotVariantID = "classic"
-
-    public static let builtIn: [SkinSlot: Set<SkinSlotVariantID>] = {
-        var registry: [SkinSlot: Set<SkinSlotVariantID>] = [:]
-        for slot in SkinSlot.allCases {
-            registry[slot] = Set(variants(of: slot))
-        }
-        return registry
-    }()
-
-    public static func variants(of slot: SkinSlot) -> [SkinSlotVariantID] {
-        switch slot {
-        case .navigationHeader: return SkinSlotVariant.NavigationHeader.allCases.map(\.rawValue)
-        case .bottomChrome: return SkinSlotVariant.BottomChrome.allCases.map(\.rawValue)
-        case .detailHeader: return SkinSlotVariant.DetailHeader.allCases.map(\.rawValue)
-        case .settingsRoot: return SkinSlotVariant.SettingsRoot.allCases.map(\.rawValue)
-        case .homeLayout: return SkinSlotVariant.HomeLayout.allCases.map(\.rawValue)
-        case .listRow: return SkinSlotVariant.ListRow.allCases.map(\.rawValue)
-        case .card: return SkinSlotVariant.Card.allCases.map(\.rawValue)
-        case .playerStage: return SkinSlotVariant.PlayerStage.allCases.map(\.rawValue)
-        }
-    }
-
-    /// 每个插槽都取经典实现 —— 新样式只改 token 时的默认选择。
-    public static var allClassic: [SkinSlot: SkinSlotVariantID] {
-        SkinSlot.allCases.reduce(into: [:]) { $0[$1] = classicVariant }
-    }
-}
-
 // MARK: - 外观、页面底色、可用性
 
 /// 样式在浅色 / 深色上的立场。
@@ -232,7 +105,8 @@ public struct SkinTraits: Sendable, Equatable, Codable {
 
 // MARK: - 样式定义
 
-/// 一套样式的完整描述。除插槽选择外全是数据 —— 新增一套样式不需要动视图。
+/// 一套样式的完整描述:外壳 + 每个表面的实现 + 四张 token 表 + 配套 + 可用性。
+/// 除外壳与表面的选择外全是数据 —— 只换数据不构成一套新皮肤,它要有自己的排版结构与交互。
 public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     /// 样式名的本地化 key。
@@ -249,7 +123,12 @@ public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
     public let metrics: [SkinMetricToken: Double]
     public let typography: [SkinTypographyToken: SkinTypeSpec]
     public let motion: [SkinMotionToken: SkinMotionSpec]
-    public let slots: [SkinSlot: SkinSlotVariantID]
+    /// 外壳:根导航结构与正在播放的那一条。每套皮肤都要显式声明。
+    public let shell: SkinShell
+    /// 每个表面选的实现。没写的表面是经典实现。
+    public let surfaces: [SkinSurface: SkinSurfaceVariantID]
+    /// 跨页面复用的组件(专辑卡、音乐源卡片)的画法。
+    public let components: SkinComponentStyle
     public let companions: SkinCompanions
     public let traits: SkinTraits
 
@@ -264,7 +143,9 @@ public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
         metrics: [SkinMetricToken: Double],
         typography: [SkinTypographyToken: SkinTypeSpec],
         motion: [SkinMotionToken: SkinMotionSpec],
-        slots: [SkinSlot: SkinSlotVariantID] = SkinSlotRegistry.allClassic,
+        shell: SkinShell,
+        surfaces: [SkinSurface: SkinSurfaceVariantID] = [:],
+        components: SkinComponentStyle = .classic,
         companions: SkinCompanions = .none,
         traits: SkinTraits = .standard
     ) {
@@ -278,86 +159,15 @@ public struct SkinDefinition: Sendable, Equatable, Identifiable, Codable {
         self.metrics = metrics
         self.typography = typography
         self.motion = motion
-        self.slots = slots
+        self.shell = shell
+        self.surfaces = surfaces
+        self.components = components
         self.companions = companions
         self.traits = traits
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, nameKey, descriptionKey, appearance, pageBackground, access
-        case colors, metrics, typography, motion, slots, companions, traits
-    }
-
-    /// 特征位是后加的:没有这一项的旧样式数据按默认取向解码,不必迁移。
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            id: try container.decode(String.self, forKey: .id),
-            nameKey: try container.decode(String.self, forKey: .nameKey),
-            descriptionKey: try container.decode(String.self, forKey: .descriptionKey),
-            appearance: try container.decode(SkinAppearanceAffinity.self, forKey: .appearance),
-            pageBackground: try container.decode(SkinPageBackground.self, forKey: .pageBackground),
-            access: try container.decode(SkinAccess.self, forKey: .access),
-            colors: try container.decode([SkinColorToken: SkinColorSpec].self, forKey: .colors),
-            metrics: try container.decode([SkinMetricToken: Double].self, forKey: .metrics),
-            typography: try container.decode([SkinTypographyToken: SkinTypeSpec].self, forKey: .typography),
-            motion: try container.decode([SkinMotionToken: SkinMotionSpec].self, forKey: .motion),
-            slots: try container.decode([SkinSlot: SkinSlotVariantID].self, forKey: .slots),
-            companions: try container.decode(SkinCompanions.self, forKey: .companions),
-            traits: try container.decodeIfPresent(SkinTraits.self, forKey: .traits) ?? .standard
-        )
     }
 
     public func color(_ token: SkinColorToken) -> SkinColorSpec? { colors[token] }
     public func metric(_ token: SkinMetricToken) -> Double? { metrics[token] }
     public func type(_ token: SkinTypographyToken) -> SkinTypeSpec? { typography[token] }
     public func motionSpec(_ token: SkinMotionToken) -> SkinMotionSpec? { motion[token] }
-
-    public func variant(for slot: SkinSlot) -> SkinSlotVariantID {
-        slots[slot] ?? SkinSlotRegistry.classicVariant
-    }
-
-    // 读不出来(来自更新版本的样式、手改的数据)一律落到经典实现。
-    /// 这套样式建在哪一套基座上。基座决定导航结构:经典 = 系统标签栏,极简 = 顶部 tab 条
-    /// + 底部停靠播放条。之后的样式都建在其中一套上,只换 token、材质、动效与该基座允许的
-    /// 页面实现,不改导航结构 —— 功能对照按基座各测一遍即可。
-    ///
-    /// 由导航插槽推出来,目录与已存的样式数据不必迁移。
-    public var base: SkinBase {
-        switch navigationHeader {
-        case .classic: return .classic
-        case .topTabs: return .minimal
-        }
-    }
-
-    public var navigationHeader: SkinSlotVariant.NavigationHeader {
-        SkinSlotVariant.NavigationHeader(rawValue: variant(for: .navigationHeader)) ?? .classic
-    }
-    public var bottomChrome: SkinSlotVariant.BottomChrome {
-        SkinSlotVariant.BottomChrome(rawValue: variant(for: .bottomChrome)) ?? .classic
-    }
-    public var detailHeader: SkinSlotVariant.DetailHeader {
-        SkinSlotVariant.DetailHeader(rawValue: variant(for: .detailHeader)) ?? .classic
-    }
-    public var settingsRoot: SkinSlotVariant.SettingsRoot {
-        SkinSlotVariant.SettingsRoot(rawValue: variant(for: .settingsRoot)) ?? .classic
-    }
-    public var homeLayout: SkinSlotVariant.HomeLayout {
-        SkinSlotVariant.HomeLayout(rawValue: variant(for: .homeLayout)) ?? .classic
-    }
-    public var listRow: SkinSlotVariant.ListRow {
-        SkinSlotVariant.ListRow(rawValue: variant(for: .listRow)) ?? .classic
-    }
-    public var card: SkinSlotVariant.Card {
-        SkinSlotVariant.Card(rawValue: variant(for: .card)) ?? .classic
-    }
-    public var playerStage: SkinSlotVariant.PlayerStage {
-        SkinSlotVariant.PlayerStage(rawValue: variant(for: .playerStage)) ?? .classic
-    }
-}
-
-/// 两套基座。见 `SkinDefinition.base`。
-public enum SkinBase: String, Codable, Sendable, CaseIterable {
-    case classic
-    case minimal
 }

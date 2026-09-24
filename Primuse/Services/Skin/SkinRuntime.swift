@@ -25,10 +25,14 @@ final class SkinRuntime {
     /// 已解锁的项(`SkinAccess.unlockable` 里的 unlockID),由权益来源写入。
     private(set) var unlockedIDs: Set<String>
 
+    /// 设置页里列出来的样式。开发构建与正式构建都是 `SkinCatalog.all`;测试可以换成带待解锁皮肤的目录。
+    let catalog: [SkinDefinition]
+
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, catalog: [SkinDefinition] = SkinCatalog.all) {
         self.defaults = defaults
+        self.catalog = catalog
         let storedSkinID = defaults.string(forKey: Self.selectedSkinKey)
         // 2.0 之前「极简模式」是一个独立的导航开关;之后它并入界面样式。
         // 没选过样式的老用户,原来开着极简模式就落到极简,其余保持经典。
@@ -45,15 +49,6 @@ final class SkinRuntime {
     }
 
     // MARK: - 目录
-
-    /// 设置页里列出来的样式。打磨中的样式只在开发构建里出现。
-    var catalog: [SkinDefinition] {
-        #if DEBUG
-        return SkinCatalog.all + SkinCatalog.lab
-        #else
-        return SkinCatalog.all
-        #endif
-    }
 
     func availability(of skin: SkinDefinition) -> SkinAvailability {
         SkinSelectionPolicy.availability(of: skin, unlocked: unlockedIDs)

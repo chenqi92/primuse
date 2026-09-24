@@ -27,10 +27,6 @@
 
 "skin.classic.name"          = "Classique";
 "skin.classic.description"   = "Barre d’onglets, suit l’apparence du système";
-"skin.midnight.name"         = "Minuit";
-"skin.midnight.description"  = "Toujours sombre, avec un accent bleu froid";
-"skin.nocturne.name"         = "Nocturne";
-"skin.nocturne.description"  = "Palette sombre : fond presque noir, une crête de lumière violette, une pointe de pêche";
 "skin.minimal.name"          = "Minimal";
 "skin.minimal.description"   = "Mur de pochettes, lecteur flottant, navigation par la recherche";
 

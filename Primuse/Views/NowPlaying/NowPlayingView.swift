@@ -2672,7 +2672,7 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 宽版式的播放键。分组面板那一套(`PlayerStage.sheetActions`)是实心圆,经典是系统的圆形符号。
+    /// 宽版式的播放键。分组面板那一套(`Player.sheetActions`)是实心圆,经典是系统的圆形符号。
     @ViewBuilder
     private var wideTransportPlayButton: some View {
         if skin.usesSheetActionsPlayer {
@@ -3059,7 +3059,7 @@ struct NowPlayingView: View {
                             // Text and controls retain their height; artwork uses the remaining space.
                             let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
                             let fittedWidth = min(mediaWidth, max(1, artworkGeometry.size.height - 24) * ratio)
-                            // 分组面板那一套(`PlayerStage.sheetActions`):封面浮在取色底上 ——
+                            // 分组面板那一套(`Player.sheetActions`):封面浮在取色底上 ——
                             // 圆角加大、阴影更深更远,暂停时收小一档。
                             let floatsArtwork = skin.usesSheetActionsPlayer
                             artworkOrMusicVideo(size: fittedWidth, cornerRadius: floatsArtwork ? 16 : 12)
@@ -4091,7 +4091,7 @@ struct NowPlayingView: View {
         }
     }
 
-    /// 竖屏的播放键。分组面板那一套(`PlayerStage.sheetActions`)是实心圆,经典是系统的圆形符号。
+    /// 竖屏的播放键。分组面板那一套(`Player.sheetActions`)是实心圆,经典是系统的圆形符号。
     @ViewBuilder
     private var portraitTransportPlayButton: some View {
         if skin.usesSheetActionsPlayer {
@@ -6337,7 +6337,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
 
     var body: some View {
         #if os(iOS)
-        switch skin.skin.playerStage {
+        switch skin.skin.player {
         case .sheetActions:
             actionsPanelButton
         case .classic:

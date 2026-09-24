@@ -13,6 +13,14 @@ enum AppNavigationMode: String, CaseIterable, Sendable {
     static func resolve(_ rawValue: String) -> AppNavigationMode {
         AppNavigationMode(rawValue: rawValue) ?? .standard
     }
+
+    /// 导航方式由界面皮肤外壳的导航结构决定。
+    init(_ navigation: SkinShell.Navigation) {
+        switch navigation {
+        case .tabBar: self = .standard
+        case .topTabs: self = .minimal
+        }
+    }
 }
 
 enum AppNavigationRootLayout: Equatable, Sendable {
@@ -215,8 +223,8 @@ private struct LegacyBottomChromeOverlayActiveEnvironmentKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-/// 当前外壳是极简的顶部 tab 外壳(`NavigationHeader.topTabs`)。外壳与根页 / 详情页两个修饰符读它,
-/// 页面里只有底部让位与首页翻面用到它;页面自己的样式差异走界面皮肤的插槽,不看它。
+/// 当前外壳是极简的顶部 tab 外壳(`SkinShell.Navigation.topTabs`)。外壳与根页 / 详情页两个修饰符读它,
+/// 页面里只有底部让位与首页翻面用到它;页面自己的样式差异走界面皮肤的页面表面,不看它。
 private struct UsesTopTabsShellEnvironmentKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -814,8 +822,6 @@ struct ContentView: View {
     /// 也是 regular 宽,但纵向只剩三百多点,不该套 iPad 那一套版面。
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(AppNavigationMode.storageKey)
-    private var navigationModeRawValue = AppNavigationMode.standard.rawValue
     @AppStorage("primuse.navigation.selectedTab.v1") private var selectedTab = 0
     /// iPad sidebar 当前选中项。iPhone 不用,sidebar 隐藏。值跟 selectedTab
     /// 保持联动 (sidebar 改 → selectedTab 也改; selectedTab 改 → sidebar
@@ -891,8 +897,10 @@ struct ContentView: View {
         )
     }
 
+    /// 导航方式取自当前皮肤的外壳。旧的存储键(`AppNavigationMode.storageKey`)只由
+    /// `SkinRuntime` 镜像写入,给降级回旧版本时用,这里不再读它。
     private var navigationMode: AppNavigationMode {
-        AppNavigationMode.resolve(navigationModeRawValue)
+        AppNavigationMode(skin.shell.navigation)
     }
 
     private var rootLayout: AppNavigationRootLayout {
@@ -1192,13 +1200,13 @@ struct ContentView: View {
         }
     }
 
-    /// 底部停靠播放条。多选时系统的批量操作栏占着底部,它让开(`miniPlayerVisible` 已经算进去);
-    /// 键盘弹出时也让开。
+    /// 底部停靠播放条,按外壳的 `nowPlayingBar` 画。多选时系统的批量操作栏占着底部,它让开
+    /// (`miniPlayerVisible` 已经算进去);键盘弹出时也让开。
     @ViewBuilder
     private var dockedBottomChrome: some View {
         if miniPlayerVisible, !minimalKeyboardVisible {
             Group {
-                switch skin.skin.bottomChrome {
+                switch skin.shell.nowPlayingBar {
                 case .dockedBar:
                     DockedPlayerBar(
                         onTap: presentNowPlaying,
@@ -1209,7 +1217,9 @@ struct ContentView: View {
                         onTap: presentNowPlaying,
                         onOpenQueue: { showQueueFromBottomChrome = true }
                     )
-                case .classic:
+                case .tabAccessory:
+                    // 顶部 tab 外壳没有标签栏可挂附件(`SkinShell.isValid` 拦下这种组合);
+                    // 万一读到,仍画成附件里那一条,不让播放条消失。
                     LegacyNowPlayingAccessory(onTap: presentNowPlaying)
                 }
             }
@@ -1560,9 +1570,6 @@ struct ContentView: View {
         // 重新出现) 都跑一次, trigger 内部用 UserDefaults 记录已弹避免重复。
         // 触发条件: 当前月份 == 1 + 上一年没弹过 + 上一年听满 ≥ 2 个不同月份。
         .task {
-            if AppNavigationMode(rawValue: navigationModeRawValue) == nil {
-                navigationModeRawValue = AppNavigationMode.standard.rawValue
-            }
             let restoredTab = AppTabSelectionPolicy.resolve(selectedTab)
             if restoredTab != selectedTab {
                 selectedTab = restoredTab

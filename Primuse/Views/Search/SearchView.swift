@@ -2491,10 +2491,10 @@ struct SearchView: View {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
-    /// 还没输入时的搜索页。大一号卡片(`Card.tile`)下是胶囊、流派磁贴与一行计数,经典是分组列表。
+    /// 还没输入时的搜索页。`Search.browse` 下是胶囊、流派磁贴与一行计数,经典是分组列表。
     @ViewBuilder
     private var recentSearchView: some View {
-        if skin.usesTileCards {
+        if skin.usesBrowseSearch {
             recentSearchGallery
         } else {
             recentSearchList
@@ -2717,8 +2717,8 @@ struct SearchView: View {
                 }
             }
 
-            // 最佳结果只在大一号卡片(`Card.tile`)那一套里出现。
-            if skin.usesTileCards, scope == nil, let top = topResult {
+            // 最佳结果只在 `Search.browse` 那一套里出现。
+            if skin.usesBrowseSearch, scope == nil, let top = topResult {
                 Section {
                     topResultCard(top)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 10, trailing: 16))
@@ -2739,10 +2739,10 @@ struct SearchView: View {
         .songRowColumnsContainer()
     }
 
-    /// 结果分区的标题。大一号卡片那一套用加粗的大标题,经典是分组列表的系统标题。
+    /// 结果分区的标题。`Search.browse` 用加粗的大标题,经典是分组列表的系统标题。
     @ViewBuilder
     private func searchResultHeader(_ key: LocalizedStringKey) -> some View {
-        if skin.usesTileCards {
+        if skin.usesBrowseSearch {
             Text(key)
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.primary)
@@ -2880,7 +2880,7 @@ struct SearchView: View {
                     searchResultHeader("tab_albums")
                     Spacer()
                     #if os(iOS)
-                    if skin.usesTileCards {
+                    if skin.usesBrowseSearch {
                         NavigationLink("see_all", value: SearchCatalogDestination.albums)
                         .font(.subheadline)
                         .textCase(nil)
@@ -2959,7 +2959,7 @@ struct SearchView: View {
                 }
             }
         } header: {
-            if skin.usesTileCards {
+            if skin.usesBrowseSearch {
                 HStack(spacing: 6) {
                     Image(systemName: "applelogo")
                         .font(.headline)

@@ -1,7 +1,7 @@
 import Foundation
 
 extension SkinCatalog {
-    /// 极简:深海蓝底、封面墙头图、顶部 tab 条与底部停靠播放条。界面自己几乎没有颜色,
+    /// 极简:深海蓝底、顶部 tab 条与底部停靠播放条。界面自己几乎没有颜色,
     /// 颜色全部来自封面与用户的主题色。
     ///
     /// 跟随系统深浅色 —— 「外观」设置在这套样式下依然有效,浅色是同一套版式换色表。
@@ -151,16 +151,20 @@ extension SkinCatalog {
                 .trackChange: .easeInOut(duration: 0.28),
                 .ambient: .easeInOut(duration: 0.5),
             ],
-            slots: [
-                .navigationHeader: SkinSlotVariant.NavigationHeader.topTabs.rawValue,
-                .bottomChrome: SkinSlotVariant.BottomChrome.dockedBar.rawValue,
-                .detailHeader: SkinSlotVariant.DetailHeader.coverWall.rawValue,
-                .settingsRoot: SkinSlotVariant.SettingsRoot.hub.rawValue,
-                .homeLayout: SkinSlotVariant.HomeLayout.poster.rawValue,
-                .listRow: SkinSlotVariant.ListRow.playHeader.rawValue,
-                .card: SkinSlotVariant.Card.tile.rawValue,
-                .playerStage: SkinSlotVariant.PlayerStage.sheetActions.rawValue,
+            // 顶部 tab 条,底部一条通栏停靠播放条。
+            shell: .topTabs,
+            surfaces: [
+                .home: SkinSurfaceVariant.Home.poster.rawValue,
+                .libraryRoot: SkinSurfaceVariant.LibraryRoot.tiles.rawValue,
+                .songList: SkinSurfaceVariant.SongList.playHeader.rawValue,
+                .collectionDetail: SkinSurfaceVariant.CollectionDetail.classic.rawValue,
+                .player: SkinSurfaceVariant.Player.sheetActions.rawValue,
+                .queue: SkinSurfaceVariant.Queue.nowPlayingCard.rawValue,
+                .search: SkinSurfaceVariant.Search.browse.rawValue,
+                .radio: SkinSurfaceVariant.Radio.onAir.rawValue,
+                .settingsRoot: SkinSurfaceVariant.SettingsRoot.hub.rawValue,
             ],
+            components: SkinComponentStyle(card: .tile),
             companions: SkinCompanions(
                 immersiveStageIDs: ["coverMosaic"],
                 lyricPosterStyleIDs: ["deep_sea"],

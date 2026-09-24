@@ -48,9 +48,13 @@ final class SkinUnlockStore {
         #endif
     }
 
-    private var productIDs: [String] {
+    /// 要向商店查询的产品。目录里没有需要解锁的样式时为空,启动、刷新、加载解锁项、恢复都据此直接返回。
+    var productIDs: [String] {
         SkinUnlockProductPolicy.productIDs(for: runtime.catalog)
     }
+
+    /// 这条链路是不是休眠的:目录里没有需要解锁的样式,就一个请求都不向商店发。
+    var isDormant: Bool { productIDs.isEmpty }
 
     func activity(for unlockID: String) -> Activity {
         activity[unlockID] ?? .idle

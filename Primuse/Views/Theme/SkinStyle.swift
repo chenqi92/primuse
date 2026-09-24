@@ -113,40 +113,79 @@ struct SkinStyle: Equatable, Sendable {
     /// 悬浮控件用不透明底(样式声明了 solid,或系统开了「降低透明度」由调用处另判)。
     var usesSolidChrome: Bool { skin.traits.chromeMaterial == .solid }
 
-    // MARK: - 页面实现
+    // MARK: - 外壳与页面表面
 
-    // 下面几项按插槽取值做穷尽 switch:插槽多登记一个实现时,这里编译不过,逼着把画法补上。
+    /// 外壳:根导航结构与正在播放的那一条。
+    var shell: SkinShell { skin.shell }
+
+    // 表面的读法全仓只有两种:
+    // - 两种画法只差几处取值的表面,这里给一个由穷尽 switch 推出的布尔,视图按它取值;
+    //   表面多登记一个实现时这里编译不过,逼着把画法补上。
+    // - 整块换画法、各自收同一份功能契约的(外壳的播放条、设置根页、播放页的「更多」),
+    //   视图直接对变体做穷尽 switch。
     // 经典的每一项都是 false —— 经典下这些页面与 2.0 之前一模一样。
 
-    /// 首页用封面墙海报版式(`HomeLayout.poster`)。
+    /// 首页用封面墙海报版式(`SkinSurfaceVariant.Home.poster`)。
     var usesPosterHome: Bool {
-        switch skin.homeLayout {
+        switch skin.home {
         case .classic: return false
         case .poster: return true
         }
     }
 
-    /// 卡片与入口画成大一号的方块(`Card.tile`)。
-    var usesTileCards: Bool {
-        switch skin.card {
+    /// 资料库根页的分类入口画成方块(`SkinSurfaceVariant.LibraryRoot.tiles`)。
+    var usesTileLibraryRoot: Bool {
+        switch skin.libraryRoot {
         case .classic: return false
-        case .tile: return true
+        case .tiles: return true
         }
     }
 
-    /// 平铺的歌曲列表顶上带一排「播放 · 随机」(`ListRow.playHeader`)。
+    /// 平铺的歌曲列表顶上带一排「播放 · 随机」(`SkinSurfaceVariant.SongList.playHeader`)。
     var showsSongListPlayHeader: Bool {
-        switch skin.listRow {
+        switch skin.songList {
         case .classic: return false
         case .playHeader: return true
         }
     }
 
-    /// 播放页与队列用分组面板那一套画法(`PlayerStage.sheetActions`)。
+    /// 播放页用分组面板那一套画法(`SkinSurfaceVariant.Player.sheetActions`)。
     var usesSheetActionsPlayer: Bool {
-        switch skin.playerStage {
+        switch skin.player {
         case .classic: return false
         case .sheetActions: return true
+        }
+    }
+
+    /// 队列带循环键、正在播放成卡、已播放默认收起(`SkinSurfaceVariant.Queue.nowPlayingCard`)。
+    var usesNowPlayingCardQueue: Bool {
+        switch skin.queue {
+        case .classic: return false
+        case .nowPlayingCard: return true
+        }
+    }
+
+    /// 搜索起始页是胶囊与流派磁贴,结果页有最佳结果(`SkinSurfaceVariant.Search.browse`)。
+    var usesBrowseSearch: Bool {
+        switch skin.search {
+        case .classic: return false
+        case .browse: return true
+        }
+    }
+
+    /// 电台页顶上是正在直播的大卡,末尾一格添加电台(`SkinSurfaceVariant.Radio.onAir`)。
+    var usesOnAirRadio: Bool {
+        switch skin.radio {
+        case .classic: return false
+        case .onAir: return true
+        }
+    }
+
+    /// 专辑卡与音乐源卡片画成大一号的方块(组件级 `SkinComponentStyle.Card.tile`)。
+    var usesTileCards: Bool {
+        switch skin.components.card {
+        case .classic: return false
+        case .tile: return true
         }
     }
 

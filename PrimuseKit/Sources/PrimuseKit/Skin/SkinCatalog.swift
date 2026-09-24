@@ -3,20 +3,17 @@ import Foundation
 /// 随 App 一起发布的界面样式。
 ///
 /// 每套样式一个文件(`SkinCatalog+<名字>.swift`),这里只负责把它们列出来。
-/// 新增一套样式 = 新增一个文件 + 在 `all` 里加一行,不需要改任何视图。
+/// 一套样式 = 外壳 + 每个表面的实现 + token 表 + 配套;只换颜色的一组 token 不算一套样式,
+/// 不进这里。
 public enum SkinCatalog {
     public static let classicID = "classic"
     public static let minimalID = "minimal"
 
-    /// 正式提供的样式,顺序就是设置页里的展示顺序。
+    /// 提供的样式,顺序就是设置页里的展示顺序。开发构建与正式构建列的是同一份。
     public static var all: [SkinDefinition] { [classic, minimal] }
 
-    /// 还在打磨、只在开发构建里列出来的样式。用来在真机上核对「只换数据」
-    /// 「待解锁」这些路径,不随正式版本出现。
-    public static var lab: [SkinDefinition] { [midnight, nocturne] }
-
-    public static func skin(id: String, includingLab: Bool = false) -> SkinDefinition? {
-        (includingLab ? all + lab : all).first { $0.id == id }
+    public static func skin(id: String) -> SkinDefinition? {
+        all.first { $0.id == id }
     }
 
     /// 找不到 / 不可用时的兜底,永远可用。
@@ -155,8 +152,11 @@ public enum SkinCatalog {
             .trackChange: .easeInOut(duration: 0.28),
             .ambient: .easeInOut(duration: 0.5),
         ],
-        // 每个插槽都是经典实现:除集合详情页以外,经典的每一页都和 2.0 之前一样。
-        slots: SkinSlotRegistry.allClassic,
+        // 系统标签栏,迷你播放条挂在标签栏的附件里。
+        shell: .tabBar,
+        // 每个表面都是经典实现:除集合详情页以外,经典的每一页都和 2.0 之前一样。
+        surfaces: SkinSurfaceRegistry.allClassic,
+        components: .classic,
         companions: .none,
         // 详情页(专辑、艺术家、歌单、风格)整页铺封面色,是经典在 2.0 里唯一改了样子的地方。
         traits: SkinTraits(collectionBackdrop: .artworkTint, chromeMaterial: .glass)

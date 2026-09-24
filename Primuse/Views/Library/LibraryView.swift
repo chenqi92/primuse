@@ -698,10 +698,10 @@ struct LibraryView: View {
             : [GridItem(.flexible())]
     }
 
-    /// 分类入口画成带封面预览的方块(`Card.tile`),还是分组列表的行。
+    /// 分类入口画成带封面预览的方块(`LibraryRoot.tiles`),还是分组列表的行。
     private var usesCategoryTiles: Bool {
         #if os(iOS)
-        skin.usesTileCards
+        skin.usesTileLibraryRoot
         #else
         false
         #endif
@@ -935,7 +935,7 @@ struct LibraryView: View {
     }
 
     #if os(iOS)
-    /// 资料库入口的方块(`Card.tile`):左上是分类色块图标,右上叠三张代表封面,左下是名字与数量。
+    /// 资料库入口的方块(`LibraryRoot.tiles`):左上是分类色块图标,右上叠三张代表封面,左下是名字与数量。
     /// 底色是一层淡灰,自己画底色的皮肤下换成皮肤的卡片底。
     private func libraryCategoryTile(_ section: LibrarySection) -> some View {
         let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)

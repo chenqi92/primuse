@@ -10,14 +10,14 @@ struct QueueView: View {
     /// 队列以半屏 sheet 呈现, 手机横屏下可视高度只够两行出头, 行距与底部留白收一档。
     @Environment(\.pmHeightClass) private var heightClass
     @State private var dropTarget: QueueReorderOccurrenceID?
-    /// 分组面板那一套播放页(`PlayerStage.sheetActions`)下,已播放默认收起:队列页要看的是
+    /// `Queue.nowPlayingCard` 下已播放默认收起:队列页要看的是
     /// 接下来放什么,听过的列表越放越长会把它挤下去。
     @State private var showsPlayed = false
     @Environment(\.skin) private var skin
 
     var body: some View {
         // 在这里取值再传给工具栏:导航栏条目由独立宿主渲染,不在那里读环境。
-        let extendedQueue = skin.usesSheetActionsPlayer
+        let extendedQueue = skin.usesNowPlayingCardQueue
         NavigationStack {
             content(extended: extendedQueue)
                 .navigationTitle("queue_title")

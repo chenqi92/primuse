@@ -397,10 +397,6 @@
 
 "skin.classic.name"          = "Класична";
 "skin.classic.description"   = "Панель вкладок, дотримується системного оформлення";
-"skin.midnight.name"         = "Північ";
-"skin.midnight.description"  = "Завжди темна, з холодним синім акцентом";
-"skin.nocturne.name"         = "Ноктюрн";
-"skin.nocturne.description"  = "Темна палітра: майже чорне тло, фіолетовий гребінь світла, персиковий акцент";
 "skin.minimal.name"          = "Мінімальний";
 "skin.minimal.description"   = "Стіна обкладинок, плаваючий плеєр, навігація через пошук";
 "serverShare.error.unsupported" = "Цей сервер не підтримує загальнодоступні медіапосилання, або спільний доступ вимкнено.";

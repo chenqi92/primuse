@@ -7,7 +7,7 @@ struct AlbumCardView: View {
     @Environment(\.skin) private var skin
 
     var body: some View {
-        // 大一号的卡片(`Card.tile`):标题加重一档,下面一行是艺术家,封面稍大的圆角。
+        // 大一号的卡片(组件级 `SkinComponentStyle.Card.tile`):标题加重一档,下面一行是艺术家,封面稍大的圆角。
         let tile = skin.usesTileCards
         VStack(alignment: .leading, spacing: tile ? 8 : 6) {
             AlbumArtworkView(album: album, cornerRadius: tile ? 12 : 10)

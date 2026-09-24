@@ -41,7 +41,7 @@ struct SkinPolicyTests {
     func legacyToggleMirrorsTheSkin() {
         #expect(SkinMigrationPolicy.legacyNavigationModeRawValue(for: SkinCatalog.classic) == "standard")
         #expect(SkinMigrationPolicy.legacyNavigationModeRawValue(for: SkinCatalog.minimal) == "minimal")
-        #expect(SkinMigrationPolicy.legacyNavigationModeRawValue(for: SkinCatalog.midnight) == "minimal")
+        #expect(SkinMigrationPolicy.legacyNavigationModeRawValue(for: SkinFixtures.midnight) == "minimal")
     }
 
     // MARK: - 配套
@@ -63,6 +63,7 @@ struct SkinPolicyTests {
             metrics: SkinCatalog.classic.metrics,
             typography: SkinCatalog.classic.typography,
             motion: SkinCatalog.classic.motion,
+            shell: .tabBar,
             companions: SkinCompanions(
                 immersiveStageIDs: ["neonSpectrum"],
                 lyricPosterStyleIDs: ["radio_card"],
@@ -137,6 +138,7 @@ struct SkinPolicyTests {
             metrics: SkinCatalog.classic.metrics,
             typography: SkinCatalog.classic.typography,
             motion: SkinCatalog.classic.motion,
+            shell: .tabBar,
             companions: SkinCompanions(lyricPosterStyleIDs: ["radio_card"])
         )
         #expect(
@@ -188,6 +190,7 @@ struct SkinPolicyTests {
             metrics: SkinCatalog.classic.metrics,
             typography: SkinCatalog.classic.typography,
             motion: SkinCatalog.classic.motion,
+            shell: .tabBar,
             companions: SkinCompanions(
                 lyricPosterStyleIDs: ["typo_style"],
                 preferredLyricPosterStyleID: "someone_elses"
@@ -211,7 +214,7 @@ struct SkinPolicyTests {
 
     @Test("内置样式在深浅两种底色下文字都读得清")
     func builtInSkinsAreLegible() {
-        for skin in SkinCatalog.all + SkinCatalog.lab {
+        for skin in SkinFixtures.catalogWithUnlockable {
             let findings = SkinContrastPolicy.findings(in: skin)
             #expect(findings.isEmpty, "\(skin.id): \(findings)")
         }
@@ -231,7 +234,8 @@ struct SkinPolicyTests {
             colors: colors,
             metrics: SkinCatalog.minimal.metrics,
             typography: SkinCatalog.minimal.typography,
-            motion: SkinCatalog.minimal.motion
+            motion: SkinCatalog.minimal.motion,
+            shell: .tabBar
         )
         let findings = SkinContrastPolicy.findings(in: washedOut)
         #expect(findings.contains { $0.foreground == .textSecondary && $0.scheme == .dark })

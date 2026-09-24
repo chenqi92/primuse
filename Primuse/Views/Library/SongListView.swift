@@ -1712,7 +1712,7 @@ struct SongListView: View {
         #endif
     }
 
-    /// 平铺列表顶上那一排「播放 · 随机」和数量(`ListRow.playHeader`)。数量取投影里存好的值,不遍历整张列表。
+    /// 平铺列表顶上那一排「播放 · 随机」和数量(`SongList.playHeader`)。数量取投影里存好的值,不遍历整张列表。
     ///
     /// 窄屏配大字号时两颗胶囊优先,放不下就先把歌曲数拿掉,胶囊里的字不折行。
     private var songListActionHeader: some View {

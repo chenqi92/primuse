@@ -13,17 +13,6 @@ struct SkinTraitsTests {
         }
     }
 
-    @Test("没有特征位的旧样式数据按默认取向解码")
-    func legacyPayloadWithoutTraitsDecodes() throws {
-        let data = try JSONEncoder().encode(SkinCatalog.minimal)
-        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        object.removeValue(forKey: "traits")
-        let legacy = try JSONSerialization.data(withJSONObject: object)
-        let decoded = try JSONDecoder().decode(SkinDefinition.self, from: legacy)
-        #expect(decoded.traits == .standard)
-        #expect(decoded.id == SkinCatalog.minimal.id)
-    }
-
     @Test("非默认的特征位能 JSON 往返")
     func customTraitsRoundTrip() throws {
         let base = SkinCatalog.minimal
@@ -38,7 +27,9 @@ struct SkinTraitsTests {
             metrics: base.metrics,
             typography: base.typography,
             motion: base.motion,
-            slots: base.slots,
+            shell: base.shell,
+            surfaces: base.surfaces,
+            components: base.components,
             companions: base.companions,
             traits: SkinTraits(collectionBackdrop: .skinCanvas, chromeMaterial: .solid)
         )

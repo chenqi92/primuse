@@ -26,7 +26,7 @@ struct NowPlayingMoreActions {
     let cycleRepeatMode: () -> Void
 }
 
-/// 播放页「更多」的分组面板(`SkinSlotVariant.PlayerStage.sheetActions`)。
+/// 播放页「更多」的分组面板(`SkinSurfaceVariant.Player.sheetActions`)。
 ///
 /// 内容与系统菜单完全一致:同一份快照决定哪些项出现、哪些项置灰,同一组闭包负责执行。
 /// 差别只在组织方式 —— 睡眠定时、播放速度、投屏、全屏这几样常用的提到第一排,

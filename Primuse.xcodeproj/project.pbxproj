@@ -1155,10 +1155,10 @@
 		020B0C5BD444E05E47FA7154 /* CoverWallLayoutPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF75FC15E730283349BBB0B8 /* CoverWallLayoutPolicy.swift */; };
 		25A307393131059AC07D1030 /* SkinContrastPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD7018F092A9AFFEEF9D967A /* SkinContrastPolicy.swift */; };
 		1C2C484C6E33C1FE7CDE40F7 /* SkinMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767BF1154B787577A4670627 /* SkinMotion.swift */; };
-		792764487E54FECFC4B12B61 /* SkinCatalog+Lab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F4845BD16C682823830A173 /* SkinCatalog+Lab.swift */; };
-		BE5E7413FCA973DFA6AA6809 /* SkinCatalog+Nocturne.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2055774579BA951BB6ECE2B8 /* SkinCatalog+Nocturne.swift */; };
 		562F6AADEE84A35F00CF1E0A /* SkinCatalog+Minimal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF9B2ECF9C4F5A2878EF0FB /* SkinCatalog+Minimal.swift */; };
 		12477BDCB4B55E127A14E259 /* SkinDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07827F8550752BC23D9BFA23 /* SkinDefinition.swift */; };
+		68A00F8F6E30F5B83ECCF57A /* SkinSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A5A6648F516C271BB159FD /* SkinSurface.swift */; };
+		91B37C95B67763B541679981 /* SkinShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3A7E4827BDF127C4D277792 /* SkinShell.swift */; };
 		4B6391AC86517C5F813C18B1 /* SkinTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C9C74AEE148670CA1441AD /* SkinTokens.swift */; };
 		C09E9449CBF786992D36ABEC /* ExternalDisplaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D3CF7E2A5E7D4B7274BDB17 /* ExternalDisplaySceneDelegate.swift */; };
 		C0A9D1EA92EADB6659E5438F /* PlatformShims.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE10B90CF85FD450338F498 /* PlatformShims.swift */; };
@@ -1793,10 +1793,10 @@
 		EF75FC15E730283349BBB0B8 /* CoverWallLayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoverWallLayoutPolicy.swift; sourceTree = "<group>"; };
 		CD7018F092A9AFFEEF9D967A /* SkinContrastPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinContrastPolicy.swift; sourceTree = "<group>"; };
 		767BF1154B787577A4670627 /* SkinMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinMotion.swift; sourceTree = "<group>"; };
-		3F4845BD16C682823830A173 /* SkinCatalog+Lab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SkinCatalog+Lab.swift"; sourceTree = "<group>"; };
-		2055774579BA951BB6ECE2B8 /* SkinCatalog+Nocturne.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SkinCatalog+Nocturne.swift"; sourceTree = "<group>"; };
 		7DF9B2ECF9C4F5A2878EF0FB /* SkinCatalog+Minimal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SkinCatalog+Minimal.swift"; sourceTree = "<group>"; };
 		07827F8550752BC23D9BFA23 /* SkinDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinDefinition.swift; sourceTree = "<group>"; };
+		B2A5A6648F516C271BB159FD /* SkinSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinSurface.swift; sourceTree = "<group>"; };
+		E3A7E4827BDF127C4D277792 /* SkinShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinShell.swift; sourceTree = "<group>"; };
 		F5C9C74AEE148670CA1441AD /* SkinTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinTokens.swift; sourceTree = "<group>"; };
 		136E43CE662D6E0E06C21E26 /* SharedNowPlayingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedNowPlayingState.swift; sourceTree = "<group>"; };
 		138331B0F98D6FA99394A41F /* SourceNetworkFailurePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceNetworkFailurePolicy.swift; sourceTree = "<group>"; };
@@ -2917,10 +2917,10 @@
 				EF75FC15E730283349BBB0B8 /* CoverWallLayoutPolicy.swift */,
 				CD7018F092A9AFFEEF9D967A /* SkinContrastPolicy.swift */,
 				767BF1154B787577A4670627 /* SkinMotion.swift */,
-				3F4845BD16C682823830A173 /* SkinCatalog+Lab.swift */,
-				2055774579BA951BB6ECE2B8 /* SkinCatalog+Nocturne.swift */,
 				7DF9B2ECF9C4F5A2878EF0FB /* SkinCatalog+Minimal.swift */,
 				07827F8550752BC23D9BFA23 /* SkinDefinition.swift */,
+				B2A5A6648F516C271BB159FD /* SkinSurface.swift */,
+				E3A7E4827BDF127C4D277792 /* SkinShell.swift */,
 				F5C9C74AEE148670CA1441AD /* SkinTokens.swift */,
 			);
 			path = Skin;
@@ -5334,10 +5334,10 @@
 				020B0C5BD444E05E47FA7154 /* CoverWallLayoutPolicy.swift in Sources */,
 				25A307393131059AC07D1030 /* SkinContrastPolicy.swift in Sources */,
 				1C2C484C6E33C1FE7CDE40F7 /* SkinMotion.swift in Sources */,
-				792764487E54FECFC4B12B61 /* SkinCatalog+Lab.swift in Sources */,
-				BE5E7413FCA973DFA6AA6809 /* SkinCatalog+Nocturne.swift in Sources */,
 				562F6AADEE84A35F00CF1E0A /* SkinCatalog+Minimal.swift in Sources */,
 				12477BDCB4B55E127A14E259 /* SkinDefinition.swift in Sources */,
+				68A00F8F6E30F5B83ECCF57A /* SkinSurface.swift in Sources */,
+				91B37C95B67763B541679981 /* SkinShell.swift in Sources */,
 				4B6391AC86517C5F813C18B1 /* SkinTokens.swift in Sources */,
 				58098DB86E7285DA9B139FBD /* SimulatorCredentialFallbackPolicy.swift in Sources */,
 				73B6C372A8A78B8A33E5B01C /* SingleSongScrapeGatePolicy.swift in Sources */,

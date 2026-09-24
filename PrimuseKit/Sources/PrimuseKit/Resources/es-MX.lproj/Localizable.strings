@@ -693,10 +693,6 @@
 
 "skin.classic.name"          = "Clásico";
 "skin.classic.description"   = "Barra de pestañas, sigue la apariencia del sistema";
-"skin.midnight.name"         = "Medianoche";
-"skin.midnight.description"  = "Siempre oscuro, con acento azul frío";
-"skin.nocturne.name"         = "Nocturno";
-"skin.nocturne.description"  = "Paleta oscura: fondo casi negro, una cresta de luz violeta y un toque de durazno";
 "skin.minimal.name"          = "Mínimo";
 "skin.minimal.description"   = "Muro de portadas, reproductor flotante y navegación centrada en la búsqueda";
 "src.subtitle.plex" = "Servidor de medios Plex";

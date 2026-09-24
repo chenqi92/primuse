@@ -179,11 +179,12 @@ struct SkinPreviewThumbnail: View {
         }
     }
 
-    /// 顶部按导航插槽画:经典是系统导航栏的大标题,顶部 tab 是一行 tab(选中项下带短横线)加右侧两颗图标。
+    /// 顶部按外壳的导航结构画:标签栏外壳是系统导航栏的大标题,顶部 tab 是一行 tab(选中项下带短横线)
+    /// 加右侧两颗图标。
     @ViewBuilder
     private var header: some View {
-        switch skin.navigationHeader {
-        case .classic:
+        switch skin.shell.navigation {
+        case .tabBar:
             HStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(style.color(.textPrimary))
@@ -237,69 +238,54 @@ struct SkinPreviewThumbnail: View {
         }
     }
 
-    /// 底部:标签栏外壳画标签栏;顶部 tab 外壳按底部插槽画停靠条或悬浮胶囊。
+    /// 底部按外壳的播放条画:标签栏附件是一排标签栏(附件迷你条在小样里不画),停靠条与悬浮胶囊各画各的。
     @ViewBuilder
     private var footer: some View {
-        switch skin.navigationHeader {
-        case .classic:
+        switch skin.shell.nowPlayingBar {
+        case .tabAccessory:
             tabBar
-        case .topTabs:
-            switch skin.bottomChrome {
-            case .dockedBar:
-                HStack(spacing: 5) {
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Self.coverTints[0])
-                        .frame(width: 14, height: 14)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Capsule().fill(style.color(.textPrimary)).frame(width: 34, height: 4).opacity(0.85)
-                        Capsule().fill(style.color(.textSecondary)).frame(width: 22, height: 3).opacity(0.7)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(style.color(.textPrimary))
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(style.color(.textSecondary))
+        case .dockedBar:
+            HStack(spacing: 5) {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Self.coverTints[0])
+                    .frame(width: 14, height: 14)
+                VStack(alignment: .leading, spacing: 3) {
+                    Capsule().fill(style.color(.textPrimary)).frame(width: 34, height: 4).opacity(0.85)
+                    Capsule().fill(style.color(.textSecondary)).frame(width: 22, height: 3).opacity(0.7)
                 }
-                .padding(.horizontal, 6)
-                .frame(height: 24)
-                .background(style.color(.chromeBackground), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(alignment: .top) {
-                    Capsule().fill(style.color(.accent)).frame(width: 28, height: 1.5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 3)
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(style.color(.chromeBorder), lineWidth: 0.5)
-                }
-                .padding(.bottom, 9)
-            case .floatingCapsule:
-                HStack(spacing: 5) {
-                    Circle().fill(Self.coverTints[0]).frame(width: 14, height: 14)
-                    Capsule().fill(style.color(.textPrimary)).frame(width: 40, height: 4).opacity(0.85)
-                    Spacer(minLength: 0)
-                    Circle().strokeBorder(style.color(.accent), lineWidth: 1.5).frame(width: 12, height: 12)
-                }
-                .padding(.horizontal, 6)
-                .frame(height: 24)
-                .background(style.color(.chromeBackground), in: Capsule())
-                .overlay { Capsule().strokeBorder(style.color(.chromeBorder), lineWidth: 0.5) }
-                .padding(.bottom, 9)
-            case .classic:
-                HStack(spacing: 5) {
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(Self.coverTints[0])
-                        .frame(width: 12, height: 12)
-                    Capsule().fill(style.color(.textPrimary)).frame(width: 36, height: 4).opacity(0.85)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 6)
-                .frame(height: 22)
-                .background(style.color(.chromeBackground))
-                .padding(.horizontal, -10)
+                Spacer(minLength: 0)
+                Image(systemName: "play.fill")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(style.color(.textPrimary))
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(style.color(.textSecondary))
             }
+            .padding(.horizontal, 6)
+            .frame(height: 24)
+            .background(style.color(.chromeBackground), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(alignment: .top) {
+                Capsule().fill(style.color(.accent)).frame(width: 28, height: 1.5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 3)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(style.color(.chromeBorder), lineWidth: 0.5)
+            }
+            .padding(.bottom, 9)
+        case .floatingCapsule:
+            HStack(spacing: 5) {
+                Circle().fill(Self.coverTints[0]).frame(width: 14, height: 14)
+                Capsule().fill(style.color(.textPrimary)).frame(width: 40, height: 4).opacity(0.85)
+                Spacer(minLength: 0)
+                Circle().strokeBorder(style.color(.accent), lineWidth: 1.5).frame(width: 12, height: 12)
+            }
+            .padding(.horizontal, 6)
+            .frame(height: 24)
+            .background(style.color(.chromeBackground), in: Capsule())
+            .overlay { Capsule().strokeBorder(style.color(.chromeBorder), lineWidth: 0.5) }
+            .padding(.bottom, 9)
         }
     }
 

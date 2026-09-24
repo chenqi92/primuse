@@ -27,10 +27,6 @@
 
 "skin.classic.name"          = "クラシック";
 "skin.classic.description"   = "タブバー、システムの外観に従います";
-"skin.midnight.name"         = "ミッドナイト";
-"skin.midnight.description"  = "常にダーク、クールブルーのアクセント";
-"skin.nocturne.name"         = "ノクターン";
-"skin.nocturne.description"  = "ダークな配色。ほぼ黒の地に紫の光の筋、差し色はピーチ";
 "skin.minimal.name"          = "ミニマル";
 "skin.minimal.description"   = "カバーウォール、フローティングプレーヤー、検索中心のナビゲーション";
 

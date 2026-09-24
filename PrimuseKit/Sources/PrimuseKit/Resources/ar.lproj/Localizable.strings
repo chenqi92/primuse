@@ -693,10 +693,6 @@
 
 "skin.classic.name"          = "كلاسيكي";
 "skin.classic.description"   = "شريط علامات التبويب، يتبع مظهر النظام";
-"skin.midnight.name"         = "منتصف الليل";
-"skin.midnight.description"  = "داكن دائمًا مع لون أزرق بارد";
-"skin.nocturne.name"         = "نوكتيرن";
-"skin.nocturne.description"  = "لوحة ألوان داكنة: خلفية شبه سوداء، وحرف ضوء بنفسجي، ولمسة خوخية";
 "skin.minimal.name"          = "الأدنى";
 "skin.minimal.description"   = "جدار أغلفة، مشغّل عائم، وتنقّل يبدأ بالبحث";
 "src.subtitle.plex" = "Plex خادم الوسائط";

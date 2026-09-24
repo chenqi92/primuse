@@ -24,10 +24,6 @@
 
 "skin.classic.name"          = "经典";
 "skin.classic.description"   = "标签栏导航,跟随系统外观";
-"skin.midnight.name"         = "午夜";
-"skin.midnight.description"  = "恒定深色,冷蓝强调";
-"skin.nocturne.name"         = "光脊";
-"skin.nocturne.description"  = "一套深色配色:近黑底色、一道紫色光脊、桃橙点睛";
 "skin.minimal.name"          = "极简";
 "skin.minimal.description"   = "封面墙、悬浮播放条、搜索优先的导航";
 

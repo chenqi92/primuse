@@ -1,14 +1,20 @@
 import Foundation
+@testable import PrimuseKit
 
-extension SkinCatalog {
+extension SkinFixtures {
     /// 光脊:近黑的底、顶部一道紫色的光脊、紫灰的墨色层级,桃橙只留给需要人停一下的那一处。
     ///
-    /// 六个基色来自 2026 年八月那版同名主题:底色、抬起面、墨色、次级墨色、紫、桃橙。这一步
-    /// 只做配色 —— 几何、字体、动效与插槽都沿用极简,唱片目录那套版面(色条长列表、封面光源)
-    /// 另做,所以描述里也只承诺一套深色配色。
+    /// 六个基色来自 2026 年八月那版同名主题,将来做成真皮肤时从这里取:
+    /// - 底色 `#06070B`(canvas),抬起面 `#0C0D13`(canvasElevated)
+    /// - 墨色 `#F3F4FE`(文字主色),次级墨色 `#918FA3`(偏紫,让层级也带上这套配色的色相)
+    /// - 紫 `#B5A8FC`(焦点环;压进近黑里的光脊是 `#1B1740`,由它向底色收)
+    /// - 桃橙 `#FA8C63`(整套配色里唯一的暖色,只用在需要人停一下的地方)
+    ///
+    /// 它只有配色 —— 几何、字体、动效都沿用极简。只换色不构成一套皮肤:真要上线,还得有它自己的
+    /// 外壳选择与页面画法(当初设想的是唱片目录那套版面:色条长列表、封面光源)。现在只作为测试夹具。
     ///
     /// 只在深色下成立,因此 `forcesDark`,深浅两档填同一套值。
-    public static let nocturne: SkinDefinition = {
+    static let nocturne: SkinDefinition = {
         // 墨色 #F3F4FE,次级墨色 #918FA3 —— 后者偏紫,让层级也带上这套配色的色相。
         func ink(_ opacity: Double) -> SkinColorSpec {
             .fixed(
@@ -89,16 +95,12 @@ extension SkinCatalog {
             metrics: metrics,
             typography: SkinCatalog.minimal.typography,
             motion: SkinCatalog.minimal.motion,
-            // 与极简同一组结构实现 —— 这一步换的只有数据。
-            slots: [
-                .navigationHeader: SkinSlotVariant.NavigationHeader.topTabs.rawValue,
-                .bottomChrome: SkinSlotVariant.BottomChrome.dockedBar.rawValue,
-                .detailHeader: SkinSlotVariant.DetailHeader.coverWall.rawValue,
-                .settingsRoot: SkinSlotVariant.SettingsRoot.hub.rawValue,
-                .homeLayout: SkinSlotVariant.HomeLayout.classic.rawValue,
-                .listRow: SkinSlotVariant.ListRow.classic.rawValue,
-                .card: SkinSlotVariant.Card.classic.rawValue,
-                .playerStage: SkinSlotVariant.PlayerStage.sheetActions.rawValue,
+            // 与极简同一个外壳 —— 换的只有数据。
+            shell: .topTabs,
+            surfaces: [
+                .player: SkinSurfaceVariant.Player.sheetActions.rawValue,
+                .queue: SkinSurfaceVariant.Queue.nowPlayingCard.rawValue,
+                .settingsRoot: SkinSurfaceVariant.SettingsRoot.hub.rawValue,
             ]
             // 配套留空,而且不能填现有的基础款。被皮肤认领的款式只在认领它的皮肤可用时才出现,
             // 一套待解锁的皮肤认领了基础全屏效果或海报,所有没解锁的人就再也看不到那一款。

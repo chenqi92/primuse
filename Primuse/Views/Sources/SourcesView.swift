@@ -759,7 +759,7 @@ struct SourcesContentView: View {
         let isAnotherSourceCaching = cachePresentation.isBlockedByAnotherSource
         let cacheButtonTitle: LocalizedStringKey = isSourceCacheBusy ? "source_cache_all_loading" : "source_cache_all_short"
 
-        // 大一号卡片(`Card.tile`)下品牌色图标块稍放大、圆角跟着放大:卡片的第一眼是「这是哪家的源」。
+        // 大一号卡片(组件级 `SkinComponentStyle.Card.tile`)下品牌色图标块稍放大、圆角跟着放大:卡片的第一眼是「这是哪家的源」。
         let tileCard = skin.usesTileCards
         let iconSide: CGFloat = tileCard ? 42 : 38
         return VStack(alignment: .leading, spacing: 10) {

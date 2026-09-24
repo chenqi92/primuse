@@ -27,10 +27,6 @@
 
 "skin.classic.name"          = "Klassisch";
 "skin.classic.description"   = "Tab-Leiste, folgt dem Systemerscheinungsbild";
-"skin.midnight.name"         = "Mitternacht";
-"skin.midnight.description"  = "Immer dunkel, mit kühlem Blau als Akzent";
-"skin.nocturne.name"         = "Nocturne";
-"skin.nocturne.description"  = "Dunkle Farbpalette: fast schwarzer Grund, ein violetter Lichtgrat, Pfirsich als Akzent";
 "skin.minimal.name"          = "Minimal";
 "skin.minimal.description"   = "Cover-Wand, schwebender Player, Navigation über die Suche";
 

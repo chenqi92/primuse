@@ -5,7 +5,7 @@ import Foundation
 /// 样式只认 `unlockID`(`SkinAccess.unlockable`),不认商店;商店只认产品标识。两边的换算
 /// 集中在这里:换一种发放方式(比如一个产品解锁全部样式)不必动样式定义,也不必动界面。
 public enum SkinUnlockProductPolicy {
-    /// 产品标识 = 前缀 + unlockID,例如 `com.welape.yuanyin.skin.midnight`。
+    /// 产品标识 = 前缀 + unlockID,例如 `com.welape.yuanyin.skin.<皮肤 id>`。
     public static let productPrefix = "com.welape.yuanyin."
     /// 拥有这一项,等于解锁目录里全部需要解锁的样式。
     public static let allAccessProductID = "com.welape.yuanyin.skin.all"

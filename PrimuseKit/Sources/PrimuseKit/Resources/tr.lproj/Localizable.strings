@@ -397,10 +397,6 @@
 
 "skin.classic.name"          = "Klasik";
 "skin.classic.description"   = "Sekme çubuğu, sistem görünümünü izler";
-"skin.midnight.name"         = "Gece Yarısı";
-"skin.midnight.description"  = "Her zaman koyu, soğuk mavi vurgulu";
-"skin.nocturne.name"         = "Noktürn";
-"skin.nocturne.description"  = "Koyu palet: neredeyse siyah zemin, mor bir ışık sırtı, şeftali vurgu";
 "skin.minimal.name"          = "Minimal";
 "skin.minimal.description"   = "Kapak duvarı, yüzen oynatıcı, arama odaklı gezinme";
 "serverShare.error.unsupported" = "Bu sunucu genel medya bağlantılarını desteklemiyor veya paylaşım devre dışı.";

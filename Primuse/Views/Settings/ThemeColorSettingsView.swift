@@ -76,7 +76,7 @@ struct AppearanceSettingsView: View {
             SkinSettingsSection()
 
             // 只有顶部 tab 外壳的皮肤才有这一项:标签栏皮肤里首页本来就是一个标签。
-            if skin.skin.navigationHeader == .topTabs {
+            if skin.shell.navigation == .topTabs {
                 Section {
                     Toggle(isOn: $minimalShowsHome) {
                         Label("minimal_shows_home_title", systemImage: "house")

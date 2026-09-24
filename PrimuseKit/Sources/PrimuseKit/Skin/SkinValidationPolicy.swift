@@ -47,7 +47,9 @@ public enum SkinValidationIssue: Sendable, Equatable {
     case malformedMetric(skinID: String, token: SkinMetricToken)
     case malformedTypography(skinID: String, token: SkinTypographyToken)
     case malformedMotion(skinID: String, token: SkinMotionToken)
-    case unregisteredSlotVariant(skinID: String, slot: SkinSlot, variant: SkinSlotVariantID)
+    /// 外壳的导航结构与播放条凑不成一对(标签栏配停靠条、顶部 tab 配标签栏附件)。
+    case invalidShell(skinID: String, shell: SkinShell)
+    case unregisteredSurfaceVariant(skinID: String, surface: SkinSurface, variant: SkinSurfaceVariantID)
     /// 样式声明了一个目录里不存在的配套舞台 / 海报。
     case unknownCompanion(skinID: String, kind: SkinCompanionKind, styleID: String)
     /// 建议启用的配套不在它自己带来的列表里。
@@ -62,14 +64,15 @@ public enum SkinValidationIssue: Sendable, Equatable {
 ///
 /// 一套样式少定义一个 token,在运行时表现为「某个控件颜色突然回到兜底值」——
 /// 这种缺陷靠肉眼走查发现不了,所以把它变成一条可在本机跑的断言:
-/// 每套样式都必须给出全部 token,插槽只能引用登记过的实现,配套只能引用存在的款式。
+/// 每套样式都必须给出全部 token,外壳要是一对成立的组合,每个表面只能引用登记过的实现,
+/// 配套只能引用存在的款式。
 public enum SkinValidationPolicy {
     /// - Parameters:
     ///   - knownImmersiveStageIDs / knownLyricPosterStyleIDs: 传 nil 表示这次不校验该类配套
     ///     (舞台目录在 App 层,Kit 内的调用方拿不到时就跳过)。
     public static func issues(
         in skin: SkinDefinition,
-        registry: [SkinSlot: Set<SkinSlotVariantID>] = SkinSlotRegistry.builtIn,
+        registry: [SkinSurface: Set<SkinSurfaceVariantID>] = SkinSurfaceRegistry.builtIn,
         knownImmersiveStageIDs: Set<String>? = nil,
         knownLyricPosterStyleIDs: Set<String>? = nil
     ) -> [SkinValidationIssue] {
@@ -117,13 +120,16 @@ public enum SkinValidationPolicy {
             }
         }
 
-        for slot in SkinSlot.allCases {
-            let variant = skin.variant(for: slot)
-            guard registry[slot]?.contains(variant) == true else {
+        if !skin.shell.isValid {
+            issues.append(.invalidShell(skinID: skin.id, shell: skin.shell))
+        }
+
+        for surface in SkinSurface.allCases {
+            let variant = skin.variantID(for: surface)
+            if registry[surface]?.contains(variant) != true {
                 issues.append(
-                    .unregisteredSlotVariant(skinID: skin.id, slot: slot, variant: variant)
+                    .unregisteredSurfaceVariant(skinID: skin.id, surface: surface, variant: variant)
                 )
-                continue
             }
         }
 
@@ -176,8 +182,8 @@ public enum SkinValidationPolicy {
     }
 
     public static func catalogIssues(
-        _ catalog: [SkinDefinition] = SkinCatalog.all + SkinCatalog.lab,
-        registry: [SkinSlot: Set<SkinSlotVariantID>] = SkinSlotRegistry.builtIn,
+        _ catalog: [SkinDefinition] = SkinCatalog.all,
+        registry: [SkinSurface: Set<SkinSurfaceVariantID>] = SkinSurfaceRegistry.builtIn,
         fallbackID: String = SkinCatalog.classicID,
         knownImmersiveStageIDs: Set<String>? = nil,
         knownLyricPosterStyleIDs: Set<String>? = nil
@@ -295,8 +301,8 @@ public enum SkinMigrationPolicy {
 
     /// 写回旧开关的值。旧版本(或从备份恢复到旧版本)读到它,导航方式仍与用户的选择一致。
     public static func legacyNavigationModeRawValue(for skin: SkinDefinition) -> String {
-        switch skin.navigationHeader {
-        case .classic: return legacyStandardNavigationRawValue
+        switch skin.shell.navigation {
+        case .tabBar: return legacyStandardNavigationRawValue
         case .topTabs: return legacyMinimalNavigationRawValue
         }
     }

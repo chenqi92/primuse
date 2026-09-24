@@ -1,10 +1,11 @@
 import Foundation
+@testable import PrimuseKit
 
-extension SkinCatalog {
-    /// 午夜:只改数据、不碰任何视图就换出一套完全不同的观感 —— 恒定暗底、冷蓝强调、
-    /// 更大的圆角与更松的间距、圆润字形。它用来验证两件事:token 这一层确实够用,
-    /// 以及「待解锁」的样式在选择、回落、同步这些看不见的路径上表现正确。
-    public static let midnight: SkinDefinition = {
+extension SkinFixtures {
+    /// 午夜:只改数据、不碰任何视图的一组 token —— 恒定暗底、冷蓝强调、更大的圆角与更松的间距、
+    /// 圆润字形。它曾经列在开发构建的皮肤目录里;只换色不构成一套皮肤,现在只作为测试夹具,
+    /// 用来走「待解锁」在选择、回落、权益换算这些看不见的路径。
+    static let midnight: SkinDefinition = {
         func ink(_ opacity: Double) -> SkinColorSpec {
             .fixed(
                 light: SkinColorValue(hex: 0xE8ECF4, opacity: opacity),
@@ -134,16 +135,12 @@ extension SkinCatalog {
                 .trackChange: .easeInOut(duration: 0.34),
                 .ambient: .easeInOut(duration: 0.6),
             ],
-            // 与极简同一组结构实现 —— 换的只有数据。
-            slots: [
-                .navigationHeader: SkinSlotVariant.NavigationHeader.topTabs.rawValue,
-                .bottomChrome: SkinSlotVariant.BottomChrome.dockedBar.rawValue,
-                .detailHeader: SkinSlotVariant.DetailHeader.coverWall.rawValue,
-                .settingsRoot: SkinSlotVariant.SettingsRoot.hub.rawValue,
-                .homeLayout: SkinSlotVariant.HomeLayout.classic.rawValue,
-                .listRow: SkinSlotVariant.ListRow.classic.rawValue,
-                .card: SkinSlotVariant.Card.classic.rawValue,
-                .playerStage: SkinSlotVariant.PlayerStage.sheetActions.rawValue,
+            // 与极简同一个外壳,表面大多是经典实现 —— 换的只有数据。
+            shell: .topTabs,
+            surfaces: [
+                .player: SkinSurfaceVariant.Player.sheetActions.rawValue,
+                .queue: SkinSurfaceVariant.Queue.nowPlayingCard.rawValue,
+                .settingsRoot: SkinSurfaceVariant.SettingsRoot.hub.rawValue,
             ]
         )
     }()

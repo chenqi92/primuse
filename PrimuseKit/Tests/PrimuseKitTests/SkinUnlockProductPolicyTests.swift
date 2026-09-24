@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Skin unlock products")
 struct SkinUnlockProductPolicyTests {
-    private let catalog = SkinCatalog.all + SkinCatalog.lab
+    private let catalog = SkinFixtures.catalogWithUnlockable
 
     @Test("解锁项与产品标识可以互相换算")
     func identifiersRoundTrip() {
@@ -15,8 +15,11 @@ struct SkinUnlockProductPolicyTests {
         #expect(SkinUnlockProductPolicy.unlockID(forProductID: SkinUnlockProductPolicy.productPrefix) == nil)
     }
 
+    /// 正式目录现在只有随 App 提供的皮肤,所以整条解锁链路在正式构建里是休眠的。
     @Test("目录里没有需要解锁的样式时,一个产品都不查")
     func includedOnlyCatalogNeverTouchesTheStore() {
+        #expect(SkinCatalog.all.allSatisfy { !$0.access.requiresUnlock })
+        #expect(SkinUnlockProductPolicy.unlockIDs(in: SkinCatalog.all).isEmpty)
         #expect(SkinUnlockProductPolicy.productIDs(for: SkinCatalog.all).isEmpty)
         #expect(SkinUnlockProductPolicy.unlockedIDs(ownedProductIDs: ["anything"], catalog: SkinCatalog.all).isEmpty)
     }
@@ -61,14 +64,14 @@ struct SkinUnlockProductPolicyTests {
             ownedProductIDs: ["com.welape.yuanyin.skin.midnight"],
             catalog: catalog
         )
-        #expect(SkinSelectionPolicy.availability(of: SkinCatalog.midnight, unlocked: []) == .locked)
-        #expect(SkinSelectionPolicy.availability(of: SkinCatalog.midnight, unlocked: unlocked) == .unlocked)
+        #expect(SkinSelectionPolicy.availability(of: SkinFixtures.midnight, unlocked: []) == .locked)
+        #expect(SkinSelectionPolicy.availability(of: SkinFixtures.midnight, unlocked: unlocked) == .unlocked)
         #expect(
             SkinSelectionPolicy.effectiveSkinID(
-                requested: SkinCatalog.midnight.id,
+                requested: SkinFixtures.midnight.id,
                 catalog: catalog,
                 unlocked: unlocked
-            ) == SkinCatalog.midnight.id
+            ) == SkinFixtures.midnight.id
         )
     }
 }
