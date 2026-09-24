@@ -205,4 +205,34 @@ struct LibraryDetailTintPolicyTests {
         #expect(abs(gray.green - 0.42) < 0.0001)
         #expect(abs(gray.blue - 0.42) < 0.0001)
     }
+
+    @Test("副色同样够白字读，第二色是灰调时退回主色")
+    func accentFollowsSameContrastRules() {
+        for appearance in [LibraryDetailTintPolicy.Appearance.light, .dark] {
+            for entry in sweepTints(appearance: appearance) {
+                let accent = LibraryDetailTintPolicy.accentTint(
+                    primary: (0.08, 0.7, 0.8),
+                    secondary: entry.input,
+                    appearance: appearance
+                )
+                #expect(LibraryDetailTintPolicy.contrastRatioAgainstWhite(accent.top) >= LibraryDetailTintPolicy.minimumContrastRatio)
+                #expect(LibraryDetailTintPolicy.contrastRatioAgainstWhite(accent.bottom) >= LibraryDetailTintPolicy.minimumContrastRatio)
+            }
+        }
+        let primary = LibraryDetailTintPolicy.tint(hue: 0.6, saturation: 0.5, brightness: 0.5, appearance: .dark)
+        let gray = LibraryDetailTintPolicy.accentTint(
+            primary: (0.6, 0.5, 0.5),
+            secondary: (0.1, 0.02, 0.7),
+            appearance: .dark
+        )
+        #expect(gray == primary)
+        let missing = LibraryDetailTintPolicy.accentTint(primary: (0.6, 0.5, 0.5), secondary: nil, appearance: .dark)
+        #expect(missing == primary)
+        let teal = LibraryDetailTintPolicy.accentTint(
+            primary: (0.6, 0.5, 0.5),
+            secondary: (0.45, 0.6, 0.6),
+            appearance: .dark
+        )
+        #expect(abs(teal.top.hue - 0.45) < 0.0001)
+    }
 }

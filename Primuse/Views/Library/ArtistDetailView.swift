@@ -242,7 +242,6 @@ struct ArtistDetailView: View {
         let compact = hero.isCompactHeight
         let reducedTitle = compact || hero.titleTier == .reduced
         let posterHeight: CGFloat = insets.top + CGFloat(hero.artistPosterHeight)
-        let heroBase = tint?.top ?? .black
 
         return ZStack(alignment: .bottom) {
             GeometryReader { geometry in
@@ -255,15 +254,25 @@ struct ArtistDetailView: View {
                 .clipped()
             }
             .frame(height: posterHeight)
+            // 下半段渐隐成透明,底下会呼吸的整页底色透上来,看不出海报在哪儿结束。
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.46),
+                        .init(color: .black.opacity(0.18), location: 0.8),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
             .overlay {
-                // 顶部压一点暗让系统返回键读得清;下半段化进整页底色,看不出海报在哪儿结束。
+                // 顶部压一点暗让系统返回键读得清。
                 LinearGradient(
                     stops: [
                         .init(color: .black.opacity(0.22), location: 0),
                         .init(color: .clear, location: 0.2),
-                        .init(color: .clear, location: 0.46),
-                        .init(color: heroBase.opacity(0.82), location: 0.8),
-                        .init(color: heroBase, location: 1),
                     ],
                     startPoint: .top,
                     endPoint: .bottom

@@ -79,6 +79,30 @@ public enum LibraryDetailTintPolicy {
         )
     }
 
+    /// 整页底色里的「副色」：取封面调色板的第二色，按和主色同一套规则压深，白字照样读得清。
+    ///
+    /// 第二色是灰调、或者调色板里压根没有第二色时，副色就等于主色 —— 整页不会凭空多出一块灰。
+    public static func accentTint(
+        primary: (hue: Double, saturation: Double, brightness: Double),
+        secondary: (hue: Double, saturation: Double, brightness: Double)?,
+        appearance: Appearance
+    ) -> LibraryDetailTint {
+        guard let secondary, clamp01(secondary.saturation) >= achromaticSaturation else {
+            return tint(
+                hue: primary.hue,
+                saturation: primary.saturation,
+                brightness: primary.brightness,
+                appearance: appearance
+            )
+        }
+        return tint(
+            hue: secondary.hue,
+            saturation: secondary.saturation,
+            brightness: secondary.brightness,
+            appearance: appearance
+        )
+    }
+
     /// 封面读不出代表色时用的底色。加载途中也先用它，颜色到位后再过渡。
     public static func neutralTint(appearance: Appearance) -> LibraryDetailTint {
         tint(
