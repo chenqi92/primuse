@@ -4,11 +4,11 @@ import Testing
 
 @Suite("Feiniu library and session recovery")
 struct FnMusicLibraryTests {
-    @Test func playlistPagesPreserveOrderEmptyListsAndFailedDetails() async throws {
+    /// 歌单索引照网页端那样一次请求、不带分页参数；歌单内曲目仍按页翻。
+    @Test func playlistIndexIsFetchedOnceAndTracksArePaged() async throws {
         let fixture = FnMusicLibraryFixture()
         let summaries = (0..<51).map { ["guid": "p\($0)", "name": "List \($0)", "trackCount": $0 == 0 ? 51 : 0] as [String: Any] }
-        fixture.setPage("/playlist/list", page: 1, list: Array(summaries.prefix(50)), total: 51)
-        fixture.setPage("/playlist/list", page: 2, list: [summaries[50]], total: 51)
+        fixture.setPage("/playlist/list", page: 1, list: summaries, total: 51)
         for i in 0..<51 {
             fixture.setPage("/track/playlist-detail/list", playlist: "p\(i)", page: 1, list: [], total: 0)
         }
@@ -29,6 +29,27 @@ struct FnMusicLibraryTests {
                 || request.value(forHTTPHeaderField: "Cookie") != nil
         })
         #expect(fixture.requests.allSatisfy { $0.value(forHTTPHeaderField: "authx") != nil })
+        let indexRequests = fixture.requests.filter { $0.url?.path.hasSuffix("/playlist/list") == true }
+        #expect(indexRequests.count == 1)
+        #expect((indexRequests.first?.url?.query ?? "").isEmpty, "索引请求不带 page/size")
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 52)
+    }
+
+    /// 服务端照单全给、条数正好是 50 的整数倍时，以前会再翻一页拿到同一批歌单而报「重复项」。
+    @Test func playlistIndexWithExactlyOnePageOfEntriesDoesNotRequestASecondPage() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setRawPage("/playlist/list", page: 1,
+                           data: ["list": (0..<50).map { ["guid": "p\($0)", "name": "List \($0)"] }])
+        fixture.setRawPage("/playlist/list", page: 2,
+                           data: ["list": (0..<50).map { ["guid": "p\($0)", "name": "List \($0)"] }])
+        for i in 0..<50 {
+            fixture.setRawPage("/track/playlist-detail/list", playlist: "p\(i)", page: 1, data: ["list": NSNull(), "total": 0])
+        }
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.playlists.count == 50)
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/playlist/list") == true }.count == 1)
     }
 
     @Test func incompletePlaylistIndexCannotBecomeAnEmptyAuthoritativeSnapshot() async throws {

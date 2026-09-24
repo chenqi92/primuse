@@ -35,7 +35,7 @@ public struct FnMusicLibraryClient: Sendable {
     }
 
     public func playlists() async throws -> FnMusicPlaylistSnapshot {
-        let summaries: [Summary] = try await pages(path: "/playlist/list", parse: Summary.init)
+        let summaries: [Summary] = try await index(path: "/playlist/list", parse: Summary.init)
         var playlists: [FnMusicPlaylist] = []
         var failed: Set<String> = []
         for summary in summaries {
@@ -81,6 +81,30 @@ public struct FnMusicLibraryClient: Sendable {
             throw Self.invalidResponse("favorite-track/list does not reflect the write to \(trackID)")
         }
         return confirmed
+    }
+
+    /// 歌单清单不分页：网页端不带 page/size 调 `/playlist/list`，只读 `list`。带着分页
+    /// 参数去请求，服务端照单全给时条数正好是页大小整数倍就会多翻一页、拿到重复项报错。
+    /// `total` 若给了仍要和条数对得上，免得截断的清单被当成权威镜像把本地歌单清空。
+    private func index<Item: FnMusicLibraryItem>(
+        path: String,
+        parse: ([String: Any]) throws -> Item
+    ) async throws -> [Item] {
+        try Task.checkCancellation()
+        let data = try await load(FnMusicLibraryRequest(method: "GET", path: path, queryItems: [], body: nil))
+        try Task.checkCancellation()
+        let current = try Self.page(path: path, data: data)
+        if let total = current.total, total != current.list.count {
+            throw Self.invalidResponse("\(path): \(current.list.count) items but total \(total)")
+        }
+        var seen: Set<String> = []
+        return try current.list.map { json in
+            let item = try parse(json)
+            guard seen.insert(item.id).inserted else {
+                throw Self.invalidResponse("\(path): repeated item \(item.id)")
+            }
+            return item
+        }
     }
 
     private func pages<Item: FnMusicLibraryItem>(
