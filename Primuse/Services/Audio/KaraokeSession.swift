@@ -447,6 +447,7 @@ final class KaraokeSession {
                 self.stemTrack = track
                 self.engine.karaokeControl.installStem(track)
                 self.isStemActive = true
+                plog("🎤 Karaoke: AI stem loaded frames=\(track.frames) rate=\(Int(track.sampleRate))")
                 self.lockPolicy.reset()
             }
         case .idle:
@@ -530,6 +531,7 @@ final class KaraokeSession {
             let delta = match.stemIndex - (live.endIndex - window)
             if let adopted = self.lockPolicy.record(delta: delta) {
                 control.publishLock(delta: adopted, epoch: epoch)
+                plog("🎤 Karaoke: stem locked delta=\(adopted) confidence=\(String(format: "%.2f", match.confidence))")
             }
             self.isStemLocked = control.isStemLocked
         }

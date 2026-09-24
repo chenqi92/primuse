@@ -185,6 +185,8 @@ final class KaraokeSeparationService {
         }
         songStates[song.id] = .separating(0)
         let destination = Self.stemURL(for: song)
+        let startedAt = Date()
+        plog("🎤 Karaoke: separating \(song.id.prefix(8))…")
         jobs[song.id] = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -204,6 +206,7 @@ final class KaraokeSeparationService {
                 }
                 try await Self.write(stem: stem, to: destination)
                 self.songStates[song.id] = .ready
+                plog("🎤 Karaoke: separated \(song.id.prefix(8))… in \(String(format: "%.1f", Date().timeIntervalSince(startedAt)))s")
             } catch KaraokeSeparationError.unreadableAudio {
                 self.songStates[song.id] = .unsupported
             } catch KaraokeSeparationError.tooLong {
