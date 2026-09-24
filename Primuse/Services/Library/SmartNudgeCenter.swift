@@ -51,7 +51,8 @@ final class SmartNudgeCenter {
     /// A pause shorter than this does not end a listening session.
     private static let sessionGap: TimeInterval = 10 * 60
 
-    private init(defaults: UserDefaults = .standard) {
+    /// `defaults` is for tests; the app uses `shared`.
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         disabledKinds = Set(
@@ -175,6 +176,14 @@ final class SmartNudgeCenter {
             self?.answer(nudge, accepted: false)
         }
     }
+
+    #if DEBUG
+    /// Puts a suggestion on screen regardless of the policy, for tests and
+    /// the launch-automation hooks.
+    func debugPresent(_ kind: SmartNudgeKind, song: Song?, songs: [Song] = []) {
+        show(SmartNudge(kind: kind, songID: song?.id, songTitle: song?.title, songs: songs), now: Date())
+    }
+    #endif
 
     // MARK: - Answers
 

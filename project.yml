@@ -184,6 +184,8 @@ targets:
       - target: PrimuseKit
       - target: PrimuseWidgetExtension
         embed: true
+      - target: PrimuseKaraokeModelDownloader
+        embed: true
       - target: PrimuseWatchApp
         embed: true
     info:
@@ -259,6 +261,10 @@ targets:
         NSAppleMusicUsageDescription: "Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription."
         NSMicrophoneUsageDescription: "Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device."
         NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
+        # 卡拉OK AI 人声模型是 App Store 托管的按需资源包, 由下面的下载扩展接收。
+        BAAppGroupID: group.com.welape.yuanyin
+        BAHasManagedAssetPacks: true
+        BAUsesAppleHosting: true
         NSPhotoLibraryAddUsageDescription: "Primuse 需要保存歌词海报和实况照片到你的相册。"
         NSUserActivityTypes:
           - com.welape.yuanyin.nowplaying
@@ -384,6 +390,31 @@ targets:
         # 交互式 Widget 的 AppIntent 类型必须同时进入宿主与扩展。宏只屏蔽
         # 扩展不应重复注册的 AppShortcutsProvider，播放 intent 本身两端共用。
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) PRIMUSE_WIDGET_EXTENSION"
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
+
+  PrimuseKaraokeModelDownloader:
+    # 卡拉OK AI 人声模型的下载扩展: App Store 托管的按需资源包由系统经它下载。
+    # 与小组件一样同一个 target 覆盖 iOS 与 macOS; 系统要求 26.0 起。
+    type: extensionkit-extension
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: PrimuseKaraokeModelDownloader
+    info:
+      path: PrimuseKaraokeModelDownloader/Info.plist
+      properties:
+        CFBundleDisplayName: Primuse
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.background-asset-downloader-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.karaokemodel
+        SKIP_INSTALL: YES
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+        MACOSX_DEPLOYMENT_TARGET: "26.0"
+        CODE_SIGN_ENTITLEMENTS: Config/PrimuseKaraokeModelDownloader.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Config/PrimuseKaraokeModelDownloader-macOS.entitlements
         "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
 
   PrimuseWatchApp:
@@ -520,6 +551,8 @@ targets:
       - target: PrimuseKit
       - target: PrimuseWidgetExtension
         embed: true
+      - target: PrimuseKaraokeModelDownloader
+        embed: true
     info:
       path: Primuse/Info-macOS.plist
       properties:
@@ -537,6 +570,10 @@ targets:
         # 编进 macOS 二进制),即使 mac 上少用,Apple 校验也要求声明,否则上传报 90683。
         NSMicrophoneUsageDescription: "Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device."
         NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
+        # 卡拉OK AI 人声模型是 App Store 托管的按需资源包, 由下面的下载扩展接收。
+        BAAppGroupID: group.com.welape.yuanyin
+        BAHasManagedAssetPacks: true
+        BAUsesAppleHosting: true
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - primuse

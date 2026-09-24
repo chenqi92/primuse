@@ -2298,6 +2298,265 @@ private struct DebugLaunchAutomation: ViewModifier {
                 }
                 plog("🧪 DebugLaunchAutomation: no song matching '\(needle)' within the wait window")
             }
+            .modifier(DebugListeningFeatureAutomation())
+    }
+}
+
+/// Launch hooks for the audiobook, medley, suggestion and batch-edit
+/// features, so they can be exercised on a simulator without touching the
+/// screen:
+/// - `PRIMUSE_DEBUG_IMPORT_LOCAL=1`：建好「本地音乐」源并扫描 Documents/LocalMusic（无人值守建库用）。
+/// - `PRIMUSE_DEBUG_MEDLEY=<n>`：曲库装好后把前 n 首音乐串烧播放。
+/// - `PRIMUSE_DEBUG_NUDGE=<kind>`：有歌在播时强制弹出该种提示（`SmartNudgeKind` 原始值）。
+/// - `PRIMUSE_DEBUG_SHOW_PLAYER=<秒>`：有歌在播后再等该秒数，打开播放页（iOS）。
+/// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
+/// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
+/// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview`：弹出对应页面。
+/// - `PRIMUSE_DEBUG_BATCH_APPLY=<专辑名>`：把全部音乐的专辑名批量改成该值并写回，再撤销（结果写日志）。
+/// - `PRIMUSE_DEBUG_TIDY_APPLY=1`：把规则整理出的所有建议写回（结果写日志）。
+private struct DebugListeningFeatureAutomation: ViewModifier {
+    private struct Presented: Identifiable {
+        let id = UUID()
+        let page: String
+        let songs: [Song]
+        let proposals: [TagCleanupProposal]
+    }
+
+    @State private var presented: Presented?
+
+    private var env: [String: String] { ProcessInfo.processInfo.environment }
+    private var services: AppServices { AppServices.shared }
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $presented) { item in
+                sheet(for: item)
+            }
+            .task {
+                guard let raw = env["PRIMUSE_DEBUG_MEDLEY"], let count = Int(raw) else { return }
+                guard let songs = await waitForMusic(atLeast: 2) else { return }
+                let chosen = Array(songs.prefix(max(2, count)))
+                plog("🧪 Debug: medley of \(chosen.count) songs")
+                let started = await services.playerService.playMedley(chosen)
+                plog("🧪 Debug: medley started=\(started) active=\(services.playerService.isMedleyActive) queue=\(services.playerService.queue.map { "\($0.title)[\(Int($0.cueStartTime ?? -1))-\(Int($0.cueEndTime ?? -1))]" })")
+            }
+            .task {
+                guard let raw = env["PRIMUSE_DEBUG_NUDGE"], let kind = SmartNudgeKind(rawValue: raw) else { return }
+                for _ in 0..<150 {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { return }
+                    guard let song = services.playerService.currentSong else { continue }
+                    try? await Task.sleep(for: .seconds(4))
+                    let related = MusicDiscoveryEngine.similarSongs(to: song, in: services.musicLibrary, limit: 6)
+                        .map(\.song)
+                    plog("🧪 Debug: present nudge \(kind.rawValue) for '\(song.title)'")
+                    SmartNudgeCenter.shared.debugPresent(kind, song: song, songs: related)
+                    return
+                }
+            }
+            .task {
+                guard env["PRIMUSE_DEBUG_IMPORT_LOCAL"] == "1" else { return }
+                // Waits for the library, then adds the local-music source (if
+                // missing) and scans it in the foreground.
+                for _ in 0..<60 where !services.musicLibrary.isReady {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                let existing = LocalImportService.existingSourceID.flatMap { services.sourcesStore.source(id: $0) }
+                let source: MusicSource
+                if let existing {
+                    source = existing
+                } else {
+                    let created = LocalImportService.makeSource(name: String(localized: "local_import_source_name"))
+                    do {
+                        try services.sourcesStore.addDurably(created)
+                    } catch {
+                        plog("🧪 Debug: local source add failed — \(error.localizedDescription)")
+                        return
+                    }
+                    source = created
+                }
+                let started = services.scanService.scanSource(
+                    source,
+                    sourceManager: services.sourceManager,
+                    library: services.musicLibrary,
+                    sourceStore: services.sourcesStore,
+                    scraperService: services.scraperService
+                )
+                plog("🧪 Debug: local import scan started=\(started) dir=\(LocalImportService.musicDirectory.path)")
+                for _ in 0..<90 {
+                    try? await Task.sleep(for: .seconds(2))
+                    if services.musicLibrary.visibleSongs.count >= 8 { break }
+                }
+                // Give the tag read-back a moment, then report what the scan
+                // recorded (track numbers included).
+                try? await Task.sleep(for: .seconds(8))
+                let rows = (services.musicLibrary.musicSongs + services.musicLibrary.spokenWordSongs)
+                    .map { "\($0.discNumber ?? 0)-\($0.trackNumber ?? 0) \($0.title)" }
+                plog("🧪 Debug: library now music=\(services.musicLibrary.musicSongs.count) spoken=\(services.musicLibrary.spokenWordSongs.count) rows=\(rows)")
+            }
+            .task {
+                guard let raw = env["PRIMUSE_DEBUG_SHOW_PLAYER"], let delay = Double(raw) else { return }
+                for _ in 0..<150 {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { return }
+                    guard services.playerService.currentSong != nil else { continue }
+                    try? await Task.sleep(for: .seconds(delay))
+                    plog("🧪 Debug: show player")
+                    NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
+                    return
+                }
+            }
+            .task {
+                guard let raw = env["PRIMUSE_DEBUG_BOOKMARK_AFTER"], let seconds = Double(raw) else { return }
+                for _ in 0..<300 {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    let player = services.playerService
+                    guard player.isPlaying, player.currentTime >= seconds else { continue }
+                    let added = player.addSpokenWordBookmark()
+                    let marks = player.currentSong.map { SpokenWordStore.shared.bookmarks(forSongID: $0.id) } ?? []
+                    plog("🧪 Debug: bookmark added=\(added) at \(Int(player.currentTime))s marks=\(marks.map { "\($0.title)" })")
+                    return
+                }
+            }
+            .task {
+                guard env["PRIMUSE_DEBUG_CHAPTER_SLEEP"] == "1" else { return }
+                for _ in 0..<300 {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    let player = services.playerService
+                    guard player.hasChapters, player.currentChapterIndex != nil else { continue }
+                    player.scheduleSleepAtChapterEnd()
+                    plog("🧪 Debug: chapter sleep armed chapters=\(player.spokenWordChapters.count) index=\(player.currentChapterIndex ?? -1) lock=\(String(describing: player.sleepStopAfterChapter)) trackEnd=\(player.sleepStopAfterSongID != nil)")
+                    return
+                }
+            }
+            .task {
+                guard let page = env["PRIMUSE_DEBUG_PRESENT"], !page.isEmpty else { return }
+                let needsPlayback = page == "chapters"
+                for _ in 0..<150 {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { return }
+                    if needsPlayback {
+                        guard services.playerService.hasChapters || services.playerService.currentItemIsSpokenWord else { continue }
+                        try? await Task.sleep(for: .seconds(3))
+                    }
+                    let songs = services.musicLibrary.musicSongs
+                    guard needsPlayback || page == "spokenWord" || songs.count >= 2 else { continue }
+                    var proposals: [TagCleanupProposal] = []
+                    switch page {
+                    case "tidyReview":
+                        proposals = TagCleanupPolicy.proposals(
+                            for: songs.map(BatchTagEditService.cleanupSong),
+                            currentYear: Calendar.current.component(.year, from: Date())
+                        )
+                    case "batchReview":
+                        proposals = songs.map {
+                            TagCleanupProposal(songID: $0.id, field: .album, oldValue: $0.albumTitle,
+                                               newValue: "Debug Album", reason: .assistant)
+                        }
+                    default:
+                        break
+                    }
+                    plog("🧪 Debug: present \(page) songs=\(songs.count) proposals=\(proposals.count)")
+                    presented = Presented(page: page, songs: songs, proposals: proposals)
+                    return
+                }
+            }
+            .task {
+                guard let album = env["PRIMUSE_DEBUG_BATCH_APPLY"], !album.isEmpty else { return }
+                guard let songs = await waitForMusic(atLeast: 2) else { return }
+                let changes = songs.map { song -> (original: Song, updated: Song) in
+                    var updated = song
+                    updated.albumTitle = album
+                    return (song, updated)
+                }
+                let outcome = await BatchTagEditService.apply(
+                    changes, coverData: nil,
+                    sourceManager: services.sourceManager,
+                    library: services.musicLibrary,
+                    player: services.playerService
+                ) { done, total in plog("🧪 Debug: batch progress \(done)/\(total)") }
+                let after = songs.compactMap { services.musicLibrary.song(id: $0.id)?.albumTitle }
+                plog("🧪 Debug: batch applied=\(outcome.applied.count) failures=\(outcome.failures.map(\.message)) notices=\(outcome.notices) libraryAlbums=\(after)")
+                try? await Task.sleep(for: .seconds(3))
+                let undo = zip(outcome.applied, outcome.originals).map { applied, original -> (original: Song, updated: Song) in
+                    let current = services.musicLibrary.song(id: applied.id) ?? applied
+                    var restored = current
+                    restored.albumTitle = original.albumTitle
+                    return (current, restored)
+                }
+                let undone = await BatchTagEditService.apply(
+                    undo, coverData: nil,
+                    sourceManager: services.sourceManager,
+                    library: services.musicLibrary,
+                    player: services.playerService
+                ) { _, _ in }
+                let restored = songs.compactMap { services.musicLibrary.song(id: $0.id)?.albumTitle }
+                plog("🧪 Debug: batch undo applied=\(undone.applied.count) failures=\(undone.failures.map(\.message)) libraryAlbums=\(restored)")
+            }
+            .task {
+                guard env["PRIMUSE_DEBUG_TIDY_APPLY"] == "1" else { return }
+                guard let songs = await waitForMusic(atLeast: 2) else { return }
+                let proposals = TagCleanupPolicy.proposals(
+                    for: songs.map(BatchTagEditService.cleanupSong),
+                    currentYear: Calendar.current.component(.year, from: Date())
+                )
+                plog("🧪 Debug: tidy proposals=\(proposals.map { "\($0.field.rawValue): \($0.oldValue ?? "nil") → \($0.newValue ?? "nil")" })")
+                let changes = songs.compactMap { song -> (original: Song, updated: Song)? in
+                    let updated = BatchTagEditService.song(song, applying: proposals)
+                    return SongUserMetadataPolicy.editableFieldsChanged(from: song, to: updated) ? (song, updated) : nil
+                }
+                let outcome = await BatchTagEditService.apply(
+                    changes, coverData: nil,
+                    sourceManager: services.sourceManager,
+                    library: services.musicLibrary,
+                    player: services.playerService
+                ) { _, _ in }
+                let titles = songs.compactMap { services.musicLibrary.song(id: $0.id) }
+                    .map { "\($0.trackNumber ?? 0). \($0.title) / \($0.artistName ?? "nil") / \($0.albumTitle ?? "nil")" }
+                plog("🧪 Debug: tidy applied=\(outcome.applied.count) failures=\(outcome.failures.map(\.message)) now=\(titles)")
+            }
+    }
+
+    @ViewBuilder
+    private func sheet(for item: Presented) -> some View {
+        switch item.page {
+        case "spokenWord":
+            NavigationStack { SpokenWordLibraryView() }
+        case "chapters":
+            ChapterListView()
+        case "batchEdit":
+            BatchTagEditorView(songs: item.songs)
+        case "tidy":
+            TagTidyView(songs: item.songs)
+        case "batchReview", "tidyReview":
+            NavigationStack {
+                TagChangeReviewView(input: TagChangeReviewInput(
+                    songs: item.songs,
+                    proposals: item.proposals,
+                    coverData: nil,
+                    showsReasons: item.page == "tidyReview"
+                )) { presented = nil }
+            }
+        default:
+            Text(verbatim: item.page)
+        }
+    }
+
+    private func waitForMusic(atLeast count: Int) async -> [Song]? {
+        for _ in 0..<150 {
+            try? await Task.sleep(for: .seconds(2))
+            if Task.isCancelled { return nil }
+            let songs = services.musicLibrary.musicSongs
+            if songs.count >= count {
+                // Give the scan a moment to settle so every song is in.
+                try? await Task.sleep(for: .seconds(4))
+                return services.musicLibrary.musicSongs
+            }
+        }
+        plog("🧪 Debug: library never reached \(count) songs")
+        return nil
     }
 }
 #endif

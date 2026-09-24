@@ -51,7 +51,8 @@ final class SpokenWordStore {
     private let storeURL: URL
     private var saveTask: Task<Void, Never>?
 
-    private init(storeURL: URL? = nil) {
+    /// `storeURL` is for tests; the app uses `shared`.
+    init(storeURL: URL? = nil) {
         if let storeURL {
             self.storeURL = storeURL
         } else {

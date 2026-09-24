@@ -6,6 +6,9 @@ struct TagMetadataWritebackReport: Sendable {
     var updatedSong: Song
     var fields: [TagMetadataFieldWritebackResult]
     var replacementAfterFailedVerification: Song? = nil
+    /// For embedded writes: what the file held before, so an undo can put
+    /// back the file's own values.
+    var previousFileTags: EmbeddedMetadataVerification? = nil
 
     var failedFields: [TagMetadataFieldWritebackResult] {
         fields.filter {
@@ -102,6 +105,7 @@ enum TagMetadataWritebackCoordinator {
                 report.updatedSong.lastModified = result.modifiedDate
                 report.updatedSong.revision = result.revision
                 report.updatedSong.filePath = result.filePath ?? updated.filePath
+                report.previousFileTags = result.previousTags
                 report.setDisposition(.written, for: changed)
             } catch let error as EmbeddedMetadataReplacementReadbackError {
                 var relocated = original

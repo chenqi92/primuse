@@ -47,6 +47,50 @@ import Testing
         }
     }
 
+    @Test func kugouLinks() {
+        #expect(playlist("https://www.kugou.com/yy/special/single/6914288.html") == .init(platform: .kugou, playlistID: "6914288"))
+        #expect(playlist("https://m.kugou.com/plist/list/6914288?json=true") == .init(platform: .kugou, playlistID: "6914288"))
+        let share = "https://m.kugou.com/share/zlist.html?listid=4&type=0&uid=44232344&global_collection_id=collection_3_44232344_4_0&sign=0883e935&chain=1ulezd0CTV2"
+        let link = playlist("分享歌单 \(share)")
+        #expect(link?.platform == .kugou)
+        #expect(link?.playlistID == "collection_3_44232344_4_0")
+        // 签名只对原样的整串参数有效。
+        #expect(link?.parameters["shareQuery"] == "listid=4&type=0&uid=44232344&global_collection_id=collection_3_44232344_4_0&sign=0883e935&chain=1ulezd0CTV2")
+        guard case .needsRedirect(_, .kugou) = ExternalPlaylistLink.detect(in: "https://t4.kugou.com/8IhBCd0wiV2") else {
+            Issue.record("kugou short link should be followed")
+            return
+        }
+    }
+
+    @Test func miguSodaAppleSpotifyLinks() {
+        #expect(playlist("https://music.migu.cn/v3/music/playlist/228114498") == .init(platform: .migu, playlistID: "228114498"))
+        #expect(playlist("https://h5.nf.migu.cn/app/v4/p/share/playlist/index.html?id=179730639") == .init(platform: .migu, playlistID: "179730639"))
+        #expect(playlist("https://m.music.migu.cn/v4/#/playlist?playlistId=213964542") == .init(platform: .migu, playlistID: "213964542"))
+        #expect(playlist("https://music.douyin.com/qishui/share/playlist?playlist_id=7608993469403234344&sec_sharer_id=x") == .init(platform: .soda, playlistID: "7608993469403234344"))
+        #expect(playlist("https://www.douyin.com/qishui/playlist/7461037960796833826") == .init(platform: .soda, playlistID: "7461037960796833826"))
+        guard case .needsRedirect(_, .soda) = ExternalPlaylistLink.detect(in: "https://qishui.douyin.com/s/i9gReGfB/") else {
+            Issue.record("soda short link should be followed")
+            return
+        }
+        #expect(playlist("https://music.apple.com/cn/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb") == .init(platform: .appleMusic, playlistID: "pl.f4d106fed2bd41149aaacabb233eb5eb"))
+        #expect(playlist("https://music.apple.com/us/playlist/mine/pl.u-a1b2c3?l=zh") == .init(platform: .appleMusic, playlistID: "pl.u-a1b2c3"))
+        #expect(playlist("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc") == .init(platform: .spotify, playlistID: "37i9dQZF1DXcBWIGoYBM5M"))
+        #expect(playlist("https://open.spotify.com/intl-ja/playlist/37i9dQZF1DXcBWIGoYBM5M") == .init(platform: .spotify, playlistID: "37i9dQZF1DXcBWIGoYBM5M"))
+        #expect(playlist("https://open.spotify.com/album/37i9dQZF1DXcBWIGoYBM5M") == nil)
+    }
+
+    @Test func bodianCarriesItsSource() {
+        #expect(playlist("https://h5app.kuwo.cn/m/bodian/collection.html?playlistId=2867496601&source=4") == .init(platform: .bodian, playlistID: "2867496601", parameters: ["source": "4"]))
+        #expect(playlist("https://bodian.kuwo.cn/share/playlist?pid=99") == .init(platform: .bodian, playlistID: "99"))
+        // 普通酷我链接不能被当成波点。
+        #expect(playlist("https://www.kuwo.cn/playlist_detail/3567349593")?.platform == .kuwo)
+    }
+
+    @Test func xiamiIsDiscontinued() {
+        #expect(ExternalPlaylistLink.detect(in: "https://www.xiami.com/collect/1234567") == .discontinued)
+        #expect(ExternalPlaylistLink.detect(in: "http://h.xiami.com/collect_detail.html?id=1") == .discontinued)
+    }
+
     @Test func unrelatedTextIsNotALink() {
         #expect(ExternalPlaylistLink.detect(in: "晴天 - 周杰伦") == .none)
         #expect(ExternalPlaylistLink.detect(in: "https://example.com/playlist?id=1") == .none)
@@ -116,6 +160,95 @@ import Testing
         #expect(page.total == 3)
         #expect(page.tracks.first?.artists == ["OneCandy", "某人"])
         #expect(page.tracks.first?.duration == 261)
+    }
+
+    @Test func bodianPage() throws {
+        let json = """
+        {"code":200,"msg":"success","data":{"total":177,"list":[
+          {"id":226543302,"name":"最伟大的作品","album":"最伟大的作品","artist":"周杰伦","artists":[{"id":336,"name":"周杰伦"}],"duration":244},
+          {"id":1,"name":"Song &amp; Dance","album":"","artist":"A&amp;B","duration":"200"}]}}
+        """
+        let page = try ExternalPlaylistDecoder.bodianPage(Data(json.utf8))
+        #expect(page.total == 177)
+        #expect(page.tracks[0].artists == ["周杰伦"])
+        #expect(page.tracks[0].duration == 244)
+        #expect(page.tracks[1].title == "Song & Dance")
+        #expect(page.tracks[1].artists == ["A", "B"])
+        #expect(page.tracks[1].album == nil)
+        #expect(throws: ExternalPlaylistError.notFoundOrPrivate) {
+            try ExternalPlaylistDecoder.bodianPage(Data(#"{"code":-10,"msg":"参数错误"}"#.utf8))
+        }
+        #expect(ExternalPlaylistDecoder.bodianPlaylistName(Data(#"{"code":200,"data":{"id":1,"name":"终于等到周杰伦"}}"#.utf8)) == "终于等到周杰伦")
+    }
+
+    @Test func miguPage() throws {
+        let json = """
+        {"code":"000000","info":"操作成功","data":{"totalCount":50,"songList":[
+          {"contentId":"600902000006889366","songName":"晴天","duration":270,"album":"叶惠美","singerList":[{"id":"112","name":"周杰伦"}]}]}}
+        """
+        let page = try ExternalPlaylistDecoder.miguPage(Data(json.utf8))
+        #expect(page.total == 50)
+        #expect(page.tracks.first?.artists == ["周杰伦"])
+        #expect(page.tracks.first?.duration == 270)
+        #expect(throws: ExternalPlaylistError.notFoundOrPrivate) {
+            try ExternalPlaylistDecoder.miguPage(Data(#"{"code":"200002","info":"歌单不存在"}"#.utf8))
+        }
+    }
+
+    @Test func kugouSpecialAndShare() throws {
+        let special = """
+        {"data":{"total":30,"info":[{"hash":"5BCC","filename":"王泽言 - 遇见爱的人","duration":216,"remark":"风把TA吹到你身边Ⅰ"},
+          {"hash":"X","filename":"A、B - Title - Live","duration":200,"remark":""}]},"errcode":0}
+        """
+        let page = try ExternalPlaylistDecoder.kugouSpecialPage(Data(special.utf8))
+        #expect(page.total == 30)
+        #expect(page.tracks[0].title == "遇见爱的人")
+        #expect(page.tracks[0].artists == ["王泽言"])
+        #expect(page.tracks[0].album == "风把TA吹到你身边Ⅰ")
+        // 只按第一个 " - " 切：歌名里的 " - Live" 留着给版本标记。
+        #expect(page.tracks[1].title == "Title - Live")
+        #expect(page.tracks[1].artists == ["A", "B"])
+
+        let share = """
+        {"errcode":0,"status":1,"info":[{"name":"【十年榜】华语热门金曲TOP100","count":10}],
+         "list":{"count":10,"info":[{"name":"张韶涵 - 隐形的翅膀","timelen":224130,"hash":"H"}]}}
+        """
+        let sharePage = try ExternalPlaylistDecoder.kugouSharePage(Data(share.utf8))
+        #expect(sharePage.name == "【十年榜】华语热门金曲TOP100")
+        #expect(sharePage.tracks.first?.artists == ["张韶涵"])
+        #expect(abs((sharePage.tracks.first?.duration ?? 0) - 224.13) < 0.001)
+        #expect(throws: ExternalPlaylistError.notFoundOrPrivate) {
+            try ExternalPlaylistDecoder.kugouSharePage(Data(#"{"errcode":101,"status":0,"error":"签名错误"}"#.utf8))
+        }
+    }
+
+    @Test func sodaPageFromHTML() throws {
+        let html = """
+        <html><script>window.x={"a":1,"qishui_playlist":{"UniqId":"7461037960796833826","keyword":"治愈精神内耗的音乐","music_list":[
+          {"track_id":"7153508211503400962","duration_ms":120047,"name":"备考｜大脑放松 {专注}","artist_name_list":["治愈音乐集"],"album_name":"图书馆"},
+          {"track_id":"2","duration_ms":259000,"name":"禅 \\\"静\\\"","artist_name_list":["心的帮助","身心康复"],"album_name":""}]},"b":2}</script></html>
+        """
+        let page = try ExternalPlaylistDecoder.sodaPlaylistPage(html)
+        #expect(page.name == "治愈精神内耗的音乐")
+        #expect(page.tracks.count == 2)
+        #expect(page.tracks[0].title == "备考｜大脑放松 {专注}")
+        #expect(page.tracks[1].artists == ["心的帮助", "身心康复"])
+        #expect(page.tracks[1].album == nil)
+        #expect(abs((page.tracks[0].duration ?? 0) - 120.047) < 0.001)
+        #expect(throws: ExternalPlaylistError.notFoundOrPrivate) {
+            try ExternalPlaylistDecoder.sodaPlaylistPage("<html>未知歌单</html>")
+        }
+    }
+
+    @Test func spotifyEmbed() throws {
+        let html = """
+        <script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"state":{"data":{"entity":{"name":"Today’s Top Hits","trackList":[
+          {"uri":"spotify:track:2FZ","title":"Bass Persuades","subtitle":"Miley Cyrus, Someone","duration":202460}]}}}}}}</script>
+        """
+        let page = try ExternalPlaylistDecoder.spotifyEmbedPage(html)
+        #expect(page.name == "Today’s Top Hits")
+        #expect(page.tracks.first?.artists == ["Miley Cyrus", "Someone"])
+        #expect(abs((page.tracks.first?.duration ?? 0) - 202.46) < 0.001)
     }
 
     @Test func garbageIsUnexpected() {

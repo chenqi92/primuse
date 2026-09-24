@@ -35,6 +35,16 @@ struct EmbeddedMetadataEdits: Sendable, Equatable {
     let tags: Tags?
     let coverData: Data?
     let lyrics: EmbeddedLyricsEdit
+    /// The text fields the caller actually changed. Only these are written;
+    /// every other tag keeps what the file already holds. A library row can
+    /// lag behind its file (tags not read yet, a reader that missed a field),
+    /// and writing the row's value for an untouched field would replace the
+    /// file's real tag with that gap. `nil` writes every field.
+    var changedFields: Set<TagMetadataWritebackField>? = nil
+
+    func writes(_ field: TagMetadataWritebackField) -> Bool {
+        changedFields?.contains(field) ?? true
+    }
 }
 
 struct EmbeddedMetadataVerification: Sendable, Equatable {
@@ -68,6 +78,12 @@ enum EmbeddedMetadataWriterError: LocalizedError {
 enum EmbeddedMetadataWriter {
     private static let supportedExtensions: Set<String> = ["mp3", "flac", "m4a"]
 
+    /// The text tags a file holds now, read the same way verification reads
+    /// them.
+    static func currentTags(at fileURL: URL) throws -> EmbeddedMetadataVerification {
+        verification(from: try AudioFile(readingPropertiesAndMetadataFrom: fileURL).metadata)
+    }
+
     static func writeAndVerify(
         _ edits: EmbeddedMetadataEdits,
         to fileURL: URL
@@ -80,19 +96,21 @@ enum EmbeddedMetadataWriter {
         let audioFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
         let metadata = audioFile.metadata
         if let tags = edits.tags {
-            metadata.title = tags.title
-            metadata.artist = tags.artist
-            metadata.albumTitle = tags.albumTitle
-            metadata.genre = tags.genre
+            if edits.writes(.title) { metadata.title = tags.title }
+            if edits.writes(.artist) { metadata.artist = tags.artist }
+            if edits.writes(.album) { metadata.albumTitle = tags.albumTitle }
+            if edits.writes(.genre) { metadata.genre = tags.genre }
             // SFBAudioEngine 0.12.1 validates MP3 TDRC values through
             // NSISO8601DateFormatter and silently drops a year-only string.
             // A full ISO-8601 value preserves the editor's year in ID3; FLAC and
             // MP4 accept the intended year-only representation directly.
-            metadata.releaseDate = tags.year.map { year in
-                fileExtension == "mp3" ? String(format: "%04d-01-01T00:00:00Z", year) : String(year)
+            if edits.writes(.year) {
+                metadata.releaseDate = tags.year.map { year in
+                    fileExtension == "mp3" ? String(format: "%04d-01-01T00:00:00Z", year) : String(year)
+                }
             }
-            metadata.trackNumber = tags.trackNumber
-            metadata.discNumber = tags.discNumber
+            if edits.writes(.trackNumber) { metadata.trackNumber = tags.trackNumber }
+            if edits.writes(.discNumber) { metadata.discNumber = tags.discNumber }
         }
 
         // SFBAudioEngine 0.12.1 loads the MP4 grouping item (`©grp`) into
@@ -172,20 +190,34 @@ enum EmbeddedMetadataWriter {
             )
         }
 
-        if fileExtension == "m4a", let tags = edits.tags {
+        if fileExtension == "m4a", let tags = edits.tags, edits.writes(.album) {
             try await rewriteM4AAlbum(tags.albumTitle, at: fileURL)
         }
 
         let verifiedFile = try AudioFile(readingPropertiesAndMetadataFrom: fileURL)
         let verified = verification(from: verifiedFile.metadata)
         if let tags = edits.tags {
-            try require(verified.title == tags.title, field: "title")
-            try require(normalized(verified.artist) == normalized(tags.artist), field: "artist")
-            try require(normalized(verified.albumTitle) == normalized(tags.albumTitle), field: "album")
-            try require(normalized(verified.genre) == normalized(tags.genre), field: "genre")
-            try require(verified.year == tags.year, field: "year")
-            try require(verified.trackNumber == tags.trackNumber, field: "track number")
-            try require(verified.discNumber == tags.discNumber, field: "disc number")
+            if edits.writes(.title) {
+                try require(verified.title == tags.title, field: "title")
+            }
+            if edits.writes(.artist) {
+                try require(normalized(verified.artist) == normalized(tags.artist), field: "artist")
+            }
+            if edits.writes(.album) {
+                try require(normalized(verified.albumTitle) == normalized(tags.albumTitle), field: "album")
+            }
+            if edits.writes(.genre) {
+                try require(normalized(verified.genre) == normalized(tags.genre), field: "genre")
+            }
+            if edits.writes(.year) {
+                try require(verified.year == tags.year, field: "year")
+            }
+            if edits.writes(.trackNumber) {
+                try require(verified.trackNumber == tags.trackNumber, field: "track number")
+            }
+            if edits.writes(.discNumber) {
+                try require(verified.discNumber == tags.discNumber, field: "disc number")
+            }
         }
         if let coverData = edits.coverData {
             try require(verified.coverData == coverData, field: "cover artwork")

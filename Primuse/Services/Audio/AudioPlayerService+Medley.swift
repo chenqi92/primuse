@@ -37,6 +37,18 @@ extension AudioPlayerService {
     /// - Returns: false when none of the songs can be sliced.
     @discardableResult
     func playMedley(_ songs: [Song]) async -> Bool {
+        let slices = medleySlices(for: songs)
+        guard !slices.isEmpty else { return false }
+        installMedley(slices)
+        // `setQueue` keeps a transport that is already playing the selected
+        // song; a medley must restart it on its slice.
+        await play(song: slices[0])
+        return true
+    }
+
+    /// The queue entries a medley of `songs` plays: each song that can be
+    /// sliced, once, carrying its slice as its segment window.
+    func medleySlices(for songs: [Song]) -> [Song] {
         let length = playbackSettings.medleySegmentSeconds
         var seen = Set<String>()
         var slices: [Song] = []
@@ -58,9 +70,14 @@ extension AudioPlayerService {
             slice.duration = segment.length
             slices.append(slice)
         }
-        guard !slices.isEmpty else { return false }
+        return slices
+    }
 
-        plog("🎛️ Medley: \(slices.count) slices of \(length)s")
+    /// Enters medley mode with `slices` as the queue, without starting
+    /// playback.
+    func installMedley(_ slices: [Song]) {
+        guard !slices.isEmpty else { return }
+        plog("🎛️ Medley: \(slices.count) slices of \(playbackSettings.medleySegmentSeconds)s")
         isInstallingMedleyQueue = true
         endMedleyIfNeeded()
         medleySongIDs = Set(slices.map(\.id))
@@ -72,10 +89,6 @@ extension AudioPlayerService {
         if repeatMode == .one { repeatMode = .off }
         setQueue(slices, startAt: 0)
         isInstallingMedleyQueue = false
-        // `setQueue` keeps a transport that is already playing the selected
-        // song; a medley must restart it on its slice.
-        await play(song: slices[0])
-        return true
     }
 
     /// Leaves medley mode. The queue itself is left alone: this runs when a

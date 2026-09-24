@@ -694,6 +694,9 @@ struct EmbeddedMetadataWritebackResult: Sendable, Equatable {
     let fileSHA256: String
     let verification: EmbeddedMetadataVerification
     var filePath: String? = nil
+    /// The file's tags just before this write, read from the working copy.
+    /// Undo restores these, not the library row, which can lag the file.
+    var previousTags: EmbeddedMetadataVerification? = nil
 }
 
 enum EmbeddedMetadataWritebackSourceError: LocalizedError, Equatable {
