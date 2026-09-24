@@ -8,12 +8,13 @@ import SwiftUI
 /// 真实的专辑页与艺术家页：框里按那台设备的安全区（状态栏 + 导航栏、底部遮挡）留出位置，
 /// 上下两条半透明色带标出被导航栏和标签栏 / 迷你条盖住的区域，操作行必须整条落在两条色带之间。
 ///
-/// - `PRIMUSE_EVIDENCE_SET`：`all`（默认，全部一屏排开）/ `album` / `artist` / `ax`（无障碍字号那一组）。
+/// - `PRIMUSE_EVIDENCE_SET`：`all`（默认，全部一屏排开）/ `album` / `artist` / `ax`（无障碍字号那一组）/
+///   `dock`（极简的底部停靠条压在专辑页上：竖屏、两种手机横屏、折叠屏内外屏，看宽视口里的限宽，配合 `PRIMUSE_AUTOPLAY_SONG`）。
 /// - `PRIMUSE_EVIDENCE_ALBUM` / `PRIMUSE_EVIDENCE_ARTIST`：标题片段，默认 evidence / nova。
 struct LibraryDetailEvidenceHost: View {
     @Environment(MusicLibrary.self) private var library
 
-    private enum Page: String { case album, artist }
+    private enum Page: String { case album, artist, dock }
 
     fileprivate struct Viewport {
         let name: String
@@ -24,6 +25,8 @@ struct LibraryDetailEvidenceHost: View {
         let trailing: CGFloat
         /// 底部遮挡：两种外壳里较高的那个（经典的悬浮标签栏 + 附件迷你条，从屏幕底边量起）。
         let bottom: CGFloat
+        /// home 指示条那段底部安全区（停靠条贴在它上面）。
+        var homeIndicator: CGFloat = 34
         var isCompactHeight = false
         var isRegularWidth = false
 
@@ -50,15 +53,16 @@ struct LibraryDetailEvidenceHost: View {
         Viewport(name: "17e", size: CGSize(width: 390, height: 844), statusTop: 47, leading: 0, trailing: 0, bottom: 147),
         Viewport(name: "18 Pro", size: CGSize(width: 402, height: 874), statusTop: 62, leading: 0, trailing: 0, bottom: 147),
         Viewport(name: "Pro Max", size: CGSize(width: 440, height: 956), statusTop: 62, leading: 0, trailing: 0, bottom: 147),
-        Viewport(name: "Duo cover", size: CGSize(width: 466, height: 678), statusTop: 44, leading: 0, trailing: 0, bottom: 139),
+        Viewport(name: "Duo cover", size: CGSize(width: 466, height: 678), statusTop: 44, leading: 0, trailing: 0, bottom: 139,
+                 homeIndicator: 21),
         Viewport(name: "Duo inner", size: CGSize(width: 890, height: 626), statusTop: 24, leading: 0, trailing: 0, bottom: 139,
-                 isRegularWidth: true),
+                 homeIndicator: 20, isRegularWidth: true),
         Viewport(name: "SE land", size: CGSize(width: 667, height: 375), statusTop: 0, leading: 0, trailing: 0, bottom: 120,
-                 isCompactHeight: true),
+                 homeIndicator: 0, isCompactHeight: true),
         Viewport(name: "landscape", size: CGSize(width: 852, height: 393), statusTop: 0, leading: 59, trailing: 59, bottom: 120,
-                 isCompactHeight: true),
+                 homeIndicator: 21, isCompactHeight: true),
         Viewport(name: "Pro Max land", size: CGSize(width: 956, height: 440), statusTop: 0, leading: 62, trailing: 62, bottom: 120,
-                 isCompactHeight: true),
+                 homeIndicator: 21, isCompactHeight: true),
         Viewport(name: "iPad", size: CGSize(width: 820, height: 1180), statusTop: 24, leading: 0, trailing: 0, bottom: 139,
                  isRegularWidth: true),
     ]
@@ -86,6 +90,12 @@ struct LibraryDetailEvidenceHost: View {
             for viewport in axViewports {
                 result.append(Frame(page: .album, viewport: viewport, typeSize: .accessibility1))
                 result.append(Frame(page: .artist, viewport: viewport, typeSize: .accessibility1))
+            }
+        }
+        if set == "dock" {
+            let names = ["18 Pro", "Duo cover", "landscape", "Pro Max land", "Duo inner"]
+            result += names.compactMap { name in
+                Self.viewports.first { $0.name == name }.map { Frame(page: .dock, viewport: $0, typeSize: .large) }
             }
         }
         return result
@@ -141,11 +151,17 @@ struct LibraryDetailEvidenceHost: View {
                     trailing: viewport.trailing
                 ))
                 .frame(width: size.width, height: size.height)
+                .overlay(alignment: .bottom) {
+                    dockOverlay(frame)
+                }
                 .overlay(alignment: .top) {
                     chromeBand(height: viewport.top, color: .cyan)
                 }
                 .overlay(alignment: .bottom) {
-                    chromeBand(height: viewport.bottom, color: .orange)
+                    // 停靠条那一组要看的是条子本身,不画经典外壳的底部遮挡色带。
+                    if frame.page != .dock {
+                        chromeBand(height: viewport.bottom, color: .orange)
+                    }
                 }
                 .clipped()
                 .scaleEffect(scale, anchor: .topLeading)
@@ -159,6 +175,21 @@ struct LibraryDetailEvidenceHost: View {
         switch frame.page {
         case .album: AlbumDetailView(album: album)
         case .artist: ArtistDetailView(artist: artist)
+        case .dock: AlbumDetailView(album: album)
+        }
+    }
+
+    /// 停靠条在外壳里是贴着 home 指示条、左右安全区以内的一层浮层,这里照同样的位置叠在框上。
+    @ViewBuilder
+    private func dockOverlay(_ frame: Frame) -> some View {
+        if frame.page == .dock {
+            let viewport = frame.viewport
+            DockedPlayerBar(onTap: {}, onOpenQueue: {})
+                .environment(\.verticalSizeClass, viewport.isCompactHeight ? .compact : .regular)
+                .environment(\.horizontalSizeClass, viewport.isRegularWidth ? .regular : .compact)
+                .padding(.leading, viewport.leading)
+                .padding(.trailing, viewport.trailing)
+                .padding(.bottom, viewport.homeIndicator)
         }
     }
 

@@ -7,6 +7,8 @@ import SwiftUI
 /// 功能契约与其它播放条一致 —— 点按打开播放页、左右滑切歌、无障碍动作都来自共用的
 /// `MiniPlayerSwipeContent`,播放键沿用悬浮胶囊那颗(加载圈与播放键之间淡入淡出);
 /// 这里只负责画法:左右内缩的圆角条,顶沿一条进度细线,右侧是播放键和队列键。
+/// 手机横屏与折叠屏内屏这类宽视口里最宽 560、居中(`DockedPlayerBarLayoutPolicy`),
+/// 进度线、点击热区与滑动切歌都在条子里,跟着一起收窄;竖屏 iPhone 仍铺满整行。
 struct DockedPlayerBar: View {
     var onTap: () -> Void
     var onOpenQueue: () -> Void
@@ -62,9 +64,11 @@ struct DockedPlayerBar: View {
             radius: skin.rawMetric(.shadowRadius) * 0.75,
             y: 6
         )
-        .padding(.horizontal, 12)
+        .frame(maxWidth: CGFloat(DockedPlayerBarLayoutPolicy.maximumWidth))
+        .padding(.horizontal, CGFloat(DockedPlayerBarLayoutPolicy.horizontalInset))
         .padding(.top, isCompactHeight ? 4 : 6)
         .padding(.bottom, isCompactHeight ? 4 : 8)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
