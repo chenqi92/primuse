@@ -171,7 +171,13 @@ final class LibraryRemovalVisibleCacheTests: XCTestCase {
         // 另一个源不受影响。
         XCTAssertEqual(library.visibleSongCount(forSourceID: "source-b"), 1)
         XCTAssertNotNil(library.visibleSong(id: kept.id))
-        XCTAssertEqual(library.rawSongIDs(forPlaylist: playlistID), [kept.id])
+        // 移除音乐源不会把歌从手动歌单里删掉：原位换成置灰占位，歌回来时再点亮；
+        // 另一个源的歌原位不动。（用户亲手删歌仍直接移出歌单，见上面的 deleteSong 用例。）
+        let members = library.rawSongIDs(forPlaylist: playlistID)
+        XCTAssertEqual(members.count, 3)
+        XCTAssertTrue(members.prefix(2).allSatisfy(PlaylistPendingEntry.isPendingID))
+        XCTAssertEqual(members.last, kept.id)
+        XCTAssertEqual(library.pendingEntryCount(forPlaylist: playlistID), 2)
         XCTAssertFalse(library.recentPlaybackSongIDsForSync.contains(removedFirst.id))
     }
 
