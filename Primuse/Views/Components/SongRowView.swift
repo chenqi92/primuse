@@ -482,13 +482,16 @@ struct SongRowView: View {
                             if song.isStandaloneMusicVideo || unreachable { Text("·") }
                             Text(artist)
                         }
+                        // 隐去艺术家名时,排在最前面的那一项不带分隔点。
+                        let hasBadgePrefix = song.isStandaloneMusicVideo || unreachable
+                        let showsAlbumText = showAlbum && !showsAlbumColumn && song.albumTitle != nil
                         if showAlbum, !showsAlbumColumn, let album = song.albumTitle {
-                            Text("·")
+                            if !hidesArtist || hasBadgePrefix { Text("·") }
                             Text(album)
                         }
                         // 独立 MV 时长可能尚未回填, 不显示 0:00
                         if !showsDurationColumn, song.duration > 0 {
-                            Text("·")
+                            if !hidesArtist || hasBadgePrefix || showsAlbumText { Text("·") }
                             Text(formatDuration(song.duration))
                                 .monospacedDigit()
                         }

@@ -190,18 +190,14 @@ enum MinimalNavigationChromePolicy {
     }
 }
 
-private struct AppNavigationModeEnvironmentKey: EnvironmentKey {
-    static let defaultValue = AppNavigationMode.standard
-}
-
 /// 叠加式 mini player 是否正在占住底部。只有这种情况下列表才需要自己让位；
 /// 系统 accessory / safeAreaInset 面板 / safeAreaBar 都已经计入安全区。
 private struct LegacyBottomChromeOverlayActiveEnvironmentKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-/// 极简基座:页面按经典的方式带系统导航栏,底部换成极简底栏。只有外壳与根页/详情页
-/// 两个修饰符读它;页面本身看到的 `appNavigationMode` 一律是 `.standard`。
+/// 极简基座:页面按经典的方式带系统导航栏,底部换成极简底栏。外壳与根页/详情页两个修饰符读它
+/// (页面里只有底部让位用到它);页面自己的样式差异走界面皮肤的插槽,不看它。
 private struct UsesMinimalDockEnvironmentKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -248,11 +244,6 @@ extension EnvironmentValues {
     fileprivate var minimalNavigationBars: MinimalNavigationBars? {
         get { self[MinimalNavigationBarsEnvironmentKey.self] }
         set { self[MinimalNavigationBarsEnvironmentKey.self] = newValue }
-    }
-
-    var appNavigationMode: AppNavigationMode {
-        get { self[AppNavigationModeEnvironmentKey.self] }
-        set { self[AppNavigationModeEnvironmentKey.self] = newValue }
     }
 
     var usesMinimalDock: Bool {
@@ -445,9 +436,12 @@ private struct MinimalNavigationRootModifier: ViewModifier {
 private struct MinimalSettingsToolbarButtonModifier: ViewModifier {
     @Environment(\.minimalOpenSettings) private var openSettings
 
+    // 经典基座下连空的工具栏都不挂:只有外壳注入了打开设置的动作(极简基座)才加这颗齿轮。
+    // 外壳换基座时整棵树本来就会重建,这里分支不会额外丢状态。
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content.toolbar {
-            if let openSettings {
+        if let openSettings {
+            content.toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: openSettings) {
                         Image(systemName: "gearshape")
@@ -456,6 +450,8 @@ private struct MinimalSettingsToolbarButtonModifier: ViewModifier {
                     .accessibilityIdentifier("minimal.settings")
                 }
             }
+        } else {
+            content
         }
     }
 }
@@ -1247,7 +1243,6 @@ struct ContentView: View {
         }
         .environment(\.librarySearchNavigation, searchNavigation)
         // 极简基座下页面也走经典的导航方式(系统导航栏、工具栏、搜索框),差别只在外壳。
-        .environment(\.appNavigationMode, .standard)
         .environment(\.usesMinimalDock, navigationMode == .minimal)
         .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
         .onPreferenceChange(CarPlayEditorActivePreferenceKey.self) { carPlayEditorActive = $0 }
