@@ -540,14 +540,35 @@ struct HomeView: View {
     /// 都手动切一次。
     @AppStorage("primuse.home.mode") private var homeModeRawValue = HomeMode.music.rawValue
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
+    #if os(iOS)
+    @Environment(\.usesTopTabsShell) private var usesTopTabsShell
+    #endif
     @State private var showRadioBatchAdd = false
     @State private var isHomeVisible = false
     /// 文件夹的钉选管理原本挂在设置那张列表上，那张列表已被界面编辑取代，
     /// 入口跟着搬到文件夹这一块的操作条里，免得整个功能没了去处。
     @State private var showsFolderManager = false
 
+    /// 顶部 tab 外壳里首页上面没有大标题,头图直接顶着 tab 条,留一点空。编辑态不在那个外壳里。
+    private var topTabsContentInset: CGFloat {
+        #if os(iOS)
+        usesTopTabsShell && !editorMode ? 12 : 0
+        #else
+        0
+        #endif
+    }
+
+    /// 首页有没有「翻到电台」这一面。顶部 tab 外壳里电台是一个 tab,首页只剩音乐面。
+    private var showsRadioFace: Bool {
+        #if os(iOS)
+        showRadioOnHome && !usesTopTabsShell
+        #else
+        showRadioOnHome
+        #endif
+    }
+
     private var homeMode: HomeMode {
-        guard showRadioOnHome else { return .music }
+        guard showsRadioFace else { return .music }
         return HomeMode(rawValue: homeModeRawValue) ?? .music
     }
 
@@ -577,6 +598,7 @@ struct HomeView: View {
                         .transition(homeFaceTransition)
                 }
             }
+            .padding(.top, topTabsContentInset)
             .padding(.bottom, bottomChromeClearance)
             .pmAnimation(.contentAppear, value: model.isPrepared)
         }
@@ -663,11 +685,10 @@ struct HomeView: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             #if os(iOS)
             .minimalNavigationRoot()
-            .minimalSettingsToolbarButton()
             #endif
             .toolbar {
                 #if os(iOS)
-                if showRadioOnHome {
+                if showsRadioFace {
                     if #available(iOS 26.0, *) {
                         ToolbarItem(placement: .topBarTrailing) {
                             modeToggleButton
@@ -680,7 +701,7 @@ struct HomeView: View {
                     }
                 }
                 #else
-                if showRadioOnHome {
+                if showsRadioFace {
                     ToolbarItem(placement: .primaryAction) {
                         modeToggleButton
                     }
@@ -895,7 +916,9 @@ struct HomeView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 20)
-                homeEditorRadioToggle
+                if showsRadioToggleInEditor {
+                    homeEditorRadioToggle
+                }
             } else if model.snapshot.hasContent {
                 libraryHeroSection
             }
@@ -1016,6 +1039,15 @@ struct HomeView: View {
             : homeLayout.rowCount(for: section) + 1
         configuration.setRowCount(next, for: section)
         homeSectionLayoutRawValue = configuration.encoded()
+    }
+
+    /// 顶部 tab 外壳没有首页翻面,这个开关在那里没有意义。
+    private var showsRadioToggleInEditor: Bool {
+        #if os(iOS)
+        !usesTopTabsShell
+        #else
+        true
+        #endif
     }
 
     /// 电台是首页的另一面（右上角切换），不参与区块排序，但用户在这里就想
@@ -1433,7 +1465,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private func homeFaceHeader(_ mode: HomeMode, onDarkSurface: Bool = false) -> some View {
-        if showRadioOnHome {
+        if showsRadioFace {
             HStack(spacing: 12) {
                 Text(String(localized: mode.faceTitleKey))
                     .font(.caption.weight(.semibold))

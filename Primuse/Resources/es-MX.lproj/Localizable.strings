@@ -4267,7 +4267,7 @@
 /* 2.0 详情页 */
 "album_more_from_artist_format" = "Más de %@";
 "library_remove_quick_access" = "Quitar de Acceso Rápido";
-"minimal_dock_destinations_hint" = "Mantén presionado para ir a cualquier página";
+"minimal_utility_back" = "Atrás";
 "search_browse_genres" = "Explorar por género";
 "search_browse_genre_hint" = "Buscar en este género";
 "search_top_result" = "Mejor resultado";

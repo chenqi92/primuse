@@ -327,7 +327,7 @@ struct HomeFolderBrowser: View {
     var usesInlineControls = false
     var showsInlineBack = false
     #if os(iOS)
-    @Environment(\.usesMinimalDock) private var usesMinimalDock
+    @Environment(\.usesTopTabsShell) private var usesTopTabsShell
     @Environment(\.editMode) private var editMode
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
@@ -386,7 +386,7 @@ struct HomeFolderBrowser: View {
 
     private var legacyBottomClearance: CGFloat {
         #if os(iOS)
-        usesMinimalDock
+        usesTopTabsShell
             ? 0
             : BottomChromeClearancePolicy.clearance(
                 legacyOverlayActive: legacyBottomChromeOverlayActive,
@@ -556,6 +556,22 @@ struct HomeFolderBrowser: View {
             }
             if node == nil, !usesInlineControls {
                 ToolbarItem(placement: .primaryAction) { EditButton() }
+            }
+        }
+        // 顶部 tab 外壳里文件夹总览是根页:编辑键交给 tab 条。那里读不到这一页的 editMode,
+        // 所以不用 EditButton,按值带着绑定过去。
+        .minimalRootActions {
+            if node == nil, !usesInlineControls, let editMode {
+                let isEditing = editMode.wrappedValue.isEditing
+                Button {
+                    withAnimation {
+                        editMode.wrappedValue = isEditing ? .inactive : .active
+                    }
+                } label: {
+                    Text(isEditing ? "done" : "edit")
+                        .font(.body.weight(isEditing ? .semibold : .regular))
+                }
+                .accessibilityIdentifier("folders.edit")
             }
         }
         #endif

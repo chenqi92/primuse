@@ -4267,7 +4267,7 @@
 /* 2.0 详情页 */
 "album_more_from_artist_format" = "المزيد من %@";
 "library_remove_quick_access" = "إزالة من الوصول السريع";
-"minimal_dock_destinations_hint" = "المس مطولًا للانتقال إلى أي صفحة";
+"minimal_utility_back" = "رجوع";
 "search_browse_genres" = "تصفّح حسب النوع";
 "search_browse_genre_hint" = "البحث ضمن هذا النوع";
 "search_top_result" = "أفضل نتيجة";

@@ -78,6 +78,9 @@ struct LyricsSettingsView: View {
             Section {
                 NavigationLink {
                     GoogleLyricsTranscriptionSettingsView()
+                        #if os(iOS)
+                        .minimalNavigationDetail()
+                        #endif
                 } label: {
                     LabeledContent {
                         Text(intelligence.isAudioTranscriptionConfigured

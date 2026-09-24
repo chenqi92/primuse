@@ -4267,7 +4267,7 @@
 /* 2.0 详情页 */
 "album_more_from_artist_format" = "%@ tarafından daha fazlası";
 "library_remove_quick_access" = "Hızlı erişimden kaldır";
-"minimal_dock_destinations_hint" = "Herhangi bir sayfaya gitmek için basılı tutun";
+"minimal_utility_back" = "Geri";
 "search_browse_genres" = "Türe göre göz at";
 "search_browse_genre_hint" = "Bu türde ara";
 "search_top_result" = "En iyi sonuç";

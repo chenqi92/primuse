@@ -446,6 +446,10 @@ struct SearchView: View {
     @Environment(\.skin) private var skin
     /// 手机横屏时结果区只剩两百多点, 范围卡片与专辑架都要收一档。
     @Environment(\.pmHeightClass) private var heightClass
+    #if os(iOS)
+    /// 顶部 tab 外壳里搜索是从右上角推进来的一页:左上角要放返回键,标题改成导航栏下面的大标题。
+    @Environment(\.usesTopTabsShell) private var usesTopTabsShell
+    #endif
     @Binding var searchText: String
     @Binding private var scope: LibrarySearchScope?
     /// 用户刚点了搜索入口(底部标签 / iPad 侧栏)。消费掉就置回 false,
@@ -714,7 +718,11 @@ struct SearchView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(Text("search_title"))
+        #if os(iOS)
+        .toolbarTitleDisplayMode(usesTopTabsShell ? .large : .inlineLarge)
+        #else
         .toolbarTitleDisplayMode(.inlineLarge)
+        #endif
         #if os(iOS)
         .minimalNavigationRoot()
         .toolbar {

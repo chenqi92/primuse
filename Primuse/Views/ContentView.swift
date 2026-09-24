@@ -32,13 +32,16 @@ enum AppNavigationLayoutPolicy {
     /// (iPhone Duo 内外屏)和大屏机型横竖屏来回翻转，整棵根视图在侧边栏和
     /// 标签栏之间互换会把各页已经推进去的详情页全部清掉；TabView 自己就能
     /// 适配这些形态，所以 iPhone 始终留在标签栏。
+    ///
+    /// 顶部 tab 外壳只为手机宽度设计:iPad 常规宽度下不论哪套皮肤都是侧边栏,
+    /// 分屏窄窗口(紧凑宽度)才用顶部 tab。
     static func rootLayout(
         mode: AppNavigationMode,
         usesRegularWidth: Bool,
         allowsSidebar: Bool
     ) -> AppNavigationRootLayout {
-        if mode == .minimal { return .minimal }
-        return usesRegularWidth && allowsSidebar ? .standardSidebar : .standardTabs
+        if usesRegularWidth && allowsSidebar { return .standardSidebar }
+        return mode == .minimal ? .minimal : .standardTabs
     }
 }
 
@@ -69,6 +72,7 @@ enum AppNavigationChromePolicy {
     }
 }
 
+/// 顶部 tab 外壳里的页面:tab 条上的首页与资料库各分类,以及从右上角进去的搜索和设置。
 enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
     case home
     case librarySection(LibrarySection)
@@ -83,65 +87,94 @@ enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
         case .settings: return "settings"
         }
     }
-}
 
-enum MinimalNavigationPolicy {
-    /// 自绘顶栏里要不要带「首页」这一项。默认带:首页上的继续听、为你推荐、排行这些内容,
-    /// 不该因为换了导航方式就再也进不去;只想留资料库分类的人可以关掉它。
-    static let showsHomeKey = "primuse.navigation.minimal.showsHome.v1"
-    static let showsHomeByDefault = true
-
-    /// 资料库的落脚页:顶栏左上角那颗资料库按钮去的地方,也是没有首页时的起始页。
-    static func homePage(visibleSections: [LibrarySection]) -> MinimalNavigationPage {
-        visibleSections.first.map(MinimalNavigationPage.librarySection) ?? .search
-    }
-
-    static func libraryPages(visibleSections: [LibrarySection]) -> [MinimalNavigationPage] {
-        visibleSections.map(MinimalNavigationPage.librarySection)
-    }
-
-    /// 顶栏分类行里的全部项:首页(如果显示)在最前,后面是资料库分类。
-    static func chipPages(
-        visibleSections: [LibrarySection],
-        showsHome: Bool
-    ) -> [MinimalNavigationPage] {
-        (showsHome ? [MinimalNavigationPage.home] : []) + libraryPages(visibleSections: visibleSections)
-    }
-
-    /// 启动或切到自绘顶栏时,当前停着的标签页要不要改落到资料库的落脚页。
-    ///
-    /// 首页标签只有在顶栏带「首页」时才留得住;资料库标签还没定下分类时也要落过去。
-    /// 已经在用自绘顶栏的人此前从不会停在首页标签上,所以他们的起始页不受影响。
-    static func redirectsToLibraryHome(
-        selectedTab: Int,
-        activeLibrarySection: LibrarySection?,
-        showsHome: Bool
-    ) -> Bool {
-        switch selectedTab {
-        case 0: return !showsHome
-        case 1: return activeLibrarySection == nil
-        default: return false
+    init?(id: String) {
+        switch id {
+        case "home": self = .home
+        case "search": self = .search
+        case "settings": self = .settings
+        default:
+            guard id.hasPrefix("library:"),
+                  let section = LibrarySection(rawValue: String(id.dropFirst("library:".count))) else {
+                return nil
+            }
+            self = .librarySection(section)
         }
     }
 
-    static func selectedPage(
-        selectedTab: Int,
-        activeLibrarySection: LibrarySection?,
+    /// tab 条上的项目;搜索和设置是从右上角推进去的,不在 tab 条上。
+    var isTopTab: Bool {
+        switch self {
+        case .home, .librarySection: return true
+        case .search, .settings: return false
+        }
+    }
+
+    var localizedTitle: String {
+        switch self {
+        case .home: return String(localized: "home_title")
+        case .librarySection(let section): return section.localizedTitle
+        case .search: return String(localized: "search_title")
+        case .settings: return String(localized: "settings_title")
+        }
+    }
+}
+
+enum MinimalNavigationPolicy {
+    /// tab 条里要不要带「首页」这一项。默认带:首页上的继续听、为你推荐、排行这些内容,
+    /// 不该因为换了导航方式就再也进不去;只想留资料库分类的人可以关掉它。
+    static let showsHomeKey = "primuse.navigation.minimal.showsHome.v1"
+    static let showsHomeByDefault = true
+    /// 上次停在哪个 tab。
+    static let selectedPageKey = "primuse.navigation.minimal.page.v1"
+
+    /// tab 条上的全部项:首页(如果显示)在最前,后面按资料库设置里的顺序列出可见分类。
+    /// 电台没设为可见时追加在末尾 —— 极简没有首页翻面,电台只能从这里进。
+    static func topTabPages(
         visibleSections: [LibrarySection],
-        showsHome: Bool = false
-    ) -> MinimalNavigationPage {
-        let libraryHomePage = Self.homePage(visibleSections: visibleSections)
-        let homePage = showsHome ? MinimalNavigationPage.home : libraryHomePage
-        switch selectedTab {
-        case 0: return homePage
-        case 1:
-            guard let activeLibrarySection, visibleSections.contains(activeLibrarySection) else {
-                return libraryHomePage
+        showsHome: Bool
+    ) -> [MinimalNavigationPage] {
+        var sections = visibleSections
+        if !sections.contains(.radio) {
+            sections.append(.radio)
+        }
+        return (showsHome ? [MinimalNavigationPage.home] : [])
+            + sections.map(MinimalNavigationPage.librarySection)
+    }
+
+    /// 深链落到哪一个 tab,以及要不要把深链交给那一页的导航栈。
+    ///
+    /// 分类本身在 tab 条上时直接切过去;专辑、艺术家、歌单、歌曲落到对应分类的 tab 并推入详情。
+    /// 对应分类被隐藏时推在当前的资料库 tab 上(当前是首页就用第一个资料库 tab)。
+    static func deepLinkRoute(
+        for link: LibraryDeepLink,
+        pages: [MinimalNavigationPage],
+        current: MinimalNavigationPage?
+    ) -> (page: MinimalNavigationPage, link: LibraryDeepLink?)? {
+        let libraryPages = pages.filter {
+            if case .librarySection = $0 { return true }
+            return false
+        }
+        let fallback: MinimalNavigationPage?
+        if let current, libraryPages.contains(current) {
+            fallback = current
+        } else {
+            fallback = libraryPages.first
+        }
+
+        switch link {
+        case .root:
+            return libraryPages.first.map { ($0, nil) }
+        case .section(let section):
+            let page = MinimalNavigationPage.librarySection(section)
+            if pages.contains(page) { return (page, nil) }
+            return fallback.map { ($0, link) }
+        case .album, .artist, .playlist, .song:
+            if let section = section(for: link) {
+                let page = MinimalNavigationPage.librarySection(section)
+                if pages.contains(page) { return (page, link) }
             }
-            return .librarySection(activeLibrarySection)
-        case 2: return .search
-        case 3: return .settings
-        default: return homePage
+            return fallback.map { ($0, link) }
         }
     }
 
@@ -157,37 +190,23 @@ enum MinimalNavigationPolicy {
     }
 }
 
-enum MinimalNavigationDetailScope: Hashable, Sendable {
-    case home
-    case library
-    case search
-    case settings
-
-    init?(selectedTab: Int) {
-        switch selectedTab {
-        case 0: self = .home
-        case 1: self = .library
-        case 2: self = .search
-        case 3: self = .settings
-        default: return nil
-        }
-    }
+/// 交给某一个 tab 页导航栈的深链(专辑、艺术家、歌单、歌曲定位)。
+struct MinimalDeepLinkRequest: Equatable {
+    let page: MinimalNavigationPage
+    let link: LibraryDeepLink
 }
 
-enum MinimalNavigationChromePolicy {
-    static func hidesTopNavigation(
-        mode: AppNavigationMode,
-        selectedTab: Int,
-        detailScopes: Set<MinimalNavigationDetailScope>,
-        returningScopes: Set<MinimalNavigationDetailScope> = []
-    ) -> Bool {
-        guard mode == .minimal,
-              let selectedScope = MinimalNavigationDetailScope(selectedTab: selectedTab) else {
-            return false
-        }
-        return detailScopes.contains(selectedScope)
-            && !returningScopes.contains(selectedScope)
-    }
+/// 顶部 tab 外壳交给各根页的几样东西。
+struct TopTabsShellContext {
+    /// tab 条那一行的高度。根页在顶部留出同样高度的空白,内容才不会被 tab 条压住。
+    var chromeHeight: CGFloat
+    /// 底部停靠条(连同它的外边距)此刻占的高度,不显示时为 0。各页在底部留出同样的空白:
+    /// 停靠条浮在整个外壳上,挂在外壳上的安全区传不进 TabView 里的页面。
+    var bottomBarHeight: CGFloat
+    /// 正在编辑(多选、整理)的根页:这时 tab 条收起,系统导航栏回到这一页。
+    var revealedRootPages: Set<MinimalNavigationPage>
+    /// 从搜索 / 设置回到 tab 页。
+    var closeUtility: @MainActor () -> Void
 }
 
 /// 叠加式 mini player 是否正在占住底部。只有这种情况下列表才需要自己让位；
@@ -196,64 +215,50 @@ private struct LegacyBottomChromeOverlayActiveEnvironmentKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-/// 极简基座:页面按经典的方式带系统导航栏,底部换成极简底栏。外壳与根页/详情页两个修饰符读它
-/// (页面里只有底部让位用到它);页面自己的样式差异走界面皮肤的插槽,不看它。
-private struct UsesMinimalDockEnvironmentKey: EnvironmentKey {
+/// 当前外壳是极简的顶部 tab 外壳(`NavigationHeader.topTabs`)。外壳与根页 / 详情页两个修饰符读它,
+/// 页面里只有底部让位与首页翻面用到它;页面自己的样式差异走界面皮肤的插槽,不看它。
+private struct UsesTopTabsShellEnvironmentKey: EnvironmentKey {
     static let defaultValue = false
 }
 
-/// 极简基座没有「设置」标签,首页与资料库的根页在右上角放一颗齿轮,点它走这里。
-private struct MinimalOpenSettingsEnvironmentKey: EnvironmentKey {
-    static let defaultValue: (@MainActor () -> Void)? = nil
-}
-
+/// 页面属于顶部 tab 外壳的哪一页(详情页登记与根页动作都按它分开)。
 private struct MinimalNavigationDetailScopeEnvironmentKey: EnvironmentKey {
-    static let defaultValue: MinimalNavigationDetailScope? = nil
+    static let defaultValue: MinimalNavigationPage? = nil
 }
 
-private struct MinimalNavigationBars {
-    let top: AnyView
-    let bottom: AnyView
-}
-
-private struct MinimalNavigationBarsEnvironmentKey: EnvironmentKey {
-    static var defaultValue: MinimalNavigationBars? { nil }
+private struct TopTabsShellContextEnvironmentKey: EnvironmentKey {
+    static var defaultValue: TopTabsShellContext? { nil }
 }
 
 private struct MinimalNavigationDetailTransitionHandlerEnvironmentKey: EnvironmentKey {
     static let defaultValue:
         (@MainActor (
             UUID,
-            MinimalNavigationDetailScope,
+            MinimalNavigationPage,
             MinimalNavigationDetailTransitionEvent
         ) -> Void)? = nil
 }
 
 private struct MinimalNavigationDetailScopesPreferenceKey: PreferenceKey {
-    static let defaultValue: Set<MinimalNavigationDetailScope> = []
+    static let defaultValue: Set<MinimalNavigationPage> = []
 
     static func reduce(
-        value: inout Set<MinimalNavigationDetailScope>,
-        nextValue: () -> Set<MinimalNavigationDetailScope>
+        value: inout Set<MinimalNavigationPage>,
+        nextValue: () -> Set<MinimalNavigationPage>
     ) {
         value.formUnion(nextValue())
     }
 }
 
 extension EnvironmentValues {
-    fileprivate var minimalNavigationBars: MinimalNavigationBars? {
-        get { self[MinimalNavigationBarsEnvironmentKey.self] }
-        set { self[MinimalNavigationBarsEnvironmentKey.self] = newValue }
+    var usesTopTabsShell: Bool {
+        get { self[UsesTopTabsShellEnvironmentKey.self] }
+        set { self[UsesTopTabsShellEnvironmentKey.self] = newValue }
     }
 
-    var usesMinimalDock: Bool {
-        get { self[UsesMinimalDockEnvironmentKey.self] }
-        set { self[UsesMinimalDockEnvironmentKey.self] = newValue }
-    }
-
-    var minimalOpenSettings: (@MainActor () -> Void)? {
-        get { self[MinimalOpenSettingsEnvironmentKey.self] }
-        set { self[MinimalOpenSettingsEnvironmentKey.self] = newValue }
+    fileprivate var topTabsShellContext: TopTabsShellContext? {
+        get { self[TopTabsShellContextEnvironmentKey.self] }
+        set { self[TopTabsShellContextEnvironmentKey.self] = newValue }
     }
 
     var legacyBottomChromeOverlayActive: Bool {
@@ -261,7 +266,7 @@ extension EnvironmentValues {
         set { self[LegacyBottomChromeOverlayActiveEnvironmentKey.self] = newValue }
     }
 
-    var minimalNavigationDetailScope: MinimalNavigationDetailScope? {
+    var minimalNavigationDetailScope: MinimalNavigationPage? {
         get { self[MinimalNavigationDetailScopeEnvironmentKey.self] }
         set { self[MinimalNavigationDetailScopeEnvironmentKey.self] = newValue }
     }
@@ -269,7 +274,7 @@ extension EnvironmentValues {
     var minimalNavigationDetailTransitionHandler:
         (@MainActor (
             UUID,
-            MinimalNavigationDetailScope,
+            MinimalNavigationPage,
             MinimalNavigationDetailTransitionEvent
         ) -> Void)? {
         get { self[MinimalNavigationDetailTransitionHandlerEnvironmentKey.self] }
@@ -402,53 +407,57 @@ extension View {
         modifier(MinimalNavigationRootModifier())
     }
 
-    /// 极简基座没有设置标签:首页与资料库的根页右上角放一颗齿轮。经典基座下什么都不加。
-    func minimalSettingsToolbarButton() -> some View {
-        modifier(MinimalSettingsToolbarButtonModifier())
-    }
-
     func minimalNavigationDetail(isDetail: Bool = true) -> some View {
         modifier(MinimalNavigationDetailModifier(isDetail: isDetail))
     }
 }
 
+/// 顶部 tab 外壳里每个根页都经过这里。
+///
+/// tab 页:不显示系统导航栏(tab 条就是标题),顶部留出 tab 条的高度;编辑态时把导航栏还给页面。
+/// 搜索与设置:它们是从右上角推进去的,保留系统导航栏,左上角加一颗返回键。
+/// 经典外壳下什么都不做。
 private struct MinimalNavigationRootModifier: ViewModifier {
-    @Environment(\.usesMinimalDock) private var usesMinimalDock
-    @Environment(\.minimalNavigationBars) private var bars
+    @Environment(\.usesTopTabsShell) private var usesTopTabsShell
+    @Environment(\.minimalNavigationDetailScope) private var scope
+    @Environment(\.topTabsShellContext) private var shell
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if usesMinimalDock {
-            // 极简基座的根页保留系统导航栏(大标题、工具栏按钮、搜索框都在),
-            // 只把底部换成极简底栏。
-            content
-                // Empty states have an intrinsic height; bars need the full page bounds.
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // 每个根页面都经过这里,样式自己的页面底色在这一处挂上,不必逐页去改。
-                .skinPageBackground()
-                .minimalSafeAreaBar(edge: .bottom) { bars?.bottom }
-        } else {
-            content
-        }
-    }
-}
-
-private struct MinimalSettingsToolbarButtonModifier: ViewModifier {
-    @Environment(\.minimalOpenSettings) private var openSettings
-
-    // 经典基座下连空的工具栏都不挂:只有外壳注入了打开设置的动作(极简基座)才加这颗齿轮。
-    // 外壳换基座时整棵树本来就会重建,这里分支不会额外丢状态。
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if let openSettings {
-            content.toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: openSettings) {
-                        Image(systemName: "gearshape")
+        if usesTopTabsShell, let scope, let shell {
+            if scope.isTopTab {
+                let revealsNavigationBar = shell.revealedRootPages.contains(scope)
+                content
+                    // Empty states have an intrinsic height; bars need the full page bounds.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // 每个根页面都经过这里,样式自己的页面底色在这一处挂上,不必逐页去改。
+                    .skinPageBackground()
+                    .environment(\.minimalRootActionsPage, scope)
+                    .toolbar(revealsNavigationBar ? .visible : .hidden, for: .navigationBar)
+                    .minimalSafeAreaBar(edge: .top) {
+                        Color.clear.frame(height: revealsNavigationBar ? 0 : shell.chromeHeight)
                     }
-                    .accessibilityLabel(Text("settings_title"))
-                    .accessibilityIdentifier("minimal.settings")
-                }
+                    .minimalSafeAreaBar(edge: .bottom) {
+                        Color.clear.frame(height: shell.bottomBarHeight)
+                    }
+            } else {
+                let close = shell.closeUtility
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .skinPageBackground()
+                    .minimalSafeAreaBar(edge: .bottom) {
+                        Color.clear.frame(height: shell.bottomBarHeight)
+                    }
+                    // 返回键的动作按值带进工具栏:工具栏条目跑在自己的视图图里,不读环境。
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(action: close) {
+                                Image(systemName: "chevron.backward")
+                            }
+                            .accessibilityLabel(Text("minimal_utility_back"))
+                            .accessibilityIdentifier("topTabs.utilityBack")
+                        }
+                    }
             }
         } else {
             content
@@ -458,18 +467,20 @@ private struct MinimalSettingsToolbarButtonModifier: ViewModifier {
 
 private struct MinimalNavigationDetailModifier: ViewModifier {
     let isDetail: Bool
-    @Environment(\.usesMinimalDock) private var usesMinimalDock
+    @Environment(\.usesTopTabsShell) private var usesTopTabsShell
     @Environment(\.minimalNavigationDetailScope) private var detailScope
     @Environment(\.minimalNavigationDetailTransitionHandler) private var transitionHandler
-    @Environment(\.minimalNavigationBars) private var bars
+    @Environment(\.topTabsShellContext) private var shell
     @State private var transitionID = UUID()
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if isDetail, usesMinimalDock, let detailScope {
+        if isDetail, usesTopTabsShell, let detailScope {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .skinPageBackground()
+                // 详情页里的列表页(比如推入的歌曲页)不能再把按钮交给 tab 条。
+                .environment(\.minimalRootActionsPage, nil)
                 .preference(
                     key: MinimalNavigationDetailScopesPreferenceKey.self,
                     value: Set([detailScope])
@@ -482,7 +493,9 @@ private struct MinimalNavigationDetailModifier: ViewModifier {
                 }
                 .toolbar(.visible, for: .navigationBar)
                 .navigationBarBackButtonHidden(false)
-                .minimalSafeAreaBar(edge: .bottom) { bars?.bottom }
+                .minimalSafeAreaBar(edge: .bottom) {
+                    Color.clear.frame(height: shell?.bottomBarHeight ?? 0)
+                }
         } else {
             content
         }
@@ -819,9 +832,22 @@ struct ContentView: View {
     @State private var pendingPlaybackRemovalIDs: Set<String> = []
     @State private var isReconcilingPlaybackRemovals = false
     @State private var libraryDeepLink: LibraryDeepLink?
-    @State private var minimalLibrarySection: LibrarySection?
+    // 顶部 tab 外壳(极简)的状态。
+    @AppStorage(MinimalNavigationPolicy.showsHomeKey)
+    private var minimalShowsHome = MinimalNavigationPolicy.showsHomeByDefault
+    @AppStorage(MinimalNavigationPolicy.selectedPageKey) private var minimalSelectedPageID = ""
+    @State private var topTabSlots = TopTabSlotAllocator<MinimalNavigationPage>()
+    /// 盖在 tab 页上的搜索或设置。
+    @State private var minimalUtilityPage: MinimalNavigationPage?
+    @State private var minimalUtilityDragOffset: CGFloat = 0
+    @State private var minimalDeepLink: MinimalDeepLinkRequest?
+    @State private var minimalEditingPages: Set<MinimalNavigationPage> = []
+    /// 键盘弹出时停靠条让开,否则它会跟着键盘升起,盖住同样贴着键盘的搜索框。
+    @State private var minimalKeyboardVisible = false
+    /// 底部停靠条此刻的高度(含外边距),各页据此在底部留白。
+    @State private var minimalDockedBarHeight: CGFloat = 0
     @State private var minimalDetailLedger =
-        MinimalNavigationDetailLedger<MinimalNavigationDetailScope>()
+        MinimalNavigationDetailLedger<MinimalNavigationPage>()
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
@@ -904,20 +930,12 @@ struct ContentView: View {
                     openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
                 )
                     .id("primuse.tab.home")
-                    .environment(\.minimalNavigationDetailScope, .home)
                     .environment(\.librarySearchTab, 0)
                     .toolbar(systemTabBarVisibility, for: .tabBar)
             }
 
             Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
-                LibraryView(
-                    deepLink: $libraryDeepLink,
-                    onActiveSectionChange: { section in
-                        guard navigationMode == .minimal else { return }
-                        minimalLibrarySection = section
-                    }
-                )
-                .environment(\.minimalNavigationDetailScope, .library)
+                LibraryView(deepLink: $libraryDeepLink)
                 .environment(\.librarySearchTab, 1)
                 .toolbar(systemTabBarVisibility, for: .tabBar)
             }
@@ -929,14 +947,82 @@ struct ContentView: View {
                            requestsResultLayoutEditor: $searchLayoutEditorRequested,
                            contextualScope: searchContext, onShowInLibrary: showSongInLibrary)
                     .id("primuse.tab.search")
-                    .environment(\.minimalNavigationDetailScope, .search)
                     .toolbar(systemTabBarVisibility, for: .tabBar)
             }
 
             Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
                 SettingsView(scraperSettingsRoute: $scraperSettingsRoute, search: settingsSearch)
-                    .environment(\.minimalNavigationDetailScope, .settings)
                     .toolbar(systemTabBarVisibility, for: .tabBar)
+            }
+        }
+        .softNavigationScrollEdges()
+    }
+
+    // MARK: - 顶部 tab 外壳
+
+    /// tab 条上的全部项。
+    private var minimalTopTabPages: [MinimalNavigationPage] {
+        MinimalNavigationPolicy.topTabPages(
+            visibleSections: visibleLibrarySections,
+            showsHome: minimalShowsHome
+        )
+    }
+
+    /// 正在显示的 tab 页(搜索 / 设置盖在上面时仍是它)。
+    private var currentTopTabPage: MinimalNavigationPage? {
+        topTabSlots.selectedPage
+    }
+
+    /// 横屏收到 36,竖屏跟着字号走。
+    private var topTabsRowHeight: CGFloat {
+        heightClass.isCompact ? 36 : skin.metric(.chromeChipRowHeight)
+    }
+
+    /// 编辑态的根页:它们的系统导航栏要回来,tab 条收起。
+    private var minimalRevealedRootPages: Set<MinimalNavigationPage> {
+        var pages = minimalEditingPages
+        if batchSelectionActive, minimalUtilityPage == nil, let current = currentTopTabPage {
+            pages.insert(current)
+        }
+        return pages
+    }
+
+    /// tab 条只在 tab 页的根页上出现:推入详情页、打开搜索或设置、进入编辑态时都收起。
+    private var topTabsChromeVisible: Bool {
+        guard minimalUtilityPage == nil, let page = currentTopTabPage else { return false }
+        return !minimalDetailLedger.hidesTopNavigation(for: page)
+            && !minimalRevealedRootPages.contains(page)
+    }
+
+    /// 顶部 tab 外壳。
+    ///
+    /// tab 页住在一个隐藏了标签栏的 TabView 里 —— 标签只开 `TopTabSlotAllocator` 的几个槽位,
+    /// 页面按最近使用轮流住进去(系统标签栏超过五个标签会出现「更多」)。搜索与设置盖在上面,
+    /// 从右侧推入。tab 条与底部停靠播放条各只有一份,浮在所有页面之上(推入详情页时停靠条不跟着滑走);
+    /// 各页自己在顶部 / 底部留出同样高的空白 —— 挂在外壳上的安全区传不进 TabView 里的页面。
+    @ViewBuilder
+    private var minimalRoot: some View {
+        let pages = minimalTopTabPages
+        let chromeVisible = topTabsChromeVisible
+        ZStack {
+            TabView(selection: topTabSlotSelection) {
+                ForEach(0..<topTabSlots.capacity, id: \.self) { slot in
+                    topTabSlotContent(slot)
+                        .toolbar(.hidden, for: .tabBar)
+                        .tag(slot)
+                }
+            }
+            .accessibilityHidden(minimalUtilityPage != nil)
+
+            if let utility = minimalUtilityPage {
+                minimalUtilityRoot(utility)
+                    .environment(\.minimalNavigationDetailScope, utility)
+                    .offset(x: minimalUtilityDragOffset)
+                    .overlay(alignment: .leading) {
+                        minimalUtilityEdgeSwipe
+                    }
+                    .transition(.move(edge: .trailing))
+                    .zIndex(1)
             }
         }
         .softNavigationScrollEdges()
@@ -948,61 +1034,251 @@ struct ContentView: View {
                 event: event
             )
         }
-    }
-
-    @ViewBuilder
-    private var minimalRoot: some View {
-        tabRoot
-            .environment(
-                \.minimalNavigationBars,
-                MinimalNavigationBars(
-                    top: AnyView(EmptyView()),
-                    bottom: AnyView(minimalBottomChrome)
-                )
+        .environment(
+            \.topTabsShellContext,
+            TopTabsShellContext(
+                chromeHeight: topTabsRowHeight,
+                bottomBarHeight: minimalDockedBarHeight,
+                revealedRootPages: minimalRevealedRootPages,
+                closeUtility: { closeMinimalUtility() }
             )
-            .environment(\.minimalOpenSettings) { selectMinimalPage(.settings) }
-            .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
-                minimalDetailLedger.updateMounted(scopes)
+        )
+        // 停靠条浮在所有页面之上,推入详情页、打开搜索时都不动;它占的高度由各页自己留出来。
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 0) {
+                dockedBottomChrome
             }
-    }
-
-    private var minimalDockPlace: MinimalBottomDock.Place {
-        switch selectedTab {
-        case 1: return .library
-        case 2: return .search
-        case 3: return .settings
-        default: return .home
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { height in
+                minimalDockedBarHeight = height
+            }
         }
-    }
-
-    /// 多选时系统的批量操作栏占着底部,极简底栏让开。
-    @ViewBuilder
-    private var minimalBottomChrome: some View {
-        if !batchSelectionActive {
-            MinimalBottomDock(
-                place: minimalDockPlace,
-                showsPlayer: miniPlayerVisible,
-                librarySections: visibleLibrarySections,
-                onHome: { selectMinimalPage(.home) },
-                onLibrary: openMinimalLibraryRoot,
-                onLibrarySection: { selectMinimalPage(.librarySection($0)) },
-                onSearch: { selectMinimalPage(.search) },
-                onSettings: { selectMinimalPage(.settings) },
-                onTapPlayer: presentNowPlaying,
-                onOpenQueue: { showQueueFromBottomChrome = true }
+        .overlayPreferenceValue(MinimalRootActionsPreferenceKey.self, alignment: .top) { actions in
+            TopTabsChrome(
+                pages: pages,
+                selection: currentTopTabPage,
+                actions: currentTopTabPage.flatMap { actions[$0]?.content },
+                rowHeight: topTabsRowHeight,
+                onSelect: { selectMinimalPage($0) },
+                onSearch: { openMinimalUtility(.search) },
+                onSettings: { openMinimalUtility(.settings) }
             )
-            .pmAnimation(.panel, value: miniPlayerVisible)
+            .opacity(chromeVisible ? 1 : 0)
+            .offset(y: chromeVisible ? 0 : -6)
+            .allowsHitTesting(chromeVisible)
+            .accessibilityHidden(!chromeVisible)
+            .animation(skin.animation(.chromeReveal), value: chromeVisible)
+        }
+        .onPreferenceChange(MinimalNavigationDetailScopesPreferenceKey.self) { scopes in
+            minimalDetailLedger.updateMounted(scopes)
+        }
+        .onPreferenceChange(MinimalRootEditingPreferenceKey.self) { pages in
+            minimalEditingPages = pages
+        }
+        .onChange(of: pages, initial: true) { _, pages in
+            reconcileTopTabSlots(pages)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            minimalKeyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            minimalKeyboardVisible = false
         }
     }
 
-    /// 资料库键:已经在资料库时回到资料库首页,否则切过去停在上次看的位置。
-    private func openMinimalLibraryRoot() {
-        showNowPlaying = false
-        if selectedTab == 1 {
-            libraryDeepLink = .root
+    private var topTabSlotSelection: Binding<Int> {
+        Binding(
+            get: { topTabSlots.selectedSlot },
+            set: { slot in
+                // 标签栏是隐藏的,这里只会被系统在恢复状态时写一次。
+                guard topTabSlots.pages.indices.contains(slot),
+                      let page = topTabSlots.pages[slot] else { return }
+                selectTopTab(page)
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func topTabSlotContent(_ slot: Int) -> some View {
+        if let page = topTabSlots.pages[slot] {
+            topTabPageRoot(page)
+                .environment(\.minimalNavigationDetailScope, page)
+                // 槽位换了住户就是另一页:状态从头来,不能沿用上一页的导航栈。
+                .id(page)
         } else {
-            selectedTab = 1
-            sidebarSelection = .library
+            Color.clear
+        }
+    }
+
+    @ViewBuilder
+    private func topTabPageRoot(_ page: MinimalNavigationPage) -> some View {
+        switch page {
+        case .home:
+            HomeView(
+                switchToSettingsTab: { openMinimalUtility(.settings) },
+                model: homeModel,
+                openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
+            )
+        case .librarySection(let section):
+            LibraryView(deepLink: minimalDeepLinkBinding(for: page), rootSection: section)
+        case .search, .settings:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func minimalUtilityRoot(_ page: MinimalNavigationPage) -> some View {
+        switch page {
+        case .search:
+            SearchView(searchText: $searchText, scope: $searchScope,
+                       activatesSearchField: $searchFieldActivationRequested,
+                       requestsResultLayoutEditor: $searchLayoutEditorRequested,
+                       contextualScope: nil, onShowInLibrary: showSongInLibrary)
+        case .settings:
+            SettingsView(scraperSettingsRoute: $scraperSettingsRoute, search: settingsSearch)
+        case .home, .librarySection:
+            EmptyView()
+        }
+    }
+
+    /// 搜索 / 设置停在第一层时,从左边缘向右拖可以把它推回去,和系统的返回手势一样。
+    /// 里面推入了详情页时让开,交给那一层导航栈自己的返回手势。
+    @ViewBuilder
+    private var minimalUtilityEdgeSwipe: some View {
+        if let utility = minimalUtilityPage,
+           !minimalDetailLedger.detailScopes.contains(utility) {
+            Color.clear
+                .frame(width: 14)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                        .onChanged { value in
+                            minimalUtilityDragOffset = max(0, value.translation.width)
+                        }
+                        .onEnded { value in
+                            let travelled = max(value.translation.width, value.predictedEndTranslation.width)
+                            if travelled > 120 {
+                                closeMinimalUtility()
+                            } else {
+                                withAnimation(skin.animation(.chromeReveal)) {
+                                    minimalUtilityDragOffset = 0
+                                }
+                            }
+                        }
+                )
+        }
+    }
+
+    /// 底部停靠播放条。多选时系统的批量操作栏占着底部,它让开(`miniPlayerVisible` 已经算进去);
+    /// 键盘弹出时也让开。
+    @ViewBuilder
+    private var dockedBottomChrome: some View {
+        if miniPlayerVisible, !minimalKeyboardVisible {
+            Group {
+                switch skin.skin.bottomChrome {
+                case .dockedBar:
+                    DockedPlayerBar(
+                        onTap: presentNowPlaying,
+                        onOpenQueue: { showQueueFromBottomChrome = true }
+                    )
+                case .floatingCapsule:
+                    FloatingCapsulePlayerBar(
+                        onTap: presentNowPlaying,
+                        onOpenQueue: { showQueueFromBottomChrome = true }
+                    )
+                case .classic:
+                    LegacyNowPlayingAccessory(onTap: presentNowPlaying)
+                }
+            }
+            // miniPlayerVisible 是派生量, 翻转由播放状态决定, 调用点包不住动画
+            // 事务, 曲线只能附在过渡本身上。
+            .pmSlideTransition(edge: .bottom, motion: .panel)
+        }
+    }
+
+    private func minimalDeepLinkBinding(for page: MinimalNavigationPage) -> Binding<LibraryDeepLink?> {
+        Binding(
+            get: { minimalDeepLink?.page == page ? minimalDeepLink?.link : nil },
+            set: { link in
+                guard link == nil, minimalDeepLink?.page == page else { return }
+                minimalDeepLink = nil
+            }
+        )
+    }
+
+    private func selectTopTab(_ page: MinimalNavigationPage) {
+        guard page.isTopTab, minimalTopTabPages.contains(page) else { return }
+        var slots = topTabSlots
+        slots.select(page)
+        if slots != topTabSlots {
+            topTabSlots = slots
+        }
+        if minimalSelectedPageID != page.id {
+            minimalSelectedPageID = page.id
+        }
+    }
+
+    /// 分类被隐藏了就让它让出槽位;当前页没了就退回上次停的那一页或第一个 tab。
+    private func reconcileTopTabSlots(_ pages: [MinimalNavigationPage]) {
+        var slots = topTabSlots
+        let clearedSelection = slots.retain(Set(pages))
+        if clearedSelection || slots.selectedPage == nil {
+            let stored = MinimalNavigationPage(id: minimalSelectedPageID)
+            if let page = stored.flatMap({ pages.contains($0) ? $0 : nil }) ?? pages.first {
+                slots.select(page)
+                minimalSelectedPageID = page.id
+            }
+        }
+        if slots != topTabSlots {
+            topTabSlots = slots
+        }
+    }
+
+    private func openMinimalUtility(_ page: MinimalNavigationPage, animated: Bool = true) {
+        guard !page.isTopTab else { return }
+        showNowPlaying = false
+        if page == .search, minimalUtilityPage != .search {
+            // 点右上角搜索进来就直接弹出键盘。
+            searchFieldActivationRequested = true
+            searchContext = nil
+            searchScope = nil
+        }
+        guard minimalUtilityPage != page else { return }
+        minimalUtilityDragOffset = 0
+        if animated {
+            withAnimation(skin.animation(.sheet)) {
+                minimalUtilityPage = page
+            }
+        } else {
+            minimalUtilityPage = page
+        }
+    }
+
+    private func closeMinimalUtility(animated: Bool = true) {
+        guard minimalUtilityPage != nil else { return }
+        if animated {
+            withAnimation(skin.animation(.sheet)) {
+                minimalUtilityPage = nil
+                minimalUtilityDragOffset = 0
+            }
+        } else {
+            minimalUtilityPage = nil
+            minimalUtilityDragOffset = 0
+        }
+    }
+
+    private func openMinimalDeepLink(_ link: LibraryDeepLink) {
+        guard let route = MinimalNavigationPolicy.deepLinkRoute(
+            for: link,
+            pages: minimalTopTabPages,
+            current: currentTopTabPage
+        ) else { return }
+        closeMinimalUtility(animated: false)
+        selectTopTab(route.page)
+        if let deliver = route.link {
+            minimalDeepLink = MinimalDeepLinkRequest(page: route.page, link: deliver)
         }
     }
 
@@ -1242,8 +1518,7 @@ struct ContentView: View {
             }
         }
         .environment(\.librarySearchNavigation, searchNavigation)
-        // 极简基座下页面也走经典的导航方式(系统导航栏、工具栏、搜索框),差别只在外壳。
-        .environment(\.usesMinimalDock, navigationMode == .minimal)
+        .environment(\.usesTopTabsShell, rootLayout == .minimal)
         .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
         .onPreferenceChange(CarPlayEditorActivePreferenceKey.self) { carPlayEditorActive = $0 }
         .songBatchRemovalFeedback()
@@ -1271,7 +1546,7 @@ struct ContentView: View {
                 selectedTab = restoredTab
                 sidebarSelection = .home
             }
-            activateMinimalLandingPageIfNeeded()
+            synchronizeSidebarForCurrentSelection()
             // 展示前就写入“一次性”标记。这样即使用户在导览期间直接杀掉
             // App，下次启动也不会再次自动弹出；设置页仍可手动重看。
             if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
@@ -1284,12 +1559,8 @@ struct ContentView: View {
                 autoYearlyReport = report
             }
         }
-        .onChange(of: navigationModeRawValue) { _, _ in
-            if navigationMode == .minimal {
-                activateMinimalLandingPageIfNeeded()
-            } else {
-                synchronizeSidebarForCurrentSelection()
-            }
+        .onChange(of: rootLayout) { previous, layout in
+            handleRootLayoutChange(from: previous, to: layout)
         }
         .fullScreenCover(item: $autoYearlyReport) { data in
             YearlyReportView(data: data)
@@ -1309,6 +1580,7 @@ struct ContentView: View {
         }
         #if DEBUG
         .task { await runDebugOpenPage() }
+        .task { await runDebugScrollToEnd() }
         .sheet(isPresented: $debugQueuePresented) {
             QueueView(player: player)
                 .presentationDetents([.large])
@@ -1376,9 +1648,30 @@ struct ContentView: View {
         scraperSettingsRoute.requestMetadataScraping()
     }
 
-    /// 极简基座有首页,资料库也有自己的首页,不再需要把用户改落到某个分类。
-    private func activateMinimalLandingPageIfNeeded() {
+    /// 在设置里换皮肤会换掉整个外壳:人正在设置里,换完仍要落在外观那一页,而不是被丢回首页。
+    private func handleRootLayoutChange(
+        from previous: AppNavigationRootLayout,
+        to layout: AppNavigationRootLayout
+    ) {
+        // iPad 在侧边栏与标签栏之间随宽度切换时,侧边栏的选中项保持原样。
+        guard previous == .minimal || layout == .minimal else { return }
+        if layout == .minimal, selectedTab == 3 {
+            openMinimalUtility(.settings, animated: false)
+            reopenAppearanceSettings()
+        } else if previous == .minimal, minimalUtilityPage == .settings {
+            minimalUtilityPage = nil
+            selectedTab = 3
+            reopenAppearanceSettings()
+        }
         synchronizeSidebarForCurrentSelection()
+    }
+
+    /// 换外壳后的设置页是新的一份,导航栈是空的。请求要等旧外壳拆掉之后再发:
+    /// 旧设置页还挂在树上时它也会收到这条请求并把它记成「已处理」,新的那一份就不再理会。
+    private func reopenAppearanceSettings() {
+        Task { @MainActor in
+            SettingsNavigation.shared.request = .init(settingID: "appearance.skin")
+        }
     }
 
     private var searchAwareTabSelection: Binding<Int> {
@@ -1407,14 +1700,22 @@ struct ContentView: View {
         selectedTab = tab
     }
 
-    private func submitMinimalSearch() {
-        guard selectedTab != 3 else { return }
-        selectMinimalPage(.search)
-        SearchHistoryStore.record(searchText)
-    }
-
+    /// 去某一页。顶部 tab 外壳里:tab 页切过去,搜索与设置从右侧推入;经典外壳里落到对应的标签。
     private func selectMinimalPage(_ page: MinimalNavigationPage) {
         showNowPlaying = false
+        if rootLayout == .minimal {
+            switch page {
+            case .home:
+                closeMinimalUtility()
+                selectTopTab(page)
+            case .librarySection(let section):
+                // 分类被隐藏时走深链的兜底:推在当前的资料库 tab 上。
+                openMinimalDeepLink(.section(section))
+            case .search, .settings:
+                openMinimalUtility(page)
+            }
+            return
+        }
         switch page {
         case .home:
             selectedTab = 0
@@ -1422,7 +1723,6 @@ struct ContentView: View {
         case .librarySection(let section):
             selectedTab = 1
             sidebarSelection = SidebarItem.libraryChild(for: section)
-            minimalLibrarySection = section
             libraryDeepLink = .section(section)
         case .search:
             selectTab(2)
@@ -1438,11 +1738,7 @@ struct ContentView: View {
         case 0:
             sidebarSelection = .home
         case 1:
-            if navigationMode == .minimal, let minimalLibrarySection {
-                sidebarSelection = SidebarItem.libraryChild(for: minimalLibrarySection)
-            } else {
-                sidebarSelection = .library
-            }
+            sidebarSelection = .library
         case 2:
             sidebarSelection = .search
         case 3:
@@ -1595,6 +1891,10 @@ struct ContentView: View {
     }
 
     private func openLibraryDeepLink(_ link: LibraryDeepLink) {
+        if rootLayout == .minimal {
+            openMinimalDeepLink(link)
+            return
+        }
         selectedTab = 1
         sidebarSelection = .library
         libraryDeepLink = link
@@ -1606,7 +1906,7 @@ struct ContentView: View {
 
     private func updateMinimalNavigationDetailTransition(
         id: UUID,
-        scope: MinimalNavigationDetailScope,
+        scope: MinimalNavigationPage,
         event: MinimalNavigationDetailTransitionEvent
     ) {
         var ledger = minimalDetailLedger
@@ -1620,8 +1920,10 @@ struct ContentView: View {
 
 #if DEBUG
 /// 调试构建的启动自动化：`PRIMUSE_OPEN_PAGE=<页面>` 在曲库装载后直接打开指定页面，给编译机上无人值守截图用。
-/// 取值：`home` / `library` / `songs` / `albums` / `artists` / `album:<标题片段>` / `artist:<名字片段>` /
-/// `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `queue` / `search` / `settings`。
+/// 取值：`home` / `library` / `songs` / `albums` / `artists` / `playlists` / `radio` / `section:<分类 rawValue>` /
+/// `album:<标题片段>` / `albumback:<标题片段>`（打开后三秒退回）/ `artist:<名字片段>` / `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `queue` / `search` / `settings` /
+/// `lasttab`（顶部 tab 外壳：先停在歌曲，两秒半后切到最后一个 tab，看指示器与自动滚动）。
+/// `searchidle`（打开搜索但不弹键盘）。另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
 extension ContentView {
     @MainActor
     private func runDebugOpenPage() async {
@@ -1631,7 +1933,6 @@ extension ContentView {
         let parts = raw.split(separator: ":", maxSplits: 1).map(String.init)
         let page = parts[0].lowercased()
         let needle = parts.count > 1 ? parts[1].lowercased() : ""
-        let isMinimal = navigationMode == .minimal
 
         // 等曲库里有歌（最多一分钟），再给界面一点时间把标签页搭好。
         for _ in 0..<30 where library.visibleSongs.isEmpty {
@@ -1640,27 +1941,53 @@ extension ContentView {
         }
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
+        if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
+           orientation == "landscape" || orientation == "portrait" {
+            InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
+            try? await Task.sleep(for: .seconds(1))
+        }
         plog("🧪 DebugLaunchAutomation: open page \(raw)")
 
+        let namedSections: [String: LibrarySection] = [
+            "songs": .songs, "albums": .albums, "artists": .artists,
+            "playlists": .playlists, "radio": .radio, "genres": .genres,
+        ]
         switch page {
         case "home":
-            if isMinimal { selectMinimalPage(.home) } else { selectTab(0) }
+            selectMinimalPage(.home)
         case "library":
-            selectTab(1)
-            libraryDeepLink = .root
-        case "songs", "albums", "artists":
-            let section: LibrarySection = page == "songs" ? .songs : (page == "albums" ? .albums : .artists)
-            if isMinimal {
-                selectMinimalPage(.librarySection(section))
+            if rootLayout == .minimal {
+                openLibraryDeepLink(.root)
             } else {
-                openLibraryDeepLink(.section(section))
+                selectTab(1)
+                libraryDeepLink = .root
             }
-        case "album":
+        case _ where namedSections[page] != nil:
+            debugOpenSection(namedSections[page]!)
+        case "section":
+            guard let section = LibrarySection(rawValue: parts.count > 1 ? parts[1] : "") else {
+                plog("🧪 DebugLaunchAutomation: unknown section '\(needle)'")
+                return
+            }
+            debugOpenSection(section)
+        case "lasttab":
+            debugOpenSection(.songs)
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled, let last = minimalTopTabPages.last else { return }
+            selectMinimalPage(last)
+        case "album", "albumback":
             for _ in 0..<30 {
                 if let album = library.visibleAlbums.first(where: {
                     needle.isEmpty || $0.title.lowercased().contains(needle)
                 }) {
                     openLibraryDeepLink(.album(album))
+                    // `albumback`：三秒后退回专辑 tab 的根页，看 tab 条是否跟着回来。
+                    if page == "albumback", rootLayout == .minimal {
+                        try? await Task.sleep(for: .seconds(3))
+                        guard !Task.isCancelled else { return }
+                        let albums = MinimalNavigationPage.librarySection(.albums)
+                        minimalDeepLink = MinimalDeepLinkRequest(page: albums, link: .section(.albums))
+                    }
                     return
                 }
                 try? await Task.sleep(for: .seconds(2))
@@ -1692,12 +2019,63 @@ extension ContentView {
                 debugQueuePresented = true
             }
         case "search":
-            if isMinimal { selectMinimalPage(.search) } else { selectTab(2) }
+            selectMinimalPage(.search)
+        case "searchidle":
+            // 打开搜索但不弹键盘,看导航栏与返回键。
+            selectMinimalPage(.search)
+            searchFieldActivationRequested = false
         case "settings":
-            if isMinimal { selectMinimalPage(.settings) } else { selectTab(3) }
+            selectMinimalPage(.settings)
         default:
             plog("🧪 DebugLaunchAutomation: unknown page '\(raw)'")
         }
+    }
+
+    @MainActor
+    private func debugOpenSection(_ section: LibrarySection) {
+        openLibraryDeepLink(.section(section))
+    }
+
+    /// `PRIMUSE_DEBUG_SCROLL_END=1`：页面打开后把屏幕上最大的那个纵向滚动视图拉到底，
+    /// 看列表末尾能不能完整露出在底部播放条上面。
+    @MainActor
+    private func runDebugScrollToEnd() async {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SCROLL_END"] == "1" else { return }
+        for _ in 0..<30 where library.visibleSongs.isEmpty {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+        }
+        try? await Task.sleep(for: .seconds(7))
+        guard !Task.isCancelled,
+              let window = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap(\.windows)
+                .first(where: \.isKeyWindow) else { return }
+        var best: UIScrollView?
+        func visit(_ view: UIView) {
+            if let scroll = view as? UIScrollView, !scroll.isHidden,
+               scroll.bounds.height > 200,
+               scroll.contentSize.height + scroll.adjustedContentInset.top
+                + scroll.adjustedContentInset.bottom > scroll.bounds.height,
+               scroll.convert(scroll.bounds, to: window).intersects(window.bounds) {
+                let area = scroll.bounds.width * scroll.bounds.height
+                if area > (best.map { $0.bounds.width * $0.bounds.height } ?? 0) {
+                    best = scroll
+                }
+            }
+            view.subviews.forEach(visit)
+        }
+        visit(window)
+        guard let scroll = best else {
+            plog("🧪 DebugLaunchAutomation: no scroll view to scroll")
+            return
+        }
+        let bottom = scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom
+        scroll.setContentOffset(
+            CGPoint(x: scroll.contentOffset.x, y: max(-scroll.adjustedContentInset.top, bottom)),
+            animated: false
+        )
+        plog("🧪 DebugLaunchAutomation: scrolled to end, bottom inset \(scroll.adjustedContentInset.bottom)")
     }
 }
 #endif

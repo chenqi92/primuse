@@ -10,7 +10,7 @@ struct PlaylistListView: View {
     #if os(iOS)
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.usesMinimalDock) private var usesMinimalDock
+    @Environment(\.usesTopTabsShell) private var usesTopTabsShell
     #endif
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
@@ -199,50 +199,17 @@ struct PlaylistListView: View {
                         playlistSelection = []
                     }
                 } else {
-                    Menu {
-                        Button {
-                            showNewPlaylist = true
-                        } label: {
-                            Label("new_playlist", systemImage: "music.note.list")
-                        }
-                        Button {
-                            showAIEditor = true
-                        } label: {
-                            Label("new_ai_smart_playlist", systemImage: "sparkles")
-                        }
-                        Button {
-                            showSmartEditor = true
-                        } label: {
-                            Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
-                        }
-                        if operationAvailability.supportsImport {
-                            Button {
-                                showPlaylistImport = true
-                            } label: {
-                                Label("playlist_import_title", systemImage: "tray.and.arrow.down")
-                            }
-                        }
-                        if !playlists.isEmpty {
-                            Divider()
-                            if canReorderPlaylists {
-                                Button {
-                                    showPlaylistOrder = true
-                                } label: {
-                                    Label("playlist_order_action", systemImage: "arrow.up.arrow.down")
-                                }
-                            }
-                            Button {
-                                isManagingPlaylists = true
-                            } label: {
-                                Label("batch_select", systemImage: "checkmark.circle")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
+                    playlistAddMenu
                 }
             }
         }
+        #if os(iOS)
+        // 顶部 tab 外壳里这一页是根页:「+」菜单交给 tab 条;批量管理时导航栏回来放「完成」。
+        .minimalRootActions {
+            playlistAddMenu
+        }
+        .minimalRootEditing(isManagingPlaylists)
+        #endif
         .alert("new_playlist", isPresented: $showNewPlaylist) {
             TextField("playlist_name", text: $newPlaylistName)
             Button("cancel", role: .cancel) { newPlaylistName = "" }
@@ -257,6 +224,52 @@ struct PlaylistListView: View {
         .navigationDestination(for: SmartPlaylist.self) { smart in
             SmartPlaylistDetailView(smartPlaylistID: smart.id)
         }
+    }
+
+    /// 新建歌单 / 智能歌单 / 导入 / 排序 / 批量管理。经典放在导航栏,顶部 tab 外壳放在 tab 条右侧。
+    private var playlistAddMenu: some View {
+        Menu {
+            Button {
+                showNewPlaylist = true
+            } label: {
+                Label("new_playlist", systemImage: "music.note.list")
+            }
+            Button {
+                showAIEditor = true
+            } label: {
+                Label("new_ai_smart_playlist", systemImage: "sparkles")
+            }
+            Button {
+                showSmartEditor = true
+            } label: {
+                Label("new_rule_smart_playlist", systemImage: "slider.horizontal.3")
+            }
+            if operationAvailability.supportsImport {
+                Button {
+                    showPlaylistImport = true
+                } label: {
+                    Label("playlist_import_title", systemImage: "tray.and.arrow.down")
+                }
+            }
+            if !playlists.isEmpty {
+                Divider()
+                if canReorderPlaylists {
+                    Button {
+                        showPlaylistOrder = true
+                    } label: {
+                        Label("playlist_order_action", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+                Button {
+                    isManagingPlaylists = true
+                } label: {
+                    Label("batch_select", systemImage: "checkmark.circle")
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
+        }
+        .accessibilityIdentifier("playlists.add")
     }
 
     /// 管理态的多选列表。`editMode` 常开 —— 用户点「选择」就是来批量处理的，
@@ -314,7 +327,7 @@ struct PlaylistListView: View {
         guard player.currentSong != nil || appleMusic.nowPlayingSong != nil else {
             return 0
         }
-        if usesMinimalDock { return 0 }
+        if usesTopTabsShell { return 0 }
         if horizontalSizeClass == .regular { return 68 }
         if #available(iOS 26.1, *) { return 0 }
         return 52

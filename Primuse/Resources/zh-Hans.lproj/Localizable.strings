@@ -4454,7 +4454,7 @@
 /* 2.0 详情页 */
 "album_more_from_artist_format" = "更多来自 %@";
 "library_remove_quick_access" = "移出快捷收藏";
-"minimal_dock_destinations_hint" = "长按可跳转到任一页面";
+"minimal_utility_back" = "返回";
 "search_browse_genres" = "按流派浏览";
 "search_browse_genre_hint" = "在这个流派中搜索";
 "search_top_result" = "最佳结果";

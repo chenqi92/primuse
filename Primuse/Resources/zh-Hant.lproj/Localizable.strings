@@ -4338,7 +4338,7 @@
 /* 2.0 详情页 */
 "album_more_from_artist_format" = "更多來自 %@";
 "library_remove_quick_access" = "移出快捷收藏";
-"minimal_dock_destinations_hint" = "長按可跳到任一頁面";
+"minimal_utility_back" = "返回";
 "search_browse_genres" = "按曲風瀏覽";
 "search_browse_genre_hint" = "在這個曲風中搜尋";
 "search_top_result" = "最佳結果";

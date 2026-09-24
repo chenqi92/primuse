@@ -35,6 +35,8 @@ enum IOSAppearancePreference: String, CaseIterable, Sendable {
 struct AppearanceSettingsView: View {
     @AppStorage(AppThemePreferences.iOSAppearanceKey)
     private var appearanceRawValue = IOSAppearancePreference.system.rawValue
+    @AppStorage(MinimalNavigationPolicy.showsHomeKey)
+    private var minimalShowsHome = MinimalNavigationPolicy.showsHomeByDefault
     @Environment(\.skin) private var skin
 
     private var selection: IOSAppearancePreference {
@@ -72,6 +74,18 @@ struct AppearanceSettingsView: View {
 
             // 「极简模式」不再是单独的开关:导航方式由界面皮肤决定,极简就是其中一套。
             SkinSettingsSection()
+
+            // 只有顶部 tab 外壳的皮肤才有这一项:标签栏皮肤里首页本来就是一个标签。
+            if skin.skin.navigationHeader == .topTabs {
+                Section {
+                    Toggle(isOn: $minimalShowsHome) {
+                        Label("minimal_shows_home_title", systemImage: "house")
+                    }
+                } footer: {
+                    Text("minimal_shows_home_footer")
+                }
+                .settingsAnchor("appearance.minimalHome")
+            }
 
             // 主题色与 App 图标改的都是这一层外壳的样子，直接平铺在这一页上：
             // 都是要靠眼睛挑的东西，多一次跳转就得来回对比。

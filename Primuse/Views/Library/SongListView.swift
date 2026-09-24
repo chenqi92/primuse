@@ -1683,6 +1683,33 @@ struct SongListView: View {
         .toolbar {
             iosToolbar
         }
+        // 顶部 tab 外壳里这一页是根页、没有导航栏:版式、排序、筛选、多选、文件夹钉选收进一个菜单;
+        // 列表顶上已有「播放 · 随机」时不再另放随机键。多选开始后导航栏回来,选中计数与批量操作
+        // 仍走上面的工具栏。
+        .minimalRootActions {
+            if !skin.showsSongListPlayHeader {
+                SongListShuffleToolbarButton(
+                    selection: selection,
+                    isEnabled: !showsFolderBrowser && filteredProjection.playableCount > 1,
+                    action: shuffleVisibleSongs
+                )
+            }
+            SongListNormalToolbarMenu(
+                selection: selection,
+                sortOrder: sortOrderBinding,
+                filter: $songFilter,
+                manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
+                browseMode: $browseMode
+            )
+        }
+        #if DEBUG
+        // 编译机截图用:`PRIMUSE_DEBUG_EDIT=1` 时进页两秒后进入多选,看导航栏是否回到根页。
+        .task {
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EDIT"] == "1" else { return }
+            try? await Task.sleep(for: .seconds(2))
+            selection.activate()
+        }
+        #endif
     }
 
     /// 平铺列表顶上那一排「播放 · 随机」和数量(`ListRow.playHeader`)。数量取投影里存好的值,不遍历整张列表。
@@ -4541,7 +4568,7 @@ private enum LibraryFolderNodePresentation {
 
 private struct LibraryFolderRootView: View {
     #if os(iOS)
-    @Environment(\.usesMinimalDock) private var usesMinimalDock
+    @Environment(\.usesTopTabsShell) private var usesTopTabsShell
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     #endif
@@ -4563,7 +4590,7 @@ private struct LibraryFolderRootView: View {
             )
             .padding(.horizontal, 12)
             #if os(iOS)
-            .padding(.bottom, usesMinimalDock
+            .padding(.bottom, usesTopTabsShell
                 ? 16
                 : BottomChromeClearancePolicy.clearance(
                     legacyOverlayActive: legacyBottomChromeOverlayActive,
@@ -5168,7 +5195,7 @@ private struct LibraryFolderNodeView: View {
     // environment reaching it. See `FolderPlaylistMenuButton`.
     @Environment(SourcesStore.self) private var sourcesStore
     #if os(iOS)
-    @Environment(\.usesMinimalDock) private var usesMinimalDock
+    @Environment(\.usesTopTabsShell) private var usesTopTabsShell
     #endif
 
     let nodeID: LibraryFolderNodeID
@@ -5261,7 +5288,7 @@ private struct LibraryFolderNodeView: View {
                 }
                 .padding(.horizontal, 8)
                 #if os(iOS)
-                .padding(.bottom, usesMinimalDock ? 16 : 112)
+                .padding(.bottom, usesTopTabsShell ? 16 : 112)
                 #else
                 .padding(.bottom, 112)
                 #endif
@@ -5706,11 +5733,31 @@ private struct SongListNormalToolbarMenu: View {
     let sortOrder: Binding<SongListView.SongSortOrder>
     @Binding var filter: SongListView.SongFilter
     var manageHomeFolders: (() -> Void)?
+    /// 顶部 tab 外壳里没有单独的版式键,「平铺 / 按文件夹」也收进这个菜单。
+    var browseMode: Binding<LibrarySongBrowseMode>?
 
     @ViewBuilder
     var body: some View {
         if !selection.isActive {
             Menu {
+                if let browseMode {
+                    Section {
+                        Button {
+                            browseMode.wrappedValue = browseMode.wrappedValue == .folder ? .flat : .folder
+                        } label: {
+                            Label(
+                                LocalizedStringKey(
+                                    browseMode.wrappedValue == .folder
+                                        ? "library_browse_flat"
+                                        : "library_browse_folder"
+                                ),
+                                systemImage: browseMode.wrappedValue == .folder ? "list.bullet" : "folder"
+                            )
+                        }
+                        .accessibilityIdentifier("libraryBrowseMode.toggle")
+                    }
+                }
+
                 Section {
                     SongSortSubmenu(sortOrder: sortOrder)
 

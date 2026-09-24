@@ -2248,9 +2248,20 @@ private struct IOSWindowAppearanceModifier: ViewModifier {
 /// 调试构建的启动自动化，由环境变量驱动，给编译机上无人值守的实机检查用：
 /// - `PRIMUSE_OPEN_SETTINGS=<设置目录 id>`：启动后打开该设置项（Mac 打开设置窗口，iOS 推入对应页）。
 /// - `PRIMUSE_AUTOPLAY_SONG=<标题片段>`：曲库里出现标题包含该片段的歌后自动播放它。
+/// - `PRIMUSE_SWITCH_SKIN=<皮肤 id>`（iOS）：启动 8 秒后换到这套皮肤，看换外壳时人是否仍停在外观设置里。
 private struct DebugLaunchAutomation: ViewModifier {
     func body(content: Content) -> some View {
         content
+            #if os(iOS)
+            .task {
+                let env = ProcessInfo.processInfo.environment
+                guard let skinID = env["PRIMUSE_SWITCH_SKIN"], !skinID.isEmpty else { return }
+                try? await Task.sleep(for: .seconds(8))
+                guard !Task.isCancelled else { return }
+                plog("🧪 DebugLaunchAutomation: switch skin \(skinID)")
+                _ = AppServices.shared.skinRuntime.select(skinID)
+            }
+            #endif
             .task {
                 let env = ProcessInfo.processInfo.environment
                 guard let settingID = env["PRIMUSE_OPEN_SETTINGS"], !settingID.isEmpty else { return }

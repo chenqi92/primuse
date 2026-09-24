@@ -653,9 +653,15 @@ struct SourcesContentView: View {
             }
             .navigationDestination(item: $inspectingLocalRemovalsSource) { source in
                 SourceLocalRemovalsView(source: source)
+                    #if os(iOS)
+                    .minimalNavigationDetail()
+                    #endif
             }
             .navigationDestination(item: $inspectingMetadataSource) { source in
                 SourceMetadataStatusView(source: source)
+                    #if os(iOS)
+                    .minimalNavigationDetail()
+                    #endif
             }
             .onReceive(NotificationCenter.default.publisher(for: CloudDirectoryNameStore.didChangeNotification)) { _ in
                 cloudDirectoryNameRefreshID = UUID()

@@ -40,6 +40,15 @@ enum InterfaceOrientationLock {
         request(restoreMask, in: scene)
     }
 
+    #if DEBUG
+    /// 调试构建的启动自动化用：模拟器没有命令行转屏，`PRIMUSE_ORIENTATION=landscape|portrait` 时由 App 自己请求。
+    static func debugRequest(landscape: Bool) {
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              let scene = foregroundWindowScene else { return }
+        request(landscape ? .landscapeRight : .portrait, in: scene)
+    }
+    #endif
+
     private static var foregroundWindowScene: UIWindowScene? {
         let applicationScenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }

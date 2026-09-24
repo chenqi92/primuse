@@ -1152,6 +1152,7 @@ struct AISettingsView: View {
                              : String(localized: "ai_provider_detail_section"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            .minimalNavigationDetail()
             #endif
         } label: {
             if usesCompactMobileLayout {

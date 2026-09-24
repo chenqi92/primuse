@@ -14,6 +14,10 @@ struct SettingsView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(\.skin) private var skin
     @Environment(\.openURL) private var openURL
+    #if os(iOS)
+    /// 顶部 tab 外壳里设置是从右上角推进来的一页:左上角要放返回键,标题改成导航栏下面的大标题。
+    @Environment(\.usesTopTabsShell) private var usesTopTabsShell
+    #endif
     @Binding private var scraperSettingsRoute: ScraperSettingsRouteState
     @State private var path: [SettingsDestination] = []
     @State private var search: SettingsSearchState
@@ -111,7 +115,11 @@ struct SettingsView: View {
             searchableContent
             .autocorrectionDisabled()
             .navigationTitle("settings_title")
+            #if os(iOS)
+            .toolbarTitleDisplayMode(usesTopTabsShell ? .large : .inlineLarge)
+            #else
             .toolbarTitleDisplayMode(.inlineLarge)
+            #endif
             #if os(iOS)
             .minimalNavigationRoot()
             .toolbar {

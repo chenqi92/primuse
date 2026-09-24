@@ -187,6 +187,9 @@ struct RecentlyDeletedView: View {
                 ForEach(sourcesStore.allSources.filter { sourceIDs.contains($0.id) }) { source in
                     NavigationLink {
                         SourceLocalRemovalsView(source: source)
+                            #if os(iOS)
+                            .minimalNavigationDetail()
+                            #endif
                     } label: {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {

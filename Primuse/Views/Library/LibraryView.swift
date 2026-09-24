@@ -458,7 +458,6 @@ struct LibraryView: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             #if os(iOS)
             .minimalNavigationRoot()
-            .minimalSettingsToolbarButton()
             #endif
             .navigationDestination(for: LibrarySection.self) { section in
                 sectionDestination(section)
@@ -553,7 +552,8 @@ struct LibraryView: View {
             .navigationTitle(section.title)
             .toolbarTitleDisplayMode(.inline)
             #if os(iOS)
-            .minimalNavigationRoot()
+            // 顶部 tab 外壳里,从某个分类页再推进来的分类页是详情页:tab 条让位给系统导航栏。
+            .minimalNavigationDetail()
             #endif
             .onAppear {
                 persistedPageID = "section:\(section.rawValue)"
@@ -1557,7 +1557,10 @@ struct LibraryView: View {
             onActiveSectionChange(nil)
         case .section(let section):
             persistedPageID = "section:\(section.rawValue)"
-            path.append(section)
+            // 以这个分类为根的资料库(顶部 tab 外壳的分类页、iPad 的分栏)不再把自己推一遍。
+            if section != rootSection {
+                path.append(section)
+            }
             onActiveSectionChange(section)
         case .album(let album):
             path.append(album)
@@ -1568,7 +1571,9 @@ struct LibraryView: View {
         case .song(let songID):
             songLocationRequest = SongLibraryLocationRequest(songID: songID)
             persistedPageID = "section:\(LibrarySection.songs.rawValue)"
-            path.append(LibrarySection.songs)
+            if rootSection != .songs {
+                path.append(LibrarySection.songs)
+            }
         }
         navigationPath = path
         deepLink = nil

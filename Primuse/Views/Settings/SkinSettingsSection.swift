@@ -179,18 +179,37 @@ struct SkinPreviewThumbnail: View {
         }
     }
 
-    /// 两套基座都是系统导航栏的大标题;极简没有设置标签,右上角多一颗齿轮。
+    /// 顶部按导航插槽画:经典是系统导航栏的大标题,顶部 tab 是一行 tab(选中项下带短横线)加右侧两颗图标。
+    @ViewBuilder
     private var header: some View {
-        HStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(style.color(.textPrimary))
-                .frame(width: 56, height: 9)
-            Spacer(minLength: 0)
-            if skin.base == .minimal {
-                Circle().fill(style.color(.surfaceElevated)).frame(width: 14, height: 14)
+        switch skin.navigationHeader {
+        case .classic:
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(style.color(.textPrimary))
+                    .frame(width: 56, height: 9)
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 8)
+        case .topTabs:
+            HStack(alignment: .top, spacing: 5) {
+                VStack(spacing: 2) {
+                    Capsule().fill(style.color(.textPrimary)).frame(width: 16, height: 5)
+                    Capsule().fill(style.color(.accent)).frame(width: 7, height: 2)
+                }
+                ForEach([12, 14, 11] as [CGFloat], id: \.self) { width in
+                    Capsule().fill(style.color(.chromeItem)).frame(width: width, height: 5)
+                }
+                Spacer(minLength: 0)
+                Circle().fill(style.color(.textSecondary)).frame(width: 6, height: 6)
+                Circle().fill(style.color(.textSecondary)).frame(width: 6, height: 6)
+            }
+            .padding(.top, 6)
+            .padding(.bottom, 4)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(style.color(.separator)).frame(height: 0.5).padding(.horizontal, -10)
             }
         }
-        .padding(.top, 8)
     }
 
     private func row(tint: Color) -> some View {
@@ -218,46 +237,84 @@ struct SkinPreviewThumbnail: View {
         }
     }
 
-    /// 底部按基座画:经典是标签栏,极简是「资料库键 · 播放胶囊 · 搜索键」三件。
+    /// 底部:标签栏外壳画标签栏;顶部 tab 外壳按底部插槽画停靠条或悬浮胶囊。
     @ViewBuilder
     private var footer: some View {
-        switch skin.base {
-        case .minimal:
-            HStack(spacing: 4) {
-                dockCircle
+        switch skin.navigationHeader {
+        case .classic:
+            tabBar
+        case .topTabs:
+            switch skin.bottomChrome {
+            case .dockedBar:
                 HStack(spacing: 5) {
-                    Circle().fill(Self.coverTints[0]).frame(width: 12, height: 12)
-                    Capsule().fill(style.color(.textPrimary)).frame(width: 30, height: 4).opacity(0.85)
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(Self.coverTints[0])
+                        .frame(width: 14, height: 14)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Capsule().fill(style.color(.textPrimary)).frame(width: 34, height: 4).opacity(0.85)
+                        Capsule().fill(style.color(.textSecondary)).frame(width: 22, height: 3).opacity(0.7)
+                    }
                     Spacer(minLength: 0)
-                    Circle().strokeBorder(style.color(.accent), lineWidth: 1.5).frame(width: 10, height: 10)
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(style.color(.textPrimary))
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(style.color(.textSecondary))
                 }
-                .padding(.horizontal, 5)
-                .frame(height: 22)
+                .padding(.horizontal, 6)
+                .frame(height: 24)
+                .background(style.color(.chromeBackground), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(alignment: .top) {
+                    Capsule().fill(style.color(.accent)).frame(width: 28, height: 1.5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 3)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(style.color(.chromeBorder), lineWidth: 0.5)
+                }
+                .padding(.bottom, 9)
+            case .floatingCapsule:
+                HStack(spacing: 5) {
+                    Circle().fill(Self.coverTints[0]).frame(width: 14, height: 14)
+                    Capsule().fill(style.color(.textPrimary)).frame(width: 40, height: 4).opacity(0.85)
+                    Spacer(minLength: 0)
+                    Circle().strokeBorder(style.color(.accent), lineWidth: 1.5).frame(width: 12, height: 12)
+                }
+                .padding(.horizontal, 6)
+                .frame(height: 24)
                 .background(style.color(.chromeBackground), in: Capsule())
                 .overlay { Capsule().strokeBorder(style.color(.chromeBorder), lineWidth: 0.5) }
-                dockCircle
-            }
-            .padding(.bottom, 9)
-        case .classic:
-            HStack {
-                ForEach(0..<4, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(index == 0 ? style.color(.accent) : style.color(.textTertiary))
-                        .frame(width: 11, height: 11)
-                        .frame(maxWidth: .infinity)
+                .padding(.bottom, 9)
+            case .classic:
+                HStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(Self.coverTints[0])
+                        .frame(width: 12, height: 12)
+                    Capsule().fill(style.color(.textPrimary)).frame(width: 36, height: 4).opacity(0.85)
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 6)
+                .frame(height: 22)
+                .background(style.color(.chromeBackground))
+                .padding(.horizontal, -10)
             }
-            .frame(height: 26)
-            .background(style.color(.chromeBackground))
-            .padding(.horizontal, -10)
         }
     }
 
-    private var dockCircle: some View {
-        Circle()
-            .fill(style.color(.chromeBackground))
-            .overlay { Circle().strokeBorder(style.color(.chromeBorder), lineWidth: 0.5) }
-            .frame(width: 22, height: 22)
+    private var tabBar: some View {
+        HStack {
+            ForEach(0..<4, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(index == 0 ? style.color(.accent) : style.color(.textTertiary))
+                    .frame(width: 11, height: 11)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(height: 26)
+        .background(style.color(.chromeBackground))
+        .padding(.horizontal, -10)
     }
 }
 

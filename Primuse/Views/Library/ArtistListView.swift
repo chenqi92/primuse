@@ -94,6 +94,9 @@ struct ArtistListView: View {
                     ArtistLayoutToolbarButton()
                 }
             }
+            .minimalRootActions {
+                ArtistLayoutToolbarButton()
+            }
             #endif
         }
     }

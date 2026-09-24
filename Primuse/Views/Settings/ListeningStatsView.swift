@@ -22,6 +22,10 @@ struct ListeningStatsView: View {
     @State private var activityChart: MobileActivityChart = .duration
     @Environment(\.pmHeightClass) private var heightClass
     #endif
+    #if os(iOS)
+    /// 顶部 tab 外壳里统计是根页、没有导航栏,数据来源改用页内那一行选择。
+    @Environment(\.minimalRootActionsPage) private var minimalRootPage
+    #endif
     @State private var statsCalendar = ListeningCalendar.current
     @State private var prefersLocalSource: Bool
     @State private var heatmapYear: Int?
@@ -86,7 +90,7 @@ struct ListeningStatsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if !serverSources.isEmpty, !usesInlineSourcePicker {
+            if !serverSources.isEmpty, !picksSourceInline {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         sourcePicker
@@ -180,8 +184,16 @@ struct ListeningStatsView: View {
         prefersLocalSource ? nil : serverSources.first { $0.id == selectedServerSourceID }
     }
 
+    private var picksSourceInline: Bool {
+        #if os(iOS)
+        usesInlineSourcePicker || minimalRootPage != nil
+        #else
+        usesInlineSourcePicker
+        #endif
+    }
+
     private var showsInlineSourcePicker: Bool {
-        usesInlineSourcePicker && !serverSources.isEmpty
+        picksSourceInline && !serverSources.isEmpty
     }
 
     private var inlineSourcePicker: some View {

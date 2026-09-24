@@ -120,11 +120,23 @@ struct RadioStationsView: View {
         .navigationTitle(navigationTitleText)
         .searchable(text: $searchText, prompt: Text("radio_search_placeholder"))
         .toolbar { toolbarContent }
+        #if os(iOS)
+        .minimalRootActions { minimalRootActionItems }
+        .minimalRootEditing(isManaging)
+        #endif
         // 进列表时给还没有台标的电台排一次自动发现。重复进入是安全的 ——
         // 已有台标的、正在找的、还在退避期的都会被服务自己挡掉。
         .task {
             RadioLogoDiscoveryService.shared.discoverIfNeeded(for: store.stations)
         }
+        #if DEBUG
+        // 编译机截图用:`PRIMUSE_DEBUG_EDIT=1` 时进页两秒后进入整理,看导航栏是否回到根页。
+        .task {
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_EDIT"] == "1" else { return }
+            try? await Task.sleep(for: .seconds(2))
+            isManaging = true
+        }
+        #endif
         .sheet(isPresented: $showingNewStation) {
             RadioStationEditorView(station: nil)
         }
@@ -519,31 +531,61 @@ struct RadioStationsView: View {
                 .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
                 .accessibilityIdentifier("radioLayoutMode.toggle")
 
-                Menu {
-                    Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
-                        showingBatchAdd = true
-                    }
-                    Button("radio_add", systemImage: "plus") {
-                        showingNewStation = true
-                    }
-                    Button("radio_subscriptions_add", systemImage: "arrow.triangle.2.circlepath") {
-                        subscriptionsStartAdding = true
-                        showingSubscriptions = true
-                    }
-                    Divider()
-                    Button("radio_folder_new", systemImage: "folder.badge.plus") {
-                        beginPrompt(.createFolder(assigning: []))
-                    }
-                    if !store.stations.isEmpty {
-                        Button("radio_priority_sort_by_name", systemImage: "arrow.up.arrow.down") {
-                            store.sortStationsByName()
-                        }
-                    }
-                } label: {
-                    Label("radio_add", systemImage: "plus")
-                }
+                radioAddMenu
             }
         }
+    }
+
+    /// 添加电台、批量添加、订阅、新建文件夹、按名称排序。
+    private var radioAddMenu: some View {
+        Menu {
+            Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
+                showingBatchAdd = true
+            }
+            Button("radio_add", systemImage: "plus") {
+                showingNewStation = true
+            }
+            Button("radio_subscriptions_add", systemImage: "arrow.triangle.2.circlepath") {
+                subscriptionsStartAdding = true
+                showingSubscriptions = true
+            }
+            Divider()
+            Button("radio_folder_new", systemImage: "folder.badge.plus") {
+                beginPrompt(.createFolder(assigning: []))
+            }
+            if !store.stations.isEmpty {
+                Button("radio_priority_sort_by_name", systemImage: "arrow.up.arrow.down") {
+                    store.sortStationsByName()
+                }
+            }
+        } label: {
+            Label("radio_add", systemImage: "plus")
+        }
+    }
+
+    /// 顶部 tab 外壳里电台是根页:「+」菜单照旧,整理与版式切换并进一个「更多」菜单。
+    /// 进入整理后导航栏回来,完成键、选中计数与批量菜单仍在那里。
+    @ViewBuilder
+    private var minimalRootActionItems: some View {
+        radioAddMenu
+        Menu {
+            if !store.stations.isEmpty {
+                Button {
+                    pmWithAnimation(.list) { isManaging = true }
+                } label: {
+                    Label("radio_manage", systemImage: "checklist")
+                }
+            }
+            Button {
+                layoutModeRaw = alternateLayoutMode.rawValue
+            } label: {
+                Label(String(localized: alternateLayoutMode.titleKey), systemImage: alternateLayoutMode.icon)
+            }
+            .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
+        } label: {
+            Label("a11y_more_actions", systemImage: "ellipsis")
+        }
+        .accessibilityIdentifier("radio.moreActions")
     }
 
     // MARK: - 归类动作
