@@ -24,6 +24,8 @@ final class AudioSessionManager {
     var onConfigurationChange: ((Date, ObjectIdentifier?) -> Void)?
 
     private var isConfigured = false
+    /// 卡拉OK麦克风开着时会话要能录音; 其余时候一律回到长音频播放。
+    private(set) var isMicrophoneCaptureActive = false
 
     private init() {}
 
@@ -106,15 +108,49 @@ final class AudioSessionManager {
         // Long-form audio lets AirPlay own this app's route independently from
         // the device's default output, so other apps can keep using the phone.
         // It deliberately stays non-mixable on the selected route.
-        try session.setCategory(
-            .playback,
-            mode: .default,
-            policy: .longFormAudio,
-            options: []
-        )
+        if isMicrophoneCaptureActive {
+            // 卡拉OK麦克风: longFormAudio 只能配 .playback。A2DP 让蓝牙耳机保持
+            // 高音质输出、麦克风走机身; 不加的话系统会切到通话音质的 HFP。
+            try session.setCategory(
+                .playAndRecord,
+                mode: .default,
+                policy: .default,
+                options: [.defaultToSpeaker, .allowBluetoothA2DP, .allowAirPlay]
+            )
+        } else {
+            try session.setCategory(
+                .playback,
+                mode: .default,
+                policy: .longFormAudio,
+                options: []
+            )
+        }
         // Let Control Center and compatible AirPods know this Now Playing app
         // can supply genuine multichannel presentations through AVPlayer.
         try session.setSupportsMultichannelContent(true)
+    }
+
+    /// 切换卡拉OK麦克风所需的会话类别。播放图会收到一次配置变更。
+    func setMicrophoneCaptureActive(_ active: Bool) throws {
+        guard isMicrophoneCaptureActive != active else { return }
+        isMicrophoneCaptureActive = active
+        do {
+            try requirePlaybackSession()
+        } catch {
+            // 回到能播放的类别, 不让一次失败把播放也带挂。
+            isMicrophoneCaptureActive = false
+            if active { try? requirePlaybackSession() }
+            throw error
+        }
+    }
+
+    /// 输出是否适合耳返: 有线/USB 耳机才行。蓝牙延迟太大, 外放会啸叫。
+    var outputRouteSupportsMicrophoneMonitoring: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains {
+            $0.portType == .headphones
+                || $0.portType == .usbAudio
+                || $0.portType == .lineOut
+        }
     }
 
     /// 提示系统把硬件输出 sample rate 切到目标值, 避免 CoreAudio 重采样
@@ -275,6 +311,12 @@ final class AudioSessionManager {
     }
 
     func deactivate() {}
+    /// Mac 不用切会话类别, 只记状态。
+    func setMicrophoneCaptureActive(_ active: Bool) throws {
+        isMicrophoneCaptureActive = active
+    }
+    /// Mac 分不清外放和耳机, 耳返由用户自己决定开不开。
+    var outputRouteSupportsMicrophoneMonitoring: Bool { true }
     var outputRouteIsBluetoothHFP: Bool { false }
     var outputRouteIsBluetooth: Bool { false }
     var outputRouteIsSystemManagedWireless: Bool { false }

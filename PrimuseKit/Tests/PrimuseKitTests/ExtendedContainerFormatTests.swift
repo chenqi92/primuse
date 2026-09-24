@@ -6,7 +6,7 @@ struct ExtendedContainerFormatTests {
     @Test("New extensions map to a format and are scanned")
     func extensionsMapToFormats() {
         let expected: [String: AudioFormat] = [
-            "mka": .mka, "webm": .webm, "weba": .webm,
+            "mka": .mka, "weba": .webm,
             "mp2": .mp2, "mpa": .mp2, "mp1": .mp2, "m2a": .mp2,
             "w64": .w64, "rf64": .rf64, "bw64": .rf64, "ra": .ra,
             "m4r": .m4a, "aifc": .aiff, "bwf": .wav,
@@ -15,11 +15,14 @@ struct ExtendedContainerFormatTests {
             #expect(AudioFormat.from(fileExtension: fileExtension.uppercased()) == format)
             #expect(PrimuseConstants.supportedAudioExtensions.contains(fileExtension))
         }
-        // Video containers stay out: `.mp4` for the reason documented on the
-        // whitelist, `.mkv`/`.rm` because they are overwhelmingly video.
-        for excluded in ["mp4", "mkv", "rm", "3gp"] {
-            #expect(!PrimuseConstants.supportedAudioExtensions.contains(excluded))
+        // Video containers are music videos, never songs: `.mp4` for the
+        // reason documented on the whitelist, the rest because they are
+        // overwhelmingly video. `.webm` is YouTube's video container.
+        for video in ["mp4", "mkv", "webm", "rm", "3gp"] {
+            #expect(!PrimuseConstants.supportedAudioExtensions.contains(video))
+            #expect(PrimuseConstants.supportedMusicVideoExtensions.contains(video))
         }
+        #expect(AudioFormat.from(fileExtension: "webm") == .webm)
     }
 
     @Test("FFmpeg-only containers route to FFmpeg and never to AVPlayer")

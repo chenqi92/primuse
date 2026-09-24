@@ -463,6 +463,18 @@ final class TVPlaybackCoordinator {
                 return
             }
         }
+        if asset.isVideo, asset.needsConversion {
+            await playConvertedMusicVideo(
+                asset,
+                song: song,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                startAt: startAt,
+                autoPlay: autoPlay
+            )
+            return
+        }
         let playbackSong = asset.song
         let displayArtistName = store.library.artistDisplayName(for: song) ?? ""
         plog("🎬 TV play: '\(song.title)' src=\(source.type.rawValue)/\(source.name) video=\(asset.isVideo) path=\(playbackSong.filePath.suffix(40))")
@@ -609,6 +621,8 @@ final class TVPlaybackCoordinator {
         var fileExtension: String
         var isVideo: Bool
         var directStream: ResolvedStream?
+        /// MKV/AVI/FLV… video that must be rewritten into MP4 before AVPlayer.
+        var needsConversion = false
     }
 
     private func playbackAsset(for song: Song, preferMusicVideo: Bool) -> PlaybackAsset {
@@ -623,8 +637,9 @@ final class TVPlaybackCoordinator {
             )
         }
         let ext = (path as NSString).pathExtension.lowercased()
+        let needsConversion = MusicVideoCompatibilityPolicy.needsConversion(path: path)
         guard let videoFormat = VideoFormat.from(fileExtension: ext),
-              videoFormat.isNativelyPlayable else {
+              videoFormat.isNativelyPlayable || needsConversion else {
             return PlaybackAsset(
                 song: song,
                 fileExtension: song.fileFormat.rawValue.lowercased(),
@@ -645,7 +660,8 @@ final class TVPlaybackCoordinator {
             song: videoSong,
             fileExtension: ext,
             isVideo: true,
-            directStream: directStream
+            directStream: directStream,
+            needsConversion: needsConversion
         )
     }
 
@@ -1298,6 +1314,84 @@ final class TVPlaybackCoordinator {
             store.playbackIssue = issue(for: e, source: source)
         } catch {
             plog("🎬 TV play: non-native download error — \(error)")
+            guard isCurrent(requestID, store: store) else { return }
+            store.playbackIssue = .failed(error.localizedDescription)
+        }
+    }
+
+    /// MKV/AVI/FLV 等 AVPlayer 打不开的 MV:整文件下载一次,改写成 MP4(跨播放缓存),
+    /// 再把本地文件交给 AVPlayer。缓存命中时不连源、不下载。
+    private func playConvertedMusicVideo(
+        _ asset: PlaybackAsset,
+        song: Song,
+        source: MusicSource,
+        credential: SourceCredential?,
+        requestID: UUID,
+        startAt: Double,
+        autoPlay: Bool
+    ) async {
+        guard let store else { return }
+        let identity = MusicVideoCompatibilityConverter.identity(
+            sourceID: source.id,
+            path: asset.song.filePath,
+            fileSize: asset.song.fileSize
+        )
+        var downloadedURL: URL?
+        defer {
+            if let downloadedURL {
+                _ = try? TVDecodedTemporaryFilePolicy.removeIfManaged(
+                    downloadedURL,
+                    in: FileManager.default.temporaryDirectory
+                )
+            }
+        }
+        do {
+            let playableURL: URL
+            if let cached = await MusicVideoCompatibilityConverter.shared.cachedURL(identity: identity) {
+                playableURL = cached
+            } else {
+                plog("🎬 TV play: MV '\(asset.fileExtension)' → download and rewrite into MP4")
+                let original = try await downloadToTemp(
+                    song: asset.song,
+                    source: source,
+                    credential: credential,
+                    ext: asset.fileExtension,
+                    directStream: asset.directStream,
+                    requestID: requestID
+                )
+                downloadedURL = original
+                try ensureCurrent(requestID, store: store)
+                playableURL = try await MusicVideoCompatibilityConverter.shared.playableURL(
+                    for: original,
+                    identity: identity
+                )
+            }
+            try ensureCurrent(requestID, store: store)
+            let displayArtistName = store.library.artistDisplayName(for: song) ?? ""
+            engine.load(url: playableURL,
+                        headers: [:],
+                        fileExtension: "mp4",
+                        title: song.title,
+                        artist: displayArtistName,
+                        album: song.albumTitle ?? "",
+                        duration: song.duration,
+                        isVideo: true)
+            finishLoadedPlayback(
+                song: song,
+                source: source,
+                credential: credential,
+                requestID: requestID,
+                startAt: startAt,
+                autoPlay: autoPlay
+            )
+        } catch is CancellationError {
+            return
+        } catch let e as StreamResolveError {
+            plog("🎬 TV play: MV resolve FAILED — \(e)")
+            guard isCurrent(requestID, store: store) else { return }
+            store.playbackIssue = issue(for: e, source: source)
+        } catch {
+            plog("🎬 TV play: MV rewrite error — \(error)")
             guard isCurrent(requestID, store: store) else { return }
             store.playbackIssue = .failed(error.localizedDescription)
         }

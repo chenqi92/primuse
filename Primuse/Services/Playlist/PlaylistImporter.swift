@@ -21,6 +21,38 @@ enum PlaylistImporter {
         let matchedSong: Song?
         /// 命中的方式 — 让用户大概知道怎么对上的
         let matchKind: MatchKind?
+        /// 没对上、但规则够得上「可能是」的歌, 给用户一键确认。
+        var suggestedSong: Song? = nil
+        /// 没对上时要保留成置灰占位所用的元数据(来源、专辑、时长…)。
+        var pendingTemplate: PlaylistPendingEntry? = nil
+
+        init(
+            displayTitle: String,
+            displayArtist: String?,
+            matchedSong: Song?,
+            matchKind: MatchKind?,
+            suggestedSong: Song? = nil,
+            pendingTemplate: PlaylistPendingEntry? = nil
+        ) {
+            self.displayTitle = displayTitle
+            self.displayArtist = displayArtist
+            self.matchedSong = matchedSong
+            self.matchKind = matchKind
+            self.suggestedSong = suggestedSong
+            self.pendingTemplate = pendingTemplate
+        }
+
+        /// 置灰保留时写进歌单的占位。
+        var pendingEntry: PlaylistPendingEntry? {
+            if let pendingTemplate { return pendingTemplate }
+            let title = displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { return nil }
+            let artists = (displayArtist ?? "")
+                .components(separatedBy: " / ")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            return PlaylistPendingEntry(title: title, artists: artists, origin: "file")
+        }
 
         enum MatchKind: String {
             case songID    // Primuse-JSON 完整匹配
@@ -35,6 +67,8 @@ enum PlaylistImporter {
 
         var matchedCount: Int { entries.filter { $0.matchedSong != nil }.count }
         var missingCount: Int { entries.filter { $0.matchedSong == nil }.count }
+        /// 没对上的里面有「可能是」候选的条数。
+        var probableCount: Int { entries.filter { $0.matchedSong == nil && $0.suggestedSong != nil }.count }
     }
 
     enum ImportError: LocalizedError {
@@ -317,16 +351,26 @@ enum PlaylistImporter {
 
     /// 把 preview 里匹配到的歌曲创建成新歌单 (用 `playlistName`)。
     /// 未匹配的条目会被丢弃。返回新创建的 Playlist。
+    /// `keepingMissing` 为真时, 没对上的条目以置灰占位按原位置写进去, 以后曲库里
+    /// 有了会自动点亮。
     @discardableResult
     static func createPlaylist(
         from preview: ImportPreview,
         named playlistName: String,
+        keepingMissing: Bool = false,
         library: MusicLibrary
     ) -> Playlist {
-        let songIDs = preview.entries.compactMap { $0.matchedSong?.id }
-        // 按导入顺序一次写入。逐首 add 会让大型歌单重复持久化整份曲库
-        // 快照并向 SwiftUI / CloudKit 发布 N 次。
-        return library.createPlaylist(name: playlistName, songIDs: songIDs)
+        guard keepingMissing else {
+            let songIDs = preview.entries.compactMap { $0.matchedSong?.id }
+            // 按导入顺序一次写入。逐首 add 会让大型歌单重复持久化整份曲库
+            // 快照并向 SwiftUI / CloudKit 发布 N 次。
+            return library.createPlaylist(name: playlistName, songIDs: songIDs)
+        }
+        let members = preview.entries.compactMap { entry -> MusicLibrary.PlaylistImportMember? in
+            if let song = entry.matchedSong { return .song(song.id) }
+            return entry.pendingEntry.map { .pending($0) }
+        }
+        return library.createPlaylist(name: playlistName, members: members)
     }
 
     /// 把 preview 里匹配到的歌曲加入「我喜欢」。已经喜欢的不会重复, 未匹配的

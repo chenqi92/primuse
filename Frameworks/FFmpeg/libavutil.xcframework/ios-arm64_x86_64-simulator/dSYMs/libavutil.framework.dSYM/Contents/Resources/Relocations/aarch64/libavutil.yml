@@ -1,5 +1,5 @@
 ---
 triple:          'arm64-apple-darwin'
-binary-path:     '/private/tmp/primuse-ffmpeg-apple/frameworks/ios-simulator-universal/libavutil.framework/libavutil'
+binary-path:     '/Users/cq/primuse-verify/ffmpeg-video-build/work/frameworks/ios-simulator-universal/libavutil.framework/libavutil'
 relocations:     []
 ...

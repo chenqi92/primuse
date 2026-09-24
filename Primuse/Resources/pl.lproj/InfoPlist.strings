@@ -3,3 +3,4 @@
 "NSLocalNetworkUsageDescription" = "Primuse potrzebuje dostępu do sieci lokalnej, aby wykrywać urządzenia NAS, serwery multimediów i inne źródła muzyki oraz łączyć się z nimi.";
 "NSMotionUsageDescription" = "Primuse wykorzystuje ruch słuchawek, aby utrzymywać stałe położenie dźwięku przestrzennego podczas poruszania głową.";
 "NSSiriUsageDescription" = "Umożliwia rozpoczynanie odtwarzania i sterowanie Primuse poleceniami głosowymi Siri.";
+"NSMicrophoneUsageDescription" = "Primuse używa mikrofonu w trybie karaoke, aby oceniać Twój śpiew, pozwolić Ci słyszeć się w słuchawkach i nagrywać występ na tym urządzeniu.";

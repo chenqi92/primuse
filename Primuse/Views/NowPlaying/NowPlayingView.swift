@@ -664,6 +664,7 @@ struct NowPlayingView: View {
     @State private var showCastPicker = false
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
+    @State private var showKaraoke = false
     @State private var showDeleteConfirm = false
     @State private var deleteErrorMessage: String?
     @State private var showTagEditor = false
@@ -1592,6 +1593,15 @@ struct NowPlayingView: View {
                 .presentationDetents([.large])
             }
         }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showKaraoke) {
+            KaraokeStageView()
+        }
+        #else
+        .sheet(isPresented: $showKaraoke) {
+            KaraokeStageView()
+        }
+        #endif
         #if os(iOS)
         .fullScreenCover(item: $lyricsEditorTargetSong) { song in
             LyricsEditorSheet(
@@ -3592,6 +3602,8 @@ struct NowPlayingView: View {
             isMedleyActive: player.isMedleyActive,
             canStartMedley: !player.isAppleMusicMode && !player.isLiveRadio
                 && medleyCandidateSongs.count >= 2,
+            canStartKaraoke: player.currentSong != nil && !player.isAppleMusicMode
+                && !player.isLiveRadio,
             medleySegmentSeconds: playbackSettings.medleySegmentSeconds,
             colorScheme: colorScheme,
             colorSchemeContrast: colorSchemeContrast
@@ -3664,6 +3676,7 @@ struct NowPlayingView: View {
             onContinueMedleySongInFull: {
                 Task { await player.continueCurrentMedleySongInFull() }
             },
+            onStartKaraoke: { showKaraoke = true },
             onDelete: { showDeleteConfirm = true }
         )
         .equatable()
@@ -6223,6 +6236,7 @@ struct NowPlayingMoreMenuSnapshot: Equatable {
     let repeatMode: RepeatMode
     let isMedleyActive: Bool
     let canStartMedley: Bool
+    let canStartKaraoke: Bool
     let medleySegmentSeconds: Int
     let colorScheme: ColorScheme
     let colorSchemeContrast: ColorSchemeContrast
@@ -6266,6 +6280,7 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onCycleRepeatMode: () -> Void
     let onStartMedley: () -> Void
     let onContinueMedleySongInFull: () -> Void
+    let onStartKaraoke: () -> Void
     let onDelete: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -6414,6 +6429,14 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         Label(String(localized: "delete"), systemImage: "trash")
                     }
                     .disabled(!snapshot.hasSong)
+                }
+            }
+
+            if snapshot.canStartKaraoke {
+                Section {
+                    Button(action: onStartKaraoke) {
+                        Label(String(localized: "karaoke_title"), systemImage: "music.mic.circle")
+                    }
                 }
             }
 

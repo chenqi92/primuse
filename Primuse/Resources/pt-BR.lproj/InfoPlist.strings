@@ -3,3 +3,4 @@
 "NSLocalNetworkUsageDescription" = "O Primuse precisa acessar a rede local para encontrar e se conectar a seus dispositivos NAS, servidores de mídia e outras origens de música.";
 "NSMotionUsageDescription" = "O Primuse usa o movimento dos fones de ouvido para manter o Áudio Espacial ancorado enquanto você move a cabeça.";
 "NSSiriUsageDescription" = "Permite iniciar a reprodução e controlar o Primuse com comandos de voz da Siri.";
+"NSMicrophoneUsageDescription" = "O Primuse usa o microfone no modo karaokê para pontuar seu canto, deixar você se ouvir nos fones e gravar sua apresentação neste dispositivo.";

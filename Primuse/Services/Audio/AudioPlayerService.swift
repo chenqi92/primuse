@@ -617,6 +617,8 @@ final class AudioPlayerService {
         shouldStart: Bool
     )?
     var isSystemAudioPlaybackActive = false
+    /// 卡拉OK舞台开着。人声消除要拿到 PCM, 系统多声道播放器给不了。
+    @ObservationIgnored private(set) var isKaraokeSessionActive = false
     private var systemAudioFallbackContext: (
         song: Song,
         url: URL,
@@ -1596,6 +1598,15 @@ final class AudioPlayerService {
             return
         }
         audioEngine.applyPlaybackRate(requestedRate)
+    }
+
+    /// 卡拉OK舞台打开/关闭。打开时正在走系统播放器的歌切回 PCM 引擎。
+    func setKaraokeSessionActive(_ active: Bool) {
+        isKaraokeSessionActive = active
+        guard active, isSystemAudioPlaybackActive, let id = playID else { return }
+        Task { @MainActor [weak self] in
+            await self?.fallbackSystemAudioToPCM(playID: id, error: nil)
+        }
     }
 
     /// Request the source rate before selecting the graph's actual format.
@@ -2952,6 +2963,7 @@ final class AudioPlayerService {
         // path whenever the user requests a non-default rate so the UI and
         // audible transport cannot disagree about elapsed time.
         guard abs(requestedPlaybackRate - 1) < 0.001 else { return false }
+        guard !isKaraokeSessionActive else { return false }
         guard let profile = await preferredSystemAudioProfile(for: song, url: url),
               playID == id,
               isLocalTransportStartAuthorized(
@@ -3159,13 +3171,8 @@ final class AudioPlayerService {
             return .skipped
         }
 
-        // 格式预检基于 mvPath 扩展名, 在网络 resolve 之前拦截明确不可播的
-        // 容器(mkv/avi 等), 省一次连接开销。
-        if let format = VideoFormat.from(fileExtension: (mvPath as NSString).pathExtension),
-           format.isNativelyPlayable == false {
-            plog("🎞️ MV unsupported format \(format.rawValue) for '\(song.title)'")
-            return .needsAudioFallback
-        }
+        // mkv/avi 等容器由 resolveVideoAsset 改写成 MP4 后再交给 AVPlayer;
+        // 只有带 scheme 的服务端直链仍按原格式判断(见下方 .url 分支)。
 
         pendingMusicVideoPlayID = id
         defer {

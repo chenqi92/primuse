@@ -5,8 +5,10 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
-/// 歌单导入页 — 走 .fileImporter 选 .m3u8 / .json, 解析 + 库匹配, 给
-/// 用户看预览 (匹配成功 N 首 / 缺 M 首) → 用户改名后确认 → 创建歌单。
+/// 歌单导入页 — 三种来源: .fileImporter 选 .m3u8 / .json、粘贴其他音乐 App 的
+/// 歌单分享链接、粘贴「歌名 - 歌手」文本清单。解析 + 库匹配后给用户看预览
+/// (匹配成功 N 首 / 缺 M 首) → 用户改名后确认 → 创建歌单。没对上的歌默认以
+/// 置灰占位保留在歌单里, 以后曲库里有了会自动点亮。
 ///
 /// 三种状态:
 /// - 还没选文件: 引导选文件
@@ -29,6 +31,29 @@ struct PlaylistImportView: View {
     @State private var manualMatchQuery = ""
     /// 解析 + 库匹配在后台跑期间为 true, 用来显示进度并阻止重复触发。
     @State private var isParsing = false
+    @State private var sourceMode: ImportSourceMode = .file
+    @State private var linkText = ""
+    @State private var listText = ""
+    @State private var listOrder: ExternalPlaylistTextParser.Order = .titleFirst
+    /// 没对上的歌以置灰占位保留(只对新建歌单有效; 「我喜欢」只收对上的)。
+    @State private var keepMissing = true
+    @State private var loadTask: Task<Void, Never>?
+
+    enum ImportSourceMode: String, CaseIterable, Identifiable {
+        case file
+        case link
+        case text
+
+        var id: String { rawValue }
+
+        var titleKey: LocalizedStringKey {
+            switch self {
+            case .file: "playlist_import_mode_file"
+            case .link: "playlist_import_mode_link"
+            case .text: "playlist_import_mode_text"
+            }
+        }
+    }
 
     var body: some View {
         #if os(macOS)
@@ -65,6 +90,7 @@ struct PlaylistImportView: View {
                 importError = error.localizedDescription
             }
         }
+        .onDisappear { loadTask?.cancel() }
         .alert(String(localized: "playlist_import_err_title"),
                isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
             Button("ok", role: .cancel) {}
@@ -76,8 +102,19 @@ struct PlaylistImportView: View {
             // 成对分支: 引导那一侧直接消失、预览这一侧淡入。交叉淡入会让两段
             // 同时排在 Form 里, 把内容顶开再弹回。
             if preview == nil {
-                introSection
+                sourceModeSection
                     .pmAppearFade(.pageSwitch)
+                switch sourceMode {
+                case .file:
+                    introSection
+                        .pmAppearFade(.pageSwitch)
+                case .link:
+                    linkSection
+                        .pmAppearFade(.pageSwitch)
+                case .text:
+                    textSection
+                        .pmAppearFade(.pageSwitch)
+                }
             } else if let preview {
                 summarySection(preview)
                     .pmAppearFade(.pageSwitch)
@@ -95,7 +132,7 @@ struct PlaylistImportView: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("cancel") { dismiss() }
             }
-            if preview == nil {
+            if preview == nil, sourceMode == .file {
                 // 没选文件时, 顶部一个明显的「选择文件」入口 —— Form 内的
                 // .borderedProminent 按钮在 iOS 26 偶尔渲染成跟背景同色看
                 // 不见, 工具栏入口更稳。
@@ -106,7 +143,7 @@ struct PlaylistImportView: View {
                         Label("playlist_import_pick_file", systemImage: "folder")
                     }
                 }
-            } else {
+            } else if preview != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { confirm() } label: { Text(confirmTitleKey) }
                         .fontWeight(.semibold)
@@ -116,11 +153,17 @@ struct PlaylistImportView: View {
         }
     }
 
-    /// 加入「我喜欢」不需要名字; 新建歌单需要。两种都至少要匹配到一首。
+    /// 加入「我喜欢」不需要名字, 至少要匹配到一首; 新建歌单需要名字, 保留置灰条目时
+    /// 一首都没对上也可以建 —— 以后曲库里有了会自己亮。
     private var canConfirmImport: Bool {
-        guard (preview?.matchedCount ?? 0) > 0 else { return false }
-        return destination == .likedSongs
-            || !playlistName.trimmingCharacters(in: .whitespaces).isEmpty
+        guard let preview else { return false }
+        if destination == .likedSongs { return preview.matchedCount > 0 }
+        guard !playlistName.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        return preview.matchedCount > 0 || (keepsMissingEntries && !preview.entries.isEmpty)
+    }
+
+    private var keepsMissingEntries: Bool {
+        destination == .newPlaylist && keepMissing
     }
 
     /// 显式标成 LocalizedStringKey: 直接把三元表达式塞给 Text / Button 会被推断成
@@ -208,6 +251,140 @@ struct PlaylistImportView: View {
     }
 
     private var macIntro: some View {
+        VStack(spacing: 0) {
+            Picker("playlist_import_mode_header", selection: $sourceMode) {
+                ForEach(ImportSourceMode.allCases) { mode in
+                    Text(mode.titleKey).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .disabled(isParsing)
+            .padding(.horizontal, 22)
+            .padding(.top, 18)
+
+            switch sourceMode {
+            case .file:
+                macFileIntro
+            case .link:
+                macLinkIntro
+            case .text:
+                macTextIntro
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var macLinkIntro: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("playlist_import_link_desc")
+                .font(.system(size: 12.5))
+                .foregroundStyle(PMColor.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("playlist_import_link_placeholder", text: $linkText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .lineLimit(3...6)
+                .padding(10)
+                .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+                .onSubmit { importFromLink() }
+            HStack {
+                PasteButton(payloadType: String.self) { strings in
+                    guard let text = strings.first else { return }
+                    Task { @MainActor in linkText = text }
+                }
+                Spacer()
+                macPrimaryAction(
+                    titleKey: "playlist_import_link_fetch",
+                    systemImage: "link",
+                    disabled: linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ) { importFromLink() }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(22)
+    }
+
+    private var macTextIntro: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("playlist_import_text_desc")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Picker("playlist_import_text_order", selection: $listOrder) {
+                    Text("playlist_import_text_order_title_first").tag(ExternalPlaylistTextParser.Order.titleFirst)
+                    Text("playlist_import_text_order_artist_first").tag(ExternalPlaylistTextParser.Order.artistFirst)
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            TextEditor(text: $listText)
+                .font(.system(size: 13))
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .background(PMColor.card.opacity(0.78), in: .rect(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+                }
+                .overlay(alignment: .topLeading) {
+                    if listText.isEmpty {
+                        Text("playlist_import_text_placeholder")
+                            .font(.system(size: 13))
+                            .foregroundStyle(PMColor.textFaint)
+                            .padding(.top, 6)
+                            .padding(.leading, 11)
+                            .allowsHitTesting(false)
+                    }
+                }
+            HStack {
+                Spacer()
+                macPrimaryAction(
+                    titleKey: "playlist_import_text_parse",
+                    systemImage: "text.badge.checkmark",
+                    disabled: listText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ) { importFromText() }
+            }
+        }
+        .padding(22)
+    }
+
+    @ViewBuilder
+    private func macPrimaryAction(
+        titleKey: LocalizedStringKey,
+        systemImage: String,
+        disabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        if isParsing {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("scanning")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+            .frame(height: 34)
+        } else {
+            Button(action: action) {
+                Label(titleKey, systemImage: systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .frame(height: 34)
+                    .background(disabled ? PMColor.textFaint.opacity(0.45) : PMColor.brand, in: .rect(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .disabled(disabled)
+        }
+    }
+
+    private var macFileIntro: some View {
         VStack(spacing: 14) {
             Spacer(minLength: 0)
 
@@ -295,6 +472,11 @@ struct PlaylistImportView: View {
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
                         }
+                    if p.missingCount > 0 {
+                        Toggle("playlist_import_keep_missing", isOn: $keepMissing)
+                            .font(.system(size: 12))
+                            .toggleStyle(.checkbox)
+                    }
                 } else {
                     Text(verbatim: likedDestinationNote)
                         .font(.system(size: 11.5))
@@ -341,8 +523,16 @@ struct PlaylistImportView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(PMColor.textMuted)
                 Spacer()
+                if p.probableCount > 0 {
+                    Button(String(format: String(localized: "playlist_import_confirm_all_probable_format"), p.probableCount)) {
+                        confirmAllProbable()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(PMColor.brand)
+                }
                 if p.missingCount > 0 {
-                    Text("playlist_import_unmatched_skip_hint")
+                    Text(unmatchedHintKey)
                         .font(.system(size: 11))
                         .foregroundStyle(PMColor.textFaint)
                 }
@@ -429,7 +619,7 @@ struct PlaylistImportView: View {
                 .frame(height: 28)
                 .padding(.horizontal, 12)
                 .background(PMColor.glassBtn, in: .rect(cornerRadius: 6))
-            } else if preview != nil {
+            } else if preview != nil, sourceMode == .file {
                 Button {
                     showFileImporter = true
                 } label: {
@@ -475,6 +665,13 @@ struct PlaylistImportView: View {
     }
 
     private func macConfirmTitle(matchedCount: Int) -> String {
+        if keepsMissingEntries, let missing = preview?.missingCount, missing > 0 {
+            return String(
+                format: String(localized: "playlist_import_create_with_pending_format"),
+                matchedCount,
+                missing
+            )
+        }
         let format = destination == .likedSongs
             ? String(localized: "playlist_import_add_matched_only_format")
             : String(localized: "playlist_import_create_matched_only_format")
@@ -527,9 +724,29 @@ struct PlaylistImportView: View {
                         .foregroundStyle(PMColor.textFaint)
                         .lineLimit(1)
                 }
+                if entry.matchedSong == nil, let suggestion = entry.suggestedSong {
+                    Text(verbatim: suggestionText(suggestion))
+                        .font(.system(size: 11))
+                        .foregroundStyle(PMColor.brand)
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
+
+            if entry.matchKind == nil, let suggestion = entry.suggestedSong {
+                Button {
+                    applyMatch(entry: entry, song: suggestion)
+                } label: {
+                    Text("playlist_pending_confirm")
+                        .font(.system(size: 11.5, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .frame(height: 23)
+                .background(PMColor.brand, in: .rect(cornerRadius: 6))
+            }
 
             if let kind = entry.matchKind {
                 Text(matchKindText(kind))
@@ -607,6 +824,83 @@ struct PlaylistImportView: View {
         }
     }
 
+    private var sourceModeSection: some View {
+        Section {
+            Picker("playlist_import_mode_header", selection: $sourceMode) {
+                ForEach(ImportSourceMode.allCases) { mode in
+                    Text(mode.titleKey).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(isParsing)
+        }
+    }
+
+    private var linkSection: some View {
+        Section {
+            TextField("playlist_import_link_placeholder", text: $linkText, axis: .vertical)
+                .lineLimit(2...5)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+                #endif
+            HStack {
+                PasteButton(payloadType: String.self) { strings in
+                    guard let text = strings.first else { return }
+                    Task { @MainActor in linkText = text }
+                }
+                .labelStyle(.titleAndIcon)
+                .buttonBorderShape(.capsule)
+                Spacer()
+                if isParsing {
+                    ProgressView()
+                } else {
+                    Button("playlist_import_link_fetch") { importFromLink() }
+                        .fontWeight(.semibold)
+                        .disabled(linkText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        } footer: {
+            Text("playlist_import_link_desc")
+        }
+    }
+
+    private var textSection: some View {
+        Section {
+            Picker("playlist_import_text_order", selection: $listOrder) {
+                Text("playlist_import_text_order_title_first").tag(ExternalPlaylistTextParser.Order.titleFirst)
+                Text("playlist_import_text_order_artist_first").tag(ExternalPlaylistTextParser.Order.artistFirst)
+            }
+            TextEditor(text: $listText)
+                .font(.callout)
+                .frame(minHeight: 180)
+                .autocorrectionDisabled()
+                .overlay(alignment: .topLeading) {
+                    if listText.isEmpty {
+                        Text("playlist_import_text_placeholder")
+                            .font(.callout)
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 8)
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
+                    }
+                }
+            HStack {
+                Spacer()
+                if isParsing {
+                    ProgressView()
+                } else {
+                    Button("playlist_import_text_parse") { importFromText() }
+                        .fontWeight(.semibold)
+                        .disabled(listText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        } footer: {
+            Text("playlist_import_text_desc")
+        }
+    }
+
     private func summarySection(_ p: PlaylistImporter.ImportPreview) -> some View {
         Section {
             HStack {
@@ -621,11 +915,30 @@ struct PlaylistImportView: View {
                 Spacer()
                 Text("\(p.missingCount)").monospacedDigit().foregroundStyle(.secondary)
             }
+            if p.probableCount > 0 {
+                HStack {
+                    Label("playlist_import_probable", systemImage: "questionmark.diamond")
+                        .foregroundStyle(Color.accentColor)
+                    Spacer()
+                    Button(String(format: String(localized: "playlist_import_confirm_all_probable_format"), p.probableCount)) {
+                        confirmAllProbable()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                }
+            }
         } footer: {
             if p.missingCount > 0 {
-                Text("playlist_import_missing_footer")
+                Text(missingFooterKey)
             }
         }
+    }
+
+    private var unmatchedHintKey: LocalizedStringKey {
+        keepsMissingEntries ? "playlist_import_pending_kept_hint" : "playlist_import_unmatched_skip_hint"
+    }
+
+    private var missingFooterKey: LocalizedStringKey {
+        keepsMissingEntries ? "playlist_import_keep_missing_footer" : "playlist_import_missing_footer"
     }
 
     private var destinationSection: some View {
@@ -639,6 +952,9 @@ struct PlaylistImportView: View {
             .pickerStyle(.segmented)
             if destination == .newPlaylist {
                 TextField("playlist_name", text: $playlistName)
+                if (preview?.missingCount ?? 0) > 0 {
+                    Toggle("playlist_import_keep_missing", isOn: $keepMissing)
+                }
             }
         } header: {
             Text("playlist_import_destination_header")
@@ -673,6 +989,12 @@ struct PlaylistImportView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                if entry.matchedSong == nil, let suggestion = entry.suggestedSong {
+                    Text(verbatim: suggestionText(suggestion))
+                        .font(.caption)
+                        .foregroundStyle(Color.accentColor)
+                        .lineLimit(1)
+                }
             }
             Spacer()
             if let kind = entry.matchKind {
@@ -681,9 +1003,22 @@ struct PlaylistImportView: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Capsule().fill(matchKindColor(kind).opacity(0.18)))
                     .foregroundStyle(matchKindColor(kind))
+            } else if let suggestion = entry.suggestedSong {
+                Button("playlist_pending_confirm") { applyMatch(entry: entry, song: suggestion) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private func suggestionText(_ song: Song) -> String {
+        String(
+            format: String(localized: "playlist_pending_suggestion_format"),
+            [song.title, library.artistDisplayName(for: song) ?? ""]
+                .filter { !$0.isEmpty }
+                .joined(separator: " — ")
+        )
     }
 
     private func statusIcon(for entry: PlaylistImporter.ImportEntry) -> some View {
@@ -708,6 +1043,7 @@ struct PlaylistImportView: View {
             // 匹配池用 visibleSongs(排除停用源), 与歌单展示 / 手动匹配口径一致 ——
             // 命中停用源的歌写进歌单后 songs(forPlaylist:) 也看不到。
             let snapshot = library.visibleSongs
+            let keyCache = library.playlistEntryMatchKeyCache
             isParsing = true
             defer { isParsing = false }
             do {
@@ -715,7 +1051,8 @@ struct PlaylistImportView: View {
                 let ext = url.pathExtension.lowercased()
                 let fileName = url.deletingPathExtension().lastPathComponent
                 let raw = try await Task.detached(priority: .userInitiated) {
-                    try Self.parseAndMatchOffMain(data: data, ext: ext, fileName: fileName, songs: snapshot)
+                    let parsed = try Self.parseAndMatchOffMain(data: data, ext: ext, fileName: fileName, songs: snapshot)
+                    return Self.refineUnmatchedOffMain(parsed, songs: snapshot, keyCache: keyCache)
                 }.value
                 // @MainActor 隔离的 ImportEntry/ImportPreview 只能在主线程构造,
                 // 但这一步是 O(条目数) 纯映射 (无 folding/全库扫描), 不卡 UI。
@@ -726,7 +1063,8 @@ struct PlaylistImportView: View {
                             displayTitle: m.displayTitle,
                             displayArtist: m.displayArtist,
                             matchedSong: m.matchedSong,
-                            matchKind: m.matchKindRaw.flatMap { PlaylistImporter.ImportEntry.MatchKind(rawValue: $0) }
+                            matchKind: m.matchKindRaw.flatMap { PlaylistImporter.ImportEntry.MatchKind(rawValue: $0) },
+                            suggestedSong: m.suggestedSong
                         )
                     }
                 )
@@ -763,8 +1101,37 @@ struct PlaylistImportView: View {
     nonisolated private struct RawMatch: Sendable {
         let displayTitle: String
         let displayArtist: String?
-        let matchedSong: Song?
-        let matchKindRaw: String?  // PlaylistImporter.ImportEntry.MatchKind.rawValue
+        var matchedSong: Song?
+        var matchKindRaw: String?  // PlaylistImporter.ImportEntry.MatchKind.rawValue
+        var suggestedSong: Song? = nil
+    }
+
+    /// 文件里按路径/原样标题都没对上的条目, 再用导入外部歌单的那套规则(繁简、全半角、
+    /// 括号附注、多歌手)对一遍: 把握大的直接算匹配, 只够「可能是」的给出候选。
+    nonisolated private static func refineUnmatchedOffMain(
+        _ result: RawImportResult,
+        songs: [Song],
+        keyCache: PlaylistEntryMatchKeyCache
+    ) -> RawImportResult {
+        guard result.matches.contains(where: { $0.matchedSong == nil }) else { return result }
+        let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
+        let refined = result.matches.map { raw -> RawMatch in
+            guard raw.matchedSong == nil else { return raw }
+            let artists = (raw.displayArtist ?? "")
+                .components(separatedBy: " / ")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let match = matcher.match(.init(title: raw.displayTitle, artists: artists, duration: nil))
+            var updated = raw
+            if let best = match.best {
+                updated.matchedSong = best
+                updated.matchKindRaw = "fuzzy"
+            } else {
+                updated.suggestedSong = match.probable.first
+            }
+            return updated
+        }
+        return RawImportResult(suggestedName: result.suggestedName, kindMarker: result.kindMarker, matches: refined)
     }
 
     nonisolated private struct RawImportResult: Sendable {
@@ -981,9 +1348,150 @@ struct PlaylistImportView: View {
             PlaylistImporter.addToLikedSongs(from: preview, library: library)
         case .newPlaylist:
             let name = playlistName.trimmingCharacters(in: .whitespaces)
-            PlaylistImporter.createPlaylist(from: preview, named: name, library: library)
+            PlaylistImporter.createPlaylist(
+                from: preview,
+                named: name,
+                keepingMissing: keepMissing,
+                library: library
+            )
         }
         dismiss()
+    }
+
+    /// 把「可能是」的候选确认成这一条的匹配。
+    private func applyMatch(entry: PlaylistImporter.ImportEntry, song: Song) {
+        guard let current = preview else { return }
+        let entries = current.entries.map { item in
+            item.id == entry.id
+                ? PlaylistImporter.ImportEntry(
+                    displayTitle: item.displayTitle,
+                    displayArtist: item.displayArtist,
+                    matchedSong: song,
+                    matchKind: .fuzzy,
+                    pendingTemplate: item.pendingTemplate
+                )
+                : item
+        }
+        preview = PlaylistImporter.ImportPreview(suggestedName: current.suggestedName, entries: entries)
+    }
+
+    private func confirmAllProbable() {
+        guard let current = preview else { return }
+        let entries = current.entries.map { item in
+            guard item.matchedSong == nil, let suggestion = item.suggestedSong else { return item }
+            return PlaylistImporter.ImportEntry(
+                displayTitle: item.displayTitle,
+                displayArtist: item.displayArtist,
+                matchedSong: suggestion,
+                matchKind: .fuzzy,
+                pendingTemplate: item.pendingTemplate
+            )
+        }
+        preview = PlaylistImporter.ImportPreview(suggestedName: current.suggestedName, entries: entries)
+    }
+
+    // MARK: - Links and text lists
+
+    private func importFromLink() {
+        let text = linkText
+        startExternalImport { try await ExternalPlaylistFetcher.fetch(sharedText: text) }
+    }
+
+    private func importFromText() {
+        let tracks = ExternalPlaylistTextParser.parse(listText, order: listOrder)
+        guard !tracks.isEmpty else {
+            importError = String(localized: "playlist_import_err_empty")
+            return
+        }
+        let playlist = ExternalPlaylist(
+            name: String(localized: "playlist_import_text_default_name"),
+            platform: nil,
+            tracks: tracks
+        )
+        startExternalImport { playlist }
+    }
+
+    /// 读取(可能要联网)→ 后台和曲库匹配 → 出预览。和文件导入共用预览与确认。
+    private func startExternalImport(_ load: @escaping @Sendable () async throws -> ExternalPlaylist) {
+        guard !isParsing else { return }
+        let snapshot = library.visibleSongs
+        let keyCache = library.playlistEntryMatchKeyCache
+        isParsing = true
+        loadTask = Task {
+            defer {
+                isParsing = false
+                loadTask = nil
+            }
+            do {
+                let playlist = try await load()
+                let rows = await Task.detached(priority: .userInitiated) {
+                    Self.matchExternalOffMain(playlist.tracks, songs: snapshot, keyCache: keyCache)
+                }.value
+                guard !Task.isCancelled else { return }
+                let origin = playlist.platform?.rawValue ?? "text"
+                let p = PlaylistImporter.ImportPreview(
+                    suggestedName: playlist.name.isEmpty
+                        ? String(localized: "playlist_import_text_default_name")
+                        : playlist.name,
+                    entries: rows.map { row in
+                        PlaylistImporter.ImportEntry(
+                            displayTitle: row.track.title,
+                            displayArtist: row.track.artists.isEmpty ? nil : row.track.artistLine,
+                            matchedSong: row.matched,
+                            matchKind: row.matched == nil ? nil : .fuzzy,
+                            suggestedSong: row.suggested,
+                            pendingTemplate: PlaylistPendingEntry(
+                                title: row.track.title,
+                                artists: row.track.artists,
+                                album: row.track.album,
+                                duration: row.track.duration,
+                                origin: origin,
+                                externalID: row.track.externalID
+                            )
+                        )
+                    }
+                )
+                preview = p
+                playlistName = p.suggestedName
+                destination = .newPlaylist
+                importedFromName = playlist.platform.map(platformName) ?? p.suggestedName
+            } catch is CancellationError {
+                return
+            } catch {
+                importError = error.localizedDescription
+            }
+        }
+    }
+
+    private func platformName(_ platform: ExternalPlaylistPlatform) -> String {
+        switch platform {
+        case .netease: String(localized: "playlist_import_platform_netease")
+        case .qqMusic: String(localized: "playlist_import_platform_qqmusic")
+        case .kuwo: String(localized: "playlist_import_platform_kuwo")
+        case .bodian: String(localized: "playlist_import_platform_bodian")
+        }
+    }
+
+    nonisolated private struct RawExternalMatch: Sendable {
+        let track: ExternalPlaylistTrack
+        let matched: Song?
+        let suggested: Song?
+    }
+
+    nonisolated private static func matchExternalOffMain(
+        _ tracks: [ExternalPlaylistTrack],
+        songs: [Song],
+        keyCache: PlaylistEntryMatchKeyCache
+    ) -> [RawExternalMatch] {
+        let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
+        return tracks.map { track in
+            let match = matcher.match(track.matchSubject)
+            return RawExternalMatch(
+                track: track,
+                matched: match.best,
+                suggested: match.best == nil ? match.probable.first : nil
+            )
+        }
     }
 
     #if os(macOS)
@@ -1111,18 +1619,7 @@ struct PlaylistImportView: View {
     }
 
     private func applyManualMatch(entry: PlaylistImporter.ImportEntry, song: Song) {
-        guard let current = preview else { return }
-        let entries = current.entries.map { item in
-            item.id == entry.id
-                ? PlaylistImporter.ImportEntry(
-                    displayTitle: item.displayTitle,
-                    displayArtist: item.displayArtist,
-                    matchedSong: song,
-                    matchKind: .fuzzy
-                )
-                : item
-        }
-        preview = PlaylistImporter.ImportPreview(suggestedName: current.suggestedName, entries: entries)
+        applyMatch(entry: entry, song: song)
         manualMatchEntry = nil
     }
     #endif

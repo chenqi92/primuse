@@ -3,3 +3,4 @@
 "NSLocalNetworkUsageDescription" = "يحتاج Primuse إلى الوصول إلى الشبكة المحلية لاكتشاف أجهزة NAS وخوادم الوسائط ومصادر الموسيقى الأخرى والاتصال بها.";
 "NSMotionUsageDescription" = "يستخدم Primuse حركة سماعات الرأس للحفاظ على ثبات الصوت المكاني أثناء تحريك رأسك.";
 "NSSiriUsageDescription" = "يُستخدم لبدء التشغيل والتحكم في Primuse بالأوامر الصوتية عبر Siri.";
+"NSMicrophoneUsageDescription" = "يستخدم Primuse الميكروفون في وضع الكاريوكي لتقييم غنائك وإسماعك صوتك في سماعات الرأس وتسجيل أدائك على هذا الجهاز.";

@@ -1799,6 +1799,8 @@ extension AudioPlayerService {
             clearQueue()
             return
         }
+        // 连不上的源里的歌, 别的源有同一首就先换过去, 剩下的才走下面的跳过逻辑。
+        let songs = substitutingReachableCopies(in: songs)
         var selectedIndex = max(0, min(index, songs.count - 1))
         var skippedSourceID: String?
         // The requested start cannot play on this network. Begin at the first

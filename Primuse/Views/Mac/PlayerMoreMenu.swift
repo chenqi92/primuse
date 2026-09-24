@@ -34,6 +34,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showSimilarSongs = false
     @State private var showSleepTimer = false
     @State private var showChapterList = false
+    @State private var showKaraoke = false
     @State private var showDeleteConfirm = false
     @State private var deleteErrorMessage: String?
     @State private var scrapeAlertMessage: String?
@@ -120,6 +121,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     player.forceRefreshNowPlayingArtwork()
                 }
             }
+        }
+        .sheet(isPresented: $showKaraoke) {
+            KaraokeStageView()
         }
         .sheet(item: $lyricsEditorTargetSong) { song in
             LyricsEditorSheet(song: song) { updated in
@@ -314,6 +318,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 fontPickerPopover
             }
             divider()
+            if player.currentSong != nil, !player.isLiveRadio, !player.isAppleMusicMode {
+                menuRow(title: "karaoke_title", symbol: "music.mic.circle") {
+                    showKaraoke = true
+                }
+            }
             if player.isMedleyActive {
                 menuRow(title: "medley_continue_full", symbol: "music.note") {
                     Task { await player.continueCurrentMedleySongInFull() }

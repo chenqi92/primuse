@@ -4,8 +4,8 @@ import SwiftUI
 
 // MARK: - 通用目录浏览器外壳
 //
-// ConnectorDirectoryBrowserView / NFSBrowserView / UPnPBrowserView /
-// MediaServerBrowserView 共用的 sheet chrome——breadcrumb、底部 bar、
+// ConnectorDirectoryBrowserView / NFSBrowserView / UPnPBrowserView
+// 共用的 sheet chrome——breadcrumb、底部 bar、
 // list 样式、frame 限制、toolbar 快捷键。各自的业务差异(path 解析、
 // connector 类型)留在原 view 里;这里只统一视觉。
 

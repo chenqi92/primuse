@@ -257,6 +257,7 @@ targets:
         INSupportedMediaCategories:
           - INMediaCategoryMusic
         NSAppleMusicUsageDescription: "Primuse uses Apple Music to search the catalog and play tracks if you have an active subscription."
+        NSMicrophoneUsageDescription: "Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device."
         NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
         NSPhotoLibraryAddUsageDescription: "Primuse 需要保存歌词海报和实况照片到你的相册。"
         NSUserActivityTypes:
@@ -534,6 +535,7 @@ targets:
         NSAppleMusicUsageDescription: "Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source."
         # AudioEngine.swift 用 CMHeadphoneMotionManager 做空间音频头部追踪(随 Primuse/ 源
         # 编进 macOS 二进制),即使 mac 上少用,Apple 校验也要求声明,否则上传报 90683。
+        NSMicrophoneUsageDescription: "Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device."
         NSMotionUsageDescription: "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head."
         CFBundleURLTypes:
           - CFBundleURLSchemes:
@@ -612,6 +614,9 @@ targets:
       # 电视端的曲库是同一份代码, 少了它编不过。
       - path: Primuse/Services/Library/SpokenWordStore.swift
       - path: Primuse/Services/Library/SmartPlaylistEngine.swift
+      # 歌单置灰条目的点亮、删源时换成同一首歌的另一份 —— MusicLibrary 直接用到。
+      - path: Primuse/Services/Playlist/PlaylistEntryMatcher.swift
+      - path: Primuse/Services/Library/DuplicateDetector.swift
       - path: Primuse/Services/Cloud/CloudKitSyncService.swift
       - path: Primuse/Services/Radio/RadioStationsStore.swift
       # 电视端添加电台:按名称搜 radio-browser 目录,纯 Foundation,与 iOS / macOS 同一份。
@@ -680,6 +685,9 @@ targets:
       - path: Primuse/Services/Radio/RadioFLACDecoderBridge.m
       # FFmpeg 桥接层:与 iOS / macOS 同一份,由 PrimuseTV/Audio/TVFFmpegPCMDecoder 接进 SFBAudioEngine 播放器
       - path: Primuse/Services/Audio/FFmpegDecoderBridge.m
+      # MV 兼容改写(MKV/AVI/FLV… → MP4):与 iOS / macOS 同一份
+      - path: Primuse/Services/Audio/FFmpegMusicVideoConverter.m
+      - path: Primuse/Services/Audio/MusicVideoCompatibilityConverter.swift
       # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
       - path: Primuse/Services/Sources/NetworkDiscoveryService.swift
       - path: Primuse/Utilities/FileLogger.swift

@@ -4957,7 +4957,42 @@ final class SourceManager {
 
     func resolveVideoAsset(for song: Song) async throws -> MusicVideoPlaybackAsset? {
         guard let mvPath = normalizedMusicVideoPath(for: song) else { return nil }
+        guard MusicVideoCompatibilityPolicy.needsConversion(path: mvPath) else {
+            return try await resolveOriginalVideoAsset(
+                for: song,
+                mvPath: mvPath,
+                requiresCompleteLocalFile: false
+            )
+        }
+        // MKV、AVI、FLV 等 AVPlayer 打不开的容器第一次播放时改写成 MP4 并留在
+        // 缓存里；再播放时既不用连源也不用重新下载原文件。改写需要完整的本地
+        // 原文件，所以这里不走边下边播。
+        let identity = MusicVideoCompatibilityConverter.identity(
+            sourceID: song.sourceID,
+            path: mvPath,
+            fileSize: song.isStandaloneMusicVideo ? song.fileSize : 0
+        )
+        if let converted = await MusicVideoCompatibilityConverter.shared.cachedURL(identity: identity) {
+            return .url(converted)
+        }
+        guard case .url(let original)? = try await resolveOriginalVideoAsset(
+            for: song,
+            mvPath: mvPath,
+            requiresCompleteLocalFile: true
+        ), original.isFileURL else {
+            return nil
+        }
+        return .url(try await MusicVideoCompatibilityConverter.shared.playableURL(
+            for: original,
+            identity: identity
+        ))
+    }
 
+    private func resolveOriginalVideoAsset(
+        for song: Song,
+        mvPath: String,
+        requiresCompleteLocalFile: Bool
+    ) async throws -> MusicVideoPlaybackAsset? {
         // 独立 MV(mvPath == filePath): 文件本体已离线下载时直接本地播,
         // 不再经视频缓存重复下载同一份字节。
         if song.isStandaloneMusicVideo,
@@ -5029,7 +5064,7 @@ final class SourceManager {
             streamEpoch: streamEpoch
         )
 
-        if !requiresConnectorBackedHTTPTransport(for: source) {
+        if !requiresCompleteLocalFile, !requiresConnectorBackedHTTPTransport(for: source) {
             let streamURL = try await conn.streamingURL(for: mvPath)
             try await ensureCurrentMusicVideoScope(
                 sourceID: source.id,
@@ -5055,7 +5090,7 @@ final class SourceManager {
         // listFiles 的网络往返, 远端文件被替换时删缓存让下次播放重下。
         // 边下边播: 知道远端大小的 range 源用 resource loader 即点即播,
         // 后台顺序下载并行把完整文件落进缓存(loader 读已覆盖的前缀省流量)。
-        if source.supportsRangeStreaming {
+        if !requiresCompleteLocalFile, source.supportsRangeStreaming {
             let expectedSize = try? await Self.musicVideoFileSize(path: mvPath, connector: conn)
             try await ensureCurrentMusicVideoScope(
                 sourceID: source.id,
