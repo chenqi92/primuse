@@ -411,7 +411,8 @@ enum ImmersiveDemoStage {
         levels: [CGFloat],
         elapsed: TimeInterval,
         animates: Bool,
-        controlsInset: CGFloat = 0
+        controlsInset: CGFloat = 0,
+        isResting: Bool = false
     ) -> some View {
         var track = ImmersiveDemoContent.track
         track.isPlaying = animates
@@ -447,7 +448,8 @@ enum ImmersiveDemoStage {
             lyricInterlude: false,
             lyricsPlaceholder: ImmersiveDemoContent.lyrics[1],
             controlsInset: controlsInset,
-            showsClock: false
+            showsClock: false,
+            isResting: isResting
         ) { side in
             ImmersivePreviewArtwork(variant: 0, palette: palette)
                 .frame(width: side, height: side)
@@ -459,9 +461,14 @@ enum ImmersiveDemoStage {
 /// 调试构建的舞台取证页，`PRIMUSE_VISUAL_EVIDENCE=immersiveStage` 启动时替换根视图。
 /// `PRIMUSE_EVIDENCE_EFFECT`（rawValue，逗号分隔，默认 radialPulse）指定效果，
 /// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认全部）指定视口；
+/// `PRIMUSE_EVIDENCE_RESTING`（lyric / title）按休憩态渲染：舞台文字淡出、压暗，叠上带歌词或只有歌名的休憩层。
 /// 每个视口按真实尺寸、安全区与控件占位渲染一帧静态舞台，缩放到屏宽后纵向排开，
 /// 直接用模拟器截图就能看到三种排版。
 struct ImmersiveStageEvidenceHost: View {
+    private enum RestingVariant: String {
+        case lyric, title
+    }
+
     private struct Frame: Identifiable {
         let effect: FullscreenPlayerEffect
         let layout: String
@@ -475,8 +482,10 @@ struct ImmersiveStageEvidenceHost: View {
     }
 
     private let frames: [Frame]
+    private let resting: RestingVariant?
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        resting = RestingVariant(rawValue: environment["PRIMUSE_EVIDENCE_RESTING"] ?? "")
         let effects = (environment["PRIMUSE_EVIDENCE_EFFECT"] ?? "radialPulse")
             .split(separator: ",")
             .compactMap { FullscreenPlayerEffect(rawValue: $0.trimmingCharacters(in: .whitespaces)) }
@@ -527,19 +536,31 @@ struct ImmersiveStageEvidenceHost: View {
                             prefersWide: frame.prefersWide
                         )
                         let scale = geometry.size.width / frame.size.width
-                        Text(verbatim: "\(frame.effect.rawValue) · \(frame.layout) · \(Int(frame.size.width))×\(Int(frame.size.height))")
+                        Text(verbatim: "\(frame.effect.rawValue) · \(frame.layout) · \(Int(frame.size.width))×\(Int(frame.size.height))\(resting.map { " · resting:\($0.rawValue)" } ?? "")")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.72))
                             .padding(.horizontal, 8)
-                        ImmersiveDemoStage.make(
-                            effect: frame.effect,
-                            metrics: metrics,
-                            palette: .fallback,
-                            levels: ImmersiveDemoStage.baseLevels,
-                            elapsed: 108,
-                            animates: false,
-                            controlsInset: metrics.s(frame.controlsInsetDesignValue)
-                        )
+                        ZStack {
+                            ImmersiveDemoStage.make(
+                                effect: frame.effect,
+                                metrics: metrics,
+                                palette: .fallback,
+                                levels: ImmersiveDemoStage.baseLevels,
+                                elapsed: 108,
+                                animates: false,
+                                controlsInset: metrics.s(frame.controlsInsetDesignValue),
+                                isResting: resting != nil
+                            )
+                            if let resting {
+                                Color.black.opacity(0.60)
+                                ImmersiveAmbientRestOverlay(
+                                    metrics: metrics,
+                                    lyric: resting == .lyric ? ImmersiveDemoContent.lyrics[1] : nil,
+                                    title: ImmersiveDemoContent.track.title,
+                                    subtitle: ImmersiveDemoContent.track.subtitle
+                                )
+                            }
+                        }
                         .frame(width: frame.size.width, height: frame.size.height)
                         .clipped()
                         .scaleEffect(scale, anchor: .topLeading)
@@ -783,6 +804,56 @@ struct ImmersiveVignette: View {
             )
         }
         .allowsHitTesting(false)
+    }
+}
+
+// MARK: - 休憩层
+
+/// 全屏播放闲置后的休憩层：左下角是时钟、当前歌词、歌名与「艺人 · 专辑」。
+/// 休憩时舞台自己的文字已经淡出（`ImmersiveStageView.isResting`），画面上只剩这一组可读文字，
+/// 不会再和各效果排在底部的标题、歌词叠在一起。
+struct ImmersiveAmbientRestOverlay: View {
+    var metrics: ImmersiveStageMetrics
+    /// 当前歌词行；没有可用歌词时为 nil，歌名顶上这一行。
+    var lyric: String?
+    var title: String
+    var subtitle: String
+
+    var body: some View {
+        let hasLyric = lyric != nil
+        let clockSize = metrics.s(metrics.isPortrait ? 62 : 54)
+        let lineSize = metrics.s(metrics.isPortrait ? 24 : 22)
+        let titleSize = hasLyric ? metrics.s(16) : lineSize
+
+        TimelineView(.everyMinute) { context in
+            VStack(alignment: .leading, spacing: metrics.s(12)) {
+                Text(context.date.formatted(date: .omitted, time: .shortened))
+                    .font(.system(size: clockSize, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(ImmersiveStagePalette.ink)
+                if let lyric {
+                    Text(lyric)
+                        .font(.system(size: lineSize, weight: .medium))
+                        .foregroundStyle(ImmersiveStagePalette.text.opacity(0.78))
+                        .lineLimit(2)
+                }
+                VStack(alignment: .leading, spacing: metrics.s(4)) {
+                    Text(title)
+                        .font(.system(size: titleSize, weight: hasLyric ? .semibold : .medium))
+                        .foregroundStyle(ImmersiveStagePalette.text.opacity(hasLyric ? 0.62 : 0.78))
+                        .lineLimit(2)
+                    Text(subtitle)
+                        .font(.system(size: metrics.s(14)))
+                        .foregroundStyle(ImmersiveStagePalette.text.opacity(0.42))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, max(metrics.safeArea.leading + 28, metrics.s(30)))
+            .padding(.bottom, max(metrics.safeArea.bottom + 38, metrics.s(54)))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
     }
 }
 
