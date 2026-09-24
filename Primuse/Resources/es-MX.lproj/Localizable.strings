@@ -4386,3 +4386,6 @@
 "karaoke_result_title" = "Tu interpretación";
 "karaoke_lines_judged_format" = "%d líneas calificadas";
 "karaoke_best_line" = "Mejor línea";
+"karaoke_backing_track" = "Pista de acompañamiento";
+"karaoke_backing_track_playing" = "Se está reproduciendo la pista de acompañamiento, no hay voz que ajustar.";
+"karaoke_lyrics_from_format" = "Letra de “%@”";

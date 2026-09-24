@@ -4386,3 +4386,6 @@
 "karaoke_result_title" = "ผลการร้อง";
 "karaoke_lines_judged_format" = "ให้คะแนน %d ท่อน";
 "karaoke_best_line" = "ท่อนที่ร้องดีที่สุด";
+"karaoke_backing_track" = "แทร็กดนตรี";
+"karaoke_backing_track_playing" = "กำลังเล่นแทร็กดนตรี จึงไม่มีเสียงร้องให้ปรับ";
+"karaoke_lyrics_from_format" = "เนื้อเพลงจาก “%@”";

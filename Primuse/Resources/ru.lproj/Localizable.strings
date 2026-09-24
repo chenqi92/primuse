@@ -4386,3 +4386,6 @@
 "karaoke_result_title" = "Ваше исполнение";
 "karaoke_lines_judged_format" = "Оценено строк: %d";
 "karaoke_best_line" = "Лучшая строка";
+"karaoke_backing_track" = "Минусовка";
+"karaoke_backing_track_playing" = "Играет минусовка, регулировать нечего.";
+"karaoke_lyrics_from_format" = "Текст из «%@»";

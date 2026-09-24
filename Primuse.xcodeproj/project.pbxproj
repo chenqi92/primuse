@@ -140,6 +140,7 @@
 		17D31FB2ACDDC55B73DB9320 /* QueueBatchRemovalPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E761F8B6C6057418F1EFC /* QueueBatchRemovalPolicy.swift */; };
 		17D95A4CEEC7D70C93C43169 /* FFmpegDecoderBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */; };
 		049039634109B21268632190 /* FFmpegMusicVideoConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */; };
+		A854F7F0E691B045F79EA1EB /* KaraokeCompanionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93405B61747DD571BF337CD2 /* KaraokeCompanionPolicy.swift */; };
 		BFC3EDDCBF5E1CA78A3E425F /* MusicVideoCompatibilityConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */; };
 		17F49E86FA92CB0D1341670E /* RelayStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99EF0A47317166C18FD865D /* RelayStreamResolver.swift */; };
 		184E4A32C4D50AC805AB9DDC /* ScraperTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D668FE9811EE6FEF380039 /* ScraperTypes.swift */; };
@@ -2147,6 +2148,7 @@
 		723B40AEE60B558ABC631E76 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		7260D7B8AC73152F8C03B3F9 /* FFmpegDecoderBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FFmpegDecoderBridge.h; sourceTree = "<group>"; };
 		041D8BEABE7186812BFA28E7 /* FFmpegMusicVideoConverter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FFmpegMusicVideoConverter.h; sourceTree = "<group>"; };
+		93405B61747DD571BF337CD2 /* KaraokeCompanionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaraokeCompanionPolicy.swift; sourceTree = "<group>"; };
 		FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FFmpegMusicVideoConverter.m; sourceTree = "<group>"; };
 		E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVideoCompatibilityConverter.swift; sourceTree = "<group>"; };
 		728BAEB07B8C593506D9CD6A /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
@@ -3102,6 +3104,7 @@
 				B8201B4D10F3B60D364411E9 /* AI */,
 				C161382065B391D1C54B9209 /* Import */,
 				38CBDB962B370140AC75A17D /* Internal */,
+				93405B61747DD571BF337CD2 /* KaraokeCompanionPolicy.swift */,
 				5975695B72BB04A271618C06 /* KaraokeLyricsPolicy.swift */,
 				31A636FBDCA9499A93CBBE92 /* KaraokePitchDetector.swift */,
 				5D4680EDC56996FEA9846CDE /* KaraokeScoring.swift */,
@@ -5027,6 +5030,7 @@
 				5FB3BB3804C2565A4EDDF5C6 /* IncrementalSongStore.swift in Sources */,
 				5BCB2635C14EE8A1060D1EBE /* InsecureHTTPHostPolicy.swift in Sources */,
 				1EEACDE6DC89144694112BD4 /* IssueFeedbackLink.swift in Sources */,
+				A854F7F0E691B045F79EA1EB /* KaraokeCompanionPolicy.swift in Sources */,
 				3A59763468B2114EC4EE7FC0 /* KaraokeLyricsPolicy.swift in Sources */,
 				7E08BF2C5D778F2C58D4078D /* KaraokePitchDetector.swift in Sources */,
 				2134525A1BECF69380B99911 /* KaraokeScoring.swift in Sources */,

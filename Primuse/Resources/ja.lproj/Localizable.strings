@@ -4481,3 +4481,6 @@
 "karaoke_result_title" = "歌唱結果";
 "karaoke_lines_judged_format" = "%d 行を採点";
 "karaoke_best_line" = "いちばん良かったフレーズ";
+"karaoke_backing_track" = "伴奏トラック";
+"karaoke_backing_track_playing" = "伴奏トラックを再生中のため、ボーカルは調整できません。";
+"karaoke_lyrics_from_format" = "歌詞：「%@」より";

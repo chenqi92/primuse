@@ -4480,3 +4480,6 @@
 "karaoke_result_title" = "Votre performance";
 "karaoke_lines_judged_format" = "%d lignes notées";
 "karaoke_best_line" = "Meilleure ligne";
+"karaoke_backing_track" = "Version instrumentale";
+"karaoke_backing_track_playing" = "La version instrumentale est en lecture : aucune voix à régler.";
+"karaoke_lyrics_from_format" = "Paroles de « %@ »";

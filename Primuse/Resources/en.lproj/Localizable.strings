@@ -4243,3 +4243,6 @@
 "karaoke_result_title" = "Your Performance";
 "karaoke_lines_judged_format" = "%d lines scored";
 "karaoke_best_line" = "Best Line";
+"karaoke_backing_track" = "Backing Track";
+"karaoke_backing_track_playing" = "Playing the backing track, so there are no vocals to adjust.";
+"karaoke_lyrics_from_format" = "Lyrics from “%@”";

@@ -87,6 +87,12 @@ private struct KaraokeStageContent: View {
                         .foregroundStyle(.white.opacity(0.6))
                         .lineLimit(1)
                 }
+                if let source = session.lyricsBorrowedFromTitle {
+                    Text(String(format: String(localized: "karaoke_lyrics_from_format"), source))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             if let score = session.runningScore {
@@ -345,10 +351,13 @@ private struct KaraokeControlPanel: View {
                     .foregroundStyle(.white.opacity(0.6))
                     .accessibilityHidden(true)
             }
-            .disabled(session.availability != .available)
+            .disabled(session.availability != .available || session.isPlayingInstrumental)
 
             HStack(spacing: 10) {
                 keyStepper
+                if session.canToggleBackingTrack || session.isSwitchingTrack {
+                    backingTrackButton
+                }
                 if session.hasDuetParts {
                     Picker(selection: $session.part) {
                         Text("karaoke_part_all").tag(KaraokePart.all)
@@ -453,6 +462,32 @@ private struct KaraokeControlPanel: View {
         .disabled(session.availability != .available)
     }
 
+    private var backingTrackButton: some View {
+        Button(action: session.toggleBackingTrack) {
+            HStack(spacing: 6) {
+                if session.isSwitchingTrack {
+                    ProgressView().controlSize(.small).tint(.white)
+                } else {
+                    Image(systemName: session.isPlayingInstrumental ? "checkmark.circle.fill" : "music.quarternote.3")
+                }
+                Text("karaoke_backing_track")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 40)
+            .background(
+                session.isPlayingInstrumental ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.1)),
+                in: Capsule()
+            )
+            .foregroundStyle(session.isPlayingInstrumental ? .black : .white)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(session.isSwitchingTrack)
+        .accessibilityAddTraits(session.isPlayingInstrumental ? .isSelected : [])
+    }
+
     private var keyLabel: String {
         session.keyShift == 0
             ? String(localized: "karaoke_key_original")
@@ -460,6 +495,7 @@ private struct KaraokeControlPanel: View {
     }
 
     private var statusMessage: String? {
+        if session.isPlayingInstrumental { return String(localized: "karaoke_backing_track_playing") }
         if session.isEffectivelyMono { return String(localized: "karaoke_mono_warning") }
         switch session.microphoneState {
         case .denied: return String(localized: "karaoke_mic_denied")

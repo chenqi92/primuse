@@ -4386,3 +4386,6 @@
 "karaoke_result_title" = "Twój występ";
 "karaoke_lines_judged_format" = "Ocenione wersy: %d";
 "karaoke_best_line" = "Najlepszy wers";
+"karaoke_backing_track" = "Podkład";
+"karaoke_backing_track_playing" = "Odtwarzany jest podkład, więc nie ma wokalu do regulacji.";
+"karaoke_lyrics_from_format" = "Tekst z „%@”";

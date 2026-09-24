@@ -4480,3 +4480,6 @@
 "karaoke_result_title" = "Dein Auftritt";
 "karaoke_lines_judged_format" = "%d Zeilen bewertet";
 "karaoke_best_line" = "Beste Zeile";
+"karaoke_backing_track" = "Playback";
+"karaoke_backing_track_playing" = "Das Playback läuft, es gibt keinen Gesang zum Anpassen.";
+"karaoke_lyrics_from_format" = "Songtext aus „%@“";

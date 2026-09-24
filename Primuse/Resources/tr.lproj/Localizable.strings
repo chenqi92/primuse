@@ -4386,3 +4386,6 @@
 "karaoke_result_title" = "Performansın";
 "karaoke_lines_judged_format" = "%d satır puanlandı";
 "karaoke_best_line" = "En iyi satır";
+"karaoke_backing_track" = "Altyapı";
+"karaoke_backing_track_playing" = "Altyapı çalıyor, ayarlanacak vokal yok.";
+"karaoke_lyrics_from_format" = "Sözler: “%@”";

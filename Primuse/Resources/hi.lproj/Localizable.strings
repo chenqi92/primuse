@@ -4386,3 +4386,6 @@
 "karaoke_result_title" = "आपकी प्रस्तुति";
 "karaoke_lines_judged_format" = "%d पंक्तियों का स्कोर";
 "karaoke_best_line" = "सबसे अच्छी पंक्ति";
+"karaoke_backing_track" = "बैकिंग ट्रैक";
+"karaoke_backing_track_playing" = "बैकिंग ट्रैक चल रहा है, इसलिए समायोजित करने को कोई वोकल नहीं है।";
+"karaoke_lyrics_from_format" = "बोल “%@” से";

@@ -139,6 +139,14 @@ final class KaraokeSession {
     private(set) var windows: [KaraokeLineWindow] = []
     private(set) var hasDuetParts = false
     private(set) var isLoadingLyrics = false
+    /// The library's instrumental version of the playing song, when one exists.
+    private(set) var instrumentalCompanion: Song?
+    /// What is playing is an instrumental (a paired companion or a backing
+    /// track played directly): nothing to reduce, lyrics come from the original.
+    private(set) var isPlayingInstrumental = false
+    /// Title of the sung original the lyrics were borrowed from.
+    private(set) var lyricsBorrowedFromTitle: String?
+    private(set) var isSwitchingTrack = false
 
     private(set) var microphoneState: MicrophoneState = .off
     private(set) var canMonitor = false
@@ -167,6 +175,11 @@ final class KaraokeSession {
     @ObservationIgnored private var artistName = ""
     @ObservationIgnored private var accompanimentWriter: KaraokeTakeWriter?
     @ObservationIgnored private var accompanimentTapNode: AVAudioNode?
+    @ObservationIgnored private var companionTask: Task<Void, Never>?
+    /// Set while switching between a song and its instrumental: the change to
+    /// this id keeps the lyrics, timing and score of the performance.
+    @ObservationIgnored private var carriedSongID: String?
+    @ObservationIgnored private var pairedOriginal: Song?
 
     init(player: AudioPlayerService, defaults: UserDefaults = .standard) {
         self.player = player
@@ -204,6 +217,8 @@ final class KaraokeSession {
         tickTask = nil
         lyricsTask?.cancel()
         lyricsTask = nil
+        companionTask?.cancel()
+        companionTask = nil
         if isRecording { finishRecording() }
         stopMicrophone()
         let control = engine.karaokeControl
@@ -247,8 +262,9 @@ final class KaraokeSession {
     private func applyRenderSettings() {
         let control = engine.karaokeControl
         let processes = isActive && availability == .available && engine.supportsKaraokeVocalReduction
-        control.isActive = processes
-        control.capturesVocal = processes && microphoneState == .on
+        let reduces = processes && !isPlayingInstrumental
+        control.isActive = reduces
+        control.capturesVocal = reduces && microphoneState == .on
         let time = player.interpolatedTime()
         let factor = KaraokeDuetGatePolicy.reductionFactor(windows: windows, part: part, at: time)
         control.reduction = Float(1 - vocalLevel) * factor
@@ -258,6 +274,20 @@ final class KaraokeSession {
     }
 
     private func songDidChange(to song: Song?) {
+        if let song, song.id == carriedSongID {
+            // Same performance, other recording of it: keep lyrics and score.
+            carriedSongID = nil
+            songID = song.id
+            isPlayingInstrumental = song.id != pairedOriginal?.id
+            referenceTrack.removeAll()
+            return
+        }
+        carriedSongID = nil
+        pairedOriginal = nil
+        instrumentalCompanion = nil
+        isPlayingInstrumental = false
+        lyricsBorrowedFromTitle = nil
+        companionTask?.cancel()
         concludePerformance()
         if isRecording { finishRecording() }
         songID = song?.id
@@ -271,17 +301,128 @@ final class KaraokeSession {
         pitchHistory = []
         referenceTrack.removeAll()
         rebuildScorer()
-        loadLyrics(for: song)
+        guard let song else {
+            loadLyrics(for: nil)
+            return
+        }
+        let target = Self.companionCandidate(song)
+        let playsBackingTrack = KaraokeCompanionPolicy.isInstrumental(target)
+        isPlayingInstrumental = playsBackingTrack
+        if playsBackingTrack {
+            // Its own file rarely has lyrics; wait for the original's.
+            isLoadingLyrics = true
+        } else {
+            loadLyrics(for: song)
+        }
+        findCompanion(for: song, target: target, playsBackingTrack: playsBackingTrack)
     }
 
-    private func loadLyrics(for song: Song?) {
+    nonisolated static func companionCandidate(_ song: Song) -> KaraokeCompanionCandidate {
+        KaraokeCompanionCandidate(
+            id: song.id,
+            title: song.title,
+            artistName: song.artistName,
+            albumTitle: song.albumTitle,
+            duration: song.duration,
+            filePath: song.filePath,
+            sourceID: song.sourceID
+        )
+    }
+
+    /// Looks the library over off the main actor: the backing track of a sung
+    /// song, or the sung original of a backing track.
+    private func findCompanion(for song: Song, target: KaraokeCompanionCandidate, playsBackingTrack: Bool) {
+        guard let library = player.library else {
+            if playsBackingTrack { loadLyrics(for: song) }
+            return
+        }
+        let songs = library.visibleSongs
+        let expectedID = song.id
+        companionTask = Task { @MainActor [weak self] in
+            let matchID = await Task.detached(priority: .utility) { () -> String? in
+                let candidates = songs.map(KaraokeSession.companionCandidate)
+                let match = playsBackingTrack
+                    ? KaraokeCompanionPolicy.original(for: target, in: candidates)
+                    : KaraokeCompanionPolicy.instrumental(for: target, in: candidates)
+                return match?.id
+            }.value
+            guard !Task.isCancelled, let self, self.songID == expectedID else { return }
+            let match = matchID.flatMap { library.song(id: $0) }
+            if playsBackingTrack {
+                if let original = match {
+                    self.pairedOriginal = original
+                    self.lyricsBorrowedFromTitle = original.title
+                    self.loadLyrics(for: original, expectedSongID: expectedID)
+                } else {
+                    self.loadLyrics(for: song)
+                }
+            } else {
+                self.instrumentalCompanion = match
+            }
+        }
+    }
+
+    // MARK: - Backing track
+
+    /// Plays the library's backing track from the same position; lyrics and
+    /// the running score carry over.
+    func switchToInstrumental() {
+        guard let companion = instrumentalCompanion, let original = player.currentSong else { return }
+        pairedOriginal = original
+        switchTrack(to: companion)
+    }
+
+    /// Goes back to the sung original from its backing track.
+    func switchToOriginal() {
+        guard let original = pairedOriginal, player.currentSong?.id != original.id else { return }
+        switchTrack(to: original)
+    }
+
+    /// Whether the switch button applies, and which way it points.
+    var canToggleBackingTrack: Bool {
+        !isSwitchingTrack && (instrumentalCompanion != nil || (isPlayingInstrumental && pairedOriginal != nil))
+    }
+
+    func toggleBackingTrack() {
+        if isPlayingInstrumental {
+            switchToOriginal()
+        } else {
+            switchToInstrumental()
+        }
+    }
+
+    private func switchTrack(to song: Song) {
+        // The graph can be rebuilt for the new file, which drops the tap.
+        if isRecording { finishRecording() }
+        let position = player.interpolatedTime()
+        let wasPlaying = player.isPlaying
+        let companionForReturn = instrumentalCompanion ?? player.currentSong
+        carriedSongID = song.id
+        isSwitchingTrack = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.player.play(song: song)
+            if self.player.currentSong?.id == song.id {
+                self.player.seek(to: position, startPlaying: wasPlaying)
+                // Keep the way back available after the switch.
+                if song.id == self.pairedOriginal?.id {
+                    self.instrumentalCompanion = companionForReturn
+                }
+            } else {
+                self.carriedSongID = nil
+            }
+            self.isSwitchingTrack = false
+        }
+    }
+
+    private func loadLyrics(for song: Song?, expectedSongID: String? = nil) {
         lyricsTask?.cancel()
         guard let song, !player.isAppleMusicMode, let sourceManager = player.sourceManager else {
             isLoadingLyrics = false
             return
         }
         isLoadingLyrics = true
-        let expectedID = song.id
+        let expectedID = expectedSongID ?? song.id
         lyricsTask = Task { @MainActor [weak self] in
             let loaded = await LyricsLoader.load(for: song, sourceManager: sourceManager)
             guard !Task.isCancelled, let self, self.songID == expectedID else { return }

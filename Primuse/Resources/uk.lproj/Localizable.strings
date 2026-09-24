@@ -4386,3 +4386,6 @@
 "karaoke_result_title" = "Ваше виконання";
 "karaoke_lines_judged_format" = "Оцінено рядків: %d";
 "karaoke_best_line" = "Найкращий рядок";
+"karaoke_backing_track" = "Мінусовка";
+"karaoke_backing_track_playing" = "Грає мінусовка, регулювати нічого.";
+"karaoke_lyrics_from_format" = "Текст із «%@»";

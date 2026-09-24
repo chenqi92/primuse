@@ -269,6 +269,11 @@ PMSTRING_SOURCE_ROOTS = %w[
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
+  # Version markers matched against song titles and file names to pair a
+  # song with its backing track; never shown as UI copy.
+  "PrimuseKit/Sources/PrimuseKit/KaraokeCompanionPolicy.swift" => [
+    /"伴奏", "纯伴奏", "純伴奏", "消音版", "伴唱版"/
+  ],
   "PrimuseKit/Sources/PrimuseKit/LogBacklogPolicy.swift" => [
     /日志积压超限, 已丢弃/,
     /上一行重复/

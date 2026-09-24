@@ -4386,3 +4386,6 @@
 "karaoke_result_title" = "أداؤك";
 "karaoke_lines_judged_format" = "تم تقييم %d سطر";
 "karaoke_best_line" = "أفضل سطر";
+"karaoke_backing_track" = "المسار المرافق";
+"karaoke_backing_track_playing" = "يتم تشغيل المسار المرافق، لذا لا يوجد غناء لضبطه.";
+"karaoke_lyrics_from_format" = "الكلمات من “%@”";

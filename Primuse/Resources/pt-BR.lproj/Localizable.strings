@@ -4386,3 +4386,6 @@
 "karaoke_result_title" = "Sua apresentação";
 "karaoke_lines_judged_format" = "%d versos avaliados";
 "karaoke_best_line" = "Melhor verso";
+"karaoke_backing_track" = "Playback";
+"karaoke_backing_track_playing" = "O playback está tocando, não há voz para ajustar.";
+"karaoke_lyrics_from_format" = "Letra de “%@”";

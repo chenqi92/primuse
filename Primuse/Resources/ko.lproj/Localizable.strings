@@ -4480,3 +4480,6 @@
 "karaoke_result_title" = "노래 결과";
 "karaoke_lines_judged_format" = "%d줄 채점";
 "karaoke_best_line" = "가장 잘 부른 소절";
+"karaoke_backing_track" = "반주 트랙";
+"karaoke_backing_track_playing" = "반주 트랙을 재생 중이라 조절할 보컬이 없습니다.";
+"karaoke_lyrics_from_format" = "가사 출처: “%@”";

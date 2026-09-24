@@ -4573,3 +4573,6 @@
 "karaoke_result_title" = "演唱结果";
 "karaoke_lines_judged_format" = "共评了 %d 句";
 "karaoke_best_line" = "唱得最好的一句";
+"karaoke_backing_track" = "伴奏音轨";
+"karaoke_backing_track_playing" = "正在播放伴奏音轨，没有人声可调。";
+"karaoke_lyrics_from_format" = "歌词来自《%@》";
