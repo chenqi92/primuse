@@ -39,7 +39,13 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
                 try player.play(TVFFmpegPCMDecoder(url: url))
             case .sfbAudioEngine:
                 do {
-                    try player.play(url)
+                    if AudioFormat.from(fileExtension: url.pathExtension)?.isTrackerModule == true {
+                        // SFB's content sniffing hands `.s3m`/`.it` to the
+                        // wrong decoder; DUMB has to be named.
+                        try player.play(AudioDecoder(url: url, decoderName: .module))
+                    } else {
+                        try player.play(url)
+                    }
                 } catch {
                     // 与 iOS 一致:FFmpeg 兜底扩展名标错、SFBAudioEngine 认不出的文件。
                     guard let fallback = try? TVFFmpegPCMDecoder(url: url) else { throw error }

@@ -1544,7 +1544,8 @@ public enum PrimuseConstants {
         "ac3", "eac3", "ec3", "mlp", "truehd", "thd", "amr", "awb",
         "atrac", "oma", "aa3", "at3", "tak", "tta", "mpc", "mpp", "shn", "speex", "spx", "qoa",
         "m4r", "aifc", "bwf", "mka", "webm", "weba", "mp2", "mpa", "mp1", "m2a",
-        "w64", "rf64", "bw64", "ra"
+        "w64", "rf64", "bw64", "ra",
+        "mod", "xm", "it", "s3m", "stm", "mtm", "ptm", "okt", "669"
     ]
 
     /// CUE sheets are library descriptors rather than playable files. Source

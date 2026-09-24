@@ -52,6 +52,26 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
     case rf64
     case ra
 
+    // Tracker modules, rendered by SFBAudioEngine's DUMB decoder. One case
+    // per extension because SFB picks that decoder by path extension, and
+    // cached copies are named after `rawValue`.
+    case mod
+    case xm
+    case it
+    case s3m
+    case stm
+    case mtm
+    case ptm
+    case okt
+    case composer669 = "669"
+
+    public var isTrackerModule: Bool {
+        switch self {
+        case .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669: true
+        default: false
+        }
+    }
+
     public var requiresFFmpeg: Bool {
         // Kept as the historical API name. In practice this means the format
         // needs the SFBAudioEngine/FFmpeg custom decode pipeline.
@@ -60,7 +80,8 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
             return false
         case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
              .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
-             .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra:
+             .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra,
+             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669:
             return true
         }
     }
@@ -79,7 +100,8 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
              .mka, .webm, .mp2, .w64, .rf64, .ra:
             return true
         case .mp3, .m4a, .mp4, .m4v, .mov, .alac, .flac, .wav, .aiff, .aif, .au, .caf,
-             .ape, .dsf, .dff, .ogg, .opus, .wv, .mpc, .shn, .speex:
+             .ape, .dsf, .dff, .ogg, .opus, .wv, .mpc, .shn, .speex,
+             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669:
             return false
         }
     }
@@ -124,6 +146,15 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .w64: return "Wave64"
         case .rf64: return "RF64"
         case .ra: return "RealAudio"
+        case .mod: return "MOD"
+        case .xm: return "XM"
+        case .it: return "IT"
+        case .s3m: return "S3M"
+        case .stm: return "STM"
+        case .mtm: return "MTM"
+        case .ptm: return "PTM"
+        case .okt: return "Oktalyzer"
+        case .composer669: return "669"
         }
     }
 
@@ -135,7 +166,8 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         // Matroska is a container: FLAC inside `.mka` is lossless, Opus is
         // not. Without the codec on the song, claim nothing.
         case .mp3, .aac, .m4a, .mp4, .m4v, .mov, .ogg, .opus, .wma, .dts,
-             .ac3, .eac3, .amr, .atrac, .mpc, .speex, .qoa, .mka, .webm, .mp2, .ra:
+             .ac3, .eac3, .amr, .atrac, .mpc, .speex, .qoa, .mka, .webm, .mp2, .ra,
+             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669:
             return false
         }
     }
@@ -206,7 +238,8 @@ public enum AudioFormat: String, Codable, Sendable, CaseIterable {
         case .caf: return "com.apple.coreaudio-format"
         case .ape, .dsf, .dff, .ogg, .opus, .wma, .wv, .dts,
              .ac3, .eac3, .mlp, .truehd, .amr, .atrac, .tak, .tta,
-             .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra: return nil
+             .mpc, .shn, .speex, .qoa, .mka, .webm, .mp2, .w64, .rf64, .ra,
+             .mod, .xm, .it, .s3m, .stm, .mtm, .ptm, .okt, .composer669: return nil
         }
     }
 }

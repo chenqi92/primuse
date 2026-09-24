@@ -165,6 +165,8 @@ public enum EmbeddedTagMetadataParser {
             if let parsed = parseOggComments(head) {
                 result.fillMissing(from: parsed)
             }
+        case "mod", "xm", "it", "s3m", "stm", "mtm", "ptm":
+            result.title = trackerModuleTitle(head, fileExtension: ext)
         case "ape", "wv", "mpc", "tta":
             if let tail, let parsed = parseAPEv2(tail) {
                 result.fillMissing(from: parsed)
@@ -205,6 +207,48 @@ public enum EmbeddedTagMetadataParser {
         }
 
         return result.isEmpty ? nil : result
+    }
+
+    /// The song name every tracker stores at a fixed offset of its header,
+    /// NUL- or space-padded 8-bit text. A module has no artist, album or
+    /// cover field; composers who sign their work do it in sample names,
+    /// which are free text and not read here.
+    static func trackerModuleTitle(_ data: Data, fileExtension: String) -> String? {
+        let field: (offset: Int, length: Int)
+        switch fileExtension {
+        case "xm":
+            guard data.starts(with: Data("Extended Module: ".utf8)) else { return nil }
+            field = (17, 20)
+        case "it":
+            guard data.starts(with: Data("IMPM".utf8)) else { return nil }
+            field = (4, 26)
+        case "mtm":
+            guard data.starts(with: Data("MTM".utf8)) else { return nil }
+            field = (4, 20)
+        case "s3m":
+            guard TrackerModuleSignature.ascii(data, at: 44, count: 4) == "SCRM" else { return nil }
+            field = (0, 28)
+        case "ptm":
+            guard TrackerModuleSignature.ascii(data, at: 44, count: 4) == "PTMF" else { return nil }
+            field = (0, 28)
+        case "mod", "stm":
+            // Neither has a tag at offset 0; the signature check vouches for
+            // the header before the first 20 bytes are taken as a name.
+            guard TrackerModuleSignature.matches(data) else { return nil }
+            field = (0, 20)
+        default:
+            return nil
+        }
+        guard data.count >= field.offset + field.length else { return nil }
+        let start = data.startIndex + field.offset
+        let raw = data[start..<(start + field.length)].prefix { $0 != 0 }
+        let title = String(decoding: raw.map { $0 < 0x20 ? 0x20 : $0 }, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Latin-1 bytes that are not valid UTF-8 decode as U+FFFD; such a
+        // name is better replaced by the file name than shown garbled.
+        guard title.contains(where: { $0.isLetter || $0.isNumber }),
+              !title.contains("\u{FFFD}") else { return nil }
+        return title
     }
 
     /// Folds the tags an FFmpeg demuxer exported onto the shared field map.

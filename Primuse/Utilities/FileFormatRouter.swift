@@ -45,8 +45,11 @@ enum FileFormatRouter {
     /// Formats that cannot use the generic SFB `InputSource` range path.
     /// FFmpeg needs a seekable demuxer here, while DSD needs either the native
     /// DSD decoder/DoP wrapper or the FFmpeg DSD-to-PCM fallback after the file
-    /// has a stable local URL.
+    /// has a stable local URL. DUMB reads a whole module byte by byte before
+    /// the first sample and reopens it on every backward seek; modules are
+    /// small, so fetching them once beats thousands of one-byte range reads.
     static func requiresCompleteLocalFile(_ format: AudioFormat) -> Bool {
-        format == .dsf || format == .dff || decoder(for: format) is FFmpegAudioDecoder
+        format == .dsf || format == .dff || format.isTrackerModule
+            || decoder(for: format) is FFmpegAudioDecoder
     }
 }
