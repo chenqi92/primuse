@@ -50,10 +50,10 @@ struct LibraryDetailEvidenceHost: View {
         Viewport(name: "17e", size: CGSize(width: 390, height: 844), statusTop: 47, leading: 0, trailing: 0, bottom: 147),
         Viewport(name: "18 Pro", size: CGSize(width: 402, height: 874), statusTop: 62, leading: 0, trailing: 0, bottom: 147),
         Viewport(name: "Pro Max", size: CGSize(width: 440, height: 956), statusTop: 62, leading: 0, trailing: 0, bottom: 147),
-        Viewport(name: "Duo 外屏", size: CGSize(width: 466, height: 678), statusTop: 44, leading: 0, trailing: 0, bottom: 139),
-        Viewport(name: "Duo 内屏", size: CGSize(width: 890, height: 626), statusTop: 24, leading: 0, trailing: 0, bottom: 139,
+        Viewport(name: "Duo cover", size: CGSize(width: 466, height: 678), statusTop: 44, leading: 0, trailing: 0, bottom: 139),
+        Viewport(name: "Duo inner", size: CGSize(width: 890, height: 626), statusTop: 24, leading: 0, trailing: 0, bottom: 139,
                  isRegularWidth: true),
-        Viewport(name: "横屏", size: CGSize(width: 852, height: 393), statusTop: 0, leading: 59, trailing: 59, bottom: 120,
+        Viewport(name: "landscape", size: CGSize(width: 852, height: 393), statusTop: 0, leading: 59, trailing: 59, bottom: 120,
                  isCompactHeight: true),
         Viewport(name: "iPad", size: CGSize(width: 820, height: 1180), statusTop: 24, leading: 0, trailing: 0, bottom: 139,
                  isRegularWidth: true),
@@ -70,7 +70,7 @@ struct LibraryDetailEvidenceHost: View {
     }
 
     private var frames: [Frame] {
-        let axViewports = Self.viewports.filter { $0.name == "SE" || $0.name == "Duo 外屏" }
+        let axViewports = Self.viewports.filter { $0.name == "SE" || $0.name == "Duo cover" }
         var result: [Frame] = []
         if set == "all" || set == "album" {
             result += Self.viewports.map { Frame(page: .album, viewport: $0, typeSize: .large) }
