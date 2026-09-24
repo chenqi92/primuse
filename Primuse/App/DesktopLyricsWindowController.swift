@@ -367,12 +367,20 @@ final class DesktopLyricsWindowController {
     }
 
     /// 默认位置:横向居中、贴 Dock 上方。
+    ///
+    /// 面板底边只留 `defaultDockClearance` 这么点缝 —— 歌词正文在面板里居中于
+    /// 工具栏下方,面板自己又有 16pt 底部留白,所以字离 Dock 顶实际还有四五十 pt。
+    /// 之前留 80pt,再叠上面板内的留白,1080p 屏上字浮在离底边近四分之一屏的
+    /// 地方,用户反馈「默认位置偏高」(#156);同类桌面歌词 (网易云 / QQ 音乐 /
+    /// LyricsX) 默认都是贴着 Dock 上沿放。
+    private static let defaultDockClearance: CGFloat = 24
+
     private func applyDefaultOrigin(_ panel: NSPanel) {
         guard let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
         let frame = panel.frame
         panel.setFrameOrigin(NSPoint(
             x: visible.midX - frame.width / 2,
-            y: visible.minY + 80
+            y: visible.minY + Self.defaultDockClearance
         ))
     }
 

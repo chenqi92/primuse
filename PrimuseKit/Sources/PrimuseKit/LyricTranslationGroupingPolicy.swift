@@ -262,6 +262,10 @@ public enum LyricManualTranslationPolicy {
     /// requested presentation language. An explicitly tagged match wins over
     /// an untagged bilingual-LRC row; a translation tagged as another language
     /// must never suppress work for the requested target.
+    ///
+    /// 未标语言的行只看文字系统：双语 LRC 里同一时间戳下的假名读音、罗马音或
+    /// 英译都不可能是中文译文，把它们当成「已有译文」会让这首歌永远等不到翻译；
+    /// 汉字行则既可能是中文也可能是日文，照旧算数。
     public static func preferredTranslation(
         for line: LyricLine,
         targetLanguageCode: String
@@ -282,7 +286,13 @@ public enum LyricManualTranslationPolicy {
             return exactMatch
         }
 
-        let untagged = candidates.filter { languageIdentity($0.languageCode) == nil }
+        let untagged = candidates.filter {
+            languageIdentity($0.languageCode) == nil
+                && LyricBilingualPairingPolicy.textCouldBeWritten(
+                    in: targetLanguageCode,
+                    text: $0.text
+                )
+        }
         return preferredBySourcePriority(in: untagged)
     }
 
@@ -1058,6 +1068,38 @@ public enum LyricManualTranslationPolicy {
     }
 }
 
+/// 一句歌词下面要显示的附属文本，顺序与歌词文件里写的一致。
+public enum LyricCompanionTextPolicy {
+    /// 罗马音在前，然后是文件里同一时间戳写下的各行（注音、译文），最后才是
+    /// 翻译任务给出的那一条。文件自带的行不管是不是目标语言都要列出来，不能把
+    /// 注音或别的语言的译文藏掉；机翻只在确实是新内容时追加 —— 和某一行自带文本
+    /// 相同（首选译文本来就是其中一行）、或和原文相同就不重复。
+    public static func texts(for line: LyricLine, translatedText: String?) -> [String] {
+        var companions: [String] = []
+        if let romanization = normalized(line.romanization) {
+            companions.append(romanization)
+        }
+        for translation in line.allManualTranslations where translation.source == .bilingualLRC {
+            if let text = normalized(translation.text) {
+                companions.append(text)
+            }
+        }
+        guard let translated = normalized(translatedText),
+              translated != normalized(line.text),
+              !companions.contains(translated) else {
+            return companions
+        }
+        companions.append(translated)
+        return companions
+    }
+
+    private static func normalized(_ text: String?) -> String? {
+        guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+}
+
 /// Conservatively recognizes the common bilingual-LRC convention where an
 /// authored translation immediately follows its source at the same timestamp.
 /// A single pair is never enough: the document must first establish a stable
@@ -1075,6 +1117,73 @@ public enum LyricBilingualPairingPolicy {
         timestampTolerance: TimeInterval = 0.002
     ) -> [LyricLine] {
         pair(lines, enabled: enabled, timestampTolerance: timestampTolerance, storedEvidence: [])
+    }
+
+    /// 这段文字有没有可能是写给 `targetLanguageCode` 的译文。
+    ///
+    /// 只看文字系统，不猜具体语言：假名行、罗马音行不可能是中文译文；汉字行
+    /// 既可能是中文也可能是日文，就都算可能。拉丁字母的目标语言之间（英文与
+    /// 罗马音、西班牙文）分不开，一律算可能。判不出主体文字（只有符号、数字）
+    /// 时不拦。
+    public static func textCouldBeWritten(
+        in targetLanguageCode: String,
+        text: String
+    ) -> Bool {
+        guard let evidence = leadingScript(in: text) else { return true }
+        return expectedScriptFamilies(for: targetLanguageCode).contains(evidence.family)
+    }
+
+    /// 一种语言通常用哪些文字书写。带明确文字子标签（`sr-Latn`、`fa-Arab`）的
+    /// 按子标签；有两套通行文字的语言两种都认。没列出的语言默认拉丁字母。
+    private static func expectedScriptFamilies(for languageCode: String) -> Set<ScriptFamily> {
+        let identity = LyricTranslationGroupingPolicy.languageIdentity(languageCode)
+        let parts = identity.split(separator: "-").map(String.init)
+        if parts.count >= 2 {
+            switch parts[1].lowercased() {
+            case "latn": return [.latin]
+            case "hans", "hant", "hani": return [.han]
+            case "jpan": return [.japanese, .han]
+            case "kore", "hang": return [.hangul]
+            case "cyrl": return [.cyrillic]
+            case "arab": return [.arabic]
+            case "hebr": return [.hebrew]
+            case "deva": return [.devanagari]
+            case "mong": return [.mongolian]
+            default: break
+            }
+        }
+        switch parts.first?.lowercased() ?? "" {
+        case "zh", "yue", "wuu", "nan", "hak": return [.han]
+        case "ja": return [.japanese, .han]
+        case "ko": return [.hangul]
+        case "ru", "uk", "be", "bg", "mk", "ky", "tg": return [.cyrillic]
+        case "sr", "kk", "uz": return [.cyrillic, .latin]
+        case "mn": return [.cyrillic, .mongolian]
+        case "ar", "fa", "ur", "ps", "sd", "ug", "ckb": return [.arabic]
+        case "pa": return [.gurmukhi, .arabic]
+        case "he", "yi": return [.hebrew]
+        case "el": return [.greek]
+        case "hy": return [.armenian]
+        case "ka": return [.georgian]
+        case "hi", "mr", "ne", "sa", "kok", "mai": return [.devanagari]
+        case "bn", "as": return [.bengali]
+        case "gu": return [.gujarati]
+        case "or": return [.oriya]
+        case "ta": return [.tamil]
+        case "te": return [.telugu]
+        case "kn": return [.kannada]
+        case "ml": return [.malayalam]
+        case "si": return [.sinhala]
+        case "dv": return [.thaana]
+        case "th": return [.thai]
+        case "lo": return [.lao]
+        case "bo", "dz": return [.tibetan]
+        case "my": return [.myanmar]
+        case "km": return [.khmer]
+        case "am", "ti": return [.ethiopic]
+        case "chr": return [.cherokee]
+        default: return [.latin]
+        }
     }
 
     /// Older caches may already have paired most of a document while leaving

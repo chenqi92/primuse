@@ -108,6 +108,12 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
     case baiduQianfan
     case stepFun
     case siliconFlow
+    case senseNova
+    /// Agnes AI runs one key across two hosts: the international `.com`
+    /// gateway and a `.cn` gateway operated for mainland China. Each host
+    /// is its own preset so the mainland catalog can list the reachable one.
+    case agnesAI
+    case agnesAIMainland
     case openRouter
     case nvidiaNIM
     case xAI
@@ -128,12 +134,15 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
         .baiduQianfan,
         .stepFun,
         .siliconFlow,
+        .senseNova,
+        .agnesAIMainland,
     ]
 
     public static let globalCatalog: [AIProviderPreset] = [
         .openAI,
         .anthropic,
         .gemini,
+        .agnesAI,
         .openRouter,
         .nvidiaNIM,
         .xAI,
@@ -285,6 +294,29 @@ public enum AIProviderPreset: String, CaseIterable, Hashable, Sendable {
             configuration.apiPathMode = .asEntered
             configuration.authenticationStyle = .bearer
             configuration.generationModel = "Qwen/Qwen3-235B-A22B-Instruct-2507"
+        case .senseNova:
+            // 日日新 Token Plan 的 OpenAI 兼容网关;早先的 api.sensenova.cn
+            // 兼容模式要用 AK/SK 换 JWT,普通用户拿到的是 token.sensenova.cn 的 sk 密钥。
+            configuration.displayName = "SenseNova"
+            configuration.baseURL = "https://token.sensenova.cn/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "sensenova-6.8-flash-lite"
+        case .agnesAI:
+            configuration.displayName = "Agnes AI"
+            configuration.baseURL = "https://apihub.agnes-ai.com/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "agnes-2.5-flash"
+        case .agnesAIMainland:
+            configuration.displayName = "Agnes AI"
+            configuration.baseURL = "https://apihub.agnes-ai.cn/v1"
+            configuration.apiStyle = .chatCompletions
+            configuration.apiPathMode = .asEntered
+            configuration.authenticationStyle = .bearer
+            configuration.generationModel = "agnes-2.5-flash"
         case .openRouter:
             configuration.displayName = "OpenRouter"
             configuration.baseURL = "https://openrouter.ai/api/v1"

@@ -657,6 +657,9 @@
 "ai_provider_preset_openrouter" = "Enrutador abierto";
 "ai_provider_preset_qwen" = "Qwen";
 "ai_provider_preset_siliconflow" = "Flujo de silicio";
+"ai_provider_preset_sensenova" = "SenseNova";
+"ai_provider_preset_agnes" = "Agnes AI";
+"ai_provider_preset_agnes_mainland" = "Agnes AI (China)";
 "ai_provider_preset_stepfun" = "Paso Divertido";
 "ai_provider_preset_tencent_tokenhub" = "Tencent Token Hub";
 "ai_provider_preset_together" = "Juntos IA";

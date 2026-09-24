@@ -93,8 +93,13 @@ struct ImmersivePlayerView: View {
                     .simultaneousGesture(modeMagnification)
 
                 if isAmbientRest {
-                    ambientRestOverlay(metrics: metrics)
-                        .transition(.opacity)
+                    ImmersiveAmbientRestOverlay(
+                        metrics: metrics,
+                        lyric: ambientRestLyric,
+                        title: songTitle,
+                        subtitle: stageTrack.subtitle
+                    )
+                    .transition(.opacity)
                 }
 
                 if showsChrome && !isAmbientRest {
@@ -268,7 +273,8 @@ struct ImmersivePlayerView: View {
             lyricsPlaceholder: isResolvingLyrics
                 ? String(localized: "lyrics_loading")
                 : String(localized: "no_lyrics"),
-            controlsInset: controlsInset(metrics)
+            controlsInset: controlsInset(metrics),
+            isResting: isAmbientRest
         ) { side in
             ZStack {
                 ImmersiveArtworkFallback(palette: artworkPalette)
@@ -1072,35 +1078,11 @@ struct ImmersivePlayerView: View {
             }
     }
 
-    private func ambientRestOverlay(metrics: ImmersiveStageMetrics) -> some View {
-        TimelineView(.animation(minimumInterval: 1, paused: !isSceneActive)) { context in
-            VStack(alignment: .leading, spacing: metrics.s(12)) {
-                Text(context.date.formatted(date: .omitted, time: .shortened))
-                    .font(.system(size: metrics.s(metrics.isPortrait ? 62 : 54), weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                Text(ambientRestText)
-                    .font(.system(size: metrics.s(metrics.isPortrait ? 24 : 22), weight: .medium))
-                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.78))
-                    .lineLimit(2)
-                Text(stageTrack.subtitle)
-                    .font(.system(size: metrics.s(14)))
-                    .foregroundStyle(ImmersiveStagePalette.text.opacity(0.42))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, max(metrics.safeArea.leading + 28, metrics.s(30)))
-            .padding(.bottom, max(metrics.safeArea.bottom + 38, metrics.s(54)))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        }
-        .allowsHitTesting(false)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var ambientRestText: String {
-        if let index = activeLyricIndex, lyrics.indices.contains(index) {
-            let value = lyrics[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !value.isEmpty { return value }
-        }
-        return songTitle
+    /// 休憩层上的歌词行；没有可用歌词时为 nil，休憩层改用歌名顶上。
+    private var ambientRestLyric: String? {
+        guard let index = activeLyricIndex, lyrics.indices.contains(index) else { return nil }
+        let value = lyrics[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     private func handleSurfaceTap() {

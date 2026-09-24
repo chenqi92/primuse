@@ -842,6 +842,33 @@ struct AIRemoteEndpointPolicyTests {
 
         let nvidia = AIProviderPreset.nvidiaNIM.applying(to: AIRemoteProviderConfiguration())
         #expect(nvidia.baseURL == "https://integrate.api.nvidia.com/v1")
+
+        #expect(AIProviderPreset.catalog(for: .mainlandChina).contains(.senseNova))
+        #expect(AIProviderPreset.catalog(for: .mainlandChina).contains(.agnesAIMainland))
+        #expect(!AIProviderPreset.catalog(for: .mainlandChina).contains(.agnesAI))
+        #expect(AIProviderPreset.catalog(for: .international).contains(.agnesAI))
+        #expect(AIProviderPreset.catalog(for: .international).contains(.agnesAIMainland))
+
+        let senseNova = AIProviderPreset.senseNova.applying(to: AIRemoteProviderConfiguration())
+        #expect(senseNova.baseURL == "https://token.sensenova.cn/v1")
+        #expect(senseNova.generationModel == "sensenova-6.8-flash-lite")
+        #expect(try AIRemoteEndpointPolicy.generationEndpoint(
+            configuration: senseNova
+        ).absoluteString == "https://token.sensenova.cn/v1/chat/completions")
+        #expect(AIProviderPreset.matching(configuration: senseNova) == .senseNova)
+
+        let agnes = AIProviderPreset.agnesAI.applying(to: AIRemoteProviderConfiguration())
+        #expect(agnes.baseURL == "https://apihub.agnes-ai.com/v1")
+        #expect(agnes.generationModel == "agnes-2.5-flash")
+        #expect(try AIRemoteEndpointPolicy.modelsEndpoint(
+            configuration: agnes
+        ).absoluteString == "https://apihub.agnes-ai.com/v1/models")
+        #expect(AIProviderPreset.matching(configuration: agnes) == .agnesAI)
+
+        let agnesMainland = AIProviderPreset.agnesAIMainland.applying(to: AIRemoteProviderConfiguration())
+        #expect(agnesMainland.baseURL == "https://apihub.agnes-ai.cn/v1")
+        #expect(agnesMainland.generationModel == agnes.generationModel)
+        #expect(AIProviderPreset.matching(configuration: agnesMainland) == .agnesAIMainland)
     }
 
     @Test func customCompatibilityModeKeepsEndpointDetailsAutomatic() {

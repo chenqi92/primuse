@@ -757,22 +757,108 @@ struct LyricTranslationGroupingPolicyTests {
         #expect(groups.isEmpty)
     }
 
-    @Test func untaggedBilingualRowsCoverAnyRequestedTarget() {
-        let lines = [
+    @Test func untaggedBilingualRowsCoverTargetsTheirScriptAllows() {
+        func covers(_ text: String, _ target: String) -> Bool {
+            LyricManualTranslationPolicy.hasCompleteCoverage(
+                in: [
+                    LyricLine(
+                        timestamp: 1,
+                        text: "Original",
+                        isSynchronized: true,
+                        manualTranslation: LyricManualTranslation(
+                            text: text,
+                            source: .bilingualLRC
+                        )
+                    ),
+                ],
+                targetLanguageCode: target
+            )
+        }
+
+        // 汉字行可能是中文也可能是日文。
+        #expect(covers("人工译文", "zh-Hans"))
+        #expect(covers("人工译文", "zh-Hant"))
+        #expect(covers("人工译文", "ja"))
+        #expect(!covers("人工译文", "en"))
+        #expect(!covers("人工译文", "fa"))
+        // 假名读音行不可能是中文译文。
+        #expect(!covers("ゆめのなかで", "zh-Hans"))
+        #expect(!covers("夢の中で", "zh-Hans"))
+        #expect(covers("ゆめのなかで", "ja"))
+        // 罗马音 / 英文行不可能是中文译文，但可能是任何拉丁字母语言。
+        #expect(!covers("yume no naka de", "zh-Hans"))
+        #expect(covers("yume no naka de", "en"))
+        #expect(covers("yume no naka de", "vi"))
+        #expect(covers("두고 봐", "ko"))
+        #expect(!covers("두고 봐", "zh-Hans"))
+        // 带文字子标签的目标按子标签认。
+        #expect(covers("Zdravo", "sr-Latn"))
+        #expect(!covers("Zdravo", "sr-Cyrl"))
+        #expect(covers("Здраво", "sr"))
+        // 判不出文字系统的行不拦。
+        #expect(covers("♪ ♪ ♪", "zh-Hans"))
+        #expect(covers("2024", "fa"))
+
+        // 明确标了语言的行仍按标签走，不看文字。
+        let tagged = [
             LyricLine(
                 timestamp: 1,
                 text: "Original",
                 isSynchronized: true,
                 manualTranslation: LyricManualTranslation(
-                    text: "人工译文",
+                    text: "yume",
+                    languageCode: "ja",
                     source: .bilingualLRC
                 )
             ),
         ]
-
         #expect(LyricManualTranslationPolicy.hasCompleteCoverage(
-            in: lines,
-            targetLanguageCode: "fa"
+            in: tagged,
+            targetLanguageCode: "ja"
+        ))
+        #expect(!LyricManualTranslationPolicy.hasCompleteCoverage(
+            in: tagged,
+            targetLanguageCode: "zh-Hans"
+        ))
+    }
+
+    @Test func readingRowDoesNotHideTheTranslationRowFromTheTarget() {
+        // 「原文 / 假名 / 中文」三行：中文用户要的是第三行，日文用户拿到假名行。
+        let line = LyricLine(
+            timestamp: 1,
+            text: "夢の中で",
+            isSynchronized: true,
+            manualTranslation: LyricManualTranslation(
+                text: "ゆめのなかで",
+                source: .bilingualLRC
+            ),
+            alternateManualTranslations: [
+                LyricManualTranslation(text: "在梦中", source: .bilingualLRC),
+            ]
+        )
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: line,
+            targetLanguageCode: "zh-Hans"
+        )?.text == "在梦中")
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: line,
+            targetLanguageCode: "ja"
+        )?.text == "ゆめのなかで")
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: line,
+            targetLanguageCode: "en"
+        ) == nil)
+
+        // 只有「原文 / 假名」两行时，中文目标下这一行仍然需要翻译。
+        var readingOnly = line
+        readingOnly.alternateManualTranslations = []
+        #expect(LyricManualTranslationPolicy.preferredTranslation(
+            for: readingOnly,
+            targetLanguageCode: "zh-Hans"
+        ) == nil)
+        #expect(!LyricManualTranslationPolicy.hasCompleteCoverage(
+            in: [readingOnly],
+            targetLanguageCode: "zh-Hans"
         ))
     }
 

@@ -130,6 +130,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     var visualizerDisclosure = ""
     var controlsInset: CGFloat = 0
     var showsClock = false
+    /// 休憩时舞台把可读文字淡出，只留画面；时钟与歌词由容器的休憩层负责。
+    var isResting = false
     var chromeBlurRadius: CGFloat = 52
     @ViewBuilder var artwork: (CGFloat) -> Artwork
 
@@ -416,6 +418,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 weight: .light
             )
         }
+        .immersiveRestingText(isResting)
     }
 
     // MARK: - 3. 星夜
@@ -544,6 +547,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             singleLyric(fontSize: fontSize * 1.08, availableWidth: availableWidth)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .immersiveRestingText(isResting)
     }
 
     // MARK: - 5. 曲名展墙
@@ -639,6 +643,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                 y: metrics.size.height * (metrics.isPortrait ? 0.34 : 0.43)
             )
             .accessibilityElement(children: .combine)
+            .immersiveRestingText(isResting)
 
             if let current, !current.text.isEmpty {
                 lyricLine(
@@ -655,6 +660,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                     x: lyricCenterX,
                     y: lyricCenterY
                 )
+                .immersiveRestingText(isResting)
             }
         }
     }
@@ -1217,6 +1223,7 @@ struct ImmersiveStageView<Artwork: View>: View {
                     .lineLimit(1)
             }
         }
+        .immersiveRestingText(isResting)
     }
 
     private func titleBlock(
@@ -1246,6 +1253,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             maxWidth: maxWidth ?? .infinity,
             alignment: Alignment(horizontal: alignment, vertical: .center)
         )
+        .immersiveRestingText(isResting)
     }
 
     private func artworkPlate(side: CGFloat, radius: CGFloat) -> some View {
@@ -1356,6 +1364,7 @@ struct ImmersiveStageView<Artwork: View>: View {
             .easeOut(duration: lyricsMotionEnabled && !reduceMotion ? 0.28 : 0.01),
             value: resolvedCurrentLyric
         )
+        .immersiveRestingText(isResting)
     }
 
     @ViewBuilder
@@ -2317,5 +2326,13 @@ private struct ImmersiveLyricFillMask: View {
                         }
                 }
             }
+    }
+}
+
+private extension View {
+    /// 休憩时淡出可读文字：布局位置保留，退出休憩时原地淡回来，VoiceOver 也不再读到它。
+    func immersiveRestingText(_ isResting: Bool) -> some View {
+        opacity(isResting ? 0 : 1)
+            .accessibilityHidden(isResting)
     }
 }
