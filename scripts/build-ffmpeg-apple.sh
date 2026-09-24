@@ -5,13 +5,15 @@ set -euo pipefail
 # Reproducible LGPL-only FFmpeg build for Primuse.
 #
 # The generated dynamic XCFrameworks contain every native FFmpeg audio
-# decoder and all demuxers, but no encoders, muxers, network stack, filters,
-# capture devices, or GPL/non-free components.
+# decoder and all demuxers, the video decoders a music-video library needs,
+# and just enough output to make those videos playable by AVPlayer: the MP4
+# muxer, the native AAC encoder and VideoToolbox's hardware H.264 encoder.
+# No network stack, filters, capture devices, or GPL/non-free components.
 
 readonly FFMPEG_TAG="n8.1"
 readonly FFMPEG_COMMIT="9047fa1b084f76b1b4d065af2d743df1b40dfb56"
 readonly REPOSITORY_URL="https://git.ffmpeg.org/ffmpeg.git"
-readonly BUILD_CONFIGURATION_ID="${FFMPEG_COMMIT}-dwarf-v1"
+readonly BUILD_CONFIGURATION_ID="${FFMPEG_COMMIT}-dwarf-v2-video"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -63,6 +65,32 @@ readonly AUDIO_PARSERS=(
   aac aac_latm ac3 adx amr cook dca dolby_e dvaudio flac ftr g723_1 g729
   gsm misc4 mlp mpegaudio opus sbc sipr tak vorbis xma
 )
+
+# Music videos in AVPlayer-hostile codecs are decoded here and re-encoded by
+# VideoToolbox. H.264/HEVC stay in the list for streams AVPlayer rejects
+# (10-bit H.264, odd profiles). FFmpeg's `av1` decoder is only a hwaccel
+# shell, so AV1 is copied to devices that decode it in hardware and nowhere
+# else.
+readonly VIDEO_DECODERS=(
+  h264 hevc mpeg1video mpeg2video mpeg4 msmpeg4v1 msmpeg4v2 msmpeg4v3
+  wmv1 wmv2 wmv3 vc1 vp8 vp9 vp3 theora flv h263 h263i h263p vp6 vp6a vp6f
+  rv10 rv20 rv30 rv40 mjpeg svq1 svq3 cinepak dvvideo prores msvideo1
+  indeo3 indeo4 indeo5
+)
+
+readonly VIDEO_PARSERS=(
+  av1 h263 h264 hevc mjpeg mpeg4video mpegvideo prores rv34 vc1 vp3 vp8 vp9
+)
+
+# Stream copy into MP4: ADTS AAC from MPEG-TS/FLV needs ASC, VP9 decoding
+# needs superframes split, DivX packed B-frames need unpacking.
+readonly BITSTREAM_FILTERS=(
+  aac_adtstoasc vp9_superframe vp9_superframe_split mpeg4_unpack_bframes
+  extract_extradata h264_mp4toannexb hevc_mp4toannexb null
+)
+
+readonly ENCODERS=(aac h264_videotoolbox)
+readonly MUXERS=(mp4)
 
 join_by_comma() {
   local IFS=,
@@ -140,11 +168,13 @@ configure_and_build() {
     --disable-avfilter
     --disable-swscale
     --disable-encoders
+    --enable-encoder="$(join_by_comma "${ENCODERS[@]}")"
     --disable-muxers
+    --enable-muxer="$(join_by_comma "${MUXERS[@]}")"
     --disable-filters
     --disable-devices
     --disable-hwaccels
-    --disable-videotoolbox
+    --enable-videotoolbox
     --disable-audiotoolbox
     --disable-network
     --disable-autodetect
@@ -152,10 +182,11 @@ configure_and_build() {
     --disable-gpl
     --disable-nonfree
     --disable-decoders
-    --enable-decoder="$(join_by_comma "${AUDIO_DECODERS[@]}")"
+    --enable-decoder="$(join_by_comma "${AUDIO_DECODERS[@]}" "${VIDEO_DECODERS[@]}")"
     --disable-parsers
-    --enable-parser="$(join_by_comma "${AUDIO_PARSERS[@]}")"
+    --enable-parser="$(join_by_comma "${AUDIO_PARSERS[@]}" "${VIDEO_PARSERS[@]}")"
     --disable-bsfs
+    --enable-bsf="$(join_by_comma "${BITSTREAM_FILTERS[@]}")"
     --disable-protocols
     --enable-protocol=file,pipe
   )

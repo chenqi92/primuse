@@ -3171,13 +3171,8 @@ final class AudioPlayerService {
             return .skipped
         }
 
-        // 格式预检基于 mvPath 扩展名, 在网络 resolve 之前拦截明确不可播的
-        // 容器(mkv/avi 等), 省一次连接开销。
-        if let format = VideoFormat.from(fileExtension: (mvPath as NSString).pathExtension),
-           format.isNativelyPlayable == false {
-            plog("🎞️ MV unsupported format \(format.rawValue) for '\(song.title)'")
-            return .needsAudioFallback
-        }
+        // mkv/avi 等容器由 resolveVideoAsset 改写成 MP4 后再交给 AVPlayer;
+        // 只有带 scheme 的服务端直链仍按原格式判断(见下方 .url 分支)。
 
         pendingMusicVideoPlayID = id
         defer {

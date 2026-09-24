@@ -441,8 +441,15 @@ public enum VideoFormat: String, Codable, Sendable, CaseIterable {
     case webm
     case avi
     case flv
+    case f4v
     case wmv
     case ts
+    case m2ts
+    case mpg
+    case vob
+    case rmvb
+    case ogv
+    case threeGP = "3gp"
 
     public var displayName: String {
         switch self {
@@ -454,22 +461,161 @@ public enum VideoFormat: String, Codable, Sendable, CaseIterable {
         case .webm: return "WebM"
         case .avi: return "AVI"
         case .flv: return "FLV"
+        case .f4v: return "F4V"
         case .wmv: return "WMV"
         case .ts: return "MPEG-TS"
+        case .m2ts: return "M2TS"
+        case .mpg: return "MPEG"
+        case .vob: return "VOB"
+        case .rmvb: return "RMVB"
+        case .ogv: return "Ogg Video"
+        case .threeGP: return "3GP"
         }
     }
 
-    /// Formats AVPlayer can consume directly in the first MV implementation.
+    /// Formats AVPlayer opens as they are. Everything else is rewritten into
+    /// MP4 first (`MusicVideoCompatibilityPolicy`).
     public var isNativelyPlayable: Bool {
         switch self {
         case .mp4, .m4v, .mov, .m3u8:
             return true
-        case .mkv, .webm, .avi, .flv, .wmv, .ts:
+        case .mkv, .webm, .avi, .flv, .f4v, .wmv, .ts, .m2ts, .mpg, .vob, .rmvb, .ogv, .threeGP:
             return false
         }
     }
 
     public static func from(fileExtension ext: String) -> VideoFormat? {
-        VideoFormat(rawValue: ext.lowercased())
+        switch ext.lowercased() {
+        case "divx": return .avi
+        case "mpeg", "m1v", "m2v": return .mpg
+        case "mts", "m2t": return .m2ts
+        case "rm": return .rmvb
+        case "3g2": return .threeGP
+        default: return VideoFormat(rawValue: ext.lowercased())
+        }
+    }
+}
+
+/// Rewriting a music video AVPlayer cannot open into MP4: which streams can
+/// keep their bytes (a remux takes seconds) and which must be decoded and
+/// re-encoded — video to H.264 through VideoToolbox, audio to AAC.
+///
+/// A copied stream must be one AVPlayer decodes on every device of the
+/// platform; the MP4 muxer accepting it is not enough, since AVFoundation
+/// reports a 10-bit H.264 track as playable and then shows nothing.
+public enum MusicVideoCompatibilityPolicy {
+    public enum StreamKind: Sendable, Equatable {
+        case video
+        case audio
+    }
+
+    public struct Stream: Sendable, Equatable {
+        public var kind: StreamKind
+        /// FFmpeg's codec descriptor name (`h264`, `hevc`, `aac`...).
+        public var codecName: String
+        /// FFmpeg `AV_PROFILE_*` value; -99 when unknown.
+        public var profile: Int
+        /// Bits per component; 0 when unknown.
+        public var bitDepth: Int
+        /// 4:2:0 chroma, or no pixel format declared.
+        public var chroma420: Bool
+
+        public init(kind: StreamKind, codecName: String, profile: Int = -99, bitDepth: Int = 0, chroma420: Bool = true) {
+            self.kind = kind
+            self.codecName = codecName
+            self.profile = profile
+            self.bitDepth = bitDepth
+            self.chroma420 = chroma420
+        }
+    }
+
+    public struct Platform: Sendable, Equatable {
+        /// VideoToolbox decodes AV1 in hardware (A17 Pro / M3 and later).
+        /// FFmpeg has no software AV1 decoder here, so elsewhere the video
+        /// is dropped and the song keeps its sound.
+        public var decodesAV1: Bool
+        /// ProRes decodes on every Mac; on iPhone and Apple TV it is
+        /// re-encoded rather than trusted to the device generation.
+        public var decodesProRes: Bool
+
+        public init(decodesAV1: Bool, decodesProRes: Bool) {
+            self.decodesAV1 = decodesAV1
+            self.decodesProRes = decodesProRes
+        }
+    }
+
+    /// H.264 Baseline, Constrained Baseline, Main and High, plus unknown.
+    private static let copyableH264Profiles: Set<Int> = [66, 578, 77, 100, -99]
+    /// HEVC Main and Main 10, plus unknown.
+    private static let copyableHEVCProfiles: Set<Int> = [1, 2, -99]
+    /// MP3 is missing on purpose: MP3 inside MP4 opens as a playable track
+    /// in AVFoundation and then decodes to nothing (AVI and FLV music videos
+    /// measured on macOS 27), so it is re-encoded like any other codec.
+    private static let copyableAudioCodecs: Set<String> = ["aac", "ac3", "eac3", "alac"]
+
+    public static func canCopy(_ stream: Stream, on platform: Platform) -> Bool {
+        switch stream.kind {
+        case .audio:
+            return copyableAudioCodecs.contains(stream.codecName)
+        case .video:
+            switch stream.codecName {
+            case "h264":
+                return copyableH264Profiles.contains(stream.profile)
+                    && stream.bitDepth <= 8 && stream.chroma420
+            case "hevc":
+                return copyableHEVCProfiles.contains(stream.profile)
+                    && stream.bitDepth <= 10 && stream.chroma420
+            case "av1":
+                return platform.decodesAV1 && stream.bitDepth <= 10 && stream.chroma420
+            case "prores":
+                return platform.decodesProRes
+            default:
+                return false
+            }
+        }
+    }
+
+    /// Whether a music video at this path has to be rewritten before
+    /// AVPlayer can play it. URLs with a scheme are left alone: a server
+    /// that hands out a stream URL is expected to transcode itself.
+    public static func needsConversion(path: String) -> Bool {
+        if let url = URL(string: path), url.scheme?.isEmpty == false { return false }
+        let ext = (path as NSString).pathExtension
+        return VideoFormat.from(fileExtension: ext)?.isNativelyPlayable == false
+    }
+
+    /// Cache for rewritten videos. Apple TV's caches are purged by the
+    /// system and its storage is small, so it keeps less.
+    public static let cacheByteBudget: Int64 = 3 * 1024 * 1024 * 1024
+    public static let tvCacheByteBudget: Int64 = 1024 * 1024 * 1024
+
+    public struct CacheEntry: Sendable, Equatable {
+        public var name: String
+        public var byteCount: Int64
+        public var lastAccess: Date
+
+        public init(name: String, byteCount: Int64, lastAccess: Date) {
+            self.name = name
+            self.byteCount = byteCount
+            self.lastAccess = lastAccess
+        }
+    }
+
+    /// Least recently played first until the rest fits the budget. The
+    /// video about to play is never evicted, even when it alone is larger.
+    public static func evictionVictims(
+        _ entries: [CacheEntry],
+        budget: Int64,
+        keeping kept: String?
+    ) -> [String] {
+        var total = entries.reduce(Int64(0)) { $0 + max(0, $1.byteCount) }
+        guard total > budget else { return [] }
+        var victims: [String] = []
+        for entry in entries.sorted(by: { $0.lastAccess < $1.lastAccess }) where entry.name != kept {
+            victims.append(entry.name)
+            total -= max(0, entry.byteCount)
+            if total <= budget { break }
+        }
+        return victims
     }
 }

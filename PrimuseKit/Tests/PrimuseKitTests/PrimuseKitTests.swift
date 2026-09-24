@@ -469,7 +469,8 @@ import Testing
     #expect(VideoFormat.mov.isNativelyPlayable == true)
     #expect(VideoFormat.m4v.isNativelyPlayable == true)
     #expect(VideoFormat.mkv.isNativelyPlayable == false)
-    #expect(PrimuseConstants.supportedMusicVideoExtensions == ["mp4", "m4v", "mov"])
+    // Native containers come first: same-name MV lookup takes the first hit.
+    #expect(Array(PrimuseConstants.supportedMusicVideoExtensions.prefix(3)) == ["mp4", "m4v", "mov"])
 }
 
 @Test func testStandaloneMusicVideoDetection() {

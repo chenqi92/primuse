@@ -1,6 +1,6 @@
 ---
 triple:          'arm64-apple-darwin'
-binary-path:     '/private/tmp/primuse-ffmpeg-apple/frameworks/tvos-arm64/libswresample.framework/libswresample'
+binary-path:     '/Users/cq/primuse-verify/ffmpeg-video-build/work/frameworks/tvos-arm64/libswresample.framework/libswresample'
 relocations:
   - { offset: 0x26, size: 0x8, addend: 0x0, symName: _swri_audio_convert_init_aarch64, symObjAddr: 0x0, symBinAddr: 0x10B54, symSize: 0x90 }
   - { offset: 0xD2, size: 0x8, addend: 0x0, symName: _swri_audio_convert_init_aarch64, symObjAddr: 0x0, symBinAddr: 0x10B54, symSize: 0x90 }
@@ -69,21 +69,21 @@ relocations:
   - { offset: 0x2A0B, size: 0x8, addend: 0x0, symName: _conv_AV_SAMPLE_FMT_S64_to_AV_SAMPLE_FMT_S64, symObjAddr: 0x1E20, symBinAddr: 0x6F1C, symSize: 0x8C }
   - { offset: 0x2B37, size: 0x8, addend: 0x0, symName: _swri_get_dither, symObjAddr: 0x0, symBinAddr: 0x6FA8, symSize: 0x1FC }
   - { offset: 0x2B63, size: 0x8, addend: 0x0, symName: _filters, symObjAddr: 0x17D0, symBinAddr: 0x184C0, symSize: 0x0 }
-  - { offset: 0x2C8D, size: 0x8, addend: 0x0, symName: _lip44, symObjAddr: 0x1070, symBinAddr: 0x15228, symSize: 0x0 }
-  - { offset: 0x2CAE, size: 0x8, addend: 0x0, symName: _fwe44, symObjAddr: 0x1098, symBinAddr: 0x15250, symSize: 0x0 }
-  - { offset: 0x2CCF, size: 0x8, addend: 0x0, symName: _mew44, symObjAddr: 0x10E0, symBinAddr: 0x15298, symSize: 0x0 }
-  - { offset: 0x2CE4, size: 0x8, addend: 0x0, symName: _iew44, symObjAddr: 0x1128, symBinAddr: 0x152E0, symSize: 0x0 }
-  - { offset: 0x2CF9, size: 0x8, addend: 0x0, symName: _shi48, symObjAddr: 0x1170, symBinAddr: 0x15328, symSize: 0x0 }
-  - { offset: 0x2D1A, size: 0x8, addend: 0x0, symName: _shi44, symObjAddr: 0x11F0, symBinAddr: 0x153A8, symSize: 0x0 }
-  - { offset: 0x2D3B, size: 0x8, addend: 0x0, symName: _shi38, symObjAddr: 0x1290, symBinAddr: 0x15448, symSize: 0x0 }
-  - { offset: 0x2D50, size: 0x8, addend: 0x0, symName: _shi32, symObjAddr: 0x1310, symBinAddr: 0x154C8, symSize: 0x0 }
-  - { offset: 0x2D65, size: 0x8, addend: 0x0, symName: _shi22, symObjAddr: 0x13B0, symBinAddr: 0x15568, symSize: 0x0 }
-  - { offset: 0x2D7A, size: 0x8, addend: 0x0, symName: _shi16, symObjAddr: 0x1450, symBinAddr: 0x15608, symSize: 0x0 }
-  - { offset: 0x2D8F, size: 0x8, addend: 0x0, symName: _shi11, symObjAddr: 0x14F0, symBinAddr: 0x156A8, symSize: 0x0 }
-  - { offset: 0x2DA4, size: 0x8, addend: 0x0, symName: _shi08, symObjAddr: 0x1590, symBinAddr: 0x15748, symSize: 0x0 }
-  - { offset: 0x2DB9, size: 0x8, addend: 0x0, symName: _shl48, symObjAddr: 0x1630, symBinAddr: 0x157E8, symSize: 0x0 }
-  - { offset: 0x2DCE, size: 0x8, addend: 0x0, symName: _shl44, symObjAddr: 0x16B0, symBinAddr: 0x15868, symSize: 0x0 }
-  - { offset: 0x2DE3, size: 0x8, addend: 0x0, symName: _shh44, symObjAddr: 0x1730, symBinAddr: 0x158E8, symSize: 0x0 }
+  - { offset: 0x2C8D, size: 0x8, addend: 0x0, symName: _lip44, symObjAddr: 0x1070, symBinAddr: 0x15438, symSize: 0x0 }
+  - { offset: 0x2CAE, size: 0x8, addend: 0x0, symName: _fwe44, symObjAddr: 0x1098, symBinAddr: 0x15460, symSize: 0x0 }
+  - { offset: 0x2CCF, size: 0x8, addend: 0x0, symName: _mew44, symObjAddr: 0x10E0, symBinAddr: 0x154A8, symSize: 0x0 }
+  - { offset: 0x2CE4, size: 0x8, addend: 0x0, symName: _iew44, symObjAddr: 0x1128, symBinAddr: 0x154F0, symSize: 0x0 }
+  - { offset: 0x2CF9, size: 0x8, addend: 0x0, symName: _shi48, symObjAddr: 0x1170, symBinAddr: 0x15538, symSize: 0x0 }
+  - { offset: 0x2D1A, size: 0x8, addend: 0x0, symName: _shi44, symObjAddr: 0x11F0, symBinAddr: 0x155B8, symSize: 0x0 }
+  - { offset: 0x2D3B, size: 0x8, addend: 0x0, symName: _shi38, symObjAddr: 0x1290, symBinAddr: 0x15658, symSize: 0x0 }
+  - { offset: 0x2D50, size: 0x8, addend: 0x0, symName: _shi32, symObjAddr: 0x1310, symBinAddr: 0x156D8, symSize: 0x0 }
+  - { offset: 0x2D65, size: 0x8, addend: 0x0, symName: _shi22, symObjAddr: 0x13B0, symBinAddr: 0x15778, symSize: 0x0 }
+  - { offset: 0x2D7A, size: 0x8, addend: 0x0, symName: _shi16, symObjAddr: 0x1450, symBinAddr: 0x15818, symSize: 0x0 }
+  - { offset: 0x2D8F, size: 0x8, addend: 0x0, symName: _shi11, symObjAddr: 0x14F0, symBinAddr: 0x158B8, symSize: 0x0 }
+  - { offset: 0x2DA4, size: 0x8, addend: 0x0, symName: _shi08, symObjAddr: 0x1590, symBinAddr: 0x15958, symSize: 0x0 }
+  - { offset: 0x2DB9, size: 0x8, addend: 0x0, symName: _shl48, symObjAddr: 0x1630, symBinAddr: 0x159F8, symSize: 0x0 }
+  - { offset: 0x2DCE, size: 0x8, addend: 0x0, symName: _shl44, symObjAddr: 0x16B0, symBinAddr: 0x15A78, symSize: 0x0 }
+  - { offset: 0x2DE3, size: 0x8, addend: 0x0, symName: _shh44, symObjAddr: 0x1730, symBinAddr: 0x15AF8, symSize: 0x0 }
   - { offset: 0x3070, size: 0x8, addend: 0x0, symName: _swri_get_dither, symObjAddr: 0x0, symBinAddr: 0x6FA8, symSize: 0x1FC }
   - { offset: 0x3169, size: 0x8, addend: 0x0, symName: _swri_dither_init, symObjAddr: 0x1FC, symBinAddr: 0x10C6C, symSize: 0x2B4 }
   - { offset: 0x3197, size: 0x8, addend: 0x0, symName: _swri_get_dither.cold.2, symObjAddr: 0xF2C, symBinAddr: 0x10F48, symSize: 0x28 }
@@ -253,9 +253,9 @@ relocations:
   - { offset: 0xF257, size: 0x8, addend: 0x0, symName: _swr_config_frame, symObjAddr: 0x0, symBinAddr: 0x10788, symSize: 0x138 }
   - { offset: 0x10588, size: 0x8, addend: 0x0, symName: _swr_convert_frame, symObjAddr: 0x138, symBinAddr: 0x108C0, symSize: 0x270 }
   - { offset: 0x1090C, size: 0x8, addend: 0x0, symName: _swresample_version, symObjAddr: 0x0, symBinAddr: 0x10B30, symSize: 0xC }
-  - { offset: 0x10925, size: 0x8, addend: 0x0, symName: _swr_ffversion, symObjAddr: 0x24, symBinAddr: 0x15A68, symSize: 0x0 }
+  - { offset: 0x10925, size: 0x8, addend: 0x0, symName: _swr_ffversion, symObjAddr: 0x24, symBinAddr: 0x15C78, symSize: 0x0 }
   - { offset: 0x1094D, size: 0x8, addend: 0x0, symName: _swresample_version, symObjAddr: 0x0, symBinAddr: 0x10B30, symSize: 0xC }
   - { offset: 0x10966, size: 0x8, addend: 0x0, symName: _swresample_configuration, symObjAddr: 0xC, symBinAddr: 0x10B3C, symSize: 0xC }
   - { offset: 0x1097F, size: 0x8, addend: 0x0, symName: _swresample_license, symObjAddr: 0x18, symBinAddr: 0x10B48, symSize: 0xC }
-  - { offset: 0x109D7, size: 0x8, addend: 0x0, symName: _ff_log2_tab, symObjAddr: 0x0, symBinAddr: 0x15A7C, symSize: 0x0 }
+  - { offset: 0x109D7, size: 0x8, addend: 0x0, symName: _ff_log2_tab, symObjAddr: 0x0, symBinAddr: 0x15C8C, symSize: 0x0 }
 ...

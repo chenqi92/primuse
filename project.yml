@@ -682,6 +682,9 @@ targets:
       - path: Primuse/Services/Radio/RadioFLACDecoderBridge.m
       # FFmpeg 桥接层:与 iOS / macOS 同一份,由 PrimuseTV/Audio/TVFFmpegPCMDecoder 接进 SFBAudioEngine 播放器
       - path: Primuse/Services/Audio/FFmpegDecoderBridge.m
+      # MV 兼容改写(MKV/AVI/FLV… → MP4):与 iOS / macOS 同一份
+      - path: Primuse/Services/Audio/FFmpegMusicVideoConverter.m
+      - path: Primuse/Services/Audio/MusicVideoCompatibilityConverter.swift
       # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
       - path: Primuse/Services/Sources/NetworkDiscoveryService.swift
       - path: Primuse/Utilities/FileLogger.swift

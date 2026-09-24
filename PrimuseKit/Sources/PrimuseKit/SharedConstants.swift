@@ -1522,7 +1522,15 @@ public enum PrimuseConstants {
     /// `.vtt` the user brought along.
     public static let readableLyricsExtensions = supportedLyricsExtensions
         + ["elrc", "lys", "yrc", "qrc", "vtt", "srt"]
-    public static let supportedMusicVideoExtensions = ["mp4", "m4v", "mov"]
+    /// MP4/M4V/MOV play as they are; the rest are rewritten into MP4 the
+    /// first time they play (`MusicVideoCompatibilityPolicy`). `.webm` is
+    /// here rather than among the audio formats: it is YouTube's video
+    /// container, and a video file taken for a song loses its picture while
+    /// an audio-only WebM taken for a video still plays its sound.
+    public static let supportedMusicVideoExtensions = [
+        "mp4", "m4v", "mov", "mkv", "webm", "avi", "divx", "flv", "f4v", "wmv",
+        "ts", "m2ts", "mts", "mpg", "mpeg", "vob", "rmvb", "rm", "ogv", "3gp", "3g2",
+    ]
     public static let supportedStreamDescriptorExtensions: Set<String> = ["strm"]
     public static let folderCoverNames = ["cover", "folder", "album", "front", "artwork"]
 
@@ -1543,7 +1551,7 @@ public enum PrimuseConstants {
         "ape", "dsf", "dff", "ogg", "oga", "opus", "wma", "asf", "wv", "dts", "dtshd", "dts-hd",
         "ac3", "eac3", "ec3", "mlp", "truehd", "thd", "amr", "awb",
         "atrac", "oma", "aa3", "at3", "tak", "tta", "mpc", "mpp", "shn", "speex", "spx", "qoa",
-        "m4r", "aifc", "bwf", "mka", "webm", "weba", "mp2", "mpa", "mp1", "m2a",
+        "m4r", "aifc", "bwf", "mka", "weba", "mp2", "mpa", "mp1", "m2a",
         "w64", "rf64", "bw64", "ra",
         "mod", "xm", "it", "s3m", "stm", "mtm", "ptm", "okt", "669"
     ]

@@ -139,6 +139,8 @@
 		17C3A71446796A7C89EE527B /* SourceConnectionRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706956FFD4F6B3E0F21B65E2 /* SourceConnectionRouterTests.swift */; };
 		17D31FB2ACDDC55B73DB9320 /* QueueBatchRemovalPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E761F8B6C6057418F1EFC /* QueueBatchRemovalPolicy.swift */; };
 		17D95A4CEEC7D70C93C43169 /* FFmpegDecoderBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */; };
+		049039634109B21268632190 /* FFmpegMusicVideoConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */; };
+		BFC3EDDCBF5E1CA78A3E425F /* MusicVideoCompatibilityConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */; };
 		17F49E86FA92CB0D1341670E /* RelayStreamResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F99EF0A47317166C18FD865D /* RelayStreamResolver.swift */; };
 		184E4A32C4D50AC805AB9DDC /* ScraperTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D668FE9811EE6FEF380039 /* ScraperTypes.swift */; };
 		1866EF3460DA7C421215CBC2 /* UserNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24CA1E9D7FDCD0F25BE8D43A /* UserNotificationService.swift */; };
@@ -425,6 +427,8 @@
 		48AE372B0E642F6C7473D093 /* CloudSyncChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD05C51C265711C2B7239F9B /* CloudSyncChannel.swift */; };
 		48DC6DE60F711B6DA3FDC362 /* AppSecrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C551F72C30C0410A874441AA /* AppSecrets.swift */; };
 		492539B48E07763332756465 /* FFmpegDecoderBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */; };
+		28D99DA5000463ACD8D1567B /* FFmpegMusicVideoConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */; };
+		6FD72D72AA73FBDAE66723D0 /* MusicVideoCompatibilityConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */; };
 		4940361B60A0D96918705C0B /* SettingsShortcutsHelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E05FB8ABE512AF46E3B6BF38 /* SettingsShortcutsHelpView.swift */; };
 		494A17ABDFC4526E896FB706 /* BrowserChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768665CEDF081091A5DFAED7 /* BrowserChrome.swift */; };
 		4957D61D66472F3CAD612DBD /* SMBByteReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACEFA0644945C48C3E8A0F9 /* SMBByteReader.swift */; };
@@ -565,6 +569,8 @@
 		5F95CC4DA7E8741405F611E8 /* KaraokeMicrophone.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD1C119454EC1754A73A09A1 /* KaraokeMicrophone.swift */; };
 		5FA7E93E1A11D32470CC8623 /* RadioDirectoryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87CDB114A51764BEBD90ED3 /* RadioDirectoryClient.swift */; };
 		5FB21BB62EA59814EB6DC658 /* FFmpegDecoderBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */; };
+		9E15AFC0A523D03D45FEDF50 /* FFmpegMusicVideoConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */; };
+		5FCA926760CBA12B82F27E93 /* MusicVideoCompatibilityConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */; };
 		5FB3BB3804C2565A4EDDF5C6 /* IncrementalSongStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB39C2EE3B1DD6E01169AE8 /* IncrementalSongStore.swift */; };
 		5FC4EAB4277E768116173CEF /* AudioCacheSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79455C5F0C8A112D600E4423 /* AudioCacheSyncService.swift */; };
 		60000470CC59B0C029C6E718 /* SmartNudgeOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3FF0187A043392855FBF9B0 /* SmartNudgeOverlay.swift */; };
@@ -2140,6 +2146,9 @@
 		71CBE75F71EE6BCE7F1A7252 /* TVFFmpegPCMDecoder.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TVFFmpegPCMDecoder.m; sourceTree = "<group>"; };
 		723B40AEE60B558ABC631E76 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		7260D7B8AC73152F8C03B3F9 /* FFmpegDecoderBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FFmpegDecoderBridge.h; sourceTree = "<group>"; };
+		041D8BEABE7186812BFA28E7 /* FFmpegMusicVideoConverter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FFmpegMusicVideoConverter.h; sourceTree = "<group>"; };
+		FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FFmpegMusicVideoConverter.m; sourceTree = "<group>"; };
+		E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVideoCompatibilityConverter.swift; sourceTree = "<group>"; };
 		728BAEB07B8C593506D9CD6A /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
 		72B89027E85C8211AB4B164F /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		72EDF3F4D1CF10A41CE2DA3C /* LifecycleRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleRegressionTests.swift; sourceTree = "<group>"; };
@@ -2839,6 +2848,9 @@
 				E083139645350B81D8E8C645 /* FFmpegAudioDecoder.swift */,
 				7260D7B8AC73152F8C03B3F9 /* FFmpegDecoderBridge.h */,
 				AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */,
+				041D8BEABE7186812BFA28E7 /* FFmpegMusicVideoConverter.h */,
+				FEEDE815CD385ED730F79D34 /* FFmpegMusicVideoConverter.m */,
+				E4009D6CBF6F7B19C037FACB /* MusicVideoCompatibilityConverter.swift */,
 				FD1C119454EC1754A73A09A1 /* KaraokeMicrophone.swift */,
 				6FA8E55E68E0D3B94F16BF0A /* KaraokeSession.swift */,
 				815DB0C3AA20FAA9392E0B62 /* KaraokeVocalReducerUnit.swift */,
@@ -5361,6 +5373,8 @@
 				482624D7B354423C31CEB08D /* ExternalDisplaySceneDelegate.swift in Sources */,
 				507AA6C3F829E444FD797DCD /* FFmpegAudioDecoder.swift in Sources */,
 				492539B48E07763332756465 /* FFmpegDecoderBridge.m in Sources */,
+				28D99DA5000463ACD8D1567B /* FFmpegMusicVideoConverter.m in Sources */,
+				6FD72D72AA73FBDAE66723D0 /* MusicVideoCompatibilityConverter.swift in Sources */,
 				1611FB4C869114C2F4A89055 /* FTPBrowserView.swift in Sources */,
 				3497E0E6DB5622420F25F413 /* FTPSource.swift in Sources */,
 				034DE2927BC6BE3B93CB12C2 /* FileFormatRouter.swift in Sources */,
@@ -5669,6 +5683,8 @@
 				94F9EF08B1D414C905DA55EB /* EmbeddedMetadataWritebackCoordinator.swift in Sources */,
 				63B5A50955FF23FF9A9F573C /* EmbeddedMetadataWriter.swift in Sources */,
 				5FB21BB62EA59814EB6DC658 /* FFmpegDecoderBridge.m in Sources */,
+				9E15AFC0A523D03D45FEDF50 /* FFmpegMusicVideoConverter.m in Sources */,
+				5FCA926760CBA12B82F27E93 /* MusicVideoCompatibilityConverter.swift in Sources */,
 				9D603241B5052785AD417424 /* FTPByteReader.swift in Sources */,
 				08E777E2F1647E94EBF91766 /* FileLogger.swift in Sources */,
 				2F09AF9820B07E36BBDEDC15 /* FileMetadataReader.swift in Sources */,
@@ -5914,6 +5930,8 @@
 				C09E9449CBF786992D36ABEC /* ExternalDisplaySceneDelegate.swift in Sources */,
 				88744C4DE23E697ACA4B7337 /* FFmpegAudioDecoder.swift in Sources */,
 				17D95A4CEEC7D70C93C43169 /* FFmpegDecoderBridge.m in Sources */,
+				049039634109B21268632190 /* FFmpegMusicVideoConverter.m in Sources */,
+				BFC3EDDCBF5E1CA78A3E425F /* MusicVideoCompatibilityConverter.swift in Sources */,
 				BF2086269B199A1CD7296700 /* FTPBrowserView.swift in Sources */,
 				94BE0B791A310003362CC3C5 /* FTPSource.swift in Sources */,
 				1AB7C4D50C43A24D7A9E3F53 /* FileFormatRouter.swift in Sources */,

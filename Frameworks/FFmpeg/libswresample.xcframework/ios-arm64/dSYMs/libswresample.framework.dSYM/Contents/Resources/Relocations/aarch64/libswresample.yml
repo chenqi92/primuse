@@ -1,5 +1,5 @@
 ---
 triple:          'arm64-apple-darwin'
-binary-path:     '/private/tmp/primuse-ffmpeg-apple/frameworks/ios-arm64/libswresample.framework/libswresample'
+binary-path:     '/Users/cq/primuse-verify/ffmpeg-video-build/work/frameworks/ios-arm64/libswresample.framework/libswresample'
 relocations:     []
 ...
