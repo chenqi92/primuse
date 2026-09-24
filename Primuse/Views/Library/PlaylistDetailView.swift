@@ -284,7 +284,7 @@ struct PlaylistDetailView: View {
     /// 不够时是居中的单张封面;下面一排「随机 · 播放全部 · 下载」,再往下是刮削进度、
     /// 评分、源不可达提示、始终下载开关与曲目。
     private var legacyPlaylistDetail: some View {
-        ImmersiveLibraryDetailScrollView { insets in
+        ImmersiveLibraryDetailScrollView(title: currentPlaylist?.name ?? playlist.name) { insets in
             playlistHero(insets: insets)
         } content: {
             VStack(spacing: 16) {
@@ -520,6 +520,7 @@ struct PlaylistDetailView: View {
                         .font(tier == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
                         .foregroundStyle(.white)
                         .lineLimit(compact ? 2 : LibraryDetailHeroLayoutPolicy.titleLineLimit(tier))
+                        .libraryDetailHeroTitle()
                 }
                 Text(verbatim: playlistMetaText)
                     .font(.footnote.weight(.semibold))

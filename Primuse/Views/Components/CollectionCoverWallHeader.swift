@@ -166,6 +166,7 @@ struct CollectionCoverWallHeader<Fallback: View>: View {
                     .foregroundStyle(.skin(.textPrimary))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
+                    .libraryDetailHeroTitle()
             }
             Text(subtitle)
                 .font(skin.font(.caption))

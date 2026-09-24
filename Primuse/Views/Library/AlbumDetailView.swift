@@ -124,7 +124,7 @@ struct AlbumDetailView: View {
     private var iosBody: some View {
         let discs = discSections
         let showsDiscHeaders = discs.contains { $0.number > 1 }
-        return ImmersiveLibraryDetailScrollView { insets in
+        return ImmersiveLibraryDetailScrollView(title: album.title) { insets in
             iosHero(insets: insets)
         } content: {
             VStack(alignment: .leading, spacing: 0) {
@@ -222,6 +222,7 @@ struct AlbumDetailView: View {
                 .foregroundStyle(.white)
                 .lineLimit(heightClass.isCompact ? 2 : LibraryDetailHeroLayoutPolicy.titleLineLimit(tier))
                 .fixedSize(horizontal: false, vertical: true)
+                .libraryDetailHeroTitle()
 
             artistLink(tier: tier)
 

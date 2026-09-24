@@ -86,7 +86,7 @@ struct SmartPlaylistDetailView: View {
     private func legacyBody(_ matched: [Song]) -> some View {
         Group {
             if let smart {
-                ImmersiveLibraryDetailScrollView { insets in
+                ImmersiveLibraryDetailScrollView(title: smart.name) { insets in
                     smartHero(smart, matched: matched, insets: insets)
                 } content: {
                     VStack(spacing: 16) {
@@ -249,6 +249,7 @@ struct SmartPlaylistDetailView: View {
                     .font(tier == .regular ? .title2.weight(.heavy) : .title3.weight(.heavy))
                     .foregroundStyle(.white)
                     .lineLimit(compact ? 2 : LibraryDetailHeroLayoutPolicy.titleLineLimit(tier))
+                    .libraryDetailHeroTitle()
                 Text(verbatim: smartPlaylistMetaText(matched))
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.72))

@@ -169,6 +169,7 @@ extension View {
 struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     private let header: (ImmersiveLibraryDetailInsets) -> Header
     private let content: Content
+    private let title: String?
 
     @Environment(\.libraryDetailTint) private var tint
     @Environment(\.colorScheme) private var colorScheme
@@ -177,10 +178,19 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.legacyBottomChromeOverlayActive) private var legacyBottomChromeOverlayActive
 
+    /// 头图里大标题的下沿（头部坐标）。页面给大标题挂上 `libraryDetailHeroTitle()` 才有值。
+    @State private var heroTitleBottom: CGFloat?
+    @State private var showsInlineTitle = false
+    /// 顶部安全区（状态栏 + 导航栏），给大标题算淡出位置。
+    @State private var heroTopInset: CGFloat = 0
+
+    /// - Parameter title: 大标题滚到导航栏下面之后，导航栏中间淡入的小标题。
     init(
+        title: String? = nil,
         @ViewBuilder header: @escaping (ImmersiveLibraryDetailInsets) -> Header,
         @ViewBuilder content: () -> Content
     ) {
+        self.title = title
         self.header = header
         self.content = content()
     }
@@ -212,6 +222,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             ScrollView {
                 VStack(spacing: 0) {
                     header(insets)
+                        .coordinateSpace(.named(LibraryDetailHeroSpace.name))
                     content
                         .padding(.leading, safeArea.leading)
                         .padding(.trailing, safeArea.trailing)
@@ -222,12 +233,23 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 // 取值 —— 否则浅色模式下会是黑字压在深底上。
                 .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
                 // 链接和图标按钮改用白色: 主题色来自正在播放的那首歌, 跟本页底色撞色
-                        .coordinateSpace(.named(LibraryDetailHeroSpace.name))
                 // 的概率不低。
                 .tint(tint == nil ? nil : Color.white)
             }
             .ignoresSafeArea(.container, edges: [.top, .horizontal])
+            .onScrollGeometryChange(for: CGFloat.self) { scroll in
+                scroll.contentOffset.y + scroll.contentInsets.top
+            } action: { _, scrolled in
+                updateInlineTitle(scrolled: scrolled, topInset: safeArea.top)
+            }
+            .onChange(of: safeArea.top, initial: true) { _, top in
+                heroTopInset = top
+            }
         }
+        .environment(\.libraryDetailHeroTitleReporter, { bottom in
+            if heroTitleBottom != bottom { heroTitleBottom = bottom }
+        })
+        .environment(\.libraryDetailHeroTopInset, heroTopInset)
         // 封面底色离内容更近,盖在皮肤底色上面;自己画底色的皮肤下没有封面底色,露出皮肤的。
         .background {
             if let tint {
@@ -237,6 +259,26 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
         .skinPageBackground(replacing: .canvasSunken)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            if let title {
+                // 标题按值传进导航栏条目:条目跑在自己的视图图里,读不到页面的环境。
+                ToolbarItem(placement: .principal) {
+                    LibraryDetailInlineTitle(title: title, isVisible: showsInlineTitle, onArtwork: tint != nil)
+                }
+            }
+        }
+    }
+
+    /// 大标题淡到一半（下沿离导航栏下沿还剩一半淡出距离）时换成导航栏里的小标题；
+    /// 带滞回，停在线上不闪。只在翻转时写状态。
+    private func updateInlineTitle(scrolled: CGFloat, topInset: CGFloat) {
+        guard let heroTitleBottom else { return }
+        let next = LibraryDetailHeroMotionPolicy.showsInlineTitle(
+            scrolled: Double(scrolled),
+            threshold: Double(heroTitleBottom - topInset - libraryDetailHeroTitleFadeDistance / 2),
+            wasShowing: showsInlineTitle
+        )
+        if next != showsInlineTitle { showsInlineTitle = next }
     }
 }
 

@@ -179,7 +179,8 @@ struct LibraryDetailActionRow<Content: View>: View {
 
 // MARK: - 跟着滚动的头图
 
-/// 详情页头部的坐标空间。头部根视图挂上它，里面的封面、海报据此算出头部被拉开或滚走了多少。
+/// 详情页头部的坐标空间。头部根视图挂上它，里面的封面、海报据此算出头部被拉开或滚走了多少，
+/// 大标题据此报告自己的位置。
 enum LibraryDetailHeroSpace {
     static let name = "primuse.libraryDetailHero"
 }
@@ -203,6 +204,11 @@ extension View {
         mask(alignment: .bottom) {
             Rectangle().padding(.top, -4000)
         }
+    }
+
+    /// 头图里那行大标题。它滚到导航栏下面之后，导航栏里淡入同名的小标题。
+    func libraryDetailHeroTitle() -> some View {
+        modifier(LibraryDetailHeroTitleMarker())
     }
 }
 
@@ -228,6 +234,70 @@ private struct LibraryDetailHeroMotionModifier: ViewModifier {
                 .scaleEffect(CGFloat(transform.scale), anchor: style == .poster ? .top : .bottom)
                 .offset(y: CGFloat(transform.offsetY))
         }
+    }
+}
+
+private struct LibraryDetailHeroTitleReporterKey: EnvironmentKey {
+    static let defaultValue: (@MainActor (CGFloat) -> Void)? = nil
+}
+
+private struct LibraryDetailHeroTopInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    /// 大标题在头部里的下沿位置交给谁。详情页的滚动容器挂上，别处为空。
+    var libraryDetailHeroTitleReporter: (@MainActor (CGFloat) -> Void)? {
+        get { self[LibraryDetailHeroTitleReporterKey.self] }
+        set { self[LibraryDetailHeroTitleReporterKey.self] = newValue }
+    }
+
+    /// 导航栏下沿在滚动视图里的位置（顶部安全区）。大标题滑到这里之前淡出。
+    var libraryDetailHeroTopInset: CGFloat {
+        get { self[LibraryDetailHeroTopInsetKey.self] }
+        set { self[LibraryDetailHeroTopInsetKey.self] = newValue }
+    }
+}
+
+/// 大标题离导航栏下沿还剩多少点时开始淡出。导航栏里的小标题在它淡到两成时出现（见滚动容器里的阈值）。
+let libraryDetailHeroTitleFadeDistance: CGFloat = 20
+
+private struct LibraryDetailHeroTitleMarker: ViewModifier {
+    @Environment(\.libraryDetailHeroTitleReporter) private var report
+    @Environment(\.libraryDetailHeroTopInset) private var topInset
+
+    func body(content: Content) -> some View {
+        let fadeLine = topInset
+        let fadeDistance = libraryDetailHeroTitleFadeDistance
+        content
+            // 滑到导航栏下面的最后一段里淡出，与导航栏里淡入的小标题交接，两行字不叠在一起。
+            .visualEffect { effect, proxy in
+                let bottom = proxy.frame(in: .scrollView(axis: .vertical)).maxY
+                return effect.opacity(Double(min(1, max(0, (bottom - fadeLine) / fadeDistance))))
+            }
+            // 量的是它在头部坐标里的位置，滚动时不变，只在排版变了（换字号、转屏）时才回报。
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .named(LibraryDetailHeroSpace.name)).maxY
+            } action: { maxY in
+                report?(maxY)
+            }
+    }
+}
+
+/// 导航栏中间那行小标题。放在导航栏条目里，只收值，不读模型类环境。
+struct LibraryDetailInlineTitle: View {
+    let title: String
+    let isVisible: Bool
+    let onArtwork: Bool
+
+    var body: some View {
+        Text(verbatim: title)
+            .font(.headline)
+            .foregroundStyle(onArtwork ? Color.white : Color.primary)
+            .lineLimit(1)
+            .opacity(isVisible ? 1 : 0)
+            .pmAnimation(.contentAppear, value: isVisible)
+            .accessibilityHidden(!isVisible)
     }
 }
 

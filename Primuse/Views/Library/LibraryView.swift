@@ -2511,7 +2511,7 @@ private struct GenreDetailView: View {
     var body: some View {
         Group {
             #if os(iOS)
-            ImmersiveLibraryDetailScrollView { insets in
+            ImmersiveLibraryDetailScrollView(title: genre.name) { insets in
                 iosHero(insets: insets)
             } content: {
                 VStack(alignment: .leading, spacing: 28) {
@@ -2588,6 +2588,7 @@ private struct GenreDetailView: View {
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
+                        .libraryDetailHeroTitle()
                     Text(
                         verbatim:
                             "\(albums.count) \(String(localized: "albums_count")) · \(songs.count) \(String(localized: "songs_count"))"

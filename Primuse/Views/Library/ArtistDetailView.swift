@@ -190,7 +190,7 @@ struct ArtistDetailView: View {
 
     #if os(iOS)
     private var iosBody: some View {
-        ImmersiveLibraryDetailScrollView { insets in
+        ImmersiveLibraryDetailScrollView(title: displayArtistName) { insets in
             iosHero(insets: insets)
         } content: {
             VStack(alignment: .leading, spacing: 30) {
@@ -281,6 +281,7 @@ struct ArtistDetailView: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
                     .shadow(color: .black.opacity(0.22), radius: 12, y: 2)
+                    .libraryDetailHeroTitle()
 
                 Text(verbatim: "\(monthlyListenText) \u{00B7} \(artistSummaryText)")
                     .font(.footnote.weight(.semibold))
