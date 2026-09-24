@@ -144,20 +144,65 @@ public enum LibraryDetailTintPolicy {
         return LibraryDetailTint(top: top, bottom: bottom)
     }
 
+    // MARK: - 呼吸背景的色阶
+
+    /// 呼吸背景里「亮一档 / 暗一档」往两边偏的色相（约 13°）。单色封面的页面也有看得出的色差，
+    /// 又不会偏成另一种颜色。
+    public static let meshHueShift = 0.036
+    /// 亮一档的对比度下限比正文门槛多留一点：网格按曲线插值，两色之间会有一点点过冲。
+    public static let meshLiftContrastRatio = 4.8
+
+    /// 「亮一档」：色相往前偏一点、饱和度高一截、亮度抬两成多，仍守白字对比度（多留一点余量）。
+    /// 已经被对比度压着的亮色（黄、青）抬不上去，就只剩色相与饱和度的差。
+    public static func lifted(_ stop: LibraryDetailTintStop) -> LibraryDetailTintStop {
+        let hue = normalizedHue(stop.hue + meshHueShift)
+        let saturation = min(clamp01(stop.saturation) + 0.12, maximumSaturation + 0.12)
+        let brightness = readableBrightness(
+            hue: hue,
+            saturation: saturation,
+            preferred: min(1, stop.brightness * 1.24),
+            minimumContrast: meshLiftContrastRatio
+        )
+        return LibraryDetailTintStop(hue: hue, saturation: saturation, brightness: brightness)
+    }
+
+    /// 「暗一档」：色相往回偏一点、饱和度略高、亮度压到七成。越暗白字越清楚，不用再查对比度。
+    public static func deepened(_ stop: LibraryDetailTintStop) -> LibraryDetailTintStop {
+        LibraryDetailTintStop(
+            hue: normalizedHue(stop.hue - meshHueShift),
+            saturation: min(clamp01(stop.saturation) + 0.06, maximumSaturation + 0.08),
+            brightness: stop.brightness * 0.68
+        )
+    }
+
+    /// 呼吸背景 3×3 网格的九个颜色，从左上按行排。
+    ///
+    /// 上半屏是主色、亮一档与副色三团，中间一行是副色的亮一档、正中一团暗一档（标题多压在这一带，
+    /// 越暗越好读）；最下一行是页尾色，列表一段看不出网格。相邻两点都不同色，漂起来才看得出在动。
+    /// 九个颜色都守白字对比度，网格里任一点是相邻几色的混合，混合不会比最亮的那色更亮。
+    public static func meshStops(main: LibraryDetailTint, accent: LibraryDetailTint) -> [LibraryDetailTintStop] {
+        [
+            main.top, lifted(main.top), accent.top,
+            lifted(accent.top), deepened(main.top), main.top,
+            main.bottom, accent.bottom, main.bottom,
+        ]
+    }
+
     /// 在不超过 `preferred` 的前提下取最亮的那个仍满足对比度的亮度。
     ///
     /// 亮度升高则相对亮度单调升高、与白色的对比度单调下降，所以可以二分。
     private static func readableBrightness(
         hue: Double,
         saturation: Double,
-        preferred: Double
+        preferred: Double,
+        minimumContrast: Double = minimumContrastRatio
     ) -> Double {
         let candidate = LibraryDetailTintStop(
             hue: hue,
             saturation: saturation,
             brightness: preferred
         )
-        if contrastRatioAgainstWhite(candidate) >= minimumContrastRatio {
+        if contrastRatioAgainstWhite(candidate) >= minimumContrast {
             return preferred
         }
 
@@ -166,7 +211,7 @@ public enum LibraryDetailTintPolicy {
         for _ in 0..<24 {
             let mid = (low + high) / 2
             let stop = LibraryDetailTintStop(hue: hue, saturation: saturation, brightness: mid)
-            if contrastRatioAgainstWhite(stop) >= minimumContrastRatio {
+            if contrastRatioAgainstWhite(stop) >= minimumContrast {
                 low = mid
             } else {
                 high = mid

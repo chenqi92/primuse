@@ -939,6 +939,7 @@
 		A645E6AE800CAA447E72B3B7 /* RadioBatchAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A895C0BB7B716450DBD0A73 /* RadioBatchAddView.swift */; };
 		A6794A4324E4442B4373F440 /* MinimalNavigationDetailLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF561533EC649E1C87772C4A /* MinimalNavigationDetailLedger.swift */; };
 		2F1C07A12441BC44F7DEA1C0 /* TopTabSlotAllocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75D2E988350B9E883AC511C1 /* TopTabSlotAllocator.swift */; };
+		6D30E51FFBACC4508FC58880 /* LibraryDetailBreathingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D5B2A864F39FF4F29049EC1 /* LibraryDetailBreathingPolicy.swift */; };
 		8F1B1EB1E40D86157BA0A3BB /* DockedPlayerBarLayoutPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C7E61BCE60228930A3F19F /* DockedPlayerBarLayoutPolicy.swift */; };
 		A6C5832D0D7A58FCAB9332F0 /* LyricsTranslationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3B2E6C5B0B89258193D97 /* LyricsTranslationSettingsView.swift */; };
 		A6D34DE88E9BF2C89E70D28D /* ScraperSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED64A9CEF96E0A4A91703E4 /* ScraperSettingsStore.swift */; };
@@ -2436,6 +2437,7 @@
 		AF23E2C32C29F875836D06BE /* FFmpegDecoderBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FFmpegDecoderBridge.m; sourceTree = "<group>"; };
 		AF561533EC649E1C87772C4A /* MinimalNavigationDetailLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalNavigationDetailLedger.swift; sourceTree = "<group>"; };
 		75D2E988350B9E883AC511C1 /* TopTabSlotAllocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopTabSlotAllocator.swift; sourceTree = "<group>"; };
+		8D5B2A864F39FF4F29049EC1 /* LibraryDetailBreathingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDetailBreathingPolicy.swift; sourceTree = "<group>"; };
 		52C7E61BCE60228930A3F19F /* DockedPlayerBarLayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockedPlayerBarLayoutPolicy.swift; sourceTree = "<group>"; };
 		AFBFD411F0195479667050DF /* SettingsSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchIndex.swift; sourceTree = "<group>"; };
 		AFC99787799DFBA7FE0F2C6D /* SiriRadioStationCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiriRadioStationCatalog.swift; sourceTree = "<group>"; };
@@ -3302,6 +3304,7 @@
 				F70693E488DF6AF172C485E2 /* MinimalNavigationCollapsePolicy.swift */,
 				AF561533EC649E1C87772C4A /* MinimalNavigationDetailLedger.swift */,
 				75D2E988350B9E883AC511C1 /* TopTabSlotAllocator.swift */,
+				8D5B2A864F39FF4F29049EC1 /* LibraryDetailBreathingPolicy.swift */,
 				52C7E61BCE60228930A3F19F /* DockedPlayerBarLayoutPolicy.swift */,
 				BADE3E47B952DDB0A1371635 /* MotionArtworkProvider.swift */,
 				C5430956811D547F2E2EA473 /* MotionArtworkServiceContract.swift */,
@@ -5188,6 +5191,7 @@
 				576851404B071C4DA692D32E /* MinimalNavigationCollapsePolicy.swift in Sources */,
 				A6794A4324E4442B4373F440 /* MinimalNavigationDetailLedger.swift in Sources */,
 				2F1C07A12441BC44F7DEA1C0 /* TopTabSlotAllocator.swift in Sources */,
+				6D30E51FFBACC4508FC58880 /* LibraryDetailBreathingPolicy.swift in Sources */,
 				8F1B1EB1E40D86157BA0A3BB /* DockedPlayerBarLayoutPolicy.swift in Sources */,
 				AF201CC110B79690BE4F987C /* MotionArtworkProvider.swift in Sources */,
 				BB402A126921F04BE2AB57AA /* MotionArtworkServiceContract.swift in Sources */,

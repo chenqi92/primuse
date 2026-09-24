@@ -30,18 +30,10 @@ struct LibraryDetailTintStyle: Hashable {
     /// 封面调色板第二色按同一套规则压出来的副色。封面只有一种颜色时就是主色。
     var accentTop: Color
     var accentBottom: Color
-
-    /// 3×3 网格的九个颜色，从左上按行排。上半屏以主色为主、右上与左中各有一团副色，
-    /// 正中是主色往页尾色偏三成的一团暗部 —— 封面只有一种颜色时漂移也看得出来；
-    /// 过了头图才慢慢变深，头图末端与页面底色之间没有接缝。
-    /// 相邻两色之间的过渡不会比较亮的那一端更亮，白字的对比度不低于两端。
-    var meshColors: [Color] {
-        [
-            top, top, accentTop,
-            accentTop, top.mix(with: bottom, by: 0.35), top,
-            bottom, accentBottom, bottom,
-        ]
-    }
+    /// 3×3 网格的九个颜色，从左上按行排(`LibraryDetailTintPolicy.meshStops`):主色、亮一档、
+    /// 副色三团在上半屏,正中一团暗一档,最下一行是页尾色。相邻两点都不同色 —— 封面只有一种颜色时
+    /// 漂移也看得出来;九色都守白字对比度,两色之间的过渡不会比较亮的那一端更亮。
+    var meshColors: [Color]
 
     /// 取不到封面色时的中性底。取色是异步的，颜色到位之前也先用它。
     static func neutral(colorScheme: ColorScheme) -> LibraryDetailTintStyle {
@@ -86,7 +78,8 @@ struct LibraryDetailTintStyle: Hashable {
             top: color(tint.top),
             bottom: color(tint.bottom),
             accentTop: color(accent.top),
-            accentBottom: color(accent.bottom)
+            accentBottom: color(accent.bottom),
+            meshColors: LibraryDetailTintPolicy.meshStops(main: tint, accent: accent).map(color)
         )
     }
 
@@ -308,7 +301,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
 /// 详情页会呼吸的整页底色：3×3 网格渐变，控制点在固定幅度里慢慢漂。
 ///
 /// 换专辑（或者取色晚到）时新旧两层在 ZStack 里交叉淡入，漂移不被打断；
-/// 开了「减弱动态效果」或者 App 不在前台时停在原位。
+/// 开了「减弱动态效果」时停在静止位置，App 不在前台或页面被盖住时停在原处。
 struct LibraryDetailBreathingBackground: View {
     let tint: LibraryDetailTintStyle
 
@@ -329,47 +322,38 @@ private struct LibraryDetailMeshLayer: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @State private var drifting = false
+    /// 页面被推到后面(或者 sheet 盖住)时不必再逐帧画。
+    @State private var isOnScreen = false
 
-    /// 静止时三行在 0 / 0.45 / 1：上半屏是主色，过了头图才变深。
-    private static let restingPoints: [SIMD2<Float>] = [
-        [0, 0], [0.5, 0], [1, 0],
-        [0, 0.45], [0.5, 0.45], [1, 0.45],
-        [0, 1], [0.5, 1], [1, 1],
-    ]
-    /// 漂到的另一头。边上的点只沿着边走，四个角不动，网格不会露出空隙；
-    /// 幅度是网格坐标里的定值，不随页面尺寸变 —— 循环动画挂在它上面，值一变就会被换掉停在半途。
-    private static let driftedPoints: [SIMD2<Float>] = [
-        [0, 0], [0.64, 0], [1, 0],
-        [0, 0.54], [0.36, 0.37], [1, 0.4],
-        [0, 1], [0.38, 1], [1, 1],
-    ]
-    /// `.ambient` 档的曲线放慢成单程 9 秒。
-    private static let breathSpeed = 0.5 / 9
+    /// 静止位置,减弱动态效果时就停在这里。
+    private static let restingPoints = LibraryDetailBreathingPolicy.restingPoints.map(Self.simd)
 
     private var breathes: Bool {
-        !reduceMotion && scenePhase == .active
+        !reduceMotion && scenePhase == .active && isOnScreen
     }
 
     var body: some View {
-        MeshGradient(
-            width: 3,
-            height: 3,
-            points: drifting ? Self.driftedPoints : Self.restingPoints,
-            colors: tint.meshColors
-        )
-        .onChange(of: breathes, initial: true) { _, breathes in
-            if breathes {
-                withAnimation(PMMotion.ambient.animation.speed(Self.breathSpeed).repeatForever(autoreverses: true)) {
-                    drifting = true
-                }
-            } else {
-                // 用一段有限的动画换掉循环，网格回到原位后停住。
-                withAnimation(PMMotion.ambient.animation) {
-                    drifting = false
-                }
-            }
+        // 控制点位置是时间的函数(`LibraryDetailBreathingPolicy`):各点按自己的频率与相位做正弦摆动,
+        // 两头慢中间快,整面是一团团色块在流,不是一张网格来回推拉。幅度是网格坐标里的定值,
+        // 不随页面尺寸变;30 帧足够 —— 每帧只挪一两个点。
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !breathes)) { context in
+            MeshGradient(
+                width: 3,
+                height: 3,
+                points: reduceMotion
+                    ? Self.restingPoints
+                    : LibraryDetailBreathingPolicy
+                        .points(at: context.date.timeIntervalSinceReferenceDate)
+                        .map(Self.simd),
+                colors: tint.meshColors
+            )
         }
+        .onAppear { isOnScreen = true }
+        .onDisappear { isOnScreen = false }
+    }
+
+    nonisolated private static func simd(_ point: LibraryDetailMeshPoint) -> SIMD2<Float> {
+        SIMD2(Float(point.x), Float(point.y))
     }
 }
 

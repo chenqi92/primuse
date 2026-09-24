@@ -236,3 +236,68 @@ struct LibraryDetailTintPolicyTests {
         #expect(abs(teal.top.hue - 0.45) < 0.0001)
     }
 }
+
+@Suite("详情页呼吸背景的色阶")
+struct LibraryDetailMeshStopsTests {
+    private typealias Policy = LibraryDetailTintPolicy
+
+    private static func sweep(_ appearance: Policy.Appearance) -> [(main: LibraryDetailTint, accent: LibraryDetailTint)] {
+        var result: [(LibraryDetailTint, LibraryDetailTint)] = []
+        for hue in stride(from: 0.0, to: 1.0, by: 1.0 / 24) {
+            for saturation in [0.1, 0.35, 0.7, 1.0] {
+                for brightness in [0.2, 0.6, 1.0] {
+                    let main = Policy.tint(hue: hue, saturation: saturation, brightness: brightness, appearance: appearance)
+                    let accent = Policy.tint(hue: hue + 0.4, saturation: 0.8, brightness: 0.9, appearance: appearance)
+                    result.append((main, accent))
+                }
+            }
+        }
+        return result
+    }
+
+    @Test("九个颜色都够白字读；亮一档多留出余量", arguments: [LibraryDetailTintPolicy.Appearance.dark, .light])
+    func everyMeshStopIsReadable(appearance: LibraryDetailTintPolicy.Appearance) {
+        for entry in Self.sweep(appearance) {
+            let stops = Policy.meshStops(main: entry.main, accent: entry.accent)
+            #expect(stops.count == 9)
+            for stop in stops {
+                #expect(Policy.contrastRatioAgainstWhite(stop) >= Policy.minimumContrastRatio - 0.0001)
+            }
+            #expect(Policy.contrastRatioAgainstWhite(Policy.lifted(entry.main.top)) >= Policy.meshLiftContrastRatio - 0.0001)
+        }
+    }
+
+    @Test("网格里两色之间的混合不比较亮的那端更亮：白字对比度不低于两端")
+    func mixesStayReadable() {
+        for entry in Self.sweep(.dark) {
+            let stops = Policy.meshStops(main: entry.main, accent: entry.accent)
+            for (a, b) in zip(stops, stops.dropFirst()) {
+                let ra = Policy.rgbComponents(of: a)
+                let rb = Policy.rgbComponents(of: b)
+                // 近似 sRGB 空间里的中点，按相对亮度比较。
+                let mid = (red: (ra.red + rb.red) / 2, green: (ra.green + rb.green) / 2, blue: (ra.blue + rb.blue) / 2)
+                let luminance = { (c: (red: Double, green: Double, blue: Double)) -> Double in
+                    func lin(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+                    return 0.2126 * lin(c.red) + 0.7152 * lin(c.green) + 0.0722 * lin(c.blue)
+                }
+                #expect(luminance(mid) <= max(luminance(ra), luminance(rb)) + 1e-9)
+            }
+        }
+    }
+
+    @Test("单色封面的页面也有色差：亮一档偏色相、暗一档明显更深")
+    func singleColorCoversStillVary() {
+        let main = Policy.tint(hue: 0.07, saturation: 0.7, brightness: 0.9, appearance: .dark)
+        let stops = Policy.meshStops(main: main, accent: main)
+        let lift = stops[1]
+        let deep = stops[4]
+        #expect(abs(lift.hue - main.top.hue - Policy.meshHueShift) < 0.0001)
+        #expect(lift.saturation > main.top.saturation)
+        #expect(deep.brightness <= main.top.brightness * 0.7)
+        // 上两行（漂得最明显的那一段）相邻两点不同色；最下一行是页尾色，单色封面时本来就一样。
+        let upper = Array(stops.prefix(6))
+        for (a, b) in zip(upper, upper.dropFirst()) where a == b {
+            Issue.record("相邻两点同色：\(a)")
+        }
+    }
+}
