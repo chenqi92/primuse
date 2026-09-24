@@ -141,6 +141,13 @@ final class AudioEngine {
     /// 用于变速 (rate) + 保持音调 (overlap)。1.0 时基本无开销, 用户改速度
     /// 时调它的 .rate 即可, engine graph 不需要 reconfigure。
     private(set) var timePitchNode: AVAudioUnitTimePitch?
+    /// 卡拉OK人声消除, 夹在播放混音器和 EQ 之间, 淡入淡出/无缝衔接的两路
+    /// 已经混成一路再处理。关闭时渲染里直接透传, 没有延迟。
+    private var karaokeVocalNode: AVAudioUnitEffect?
+    /// 跨图重建保留的卡拉OK开关与回读状态, 渲染线程只读它。
+    nonisolated let karaokeControl = KaraokeRenderControl()
+    /// 卡拉OK升降调(音分)。只在卡拉OK开着时非零, 图重建后要重新套上。
+    private var karaokePitchCents: Float = 0
 
     private(set) var isPlaying = false
     var isActuallyPlaying: Bool {
@@ -281,6 +288,7 @@ final class AudioEngine {
         compressorNode = nil
         reverbNode = nil
         timePitchNode = nil
+        karaokeVocalNode = nil
         outputFormat = nil
         #if os(macOS)
         directOutputVolumeIsSupported = false
@@ -349,7 +357,7 @@ final class AudioEngine {
         let reverb = AVAudioUnitReverb()
         let timePitch = AVAudioUnitTimePitch()
         timePitch.rate = 1.0
-        timePitch.pitch = 0
+        timePitch.pitch = karaokePitchCents
         // overlap 默认 8.0, 提高到 16 让 0.5x / 2.0x 极端速度声音更稳;
         // 1.0x 时该节点几乎是 passthrough, 不会有副作用。
         timePitch.overlap = 16.0
@@ -377,6 +385,10 @@ final class AudioEngine {
         eng.attach(compressor)
         eng.attach(reverb)
         eng.attach(timePitch)
+        let karaokeVocal = KaraokeVocalReducerUnit.makeNode(control: karaokeControl)
+        if let karaokeVocal {
+            eng.attach(karaokeVocal)
+        }
 
         let mainMixer = eng.mainMixerNode
         var format = mainMixer.outputFormat(forBus: 0)
@@ -385,13 +397,18 @@ final class AudioEngine {
             format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
         }
 
-        // Signal chain: playerA/B → Spatial Environment → mixer → EQ → Compressor → Reverb → TimePitch → mainMixer → output
+        // Signal chain: playerA/B → Spatial Environment → mixer → (Karaoke) → EQ → Compressor → Reverb → TimePitch → mainMixer → output
         // TimePitch 放最后一站, 让 EQ / 压缩 / 混响 都在原速下处理,
         // visualizer 仍挂 mainMixer 拿到变速后的最终输出。
         eng.connect(playerA, to: environment, format: format)
         eng.connect(playerB, to: environment, format: format)
         eng.connect(environment, to: mixer, format: format)
-        eng.connect(mixer, to: eq, format: format)
+        if let karaokeVocal {
+            eng.connect(mixer, to: karaokeVocal, format: format)
+            eng.connect(karaokeVocal, to: eq, format: format)
+        } else {
+            eng.connect(mixer, to: eq, format: format)
+        }
         eng.connect(eq, to: compressor, format: format)
         eng.connect(compressor, to: reverb, format: format)
         eng.connect(reverb, to: timePitch, format: format)
@@ -412,6 +429,7 @@ final class AudioEngine {
         self.compressorNode = compressor
         self.reverbNode = reverb
         self.timePitchNode = timePitch
+        self.karaokeVocalNode = karaokeVocal
         self.outputFormat = format
         self.isSetUp = true
         applySpatialAudioConfiguration()
@@ -1237,6 +1255,31 @@ final class AudioEngine {
         timePitchNode?.rate = clamped
     }
 
+    // MARK: - Karaoke
+
+    /// 效果图里有没有挂上人声消除单元(高保真直通图没有)。
+    var supportsKaraokeVocalReduction: Bool {
+        outputMode == .effects && karaokeVocalNode != nil
+    }
+
+    /// 升降调只作用在播放图上; 麦克风走自己的引擎, 不会被一起变调。
+    func applyKaraokePitch(cents: Float) {
+        karaokePitchCents = cents
+        guard outputMode == .effects, let timePitchNode, timePitchNode.pitch != cents else { return }
+        timePitchNode.pitch = cents
+    }
+
+    /// 渲染 → 扬声器的延迟, 录音对齐人声时要补上。
+    var outputPresentationLatency: TimeInterval {
+        engine?.outputNode.presentationLatency ?? 0
+    }
+
+    /// 录音时抓伴奏: 变调之后、主音量之前, 所以录下来的电平不跟音量滑块走。
+    /// 可视化已经占了 mainMixer 的 tap, 同一个总线只能挂一个。
+    var karaokeRecordingTapNode: AVAudioNode? {
+        outputMode == .effects ? timePitchNode : nil
+    }
+
     // MARK: - Spatial Audio
 
     func configureSpatialAudio(enabled: Bool, headTrackingEnabled: Bool) {
@@ -1397,6 +1440,7 @@ final class AudioEngine {
         compressorNode?.reset()
         reverbNode?.reset()
         timePitchNode?.reset()
+        karaokeVocalNode?.reset()
         engine.mainMixerNode.reset()
     }
 

@@ -8,3 +8,4 @@
 "NSAppleMusicUsageDescription" = "Primuse needs access to your Apple Music / iTunes library to import its local tracks as a playback source.";
 "NSLocalNetworkUsageDescription" = "Primuse needs local network access to discover and connect to your NAS devices, media servers, and other music sources.";
 "NSMotionUsageDescription" = "Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.";
+"NSMicrophoneUsageDescription" = "Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device.";

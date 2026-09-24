@@ -6,3 +6,4 @@
 "NSAppleMusicUsageDescription" = "Primuse 需要存取您的 Apple Music / iTunes 資料庫，以將本機音樂匯入為播放來源。";
 "NSLocalNetworkUsageDescription" = "Primuse 需要存取區域網路，以探索並連接您的 NAS 裝置、媒體伺服器及其他音樂來源。";
 "NSMotionUsageDescription" = "Primuse 會使用支援的耳機動作資料，讓空間音訊在您轉動頭部時保持穩定定位。";
+"NSMicrophoneUsageDescription" = "Primuse 在卡拉OK模式下使用麥克風為你的演唱評分、在耳機中播放你的聲音，並在本機錄下你的演唱。";

@@ -79,6 +79,8 @@
 	<string>© Welape</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Primuse needs local network access to discover and connect to your NAS, media servers, music sources, and nearby Primuse devices.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.</string>
 	<key>PrimuseBaiduClientID</key>

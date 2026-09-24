@@ -109,6 +109,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Primuse 需要访问本地网络，以发现并连接您的 NAS、媒体服务器、其他音乐源及附近的 Primuse 设备。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Primuse uses the microphone in karaoke mode to score your singing, let you hear yourself in headphones, and record your performance on this device.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Primuse uses headphone motion to keep Spatial Audio anchored while you move your head.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

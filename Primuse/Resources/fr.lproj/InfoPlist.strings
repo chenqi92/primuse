@@ -8,3 +8,4 @@
 "NSAppleMusicUsageDescription" = "Primuse a besoin d’accéder à votre bibliothèque Apple Music / iTunes pour importer vos morceaux locaux comme source de lecture.";
 "NSLocalNetworkUsageDescription" = "Primuse a besoin d’accéder au réseau local pour détecter vos appareils NAS, serveurs multimédias et autres sources musicales, et s’y connecter.";
 "NSMotionUsageDescription" = "Primuse utilise les données de mouvement de vos écouteurs afin de garder l’audio spatial stable lorsque vous tournez la tête.";
+"NSMicrophoneUsageDescription" = "Primuse utilise le micro en mode karaoké pour noter votre chant, vous faire entendre votre voix au casque et enregistrer votre performance sur cet appareil.";

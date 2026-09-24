@@ -8,3 +8,4 @@
 "NSAppleMusicUsageDescription" = "Primuse가 로컬 음악을 재생 소스로 가져오려면 Apple Music/iTunes 보관함에 접근해야 합니다.";
 "NSLocalNetworkUsageDescription" = "Primuse가 NAS 기기, 미디어 서버 및 기타 음악 소스를 검색하고 연결하려면 로컬 네트워크 접근 권한이 필요합니다.";
 "NSMotionUsageDescription" = "Primuse는 헤드폰 모션 데이터를 사용하여 머리를 움직일 때 공간 음향의 위치를 안정적으로 유지합니다.";
+"NSMicrophoneUsageDescription" = "Primuse는 노래방 모드에서 마이크를 사용해 노래를 채점하고, 헤드폰으로 내 목소리를 들려주며, 이 기기에 노래를 녹음합니다.";
