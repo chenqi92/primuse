@@ -453,6 +453,8 @@ struct SourcesView: View {
 /// Sources page content. Push this from an existing NavigationStack to avoid
 /// nested stacks resetting the back button or immediately dismissing the page.
 struct SourcesContentView: View {
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourceStore
     @Environment(MusicLibrary.self) private var library
@@ -534,12 +536,18 @@ struct SourcesContentView: View {
                 ToolbarItemGroup(placement: .primaryAction) {
                     #if !os(macOS)
                     MetadataBackfillPerformanceButton { mode in
-                        Image(systemName: mode.symbol)
-                            .foregroundStyle(mode == .fast ? Color.orange : Color.primary)
+                        PMToolbarItemLabel(
+                            verbatim: MetadataReadingText.string("title"),
+                            systemImage: mode.symbol,
+                            titled: verticalBarEdge != nil
+                        )
+                        .foregroundStyle(mode == .fast ? Color.orange : Color.primary)
                     }
                     #endif
 
-                    Button { showAddSource = true } label: { Image(systemName: "plus") }
+                    Button { showAddSource = true } label: {
+                        PMToolbarItemLabel("add_source", systemImage: "plus", titled: verticalBarEdge != nil)
+                    }
                         .accessibilityIdentifier("sources.add")
                     Button { showTransfer = true } label: {
                         Label(WiFiTransferText.string("nativeTitle"), systemImage: "laptopcomputer.and.iphone")

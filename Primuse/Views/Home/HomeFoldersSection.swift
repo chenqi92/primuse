@@ -418,6 +418,8 @@ private struct HomeFolderRow: View {
 }
 
 struct HomeFolderBrowser: View {
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     var nodeID: LibraryFolderNodeID?
     var usesInlineControls = false
     var showsInlineBack = false
@@ -633,7 +635,9 @@ struct HomeFolderBrowser: View {
                     Menu {
                         Button("play", systemImage: "play.fill") { playFolder(node.id, shuffle: false) }
                         Button("shuffle", systemImage: "shuffle") { playFolder(node.id, shuffle: true) }
-                    } label: { Image(systemName: "play.circle") }
+                    } label: {
+                        PMToolbarItemLabel("play", systemImage: "play.circle", titled: verticalBarEdge != nil)
+                    }
                     .disabled(node.descendantSongCount == 0)
                     .accessibilityLabel("play")
                     if FolderPlaylistMenuButton.supports(node) {
@@ -644,7 +648,9 @@ struct HomeFolderBrowser: View {
                                 library: library,
                                 source: sourcesStore.source(id: node.sourceID)
                             )
-                        } label: { Image(systemName: "ellipsis") }
+                        } label: {
+                            PMToolbarItemLabel("a11y_more_actions", systemImage: "ellipsis", titled: verticalBarEdge != nil)
+                        }
                         .accessibilityLabel("a11y_more_actions")
                     }
                 }

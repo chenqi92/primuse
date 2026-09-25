@@ -17,6 +17,8 @@ struct PlaylistDetailView: View {
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
     #endif
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     let playlist: Playlist
     private let onMacInlineBack: (() -> Void)?
 
@@ -307,112 +309,26 @@ struct PlaylistDetailView: View {
                 Menu {
                     sortMenuOptions
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down.circle")
+                    PMToolbarItemLabel("sort_by", systemImage: "arrow.up.arrow.down.circle", titled: verticalBarEdge != nil)
                 }
                 .disabled(songs.count < 2)
                 .accessibilityLabel(Text("sort_by"))
                 .accessibilityIdentifier("playlistDetail.sort")
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    // 最常用的三个排成顶部一行。队列两项用同一份可播放曲目,
-                    // 文案跟歌曲行保持一致(`insert_next`,不是更长的 `up_next`)。
-                    PMMenuQuickActions {
-                        PMMenuQuickActionButton(
-                            shortKey: "insert_next_short",
-                            fullKey: "insert_next",
-                            systemImage: "text.line.first.and.arrowtriangle.forward"
-                        ) {
-                            player.insertNextInQueue(songs.filteredPlayable())
-                        }
-                        .disabled(songs.filteredPlayable().isEmpty)
-
-                        PMMenuQuickActionButton(
-                            shortKey: "add_to_queue_short",
-                            fullKey: "add_to_queue",
-                            systemImage: "text.line.last.and.arrowtriangle.forward"
-                        ) {
-                            player.appendToQueue(songs.filteredPlayable())
-                        }
-                        .disabled(songs.filteredPlayable().isEmpty)
-
-                        Button {
-                            if selection.isActive {
-                                selection.deactivate()
-                            } else {
-                                selection.activate()
-                            }
-                        } label: {
-                            Label(selection.isActive ? "done" : "batch_select",
-                                  systemImage: "checkmark.circle")
-                        }
-                        .disabled(songs.isEmpty)
+            #if os(iOS)
+            if verticalBarEdge != nil {
+                // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单,和竖栏里别的按钮收在一处。
+                if #available(iOS 27.0, *) {
+                    ToolbarOverflowMenu {
+                        playlistMoreMenuContent
                     }
-
-                    Section {
-                        // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
-                        // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
-                        if allowsPlaylistRemoval {
-                            Button {
-                                // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
-                                // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
-                                displaySortRawValue = ""
-                                showReorderSheet = true
-                            } label: {
-                                Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
-                            }
-                            .disabled(songs.count < 2)
-                        }
-                        Button {
-                            showArtworkEditor = true
-                        } label: {
-                            Label("artwork_edit", systemImage: "photo.badge.plus")
-                        }
-                        Button {
-                            startPlaylistScrape()
-                        } label: {
-                            Label("scrape_missing_metadata", systemImage: "wand.and.stars")
-                        }
-                        .disabled(songs.isEmpty || scraperService.isScraping)
-                        if let target = playlistServerMediaShareTarget {
-                            Button {
-                                serverMediaShareTarget = target
-                            } label: {
-                                Label("server_share_action", systemImage: "link.badge.plus")
-                            }
-                        }
-                        Button {
-                            showExportFormats = true
-                        } label: {
-                            Label("export", systemImage: "square.and.arrow.up")
-                        }
-                    }
-
-                    if canDeletePlaylist(playlist.id) {
-                        Section {
-                            Button(role: .destructive) {
-                                deleteCurrentPlaylist()
-                            } label: {
-                                Label("delete_playlist", systemImage: "trash")
-                            }
-                        }
-                    } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
-                        Section {
-                            Button {
-                                hideCurrentPlaylist()
-                            } label: {
-                                Label("hide_playlist_from_primuse", systemImage: "eye.slash")
-                            }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
                 }
-                // Do not disable the whole menu for an empty playlist. Actions
-                // that require tracks already carry their own disabled state,
-                // while exporting or deleting the playlist must remain usable.
-                .accessibilityLabel(Text("a11y_more_actions"))
+            } else {
+                playlistMoreToolbarItem
             }
+            #else
+            playlistMoreToolbarItem
+            #endif
         }
         .sheet(item: $exportShareItem) { item in
             ShareSheet(items: [item.url])
@@ -429,6 +345,117 @@ struct PlaylistDetailView: View {
                isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("ok", role: .cancel) {}
         } message: { Text(exportError ?? "") }
+    }
+
+    /// 工具栏里那颗「⋯」。
+    @ToolbarContentBuilder
+    private var playlistMoreToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                playlistMoreMenuContent
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            // Do not disable the whole menu for an empty playlist. Actions
+            // that require tracks already carry their own disabled state,
+            // while exporting or deleting the playlist must remain usable.
+            .accessibilityLabel(Text("a11y_more_actions"))
+        }
+    }
+
+    /// 歌单页「⋯」菜单的内容。普通 iPhone 上是工具栏里那颗「⋯」,iPhone Duo 竖栏里并进系统溢出菜单。
+    @ViewBuilder
+    private var playlistMoreMenuContent: some View {
+        // 最常用的三个排成顶部一行。队列两项用同一份可播放曲目,
+        // 文案跟歌曲行保持一致(`insert_next`,不是更长的 `up_next`)。
+        PMMenuQuickActions {
+            PMMenuQuickActionButton(
+                shortKey: "insert_next_short",
+                fullKey: "insert_next",
+                systemImage: "text.line.first.and.arrowtriangle.forward"
+            ) {
+                player.insertNextInQueue(songs.filteredPlayable())
+            }
+            .disabled(songs.filteredPlayable().isEmpty)
+
+            PMMenuQuickActionButton(
+                shortKey: "add_to_queue_short",
+                fullKey: "add_to_queue",
+                systemImage: "text.line.last.and.arrowtriangle.forward"
+            ) {
+                player.appendToQueue(songs.filteredPlayable())
+            }
+            .disabled(songs.filteredPlayable().isEmpty)
+
+            Button {
+                if selection.isActive {
+                    selection.deactivate()
+                } else {
+                    selection.activate()
+                }
+            } label: {
+                Label(selection.isActive ? "done" : "batch_select",
+                      systemImage: "checkmark.circle")
+            }
+            .disabled(songs.isEmpty)
+        }
+
+        Section {
+            // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
+            // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
+            if allowsPlaylistRemoval {
+                Button {
+                    // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
+                    // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
+                    displaySortRawValue = ""
+                    showReorderSheet = true
+                } label: {
+                    Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
+                }
+                .disabled(songs.count < 2)
+            }
+            Button {
+                showArtworkEditor = true
+            } label: {
+                Label("artwork_edit", systemImage: "photo.badge.plus")
+            }
+            Button {
+                startPlaylistScrape()
+            } label: {
+                Label("scrape_missing_metadata", systemImage: "wand.and.stars")
+            }
+            .disabled(songs.isEmpty || scraperService.isScraping)
+            if let target = playlistServerMediaShareTarget {
+                Button {
+                    serverMediaShareTarget = target
+                } label: {
+                    Label("server_share_action", systemImage: "link.badge.plus")
+                }
+            }
+            Button {
+                showExportFormats = true
+            } label: {
+                Label("export", systemImage: "square.and.arrow.up")
+            }
+        }
+
+        if canDeletePlaylist(playlist.id) {
+            Section {
+                Button(role: .destructive) {
+                    deleteCurrentPlaylist()
+                } label: {
+                    Label("delete_playlist", systemImage: "trash")
+                }
+            }
+        } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+            Section {
+                Button {
+                    hideCurrentPlaylist()
+                } label: {
+                    Label("hide_playlist_from_primuse", systemImage: "eye.slash")
+                }
+            }
+        }
     }
 
     private var playlistReviewSection: some View {

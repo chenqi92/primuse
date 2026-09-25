@@ -17,6 +17,8 @@ struct ArtistDetailView: View {
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
     @Environment(\.pmHeightClass) private var heightClass
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
     #endif
@@ -169,12 +171,12 @@ struct ArtistDetailView: View {
                     Button {
                         serverMediaShareTarget = target
                     } label: {
-                        Image(systemName: "link.badge.plus")
+                        PMToolbarItemLabel("server_share_action", systemImage: "link.badge.plus", titled: verticalBarEdge != nil)
                     }
                     .accessibilityLabel(Text("server_share_action"))
                 }
                 Button { showArtworkEditor = true } label: {
-                    Image(systemName: "photo.badge.plus")
+                    PMToolbarItemLabel("artwork_edit", systemImage: "photo.badge.plus", titled: verticalBarEdge != nil)
                 }
                 .accessibilityLabel(Text("artwork_edit"))
             }

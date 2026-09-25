@@ -23,6 +23,8 @@ struct SmartPlaylistDetailView: View {
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
     #endif
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     @State private var showEditor = false
     @State private var showNoScraperSourceAlert = false
@@ -101,9 +103,11 @@ struct SmartPlaylistDetailView: View {
                         Button {
                             showEditor = true
                         } label: {
-                            Image(systemName: smart.effectiveKind == .ai
-                                  ? "sparkles"
-                                  : "slider.horizontal.3")
+                            PMToolbarItemLabel(
+                                smart.effectiveKind == .ai ? "ai_playlist_add_songs" : "smart_playlist_edit",
+                                systemImage: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
+                                titled: verticalBarEdge != nil
+                            )
                         }
                     }
                 }

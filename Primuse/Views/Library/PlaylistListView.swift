@@ -14,6 +14,8 @@ struct PlaylistListView: View {
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
     #endif
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
     @State private var newPlaylistDescription = ""
@@ -240,7 +242,7 @@ struct PlaylistListView: View {
                             }
                         }
                     } label: {
-                        Image(systemName: "plus")
+                        PMToolbarItemLabel("new_playlist", systemImage: "plus", titled: verticalBarEdge != nil)
                     }
                 }
             }
