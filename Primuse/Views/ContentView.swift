@@ -2667,6 +2667,10 @@ struct NowPlayingAccessory: View {
 /// 取值：`home` / `library` / `songs` / `albums` / `artists` / `playlists` / `album:<标题片段>` / `artist:<名字片段>` /
 /// `playlist:<名字片段>`（`liked` 是「喜欢」）/ `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `search` / `settings` / `onboarding`。
 /// 另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
+/// `section:<分类 rawValue>`（如 `section:folders`）。
+/// 详情页取证用：`genre:<名字片段>` / `smart:<名字片段>`（智能歌单）。
+/// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）；
+/// 另建两张同样形态的取证智能歌单（Evidence Smart Wall / Evidence Smart Single），用 `smart:<名字片段>` 打开。
 extension ContentView {
     @MainActor
     private func runDebugOpenPage() async {
@@ -2684,6 +2688,7 @@ extension ContentView {
         }
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
+        debugSeedPlaylistsIfRequested()
         if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
            orientation == "landscape" || orientation == "portrait" {
             InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
@@ -2701,6 +2706,12 @@ extension ContentView {
             openLibraryDeepLink(.root)
         case _ where namedSections[page] != nil:
             openLibraryDeepLink(.section(namedSections[page]!))
+        case "section":
+            guard let section = LibrarySection(rawValue: parts.count > 1 ? parts[1] : "") else {
+                plog("🧪 DebugLaunchAutomation: unknown section '\(needle)'")
+                return
+            }
+            debugOpenSection(section)
         case "album":
             for _ in 0..<30 {
                 if let album = library.visibleAlbums.first(where: {
@@ -2734,6 +2745,36 @@ extension ContentView {
             } else {
                 plog("🧪 DebugLaunchAutomation: no playlist matching '\(needle)'")
             }
+        case "genre":
+            for _ in 0..<30 {
+                if let genre = library.visibleGenres.first(where: {
+                    needle.isEmpty || $0.name.lowercased().contains(needle)
+                }) {
+                    debugOpenSection(.genres)
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    LibraryDebugNavigation.push(genre, in: .genres)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+            }
+            plog("🧪 DebugLaunchAutomation: no genre matching '\(needle)'")
+        case "smart":
+            for _ in 0..<30 {
+                if let smart = library.smartPlaylists.first(where: {
+                    needle.isEmpty || $0.name.lowercased().contains(needle)
+                }) {
+                    debugOpenSection(.playlists)
+                    try? await Task.sleep(for: .seconds(3))
+                    guard !Task.isCancelled else { return }
+                    LibraryDebugNavigation.push(smart, in: .playlists)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+            }
+            plog("🧪 DebugLaunchAutomation: no smart playlist matching '\(needle)'")
         case "player":
             // 等 `PRIMUSE_AUTOPLAY_SONG` 把歌放起来，没有也照样打开。
             for _ in 0..<20 where player.currentSong == nil {
@@ -2749,6 +2790,42 @@ extension ContentView {
             showInitialOnboarding = true
         default:
             plog("🧪 DebugLaunchAutomation: unknown page '\(page)'")
+        }
+    }
+
+    @MainActor
+    private func debugOpenSection(_ section: LibrarySection) {
+        openLibraryDeepLink(.section(section))
+    }
+
+    /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1`：没有就建两张取证歌单，名字固定，重复启动不会重复建。
+    @MainActor
+    private func debugSeedPlaylistsIfRequested() {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_PLAYLISTS"] == "1" else { return }
+        let names = library.playlists.map(\.name)
+        if !names.contains("Evidence Wall") {
+            _ = library.createPlaylist(name: "Evidence Wall", songIDs: library.visibleSongs.map(\.id))
+        }
+        if !names.contains("Evidence Single"),
+           let album = library.visibleAlbums.first(where: { $0.title.lowercased().contains("evidence") }) {
+            _ = library.createPlaylist(
+                name: "Evidence Single",
+                songIDs: library.songs(forAlbum: album.id).map(\.id)
+            )
+        }
+        // 智能歌单的两种头图:命中整库(封面墙)与只命中 Evidence 专辑(单封面)。
+        let smartNames = library.smartPlaylists.map(\.name)
+        if !smartNames.contains("Evidence Smart Wall") {
+            library.saveSmartPlaylist(SmartPlaylist(
+                name: "Evidence Smart Wall",
+                rules: [SmartPlaylistRule(field: .durationSec, op: .greaterThan, value: "0")]
+            ))
+        }
+        if !smartNames.contains("Evidence Smart Single") {
+            library.saveSmartPlaylist(SmartPlaylist(
+                name: "Evidence Smart Single",
+                rules: [SmartPlaylistRule(field: .albumTitle, op: .contains, value: "Evidence")]
+            ))
         }
     }
 }

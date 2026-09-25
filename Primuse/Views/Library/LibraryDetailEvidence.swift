@@ -19,6 +19,9 @@ import SwiftUI
 struct LibraryDetailEvidenceHost: View {
     @Environment(MusicLibrary.self) private var library
     @State private var homeModel = HomeView.Model()
+    /// 首页晚两秒再挂上：取证页在启动那一刻就替换了根视图，首页若在场景还没进入前台时出现，
+    /// 它等「回到前台」的那次刷新永远等不到，一直停在加载占位。
+    @State private var mountsHome = false
 
     private enum Page: String {
         case player, lyrics, immersive, queue, tabletop, home, album, artist, genre, playlist, smart
@@ -257,8 +260,17 @@ struct LibraryDetailEvidenceHost: View {
                 .environment(\.pmDebugFoldAxis, frame.page == .tabletop ? .horizontal : nil)
                 .ignoresSafeArea()
         case .home:
-            HomeView(model: homeModel, openLibrarySongs: {})
-                .environment(homeModel)
+            if mountsHome {
+                HomeView(model: homeModel, openLibrarySongs: {})
+                    .environment(homeModel)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task {
+                        try? await Task.sleep(for: .seconds(2))
+                        mountsHome = true
+                    }
+            }
         }
     }
 
