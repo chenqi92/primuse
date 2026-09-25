@@ -165,6 +165,9 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
 
     @Environment(\.libraryDetailTint) private var tint
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
 
     init(
         @ViewBuilder header: @escaping (ImmersiveLibraryDetailInsets) -> Header,
@@ -186,6 +189,14 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             // 连左右安全区一起出血, 正文再把左右安全区按侧加回来 —— 头部自己
             // 拿 insets 消费, 底图就是唯一铺到边的那一层。
             let pageWidth = geometry.size.width + safeArea.leading + safeArea.trailing
+            if LibraryDetailWideCanvas.usesTwoColumns(
+                isPhoneIdiom: isPhoneIdiomEnvironment,
+                horizontalSizeClass: horizontalSizeClass,
+                heightClass: heightClass,
+                size: CGSize(width: pageWidth, height: geometry.size.height + safeArea.top + safeArea.bottom)
+            ) {
+                twoColumnPage(safeArea: safeArea, pageWidth: pageWidth)
+            } else {
             ScrollView {
                 VStack(spacing: 0) {
                     header(insets)
@@ -203,6 +214,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 .tint(tint == nil ? nil : Color.white)
             }
             .ignoresSafeArea(.container, edges: [.top, .horizontal])
+            }
         }
         .background {
             if let tint {
@@ -214,8 +226,143 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
     }
+
+    /// iPhone 上常规宽度的横屏画布（iPhone Duo 内屏横握）：头图（封面、标题、操作行）在左栏，
+    /// 曲目与其余内容在右栏，两栏各自滚动。头图按左栏那么宽排，和外屏上看到的是同一副；
+    /// 列表不再横跨整块内屏、跨过中间的折痕。
+    private func twoColumnPage(safeArea: EdgeInsets, pageWidth: CGFloat) -> some View {
+        let leadingWidth = CGFloat(WideCanvasColumnsPolicy.detailLeadingColumnWidth(pageWidth: Double(pageWidth)))
+        let trailingWidth = max(0, pageWidth - leadingWidth)
+        return HStack(alignment: .top, spacing: 0) {
+            ScrollView {
+                header(ImmersiveLibraryDetailInsets(
+                    top: safeArea.top,
+                    leading: safeArea.leading,
+                    trailing: 0
+                ))
+                .frame(width: leadingWidth)
+            }
+            .scrollIndicators(.hidden)
+            .frame(width: leadingWidth)
+
+            ScrollView {
+                content
+                    .padding(.top, safeArea.top + 16)
+                    .padding(.trailing, safeArea.trailing)
+                    .frame(width: trailingWidth)
+            }
+            .frame(width: trailingWidth)
+        }
+        .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
+        .tint(tint == nil ? nil : Color.white)
+        .ignoresSafeArea(.container, edges: [.top, .horizontal])
+    }
 }
 #endif
+
+#if os(iOS)
+/// 详情页什么时候排成两栏：iPhone（含 iPhone Duo）上常规宽度、非紧凑高度、横向且足够宽的画布，
+/// 也就是 Duo 内屏横握。iPad 有自己的侧边栏版式，普通 iPhone 横竖屏都是紧凑的一边，都不走这里。
+enum LibraryDetailWideCanvas {
+    @MainActor
+    static func usesTwoColumns(
+        isPhoneIdiom: Bool,
+        horizontalSizeClass: UserInterfaceSizeClass?,
+        heightClass: PMHeightClass,
+        size: CGSize
+    ) -> Bool {
+        WideCanvasColumnsPolicy.usesTwoColumns(
+            isPhone: isPhoneCanvas(isPhoneIdiom),
+            isRegularWidth: horizontalSizeClass == .regular,
+            isCompactHeight: heightClass.isCompact,
+            width: Double(size.width),
+            height: Double(size.height)
+        )
+    }
+
+    /// 这块画布有没有可能分两栏：没有可能时调用方连尺寸都不必量，普通 iPhone 的视图树原样不动。
+    @MainActor
+    static func mayUseTwoColumns(
+        isPhoneIdiom: Bool,
+        horizontalSizeClass: UserInterfaceSizeClass?,
+        heightClass: PMHeightClass
+    ) -> Bool {
+        isPhoneCanvas(isPhoneIdiom)
+            && horizontalSizeClass == .regular
+            && !heightClass.isCompact
+    }
+
+    @MainActor
+    private static func isPhoneCanvas(_ isPhoneIdiom: Bool) -> Bool {
+        isPhoneIdiom || UIDevice.current.userInterfaceIdiom == .phone
+    }
+}
+#endif
+
+/// 歌单、智能歌单这类自己排整页的详情页用的两栏容器：够宽时头部与列表左右分栏、各自滚动，
+/// 否则原样交回单栏的整页（调用方自己的 ScrollView）。只在可能分栏的画布上才量尺寸，
+/// 普通 iPhone 与 iPad 上直接返回单栏，视图树不变。
+struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View {
+    @ViewBuilder let single: () -> Single
+    @ViewBuilder let header: () -> Header
+    @ViewBuilder let content: () -> Content
+
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
+    #endif
+
+    var body: some View {
+        #if os(iOS)
+        if LibraryDetailWideCanvas.mayUseTwoColumns(
+            isPhoneIdiom: isPhoneIdiomEnvironment,
+            horizontalSizeClass: horizontalSizeClass,
+            heightClass: heightClass
+        ) {
+            GeometryReader { geometry in
+                let safeArea = geometry.safeAreaInsets
+                let pageWidth = geometry.size.width + safeArea.leading + safeArea.trailing
+                if LibraryDetailWideCanvas.usesTwoColumns(
+                    isPhoneIdiom: isPhoneIdiomEnvironment,
+                    horizontalSizeClass: horizontalSizeClass,
+                    heightClass: heightClass,
+                    size: CGSize(width: pageWidth, height: geometry.size.height + safeArea.top + safeArea.bottom)
+                ) {
+                    let leadingWidth = CGFloat(WideCanvasColumnsPolicy.detailLeadingColumnWidth(
+                        pageWidth: Double(pageWidth)
+                    ))
+                    HStack(alignment: .top, spacing: 0) {
+                        ScrollView {
+                            header()
+                                .padding(.leading, safeArea.leading)
+                                .padding(.top, 16)
+                                .frame(width: leadingWidth)
+                        }
+                        .scrollIndicators(.hidden)
+                        .frame(width: leadingWidth)
+
+                        ScrollView {
+                            content()
+                                .padding(.top, 16)
+                                .padding(.trailing, safeArea.trailing)
+                                .frame(width: max(0, pageWidth - leadingWidth))
+                        }
+                    }
+                    .ignoresSafeArea(.container, edges: .horizontal)
+                } else {
+                    single()
+                }
+            }
+        } else {
+            single()
+        }
+        #else
+        single()
+        #endif
+    }
+}
+
 
 struct LibraryDetailActionButton: View {
     let title: LocalizedStringKey

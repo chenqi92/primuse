@@ -73,59 +73,26 @@ struct SmartPlaylistDetailView: View {
     private func legacyBody(_ matched: [Song]) -> some View {
         Group {
             if let smart {
-                ScrollView {
+                // iPhone Duo 内屏横握时头部在左栏、曲目在右栏；其它设备原样单栏。
+                LibraryDetailWideColumns {
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            legacyHeader(smart, matched: matched)
+
+                            smartReviewSection(smart)
+
+                            smartListSections(smart, matched: matched)
+                        }
+                    }
+                } header: {
                     VStack(spacing: 20) {
                         legacyHeader(smart, matched: matched)
 
-                        LibraryReviewSection(
-                            subject: .playlist(smart.id),
-                            compact: true
-                        )
-                        .padding(.horizontal)
-
-                        if smart.effectiveKind == .ai {
-                            Button {
-                                showEditor = true
-                            } label: {
-                                Label("ai_playlist_add_songs", systemImage: "sparkles")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .padding(.horizontal)
-                        }
-
-                        // Songs
-                        if matched.isEmpty {
-                            EmptyStateView(
-                                titleKey: "smart_playlist_no_matches",
-                                descriptionKey: emptyDescriptionKey(for: smart),
-                                systemImage: "magnifyingglass"
-                            )
-                            .padding(.top, 24)
-                            .pmAppearFade(.contentAppear)
-                        } else {
-                            LazyVStack(spacing: 0) {
-                                ForEach(matched) { song in
-                                    SongRowView(
-                                        song: song,
-                                        isPlaying: player.currentSong?.id == song.id,
-                                        showsActions: false,
-                                        context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
-                                    )
-                                    .padding(.horizontal)
-                                    .padding(.vertical, 8)
-                                    .onTapGesture { playSong(song) }
-
-                                    Divider().padding(.leading, 50)
-                                }
-                            }
-                            #if os(iOS)
-                            .songRowColumnsContainer()
-                            #endif
-                            // 只在"空态 ⇄ 曲目表"重建时淡入一次: 匹配结果变化不换
-                            // 分支, 不会每次刷新都重放; 表内的行一律不动。
-                            .pmAppearFade(.contentAppear)
-                        }
+                        smartReviewSection(smart)
+                    }
+                } content: {
+                    VStack(spacing: 20) {
+                        smartListSections(smart, matched: matched)
                     }
                 }
                 .navigationBarTitleDisplayMode(.inline)
@@ -149,6 +116,62 @@ struct SmartPlaylistDetailView: View {
                     systemImage: "questionmark.circle"
                 )
             }
+        }
+    }
+
+    private func smartReviewSection(_ smart: SmartPlaylist) -> some View {
+        LibraryReviewSection(
+            subject: .playlist(smart.id),
+            compact: true
+        )
+        .padding(.horizontal)
+    }
+
+    /// 头部之下的操作与曲目表。单栏时它们与头部排在同一列里，两栏时单独成右栏。
+    @ViewBuilder
+    private func smartListSections(_ smart: SmartPlaylist, matched: [Song]) -> some View {
+        if smart.effectiveKind == .ai {
+            Button {
+                showEditor = true
+            } label: {
+                Label("ai_playlist_add_songs", systemImage: "sparkles")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .padding(.horizontal)
+        }
+
+        // Songs
+        if matched.isEmpty {
+            EmptyStateView(
+                titleKey: "smart_playlist_no_matches",
+                descriptionKey: emptyDescriptionKey(for: smart),
+                systemImage: "magnifyingglass"
+            )
+            .padding(.top, 24)
+            .pmAppearFade(.contentAppear)
+        } else {
+            LazyVStack(spacing: 0) {
+                ForEach(matched) { song in
+                    SongRowView(
+                        song: song,
+                        isPlaying: player.currentSong?.id == song.id,
+                        showsActions: false,
+                        context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill)
+                    )
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .onTapGesture { playSong(song) }
+
+                    Divider().padding(.leading, 50)
+                }
+            }
+            #if os(iOS)
+            .songRowColumnsContainer()
+            #endif
+            // 只在"空态 ⇄ 曲目表"重建时淡入一次: 匹配结果变化不换
+            // 分支, 不会每次刷新都重放; 表内的行一律不动。
+            .pmAppearFade(.contentAppear)
         }
     }
 

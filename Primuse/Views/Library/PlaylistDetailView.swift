@@ -279,54 +279,26 @@ struct PlaylistDetailView: View {
     }
 
     private var legacyPlaylistDetail: some View {
-        ScrollView {
+        // iPhone Duo 内屏横握时头部在左栏、曲目在右栏；其它设备原样单栏。
+        LibraryDetailWideColumns {
+            ScrollView {
+                VStack(spacing: 20) {
+                    playlistHeader
+
+                    playlistReviewSection
+
+                    playlistListSections
+                }
+            }
+        } header: {
             VStack(spacing: 20) {
                 playlistHeader
 
-                LibraryReviewSection(
-                    subject: .playlist(playlist.id),
-                    compact: true
-                )
-                .padding(.horizontal)
-
-                if hasSongsFromUnreachableSources {
-                    unreachableSongsNotice
-                        .padding(.horizontal)
-                }
-
-                if pendingEntryCount > 0 {
-                    PlaylistPendingNotice(count: pendingEntryCount)
-                        .padding(.horizontal)
-                }
-
-                if supportsAlwaysDownload {
-                    alwaysDownloadControl
-                        .padding(.horizontal)
-                        .pmFadeTransition(motion: .list)
-                }
-
-                // Songs
-                LazyVStack(spacing: 0) {
-                    ForEach(displayEntries) { entry in
-                        switch entry {
-                        case .song(let song):
-                            songRow(song)
-                        case .pending(let pending):
-                            PlaylistPendingEntryRow(
-                                entry: pending,
-                                playlistID: playlist.id,
-                                allowsEditing: allowsPlaylistRemoval
-                            )
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
-                        }
-
-                        Divider().padding(.leading, 50)
-                    }
-                }
-                #if os(iOS)
-                .songRowColumnsContainer()
-                #endif
+                playlistReviewSection
+            }
+        } content: {
+            VStack(spacing: 20) {
+                playlistListSections
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -457,6 +429,57 @@ struct PlaylistDetailView: View {
                isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("ok", role: .cancel) {}
         } message: { Text(exportError ?? "") }
+    }
+
+    private var playlistReviewSection: some View {
+        LibraryReviewSection(
+            subject: .playlist(playlist.id),
+            compact: true
+        )
+        .padding(.horizontal)
+    }
+
+    /// 头部之下的提示与曲目表。单栏时它们与头部排在同一列里，两栏时单独成右栏。
+    @ViewBuilder
+    private var playlistListSections: some View {
+        if hasSongsFromUnreachableSources {
+            unreachableSongsNotice
+                .padding(.horizontal)
+        }
+
+        if pendingEntryCount > 0 {
+            PlaylistPendingNotice(count: pendingEntryCount)
+                .padding(.horizontal)
+        }
+
+        if supportsAlwaysDownload {
+            alwaysDownloadControl
+                .padding(.horizontal)
+                .pmFadeTransition(motion: .list)
+        }
+
+        // Songs
+        LazyVStack(spacing: 0) {
+            ForEach(displayEntries) { entry in
+                switch entry {
+                case .song(let song):
+                    songRow(song)
+                case .pending(let pending):
+                    PlaylistPendingEntryRow(
+                        entry: pending,
+                        playlistID: playlist.id,
+                        allowsEditing: allowsPlaylistRemoval
+                    )
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                }
+
+                Divider().padding(.leading, 50)
+            }
+        }
+        #if os(iOS)
+        .songRowColumnsContainer()
+        #endif
     }
 
     /// 竖屏是「居中大封面 + 标题 + 计数 + 操作行」的竖排; 手机横屏纵向只剩三百多点,
