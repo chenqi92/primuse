@@ -1455,6 +1455,7 @@ struct PrimuseApp: App {
 
     private var iosAppContent: some View {
         ContentView()
+            .environment(\.pmIsPhoneIdiom, UIDevice.current.userInterfaceIdiom == .phone)
             .preferredColorScheme(iOSAppearance.colorScheme)
             .modifier(IOSWindowAppearanceModifier(preference: iOSAppearance))
             .modifier(ExternalDisplaySceneAccessoryModifier())

@@ -3,6 +3,9 @@ import PrimuseKit
 
 struct QueueView: View {
     let player: AudioPlayerService
+    /// 嵌在播放页分栏的右栏里(iPhone Duo 内屏):不套导航栈、不带导航栏按钮 ——
+    /// 分栏容器里不放导航容器,随机与循环就在旁边的播放器上。
+    var isEmbedded = false
     @Environment(MusicLibrary.self) private var library
     // 拖拽预览宿主要用: 行里的 CachedArtworkView 同时读 MusicLibrary 与
     // SourceManager, 两个都得显式带过去。见 queueRow 里的说明。
@@ -18,13 +21,17 @@ struct QueueView: View {
     var body: some View {
         // 在这里取值再传给工具栏:导航栏条目由独立宿主渲染,不在那里读环境。
         let extendedQueue = skin.usesNowPlayingCardQueue
-        NavigationStack {
+        if isEmbedded {
             content(extended: extendedQueue)
-                .navigationTitle("queue_title")
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-                #endif
-                .toolbar { shuffleToolbarContent(showsRepeat: extendedQueue) }
+        } else {
+            NavigationStack {
+                content(extended: extendedQueue)
+                    .navigationTitle("queue_title")
+                    #if os(iOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                    #endif
+                    .toolbar { shuffleToolbarContent(showsRepeat: extendedQueue) }
+            }
         }
     }
 

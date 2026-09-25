@@ -678,6 +678,15 @@ struct NowPlayingView: View {
     /// 系统竖栏在哪一侧(iPhone Duo 等);没有竖栏的设备与 Xcode 27.0 构建为 nil。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     #endif
+    /// iPhone(含 Duo 内屏)才在常规宽度上把播放页分栏;iPad 保持原来的版式。
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiom
+    #if DEBUG
+    @Environment(\.pmDebugFoldAxis) private var debugFoldAxis
+    #endif
+    /// 分栏时右栏被收起了(右栏默认开着:歌词开着放歌词,否则放「接下来播放」)。
+    @State private var sidePaneHidden = false
+    /// 播放页此刻是左右分栏(Duo 内屏横握):队列键改成切右栏,不再弹出半屏队列。
+    @State private var isPlayerSplit = false
     @State private var fullScreenMusicVideoPlayer: AVPlayer?
     @Environment(ThemeService.self) private var theme
     @AppStorage(AppThemePreferences.ambientStrengthKey)
@@ -1288,6 +1297,240 @@ struct NowPlayingView: View {
         )
     }
 
+    // MARK: - iPhone Duo 内屏:分栏与桌面半折
+
+    /// 常规宽度的 iPhone 画布(Duo 内屏)上播放页怎么排。只在有 `ArrangementView` 的构建与系统上、
+    /// iPhone 上、非紧凑高度、不在放 MV / 沉浸歌词 / 电台时生效;其它情况返回 nil,走原来的版式。
+    private func playerArrangement(
+        geo: GeometryProxy,
+        landscapeMode: NowPlayingLandscapeMode
+    ) -> NowPlayingArrangement? {
+        guard PMArrangement.isAvailable || debugForcesArrangement,
+              isPhoneIdiom,
+              sizeClass == .regular,
+              !heightClass.isCompact,
+              !player.isMusicVideoPlaybackActive,
+              landscapeMode == .none || landscapeMode == .standardLyrics
+        else { return nil }
+        // 桌面半折:折痕横在屏幕中间(上半屏立着、下半屏平放在桌上)。
+        if let fold = activeFolds(in: geo).first(where: { $0.width > $0.height }),
+           geo.size.height > geo.size.width {
+            return .tabletop(foldMinY: CGFloat(fold.minY), foldMaxY: CGFloat(fold.maxY))
+        }
+        return .split(canSplit: geo.size.width > geo.size.height)
+    }
+
+    private var debugForcesArrangement: Bool {
+        #if DEBUG
+        debugFoldAxis != nil
+        #else
+        false
+        #endif
+    }
+
+    private func activeFolds(in geo: GeometryProxy) -> [OcclusionAvoidancePolicy.Region] {
+        var folds = PMReservedRegions.activeDivisions(in: geo)
+        #if DEBUG
+        // 取证页在 iPad 模拟器里模拟半折:折痕宽 20,在正中间。
+        switch debugFoldAxis {
+        case .horizontal:
+            folds.append(.init(x: 0, y: Double(geo.size.height) / 2 - 10, width: Double(geo.size.width), height: 20))
+        case .vertical:
+            folds.append(.init(x: Double(geo.size.width) / 2 - 10, y: 0, width: 20, height: Double(geo.size.height)))
+        case nil:
+            break
+        }
+        #endif
+        return folds
+    }
+
+    /// 分栏(横握):左边是播放器(封面 + 控件,和外屏同一副竖版),右边是歌词或「接下来播放」;
+    /// 右栏关着时播放器占满整幅,半折成书本时 `ArrangementView` 让它停在折痕一侧。
+    /// 竖握摊平时 `ArrangementView` 只显示播放器,歌词照旧在同一栏里切换。
+    @ViewBuilder
+    private func arrangedPlayerLayout(geo: GeometryProxy, arrangement: NowPlayingArrangement) -> some View {
+        switch arrangement {
+        case .split(let canSplit):
+            let showsSidePane = canSplit && !sidePaneHidden
+            PMHorizontalArrangement {
+                GeometryReader { pane in
+                    let insets = portraitInsets(geo: pane, safeInsets: EdgeInsets(), occlusions: [])
+                    portraitLayout(
+                        geo: pane,
+                        artSize: insets.artworkSize,
+                        insets: insets,
+                        lyricsInline: canSplit ? false : showLyrics
+                    )
+                }
+            } secondary: {
+                if showsSidePane {
+                    nowPlayingSidePane
+                        .transition(.opacity)
+                }
+            }
+            .onChange(of: canSplit, initial: true) { _, split in
+                isPlayerSplit = split
+            }
+            .onDisappear { isPlayerSplit = false }
+        case .tabletop(let foldMinY, let foldMaxY):
+            tabletopPlayerLayout(geo: geo, foldMinY: foldMinY, foldMaxY: foldMaxY)
+                .onAppear { isPlayerSplit = false }
+        }
+    }
+
+    /// 分栏时的右栏:顶上一排切换「歌词 / 接下来播放」和收起键,下面是歌词或队列本身。
+    private var nowPlayingSidePane: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Picker(selection: Binding(
+                    get: { showLyrics ? 0 : 1 },
+                    set: { selectSidePane(showsQueue: $0 == 1) }
+                )) {
+                    Text("lyrics_title").tag(0)
+                    Text("up_next").tag(1)
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 280)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    closeSidePane()
+                } label: {
+                    Label("close", systemImage: "sidebar.trailing")
+                        .labelStyle(.iconOnly)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(appearance.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            // 与左栏把手的上沿对齐。
+            .padding(.top, topSafeArea + 12)
+            .padding(.horizontal, 24)
+
+            ZStack {
+                if !showLyrics {
+                    QueueView(player: player, isEmbedded: true)
+                        .scrollContentBackground(.hidden)
+                        .pmAppearFade(.contentAppear)
+                } else {
+                    lyricsFullView
+                        .padding(.bottom, 24)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(.bottom, bottomSafeArea)
+        .overlay(alignment: .leading) {
+            // 两栏之间一道很淡的分隔,和 iPad 横屏那套一样。
+            Rectangle()
+                .fill(appearance.divider)
+                .frame(width: 1)
+                .padding(.vertical, 40)
+        }
+    }
+
+    private func selectSidePane(showsQueue: Bool) {
+        withAnimation(standardLyricsAnimation) {
+            sidePaneHidden = false
+            showLyrics = !showsQueue
+            isLyricsImmersive = false
+        }
+    }
+
+    private func closeSidePane() {
+        withAnimation(standardLyricsAnimation) {
+            sidePaneHidden = true
+        }
+    }
+
+    /// 队列键:分栏时打开右栏的「接下来播放」(已经在看就收起右栏),其它时候弹出半屏队列。
+    private func openQueue() {
+        guard isPlayerSplit else {
+            showQueue = true
+            return
+        }
+        if !sidePaneHidden, !showLyrics {
+            closeSidePane()
+        } else {
+            selectSidePane(showsQueue: true)
+        }
+    }
+
+    /// 歌词键:分栏时打开右栏的歌词(已经在看就收起右栏),其它时候在同一栏里切歌词。
+    private func toggleLyricsForLayout() {
+        guard isPlayerSplit else {
+            toggleStandardLyrics()
+            return
+        }
+        if !sidePaneHidden, showLyrics {
+            closeSidePane()
+        } else {
+            selectSidePane(showsQueue: false)
+        }
+    }
+
+    /// 桌面半折:上半屏立着、离人远,放封面(开着歌词时放歌词);下半屏平放在桌上、手够得着,
+    /// 放歌名、进度与全部控件。同一个播放页换个排法,控件与其它形态一样一个不少。
+    private func tabletopPlayerLayout(geo: GeometryProxy, foldMinY: CGFloat, foldMaxY: CGFloat) -> some View {
+        let topHeight = max(0, foldMinY)
+        let artworkSide = max(0, min(geo.size.width - 96, topHeight - topSafeArea - 44))
+        return VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                Capsule()
+                    .fill(appearance.tertiary)
+                    .frame(width: 48, height: 5)
+                    .padding(.top, topSafeArea + 6)
+                    .padding(.bottom, 10)
+                ZStack {
+                    if showLyrics {
+                        lyricsFullView
+                            .padding(.horizontal, 24)
+                            .transition(lyricsPanelTransition)
+                    } else {
+                        artworkOrMusicVideo(size: artworkSide, cornerRadius: 16)
+                            .scaleEffect(artworkAppearsPlaying ? 1.0 : 0.92)
+                            .shadow(color: .black.opacity(0.3), radius: 24, y: 10)
+                            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
+                            .onTapGesture { setStandardLyricsVisible(true) }
+                            .transition(playerArtworkTransition)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, 12)
+            }
+            .frame(height: topHeight)
+
+            Color.clear
+                .frame(height: max(0, foldMaxY - foldMinY))
+
+            VStack(spacing: 0) {
+                nowPlayingSongHeader(titleFont: .title2, metadataFont: .body)
+                    .padding(.horizontal, 36)
+                    .padding(.top, 18)
+                PlaybackProgressBar(fillTint: themedControlAccent)
+                    .padding(.horizontal, 36)
+                    .padding(.top, 10)
+                portraitTransportRow
+                    .padding(.top, 10)
+                    .padding(.horizontal, 24)
+                if showsPlayerVolumeBar {
+                    playerVolumeRow
+                        .padding(.horizontal, 36)
+                        .padding(.top, 10)
+                }
+                Spacer(minLength: 0)
+                portraitBottomBar
+                    .padding(.bottom, bottomSafeArea)
+            }
+            .frame(maxHeight: .infinity)
+        }
+    }
+
     /// iPad 横屏(regular size class + 宽 > 高)启用左右双栏 —— 左封面 + 控件,
     /// 右常驻歌词。其它(iPhone / iPad 竖屏 / 分屏小窗 compact)还走原来的
     /// 上下结构,showLyrics 切歌词 / 封面模式。
@@ -1477,6 +1720,10 @@ struct NowPlayingView: View {
                                     safeInsets: safeInsets,
                                     occlusions: occlusions
                                 )
+                            }
+                        } else if let arrangement = playerArrangement(geo: geo, landscapeMode: landscapeMode) {
+                            NowPlayingDeferredContent {
+                                arrangedPlayerLayout(geo: geo, arrangement: arrangement)
                             }
                         } else {
                             switch landscapeMode {
@@ -3150,7 +3397,14 @@ struct NowPlayingView: View {
     // MARK: - 原 portrait layout (iPhone + iPad 竖屏 + 分屏小窗)
 
     @ViewBuilder
-    private func portraitLayout(geo: GeometryProxy, artSize: CGFloat, insets: NowPlayingPortraitInsets) -> some View {
+    private func portraitLayout(
+        geo: GeometryProxy,
+        artSize: CGFloat,
+        insets: NowPlayingPortraitInsets,
+        lyricsInline: Bool? = nil
+    ) -> some View {
+        // 分栏时歌词在右栏,这一栏始终是封面模式;其它时候跟着歌词开关走。
+        let showLyrics = lyricsInline ?? self.showLyrics
         // MV 是 16:9，若沿用方形封面按高度推导出的宽度，会在竖屏里显得
         // 明显偏小。视频改为尽量吃满屏宽；方形封面仍保持原来的视觉尺度。
         let mediaWidth = player.isMusicVideoPlaybackActive
@@ -3314,37 +3568,7 @@ struct NowPlayingView: View {
                             .padding(.horizontal, insets.rows)
 
                         // Controls
-                        HStack(spacing: 0) {
-                        Spacer()
-                        ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
-                        Spacer()
-                        Button { transportBackward() } label: {
-                            Image(systemName: transportBackwardSymbol)
-                                .font(.title).foregroundStyle(appearance.primary)
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                        .frame(width: 56, height: 56)
-                        .accessibilityLabel(transportBackwardLabel)
-                        Spacer()
-                        portraitTransportPlayButton
-                        Spacer()
-                        Button { transportForward() } label: {
-                            Image(systemName: transportForwardSymbol)
-                                .font(.title).foregroundStyle(appearance.primary)
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                        .frame(width: 56, height: 56)
-                        .accessibilityLabel(transportForwardLabel)
-                        Spacer()
-                        ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
-                            switch player.repeatMode {
-                            case .off: player.repeatMode = .all
-                            case .all: player.repeatMode = .one
-                            case .one: player.repeatMode = .off
-                            }
-                        }
-                        Spacer()
-                        }
+                        portraitTransportRow
                         .padding(.top, 12)
                         .padding(.horizontal, insets.rows)
 
@@ -3361,6 +3585,41 @@ struct NowPlayingView: View {
                 // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。整屏居中(iPhone Duo)时两侧都是 0。
                 .padding(.leading, insets.containerLeading)
                 .padding(.trailing, insets.containerTrailing)
+    }
+
+    /// 竖屏的传输键一行(随机 · 上一首 · 播放 · 下一首 · 循环)。桌面半折的下半屏也用这一行。
+    private var portraitTransportRow: some View {
+        HStack(spacing: 0) {
+        Spacer()
+        ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
+        Spacer()
+        Button { transportBackward() } label: {
+            Image(systemName: transportBackwardSymbol)
+                .font(.title).foregroundStyle(appearance.primary)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .frame(width: 56, height: 56)
+        .accessibilityLabel(transportBackwardLabel)
+        Spacer()
+        portraitTransportPlayButton
+        Spacer()
+        Button { transportForward() } label: {
+            Image(systemName: transportForwardSymbol)
+                .font(.title).foregroundStyle(appearance.primary)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .frame(width: 56, height: 56)
+        .accessibilityLabel(transportForwardLabel)
+        Spacer()
+        ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
+            switch player.repeatMode {
+            case .off: player.repeatMode = .all
+            case .all: player.repeatMode = .one
+            case .one: player.repeatMode = .off
+            }
+        }
+        Spacer()
+        }
     }
 
     @ViewBuilder
@@ -4357,7 +4616,7 @@ struct NowPlayingView: View {
             // Bottom bar —— 左边歌词开关,中间是音质与来源的玻璃胶囊(原来单独一行
             // 的小字收了进来),右边隔空播放与队列。两端都是 44×44 的点按区。
             HStack(spacing: 4) {
-                Button { toggleStandardLyrics() } label: {
+                Button { toggleLyricsForLayout() } label: {
                     Image(systemName: showLyrics ? "photo" : "quote.bubble")
                         .foregroundStyle(showLyrics ? appearance.primary : appearance.secondary)
                         .frame(width: 40, height: 36)
@@ -4377,7 +4636,7 @@ struct NowPlayingView: View {
                 AirPlayButton()
                     .frame(width: 36, height: 36)
                     .frame(width: 44, height: 44)
-                Button { showQueue = true } label: {
+                Button { openQueue() } label: {
                     Image(systemName: "list.bullet").foregroundStyle(appearance.secondary)
                 }
                 .frame(width: 44, height: 44)
@@ -4391,7 +4650,7 @@ struct NowPlayingView: View {
             // Bottom bar —— 三个槽位都是 44×44, HStack 的两个 Spacer 才
             // 会把 AirPlay 分到正中, 左右图标到 padding 边的距离也才相等
             HStack {
-            Button { toggleStandardLyrics() } label: {
+            Button { toggleLyricsForLayout() } label: {
                 Image(systemName: showLyrics ? "photo" : "quote.bubble")
                     .foregroundStyle(showLyrics ? appearance.primary : appearance.tertiary)
             }
@@ -4402,7 +4661,7 @@ struct NowPlayingView: View {
                 .frame(width: 36, height: 36)
                 .frame(width: 44, height: 44)
             Spacer()
-            Button { showQueue = true } label: {
+            Button { openQueue() } label: {
                 Image(systemName: "list.bullet").foregroundStyle(appearance.tertiary)
             }
             .frame(width: 44, height: 44)
@@ -9405,4 +9664,12 @@ struct NowPlayingPortraitInsets: Equatable {
     var immersiveContentTop: CGFloat = 0
     var immersiveTopRowLeading: CGFloat = 0
     var immersiveTopRowTrailing: CGFloat = 0
+}
+
+/// 常规宽度 iPhone 画布(Duo 内屏)上播放页的两种排法,见 `NowPlayingView.playerArrangement`。
+enum NowPlayingArrangement: Equatable {
+    /// 摊平:`canSplit` 为真(横握)时左右分栏,否则只有播放器一栏。
+    case split(canSplit: Bool)
+    /// 桌面半折:折痕的上下沿(播放页自己的坐标)。
+    case tabletop(foldMinY: CGFloat, foldMaxY: CGFloat)
 }

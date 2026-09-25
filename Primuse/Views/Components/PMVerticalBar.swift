@@ -65,9 +65,108 @@ enum PMReservedRegions {
         return regions
     }
 
+    /// 正在生效的折叠区(iPhone Duo 内屏半折时屏幕中间弯过去的那一条),用 proxy 自己的坐标。
+    /// 摊平或合上时没有;Xcode 27.0 构建时为空。
+    static func activeDivisions(in proxy: GeometryProxy) -> [OcclusionAvoidancePolicy.Region] {
+        #if os(iOS) && canImport(SwiftUI, _version: 8.0.85)
+        if #available(iOS 27.1, *) {
+            return proxy.reservedRegions(kind: .division)
+                .filter { $0.isActive && $0.frame.width > 0 && $0.frame.height > 0 }
+                .map {
+                    OcclusionAvoidancePolicy.Region(
+                        x: Double($0.frame.minX),
+                        y: Double($0.frame.minY),
+                        width: Double($0.frame.width),
+                        height: Double($0.frame.height)
+                    )
+                }
+        }
+        #endif
+        return []
+    }
+
     #if DEBUG
     private static let debugOcclusionSpecification = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_OCCLUSION"]
     #endif
+}
+
+private struct PMIsPhoneIdiomKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+#if DEBUG
+private struct PMDebugFoldAxisKey: EnvironmentKey {
+    static let defaultValue: Axis? = nil
+}
+#endif
+
+extension EnvironmentValues {
+    /// 这台设备是 iPhone(含 iPhone Duo 的内外屏)。宽画布上重排成两栏(详情页、首页、播放页分栏)
+    /// 只在 iPhone 的常规宽度上做 —— iPad 有自己的侧边栏版式,不跟着变。根视图按设备写入;
+    /// 调试取证页在 iPad 模拟器里模拟 Duo 内屏时把它设为 true。
+    var pmIsPhoneIdiom: Bool {
+        get { self[PMIsPhoneIdiomKey.self] }
+        set { self[PMIsPhoneIdiomKey.self] = newValue }
+    }
+
+    #if DEBUG
+    /// 调试取证页模拟的折叠方向:`.horizontal` 是桌面半折(折痕横在屏幕中间),`.vertical` 是书本半折。
+    var pmDebugFoldAxis: Axis? {
+        get { self[PMDebugFoldAxisKey.self] }
+        set { self[PMDebugFoldAxisKey.self] = newValue }
+    }
+    #endif
+}
+
+/// iOS 27.1 的 `ArrangementView`(主视图 + 次视图,按尺寸、方向与折叠区自己决定并排还是只显示主视图)。
+enum PMArrangement {
+    /// 这次构建与这台设备上有没有 `ArrangementView`。Xcode 27.0 构建与 iOS 27.1 以前恒为 false,
+    /// 调用方据此整条不走分栏,行为与改之前完全一样。
+    static var isAvailable: Bool {
+        #if os(iOS) && canImport(SwiftUI, _version: 8.0.85)
+        if #available(iOS 27.1, *) {
+            return true
+        }
+        #endif
+        return false
+    }
+}
+
+/// 左右分栏的 `ArrangementView`:只允许水平分(比宽高的时候只显示主视图),次视图为空时整幅给主视图。
+/// 半折成书本时分界自动对齐折痕。没有 `ArrangementView` 的构建里退回普通的左右并排
+/// (调用方先看 `PMArrangement.isAvailable`,正常不会走到)。
+struct PMHorizontalArrangement<Primary: View, Secondary: View>: View {
+    private let primary: Primary
+    private let secondary: Secondary
+
+    init(@ViewBuilder primary: () -> Primary, @ViewBuilder secondary: () -> Secondary) {
+        self.primary = primary()
+        self.secondary = secondary()
+    }
+
+    var body: some View {
+        #if os(iOS) && canImport(SwiftUI, _version: 8.0.85)
+        if #available(iOS 27.1, *) {
+            ArrangementView {
+                primary
+            } secondary: {
+                secondary
+            }
+            .arrangementViewStyle(.split.axes(.horizontal))
+        } else {
+            fallback
+        }
+        #else
+        fallback
+        #endif
+    }
+
+    private var fallback: some View {
+        HStack(spacing: 0) {
+            primary
+            secondary
+        }
+    }
 }
 
 extension View {
