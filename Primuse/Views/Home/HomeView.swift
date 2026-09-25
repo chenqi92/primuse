@@ -778,7 +778,11 @@ struct HomeView: View {
         .onChange(of: showForYou) { _, _ in
             refreshHomeSnapshot()
         }
+        .onAppear {
+            isSceneActive = scenePhase == .active
+        }
         .onChange(of: scenePhase) { _, phase in
+            isSceneActive = phase == .active
             if phase == .active {
                 guard isHomeVisible, needsHomeRefreshWhenActive else { return }
                 needsHomeRefreshWhenActive = false
@@ -910,6 +914,10 @@ struct HomeView: View {
     /// 首页这一层导航栈的 zoom 命名空间:卡片放大成详情页,返回时缩回卡片。
     @Namespace private var homeZoomNamespace
     @State private var needsHomeRefreshWhenActive = false
+    /// 场景此刻在不在前台。刷新路径里判断前台读这一份，不读 `scenePhase`：异步任务里读到的
+    /// `scenePhase` 是任务创建那一刻的值，冷启动时首页若在场景进入前台之前出现，任务醒来后仍以为
+    /// 在后台，把首次加载推给「回到前台」—— 而那次回到前台已经过去了，首页就一直停在加载占位。
+    @State private var isSceneActive = false
     // Debounce for `searchRevision`-driven refreshes. MusicLibrary bumps
     // `searchRevision` on *every* upsert batch during a scan, so a large
     // library scan would otherwise fire refreshHomeSnapshot() dozens
@@ -1664,7 +1672,7 @@ struct HomeView: View {
     /// snapshot. Recheck the signature after the delay so a foreground event
     /// or returning to this page does not repeat an already completed refresh.
     private func scheduleDebouncedHomeRefresh() {
-        guard scenePhase == .active, isHomeVisible else {
+        guard isSceneActive, isHomeVisible else {
             needsHomeRefreshWhenActive = true
             refreshCoordinator.cancelAll()
             return
@@ -1721,7 +1729,7 @@ struct HomeView: View {
         isHomeVisible = true
         await Task.yield()
         guard !Task.isCancelled else { return }
-        guard scenePhase == .active else {
+        guard isSceneActive else {
             needsHomeRefreshWhenActive = true
             return
         }
@@ -1895,7 +1903,7 @@ struct HomeView: View {
     }
 
     private func refreshHomeSnapshot() {
-        guard scenePhase == .active, isHomeVisible else {
+        guard isSceneActive, isHomeVisible else {
             needsHomeRefreshWhenActive = true
             refreshCoordinator.cancelAll()
             return
