@@ -85,4 +85,13 @@ public enum MedleySegmentPolicy {
         guard segmentLength.isFinite, segmentLength > 0 else { return 0 }
         return min(4, max(1, segmentLength / 4))
     }
+
+    /// How long before the blend the next slice starts being prepared. A slice
+    /// begins mid-file, so a remote song first has to open and seek there;
+    /// doing that only when the blend is due left a gap, or a hard cut, on
+    /// every slow source. The decoded opening is then held until the blend.
+    public static func preparationLead(segmentLength: TimeInterval) -> TimeInterval {
+        guard segmentLength.isFinite, segmentLength > 0 else { return 0 }
+        return min(12, segmentLength * 0.3)
+    }
 }

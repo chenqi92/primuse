@@ -3765,10 +3765,6 @@ struct NowPlayingView: View {
                     }
                 }
             ),
-            medleySegmentSeconds: Binding(
-                get: { playbackSettings.medleySegmentSeconds },
-                set: { playbackSettings.medleySegmentSeconds = $0 }
-            ),
             immersiveChrome: immersiveChrome,
             chromeGlass: chromeGlass,
             onEnterFullScreen: { presentImmersiveLyrics() },
@@ -6208,7 +6204,6 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let snapshot: NowPlayingMoreMenuSnapshot
     @Binding var lyricsFontScale: Double
     @Binding var playbackRate: Float
-    @Binding var medleySegmentSeconds: Int
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     let immersiveChrome: Bool
@@ -6338,20 +6333,15 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                             Label(String(localized: "medley_continue_full"), systemImage: "music.note")
                         }
                     } else {
-                        Menu {
-                            Button(action: onStartMedley) {
-                                Label(String(localized: "medley_start_queue"), systemImage: "play.fill")
-                            }
-                            Picker(selection: $medleySegmentSeconds) {
-                                ForEach(MedleySegmentPolicy.allowedSegmentLengths, id: \.self) { seconds in
-                                    Text(String(format: String(localized: "seconds_value_format"), seconds))
-                                        .tag(seconds)
-                                }
-                            } label: {
-                                Text("medley_segment_length")
-                            }
-                        } label: {
-                            Label(String(localized: "medley_title"), systemImage: "rectangle.stack.badge.play")
+                        // 一步开始，不再套两层子菜单；每首时长在设置 › 播放里改。
+                        Button(action: onStartMedley) {
+                            Label(
+                                String(
+                                    format: String(localized: "medley_start_queue_format"),
+                                    snapshot.medleySegmentSeconds
+                                ),
+                                systemImage: "rectangle.stack.badge.play"
+                            )
                         }
                     }
                 }

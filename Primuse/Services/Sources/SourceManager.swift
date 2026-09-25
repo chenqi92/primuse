@@ -9958,15 +9958,20 @@ final class SourceManager {
     /// cannot split bandwidth with the second and third queued tracks.
     /// `rangePrewarmOnly` keeps a sweep to sparse head/tail seeds: the startup
     /// sweep must never turn into a full download of a complete-file format.
+    /// - Parameter prefersCompleteFile: download the whole file where only its
+    ///   head and tail would be prewarmed. A medley starts the song mid-file and
+    ///   blends into it, which needs the audio on this device.
     func cacheForUpcomingPlayback(
         song: Song,
         cacheEnabled: Bool = true,
-        rangePrewarmOnly: Bool = false
+        rangePrewarmOnly: Bool = false,
+        prefersCompleteFile: Bool = false
     ) async {
         guard let task = backgroundAudioCacheTask(
             for: song,
             cacheEnabled: cacheEnabled,
-            rangePrewarmOnly: rangePrewarmOnly
+            rangePrewarmOnly: rangePrewarmOnly,
+            prefersCompleteFile: prefersCompleteFile
         ) else { return }
         await task.value
     }
@@ -10060,7 +10065,8 @@ final class SourceManager {
     private func backgroundAudioCacheTask(
         for song: Song,
         cacheEnabled: Bool,
-        rangePrewarmOnly: Bool = false
+        rangePrewarmOnly: Bool = false,
+        prefersCompleteFile: Bool = false
     ) -> Task<Void, Never>? {
         guard cacheEnabled,
               automaticAudioCachingEnabled,
@@ -10077,7 +10083,8 @@ final class SourceManager {
             await self.performBackgroundAudioCache(
                 song: song,
                 cacheEnabled: cacheEnabled,
-                rangePrewarmOnly: rangePrewarmOnly
+                rangePrewarmOnly: rangePrewarmOnly,
+                prefersCompleteFile: prefersCompleteFile
             )
             self.finishBackgroundAudioCacheTask(songID: song.id, runID: runID)
         }
@@ -10098,7 +10105,8 @@ final class SourceManager {
     private func performBackgroundAudioCache(
         song: Song,
         cacheEnabled: Bool,
-        rangePrewarmOnly: Bool = false
+        rangePrewarmOnly: Bool = false,
+        prefersCompleteFile: Bool = false
     ) async {
         do {
             try Task.checkCancellation()
@@ -10142,7 +10150,7 @@ final class SourceManager {
                 song: song,
                 plan: plan
             )
-            let mode = RangeStreamingPrefetchPolicy.backgroundCacheMode(
+            var mode = RangeStreamingPrefetchPolicy.backgroundCacheMode(
                 cacheEnabled: cacheEnabled,
                 supportsRangeStreaming: source.supportsRangeStreaming,
                 hasKnownFileSize: song.fileSize > 0,
@@ -10152,6 +10160,9 @@ final class SourceManager {
             guard mode != .disabled else {
                 plog("⏩ Cache: skip full prefetch for '\(song.title)' (\(source.type.displayName) demand-stream policy)")
                 return
+            }
+            if prefersCompleteFile, mode == .rangePrewarm, !rangePrewarmOnly {
+                mode = .completeFile
             }
 
             guard !(await playbackSourceEndpointsAreUnavailable(for: source)) else { return }

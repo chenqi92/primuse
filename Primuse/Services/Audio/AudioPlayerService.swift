@@ -1097,6 +1097,10 @@ final class AudioPlayerService {
     /// through; `ManualSkipCrossfadePolicy.outcome` reads them back.
     @ObservationIgnored var lastCommittedCrossfadeAttemptID: UUID?
     @ObservationIgnored var lastFailedCrossfadeAttemptID: UUID?
+    /// The automatic transition that last failed to prepare, so the progress
+    /// tick retries the same successor only every couple of seconds (it may be
+    /// finishing its download) instead of on every tick.
+    @ObservationIgnored var lastFailedAutomaticCrossfade: (playID: UUID, entryID: UUID, uptime: TimeInterval)?
     var committedCrossfade: CommittedCrossfade? {
         didSet { syncPumpLease() }
     }
@@ -6214,6 +6218,9 @@ final class AudioPlayerService {
         sourceManager?.cancelBackgroundAudioCaching(keeping: retainedSongIDs)
         guard !nextSongs.isEmpty else { return }
 
+        // A medley blends into each slice mid-file, which only works on audio
+        // already on this device: fetch the next two whole.
+        let completeFileIDs = isMedleyActive ? Set(nextSongs.prefix(2).map(\.id)) : []
         prefetchTask = Task {
             for song in nextSongs {
                 if Task.isCancelled { return }
@@ -6222,7 +6229,8 @@ final class AudioPlayerService {
                 plog("⏩ Prefetching next song: \(song.title)")
                 await sourceManager?.cacheForUpcomingPlayback(
                     song: song,
-                    cacheEnabled: playbackSettings.audioCacheEnabled
+                    cacheEnabled: playbackSettings.audioCacheEnabled,
+                    prefersCompleteFile: completeFileIDs.contains(song.id)
                 )
             }
         }

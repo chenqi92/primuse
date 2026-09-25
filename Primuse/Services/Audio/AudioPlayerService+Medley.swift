@@ -61,7 +61,11 @@ extension AudioPlayerService {
         let length = playbackSettings.medleySegmentSeconds
         var seen = Set<String>()
         var slices: [Song] = []
-        for song in songs where canIncludeInMedley(song) && seen.insert(song.id).inserted {
+        // A song whose source cannot be reached right now and has no copy on
+        // this device would only stall the medley at its boundary.
+        for song in songs where canIncludeInMedley(song)
+            && isSongAvailableForNewPlayback(song)
+            && seen.insert(song.id).inserted {
             // Structure analysis from Apple's music understanding covers the
             // complete file on its real timeline; the streaming analyser only
             // saw what was played, so its boundaries are not used.
