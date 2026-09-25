@@ -265,19 +265,37 @@ extension AudioPlayerService {
     /// 同一首歌在别的源里还有一份时, 原曲所在的源此刻连不上就换成能播的那一份
     /// (本机有完整音频的优先, 其次音质高的)。只换这一次的队列, 歌单本身不动;
     /// 原来的源恢复以后, 下次播放仍然用原来那一份。
-    func substitutingReachableCopies(in songs: [Song]) -> [Song] {
-        let blocked = songs.filter { isSongBlockedByUnreachableSource($0) }
-        guard !blocked.isEmpty, let library else { return songs }
-        let alternatives = library.otherCopies(of: blocked)
+    /// 只看起播处往后的一段 (`QueueCopySubstitutionWindowPolicy`): 整库播放时
+    /// 逐首查缓存文件再整库比对同曲, 会在出声之前把主线程卡住好几秒。
+    func substitutingReachableCopies(in songs: [Song], startingAt start: Int) -> [Song] {
+        var sourceIsOut: [String: Bool] = [:]
+        var blockedIndices: [Int] = []
+        for index in QueueCopySubstitutionWindowPolicy.indices(count: songs.count, startingAt: start) {
+            let song = songs[index]
+            let isOut: Bool
+            if let known = sourceIsOut[song.sourceID] {
+                isOut = known
+            } else {
+                isOut = isSourceEnabledForPlayback(song.sourceID)
+                    && sourceManager?.isSourceKnownUnavailableForPlayback(song.sourceID) == true
+                sourceIsOut[song.sourceID] = isOut
+            }
+            if isOut, sourceManager?.hasUsableCachedAudioForPlayback(song) != true {
+                blockedIndices.append(index)
+            }
+        }
+        guard !blockedIndices.isEmpty, let library else { return songs }
+        let alternatives = library.otherCopies(of: blockedIndices.map { songs[$0] })
         guard !alternatives.isEmpty else { return songs }
+        var result = songs
         var present = Set(songs.map(\.id))
         var replaced = 0
-        let result = songs.map { song -> Song in
-            guard let copies = alternatives[song.id],
+        for index in blockedIndices {
+            guard let copies = alternatives[result[index].id],
                   let replacement = preferredReachableCopy(among: copies),
-                  present.insert(replacement.id).inserted else { return song }
+                  present.insert(replacement.id).inserted else { continue }
+            result[index] = replacement
             replaced += 1
-            return replacement
         }
         if replaced > 0 {
             plog("🔁 Swapped \(replaced) unreachable queue song(s) for copies on other sources")
@@ -286,9 +304,12 @@ extension AudioPlayerService {
     }
 
     /// 源整体失败之后, 队列里其余来自这个源、本机又没有完整音频的歌, 先换成别的源里的
-    /// 同一首; 换不了的再按原来的规则跳过。
+    /// 同一首; 换不了的再按原来的规则跳过。与起播时一样只看接下来的一段。
     func substituteQueuedCopies(fromUnavailableSource sourceID: String) {
-        let indices = queueEntries.indices.filter { index in
+        let indices = QueueCopySubstitutionWindowPolicy.indices(
+            count: queueEntries.count,
+            startingAt: currentIndex + 1
+        ).filter { index in
             index != currentIndex
                 && queueEntries[index].song.sourceID == sourceID
                 && sourceManager?.hasUsableCachedAudioForPlayback(queueEntries[index].song) != true
@@ -597,8 +618,8 @@ extension AudioPlayerService {
     }
 
     func rebuildShuffleOrder() {
-        guard !queue.isEmpty else { shuffledIndices = []; pendingNextShuffleIndices = nil; return }
-        shuffledIndices = Array(0..<queue.count).shuffled()
+        guard !queueEntries.isEmpty else { shuffledIndices = []; pendingNextShuffleIndices = nil; return }
+        shuffledIndices = Array(0..<queueEntries.count).shuffled()
         shufflePosition = 0
         pendingNextShuffleIndices = nil
         // Place current index at position 0 so current song stays first
@@ -629,13 +650,13 @@ extension AudioPlayerService {
     /// eventual boundary track at position 0 so repeat-all doesn't feel like
     /// repeat-one even when the UI prepares the round early.
     private func buildPendingNextRound() -> [Int] {
-        guard !queue.isEmpty else { return [] }
-        var order = Array(0..<queue.count).shuffled()
+        guard !queueEntries.isEmpty else { return [] }
+        var order = Array(0..<queueEntries.count).shuffled()
         // The UI may prepare this round well before the current song reaches
         // the boundary. Compare against the eventual last slot of this round,
         // not the song that happened to be current when the preview opened.
         let boundaryIndex = shuffledIndices.last ?? currentIndex
-        if queue.count > 1, order.first == boundaryIndex {
+        if queueEntries.count > 1, order.first == boundaryIndex {
             let otherPos = Int.random(in: 1..<order.count)
             order.swapAt(0, otherPos)
         }

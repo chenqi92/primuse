@@ -53,8 +53,8 @@ extension AudioPlayerService {
     /// past repeat-one and wraps a multi-song queue even with repeat off.
     func manualNextTraversalTarget() -> QueueTraversalTarget? {
         nextQueueTraversalTarget(
-            respectsRepeatOne: queue.count == 1,
-            wrapsAtEnd: queue.count > 1 || repeatMode == .all
+            respectsRepeatOne: queueEntries.count == 1,
+            wrapsAtEnd: queueEntries.count > 1 || repeatMode == .all
         )
     }
 

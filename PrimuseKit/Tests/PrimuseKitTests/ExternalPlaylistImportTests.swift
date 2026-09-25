@@ -354,6 +354,26 @@ import Testing
     }
 }
 
+@Suite struct QueueCopySubstitutionWindowPolicyTests {
+    @Test func windowStartsAtStartAndWraps() {
+        #expect(QueueCopySubstitutionWindowPolicy.indices(count: 5, startingAt: 3, limit: 4) == [3, 4, 0, 1])
+        #expect(QueueCopySubstitutionWindowPolicy.indices(count: 3, startingAt: 1, limit: 10) == [1, 2, 0])
+    }
+
+    @Test func wholeLibraryQueueIsBounded() {
+        let window = QueueCopySubstitutionWindowPolicy.indices(count: 70_000, startingAt: 69_990)
+        #expect(window.count == QueueCopySubstitutionWindowPolicy.defaultLimit)
+        #expect(window.first == 69_990)
+        #expect(window[10] == 0)
+    }
+
+    @Test func degenerateInputs() {
+        #expect(QueueCopySubstitutionWindowPolicy.indices(count: 0, startingAt: 0).isEmpty)
+        #expect(QueueCopySubstitutionWindowPolicy.indices(count: 4, startingAt: 9, limit: 2) == [3, 0])
+        #expect(QueueCopySubstitutionWindowPolicy.indices(count: 4, startingAt: -1, limit: 2) == [0, 1])
+    }
+}
+
 @Suite struct PlaylistPendingEntryTests {
     @Test func syncIdentityRoundTrip() throws {
         let entry = PlaylistPendingEntry(title: "晴天", artists: ["周杰伦", "某人"], album: "叶惠美", duration: 269, origin: "netease")
