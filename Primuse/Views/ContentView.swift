@@ -115,7 +115,7 @@ enum AppNavigationChromePolicy {
     }
 }
 
-/// 顶部 tab 外壳里的页面:tab 条上的首页与资料库各分类,以及从右上角进去的搜索和设置。
+/// 顶部 tab 外壳里的页面:住在 tab 槽位里的首页、音乐的各分类、电台与有声,以及从右上角进去的搜索和设置。
 enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
     case home
     case librarySection(LibrarySection)
@@ -145,13 +145,27 @@ enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
         }
     }
 
-    /// tab 条上的项目;搜索和设置是从右上角推进去的,不在 tab 条上。
+    /// 住在 tab 槽位里的页面;搜索和设置是从右上角推进去的,不在 tab 条上。
     var isTopTab: Bool {
         switch self {
         case .home, .librarySection: return true
         case .search, .settings: return false
         }
     }
+
+    /// 这一页在 tab 条上归哪一格:电台、有声各是一格,其余资料库分类都归「音乐」。
+    var topTab: MinimalTopTab? {
+        switch self {
+        case .home: return .home
+        case .librarySection(.radio): return .radio
+        case .librarySection(.spokenWord): return .spokenWord
+        case .librarySection: return .music
+        case .search, .settings: return nil
+        }
+    }
+
+    /// 音乐的分类页(歌曲、专辑……):它们排在音乐页的第二排。
+    var isMusicCategory: Bool { topTab == .music }
 
     var localizedTitle: String {
         switch self {
@@ -161,28 +175,34 @@ enum MinimalNavigationPage: Hashable, Identifiable, Sendable {
         case .settings: return String(localized: "settings_title")
         }
     }
+}
 
-    /// 侧边竖栏里标签上面的图标(系统竖排工具栏时,见 `TopTabsChrome`)。都是线条版,选中时换填充版。
-    var railSymbol: String {
+/// 顶部 tab 条上的一格:首页与三种听法。音乐的分类不上这一行,在音乐页里的第二排。
+/// 这一行最多四格,避开了系统标签栏超过五个标签就出「更多」的问题。
+enum MinimalTopTab: String, CaseIterable, Hashable, Identifiable, Sendable {
+    case home
+    case music
+    case radio
+    case spokenWord
+
+    var id: String { rawValue }
+
+    var space: ListeningSpace? {
         switch self {
-        case .home: return "house"
-        case .search: return "magnifyingglass"
-        case .settings: return "gearshape"
-        case .librarySection(let section):
-            switch section {
-            case .recommendations: return "sparkles"
-            case .favorites: return "heart"
-            case .folders: return "folder"
-            case .statistics: return "chart.bar"
-            case .playlists: return "music.note.list"
-            case .artists: return "music.mic"
-            case .genres: return "tag"
-            case .albums: return "square.stack"
-            case .songs: return "music.note"
-            case .spokenWord: return "books.vertical"
-            case .radio: return "radio"
-            }
+        case .home: return nil
+        case .music: return .music
+        case .radio: return .radio
+        case .spokenWord: return .spokenWord
         }
+    }
+
+    var localizedTitle: String {
+        space?.title ?? String(localized: "home_title")
+    }
+
+    /// 侧边竖栏里的图标。线条版,选中时换填充版。
+    var railSymbol: String {
+        space?.systemImage ?? "house"
     }
 }
 
@@ -193,19 +213,58 @@ enum MinimalNavigationPolicy {
     static let showsHomeByDefault = true
     /// 上次停在哪个 tab。
     static let selectedPageKey = "primuse.navigation.minimal.page.v1"
+    /// 音乐页上次停在哪个分类:点「音乐」回到那里。
+    static let musicPageKey = "primuse.navigation.minimal.musicPage.v1"
 
-    /// tab 条上的全部项:首页(如果显示)在最前,后面按资料库设置里的顺序列出可见分类。
-    /// 电台没设为可见时追加在末尾 —— 极简没有首页翻面,电台只能从这里进。
+    /// 外壳里住得进 tab 槽位的全部页面:首页(如果显示)、音乐的各分类(按资料库设置里的顺序)、电台、有声。
+    ///
+    /// 电台与有声跟经典外观的标签栏一样,有内容才出现,资料库里隐藏这两个分类不影响它们;
+    /// 首页那张「添加电台」卡是空电台的入口,所以首页也藏起来时电台仍然留着,否则就没地方添加电台了。
     static func topTabPages(
         visibleSections: [LibrarySection],
+        visibleSpaces: [ListeningSpace],
         showsHome: Bool
     ) -> [MinimalNavigationPage] {
-        var sections = visibleSections
-        if !sections.contains(.radio) {
-            sections.append(.radio)
+        var pages: [MinimalNavigationPage] = showsHome ? [.home] : []
+        pages += visibleSections
+            .filter { $0 != .radio && $0 != .spokenWord }
+            .map(MinimalNavigationPage.librarySection)
+        if visibleSpaces.contains(.radio) || !showsHome {
+            pages.append(.librarySection(.radio))
         }
-        return (showsHome ? [MinimalNavigationPage.home] : [])
-            + sections.map(MinimalNavigationPage.librarySection)
+        if visibleSpaces.contains(.spokenWord) {
+            pages.append(.librarySection(.spokenWord))
+        }
+        return pages
+    }
+
+    /// tab 条那一行:页面归到的几格,按首页 · 音乐 · 电台 · 有声的顺序。
+    static func topTabs(for pages: [MinimalNavigationPage]) -> [MinimalTopTab] {
+        let present = Set(pages.compactMap(\.topTab))
+        return MinimalTopTab.allCases.filter(present.contains)
+    }
+
+    /// 音乐页第二排的分类。
+    static func musicCategories(in pages: [MinimalNavigationPage]) -> [MinimalNavigationPage] {
+        pages.filter(\.isMusicCategory)
+    }
+
+    /// 点 tab 条上的某一格去哪一页。音乐回到上次停的分类,那个分类被隐藏了就去第一个。
+    static func landingPage(
+        for tab: MinimalTopTab,
+        pages: [MinimalNavigationPage],
+        rememberedMusicPage: MinimalNavigationPage?
+    ) -> MinimalNavigationPage? {
+        switch tab {
+        case .music:
+            let categories = musicCategories(in: pages)
+            if let rememberedMusicPage, categories.contains(rememberedMusicPage) {
+                return rememberedMusicPage
+            }
+            return categories.first
+        case .home, .radio, .spokenWord:
+            return pages.first { $0.topTab == tab }
+        }
     }
 
     /// 深链落到哪一个 tab,以及要不要把深链交给那一页的导航栈。
@@ -217,10 +276,8 @@ enum MinimalNavigationPolicy {
         pages: [MinimalNavigationPage],
         current: MinimalNavigationPage?
     ) -> (page: MinimalNavigationPage, link: LibraryDeepLink?)? {
-        let libraryPages = pages.filter {
-            if case .librarySection = $0 { return true }
-            return false
-        }
+        // 被隐藏的分类推在音乐的分类页上,不推到电台或有声的导航栈里。
+        let libraryPages = pages.filter(\.isMusicCategory)
         let fallback: MinimalNavigationPage?
         if let current, libraryPages.contains(current) {
             fallback = current
@@ -267,6 +324,8 @@ struct TopTabsShellContext {
     /// tab 条那一行的高度。根页在顶部留出同样高度的空白,内容才不会被 tab 条压住。
     /// 系统竖排工具栏、tab 条改成侧边竖栏时,它只是顶端一小段留白。
     var chromeHeight: CGFloat
+    /// 音乐页第二排(分类)的高度。音乐的分类页在 `chromeHeight` 之外再让出这么多。
+    var musicCategoryRowHeight: CGFloat
     /// 底部停靠条(连同它的外边距)此刻占的高度,不显示时为 0。各页在底部留出同样的空白:
     /// 停靠条浮在整个外壳上,挂在外壳上的安全区传不进 TabView 里的页面。
     var bottomBarHeight: CGFloat
@@ -510,7 +569,11 @@ private struct MinimalNavigationRootModifier: ViewModifier {
                     .environment(\.minimalRootNavigationBarRevealed, revealsNavigationBar)
                     .toolbar(revealsNavigationBar ? .visible : .hidden, for: .navigationBar)
                     .minimalSafeAreaBar(edge: .top) {
-                        Color.clear.frame(height: revealsNavigationBar ? 0 : shell.chromeHeight)
+                        Color.clear.frame(
+                            height: revealsNavigationBar
+                                ? 0
+                                : shell.chromeHeight + (scope.isMusicCategory ? shell.musicCategoryRowHeight : 0)
+                        )
                     }
                     .minimalSafeAreaBar(edge: .bottom) {
                         Color.clear.frame(height: shell.bottomBarHeight)
@@ -925,6 +988,8 @@ struct ContentView: View {
     @AppStorage(MinimalNavigationPolicy.showsHomeKey)
     private var minimalShowsHome = MinimalNavigationPolicy.showsHomeByDefault
     @AppStorage(MinimalNavigationPolicy.selectedPageKey) private var minimalSelectedPageID = ""
+    @AppStorage(MinimalNavigationPolicy.musicPageKey) private var minimalMusicPageID = ""
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var topTabSlots = TopTabSlotAllocator<MinimalNavigationPage>()
     /// 盖在 tab 页上的搜索或设置。
     @State private var minimalUtilityPage: MinimalNavigationPage?
@@ -1109,8 +1174,25 @@ struct ContentView: View {
     private var minimalTopTabPages: [MinimalNavigationPage] {
         MinimalNavigationPolicy.topTabPages(
             visibleSections: visibleLibrarySections,
+            visibleSpaces: visibleListeningSpaces,
             showsHome: minimalShowsHome
         )
+    }
+
+    /// 音乐页第二排的高度,横屏收紧一点,跟着字号走。
+    private var musicCategoryRowHeight: CGFloat {
+        MinimalMusicCategoryRow.rowHeight(dynamicTypeSize, isCompactHeight: heightClass.isCompact)
+    }
+
+    /// 点 tab 条上的一格。
+    private func selectMinimalTopTab(_ tab: MinimalTopTab) {
+        let pages = minimalTopTabPages
+        guard let page = MinimalNavigationPolicy.landingPage(
+            for: tab,
+            pages: pages,
+            rememberedMusicPage: MinimalNavigationPage(id: minimalMusicPageID)
+        ) else { return }
+        selectMinimalPage(page)
     }
 
     /// 正在显示的 tab 页(搜索 / 设置盖在上面时仍是它)。
@@ -1208,6 +1290,7 @@ struct ContentView: View {
             \.topTabsShellContext,
             TopTabsShellContext(
                 chromeHeight: topTabsContentTopInset,
+                musicCategoryRowHeight: musicCategoryRowHeight,
                 bottomBarHeight: minimalDockedBarHeight,
                 revealedRootPages: minimalRevealedRootPages,
                 closeUtility: { closeMinimalUtility() }
@@ -1226,14 +1309,17 @@ struct ContentView: View {
         }
         .overlayPreferenceValue(MinimalRootActionsPreferenceKey.self, alignment: .top) { actions in
             TopTabsChrome(
-                pages: pages,
+                tabs: MinimalNavigationPolicy.topTabs(for: pages),
+                musicCategories: MinimalNavigationPolicy.musicCategories(in: pages),
                 selection: currentTopTabPage,
+                musicCategoryRowHeight: musicCategoryRowHeight,
                 actions: currentTopTabPage.flatMap { actions[$0]?.content },
                 filter: currentTopTabPage.flatMap { actions[$0]?.filter },
                 rowHeight: topTabsRowHeight,
                 railEdge: railEdge,
                 railWidth: railEdge.map { topTabsRailWidth(for: $0) } ?? 0,
                 railContentTopInset: topTabsContentTopInset,
+                onSelectTab: { selectMinimalTopTab($0) },
                 onSelect: { selectMinimalPage($0) },
                 onSearch: { openMinimalUtility(.search) },
                 onSettings: { openMinimalUtility(.settings) }
@@ -1296,7 +1382,8 @@ struct ContentView: View {
             HomeView(
                 switchToSettingsTab: { openMinimalUtility(.settings) },
                 model: homeModel,
-                openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
+                openLibrarySongs: { openLibraryDeepLink(.section(.songs)) },
+                openListeningSpace: openListeningSpace
             )
         case .librarySection(let section):
             LibraryView(deepLink: minimalDeepLinkBinding(for: page), rootSection: section)
@@ -1399,6 +1486,9 @@ struct ContentView: View {
         }
         if minimalSelectedPageID != page.id {
             minimalSelectedPageID = page.id
+        }
+        if page.isMusicCategory, minimalMusicPageID != page.id {
+            minimalMusicPageID = page.id
         }
     }
 
@@ -1945,6 +2035,21 @@ struct ContentView: View {
     /// (没内容时没有标签,退回音乐里的对应分类)。
     private func openListeningSpace(_ space: ListeningSpace) {
         showNowPlaying = false
+        if rootLayout == .minimal {
+            let tab: MinimalTopTab = switch space {
+            case .music: .music
+            case .radio: .radio
+            case .spokenWord: .spokenWord
+            }
+            if MinimalNavigationPolicy.topTabs(for: minimalTopTabPages).contains(tab) {
+                closeMinimalUtility(animated: false)
+                selectMinimalTopTab(tab)
+            } else if space != .music {
+                // 这一格还没出现(比如一个电台都没有):照资料库分类的兜底,推在音乐页上。
+                openMinimalDeepLink(.section(space == .radio ? .radio : .spokenWord))
+            }
+            return
+        }
         let tab: Int
         let section: LibrarySection
         switch space {

@@ -260,36 +260,90 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )
     }
 
-    func testTopTabsFollowVisibleSectionOrderAndAlwaysOfferRadio() {
+    func testTopTabsAreHomeAndTheThreeListeningSpaces() {
+        let pages = MinimalNavigationPolicy.topTabPages(
+            visibleSections: [.songs, .radio, .albums, .spokenWord],
+            visibleSpaces: [.music, .radio, .spokenWord],
+            showsHome: true
+        )
+        // Radio and spoken word leave the music categories and follow them, whatever the library order.
+        XCTAssertEqual(pages, [
+            .home,
+            .librarySection(.songs),
+            .librarySection(.albums),
+            .librarySection(.radio),
+            .librarySection(.spokenWord),
+        ])
+        XCTAssertEqual(MinimalNavigationPolicy.topTabs(for: pages), [.home, .music, .radio, .spokenWord])
+        XCTAssertEqual(
+            MinimalNavigationPolicy.musicCategories(in: pages),
+            [.librarySection(.songs), .librarySection(.albums)]
+        )
+        XCTAssertEqual(MinimalNavigationPage.librarySection(.albums).topTab, .music)
+        XCTAssertEqual(MinimalNavigationPage.librarySection(.radio).topTab, .radio)
+        XCTAssertEqual(MinimalNavigationPage.librarySection(.spokenWord).topTab, .spokenWord)
+        XCTAssertNil(MinimalNavigationPage.search.topTab)
+        XCTAssertTrue(MinimalNavigationPolicy.showsHomeByDefault)
+    }
+
+    func testEmptySpacesStayOffTheTabRowUnlessNothingElseLeadsToThem() {
+        // No stations and no books: home carries the "add a station" card, so radio waits.
         XCTAssertEqual(
             MinimalNavigationPolicy.topTabPages(
-                visibleSections: [.songs, .radio, .albums],
+                visibleSections: [.songs, .radio],
+                visibleSpaces: [.music],
                 showsHome: true
             ),
-            [.home, .librarySection(.songs), .librarySection(.radio), .librarySection(.albums)]
+            [.home, .librarySection(.songs)]
         )
-        // Radio lost its home-screen flip side in this shell, so it is appended when hidden.
+        // Without home there is no other way to add a station.
         XCTAssertEqual(
             MinimalNavigationPolicy.topTabPages(
-                visibleSections: [.songs, .recommendations, .albums],
+                visibleSections: [.songs],
+                visibleSpaces: [.music],
                 showsHome: false
             ),
-            [
-                .librarySection(.songs),
-                .librarySection(.recommendations),
-                .librarySection(.albums),
-                .librarySection(.radio),
-            ]
+            [.librarySection(.songs), .librarySection(.radio)]
+        )
+        // Hiding radio or spoken word among library categories does not hide their tabs.
+        XCTAssertEqual(
+            MinimalNavigationPolicy.topTabPages(
+                visibleSections: [.songs],
+                visibleSpaces: [.music, .radio, .spokenWord],
+                showsHome: true
+            ),
+            [.home, .librarySection(.songs), .librarySection(.radio), .librarySection(.spokenWord)]
+        )
+    }
+
+    func testMusicTabReturnsToTheLastCategory() {
+        let pages = MinimalNavigationPolicy.topTabPages(
+            visibleSections: [.songs, .albums, .artists],
+            visibleSpaces: [.music, .radio],
+            showsHome: true
         )
         XCTAssertEqual(
-            MinimalNavigationPolicy.topTabPages(visibleSections: [], showsHome: true),
-            [.home, .librarySection(.radio)]
+            MinimalNavigationPolicy.landingPage(for: .music, pages: pages, rememberedMusicPage: .librarySection(.artists)),
+            .librarySection(.artists)
+        )
+        // A remembered category that is hidden now, or none at all, lands on the first one.
+        XCTAssertEqual(
+            MinimalNavigationPolicy.landingPage(for: .music, pages: pages, rememberedMusicPage: .librarySection(.genres)),
+            .librarySection(.songs)
         )
         XCTAssertEqual(
-            MinimalNavigationPolicy.topTabPages(visibleSections: [], showsHome: false),
-            [.librarySection(.radio)]
+            MinimalNavigationPolicy.landingPage(for: .music, pages: pages, rememberedMusicPage: nil),
+            .librarySection(.songs)
         )
-        XCTAssertTrue(MinimalNavigationPolicy.showsHomeByDefault)
+        XCTAssertEqual(
+            MinimalNavigationPolicy.landingPage(for: .radio, pages: pages, rememberedMusicPage: nil),
+            .librarySection(.radio)
+        )
+        XCTAssertEqual(
+            MinimalNavigationPolicy.landingPage(for: .home, pages: pages, rememberedMusicPage: nil),
+            .home
+        )
+        XCTAssertNil(MinimalNavigationPolicy.landingPage(for: .spokenWord, pages: pages, rememberedMusicPage: nil))
     }
 
     func testHiddenCategoriesStayHiddenInTopTabsAndOldOrdersKeepTheirRelativeOrder() {
@@ -305,8 +359,8 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )
         XCTAssertTrue(hidden.isDisjoint(with: visible))
         XCTAssertEqual(
-            MinimalNavigationPolicy.topTabPages(visibleSections: visible, showsHome: true),
-            [.home] + visible.map(MinimalNavigationPage.librarySection)
+            MinimalNavigationPolicy.topTabPages(visibleSections: visible, visibleSpaces: [.music], showsHome: true),
+            [.home] + visible.filter { $0 != .radio }.map(MinimalNavigationPage.librarySection)
         )
     }
 
@@ -317,7 +371,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         )
         XCTAssertTrue(visible.isEmpty)
         XCTAssertEqual(
-            MinimalNavigationPolicy.topTabPages(visibleSections: visible, showsHome: false),
+            MinimalNavigationPolicy.topTabPages(visibleSections: visible, visibleSpaces: [.music], showsHome: false),
             [.librarySection(.radio)]
         )
     }
@@ -340,6 +394,7 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         let album = Album(id: "album", title: "Album")
         let pages = MinimalNavigationPolicy.topTabPages(
             visibleSections: [.songs, .albums, .playlists],
+            visibleSpaces: [.music, .radio],
             showsHome: true
         )
 
@@ -373,6 +428,15 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         route = MinimalNavigationPolicy.deepLinkRoute(for: .root, pages: pages, current: .home)
         XCTAssertEqual(route?.page, .librarySection(.songs))
         XCTAssertNil(route?.link)
+
+        // Radio's own stack never hosts a hidden music category.
+        route = MinimalNavigationPolicy.deepLinkRoute(
+            for: .section(.genres),
+            pages: pages,
+            current: .librarySection(.radio)
+        )
+        XCTAssertEqual(route?.page, .librarySection(.songs))
+        XCTAssertEqual(route?.link, .section(.genres))
 
         XCTAssertNil(MinimalNavigationPolicy.deepLinkRoute(for: .root, pages: [.home], current: .home))
     }

@@ -183,8 +183,8 @@ private struct MinimalRootEditingModifier: ViewModifier {
 
 // MARK: - tab 条
 
-/// 顶部 tab 外壳(`SkinShell.Navigation.topTabs`)的那一行:左边是横向可滚的 tab 条,
-/// 右边固定是当前页的动作、搜索和设置。
+/// 顶部 tab 外壳(`SkinShell.Navigation.topTabs`)的那一行:左边是首页 · 音乐 · 电台 · 有声几格,
+/// 右边固定是当前页的动作、搜索和设置。停在音乐的分类页上时,下面多一排分类(歌曲、专辑……)。
 ///
 /// 整个外壳只有这一份实例,挂在所有页面之上,所以切 tab 时选中指示器能从旧位置滑到新位置,
 /// tab 条也记得自己滚到了哪里。它只负责画法:有哪些 tab、选中哪个、点了去哪都由外壳给。
@@ -193,8 +193,13 @@ private struct MinimalRootEditingModifier: ViewModifier {
 /// 住进系统竖栏让出的那条安全区,tab 纵向滚动,动作、搜索、设置收在竖栏底部,顶部的高度还给页面。
 /// 横排与竖排只是排法不同(同一棵视图树换布局参数),开合、转屏时 tab 条的状态都还在。
 struct TopTabsChrome: View {
-    let pages: [MinimalNavigationPage]
+    let tabs: [MinimalTopTab]
+    /// 音乐页第二排的分类页。
+    let musicCategories: [MinimalNavigationPage]
+    /// 正在显示的页面;它归到的那一格是选中的 tab。
     let selection: MinimalNavigationPage?
+    /// 第二排的高度。外壳给音乐的分类页留出同样的高度。
+    let musicCategoryRowHeight: CGFloat
     let actions: AnyView?
     /// 当前页的页内筛选(专辑、艺术家、流派、电台)。有它时动作槽里多一颗筛选键,展开时 tab 条下面多一行筛选框。
     var filter: MinimalRootFilterContent? = nil
@@ -206,6 +211,7 @@ struct TopTabsChrome: View {
     var railWidth: CGFloat = 0
     /// 竖栏时根页顶部的留白。外壳给根页留的是同一个值,筛选框从它下面开始。
     var railContentTopInset: CGFloat = 0
+    let onSelectTab: (MinimalTopTab) -> Void
     let onSelect: (MinimalNavigationPage) -> Void
     let onSearch: () -> Void
     let onSettings: () -> Void
@@ -222,20 +228,44 @@ struct TopTabsChrome: View {
 
     private var isRail: Bool { railEdge != nil }
 
+    private var selectedTab: MinimalTopTab? { selection?.topTab }
+
+    /// 第二排只在音乐的分类页上出现;只剩一个分类时这一排没有可选的,也不画。
+    private var showsMusicCategories: Bool {
+        (selection?.isMusicCategory ?? false) && musicCategories.count > 1
+    }
+
     var body: some View {
         let isRail = isRail
         let layout = isRail
             ? AnyLayout(TopTabsRailChromeLayout(edge: railEdge ?? .trailing, railWidth: railWidth))
             : AnyLayout(VStackLayout(spacing: 0))
+        let presentedFilter = filter.flatMap { $0.isPresented.wrappedValue ? $0 : nil }
+        let showsSecondaryRows = showsMusicCategories || presentedFilter != nil
         layout {
             bar
 
-            if let filter, filter.isPresented.wrappedValue {
-                MinimalRootFilterField(filter: filter) {
-                    dismissFilter(filter)
+            if showsSecondaryRows {
+                // 分类与筛选框叠成一组:竖栏时这一组是页面顶上的几行,底色与分隔线跟着它走。
+                VStack(spacing: 0) {
+                    if showsMusicCategories {
+                        MinimalMusicCategoryRow(
+                            categories: musicCategories,
+                            selection: selection,
+                            onSelect: onSelect
+                        )
+                        .frame(height: musicCategoryRowHeight)
+                        .transition(.opacity)
+                    }
+
+                    if let presentedFilter {
+                        MinimalRootFilterField(filter: presentedFilter) {
+                            dismissFilter(presentedFilter)
+                        }
+                        .frame(height: MinimalRootFilterField.rowHeight(dynamicTypeSize, isCompactHeight: heightClass.isCompact))
+                        .transition(.opacity)
+                    }
                 }
-                .frame(height: MinimalRootFilterField.rowHeight(dynamicTypeSize, isCompactHeight: heightClass.isCompact))
-                // 竖栏时筛选框自己是页面顶上的一行:底色与分隔线跟着它走。
                 .padding(.top, isRail ? railContentTopInset : 0)
                 .background {
                     if isRail {
@@ -247,9 +277,9 @@ struct TopTabsChrome: View {
                         hairline(vertical: false)
                     }
                 }
-                .transition(.opacity)
             }
         }
+        .animation(skin.animation(.chromeReveal), value: showsMusicCategories)
         .frame(maxWidth: .infinity, maxHeight: isRail ? .infinity : nil)
         .background {
             if !isRail {
@@ -329,22 +359,22 @@ struct TopTabsChrome: View {
         return ScrollViewReader { proxy in
             ScrollView(isRail ? .vertical : .horizontal, showsIndicators: false) {
                 stack {
-                    ForEach(pages) { page in
+                    ForEach(tabs) { tab in
                         TopTabsChromeTab(
-                            page: page,
-                            isSelected: page == selection,
+                            tab: tab,
+                            isSelected: tab == selectedTab,
                             namespace: indicatorNamespace,
                             railEdge: railEdge
                         ) {
-                            onSelect(page)
+                            onSelectTab(tab)
                         }
-                        .id(page)
+                        .id(tab)
                     }
                 }
                 .padding(isRail ? .vertical : .horizontal, isRail ? 4 : skin.rawMetric(.chromeHorizontalInset) + 4)
                 .padding(.horizontal, isRail ? 4 : 0)
                 .frame(maxWidth: isRail ? .infinity : nil, maxHeight: isRail ? nil : .infinity)
-                .animation(skin.animation(.selection), value: selection)
+                .animation(skin.animation(.selection), value: selectedTab)
             }
             .scrollBounceBehavior(.basedOnSize, axes: isRail ? .vertical : [])
             .mask { edgeFade }
@@ -355,10 +385,10 @@ struct TopTabsChrome: View {
                 }
             }
             .onAppear {
-                guard let selection else { return }
-                proxy.scrollTo(selection, anchor: .center)
+                guard let selectedTab else { return }
+                proxy.scrollTo(selectedTab, anchor: .center)
             }
-            .onChange(of: selection) { _, selected in
+            .onChange(of: selectedTab) { _, selected in
                 guard let selected else { return }
                 withAnimation(skin.animation(.selection)) {
                     proxy.scrollTo(selected, anchor: .center)
@@ -366,8 +396,8 @@ struct TopTabsChrome: View {
             }
             .onChange(of: isRail) { _, _ in
                 // 横竖互换后滚动方向变了,原来的偏移没有意义:让选中项回到可见处。
-                guard let selection else { return }
-                proxy.scrollTo(selection, anchor: .center)
+                guard let selectedTab else { return }
+                proxy.scrollTo(selectedTab, anchor: .center)
             }
         }
     }
@@ -619,7 +649,7 @@ private struct TopTabsRailClusterLayout: Layout {
 }
 
 private struct TopTabsChromeTab: View {
-    let page: MinimalNavigationPage
+    let tab: MinimalTopTab
     let isSelected: Bool
     let namespace: Namespace.ID
     /// 竖栏时在哪一侧;横排为 nil。
@@ -634,18 +664,18 @@ private struct TopTabsChromeTab: View {
             // 竖栏与系统竖排的标签栏一个样:只有符号,选中的那格垫一块圆角底、符号换成实心的强调色。
             VStack(spacing: 3) {
                 if isRail {
-                    Image(systemName: page.railSymbol)
+                    Image(systemName: tab.railSymbol)
                         .symbolVariant(isSelected ? .fill : .none)
                         .font(.system(size: 20, weight: isSelected ? .semibold : .regular))
-                        .foregroundStyle(isSelected ? skin.color(.accent) : skin.color(.textPrimary))
+                        .foregroundStyle(isSelected ? indicatorColor : skin.color(.textPrimary))
                         .frame(height: 24)
                 } else {
                     ZStack {
                         // 按选中时的粗体占好宽度,切换选中时文字不会把两边的 tab 挤得跳一下。
-                        Text(verbatim: page.localizedTitle)
+                        Text(verbatim: tab.localizedTitle)
                             .font(labelFont(selected: true, isRail: isRail))
                             .hidden()
-                        Text(verbatim: page.localizedTitle)
+                        Text(verbatim: tab.localizedTitle)
                             .font(labelFont(selected: isSelected, isRail: isRail))
                             .foregroundStyle(isSelected ? skin.color(.textPrimary) : skin.color(.chromeItem))
                     }
@@ -667,7 +697,7 @@ private struct TopTabsChromeTab: View {
             .overlay(alignment: indicatorAlignment) {
                 if isSelected && !isRail {
                     Capsule()
-                        .fill(skin.color(.accent))
+                        .fill(indicatorColor)
                         .frame(width: 18, height: 3)
                         .matchedGeometryEffect(id: "topTabs.indicator", in: namespace)
                         .padding(.bottom, 4)
@@ -677,9 +707,17 @@ private struct TopTabsChromeTab: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(verbatim: page.localizedTitle))
+        .accessibilityLabel(Text(verbatim: tab.localizedTitle))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("topTabs.tab.\(page.id)")
+        .accessibilityIdentifier("topTabs.tab.\(tab.id)")
+    }
+
+    /// 选中指示用这一种听法自己的颜色(电台、有声),和播放条上的小圆点、首页卡片同色;首页与音乐跟随强调色。
+    private var indicatorColor: Color {
+        switch tab.space {
+        case .radio, .spokenWord: return tab.space?.tint ?? skin.color(.accent)
+        case .music, .none: return skin.color(.accent)
+        }
     }
 
     /// 横排时指示器是标签下面的短横线;竖栏时是贴着页面那一侧的短竖线。
@@ -696,6 +734,78 @@ private struct TopTabsChromeTab: View {
             return .caption.weight(selected ? .semibold : .medium)
         }
         return skin.font(selected ? .chromeCompact : .chrome)
+    }
+}
+
+/// 音乐页的第二排:音乐的各个分类(歌曲、专辑、艺术家……),顺序与显隐都照资料库设置。
+///
+/// 住在外壳的 tab 条里(和 tab 条同一块材质);每个分类仍是自己的一页、自己的导航栈,这一排只负责切换。
+struct MinimalMusicCategoryRow: View {
+    let categories: [MinimalNavigationPage]
+    let selection: MinimalNavigationPage?
+    let onSelect: (MinimalNavigationPage) -> Void
+
+    @Environment(\.skin) private var skin
+
+    /// 这一行的高度。外壳画这一行、音乐的分类页让出顶部空间,都按它算。
+    static func rowHeight(_ typeSize: DynamicTypeSize, isCompactHeight: Bool) -> CGFloat {
+        let base: CGFloat = isCompactHeight ? 36 : 42
+        switch typeSize {
+        case .xSmall, .small, .medium, .large: return base
+        case .xLarge, .xxLarge: return base + 4
+        case .xxxLarge: return base + 8
+        default: return base + 18
+        }
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(categories) { page in
+                        chip(page)
+                            .id(page)
+                    }
+                }
+                .padding(.horizontal, skin.rawMetric(.chromeHorizontalInset))
+                .padding(.bottom, 6)
+                .frame(maxHeight: .infinity)
+            }
+            .onAppear {
+                guard let selection else { return }
+                proxy.scrollTo(selection, anchor: .center)
+            }
+            .onChange(of: selection) { _, selected in
+                guard let selected, categories.contains(selected) else { return }
+                withAnimation(skin.animation(.selection)) {
+                    proxy.scrollTo(selected, anchor: .center)
+                }
+            }
+        }
+    }
+
+    private func chip(_ page: MinimalNavigationPage) -> some View {
+        let isSelected = page == selection
+        return Button {
+            onSelect(page)
+        } label: {
+            Text(verbatim: page.localizedTitle)
+                .font(.subheadline.weight(isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? skin.color(.accent) : skin.color(.chromeItem))
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 12)
+                .frame(maxHeight: .infinity)
+                .background {
+                    Capsule()
+                        .fill(isSelected ? skin.color(.accent).opacity(0.14) : skin.color(.textPrimary).opacity(0.05))
+                }
+                .contentShape(Capsule())
+                .animation(skin.animation(.selection), value: isSelected)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("topTabs.category.\(page.id)")
     }
 }
 
