@@ -13,6 +13,8 @@ import AppKit
 struct RadioStationsView: View {
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:整理菜单并进系统溢出菜单,按钮带标题并分组。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @State private var editingStation: RadioStation?
     @State private var showingNewStation = false
     @State private var showingBatchAdd = false
@@ -435,120 +437,181 @@ struct RadioStationsView: View {
             // 批量操作收进右上角菜单 —— 这个页面是 push 进 tab 里的，底部已经
             // 被系统 tab bar 和 mini player accessory 占满，任何自绘的底部条
             // 都会被盖住(mini player 是 zIndex overlay，不贡献安全区)。
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    // 批量操作里用得最多的三件事排成一行。这三个键在任何选中
-                    // 状态下都在，只是会变灰，所以这一行不会塌成一个键。
-                    PMMenuQuickActions {
-                        let allSelected = selection == visibleStationIDs
-                        PMMenuQuickActionButton(
-                            shortKey: allSelected ? "deselect_all_short" : "select_all_short",
-                            fullKey: allSelected ? "radio_manage_deselect_all" : "select_all",
-                            systemImage: allSelected ? "circle" : "checkmark.circle"
-                        ) {
-                            selection = allSelected ? [] : visibleStationIDs
-                        }
-                        .disabled(visibleStationIDs.isEmpty)
-
-                        PMMenuQuickActionButton(
-                            shortKey: "radio_manage_pin_top_short",
-                            fullKey: "radio_manage_pin_top",
-                            systemImage: "arrow.up.to.line"
-                        ) {
-                            moveToTop(selection)
-                        }
-                        .disabled(selectedStations.isEmpty)
-
-                        Button {
-                            exportSelected()
-                        } label: {
-                            Label("radio_manage_export", systemImage: "square.and.arrow.up")
-                        }
-                        .disabled(selectedStations.isEmpty)
+            #if os(iOS)
+            if verticalBarEdge != nil {
+                // 系统竖栏(iPhone Duo):批量操作并进系统溢出菜单,不再自己套一层「⋯」。
+                if #available(iOS 27.0, *) {
+                    ToolbarOverflowMenu {
+                        radioManageMenuItems
                     }
-
-                    Section {
-                        Menu {
-                            folderAssignmentActions(for: selectedIDs)
-                        } label: {
-                            Label("radio_folder_move", systemImage: "folder")
-                        }
-                        .disabled(selectedIDs.isEmpty)
-
-                        Menu {
-                            tagAssignmentActions(for: selectedIDs)
-                        } label: {
-                            Label("radio_tags", systemImage: "tag")
-                        }
-                        .disabled(selectedIDs.isEmpty)
-
-                        Button {
-                            guard let station = selectedStations.first else { return }
-                            editingStation = station
-                        } label: {
-                            Label("edit", systemImage: "pencil")
-                        }
-                        // 编辑是单条操作，多选时没有明确目标。
-                        .disabled(selectedStations.count != 1)
-                    }
-
-                    Section {
-                        Button(role: .destructive) {
-                            showDeleteConfirm = true
-                        } label: {
-                            Label("delete", systemImage: "trash")
-                        }
-                        .disabled(selectedStations.isEmpty)
-                    }
-                } label: {
-                    Label("radio_manage", systemImage: "ellipsis.circle")
                 }
+            } else {
+                radioManageMenuItem
             }
+            #else
+            radioManageMenuItem
+            #endif
         } else {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if !store.stations.isEmpty {
-                    Button {
-                        pmWithAnimation(.list) { isManaging = true }
-                    } label: {
-                        Label("radio_manage", systemImage: "checklist")
-                    }
+            #if os(iOS)
+            if verticalBarEdge != nil {
+                // 系统竖栏(iPhone Duo):「添加」一组、空间不够时最后才收;整理与版式一组,按钮都带标题。
+                ToolbarItemGroup(placement: .primaryAction) {
+                    radioAddMenu
                 }
-
-                // 版式一共就两种，展开一个菜单去点其中一个不如按一下直接换。
-                // 图标画的是「点下去会变成的那种」，当前是哪种交给旁白报。
-                Button {
-                    layoutModeRaw = alternateLayoutMode.rawValue
-                } label: {
-                    Image(systemName: alternateLayoutMode.icon)
+                .pmHighVisibilityPriority()
+                ToolbarItemGroup(placement: .primaryAction) {
+                    radioManageButton
+                    radioLayoutToggle(titled: true)
                 }
-                .accessibilityLabel(Text(String(localized: alternateLayoutMode.titleKey)))
-                .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
-                .accessibilityIdentifier("radioLayoutMode.toggle")
+            } else {
+                radioStandardToolbarGroup
+            }
+            #else
+            radioStandardToolbarGroup
+            #endif
+        }
+    }
 
-                Menu {
-                    Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
-                        showingBatchAdd = true
-                    }
-                    Button("radio_add", systemImage: "plus") {
-                        showingNewStation = true
-                    }
-                    Button("radio_subscriptions_add", systemImage: "arrow.triangle.2.circlepath") {
-                        subscriptionsStartAdding = true
-                        showingSubscriptions = true
-                    }
-                    Divider()
-                    Button("radio_folder_new", systemImage: "folder.badge.plus") {
-                        beginPrompt(.createFolder(assigning: []))
-                    }
-                    if !store.stations.isEmpty {
-                        Button("radio_priority_sort_by_name", systemImage: "arrow.up.arrow.down") {
-                            store.sortStationsByName()
-                        }
-                    }
-                } label: {
-                    Label("radio_add", systemImage: "plus")
+    @ToolbarContentBuilder
+    private var radioManageMenuItem: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                radioManageMenuItems
+            } label: {
+                Label("radio_manage", systemImage: "ellipsis.circle")
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var radioStandardToolbarGroup: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            radioManageButton
+            radioLayoutToggle(titled: false)
+            radioAddMenu
+        }
+    }
+
+    /// 整理状态下的批量操作(全选、置顶、导出、移到文件夹、标签、编辑、删除)。
+    @ViewBuilder
+    private var radioManageMenuItems: some View {
+        // 批量操作里用得最多的三件事排成一行。这三个键在任何选中
+        // 状态下都在，只是会变灰，所以这一行不会塌成一个键。
+        PMMenuQuickActions {
+            let allSelected = selection == visibleStationIDs
+            PMMenuQuickActionButton(
+                shortKey: allSelected ? "deselect_all_short" : "select_all_short",
+                fullKey: allSelected ? "radio_manage_deselect_all" : "select_all",
+                systemImage: allSelected ? "circle" : "checkmark.circle"
+            ) {
+                selection = allSelected ? [] : visibleStationIDs
+            }
+            .disabled(visibleStationIDs.isEmpty)
+
+            PMMenuQuickActionButton(
+                shortKey: "radio_manage_pin_top_short",
+                fullKey: "radio_manage_pin_top",
+                systemImage: "arrow.up.to.line"
+            ) {
+                moveToTop(selection)
+            }
+            .disabled(selectedStations.isEmpty)
+
+            Button {
+                exportSelected()
+            } label: {
+                Label("radio_manage_export", systemImage: "square.and.arrow.up")
+            }
+            .disabled(selectedStations.isEmpty)
+        }
+
+        Section {
+            Menu {
+                folderAssignmentActions(for: selectedIDs)
+            } label: {
+                Label("radio_folder_move", systemImage: "folder")
+            }
+            .disabled(selectedIDs.isEmpty)
+
+            Menu {
+                tagAssignmentActions(for: selectedIDs)
+            } label: {
+                Label("radio_tags", systemImage: "tag")
+            }
+            .disabled(selectedIDs.isEmpty)
+
+            Button {
+                guard let station = selectedStations.first else { return }
+                editingStation = station
+            } label: {
+                Label("edit", systemImage: "pencil")
+            }
+            // 编辑是单条操作，多选时没有明确目标。
+            .disabled(selectedStations.count != 1)
+        }
+
+        Section {
+            Button(role: .destructive) {
+                showDeleteConfirm = true
+            } label: {
+                Label("delete", systemImage: "trash")
+            }
+            .disabled(selectedStations.isEmpty)
+        }
+    }
+
+    @ViewBuilder
+    private var radioManageButton: some View {
+        if !store.stations.isEmpty {
+            Button {
+                pmWithAnimation(.list) { isManaging = true }
+            } label: {
+                Label("radio_manage", systemImage: "checklist")
+            }
+        }
+    }
+
+    /// 版式一共就两种，展开一个菜单去点其中一个不如按一下直接换。
+    /// 图标画的是「点下去会变成的那种」，当前是哪种交给旁白报。
+    private func radioLayoutToggle(titled: Bool) -> some View {
+        Button {
+            layoutModeRaw = alternateLayoutMode.rawValue
+        } label: {
+            PMToolbarItemLabel(
+                verbatim: String(localized: alternateLayoutMode.titleKey),
+                systemImage: alternateLayoutMode.icon,
+                titled: titled
+            )
+        }
+        .accessibilityLabel(Text(String(localized: alternateLayoutMode.titleKey)))
+        .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
+        .accessibilityIdentifier("radioLayoutMode.toggle")
+    }
+
+    /// 添加电台、批量添加、订阅、新建文件夹、按名称排序。
+    private var radioAddMenu: some View {
+        Menu {
+            Button("radio_batch_add_title", systemImage: "square.and.arrow.down") {
+                showingBatchAdd = true
+            }
+            Button("radio_add", systemImage: "plus") {
+                showingNewStation = true
+            }
+            Button("radio_subscriptions_add", systemImage: "arrow.triangle.2.circlepath") {
+                subscriptionsStartAdding = true
+                showingSubscriptions = true
+            }
+            Divider()
+            Button("radio_folder_new", systemImage: "folder.badge.plus") {
+                beginPrompt(.createFolder(assigning: []))
+            }
+            if !store.stations.isEmpty {
+                Button("radio_priority_sort_by_name", systemImage: "arrow.up.arrow.down") {
+                    store.sortStationsByName()
                 }
             }
+        } label: {
+            Label("radio_add", systemImage: "plus")
         }
     }
 

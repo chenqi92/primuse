@@ -12,6 +12,8 @@ struct QueueView: View {
     @Environment(SourceManager.self) private var sourceManager
     /// 队列以半屏 sheet 呈现, 手机横屏下可视高度只够两行出头, 行距与底部留白收一档。
     @Environment(\.pmHeightClass) private var heightClass
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:随机键带上标题、优先留在竖栏里。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @State private var dropTarget: QueueReorderOccurrenceID?
 
     var body: some View {
@@ -24,7 +26,8 @@ struct QueueView: View {
                     #if os(iOS)
                     .navigationBarTitleDisplayMode(.inline)
                     #endif
-                    .toolbar { shuffleToolbarContent }
+                    // 在这里取值再传给工具栏:导航栏条目由独立宿主渲染,不在那里读环境。
+                    .toolbar { shuffleToolbarContent(titled: verticalBarEdge != nil) }
             }
         }
     }
@@ -34,16 +37,37 @@ struct QueueView: View {
     /// 只读 `player` 这个存储属性, 不碰 @Environment: 导航栏条目会在转场期间
     /// 由独立的宿主渲染, 在那里读必需的环境值会直接崩。
     @ToolbarContentBuilder
-    private var shuffleToolbarContent: some ToolbarContent {
+    private func shuffleToolbarContent(titled: Bool) -> some ToolbarContent {
+        if titled {
+            // 系统竖栏(iPhone Duo):带上标题(收进系统溢出菜单时要用),空间不够时最后才收。
+            shuffleToolbarItem(titled: true)
+                .pmHighVisibilityPriority()
+        } else {
+            shuffleToolbarItem(titled: false)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private func shuffleToolbarItem(titled: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             let isOn = player.shuffleEnabled
             Button {
                 player.shuffleEnabled.toggle()
             } label: {
-                Image(systemName: "shuffle")
-                    .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
-                    // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
-                    .symbolEffect(.bounce, value: isOn)
+                if titled {
+                    Label {
+                        Text("a11y_shuffle")
+                    } icon: {
+                        Image(systemName: "shuffle")
+                            .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+                            .symbolEffect(.bounce, value: isOn)
+                    }
+                } else {
+                    Image(systemName: "shuffle")
+                        .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+                        // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
+                        .symbolEffect(.bounce, value: isOn)
+                }
             }
             .disabled(player.queueCount < 2)
             .accessibilityLabel(Text("a11y_shuffle"))
