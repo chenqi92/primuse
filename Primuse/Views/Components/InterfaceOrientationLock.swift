@@ -63,7 +63,8 @@ enum InterfaceOrientationLock {
     }
 
     private static func request(_ orientations: UIInterfaceOrientationMask, in scene: UIWindowScene) {
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { error in
+        // 系统拒绝请求时在后台队列回调:闭包不能沿用外面的主线程隔离,否则运行时的隔离检查当场崩溃。
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { @Sendable error in
             plog("⚠️ Interface orientation request failed: \(error.localizedDescription)")
         }
     }
