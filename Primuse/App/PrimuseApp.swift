@@ -2538,6 +2538,7 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
         case "karaoke":
             KaraokeStageView()
                 .environment(services.playerService)
+                .environment(services.themeService)
         case "batchEdit":
             BatchTagEditorView(songs: item.songs)
         case "tidy":

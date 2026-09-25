@@ -14,7 +14,7 @@ struct KaraokeStageView: View {
             if let session {
                 KaraokeStageContent(session: session, onClose: { dismiss() })
             } else {
-                Color.black
+                KaraokeStageBackdrop(isPlaying: false)
             }
         }
         .onAppear {
@@ -33,48 +33,36 @@ struct KaraokeStageView: View {
     }
 }
 
+/// 与播放页沉浸歌词同一套视觉：封面取色的氛围底、深色玻璃圆钮、白色歌词扫光。
+/// 手机横屏时歌词在左、控制区在右，同一棵树只换排布。
 private struct KaraokeStageContent: View {
     @Bindable var session: KaraokeSession
     let onClose: () -> Void
 
+    @Environment(\.pmHeightClass) private var heightClass
+
     private var player: AudioPlayerService { session.player }
 
     var body: some View {
-        ZStack {
-            KaraokeStageBackground()
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: 12)
+        let isSideBySide = heightClass.isCompact
+        let layout = isSideBySide
+            ? AnyLayout(HStackLayout(alignment: .center, spacing: 20))
+            : AnyLayout(VStackLayout(spacing: 0))
+
+        VStack(spacing: 0) {
+            KaraokeStageHeader(session: session, onClose: onClose)
+            layout {
                 stage
-                Spacer(minLength: 12)
-                if session.isVocalAssisting || session.loop != nil {
-                    HStack(spacing: 8) {
-                        if let loop = session.loop {
-                            KaraokeLoopChip(session: session, lineCount: loop.lineCount)
-                        }
-                        if session.isVocalAssisting {
-                            Label("karaoke_vocal_assist_active", systemImage: "person.wave.2.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.85))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(.white.opacity(0.14), in: Capsule())
-                        }
-                    }
-                    .padding(.bottom, 6)
-                    .transition(.opacity)
-                }
-                if session.microphoneState == .on {
-                    KaraokePitchLane(points: session.pitchHistory)
-                        .frame(height: 72)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8)
-                        .transition(.opacity)
-                }
-                KaraokeControlPanel(session: session)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                KaraokeControlDeck(session: session)
+                    .frame(maxWidth: isSideBySide ? 380 : 560)
             }
+        }
+        .padding(.horizontal, isSideBySide ? 12 : 20)
+        .padding(.bottom, isSideBySide ? 8 : 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            KaraokeStageBackdrop(isPlaying: player.isPlaying)
         }
         .animation(.easeInOut(duration: 0.25), value: session.microphoneState)
         .animation(.easeInOut(duration: 0.25), value: session.isVocalAssisting)
@@ -82,54 +70,6 @@ private struct KaraokeStageContent: View {
         .sheet(item: $session.completedPerformance) { performance in
             KaraokeResultView(performance: performance, session: session)
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 36, height: 36)
-                    .background(.white.opacity(0.12), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("close"))
-            .keyboardShortcut(.cancelAction)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(player.currentSong?.title ?? String(localized: "karaoke_title"))
-                    .font(.headline)
-                    .lineLimit(1)
-                if let artist = player.currentSong?.artistName, !artist.isEmpty {
-                    Text(artist)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.6))
-                        .lineLimit(1)
-                }
-                if session.usesInferredWordTiming {
-                    Label("karaoke_ai_word_timing", systemImage: "sparkles")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .lineLimit(1)
-                }
-                if let source = session.lyricsBorrowedFromTitle {
-                    Text(String(format: String(localized: "karaoke_lyrics_from_format"), source))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-            if let score = session.runningScore {
-                KaraokeScoreBadge(score: score)
-                    .transition(.scale.combined(with: .opacity))
-            }
-            KaraokeStageMenu(session: session)
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .animation(.spring(duration: 0.3), value: session.runningScore)
     }
 
     @ViewBuilder
@@ -157,7 +97,7 @@ private struct KaraokeStageContent: View {
                     isPlaying: player.isPlaying
                 )
             }
-            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
     }
 
@@ -172,6 +112,86 @@ private struct KaraokeStageContent: View {
     }
 }
 
+// MARK: - Header
+
+/// 收起键、封面与歌名、分数、更多。四者一律按中线对齐，圆钮与播放页沉浸模式同尺寸。
+private struct KaraokeStageHeader: View {
+    let session: KaraokeSession
+    let onClose: () -> Void
+
+    private var player: AudioPlayerService { session.player }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: onClose) {
+                ImmersiveGlassActionLabel(symbol: closeSymbol, diameter: 40)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("close"))
+            .keyboardShortcut(.cancelAction)
+
+            CachedArtworkView(
+                coverRef: player.currentSong?.coverArtFileName,
+                songID: player.currentSong?.id ?? "",
+                size: 44,
+                cornerRadius: 8,
+                sourceID: player.currentSong?.sourceID,
+                filePath: player.currentSong?.filePath,
+                fileFormat: player.currentSong?.fileFormat,
+                revisionToken: player.coverRevision
+            )
+            .frame(width: 44, height: 44)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(player.currentSong?.title ?? String(localized: "karaoke_title"))
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.62))
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let score = session.runningScore {
+                KaraokeScoreBadge(score: score)
+                    .transition(.scale.combined(with: .opacity))
+            }
+            KaraokeStageMenu(session: session)
+        }
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+        .animation(.spring(duration: 0.3), value: session.runningScore)
+    }
+
+    /// 手机上是从底部推上来的全屏页，收起用向下箭头；Mac 是表单，用叉号。
+    private var closeSymbol: String {
+        #if os(iOS)
+        "chevron.down"
+        #else
+        "xmark"
+        #endif
+    }
+
+    /// 歌手之后跟一条最要紧的说明：借来的歌词出处优先，其次是 AI 推断的逐字时间。
+    private var subtitle: String? {
+        var parts: [String] = []
+        if let artist = player.currentSong?.artistName, !artist.isEmpty {
+            parts.append(artist)
+        }
+        if let source = session.lyricsBorrowedFromTitle {
+            parts.append(String(format: String(localized: "karaoke_lyrics_from_format"), source))
+        } else if session.usesInferredWordTiming {
+            parts.append(String(localized: "karaoke_ai_word_timing"))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
 // MARK: - Lyrics
 
 private struct KaraokeLyricsStage: View {
@@ -179,8 +199,11 @@ private struct KaraokeLyricsStage: View {
     let time: TimeInterval
     let isPlaying: Bool
 
-    private static let primaryColor = Color(red: 0.42, green: 0.86, blue: 1.0)
-    private static let secondaryColor = Color(red: 1.0, green: 0.55, blue: 0.78)
+    @Environment(\.pmHeightClass) private var heightClass
+
+    /// 主声部与播放页歌词同样扫成白色；对唱的另一声部用暖粉色区分。
+    private static let primaryColor = Color.white
+    private static let secondaryColor = Color(red: 1.0, green: 0.62, blue: 0.80)
 
     var body: some View {
         let windows = session.windows
@@ -189,7 +212,7 @@ private struct KaraokeLyricsStage: View {
         let focusIndex = activeIndex ?? windows.firstIndex(where: { $0.start > time }) ?? (windows.count - 1)
         let leadIn = KaraokeLeadInPolicy.leadIn(windows: windows, at: time)
 
-        VStack(spacing: 18) {
+        VStack(spacing: heightClass.value(18, compact: 10)) {
             if focusIndex > 0 {
                 row(windowIndex: focusIndex - 1, role: .previous)
             }
@@ -244,10 +267,10 @@ private struct KaraokeLyricsStage: View {
             case .current, .upcoming:
                 KaraokeLineView(
                     line: line,
-                    fontSize: 34,
+                    fontSize: heightClass.value(34, compact: 26),
                     weight: .bold,
                     activeStyle: AnyShapeStyle(voiceColor),
-                    inactiveColor: .white.opacity(isMine ? 0.85 : 0.5),
+                    inactiveColor: .white.opacity(isMine ? 0.42 : 0.26),
                     textAlignment: side.text,
                     timeAt: { _ in time },
                     fixedTime: time,
@@ -256,7 +279,10 @@ private struct KaraokeLyricsStage: View {
                 )
             case .previous, .next:
                 Text(line.text)
-                    .font(.system(size: role == .next ? 22 : 18, weight: .semibold))
+                    .font(.system(
+                        size: heightClass.value(role == .next ? 22 : 18, compact: role == .next ? 18 : 15),
+                        weight: .semibold
+                    ))
                     .foregroundStyle(.white.opacity(role == .next ? 0.5 : 0.25))
                     .multilineTextAlignment(side.text)
                     .fixedSize(horizontal: false, vertical: true)
@@ -335,53 +361,123 @@ private struct KaraokePitchLane: View {
                 context.fill(Path(ellipseIn: rect), with: .color(color))
             }
         }
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .karaokeGlass(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityHidden(true)
     }
 }
 
 // MARK: - Controls
 
-private struct KaraokeControlPanel: View {
+/// 歌词下方的整块控制区：状态提示、音准线、调音卡片、进度条、主操作圆钮。
+/// 手机横屏时它是右侧一栏，放不下就在栏内滚动。
+private struct KaraokeControlDeck: View {
     @Bindable var session: KaraokeSession
 
-    private var player: AudioPlayerService { session.player }
+    @Environment(\.pmHeightClass) private var heightClass
 
     var body: some View {
-        VStack(spacing: 14) {
-            if let status = statusMessage {
-                HStack(spacing: 8) {
-                    Label(status, systemImage: "info.circle")
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.75))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if let url = session.lastRecordingURL, !session.isMixingRecording {
-                        ShareLink(item: url) {
-                            Label("karaoke_share_recording", systemImage: "square.and.arrow.up")
-                                .font(.footnote.weight(.semibold))
+        ScrollView(.vertical) {
+            VStack(spacing: 12) {
+                KaraokeStatusStrip(session: session)
+                if session.microphoneState == .on {
+                    KaraokePitchLane(points: session.pitchHistory)
+                        .frame(height: 64)
+                        .transition(.opacity)
+                }
+                KaraokeMixerCard(session: session)
+                KaraokeProgressRow(player: session.player)
+                KaraokeTransportRow(session: session)
+            }
+            .padding(.top, 4)
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+        // 竖屏按内容高度排在歌词下方，把剩下的高度都让给歌词；横屏是独立一栏，
+        // 高度由屏幕决定，内容更高时才滚动。
+        .fixedSize(horizontal: false, vertical: !heightClass.isCompact)
+    }
+}
+
+/// 循环、带唱与各类提示。都是一行居中的胶囊，和播放页的状态胶囊同一种底。
+private struct KaraokeStatusStrip: View {
+    let session: KaraokeSession
+
+    var body: some View {
+        let status = statusMessage
+        if session.loop != nil || session.isVocalAssisting || status != nil {
+            VStack(spacing: 8) {
+                if session.loop != nil || session.isVocalAssisting {
+                    HStack(spacing: 8) {
+                        if let loop = session.loop {
+                            KaraokeLoopChip(session: session, lineCount: loop.lineCount)
                         }
-                        .foregroundStyle(.white)
+                        if session.isVocalAssisting {
+                            Label("karaoke_vocal_assist_active", systemImage: "person.wave.2.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .karaokeGlass(Capsule())
+                        }
                     }
+                    .transition(.opacity)
+                }
+                if let status {
+                    HStack(spacing: 10) {
+                        Label(status, systemImage: "info.circle")
+                            .font(.footnote)
+                            .foregroundStyle(.white.opacity(0.78))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        if let url = session.lastRecordingURL, !session.isMixingRecording {
+                            ShareLink(item: url) {
+                                Label("karaoke_share_recording", systemImage: "square.and.arrow.up")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .karaokeGlass(Capsule())
                 }
             }
+            .frame(maxWidth: .infinity)
+        }
+    }
 
-            KaraokeAISeparationRow(session: session)
+    private var statusMessage: String? {
+        if session.isPlayingInstrumental { return String(localized: "karaoke_backing_track_playing") }
+        if session.isEffectivelyMono { return String(localized: "karaoke_mono_warning") }
+        switch session.microphoneState {
+        case .denied: return String(localized: "karaoke_mic_denied")
+        case .unavailable: return String(localized: "karaoke_mic_unavailable")
+        case .on where !session.canMonitor: return String(localized: "karaoke_monitor_needs_wired")
+        default: break
+        }
+        if session.isVocalAssistSuppressed { return String(localized: "karaoke_vocal_assist_paused") }
+        if session.isPracticing, session.microphoneState == .on {
+            return String(localized: "karaoke_practice_not_scored")
+        }
+        if session.isMixingRecording { return String(localized: "karaoke_mixing") }
+        if session.recordingFailed { return String(localized: "karaoke_recording_failed") }
+        if session.lastRecordingURL != nil { return String(localized: "karaoke_recording_saved") }
+        return nil
+    }
+}
 
-            HStack(spacing: 12) {
-                Image(systemName: "person.slash")
-                    .foregroundStyle(.white.opacity(0.6))
-                    .accessibilityHidden(true)
-                Slider(value: $session.vocalLevel, in: 0...1)
-                    .tint(.white)
-                    .accessibilityLabel(Text("karaoke_vocals"))
-                    .accessibilityValue(Text(session.vocalLevel, format: .percent.precision(.fractionLength(0))))
-                Image(systemName: "person.wave.2.fill")
-                    .foregroundStyle(.white.opacity(0.6))
-                    .accessibilityHidden(true)
-            }
-            .disabled(session.availability != .available || session.isPlayingInstrumental)
+/// 人声、升降调、速度、AI 分离、伴奏与对唱。一张玻璃卡片，行与行之间用细线分开。
+private struct KaraokeMixerCard: View {
+    @Bindable var session: KaraokeSession
 
-            HStack(spacing: 8) {
+    var body: some View {
+        VStack(spacing: 0) {
+            vocalRow
+                .padding(.vertical, 10)
+                .disabled(session.availability != .available || session.isPlayingInstrumental)
+
+            divider
+            HStack(spacing: 10) {
                 KaraokeStepper(
                     titleKey: "karaoke_key",
                     value: keyLabel,
@@ -402,124 +498,96 @@ private struct KaraokeControlPanel: View {
                     stepDown: { session.practiceRate = KaraokePracticePolicy.stepped(session.practiceRate, up: false) },
                     stepUp: { session.practiceRate = KaraokePracticePolicy.stepped(session.practiceRate, up: true) }
                 )
-                Spacer(minLength: 0)
-                loopButton
             }
+            .padding(.vertical, 10)
             .disabled(session.availability != .available)
 
-            if session.canToggleBackingTrack || session.isSwitchingTrack || session.hasDuetParts {
-                HStack(spacing: 10) {
-                if session.canToggleBackingTrack || session.isSwitchingTrack {
-                    backingTrackButton
-                }
-                if session.hasDuetParts {
-                    Picker(selection: $session.part) {
-                        Text("karaoke_part_all").tag(KaraokePart.all)
-                        Text("karaoke_part_primary").tag(KaraokePart.primary)
-                        Text("karaoke_part_secondary").tag(KaraokePart.secondary)
-                    } label: {
-                        Text("karaoke_part")
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-                }
+            if session.separation.modelState != .unsupportedSystem {
+                divider
+                KaraokeAISeparationRow(session: session)
+                    .padding(.vertical, 10)
             }
 
-            HStack(spacing: 10) {
-                KaraokeToolButton(
-                    titleKey: "karaoke_microphone",
-                    systemImage: session.microphoneState == .on ? "mic.fill" : "mic",
-                    isOn: session.microphoneState == .on,
-                    isBusy: session.microphoneState == .starting,
-                    action: session.toggleMicrophone
+            if hasOptionRow {
+                divider
+                optionRow
+                    .padding(.vertical, 10)
+            }
+
+            if session.hasDuetParts {
+                divider
+                Picker(selection: $session.part) {
+                    Text("karaoke_part_all").tag(KaraokePart.all)
+                    Text("karaoke_part_primary").tag(KaraokePart.primary)
+                    Text("karaoke_part_secondary").tag(KaraokePart.secondary)
+                } label: {
+                    Text("karaoke_part")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.vertical, 10)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 2)
+        .foregroundStyle(.white)
+        .karaokeGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(.white.opacity(0.1))
+            .frame(height: 0.5)
+    }
+
+    private var vocalRow: some View {
+        HStack(spacing: 12) {
+            Text("karaoke_vocals")
+                .font(.subheadline.weight(.semibold))
+                .fixedSize()
+            Image(systemName: "person.slash")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.55))
+                .accessibilityHidden(true)
+            Slider(value: $session.vocalLevel, in: 0...1)
+                .tint(.white)
+                .accessibilityLabel(Text("karaoke_vocals"))
+                .accessibilityValue(Text(session.vocalLevel, format: .percent.precision(.fractionLength(0))))
+            Image(systemName: "person.wave.2.fill")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.55))
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var hasOptionRow: Bool {
+        session.canToggleBackingTrack || session.isSwitchingTrack || session.microphoneState == .on
+    }
+
+    /// 伴奏音轨与耳返：两颗可选中的胶囊，左对齐排开。
+    private var optionRow: some View {
+        HStack(spacing: 8) {
+            if session.canToggleBackingTrack || session.isSwitchingTrack {
+                KaraokeOptionPill(
+                    titleKey: "karaoke_backing_track",
+                    systemImage: session.isPlayingInstrumental ? "checkmark" : "music.quarternote.3",
+                    isOn: session.isPlayingInstrumental,
+                    isBusy: session.isSwitchingTrack,
+                    action: session.toggleBackingTrack
                 )
-                KaraokeToolButton(
+                .disabled(session.isSwitchingTrack)
+            }
+            if session.microphoneState == .on {
+                KaraokeOptionPill(
                     titleKey: "karaoke_monitor",
                     systemImage: "headphones",
                     isOn: session.isMonitoring,
                     action: { session.isMonitoring.toggle() }
                 )
-                .disabled(session.microphoneState != .on || !session.canMonitor)
-                KaraokeToolButton(
-                    titleKey: session.isRecording
-                        ? LocalizedStringKey("karaoke_stop_recording")
-                        : LocalizedStringKey("karaoke_record"),
-                    systemImage: session.isRecording ? "stop.circle.fill" : "record.circle",
-                    isOn: session.isRecording,
-                    tint: .red,
-                    isBusy: session.isMixingRecording,
-                    action: session.toggleRecording
-                )
-                .disabled(!session.isRecording && !session.canRecord)
-                KaraokeToolButton(
-                    titleKey: "karaoke_finish",
-                    systemImage: "flag.checkered",
-                    isOn: false,
-                    action: session.finishPerformance
-                )
-                .disabled(session.runningScore == nil)
-                Button {
-                    player.togglePlayPause()
-                } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .frame(width: 56, height: 56)
-                        .background(.white, in: Circle())
-                        .foregroundStyle(.black)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text(player.isPlaying ? LocalizedStringKey("pause") : LocalizedStringKey("play")))
-                .keyboardShortcut(.space, modifiers: [])
+                .disabled(!session.canMonitor)
             }
+            Spacer(minLength: 0)
         }
-        .padding(16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .environment(\.colorScheme, .dark)
-    }
-
-    private var loopButton: some View {
-        Button(action: session.toggleLoop) {
-            Image(systemName: "repeat")
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 40, height: 40)
-                .background(
-                    session.loop != nil ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.1)),
-                    in: Circle()
-                )
-                .foregroundStyle(session.loop != nil ? .black : .white)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(session.loop == nil && session.windows.isEmpty)
-        .accessibilityLabel(Text(session.loop != nil ? LocalizedStringKey("karaoke_loop_stop") : LocalizedStringKey("karaoke_loop")))
-        .accessibilityAddTraits(session.loop != nil ? .isSelected : [])
-    }
-
-    private var backingTrackButton: some View {
-        Button(action: session.toggleBackingTrack) {
-            HStack(spacing: 6) {
-                if session.isSwitchingTrack {
-                    ProgressView().controlSize(.small).tint(.white)
-                } else {
-                    Image(systemName: session.isPlayingInstrumental ? "checkmark.circle.fill" : "music.quarternote.3")
-                }
-                Text("karaoke_backing_track")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 40)
-            .background(
-                session.isPlayingInstrumental ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.1)),
-                in: Capsule()
-            )
-            .foregroundStyle(session.isPlayingInstrumental ? .black : .white)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(session.isSwitchingTrack)
-        .accessibilityAddTraits(session.isPlayingInstrumental ? .isSelected : [])
     }
 
     private var speedLabel: String {
@@ -533,24 +601,201 @@ private struct KaraokeControlPanel: View {
             ? String(localized: "karaoke_key_original")
             : String(format: "%+d", session.keyShift)
     }
+}
 
-    private var statusMessage: String? {
-        if session.isPlayingInstrumental { return String(localized: "karaoke_backing_track_playing") }
-        if session.isEffectivelyMono { return String(localized: "karaoke_mono_warning") }
-        switch session.microphoneState {
-        case .denied: return String(localized: "karaoke_mic_denied")
-        case .unavailable: return String(localized: "karaoke_mic_unavailable")
-        case .on where !session.canMonitor: return String(localized: "karaoke_monitor_needs_wired")
-        default: break
+/// 与播放页同一条进度条，可拖动。拖离循环的句子会照常退出循环。
+private struct KaraokeProgressRow: View {
+    let player: AudioPlayerService
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ProgressSlider(
+                value: player.currentTime,
+                total: player.duration,
+                interactionID: player.currentSong?.id,
+                fillTint: .white,
+                onSeek: { player.seek(to: $0) }
+            )
+            HStack {
+                Text(player.currentTime.formattedDuration)
+                Spacer()
+                Text(player.duration.formattedDuration)
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.white.opacity(0.55))
+            // 进度条自带 44 点高的拖动热区，时间贴回细条下方。
+            .padding(.top, -12)
         }
-        if session.isVocalAssistSuppressed { return String(localized: "karaoke_vocal_assist_paused") }
-        if session.isPracticing, session.microphoneState == .on {
-            return String(localized: "karaoke_practice_not_scored")
+    }
+}
+
+/// 麦克风、录音、播放、循环、结算五个等宽槽位。每个槽位都是「64 点高的按钮区 + 一行说明」，
+/// 播放键没有说明也占着同样高的一行，所以五个圆心永远在一条线上。
+private struct KaraokeTransportRow: View {
+    let session: KaraokeSession
+
+    private var player: AudioPlayerService { session.player }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            KaraokeTransportSlot(titleKey: "karaoke_microphone") {
+                KaraokeGlassToggle(
+                    systemImage: session.microphoneState == .on ? "mic.fill" : "mic",
+                    isOn: session.microphoneState == .on,
+                    isBusy: session.microphoneState == .starting,
+                    action: session.toggleMicrophone
+                )
+                .accessibilityLabel(Text("karaoke_microphone"))
+            }
+            KaraokeTransportSlot(
+                titleKey: session.isRecording
+                    ? LocalizedStringKey("karaoke_stop_recording")
+                    : LocalizedStringKey("karaoke_record")
+            ) {
+                KaraokeGlassToggle(
+                    systemImage: session.isRecording ? "stop.fill" : "record.circle",
+                    isOn: session.isRecording,
+                    tint: .red,
+                    isBusy: session.isMixingRecording,
+                    action: session.toggleRecording
+                )
+                .disabled(!session.isRecording && !session.canRecord)
+                .accessibilityLabel(Text(session.isRecording
+                    ? LocalizedStringKey("karaoke_stop_recording")
+                    : LocalizedStringKey("karaoke_record")))
+            }
+            KaraokeTransportSlot(titleKey: nil) {
+                Button {
+                    player.togglePlayPause()
+                } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 64, height: 64)
+                        .background(.white, in: Circle())
+                        .foregroundStyle(.black)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(player.isPlaying ? LocalizedStringKey("pause") : LocalizedStringKey("play")))
+                .keyboardShortcut(.space, modifiers: [])
+            }
+            KaraokeTransportSlot(titleKey: "karaoke_loop") {
+                KaraokeGlassToggle(
+                    systemImage: "repeat",
+                    isOn: session.loop != nil,
+                    action: session.toggleLoop
+                )
+                .disabled(session.loop == nil && (session.windows.isEmpty || session.availability != .available))
+                .accessibilityLabel(Text(session.loop != nil
+                    ? LocalizedStringKey("karaoke_loop_stop")
+                    : LocalizedStringKey("karaoke_loop")))
+            }
+            KaraokeTransportSlot(titleKey: "karaoke_finish") {
+                KaraokeGlassToggle(
+                    systemImage: "flag.checkered",
+                    isOn: false,
+                    action: session.finishPerformance
+                )
+                .disabled(session.runningScore == nil)
+                .accessibilityLabel(Text("karaoke_finish"))
+            }
         }
-        if session.isMixingRecording { return String(localized: "karaoke_mixing") }
-        if session.recordingFailed { return String(localized: "karaoke_recording_failed") }
-        if session.lastRecordingURL != nil { return String(localized: "karaoke_recording_saved") }
-        return nil
+    }
+}
+
+private struct KaraokeTransportSlot<Control: View>: View {
+    let titleKey: LocalizedStringKey?
+    @ViewBuilder let control: Control
+
+    var body: some View {
+        VStack(spacing: 6) {
+            control
+                .frame(height: 64)
+            Group {
+                if let titleKey {
+                    Text(titleKey)
+                } else {
+                    Text(verbatim: " ").hidden()
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.white.opacity(0.7))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// 深色玻璃圆钮，打开时换成选中态的描边与底色，和播放页沉浸模式的圆钮一致。
+private struct KaraokeGlassToggle: View {
+    let systemImage: String
+    let isOn: Bool
+    var tint: Color = .white
+    var isBusy = false
+    let action: () -> Void
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                ImmersiveGlassActionLabel(
+                    symbol: isBusy ? "circle" : systemImage,
+                    tint: isOn ? tint : .white,
+                    diameter: 50,
+                    isSelected: isOn
+                )
+                .opacity(isBusy ? 0 : 1)
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                        .frame(width: 50, height: 50)
+                        .karaokeGlass(Circle())
+                }
+            }
+            .opacity(isEnabled ? 1 : 0.4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+}
+
+/// 卡片里的可选中胶囊（伴奏音轨、耳返）。
+private struct KaraokeOptionPill: View {
+    let titleKey: LocalizedStringKey
+    let systemImage: String
+    let isOn: Bool
+    var isBusy = false
+    let action: () -> Void
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isBusy {
+                    ProgressView().controlSize(.mini).tint(.white)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.footnote.weight(.semibold))
+                }
+                Text(titleKey)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .foregroundStyle(isOn ? .black : .white)
+            .background(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.1)), in: Capsule())
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
 
@@ -574,7 +819,6 @@ private struct KaraokeAISeparationRow: View {
                 Spacer(minLength: 8)
                 Toggle("karaoke_ai_title", isOn: $session.aiSeparationEnabled)
                     .labelsHidden()
-                    .tint(.white.opacity(0.6))
             }
             .foregroundStyle(.white)
         }
@@ -665,14 +909,14 @@ private struct KaraokeStageMenu: View {
                 aiHousekeeping
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 36, height: 36)
-                .background(.white.opacity(0.12), in: Circle())
-                .foregroundStyle(.white)
+            ImmersiveGlassActionLabel(symbol: "ellipsis", diameter: 40)
         }
+        #if os(macOS)
         .menuStyle(.button)
         .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        #endif
         .accessibilityLabel(Text("more"))
         .onAppear { cacheSize = session.separation.cacheSizeBytes() }
     }
@@ -719,7 +963,7 @@ private struct KaraokeLoopChip: View {
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(.white.opacity(0.18), in: Capsule())
+                        .background(.white.opacity(0.16), in: Capsule())
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -729,7 +973,7 @@ private struct KaraokeLoopChip: View {
         .padding(.leading, 10)
         .padding(.trailing, session.canExtendLoop ? 4 : 10)
         .padding(.vertical, 4)
-        .background(.white.opacity(0.14), in: Capsule())
+        .karaokeGlass(Capsule())
     }
 }
 
@@ -744,11 +988,14 @@ private struct KaraokeStepper: View {
     let stepDown: () -> Void
     let stepUp: () -> Void
 
+    @Environment(\.isEnabled) private var isEnabled
+
     var body: some View {
         HStack(spacing: 0) {
             Button(action: stepDown) {
                 Image(systemName: "minus")
-                    .frame(width: 32, height: 32)
+                    .font(.footnote.weight(.bold))
+                    .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
             }
             .disabled(!canStepDown)
@@ -762,12 +1009,14 @@ private struct KaraokeStepper: View {
                     .font(.subheadline.monospacedDigit().weight(.semibold))
             }
             .lineLimit(1)
-            .frame(minWidth: 50)
+            .minimumScaleFactor(0.8)
+            .frame(maxWidth: .infinity)
             .accessibilityElement(children: .combine)
 
             Button(action: stepUp) {
                 Image(systemName: "plus")
-                    .frame(width: 32, height: 32)
+                    .font(.footnote.weight(.bold))
+                    .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
             }
             .disabled(!canStepUp)
@@ -775,49 +1024,12 @@ private struct KaraokeStepper: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white)
-        .padding(.horizontal, 4)
-        .background(.white.opacity(0.1), in: Capsule())
+        .opacity(isEnabled ? 1 : 0.4)
+        .background(.white.opacity(0.08), in: Capsule())
+        .frame(maxWidth: .infinity)
     }
 }
 
-private struct KaraokeToolButton: View {
-    let titleKey: LocalizedStringKey
-    let systemImage: String
-    let isOn: Bool
-    var tint: Color = .white
-    var isBusy = false
-    let action: () -> Void
-
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                ZStack {
-                    if isBusy {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else {
-                        Image(systemName: systemImage)
-                            .font(.system(size: 18, weight: .semibold))
-                    }
-                }
-                .frame(width: 44, height: 44)
-                .background(isOn ? tint.opacity(0.9) : .white.opacity(0.12), in: Circle())
-                .foregroundStyle(isOn ? (tint == .white ? .black : .white) : .white)
-                Text(titleKey)
-                    .font(.caption2)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .foregroundStyle(.white.opacity(0.8))
-            }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-            .opacity(isEnabled ? 1 : 0.4)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-    }
-}
 
 private struct KaraokeScoreBadge: View {
     let score: Int
@@ -825,15 +1037,16 @@ private struct KaraokeScoreBadge: View {
     var body: some View {
         VStack(spacing: 0) {
             Text("\(score)")
-                .font(.system(size: 22, weight: .heavy, design: .rounded).monospacedDigit())
+                .font(.system(size: 20, weight: .heavy, design: .rounded).monospacedDigit())
                 .contentTransition(.numericText(value: Double(score)))
             Text("karaoke_score")
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.6))
         }
+        .foregroundStyle(.white)
         .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(height: 44)
+        .karaokeGlass(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }
@@ -865,18 +1078,80 @@ private struct KaraokeNotice: View {
     }
 }
 
-private struct KaraokeStageBackground: View {
+/// 与播放页深色外观同一套氛围底：封面取色的缓动色场，再压一层保证白字可读的暗幕。
+/// 卡拉OK的歌词比播放页大、停留久，暗幕在中段再加深一点。
+private struct KaraokeStageBackdrop: View {
+    let isPlaying: Bool
+
+    @Environment(ThemeService.self) private var theme
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private static let baseColor = Color(red: 0.035, green: 0.043, blue: 0.055)
+
     var body: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.09, green: 0.05, blue: 0.2),
-                Color(red: 0.02, green: 0.02, blue: 0.06),
-                Color(red: 0.12, green: 0.03, blue: 0.14),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
+        let hasArtwork = theme.hasArtworkAmbient
+        let primaryOpacity = hasArtwork ? 0.88 : 0.34
+        let secondaryOpacity = hasArtwork ? 0.70 : 0.26
+        let overlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
+            paletteLuminance: hasArtwork ? theme.artworkLuminance : 0.18,
+            primaryOpacity: primaryOpacity,
+            secondaryOpacity: secondaryOpacity,
+            usesIncreasedContrast: contrast == .increased
         )
+
+        ZStack {
+            AdaptiveNowPlayingBackdrop(
+                baseColor: Self.baseColor,
+                primaryAccent: theme.accentColor,
+                secondaryAccent: theme.secondaryAccent,
+                darkAccent: theme.darkAccent,
+                primaryOpacity: primaryOpacity,
+                secondaryOpacity: secondaryOpacity,
+                hasArtworkPalette: hasArtwork,
+                isVisible: true,
+                isSceneActive: scenePhase == .active,
+                isPlaying: isPlaying,
+                paletteVibrancy: hasArtwork ? theme.artworkVibrancy : 0,
+                paletteLuminance: hasArtwork ? theme.artworkLuminance : 0.18
+            )
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(overlay.topOpacity), location: 0),
+                    .init(color: .black.opacity(min(0.9, overlay.middleOpacity + 0.12)), location: 0.5),
+                    .init(color: .black.opacity(overlay.bottomOpacity), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .animation(.easeInOut(duration: 0.5), value: theme.colorID)
         .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// 播放页深色玻璃的平面版：材质 + 轻压暗 + 细白描边。卡片、胶囊、圆钮共用。
+private struct KaraokeGlass<S: InsettableShape>: ViewModifier {
+    let shape: S
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                shape.fill(.ultraThinMaterial)
+                    .environment(\.colorScheme, .dark)
+                shape.fill(.black.opacity(0.16))
+            }
+            .overlay {
+                shape.strokeBorder(.white.opacity(0.14), lineWidth: 0.8)
+            }
+    }
+}
+
+extension View {
+    fileprivate func karaokeGlass<S: InsettableShape>(_ shape: S) -> some View {
+        modifier(KaraokeGlass(shape: shape))
     }
 }
 
