@@ -244,6 +244,9 @@ struct ListeningStatsView: View {
                 if let snapshot {
                     if snapshot.hasHistory {
                         macSummarySection(snapshot: snapshot)
+                        if snapshot.spokenWordSec > 0 {
+                            macSpokenWordTimeLine(snapshot.spokenWordSec)
+                        }
                         macHeatmapCard(snapshot: snapshot)
                         macActivityCharts(timeline: snapshot.timeline)
                         macTopCards(snapshot: snapshot)
@@ -421,6 +424,24 @@ struct ListeningStatsView: View {
                                snapshot.heavyRotationCount
                            ))
         }
+    }
+
+    /// Books are counted apart from the music figures above.
+    private func macSpokenWordTimeLine(_ seconds: TimeInterval) -> some View {
+        let minutes = Int(seconds / 60)
+        return HStack(spacing: 8) {
+            Image(systemName: ListeningSpace.spokenWord.systemImage)
+                .font(.system(size: 12))
+                .foregroundStyle(ListeningSpace.spokenWord.tint)
+            Text("stats_spoken_word_time")
+                .font(.system(size: 12))
+                .foregroundStyle(PMColor.textMuted)
+            Text(verbatim: "\(minutes / 60)h \(minutes % 60)m")
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundStyle(PMColor.text)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private func macSummaryCell(value: String, label: String, sub: String) -> some View {
@@ -886,6 +907,9 @@ struct ListeningStatsView: View {
         let topSongs: [PlayHistoryStore.RankedItem]
         let topArtists: [PlayHistoryStore.RankedItem]
         let topAlbums: [PlayHistoryStore.RankedItem]
+        /// Time spent on audiobooks and other spoken word in the range. Kept
+        /// apart: everything else in the snapshot is music only.
+        var spokenWordSec: TimeInterval = 0
         #if os(macOS)
         fileprivate var heatmap = MacHeatmapSnapshot()
         #endif
@@ -920,6 +944,9 @@ struct ListeningStatsView: View {
     fileprivate struct StatsSnapshotRequest: Equatable, Sendable {
         let presentation: StatsPresentationKey
         let historyRevision: Int
+        /// A kind correction changes the music / spoken-word split without
+        /// touching the history itself.
+        let spokenWordSongIDs: Set<String>
     }
 
     private var macPresentationKey: StatsPresentationKey {
@@ -948,9 +975,11 @@ struct ListeningStatsView: View {
         guard !Task.isCancelled, trigger == macRefreshTrigger else { return }
 
         let store = PlayHistoryStore.shared
+        let spokenWordSongIDs = store.spokenWordSongIDs
         let request = StatsSnapshotRequest(
             presentation: trigger.presentation,
-            historyRevision: store.revision
+            historyRevision: store.revision,
+            spokenWordSongIDs: spokenWordSongIDs
         )
         guard model.request != request || model.snapshot == nil else { return }
 
@@ -960,6 +989,7 @@ struct ListeningStatsView: View {
         let snapshot = await Task.detached(priority: .userInitiated) {
             Self.makeStatsSnapshot(
                 entries: entries,
+                spokenWordSongIDs: spokenWordSongIDs,
                 range: trigger.presentation.range,
                 displayYear: trigger.presentation.displayYear,
                 now: now,
@@ -981,6 +1011,7 @@ struct ListeningStatsView: View {
     private func makeStatsSnapshot(rankLimit: Int = 6) -> StatsSnapshot {
         Self.makeStatsSnapshot(
             entries: store.entries,
+            spokenWordSongIDs: store.spokenWordSongIDs,
             range: range,
             displayYear: heatmapYear,
             now: Date(),
@@ -990,7 +1021,8 @@ struct ListeningStatsView: View {
     }
 
     nonisolated static func makeStatsSnapshot(
-        entries: [PlayHistoryStore.Entry],
+        entries allEntries: [PlayHistoryStore.Entry],
+        spokenWordSongIDs: Set<String> = [],
         range: PlayHistoryStore.Range,
         displayYear: Int?,
         now: Date,
@@ -1004,6 +1036,16 @@ struct ListeningStatsView: View {
             currentStart: currentStart,
             calendar: calendar
         )
+        // Rankings, totals and the activity charts are music; spoken word is
+        // only totalled, on its own line.
+        var spokenWordSec: TimeInterval = 0
+        if !spokenWordSongIDs.isEmpty {
+            for entry in allEntries where spokenWordSongIDs.contains(entry.songID)
+                && entry.playedAt >= currentStart && entry.playedAt <= now {
+                spokenWordSec += entry.listenedSec.isFinite ? max(0, entry.listenedSec) : 0
+            }
+        }
+        let entries = PlayHistoryStore.musicEntries(allEntries, excluding: spokenWordSongIDs)
         var scopedEntries: [PlayHistoryStore.Entry] = []
         var previousPlayCount = 0
         for entry in entries {
@@ -1025,14 +1067,15 @@ struct ListeningStatsView: View {
         let summary = PlayHistoryStore.summary(for: scopedEntries, calendar: calendar)
 
         var snapshot = StatsSnapshot(
-            hasHistory: !entries.isEmpty,
+            hasHistory: !allEntries.isEmpty,
             summary: summary,
             timeline: timeline,
             previousPlayCount: range == .all ? nil : previousPlayCount,
             heavyRotationCount: playsBySong.values.lazy.filter { $0.count >= 5 }.count,
             topSongs: PlayHistoryStore.rankedItems(from: scopedEntries, category: .songs, limit: rankLimit),
             topArtists: PlayHistoryStore.rankedItems(from: scopedEntries, category: .artists, limit: rankLimit),
-            topAlbums: PlayHistoryStore.rankedItems(from: scopedEntries, category: .albums, limit: rankLimit)
+            topAlbums: PlayHistoryStore.rankedItems(from: scopedEntries, category: .albums, limit: rankLimit),
+            spokenWordSec: spokenWordSec
         )
         #if os(macOS)
         snapshot.heatmap = makeMacHeatmapSnapshot(timeline: timeline, range: range, now: now, calendar: calendar)
@@ -1105,9 +1148,33 @@ struct ListeningStatsView: View {
                                 color: .purple)
                 }
                 .fixedSize(horizontal: false, vertical: true)
+                if snapshot.spokenWordSec > 0 {
+                    spokenWordTimeRow(snapshot.spokenWordSec)
+                }
             }
             .padding(.vertical, 4)
         }
+    }
+
+    /// A single line under the music figures: books are counted, just not as
+    /// music.
+    private func spokenWordTimeRow(_ seconds: TimeInterval) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: ListeningSpace.spokenWord.systemImage)
+                .font(.caption)
+                .foregroundStyle(ListeningSpace.spokenWord.tint)
+            Text("stats_spoken_word_time")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Text(verbatim: formatHours(seconds))
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(ListeningSpace.spokenWord.tint.opacity(0.08)))
+        .accessibilityElement(children: .combine)
     }
 
     private func summaryCell(value: String, label: String, icon: String, color: Color) -> some View {

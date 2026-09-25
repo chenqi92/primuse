@@ -268,6 +268,10 @@ private struct BatchCoverPickerLabel: View {
 /// being seen first.
 struct TagTidyView: View {
     let songs: [Song]
+    /// Opened from settings over the whole library rather than a selection:
+    /// the counts say how much was checked, and the AI service only sees the
+    /// songs the rules flagged.
+    var isLibraryWide = false
     var onFinished: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
@@ -279,14 +283,30 @@ struct TagTidyView: View {
     @State private var aiStatus: String?
     @State private var aiTask: Task<Void, Never>?
     @State private var review: TagChangeReviewInput?
+    @State private var isCheckingLocally = true
+
+    /// What goes to the AI service. A selection goes whole; the library goes
+    /// as the songs the rules changed or could not settle, so the request
+    /// budget is spent where the tags look wrong. Filled once the local
+    /// check has finished.
+    @State private var aiCandidates: [Song] = []
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
+                    if isLibraryWide {
+                        LabeledContent("tag_tidy_library_checked") {
+                            Text("\(songs.count)").monospacedDigit()
+                        }
+                    }
                     LabeledContent("tag_tidy_local_found") {
-                        Text("\(localProposals.count)")
-                            .monospacedDigit()
+                        if isCheckingLocally {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("\(localProposals.count)")
+                                .monospacedDigit()
+                        }
                     }
                 } footer: {
                     Text("tag_tidy_local_footer")
@@ -313,6 +333,7 @@ struct TagTidyView: View {
                             } label: {
                                 Label(String(localized: "tag_tidy_ask_ai"), systemImage: "sparkles")
                             }
+                            .disabled(isCheckingLocally || aiCandidates.isEmpty)
                         }
                         if !aiProposals.isEmpty || aiStatus != nil {
                             LabeledContent("tag_tidy_ai_found") {
@@ -332,10 +353,10 @@ struct TagTidyView: View {
                 } header: {
                     Text("tag_tidy_ai_section")
                 } footer: {
-                    if intelligence.isTagCleanupAvailable {
+                    if intelligence.isTagCleanupAvailable, !isCheckingLocally {
                         Text(String(
                             format: String(localized: "tag_tidy_ai_footer_format"),
-                            min(songs.count, TagCleanupAIExchange.maximumSongs)
+                            min(aiCandidates.count, TagCleanupAIExchange.maximumSongs)
                         ))
                     }
                 }
@@ -354,12 +375,16 @@ struct TagTidyView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("batch_edit_review") {
+                        let proposals = TagCleanupPolicy.merging(aiProposals, localProposals)
+                        let changedIDs = Set(proposals.map(\.songID))
                         review = TagChangeReviewInput(
-                            songs: songs,
+                            // Only the songs with something to review: the
+                            // review list is grouped per song it is given.
+                            songs: songs.filter { changedIDs.contains($0.id) },
                             // What the AI service suggested wins over the
                             // mechanical rule for the same field: it saw the
                             // whole list. The rules fill in what it left.
-                            proposals: TagCleanupPolicy.merging(aiProposals, localProposals),
+                            proposals: proposals,
                             coverData: nil,
                             showsReasons: true
                         )
@@ -375,10 +400,24 @@ struct TagTidyView: View {
             }
             .task {
                 let year = Calendar.current.component(.year, from: Date())
-                localProposals = TagCleanupPolicy.proposals(
-                    for: songs.map(BatchTagEditService.cleanupSong),
-                    currentYear: year
-                )
+                let cleanupSongs = songs.map(BatchTagEditService.cleanupSong)
+                // A whole library is tens of thousands of rows; keep the
+                // string work off the main thread.
+                let (proposals, attention) = await Task.detached(priority: .userInitiated) {
+                    (
+                        TagCleanupPolicy.proposals(for: cleanupSongs, currentYear: year),
+                        Set(cleanupSongs.lazy.filter(TagCleanupPolicy.needsAttention).map(\.id))
+                    )
+                }.value
+                guard !Task.isCancelled else { return }
+                localProposals = proposals
+                if isLibraryWide || songs.count > TagCleanupAIExchange.maximumSongs {
+                    let flagged = attention.union(proposals.map(\.songID))
+                    aiCandidates = songs.filter { flagged.contains($0.id) }
+                } else {
+                    aiCandidates = songs
+                }
+                isCheckingLocally = false
             }
             .onDisappear { aiTask?.cancel() }
         }
@@ -392,7 +431,7 @@ struct TagTidyView: View {
         aiProposals = []
         // Songs of one album travel together so the service sees the
         // spellings it is asked to unify side by side.
-        let ordered = songs.sorted {
+        let ordered = aiCandidates.sorted {
             ($0.albumTitle ?? "", $0.discNumber ?? 0, $0.trackNumber ?? 0)
                 < ($1.albumTitle ?? "", $1.discNumber ?? 0, $1.trackNumber ?? 0)
         }.map(BatchTagEditService.cleanupSong)
@@ -782,6 +821,8 @@ extension TagCleanupProposal {
         case .unifiedSpelling: return String(localized: "tag_reason_unified_spelling")
         case .invalidYear: return String(localized: "tag_reason_invalid_year")
         case .trackFromFileName: return String(localized: "tag_reason_track_from_file")
+        case .titleFromFileName: return String(localized: "tag_reason_title_from_file")
+        case .copyCounter: return String(localized: "tag_reason_copy_counter")
         case .assistant: return nil
         }
     }

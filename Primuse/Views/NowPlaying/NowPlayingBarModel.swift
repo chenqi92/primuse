@@ -75,6 +75,8 @@ struct NowPlayingBarModel {
     var isLiveRadio: Bool { player.isLiveRadio }
     /// 直播电台能不能切到下一台。
     var canSwitchRadioStation: Bool { player.canSwitchRadioStation }
+    /// 正在听的是音乐、电台还是有声,播放条用它的颜色标出来。
+    var listeningSpace: ListeningSpace? { player.currentListeningSpace }
     /// 有声内容:下一首换成「前进 30 秒」。
     var isSpokenWord: Bool { player.currentItemIsSpokenWord }
     var spokenWordSkipForwardSymbol: String { player.spokenWordSkipForwardSymbol }

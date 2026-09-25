@@ -192,15 +192,18 @@ extension AudioPlayerService {
     /// item in a one-song queue. Once the current shuffle round is exhausted,
     /// append currently visible playable songs that are not already present
     /// and make only those new entries the next shuffle segment.
+    /// Music only: a book ends with its last chapter rather than running on
+    /// into the library, and chapters are never shuffled in among songs.
     @discardableResult
     func extendExhaustedShuffleFromLibrary() -> Bool {
         guard shuffleEnabled,
               repeatMode != .one,
+              ShuffleLibraryContinuationPolicy.continuesFromLibrary(currentSpace: currentListeningSpace),
               nextSongInQueue() == nil,
               let library,
               queueEntries.indices.contains(currentIndex) else { return false }
 
-        let playable = library.visibleSongs.filteredPlayable()
+        let playable = library.musicSongs.filteredPlayable()
         let candidateIDs = ShuffleContinuationPolicy.candidateIDs(
             queueIDs: queueEntries.map(\.song.id),
             libraryIDs: playable.map(\.id),

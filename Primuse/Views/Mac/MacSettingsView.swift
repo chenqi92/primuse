@@ -2635,6 +2635,7 @@ private struct MacSTScrapingView: View {
     @AppStorage(EmbeddedLyricsCopyPolicy.modeDefaultsKey) private var lyricsEmbeddingModeRaw = ""
     @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
     @State private var showLyricsServersSheet = false
+    @State private var libraryTidySongs: BatchSongSelection?
     @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
@@ -2759,7 +2760,18 @@ private struct MacSTScrapingView: View {
                     }
                 }
                 .settingsAnchor("scraping.fillMissing")
+                MacSTRow(String(localized: "tag_tidy_library_action"), hint: String(localized: "tag_tidy_library_footer")) {
+                    MacSTButton(title: String(localized: "tag_tidy_library_button"), systemImage: "wand.and.sparkles") {
+                        libraryTidySongs = BatchSongSelection(songs: library.songs.filter {
+                            $0.sourceID != AppleMusicLibraryService.systemSourceID
+                        })
+                    }
+                }
+                .settingsAnchor("scraping.tidyLibrary")
             }
+        }
+        .sheet(item: $libraryTidySongs) { batch in
+            TagTidyView(songs: batch.songs, isLibraryWide: true)
         }
         .sheet(isPresented: $showImportSheet) {
             importScraperSheet

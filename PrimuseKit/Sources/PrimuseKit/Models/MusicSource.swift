@@ -219,6 +219,14 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         isSubsonicFamily || isMediaServer
     }
 
+    /// 目录在分页途中变了时能不能接着走。这两类服务器的每一行都带稳定 id，
+    /// 重复出现的行能认出来跳过，所以换到新修订继续读、结果只增改不删，比整轮
+    /// 作废重来更可取 —— 公共大服务器几乎一直在入库，Navidrome 的文件监视也会
+    /// 在走查中途推进 `lastScan`，严格快照永远走不完。删除仍然只认没漂移过的走查。
+    public var toleratesPagedCatalogDrift: Bool {
+        isMediaServer || isSubsonicFamily
+    }
+
     /// How much one completed catalogue walk may conclude about rows it did
     /// not see. Jellyfin and Emby enumerate by stable item id and report a
     /// per-library total with every page, so a snapshot that passed first-page,

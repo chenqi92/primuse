@@ -272,7 +272,7 @@ struct TVRankingBrowser: View {
             let selectedPeriod = period
             let selectedCategory = category
             let folders = selectedCategory == .folders ? await store.makeFolderIndex() : nil
-            let events = PlayHistoryStore.shared.entries.map {
+            let events = PlayHistoryStore.shared.musicEntries.map {
                 HomeListeningEvent(songID: $0.songID, playedAt: $0.playedAt, listenedSeconds: $0.listenedSec)
             }
             let songs = Dictionary(uniqueKeysWithValues: store.songIDs.compactMap { id in

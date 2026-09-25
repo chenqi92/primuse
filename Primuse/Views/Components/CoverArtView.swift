@@ -40,38 +40,28 @@ struct CoverArtView: View {
 }
 
 #if os(macOS)
+/// Mac 上没有封面（或还在读）时的占位：和 iPhone 一样的浅灰底 + 音符。
+/// 以前这里用 App 图标，加载时会先闪一下图标再换成真封面，也和手机不一致。
 struct MacDefaultArtwork: View {
+    /// 调用方仍会传加载状态；占位本身不再区分，读完前后都是同一张。
     var isLoading = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Image("AppIconPreview")
-            .renderingMode(.original)
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fill)
-            .overlay(alignment: .bottom) {
-                GeometryReader { geometry in
-                    let side = min(geometry.size.width, geometry.size.height)
-                    if isLoading, side >= 120 {
-                        VStack {
-                            Spacer()
-                            HStack(spacing: 6) {
-                                Text("app_name")
-                                    .font(.system(size: min(max(side * 0.055, 10), 20), weight: .medium))
-                                if !reduceMotion {
-                                    ProgressView()
-                                        .controlSize(.mini)
-                                }
-                            }
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.bottom, side * 0.07)
-                        }
-                    }
-                }
+        GeometryReader { geometry in
+            let side = min(geometry.size.width, geometry.size.height)
+            ZStack {
+                LinearGradient(
+                    colors: [Color.gray.opacity(0.2), Color.gray.opacity(0.3)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Image(systemName: "music.note")
+                    .font(.system(size: max(side * 0.25, 8)))
+                    .foregroundStyle(.secondary)
             }
-            .accessibilityHidden(true)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .accessibilityHidden(true)
     }
 }
 #endif

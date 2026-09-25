@@ -290,6 +290,56 @@ struct TagCleanupPolicyTests {
                                               newValue: "7", reason: .trackFromFileName)])
     }
 
+    @Test("A title that repeats the artist is recovered from the file name")
+    func titleFromFileName() {
+        let result = proposals([TagCleanupSong(
+            id: "1", title: "王菲 (1)", artist: "王菲 (1)", album: "只爱陌生人",
+            fileName: "/Music/百年孤寂 - 王菲.mp3"
+        )])
+        #expect(Set(result) == [
+            TagCleanupProposal(songID: "1", field: .title, oldValue: "王菲 (1)",
+                               newValue: "百年孤寂", reason: .titleFromFileName),
+            TagCleanupProposal(songID: "1", field: .artist, oldValue: "王菲 (1)",
+                               newValue: "王菲", reason: .copyCounter),
+        ])
+    }
+
+    @Test("Without file name evidence a repeated title is only flagged")
+    func repeatedTitleWithoutEvidence() {
+        let song = TagCleanupSong(id: "1", title: "王菲", artist: "王菲", fileName: "track.mp3")
+        #expect(proposals([song]).isEmpty)
+        #expect(TagCleanupPolicy.needsAttention(song))
+        #expect(!TagCleanupPolicy.needsAttention(
+            TagCleanupSong(id: "2", title: "红豆", artist: "王菲", fileName: "红豆.mp3")
+        ))
+    }
+
+    @Test("A copy counter on the title goes when the file name has the bare title")
+    func titleCopyCounter() {
+        let result = proposals([TagCleanupSong(
+            id: "1", title: "红豆 (1)", artist: "王菲", fileName: "王菲 - 红豆.flac"
+        )])
+        #expect(result == [TagCleanupProposal(songID: "1", field: .title, oldValue: "红豆 (1)",
+                                              newValue: "红豆", reason: .copyCounter)])
+        #expect(proposals([TagCleanupSong(
+            id: "2", title: "红豆 (1)", artist: "王菲", fileName: "红豆 (1).flac"
+        )]).isEmpty)
+    }
+
+    @Test("An artist copy joins the plain spelling in the same selection, albums do not")
+    func artistCopyCounterAcrossSelection() {
+        let result = proposals([
+            TagCleanupSong(id: "1", title: "红豆", artist: "王菲", album: "Hits"),
+            TagCleanupSong(id: "2", title: "流年", artist: "王菲 (1)", album: "Hits (2)"),
+        ])
+        #expect(result == [TagCleanupProposal(songID: "2", field: .artist, oldValue: "王菲 (1)",
+                                              newValue: "王菲", reason: .copyCounter)])
+        #expect(proposals([
+            TagCleanupSong(id: "1", title: "Song", artist: "Band (1994)"),
+            TagCleanupSong(id: "2", title: "Song 2", artist: "Band"),
+        ]).isEmpty)
+    }
+
     @Test("Applying only the switched-on proposals")
     func applying() {
         let song = TagCleanupSong(id: "1", title: "03. Yesterday", artist: "B")

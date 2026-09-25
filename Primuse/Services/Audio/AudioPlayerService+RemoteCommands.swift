@@ -181,12 +181,37 @@ extension AudioPlayerService {
 
     func scheduleSleep(minutes: Int) {
         cancelSleep()
-        let endDate = Date().addingTimeInterval(TimeInterval(minutes * 60))
+        let total = TimeInterval(minutes * 60)
+        let endDate = Date().addingTimeInterval(total)
         sleepTimerEndDate = endDate
         sleepTimerTask = Task {
-            try? await Task.sleep(for: .seconds(minutes * 60))
+            // Wait until the fade begins, then bring the level down over the
+            // last half minute so falling asleep does not end on a hard cut.
+            let fadeStart = max(0, total - SleepFadePolicy.fadeDuration)
+            do {
+                try await Task.sleep(for: .seconds(fadeStart))
+            } catch {
+                return
+            }
             guard !Task.isCancelled else { return }
+            let restoreVolume = self.audioEngine.userVolume
+            while true {
+                let remaining = endDate.timeIntervalSinceNow
+                if remaining <= 0 { break }
+                self.setPlaybackVolume(
+                    restoreVolume * SleepFadePolicy.volume(remaining: remaining),
+                    persist: false
+                )
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    // Cancelled mid-fade: give the listener their level back.
+                    self.setPlaybackVolume(restoreVolume, persist: false)
+                    return
+                }
+            }
             self.pause()
+            self.setPlaybackVolume(restoreVolume, persist: false)
             self.sleepTimerEndDate = nil
         }
     }
@@ -204,5 +229,6 @@ extension AudioPlayerService {
         sleepTimerEndDate = nil
         sleepStopAfterSongID = nil
         sleepStopAfterChapter = nil
+        sleepStopAfterBook = nil
     }
 }

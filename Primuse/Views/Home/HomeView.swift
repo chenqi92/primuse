@@ -488,6 +488,8 @@ struct HomeView: View {
     /// 由「设置 › 外观 › 界面编辑」嵌入时为 true：去掉自己的导航栈与工具栏，
     /// 每个区块套上编辑操作条，内容本身不可点 —— 编辑的是版面，不是内容。
     var editorMode = false
+    /// Home cards and "see all" links that lead into radio or spoken word.
+    var openListeningSpace: ((ListeningSpace) -> Void)? = nil
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(CoverTintProvider.self) private var tintProvider
@@ -573,9 +575,25 @@ struct HomeView: View {
         #endif
     }
 
-    private var homeMode: HomeMode {
-        guard showsRadioFace else { return .music }
-        return HomeMode(rawValue: homeModeRawValue) ?? .music
+    /// 首页不再翻面到电台:电台有了自己的标签页,首页只放一块电台区。
+    private var homeMode: HomeMode { .music }
+
+    @AppStorage(ListeningSpacesIntroductionPolicy.seenKey) private var hasSeenListeningSpacesIntro = false
+
+    /// 老用户第一次看到新布局时的一张说明卡。新装的人一开始就是新布局(首启引导
+    /// 那一刻已记为看过),顶部 tab 外壳是另一套布局,两者都不出。
+    private var showsListeningSpacesIntro: Bool {
+        #if os(iOS)
+        guard !usesTopTabsShell else { return false }
+        #endif
+        return ListeningSpacesIntroductionPolicy.shouldShow(
+            hasSeen: hasSeenListeningSpacesIntro,
+            isExistingUser: model.snapshot.hasContent
+        )
+    }
+
+    private func openSpace(_ space: ListeningSpace) {
+        openListeningSpace?(space)
     }
 
     /// 是不是该按 iPad 那档取尺寸与条目数。
@@ -710,23 +728,17 @@ struct HomeView: View {
             .minimalNavigationRoot()
             #endif
             .toolbar {
+                // 设置从标签栏挪到这里。极简导航的顶栏自带设置入口,不重复。
                 #if os(iOS)
-                if showsRadioFace {
-                    if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            modeToggleButton
-                        }
-                        .sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            modeToggleButton
-                        }
+                if !usesTopTabsShell, let switchToSettingsTab {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        HomeSettingsButton(action: switchToSettingsTab)
                     }
                 }
                 #else
-                if showsRadioFace {
+                if let switchToSettingsTab {
                     ToolbarItem(placement: .primaryAction) {
-                        modeToggleButton
+                        HomeSettingsButton(action: switchToSettingsTab)
                     }
                 }
                 #endif
@@ -945,11 +957,16 @@ struct HomeView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 20)
-                if showsRadioToggleInEditor {
-                    homeEditorRadioToggle
-                }
+                homeEditorRadioToggle
             } else if model.snapshot.hasContent {
                 libraryHeroSection
+            }
+            if !editorMode {
+                if showsListeningSpacesIntro {
+                    HomeListeningSpacesIntroCard()
+                }
+                HomeContinueSpacesRow(openSpace: openSpace)
+                HomeBooksInProgressStrip(minimumCount: 2, openSpace: openSpace)
             }
 
             if usesTwoColumnHome {
@@ -1010,8 +1027,10 @@ struct HomeView: View {
                 HomeDeferredSection { continueListeningSection(style) }
             }
         case .radio:
-            // 电台有自己的模式(右上角切换)，音乐态里不再重复一块。
-            EmptyView()
+            // 电台有了自己的标签页;首页留一条横排,没有电台时是一张添加卡片。
+            if showRadioOnHome {
+                HomeRadioSpaceSection(openSpace: openSpace)
+            }
         case .quickAccess:
             if showQuickAccess, !model.snapshot.quickItems.isEmpty {
                 HomeDeferredSection { quickAccessSection(style) }
@@ -1109,15 +1128,6 @@ struct HomeView: View {
             : homeLayout.rowCount(for: section) + 1
         configuration.setRowCount(next, for: section)
         homeSectionLayoutRawValue = configuration.encoded()
-    }
-
-    /// 顶部 tab 外壳没有首页翻面,这个开关在那里没有意义。
-    private var showsRadioToggleInEditor: Bool {
-        #if os(iOS)
-        !usesTopTabsShell
-        #else
-        true
-        #endif
     }
 
     /// 电台是首页的另一面（右上角切换），不参与区块排序，但用户在这里就想
@@ -3667,8 +3677,11 @@ struct HomeView: View {
     private func playSong(_ song: Song) {
         plog("🏠 playSong TAPPED: '\(song.title)' id=\(song.id.prefix(12)) path=\(song.filePath)")
 
-        // Build queue from recently played songs, supplemented by library
-        var queueSongs = library.recentlyPlayedSongs(limit: 50)
+        // Build queue from recently played songs, supplemented by library.
+        // Those are songs only; a chapter found by search plays on its own
+        // rather than running on into music.
+        let isSpokenWord = library.spokenWordSongIDs.contains(song.id)
+        var queueSongs = isSpokenWord ? [song] : library.recentlyPlayedSongs(limit: 50)
         plog("🏠 recentlyPlayed queue: \(queueSongs.count) songs, first3=\(queueSongs.prefix(3).map(\.title))")
 
         // If tapped song isn't in recent list, prepend it
@@ -3678,9 +3691,9 @@ struct HomeView: View {
         }
 
         // Supplement with library songs if queue is too small
-        if queueSongs.count < 20 {
+        if queueSongs.count < 20, !isSpokenWord {
             let existingIDs = Set(queueSongs.map(\.id))
-            let extra = library.visibleSongs.filter { !existingIDs.contains($0.id) }
+            let extra = library.musicSongs.filter { !existingIDs.contains($0.id) }
             queueSongs.append(contentsOf: extra)
         }
 
@@ -3706,7 +3719,7 @@ struct HomeView: View {
         // Skip cloud songs that haven't been backfilled yet — they have no
         // duration / cover / metadata and would land in the queue with a
         // blank progress bar. Once backfill catches up they become eligible.
-        let candidates = library.visibleSongs.filteredPlayable()
+        let candidates = library.musicSongs.filteredPlayable()
         guard !candidates.isEmpty else { return }
 
         let queueSongs = shuffled ? candidates.shuffled() : candidates

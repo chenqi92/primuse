@@ -151,7 +151,7 @@ final class CarPlayEditorCatalog {
             playlists: playlists, memberships: Dictionary(uniqueKeysWithValues: playlists.map { ($0.id, library.rawSongIDs(forPlaylist: $0.id)) }),
             stations: AppServices.shared.radioStationsStore.stations.map {
                 CarPlayHomeItem(id: $0.id, title: $0.name, subtitle: $0.playbackSubtitle, symbol: "radio", target: .radio($0.id))
-            }, artistNames: library.artistNameConfiguration, history: PlayHistoryStore.shared.entries.map(\.listeningEvent), artists: library.visibleArtists)
+            }, artistNames: library.artistNameConfiguration, history: PlayHistoryStore.shared.musicEntries.map(\.listeningEvent), artists: library.visibleArtists)
         load(input, sourceVersion: version)
     }
 

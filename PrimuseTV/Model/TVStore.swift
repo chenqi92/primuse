@@ -678,6 +678,15 @@ final class TVStore {
     }
     var isMusicVideoModeEnabled = false
     var sleepTimerMinutes = 0   // 0 = 关闭
+
+    // 有声内容的续播:每一条记住自己听到哪一秒(与 iPhone / Mac 共用 SpokenWordStore)。
+    /// 正在播的这条是有声内容。正在播放页据此把上一首 / 下一首换成后退 15 / 前进 30 秒。
+    private(set) var currentItemIsSpokenWord = false
+    /// 这一条已经真正开始出声:之前时钟报的是解码器起点,写进去会把保存的位置抹掉。
+    @ObservationIgnored private var spokenWordPositionArmed = false
+    /// 续播目标还没落地(引擎没按起点开播时,开播后再补一次定位)。
+    @ObservationIgnored private var pendingSpokenWordResume: (songID: String, position: Double)?
+    @ObservationIgnored private var lastSpokenWordPositionSave: Double = 0
     @ObservationIgnored private var sleepWorkItem: DispatchWorkItem?
 
     /// 当前正在播放的真实 Song id(队列当前位)。
@@ -758,7 +767,15 @@ final class TVStore {
     func song(_ id: String) -> TVSong? { songByID[id] }
 
     func songs(forArtistID id: String) -> [TVSong] {
-        library.songs(forArtist: id).compactMap { song($0.id) }
+        let spokenWordIDs = library.spokenWordSongIDs
+        return library.songs(forArtist: id).compactMap {
+            spokenWordIDs.contains($0.id) ? nil : song($0.id)
+        }
+    }
+
+    /// 这首是不是有声内容(有声书、评书、讲座)。音乐页面据此把它排除在外。
+    func isSpokenWord(songID: String) -> Bool {
+        library.spokenWordSongIDs.contains(songID)
     }
 
     // MARK: 搜索(含歌词级,与 iOS/macOS 共用 LibrarySearchWorker)
@@ -803,11 +820,13 @@ final class TVStore {
             return .init(artists: [], albums: [], songs: [])
         }
         searchCache = primary.cache
+        let spokenWordIDs = library.spokenWordSongIDs
         var seen = Set<String>()
         var hits: [TVSearchHit] = []
         for (concept, output) in [(Optional<String>.none, primary)] + secondary.map({ (Optional($0.0), $0.1) }) {
             for hit in output.songResults where hits.count < 24 {
-                guard seen.insert(hit.song.id).inserted, let song = song(hit.song.id) else { continue }
+                guard !spokenWordIDs.contains(hit.song.id),
+                      seen.insert(hit.song.id).inserted, let song = song(hit.song.id) else { continue }
                 hits.append(.init(song: song, isLyric: hit.matchKind == .lyrics,
                                   lyricSnippet: hit.lyricSnippet, relatedConcept: concept))
             }
@@ -823,9 +842,10 @@ final class TVStore {
         let out = LibrarySearchWorker.compute(query: q, songs: library.visibleSongs,
                                               albums: library.visibleAlbums, cache: searchCache)
         searchCache = out.cache
+        let spokenWordIDs = library.spokenWordSongIDs
         var hits: [TVSearchHit] = []
-        for r in out.songResults.prefix(24) {
-            guard let tv = song(r.song.id) else { continue }
+        for r in out.songResults where hits.count < 24 {
+            guard !spokenWordIDs.contains(r.song.id), let tv = song(r.song.id) else { continue }
             hits.append(TVSearchHit(
                 song: tv,
                 isLyric: r.matchKind == .lyrics,
@@ -883,7 +903,11 @@ final class TVStore {
     }
 
     var recentlyPlayed: [TVSong] {
-        library.recentlyPlayedSongs(limit: 12).map { self.map($0) }
+        // 多取一些再滤掉有声内容,听书的记录不挤占「最近播放」的音乐。
+        let spokenWordIDs = library.spokenWordSongIDs
+        let songs = library.recentlyPlayedSongs(limit: spokenWordIDs.isEmpty ? 12 : 40)
+            .filter { !spokenWordIDs.contains($0.id) }
+        return songs.prefix(12).map { self.map($0) }
     }
     var recentlyAddedAlbums: [TVAlbum] {
         _ = libraryContentRevision
@@ -934,7 +958,8 @@ final class TVStore {
         guard !Task.isCancelled, generation == recommendationWorkerGeneration else {
             return []
         }
-        return result
+        let spokenWordIDs = library.spokenWordSongIDs
+        return spokenWordIDs.isEmpty ? result : result.filter { !spokenWordIDs.contains($0.id) }
     }
 
     func isLiked(_ id: String) -> Bool { library.isLiked(songID: id) }
@@ -2899,13 +2924,19 @@ final class TVStore {
     private func rebuildLookupCaches() {
         playCountsBySongID = Dictionary(grouping: PlayHistoryStore.shared.entries, by: \.songID).mapValues(\.count)
         let visibleSongs = library.visibleSongs
-        cachedSongs = visibleSongs.map { self.map($0) }
+        // 有声内容不进音乐的曲库列表 / 首页 / 整库播放,但仍能按 id 查到 ——
+        // 有声页、续播和队列都靠 song(_:) 取它。
+        let spokenWordIDs = library.spokenWordSongIDs
+        let allMapped = visibleSongs.map { self.map($0) }
+        cachedSongs = spokenWordIDs.isEmpty
+            ? allMapped
+            : allMapped.filter { !spokenWordIDs.contains($0.id) }
         cachedSongIDs = cachedSongs.map(\.id)
         cachedAlbums = library.visibleAlbums.map { self.map($0) }
         cachedArtists = library.visibleArtists.map { self.map($0) }
         visibleSongCountsBySource = Dictionary(grouping: visibleSongs, by: \.sourceID)
             .mapValues(\.count)
-        songByID = Dictionary(cachedSongs.map { ($0.id, $0) },
+        songByID = Dictionary(allMapped.map { ($0.id, $0) },
                               uniquingKeysWith: { first, _ in first })
         albumByID = Dictionary(cachedAlbums.map { ($0.id, $0) },
                                uniquingKeysWith: { first, _ in first })
@@ -3133,6 +3164,7 @@ final class TVStore {
             queueIndex = index
             if queue.indices.contains(index), let next = song(queue[index]) { startPlaying(next, autoPlay: wasPlaying) }
         case .stopAndClearQueue:
+            leaveSpokenWordItem()
             queueIndex = 0
             nowPlaying = .none
             hasNowPlaying = false
@@ -3447,8 +3479,12 @@ final class TVStore {
             // A cancelled scan still commits the discovery batches already
             // accepted by the store, but never prunes or announces completion.
             try await Task { try await self.flushScanBatch(sourceID: source.id) }.value
-            guard isCurrentScan(source: source, generation: generation), result.canPrune else { return false }
-            pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
+            guard isCurrentScan(source: source, generation: generation), result.canCommit else { return false }
+            // A walk that saw the catalogue move keeps what it read (the batches
+            // above) but cannot vouch for songs it never listed.
+            if result.canPrune {
+                pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
+            }
             let persistence = await scanPersistence(library)
             guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
             guard case .success = persistence else { throw CocoaError(.fileWriteUnknown) }
@@ -3817,6 +3853,110 @@ final class TVStore {
         engine.skip(by: -10)
     }
 
+    /// 把一本有声书按章节顺序作为队列播放,从 `itemID`(缺省为续听的那一章)开始。
+    /// 听完的一章被重新点播时从头开始。队列不随机:章节必须按顺序听。
+    @discardableResult
+    func playSpokenWordBook(songIDs: [String], startingAt itemID: String?) -> Bool {
+        guard let first = songIDs.first else { return false }
+        let startID = itemID.flatMap { songIDs.contains($0) ? $0 : nil } ?? first
+        if SpokenWordStore.shared.isFinished(songID: startID) {
+            SpokenWordStore.shared.markFinished(false, songIDs: [startID])
+        }
+        return playResolvedQueue(songIDs: songIDs, shuffled: false, startingAt: startID)
+    }
+
+    /// 正在播放页的「上一个」键:有声内容后退 15 秒,其余照旧上一首 / 上一台。
+    func transportBackward(restartCurrentIfNeeded: Bool = true) {
+        if currentItemIsSpokenWord, !isLiveRadio {
+            skipSpokenWord(by: -SpokenWordSkipPolicy.backwardInterval)
+        } else {
+            previous(restartCurrentIfNeeded: restartCurrentIfNeeded)
+        }
+    }
+
+    /// 正在播放页的「下一个」键:有声内容前进 30 秒,其余照旧下一首 / 下一台。
+    func transportForward() {
+        if currentItemIsSpokenWord, !isLiveRadio {
+            skipSpokenWord(by: SpokenWordSkipPolicy.forwardInterval)
+        } else {
+            next()
+        }
+    }
+
+    private func skipSpokenWord(by offset: Double) {
+        guard hasNowPlaying, !isLiveRadio else { return }
+        let target = SpokenWordSkipPolicy.position(
+            from: currentTime,
+            offset: offset,
+            duration: duration
+        )
+        // 手动跳过就是这一条的新位置,不必再等续播定位。
+        pendingSpokenWordResume = nil
+        engine.seek(to: target)
+        rememberSpokenWordPosition(force: true)
+    }
+
+    /// 有声内容开播的起点:请求里没指定(不是断点恢复 / 切画面)时,用这一条记住的位置。
+    private func spokenWordStartTime(for song: TVSong, requested: Double, isRecovery: Bool) -> Double {
+        let isSpokenWord = library.spokenWordSongIDs.contains(song.id)
+        currentItemIsSpokenWord = isSpokenWord
+        spokenWordPositionArmed = false
+        pendingSpokenWordResume = nil
+        lastSpokenWordPositionSave = 0
+        guard isSpokenWord else { return requested }
+        guard requested <= 0, !isRecovery,
+              let raw = library.song(id: song.id),
+              let stored = SpokenWordStore.shared.resumePosition(for: raw) else {
+            return requested
+        }
+        plog("🎧 TV spoken word: resuming '\(song.title)' at \(Int(stored))s")
+        pendingSpokenWordResume = (song.id, stored)
+        return stored
+    }
+
+    /// 离开有声内容去播电台 / 目录歌曲 / 清空队列:先记下位置,再撤掉有声状态。
+    private func leaveSpokenWordItem() {
+        rememberSpokenWordPosition(force: true)
+        currentItemIsSpokenWord = false
+        spokenWordPositionArmed = false
+        pendingSpokenWordResume = nil
+    }
+
+    /// 真正出声后才允许写位置;引擎若没按起点开播(时钟还在开头),这时补一次定位。
+    private func armSpokenWordPositionIfNeeded() {
+        guard currentItemIsSpokenWord, !spokenWordPositionArmed else { return }
+        if let pending = pendingSpokenWordResume {
+            pendingSpokenWordResume = nil
+            if pending.songID == nowPlaying.songID,
+               engine.currentTime < 2, pending.position > 2 {
+                engine.seek(to: pending.position)
+            }
+        }
+        spokenWordPositionArmed = true
+        lastSpokenWordPositionSave = engine.currentTime
+    }
+
+    /// 记下有声内容听到哪里。`force` 用于暂停、停止、换条、跳过和退到后台;
+    /// 其余时候按 15 秒间隔写。
+    private func rememberSpokenWordPosition(force: Bool = false) {
+        guard currentItemIsSpokenWord, spokenWordPositionArmed, hasNowPlaying, !isLiveRadio else { return }
+        let songID = nowPlaying.songID
+        guard !songID.isEmpty else { return }
+        let position = engine.currentTime
+        guard position.isFinite else { return }
+        if !force {
+            guard abs(position - lastSpokenWordPositionSave) >= SpokenWordProgressPolicy.autosaveInterval else {
+                return
+            }
+        }
+        lastSpokenWordPositionSave = position
+        SpokenWordStore.shared.rememberPosition(
+            position,
+            duration: duration > 0 ? duration : nowPlaying.duration,
+            forSongID: songID
+        )
+    }
+
     /// 用户选台(卡片、Top Shelf 深链)。上一台 / 下一台走 `switchRadioStation`。
     func play(_ station: RadioStation) {
         // 用户自己开始播放了,还挂着的深链就作废,免得它之后补执行把这次播放顶掉。
@@ -3867,6 +4007,7 @@ final class TVStore {
         if recordsNavigationOrder {
             radioNavigationOrder = radioStations.map(\.id)
         }
+        leaveSpokenWordItem()
         finishListeningSession()
         persistPlaybackSession()
         playbackRestoreAttempted = true
@@ -4042,7 +4183,7 @@ final class TVStore {
     /// 全部播放 / 随机播放整个可见曲库(库多为散曲、没有真正专辑,所以播放范围用整库)。
     @discardableResult
     func playAll(shuffle: Bool) -> Bool {
-        playResolvedQueue(songIDs: library.visibleSongs.map(\.id), shuffled: shuffle)
+        playResolvedQueue(songIDs: cachedSongIDs, shuffled: shuffle)
     }
 
     func next() {
@@ -4068,6 +4209,11 @@ final class TVStore {
             return
         }
         plog("🎬 TV advanceAfterEnd: queueIndex=\(queueIndex)/\(queue.count) repeat=\(repeatMode)")
+        // 有声内容听到了结尾:记成听完,下次从这本书的下一章接着听。
+        if currentItemIsSpokenWord, hasNowPlaying {
+            SpokenWordStore.shared.markFinished(true, songIDs: [nowPlaying.songID])
+            spokenWordPositionArmed = false
+        }
         if repeatMode == .one, queue.indices.contains(queueIndex), let s = song(queue[queueIndex]) {
             startPlaying(s)
         } else {
@@ -4179,6 +4325,9 @@ final class TVStore {
     /// 设置展示元数据 + 触发真实解析播放。
     private func startPlaying(_ song: TVSong, resumeTime: Double = 0, autoPlay: Bool = true,
                               isRecovery: Bool = false) {
+        // 换条之前先记下上一条有声内容听到哪了,时钟马上就要归零。
+        rememberSpokenWordPosition(force: true)
+        let startTime = spokenWordStartTime(for: song, requested: resumeTime, isRecovery: isRecovery)
         finishListeningSession()
         playbackRestoreAttempted = true
         if !isRecovery { playbackRecoveryAttempt = 0 }
@@ -4192,7 +4341,7 @@ final class TVStore {
         let requestID = UUID()
         activePlaybackRequestID = requestID
         playbackIssue = nil
-        engine.prepareForSelection(startAt: resumeTime)
+        engine.prepareForSelection(startAt: startTime)
 
         let a = albumOf(song)
         let rawSong = library.song(id: song.id)
@@ -4208,7 +4357,7 @@ final class TVStore {
                 ?? a?.tint ?? fallback.0,
             tint2: albumPalette?.secondary.color ?? songPalette?.secondary.color
                 ?? a?.tint2 ?? fallback.1,
-            glyph: a?.glyph ?? "♪", duration: song.duration, currentTime: resumeTime,
+            glyph: a?.glyph ?? "♪", duration: song.duration, currentTime: startTime,
             format: song.format, bitrate: song.bitrate, sampleRate: song.sampleRate, sourcePath: "")
         updateAutomaticThemePalette(albumPalette ?? songPalette)
         hasNowPlaying = true
@@ -4220,7 +4369,7 @@ final class TVStore {
                 songID: song.id,
                 requestID: requestID,
                 preferMusicVideo: self.isMusicVideoModeEnabled,
-                startAt: resumeTime,
+                startAt: startTime,
                 autoPlay: autoPlay
             )
             guard self.isCurrentPlaybackRequest(
@@ -4234,6 +4383,7 @@ final class TVStore {
     /// 播放一条 Apple Music 目录搜索结果。这首歌不在本机曲库里,所以像电台那样
     /// 直接构造「正在播放」:`songID` 带前缀,避免与曲库歌曲的 ID 撞上。
     func playAppleMusicCatalogHit(_ hit: AppleMusicCatalogHit) {
+        leaveSpokenWordItem()
         finishListeningSession()
         radioReconnectTask?.cancel()
         radioReconnectTask = nil
@@ -4441,9 +4591,12 @@ final class TVStore {
         playbackMonitorTask?.cancel()
         playbackMonitorTask = nil
         persistPlaybackSession()
+        // 暂停 / 停止 / 出错都会走到这里:有声内容立刻记下位置。
+        if !engine.isPlaying { rememberSpokenWordPosition(force: true) }
         guard !isLiveRadio, engine.isPlaying, engine.status == .playing,
               let requestID = activePlaybackRequestID, let id = currentSongID,
               let raw = library.song(id: id) else { return }
+        armSpokenWordPositionIfNeeded()
         if historyRequestID != requestID {
             historyRequestID = requestID
             library.recordPlayback(of: id)
@@ -4468,6 +4621,7 @@ final class TVStore {
                 lastTick = now
                 PlayHistoryStore.shared.tick(playedDelta: delta)
                 ScrobbleService.shared.handleProgressTick(playedDelta: delta)
+                self.rememberSpokenWordPosition()
                 ticks += 1
                 if ticks % 5 == 0 { self.persistPlaybackSession() }
             }
@@ -4506,12 +4660,12 @@ final class TVStore {
     }
 
     private func restorePlaybackSessionIfNeeded() {
-        guard !playbackRestoreAttempted, !hasNowPlaying, !cachedSongIDs.isEmpty else { return }
+        guard !playbackRestoreAttempted, !hasNowPlaying, !songByID.isEmpty else { return }
         playbackRestoreAttempted = true
         do {
             guard let snapshot = try sessionStore.load(),
                   let plan = PlaybackSessionRestorationPolicy.plan(
-                    snapshot: snapshot, availableSongIDs: Set(cachedSongIDs)
+                    snapshot: snapshot, availableSongIDs: Set(songByID.keys)
                   ) else { return }
             canonicalQueue = plan.queueSongIDs
             shuffleEnabled = plan.shuffleEnabled
@@ -4578,6 +4732,8 @@ final class TVStore {
         guard !hasPendingSnapshotRecovery else { return }
         // 切台时攒着没写的最近收听时间（和批末才写的远端电台）现在写掉。
         radioStore.flushPendingPersist()
+        rememberSpokenWordPosition(force: true)
+        SpokenWordStore.shared.flush()
         persistPlaybackSession()
         if !isPlaying { finishListeningSession() }
         PlayHistoryStore.shared.flush()

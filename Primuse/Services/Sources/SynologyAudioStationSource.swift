@@ -595,3 +595,9 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
         return id
     }
 }
+
+extension SynologyAudioStationSource: CatalogDriftReportingConnector {
+    func takeCatalogDriftObservation() async -> Bool {
+        await client.takeCatalogDriftObservation()
+    }
+}

@@ -21,6 +21,10 @@ public enum TagCleanupReason: String, Codable, Hashable, Sendable {
     case unifiedSpelling
     case invalidYear
     case trackFromFileName
+    /// The title tag only repeats the artist; the file name has the song.
+    case titleFromFileName
+    /// A "(1)" a download tool appended when it renamed a duplicate.
+    case copyCounter
     /// Proposed by the AI service; its own explanation travels in `note`.
     case assistant
 }
@@ -135,6 +139,26 @@ public enum TagCleanupPolicy {
                 changes[field] = (value, reason)
             }
 
+            // A title that only repeats the artist ("A (1)" in both tags):
+            // the file name "Song - A" says what the song is.
+            let stem = fileStem(working.fileName)
+            if let recovered = MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+                title: working.title, artist: working.artist, fileStem: stem
+            ) {
+                if let bareArtist = MetadataTitleResolutionPolicy.artistCorrectingDuplicatedArtist(
+                    title: working.title, artist: working.artist, fileStem: stem
+                ) {
+                    working.artist = bareArtist
+                    propose(.artist, bareArtist, .copyCounter)
+                }
+                working.title = recovered
+                propose(.title, recovered, .titleFromFileName)
+            } else if let bareTitle = MetadataTitleResolutionPolicy.strippingCopyCounter(working.title),
+                      fileNameNames(bareTitle, stem: stem) {
+                working.title = bareTitle
+                propose(.title, bareTitle, .copyCounter)
+            }
+
             // Text fields: advertisement brackets, placeholders, whitespace.
             for field in [TagCleanupField.title, .artist, .album, .genre] {
                 guard let original = working.value(of: field) else { continue }
@@ -217,10 +241,35 @@ public enum TagCleanupPolicy {
                 guard let value = cleaned[song.id]?.value(of: field), !value.isEmpty else { continue }
                 groups[normalizedKey(value), default: [:]][value, default: 0] += 1
             }
+            // "A (1)" next to plain "A" in the same selection is the same
+            // artist copied twice. Albums are left alone: "Hits (2)" is often
+            // a real second volume.
+            if field == .artist {
+                for (key, spellings) in groups {
+                    guard let bareKey = MetadataTitleResolutionPolicy.strippingCopyCounter(key),
+                          let bareSpellings = groups[bareKey],
+                          let preferred = mostCommon(bareSpellings) else { continue }
+                    for song in songs {
+                        guard let value = cleaned[song.id]?.value(of: field),
+                              spellings[value] != nil else { continue }
+                        cleaned[song.id]?.artist = preferred
+                        result.removeAll { $0.songID == song.id && $0.field == field }
+                        let old = song.value(of: field)
+                        guard old != preferred else { continue }
+                        result.append(TagCleanupProposal(
+                            songID: song.id, field: field, oldValue: old,
+                            newValue: preferred, reason: .copyCounter
+                        ))
+                    }
+                }
+                groups = [:]
+                for song in songs {
+                    guard let value = cleaned[song.id]?.value(of: field), !value.isEmpty else { continue }
+                    groups[normalizedKey(value), default: [:]][value, default: 0] += 1
+                }
+            }
             for (_, spellings) in groups where spellings.count > 1 {
-                guard let preferred = spellings.max(by: {
-                    $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key
-                })?.key else { continue }
+                guard let preferred = mostCommon(spellings) else { continue }
                 for song in songs {
                     guard let value = cleaned[song.id]?.value(of: field),
                           value != preferred,
@@ -238,7 +287,36 @@ public enum TagCleanupPolicy {
         return result
     }
 
+    /// Whether a song probably has wrong tags that the rules cannot fix on
+    /// their own: worth showing to the AI service first.
+    public static func needsAttention(_ song: TagCleanupSong) -> Bool {
+        let title = normalizedKey(song.title)
+        if title.isEmpty || isPlaceholder(song.title) { return true }
+        if let artist = song.artist, normalizedKey(artist) == title { return true }
+        if MetadataTitleResolutionPolicy.strippingCopyCounter(song.title) != nil { return true }
+        if let artist = song.artist,
+           MetadataTitleResolutionPolicy.strippingCopyCounter(artist) != nil { return true }
+        return false
+    }
+
     // MARK: - Pieces
+
+    static func mostCommon(_ spellings: [String: Int]) -> String? {
+        spellings.max(by: {
+            $0.value != $1.value ? $0.value < $1.value : $0.key > $1.key
+        })?.key
+    }
+
+    /// The file name is the bare value, or one side of an "a - b" pair.
+    static func fileNameNames(_ value: String, stem: String) -> Bool {
+        let key = normalizedKey(value)
+        guard !key.isEmpty else { return false }
+        if normalizedKey(stem) == key { return true }
+        return stem.ranges(of: /\s+[-–—_]\s+/).contains { separator in
+            normalizedKey(String(stem[..<separator.lowerBound])) == key
+                || normalizedKey(String(stem[separator.upperBound...])) == key
+        }
+    }
 
     static func set(_ song: inout TagCleanupSong, _ field: TagCleanupField, _ value: String?) {
         switch field {

@@ -410,6 +410,9 @@ struct MacContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseSelectRadio)) { _ in
             selectRoute(.section(.radio))
         }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseSelectSpokenWord)) { _ in
+            selectRoute(.section(.spokenWord))
+        }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenAlbum)) { note in
             guard note.object is Album else { return }
             nowPlayingPresented = false

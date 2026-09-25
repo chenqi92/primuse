@@ -24,15 +24,17 @@ struct MacBottomBar: View {
     @State private var airPlayShown = false
     @State private var castShown = false
     @State private var coverMenuShown = false
+    @State private var sleepTimerShown = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
+            // 两侧同宽, 中间的传输键才居中。右侧多了睡眠定时键, 两侧一起放宽。
             leftColumn
-                .frame(width: 260, alignment: .leading)
+                .frame(width: 284, alignment: .leading)
             transportColumn
                 .frame(maxWidth: .infinity)
             rightColumn
-                .frame(width: 260, alignment: .trailing)
+                .frame(width: 284, alignment: .trailing)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -79,11 +81,27 @@ struct MacBottomBar: View {
                 .onTapGesture { onToggleNowPlaying() }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(player.currentSong?.title ?? String(localized: "player_empty_title"))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(player.currentSong == nil ? PMColor.textMuted : PMColor.text)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 6) {
+                    // 正在播的空间用一个小圆点标出颜色: 音乐 / 电台 / 有声。
+                    if let space = playingSpace {
+                        Circle()
+                            .fill(MacListeningSpaceStyle.color(for: space))
+                            .frame(width: 6, height: 6)
+                            .accessibilityHidden(true)
+                    }
+                    Text(player.currentSong?.title ?? String(localized: "player_empty_title"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(player.currentSong == nil ? PMColor.textMuted : PMColor.text)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let chapterLabel {
+                        Text(chapterLabel)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(PMColor.textMuted)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
                 Text(metaLine.isEmpty ? String(localized: "player_empty_message") : metaLine)
                     .font(.system(size: 11.5))
                     .foregroundStyle(PMColor.textMuted)
@@ -132,6 +150,17 @@ struct MacBottomBar: View {
             }
         }
         .help(Text(isExpanded ? "close" : "now_playing"))
+    }
+
+    private var playingSpace: ListeningSpace? {
+        MacListeningSpaceStyle.playingSpace(of: player)
+    }
+
+    /// 有声且带章节时, 标题后面跟「第 n 章」。
+    private var chapterLabel: String? {
+        guard player.currentItemIsSpokenWord, !player.isLiveRadio,
+              player.hasChapters, let index = player.currentChapterIndex else { return nil }
+        return String(format: String(localized: "mac_player_chapter_number_format"), index + 1)
     }
 
     private var metaLine: String {
@@ -301,6 +330,12 @@ struct MacBottomBar: View {
                 }
             }
 
+            // 睡眠定时三个空间都在同一个位置; 电台没有「更多」菜单, 这是它唯一的入口。
+            if player.currentSong != nil || player.isLiveRadio {
+                sleepTimerButton
+                    .pmFadeTransition()
+            }
+
             volumeControl
 
             PMRoundBtn(icon: "rectangle.inset.filled.on.rectangle", iconSize: 12, style: .plain,
@@ -320,6 +355,21 @@ struct MacBottomBar: View {
                 }
                 .frame(width: PMSize.medBtn, height: PMSize.medBtn)
             }
+        }
+    }
+
+    private var sleepTimerButton: some View {
+        PMRoundBtn(icon: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz",
+                   iconSize: 12, style: .plain,
+                   isActive: player.isSleepTimerActive || sleepTimerShown,
+                   help: player.isSleepTimerActive ? "sleep_timer_active" : "sleep_timer") {
+            sleepTimerShown.toggle()
+        }
+        .popover(isPresented: $sleepTimerShown, arrowEdge: .top) {
+            MacSleepTimerPopover {
+                sleepTimerShown = false
+            }
+            .focusEffectDisabled()
         }
     }
 
@@ -568,6 +618,26 @@ private struct PMRoundBtnIcon: View {
             .help(Text(help))
             .onHover { hover = $0 }
             .pmAnimation(.hover, value: hover)
+    }
+}
+
+
+// MARK: - Listening space style
+
+/// 三个收听空间在 Mac 上的共用小零件: 正在播的是哪个空间、每个空间的颜色。
+/// 首页「接着听」、底栏圆点和睡眠定时面板都从这里取, 免得各处各判一遍。
+enum MacListeningSpaceStyle {
+    /// 正在播 (或暂停在) 哪个空间; 什么都没有时为 nil。
+    @MainActor
+    static func playingSpace(of player: AudioPlayerService) -> ListeningSpace? {
+        if player.isLiveRadio { return .radio }
+        guard player.currentSong != nil else { return nil }
+        return player.currentItemIsSpokenWord ? .spokenWord : .music
+    }
+
+    /// 颜色与 iPhone / Apple TV 同源 (`ListeningSpace.tint`)。
+    static func color(for space: ListeningSpace) -> Color {
+        space.tint
     }
 }
 

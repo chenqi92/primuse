@@ -22,6 +22,13 @@ SYNC_TEST_WAIT="${SYNC_TEST_WAIT:-180}"
 # 设备上日志轮转最多保留几代（与 App 里 DiagnosticLoggingPolicy.diagnosticLimits 一致）。
 LOG_GENERATIONS=4
 
+# 记下用户是否自己指定了 Xcode、DerivedData 和产物路径：自动换用别的 Xcode 时不覆盖这些设置。
+USER_DEVELOPER_DIR="${DEVELOPER_DIR:-}"
+USER_IOS_DERIVED_DATA="${IOS_DERIVED_DATA:-}"
+USER_TV_DERIVED_DATA="${TV_DERIVED_DATA:-}"
+USER_IOS_SIMULATOR_APP_PATH="${IOS_SIMULATOR_APP_PATH:-}"
+USER_TV_SIMULATOR_APP_PATH="${TV_SIMULATOR_APP_PATH:-}"
+
 IOS_DERIVED_DATA="${IOS_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/iOS}"
 MAC_DERIVED_DATA="${MAC_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/macOS}"
 TV_DERIVED_DATA="${TV_DERIVED_DATA:-$ROOT_DIR/build/DeveloperWorkflow/tvOS}"
@@ -42,6 +49,8 @@ DEVICE_OS=""
 DEVICE_KIND=""
 DEVICE_STATE=""
 SIMULATOR_WINDOW_SHOWN=""
+XCODE_CANDIDATES_LOADED=""
+XCODE_DEVELOPER_DIRS=()
 
 usage() {
     cat <<'EOF'
@@ -65,6 +74,7 @@ usage() {
   devices           检查可用于开发的 iPhone/iPad
   sim-devices       列出 iOS 模拟器及能否运行 App
   tv-devices        扫描 tvOS 模拟器和已配对的 Apple TV 真机
+  xcodes            列出本机检测到的 Xcode 及其 SDK 版本
 
 诊断与测试（iPhone/iPad，需 Debug 构建；日志拉到 logs/）
   diag              诊断日志模式菜单：开启 / 关闭 / 拉取日志
@@ -91,6 +101,11 @@ usage() {
   SYNC_TEST_WAIT          同步测试场景启动后等待多少秒再拉日志，默认 180
   LOG_OUTPUT_DIR          拉取日志的存放目录，默认仓库下的 logs/
   APP_GROUP_ID            诊断报告所在的 App Group，默认 group.com.welape.yuanyin
+  XCODE                   指定本次用哪个 Xcode：版本号（27.1）、App 名（Xcode-beta）或路径；
+                          可用的见 xcodes。也认 DEVELOPER_DIR。都没设置时，模拟器系统版本
+                          高于默认 Xcode 的 SDK 就自动换用 SDK 刚好够用的已装 Xcode，
+                          默认 Xcode 升级够用后自然不再切换；换用时 DerivedData 另放在
+                          build/DeveloperWorkflow/<平台>-<Xcode 名>
 EOF
 }
 
@@ -1111,6 +1126,224 @@ version_at_least() {
     return 0
 }
 
+# 某个 Xcode 带的模拟器 SDK 版本（iphonesimulator / appletvsimulator），取不到时为空。
+xcode_sdk_version() {
+    DEVELOPER_DIR="$1" xcrun --sdk "$2" --show-sdk-version 2>/dev/null || true
+}
+
+# 当前生效的 Xcode 排第一，其后是 Spotlight 按包标识找到的全部 Xcode（不管叫什么名字、放在哪），
+# 再补上 /Applications 与 ~/Applications 下的，以防 Spotlight 索引关闭。
+load_xcode_candidates() {
+    if [[ -n "$XCODE_CANDIDATES_LOADED" ]]; then
+        return
+    fi
+    XCODE_CANDIDATES_LOADED="true"
+
+    local candidates=()
+    local active_dir="${DEVELOPER_DIR:-}"
+    if [[ -z "$active_dir" ]]; then
+        active_dir="$(xcode-select -p 2>/dev/null || true)"
+    fi
+    if [[ -n "$active_dir" ]]; then
+        candidates+=("$active_dir")
+    fi
+
+    local app
+    local spotlight_apps=""
+    if command -v mdfind >/dev/null 2>&1; then
+        spotlight_apps="$(mdfind "kMDItemCFBundleIdentifier == 'com.apple.dt.Xcode'" 2>/dev/null || true)"
+    fi
+    while IFS= read -r app; do
+        if [[ -n "$app" && -x "$app/Contents/Developer/usr/bin/xcodebuild" ]]; then
+            candidates+=("$app/Contents/Developer")
+        fi
+    done <<< "$spotlight_apps"
+    for app in /Applications/*.app "$HOME"/Applications/*.app; do
+        if [[ -x "$app/Contents/Developer/usr/bin/xcodebuild" ]]; then
+            candidates+=("$app/Contents/Developer")
+        fi
+    done
+
+    local candidate
+    local existing
+    local duplicate
+    for candidate in "${candidates[@]+"${candidates[@]}"}"; do
+        duplicate="false"
+        for existing in "${XCODE_DEVELOPER_DIRS[@]+"${XCODE_DEVELOPER_DIRS[@]}"}"; do
+            if [[ "$existing" == "$candidate" ]]; then
+                duplicate="true"
+                break
+            fi
+        done
+        if [[ "$duplicate" == "false" ]]; then
+            XCODE_DEVELOPER_DIRS+=("$candidate")
+        fi
+    done
+}
+
+# 某个 Xcode 的版本号（如 27.1），取不到时为空。
+xcode_version() {
+    DEVELOPER_DIR="$1" xcodebuild -version 2>/dev/null | sed -n 's/^Xcode \([0-9.]*\).*/\1/p' | head -n 1 || true
+}
+
+# 把 XCODE 环境变量解析成 Developer 目录：可以是版本号（27.1）、App 名（Xcode-beta）、
+# .app 路径或 Contents/Developer 路径。
+resolve_xcode_choice() {
+    local choice="$1"
+    if [[ -x "$choice/usr/bin/xcodebuild" ]]; then
+        printf "%s" "$choice"
+        return
+    fi
+    if [[ -x "$choice/Contents/Developer/usr/bin/xcodebuild" ]]; then
+        printf "%s" "${choice%/}/Contents/Developer"
+        return
+    fi
+
+    load_xcode_candidates
+    local developer_dir
+    for developer_dir in "${XCODE_DEVELOPER_DIRS[@]+"${XCODE_DEVELOPER_DIRS[@]}"}"; do
+        if [[ "$choice" == "$(xcode_display_name "$developer_dir")" || \
+              "$choice" == "$(xcode_version "$developer_dir")" ]]; then
+            printf "%s" "$developer_dir"
+            return
+        fi
+    done
+    return 1
+}
+
+# 启动时处理 XCODE 环境变量：指定了就本次全程使用它，不再自动切换。
+apply_xcode_choice() {
+    if [[ -z "${XCODE:-}" ]]; then
+        return
+    fi
+
+    local developer_dir
+    if ! developer_dir="$(resolve_xcode_choice "$XCODE")"; then
+        echo "找不到 XCODE=${XCODE} 对应的 Xcode。已检测到的 Xcode：" >&2
+        show_xcodes >&2
+        exit 1
+    fi
+
+    export DEVELOPER_DIR="$developer_dir"
+    USER_DEVELOPER_DIR="$developer_dir"
+    XCODE_CANDIDATES_LOADED=""
+    XCODE_DEVELOPER_DIRS=()
+    echo "按 XCODE=${XCODE} 使用 $(xcode_display_name "$developer_dir") $(xcode_version "$developer_dir")：$developer_dir"
+}
+
+show_xcodes() {
+    load_xcode_candidates
+    if [[ ${#XCODE_DEVELOPER_DIRS[@]} -eq 0 ]]; then
+        echo "没有检测到 Xcode。"
+        return
+    fi
+
+    local index
+    local developer_dir
+    local marker
+    for ((index = 0; index < ${#XCODE_DEVELOPER_DIRS[@]}; index++)); do
+        developer_dir="${XCODE_DEVELOPER_DIRS[$index]}"
+        marker=""
+        if [[ $index -eq 0 ]]; then
+            marker="（当前默认）"
+        fi
+        printf -- "- %s %s%s — iOS %s / tvOS %s SDK — %s\n" \
+            "$(xcode_display_name "$developer_dir")" \
+            "$(xcode_version "$developer_dir")" \
+            "$marker" \
+            "$(xcode_sdk_version "$developer_dir" iphonesimulator)" \
+            "$(xcode_sdk_version "$developer_dir" appletvsimulator)" \
+            "$developer_dir"
+    done
+}
+
+xcode_display_name() {
+    local developer_dir="$1"
+    local app="${developer_dir%/Contents/Developer}"
+    if [[ "$app" == *.app ]]; then
+        basename "$app" .app
+    else
+        printf "%s" "$developer_dir"
+    fi
+}
+
+# 模拟器系统版本高于当前 Xcode 的 SDK 时（例如 iPhone Duo 只有 iOS 27.1 运行时，
+# 而默认 Xcode 是 27.0），旧 Xcode 编出来的 App 在新设备上只跑兼容模式，
+# 旧工具链启动新运行时也可能在开机「数据迁移」阶段失败。
+# 这里找一个 SDK 足够新的 Xcode，把本次脚本的 xcodebuild / simctl 都切过去。
+use_xcode_for_simulator() {
+    local platform="$1"
+    local os_label="$2"
+    local runtime_version="$3"
+
+    load_xcode_candidates
+    if [[ ${#XCODE_DEVELOPER_DIRS[@]} -eq 0 ]]; then
+        return
+    fi
+
+    local active_dir="${XCODE_DEVELOPER_DIRS[0]}"
+    local active_sdk
+    active_sdk="$(xcode_sdk_version "$active_dir" "$platform")"
+    if [[ -n "$active_sdk" ]] && version_at_least "$active_sdk" "$runtime_version"; then
+        return
+    fi
+
+    if [[ -n "$USER_DEVELOPER_DIR" ]]; then
+        echo "提示：指定的 Xcode 只有 ${os_label} ${active_sdk:-未知} SDK，低于模拟器的 ${os_label} ${runtime_version}，App 可能以兼容模式运行。" >&2
+        return
+    fi
+
+    # 选 SDK 刚好够用的那个，避免无谓地用上更新的 beta。
+    local best_dir=""
+    local best_sdk=""
+    local index
+    local candidate_sdk
+    for ((index = 1; index < ${#XCODE_DEVELOPER_DIRS[@]}; index++)); do
+        candidate_sdk="$(xcode_sdk_version "${XCODE_DEVELOPER_DIRS[$index]}" "$platform")"
+        if [[ -z "$candidate_sdk" ]] || ! version_at_least "$candidate_sdk" "$runtime_version"; then
+            continue
+        fi
+        if [[ -z "$best_dir" ]] || version_at_least "$best_sdk" "$candidate_sdk"; then
+            best_dir="${XCODE_DEVELOPER_DIRS[$index]}"
+            best_sdk="$candidate_sdk"
+        fi
+    done
+
+    if [[ -z "$best_dir" ]]; then
+        echo "${DEVICE_NAME} 是 ${os_label} ${runtime_version} 模拟器，但没有找到带 ${os_label} ${runtime_version} SDK 的 Xcode：" >&2
+        for ((index = 0; index < ${#XCODE_DEVELOPER_DIRS[@]}; index++)); do
+            candidate_sdk="$(xcode_sdk_version "${XCODE_DEVELOPER_DIRS[$index]}" "$platform")"
+            echo "- $(xcode_display_name "${XCODE_DEVELOPER_DIRS[$index]}")：${os_label} ${candidate_sdk:-无} SDK（${XCODE_DEVELOPER_DIRS[$index]}）" >&2
+        done
+        echo "请安装对应版本的 Xcode（beta 放在 /Applications 下即可），或改选其它模拟器。" >&2
+        exit 1
+    fi
+
+    if ! DEVELOPER_DIR="$best_dir" xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; then
+        echo "$(xcode_display_name "$best_dir") 还没完成首次启动安装，模拟器组件仍是旧版本，${os_label} ${runtime_version} 模拟器可能开不了机。" >&2
+        echo "请先运行（需要输入密码）：" >&2
+        echo "  sudo \"$best_dir/usr/bin/xcodebuild\" -runFirstLaunch" >&2
+        exit 1
+    fi
+
+    export DEVELOPER_DIR="$best_dir"
+    local suffix
+    suffix="$(xcode_display_name "$best_dir" | tr -c 'A-Za-z0-9._\n-' '-')"
+    if [[ "$platform" == "iphonesimulator" && -z "$USER_IOS_DERIVED_DATA" ]]; then
+        IOS_DERIVED_DATA="$ROOT_DIR/build/DeveloperWorkflow/iOS-$suffix"
+        if [[ -z "$USER_IOS_SIMULATOR_APP_PATH" ]]; then
+            IOS_SIMULATOR_APP_PATH="$IOS_DERIVED_DATA/Build/Products/$IOS_CONFIGURATION-iphonesimulator/Primuse.app"
+        fi
+    elif [[ "$platform" == "appletvsimulator" && -z "$USER_TV_DERIVED_DATA" ]]; then
+        TV_DERIVED_DATA="$ROOT_DIR/build/DeveloperWorkflow/tvOS-$suffix"
+        if [[ -z "$USER_TV_SIMULATOR_APP_PATH" ]]; then
+            TV_SIMULATOR_APP_PATH="$TV_DERIVED_DATA/Build/Products/$TV_CONFIGURATION-appletvsimulator/PrimuseTV.app"
+        fi
+    fi
+
+    echo "当前 Xcode 只有 ${os_label} ${active_sdk:-未知} SDK，本次改用 $(xcode_display_name "$best_dir")（${os_label} ${best_sdk} SDK）：$best_dir"
+}
+
 load_ios_simulators() {
     SIM_DEVICE_NAMES=()
     SIM_DEVICE_OSES=()
@@ -1196,6 +1429,7 @@ select_ios_simulator_at_index() {
 
     echo "目标设备：${DEVICE_NAME} — iOS ${DEVICE_OS} 模拟器"
     echo "Xcode 构建 UDID：${DEVICE_UDID}"
+    use_xcode_for_simulator iphonesimulator iOS "$DEVICE_OS"
 }
 
 show_ios_simulators() {
@@ -1656,6 +1890,9 @@ select_tv_device_at_index() {
         echo "CoreDevice ID：${DEVICE_CORE_ID}"
     fi
     echo "Xcode 构建 UDID：${DEVICE_UDID}"
+    if [[ "$DEVICE_KIND" == "simulator" ]]; then
+        use_xcode_for_simulator appletvsimulator tvOS "$DEVICE_OS"
+    fi
 }
 
 show_tv_devices() {
@@ -1835,7 +2072,14 @@ prepare_simulator() {
         echo
         echo "正在启动 ${DEVICE_NAME} 模拟器……"
     fi
-    xcrun simctl bootstatus "$DEVICE_UDID" -b
+    if ! xcrun simctl bootstatus "$DEVICE_UDID" -b; then
+        echo >&2
+        echo "${DEVICE_NAME} 模拟器没能开机。" >&2
+        echo "如果停在「Data Migration Failed」，多半是这台模拟器的数据坏了，可以抹掉后重试（会清空模拟器里的全部 App 和数据）：" >&2
+        echo "  xcrun simctl shutdown ${DEVICE_UDID}; xcrun simctl erase ${DEVICE_UDID}" >&2
+        echo "新系统的模拟器还需要带对应 SDK 的 Xcode 做过首次启动安装：sudo <该 Xcode>/Contents/Developer/usr/bin/xcodebuild -runFirstLaunch" >&2
+        exit 1
+    fi
     DEVICE_STATE="Booted"
     show_simulator_window
 }
@@ -1850,7 +2094,7 @@ show_simulator_window() {
     # Contents/Applications/DeviceHub.app，打开指定设备要走 devices:// 链接。
     # 窗口只是方便查看，打不开也不影响 simctl 安装和启动。
     local developer_dir
-    developer_dir="$(xcode-select -p 2>/dev/null || true)"
+    developer_dir="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || true)}"
     local simulator_app="$developer_dir/Applications/Simulator.app"
     local device_hub_app="${developer_dir%/Developer}/Applications/DeviceHub.app"
 
@@ -2080,6 +2324,7 @@ main() {
 
     require_command xcodebuild
     ensure_project_exists
+    apply_xcode_choice
 
     case "$action" in
         install)
@@ -2113,6 +2358,10 @@ main() {
         sim-clean)
             require_command xcrun
             sim_clean_install
+            ;;
+        xcodes)
+            require_command xcrun
+            show_xcodes
             ;;
         sim-devices)
             require_command xcrun

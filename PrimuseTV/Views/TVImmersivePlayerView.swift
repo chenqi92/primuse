@@ -291,7 +291,7 @@ struct TVImmersivePlayerView: View {
                 store.togglePlayPause()
             case .nextTrack:
                 revealChrome()
-                store.next()
+                store.transportForward()
             case .seek:
                 guard !store.isLiveRadio, store.duration > 0 else { return }
                 showsSeekControls = true
@@ -538,15 +538,19 @@ struct TVImmersivePlayerView: View {
 
     private func transportControls(surface: ControlSurface) -> some View {
         let availability = store.trackNavigationAvailability
+        // 有声内容:上一首 / 下一首换成后退 15 秒 / 前进 30 秒。
+        let isSpokenWord = store.currentItemIsSpokenWord
         return HStack(spacing: 22) {
             controlButton(
                 .previous,
-                icon: "backward.fill",
-                accessibilityLabel: PMString("ext.control.previous"),
+                icon: isSpokenWord ? "gobackward.15" : "backward.fill",
+                accessibilityLabel: isSpokenWord
+                    ? String(localized: "spoken_word_skip_backward")
+                    : PMString("ext.control.previous"),
                 surface: surface,
                 diameter: 66
-            ) { store.previous() }
-                .disabled(!availability.canGoPrevious)
+            ) { store.transportBackward() }
+                .disabled(!isSpokenWord && !availability.canGoPrevious)
             controlButton(
                 .playPause,
                 icon: store.isPlaying ? "pause.fill" : "play.fill",
@@ -560,12 +564,14 @@ struct TVImmersivePlayerView: View {
             }
             controlButton(
                 .next,
-                icon: "forward.fill",
-                accessibilityLabel: PMString("ext.control.next"),
+                icon: isSpokenWord ? "goforward.30" : "forward.fill",
+                accessibilityLabel: isSpokenWord
+                    ? String(localized: "spoken_word_skip_forward")
+                    : PMString("ext.control.next"),
                 surface: surface,
                 diameter: 66
-            ) { store.next() }
-                .disabled(!availability.canGoNext)
+            ) { store.transportForward() }
+                .disabled(!isSpokenWord && !availability.canGoNext)
         }
     }
 
@@ -974,9 +980,9 @@ struct TVImmersivePlayerView: View {
         )
         switch action {
         case .previousTrack:
-            store.previous()
+            store.transportBackward()
         case .nextTrack:
-            store.next()
+            store.transportForward()
         case .revealControls:
             revealChrome()
         case .standardNavigation:

@@ -389,11 +389,11 @@
 "theme_color_hex" = "カラー値";
 "app_icon" = "App アイコン";
 "app_icon_dock_hint" = "macOS は Primuse の実行中しか Dock アイコンを差し替えられません。終了すると Dock はアプリバンドル内のアイコンに戻ります。";
-"icon_default" = "やわらかな音符";
+"icon_default" = "Chris’s Muse";
 "icon_appearance_gray" = "グレー";
 "icon_appearance_hint" = "アイコンはホーム画面の外観に合わせて切り替わります。ホーム画面を長押しして、「編集」→「カスタマイズ」→「自動」を選択してください。";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_13" = "Chris’s Muse";
+"icon_theme_18" = "やわらかな音符";
 "icon_theme_14" = "文字 P";
 "icon_theme_15" = "折り返し音符";
 "icon_theme_16" = "NonoEnd";
@@ -999,7 +999,7 @@
 "playlist_export_failed_title" = "書き出しに失敗しました";
 "playlist_import_title" = "プレイリストを読み込む";
 "playlist_import_intro_title" = "m3u8 または Primuse JSON ファイルを選択";
-"playlist_import_intro_desc" = "ファイル／AirDrop で受け取ったプレイリストファイルは、ファイル名とタイトル／アーティストでライブラリと照合されます。";
+"playlist_import_intro_desc" = "プレイリストファイル（m3u、json、または Apple Music・Spotify 書き出しツール・foobar2000・VLC・Windows Media Player が書き出した csv／txt／xml／pls／xspf／wpl）は、ファイル名とタイトル／アーティストでライブラリと照合されます。";
 "playlist_import_pick_file" = "ファイルを選択";
 "playlist_import_create" = "作成";
 "playlist_import_matched" = "ライブラリで一致";
@@ -1016,7 +1016,7 @@
 "playlist_import_err_empty" = "プレイリストに曲がありません";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · ファイルを選択するとローカルライブラリと自動でマッチングします";
 "playlist_import_mac_intro_title" = "プレイリストファイルを選択して開始";
-"playlist_import_mac_intro_desc" = ".m3u、.m3u8、.json に対応しています。読み込み前に一致したエントリと見つからなかったエントリをプレビューします。";
+"playlist_import_mac_intro_desc" = ".m3u、.m3u8、.json、.csv、.txt、.xml、.pls、.xspf、.wpl に対応しています。読み込み前に一致したエントリと見つからなかったエントリをプレビューします。";
 "playlist_import_matched_count_format" = "%d 件一致";
 "playlist_import_pending_count_format" = "%d 件保留中";
 "playlist_import_entries_count_format" = "%d 件のエントリ";
@@ -4474,6 +4474,15 @@
 "tag_reason_unified_spelling" = "この選択内で表記ゆれ";
 "tag_reason_invalid_year" = "ありえない年";
 "tag_reason_track_from_file" = "ファイル名からのトラック番号";
+"tag_reason_title_from_file" = "タイトルがアーティスト名の繰り返しのため、ファイル名から曲名を復元";
+"tag_reason_copy_counter" = "ダウンロードツールが重複ファイルに付けた番号";
+"tag_tidy_library_action" = "ライブラリ全体のタグをチェック";
+"tag_tidy_library_button" = "チェック";
+"tag_tidy_library_footer" = "サイト名、仮の値、アーティスト名だけのタイトル、重複ファイルの「(1)」などを見つけます。まず一覧で確認でき、チェックした項目だけが書き込まれ、取り消しもできます。";
+"tag_tidy_library_checked" = "チェックした曲";
+"tag_editor_suggestions_title" = "修正の提案";
+"tag_editor_suggestions_apply_all" = "すべて適用";
+"tag_editor_suggestion_apply" = "適用";
 
 // MARK: - Karaoke
 "karaoke_title" = "カラオケ";
@@ -4528,7 +4537,7 @@
 "playlist_import_mode_file" = "ファイル";
 "playlist_import_mode_link" = "共有リンク";
 "playlist_import_mode_text" = "テキスト";
-"playlist_import_link_placeholder" = "プレイリストの共有リンクを貼り付け（NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify）";
+"playlist_import_link_placeholder" = "プレイリストの共有リンクを貼り付け（NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify、Deezer、bilibili、YouTube）";
 "playlist_import_link_desc" = "公開プレイリストの曲名・アーティスト・アルバム・長さのみを読み込み、音声はダウンロードしません。非公開のプレイリストは元のアプリで公開してください。";
 "playlist_import_link_fetch" = "プレイリストを読み込む";
 "playlist_import_text_order" = "行の形式";
@@ -4544,7 +4553,7 @@
 "playlist_import_confirm_all_probable_format" = "%d 曲すべて確定";
 "playlist_import_create_with_pending_format" = "プレイリストを作成（%1$d 曲、グレー %2$d 曲）";
 "playlist_import_pending_kept_hint" = "一致しない項目はグレーで残ります";
-"playlist_import_link_err_unrecognized" = "プレイリストのリンクが見つかりません。NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify の共有リンクに対応しています。";
+"playlist_import_link_err_unrecognized" = "プレイリストのリンクが見つかりません。NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify、Deezer、bilibili、YouTube の共有リンクに対応しています。";
 "playlist_import_link_err_private" = "このプレイリストを読み込めません。削除されたか非公開の可能性があります。元のアプリで公開してから再試行してください。";
 "playlist_import_link_err_changed" = "サービスから想定外の応答がありました。仕様が変わった可能性があります。テキストでの読み込みをお試しください。";
 "playlist_import_link_err_network_format" = "ネットワーク要求に失敗しました: %@";
@@ -4560,6 +4569,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "伴奏トラック";
 "karaoke_backing_track_playing" = "伴奏トラックを再生中のため、ボーカルは調整できません。";
 "karaoke_lyrics_from_format" = "歌詞：「%@」より";
@@ -4604,3 +4616,50 @@
 "karaoke_loop_lines_format" = "%d 行をループ中";
 "karaoke_loop_extend" = "1 行追加";
 "karaoke_practice_not_scored" = "練習中は採点・録音しません。";
+
+/* Listening spaces: music, radio and spoken word */
+"listening_space_music" = "ミュージック";
+"listening_space_radio" = "ラジオ";
+"listening_space_spoken_word" = "オーディオブック";
+"home_continue_spaces_title" = "続きを聴く";
+"home_continue_spaces_hint" = "中断したところから再開します";
+"home_continue_music_queue" = "音楽のキュー";
+"home_continue_radio_live" = "もう一度聴く";
+"home_books_in_progress_title" = "聴いている本";
+"home_books_open_shelf" = "本棚";
+"home_radio_open_all" = "すべての局";
+"home_spaces_intro_title" = "ミュージック・ラジオ・オーディオブックがそれぞれのタブに";
+"home_spaces_intro_body" = "それぞれが聴いていた位置を覚えるので、本やラジオを聴いても音楽のキューは失われません。設定はホーム右上の歯車に移りました。";
+"sleep_at_item_end" = "このエピソードの終わりで停止";
+"sleep_at_book_end" = "本の終わりで停止";
+"smart_nudge_kind_back_to_music" = "本が終わるときに音楽の続きを提案";
+"smart_nudge_kind_classify_spoken" = "タグのない長いファイルについて確認";
+"smart_nudge_back_to_music_message" = "本がもうすぐ終わります。そのあと、聴いていた音楽を続けますか？";
+"smart_nudge_classify_spoken_message" = "この長いファイルにはアルバムもアーティストもありません。オーディオブックや番組ですか？";
+"smart_nudge_action_move" = "オーディオブックへ";
+"spoken_word_next_item" = "次のエピソード";
+"spoken_word_previous_item" = "前のエピソード";
+"mac_player_chapter_number_format" = "第%lld章";
+"radio_recent_title" = "最近聴いた局";
+"radio_detail_listen" = "聴く";
+"radio_detail_heard_title" = "最近流れた曲";
+"radio_detail_heard_empty" = "局が曲名や番組名を送信している場合、聴いている間ここに表示されます。";
+"radio_detail_heard_clear_title" = "この局で流れた曲の記録を消去しますか？";
+"radio_detail_pinned" = "先頭に固定済み";
+"radio_detail_copy_stream_url" = "ストリームURLをコピー";
+"radio_detail_missing" = "この局は削除されました。";
+"radio_add_card_title" = "ライブラジオを聴く";
+"radio_add_card_message" = "ストリームURLでインターネットラジオ局を追加するか、プレイリストからまとめて読み込めます。追加した局はここと「ラジオ」に表示されます。";
+"search_space_picker" = "検索対象";
+"search_radio_now_playing_format" = "放送中：%@";
+"search_spoken_word_matched_item_format" = "一致：「%@」";
+"tv_spoken_word_listening" = "聴いている途中";
+"tv_spoken_word_bookshelf" = "本棚";
+"tv_spoken_word_chapters" = "チャプター";
+"tv_spoken_word_book_count" = "%lld 冊";
+"spoken_word_now_listening_section" = "聴いている本";
+"spoken_word_shelf_section" = "本棚";
+"spoken_word_chapter_position_format" = "第%lld章（全%lld章）";
+"spoken_word_book_speed" = "この本の再生速度";
+"spoken_word_book_speed_default_format" = "デフォルト（%@）";
+"stats_spoken_word_time" = "オーディオブック再生時間";

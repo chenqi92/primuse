@@ -526,6 +526,10 @@ final class AudioPlayerService {
             playbackMetadataSongDidChange(from: oldValue, to: currentSong)
             if oldValue?.id != currentSong?.id {
                 handleSpokenWordItemChange(to: currentSong)
+                // A station replaces the current song without touching the
+                // queue; keep the music it interrupted.
+                rememberMusicSessionIfLeaving(from: oldValue, to: currentSong)
+            advanceBookSleepLockIfNeeded()
             }
         }
     }
@@ -731,6 +735,9 @@ final class AudioPlayerService {
     var shuffleEnabled = false {
         didSet {
             guard shuffleEnabled != oldValue else { return }
+            if !isApplyingListeningPlayMode, !isRestoringPlaybackSession, !isMirroringFromAppleMusic {
+                ListeningPlayModeStore.shared.update { $0.shuffleChanged() }
+            }
             defer {
                 if !isRestoringPlaybackSession {
                     persistPlaybackSession()
@@ -751,6 +758,9 @@ final class AudioPlayerService {
     var repeatMode: RepeatMode = .off {
         didSet {
             guard repeatMode != oldValue else { return }
+            if !isApplyingListeningPlayMode, !isRestoringPlaybackSession, !isMirroringFromAppleMusic {
+                ListeningPlayModeStore.shared.update { $0.repeatChanged() }
+            }
             defer {
                 if !isRestoringPlaybackSession {
                     updatePlaybackState()
@@ -782,6 +792,10 @@ final class AudioPlayerService {
     /// mirror task 写自己字段时设为 true, 让 didSet 跳过"再写回 Apple Music"
     /// 的副作用, 避免 mirror → setRepeat/setShuffle → polling → mirror 的回环。
     var isMirroringFromAppleMusic = false
+
+    /// Set while a new queue takes its space's shuffle and repeat, so that
+    /// switching them is not mistaken for the listener changing them.
+    @ObservationIgnored var isApplyingListeningPlayMode = false
 
     /// MusicKit renders a contiguous segment; Primuse retains the complete
     /// queue and each occurrence's identity across providers and edits.
@@ -980,8 +994,11 @@ final class AudioPlayerService {
     }
     /// "本章结束后停止": 锁在当前条目的当前章节上, 播放头越过它就暂停。
     var sleepStopAfterChapter: SpokenWordChapterSleepLock?
+    /// "本书结束后停止": 锁住这本书在队列里的条目, 播到最后一条时转成曲终停止。
+    var sleepStopAfterBook: SpokenWordBookSleepLock?
     var isSleepTimerActive: Bool {
         sleepTimerEndDate != nil || sleepStopAfterSongID != nil || sleepStopAfterChapter != nil
+            || sleepStopAfterBook != nil
     }
 
     // MARK: - Spoken word

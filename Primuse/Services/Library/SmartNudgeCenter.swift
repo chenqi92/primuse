@@ -117,7 +117,15 @@ final class SmartNudgeCenter {
             isMedley: player.isMedleyActive,
             sleepTimerActive: player.isSleepTimerActive,
             continuousListeningMinutes: listeningSince.map { now.timeIntervalSince($0) / 60 } ?? 0,
-            hour: Calendar.current.component(.hour, from: now)
+            hour: Calendar.current.component(.hour, from: now),
+            hasRememberedMusic: MusicSessionMemoryStore.shared.memory != nil,
+            isLongUntagged: !player.currentItemIsSpokenWord
+                && !SpokenWordStore.shared.hasOverride(songID: song.id)
+                && SmartNudgePolicy.isLongUntagged(
+                    duration: player.duration > 0 ? player.duration : song.duration,
+                    albumTitle: song.albumTitle,
+                    artistName: song.artistName
+                )
         )
         let enabledKinds = Set(SmartNudgeKind.allCases).subtracting(disabledKinds)
         guard let kind = SmartNudgePolicy.nudge(
@@ -214,6 +222,12 @@ final class SmartNudgeCenter {
             } else {
                 player.scheduleSleep(minutes: 30)
             }
+        case .backToMusic:
+            player.queueRememberedMusicAfterCurrent()
+        case .classifyAsSpokenWord:
+            if let songID = nudge.songID {
+                SpokenWordStore.shared.setKind(.spokenWord, forSongIDs: [songID])
+            }
         }
         answer(nudge, accepted: true)
     }
@@ -272,6 +286,8 @@ extension SmartNudgeKind {
         case .removeFromFavorites: "smart_nudge_kind_remove_favorite"
         case .continueWithRecommendations: "smart_nudge_kind_continue"
         case .sleepTimer: "smart_nudge_kind_sleep"
+        case .backToMusic: "smart_nudge_kind_back_to_music"
+        case .classifyAsSpokenWord: "smart_nudge_kind_classify_spoken"
         }
     }
 
@@ -282,6 +298,8 @@ extension SmartNudgeKind {
         case .removeFromFavorites: "heart.slash"
         case .continueWithRecommendations: "text.line.last.and.arrowtriangle.forward"
         case .sleepTimer: "moon.zzz"
+        case .backToMusic: "music.note"
+        case .classifyAsSpokenWord: "books.vertical"
         }
     }
 }

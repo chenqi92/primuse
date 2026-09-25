@@ -1874,6 +1874,13 @@ extension AudioPlayerService {
     ) {
         // Any other queue replaces the medley.
         if !isInstallingMedleyQueue { endMedleyIfNeeded() }
+        // Music, radio and books each keep their own "where was I": a book
+        // replacing a music queue leaves that queue remembered, and a new
+        // music queue makes the remembered one moot.
+        if !isInstallingMedleyQueue, songs.indices.contains(index) {
+            rememberMusicSessionIfLeaving(from: currentSong, to: songs[index])
+            forgetMusicSessionIfMusicStarts(songs[index])
+        }
         guard !songs.isEmpty else {
             plog("🎶 setQueue empty — clearing queue")
             clearQueue()
@@ -1909,6 +1916,11 @@ extension AudioPlayerService {
         // Drop any pre-built next round — the queue itself changed, so
         // prior shuffle plans (and their indices into the old queue)
         // are stale and would index out-of-bounds on wrap.
+        // A book plays in reading order; music gets its own shuffle and
+        // repeat back when it replaces a book.
+        if !isInstallingMedleyQueue {
+            applyListeningPlayMode(forQueueStartingWith: queueEntries[currentIndex].song)
+        }
         pendingNextShuffleIndices = nil
         if shuffleEnabled { rebuildShuffleOrder() }
         persistPlaybackSession()

@@ -580,11 +580,17 @@ struct SynologyAudioStationTests {
         #expect(lists.map { $0["limit"] ?? "" } == ["2", "2", "1"])
         #expect(lists.allSatisfy { $0["library"] == "all" && $0["additional"] == "song_tag,song_audio,song_rating" && $0["method"] == "list" })
 
+        #expect(await client.takeCatalogDriftObservation() == false)
+
+        // The library grew mid-walk: the scan still finishes, but reports the
+        // drift so nothing is removed on the strength of it.
         let growing = AudioStationFixture(mode: .catalogGrows)
         let growingClient = growing.client()
-        await #expect(throws: SynologyAudioStationError.invalidResponse) {
-            for try await _ in await growingClient.songs(pageSize: 2) {}
-        }
+        var grownIDs: [String] = []
+        for try await song in await growingClient.songs(pageSize: 2) { grownIDs.append(song.id) }
+        #expect(grownIDs == ["music_6906", "music_6908", "music_5961"])
+        #expect(await growingClient.takeCatalogDriftObservation() == true)
+        #expect(await growingClient.takeCatalogDriftObservation() == false)
     }
 
     @Test func stringifiedResponsesAreUnwrapped() async throws {

@@ -41,6 +41,8 @@ struct RadioStationsView: View {
     @State private var subscriptionsStartAdding = false
     /// 删订阅电台前先确认一次 —— 删掉就等于告诉清单「这一条我不要了」。
     @State private var subscribedStationToDelete: RadioStation?
+    /// 长按 / ⋯ 菜单里「电台信息」打开的详情页。点卡片本身仍是直接起播。
+    @State private var detailStation: RadioStation?
     @AppStorage(RadioStationLayoutMode.storageKey)
     private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
     @Environment(\.pmHeightClass) private var heightClass
@@ -169,6 +171,9 @@ struct RadioStationsView: View {
         }
         .sheet(isPresented: $showingSubscriptions) {
             RadioSubscriptionsView(startsAdding: subscriptionsStartAdding)
+        }
+        .sheet(item: $detailStation) { station in
+            RadioStationDetailView(stationID: station.id)
         }
         .fileExporter(
             isPresented: $showExporter,
@@ -722,22 +727,37 @@ struct RadioStationsView: View {
         let priorities = store.priorityByID
         let total = store.stations.count
         return ScrollView {
-            if skin.usesOnAirRadio {
-                VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: skin.usesOnAirRadio ? 16 : 20) {
+                if skin.usesOnAirRadio {
                     #if os(iOS)
                     // 正在播的电台放在最上面一张大卡:台名、节目、上下台与停止、睡眠定时都在这里。
                     // 卡片自己读播放状态,节目标题更新不会把整页网格拉着重画。
                     RadioOnAirHero()
                     #endif
-                    stationLazyGrid(priorities: priorities, total: total)
+                } else {
+                    // 「正在播」只在有台在播时出现。
+                    RadioNowPlayingCard { station in detailStation = station }
+                }
+
+                // 「最近收听」在搜索/筛选时让位给结果清单。
+                if !filter.isNarrowed {
+                    RadioRecentStationsSection(
+                        horizontalInset: 16,
+                        onPlay: { toggle($0) },
+                        onDetails: { detailStation = $0 }
+                    )
+                    // 横排贴着屏幕边滑，内容自己留 16pt 边距。
+                    .padding(.horizontal, -16)
+                }
+
+                stationLazyGrid(priorities: priorities, total: total)
+
+                if skin.usesOnAirRadio {
                     // 末尾一格「添加电台」,和首页电台墙的添加卡一样打开批量添加。
                     RadioAddStationTile(layoutMode: layoutMode) { showingBatchAdd = true }
                 }
-                .padding(16)
-            } else {
-                stationLazyGrid(priorities: priorities, total: total)
-                    .padding(16)
             }
+            .padding(16)
         }
     }
 
@@ -820,6 +840,10 @@ struct RadioStationsView: View {
         }
 
         Section {
+            Button("radio_details", systemImage: "info.circle") {
+                detailStation = station
+            }
+
             // 镜像电台没有可编辑的地址，把它摆在这里至少能认出这条是哪台服务器给的。
             if station.isServerMirror {
                 Label(station.displayEndpoint, systemImage: "server.rack")

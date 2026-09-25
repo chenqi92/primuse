@@ -24,14 +24,14 @@ struct TVHomeView: View {
     @State private var radioDeleteRequest: TVRadioDeleteRequest?
     @FocusState private var focusedRadioID: String?
     var openPlayer: () -> Void = {}
-    /// 「全部电台」卡片:切到资料库的「电台」。
+    /// 「全部电台」卡片:切到「电台」一级页。
     var openRadioLibrary: () -> Void = {}
     /// 电台的添加 / 重命名 / 删除确认弹层。只报弹层在不在,关闭后的焦点由这里和系统负责,
     /// TVRoot 不改焦点(它的关闭处理会把首页的焦点送回顶栏)。
     var onModalPresentationChanged: (Bool) -> Void = { _ in }
 
     /// 首页电台那一排最多放几个台。台多的时候(音乐源镜像动辄上千个)整排一次性构造
-    /// 会很卡,其余的去资料库「电台」里看,那里是懒加载的网格。
+    /// 会很卡,其余的去「电台」页看,那里是懒加载的网格。
     static let homeRadioLimit = 20
 
     #if DEBUG

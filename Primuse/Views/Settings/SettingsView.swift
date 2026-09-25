@@ -22,12 +22,17 @@ struct SettingsView: View {
     @State private var search: SettingsSearchState
     @State private var rootItemID: String?
     @State private var rootFocusRevision = UUID()
+    /// Set when settings is presented as a sheet (from the home page's gear)
+    /// rather than as a tab: adds a close button to the root page.
+    private let onClose: (() -> Void)?
 
     init(
         scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init()),
-        search: SettingsSearchState? = nil
+        search: SettingsSearchState? = nil,
+        onClose: (() -> Void)? = nil
     ) {
         _scraperSettingsRoute = scraperSettingsRoute
+        self.onClose = onClose
         _search = State(initialValue: search ?? SettingsSearchState())
     }
 
@@ -121,6 +126,12 @@ struct SettingsView: View {
             .toolbar {
                 if #available(iOS 26.0, *), !usesMinimalSearch, !searchSitsAboveList {
                     DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
+                }
+                if let onClose {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("done", action: onClose)
+                            .accessibilityIdentifier("settings.close")
+                    }
                 }
             }
             #endif
@@ -1069,6 +1080,7 @@ struct MetadataScrapingView: View {
     @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
     @State private var showLyricsServers = false
     @State private var lyricsServerStore = LyricsAPIServerStore.shared
+    @State private var libraryTidySongs: BatchSongSelection?
 
 
     var body: some View {
@@ -1283,6 +1295,22 @@ struct MetadataScrapingView: View {
             } footer: {
                 Text("scrape_description")
             }
+
+            Section {
+                Button {
+                    libraryTidySongs = BatchSongSelection(songs: library.songs.filter {
+                        $0.sourceID != AppleMusicLibraryService.systemSourceID
+                    })
+                } label: {
+                    Label("tag_tidy_library_action", systemImage: "wand.and.sparkles")
+                }
+                .settingsAnchor("scraping.tidyLibrary")
+            } footer: {
+                Text("tag_tidy_library_footer")
+            }
+        }
+        .sheet(item: $libraryTidySongs) { batch in
+            TagTidyView(songs: batch.songs, isLibraryWide: true)
         }
         .navigationDestination(isPresented: $showLyricsServers) {
             LyricsAPIServersView()

@@ -74,6 +74,14 @@ enum ExternalPlaylistFetcher {
                 playlist = try await fetchAppleMusic(id: link.playlistID)
             case .spotify:
                 playlist = try await fetchSpotify(id: link.playlistID, session: session)
+            case .deezer:
+                playlist = try await fetchDeezer(id: link.playlistID, session: session)
+            case .bilibili:
+                playlist = link.parameters["kind"] == "fav"
+                    ? try await fetchBilibiliFavorites(id: link.playlistID, session: session)
+                    : try await fetchBilibiliMenu(id: link.playlistID, session: session)
+            case .youtube:
+                playlist = try await fetchYouTube(id: link.playlistID, session: session)
             }
             guard !playlist.tracks.isEmpty else { throw FetchError.empty }
             return playlist
@@ -279,6 +287,90 @@ enum ExternalPlaylistFetcher {
         return ExternalPlaylist(name: playlist.name, platform: .appleMusic, tracks: Array(tracks.prefix(maximumTracks)))
     }
 
+    private static func fetchDeezer(id: String, session: URLSession) async throws -> ExternalPlaylist {
+        let name = try ExternalPlaylistDecoder.deezerPlaylistName(
+            try await data(for: ExternalPlaylistRequests.deezerPlaylist(id: id), session: session)
+        )
+        var tracks: [ExternalPlaylistTrack] = []
+        while tracks.count < maximumTracks {
+            try Task.checkCancellation()
+            let page = try ExternalPlaylistDecoder.deezerTracksPage(
+                try await data(for: ExternalPlaylistRequests.deezerTracks(id: id, index: tracks.count), session: session)
+            )
+            tracks.append(contentsOf: page.tracks)
+            guard !page.tracks.isEmpty, tracks.count < page.total else { break }
+        }
+        return ExternalPlaylist(name: name, platform: .deezer, tracks: Array(tracks.prefix(maximumTracks)))
+    }
+
+    private static func fetchBilibiliMenu(id: String, session: URLSession) async throws -> ExternalPlaylist {
+        var tracks: [ExternalPlaylistTrack] = []
+        var page = 1
+        while tracks.count < maximumTracks {
+            try Task.checkCancellation()
+            let result = try ExternalPlaylistDecoder.bilibiliMenuPage(
+                try await data(for: ExternalPlaylistRequests.bilibiliMenu(id: id, page: page), session: session)
+            )
+            tracks.append(contentsOf: result.tracks)
+            page += 1
+            guard !result.tracks.isEmpty, tracks.count < result.total else { break }
+        }
+        let name = (try? await data(for: ExternalPlaylistRequests.bilibiliMenuInfo(id: id), session: session))
+            .flatMap(ExternalPlaylistDecoder.bilibiliMenuName) ?? ""
+        return ExternalPlaylist(name: name, platform: .bilibili, tracks: Array(tracks.prefix(maximumTracks)))
+    }
+
+    private static func fetchBilibiliFavorites(id: String, session: URLSession) async throws -> ExternalPlaylist {
+        var tracks: [ExternalPlaylistTrack] = []
+        var name = ""
+        var page = 1
+        while tracks.count < maximumTracks {
+            try Task.checkCancellation()
+            let result = try ExternalPlaylistDecoder.bilibiliFavoritesPage(
+                try await data(for: ExternalPlaylistRequests.bilibiliFavorites(id: id, page: page), session: session)
+            )
+            if name.isEmpty { name = result.page.name }
+            tracks.append(contentsOf: result.page.tracks)
+            page += 1
+            guard result.hasMore else { break }
+        }
+        return ExternalPlaylist(name: name, platform: .bilibili, tracks: Array(tracks.prefix(maximumTracks)))
+    }
+
+    /// 歌单页给前 100 条和续页令牌，续页走网页自己用的 browse 接口。续页失败时保留已拿到的并标记不完整。
+    private static func fetchYouTube(id: String, session: URLSession) async throws -> ExternalPlaylist {
+        let first = try ExternalPlaylistDecoder.youtubePlaylistPage(
+            try await html(for: ExternalPlaylistRequests.youtubePlaylistPage(id: id), session: session)
+        )
+        var tracks = first.tracks
+        var continuation = first.continuation
+        var isPartial = false
+        while let token = continuation, tracks.count < maximumTracks {
+            try Task.checkCancellation()
+            guard let clientVersion = first.clientVersion else { isPartial = true; break }
+            let (request, body) = ExternalPlaylistRequests.youtubeContinuation(token: token, clientVersion: clientVersion)
+            do {
+                let next = try ExternalPlaylistDecoder.youtubeContinuationPage(
+                    try await data(for: request, body: body, session: session)
+                )
+                guard !next.tracks.isEmpty else { break }
+                tracks.append(contentsOf: next.tracks)
+                continuation = next.continuation
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                isPartial = true
+                break
+            }
+        }
+        return ExternalPlaylist(
+            name: first.name,
+            platform: .youtube,
+            tracks: Array(tracks.prefix(maximumTracks)),
+            isPartial: isPartial
+        )
+    }
+
     // MARK: - HTTP
 
     private static func html(for request: ExternalPlaylistRequest, session: URLSession) async throws -> String {
@@ -287,18 +379,26 @@ enum ExternalPlaylistFetcher {
         return text
     }
 
-    /// 网络层失败(连接被重置、超时)重试一次; 平台明确的拒绝不重试。
-    private static func data(for request: ExternalPlaylistRequest, session: URLSession) async throws -> Data {
+    /// 网络层失败(连接被重置、超时)重试一次; 平台明确的拒绝不重试。`body` 非空时发 POST。
+    private static func data(
+        for request: ExternalPlaylistRequest,
+        body: Data? = nil,
+        session: URLSession
+    ) async throws -> Data {
         do {
-            return try await attempt(request, session: session)
+            return try await attempt(request, body: body, session: session)
         } catch FetchError.network {
             try await Task.sleep(for: .seconds(1))
-            return try await attempt(request, session: session)
+            return try await attempt(request, body: body, session: session)
         }
     }
 
-    private static func attempt(_ request: ExternalPlaylistRequest, session: URLSession) async throws -> Data {
+    private static func attempt(_ request: ExternalPlaylistRequest, body: Data?, session: URLSession) async throws -> Data {
         var urlRequest = URLRequest(url: request.url, timeoutInterval: 20)
+        if let body {
+            urlRequest.httpMethod = "POST"
+            urlRequest.httpBody = body
+        }
         for (field, value) in request.headers {
             urlRequest.setValue(value, forHTTPHeaderField: field)
         }

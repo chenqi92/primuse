@@ -52,6 +52,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     /// Emby page per library, so the walk needs one deterministic order and the
     /// per-library counts to translate a global offset into a request.
     private var catalogLayout: CatalogLayout?
+    /// Set by `scanSongs` when a library moved while it was being paged.
+    private var catalogDriftInLastWalk = false
 
     init(
         sourceID: String,
@@ -773,8 +775,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     for library in libraries {
                         let libraryID = library.id
                         var startIndex = 0
-                        var expectedTotal: Int?
+                        var walk = CatalogWalkDriftTracker()
                         var seenPages: Set<String> = []
+                        defer {
+                            if walk.driftObserved {
+                                catalogDriftInLastWalk = true
+                                plog("↻ \(kind) library \(libraryID): catalogue moved during the walk")
+                            }
+                        }
 
                         switch kind {
                         case .plex:
@@ -790,15 +798,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     guard total >= 0, total <= Self.maximumCatalogTracks else {
                                         throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
                                     }
-                                    if let expectedTotal, expectedTotal != total {
-                                        throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
-                                    }
-                                    expectedTotal = total
                                 }
+                                walk.observeTotal(result.totalCount)
                                 if result.items.isEmpty {
-                                    if let expectedTotal, startIndex < expectedTotal {
-                                        throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
-                                    }
+                                    // Records an early end as drift.
+                                    _ = walk.isFinished(offset: startIndex, rawCount: 0, pageSize: pageSize)
                                     break
                                 }
                                 guard result.items.count <= pageSize else {
@@ -806,11 +810,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                 }
                                 let pageIDs = result.items.map(\.ratingKey)
                                 guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
-                                    throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
+                                    // The same page again: the offset is not moving.
+                                    walk.markStalled()
+                                    break
                                 }
 
                                 for item in result.items {
-                                    guard seenTrackIDs.insert(item.ratingKey).inserted else { continue }
+                                    guard walk.admit(item.ratingKey),
+                                          seenTrackIDs.insert(item.ratingKey).inserted else { continue }
                                     guard seenTrackIDs.count <= Self.maximumCatalogTracks else {
                                         throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
                                     }
@@ -832,11 +839,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                 }
 
                                 startIndex += result.items.count
-                                if let expectedTotal {
-                                    guard startIndex <= expectedTotal else {
-                                        throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
-                                    }
-                                    if startIndex == expectedTotal { break }
+                                if walk.isFinished(offset: startIndex, rawCount: result.items.count, pageSize: pageSize) {
+                                    break
                                 }
                             }
                         case .jellyfin, .emby:
@@ -852,15 +856,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     guard total >= 0, total <= Self.maximumCatalogTracks else {
                                         throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
                                     }
-                                    if let expectedTotal, expectedTotal != total {
-                                        throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
-                                    }
-                                    expectedTotal = total
                                 }
+                                walk.observeTotal(result.totalRecordCount)
                                 if result.items.isEmpty {
-                                    if let expectedTotal, startIndex < expectedTotal {
-                                        throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
-                                    }
+                                    // Records an early end as drift.
+                                    _ = walk.isFinished(offset: startIndex, rawCount: 0, pageSize: pageSize)
                                     break
                                 }
                                 guard result.items.count <= pageSize else {
@@ -868,11 +868,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                 }
                                 let pageIDs = result.items.map(\.id)
                                 guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
-                                    throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
+                                    // The same page again: the offset is not moving.
+                                    walk.markStalled()
+                                    break
                                 }
 
                                 for item in result.items {
-                                    guard seenTrackIDs.insert(item.id).inserted else { continue }
+                                    guard walk.admit(item.id),
+                                          seenTrackIDs.insert(item.id).inserted else { continue }
                                     guard seenTrackIDs.count <= Self.maximumCatalogTracks else {
                                         throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
                                     }
@@ -900,11 +903,8 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                 }
 
                                 startIndex += result.items.count
-                                if let expectedTotal {
-                                    guard startIndex <= expectedTotal else {
-                                        throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
-                                    }
-                                    if startIndex == expectedTotal { break }
+                                if walk.isFinished(offset: startIndex, rawCount: result.items.count, pageSize: pageSize) {
+                                    break
                                 }
                             }
                         }
@@ -1069,6 +1069,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 limit: limit
             )
             if let total = result.totalRecordCount, total != segment.count {
+                plog("↻ \(kind) library \(segment.library.id): total \(segment.count) → \(total) at index \(startIndex)")
                 throw PagedSongCatalogError.snapshotChangedDuringPagination
             }
             guard result.items.count <= limit else {
@@ -4693,5 +4694,12 @@ private struct PlexPlaylistTrack: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
+    }
+}
+
+extension MediaServerSource: CatalogDriftReportingConnector {
+    func takeCatalogDriftObservation() -> Bool {
+        defer { catalogDriftInLastWalk = false }
+        return catalogDriftInLastWalk
     }
 }

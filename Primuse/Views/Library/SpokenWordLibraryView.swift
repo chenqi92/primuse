@@ -6,12 +6,16 @@ import SwiftUI
 ///
 /// They are kept out of the songs, albums and artists surfaces — one book is a
 /// single item that buries a music library — and listed here instead. Items
-/// that share an album form one book, so a 200-episode series is one row with
-/// its own progress rather than 200 rows; what is being listened to comes
-/// first.
+/// that share an album form one book, so a 200-episode series is one cover
+/// with its own progress rather than 200 rows.
+///
+/// Three parts: the book being listened to as a large "now listening" card
+/// with one Continue button, the unfinished books as a cover grid, and the
+/// finished ones folded away underneath.
 struct SpokenWordLibraryView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @AppStorage("spokenWord.shelf.showsFinished") private var showsFinished = false
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
@@ -24,31 +28,90 @@ struct SpokenWordLibraryView: View {
         )
     }
 
+    private var tint: Color { ListeningSpace.spokenWord.tint }
+
+    private var gridColumns: [GridItem] {
+        #if os(macOS)
+        [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 18, alignment: .top)]
+        #else
+        [GridItem(.adaptive(minimum: 110, maximum: 180), spacing: 16, alignment: .top)]
+        #endif
+    }
+
     var body: some View {
         let all = books
-        let inProgress = all.filter(\.isInProgress)
         let songsByID = Dictionary(
             library.spokenWordSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        let current = SpokenWordBookSupport.nowListening(in: all)
+        let shelf = all.filter { !$0.isFinished && $0.id != current?.id }
+        let finished = all.filter(\.isFinished)
+            .sorted { ($0.lastListenedAt ?? .distantPast) > ($1.lastListenedAt ?? .distantPast) }
 
-        List {
-            if !inProgress.isEmpty {
-                Section("spoken_word_continue_section") {
-                    ForEach(inProgress) { book in
-                        bookRow(book, songsByID: songsByID, showsContinue: true)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 28) {
+                if let current {
+                    SpokenWordNowListeningCard(
+                        book: current,
+                        songs: current.items.compactMap { songsByID[$0.id] },
+                        tint: tint
+                    )
+                    .contextMenu {
+                        bookMenu(current, songs: current.items.compactMap { songsByID[$0.id] })
+                    }
+                }
+
+                if !shelf.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("spoken_word_shelf_section")
+                            .font(.title3.weight(.semibold))
+                            .accessibilityAddTraits(.isHeader)
+                        LazyVGrid(columns: gridColumns, spacing: 22) {
+                            ForEach(shelf) { book in
+                                bookCell(book, songsByID: songsByID)
+                            }
+                        }
+                    }
+                }
+
+                if !finished.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button {
+                            pmWithAnimation(.panel) { showsFinished.toggle() }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("spoken_word_finished")
+                                    .font(.title3.weight(.semibold))
+                                Text(verbatim: "\(finished.count)")
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .rotationEffect(.degrees(showsFinished ? 90 : 0))
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                        .accessibilityAddTraits(.isHeader)
+
+                        if showsFinished {
+                            LazyVGrid(columns: gridColumns, spacing: 22) {
+                                ForEach(finished) { book in
+                                    bookCell(book, songsByID: songsByID)
+                                }
+                            }
+                            .pmFadeTransition(motion: .panel)
+                        }
                     }
                 }
             }
-            Section(inProgress.isEmpty ? "" : String(localized: "spoken_word_all_section")) {
-                ForEach(all.sorted {
-                    $0.title.localizedStandardCompare($1.title) == .orderedAscending
-                }) { book in
-                    bookRow(book, songsByID: songsByID, showsContinue: false)
-                }
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .listStyle(.plain)
         .navigationTitle("tab_spoken_word")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -65,36 +128,29 @@ struct SpokenWordLibraryView: View {
     }
 
     @ViewBuilder
-    private func bookRow(
-        _ book: SpokenWordBook,
-        songsByID: [String: Song],
-        showsContinue: Bool
-    ) -> some View {
+    private func bookCell(_ book: SpokenWordBook, songsByID: [String: Song]) -> some View {
         let songs = book.items.compactMap { songsByID[$0.id] }
+        let cell = SpokenWordBookCoverCell(
+            book: book,
+            coverSong: songs.first,
+            isPlaying: player.currentBookID == book.id,
+            tint: tint
+        )
         if book.items.count > 1 {
             NavigationLink {
                 SpokenWordBookDetailView(bookID: book.id)
             } label: {
-                SpokenWordBookRow(
-                    book: book,
-                    coverSong: songs.first,
-                    isPlaying: songs.contains { $0.id == player.currentSong?.id }
-                )
+                cell
             }
+            .buttonStyle(.pmPressable)
             .contextMenu { bookMenu(book, songs: songs) }
         } else {
             Button {
                 SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
             } label: {
-                SpokenWordBookRow(
-                    book: book,
-                    coverSong: songs.first,
-                    isPlaying: songs.contains { $0.id == player.currentSong?.id }
-                )
+                cell
             }
-            .buttonStyle(.plain)
-            // A plain button only takes hits on its content's own shape, so the
-            // row's padding would otherwise be dead space.
+            .buttonStyle(.pmPressable)
             .contentShape(Rectangle())
             .contextMenu { bookMenu(book, songs: songs) }
         }
@@ -105,22 +161,20 @@ struct SpokenWordLibraryView: View {
         Button {
             SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
         } label: {
-            Label(
-                book.isInProgress
-                    ? String(localized: "spoken_word_continue")
-                    : String(localized: "spoken_word_start"),
-                systemImage: "play.fill"
-            )
+            if book.isInProgress {
+                Label(String(localized: "spoken_word_continue"), systemImage: "play.fill")
+            } else {
+                Label(String(localized: "spoken_word_start"), systemImage: "play.fill")
+            }
         }
         Button {
             store.markFinished(!book.isFinished, songIDs: book.items.map(\.id))
         } label: {
-            Label(
-                book.isFinished
-                    ? String(localized: "spoken_word_mark_unfinished")
-                    : String(localized: "spoken_word_mark_finished"),
-                systemImage: book.isFinished ? "circle" : "checkmark.circle"
-            )
+            if book.isFinished {
+                Label(String(localized: "spoken_word_mark_unfinished"), systemImage: "circle")
+            } else {
+                Label(String(localized: "spoken_word_mark_finished"), systemImage: "checkmark.circle")
+            }
         }
         Button {
             store.setKind(.music, forSongIDs: book.items.map(\.id))
@@ -138,6 +192,113 @@ struct SpokenWordLibraryView: View {
                     systemImage: "arrow.counterclockwise"
                 )
             }
+        }
+    }
+}
+
+/// The book being listened to: large cover, where the listener is, and one
+/// button that picks up exactly there (or pauses it while it plays).
+private struct SpokenWordNowListeningCard: View {
+    let book: SpokenWordBook
+    let songs: [Song]
+    let tint: Color
+
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        let isThisBook = player.currentBookID == book.id
+        let isPlayingThisBook = isThisBook && player.isPlaying
+        VStack(alignment: .leading, spacing: 14) {
+            Text("spoken_word_now_listening_section")
+                .font(.title3.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+
+            details
+
+            Button {
+                if isThisBook {
+                    player.togglePlayPause()
+                } else {
+                    SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+                }
+            } label: {
+                Group {
+                    if isPlayingThisBook {
+                        Label(String(localized: "pause"), systemImage: "pause.fill")
+                    } else {
+                        Label(String(localized: "spoken_word_continue"), systemImage: "play.fill")
+                    }
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(tint)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(tint.opacity(0.10))
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var details: some View {
+        let content = HStack(alignment: .top, spacing: 14) {
+            SpokenWordCover(song: songs.first, size: 112, cornerRadius: 12)
+                .frame(width: 112, height: 112)
+                .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(book.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                if let author = book.author {
+                    Text(author)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if let position = SpokenWordBookSupport.chapterPosition(book) {
+                    Text(position)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if let remaining = book.remainingDuration {
+                    Text(String(
+                        format: String(localized: "spoken_word_remaining_format"),
+                        ChapterTimeFormatter.string(from: remaining)
+                    ))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+                ProgressView(value: book.fractionComplete)
+                    .progressViewStyle(.linear)
+                    .tint(tint)
+                    .padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+
+        if book.items.count > 1 {
+            NavigationLink {
+                SpokenWordBookDetailView(bookID: book.id)
+            } label: {
+                content
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+        } else {
+            content
+                .accessibilityElement(children: .combine)
         }
     }
 }
@@ -238,17 +399,8 @@ struct SpokenWordBookDetailView: View {
 
     private func header(_ book: SpokenWordBook, songs: [Song]) -> some View {
         HStack(alignment: .top, spacing: 16) {
-            if let cover = songs.first {
-                CachedArtworkView(
-                    coverRef: cover.coverArtFileName,
-                    songID: cover.id,
-                    size: 96,
-                    cornerRadius: 10,
-                    sourceID: cover.sourceID,
-                    filePath: cover.filePath,
-                    fileFormat: cover.fileFormat
-                )
-            }
+            SpokenWordCover(song: songs.first, size: 96, cornerRadius: 10)
+                .frame(width: 96, height: 96)
             VStack(alignment: .leading, spacing: 6) {
                 Text(book.title)
                     .font(.title3.weight(.semibold))
@@ -265,20 +417,26 @@ struct SpokenWordBookDetailView: View {
                 if book.lastListenedAt != nil {
                     ProgressView(value: book.fractionComplete)
                         .progressViewStyle(.linear)
-                        .tint(Color.accentColor)
+                        .tint(ListeningSpace.spokenWord.tint)
                 }
-                Button {
-                    SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
-                } label: {
-                    Label(
-                        book.isInProgress
-                            ? String(localized: "spoken_word_continue")
-                            : String(localized: "spoken_word_start"),
-                        systemImage: "play.fill"
-                    )
-                    .font(.subheadline.weight(.semibold))
+                HStack(spacing: 8) {
+                    Button {
+                        SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+                    } label: {
+                        Group {
+                            if book.isInProgress {
+                                Label(String(localized: "spoken_word_continue"), systemImage: "play.fill")
+                            } else {
+                                Label(String(localized: "spoken_word_start"), systemImage: "play.fill")
+                            }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(ListeningSpace.spokenWord.tint)
+
+                    SpokenWordBookSpeedMenu(bookID: book.id)
                 }
-                .buttonStyle(.borderedProminent)
                 .padding(.top, 4)
             }
             Spacer(minLength: 0)
@@ -289,62 +447,87 @@ struct SpokenWordBookDetailView: View {
 
 // MARK: - Rows
 
-private struct SpokenWordBookRow: View {
+/// One book on the shelf: a square cover with its progress underneath, a
+/// check when it has been heard to the end.
+private struct SpokenWordBookCoverCell: View {
     let book: SpokenWordBook
     let coverSong: Song?
     let isPlaying: Bool
+    let tint: Color
 
     var body: some View {
-        HStack(spacing: 12) {
-            if let song = coverSong {
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: 52,
-                    cornerRadius: 8,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath,
-                    fileFormat: song.fileFormat
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(book.title)
-                    .font(.body)
-                    .foregroundStyle(isPlaying ? Color.accentColor : .primary)
-                    .lineLimit(1)
-
-                Text(SpokenWordBookSupport.subtitle(book))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                if book.lastListenedAt != nil, !book.isFinished {
-                    ProgressView(value: book.fractionComplete)
-                        .progressViewStyle(.linear)
-                        .tint(Color.accentColor)
-                        .frame(maxWidth: 220)
-                    if let remaining = book.remainingDuration {
-                        Text(String(
-                            format: String(localized: "spoken_word_remaining_format"),
-                            ChapterTimeFormatter.string(from: remaining)
-                        ))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    SpokenWordCover(song: coverSong, size: 200, cornerRadius: 10, fillsProposedSize: true)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    if book.isFinished {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title3)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, tint)
+                            .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                            .padding(6)
+                            .accessibilityLabel(Text("spoken_word_finished"))
                     }
                 }
-            }
+                .overlay(alignment: .bottomLeading) {
+                    if isPlaying {
+                        Image(systemName: "waveform")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(Circle().fill(tint))
+                            .padding(6)
+                    }
+                }
 
-            Spacer(minLength: 0)
+            // Always laid out so covers line up whether a book is started or
+            // not; only drawn once there is progress to show.
+            ProgressView(value: book.fractionComplete)
+                .progressViewStyle(.linear)
+                .tint(tint)
+                .opacity(book.lastListenedAt != nil && !book.isFinished ? 1 : 0)
+                .accessibilityHidden(book.lastListenedAt == nil || book.isFinished)
 
-            if book.isFinished {
-                Image(systemName: "checkmark.circle.fill")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(book.title)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(isPlaying ? tint : .primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Text(SpokenWordBookSupport.subtitle(book))
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .accessibilityLabel(Text("spoken_word_finished"))
+                    .lineLimit(1)
             }
         }
-        .padding(.vertical, 6)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A book's cover: the first item's artwork, or the default cover.
+private struct SpokenWordCover: View {
+    let song: Song?
+    let size: CGFloat
+    let cornerRadius: CGFloat
+    var fillsProposedSize = false
+
+    var body: some View {
+        CachedArtworkView(
+            coverRef: song?.coverArtFileName,
+            songID: song?.id,
+            size: size,
+            cornerRadius: cornerRadius,
+            sourceID: song?.sourceID,
+            filePath: song?.filePath,
+            fileFormat: song?.fileFormat,
+            fillsProposedSize: fillsProposedSize
+        )
     }
 }
 
@@ -362,7 +545,7 @@ private struct SpokenWordChapterItemRow: View {
                         .foregroundStyle(.secondary)
                 } else if isPlaying {
                     Image(systemName: "waveform")
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(ListeningSpace.spokenWord.tint)
                 } else {
                     Text("\(number)")
                         .font(.footnote.monospacedDigit())
@@ -374,13 +557,13 @@ private struct SpokenWordChapterItemRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title)
                     .font(.body)
-                    .foregroundStyle(isPlaying ? Color.accentColor : (item.isFinished ? .secondary : .primary))
+                    .foregroundStyle(isPlaying ? ListeningSpace.spokenWord.tint : (item.isFinished ? .secondary : .primary))
                     .lineLimit(2)
                 HStack(spacing: 6) {
                     if isResumeItem {
                         Text("spoken_word_resume_here")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(ListeningSpace.spokenWord.tint)
                     }
                     Text(detail)
                         .font(.caption.monospacedDigit())
@@ -389,7 +572,7 @@ private struct SpokenWordChapterItemRow: View {
                 if item.isInProgress {
                     ProgressView(value: item.fractionComplete)
                         .progressViewStyle(.linear)
-                        .tint(Color.accentColor)
+                        .tint(ListeningSpace.spokenWord.tint)
                         .frame(maxWidth: 200)
                 }
             }
@@ -407,6 +590,56 @@ private struct SpokenWordChapterItemRow: View {
             )
         }
         return item.duration > 0 ? ChapterTimeFormatter.string(from: item.duration) : ""
+    }
+}
+
+/// A book's own speed on its page. "Default" follows the global spoken-word
+/// speed; any other choice is remembered for this book only and applies at
+/// once if it is playing.
+private struct SpokenWordBookSpeedMenu: View {
+    let bookID: String
+
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        _ = SpokenWordStore.shared.revision
+        let hasOwnRate = SpokenWordStore.shared.playbackRate(forBookID: bookID) != nil
+        let rate = player.spokenWordRate(forBookID: bookID)
+        let globalRate = SpokenWordPlaybackRatePolicy.clamped(player.playbackSettings.spokenWordPlaybackRate)
+        return Menu {
+            Button {
+                player.setSpokenWordRate(nil, forBookID: bookID)
+            } label: {
+                let title = String(
+                    format: String(localized: "spoken_word_book_speed_default_format"),
+                    SpokenWordPlaybackRatePolicy.label(for: globalRate)
+                )
+                if hasOwnRate {
+                    Text(verbatim: title)
+                } else {
+                    Label(title, systemImage: "checkmark")
+                }
+            }
+            Divider()
+            ForEach(SpokenWordPlaybackRatePolicy.presets, id: \.self) { preset in
+                Button {
+                    player.setSpokenWordRate(preset, forBookID: bookID)
+                } label: {
+                    let title = SpokenWordPlaybackRatePolicy.label(for: preset)
+                    if hasOwnRate, abs(preset - rate) < 0.001 {
+                        Label(title, systemImage: "checkmark")
+                    } else {
+                        Text(verbatim: title)
+                    }
+                }
+            }
+        } label: {
+            Label(SpokenWordPlaybackRatePolicy.label(for: rate), systemImage: "gauge.with.dots.needle.67percent")
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel(Text("spoken_word_book_speed"))
+        .accessibilityValue(Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)))
     }
 }
 
@@ -450,6 +683,25 @@ enum SpokenWordBookSupport {
             SpokenWordStore.shared.markFinished(false, songIDs: [songs[index].id])
         }
         Task { await player.play(queue: songs, startingAt: index) }
+    }
+
+    /// The "now listening" book: the in-progress one heard most recently.
+    static func nowListening(in books: [SpokenWordBook]) -> SpokenWordBook? {
+        books.filter(\.isInProgress)
+            .max { ($0.lastListenedAt ?? .distantPast) < ($1.lastListenedAt ?? .distantPast) }
+    }
+
+    /// "Chapter 3 of 12" for the item Continue starts from; nil for a
+    /// single-item book or when every item is finished.
+    static func chapterPosition(_ book: SpokenWordBook) -> String? {
+        guard book.chapterCount > 1,
+              let resumeID = book.resumeItemID,
+              let index = book.items.firstIndex(where: { $0.id == resumeID }) else { return nil }
+        return String(
+            format: String(localized: "spoken_word_chapter_position_format"),
+            index + 1,
+            book.chapterCount
+        )
     }
 
     static func subtitle(_ book: SpokenWordBook) -> String {

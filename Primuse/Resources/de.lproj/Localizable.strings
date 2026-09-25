@@ -388,11 +388,11 @@
 "theme_color_hex" = "Farbwert";
 "app_icon" = "App-Symbol";
 "app_icon_dock_hint" = "macOS kann das Dock-Symbol nur ändern, solange Primuse läuft – nach dem Beenden zeigt das Dock wieder das Symbol aus dem App-Paket.";
-"icon_default" = "Sanfte Note";
+"icon_default" = "Chris’s Muse";
 "icon_appearance_gray" = "Grau";
 "icon_appearance_hint" = "Das Symbol folgt der Darstellung des Home-Bildschirms. Halte den Home-Bildschirm gedrückt und wähle „Bearbeiten“ → „Anpassen“ → „Automatisch“.";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_13" = "Chris’s Muse";
+"icon_theme_18" = "Sanfte Note";
 "icon_theme_14" = "Buchstabe P";
 "icon_theme_15" = "Gefaltete Note";
 "icon_theme_16" = "NonoEnd";
@@ -998,7 +998,7 @@
 "playlist_export_failed_title" = "Export fehlgeschlagen";
 "playlist_import_title" = "Wiedergabeliste importieren";
 "playlist_import_intro_title" = "Wähle eine m3u8- oder Primuse-JSON-Datei";
-"playlist_import_intro_desc" = "Über Dateien / AirDrop empfangene Wiedergabelisten-Dateien werden anhand von Dateiname + Titel/Künstler mit deiner Mediathek abgeglichen.";
+"playlist_import_intro_desc" = "Playlist-Dateien (m3u, json oder csv / txt / xml / pls / xspf / wpl aus Apple Music, Spotify-Exporttools, foobar2000, VLC oder Windows Media Player) werden per Dateiname sowie Titel/Interpret mit deiner Mediathek abgeglichen.";
 "playlist_import_pick_file" = "Datei wählen";
 "playlist_import_create" = "Erstellen";
 "playlist_import_matched" = "In Mediathek gefunden";
@@ -1015,7 +1015,7 @@
 "playlist_import_err_empty" = "Wiedergabeliste enthält keine Titel";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · gleicht nach Auswahl einer Datei automatisch mit deiner lokalen Mediathek ab";
 "playlist_import_mac_intro_title" = "Wähle zum Starten eine Wiedergabelisten-Datei";
-"playlist_import_mac_intro_desc" = "Unterstützt .m3u, .m3u8 und .json. Übereinstimmungen und fehlende Einträge werden vor dem Import angezeigt.";
+"playlist_import_mac_intro_desc" = "Unterstützt .m3u, .m3u8, .json, .csv, .txt, .xml, .pls, .xspf, .wpl. Treffer und fehlende Einträge werden vor dem Import angezeigt.";
 "playlist_import_matched_count_format" = "%d zugeordnet";
 "playlist_import_pending_count_format" = "%d ausstehend";
 "playlist_import_entries_count_format" = "%d Einträge";
@@ -4473,6 +4473,15 @@
 "tag_reason_unified_spelling" = "Gleicher Name, in dieser Auswahl anders geschrieben";
 "tag_reason_invalid_year" = "Unmögliches Jahr";
 "tag_reason_track_from_file" = "Tracknummer aus dem Dateinamen";
+"tag_reason_title_from_file" = "Der Titel wiederholt nur den Künstler; Songname aus dem Dateinamen";
+"tag_reason_copy_counter" = "Kopiennummer, die ein Download-Tool einer doppelten Datei angehängt hat";
+"tag_tidy_library_action" = "Tags der ganzen Mediathek prüfen";
+"tag_tidy_library_button" = "Prüfen";
+"tag_tidy_library_footer" = "Findet Seitennamen, Platzhalter, Titel, die nur den Künstler wiederholen, überzählige „(1)“-Kopiennummern und mehr. Alles wird zuerst zur Bestätigung aufgelistet; nur Angehaktes wird geschrieben und lässt sich rückgängig machen.";
+"tag_tidy_library_checked" = "Geprüfte Songs";
+"tag_editor_suggestions_title" = "Vorgeschlagene Korrekturen";
+"tag_editor_suggestions_apply_all" = "Alle übernehmen";
+"tag_editor_suggestion_apply" = "Übernehmen";
 
 // MARK: - Karaoke
 "karaoke_title" = "Karaoke";
@@ -4527,7 +4536,7 @@
 "playlist_import_mode_file" = "Datei";
 "playlist_import_mode_link" = "Freigabelink";
 "playlist_import_mode_text" = "Textliste";
-"playlist_import_link_placeholder" = "Playlist-Freigabelink einfügen (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music oder Spotify)";
+"playlist_import_link_placeholder" = "Playlist-Freigabelink einfügen (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili oder YouTube)";
 "playlist_import_link_desc" = "Es werden nur Titel, Interpreten, Alben und Längen öffentlicher Playlists gelesen, keine Audiodaten. Private Playlists zuerst in der jeweiligen App öffentlich machen.";
 "playlist_import_link_fetch" = "Playlist lesen";
 "playlist_import_text_order" = "Zeilenformat";
@@ -4543,7 +4552,7 @@
 "playlist_import_confirm_all_probable_format" = "Alle %d bestätigen";
 "playlist_import_create_with_pending_format" = "Playlist erstellen (%1$d, %2$d grau)";
 "playlist_import_pending_kept_hint" = "Nicht gefundene Einträge bleiben grau erhalten";
-"playlist_import_link_err_unrecognized" = "Kein Playlist-Link erkannt. Unterstützt werden Links von NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music und Spotify.";
+"playlist_import_link_err_unrecognized" = "Kein Playlist-Link erkannt. Unterstützt werden Links von NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili und YouTube.";
 "playlist_import_link_err_private" = "Diese Playlist kann nicht gelesen werden. Sie wurde vielleicht gelöscht oder ist privat. Mache sie in der App öffentlich und versuche es erneut.";
 "playlist_import_link_err_changed" = "Der Dienst hat etwas Unerwartetes geliefert; die Schnittstelle hat sich vielleicht geändert. Importiere stattdessen per Textliste.";
 "playlist_import_link_err_network_format" = "Netzwerkanfrage fehlgeschlagen: %@";
@@ -4559,6 +4568,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "Das Playback läuft, es gibt keinen Gesang zum Anpassen.";
 "karaoke_lyrics_from_format" = "Songtext aus „%@“";
@@ -4603,3 +4615,50 @@
 "karaoke_loop_lines_format" = "%d Zeilen in Schleife";
 "karaoke_loop_extend" = "Zeile hinzufügen";
 "karaoke_practice_not_scored" = "Beim Üben wird nicht bewertet oder aufgenommen.";
+
+/* Listening spaces: music, radio and spoken word */
+"listening_space_music" = "Musik";
+"listening_space_radio" = "Radio";
+"listening_space_spoken_word" = "Hörbücher";
+"home_continue_spaces_title" = "Weiterhören";
+"home_continue_spaces_hint" = "Setzt an der Stelle fort, an der du aufgehört hast";
+"home_continue_music_queue" = "Deine Musik-Warteschlange";
+"home_continue_radio_live" = "Wieder einschalten";
+"home_books_in_progress_title" = "Angefangene Bücher";
+"home_books_open_shelf" = "Bücherregal";
+"home_radio_open_all" = "Alle Sender";
+"home_spaces_intro_title" = "Musik, Radio und Hörbücher haben jetzt eigene Tabs";
+"home_spaces_intro_body" = "Jeder Bereich merkt sich, wo du warst – ein Buch oder ein Sender ersetzt deine Musik-Warteschlange nicht mehr. Die Einstellungen findest du jetzt über das Zahnrad oben auf der Startseite.";
+"sleep_at_item_end" = "Am Ende der Folge stoppen";
+"sleep_at_book_end" = "Am Ende des Buchs stoppen";
+"smart_nudge_kind_back_to_music" = "Nach einem Buch anbieten, mit deiner Musik weiterzumachen";
+"smart_nudge_kind_classify_spoken" = "Bei langen Dateien ohne Tags nachfragen";
+"smart_nudge_back_to_music_message" = "Das Buch ist fast zu Ende. Danach mit deiner Musik weitermachen?";
+"smart_nudge_classify_spoken_message" = "Diese lange Datei hat kein Album und keinen Künstler. Ist es ein Hörbuch oder eine Sendung?";
+"smart_nudge_action_move" = "Zu Hörbüchern";
+"spoken_word_next_item" = "Nächste Folge";
+"spoken_word_previous_item" = "Vorherige Folge";
+"mac_player_chapter_number_format" = "Kapitel %lld";
+"radio_recent_title" = "Zuletzt gehört";
+"radio_detail_listen" = "Anhören";
+"radio_detail_heard_title" = "Gerade gelaufen";
+"radio_detail_heard_empty" = "Titel von Songs und Sendungen erscheinen hier, während du zuhörst – sofern der Sender sie überträgt.";
+"radio_detail_heard_clear_title" = "Gehörte Titel dieses Senders löschen?";
+"radio_detail_pinned" = "Ganz oben";
+"radio_detail_copy_stream_url" = "Stream-URL kopieren";
+"radio_detail_missing" = "Dieser Sender wurde entfernt.";
+"radio_add_card_title" = "Live-Radio hören";
+"radio_add_card_message" = "Füge Internetradiosender per Stream-URL hinzu oder importiere eine Playlist mit vielen auf einmal. Sie erscheinen hier und unter Radio.";
+"search_space_picker" = "Suchen in";
+"search_radio_now_playing_format" = "Läuft gerade: %@";
+"search_spoken_word_matched_item_format" = "Treffer: „%@“";
+"tv_spoken_word_listening" = "Wird gehört";
+"tv_spoken_word_bookshelf" = "Bücherregal";
+"tv_spoken_word_chapters" = "Kapitel";
+"tv_spoken_word_book_count" = "%lld Bücher";
+"spoken_word_now_listening_section" = "Aktuell";
+"spoken_word_shelf_section" = "Bücherregal";
+"spoken_word_chapter_position_format" = "Kapitel %lld von %lld";
+"spoken_word_book_speed" = "Tempo für dieses Buch";
+"spoken_word_book_speed_default_format" = "Standard (%@)";
+"stats_spoken_word_time" = "Hörbuchzeit";

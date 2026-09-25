@@ -1138,6 +1138,59 @@ struct TVRadioRenameView: View {
     }
 }
 
+// MARK: - 「电台」一级页
+
+/// tvOS「电台」一级页:与音乐、有声并列的收听空间。页面主体就是按文件夹筛选的
+/// 全部电台网格(原来资料库里的「电台」筛选),首页那排「全部电台」也跳到这里。
+struct TVRadioPageView: View {
+    @Environment(TVStore.self) private var store
+    var openPlayer: () -> Void = {}
+    var onModalActivityChanged: (Bool) -> Void = { _ in }
+    var onModalPresentationChanged: (Bool) -> Void = { _ in }
+
+    private let cols = 4
+    private let gap: CGFloat = 28
+
+    var body: some View {
+        GeometryReader { geo in
+            let contentW = geo.size.width - TVSpace.pageH * 2 - 28
+            let cell = max(140, (contentW - gap * CGFloat(cols - 1)) / CGFloat(cols))
+            let columns = Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 24) {
+                    HStack(alignment: .firstTextBaseline, spacing: 18) {
+                        Text(PMString("ext.tv.radio.title"))
+                            .tvFont(.pageTitle)
+                            .foregroundStyle(TVColor.text)
+                        if !store.radioStations.isEmpty {
+                            Text(TVRadioText.stationCount(store.radioStations.count))
+                                .tvFont(.caption)
+                                .foregroundStyle(TVColor.textFaint)
+                        }
+                    }
+                    TVRadioLibrarySection(
+                        columns: columns,
+                        cell: cell,
+                        spacing: gap,
+                        openPlayer: openPlayer,
+                        onModalActivityChanged: onModalActivityChanged,
+                        onModalPresentationChanged: onModalPresentationChanged
+                    )
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, TVSpace.pageBottom)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .focusSection()
+            .padding(.horizontal, TVSpace.pageH)
+            .padding(.top, TVSpace.pageTop)
+        }
+        .background(TVColor.bg)
+        .accessibilityIdentifier("tv.radio.page")
+    }
+}
+
 // MARK: - 资料库「电台」
 
 /// 资料库里的全部电台:按文件夹筛选的网格。首页那一排只放前几个台,台多的时候

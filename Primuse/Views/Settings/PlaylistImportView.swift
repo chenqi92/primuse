@@ -403,8 +403,13 @@ struct PlaylistImportView: View {
 
             HStack(spacing: 8) {
                 macFormatPill("M3U8")
-                macFormatPill("M3U")
                 macFormatPill("JSON")
+                macFormatPill("CSV")
+                macFormatPill("TXT")
+                macFormatPill("XML")
+                macFormatPill("PLS")
+                macFormatPill("XSPF")
+                macFormatPill("WPL")
             }
             .padding(.top, 4)
 
@@ -1061,6 +1066,29 @@ struct PlaylistImportView: View {
         switch result {
         case .success(let url):
             guard !isParsing else { return }
+            let fileExtension = url.pathExtension.lowercased()
+            if ExternalPlaylistFileParser.supportedExtensions.contains(fileExtension) {
+                // 其他播放器导出的文件：和分享链接、文本清单走同一条匹配与预览。
+                do {
+                    let data = try readImportData(url)
+                    let fileName = url.deletingPathExtension().lastPathComponent
+                    let fallbackText = Self.legacyChineseText(data)
+                    startExternalImport {
+                        do {
+                            return try ExternalPlaylistFileParser.parse(
+                                data: data, fileExtension: fileExtension, fileName: fileName, fallbackText: fallbackText
+                            )
+                        } catch ExternalPlaylistError.empty {
+                            throw OffMainImportError.empty
+                        } catch {
+                            throw OffMainImportError.unsupportedFormat
+                        }
+                    }
+                } catch {
+                    importError = error.localizedDescription
+                }
+                return
+            }
             // 主线程只负责拍 songs 快照 + 读文件字节 (security-scoped 访问要
             // 在主线程短暂持有), 解析 + 库匹配 (O(条目数×库) 带 folding)
             // 全部丢到后台跑, 否则 1000 条对 5 万首库会冻结 UI 数秒。
@@ -1107,6 +1135,12 @@ struct PlaylistImportView: View {
         case .failure(let error):
             importError = error.localizedDescription
         }
+    }
+
+    /// Excel 等在中文系统上存的 CSV 常是 GB18030，不是 UTF-8。
+    nonisolated private static func legacyChineseText(_ data: Data) -> String? {
+        let encoding = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
+        return String(data: data, encoding: String.Encoding(rawValue: encoding))
     }
 
     /// 读取被沙箱保护的 import 文件字节。Files document picker 给的 URL 必须
@@ -1506,6 +1540,9 @@ struct PlaylistImportView: View {
         case .soda: String(localized: "playlist_import_platform_soda")
         case .appleMusic: String(localized: "playlist_import_platform_apple_music")
         case .spotify: String(localized: "playlist_import_platform_spotify")
+        case .deezer: String(localized: "playlist_import_platform_deezer")
+        case .bilibili: String(localized: "playlist_import_platform_bilibili")
+        case .youtube: String(localized: "playlist_import_platform_youtube")
         }
     }
 
@@ -1521,8 +1558,13 @@ struct PlaylistImportView: View {
         keyCache: PlaylistEntryMatchKeyCache
     ) -> [RawExternalMatch] {
         let matcher = PlaylistEntryMatcher(songs: songs, keyCache: keyCache)
+        // 播放器导出文件里带着文件路径时，先按文件名对（同一批文件多半就在曲库里）。
+        let pathIndex = tracks.contains { $0.location != nil } ? MatchIndex(songs: songs) : nil
         return tracks.map { track in
-            let match = matcher.match(track.matchSubject)
+            if let location = track.location, let song = pathIndex?.matchByBasename(location) {
+                return RawExternalMatch(track: track, matched: song, suggested: nil)
+            }
+            let match = matcher.match(anyOf: track.matchSubjects)
             return RawExternalMatch(
                 track: track,
                 matched: match.best,
@@ -1664,7 +1706,10 @@ struct PlaylistImportView: View {
     // MARK: - Helpers
 
     private func importableTypes() -> [UTType] {
-        var types: [UTType] = [.json]
+        var types: [UTType] = [.json, .commaSeparatedText, .tabSeparatedText, .plainText, .xml]
+        for ext in ["pls", "xspf", "wpl"] {
+            if let type = UTType(filenameExtension: ext) { types.append(type) }
+        }
         // m3u8 + m3u —— 用 mpeg4Audio 显然不对, 正确做法是 mpegURL/audio/x-mpegurl
         if let m3u8 = UTType(filenameExtension: "m3u8") { types.append(m3u8) }
         if let m3u = UTType(filenameExtension: "m3u") { types.append(m3u) }

@@ -22,6 +22,11 @@ public enum ExternalPlaylistPlatform: String, Codable, Sendable, CaseIterable, I
     case soda
     case appleMusic = "applemusic"
     case spotify
+    case deezer
+    /// B 站：音频区歌单（am…）与公开收藏夹（ml…/favlist?fid=）。收藏夹里是视频标题。
+    case bilibili
+    /// YouTube 与 YouTube Music 共用一个歌单页；条目是视频标题。
+    case youtube
 
     public var id: String { rawValue }
 }
@@ -42,10 +47,20 @@ public struct ExternalPlaylistTrack: Codable, Hashable, Sendable {
         self.externalID = externalID
     }
 
+    /// 同一条的其他读法。视频标题「A - B」分不清谁是歌手谁是歌名时两种都给，
+    /// 匹配时取对得上的那一种；置灰占位只记第一种。
+    public var alternateSubjects: [ExternalTrackMatchPolicy.Subject] = []
+    /// 播放器导出文件（pls/wpl/xspf）里的文件路径，先按文件名对曲库。
+    public var location: String? = nil
+
     public var artistLine: String { artists.joined(separator: " / ") }
 
     public var matchSubject: ExternalTrackMatchPolicy.Subject {
         .init(title: title, artists: artists, duration: duration)
+    }
+
+    public var matchSubjects: [ExternalTrackMatchPolicy.Subject] {
+        [matchSubject] + alternateSubjects
     }
 }
 
@@ -233,6 +248,39 @@ public struct ExternalPlaylistLink: Hashable, Sendable {
         if host.hasSuffix("douyin.com"), path.contains("qishui") {
             if let id = numeric(query("playlist_id")) ?? number(after: "playlist/", in: path) {
                 return .playlist(.init(platform: .soda, playlistID: id))
+            }
+            return .none
+        }
+
+        if host == "link.deezer.com" || host == "deezer.page.link" {
+            return .needsRedirect(url, .deezer)
+        }
+        if host.hasSuffix("deezer.com") {
+            if let id = number(after: "playlist/", in: path) {
+                return .playlist(.init(platform: .deezer, playlistID: id))
+            }
+            return .none
+        }
+
+        if host == "b23.tv" || host.hasSuffix(".b23.tv") {
+            return .needsRedirect(url, .bilibili)
+        }
+        if host.hasSuffix("bilibili.com") {
+            // 音频区歌单：/audio/am10624
+            if let id = number(after: "/audio/am", in: path) {
+                return .playlist(.init(platform: .bilibili, playlistID: id, parameters: ["kind": "menu"]))
+            }
+            // 收藏夹：space…/favlist?fid=…、/list/ml…、/medialist/detail/ml…
+            if let id = numeric(query("fid")) ?? number(after: "/list/ml", in: path) ?? number(after: "/detail/ml", in: path) {
+                return .playlist(.init(platform: .bilibili, playlistID: id, parameters: ["kind": "fav"]))
+            }
+            return .none
+        }
+
+        if host.hasSuffix("youtube.com") || host == "youtu.be" {
+            if let list = query("list"), !list.isEmpty,
+               list.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }) {
+                return .playlist(.init(platform: .youtube, playlistID: list))
             }
             return .none
         }
@@ -683,7 +731,7 @@ public enum ExternalPlaylistDecoder {
         return parts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
-    private static func dig(_ value: Any?, _ path: [String]) -> Any? {
+    static func dig(_ value: Any?, _ path: [String]) -> Any? {
         var current = value
         for key in path { current = (current as? [String: Any])?[key] }
         return current
@@ -718,7 +766,7 @@ public enum ExternalPlaylistDecoder {
         return nil
     }
 
-    private static func object(_ data: Data) throws -> [String: Any] {
+    static func object(_ data: Data) throws -> [String: Any] {
         // QQ 音乐对不存在/私密的歌单直接回空响应体。
         if data.allSatisfy({ $0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09 }) {
             throw ExternalPlaylistError.notFoundOrPrivate
@@ -730,25 +778,25 @@ public enum ExternalPlaylistDecoder {
         return object
     }
 
-    private static func string(_ value: Any?) -> String? {
+    static func string(_ value: Any?) -> String? {
         if let value = value as? String { return value.trimmingCharacters(in: .whitespacesAndNewlines) }
         if let value = value as? NSNumber { return value.stringValue }
         return nil
     }
 
-    private static func idString(_ value: Any?) -> String? {
+    static func idString(_ value: Any?) -> String? {
         if let value = value as? NSNumber { return value.stringValue }
         if let value = value as? String, !value.isEmpty { return value }
         return nil
     }
 
-    private static func int(_ value: Any?) -> Int? {
+    static func int(_ value: Any?) -> Int? {
         if let value = value as? NSNumber { return value.intValue }
         if let value = value as? String { return Int(value) }
         return nil
     }
 
-    private static func double(_ value: Any?) -> Double? {
+    static func double(_ value: Any?) -> Double? {
         let number: Double?
         if let value = value as? NSNumber {
             number = value.doubleValue

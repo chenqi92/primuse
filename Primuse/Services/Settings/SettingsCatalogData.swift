@@ -141,6 +141,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "scraping.reset", titleKey: "reset_scraper_defaults", iosPage: .scraping, macPage: .scraping, keywords: ["Restore Defaults"]),
         SettingDefinition(id: "scraping.fillMissing", titleKey: "scrape_missing_metadata", iosPage: .scraping, macPage: .scraping, keywords: ["Fill Missing"]),
         SettingDefinition(id: "scraping.rescrape", titleKey: "rescrape_library", iosPage: .scraping, macPage: .scraping, keywords: ["Re-Scrape"], macAnchor: "scraping.fillMissing"),
+        SettingDefinition(id: "scraping.tidyLibrary", titleKey: "tag_tidy_library_action", iosPage: .scraping, macPage: .scraping, keywords: ["tag_tidy_title", "tag_tidy_library_footer"]),
         SettingDefinition(id: "scraping.cancel", titleKey: "cancel", iosPage: .scraping, macPage: .scraping, keywords: ["Cancel"], anchor: "scraping.fillMissing"),
         SettingDefinition(id: "scraping.cookie", titleKey: "cookie_config", iosPage: .scraping, macPage: nil, keywords: ["cookie_placeholder", "cookie_config_message", "save"], anchor: "scraping.sources"),
         SettingDefinition(id: "scraping.editCustomJSON", titleKey: "custom_sources", iosPage: .scraping, macPage: nil, anchor: "scraping.sources"),

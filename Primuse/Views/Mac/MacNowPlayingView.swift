@@ -54,6 +54,8 @@ struct MacNowPlayingView: View {
     @State private var showsNativeFullscreenEffectPicker = false
     /// 全屏时是否切到「沉浸展示」(共享的 ImmersiveStageView),而非常规播放页。
     @State private var showsImmersiveStage = false
+    @State private var showsRadioSleepTimer = false
+    @State private var radioDetailStationID: String?
     @State private var preferences = MacUIPreferences.shared
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
@@ -467,6 +469,38 @@ struct MacNowPlayingView: View {
 
     private var radioFloatingControls: some View {
         HStack(spacing: 8) {
+            // 「刚播过」: 这个台最近放过的标题, 在电台详情页里 (共用 iPhone 那一页)。
+            if let station = player.currentRadioStation {
+                Button { radioDetailStationID = station.id } label: {
+                    circleIcon("clock.arrow.circlepath")
+                }
+                .buttonStyle(.plain)
+                .pmGlassControl(Circle())
+                .help(Text("radio_detail_heard_title"))
+                .sheet(item: Binding(
+                    get: { radioDetailStationID.map(MacRadioDetailTarget.init) },
+                    set: { radioDetailStationID = $0?.id }
+                )) { target in
+                    RadioStationDetailView(stationID: target.id)
+                        .frame(minWidth: 420, minHeight: 540)
+                }
+            }
+            // 电台没有「更多」菜单, 睡眠定时直接放在这排。
+            Button { showsRadioSleepTimer.toggle() } label: {
+                circleIcon(player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz",
+                           tint: player.isSleepTimerActive ? theme.onAccent : nil,
+                           fill: player.isSleepTimerActive ? theme.accentColor.opacity(0.9) : nil)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.plain)
+            .pmGlassControl(Circle())
+            .help(player.isSleepTimerActive ? Text("sleep_timer_active") : Text("sleep_timer"))
+            .popover(isPresented: $showsRadioSleepTimer, arrowEdge: .bottom) {
+                MacSleepTimerPopover {
+                    showsRadioSleepTimer = false
+                }
+                .focusEffectDisabled()
+            }
             if let url = player.currentRadioStation?.url {
                 ShareLink(item: url) {
                     circleIcon("square.and.arrow.up")
@@ -669,6 +703,9 @@ struct MacNowPlayingView: View {
                     .font(.system(size: isWindowFullScreen ? 36 : 24))
                     .padding(.top, 6)
                 }
+                MacNowPlayingSpokenWordRow(foreground: playerSecondaryColor)
+                .font(.system(size: isWindowFullScreen ? 15 : 13))
+                .padding(.top, 8)
                 if let sourceLabel, !sourceLabel.isEmpty {
                     Text(sourceLabel)
                         .font(.system(size: 11, weight: .regular, design: .monospaced))
@@ -1539,6 +1576,133 @@ private struct MacNowPlayingMetadataLink: View {
         .help(Text(help))
         .accessibilityHint(Text(help))
     }
+}
+
+/// 有声内容的一行小控件, 跟 iPhone 播放页 `nowPlayingChapterLink` 同一套:
+/// 当前章节 (点开章节与书签)、上一章/下一章、加书签、听书速度。
+/// 音乐且不带章节时整行不出现。单独成视图, 章节随播放头变化只重算这一行。
+private struct MacNowPlayingSpokenWordRow: View {
+    let foreground: Color
+
+    @Environment(AudioPlayerService.self) private var player
+    @State private var showsChapterList = false
+    @State private var bookmarkFeedbackToken = 0
+
+    private var store: SpokenWordStore { SpokenWordStore.shared }
+
+    var body: some View {
+        let isSpokenWord = player.currentItemIsSpokenWord && !player.isLiveRadio
+        if player.hasChapters || isSpokenWord {
+            HStack(spacing: 14) {
+                if player.hasChapters || hasCurrentBookmarks {
+                    Button { showsChapterList = true } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: player.hasChapters ? "list.bullet.indent" : "bookmark")
+                                .font(.caption)
+                            if player.hasChapters {
+                                Text(verbatim: player.currentChapter?.title
+                                    ?? String(localized: "chapters_title"))
+                                    .lineLimit(1)
+                            } else {
+                                Text("spoken_word_bookmarks_title")
+                                    .lineLimit(1)
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(Text("spoken_word_chapters_and_bookmarks"))
+                    .accessibilityLabel(Text("chapters_title"))
+                    .layoutPriority(1)
+                }
+
+                if player.hasChapters {
+                    Button { player.seekToPreviousChapter() } label: {
+                        Image(systemName: "backward.end")
+                            .frame(minWidth: 24, minHeight: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(player.currentChapterIndex == nil)
+                    .help(Text("spoken_word_previous_chapter"))
+
+                    Button { player.seekToNextChapter() } label: {
+                        Image(systemName: "forward.end")
+                            .frame(minWidth: 24, minHeight: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled((player.currentChapterIndex ?? -1) + 1 >= player.spokenWordChapters.count)
+                    .help(Text("spoken_word_next_chapter"))
+                }
+
+                if isSpokenWord {
+                    Button {
+                        if player.addSpokenWordBookmark() { bookmarkFeedbackToken += 1 }
+                    } label: {
+                        Image(systemName: "bookmark")
+                            .symbolEffect(.bounce, value: bookmarkFeedbackToken)
+                            .frame(minWidth: 24, minHeight: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(Text("spoken_word_add_bookmark"))
+
+                    Menu {
+                        Picker(selection: rateBinding) {
+                            ForEach(SpokenWordPlaybackRatePolicy.presets, id: \.self) { rate in
+                                Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)).tag(rate)
+                            }
+                        } label: {
+                            Text("spoken_word_playback_rate")
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        Text(verbatim: SpokenWordPlaybackRatePolicy.label(
+                            for: rateAdjustable ? player.currentSpokenWordRate : 1
+                        ))
+                        .monospacedDigit()
+                        .fontWeight(.semibold)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .disabled(!rateAdjustable)
+                    .help(Text("spoken_word_playback_rate"))
+                }
+            }
+            .foregroundStyle(foreground)
+            .sheet(isPresented: $showsChapterList) {
+                ChapterListView()
+                    .frame(minWidth: 380, minHeight: 440)
+            }
+        }
+    }
+
+    /// 高保真直通输出不能变速, 速度菜单那时只显示 1× 且不可点。
+    private var rateAdjustable: Bool {
+        player.playbackSettings.outputMode == .effects
+    }
+
+    private var hasCurrentBookmarks: Bool {
+        guard let songID = player.currentSong?.id else { return false }
+        _ = store.revision
+        return !store.bookmarks(forSongID: songID).isEmpty
+    }
+
+    private var rateBinding: Binding<Float> {
+        Binding(
+            get: { player.currentSpokenWordRate },
+            set: { player.setSpokenWordRateForCurrentBook($0) }
+        )
+    }
+}
+
+/// `.sheet(item:)` 要一个 Identifiable; 电台详情只认 id。
+private struct MacRadioDetailTarget: Identifiable {
+    let id: String
 }
 
 private struct NowPlayingWindowResolver: NSViewRepresentable {

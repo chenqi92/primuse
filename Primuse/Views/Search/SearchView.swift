@@ -408,6 +408,35 @@ private enum SemanticSearchFeedback: Equatable {
     var isVisible: Bool { self != .idle }
 }
 
+/// 电台里一个命中的台。
+private struct RadioSearchHit: Identifiable {
+    let station: RadioStation
+    let field: ListeningSpaceSearchPolicy.RadioMatchField
+    var id: String { station.id }
+}
+
+/// 有声里一个命中的书。按书列出, 一套两百集的评书只占一行。
+private struct BookSearchHit: Identifiable {
+    let book: SpokenWordBook
+    /// 书里的条目, 按章节顺序。
+    let songs: [PrimuseKit.Song]
+    /// 命中的是某一章的标题或文件名时, 那一章的标题。
+    let matchedItemTitle: String?
+    var id: String { book.id }
+}
+
+/// 结果页顶上选的是哪个收听空间。只记在本次运行里: 下次打开 App 回到「全部」。
+/// 只在主线程上读写(视图初始化与点选分段时)。
+private enum SearchSpaceScopeMemory {
+    nonisolated(unsafe) static var chosen: ListeningSpaceSearchScope = .all
+}
+
+/// 收听空间的颜色取共用的 `ListeningSpace.tint`,和标签页、播放条一致。
+private enum SearchSpaceTint {
+    static func radio(_ scheme: ColorScheme) -> Color { ListeningSpace.radio.tint }
+    static func spokenWord(_ scheme: ColorScheme) -> Color { ListeningSpace.spokenWord.tint }
+}
+
 #if os(macOS)
 private enum MacSearchResultFilter: Hashable {
     case all
@@ -467,6 +496,8 @@ struct SearchView: View {
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(MusicIntelligenceService.self) private var intelligence
+    @Environment(RadioStationsStore.self) private var radioStore
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey)
     private var appleMusicCatalogSearchEnabled = true
     @AppStorage(SearchResultSectionLayout.orderKey)
@@ -511,6 +542,12 @@ struct SearchView: View {
     @State private var renderedQuery: String = ""
     @State private var intelligenceRenderedQuery: String = ""
     @State private var selection = SongSelectionModel()
+    /// 结果页顶上的「全部 · 音乐 · 电台 · 有声」。
+    @State private var spaceScope: ListeningSpaceSearchScope = SearchSpaceScopeMemory.chosen
+    @State private var radioHits: [RadioSearchHit] = []
+    @State private var bookHits: [BookSearchHit] = []
+    /// 明文 HTTP 的电台起播前要先问一句, 和电台页一样。
+    @State private var pendingInsecureStation: RadioStation?
     #if os(macOS)
     @State private var macResultFilter: MacSearchResultFilter = .all
     /// 「全部」页结果区的宽度, 决定并排几栏、一排放几张封面。先给一个常见值,
@@ -595,9 +632,313 @@ struct SearchView: View {
         )
     }
 
+    // MARK: 收听空间
+
+    /// 顶上能选的几段。电台、有声没内容时不出现; 只剩音乐时整条都不出现。
+    /// 在某个歌单 / 文件夹范围里搜时只搜那里的歌, 也不出现。
+    private var availableSpaceScopes: [ListeningSpaceSearchScope] {
+        guard scope == nil else { return [] }
+        return ListeningSpaceSearchPolicy.scopes(
+            visibleSpaces: ListeningSpaceVisibilityPolicy.visibleSpaces(
+                hasRadioStations: !radioStore.stations.isEmpty,
+                hasSpokenWord: !library.spokenWordSongs.isEmpty
+            )
+        )
+    }
+
+    /// 实际生效的那一段。没有分段时就是音乐。
+    private var effectiveSpaceScope: ListeningSpaceSearchScope {
+        let available = availableSpaceScopes
+        guard !available.isEmpty else { return .music }
+        return ListeningSpaceSearchPolicy.effectiveScope(spaceScope, available: available)
+    }
+
+    private func showsSpace(_ space: ListeningSpace) -> Bool {
+        ListeningSpaceSearchPolicy.shows(space, in: effectiveSpaceScope)
+    }
+
+    private func selectSpaceScope(_ newScope: ListeningSpaceSearchScope) {
+        spaceScope = newScope
+        SearchSpaceScopeMemory.chosen = newScope
+        #if os(macOS)
+        if newScope != .music {
+            macResultFilter = .all
+        }
+        #endif
+    }
+
+    private var spaceScopeBinding: Binding<ListeningSpaceSearchScope> {
+        Binding(
+            get: { effectiveSpaceScope },
+            set: { selectSpaceScope($0) }
+        )
+    }
+
+    @ViewBuilder
+    private func spaceScopeTitle(_ spaceScope: ListeningSpaceSearchScope) -> some View {
+        switch spaceScope {
+        case .all: Text("search_chip_all")
+        case .music: Text("listening_space_music")
+        case .radio: Text("listening_space_radio")
+        case .spokenWord: Text("listening_space_spoken_word")
+        }
+    }
+
+    @ViewBuilder
+    private var spaceScopePicker: some View {
+        let scopes = availableSpaceScopes
+        if !scopes.isEmpty, !searchText.isEmpty {
+            Picker(selection: spaceScopeBinding) {
+                ForEach(scopes, id: \.self) { item in
+                    spaceScopeTitle(item).tag(item)
+                }
+            } label: {
+                Text("search_space_picker")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .accessibilityIdentifier("search.space.picker")
+        }
+    }
+
+    /// 音乐这一组有没有东西可显示(含 AI / Apple Music 的状态行)。
+    private var musicHasResults: Bool {
+        !(searchResults.isEmpty
+            && matchingAlbums.isEmpty
+            && matchingArtists.isEmpty
+            && visibleSemanticResults.isEmpty
+            && visibleAppleMusicSearchResults.isEmpty
+            && !semanticSearchFeedback.isVisible)
+    }
+
+    /// 当前这一段下有没有东西可显示。
+    private var hasVisibleSearchResults: Bool {
+        (showsSpace(.music) && musicHasResults)
+            || (showsSpace(.radio) && !radioHits.isEmpty)
+            || (showsSpace(.spokenWord) && !bookHits.isEmpty)
+    }
+
+    /// 「全部」页里电台、有声各露几条。
+    private func spacePreviewLimit(columns: Int = 1) -> Int {
+        let columns = max(columns, 1)
+        let limit = ListeningSpaceSearchPolicy.allScopePreviewLimit
+        return (limit + columns - 1) / columns * columns
+    }
+
+    /// 电台与有声的命中。电台、书都不多, 每轮搜索在主线程上直接对一遍。
+    private func refreshSpaceResults(query: String) {
+        guard scope == nil,
+              !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            if !radioHits.isEmpty { radioHits = [] }
+            if !bookHits.isEmpty { bookHits = [] }
+            return
+        }
+
+        let stations = radioStore.stations
+        let playingID = player.isLiveRadio ? player.currentRadioStation?.id : nil
+        let candidates = stations.map { station in
+            ListeningSpaceSearchPolicy.RadioCandidate(
+                id: station.id,
+                name: station.name,
+                folderName: station.assignedFolderName,
+                tagNames: station.assignedTagNames,
+                nowPlayingTitle: station.id == playingID ? player.radioMetadataTitle : nil
+            )
+        }
+        let stationByID = Dictionary(stations.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        radioHits = ListeningSpaceSearchPolicy.matchStations(query: query, in: candidates).compactMap { match in
+            stationByID[match.stationID].map { RadioSearchHit(station: $0, field: match.field) }
+        }
+
+        let spokenSongs = library.spokenWordSongs
+        guard !spokenSongs.isEmpty else {
+            bookHits = []
+            return
+        }
+        let store = SpokenWordStore.shared
+        let books = SpokenWordBookGrouping.books(
+            from: spokenSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
+        )
+        let songsByID = Dictionary(spokenSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let bookByID = Dictionary(books.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        bookHits = ListeningSpaceSearchPolicy.matchBooks(query: query, in: books).compactMap { match in
+            guard let book = bookByID[match.bookID] else { return nil }
+            let itemTitle = match.matchedItemID.flatMap { id in
+                book.items.first { $0.id == id }?.title
+            }
+            return BookSearchHit(
+                book: book,
+                songs: book.items.compactMap { songsByID[$0.id] },
+                matchedItemTitle: itemTitle
+            )
+        }
+    }
+
+    private func playStation(_ station: RadioStation) {
+        addRecentSearch(searchText)
+        if player.isLiveRadio,
+           player.currentRadioStation?.id == station.id,
+           player.isPlaying || player.isLoading {
+            // 正在听这个台: 不重新连一遍, 直接打开播放页。
+            NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
+            return
+        }
+        // `.pls` 包装先放行: 它拆出来的真实流主机由播放器在起播时再问。
+        if !RadioImportParser.isPlaylistWrapper(station.streamURL),
+           let url = station.url,
+           TrustedHTTPTransport.requiresPlainSocket(for: url),
+           let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
+           !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
+            pendingInsecureStation = station
+            return
+        }
+        startStation(station)
+    }
+
+    private func startStation(_ station: RadioStation) {
+        SiriMediaInteractionDonor.donate(station: station)
+        Task { await player.play(station: station, within: radioStore.stations) }
+    }
+
+    /// 从上次停下的地方接着听这本书。进度按点下去这一刻重新取, 搜出来之后又听过也不会跳回去。
+    private func playBook(_ hit: BookSearchHit) {
+        guard !hit.songs.isEmpty else { return }
+        addRecentSearch(searchText)
+        let store = SpokenWordStore.shared
+        let book = SpokenWordBookGrouping.books(
+            from: hit.songs.map { SpokenWordBookSupport.item(for: $0, store: store) }
+        ).first ?? hit.book
+        let songsByID = Dictionary(hit.songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let orderedSongs = book.items.compactMap { songsByID[$0.id] }
+        SpokenWordBookSupport.play(book, songs: orderedSongs, from: nil, player: player)
+    }
+
+    private var insecureStationAlertPresented: Binding<Bool> {
+        Binding(
+            get: { pendingInsecureStation != nil },
+            set: { if !$0 { pendingInsecureStation = nil } }
+        )
+    }
+
+    // MARK: 电台 / 有声的行
+
+    private func radioResultRow(_ hit: RadioSearchHit, compact: Bool) -> some View {
+        let station = hit.station
+        let isCurrent = player.isLiveRadio && player.currentRadioStation?.id == station.id
+        var details: [String] = []
+        if let folder = station.assignedFolderName { details.append(folder) }
+        if hit.field == .tag || hit.field == .words, !station.assignedTagNames.isEmpty {
+            details.append(station.assignedTagNames.joined(separator: ", "))
+        }
+        if isCurrent, let title = player.radioMetadataTitle, !title.isEmpty {
+            details.append(String(format: String(localized: "search_radio_now_playing_format"), title))
+        }
+        let tint = SearchSpaceTint.radio(colorScheme)
+        return HStack(spacing: 12) {
+            RadioStationArtworkView(
+                station: station,
+                size: compact ? 32 : 44,
+                cornerRadius: compact ? 6 : 9
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: station.name)
+                    .font(compact ? .system(size: 12.5, weight: .medium) : .subheadline)
+                    .foregroundStyle(isCurrent ? tint : Color.primary)
+                    .lineLimit(1)
+                if !details.isEmpty {
+                    Text(verbatim: details.joined(separator: " \u{00B7} "))
+                        .font(compact ? .system(size: 10.5) : .caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            if isCurrent {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.caption)
+                    .foregroundStyle(tint)
+                    .accessibilityHidden(true)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
+    private func bookResultRow(_ hit: BookSearchHit, compact: Bool) -> some View {
+        let book = hit.book
+        let isCurrent = hit.songs.contains { $0.id == player.currentSong?.id }
+        let tint = SearchSpaceTint.spokenWord(colorScheme)
+        var subtitleParts: [String] = []
+        let subtitle = SpokenWordBookSupport.subtitle(book)
+        if !subtitle.isEmpty { subtitleParts.append(subtitle) }
+        if book.isInProgress, let remaining = book.remainingDuration {
+            subtitleParts.append(String(
+                format: String(localized: "spoken_word_remaining_format"),
+                ChapterTimeFormatter.string(from: remaining)
+            ))
+        }
+        let artworkSize: CGFloat = compact ? 32 : 44
+        return HStack(spacing: 12) {
+            Group {
+                if let song = hit.songs.first {
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName,
+                        songID: song.id,
+                        size: artworkSize,
+                        cornerRadius: compact ? 5 : 6,
+                        sourceID: song.sourceID,
+                        filePath: song.filePath,
+                        fileFormat: song.fileFormat
+                    )
+                } else {
+                    Image(systemName: "books.vertical")
+                        .foregroundStyle(tint)
+                        .frame(width: artworkSize, height: artworkSize)
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: book.title)
+                    .font(compact ? .system(size: 12.5, weight: .medium) : .subheadline)
+                    .foregroundStyle(isCurrent ? tint : Color.primary)
+                    .lineLimit(1)
+                if !subtitleParts.isEmpty {
+                    Text(verbatim: subtitleParts.joined(separator: " \u{00B7} "))
+                        .font(compact ? .system(size: 10.5) : .caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if let itemTitle = hit.matchedItemTitle, itemTitle != book.title {
+                    Text(verbatim: String(
+                        format: String(localized: "search_spoken_word_matched_item_format"),
+                        itemTitle
+                    ))
+                    .font(compact ? .system(size: 10.5) : .caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+                if book.isInProgress {
+                    ProgressView(value: book.fractionComplete)
+                        .progressViewStyle(.linear)
+                        .tint(tint)
+                        .frame(maxWidth: 180)
+                        .accessibilityHidden(true)
+                }
+            }
+            Spacer(minLength: 0)
+            if book.isFinished {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(Text("spoken_word_finished"))
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+
     /// “全选”只圈用户在当前筛选下真正看得到的本地歌曲，顺序跟屏幕上一致。
-    /// Apple Music 在线结果不是本地曲库条目，不参与多选。
+    /// Apple Music 在线结果不是本地曲库条目，不参与多选; 电台、有声也不参与。
     private var selectableSongIDs: [String] {
+        guard showsSpace(.music) else { return [] }
         let sections = orderedResultSections
         #if os(macOS)
         switch macResultFilter {
@@ -669,6 +1010,43 @@ struct SearchView: View {
                 appleMusic.clearCatalogSearchResults()
             }
             resumeSearchIfNeeded()
+            // 书的进度可能在离开搜索页的这段时间里变了。
+            if !renderedQuery.isEmpty, renderedQuery == searchText {
+                refreshSpaceResults(query: renderedQuery)
+            }
+        }
+        .onChange(of: effectiveSpaceScope) { _, _ in
+            selection.prune(to: Set(selectableSongIDs))
+        }
+        .onChange(of: radioStore.artworkRevision) { _, _ in
+            guard !renderedQuery.isEmpty else { return }
+            refreshSpaceResults(query: renderedQuery)
+        }
+        .onChange(of: player.radioMetadataTitle) { _, _ in
+            // 电台正在播的曲名也算命中, 换歌了重对一遍。
+            guard !renderedQuery.isEmpty, !radioStore.stations.isEmpty else { return }
+            refreshSpaceResults(query: renderedQuery)
+        }
+        .onChange(of: library.spokenWordSongs.count) { _, _ in
+            // 有歌被改标成有声 / 音乐: 两边的结果都要重算。
+            guard !searchText.isEmpty else { return }
+            performSearch(query: searchText)
+        }
+        .alert("insecure_http_warning_title", isPresented: insecureStationAlertPresented) {
+            Button("cancel", role: .cancel) { pendingInsecureStation = nil }
+            Button("insecure_http_continue", role: .destructive) {
+                guard let station = pendingInsecureStation,
+                      let url = station.url,
+                      let trustTarget = TrustedHTTPTransport.trustTarget(for: url) else { return }
+                SSLTrustStore.shared.allowInsecureHTTP(domain: trustTarget)
+                pendingInsecureStation = nil
+                startStation(station)
+            }
+        } message: {
+            Text(String(
+                format: String(localized: "insecure_http_warning_message %@"),
+                pendingInsecureStation?.url.flatMap(TrustedHTTPTransport.trustTarget(for:)) ?? ""
+            ))
         }
         .onReceive(NotificationCenter.default.publisher(for: CloudKVSSync.externalChangeNotification)) { note in
             guard let key = note.userInfo?["key"] as? String,
@@ -746,6 +1124,9 @@ struct SearchView: View {
                     .padding(.vertical, heightClass.value(10, compact: 4))
             }
             #endif
+            spaceScopePicker
+                .padding(.horizontal, 16)
+                .padding(.vertical, heightClass.value(8, compact: 4))
             iosSearchResults
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -805,7 +1186,7 @@ struct SearchView: View {
         // 两棵子树不并存。搜索中占位 ⇄ 结果表每敲一键就翻一次, 保持硬切。
         Group {
             if searchText.isEmpty {
-                if library.visibleSongs.isEmpty {
+                if library.visibleSongs.isEmpty && radioStore.stations.isEmpty {
                     EmptyStateView(
                         titleKey: "search_empty_library",
                         descriptionKey: "search_empty_library_desc",
@@ -818,12 +1199,7 @@ struct SearchView: View {
                 }
             } else if isSearching && renderedQuery != searchText {
                 searchingPlaceholder
-            } else if searchResults.isEmpty
-                        && matchingAlbums.isEmpty
-                        && matchingArtists.isEmpty
-                        && visibleSemanticResults.isEmpty
-                        && visibleAppleMusicSearchResults.isEmpty
-                        && !semanticSearchFeedback.isVisible {
+            } else if !hasVisibleSearchResults {
                 if isSearching || renderedQuery != searchText {
                     searchingPlaceholder
                 } else {
@@ -879,7 +1255,16 @@ struct SearchView: View {
             if searchText.isEmpty {
                 Spacer(minLength: 0)
             } else {
-                macFilterChips
+                if !availableSpaceScopes.isEmpty {
+                    spaceScopePicker
+                        .fixedSize()
+                }
+                // 筛选芯片是音乐里的细分: 只在「音乐」这一段(或根本没有分段时)出现。
+                if effectiveSpaceScope == .music {
+                    macFilterChips
+                } else {
+                    Spacer(minLength: 0)
+                }
             }
             macResultLayoutButton
         }
@@ -935,7 +1320,7 @@ struct SearchView: View {
     private var macSearchContent: some View {
         // 与 iOS 同构: 只给不随击键翻转的几支补淡入, 搜索中占位 ⇄ 结果保持硬切。
         if searchText.isEmpty {
-            if library.visibleSongs.isEmpty {
+            if library.visibleSongs.isEmpty && radioStore.stations.isEmpty {
                 EmptyStateView(
                     titleKey: "search_empty_library",
                     descriptionKey: "search_empty_library_desc",
@@ -948,12 +1333,7 @@ struct SearchView: View {
             }
         } else if isSearching && renderedQuery != searchText {
             macSearchingPlaceholder
-        } else if searchResults.isEmpty
-                    && matchingAlbums.isEmpty
-                    && matchingArtists.isEmpty
-                    && visibleSemanticResults.isEmpty
-                    && visibleAppleMusicSearchResults.isEmpty
-                    && !semanticSearchFeedback.isVisible {
+        } else if !hasVisibleSearchResults {
             if isSearching || renderedQuery != searchText {
                 macSearchingPlaceholder
             } else {
@@ -996,7 +1376,7 @@ struct SearchView: View {
                 }
 
                 HStack(spacing: 14) {
-                    macSummaryTile(value: "\(library.visibleSongs.count)", label: "tab_songs", icon: "music.note")
+                    macSummaryTile(value: "\(library.musicSongs.count)", label: "tab_songs", icon: "music.note")
                     macSummaryTile(value: "\(library.visibleAlbums.count)", label: "tab_albums", icon: "square.stack")
                     macSummaryTile(value: "\(library.visibleArtists.count)", label: "tab_artists", icon: "music.mic")
                 }
@@ -1009,7 +1389,9 @@ struct SearchView: View {
 
     @ViewBuilder
     private var macSearchResultsView: some View {
-        if macResultFilter == .all {
+        if effectiveSpaceScope == .radio || effectiveSpaceScope == .spokenWord {
+            macSpaceResultsView
+        } else if macResultFilter == .all {
             macAllSearchResultsView
         } else if macSelectedFilterHasContent {
             macFilteredSearchResultsView
@@ -1027,9 +1409,19 @@ struct SearchView: View {
         let model = macAllResultsModel
         return ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(alignment: .leading, spacing: 30) {
-                macTopRow(model)
-                ForEach(model.plan.rows) { row in
-                    macResultRow(row, model: model)
+                if showsSpace(.music) {
+                    macTopRow(model)
+                }
+                if showsSpace(.music) {
+                    ForEach(model.plan.rows) { row in
+                        macResultRow(row, model: model)
+                    }
+                }
+                if showsSpace(.radio) {
+                    macRadioBlock(showsAll: false)
+                }
+                if showsSpace(.spokenWord) {
+                    macBookBlock(showsAll: false)
                 }
                 macRecentSearchInlineSection
             }
@@ -1293,7 +1685,7 @@ struct SearchView: View {
             macSectionLabel(title)
             Spacer(minLength: 8)
             if let seeAll {
-                Button("see_all") { macResultFilter = seeAll }
+                Button("see_all") { selectMacFilter(seeAll) }
                     .buttonStyle(.plain)
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(PMColor.brand)
@@ -1774,6 +2166,109 @@ struct SearchView: View {
             .padding(.bottom, 100)
         }
         .background(PMColor.bg)
+    }
+
+    /// 音乐里的细分筛选。在「全部」这一段点了, 就切到「音乐」再筛。
+    private func selectMacFilter(_ filter: MacSearchResultFilter) {
+        if filter != .all, effectiveSpaceScope == .all, !availableSpaceScopes.isEmpty {
+            selectSpaceScope(.music)
+        }
+        macResultFilter = filter
+    }
+
+    /// 「电台」「有声」这两段: 命中全部列出。
+    private var macSpaceResultsView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 30) {
+                if effectiveSpaceScope == .radio {
+                    macRadioBlock(showsAll: true)
+                } else {
+                    macBookBlock(showsAll: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.width.rounded()
+            } action: { width in
+                macResultsWidth = width
+            }
+            .padding(.horizontal, PMSpace.xxxl)
+            .padding(.bottom, 100)
+        }
+        .background(PMColor.bg)
+    }
+
+    private func macSpaceBlockHeader(
+        _ title: LocalizedStringKey,
+        systemImage: String,
+        seeAll: ListeningSpaceSearchScope?
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(PMColor.textFaint)
+            macSectionLabel(title)
+            Spacer(minLength: 8)
+            if let seeAll {
+                Button("see_all") { selectSpaceScope(seeAll) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(PMColor.brand)
+            }
+        }
+        .frame(height: 16)
+    }
+
+    @ViewBuilder
+    private func macRadioBlock(showsAll: Bool) -> some View {
+        let columns = SearchResultPageLayout.columnCount(for: Double(macResultsWidth))
+        let hits = showsAll ? radioHits : Array(radioHits.prefix(spacePreviewLimit(columns: columns)))
+        if !hits.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                macSpaceBlockHeader(
+                    "radio_title",
+                    systemImage: "dot.radiowaves.left.and.right",
+                    seeAll: !showsAll && radioHits.count > hits.count ? .radio : nil
+                )
+                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4) { hit in
+                    Button {
+                        playStation(hit.station)
+                    } label: {
+                        radioResultRow(hit, compact: true)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .pmRowBackground(cornerRadius: 6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macBookBlock(showsAll: Bool) -> some View {
+        let columns = SearchResultPageLayout.columnCount(for: Double(macResultsWidth))
+        let hits = showsAll ? bookHits : Array(bookHits.prefix(spacePreviewLimit(columns: columns)))
+        if !hits.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                macSpaceBlockHeader(
+                    "tab_spoken_word",
+                    systemImage: "books.vertical",
+                    seeAll: !showsAll && bookHits.count > hits.count ? .spokenWord : nil
+                )
+                macColumns(hits, columns: columns, spacing: 16, rowSpacing: 4) { hit in
+                    Button {
+                        playBook(hit)
+                    } label: {
+                        bookResultRow(hit, compact: true)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .pmRowBackground(cornerRadius: 6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
     }
 
     private var macSearchingPlaceholder: some View {
@@ -2357,7 +2852,7 @@ struct SearchView: View {
         title: String
     ) -> some View {
         Button {
-            macResultFilter = filter
+            selectMacFilter(filter)
         } label: {
             chipText(title, active: macResultFilter == filter)
         }
@@ -2529,7 +3024,7 @@ struct SearchView: View {
                 HStack {
                     Image(systemName: "music.note.list")
                         .foregroundStyle(.secondary)
-                    Text("\(scope?.songIDs.count ?? library.visibleSongs.count) \(String(localized: "tab_songs"))")
+                    Text("\(scope?.songIDs.count ?? library.musicSongs.count) \(String(localized: "tab_songs"))")
                     if scope == nil {
                         Spacer()
                         Text("\(library.visibleAlbums.count) \(String(localized: "tab_albums"))")
@@ -2719,7 +3214,7 @@ struct SearchView: View {
             }
 
             // 最佳结果只在 `Search.browse` 那一套里出现。
-            if skin.usesBrowseSearch, scope == nil, let top = topResult {
+            if skin.usesBrowseSearch, scope == nil, showsSpace(.music), let top = topResult {
                 Section {
                     topResultCard(top)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 10, trailing: 16))
@@ -2728,16 +3223,30 @@ struct SearchView: View {
                 }
             }
 
-            ForEach(orderedResultSections) { section in
-                resultSection(section)
-            }
             // 自己画页面底色的皮肤下行是透明的,露出页面底色;经典下仍是系统行底。
-            .listRowBackground(skin.paintsPageBackground ? Color.clear : nil)
+            if showsSpace(.music) {
+                ForEach(orderedResultSections) { section in
+                    resultSection(section)
+                }
+                .listRowBackground(resultRowBackground)
+            }
+            if showsSpace(.radio) {
+                radioResultsSection
+                    .listRowBackground(resultRowBackground)
+            }
+            if showsSpace(.spokenWord) {
+                bookResultsSection
+                    .listRowBackground(resultRowBackground)
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(skin.paintsPageBackground ? .hidden : .automatic)
         // 结果表够宽时, 歌曲行把专辑与时长排成对齐列。
         .songRowColumnsContainer()
+    }
+
+    private var resultRowBackground: Color? {
+        skin.paintsPageBackground ? Color.clear : nil
     }
 
     /// 结果分区的标题。`Search.browse` 用加粗的大标题,经典是分组列表的系统标题。
@@ -2853,6 +3362,68 @@ struct SearchView: View {
             // Apple Music 启用时即使没结果也显示 section 标题, 让用户一眼看到
             // "为什么没有 Apple Music 推荐" (未授权 / 搜索失败 / 真没结果)。
             appleMusicSection
+        }
+    }
+
+    @ViewBuilder
+    private var radioResultsSection: some View {
+        let isPreview = effectiveSpaceScope == .all
+        let hits = isPreview ? Array(radioHits.prefix(spacePreviewLimit())) : radioHits
+        if !hits.isEmpty {
+            Section {
+                ForEach(hits) { hit in
+                    Button {
+                        playStation(hit.station)
+                    } label: {
+                        radioResultRow(hit, compact: false)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                }
+            } header: {
+                spaceSectionHeader(
+                    title: "radio_title",
+                    seeAll: isPreview && radioHits.count > hits.count ? .radio : nil
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var bookResultsSection: some View {
+        let isPreview = effectiveSpaceScope == .all
+        let hits = isPreview ? Array(bookHits.prefix(spacePreviewLimit())) : bookHits
+        if !hits.isEmpty {
+            Section {
+                ForEach(hits) { hit in
+                    Button {
+                        playBook(hit)
+                    } label: {
+                        bookResultRow(hit, compact: false)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                }
+            } header: {
+                spaceSectionHeader(
+                    title: "tab_spoken_word",
+                    seeAll: isPreview && bookHits.count > hits.count ? .spokenWord : nil
+                )
+            }
+        }
+    }
+
+    private func spaceSectionHeader(
+        title: LocalizedStringKey,
+        seeAll: ListeningSpaceSearchScope?
+    ) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            if let seeAll {
+                Button("see_all") { selectSpaceScope(seeAll) }
+                    .textCase(nil)
+            }
         }
     }
 
@@ -3189,13 +3760,16 @@ struct SearchView: View {
             semanticSearchFeedback = .idle
             renderedQuery = ""
             intelligenceRenderedQuery = ""
+            refreshSpaceResults(query: "")
             return
         }
 
         let scopedSearch = scope != nil
         let layout = resultLayout
         let matchKinds = layout.matchKinds
-        let songsSnapshot = scope?.songs(in: library.visibleSongs) ?? library.visibleSongs
+        // 全局搜索只在音乐里找歌: 有声条目按书列在自己那一组, 不混进歌曲结果。
+        // 在某个歌单 / 文件夹范围里搜时, 范围里有什么就找什么。
+        let songsSnapshot = scope?.songs(in: library.visibleSongs) ?? library.musicSongs
         let albumsSnapshot = scopedSearch || !layout.shows(.albums) ? [] : library.visibleAlbums
         let cacheSnapshot = workCoordinator.lyricsCache
         let metadataRevisionKey = "\(library.visibleSongCollectionRevision):\(library.searchRevision)"
@@ -3306,6 +3880,7 @@ struct SearchView: View {
             searchResults = output.songResults
             matchingAlbums = albums
             workCoordinator.lyricsCache = output.cache
+            refreshSpaceResults(query: query)
             renderedQuery = query
             isSearching = false
         }

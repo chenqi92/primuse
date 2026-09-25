@@ -1570,6 +1570,15 @@ struct PagedSongCatalogPage: Sendable {
     let nextOffset: Int?
 }
 
+/// A whole-library connector whose `scanSongs` walk keeps going when the
+/// catalogue moves under it (see `CatalogWalkDriftTracker`). Asked once the
+/// scan's streams have finished: a walk that drifted may add and update rows
+/// but must not remove any. Taking the observation clears it; one left behind
+/// by a failed scan only costs the next scan its removals.
+protocol CatalogDriftReportingConnector: MusicSourceConnector {
+    func takeCatalogDriftObservation() async -> Bool
+}
+
 /// Authoritative catalogue pages that can be staged without publishing a
 /// partial source snapshot. The caller persists `resumeState` only together
 /// with all songs returned through that page.

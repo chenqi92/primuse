@@ -10,8 +10,10 @@ import PrimuseKit
 /// session: a book is listened to across days with music in between, and the
 /// single playback-session snapshot cannot express that.
 ///
-/// Local only for now. Nothing here goes through CloudKit yet, so a position
-/// does not follow the listener to another device.
+/// Positions, finished marks, bookmarks, per-book speeds and kind corrections
+/// follow the listener to their other devices through the key-value store
+/// (`SpokenWordSyncPolicy` merges; every entry is last-writer-wins with
+/// tombstones for removals). The local JSON file stays the source of truth.
 @MainActor
 @Observable
 final class SpokenWordStore {
@@ -32,7 +34,24 @@ final class SpokenWordStore {
         // Optional so files written before bookmarks existed still decode.
         var bookmarks: [String: [SpokenWordBookmark]]?
         var finishedAt: [String: Date]?
+        var bookRates: [String: Float]?
+        var ledger: SpokenWordSyncLedger?
     }
+
+    /// How soon a change should reach the other devices.
+    private enum CloudUrgency: Int, Comparable {
+        /// Only a resume position moved: batched, it changes every 15 s.
+        case relaxed
+        /// Something the listener did on purpose.
+        case prompt
+
+        static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    /// Key-value store key for the synced document.
+    static let cloudStorageKey = "primuse_spoken_word_sync_v1"
+    private static let promptCloudPushDelay: Duration = .seconds(3)
+    private static let relaxedCloudPushDelay: Duration = .seconds(90)
 
     static let shared = SpokenWordStore()
 
@@ -44,15 +63,27 @@ final class SpokenWordStore {
     /// Items listened to the end (or marked so by hand). A book's shelf
     /// progress and "continue from" are built from this and `positions`.
     private(set) var finishedAt: [String: Date] = [:]
+    /// Speeds the listener picked for single books, by `SpokenWordBook.id`.
+    /// Absent means the global spoken-word speed.
+    private(set) var bookRates: [String: Float] = [:]
+    /// When removals and edits happened, so they survive a merge with a
+    /// device that has not seen them yet.
+    @ObservationIgnored private var ledger = SpokenWordSyncLedger()
     /// Bumped on every change so views and the library aggregation can depend
     /// on one cheap value instead of observing two dictionaries.
     @ObservationIgnored private(set) var revision = 0
 
     private let storeURL: URL
     private var saveTask: Task<Void, Never>?
+    private let syncsThroughICloud: Bool
+    @ObservationIgnored private var cloudPushTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingCloudUrgency: CloudUrgency?
+    @ObservationIgnored private var isRegisteredWithCloud = false
 
-    /// `storeURL` is for tests; the app uses `shared`.
+    /// `storeURL` is for tests; the app uses `shared`, the only instance that
+    /// syncs.
     init(storeURL: URL? = nil) {
+        syncsThroughICloud = storeURL == nil
         if let storeURL {
             self.storeURL = storeURL
         } else {
@@ -67,6 +98,20 @@ final class SpokenWordStore {
             self.storeURL = base.appendingPathComponent("spoken_word.json")
         }
         load()
+        if syncsThroughICloud {
+            CloudKVSSync.shared.register(key: Self.cloudStorageKey) { [weak self] in
+                guard let self else { return }
+                if self.isRegisteredWithCloud {
+                    self.mergeCloudCopy()
+                } else {
+                    // The first reload runs inside `register`, i.e. while
+                    // `shared` is still being created; a change notification
+                    // from here would reach observers that read `shared`.
+                    Task { @MainActor [weak self] in self?.mergeCloudCopy() }
+                }
+            }
+            isRegisteredWithCloud = true
+        }
     }
 
     // MARK: - Classification
@@ -93,26 +138,24 @@ final class SpokenWordStore {
     func setKind(_ kind: ListeningContentKind?, forSongIDs songIDs: [String]) {
         guard !songIDs.isEmpty else { return }
         var changed = false
-        for songID in songIDs {
-            if let kind {
-                if overrides[songID] != kind {
-                    overrides[songID] = kind
-                    changed = true
-                }
-            } else if overrides.removeValue(forKey: songID) != nil {
-                changed = true
-            }
+        let now = Date()
+        for songID in songIDs where overrides[songID] != kind {
+            overrides[songID] = kind
+            // Stamped so a later correction on another device wins, and a
+            // return to inference is not undone by an older override.
+            ledger.overrideChangedAt[songID] = now
+            changed = true
         }
         // Music does not carry a resume position, so dropping it here keeps a
         // reclassified item from resuming mid-file later.
         if kind == .music {
             for songID in songIDs {
-                if positions.removeValue(forKey: songID) != nil { changed = true }
-                if finishedAt.removeValue(forKey: songID) != nil { changed = true }
+                if removePosition(songID, at: now) { changed = true }
+                if removeFinished(songID, at: now) { changed = true }
             }
         }
         guard changed else { return }
-        didChange()
+        didChange(cloud: .prompt)
     }
 
     // MARK: - Positions
@@ -155,10 +198,11 @@ final class SpokenWordStore {
         )
         guard positions[songID] != stored else { return }
         positions[songID] = stored
+        ledger.positionClearedAt.removeValue(forKey: songID)
         // Listening again to a finished item reopens it.
-        finishedAt.removeValue(forKey: songID)
+        let reopened = removeFinished(songID, at: stored.updatedAt)
         evictOldestIfNeeded()
-        didChange()
+        didChange(cloud: reopened ? .prompt : .relaxed)
     }
 
     // MARK: - Finished
@@ -177,16 +221,33 @@ final class SpokenWordStore {
             if finished {
                 if finishedAt[songID] == nil {
                     finishedAt[songID] = now
+                    ledger.unfinishedAt.removeValue(forKey: songID)
                     changed = true
                 }
-                if positions.removeValue(forKey: songID) != nil { changed = true }
-            } else if finishedAt.removeValue(forKey: songID) != nil {
+                if removePosition(songID, at: now) { changed = true }
+            } else if removeFinished(songID, at: now) {
                 changed = true
             }
         }
         guard changed else { return }
         evictOldestIfNeeded()
-        didChange()
+        didChange(cloud: .prompt)
+    }
+
+    /// Removes a position as a listener's decision (a tombstone goes with
+    /// it), unlike eviction or pruning, which only forget locally.
+    @discardableResult
+    private func removePosition(_ songID: String, at date: Date) -> Bool {
+        guard positions.removeValue(forKey: songID) != nil else { return false }
+        ledger.positionClearedAt[songID] = date
+        return true
+    }
+
+    @discardableResult
+    private func removeFinished(_ songID: String, at date: Date) -> Bool {
+        guard finishedAt.removeValue(forKey: songID) != nil else { return false }
+        ledger.unfinishedAt[songID] = date
+        return true
     }
 
     // MARK: - Bookmarks
@@ -201,7 +262,14 @@ final class SpokenWordStore {
         let updated = SpokenWordBookmarkPolicy.inserting(bookmark, into: existing)
         guard updated != existing else { return false }
         bookmarks[bookmark.songID] = updated
-        didChange()
+        let now = Date()
+        // The policy drops the oldest past its limit; that is a deletion too.
+        let kept = Set(updated.map(\.id))
+        for dropped in existing where !kept.contains(dropped.id) {
+            ledger.bookmarkEditedAt.removeValue(forKey: dropped.id.uuidString)
+            ledger.bookmarkDeletedAt[dropped.id.uuidString] = now
+        }
+        didChange(cloud: .prompt)
         return true
     }
 
@@ -211,7 +279,9 @@ final class SpokenWordStore {
         list.removeAll { $0.id == id }
         guard list.count != before else { return }
         bookmarks[songID] = list.isEmpty ? nil : list
-        didChange()
+        ledger.bookmarkEditedAt.removeValue(forKey: id.uuidString)
+        ledger.bookmarkDeletedAt[id.uuidString] = Date()
+        didChange(cloud: .prompt)
     }
 
     func renameBookmark(id: UUID, songID: String, title: String) {
@@ -221,12 +291,28 @@ final class SpokenWordStore {
         guard !trimmed.isEmpty, list[index].title != trimmed else { return }
         list[index].title = trimmed
         bookmarks[songID] = list
-        didChange()
+        ledger.bookmarkEditedAt[id.uuidString] = Date()
+        didChange(cloud: .prompt)
     }
 
     func clearPosition(forSongID songID: String) {
-        guard positions.removeValue(forKey: songID) != nil else { return }
-        didChange()
+        guard removePosition(songID, at: Date()) else { return }
+        didChange(cloud: .prompt)
+    }
+
+    // MARK: - Per-book speed
+
+    /// The speed the listener picked for this book, nil when it follows the
+    /// global spoken-word speed.
+    func playbackRate(forBookID bookID: String) -> Float? { bookRates[bookID] }
+
+    /// Stores (or with nil, forgets) a book's own speed.
+    func setPlaybackRate(_ rate: Float?, forBookID bookID: String) {
+        let value = rate.map(SpokenWordPlaybackRatePolicy.clamped)
+        guard bookRates[bookID] != value else { return }
+        bookRates[bookID] = value
+        ledger.rateChangedAt[bookID] = Date()
+        didChange(cloud: .prompt)
     }
 
     /// Drops positions for songs that no longer exist. Called after a library
@@ -243,7 +329,9 @@ final class SpokenWordStore {
         for songID in staleOverrides { overrides.removeValue(forKey: songID) }
         for songID in staleBookmarks { bookmarks.removeValue(forKey: songID) }
         for songID in staleFinished { finishedAt.removeValue(forKey: songID) }
-        didChange()
+        // Forgotten locally only: another device may still have these songs,
+        // so no tombstones and nothing to push.
+        didChange(cloud: nil)
     }
 
     private func resolvedDuration(for song: Song) -> TimeInterval {
@@ -269,9 +357,10 @@ final class SpokenWordStore {
 
     // MARK: - Persistence
 
-    private func didChange() {
+    private func didChange(cloud urgency: CloudUrgency?) {
         revision &+= 1
         scheduleSave()
+        if let urgency { scheduleCloudPush(urgency) }
         NotificationCenter.default.post(name: .primuseSpokenWordDidChange, object: nil)
     }
 
@@ -282,6 +371,8 @@ final class SpokenWordStore {
         positions = payload.positions
         bookmarks = payload.bookmarks ?? [:]
         finishedAt = payload.finishedAt ?? [:]
+        bookRates = payload.bookRates ?? [:]
+        ledger = payload.ledger ?? SpokenWordSyncLedger()
     }
 
     private func scheduleSave() {
@@ -299,6 +390,7 @@ final class SpokenWordStore {
         saveTask?.cancel()
         saveTask = nil
         saveNow()
+        if pendingCloudUrgency != nil { pushToCloudNow() }
     }
 
     private func saveNow() {
@@ -306,13 +398,124 @@ final class SpokenWordStore {
             overrides: overrides.mapValues(\.rawValue),
             positions: positions,
             bookmarks: bookmarks,
-            finishedAt: finishedAt
+            finishedAt: finishedAt,
+            bookRates: bookRates,
+            ledger: ledger
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         try? data.write(to: storeURL, options: .atomic)
+    }
+
+    // MARK: - iCloud
+
+    private var localRecords: SpokenWordLocalRecords {
+        SpokenWordLocalRecords(
+            positions: positions.mapValues {
+                .init(position: $0.position, duration: $0.duration, updatedAt: $0.updatedAt)
+            },
+            finishedAt: finishedAt,
+            bookmarks: bookmarks,
+            overrides: overrides.mapValues(\.rawValue),
+            bookRates: bookRates,
+            ledger: ledger
+        )
+    }
+
+    /// Batches pushes: a position alone waits up to a minute and a half (it
+    /// moves every 15 s while a book plays), a deliberate change goes within
+    /// seconds. `flush()` sends whatever is pending right away.
+    private func scheduleCloudPush(_ urgency: CloudUrgency) {
+        guard syncsThroughICloud else { return }
+        if let pending = pendingCloudUrgency, pending >= urgency, cloudPushTask != nil { return }
+        pendingCloudUrgency = max(pendingCloudUrgency ?? urgency, urgency)
+        cloudPushTask?.cancel()
+        let delay = urgency == .prompt ? Self.promptCloudPushDelay : Self.relaxedCloudPushDelay
+        cloudPushTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.pushToCloudNow()
+        }
+    }
+
+    /// Merges with whatever the cloud copy holds first, so a push never
+    /// replaces another device's entries it has not seen.
+    private func pushToCloudNow() {
+        cloudPushTask?.cancel()
+        cloudPushTask = nil
+        pendingCloudUrgency = nil
+        guard syncsThroughICloud else { return }
+        let remote = SpokenWordSyncPolicy.decode(
+            UserDefaults.standard.data(forKey: Self.cloudStorageKey)
+        ) ?? .empty
+        let local = SpokenWordSyncPolicy.state(from: localRecords)
+        let merged = SpokenWordSyncPolicy.pruned(
+            SpokenWordSyncPolicy.merge(local, remote),
+            now: Date()
+        )
+        adopt(merged)
+        publish(merged, over: remote)
+    }
+
+    /// The cloud copy changed (another device pushed, or sync was switched
+    /// on): take what it has that this device does not, and push back only
+    /// if this device has something it lacks.
+    private func mergeCloudCopy() {
+        guard let remote = SpokenWordSyncPolicy.decode(
+            UserDefaults.standard.data(forKey: Self.cloudStorageKey)
+        ) else { return }
+        let local = SpokenWordSyncPolicy.state(from: localRecords)
+        let merged = SpokenWordSyncPolicy.pruned(
+            SpokenWordSyncPolicy.merge(local, remote),
+            now: Date()
+        )
+        adopt(merged)
+        publish(merged, over: remote)
+    }
+
+    /// Replaces the local dictionaries with a merged state when it differs.
+    private func adopt(_ merged: SpokenWordSyncState) {
+        let records = SpokenWordSyncPolicy.records(from: merged)
+        let nextPositions = records.positions.mapValues {
+            StoredPosition(position: $0.position, duration: $0.duration, updatedAt: $0.updatedAt)
+        }
+        let nextOverrides = records.overrides.compactMapValues(ListeningContentKind.init(rawValue:))
+        let contentChanged = nextPositions != positions
+            || records.finishedAt != finishedAt
+            || records.bookmarks != bookmarks
+            || nextOverrides != overrides
+            || records.bookRates != bookRates
+        let overridesChanged = nextOverrides != overrides
+        guard contentChanged || records.ledger != ledger else { return }
+        positions = nextPositions
+        finishedAt = records.finishedAt
+        bookmarks = records.bookmarks
+        overrides = nextOverrides
+        bookRates = records.bookRates
+        ledger = records.ledger
+        guard contentChanged else {
+            scheduleSave()
+            return
+        }
+        didChange(cloud: nil)
+        if overridesChanged {
+            NotificationCenter.default.post(name: .primuseSpokenWordClassificationDidChange, object: nil)
+        }
+    }
+
+    /// Writes the upload document and pushes it, unless the cloud already
+    /// holds exactly that.
+    private func publish(_ merged: SpokenWordSyncState, over remote: SpokenWordSyncState) {
+        let upload = SpokenWordSyncPolicy.uploadState(merged)
+        guard upload != remote, let data = SpokenWordSyncPolicy.encode(upload) else { return }
+        UserDefaults.standard.set(data, forKey: Self.cloudStorageKey)
+        CloudKVSSync.shared.markChanged(key: Self.cloudStorageKey)
     }
 }
 
 extension Notification.Name {
     static let primuseSpokenWordDidChange = Notification.Name("primuse.spokenWordDidChange")
+    /// Posted when kind corrections arrived from another device, so the
+    /// library can re-run the music / spoken-word split.
+    static let primuseSpokenWordClassificationDidChange =
+        Notification.Name("primuse.spokenWordClassificationDidChange")
 }

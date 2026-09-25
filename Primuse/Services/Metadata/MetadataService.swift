@@ -100,16 +100,19 @@ actor MetadataService {
         let correctedTitle = MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
             title: trustedEmbeddedTitle, artist: embedded.artist, fileStem: titleFallback
         )
+        let correctedArtist = MetadataTitleResolutionPolicy.artistCorrectingDuplicatedArtist(
+            title: trustedEmbeddedTitle, artist: embedded.artist, fileStem: titleFallback
+        )
         var result = SongMetadata(
             title: correctedTitle ?? trustedEmbeddedTitle ?? titleFallback,
-            artist: embedded.artist,
+            artist: correctedArtist ?? embedded.artist,
             embeddedTitle: MediaMetadataTextRepair.repaired(trustedEmbeddedTitle),
             embeddedArtist: MediaMetadataTextRepair.repaired(embedded.artist),
-            sourceArtistNames: embedded.sourceArtistNames,
+            sourceArtistNames: correctedArtist.map { [$0] } ?? embedded.sourceArtistNames,
             albumTitle: embedded.albumTitle,
             albumArtist: AlbumGroupingPolicy.resolvedAlbumArtistName(
                 albumArtistName: embedded.albumArtist,
-                trackArtistName: embedded.artist
+                trackArtistName: correctedArtist ?? embedded.artist
             ),
             trackNumber: embedded.trackNumber,
             discNumber: embedded.discNumber,
@@ -244,6 +247,9 @@ actor MetadataService {
         let correctedTitle = MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
             title: embedded.title, artist: embedded.artist, fileStem: repairedFallback
         )
+        let correctedArtist = MetadataTitleResolutionPolicy.artistCorrectingDuplicatedArtist(
+            title: embedded.title, artist: embedded.artist, fileStem: repairedFallback
+        )
         let preferredTitle = correctedTitle ?? MediaMetadataTextRepair.preferred(
             embedded: embedded.title,
             fromFileName: repairedFallback
@@ -251,10 +257,10 @@ actor MetadataService {
 
         var result = SongMetadata(
             title: preferredTitle,
-            artist: MediaMetadataTextRepair.repaired(embedded.artist),
+            artist: correctedArtist ?? MediaMetadataTextRepair.repaired(embedded.artist),
             embeddedTitle: MediaMetadataTextRepair.repaired(embedded.title),
             embeddedArtist: MediaMetadataTextRepair.repaired(embedded.artist),
-            sourceArtistNames: embedded.sourceArtistNames?.compactMap {
+            sourceArtistNames: correctedArtist.map { [$0] } ?? embedded.sourceArtistNames?.compactMap {
                 MediaMetadataTextRepair.repaired($0)
             },
             albumTitle: MediaMetadataTextRepair.repairedAlbumTitle(
@@ -262,7 +268,7 @@ actor MetadataService {
             ),
             albumArtist: AlbumGroupingPolicy.resolvedAlbumArtistName(
                 albumArtistName: MediaMetadataTextRepair.repaired(embedded.albumArtist),
-                trackArtistName: MediaMetadataTextRepair.repaired(embedded.artist)
+                trackArtistName: correctedArtist ?? MediaMetadataTextRepair.repaired(embedded.artist)
             ),
             trackNumber: embedded.trackNumber,
             discNumber: embedded.discNumber,

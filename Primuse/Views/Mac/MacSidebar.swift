@@ -26,8 +26,38 @@ struct MacSidebar: View {
             orderRawValue: librarySectionOrderRawValue,
             hiddenRawValue: hiddenLibrarySectionsRawValue
         )
-        // 没有有声内容时不摆这个入口。
-        .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
+    }
+
+    /// 「音乐」分组里的分类: 用户排好的顺序与显隐, 但电台和有声不在里面 ——
+    /// 它们是跟音乐并列的收听空间, 单独占一行 (见 `listeningSpaceItems`)。
+    private var musicLibrarySections: [LibrarySection] {
+        visibleLibrarySections.filter {
+            $0 != .radio && $0 != .spokenWord && $0 != .playlists && $0 != .statistics
+        }
+    }
+
+    /// 电台 / 有声两行只在里面有东西时出现, 规则与 iPhone 标签栏同源。
+    private var visibleSpaces: [ListeningSpace] {
+        ListeningSpaceVisibilityPolicy.visibleSpaces(
+            hasRadioStations: !radioStationsStore.stations.isEmpty,
+            hasSpokenWord: !library.spokenWordSongs.isEmpty
+        )
+    }
+
+    /// 有声内容按「书」计数: 一部 200 集的评书是一本, 不是 200 条。
+    /// 只拿分组要用的字段现造条目, 不读 `SpokenWordStore` 的收听位置 —— 否则
+    /// 听书时位置每写一次, 整列侧栏都要跟着重算。
+    private var spokenWordBookCount: Int {
+        SpokenWordBookGrouping.books(from: library.spokenWordSongs.map { song in
+            SpokenWordBookItem(
+                id: song.id,
+                title: song.title,
+                albumTitle: song.albumTitle,
+                albumArtist: song.albumArtistName,
+                artist: song.artistName,
+                duration: 0
+            )
+        }).count
     }
 
     var body: some View {
@@ -37,8 +67,10 @@ struct MacSidebar: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 16)
 
-                primaryItems
+                homeItem
                 librarySection
+                listeningSpaceItems
+                primaryItems
                 if showsPlaylistsSection {
                     playlistsSection
                         .pmFadeTransition()
@@ -53,6 +85,7 @@ struct MacSidebar: View {
             // 只盯「歌单分区可见性」这一个开关 —— 它一变整列都要重新排, 所以
             // 动画挂在这层; 其余分区各自用自己的 id 列表(见下)。
             .pmAnimation(.list, value: showsPlaylistsSection)
+            .pmAnimation(.list, value: visibleSpaces)
         }
         .frame(maxHeight: .infinity)
         .background(sidebarBackground.ignoresSafeArea())
@@ -72,16 +105,55 @@ struct MacSidebar: View {
         }
     }
 
-    // MARK: - Primary section (Home / Stats / Sources / Search)
+    // MARK: - Home
+
+    private var homeItem: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            item(route: .home, icon: "house.fill", title: "home_title")
+        }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: - Radio / spoken word (peer listening spaces)
+
+    @ViewBuilder
+    private var listeningSpaceItems: some View {
+        let spaces = visibleSpaces
+        if spaces.contains(.radio) || spaces.contains(.spokenWord) {
+            VStack(alignment: .leading, spacing: 1) {
+                if spaces.contains(.radio) {
+                    item(
+                        route: .section(.radio),
+                        icon: LibrarySection.radio.icon,
+                        title: ListeningSpace.radio.titleKey,
+                        trailing: countLabel(radioStationsStore.stations.count)
+                    )
+                }
+                if spaces.contains(.spokenWord) {
+                    item(
+                        route: .section(.spokenWord),
+                        icon: LibrarySection.spokenWord.icon,
+                        title: ListeningSpace.spokenWord.titleKey,
+                        trailing: countLabel(spokenWordBookCount)
+                    )
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.bottom, 8)
+            .pmFadeTransition()
+        }
+    }
+
+    // MARK: - Search / Stats / Sources
 
     private var primaryItems: some View {
         VStack(alignment: .leading, spacing: 1) {
-            item(route: .home,    icon: "house.fill",                       title: "home_title")
+            item(route: .search,  icon: "magnifyingglass",                  title: "search_title")
             if visibleLibrarySections.contains(.statistics) {
                 item(route: .stats, icon: "chart.bar.xaxis", title: "stats_title")
             }
             item(route: .sources, icon: "externaldrive.connected.to.line.below", title: "sources_title")
-            item(route: .search,  icon: "magnifyingglass",                  title: "search_title")
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 8)
@@ -91,9 +163,9 @@ struct MacSidebar: View {
 
     private var librarySection: some View {
         VStack(alignment: .leading, spacing: 1) {
-            sectionHeader("library_title")
+            sectionHeader(ListeningSpace.music.titleKey)
 
-            ForEach(visibleLibrarySections.filter { $0 != .playlists && $0 != .statistics }) { section in
+            ForEach(musicLibrarySections) { section in
                 libraryNavigationItems(for: section)
             }
 
@@ -124,15 +196,12 @@ struct MacSidebar: View {
                 route: .section(.songs),
                 icon: section.icon,
                 title: "sidebar_all_songs",
-                trailing: countLabel(library.visibleSongs.count)
+                // 「歌曲」只数音乐, 有声内容按书计在自己那一行。
+                trailing: countLabel(library.musicSongs.count)
             )
-        case .spokenWord:
-            item(
-                route: .section(.spokenWord),
-                icon: section.icon,
-                title: section.title,
-                trailing: countLabel(library.spokenWordSongs.count)
-            )
+        case .spokenWord, .radio, .playlists:
+            // 电台与有声在 `listeningSpaceItems` 里单独成行; 歌单有自己的分区。
+            EmptyView()
         case .albums:
             item(
                 route: .section(.albums),
@@ -154,15 +223,6 @@ struct MacSidebar: View {
                 title: section.title,
                 trailing: countLabel(library.visibleGenres.count)
             )
-        case .radio:
-            item(
-                route: .section(.radio),
-                icon: section.icon,
-                title: section.title,
-                trailing: countLabel(radioStationsStore.stations.count)
-            )
-        case .playlists:
-            EmptyView()
         }
     }
 

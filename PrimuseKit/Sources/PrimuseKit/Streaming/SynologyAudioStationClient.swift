@@ -55,6 +55,16 @@ public actor SynologyAudioStationClient {
     private var session: Session?
     private var authTask: (id: UUID, task: Task<Session, Error>)?
     private var sessionGeneration = UUID()
+    /// Set by `songs()` when the library moved while it was being paged.
+    private var catalogDriftObserved = false
+    private static let maximumCatalogSongs = 10_000_000
+
+    /// Whether a `songs()` walk since the last call saw the library move.
+    /// Such a walk may add and update songs but must not remove any.
+    public func takeCatalogDriftObservation() -> Bool {
+        defer { catalogDriftObserved = false }
+        return catalogDriftObserved
+    }
 
     /// - Parameters:
     ///   - source: 已经投影到某条路由的音乐源;QuickConnect 模式下 `host` 是 QuickConnect ID。
@@ -334,30 +344,29 @@ public actor SynologyAudioStationClient {
         return try await perform(SynologyAudioStationAPI.songListCall(offset: offset, limit: limit))
     }
 
-    /// 整库逐页拉取。任何一页对不上(总数变化、重复 id、中途短页),或走完后总数
-    /// 已经变了,都以 `invalidResponse` 结束,调用方不能据此删歌。
+    /// 整库逐页拉取。格式不对的页以 `invalidResponse` 结束;走查期间曲库在变
+    /// (总数变化、重复 id、中途短页、走完后总数又变了)则照常走完,只把这件事
+    /// 记下来,调用方用 `takeCatalogDriftObservation()` 取走,据此不删歌。
     public func songs(pageSize: Int = SynologyAudioStationAPI.pageSize) -> AsyncThrowingStream<SynologyAudioStationSong, Error> {
         AsyncThrowingStream { continuation in
             let producer = Task {
                 do {
                     var pagination = SynologyAudioStationCatalogPagination()
-                    var total = 0
                     while true {
                         try Task.checkCancellation()
                         let page = try await self.songPage(offset: pagination.offset, limit: pageSize)
-                        let finished = try pagination.accept(page, requestedLimit: pageSize)
-                        for song in page.songs {
+                        let outcome = try pagination.accept(page, requestedLimit: pageSize)
+                        for song in outcome.songs {
                             try Task.checkCancellation()
                             continuation.yield(song)
                         }
-                        if finished {
-                            total = page.total
-                            break
+                        if outcome.finished { break }
+                        guard pagination.offset <= Self.maximumCatalogSongs else {
+                            throw SynologyAudioStationError.invalidResponse
                         }
                     }
-                    guard try await self.songPage(offset: 0, limit: 1).total == total else {
-                        throw SynologyAudioStationError.invalidResponse
-                    }
+                    pagination.observeClosingTotal(try await self.songPage(offset: 0, limit: 1).total)
+                    if pagination.driftObserved { self.catalogDriftObserved = true }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)

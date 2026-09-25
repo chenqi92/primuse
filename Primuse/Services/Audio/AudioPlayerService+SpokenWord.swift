@@ -144,16 +144,20 @@ extension AudioPlayerService {
 
     // MARK: - Playback rate
 
-    /// The rate `song` should play at: the spoken-word rate for spoken word,
-    /// the music rate otherwise, 1× where the output cannot time-stretch.
+    /// The rate `song` should play at: its book's own speed (or the global
+    /// spoken-word speed) for spoken word, the music rate otherwise, 1× where
+    /// the output cannot time-stretch.
     func requestedPlaybackRate(for song: Song?) -> Float {
         if let practice = karaokePracticeRate, playbackSettings.outputMode == .effects {
             return practice
         }
+        let isSpokenWord = song.map { SpokenWordStore.shared.isSpokenWord($0) } ?? false
         return SpokenWordPlaybackRatePolicy.effectiveRate(
-            isSpokenWord: song.map { SpokenWordStore.shared.isSpokenWord($0) } ?? false,
+            isSpokenWord: isSpokenWord,
             musicRate: playbackSettings.playbackRate,
-            spokenWordRate: playbackSettings.spokenWordPlaybackRate,
+            spokenWordRate: song.flatMap { song in
+                isSpokenWord ? spokenWordRate(forBookID: Self.spokenWordBookID(for: song)) : nil
+            } ?? playbackSettings.spokenWordPlaybackRate,
             rateAllowed: playbackSettings.outputMode == .effects
         )
     }
@@ -166,9 +170,141 @@ extension AudioPlayerService {
         return SpokenWordPlaybackRatePolicy.effectiveRate(
             isSpokenWord: currentItemIsSpokenWord,
             musicRate: playbackSettings.playbackRate,
-            spokenWordRate: playbackSettings.spokenWordPlaybackRate,
+            spokenWordRate: currentSpokenWordRate,
             rateAllowed: playbackSettings.outputMode == .effects
         )
+    }
+
+    // MARK: - Books
+
+    /// The book `song` belongs to — the same id the bookshelf gives it
+    /// (`SpokenWordBook.id`), so a per-book setting is found from the item
+    /// that is playing.
+    nonisolated static func spokenWordBookID(for song: Song) -> String {
+        SpokenWordBookGrouping.bookID(for: SpokenWordBookItem(
+            id: song.id,
+            title: song.title,
+            albumTitle: song.albumTitle,
+            albumArtist: song.albumArtistName,
+            artist: song.artistName,
+            duration: song.duration
+        ))
+    }
+
+    /// The book the current item belongs to; nil for music and radio.
+    var currentBookID: String? {
+        guard currentItemIsSpokenWord, let song = currentSong else { return nil }
+        return Self.spokenWordBookID(for: song)
+    }
+
+    /// The current book's items as they stand in the queue, in queue order
+    /// (which is reading order: the shelf installs the book as the queue).
+    /// Empty for music and radio.
+    var currentBookItemIDs: [String] {
+        guard let bookID = currentBookID else { return [] }
+        return queueEntries.compactMap { entry in
+            let song = entry.song
+            guard Self.spokenWordBookID(for: song) == bookID,
+                  SpokenWordStore.shared.isSpokenWord(song) else { return nil }
+            return song.id
+        }
+    }
+
+    // MARK: - Per-book speed
+
+    /// The speed a book plays at: its own when the listener picked one for
+    /// it, the global spoken-word speed otherwise.
+    func spokenWordRate(forBookID bookID: String) -> Float {
+        SpokenWordPlaybackRatePolicy.bookRate(
+            stored: SpokenWordStore.shared.playbackRate(forBookID: bookID),
+            globalSpokenWordRate: playbackSettings.spokenWordPlaybackRate
+        )
+    }
+
+    /// The speed the current book plays at — what the player's speed chip
+    /// shows while a book plays. Falls back to the global spoken-word speed
+    /// when nothing spoken is playing.
+    var currentSpokenWordRate: Float {
+        guard let bookID = currentBookID else {
+            return SpokenWordPlaybackRatePolicy.clamped(playbackSettings.spokenWordPlaybackRate)
+        }
+        return spokenWordRate(forBookID: bookID)
+    }
+
+    /// Whether the current book has a speed of its own (rather than
+    /// following the global spoken-word speed).
+    var currentBookHasOwnRate: Bool {
+        guard let bookID = currentBookID else { return false }
+        return SpokenWordStore.shared.playbackRate(forBookID: bookID) != nil
+    }
+
+    /// The player's speed chip while a book plays: the choice belongs to
+    /// this book and takes effect at once. Picking the global speed makes the
+    /// book follow the global speed again. With no book playing it sets the
+    /// global spoken-word speed.
+    func setSpokenWordRateForCurrentBook(_ rate: Float) {
+        guard let bookID = currentBookID else {
+            playbackSettings.spokenWordPlaybackRate = SpokenWordPlaybackRatePolicy.clamped(rate)
+            return
+        }
+        setSpokenWordRate(rate, forBookID: bookID)
+    }
+
+    /// Sets (or with nil, forgets) one book's speed — the book page's speed
+    /// control. Re-applies the engine rate when that book is playing.
+    func setSpokenWordRate(_ rate: Float?, forBookID bookID: String) {
+        let stored = rate.flatMap {
+            SpokenWordPlaybackRatePolicy.storedBookRate(
+                for: $0,
+                globalSpokenWordRate: playbackSettings.spokenWordPlaybackRate
+            )
+        }
+        SpokenWordStore.shared.setPlaybackRate(stored, forBookID: bookID)
+        guard currentBookID == bookID else { return }
+        applyPlaybackRate()
+        updateNowPlayingInfo()
+    }
+
+    // MARK: - Moving between a book's items
+
+    /// Long-press "previous chapter" for a book without chapter marks: back
+    /// to the start of the item first, then to the previous item. Books with
+    /// marks use `seekToPreviousChapter()`.
+    func skipToPreviousBookItem() {
+        if SpokenWordBookNavigationPolicy.previousRestartsCurrentItem(currentTime: currentTime) {
+            seek(to: 0, startPlaying: isPlaying ? true : nil)
+            rememberSpokenWordPosition(force: true)
+            return
+        }
+        moveWithinBook(by: -1)
+    }
+
+    /// Long-press "next chapter" for a book without chapter marks.
+    func skipToNextBookItem() {
+        moveWithinBook(by: 1)
+    }
+
+    /// Whether the book has an item before / after the current one.
+    var hasPreviousBookItem: Bool { adjacentBookQueueIndex(offset: -1) != nil }
+    var hasNextBookItem: Bool { adjacentBookQueueIndex(offset: 1) != nil }
+
+    private func adjacentBookQueueIndex(offset: Int) -> Int? {
+        guard let song = currentSong,
+              let targetID = SpokenWordBookNavigationPolicy.adjacentItemID(
+                  from: song.id,
+                  offset: offset,
+                  in: currentBookItemIDs
+              ) else { return nil }
+        return queueEntries.firstIndex { $0.song.id == targetID }
+    }
+
+    /// Plays the neighbouring item from where it was left off: the resume
+    /// is armed by the item change (`handleSpokenWordItemChange`), and an
+    /// item with nothing stored starts at the beginning.
+    private func moveWithinBook(by offset: Int) {
+        guard let index = adjacentBookQueueIndex(offset: offset) else { return }
+        rememberSpokenWordPosition(force: true)
+        Task { await playFromQueue(at: index) }
     }
 
     // MARK: - Bookmarks

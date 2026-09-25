@@ -24,6 +24,8 @@ struct MacRadioStationsView: View {
     @State private var showSubscriptions = false
     /// 从「+」菜单进来时直接停在「添加订阅」；从状态行进来时停在订阅列表。
     @State private var subscriptionsStartAdding = false
+    /// 右键菜单「电台信息」打开的详情页。点卡片本身仍是直接起播。
+    @State private var detailStation: RadioStation?
     @AppStorage(RadioStationLayoutMode.storageKey)
     private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
 
@@ -94,6 +96,9 @@ struct MacRadioStationsView: View {
         }
         .sheet(isPresented: $showSubscriptions) {
             RadioSubscriptionsView(startsAdding: subscriptionsStartAdding)
+        }
+        .sheet(item: $detailStation) { station in
+            RadioStationDetailView(stationID: station.id)
         }
         .confirmationDialog(
             Text("radio_manage_delete_confirm_title"),
@@ -502,16 +507,27 @@ struct MacRadioStationsView: View {
         let priorities = priorityByID
         let total = stations.count
         return ScrollView(.vertical, showsIndicators: false) {
-            LazyVGrid(
-                columns: columns,
-                alignment: .leading,
-                spacing: layoutMode == .cover ? PMSpace.m : PMSpace.m16
-            ) {
-                ForEach(visibleStations) { station in
-                    stationItem(station, priority: priorities[station.id] ?? 1, total: total)
+            VStack(alignment: .leading, spacing: PMSpace.m16) {
+                // 搜索或筛选时用户要的是结果清单，「最近收听」让位。
+                if !filter.isNarrowed {
+                    RadioRecentStationsSection(
+                        horizontalInset: 28,
+                        onPlay: { toggle($0) },
+                        onDetails: { detailStation = $0 }
+                    )
                 }
+
+                LazyVGrid(
+                    columns: columns,
+                    alignment: .leading,
+                    spacing: layoutMode == .cover ? PMSpace.m : PMSpace.m16
+                ) {
+                    ForEach(visibleStations) { station in
+                        stationItem(station, priority: priorities[station.id] ?? 1, total: total)
+                    }
+                }
+                .padding(.horizontal, 28)
             }
-            .padding(.horizontal, 28)
             .padding(.bottom, 36)
         }
     }
@@ -558,6 +574,11 @@ struct MacRadioStationsView: View {
         priority: Int,
         total: Int
     ) -> some View {
+        Button { detailStation = station } label: {
+            Label("radio_details", systemImage: "info.circle")
+        }
+        Divider()
+
         if station.isServerMirror {
             Label(station.displayEndpoint, systemImage: "server.rack")
         } else {

@@ -158,11 +158,11 @@
 "theme_color_hex" = "色值";
 "app_icon" = "应用图标";
 "app_icon_dock_hint" = "macOS 只能在 Primuse 运行时替换 Dock 图标，退出后 Dock 会显示应用包自带的图标。";
-"icon_default" = "清新音符";
+"icon_default" = "Chris’s Muse";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "图标会跟随主屏幕外观切换。请长按主屏幕空白处，然后选择“编辑”→“自定义”→“自动”。";
 "icon_theme_12" = "皮卡丘";
-"icon_theme_13" = "Chris’s Muse";
+"icon_theme_18" = "清新音符";
 "icon_theme_14" = "字母 P";
 "icon_theme_15" = "折页音符";
 "icon_theme_16" = "NonoEnd";
@@ -823,7 +823,7 @@
 "playlist_export_failed_title" = "导出失败";
 "playlist_import_title" = "导入歌单";
 "playlist_import_intro_title" = "选择 m3u8 或 Primuse JSON";
-"playlist_import_intro_desc" = "Files / AirDrop 收到的歌单文件,会按文件名 + 标题艺术家匹配你库里的歌曲。";
+"playlist_import_intro_desc" = "收到的歌单文件（m3u、json，或者 Apple Music、Spotify 导出工具、foobar2000、VLC、Windows Media Player 导出的 csv / txt / xml / pls / xspf / wpl）会按文件名和歌名歌手匹配你库里的歌曲。";
 "playlist_import_pick_file" = "选择文件";
 "playlist_import_create" = "创建";
 "playlist_import_matched" = "已匹配到歌曲";
@@ -841,7 +841,7 @@
 "playlist_import_err_empty" = "歌单里一首歌都没有";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · 选择文件后自动匹配本地资料库";
 "playlist_import_mac_intro_title" = "选择一个歌单文件开始";
-"playlist_import_mac_intro_desc" = "支持 .m3u / .m3u8 / .json，导入前会先展示匹配与缺失条目。";
+"playlist_import_mac_intro_desc" = "支持 .m3u / .m3u8 / .json / .csv / .txt / .xml / .pls / .xspf / .wpl，导入前会先展示匹配与缺失条目。";
 "playlist_import_matched_count_format" = "%d 已匹配";
 "playlist_import_pending_count_format" = "%d 待处理";
 "playlist_import_entries_count_format" = "%d 个条目";
@@ -4566,6 +4566,15 @@
 "tag_reason_unified_spelling" = "所选歌曲里同一个名字写法不一";
 "tag_reason_invalid_year" = "年份不合理";
 "tag_reason_track_from_file" = "从文件名取音轨号";
+"tag_reason_title_from_file" = "标题只是重复了歌手名，按文件名取回歌名";
+"tag_reason_copy_counter" = "去掉下载工具给重名文件加的编号";
+"tag_tidy_library_action" = "检查整个曲库的标签";
+"tag_tidy_library_button" = "检查";
+"tag_tidy_library_footer" = "找出广告、占位值、标题只写了歌手名、重名文件多出的「(1)」等问题。先逐项列给你确认，勾选的才写入，写入后可撤销。";
+"tag_tidy_library_checked" = "已检查的歌曲";
+"tag_editor_suggestions_title" = "建议修改";
+"tag_editor_suggestions_apply_all" = "全部采用";
+"tag_editor_suggestion_apply" = "采用";
 
 // MARK: - Karaoke
 "karaoke_title" = "卡拉OK";
@@ -4620,7 +4629,7 @@
 "playlist_import_mode_file" = "文件";
 "playlist_import_mode_link" = "分享链接";
 "playlist_import_mode_text" = "文本清单";
-"playlist_import_link_placeholder" = "粘贴歌单分享链接：网易云音乐、QQ 音乐、酷狗、酷我、波点、咪咕、汽水音乐、Apple Music、Spotify";
+"playlist_import_link_placeholder" = "粘贴歌单分享链接：网易云音乐、QQ 音乐、酷狗、酷我、波点、咪咕、汽水音乐、Apple Music、Spotify、Deezer、哔哩哔哩、YouTube";
 "playlist_import_link_desc" = "只读取公开歌单的歌名、歌手、专辑和时长，不下载音频。私密歌单请先在原 App 里设为公开。";
 "playlist_import_link_fetch" = "读取歌单";
 "playlist_import_text_order" = "每行格式";
@@ -4636,7 +4645,7 @@
 "playlist_import_confirm_all_probable_format" = "确认全部 %d 首";
 "playlist_import_create_with_pending_format" = "创建歌单（%1$d 首，%2$d 首置灰）";
 "playlist_import_pending_kept_hint" = "未匹配条目将置灰保留";
-"playlist_import_link_err_unrecognized" = "没有认出歌单链接。支持网易云音乐、QQ 音乐、酷狗、酷我、波点、咪咕、汽水音乐、Apple Music 和 Spotify 的歌单分享链接。";
+"playlist_import_link_err_unrecognized" = "没有认出歌单链接。支持网易云音乐、QQ 音乐、酷狗、酷我、波点、咪咕、汽水音乐、Apple Music、Spotify、Deezer、哔哩哔哩和 YouTube 的歌单分享链接。";
 "playlist_import_link_err_private" = "读不到这个歌单：它可能已删除，或者是私密歌单。请在原 App 里把歌单设为公开后再试。";
 "playlist_import_link_err_changed" = "平台返回的内容和预期不一致，可能是对方接口有变化。可以改用「文本清单」导入。";
 "playlist_import_link_err_network_format" = "网络请求失败：%@";
@@ -4652,6 +4661,9 @@
 "playlist_import_platform_soda" = "汽水音乐";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "哔哩哔哩";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "伴奏音轨";
 "karaoke_backing_track_playing" = "正在播放伴奏音轨，没有人声可调。";
 "karaoke_lyrics_from_format" = "歌词来自《%@》";
@@ -4696,3 +4708,50 @@
 "karaoke_loop_lines_format" = "循环 %d 句";
 "karaoke_loop_extend" = "加一句";
 "karaoke_practice_not_scored" = "练习中不计分、不录音。";
+
+/* Listening spaces: music, radio and spoken word */
+"listening_space_music" = "音乐";
+"listening_space_radio" = "电台";
+"listening_space_spoken_word" = "有声";
+"home_continue_spaces_title" = "接着听";
+"home_continue_spaces_hint" = "从上次停下的地方继续";
+"home_continue_music_queue" = "之前的音乐队列";
+"home_continue_radio_live" = "重新收听";
+"home_books_in_progress_title" = "在听的书";
+"home_books_open_shelf" = "书架";
+"home_radio_open_all" = "全部电台";
+"home_spaces_intro_title" = "音乐、电台、有声各有了自己的标签页";
+"home_spaces_intro_body" = "各自记住听到哪里，听书或听电台不会再冲掉你的音乐队列。设置移到了首页右上角的齿轮。";
+"sleep_at_item_end" = "本集结束后停止";
+"sleep_at_book_end" = "整本听完后停止";
+"smart_nudge_kind_back_to_music" = "书听完时提议接着放之前的音乐";
+"smart_nudge_kind_classify_spoken" = "询问没有标签的长音频";
+"smart_nudge_back_to_music_message" = "这本书快听完了。接下来接着放之前的音乐吗？";
+"smart_nudge_classify_spoken_message" = "这段长音频没有专辑和艺人。它是有声书或节目吗？";
+"smart_nudge_action_move" = "移到有声";
+"spoken_word_next_item" = "下一集";
+"spoken_word_previous_item" = "上一集";
+"mac_player_chapter_number_format" = "第 %lld 章";
+"radio_recent_title" = "最近收听";
+"radio_detail_listen" = "收听";
+"radio_detail_heard_title" = "刚播过";
+"radio_detail_heard_empty" = "收听时，如果电台推送了歌曲或节目名称，会显示在这里。";
+"radio_detail_heard_clear_title" = "清除这个电台刚播过的记录？";
+"radio_detail_pinned" = "已置顶";
+"radio_detail_copy_stream_url" = "复制流地址";
+"radio_detail_missing" = "这个电台已被删除。";
+"radio_add_card_title" = "收听网络电台";
+"radio_add_card_message" = "用直播流地址添加网络电台，或导入播放列表一次添加多个。添加后会出现在这里和「电台」中。";
+"search_space_picker" = "搜索范围";
+"search_radio_now_playing_format" = "正在播：%@";
+"search_spoken_word_matched_item_format" = "命中：“%@”";
+"tv_spoken_word_listening" = "在听";
+"tv_spoken_word_bookshelf" = "书架";
+"tv_spoken_word_chapters" = "章节";
+"tv_spoken_word_book_count" = "%lld 本";
+"spoken_word_now_listening_section" = "在听";
+"spoken_word_shelf_section" = "书架";
+"spoken_word_chapter_position_format" = "第 %lld 章，共 %lld 章";
+"spoken_word_book_speed" = "本书语速";
+"spoken_word_book_speed_default_format" = "默认（%@）";
+"stats_spoken_word_time" = "听书时长";

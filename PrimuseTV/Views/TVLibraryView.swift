@@ -15,11 +15,10 @@ struct TVLibraryView: View {
     var openPlayer: () -> Void = {}
     var onReturnToTabs: () -> Void = {}
     var onModalActivityChanged: (Bool) -> Void = { _ in }
-    /// 只登记弹层、关闭后不改焦点的那一类(电台卡片的重命名 / 删除确认)。
-    var onModalPresentationChanged: (Bool) -> Void = { _ in }
 
     enum Filter: String, CaseIterable, Identifiable {
-        case albums, songs, artists, genres, folders, radio, recommendations, ranking
+        // 电台已是与音乐并列的一级页(TVRadioPageView),不再是资料库里的一个筛选。
+        case albums, songs, artists, genres, folders, recommendations, ranking
         var id: String { rawValue }
         var display: String {
             switch self {
@@ -28,7 +27,6 @@ struct TVLibraryView: View {
             case .artists: return String(localized: "tab_artists")
             case .genres: return String(localized: "tab_genres")
             case .folders: return TVDiscoveryText.string("folders")
-            case .radio: return PMString("ext.tv.radio.title")
             case .recommendations: return PMString("library_recommendations_title")
             case .ranking: return TVDiscoveryText.string("ranking")
             }
@@ -40,7 +38,6 @@ struct TVLibraryView: View {
             case .artists: return "person.2"
             case .genres: return "guitars"
             case .folders: return "folder"
-            case .radio: return "radio"
             case .recommendations: return "sparkles"
             case .ranking: return "chart.bar"
             }
@@ -140,7 +137,7 @@ struct TVLibraryView: View {
         case .recommendations: return PMString("library_recommendations_title")
         case .artists: return PMString("ext.tv.library.title.artists", store.artists.count)
         case .songs: return PMString("ext.tv.library.title.songs", TVFmt.count(store.songs.count))
-        case .genres, .folders, .radio, .ranking: return filter.display
+        case .genres, .folders, .ranking: return filter.display
         }
     }
 
@@ -275,15 +272,6 @@ struct TVLibraryView: View {
             TVGenreBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         case .folders:
             TVFolderBrowser(openPlayer: openPlayer)
-        case .radio:
-            TVRadioLibrarySection(
-                columns: columns,
-                cell: cell,
-                spacing: gap,
-                openPlayer: openPlayer,
-                onModalActivityChanged: onModalActivityChanged,
-                onModalPresentationChanged: onModalPresentationChanged
-            )
         case .ranking:
             TVRankingBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         }

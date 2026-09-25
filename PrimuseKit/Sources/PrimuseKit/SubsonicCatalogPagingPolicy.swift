@@ -16,6 +16,9 @@ public struct SubsonicCatalogResumeState: Codable, Equatable, Sendable {
     /// Retained only to decode v1 checkpoints. v2 stores duplicate receipts in
     /// SQLite and writes this as an empty set, keeping checkpoint size bounded.
     public var seenItemIDs: Set<String>
+    /// Set once a drift-tolerant walk re-anchored on a moved catalogue. Its
+    /// result may then only add and update rows, even after a relaunch.
+    public var observedCatalogDrift: Bool?
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -27,7 +30,8 @@ public struct SubsonicCatalogResumeState: Codable, Equatable, Sendable {
         stagedSongCount: Int,
         stagedItemCount: Int? = nil,
         firstPageItemIDs: [String],
-        seenItemIDs: Set<String> = []
+        seenItemIDs: Set<String> = [],
+        observedCatalogDrift: Bool? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.pageSize = pageSize
@@ -39,6 +43,7 @@ public struct SubsonicCatalogResumeState: Codable, Equatable, Sendable {
         self.stagedItemCount = stagedItemCount
         self.firstPageItemIDs = firstPageItemIDs
         self.seenItemIDs = seenItemIDs
+        self.observedCatalogDrift = observedCatalogDrift
     }
 
     public func isUsable(stagedSongCount actualStagedSongCount: Int) -> Bool {
@@ -410,6 +415,73 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
     public func snapshot(sourceID: String) throws -> PagedSongCatalogStageSnapshot? {
         try database.read { db in
             try Self.snapshot(sourceID: sourceID, in: db)
+        }
+    }
+
+    /// Moves a stage onto a catalogue revision that changed while it was being
+    /// read, keeping every staged page. The stage then holds a union of
+    /// observations rather than one snapshot, so only sources whose rows carry
+    /// stable ids may do this, and such a stage must never authorize removal.
+    public func reanchor(
+        sourceID: String,
+        stageSessionID: String,
+        catalogRevision: String?,
+        nextOffset: Int?
+    ) throws -> PagedSongCatalogStageSnapshot {
+        try database.write { db in
+            guard let current = try Self.snapshot(sourceID: sourceID, in: db) else {
+                throw PagedSongCatalogStagingError.missingStage
+            }
+            guard current.stageSessionID == stageSessionID else {
+                throw PagedSongCatalogStagingError.scopeChanged
+            }
+            try db.execute(
+                sql: """
+                    UPDATE pagedCatalogStages SET catalogRevision = ?, nextOffset = ?
+                    WHERE sourceID = ?
+                    """,
+                arguments: [catalogRevision, nextOffset, sourceID]
+            )
+            guard let updated = try Self.snapshot(sourceID: sourceID, in: db) else {
+                throw PagedSongCatalogStagingError.missingStage
+            }
+            return updated
+        }
+    }
+
+    /// The subset of `itemIDs` an earlier page of this stage already holds.
+    public func stagedItemIDs(sourceID: String, among itemIDs: [String]) throws -> Set<String> {
+        try stagedIDs(in: "pagedCatalogItems", column: "itemID", sourceID: sourceID, among: itemIDs)
+    }
+
+    /// The subset of `songIDs` an earlier page of this stage already holds.
+    public func stagedSongIDs(sourceID: String, among songIDs: [String]) throws -> Set<String> {
+        try stagedIDs(in: "pagedCatalogSongs", column: "songID", sourceID: sourceID, among: songIDs)
+    }
+
+    private func stagedIDs(
+        in table: String,
+        column: String,
+        sourceID: String,
+        among values: [String]
+    ) throws -> Set<String> {
+        try database.read { db in
+            var result = Set<String>()
+            for start in stride(from: 0, to: values.count, by: 400) {
+                let chunk = Array(values[start..<min(start + 400, values.count)])
+                let placeholders = Array(repeating: "?", count: chunk.count)
+                    .joined(separator: ",")
+                let found = try String.fetchAll(
+                    db,
+                    sql: """
+                        SELECT \(column) FROM \(table)
+                        WHERE sourceID = ? AND \(column) IN (\(placeholders))
+                        """,
+                    arguments: StatementArguments([sourceID] + chunk)
+                )
+                result.formUnion(found)
+            }
+            return result
         }
     }
 

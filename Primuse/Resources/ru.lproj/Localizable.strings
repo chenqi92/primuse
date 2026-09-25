@@ -1008,7 +1008,7 @@
 "no_trusted_domains" = "Нет доверенных доменов.";
 "new" = "Новый";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_13" = "Chris’s Muse";
+"icon_theme_18" = "Мягкая нота";
 "icon_theme_14" = "Буква P";
 "icon_theme_15" = "Сложенная нота";
 "icon_theme_16" = "NonoEnd";
@@ -1341,7 +1341,7 @@
 "fullscreen_effect_vinyl" = "Винил";
 "scraper_musicbrainz_desc" = "Открытая музыкальная база данных, метаданные и каверы.";
 "settings_dlna_devices_empty" = "Пока нет подключенных устройств. Выберите Primuse в приложении точки управления на том же Wi-Fi.";
-"playlist_import_intro_desc" = "Файлы плейлистов, полученные через Files/AirDrop, будут сопоставляться с вашей медиатекой по имени файла + названию/исполнителю.";
+"playlist_import_intro_desc" = "Файлы плейлистов (m3u, json или csv / txt / xml / pls / xspf / wpl, экспортированные из Apple Music, инструментов экспорта Spotify, foobar2000, VLC или Windows Media Player) сопоставляются с медиатекой по имени файла и названию/исполнителю.";
 "home_for_you_title" = "Для тебя";
 "search_match_time_format" = "Матч на %@";
 "Small room → large hall" = "Маленькая комната → большой зал.";
@@ -1691,7 +1691,7 @@
 "audio_output_error_follow_system %d" = "Не удалось проследить вывод системы (статус = %d).";
 "source_synced_ago_format" = "Синхронизировано %@";
 "similar_loading" = "Загрузка похожих треков из Last.fm…";
-"playlist_import_mac_intro_desc" = "Поддерживает .m3u, .m3u8 и .json. Совпадения и недостающие записи просматриваются перед импортом.";
+"playlist_import_mac_intro_desc" = "Поддерживаются .m3u, .m3u8, .json, .csv, .txt, .xml, .pls, .xspf, .wpl. Совпадения и отсутствующие элементы показываются перед импортом.";
 "sample_rate_label" = "Частота дискретизации";
 "META-03 · Paste JSON or Import from URL" = "META-03 · Вставьте JSON или импортируйте из URL.";
 "metadata_writeback_plex_missing_album" = "Этот трек Plex не имеет записываемого элемента альбома.";
@@ -3631,7 +3631,7 @@
 "share_song_information_action" = "Поделиться информацией о песне";
 "source_remove_confirm_title" = "Удалить этот источник музыки?";
 "dup_keep_newest" = "Будьте в курсе последних новостей";
-"icon_default" = "Мягкая нота";
+"icon_default" = "Chris’s Muse";
 "relay_share_action" = "Создать ссылку с помощью Private Relay";
 "dup_mac_cleanup_action" = "Очистить дубликаты (перейти к недавно удаленным)";
 "save_then_scan_library_hint" = "Сначала сохраните, затем коснитесь источника, чтобы подключиться и отсканировать весь каталог сервера.";
@@ -4379,6 +4379,15 @@
 "tag_reason_unified_spelling" = "Одно имя написано по-разному";
 "tag_reason_invalid_year" = "Невозможный год";
 "tag_reason_track_from_file" = "Номер трека из имени файла";
+"tag_reason_title_from_file" = "Название лишь повторяет исполнителя; название песни взято из имени файла";
+"tag_reason_copy_counter" = "Номер копии, который загрузчик добавил к дублирующемуся файлу";
+"tag_tidy_library_action" = "Проверить теги всей медиатеки";
+"tag_tidy_library_button" = "Проверить";
+"tag_tidy_library_footer" = "Находит названия сайтов, заглушки, названия, повторяющие исполнителя, лишние номера копий «(1)» и другое. Сначала всё показывается для подтверждения; записывается только отмеченное, и это можно отменить.";
+"tag_tidy_library_checked" = "Проверено песен";
+"tag_editor_suggestions_title" = "Предлагаемые исправления";
+"tag_editor_suggestions_apply_all" = "Применить все";
+"tag_editor_suggestion_apply" = "Применить";
 
 // MARK: - Karaoke
 "karaoke_title" = "Караоке";
@@ -4433,7 +4442,7 @@
 "playlist_import_mode_file" = "Файл";
 "playlist_import_mode_link" = "Ссылка";
 "playlist_import_mode_text" = "Текстовый список";
-"playlist_import_link_placeholder" = "Вставьте ссылку на плейлист (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music или Spotify)";
+"playlist_import_link_placeholder" = "Вставьте ссылку на плейлист (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili или YouTube)";
 "playlist_import_link_desc" = "Читаются только названия, исполнители, альбомы и длительность публичных плейлистов; аудио не загружается. Сначала сделайте закрытый плейлист публичным в его приложении.";
 "playlist_import_link_fetch" = "Прочитать плейлист";
 "playlist_import_text_order" = "Формат строки";
@@ -4449,7 +4458,7 @@
 "playlist_import_confirm_all_probable_format" = "Подтвердить все (%d)";
 "playlist_import_create_with_pending_format" = "Создать плейлист (%1$d, серых %2$d)";
 "playlist_import_pending_kept_hint" = "Ненайденные элементы останутся серыми";
-"playlist_import_link_err_unrecognized" = "Ссылка на плейлист не распознана. Поддерживаются ссылки NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music и Spotify.";
+"playlist_import_link_err_unrecognized" = "Ссылка на плейлист не распознана. Поддерживаются ссылки NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili и YouTube.";
 "playlist_import_link_err_private" = "Не удаётся прочитать плейлист. Возможно, он удалён или закрыт. Сделайте его публичным в приложении и повторите попытку.";
 "playlist_import_link_err_changed" = "Сервис вернул неожиданный ответ; возможно, его интерфейс изменился. Импортируйте через текстовый список.";
 "playlist_import_link_err_network_format" = "Ошибка сетевого запроса: %@";
@@ -4465,6 +4474,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Минусовка";
 "karaoke_backing_track_playing" = "Играет минусовка, регулировать нечего.";
 "karaoke_lyrics_from_format" = "Текст из «%@»";
@@ -4509,3 +4521,50 @@
 "karaoke_loop_lines_format" = "Повтор строк: %d";
 "karaoke_loop_extend" = "Добавить строку";
 "karaoke_practice_not_scored" = "Режим практики: без оценки и записи.";
+
+/* Listening spaces: music, radio and spoken word */
+"listening_space_music" = "Музыка";
+"listening_space_radio" = "Радио";
+"listening_space_spoken_word" = "Аудиокниги";
+"home_continue_spaces_title" = "Продолжить";
+"home_continue_spaces_hint" = "Продолжает с того места, где вы остановились";
+"home_continue_music_queue" = "Ваша музыкальная очередь";
+"home_continue_radio_live" = "Снова включить";
+"home_books_in_progress_title" = "Слушаю сейчас";
+"home_books_open_shelf" = "Книжная полка";
+"home_radio_open_all" = "Все станции";
+"home_spaces_intro_title" = "У музыки, радио и аудиокниг теперь свои вкладки";
+"home_spaces_intro_body" = "Каждый раздел помнит, где вы остановились, — книга или станция больше не заменяют музыкальную очередь. Настройки теперь открываются шестерёнкой вверху главной страницы.";
+"sleep_at_item_end" = "Остановить в конце эпизода";
+"sleep_at_book_end" = "Остановить в конце книги";
+"smart_nudge_kind_back_to_music" = "Предлагать вернуться к музыке, когда книга заканчивается";
+"smart_nudge_kind_classify_spoken" = "Спрашивать о длинных файлах без тегов";
+"smart_nudge_back_to_music_message" = "Книга почти закончилась. Потом продолжить музыку, которую вы слушали?";
+"smart_nudge_classify_spoken_message" = "У этого длинного файла нет альбома и исполнителя. Это аудиокнига или передача?";
+"smart_nudge_action_move" = "В аудиокниги";
+"spoken_word_next_item" = "Следующий эпизод";
+"spoken_word_previous_item" = "Предыдущий эпизод";
+"mac_player_chapter_number_format" = "Глава %lld";
+"radio_recent_title" = "Недавно слушали";
+"radio_detail_listen" = "Слушать";
+"radio_detail_heard_title" = "Недавно звучало";
+"radio_detail_heard_empty" = "Названия песен и передач появятся здесь во время прослушивания, если станция их передаёт.";
+"radio_detail_heard_clear_title" = "Очистить историю названий этой станции?";
+"radio_detail_pinned" = "Закреплена вверху";
+"radio_detail_copy_stream_url" = "Скопировать адрес потока";
+"radio_detail_missing" = "Эта станция удалена.";
+"radio_add_card_title" = "Слушайте радио в прямом эфире";
+"radio_add_card_message" = "Добавляйте интернет-радиостанции по адресу потока или импортируйте сразу несколько из плейлиста. Они появятся здесь и в разделе «Радио».";
+"search_space_picker" = "Искать в";
+"search_radio_now_playing_format" = "Сейчас в эфире: %@";
+"search_spoken_word_matched_item_format" = "Совпадение: «%@»";
+"tv_spoken_word_listening" = "Сейчас слушаю";
+"tv_spoken_word_bookshelf" = "Книжная полка";
+"tv_spoken_word_chapters" = "Главы";
+"tv_spoken_word_book_count" = "Книг: %lld";
+"spoken_word_now_listening_section" = "Сейчас слушаю";
+"spoken_word_shelf_section" = "Книжная полка";
+"spoken_word_chapter_position_format" = "Глава %lld из %lld";
+"spoken_word_book_speed" = "Скорость для этой книги";
+"spoken_word_book_speed_default_format" = "По умолчанию (%@)";
+"stats_spoken_word_time" = "Время аудиокниг";

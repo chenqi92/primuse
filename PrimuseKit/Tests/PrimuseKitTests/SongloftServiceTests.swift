@@ -52,22 +52,40 @@ struct SongloftServiceTests {
 
     @Test func paginationAcceptsEmptyAndExactFinalPage() throws {
         var empty = SongloftCatalogPagination()
-        #expect(try empty.accept(decodePage(#"{"songs":null,"total":0,"offset":0,"limit":2}"#), requestedLimit: 2))
+        let emptyOutcome = try empty.accept(decodePage(#"{"songs":null,"total":0,"offset":0,"limit":2}"#), requestedLimit: 2)
+        #expect(emptyOutcome.finished)
+        #expect(!empty.driftObserved)
         var pagination = SongloftCatalogPagination()
-        #expect(try !pagination.accept(decodePage(#"{"songs":[{"id":1,"type":"local"},{"id":2,"type":"remote"}],"total":3,"offset":0,"limit":2}"#), requestedLimit: 2))
-        #expect(try pagination.accept(decodePage(#"{"songs":[{"id":3,"type":"radio"}],"total":3,"offset":2,"limit":2}"#), requestedLimit: 2))
+        let first = try pagination.accept(decodePage(#"{"songs":[{"id":1,"type":"local"},{"id":2,"type":"remote"}],"total":3,"offset":0,"limit":2}"#), requestedLimit: 2)
+        #expect(!first.finished)
+        let last = try pagination.accept(decodePage(#"{"songs":[{"id":3,"type":"radio"}],"total":3,"offset":2,"limit":2}"#), requestedLimit: 2)
+        #expect(last.finished)
+        #expect(!pagination.driftObserved)
+        #expect(pagination.admittedIDs == [1, 2, 3])
+    }
+
+    /// A library that moves under the walk ends it with what was read and
+    /// marks it as drift, so neither platform prunes on the strength of it.
+    @Test(arguments: [
+        #"{"songs":[],"total":2,"offset":0,"limit":2}"#,
+        #"{"songs":[{"id":1,"type":"local"}],"total":2,"offset":0,"limit":2}"#,
+        #"{"songs":[{"id":1,"type":"local"},{"id":1,"type":"local"}],"total":2,"offset":0,"limit":2}"#,
+        #"{"songs":[{"id":1,"type":"local"}],"total":0,"offset":0,"limit":2}"#,
+    ])
+    func paginationFinishesAMovingLibraryAsDrift(body: String) throws {
+        var pagination = SongloftCatalogPagination()
+        let outcome = try pagination.accept(decodePage(body), requestedLimit: 2)
+        #expect(outcome.finished)
+        #expect(pagination.driftObserved)
+        #expect(outcome.tracks.count <= 1)
     }
 
     @Test(arguments: [
         #"{"songs":null,"total":1,"offset":0,"limit":2}"#,
-        #"{"songs":[],"total":2,"offset":0,"limit":2}"#,
-        #"{"songs":[{"id":1,"type":"local"}],"total":2,"offset":0,"limit":2}"#,
-        #"{"songs":[{"id":1,"type":"local"},{"id":1,"type":"local"}],"total":2,"offset":0,"limit":2}"#,
         #"{"songs":[{"id":1,"type":"local"}],"total":1,"offset":1,"limit":2}"#,
         #"{"songs":[{"id":1,"type":"unknown"}],"total":1,"offset":0,"limit":2}"#,
-        #"{"songs":[{"id":1,"type":"local"}],"total":0,"offset":0,"limit":2}"#,
     ])
-    func paginationRejectsIncompleteOrMalformedSnapshots(body: String) throws {
+    func paginationRejectsMalformedPages(body: String) throws {
         var pagination = SongloftCatalogPagination()
         let page = try decodePage(body)
         #expect(throws: SongloftServiceError.invalidResponse) { try pagination.accept(page, requestedLimit: 2) }
@@ -99,12 +117,16 @@ struct SongloftServiceTests {
         }
     }
 
-    @Test func sameCountReplacementDoesNotFinishCatalog() async throws {
+    @Test func sameCountReplacementIsReportedAsDrift() async throws {
         let fixture = SongloftFixture(mode: .changedIDs)
         let client = fixture.client()
-        await #expect(throws: SongloftServiceError.invalidResponse) {
-            for try await _ in await client.catalog() {}
-        }
+        for try await _ in await client.catalog() {}
+        #expect(await client.takeCatalogDriftObservation() == true)
+        #expect(await client.takeCatalogDriftObservation() == false)
+
+        let still = SongloftFixture().client()
+        for try await _ in await still.catalog() {}
+        #expect(await still.takeCatalogDriftObservation() == false)
     }
 
     @Test func concurrentUnauthorizedRequestsShareOneTokenRefresh() async throws {

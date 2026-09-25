@@ -101,6 +101,9 @@ enum TVColor {
     static let ok = adaptive(light: rgb(0x287A3B), dark: rgb(0x7ED187))
     static let warn = adaptive(light: rgb(0x9A551F), dark: rgb(0xF0B078))
     static let bad = adaptive(light: rgb(0xB8322B), dark: rgb(0xFF7565))
+    /// 三个收听空间各自的标识色:音乐跟随品牌色,电台与有声固定。
+    static let radioSpace = adaptive(light: rgb(0xD9480F), dark: rgb(0xFF8A4C))
+    static let spokenWordSpace = adaptive(light: rgb(0x0F8A6A), dark: rgb(0x3FD1A6))
 
     static func brand(hex: String) -> Color {
         let source = color(hex: hex)

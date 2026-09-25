@@ -2138,7 +2138,7 @@ final class AppServices {
 
         bridge.shuffleLibrary = { [self] in
             await awaitLibraryForIntent()
-            let pool = library.visibleSongs.filteredPlayable()
+            let pool = library.musicSongs.filteredPlayable()
             _ = startIntentQueue(pool, shuffled: true)
         }
 

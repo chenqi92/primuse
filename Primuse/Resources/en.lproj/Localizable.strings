@@ -157,11 +157,11 @@
 "theme_color_hex" = "Value";
 "app_icon" = "App Icon";
 "app_icon_dock_hint" = "macOS can only swap the Dock icon while Primuse is running — once it quits, the Dock falls back to the icon inside the app bundle.";
-"icon_default" = "Soft Note";
+"icon_default" = "Chris’s Muse";
 "icon_appearance_gray" = "Gray";
 "icon_appearance_hint" = "The icon follows the Home Screen appearance. Touch and hold the Home Screen, then choose Edit → Customize → Automatic.";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_13" = "Chris’s Muse";
+"icon_theme_18" = "Soft Note";
 "icon_theme_14" = "Letter P";
 "icon_theme_15" = "Folded Note";
 "icon_theme_16" = "NonoEnd";
@@ -808,7 +808,7 @@
 "playlist_export_failed_title" = "Export Failed";
 "playlist_import_title" = "Import Playlist";
 "playlist_import_intro_title" = "Pick an m3u8 or Primuse JSON file";
-"playlist_import_intro_desc" = "Playlist files received via Files / AirDrop will be matched against your library by filename + title/artist.";
+"playlist_import_intro_desc" = "Playlist files (m3u, json, or csv / txt / xml / pls / xspf / wpl exported from Apple Music, Spotify export tools, foobar2000, VLC or Windows Media Player) are matched against your library by filename and title/artist.";
 "playlist_import_pick_file" = "Pick File";
 "playlist_import_create" = "Create";
 "playlist_import_matched" = "Matched in library";
@@ -826,7 +826,7 @@
 "playlist_import_err_empty" = "Playlist has no tracks";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · automatically matches your local library after you pick a file";
 "playlist_import_mac_intro_title" = "Choose a playlist file to begin";
-"playlist_import_mac_intro_desc" = "Supports .m3u, .m3u8, and .json. Matches and missing entries are previewed before import.";
+"playlist_import_mac_intro_desc" = "Supports .m3u, .m3u8, .json, .csv, .txt, .xml, .pls, .xspf, .wpl. Matches and missing entries are previewed before import.";
 "playlist_import_matched_count_format" = "%d matched";
 "playlist_import_pending_count_format" = "%d pending";
 "playlist_import_entries_count_format" = "%d entries";
@@ -4236,6 +4236,15 @@
 "tag_reason_unified_spelling" = "Same name written differently in this selection";
 "tag_reason_invalid_year" = "Impossible year";
 "tag_reason_track_from_file" = "Track number from the file name";
+"tag_reason_title_from_file" = "The title only repeats the artist; song name taken from the file name";
+"tag_reason_copy_counter" = "Copy number a download tool added to a duplicate file";
+"tag_tidy_library_action" = "Check Tags in the Whole Library";
+"tag_tidy_library_button" = "Check";
+"tag_tidy_library_footer" = "Finds site names, placeholder values, titles that only repeat the artist, stray \"(1)\" copy numbers and more. Everything is listed for you to confirm first; only what you tick is written, and it can be undone.";
+"tag_tidy_library_checked" = "Songs checked";
+"tag_editor_suggestions_title" = "Suggested Fixes";
+"tag_editor_suggestions_apply_all" = "Apply All";
+"tag_editor_suggestion_apply" = "Apply";
 
 // MARK: - Karaoke
 "karaoke_title" = "Karaoke";
@@ -4290,7 +4299,7 @@
 "playlist_import_mode_file" = "File";
 "playlist_import_mode_link" = "Share Link";
 "playlist_import_mode_text" = "Text List";
-"playlist_import_link_placeholder" = "Paste a playlist share link from NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music or Spotify";
+"playlist_import_link_placeholder" = "Paste a playlist share link from NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili or YouTube";
 "playlist_import_link_desc" = "Only song titles, artists, albums and durations of public playlists are read; no audio is downloaded. Make a private playlist public in its app first.";
 "playlist_import_link_fetch" = "Read Playlist";
 "playlist_import_text_order" = "Line Format";
@@ -4306,7 +4315,7 @@
 "playlist_import_confirm_all_probable_format" = "Confirm All %d";
 "playlist_import_create_with_pending_format" = "Create Playlist (%1$d, %2$d in gray)";
 "playlist_import_pending_kept_hint" = "Unmatched items will be kept in gray";
-"playlist_import_link_err_unrecognized" = "No playlist link found. Share links from NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music and Spotify are supported.";
+"playlist_import_link_err_unrecognized" = "No playlist link found. Share links from NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili and YouTube are supported.";
 "playlist_import_link_err_private" = "This playlist can't be read. It may have been deleted or be private. Make it public in its app and try again.";
 "playlist_import_link_err_changed" = "The service returned something unexpected; its interface may have changed. You can import with a text list instead.";
 "playlist_import_link_err_network_format" = "Network request failed: %@";
@@ -4322,6 +4331,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Backing Track";
 "karaoke_backing_track_playing" = "Playing the backing track, so there are no vocals to adjust.";
 "karaoke_lyrics_from_format" = "Lyrics from “%@”";
@@ -4366,3 +4378,50 @@
 "karaoke_loop_lines_format" = "Looping %d lines";
 "karaoke_loop_extend" = "Add Line";
 "karaoke_practice_not_scored" = "Practicing: not scored or recorded.";
+
+/* Listening spaces: music, radio and spoken word */
+"listening_space_music" = "Music";
+"listening_space_radio" = "Radio";
+"listening_space_spoken_word" = "Spoken Word";
+"home_continue_spaces_title" = "Pick Up Where You Left Off";
+"home_continue_spaces_hint" = "Resumes from where you left off";
+"home_continue_music_queue" = "Your music queue";
+"home_continue_radio_live" = "Tune back in";
+"home_books_in_progress_title" = "Books in Progress";
+"home_books_open_shelf" = "Bookshelf";
+"home_radio_open_all" = "All Stations";
+"home_spaces_intro_title" = "Music, Radio and Spoken Word Now Have Their Own Tabs";
+"home_spaces_intro_body" = "Each remembers where you left off, so a book or a station no longer replaces your music queue. Settings moved to the gear at the top of Home.";
+"sleep_at_item_end" = "Stop at End of Episode";
+"sleep_at_book_end" = "Stop at End of Book";
+"smart_nudge_kind_back_to_music" = "Offer to continue with your music when a book ends";
+"smart_nudge_kind_classify_spoken" = "Ask about long untagged files";
+"smart_nudge_back_to_music_message" = "The book is almost over. Continue with the music you left afterwards?";
+"smart_nudge_classify_spoken_message" = "This long file has no album or artist. Is it an audiobook or a show?";
+"smart_nudge_action_move" = "Move to Spoken Word";
+"spoken_word_next_item" = "Next Episode";
+"spoken_word_previous_item" = "Previous Episode";
+"mac_player_chapter_number_format" = "Chapter %lld";
+"radio_recent_title" = "Recently Tuned In";
+"radio_detail_listen" = "Listen";
+"radio_detail_heard_title" = "Recently Heard";
+"radio_detail_heard_empty" = "Song and show titles appear here while you listen, if the station sends them.";
+"radio_detail_heard_clear_title" = "Clear the titles heard on this station?";
+"radio_detail_pinned" = "Pinned to Top";
+"radio_detail_copy_stream_url" = "Copy Stream URL";
+"radio_detail_missing" = "This station was removed.";
+"radio_add_card_title" = "Listen to Live Radio";
+"radio_add_card_message" = "Add internet radio stations by stream URL, or import a playlist of many at once. They appear here and in Radio.";
+"search_space_picker" = "Search In";
+"search_radio_now_playing_format" = "Now playing: %@";
+"search_spoken_word_matched_item_format" = "Matches “%@”";
+"tv_spoken_word_listening" = "Listening Now";
+"tv_spoken_word_bookshelf" = "Bookshelf";
+"tv_spoken_word_chapters" = "Chapters";
+"tv_spoken_word_book_count" = "%lld books";
+"spoken_word_now_listening_section" = "Now Listening";
+"spoken_word_shelf_section" = "Bookshelf";
+"spoken_word_chapter_position_format" = "Chapter %lld of %lld";
+"spoken_word_book_speed" = "Speed for This Book";
+"spoken_word_book_speed_default_format" = "Default (%@)";
+"stats_spoken_word_time" = "Audiobook Time";

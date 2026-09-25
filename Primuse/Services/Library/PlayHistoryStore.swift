@@ -52,6 +52,35 @@ final class PlayHistoryStore {
     static let maxRetainedEntries = 5000
 
     private(set) var entries: [Entry] = []
+    /// Songs the library currently counts as spoken word, kept in step by
+    /// `MusicLibrary`. Books are not music: they stay in `entries` (and in
+    /// sync) but are left out of every music ranking, summary and
+    /// recommendation seed, and are totalled on their own instead.
+    /// Classified at read time, so a correction applies to past plays too.
+    var spokenWordSongIDs: Set<String> = []
+
+    /// The plays that were music.
+    var musicEntries: [Entry] {
+        Self.musicEntries(entries, excluding: spokenWordSongIDs)
+    }
+
+    nonisolated static func musicEntries(_ entries: [Entry], excluding spokenWordSongIDs: Set<String>) -> [Entry] {
+        spokenWordSongIDs.isEmpty ? entries : entries.filter { !spokenWordSongIDs.contains($0.songID) }
+    }
+
+    /// Seconds spent on spoken word in `range` (calendar windows, like the
+    /// stats page).
+    func spokenWordListeningSeconds(in range: Range, now: Date = Date(), calendar: Calendar = ListeningCalendar.current) -> TimeInterval {
+        guard !spokenWordSongIDs.isEmpty else { return 0 }
+        let cutoff = range.statisticsStartDate(now: now, calendar: calendar)
+        return Self.listenedSeconds(entries.filter {
+            $0.playedAt >= cutoff && $0.playedAt <= now && spokenWordSongIDs.contains($0.songID)
+        })
+    }
+
+    nonisolated static func listenedSeconds(_ entries: [Entry]) -> TimeInterval {
+        entries.reduce(0) { $0 + ($1.listenedSec.isFinite ? max(0, $1.listenedSec) : 0) }
+    }
     /// 单调递增, `entries` 每变一次就 +1。云同步用它判断预先编码好的
     /// payload 还配不配得上当前这份历史。
     @ObservationIgnored private(set) var revision = 0
@@ -288,16 +317,21 @@ final class PlayHistoryStore {
         var artworkSongID: String? = nil
     }
 
+    // Rankings and summaries are music only; see `spokenWordSongIDs`.
     func topSongs(in range: Range, limit: Int = 20) -> [RankedItem] {
-        Self.rankedItems(from: entries(in: range), category: .songs, limit: limit)
+        Self.rankedItems(from: musicEntries(in: range), category: .songs, limit: limit)
     }
 
     func topArtists(in range: Range, limit: Int = 20) -> [RankedItem] {
-        Self.rankedItems(from: entries(in: range), category: .artists, limit: limit)
+        Self.rankedItems(from: musicEntries(in: range), category: .artists, limit: limit)
     }
 
     func topAlbums(in range: Range, limit: Int = 20) -> [RankedItem] {
-        Self.rankedItems(from: entries(in: range), category: .albums, limit: limit)
+        Self.rankedItems(from: musicEntries(in: range), category: .albums, limit: limit)
+    }
+
+    func musicEntries(in range: Range, now: Date = Date()) -> [Entry] {
+        Self.musicEntries(entries(in: range, now: now), excluding: spokenWordSongIDs)
     }
 
     nonisolated static func rankedItems(from entries: [Entry], category: HomeListeningCategory, limit: Int) -> [RankedItem] {
@@ -355,17 +389,17 @@ final class PlayHistoryStore {
     }
 
     func summary(in range: Range) -> Summary {
-        Self.summary(for: entries(in: range))
+        Self.summary(for: musicEntries(in: range))
     }
 
     func statisticsSummary(in range: Range) -> Summary {
-        Self.summary(for: statisticsEntries(in: range))
+        Self.summary(for: Self.musicEntries(statisticsEntries(in: range), excluding: spokenWordSongIDs))
     }
 
     nonisolated static func summary(for entries: [Entry], calendar: Calendar = ListeningCalendar.current) -> Summary {
         Summary(
             totalPlays: entries.count,
-            totalSec: entries.reduce(0) { $0 + ($1.listenedSec.isFinite ? max(0, $1.listenedSec) : 0) },
+            totalSec: listenedSeconds(entries),
             activeDays: Set(entries.map { calendar.startOfDay(for: $0.playedAt) }).count,
             uniqueSongs: Set(entries.map(\.songID)).count
         )

@@ -43,6 +43,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     /// `getLyricsBySongId`(Navidrome/Gonic)还是老 `getLyrics`(Airsonic 等非 OpenSubsonic)。
     private var serverType: String?
     private var isOpenSubsonic = false
+    /// Set by `scanSongs` when the catalogue moved while it was being paged.
+    private var catalogDriftInLastWalk = false
 
     /// Airsonic Advanced 目前只接受 1.15.0，对更高版本会返回错误 30。
     /// 其他实现保持 1.16.1；OpenSubsonic 扩展能力仍由 ping 响应单独探测。
@@ -338,6 +340,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                         do {
                             catalog = try await fetchStableSearch3Catalog(
                                 path: path,
+                                toleratesDriftOnLastAttempt: true,
                                 onValidatedPage: { page in
                                     try yieldSearch3Catalog(page, continuation: continuation)
                                 }
@@ -378,9 +381,9 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
                         let newAlbums = albums.filter { seenAlbumIDs.insert($0.id).inserted }
                         if newAlbums.count != albums.count {
-                            throw SourceError.connectionFailed(
-                                "Subsonic getAlbumList2 pagination overlapped a previous page"
-                            )
+                            // An album added ahead of the cursor pushed one
+                            // already read into this page.
+                            catalogDriftInLastWalk = true
                         }
                         guard SubsonicCatalogPagingPolicy.isWithinAlbumLimit(seenAlbumIDs.count) else {
                             throw SourceError.connectionFailed("Subsonic album catalog exceeded the safety limit")
@@ -659,8 +662,13 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         return LegacyAlbumResult(index: index, album: album, songs: albumWithSongs.song ?? [])
     }
 
+    /// `toleratesDriftOnLastAttempt` lets a scan finish on a server that keeps
+    /// changing: the final attempt skips rows it already read instead of
+    /// giving up, and reports the drift so the result is never used to remove
+    /// songs. Statistics need one still snapshot and never pass it.
     private func fetchStableSearch3Catalog(
         path: String,
+        toleratesDriftOnLastAttempt: Bool = false,
         onValidatedPage: ([SubsonicChild]) throws -> Void = { _ in }
     ) async throws -> [SubsonicChild]? {
         for attempt in 0..<Self.catalogSnapshotMaximumAttempts {
@@ -670,6 +678,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 return try await collectSearch3Catalog(
                     firstPage: firstPage,
                     path: path,
+                    toleratesDrift: toleratesDriftOnLastAttempt
+                        && attempt + 1 == Self.catalogSnapshotMaximumAttempts,
                     onValidatedPage: onValidatedPage
                 )
             } catch SubsonicCompatibilityError.catalogChangedDuringPagination {
@@ -688,6 +698,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private func collectSearch3Catalog(
         firstPage: [SubsonicChild],
         path: String,
+        toleratesDrift: Bool,
         onValidatedPage: ([SubsonicChild]) throws -> Void
     ) async throws -> [SubsonicChild] {
         var offset = 0
@@ -702,7 +713,11 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             for child in page {
                 try Task.checkCancellation()
                 guard seenResultIDs.insert(child.id).inserted else {
-                    throw SubsonicCompatibilityError.catalogChangedDuringPagination
+                    guard toleratesDrift else {
+                        throw SubsonicCompatibilityError.catalogChangedDuringPagination
+                    }
+                    catalogDriftInLastWalk = true
+                    continue
                 }
                 guard child.isVideo != true else { continue }
                 catalog.append(child)
@@ -2286,4 +2301,11 @@ private struct TagEditorUserContainer: SubsonicResponseContainer {
 
 private struct TagEditorUser: Decodable {
     let coverArtRole: Bool?
+}
+
+extension SubsonicSource: CatalogDriftReportingConnector {
+    func takeCatalogDriftObservation() -> Bool {
+        defer { catalogDriftInLastWalk = false }
+        return catalogDriftInLastWalk
+    }
 }

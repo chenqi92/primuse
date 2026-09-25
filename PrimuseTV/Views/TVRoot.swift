@@ -155,11 +155,18 @@ enum TVDebugLaunch {
 /// tvOS 根布局 — 顶部自定义 tab bar(Apple TV / Apple Music for tvOS 风) + 全屏内容。
 /// 正在播放作为一级 tab，队列 / 选项 / 设置仍以全屏覆盖呈现。
 struct TVRoot: View {
-    enum Tab: Hashable { case home, library, nowPlaying, playlists, sources, search }
+    /// 顺序与 iPhone / iPad / Mac 一致:首页、音乐、电台、有声,再是电视端自己的几页。
+    /// 电台没有台、有声没有内容时这两页不出现(`ListeningSpaceVisibilityPolicy`)。
+    enum Tab: Hashable { case home, library, radio, spokenWord, nowPlaying, playlists, sources, search }
 
     @Environment(TVStore.self) private var store
     @State private var tab: Tab
     @State private var libraryFilter: TVLibraryView.Filter = .albums
+    #if DEBUG
+    /// 截图路由指定的是电台 / 有声页,但曲库和电台还在载入:等内容出现后再切过去,
+    /// 否则会因为「这一页暂时不该显示」被送回首页。
+    @State private var debugPendingSpaceTab: Tab?
+    #endif
     @State private var showSettings = false
     @State private var showQueue = false
     @State private var showOptions = false
@@ -184,9 +191,12 @@ struct TVRoot: View {
         // 电台三页(radioHome / radioAdd / radioLibrary)配合 TV_DEMO_RADIO=1 注入演示电台。
         switch TVDebugLaunch.screen {
         case "library": initialTab = .library
-        case "radioLibrary":
-            initialTab = .library
-            _libraryFilter = State(initialValue: .radio)
+        case "radio", "radioLibrary":
+            initialTab = .home
+            _debugPendingSpaceTab = State(initialValue: .radio)
+        case "spokenWord":
+            initialTab = .home
+            _debugPendingSpaceTab = State(initialValue: .spokenWord)
         case "radioHome", "radioAdd": initialTab = .home
         case "playlists": initialTab = .playlists
         case "sources", "sourcePicker", "sourceForm", "credentials", "otp", "scan", "recycleBin":
@@ -214,7 +224,7 @@ struct TVRoot: View {
                 guard store.hasNowPlaying else { return }
                 switch command {
                 case .togglePlayback: store.togglePlayPause()
-                case .nextTrack: store.next()
+                case .nextTrack: store.transportForward()
                 case .seek:
                     guard store.duration > 0,
                           let request = contentFocusRouting.seekInNowPlaying(mode: nowPlayingFocusMode) else { return }
@@ -278,6 +288,7 @@ struct TVRoot: View {
                 VStack(spacing: 0) {
                     TVTabBar(
                         active: tab,
+                        tabs: visibleTabs,
                         onSelect: { tab = $0 },
                         onContentDown: requestContentFocus,
                         focusRequest: tabFocusRequest,
@@ -294,6 +305,17 @@ struct TVRoot: View {
         }
         .onChange(of: rootModalPresentationCount) { _, count in
             modalActivityChanged(count > 0 || hasChildModalPresentation)
+        }
+        // 电台删空 / 有声内容没了:那一页从顶栏消失,停在上面就回首页。
+        .onChange(of: visibleTabs) { _, tabs in
+            #if DEBUG
+            if let pending = debugPendingSpaceTab, tabs.contains(pending) {
+                debugPendingSpaceTab = nil
+                tab = pending
+                return
+            }
+            #endif
+            if !tabs.contains(tab) { tab = .home }
         }
         .fullScreenCover(isPresented: $showSettings) {
             TVSettingsView(onNavigate: { tab = $0 }).environment(store)
@@ -333,6 +355,11 @@ struct TVRoot: View {
                 await store.loadDemoNowPlaying()
                 tab = .nowPlaying
             case "settings", "effectPicker", "themePicker": showSettings = true
+            case "radio", "radioLibrary", "spokenWord":
+                if let pending = debugPendingSpaceTab, visibleTabs.contains(pending) {
+                    debugPendingSpaceTab = nil
+                    tab = pending
+                }
             default: break
             }
             #endif
@@ -359,10 +386,7 @@ struct TVRoot: View {
         case .home:
             TVHomeView(
                 openPlayer: { tab = .nowPlaying },
-                openRadioLibrary: {
-                    libraryFilter = .radio
-                    tab = .library
-                },
+                openRadioLibrary: { tab = .radio },
                 onModalPresentationChanged: childModalPresentationChanged
             )
         case .library:
@@ -370,9 +394,19 @@ struct TVRoot: View {
                 openPlayer: { tab = .nowPlaying },
                 onReturnToTabs: returnFocusToTabs,
                 onModalActivityChanged: childModalActivityChanged,
-                onModalPresentationChanged: childModalPresentationChanged,
                 filter: $libraryFilter,
                 focusRequest: libraryFocusRequest
+            )
+        case .radio:
+            TVRadioPageView(
+                openPlayer: { tab = .nowPlaying },
+                onModalActivityChanged: childModalActivityChanged,
+                onModalPresentationChanged: childModalPresentationChanged
+            )
+        case .spokenWord:
+            TVSpokenWordView(
+                openPlayer: { tab = .nowPlaying },
+                onModalActivityChanged: childModalActivityChanged
             )
         case .nowPlaying:
             TVNowPlayingView(
@@ -398,6 +432,19 @@ struct TVRoot: View {
                 onModalActivityChanged: childModalActivityChanged
             )
         }
+    }
+
+    /// 顶栏上出现哪些页:电台、有声只在有内容时出现。
+    private var visibleTabs: [Tab] {
+        let spaces = ListeningSpaceVisibilityPolicy.visibleSpaces(
+            hasRadioStations: !store.radioStations.isEmpty,
+            hasSpokenWord: !store.library.spokenWordSongs.isEmpty
+        )
+        var tabs: [Tab] = [.home, .library]
+        if spaces.contains(.radio) { tabs.append(.radio) }
+        if spaces.contains(.spokenWord) { tabs.append(.spokenWord) }
+        tabs += [.nowPlaying, .playlists, .sources, .search]
+        return tabs
     }
 
     private var nowPlayingFocusMode: TVNowPlayingFocusMode {
@@ -575,6 +622,8 @@ enum TVTabBarEntryFocusPolicy {
 
 struct TVTabBar: View {
     let active: TVRoot.Tab
+    /// 当前该出现的页(电台 / 有声按有无内容增减),顺序即显示顺序。
+    var tabs: [TVRoot.Tab] = [.home, .library, .nowPlaying, .playlists, .sources, .search]
     var onSelect: (TVRoot.Tab) -> Void
     var onContentDown: (TVRoot.Tab) -> Void
     var focusRequest: Int
@@ -584,18 +633,26 @@ struct TVTabBar: View {
     @FocusState private var focusedTarget: TVTabBarFocusTarget?
     @State private var pendingProgrammaticFocusTarget: TVTabBarFocusTarget?
 
-    private let tabs: [(TVRoot.Tab, String)] = [
-        (.home, PMString("ext.tv.nav.home")), (.library, PMString("ext.tv.nav.library")),
-        (.nowPlaying, PMString("ext.tv.nav.nowPlaying")),
-        (.playlists, PMString("ext.tv.nav.playlists")),
-        (.sources, PMString("ext.tv.nav.sources")), (.search, PMString("ext.tv.nav.search")),
-    ]
+    private func label(for tab: TVRoot.Tab) -> String {
+        switch tab {
+        case .home: return PMString("ext.tv.nav.home")
+        case .library: return String(localized: "listening_space_music")
+        case .radio: return PMString("ext.tv.radio.title")
+        case .spokenWord: return String(localized: "listening_space_spoken_word")
+        case .nowPlaying: return PMString("ext.tv.nav.nowPlaying")
+        case .playlists: return PMString("ext.tv.nav.playlists")
+        case .sources: return PMString("ext.tv.nav.sources")
+        case .search: return PMString("ext.tv.nav.search")
+        }
+    }
 
     private var debugFocusTab: TVRoot.Tab? {
         #if DEBUG
         switch ProcessInfo.processInfo.environment["TV_FOCUS_TAB"] {
         case "home": return .home
         case "library": return .library
+        case "radio": return .radio
+        case "spokenWord": return .spokenWord
         case "nowPlaying": return .nowPlaying
         case "playlists": return .playlists
         case "sources": return .sources
@@ -635,18 +692,18 @@ struct TVTabBar: View {
             }
 
             HStack(spacing: 8) {
-                ForEach(tabs, id: \.0) { item in
+                ForEach(tabs, id: \.self) { item in
                     TVTabItem(
-                        label: item.1,
-                        isActive: item.0 == active,
-                        isFocused: focusedTarget == .tab(item.0)
+                        label: label(for: item),
+                        isActive: item == active,
+                        isFocused: focusedTarget == .tab(item)
                     ) {
-                        onSelect(item.0)
+                        onSelect(item)
                     }
-                    .focused($focusedTarget, equals: .tab(item.0))
+                    .focused($focusedTarget, equals: .tab(item))
                     .onMoveCommand { direction in
                         if direction == .down {
-                            onContentDown(item.0)
+                            onContentDown(item)
                         }
                     }
                 }
@@ -836,7 +893,9 @@ struct TVBottomBar: View {
                 store.togglePlayPause()
             }
             if !store.isLiveRadio {
-                TVRoundBtn(icon: "forward.fill", size: 48) { store.next() }
+                // 有声内容:右边这颗是前进 30 秒,不跳章。
+                TVRoundBtn(icon: store.currentItemIsSpokenWord ? "goforward.30" : "forward.fill",
+                           size: 48) { store.transportForward() }
             }
             Color.clear.frame(width: TVSpace.pageH - 16, height: 1)
         }

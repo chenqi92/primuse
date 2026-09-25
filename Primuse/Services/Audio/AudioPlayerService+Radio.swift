@@ -528,6 +528,8 @@ extension AudioPlayerService {
         guard !isSameTitle || artwork != radioNowPlayingArtworkURL else { return }
 
         radioTitleHistory = RadioTitleHistoryPolicy.appending(metadata, to: radioTitleHistory)
+        // 电台详情页的「刚播过」按台落盘；与该台最近一条相同的由存储自己挡掉。
+        RadioTitleHistoryStore.shared.record(metadata, stationID: station.id)
         radioNowPlaying = metadata
         radioMetadataTitle = metadata.displayText ?? radioMetadataTitle
         radioNowPlayingArtworkURL = artwork

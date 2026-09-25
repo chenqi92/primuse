@@ -233,3 +233,9 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
         return try await client.radioURL(id: id)
     }
 }
+
+extension SongloftSource: CatalogDriftReportingConnector {
+    func takeCatalogDriftObservation() async -> Bool {
+        await client.takeCatalogDriftObservation()
+    }
+}
