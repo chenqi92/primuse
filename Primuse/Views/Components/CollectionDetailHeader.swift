@@ -138,9 +138,26 @@ private struct ClassicCollectionDetailHeader: View {
 
     /// 「随机 · 播放 · 下载」:播放居中最宽,两侧是圆形玻璃键。窄屏或无障碍字号下胶囊独占一行。
     /// 手机横屏排在封面右栏时靠前对齐。
+    ///
+    /// 胶囊里的字放不下时(大字号、长译文、iPhone Duo 两栏的左栏)收成只有图标,文字不折行;
+    /// 按这一行实际的宽度排一次比高度来判断(`LibraryDetailAdaptiveActionRow`)。放得下时就是原来那一排。
     private func pillActionRow(
         _ arrangement: LibraryDetailActionRowArrangement,
         alignment: Alignment = .center
+    ) -> some View {
+        LibraryDetailAdaptiveActionRow(adaptsAtAnyWidth: true) {
+            pillActionRowContent(arrangement, alignment: alignment, showsPlayTitle: true)
+        } reduced: {
+            pillActionRowContent(arrangement, alignment: alignment, showsPlayTitle: false)
+        } minimal: {
+            pillActionRowContent(arrangement, alignment: alignment, showsPlayTitle: false)
+        }
+    }
+
+    private func pillActionRowContent(
+        _ arrangement: LibraryDetailActionRowArrangement,
+        alignment: Alignment,
+        showsPlayTitle: Bool
     ) -> some View {
         let actions = model.actions
         return LibraryDetailActionRow(arrangement: arrangement, alignment: alignment) {
@@ -152,6 +169,7 @@ private struct ClassicCollectionDetailHeader: View {
             )
             LibraryDetailPlayPill(
                 title: actions.playTitle,
+                showsTitle: showsPlayTitle,
                 disabled: !actions.play.isEnabled,
                 action: actions.play.perform
             )

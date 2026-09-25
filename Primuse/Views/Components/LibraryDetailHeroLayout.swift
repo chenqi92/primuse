@@ -267,7 +267,12 @@ struct LibraryDetailTwoRowActionLayout: Layout {
         let secondarySizes = parts.secondary.map { $0.sizeThatFits(.unspecified) }
         let secondaryWidth = secondarySizes.map(\.width).reduce(0, +)
             + spacing * CGFloat(max(0, secondarySizes.count - 1))
-        let width = proposal.width ?? max(secondaryWidth, 220)
+        // 求理想尺寸时(没给宽度)胶囊按不折行的宽度算:操作行据此判断胶囊里的字放不放得下
+        // (`LibraryDetailAdaptiveActionRow`)。给了宽度时照旧。
+        let primaryIdealWidth = proposal.width == nil
+            ? parts.primary?.sizeThatFits(.unspecified).width ?? 0
+            : 0
+        let width = proposal.width ?? max(secondaryWidth, 220, primaryIdealWidth)
         let primaryHeight = parts.primary?.sizeThatFits(ProposedViewSize(width: width, height: nil)).height ?? 0
         let secondaryHeight = secondarySizes.map(\.height).max() ?? 0
         let gap = parts.primary != nil && !secondarySizes.isEmpty ? lineSpacing : 0

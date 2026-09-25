@@ -477,6 +477,8 @@ struct LibraryDetailCircleButton: View {
 struct LibraryDetailPlayPill: View {
     var title: LocalizedStringKey = "play"
     var systemImage = "play.fill"
+    /// 为假时胶囊里只有图标(字放不下时),文字留给旁白。
+    var showsTitle = true
     var height: CGFloat = 54
     let disabled: Bool
     let action: () -> Void
@@ -485,7 +487,7 @@ struct LibraryDetailPlayPill: View {
 
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
+            label
                 .font(.headline.weight(.bold))
                 .foregroundStyle(tint?.bottom ?? .black)
                 .frame(maxWidth: .infinity, minHeight: height)
@@ -495,6 +497,16 @@ struct LibraryDetailPlayPill: View {
         .buttonStyle(.plain)
         .disabled(disabled)
         .opacity(disabled ? 0.55 : 1)
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if showsTitle {
+            Label(title, systemImage: systemImage)
+        } else {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+        }
     }
 }
 
