@@ -28,6 +28,7 @@ struct ImmersivePlayerView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @State private var showsChrome = true
@@ -46,6 +47,12 @@ struct ImmersivePlayerView: View {
     @State private var lyricInterlude = false
     @State private var visualizerOwnerID = UUID()
     @State private var visualizerRetryTask: Task<Void, Never>?
+
+    /// iPhone(含 iPhone Duo 内屏)上的全屏页。内屏的画布有五六百点高,舞台照手机的构图放大,
+    /// 不走 iPad / Mac 的大画布那一套。
+    private var isPhoneIdiom: Bool {
+        isPhoneIdiomEnvironment || UIDevice.current.userInterfaceIdiom == .phone
+    }
 
     private var presentationEffect: FullscreenPlayerEffect {
         let raw = ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
@@ -67,7 +74,11 @@ struct ImmersivePlayerView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let metrics = ImmersiveStageMetrics(size: geometry.size, safeArea: geometry.safeAreaInsets)
+            let metrics = ImmersiveStageMetrics(
+                size: geometry.size,
+                safeArea: geometry.safeAreaInsets,
+                isHandheld: isPhoneIdiom
+            )
 
             ZStack {
                 stage(metrics: metrics)

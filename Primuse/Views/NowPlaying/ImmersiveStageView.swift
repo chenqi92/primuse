@@ -247,7 +247,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     }
 
     private var topInset: CGFloat {
-        switch metrics.layout {
+        let base: CGFloat = switch metrics.layout {
         case .phonePortrait:
             max(metrics.safeArea.top, metrics.s(54)) + metrics.s(30)
         case .phoneLandscape:
@@ -255,6 +255,8 @@ struct ImmersiveStageView<Artwork: View>: View {
         case .wide:
             max(metrics.safeArea.top, metrics.s(platform == .tvOS ? 76 : 48))
         }
+        // 手机上 clearance 为 0,取值不变。
+        return max(base, metrics.handheldChromeClearance)
     }
 
     private var bottomInset: CGFloat {

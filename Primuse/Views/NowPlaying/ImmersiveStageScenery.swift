@@ -90,15 +90,20 @@ struct ImmersiveStageMetrics {
     let size: CGSize
     let safeArea: EdgeInsets
     let scale: CGFloat
+    /// 手持的大画布:iPhone 上短边也有五六百点的视口(iPhone Duo 展开的内屏)。
+    /// 它照手机的构图与比例放大,不按电视那套 1920×1080 缩小;顶部内容另外让开全屏页的圆钮排。
+    let isHandheldCanvas: Bool
 
-    init(size: CGSize, safeArea: EdgeInsets = EdgeInsets(), prefersWide: Bool = false) {
+    /// - Parameter isHandheld: 这是不是 iPhone 上的全屏页。iPad、Mac、电视恒为 false。
+    init(size: CGSize, safeArea: EdgeInsets = EdgeInsets(), prefersWide: Bool = false, isHandheld: Bool = false) {
         self.size = size
         self.safeArea = safeArea
 
         let isLandscape = size.width > size.height
         // 大画布判定看短边:iPhone 横屏短边不到 500pt,iPad / Mac / TV 都远超。
         let shortSide = min(size.width, size.height)
-        if prefersWide || shortSide >= 500 {
+        isHandheldCanvas = isHandheld && !prefersWide && shortSide >= 500
+        if prefersWide || (shortSide >= 500 && !isHandheldCanvas) {
             layout = .wide
         } else {
             layout = isLandscape ? .phoneLandscape : .phonePortrait
@@ -109,7 +114,11 @@ struct ImmersiveStageMetrics {
             // 1920×1080 基准。宽高同时约束,窗口变矮时字号跟着收,不会顶出画面。
             scale = min(max(min(size.width / 1920, size.height / 1080), 0.42), 1.35)
         case .phoneLandscape:
-            scale = min(max(size.width / 852, 0.78), 1.25)
+            // 手机横屏按宽度取值;iPhone Duo 内屏横握(约 890~951 × 626~669)照同一套构图按宽度放大,
+            // 宽高同时约束只是兜底,那块屏比手机横屏高得多,实际仍是宽度说了算。
+            scale = isHandheldCanvas
+                ? min(max(min(size.width / 852, size.height / 393), 0.78), 1.25)
+                : min(max(size.width / 852, 0.78), 1.25)
         case .phonePortrait:
             // 竖屏同样受高度约束。699 = 393 × 667 / 375,即 iPhone SE 按宽度缩放时
             // 每个设计单位分到的高度;现有 iPhone 都比它瘦长,照旧按宽度取值。
@@ -121,6 +130,14 @@ struct ImmersiveStageMetrics {
 
     var isWide: Bool { layout == .wide }
     var isPortrait: Bool { layout == .phonePortrait }
+
+    /// 全屏页顶部那排 44pt 圆钮(收起、效果、队列)的下沿再留一点。手机上舞台内容照旧按原来的上沿排,
+    /// 手持的大画布上舞台内容的上沿至少落在这里,左上角的歌名 / 小封面不会被收起键压住。
+    var handheldChromeClearance: CGFloat {
+        guard isHandheldCanvas else { return 0 }
+        let chromeTop: CGFloat = isPortrait ? max(safeArea.top + 10, s(55)) : max(safeArea.top + 10, 18)
+        return chromeTop + 44 + s(14)
+    }
 
     /// 设计稿像素 → 当前视口点数(取整,用于间距与字号)
     func s(_ value: CGFloat) -> CGFloat { (value * scale).rounded() }
@@ -481,6 +498,8 @@ struct ImmersiveStageEvidenceHost: View {
         let controlsInsetDesignValue: CGFloat
         /// 叠上 iOS 全屏播放的控件占位（宽画布那一帧代表 Mac / 电视，不叠）。
         var showsIOSChrome = true
+        /// 按 iPhone 上的全屏页算度量（iPhone Duo 内屏那几帧）。
+        var isHandheld = false
 
         var id: String { "\(effect.rawValue)-\(layout)" }
     }
@@ -533,7 +552,8 @@ struct ImmersiveStageEvidenceHost: View {
                         effect: effect, layout: layout,
                         size: size,
                         safeArea: EdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 0),
-                        prefersWide: false, controlsInsetDesignValue: 0
+                        prefersWide: false, controlsInsetDesignValue: 0,
+                        isHandheld: true
                     ))
                 default:
                     continue
@@ -551,7 +571,8 @@ struct ImmersiveStageEvidenceHost: View {
                         let metrics = ImmersiveStageMetrics(
                             size: frame.size,
                             safeArea: frame.safeArea,
-                            prefersWide: frame.prefersWide
+                            prefersWide: frame.prefersWide,
+                            isHandheld: frame.isHandheld
                         )
                         let controlsInset = metrics.s(frame.controlsInsetDesignValue > 0
                             ? frame.controlsInsetDesignValue
