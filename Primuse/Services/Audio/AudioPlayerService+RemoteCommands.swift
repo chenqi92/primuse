@@ -39,15 +39,19 @@ extension AudioPlayerService {
             return status
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
-            plog("🎛️ MediaRemote nextTrackCommand fired")
+            self?.logRemoteCommand("nextTrackCommand")
             Task { await self?.next() }; return .success
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
-            plog("🎛️ MediaRemote previousTrackCommand fired")
+            self?.logRemoteCommand("previousTrackCommand")
             Task { await self?.previous() }; return .success
         }
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            self?.logRemoteCommand(
+                "changePlaybackPositionCommand",
+                detail: "target=\(String(format: "%.1f", event.positionTime))"
+            )
             guard self?.playbackCapabilities.canSeek == true else { return .commandFailed }
             self?.seek(to: event.positionTime); return .success
         }
@@ -59,6 +63,32 @@ extension AudioPlayerService {
         #endif
         setupSpokenWordRemoteCommands()
         updateNowPlayingInfo()
+    }
+
+    /// 系统转来的遥控指令不带来源, 只能靠当时的现场推断是谁发的:
+    /// App 在前台且走扬声器 → 多半是手表「正在播放」或 Siri;
+    /// 后台 → 锁屏 / 控制中心 / 灵动岛; 蓝牙或车机线路 → 耳机、方向盘按键。
+    private func logRemoteCommand(_ name: String, detail: String? = nil) {
+        var fields = [
+            "position=\(String(format: "%.1f", currentTime))/\(String(format: "%.1f", duration))",
+            "playing=\(isPlaying)",
+            "song=\(currentSong?.id.prefix(8) ?? "nil")",
+        ]
+        #if os(iOS)
+        let appState = switch UIApplication.shared.applicationState {
+        case .active: "active"
+        case .inactive: "inactive"
+        case .background: "background"
+        @unknown default: "unknown"
+        }
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+            .map { $0.portType.rawValue }
+            .joined(separator: ",")
+        fields.append("app=\(appState)")
+        fields.append("outputs=[\(outputs)]")
+        #endif
+        if let detail { fields.append(detail) }
+        plog("🎛️ MediaRemote \(name) fired \(fields.joined(separator: " "))")
     }
 
     #if os(iOS)
