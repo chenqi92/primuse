@@ -168,6 +168,8 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
+    /// 单栏 ⇄ 两栏时头图(封面、标题、操作行)从旧位置滑到新位置。
+    @Namespace private var layoutNamespace
 
     init(
         @ViewBuilder header: @escaping (ImmersiveLibraryDetailInsets) -> Header,
@@ -202,9 +204,11 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             ScrollView {
                 VStack(spacing: 0) {
                     header(insets)
+                        .libraryDetailMatchedHeader()
                     content
                         .padding(.leading, safeArea.leading)
                         .padding(.trailing, safeArea.trailing)
+                        .pmLayoutSwitchFade()
                 }
                 // Horizontal artwork shelves must not determine the page width.
                 .frame(width: pageWidth)
@@ -216,10 +220,17 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 .tint(tint == nil ? nil : Color.white)
             }
             .ignoresSafeArea(.container, edges: [.top, .horizontal])
+            .transition(PMLayoutSwitchTransition())
             }
             }
-            // iPhone Duo 开合时单栏 ⇄ 两栏换构图，新构图淡入。
-            .pmLayoutChangeFade(usesTwoColumns)
+            // 头图挂到同一个命名空间上(只在 iPhone 上：外屏展开到内屏时单栏的头图也要滑过去)。
+            // iPad 为 nil，头图原样不动。
+            .environment(
+                \.libraryDetailLayoutNamespace,
+                LibraryDetailWideCanvas.isPhoneCanvas(isPhoneIdiomEnvironment) ? layoutNamespace : nil
+            )
+            // iPhone Duo 开合时单栏 ⇄ 两栏换构图：头图滑到新位置，曲目等其余内容淡入。
+            .pmLayoutSwitchAnimation(usesTwoColumns)
         }
         .background {
             if let tint {
@@ -245,6 +256,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                     leading: safeArea.leading,
                     trailing: 0
                 ))
+                .libraryDetailMatchedHeader()
                 .frame(width: leadingWidth)
                 .environment(\.libraryDetailActionsAdapt, true)
             }
@@ -258,10 +270,12 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                     .frame(width: trailingWidth)
             }
             .frame(width: trailingWidth)
+            .pmLayoutSwitchFade()
         }
         .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
         .tint(tint == nil ? nil : Color.white)
         .ignoresSafeArea(.container, edges: [.top, .horizontal])
+        .transition(PMLayoutSwitchTransition())
     }
 }
 #endif
@@ -307,11 +321,52 @@ enum LibraryDetailWideCanvas {
     }
 
     @MainActor
-    private static func isPhoneCanvas(_ isPhoneIdiom: Bool) -> Bool {
+    static func isPhoneCanvas(_ isPhoneIdiom: Bool) -> Bool {
         isPhoneIdiom || UIDevice.current.userInterfaceIdiom == .phone
     }
 }
 #endif
+
+extension EnvironmentValues {
+    /// 详情页单栏与两栏（iPhone Duo 内屏）的头部共用的命名空间。只在 iPhone 上有，iPad 与 Mac 为 nil。
+    var libraryDetailLayoutNamespace: Namespace.ID? {
+        get { self[LibraryDetailLayoutNamespaceKey.self] }
+        set { self[LibraryDetailLayoutNamespaceKey.self] = newValue }
+    }
+}
+
+private struct LibraryDetailLayoutNamespaceKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+private enum LibraryDetailLayoutElement: Hashable {
+    case header
+}
+
+extension View {
+    /// 把详情页头部挂到两栏容器的命名空间上：单栏 ⇄ 两栏时头部滑到新位置。没有命名空间（不是 iPhone）时原样返回。
+    func libraryDetailMatchedHeader() -> some View {
+        modifier(LibraryDetailMatchedHeader())
+    }
+}
+
+private struct LibraryDetailMatchedHeader: ViewModifier {
+    @Environment(\.libraryDetailLayoutNamespace) private var namespace
+
+    func body(content: Content) -> some View {
+        if let namespace {
+            // 只对齐位置、不插值尺寸：单栏与左栏宽度差得多，插值宽度会让标题与按钮一路折行。
+            content.matchedGeometryEffect(
+                id: LibraryDetailLayoutElement.header,
+                in: namespace,
+                properties: .position,
+                anchor: .top
+            )
+        } else {
+            content
+        }
+    }
+}
 
 /// 歌单、智能歌单这类自己排整页的详情页用的两栏容器：够宽时头部与列表左右分栏、各自滚动，
 /// 否则原样交回单栏的整页（调用方自己的 ScrollView）。只在可能分栏的画布上才量尺寸，
@@ -325,15 +380,19 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
+    /// 单栏 ⇄ 两栏时头部从旧位置滑到新位置(页面在头部上挂 `libraryDetailMatchedHeader()`)。
+    @Namespace private var layoutNamespace
     #endif
 
     var body: some View {
         #if os(iOS)
-        if LibraryDetailWideCanvas.mayUseTwoColumns(
+        let mayUseTwoColumns = LibraryDetailWideCanvas.mayUseTwoColumns(
             isPhoneIdiom: isPhoneIdiomEnvironment,
             horizontalSizeClass: horizontalSizeClass,
             heightClass: heightClass
-        ) {
+        )
+        Group {
+        if mayUseTwoColumns {
             GeometryReader { geometry in
                 let safeArea = geometry.safeAreaInsets
                 let pageWidth = geometry.size.width + safeArea.leading + safeArea.trailing
@@ -363,18 +422,31 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
                                 .padding(.trailing, safeArea.trailing)
                                 .frame(width: max(0, pageWidth - leadingWidth))
                         }
+                        .pmLayoutSwitchFade()
                     }
                     .ignoresSafeArea(.container, edges: .horizontal)
+                    .transition(PMLayoutSwitchTransition())
                 } else {
                     single()
+                        .transition(PMLayoutSwitchTransition())
                 }
                 }
-                // iPhone Duo 开合时单栏 ⇄ 两栏换构图，新构图淡入。
-                .pmLayoutChangeFade(usesTwoColumns)
+                // iPhone Duo 内屏转屏时单栏 ⇄ 两栏换构图：头部滑到新位置，曲目等其余内容淡入。
+                .pmLayoutSwitchAnimation(usesTwoColumns)
             }
         } else {
             single()
+                .transition(PMLayoutSwitchTransition())
         }
+        }
+        // 头部挂到同一个命名空间上：外屏(紧凑宽度)展开到内屏时，单栏的头部也滑到两栏的左栏。
+        // 不是 iPhone 时为 nil，头部原样不动。
+        .environment(
+            \.libraryDetailLayoutNamespace,
+            LibraryDetailWideCanvas.isPhoneCanvas(isPhoneIdiomEnvironment) ? layoutNamespace : nil
+        )
+        // iPhone Duo 开合(紧凑 ⇄ 常规宽度)时同理。
+        .pmLayoutSwitchAnimation(mayUseTwoColumns)
         #else
         single()
         #endif

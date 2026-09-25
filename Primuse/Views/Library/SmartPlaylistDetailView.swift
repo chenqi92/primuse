@@ -80,15 +80,19 @@ struct SmartPlaylistDetailView: View {
                     ScrollView {
                         VStack(spacing: 20) {
                             legacyHeader(smart, matched: matched)
+                                .libraryDetailMatchedHeader()
 
                             smartReviewSection(smart)
+                                .pmLayoutSwitchFade()
 
                             smartListSections(smart, matched: matched)
+                                .pmLayoutSwitchFade()
                         }
                     }
                 } header: {
                     VStack(spacing: 20) {
                         legacyHeader(smart, matched: matched)
+                            .libraryDetailMatchedHeader()
 
                         smartReviewSection(smart)
                     }

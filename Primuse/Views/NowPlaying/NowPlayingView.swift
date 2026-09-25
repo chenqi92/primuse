@@ -617,6 +617,9 @@ struct NowPlayingView: View {
         return AppServices.shared.appleMusicLibrary.catalogURL(for: song)
     }
     @Namespace private var lyricsArtworkNamespace
+    /// 换构图(竖版 / 手机横屏骨架 / iPhone Duo 内屏分栏与半折)时，歌名、进度条、传输键从旧位置滑到新位置。
+    /// 封面走的是上面那个命名空间(与歌词小封面同一个身份)。
+    @Namespace private var layoutNamespace
     #if os(iOS)
     @Namespace private var albumPresentationNamespace
     @State private var presentedAlbum: Album?
@@ -1354,6 +1357,7 @@ struct NowPlayingView: View {
                 if showsSidePane {
                     nowPlayingSidePane
                         .padding(.trailing, safeInsets.trailing)
+                        .pmLayoutSwitchFade()
                         .transition(.opacity)
                 }
             }
@@ -1361,9 +1365,11 @@ struct NowPlayingView: View {
                 isPlayerSplit = split
             }
             .onDisappear { isPlayerSplit = false }
+            .transition(PMLayoutSwitchTransition())
         case .tabletop(let foldMinY, let foldMaxY):
             tabletopPlayerLayout(geo: geo, foldMinY: foldMinY, foldMaxY: foldMaxY)
                 .onAppear { isPlayerSplit = false }
+                .transition(PMLayoutSwitchTransition())
         }
     }
 
@@ -1475,10 +1481,12 @@ struct NowPlayingView: View {
                     .frame(width: 48, height: 5)
                     .padding(.top, topSafeArea + 6)
                     .padding(.bottom, 10)
+                    .pmLayoutSwitchFade()
                 ZStack {
                     if showLyrics {
                         lyricsFullView
                             .padding(.horizontal, 24)
+                            .pmLayoutSwitchFade()
                             .transition(lyricsPanelTransition)
                     } else {
                         artworkOrMusicVideo(size: artworkSide, cornerRadius: 16)
@@ -1499,22 +1507,27 @@ struct NowPlayingView: View {
 
             VStack(spacing: 0) {
                 nowPlayingSongHeader(titleFont: .title2, metadataFont: .body)
+                    .matchedLayoutElement(.songHeading, in: layoutNamespace)
                     .padding(.horizontal, 36)
                     .padding(.top, 18)
                 PlaybackProgressBar(fillTint: themedControlAccent)
+                    .matchedLayoutElement(.progress, in: layoutNamespace)
                     .padding(.horizontal, 36)
                     .padding(.top, 10)
                 portraitTransportRow
+                    .matchedLayoutElement(.transport, in: layoutNamespace)
                     .padding(.top, 10)
                     .padding(.horizontal, 24)
                 if showsPlayerVolumeBar {
                     playerVolumeRow
                         .padding(.horizontal, 36)
                         .padding(.top, 10)
+                        .pmLayoutSwitchFade()
                 }
                 Spacer(minLength: 0)
                 portraitBottomBar
                     .padding(.bottom, bottomSafeArea)
+                    .pmLayoutSwitchFade()
             }
             .frame(maxHeight: .infinity)
         }
@@ -1671,6 +1684,9 @@ struct NowPlayingView: View {
                 layoutMode: playerLayoutMode,
                 landscapeMode: landscapeMode
             )
+            let arrangement = player.isLiveRadio ? nil : playerArrangement(geo: geo, landscapeMode: landscapeMode)
+            // 按尺寸选的是哪一副构图。它变了(开合、转屏)就让封面等主元素滑到新位置、其余淡入。
+            let canvasKey = NowPlayingCanvasKey(layoutMode: playerLayoutMode, arrangement: arrangement)
 
             ZStack {
                 #if os(iOS)
@@ -1710,9 +1726,12 @@ struct NowPlayingView: View {
                 if !isFullscreenPlayerPresented {
                     ZStack {
                         // Opaque base — prevents content bleeding through
+                        // 两层底色在换构图那一次立刻铺满新尺寸，不随换构图的动画慢慢长大(换歌时的取色过渡照旧)。
                         appearance.backgroundBase.ignoresSafeArea()
+                            .animation(nil, value: canvasKey)
                         // Dynamic background from cover colors — fully opaque
                         backgroundGradient.ignoresSafeArea()
+                            .animation(nil, value: canvasKey)
 
                         // 每套布局都经 NowPlayingDeferredContent 推迟构造，别直接内联回来：
                         // Debug 构建下这里会把主线程的栈吃满（见那个类型的说明）。
@@ -1720,10 +1739,11 @@ struct NowPlayingView: View {
                             NowPlayingDeferredContent {
                                 liveRadioLayout(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
                             }
-                        } else if let arrangement = playerArrangement(geo: geo, landscapeMode: landscapeMode) {
+                        } else if let arrangement {
                             NowPlayingDeferredContent {
                                 arrangedPlayerLayout(geo: geo, arrangement: arrangement, safeInsets: safeInsets)
                             }
+                            .transition(PMLayoutSwitchTransition())
                         } else if usesCompactLandscapeSkeleton {
                             NowPlayingDeferredContent {
                                 compactLandscapePlayerLayout(
@@ -1732,6 +1752,7 @@ struct NowPlayingView: View {
                                     occlusions: occlusions
                                 )
                             }
+                            .transition(PMLayoutSwitchTransition())
                         } else {
                             switch landscapeMode {
                             case .musicVideo:
@@ -1759,6 +1780,7 @@ struct NowPlayingView: View {
                                     NowPlayingDeferredContent {
                                         portraitLayout(geo: geo, artSize: artSize, insets: portraitLayoutInsets)
                                     }
+                                    .transition(PMLayoutSwitchTransition())
                                 case .compactLandscape:
                                     NowPlayingDeferredContent {
                                         compactLandscapePlayerLayout(
@@ -1767,6 +1789,7 @@ struct NowPlayingView: View {
                                             occlusions: occlusions
                                         )
                                     }
+                                    .transition(PMLayoutSwitchTransition())
                                 case .wideLandscape:
                                     NowPlayingDeferredContent {
                                         wideLandscapeLayout(geo: geo, safeInsets: safeInsets)
@@ -1776,8 +1799,9 @@ struct NowPlayingView: View {
                         }
 
                     }
-                    // iPhone Duo 开合、转屏换构图(竖版 / 横屏骨架 / iPad 双栏)时新构图淡入，不闪一下。
-                    .pmLayoutChangeFade(playerLayoutMode)
+                    // 开合、转屏换构图(竖版 / 横屏骨架 / iPad 双栏 / Duo 内屏分栏与半折)时，封面、歌名、
+                    // 进度条与传输键从旧位置滑到新位置，其余元素淡入；播放页进场途中不算。
+                    .pmLayoutSwitchAnimation(canvasKey, isEnabled: isPresentationSettled)
                     .contentShape(Rectangle())
                     // 横屏锁上、或者效果抽屉开着的时候，整页不再响应最小化手势：
                     // 前者是锁的语义，后者是抽屉之外的一切都只该用来收起抽屉。
@@ -2455,6 +2479,7 @@ struct NowPlayingView: View {
             .allowsHitTesting(!isCompactLandscapeLocked)
 
             compactLandscapeChromeLayer
+                .pmLayoutSwitchFade()
                 .padding(.leading, chromeLeading)
                 .padding(.trailing, chromeTrailing)
                 .opacity(compactLandscapeControlsHidden ? 0 : 1)
@@ -2602,6 +2627,7 @@ struct NowPlayingView: View {
                 if showLyrics {
                     compactLandscapeLyricsPane(metrics: lyricsMetrics)
                         .padding(.top, lyricsPaneTopClearance)
+                        .pmLayoutSwitchFade()
                         .transition(lyricsPanelTransition)
                 } else {
                     compactLandscapeArtwork(metrics: metrics)
@@ -2662,17 +2688,20 @@ struct NowPlayingView: View {
                         .transition(lyricsHeaderTransition)
                 } else {
                     compactLandscapeCoverHeading(metrics: metrics)
+                        .matchedLayoutElement(.songHeading, in: layoutNamespace)
                         .transition(.opacity)
                 }
             }
 
             PlaybackProgressBar(fillTint: themedControlAccent)
+                .matchedLayoutElement(.progress, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
                 .opacity(compactLandscapeControlsHidden ? 0 : 1)
                 .allowsHitTesting(!compactLandscapeControlsHidden)
                 .accessibilityHidden(compactLandscapeControlsHidden)
 
             compactLandscapeTransportRow(showsEdgeToggles: showsEdgeToggles)
+                .matchedLayoutElement(.transport, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
                 // 锁上时控件留在原位只是不再显示，右栏不会因为少一行而整体上移。
                 .opacity(isCompactLandscapeLocked || compactLandscapeControlsHidden ? 0 : 1)
@@ -2682,6 +2711,7 @@ struct NowPlayingView: View {
 
             if showsVolumeBar {
                 playerVolumeRow
+                    .pmLayoutSwitchFade()
                     .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.volumeTopSpacing))
                     .opacity(isCompactLandscapeLocked || compactLandscapeControlsHidden ? 0 : 1)
                     .allowsHitTesting(!compactLandscapeControlsHidden)
@@ -3485,6 +3515,7 @@ struct NowPlayingView: View {
                             .padding(.top, topSafeArea + 6)
                             .padding(.horizontal, 8)
                             .padding(.bottom, 10)
+                            .pmLayoutSwitchFade()
                     }
 
                     // Playback error toast
@@ -3576,6 +3607,7 @@ struct NowPlayingView: View {
                             lyricsFullView
                                 .padding(.leading, insets.lyricsLeading)
                                 .padding(.trailing, insets.lyricsTrailing)
+                                .pmLayoutSwitchFade()
                                 .transition(lyricsPanelTransition)
                         }
                     } else {
@@ -3603,6 +3635,7 @@ struct NowPlayingView: View {
                     // Song info (player mode only — in lyrics mode it's in the top bar)
                     if !showLyrics {
                         nowPlayingSongHeader(titleFont: .title3, metadataFont: .body)
+                            .matchedLayoutElement(.songHeading, in: layoutNamespace)
                             .padding(.horizontal, 26)
                             .padding(.horizontal, insets.rows)
                             .padding(.top, 12)
@@ -3610,6 +3643,7 @@ struct NowPlayingView: View {
                         nowPlayingReviewSection
                             .padding(.horizontal, 26)
                             .padding(.horizontal, insets.rows)
+                            .pmLayoutSwitchFade()
                     }
 
                     // Progress — 抽成独立子 view 隔离 player.currentTime 的高频
@@ -3618,11 +3652,13 @@ struct NowPlayingView: View {
                     // 自己读 player.currentTime,父 view body 完全不读高频属性。
                     if !showLyrics || !isLyricsImmersive {
                         PlaybackProgressBar(fillTint: themedControlAccent)
+                            .matchedLayoutElement(.progress, in: layoutNamespace)
                             .padding(.horizontal, 26).padding(.top, 8)
                             .padding(.horizontal, insets.rows)
 
                         // Controls
                         portraitTransportRow
+                        .matchedLayoutElement(.transport, in: layoutNamespace)
                         .padding(.top, 12)
                         .padding(.horizontal, insets.rows)
 
@@ -3630,12 +3666,14 @@ struct NowPlayingView: View {
                             playerVolumeRow
                                 .padding(.horizontal, 26).padding(.top, 10)
                                 .padding(.horizontal, insets.rows)
+                                .pmLayoutSwitchFade()
                         }
 
                         // Bottom bar —— 三个槽位都是 44×44, HStack 的两个 Spacer 才
                         // 会把 AirPlay 分到正中, 左右图标到 padding 边的距离也才相等
                         portraitBottomBar
                         .padding(.horizontal, insets.rows)
+                        .pmLayoutSwitchFade()
 
                         // Format & source
                         if let song = player.currentSong {
@@ -3650,6 +3688,7 @@ struct NowPlayingView: View {
                                 }
                             }
                             .font(.caption2).foregroundStyle(appearance.faint).padding(.top, 4).padding(.bottom, 6)
+                            .pmLayoutSwitchFade()
                         }
                     }
                 }
@@ -9580,6 +9619,40 @@ struct NowPlayingPortraitInsets: Equatable {
     var immersiveContentTop: CGFloat = 0
     var immersiveTopRowLeading: CGFloat = 0
     var immersiveTopRowTrailing: CGFloat = 0
+}
+
+/// 播放页按尺寸选的构图:竖版 / 手机横屏骨架 / iPad 双栏,以及 Duo 内屏的分栏与桌面半折。
+/// 歌词、MV 这些由用户切换的模式不在里面 —— 它们有自己的过渡。
+private struct NowPlayingCanvasKey: Equatable {
+    var layoutMode: NowPlayingPlayerLayoutMode
+    var arrangement: NowPlayingArrangement?
+}
+
+/// 播放页几副构图里共有的主元素。换构图时同一个元素从旧位置滑到新位置。
+private enum NowPlayingLayoutElement: Hashable {
+    /// 歌名那一块(歌名、艺人)。只对齐左上角,不插值尺寸 —— 两边字号不同,插值宽度会让字一路折行。
+    case songHeading
+    case progress
+    case transport
+}
+
+private extension View {
+    func matchedLayoutElement(_ element: NowPlayingLayoutElement, in namespace: Namespace.ID) -> some View {
+        modifier(NowPlayingMatchedLayoutElement(element: element, namespace: namespace))
+    }
+}
+
+private struct NowPlayingMatchedLayoutElement: ViewModifier {
+    let element: NowPlayingLayoutElement
+    let namespace: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if element == .songHeading {
+            content.matchedGeometryEffect(id: element, in: namespace, properties: .position, anchor: .topLeading)
+        } else {
+            content.matchedGeometryEffect(id: element, in: namespace)
+        }
+    }
 }
 
 /// 常规宽度 iPhone 画布(Duo 内屏)上播放页的两种排法,见 `NowPlayingView.playerArrangement`。

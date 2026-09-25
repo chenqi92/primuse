@@ -286,15 +286,19 @@ struct PlaylistDetailView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     playlistHeader
+                        .libraryDetailMatchedHeader()
 
                     playlistReviewSection
+                        .pmLayoutSwitchFade()
 
                     playlistListSections
+                        .pmLayoutSwitchFade()
                 }
             }
         } header: {
             VStack(spacing: 20) {
                 playlistHeader
+                    .libraryDetailMatchedHeader()
 
                 playlistReviewSection
             }
