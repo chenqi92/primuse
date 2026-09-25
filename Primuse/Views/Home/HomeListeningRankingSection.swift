@@ -31,8 +31,12 @@ struct HomeListeningRankingSection: View {
     }
     @State private var preparedRequest: Request?
 
+    /// 歌曲、艺人、专辑榜只看播放记录和资料库里有哪些歌，冷启动不必等文件夹索引
+    /// 建好（那要把整库过一遍），回填一首首改标签也不重算。只有目录榜跟着索引走。
     private struct Request: Equatable {
-        let revision: Int
+        let history: Int
+        let collection: Int
+        let folders: Int
         let period: HomeListeningPeriod
         let category: HomeListeningCategory
         let calendar: Calendar
@@ -97,7 +101,7 @@ struct HomeListeningRankingSection: View {
                 .font(.caption2).foregroundStyle(.tertiary)
                 .padding(.horizontal, 20)
         }
-        .task(id: Request(revision: model.revision, period: period, category: category, calendar: ListeningCalendar.current)) {
+        .task(id: currentRequest) {
             await refresh()
         }
         .onChange(of: period) { _, _ in showsExpandedRanking = false }
@@ -372,9 +376,9 @@ struct HomeListeningRankingSection: View {
 
     /// 这一名的门面：组里听得最多的那首；它已经不在库里时退到还在的第一首。
     private func artworkSong(for rank: HomeListeningRank) -> Song? {
-        if let id = rank.artworkSongID, let song = model.songsByID[id] { return song }
+        if let id = rank.artworkSongID, let song = library.unobservedVisibleSong(id: id) { return song }
         for id in rank.songIDs {
-            if let song = model.songsByID[id] { return song }
+            if let song = library.unobservedVisibleSong(id: id) { return song }
         }
         return nil
     }
@@ -421,24 +425,40 @@ struct HomeListeningRankingSection: View {
         #endif
     }
 
+    private var currentRequest: Request {
+        Request(
+            history: model.historyRevision,
+            collection: library.visibleSongCollectionRevision,
+            folders: category == .folders ? model.revision : 0,
+            period: period, category: category, calendar: ListeningCalendar.current
+        )
+    }
+
     private func refresh() async {
-        let request = Request(revision: model.revision, period: period, category: category, calendar: ListeningCalendar.current)
+        let request = currentRequest
         // Lazy-stack reappearance must not collapse a loaded card to its
         // spinner height and repeatedly move it across the visible boundary.
         guard preparedRequest != request else { return }
         isLoading = ranks.isEmpty
         // Music only: audiobook chapters are not songs to rank.
         let events = PlayHistoryStore.shared.musicEntries.map(\.listeningEvent)
-        let songs = model.songsByID
-        let folders = model.index
+        let visibleSongs = library.visibleSongs
+        let folders = category == .folders ? model.index : nil
         let period = period
         let category = category
         let task = Task.detached(priority: .utility) {
-            HomeListeningRanking.ranks(events: events, songs: songs, folders: folders, period: period, category: category, calendar: request.calendar)
+            let played = Set(events.map(\.songID))
+            var songs: [String: Song] = [:]
+            songs.reserveCapacity(played.count)
+            for song in visibleSongs where played.contains(song.id) {
+                songs[song.id] = songs[song.id] ?? song
+            }
+            return HomeListeningRanking.ranks(events: events, songs: songs, folders: folders, period: period, category: category, calendar: request.calendar)
         }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
         guard !Task.isCancelled else { return }
-        ranks = result
+        // 结果没变就不写：写一次整张榜连同领奖台都要重新描述。
+        if result != ranks { ranks = result }
         rankedCategory = category
         rankedPeriod = period
         isLoading = false

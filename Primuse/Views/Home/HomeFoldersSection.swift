@@ -6,6 +6,11 @@ private extension LibraryFolderNode {
         guard kind == .source, let index else { return childNodeCount }
         return LibraryFolderBrowsePolicy.displayedChildren(in: index, of: id).count
     }
+
+    @MainActor
+    func displayedChildCount(in model: HomeDiscoveryModel) -> Int {
+        model.previewDisplayedChildCount(for: id) ?? displayedChildCount(in: model.index)
+    }
 }
 
 #if os(macOS)
@@ -68,29 +73,70 @@ struct HomeFoldersSection: View {
                 .accessibilityIdentifier("home.allFolders")
             }
 
-            if model.index == nil {
-                ProgressView().frame(maxWidth: .infinity).padding()
-                    // 骨架与内容在同一个 VStack 里,交叉淡入会让两块同时占位、
-                    // 把下面的区块顶开,所以走「旧的直接走、新的淡进来」。
-                    .pmAppearFade(.contentAppear)
-            } else {
-                let nodes = Array(
-                    model.pins(from: pinsRawValue)
-                        .compactMap { model.index?.node(withID: $0) }
-                        .prefix(HomeFolderPinStorage.displayCount(displayCount))
-                )
+            if let nodes = model.homeNodes(pinsRawValue: pinsRawValue, displayCount: displayCount) {
                 if nodes.isEmpty {
                     Text(HomeDiscoveryText.string("no_pinned_folders"))
                         .font(.subheadline).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .pmAppearFade(.contentAppear)
                 } else {
+                    // 从占位换过来时淡入；从上次的样子换成真实节点是同一个分支，不会重播。
                     folderBody(nodes)
                         .pmAppearFade(.contentAppear)
                 }
+            } else {
+                // 索引没建好、也没有上次的样子（首次安装）：占位与真卡片同尺寸同张数，
+                // 换成真内容时下面的区块不会被顶开。
+                placeholderBody(count: model.homePlaceholderCount(pinsRawValue: pinsRawValue, displayCount: displayCount))
             }
         }
         .padding(.horizontal, layout.style(for: .folders) == .carousel ? 0 : 20)
+        .task(id: PreviewPersistRequest(revision: model.revision, pins: pinsRawValue, displayCount: displayCount)) {
+            model.persistHomePreview(pinsRawValue: pinsRawValue, displayCount: displayCount)
+        }
+    }
+
+    private struct PreviewPersistRequest: Equatable {
+        let revision: Int
+        let pins: String
+        let displayCount: Int
+    }
+
+    @ViewBuilder
+    private func placeholderBody(count: Int) -> some View {
+        LoadingSkeletonGroup {
+            switch layout.style(for: .folders) {
+            case .list:
+                ForEach(0..<count, id: \.self) { _ in
+                    HomeFolderRowPlaceholder()
+                    Divider().padding(.leading, 68)
+                }
+            case .grid:
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: cardWidth), spacing: 16, alignment: .top)],
+                    spacing: 20
+                ) {
+                    ForEach(0..<count, id: \.self) { _ in HomeFolderCardPlaceholder(width: cardWidth) }
+                }
+            case .carousel:
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHGrid(
+                        rows: Array(
+                            repeating: GridItem(.fixed(cardHeight), spacing: 14, alignment: .top),
+                            count: HomeSectionLayoutPolicy.renderedRowCount(
+                                configured: layout.rowCount(for: .folders),
+                                isCompactHeight: heightClass.isCompact
+                            )
+                        ),
+                        spacing: 14
+                    ) {
+                        ForEach(0..<count, id: \.self) { _ in HomeFolderCardPlaceholder(width: cardWidth) }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .scrollDisabled(true)
+            }
+        }
     }
 
     @ViewBuilder
@@ -154,6 +200,53 @@ private struct HomeFolderCard: View {
             .frame(width: width, alignment: .leading)
         }
         .buttonStyle(.pmPressable)
+    }
+}
+
+/// 与 `HomeFolderCard` 同一套排版，文字用占位样式，保证换成真卡片时高度一致。
+private struct HomeFolderCardPlaceholder: View {
+    let width: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            RoundedRectangle(cornerRadius: 9)
+                .fill(.quaternary)
+                .frame(width: width, height: width)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: "Folder name")
+                    .font(.caption).fontWeight(.medium).lineLimit(1)
+                Text(verbatim: "000 songs")
+                    .font(.caption2).lineLimit(1)
+            }
+            .redacted(reason: .placeholder)
+        }
+        .frame(width: width, alignment: .leading)
+    }
+}
+
+/// 与 `HomeFolderRow` 同一套排版的占位行。
+private struct HomeFolderRowPlaceholder: View {
+    private var artworkSize: CGFloat {
+        #if os(macOS)
+        36
+        #else
+        54
+        #endif
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 9)
+                .fill(.quaternary)
+                .frame(width: artworkSize, height: artworkSize)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(verbatim: "Folder name").font(.headline).lineLimit(1)
+                Text(verbatim: "000 songs").font(.caption).lineLimit(1)
+            }
+            .redacted(reason: .placeholder)
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: artworkSize)
     }
 }
 
@@ -296,7 +389,7 @@ private struct HomeFolderRow: View {
     }
 
     private var sourceBadge: some View {
-        Text(model.index?.sourceNode(for: node.sourceID)?.displayName ?? String(localized: "source_label"))
+        Text(model.sourceDisplayName(for: node.sourceID) ?? String(localized: "source_label"))
             .font(.caption2.weight(.medium)).lineLimit(1)
             .foregroundStyle(.tint)
             .padding(.horizontal, 6).padding(.vertical, 3)
@@ -304,7 +397,7 @@ private struct HomeFolderRow: View {
     }
 
     private var songCount: some View {
-        let childCount = node.displayedChildCount(in: model.index)
+        let childCount = node.displayedChildCount(in: model)
         let counts = childCount > 0
             ? String(format: HomeDiscoveryText.string("folder_counts"), childCount, node.descendantSongCount)
             : "\(node.descendantSongCount.formatted()) \(String(localized: "songs_count"))"

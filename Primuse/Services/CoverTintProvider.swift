@@ -125,14 +125,18 @@ final class CoverTintProvider {
             prepare(Array(knownSongs.values))
             return
         }
+        // 只在确有这一项时才删：对观察属性做一次删除，哪怕键不存在也会通知所有读过
+        // 取色的卡片重画。冷启动时封面一张张缓存好，每张都会发这个通知。
+        var affected: [Song] = []
         for songID in songIDs {
-            cache.removeValue(forKey: songID)
-            noColorCache.remove(songID)
+            if cache[songID] != nil { cache.removeValue(forKey: songID) }
+            if noColorCache.contains(songID) { noColorCache.remove(songID) }
             if inFlight.contains(songID) {
                 invalidatedWhileInFlight.insert(songID)
             }
+            if let song = knownSongs[songID] { affected.append(song) }
         }
-        prepare(songIDs.compactMap { knownSongs[$0] })
+        prepare(affected)
     }
 
     /// Off-main extraction. Mirrors ThemeService's load-then-extract

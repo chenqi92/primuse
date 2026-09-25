@@ -836,7 +836,7 @@ struct HomeView: View {
         let showsRecommendations: Bool
     }
 
-    struct HomeAlbumTile: Identifiable, Sendable {
+    struct HomeAlbumTile: Identifiable, Equatable, Sendable {
         let album: Album
         let artworkSong: Song?
 
@@ -1943,9 +1943,17 @@ struct HomeView: View {
             }
 
             guard !Task.isCancelled, homeSnapshotSignature == signature else { return }
-            model.snapshot.heroCoverSongs = payload.0
-            model.snapshot.recentlyAddedAlbums = payload.1
-            model.snapshot.recentSongs = payload.3
+            // 首页正文都读同一个 snapshot，写一次整页重新描述。冷启动时先画的是上次
+            // 存下的样子，后台算完多半一模一样，这时不写，免得刚开始滚动就整页重算。
+            if model.snapshot.heroCoverSongs != payload.0
+                || model.snapshot.recentlyAddedAlbums != payload.1
+                || model.snapshot.recentSongs != payload.3 {
+                var snapshot = model.snapshot
+                snapshot.heroCoverSongs = payload.0
+                snapshot.recentlyAddedAlbums = payload.1
+                snapshot.recentSongs = payload.3
+                model.snapshot = snapshot
+            }
             model.highlightsSignature = signature
             persistInitialHomeSnapshotCache(signature: signature)
 
@@ -1981,7 +1989,9 @@ struct HomeView: View {
             }
 
             guard !Task.isCancelled, homeSnapshotSignature == signature else { return }
-            model.snapshot.forYouResults = payload.0
+            if model.snapshot.forYouResults != payload.0 {
+                model.snapshot.forYouResults = payload.0
+            }
             model.recommendationSignature = signature
             tintProvider.prepare(payload.0.map(\.song))
             persistInitialHomeSnapshotCache(signature: signature)
