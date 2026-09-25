@@ -1348,6 +1348,7 @@ struct RealDirectoryBrowserView: View {
                 }
                 .padding(.horizontal, 14).padding(.vertical, 6)
             }
+            .pmStopsAtVerticalBar()
             .onChange(of: pathStack.count) { _, _ in
                 pmWithAnimation(.list) { proxy.scrollTo(pathStack.count - 1, anchor: .trailing) }
             }

@@ -177,6 +177,7 @@ struct DirectoryBreadcrumb: View {
                 .padding(.vertical, 6)
                 #endif
             }
+            .pmStopsAtVerticalBar()
             .onChange(of: segments.count) { _, _ in
                 pmWithAnimation(.list) { proxy.scrollTo(segments.count - 1, anchor: .trailing) }
             }

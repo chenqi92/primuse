@@ -299,6 +299,7 @@ struct AlbumDetailView: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .pmStopsAtVerticalBar()
             }
             .padding(.top, 32)
         }

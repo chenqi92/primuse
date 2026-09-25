@@ -928,6 +928,7 @@ struct SearchView: View {
             }
             .padding(.vertical, 1)
         }
+        .pmStopsAtVerticalBar()
     }
 
     @ViewBuilder
@@ -2874,6 +2875,7 @@ struct SearchView: View {
                     }
                     .padding(.vertical, heightClass.value(8, compact: 4))
                 }
+                .pmStopsAtVerticalBar()
                 .listRowSeparator(.hidden)
             } header: {
                 HStack {

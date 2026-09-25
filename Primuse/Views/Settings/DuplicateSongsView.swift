@@ -569,6 +569,7 @@ struct DuplicateSongsView: View {
                             )
                         }
                     }
+                    .pmStopsAtVerticalBar()
                 }
             }
             .frame(height: 104)

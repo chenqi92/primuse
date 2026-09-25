@@ -125,6 +125,7 @@ struct HomeFoldersSection: View {
                 }
                 .padding(.horizontal, 20)
             }
+            .pmStopsAtVerticalBar()
         }
     }
 }

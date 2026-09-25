@@ -2144,6 +2144,7 @@ struct SongListView: View {
             }
             .padding(.vertical, 1)
         }
+        .pmStopsAtVerticalBar()
     }
 
     private func sourceChip(title: String, count: Int?, color: Color?, active: Bool,
@@ -4782,6 +4783,7 @@ private struct MacLibraryFolderInlineContent: View {
                 .font(.system(size: 12.5, weight: .medium))
                 .lineLimit(1)
             }
+            .pmStopsAtVerticalBar()
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(verbatim: LibraryFolderNodePresentation.songCount(node.descendantSongCount))

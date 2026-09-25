@@ -23,6 +23,7 @@ struct SkinSettingsSection: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
             }
+            .pmStopsAtVerticalBar()
             .listRowInsets(EdgeInsets())
             // 面板挂在这一行上,而不是整个 Section:挂在 Section 上会被套到它的每一行。
             .sheet(item: $inspectedSkin) { definition in

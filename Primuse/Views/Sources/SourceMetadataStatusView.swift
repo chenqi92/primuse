@@ -637,6 +637,7 @@ struct SourceMetadataStatusView: View {
             .padding(.vertical, 1)
             .padding(.trailing, 16)
         }
+        .pmStopsAtVerticalBar()
         .textCase(nil)
     }
 

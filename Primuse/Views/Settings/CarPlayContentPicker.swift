@@ -116,6 +116,7 @@ struct CarPlayContentPicker: View {
                         }
                     }
                 }
+                .pmStopsAtVerticalBar()
                 .scrollIndicators(.hidden)
                 .accessibilityIdentifier("carplay.contentKinds")
             }

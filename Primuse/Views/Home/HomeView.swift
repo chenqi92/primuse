@@ -2735,6 +2735,7 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .pmStopsAtVerticalBar()
             } else if skin.usesPosterHome {
                 // 海报版式的网格档是两列胶囊磁贴:左边封面、右边名称与一行说明,
                 // 一屏能放六个,比一排小图标好认。
@@ -2921,6 +2922,7 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .pmStopsAtVerticalBar()
             case .grid:
                 // 歌单封面是固定尺寸视图,撑不满自适应列宽,所以列宽直接按卡片宽
                 // 来定 —— 否则窄屏两列会在卡片之间裂开一道空隙。
@@ -3102,6 +3104,7 @@ struct HomeView: View {
                 .padding(.horizontal, 20)
                 .scrollTargetLayout()
             }
+            .pmStopsAtVerticalBar()
             .scrollTargetBehavior(.viewAligned)
             }
         }
@@ -3216,6 +3219,7 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .pmStopsAtVerticalBar()
             case .list:
                 VStack(spacing: 8) {
                     ForEach(songs.prefix(sectionItemCount(.continueListening, usesPadMetrics ? 8 : 5)), id: \.id) { song in
@@ -3403,6 +3407,7 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .pmStopsAtVerticalBar()
             case .list:
                 VStack(spacing: 0) {
                     let displayed = Array(albums.prefix(sectionItemCount(.recentlyAdded, usesPadMetrics ? 8 : 6)))
@@ -3523,6 +3528,7 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .pmStopsAtVerticalBar()
             }
         }
     }

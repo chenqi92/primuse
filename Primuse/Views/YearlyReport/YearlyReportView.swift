@@ -168,6 +168,7 @@ struct YearlyReportView: View {
                 .padding(.horizontal, 48)
                 .padding(.vertical, 28)
             }
+            .pmStopsAtVerticalBar()
             .onChange(of: currentIndex) { _, newValue in
                 pmWithAnimation(.trackChange) {
                     proxy.scrollTo(cards[newValue], anchor: .center)

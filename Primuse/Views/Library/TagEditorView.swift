@@ -668,6 +668,7 @@ struct TagEditorView: View {
                 }
                 .padding(.horizontal, 1)
             }
+            .pmStopsAtVerticalBar()
             .scrollClipDisabled()
         }
     }
