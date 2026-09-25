@@ -4536,3 +4536,5 @@
 "spoken_word_book_speed" = "Velocidad para este libro";
 "spoken_word_book_speed_default_format" = "Predeterminada (%@)";
 "stats_spoken_word_time" = "Tiempo de audiolibros";
+"directory_tag_menu_title" = "Contenido de esta carpeta";
+"directory_tag_hint" = "Toca la etiqueta junto a una carpeta seleccionada y elige Audiolibros para que su contenido vaya al estante de audiolibros y no a tu música.";

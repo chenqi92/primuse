@@ -56,7 +56,8 @@ struct ConnectorDirectoryBrowserView: View {
                 ),
                 onConfirm: onConfirm,
                 failureSource: source,
-                onEditAddress: onEditAddress
+                onEditAddress: onEditAddress,
+                tagSource: source
             )
             #else
             iosBody
@@ -122,7 +123,15 @@ struct ConnectorDirectoryBrowserView: View {
                         .pmAppearFade(.contentAppear)
                 }
 
-                BrowserBottomBar(selectedCount: selectedDirectories.count) {
+                BrowserBottomBar(
+                    selectedCount: selectedDirectories.count,
+                    chips: selectionChips,
+                    onRemove: { path in
+                        pmWithAnimation(.list) {
+                            policySelectedDirectories.wrappedValue = selectedDirectories.filter { $0 != path }
+                        }
+                    }
+                ) {
                     pmWithAnimation(.list) { selectedDirectories.removeAll() }
                 }
             }
@@ -173,7 +182,8 @@ struct ConnectorDirectoryBrowserView: View {
                     icon: navigation.currentPath == "/" ? "shippingbox.fill" : "folder.fill",
                     iconColor: .orange,
                     isNavigable: false,
-                    selectedDirectories: policySelectedDirectories
+                    selectedDirectories: policySelectedDirectories,
+                    folderTag: DirectoryFolderTag.forFolder(path: selectableCurrentPath, of: source)
                 )
             }
 
@@ -193,9 +203,18 @@ struct ConnectorDirectoryBrowserView: View {
                         iconColor: .blue,
                         isNavigable: true,
                         selectedDirectories: policySelectedDirectories,
-                        onNavigate: { enterDirectory(item) }
+                        onNavigate: { enterDirectory(item) },
+                        folderTag: DirectoryFolderTag.forFolder(path: item.path, of: source)
                     )
                 }
+            }
+
+            if showsFolderTagHint {
+                Text("directory_tag_hint")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
         }
         .directoryBrowserListStyle()
@@ -217,6 +236,31 @@ struct ConnectorDirectoryBrowserView: View {
         #else
         directoryList
         #endif
+    }
+
+    /// Every selected folder, wherever it is in the tree, for the bottom bar.
+    private var selectionChips: [BrowserSelectionChip] {
+        let tagsSupported = SpokenWordFolderTag.supportsTags(LibraryFolderSourceDescriptor(source: source))
+        let cloudNames = source.type.isCloudDrive ? CloudDirectoryNameStore.displayNames(for: source.id) : [:]
+        return selectedDirectories.map { path in
+            let title = source.scannedDirectoryDisplayNames[path]
+                ?? cloudNames[path]
+                ?? SourceDirectoryLabelPolicy.readableFallback(path: path, sourceType: source.type)
+                ?? path
+            return BrowserSelectionChip(
+                id: path,
+                title: path == "/" ? (source.basePath ?? source.name) : title,
+                isSpokenWord: tagsSupported
+                    && SpokenWordStore.shared.isSpokenWordFolder(sourceID: source.id, path: path)
+            )
+        }
+    }
+
+    /// Explains the tag capsule once something is selected on a source that
+    /// supports tags.
+    private var showsFolderTagHint: Bool {
+        !selectedDirectories.isEmpty
+            && SpokenWordFolderTag.supportsTags(LibraryFolderSourceDescriptor(source: source))
     }
 
     private var currentDirectorySubtitle: String? {

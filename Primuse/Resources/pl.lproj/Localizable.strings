@@ -4536,3 +4536,5 @@
 "spoken_word_book_speed" = "Tempo dla tej książki";
 "spoken_word_book_speed_default_format" = "Domyślna (%@)";
 "stats_spoken_word_time" = "Czas audiobooków";
+"directory_tag_menu_title" = "Zawartość tego folderu";
+"directory_tag_hint" = "Stuknij etykietę obok wybranego folderu i wybierz Audiobooki, aby jego zawartość trafiła na półkę z audiobookami zamiast do muzyki.";

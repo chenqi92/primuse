@@ -197,26 +197,141 @@ struct DirectoryBreadcrumb: View {
     }
 }
 
+// MARK: - Folder tags
+
+/// A selected scan folder's content tag: music (no tag, the usual
+/// inference) or spoken word, which sends everything inside to the books
+/// shelf. Stored by `SpokenWordStore.setSpokenWordFolder`.
+struct DirectoryFolderTag {
+    let isSpokenWord: Bool
+    let set: (Bool) -> Void
+
+    /// The tag for `path` of `source`, or nil for sources whose songs do not
+    /// sit in real folders (item-id cloud drives, media servers).
+    @MainActor
+    static func forFolder(path: String, of source: MusicSource) -> DirectoryFolderTag? {
+        guard SpokenWordFolderTag.supportsTags(LibraryFolderSourceDescriptor(source: source)) else { return nil }
+        let store = SpokenWordStore.shared
+        let sourceID = source.id
+        return DirectoryFolderTag(
+            isSpokenWord: store.isSpokenWordFolder(sourceID: sourceID, path: path),
+            set: { store.setSpokenWordFolder($0, sourceID: sourceID, path: path) }
+        )
+    }
+}
+
+/// The capsule on a selected folder row; tapping it picks what is inside.
+struct DirectoryFolderTagMenu: View {
+    let tag: DirectoryFolderTag
+
+    private var space: ListeningSpace { tag.isSpokenWord ? .spokenWord : .music }
+
+    var body: some View {
+        Menu {
+            Section("directory_tag_menu_title") {
+                option(.music, isSpokenWord: false)
+                option(.spokenWord, isSpokenWord: true)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: tag.isSpokenWord ? "books.vertical.fill" : "music.note")
+                    .font(.caption2.weight(.semibold))
+                Text(space.title)
+                    .font(.caption.weight(.semibold))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .opacity(0.7)
+            }
+            .foregroundStyle(space.tint)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(space.tint.opacity(0.14), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel(Text("directory_tag_menu_title"))
+        .accessibilityValue(Text(space.title))
+    }
+
+    private func option(_ space: ListeningSpace, isSpokenWord: Bool) -> some View {
+        Button {
+            tag.set(isSpokenWord)
+        } label: {
+            if tag.isSpokenWord == isSpokenWord {
+                Label(space.title, systemImage: "checkmark")
+            } else {
+                Label(space.title, systemImage: space.systemImage)
+            }
+        }
+    }
+}
+
+/// The rounded tile a folder row leads with.
+struct DirectoryFolderTile: View {
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: 36, height: 36)
+            .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .accessibilityHidden(true)
+    }
+}
+
+/// One selected folder in the bottom bar, so choices made in other folders
+/// stay in view and can be taken back from here.
+struct BrowserSelectionChip: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let isSpokenWord: Bool
+}
+
 // MARK: - Bottom bar
 
 struct BrowserBottomBar: View {
     let selectedCount: Int
     let idleIcon: String
+    let chips: [BrowserSelectionChip]
+    let onRemove: ((String) -> Void)?
     let onClearAll: () -> Void
 
     init(
         selectedCount: Int,
         idleIcon: String = "folder.badge.questionmark",
+        chips: [BrowserSelectionChip] = [],
+        onRemove: ((String) -> Void)? = nil,
         onClearAll: @escaping () -> Void
     ) {
         self.selectedCount = selectedCount
         self.idleIcon = idleIcon
+        self.chips = chips
+        self.onRemove = onRemove
         self.onClearAll = onClearAll
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Divider()
+            #if os(iOS)
+            if !chips.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(chips) { chip in
+                            chipView(chip)
+                                .transition(.scale(scale: 0.85).combined(with: .opacity))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                }
+                .pmAnimation(.list, value: chips)
+            }
+            #endif
             HStack(spacing: 8) {
                 if selectedCount == 0 {
                     #if os(macOS)
@@ -269,6 +384,37 @@ struct BrowserBottomBar: View {
         .background(.bar)
         #endif
     }
+
+    #if os(iOS)
+    private func chipView(_ chip: BrowserSelectionChip) -> some View {
+        let space: ListeningSpace = chip.isSpokenWord ? .spokenWord : .music
+        return HStack(spacing: 6) {
+            Image(systemName: chip.isSpokenWord ? "books.vertical.fill" : "folder.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(space.tint)
+            Text(verbatim: chip.title)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+                .frame(maxWidth: 160, alignment: .leading)
+            if let onRemove {
+                Button { onRemove(chip.id) } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("remove"))
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, onRemove == nil ? 10 : 4)
+        .padding(.vertical, 5)
+        .background(Color.secondary.opacity(0.12), in: Capsule())
+        .accessibilityElement(children: .combine)
+    }
+    #endif
 }
 
 // MARK: - Preview pane
@@ -508,6 +654,8 @@ struct MacDirTreeBrowser: View {
     var failureSource: MusicSource? = nil
     /// 失败态「修改地址」的出口,由宿主负责关 sheet 再开编辑表单。
     var onEditAddress: (() -> Void)? = nil
+    /// 给勾选的目录标「音乐 / 有声」。只有歌曲路径就是真实目录的源才传。
+    var tagSource: MusicSource? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var rows: [MacDirTreeRow] = []
@@ -713,6 +861,10 @@ struct MacDirTreeBrowser: View {
                 .truncationMode(.middle)
 
             Spacer(minLength: 4)
+
+            if checked, let tag = folderTag(for: row.path) {
+                DirectoryFolderTagMenu(tag: tag)
+            }
         }
         .padding(.leading, 8 + CGFloat(row.depth) * 16)
         .padding(.trailing, 8)
@@ -726,9 +878,24 @@ struct MacDirTreeBrowser: View {
         .onTapGesture { Task { await focus(row) } }
     }
 
+    private func folderTag(for path: String) -> DirectoryFolderTag? {
+        guard let tagSource else { return nil }
+        return DirectoryFolderTag.forFolder(path: path, of: tagSource)
+    }
+
     private func rootSelectionRow(_ path: String) -> some View {
         let checked = selectedDirectories.contains(path)
-        return Button {
+        return HStack(spacing: 0) {
+            rootSelectionButton(path, checked: checked)
+            if checked, let tag = folderTag(for: path) {
+                DirectoryFolderTagMenu(tag: tag)
+                    .padding(.trailing, 8)
+            }
+        }
+    }
+
+    private func rootSelectionButton(_ path: String, checked: Bool) -> some View {
+        Button {
             toggleChecked(path)
         } label: {
             HStack(spacing: 6) {

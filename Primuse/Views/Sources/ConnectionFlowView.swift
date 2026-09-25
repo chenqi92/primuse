@@ -99,7 +99,8 @@ struct ConnectionFlowView: View {
                     RealDirectoryBrowserView(
                         synologyAPI: synologyAPI,
                         initialItems: rootItems,
-                        selectedDirectories: $selectedDirectories
+                        selectedDirectories: $selectedDirectories,
+                        tagSource: source
                     )
                 case .failed: failedView
                 }
@@ -211,7 +212,8 @@ struct ConnectionFlowView: View {
                 guard let api = synologyAPI else { return [] }
                 let items = try await api.listDirectory(path: path)
                 return items.map(Self.mapSynologyItem)
-            }
+            },
+            tagSource: source
         )
     }
 
@@ -1305,6 +1307,8 @@ struct RealDirectoryBrowserView: View {
     let synologyAPI: SynologyAPI?
     let initialItems: [SynologyAPI.FileItem]
     @Binding var selectedDirectories: [String]
+    /// The source the folders belong to, for the music / spoken-word tags.
+    var tagSource: MusicSource? = nil
 
     @State private var currentPath = "/"
     @State private var pathStack: [String] = ["/"]
@@ -1369,30 +1373,17 @@ struct RealDirectoryBrowserView: View {
     }
 
     private var breadcrumbBar: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(Array(pathStack.enumerated()), id: \.offset) { index, segment in
-                        if index > 0 {
-                            Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(.tertiary)
-                        }
-                        Button { navigateTo(index: index) } label: {
-                            Text(segment == "/" ? String(localized: "shared_folders") : (segment as NSString).lastPathComponent)
-                                .font(.caption)
-                                .fontWeight(index == pathStack.count - 1 ? .semibold : .regular)
-                                .foregroundStyle(index == pathStack.count - 1 ? Color.primary : Color.accentColor)
-                                .padding(.horizontal, 6).padding(.vertical, 4)
-                        }
-                        .id(index)
-                    }
-                }
-                .padding(.horizontal, 14).padding(.vertical, 6)
-            }
-            .onChange(of: pathStack.count) { _, _ in
-                pmWithAnimation(.list) { proxy.scrollTo(pathStack.count - 1, anchor: .trailing) }
-            }
-        }
-        .background(.bar)
+        DirectoryBreadcrumb(
+            segments: pathStack.map { segment in
+                .init(
+                    path: segment,
+                    title: segment == "/"
+                        ? String(localized: "shared_folders")
+                        : (segment as NSString).lastPathComponent
+                )
+            },
+            onSelect: navigateTo
+        )
     }
 
     private var directoryList: some View {
@@ -1423,8 +1414,13 @@ struct RealDirectoryBrowserView: View {
             icon: "folder.fill", iconColor: .blue,
             isNavigable: true,
             selectedDirectories: $selectedDirectories,
-            onNavigate: { enterDirectory(item) }
+            onNavigate: { enterDirectory(item) },
+            folderTag: folderTag(for: item.path)
         )
+    }
+
+    private func folderTag(for path: String) -> DirectoryFolderTag? {
+        tagSource.flatMap { DirectoryFolderTag.forFolder(path: path, of: $0) }
     }
 
     private func currentDirRow() -> some View {
@@ -1433,37 +1429,27 @@ struct RealDirectoryBrowserView: View {
             subtitle: currentPath, path: currentPath,
             icon: "folder.fill", iconColor: .orange,
             isNavigable: false,
-            selectedDirectories: $selectedDirectories
+            selectedDirectories: $selectedDirectories,
+            folderTag: folderTag(for: currentPath)
         )
     }
 
     private var bottomBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack {
-                if selectedDirectories.isEmpty {
-                    Label("no_dirs_selected", systemImage: "folder.badge.questionmark")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                } else {
-                    Label("\(selectedDirectories.count) \(String(localized: "directories_selected"))",
-                          systemImage: "checkmark.circle.fill")
-                        .font(.subheadline).fontWeight(.medium)
-                        .foregroundStyle(Color.accentColor)
-                    Spacer()
-                    Button(role: .destructive) {
-                        pmWithAnimation(.list) { selectedDirectories.removeAll() }
-                    } label: {
-                        Label("clear_all", systemImage: "xmark.circle")
-                            .font(.caption).fontWeight(.medium)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                Spacer()
+        BrowserBottomBar(
+            selectedCount: selectedDirectories.count,
+            chips: selectedDirectories.map { path in
+                BrowserSelectionChip(
+                    id: path,
+                    title: (path as NSString).lastPathComponent,
+                    isSpokenWord: folderTag(for: path)?.isSpokenWord == true
+                )
+            },
+            onRemove: { path in
+                pmWithAnimation(.list) { selectedDirectories.removeAll { $0 == path } }
             }
-            .padding(.horizontal, 16).padding(.vertical, 10)
+        ) {
+            pmWithAnimation(.list) { selectedDirectories.removeAll() }
         }
-        .background(.bar)
     }
 
     private func enterDirectory(_ item: SynologyAPI.FileItem) {
@@ -1508,6 +1494,8 @@ struct DirectoryCheckRow: View {
     let isNavigable: Bool
     @Binding var selectedDirectories: [String]
     var onNavigate: (() -> Void)?
+    /// Offered on selected rows of sources whose songs sit in real folders.
+    var folderTag: DirectoryFolderTag?
 
     private var isSelected: Bool { selectedDirectories.contains(path) }
 
@@ -1601,43 +1589,78 @@ struct DirectoryCheckRow: View {
 
     #if os(iOS)
     private var iOSBody: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Button { toggle() } label: {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.gray.opacity(0.4))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.45))
                     .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 28, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text(name))
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+
+            if isNavigable {
+                Button { onNavigate?() } label: { rowLabel }
+                    .buttonStyle(.plain)
+            } else {
+                rowLabel
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggle() }
+            }
+
+            if isSelected, let folderTag {
+                DirectoryFolderTagMenu(tag: folderTag)
+                    .transition(.scale(scale: 0.85).combined(with: .opacity))
+            }
 
             if isNavigable {
                 Button { onNavigate?() } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: icon).foregroundStyle(iconColor)
-                        Text(name).foregroundStyle(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.quaternary)
-                    }
-                    .contentShape(Rectangle())
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 20, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-            } else {
-                HStack(spacing: 8) {
-                    Image(systemName: icon).foregroundStyle(iconColor)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(name).fontWeight(.medium)
-                        if let subtitle {
-                            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { toggle() }
+                .accessibilityLabel(Text("open_folder"))
             }
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
         .pmAnimation(.hover, value: isSelected)
+    }
+
+    /// Folder tile, name and subtitle. A folder tagged spoken word shows it
+    /// in its tile, so the tag reads at a glance down the list.
+    private var rowLabel: some View {
+        HStack(spacing: 12) {
+            DirectoryFolderTile(
+                icon: showsSpokenWordTile ? "books.vertical.fill" : icon,
+                tint: showsSpokenWordTile ? ListeningSpace.spokenWord.tint : iconColor
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name)
+                    .font(.body.weight(isSelected || !isNavigable ? .semibold : .regular))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private var showsSpokenWordTile: Bool {
+        isSelected && folderTag?.isSpokenWord == true
     }
     #endif
 

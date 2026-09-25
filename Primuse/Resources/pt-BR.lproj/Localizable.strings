@@ -4536,3 +4536,5 @@
 "spoken_word_book_speed" = "Velocidade deste livro";
 "spoken_word_book_speed_default_format" = "Padrão (%@)";
 "stats_spoken_word_time" = "Tempo de audiolivros";
+"directory_tag_menu_title" = "Conteúdo desta pasta";
+"directory_tag_hint" = "Toque na etiqueta ao lado de uma pasta selecionada e escolha Audiolivros para que o conteúdo vá para a estante de audiolivros em vez da sua música.";

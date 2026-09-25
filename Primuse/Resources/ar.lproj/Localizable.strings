@@ -4536,3 +4536,5 @@
 "spoken_word_book_speed" = "سرعة هذا الكتاب";
 "spoken_word_book_speed_default_format" = "الافتراضي (%@)";
 "stats_spoken_word_time" = "وقت الكتب الصوتية";
+"directory_tag_menu_title" = "محتوى هذا المجلد";
+"directory_tag_hint" = "اضغط على الوسم بجوار المجلد المحدد واختر «الكتب الصوتية» لتذهب محتوياته إلى رف الكتب الصوتية بدل الموسيقى.";

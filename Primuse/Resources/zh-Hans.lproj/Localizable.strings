@@ -4723,3 +4723,5 @@
 "spoken_word_book_speed" = "本书语速";
 "spoken_word_book_speed_default_format" = "默认（%@）";
 "stats_spoken_word_time" = "听书时长";
+"directory_tag_menu_title" = "目录里的内容";
+"directory_tag_hint" = "点一下已选目录旁的标签改成「有声」，里面的内容会放进有声书架，不和音乐混在一起。";

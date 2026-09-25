@@ -4393,3 +4393,5 @@
 "spoken_word_book_speed" = "Speed for This Book";
 "spoken_word_book_speed_default_format" = "Default (%@)";
 "stats_spoken_word_time" = "Audiobook Time";
+"directory_tag_menu_title" = "What’s in This Folder";
+"directory_tag_hint" = "Tap the tag next to a selected folder and choose Spoken Word to put everything in it on the books shelf instead of in your music.";
