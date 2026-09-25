@@ -46,14 +46,14 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
         )
     }
 
-    /// iPhone Duo 外屏横屏：左右安全区**不对称**，右侧为 0。
+    /// iPhone Duo 外屏横握（Duo 模拟器实测）：系统竖栏在左，左右安全区**不对称**，左 84、右 0，底部 34。
     private var iPhoneDuoCover: Metrics {
         Policy.metrics(
             viewportWidth: 678,
             viewportHeight: 466,
             safeAreaTop: 0,
-            safeAreaBottom: 21,
-            safeAreaLeading: 20,
+            safeAreaBottom: 34,
+            safeAreaLeading: 84,
             safeAreaTrailing: 0,
             prefersVolumeBar: true
         )
@@ -89,8 +89,11 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
     @Test("左右安全区按侧消费，不假设两侧相等")
     func asymmetricSafeAreaIsConsumedPerSide() {
         let duo = iPhoneDuoCover
-        #expect(duo.leadingInset == 40)
+        #expect(duo.leadingInset == 104)
         #expect(duo.trailingInset == 20)
+        // 左侧 84 的竖栏吃掉了宽度:封面从 0.38 的比例(210)让到 186,右栏正好放下两端的随机 / 循环。
+        #expect(duo.artworkSize == 186)
+        #expect(duo.detailColumnWidth == Policy.minimumTransportWidth(includesEdgeToggles: true))
 
         let phone = iPhone15
         #expect(phone.leadingInset == 79)
@@ -328,7 +331,7 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
             Viewport(name: "SE", width: 667, height: 375, bottom: 0, leading: 0, trailing: 0),
             Viewport(name: "15", width: 852, height: 393, bottom: 21, leading: 59, trailing: 59),
             Viewport(name: "16 Pro Max", width: 956, height: 440, bottom: 21, leading: 62, trailing: 62),
-            Viewport(name: "Duo cover", width: 678, height: 466, bottom: 21, leading: 20, trailing: 0),
+            Viewport(name: "Duo cover", width: 678, height: 466, bottom: 34, leading: 84, trailing: 0),
         ]
     }
 
@@ -460,4 +463,52 @@ struct NowPlayingCompactLandscapeLayoutPolicyTests {
         #expect(!degenerate.showsEdgeToggles)
         #expect(!degenerate.showsVolumeBar)
     }
+
+    // MARK: - iPhone Duo 内屏横握
+
+    /// Duo 内屏横握：系统竖栏在尾侧 84，底部 20。两种推算尺寸都要摆得开。
+    private func duoInner(width: Double, height: Double) -> Metrics {
+        Policy.metrics(
+            viewportWidth: width,
+            viewportHeight: height,
+            safeAreaTop: 0,
+            safeAreaBottom: 20,
+            safeAreaLeading: 0,
+            safeAreaTrailing: 84,
+            prefersVolumeBar: true,
+            isExpandedCanvas: true
+        )
+    }
+
+    @Test("Duo 内屏横握时封面按内屏放大，右栏仍放得下随机 / 循环和音量条")
+    func expandedCanvasScalesArtworkUp() {
+        for (width, height) in [(951.0, 669.0), (890.0, 626.0)] {
+            let inner = duoInner(width: width, height: height)
+            let contentWidth = width - 20 - 104
+            #expect(inner.contentWidth == contentWidth)
+            #expect(inner.artworkSize == contentWidth * Policy.expandedArtworkWidthFraction)
+            #expect(inner.artworkSize <= inner.availableContentHeight)
+            #expect(inner.showsEdgeToggles)
+            #expect(inner.showsVolumeBar)
+            #expect(inner.showsLyricLine)
+            #expect(inner.titleLineLimit == 2)
+            #expect(inner.detailStackHeight <= inner.availableContentHeight)
+        }
+    }
+
+    @Test("不是内屏时封面比例不变")
+    func expandedCanvasIsOptIn() {
+        let phone = Policy.metrics(
+            viewportWidth: 852,
+            viewportHeight: 393,
+            safeAreaTop: 0,
+            safeAreaBottom: 21,
+            safeAreaLeading: 59,
+            safeAreaTrailing: 59,
+            prefersVolumeBar: true
+        )
+        #expect(phone == iPhone15)
+        #expect(phone.artworkSize == min(phone.contentWidth * Policy.artworkWidthFraction, phone.availableContentHeight))
+    }
+
 }

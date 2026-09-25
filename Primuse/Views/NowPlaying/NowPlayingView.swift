@@ -591,6 +591,7 @@ struct NowPlayingView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -1110,6 +1111,10 @@ struct NowPlayingView: View {
 
     private func scheduleImmersiveControlsAutoHide() {
         immersiveControlsAutoHideTask?.cancel()
+        #if DEBUG && os(iOS)
+        // 取证页里控件一直留着，截图才看得到它们与内容的关系。
+        if debugPlayerMode != nil { return }
+        #endif
         guard isVisualSceneActive,
               isLyricsImmersive,
               immersiveControlsState.isVisible,
@@ -1193,10 +1198,26 @@ struct NowPlayingView: View {
     private func shouldUseWideLayout(geo: GeometryProxy) -> Bool {
         // Plus / Pro Max 横屏也是常规宽度，只看宽度等级会把手机横屏送进 iPad 的
         // 两栏布局——那套尺寸是按整屏高度标定的，落在三四百点的高度上就是压扁的旧样子。
+        // iPhone Duo 展开的内屏同理：常规宽高，但仍走手机的横屏骨架。
         NowPlayingPlayerLayoutPolicy.prefersWideColumns(
             isRegularWidth: sizeClass == .regular,
-            isCompactHeight: heightClass.isCompact
+            isCompactHeight: heightClass.isCompact,
+            isPhone: isPhoneCanvas
         ) && geo.size.width > geo.size.height
+    }
+
+    /// iPhone（含 iPhone Duo 的内外屏）。取证页在框里模拟内屏时由环境值给出。
+    private var isPhoneCanvas: Bool {
+        #if os(iOS)
+        isPhoneIdiomEnvironment || UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
+    /// iPhone 上常规宽度、常规高度的横屏（iPhone Duo 内屏横握）：横屏骨架按内屏放大。
+    private var usesExpandedLandscapeCanvas: Bool {
+        isPhoneCanvas && sizeClass == .regular && !heightClass.isCompact
     }
 
     private func playerMinimizeDragGesture(
@@ -1312,11 +1333,13 @@ struct NowPlayingView: View {
                 viewportHeight: Double(geo.size.height),
                 prefersWideColumns: shouldUseWideLayout(geo: geo)
             )
-            // 手机横屏的封面模式与歌词模式共用一副骨架：放在同一个分支里，切歌词时
+            // 手机横屏的封面模式、歌词模式与全屏歌词共用一副骨架：放在同一个分支里，切歌词时
             // 顶部圆钮排、进度条、传输键都保持同一个视图身份、留在原位，只有左栏换内容。
-            // 分到 switch 的两个 case 里，整页会被当成两棵树换掉。
-            let usesCompactLandscapeSkeleton = playerLayoutMode == .compactLandscape
-                && (landscapeMode == .none || landscapeMode == .standardLyrics)
+            // 分到 switch 的几个 case 里，整页会被当成几棵树换掉。
+            let usesCompactLandscapeSkeleton = NowPlayingPlayerLayoutPolicy.usesLandscapeSkeleton(
+                layoutMode: playerLayoutMode,
+                landscapeMode: landscapeMode
+            )
 
             ZStack {
                 #if os(iOS)
@@ -2051,13 +2074,32 @@ struct NowPlayingView: View {
             .allowsHitTesting(!isCompactLandscapeLocked)
 
             compactLandscapeChromeLayer
+                .opacity(compactLandscapeControlsHidden ? 0 : 1)
+                .allowsHitTesting(!compactLandscapeControlsHidden)
+                .accessibilityHidden(compactLandscapeControlsHidden)
         }
         .padding(.leading, CGFloat(metrics.leadingInset))
         .padding(.trailing, CGFloat(metrics.trailingInset))
         .padding(.top, CGFloat(metrics.topInset))
         .padding(.bottom, CGFloat(metrics.bottomInset))
+        .overlay {
+            // 全屏歌词里控件淡出之后，点任意处叫回来（与竖屏全屏歌词同一套状态）。
+            if compactLandscapeControlsHidden {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { handleImmersiveContentTap() }
+                    .accessibilityHidden(true)
+            }
+        }
         .onChange(of: showsEdgeToggles, initial: true) { _, showsToggles in
             compactLandscapeHidesModeToggles = !showsToggles
+        }
+        .onAppear {
+            // 竖屏全屏歌词里锁上之后转到横屏：锁换成这副骨架自己的那把，解锁入口留在原位。
+            if immersiveControlsState.isLocked {
+                isCompactLandscapeLocked = true
+                immersiveControlsState = immersiveControlsState.applying(.unlock)
+            }
         }
         .onDisappear {
             // 转回竖屏、进沉浸歌词、进全屏效果、播放页收起都会走到这里。
@@ -2078,7 +2120,8 @@ struct NowPlayingView: View {
             safeAreaLeading: Double(safeInsets.leading),
             safeAreaTrailing: Double(safeInsets.trailing),
             prefersVolumeBar: showsPlayerVolumeBar,
-            textScale: compactLandscapeTextScale
+            textScale: compactLandscapeTextScale,
+            isExpandedCanvas: usesExpandedLandscapeCanvas
         )
     }
 
@@ -2105,6 +2148,12 @@ struct NowPlayingView: View {
         return NowPlayingCompactLandscapeLayoutPolicy.textScale(
             forDynamicTypeIndex: index ?? 3
         )
+    }
+
+    /// 横屏骨架里的全屏歌词：与竖屏全屏歌词一样，控件过几秒淡出，只留歌词和右栏顶上的小封面、歌名；
+    /// 点一下叫回来。控件原地淡出，不挪位置。
+    private var compactLandscapeControlsHidden: Bool {
+        showLyrics && isLyricsImmersive && !isCompactLandscapeLocked && !immersiveControlsState.isVisible
     }
 
     /// 锁上、或者效果抽屉开着的时候，播放页整体不再接最小化拖拽。
@@ -2191,19 +2240,24 @@ struct NowPlayingView: View {
 
             PlaybackProgressBar(fillTint: themedControlAccent)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
+                .opacity(compactLandscapeControlsHidden ? 0 : 1)
+                .allowsHitTesting(!compactLandscapeControlsHidden)
+                .accessibilityHidden(compactLandscapeControlsHidden)
 
             compactLandscapeTransportRow(showsEdgeToggles: showsEdgeToggles)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportTopSpacing))
                 // 锁上时控件留在原位只是不再显示，右栏不会因为少一行而整体上移。
-                .opacity(isCompactLandscapeLocked ? 0 : 1)
-                .accessibilityHidden(isCompactLandscapeLocked)
+                .opacity(isCompactLandscapeLocked || compactLandscapeControlsHidden ? 0 : 1)
+                .allowsHitTesting(!compactLandscapeControlsHidden)
+                .accessibilityHidden(isCompactLandscapeLocked || compactLandscapeControlsHidden)
                 .pmAnimation(.control, value: isCompactLandscapeLocked)
 
             if showsVolumeBar {
                 playerVolumeRow
                     .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.volumeTopSpacing))
-                    .opacity(isCompactLandscapeLocked ? 0 : 1)
-                    .accessibilityHidden(isCompactLandscapeLocked)
+                    .opacity(isCompactLandscapeLocked || compactLandscapeControlsHidden ? 0 : 1)
+                    .allowsHitTesting(!compactLandscapeControlsHidden)
+                    .accessibilityHidden(isCompactLandscapeLocked || compactLandscapeControlsHidden)
                     .pmAnimation(.control, value: isCompactLandscapeLocked)
             }
         }
@@ -2517,6 +2571,7 @@ struct NowPlayingView: View {
                 tint: appearance.primary,
                 diameter: diameter
             ) {
+                immersiveControlsAutoHideTask?.cancel()
                 isCompactLandscapeLocked = true
             }
 
@@ -2550,14 +2605,19 @@ struct NowPlayingView: View {
 
             makeMoreMenu(immersiveChrome: true, chromeGlass: .adaptive)
 
+            // 全屏歌词时这一颗退出全屏（回到普通歌词），其它时候收起播放页；图标两者相同。
             NowPlayingGlassActionButton(
                 symbol: "arrow.down.right.and.arrow.up.left",
-                label: "mini_player",
+                label: showLyrics && isLyricsImmersive ? "lyrics_exit_full_screen" : "mini_player",
                 appearance: appearance,
                 tint: appearance.primary,
                 diameter: diameter
             ) {
-                onMinimize?()
+                if showLyrics && isLyricsImmersive {
+                    dismissImmersiveLyrics()
+                } else {
+                    onMinimize?()
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2581,7 +2641,14 @@ struct NowPlayingView: View {
     private var compactLandscapeUnlockControl: some View {
         let height = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.chromeButtonDiameter)
         return HStack(spacing: 0) {
-            Button { isCompactLandscapeLocked = false } label: {
+            Button {
+                isCompactLandscapeLocked = false
+                // 全屏歌词里解锁：控件先回来，再按原来的节奏淡出。
+                if showLyrics && isLyricsImmersive {
+                    immersiveControlsState = immersiveControlsState.applying(.unlock)
+                    scheduleImmersiveControlsAutoHide()
+                }
+            } label: {
                 Label("immersive_unlock_controls", systemImage: "lock.open.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(appearance.primary)

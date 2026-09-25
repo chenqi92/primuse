@@ -28,6 +28,9 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
     public static let columnSpacing: Double = 24
     /// 封面最多占内容宽度的比例。
     public static let artworkWidthFraction: Double = 0.38
+    /// iPhone Duo 展开的内屏横握（约 890~951 × 626~669）同样走这副骨架，只是画布比手机横屏高得多：
+    /// 封面按这个比例放大，右栏仍放得下两端的随机 / 循环。
+    public static let expandedArtworkWidthFraction: Double = 0.48
     /// 封面边长的下限。高度实在不够时以高度为准，不再强撑这个值。
     public static let minimumArtworkSize: Double = 180
 
@@ -132,6 +135,8 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
     /// - Parameters:
     ///   - prefersVolumeBar: 设置里「播放页显示音量条」是否打开。关着时一定不显示。
     ///   - textScale: 动态字号相对默认值的大致倍率，用来放大文字块的保守高度。
+    ///   - isExpandedCanvas: iPhone 上的常规宽度横屏画布（iPhone Duo 内屏横握），封面按
+    ///     `expandedArtworkWidthFraction` 放大。手机横屏一律为 false，取值不变。
     public static func metrics(
         viewportWidth: Double,
         viewportHeight: Double,
@@ -140,7 +145,8 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
         safeAreaLeading: Double,
         safeAreaTrailing: Double,
         prefersVolumeBar: Bool,
-        textScale: Double = 1
+        textScale: Double = 1,
+        isExpandedCanvas: Bool = false
     ) -> Metrics {
         let scale = normalizedTextScale(textScale)
 
@@ -159,15 +165,27 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
         // 右栏至少要放得下「不带随机 / 循环」的传输键，封面先给它让位。
         let detailFloor = minimumTransportWidth(includesEdgeToggles: false)
         let artworkWidthCap = max(0, contentWidth - columnSpacing - detailFloor)
-        let preferredArtwork = contentWidth * artworkWidthFraction
+        let preferredArtwork = contentWidth
+            * (isExpandedCanvas ? expandedArtworkWidthFraction : artworkWidthFraction)
         let widthBoundArtwork = max(
             min(preferredArtwork, artworkWidthCap),
             min(minimumArtworkSize, artworkWidthCap)
         )
-        let artworkSize = max(0, min(widthBoundArtwork, availableContentHeight))
-        let detailColumnWidth = max(0, contentWidth - artworkSize - columnSpacing)
+        var artworkSize = max(0, min(widthBoundArtwork, availableContentHeight))
+        var detailColumnWidth = max(0, contentWidth - artworkSize - columnSpacing)
 
-        let showsEdgeToggles = detailColumnWidth >= minimumTransportWidth(includesEdgeToggles: true)
+        // 右栏差一点放不下两端的随机 / 循环时,封面让出这一点 —— 让完仍不小于封面下限才让。
+        // 折叠屏外屏横握(一侧 84 的系统竖栏)正落在这一档;其它手机的右栏本来就放得下,取值不变。
+        let togglesWidth = minimumTransportWidth(includesEdgeToggles: true)
+        if detailColumnWidth < togglesWidth {
+            let yielded = contentWidth - columnSpacing - togglesWidth
+            if yielded >= minimumArtworkSize, yielded < artworkSize {
+                artworkSize = yielded
+                detailColumnWidth = togglesWidth
+            }
+        }
+
+        let showsEdgeToggles = detailColumnWidth >= togglesWidth
 
         let titleScale = 1 + (scale - 1) * titleScaleDamping
         let twoLineTitle = titleBlockHeight * titleScale
@@ -229,6 +247,60 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
             showsEdgeToggles: showsEdgeToggles,
             showsVolumeBar: showsVolumeBar
         )
+    }
+
+    // MARK: - 整屏居中(系统竖栏的设备)
+
+    /// 系统把工具栏竖排到一侧的设备(iPhone Duo 外屏横握)上,播放页不滚动,按苹果的做法整屏居中:
+    /// 两栏两侧都只留固定内边距,只让开遮挡区(竖排的状态栏与前置摄像头)。返回两侧该按多宽的
+    /// 安全区去算 `metrics` / `lyricsMetrics`:通常是 0 与 0;只有居中排出来的封面或右栏落进了
+    /// 遮挡区,才退回真实安全区,整块照旧让开那条竖栏。顶部圆钮排另由视图层单独让开遮挡区。
+    public static func centeredSideSafeArea(
+        viewportWidth: Double,
+        viewportHeight: Double,
+        safeAreaTop: Double,
+        safeAreaBottom: Double,
+        safeAreaLeading: Double,
+        safeAreaTrailing: Double,
+        occlusions: [OcclusionAvoidancePolicy.Region],
+        prefersVolumeBar: Bool,
+        textScale: Double = 1
+    ) -> (leading: Double, trailing: Double) {
+        let fallback = (leading: sanitized(safeAreaLeading), trailing: sanitized(safeAreaTrailing))
+        guard !occlusions.isEmpty else { return (0, 0) }
+        let centered = metrics(
+            viewportWidth: viewportWidth,
+            viewportHeight: viewportHeight,
+            safeAreaTop: safeAreaTop,
+            safeAreaBottom: safeAreaBottom,
+            safeAreaLeading: 0,
+            safeAreaTrailing: 0,
+            prefersVolumeBar: prefersVolumeBar,
+            textScale: textScale
+        )
+        let columnsTop = centered.topInset + centered.chromeRowHeight + centered.chromeBottomSpacing
+        let artworkTop = columnsTop + (centered.availableContentHeight - centered.artworkSize) / 2
+        let artwork = OcclusionAvoidancePolicy.Region(
+            x: centered.leadingInset,
+            y: artworkTop,
+            width: centered.artworkSize,
+            height: centered.artworkSize
+        )
+        let detailTop = columnsTop + max(0, (centered.availableContentHeight - centered.detailStackHeight) / 2)
+        let detail = OcclusionAvoidancePolicy.Region(
+            x: centered.leadingInset + centered.artworkSize + centered.columnSpacing,
+            y: detailTop,
+            width: centered.detailColumnWidth,
+            height: centered.detailStackHeight
+        )
+        let gap = chromeBottomSpacing
+        let collides = occlusions.contains { region in
+            [artwork, detail].contains { block in
+                region.maxX + gap > block.minX && region.minX - gap < block.maxX
+                    && region.maxY + gap > block.minY && region.minY - gap < block.maxY
+            }
+        }
+        return collides ? fallback : (0, 0)
     }
 
     // MARK: - 歌词模式
