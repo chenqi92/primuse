@@ -2820,13 +2820,6 @@
 "rate_on_app_store" = "給個好評";
 
 /* MARK: - 首頁模式切換 */
-"home_mode_music" = "音樂";
-"home_mode_radio" = "電台";
-"home_mode_switch_a11y" = "在音樂和電台之間切換";
-"home_mode_face_music" = "A 面 · 音樂";
-"home_mode_face_radio" = "B 面 · 電台";
-"home_mode_flip_to_music" = "翻到 A 面 · 音樂";
-"home_mode_flip_to_radio" = "翻到 B 面 · 電台";
 "home_radio_wall_title" = "我的電台";
 "home_radio_wall_manage %lld" = "管理 · %lld";
 "home_radio_wall_badge" = "直播";
@@ -4577,8 +4570,6 @@
 "home_books_in_progress_title" = "在聽的書";
 "home_books_open_shelf" = "書架";
 "home_radio_open_all" = "全部電台";
-"home_spaces_intro_title" = "音樂、電台、有聲各有了自己的標籤頁";
-"home_spaces_intro_body" = "各自記住聽到哪裡，聽書或聽電台不會再沖掉你的音樂佇列。設定移到了首頁右上角的齒輪。";
 "sleep_at_item_end" = "本集結束後停止";
 "sleep_at_book_end" = "整本聽完後停止";
 "smart_nudge_kind_back_to_music" = "書聽完時提議接著放之前的音樂";
@@ -4614,3 +4605,4 @@
 "stats_spoken_word_time" = "聽書時長";
 "directory_tag_menu_title" = "資料夾裡的內容";
 "directory_tag_hint" = "點一下已選資料夾旁的標籤改成「有聲」，裡面的內容會放進有聲書架，不和音樂混在一起。";
+"home_filter_clear_hint" = "再點一次回到全部";

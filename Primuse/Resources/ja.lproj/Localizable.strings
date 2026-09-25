@@ -2836,13 +2836,6 @@
 "rate_on_app_store" = "App Store で評価する";
 
 /* MARK: - Home mode switch */
-"home_mode_music" = "ミュージック";
-"home_mode_radio" = "ラジオ";
-"home_mode_switch_a11y" = "ミュージックとラジオを切り替える";
-"home_mode_face_music" = "A面・ミュージック";
-"home_mode_face_radio" = "B面・ラジオ";
-"home_mode_flip_to_music" = "A面・ミュージックに切り替える";
-"home_mode_flip_to_radio" = "B面・ラジオに切り替える";
 "home_radio_wall_title" = "マイ局";
 "home_radio_wall_manage %lld" = "管理 · %lld";
 "home_radio_wall_badge" = "ライブ";
@@ -4601,8 +4594,6 @@
 "home_books_in_progress_title" = "聴いている本";
 "home_books_open_shelf" = "本棚";
 "home_radio_open_all" = "すべての局";
-"home_spaces_intro_title" = "ミュージック・ラジオ・オーディオブックがそれぞれのタブに";
-"home_spaces_intro_body" = "それぞれが聴いていた位置を覚えるので、本やラジオを聴いても音楽のキューは失われません。設定はホーム右上の歯車に移りました。";
 "sleep_at_item_end" = "このエピソードの終わりで停止";
 "sleep_at_book_end" = "本の終わりで停止";
 "smart_nudge_kind_back_to_music" = "本が終わるときに音楽の続きを提案";
@@ -4638,3 +4629,4 @@
 "stats_spoken_word_time" = "オーディオブック再生時間";
 "directory_tag_menu_title" = "このフォルダの内容";
 "directory_tag_hint" = "選択したフォルダの横のタグをタップして「オーディオブック」を選ぶと、中身がミュージックではなくオーディオブックの棚に入ります。";
+"home_filter_clear_hint" = "もう一度タップするとすべて表示します";

@@ -1433,13 +1433,6 @@
 "home_library_mix_subtitle" = "Comece com uma música aleatória e depois mantenha a biblioteca completa na fila.";
 "home_library_mix_title" = "Comece com toda a sua biblioteca";
 "home_lyrics" = "Cobertura de letras";
-"home_mode_face_music" = "LADO A · MÚSICA";
-"home_mode_face_radio" = "LADO B · RÁDIO";
-"home_mode_flip_to_music" = "Virar para o lado A · Música";
-"home_mode_flip_to_radio" = "Virar para o lado B · Rádio";
-"home_mode_music" = "Música";
-"home_mode_radio" = "Rádio";
-"home_mode_switch_a11y" = "Alternar entre música e rádio";
 "home_no_playing" = "Nada tocando";
 "home_no_scans" = "Nenhuma varredura em andamento";
 "home_no_scans_short" = "Inativo";
@@ -4506,8 +4499,6 @@
 "home_books_in_progress_title" = "Livros em andamento";
 "home_books_open_shelf" = "Estante";
 "home_radio_open_all" = "Todas as estações";
-"home_spaces_intro_title" = "Música, rádio e audiolivros agora têm abas próprias";
-"home_spaces_intro_body" = "Cada um lembra onde você parou, então um livro ou uma estação não substitui mais sua fila de músicas. Os ajustes agora ficam na engrenagem no topo do Início.";
 "sleep_at_item_end" = "Parar no fim do episódio";
 "sleep_at_book_end" = "Parar no fim do livro";
 "smart_nudge_kind_back_to_music" = "Oferecer voltar à sua música quando um livro terminar";
@@ -4543,3 +4534,4 @@
 "stats_spoken_word_time" = "Tempo de audiolivros";
 "directory_tag_menu_title" = "Conteúdo desta pasta";
 "directory_tag_hint" = "Toque na etiqueta ao lado de uma pasta selecionada e escolha Audiolivros para que o conteúdo vá para a estante de audiolivros em vez da sua música.";
+"home_filter_clear_hint" = "Toque de novo para mostrar tudo";

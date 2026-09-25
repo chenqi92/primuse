@@ -2835,13 +2835,6 @@
 "rate_on_app_store" = "Laissez-nous un bon avis";
 
 /* MARK: - Accueil : bascule de mode */
-"home_mode_music" = "Musique";
-"home_mode_radio" = "Radio";
-"home_mode_switch_a11y" = "Basculer entre musique et radio";
-"home_mode_face_music" = "FACE A · MUSIQUE";
-"home_mode_face_radio" = "FACE B · RADIO";
-"home_mode_flip_to_music" = "Passer à la face A · Musique";
-"home_mode_flip_to_radio" = "Passer à la face B · Radio";
 "home_radio_wall_title" = "Mes stations";
 "home_radio_wall_manage %lld" = "Gérer · %lld";
 "home_radio_wall_badge" = "EN DIRECT";
@@ -4600,8 +4593,6 @@
 "home_books_in_progress_title" = "Livres en cours";
 "home_books_open_shelf" = "Bibliothèque";
 "home_radio_open_all" = "Toutes les stations";
-"home_spaces_intro_title" = "Musique, radio et livres audio ont désormais leurs propres onglets";
-"home_spaces_intro_body" = "Chacun se souvient de là où vous vous êtes arrêté : un livre ou une station ne remplace plus votre file musicale. Les réglages se trouvent désormais sous la roue dentée en haut de l’accueil.";
 "sleep_at_item_end" = "Arrêter à la fin de l’épisode";
 "sleep_at_book_end" = "Arrêter à la fin du livre";
 "smart_nudge_kind_back_to_music" = "Proposer de reprendre votre musique à la fin d’un livre";
@@ -4637,3 +4628,4 @@
 "stats_spoken_word_time" = "Temps de livres audio";
 "directory_tag_menu_title" = "Contenu de ce dossier";
 "directory_tag_hint" = "Touchez l’étiquette à côté d’un dossier sélectionné et choisissez Livres audio pour ranger son contenu dans l’étagère des livres audio plutôt qu’avec la musique.";
+"home_filter_clear_hint" = "Touchez à nouveau pour tout afficher";

@@ -22,43 +22,8 @@ enum AppNavigationRootLayout: Equatable, Sendable {
 }
 
 enum AppTabSelectionPolicy {
-    static let home = 0
-    static let music = 1
-    static let search = 2
-    static let settings = 3
-    static let radio = 4
-    static let spokenWord = 5
-
     static func resolve(_ storedValue: Int) -> Int {
-        (0...5).contains(storedValue) ? storedValue : 0
-    }
-
-    /// Radio and spoken word are tabs only while they have content, and the
-    /// iPhone tab bar has no settings tab (settings opens from the home page's
-    /// gear). A stored selection that is not on screen any more lands on home.
-    static func resolve(_ storedValue: Int, availableTabs: Set<Int>) -> Int {
-        availableTabs.contains(storedValue) ? storedValue : home
-    }
-
-    static func availableTabs(
-        layout: AppNavigationRootLayout,
-        visibleSpaces: [ListeningSpace]
-    ) -> Set<Int> {
-        var tabs: Set<Int> = [home, music, search]
-        switch layout {
-        case .minimal:
-            // Minimal navigation keeps radio and spoken word as categories
-            // of its top bar and settings as a page of its own.
-            tabs.insert(settings)
-            return tabs
-        case .standardSidebar:
-            tabs.insert(settings)
-        case .standardTabs:
-            break
-        }
-        if visibleSpaces.contains(.radio) { tabs.insert(radio) }
-        if visibleSpaces.contains(.spokenWord) { tabs.insert(spokenWord) }
-        return tabs
+        (0...3).contains(storedValue) ? storedValue : 0
     }
 }
 
@@ -635,26 +600,17 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     var rawValueTab: Int {
         switch self {
         case .home: return 0
-        case .library, .libraryRecommendations, .librarySongs, .libraryAlbums,
-                .libraryArtists, .libraryGenres, .libraryPlaylists,
+        case .library, .libraryRecommendations, .librarySongs, .librarySpokenWord, .libraryAlbums,
+                .libraryArtists, .libraryGenres, .libraryPlaylists, .libraryRadio,
                 .libraryFavorites, .libraryFolders, .libraryStatistics:
             return 1
-        case .libraryRadio: return AppTabSelectionPolicy.radio
-        case .librarySpokenWord: return AppTabSelectionPolicy.spokenWord
         case .search: return 2
         case .settings: return 3
         }
     }
 
-    /// 顶级项:首页、音乐、(有内容时)电台与有声、搜索、设置。音乐的分类在下面
-    /// 单独一段展开。
-    static func topLevel(visibleSpaces: [ListeningSpace]) -> [SidebarItem] {
-        var items: [SidebarItem] = [.home, .library]
-        if visibleSpaces.contains(.radio) { items.append(.libraryRadio) }
-        if visibleSpaces.contains(.spokenWord) { items.append(.librarySpokenWord) }
-        items += [.search, .settings]
-        return items
-    }
+    /// 顶级 4 项 + Library 下展开的 4 个子项,在 sidebar 里按分段渲染。
+    static var topLevel: [SidebarItem] { [.home, .library, .search, .settings] }
     static func libraryChild(for section: LibrarySection) -> SidebarItem {
         switch section {
         case .recommendations: return .libraryRecommendations
@@ -674,18 +630,18 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     var titleKey: String.LocalizationValue {
         switch self {
         case .home: return "home_title"
-        case .library: return "listening_space_music"
+        case .library: return "library_title"
         case .libraryRecommendations: return "library_recommendations_title"
         case .libraryFavorites: return "library_quick_access"
         case .libraryFolders: return "library_browse_folder"
         case .libraryStatistics: return "stats_title"
         case .librarySongs: return "tab_songs"
-        case .librarySpokenWord: return "listening_space_spoken_word"
+        case .librarySpokenWord: return "tab_spoken_word"
         case .libraryAlbums: return "tab_albums"
         case .libraryArtists: return "tab_artists"
         case .libraryGenres: return "tab_genres"
         case .libraryPlaylists: return "tab_playlists"
-        case .libraryRadio: return "listening_space_radio"
+        case .libraryRadio: return "radio_title"
         case .search: return "search_title"
         case .settings: return "settings_title"
         }
@@ -694,18 +650,18 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
     var icon: String {
         switch self {
         case .home: return "house.fill"
-        case .library: return ListeningSpace.music.systemImage
+        case .library: return "books.vertical"
         case .libraryRecommendations: return "sparkles"
         case .libraryFavorites: return "heart.fill"
         case .libraryFolders: return "folder.fill"
         case .libraryStatistics: return "chart.bar.fill"
         case .librarySongs: return "music.note"
-        case .librarySpokenWord: return ListeningSpace.spokenWord.systemImage
+        case .librarySpokenWord: return "books.vertical.fill"
         case .libraryAlbums: return "square.stack.fill"
         case .libraryArtists: return "music.mic"
         case .libraryGenres: return "tag.fill"
         case .libraryPlaylists: return "music.note.list"
-        case .libraryRadio: return ListeningSpace.radio.systemImage
+        case .libraryRadio: return "radio.fill"
         case .search: return "magnifyingglass"
         case .settings: return "gearshape"
         }
@@ -737,7 +693,6 @@ struct ContentView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(MetadataBackfillService.self) private var backfill
-    @Environment(RadioStationsStore.self) private var radioStationsStore
 
     /// Mini player 是否应该显示 — Primuse 自家在播 或 Apple Music 在系统侧播。
     /// 这两路是独立 player, 任一非空都显示 accessory。
@@ -793,8 +748,6 @@ struct ContentView: View {
     @State private var minimalNavigationCategoriesCollapsedInCompactHeight =
         MinimalNavigationChromeMetrics.collapsesCategoriesAtRest(isCompactHeight: true)
     @State private var scraperSettingsRoute = ScraperSettingsRouteState()
-    /// Settings as a sheet over the tab bar, opened from the home page's gear.
-    @State private var showSettingsSheet = false
     /// 跨年自动弹年度报告的状态。1/1 之后用户首次进 app + 上一年听满 2 个月
     /// 时由 YearlyReportAutoTrigger 触发。
     @State private var autoYearlyReport: YearlyReportData?
@@ -850,20 +803,6 @@ struct ContentView: View {
         )
         // 没有有声内容时不摆这个入口。
         .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
-        // 标签栏与 iPad 侧栏里电台、有声是和音乐并列的顶级项,不再算音乐的分类;
-        // 极简导航仍把它们放在顶栏分类里。
-        .filter { navigationMode == .minimal || ($0 != .radio && $0 != .spokenWord) }
-    }
-
-    private var visibleListeningSpaces: [ListeningSpace] {
-        ListeningSpaceVisibilityPolicy.visibleSpaces(
-            hasRadioStations: !radioStationsStore.stations.isEmpty,
-            hasSpokenWord: !library.spokenWordSongs.isEmpty
-        )
-    }
-
-    private var availableTabs: Set<Int> {
-        AppTabSelectionPolicy.availableTabs(layout: rootLayout, visibleSpaces: visibleListeningSpaces)
     }
 
     private var minimalCollapsibleChromeHeight: CGFloat {
@@ -911,10 +850,9 @@ struct ContentView: View {
         TabView(selection: searchAwareTabSelection) {
             Tab(String(localized: "home_title"), systemImage: "house.fill", value: 0) {
                 HomeView(
-                    switchToSettingsTab: openSettings,
+                    switchToSettingsTab: { selectedTab = 3 },
                     model: homeModel,
-                    openLibrarySongs: { openLibraryDeepLink(.section(.songs)) },
-                    openListeningSpace: openListeningSpace
+                    openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
                 )
                     .id("primuse.tab.home")
                     .environment(\.minimalNavigationDetailScope, .home)
@@ -922,13 +860,7 @@ struct ContentView: View {
                     .toolbar(systemTabBarVisibility, for: .tabBar)
             }
 
-            Tab(
-                navigationMode == .minimal
-                    ? String(localized: "library_title")
-                    : String(localized: "listening_space_music"),
-                systemImage: ListeningSpace.music.systemImage,
-                value: 1
-            ) {
+            Tab(String(localized: "library_title"), systemImage: "books.vertical", value: 1) {
                 LibraryView(
                     deepLink: $libraryDeepLink,
                     onActiveSectionChange: { section in
@@ -939,30 +871,6 @@ struct ContentView: View {
                 .environment(\.minimalNavigationDetailScope, .library)
                 .environment(\.librarySearchTab, 1)
                 .toolbar(systemTabBarVisibility, for: .tabBar)
-            }
-
-            if navigationMode != .minimal, visibleListeningSpaces.contains(.radio) {
-                Tab(
-                    String(localized: "listening_space_radio"),
-                    systemImage: ListeningSpace.radio.systemImage,
-                    value: AppTabSelectionPolicy.radio
-                ) {
-                    librarySubpane(title: "listening_space_radio") { RadioStationsView() }
-                        .id("primuse.tab.radio")
-                        .toolbar(systemTabBarVisibility, for: .tabBar)
-                }
-            }
-
-            if navigationMode != .minimal, visibleListeningSpaces.contains(.spokenWord) {
-                Tab(
-                    String(localized: "listening_space_spoken_word"),
-                    systemImage: ListeningSpace.spokenWord.systemImage,
-                    value: AppTabSelectionPolicy.spokenWord
-                ) {
-                    librarySubpane(title: "listening_space_spoken_word") { SpokenWordLibraryView() }
-                        .id("primuse.tab.spokenWord")
-                        .toolbar(systemTabBarVisibility, for: .tabBar)
-                }
             }
 
             Tab(String(localized: "search_title"), systemImage: "magnifyingglass",
@@ -976,14 +884,10 @@ struct ContentView: View {
                     .toolbar(systemTabBarVisibility, for: .tabBar)
             }
 
-            // 设置不再占标签栏的一格,从首页右上角的齿轮打开;极简导航的
-            // 顶栏仍把设置当作一页,那里保留这一格(系统标签栏在极简里是隐藏的)。
-            if navigationMode == .minimal {
-                Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
-                    SettingsView(scraperSettingsRoute: $scraperSettingsRoute, search: settingsSearch)
-                        .environment(\.minimalNavigationDetailScope, .settings)
-                        .toolbar(systemTabBarVisibility, for: .tabBar)
-                }
+            Tab(String(localized: "settings_title"), systemImage: "gearshape", value: 3) {
+                SettingsView(scraperSettingsRoute: $scraperSettingsRoute, search: settingsSearch)
+                    .environment(\.minimalNavigationDetailScope, .settings)
+                    .toolbar(systemTabBarVisibility, for: .tabBar)
             }
         }
         .softNavigationScrollEdges()
@@ -1136,12 +1040,12 @@ struct ContentView: View {
                 // 顶层 4 项 ── Home / 资料库 / 搜索 / 设置。资料库下面再开 section
                 // 列子项,让 iPad 用户少一层点击直达。
                 Section {
-                    ForEach(SidebarItem.topLevel(visibleSpaces: visibleListeningSpaces)) { item in
+                    ForEach(SidebarItem.topLevel) { item in
                         Label(String(localized: item.titleKey), systemImage: item.icon)
                             .tag(item as SidebarItem?)
                     }
                 }
-                Section(String(localized: "listening_space_music")) {
+                Section(String(localized: "library_title")) {
                     ForEach(librarySidebarItems) { item in
                         Label(String(localized: item.titleKey), systemImage: item.icon)
                             .tag(item as SidebarItem?)
@@ -1177,8 +1081,7 @@ struct ContentView: View {
                     selectedTab = 3
                 },
                 model: homeModel,
-                openLibrarySongs: { openLibraryDeepLink(.section(.songs)) },
-                openListeningSpace: openListeningSpace
+                openLibrarySongs: { openLibraryDeepLink(.section(.songs)) }
             )
         case .library:
             LibraryView(deepLink: $libraryDeepLink)
@@ -1195,7 +1098,7 @@ struct ContentView: View {
         case .librarySongs:
             librarySubpane(title: "tab_songs") { SongListView() }
         case .librarySpokenWord:
-            librarySubpane(title: "listening_space_spoken_word") { SpokenWordLibraryView() }
+            librarySubpane(title: "tab_spoken_word") { SpokenWordLibraryView() }
         case .libraryAlbums:
             librarySubpane(title: "tab_albums") { AlbumGridView() }
         case .libraryArtists:
@@ -1205,7 +1108,7 @@ struct ContentView: View {
         case .libraryPlaylists:
             librarySubpane(title: "tab_playlists") { PlaylistListView() }
         case .libraryRadio:
-            librarySubpane(title: "listening_space_radio") { RadioStationsView() }
+            librarySubpane(title: "radio_title") { RadioStationsView() }
         case .search:
             SearchView(searchText: $searchText, scope: $searchScope,
                            activatesSearchField: $searchFieldActivationRequested,
@@ -1351,7 +1254,7 @@ struct ContentView: View {
             if AppNavigationMode(rawValue: navigationModeRawValue) == nil {
                 navigationModeRawValue = AppNavigationMode.standard.rawValue
             }
-            let restoredTab = AppTabSelectionPolicy.resolve(selectedTab, availableTabs: availableTabs)
+            let restoredTab = AppTabSelectionPolicy.resolve(selectedTab)
             if restoredTab != selectedTab {
                 selectedTab = restoredTab
                 sidebarSelection = .home
@@ -1362,8 +1265,6 @@ struct ContentView: View {
             if !hasSeenOnboarding && sourcesStore.sources.isEmpty {
                 hasSeenOnboarding = true
                 showInitialOnboarding = true
-                // 新装的人一开始就是新布局,不需要「电台、有声搬家了」的说明卡。
-                UserDefaults.standard.set(true, forKey: ListeningSpacesIntroductionPolicy.seenKey)
             } else if let report = YearlyReportAutoTrigger.shouldShowReport(
                 library: library,
                 sourcesStore: sourcesStore
@@ -1447,12 +1348,6 @@ struct ContentView: View {
         .environment(\.openScraperSettings, OpenScraperSettingsAction {
             openScraperSettings()
         })
-        .sheet(isPresented: $showSettingsSheet) {
-            SettingsView(
-                scraperSettingsRoute: $scraperSettingsRoute,
-                onClose: { showSettingsSheet = false }
-            )
-        }
     }
 
     private func openScraperSettings() {
@@ -1473,11 +1368,11 @@ struct ContentView: View {
     private var searchAwareTabSelection: Binding<Int> {
         // TabView validates its first selection before the restoration task runs.
         Binding(
-            get: { AppTabSelectionPolicy.resolve(selectedTab, availableTabs: availableTabs) },
+            get: { AppTabSelectionPolicy.resolve(selectedTab) },
             set: { tab in
                 // 点底部「搜索」进来就直接弹出键盘, 不必再点一次搜索框。
                 // 只认真的切换: 启动时恢复到搜索页不该自己弹键盘。
-                if AppTabSelectionPolicy.resolve(tab, availableTabs: availableTabs) == 2, selectedTab != 2 {
+                if AppTabSelectionPolicy.resolve(tab) == 2, selectedTab != 2 {
                     searchFieldActivationRequested = true
                 }
                 selectTab(tab)
@@ -1486,7 +1381,7 @@ struct ContentView: View {
     }
 
     private func selectTab(_ tab: Int) {
-        let tab = AppTabSelectionPolicy.resolve(tab, availableTabs: availableTabs)
+        let tab = AppTabSelectionPolicy.resolve(tab)
         if tab == 2, selectedTab != 2 {
             // Capture before switching tabs triggers the detail's onDisappear.
             let context = searchNavigation.scope(for: selectedTab)
@@ -1514,50 +1409,9 @@ struct ContentView: View {
             selectTab(2)
             sidebarSelection = .search
         case .settings:
-            openSettings()
-        }
-    }
-
-    /// 标签栏布局下设置是一张弹层;iPad 侧栏与极简导航里它仍是一页。
-    private func openSettings() {
-        showNowPlaying = false
-        if rootLayout == .standardTabs {
-            showSettingsSheet = true
-        } else {
             selectedTab = 3
             sidebarSelection = .settings
         }
-    }
-
-    /// 首页卡片与「查看全部」去往某个收听空间。电台、有声有自己的标签页
-    /// (没内容时没有标签,退回音乐里的对应分类)。
-    private func openListeningSpace(_ space: ListeningSpace) {
-        showNowPlaying = false
-        let tab: Int
-        let section: LibrarySection
-        switch space {
-        case .music:
-            openLibraryDeepLink(.root)
-            return
-        case .radio:
-            tab = AppTabSelectionPolicy.radio
-            section = .radio
-        case .spokenWord:
-            tab = AppTabSelectionPolicy.spokenWord
-            section = .spokenWord
-        }
-        guard navigationMode != .minimal, availableTabs.contains(tab) else {
-            if navigationMode == .minimal {
-                selectMinimalPage(.librarySection(section))
-            } else {
-                selectedTab = 1
-                sidebarSelection = .library
-                libraryDeepLink = .section(section)
-            }
-            return
-        }
-        selectedTab = tab
-        sidebarSelection = SidebarItem.libraryChild(for: section)
     }
 
     private func synchronizeSidebarForCurrentSelection() {
@@ -1574,10 +1428,6 @@ struct ContentView: View {
             sidebarSelection = .search
         case 3:
             sidebarSelection = .settings
-        case AppTabSelectionPolicy.radio:
-            sidebarSelection = .libraryRadio
-        case AppTabSelectionPolicy.spokenWord:
-            sidebarSelection = .librarySpokenWord
         default:
             sidebarSelection = .home
         }
@@ -1726,19 +1576,6 @@ struct ContentView: View {
     }
 
     private func openLibraryDeepLink(_ link: LibraryDeepLink) {
-        // 电台、有声在标签栏与侧栏里是顶级项,指向它们的深链直接去那一格。
-        if navigationMode != .minimal, case .section(let section) = link {
-            let tab: Int? = switch section {
-            case .radio: AppTabSelectionPolicy.radio
-            case .spokenWord: AppTabSelectionPolicy.spokenWord
-            default: nil
-            }
-            if let tab, availableTabs.contains(tab) {
-                selectedTab = tab
-                sidebarSelection = SidebarItem.libraryChild(for: section)
-                return
-            }
-        }
         selectedTab = 1
         if navigationMode == .minimal,
            let section = MinimalNavigationPolicy.section(for: link) {

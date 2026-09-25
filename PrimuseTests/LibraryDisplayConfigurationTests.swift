@@ -7,40 +7,17 @@ import SwiftUI
 
 final class LibraryDisplayConfigurationTests: XCTestCase {
     func testTabSelectionPreservesEveryVisibleTab() {
-        for tab in 0...5 {
+        for tab in 0...3 {
             XCTAssertEqual(AppTabSelectionPolicy.resolve(tab), tab)
         }
     }
 
     func testUnknownTabSelectionRestoresHome() {
-        for storedValue in [Int.min, -1, 6, 100, Int.max] {
+        for storedValue in [Int.min, -1, 4, 100, Int.max] {
             XCTAssertEqual(AppTabSelectionPolicy.resolve(storedValue), 0)
         }
     }
 
-    func testTabBarHasNoSettingsTabAndSpacesFollowContent() {
-        let tabs = AppTabSelectionPolicy.availableTabs(layout: .standardTabs, visibleSpaces: [.music])
-        XCTAssertEqual(tabs, [0, 1, 2])
-        XCTAssertEqual(AppTabSelectionPolicy.resolve(3, availableTabs: tabs), 0)
-        XCTAssertEqual(AppTabSelectionPolicy.resolve(4, availableTabs: tabs), 0)
-
-        let withSpaces = AppTabSelectionPolicy.availableTabs(
-            layout: .standardTabs,
-            visibleSpaces: [.music, .radio, .spokenWord]
-        )
-        XCTAssertEqual(withSpaces, [0, 1, 2, 4, 5])
-
-        let sidebar = AppTabSelectionPolicy.availableTabs(layout: .standardSidebar, visibleSpaces: [.music, .radio])
-        XCTAssertEqual(sidebar, [0, 1, 2, 3, 4])
-
-        let minimal = AppTabSelectionPolicy.availableTabs(
-            layout: .minimal,
-            visibleSpaces: [.music, .radio, .spokenWord]
-        )
-        XCTAssertEqual(minimal, [0, 1, 2, 3])
-    }
-
-    @MainActor
     func testHomeAndListeningStatsKeepTheSameHistoricalCounts() {
         let calendar = ListeningCalendar.make(locale: Locale(identifier: "zh_CN"), timeZone: TimeZone(identifier: "Asia/Shanghai")!)
         let now = calendar.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 12))!

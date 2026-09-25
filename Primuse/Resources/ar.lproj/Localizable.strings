@@ -1433,13 +1433,6 @@
 "home_library_mix_subtitle" = "ابدأ بأغنية عشوائية، ثم احتفظ بالمكتبة الكاملة في قائمة الانتظار.";
 "home_library_mix_title" = "ابدأ بمكتبتك بأكملها";
 "home_lyrics" = "تغطية كلمات الأغنية";
-"home_mode_face_music" = "الجانب أ · الموسيقى";
-"home_mode_face_radio" = "الجانب ب · الراديو";
-"home_mode_flip_to_music" = "انتقل إلى الجانب أ · الموسيقى";
-"home_mode_flip_to_radio" = "انتقل إلى الجانب ب · الراديو";
-"home_mode_music" = "الموسيقى";
-"home_mode_radio" = "الإذاعة";
-"home_mode_switch_a11y" = "التبديل بين الموسيقى والراديو";
 "home_no_playing" = "لا توجد موسيقى قيد التشغيل";
 "home_no_scans" = "لا توجد عمليات فحص قيد التقدم";
 "home_no_scans_short" = "خاملاً";
@@ -4506,8 +4499,6 @@
 "home_books_in_progress_title" = "كتب قيد الاستماع";
 "home_books_open_shelf" = "رف الكتب";
 "home_radio_open_all" = "كل المحطات";
-"home_spaces_intro_title" = "أصبح للموسيقى والراديو والكتب الصوتية تبويبات خاصة بها";
-"home_spaces_intro_body" = "يتذكر كل قسم أين توقفت، فلم يعد الكتاب أو المحطة يستبدل قائمة موسيقاك. انتقلت الإعدادات إلى الترس أعلى الصفحة الرئيسية.";
 "sleep_at_item_end" = "إيقاف عند نهاية الحلقة";
 "sleep_at_book_end" = "إيقاف عند نهاية الكتاب";
 "smart_nudge_kind_back_to_music" = "اقتراح متابعة موسيقاك عند انتهاء كتاب";
@@ -4543,3 +4534,4 @@
 "stats_spoken_word_time" = "وقت الكتب الصوتية";
 "directory_tag_menu_title" = "محتوى هذا المجلد";
 "directory_tag_hint" = "اضغط على الوسم بجوار المجلد المحدد واختر «الكتب الصوتية» لتذهب محتوياته إلى رف الكتب الصوتية بدل الموسيقى.";
+"home_filter_clear_hint" = "اضغط مرة أخرى لعرض الكل";

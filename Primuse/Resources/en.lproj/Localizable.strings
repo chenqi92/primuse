@@ -2646,13 +2646,6 @@
 "rate_on_app_store" = "Leave a nice review";
 
 /* MARK: - Home mode switch */
-"home_mode_music" = "Music";
-"home_mode_radio" = "Radio";
-"home_mode_switch_a11y" = "Switch between music and radio";
-"home_mode_face_music" = "SIDE A · MUSIC";
-"home_mode_face_radio" = "SIDE B · RADIO";
-"home_mode_flip_to_music" = "Flip to Side A · Music";
-"home_mode_flip_to_radio" = "Flip to Side B · Radio";
 "home_radio_wall_title" = "My Stations";
 "home_radio_wall_manage %lld" = "Manage · %lld";
 "home_radio_wall_badge" = "LIVE";
@@ -4363,8 +4356,6 @@
 "home_books_in_progress_title" = "Books in Progress";
 "home_books_open_shelf" = "Bookshelf";
 "home_radio_open_all" = "All Stations";
-"home_spaces_intro_title" = "Music, Radio and Spoken Word Now Have Their Own Tabs";
-"home_spaces_intro_body" = "Each remembers where you left off, so a book or a station no longer replaces your music queue. Settings moved to the gear at the top of Home.";
 "sleep_at_item_end" = "Stop at End of Episode";
 "sleep_at_book_end" = "Stop at End of Book";
 "smart_nudge_kind_back_to_music" = "Offer to continue with your music when a book ends";
@@ -4400,3 +4391,4 @@
 "stats_spoken_word_time" = "Audiobook Time";
 "directory_tag_menu_title" = "What’s in This Folder";
 "directory_tag_hint" = "Tap the tag next to a selected folder and choose Spoken Word to put everything in it on the books shelf instead of in your music.";
+"home_filter_clear_hint" = "Tap again to show everything";

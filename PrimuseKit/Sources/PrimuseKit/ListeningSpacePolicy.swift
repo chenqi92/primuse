@@ -104,18 +104,6 @@ public enum ListeningResumePolicy {
     }
 }
 
-/// A one-time note shown on the first launch after the navigation changed,
-/// so people who knew where things were are told where they went.
-public enum ListeningSpacesIntroductionPolicy {
-    public static let seenKey = "primuse.listeningSpaces.introSeen.v1"
-
-    /// Shown only to people who used the app before the change: a fresh
-    /// install has no old habits to unlearn.
-    public static func shouldShow(hasSeen: Bool, isExistingUser: Bool) -> Bool {
-        !hasSeen && isExistingUser
-    }
-}
-
 /// Shuffle and repeat as one space has them set.
 public struct ListeningPlayMode: Codable, Equatable, Sendable {
     public var shuffleEnabled: Bool
