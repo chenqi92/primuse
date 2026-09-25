@@ -4366,6 +4366,8 @@
 "medley_data_message" = "Pour enchaîner les extraits sans coupure, le medley télécharge entièrement les morceaux suivants, ce qui peut consommer beaucoup de données.";
 "medley_data_continue" = "Lire le medley";
 "medley_data_dont_ask" = "Lire, ne plus demander";
+"medley_data_prompt_toggle" = "Avertir en données cellulaires";
+"medley_data_prompt_hint" = "Demander avant de lancer un medley en données cellulaires ou en mode Données réduites, car il télécharge entièrement les morceaux suivants.";
 "smart_nudge_section" = "Suggestions pendant l’écoute";
 "smart_nudge_enabled" = "Afficher les suggestions";
 "smart_nudge_footer" = "De temps en temps, un petit bandeau propose ce qui convient au moment – par exemple ajouter aux favoris un morceau que vous réécoutez. Il n’interrompt rien, disparaît seul et ne revient pas après un refus. Tout est calculé sur cet appareil.";

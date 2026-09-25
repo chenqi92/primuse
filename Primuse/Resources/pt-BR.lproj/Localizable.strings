@@ -4272,6 +4272,8 @@
 "medley_data_message" = "Para emendar cada trecho sem cortes, o medley baixa as próximas músicas inteiras, o que pode consumir muitos dados.";
 "medley_data_continue" = "Tocar medley";
 "medley_data_dont_ask" = "Tocar e não perguntar de novo";
+"medley_data_prompt_toggle" = "Avisar em dados móveis";
+"medley_data_prompt_hint" = "Perguntar antes de iniciar um medley em dados móveis ou no Modo Pouco Dados, pois ele baixa as próximas músicas inteiras.";
 "smart_nudge_section" = "Sugestões durante a reprodução";
 "smart_nudge_enabled" = "Mostrar sugestões";
 "smart_nudge_footer" = "De vez em quando, um pequeno aviso sugere o que combina com o momento, como adicionar aos Favoritos uma música que você repete. Não interrompe a reprodução, some sozinho e não se repete depois de recusado. Tudo é calculado neste dispositivo.";

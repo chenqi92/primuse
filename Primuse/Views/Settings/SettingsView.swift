@@ -1778,6 +1778,8 @@ private extension Array {
 struct PlaybackSettingsView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @State private var highFidelityConfirmShown = false
+    /// 串烧开始前的流量提醒里选「不再提醒」写的就是这个键。
+    @AppStorage(MedleyDataUsagePolicy.promptDisabledKey) private var medleyDataPromptDisabled = false
 
     /// 高保真直通会让半个播放设置页失效 —— 均衡器、变速、淡入淡出、空间音频、
     /// 回放增益全被绕过去,用户多半不知道自己刚关掉了什么,只会觉得这些功能坏了。
@@ -2012,6 +2014,10 @@ struct PlaybackSettingsView: View {
                     }
                 }
                 .settingsAnchor("playback.medley")
+                Toggle("medley_data_prompt_toggle", isOn: Binding(
+                    get: { !medleyDataPromptDisabled },
+                    set: { medleyDataPromptDisabled = !$0 }
+                ))
             } header: {
                 Text("medley_title")
             } footer: {

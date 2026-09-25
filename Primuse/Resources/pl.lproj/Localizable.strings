@@ -4272,6 +4272,8 @@
 "medley_data_message" = "Aby płynnie łączyć fragmenty, składanka pobiera kolejne utwory w całości, co może zużyć dużo danych.";
 "medley_data_continue" = "Odtwórz składankę";
 "medley_data_dont_ask" = "Odtwórz i nie pytaj ponownie";
+"medley_data_prompt_toggle" = "Ostrzegaj przy danych komórkowych";
+"medley_data_prompt_hint" = "Pytaj przed uruchomieniem składanki na danych komórkowych lub w trybie niskiego zużycia danych, bo pobiera ona kolejne utwory w całości.";
 "smart_nudge_section" = "Podpowiedzi podczas słuchania";
 "smart_nudge_enabled" = "Pokazuj podpowiedzi";
 "smart_nudge_footer" = "Od czasu do czasu mały baner podpowiada coś pasującego do chwili – na przykład dodanie do ulubionych utworu, którego słuchasz w kółko. Nie przerywa odtwarzania, znika sam i nie wraca po odrzuceniu. Wszystko jest liczone na tym urządzeniu.";

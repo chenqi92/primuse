@@ -4459,6 +4459,8 @@
 "medley_data_message" = "串烧会提前下载接下来的整首歌，好让每段衔接顺畅，会消耗较多流量。";
 "medley_data_continue" = "继续串烧";
 "medley_data_dont_ask" = "继续，不再提醒";
+"medley_data_prompt_toggle" = "移动网络下提醒流量";
+"medley_data_prompt_hint" = "在移动网络或低数据模式下开始串烧前先提醒，串烧会提前下载接下来的整首歌。";
 "smart_nudge_section" = "播放时的智能提示";
 "smart_nudge_enabled" = "显示智能提示";
 "smart_nudge_footer" = "播放时偶尔在顶部弹出一条小提示，比如反复在听的歌要不要加入我喜欢。它不打断播放、几秒后自动消失，拒绝过的提示不会反复出现。所有判断都在本机完成。";

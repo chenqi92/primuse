@@ -4366,6 +4366,8 @@
 "medley_data_message" = "각 구간을 매끄럽게 잇기 위해 메들리는 다음 곡을 미리 통째로 내려받으며, 데이터를 많이 사용할 수 있습니다.";
 "medley_data_continue" = "메들리 재생";
 "medley_data_dont_ask" = "재생하고 다시 묻지 않기";
+"medley_data_prompt_toggle" = "모바일 데이터 사용 시 알림";
+"medley_data_prompt_hint" = "모바일 데이터나 저데이터 모드에서 메들리를 시작하기 전에 묻습니다. 메들리는 다음 곡을 통째로 미리 내려받습니다.";
 "smart_nudge_section" = "재생 중 제안";
 "smart_nudge_enabled" = "제안 표시";
 "smart_nudge_footer" = "가끔 작은 배너로 지금에 맞는 동작을 제안합니다(자주 반복해 듣는 곡을 즐겨찾기에 추가 등). 재생을 방해하지 않고 저절로 사라지며, 거절한 제안은 반복하지 않습니다. 모든 판단은 이 기기에서 이뤄집니다.";
