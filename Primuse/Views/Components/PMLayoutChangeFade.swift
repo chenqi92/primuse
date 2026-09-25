@@ -58,14 +58,35 @@ private struct PMLayoutSwitchAnimation<Key: Equatable>: ViewModifier {
     }
 
     private static var animation: Animation {
+        let factor = PMLayoutSwitchTiming.slowFactor
+        return factor == 1 ? PMMotion.panel.animation : PMMotion.panel.animation.speed(1 / factor)
+    }
+}
+
+/// 换构图过渡的时长，给要等过渡走完再做事的地方用（和 `pmLayoutSwitchAnimation` 同一个面板档位）。
+enum PMLayoutSwitchTiming {
+    /// 面板档位的时长，与 `PMMotion.panel` 一致。
+    private static let panelDuration: Double = 0.25
+
+    /// 被换下去的那一份很快淡出（按压档位的时长）。
+    static var quickFadeOut: Animation {
+        PMMotion.press.animation.speed(1 / slowFactor)
+    }
+
+    /// 过渡走完、退场的旧构图已经移除之后。
+    static var settleDelay: Duration {
+        .milliseconds(Int((panelDuration * slowFactor + 0.15) * 1000))
+    }
+
+    /// 取证录屏用：`PRIMUSE_DEBUG_SLOW_LAYOUT_SWITCH=4` 把换构图放慢到四分之一速度，逐帧看得清。平时是 1。
+    static var slowFactor: Double {
         #if DEBUG
-        // 取证录屏用：`PRIMUSE_DEBUG_SLOW_LAYOUT_SWITCH=4` 把换构图放慢到四分之一速度，逐帧看得清。
         if let factor = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SLOW_LAYOUT_SWITCH"].flatMap(Double.init),
            factor > 0 {
-            return PMMotion.panel.animation.speed(1 / factor)
+            return factor
         }
         #endif
-        return PMMotion.panel.animation
+        return 1
     }
 }
 
@@ -74,7 +95,9 @@ private struct PMLayoutSwitchAnimation<Key: Equatable>: ViewModifier {
 /// 挂在 `pmLayoutSwitchAnimation` 管着的那几副构图分支上。
 struct PMLayoutSwitchTransition: Transition {
     func body(content: Content, phase: TransitionPhase) -> some View {
-        content.environment(\.pmLayoutSwitchSettled, phase.isIdentity)
+        content
+            .environment(\.pmLayoutSwitchSettled, phase.isIdentity)
+            .environment(\.pmLayoutSwitchLeaving, phase == .didDisappear)
     }
 }
 
@@ -82,11 +105,21 @@ private struct PMLayoutSwitchSettledKey: EnvironmentKey {
     static let defaultValue = true
 }
 
+private struct PMLayoutSwitchLeavingKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     /// 所在的构图已经在位（不在换构图的进出场途中）。
     var pmLayoutSwitchSettled: Bool {
         get { self[PMLayoutSwitchSettledKey.self] }
         set { self[PMLayoutSwitchSettledKey.self] = newValue }
+    }
+
+    /// 所在的构图正在退场（换构图时被换下去的那一副）。
+    var pmLayoutSwitchLeaving: Bool {
+        get { self[PMLayoutSwitchLeavingKey.self] }
+        set { self[PMLayoutSwitchLeavingKey.self] = newValue }
     }
 }
 
@@ -102,5 +135,23 @@ private struct PMLayoutSwitchFade: ViewModifier {
 
     func body(content: Content) -> some View {
         content.opacity(isSettled ? 1 : 0)
+    }
+}
+
+extension View {
+    /// 换构图时新构图里这一份保持不透明，被换下去的那一份很快淡出 —— 两份同时在场的时间很短，
+    /// 不会叠成两份实心的。平时原样不动。
+    func pmLayoutSwitchQuickFadeOut() -> some View {
+        modifier(PMLayoutSwitchQuickFadeOut())
+    }
+}
+
+private struct PMLayoutSwitchQuickFadeOut: ViewModifier {
+    @Environment(\.pmLayoutSwitchLeaving) private var isLeaving
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isLeaving ? 0 : 1)
+            .animation(PMLayoutSwitchTiming.quickFadeOut, value: isLeaving)
     }
 }
