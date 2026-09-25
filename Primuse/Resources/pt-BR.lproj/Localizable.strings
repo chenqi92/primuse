@@ -1436,13 +1436,6 @@
 "home_library_mix_subtitle" = "Comece com uma música aleatória e depois mantenha a biblioteca completa na fila.";
 "home_library_mix_title" = "Comece com toda a sua biblioteca";
 "home_lyrics" = "Cobertura de letras";
-"home_mode_face_music" = "LADO A · MÚSICA";
-"home_mode_face_radio" = "LADO B · RÁDIO";
-"home_mode_flip_to_music" = "Virar para o lado A · Música";
-"home_mode_flip_to_radio" = "Virar para o lado B · Rádio";
-"home_mode_music" = "Música";
-"home_mode_radio" = "Rádio";
-"home_mode_switch_a11y" = "Alternar entre música e rádio";
 "home_no_playing" = "Nada tocando";
 "home_no_scans" = "Nenhuma varredura em andamento";
 "home_no_scans_short" = "Inativo";
@@ -4480,6 +4473,11 @@
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "O playback está tocando, não há voz para ajustar.";
 "karaoke_lyrics_from_format" = "Letra de “%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Preparando o vídeo…";
+"music_video_rewrite_failed" = "Não é possível converter este vídeo para um formato reproduzível.";
+"music_video_preparing_percent" = "Preparando o vídeo %d%%";
 "karaoke_ai_title" = "Separação vocal com IA";
 "karaoke_ai_download_format" = "Baixar (%@)";
 "karaoke_ai_downloading" = "Baixando";
@@ -4533,8 +4531,6 @@
 "home_books_in_progress_title" = "Livros em andamento";
 "home_books_open_shelf" = "Estante";
 "home_radio_open_all" = "Todas as estações";
-"home_spaces_intro_title" = "Música, rádio e audiolivros agora têm abas próprias";
-"home_spaces_intro_body" = "Cada um lembra onde você parou, então um livro ou uma estação não substitui mais sua fila de músicas. Os ajustes agora ficam na engrenagem no topo do Início.";
 "sleep_at_item_end" = "Parar no fim do episódio";
 "sleep_at_book_end" = "Parar no fim do livro";
 "smart_nudge_kind_back_to_music" = "Oferecer voltar à sua música quando um livro terminar";
@@ -4570,3 +4566,4 @@
 "stats_spoken_word_time" = "Tempo de audiolivros";
 "directory_tag_menu_title" = "Conteúdo desta pasta";
 "directory_tag_hint" = "Toque na etiqueta ao lado de uma pasta selecionada e escolha Audiolivros para que o conteúdo vá para a estante de audiolivros em vez da sua música.";
+"home_filter_clear_hint" = "Toque de novo para mostrar tudo";

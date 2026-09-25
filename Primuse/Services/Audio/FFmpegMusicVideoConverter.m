@@ -67,8 +67,11 @@ typedef struct {
     AVStream *output;
     AVCodecContext *decoder;
     AVCodecContext *encoder;
-    // Video: staging frame for decoders that do not output planar 4:2:0.
+    // Video: staging frame for decoders that do not output planar 4:2:0,
+    // and the deinterlaced copy of interlaced frames.
     AVFrame *staging;
+    AVFrame *blended;
+    BOOL deinterlaced;
     int64_t lastVideoPTS;
     int64_t syntheticVideoPTS;
     // Audio: resampler into the encoder's format and a FIFO that cuts the
@@ -89,6 +92,7 @@ static void FFmpegMusicVideoOutputFree(FFmpegMusicVideoOutput *output) {
     avcodec_free_context(&output->decoder);
     avcodec_free_context(&output->encoder);
     av_frame_free(&output->staging);
+    av_frame_free(&output->blended);
     swr_free(&output->resampler);
     av_channel_layout_uninit(&output->resamplerInputLayout);
     if (output->fifo) {
@@ -248,6 +252,39 @@ static BOOL FFmpegMusicVideoConvertFrame(const AVFrame *source, AVFrame *destina
         }
     }
     av_free(line);
+    return YES;
+}
+
+static AVFrame *FFmpegMusicVideoAllocate420(int width, int height) {
+    AVFrame *frame = av_frame_alloc();
+    if (!frame) return NULL;
+    frame->format = AV_PIX_FMT_YUV420P;
+    frame->width = width;
+    frame->height = height;
+    if (av_frame_get_buffer(frame, 0) < 0) av_frame_free(&frame);
+    return frame;
+}
+
+/// Removes the comb of interlaced video (DVD and karaoke MPEG-2, 1080i
+/// broadcast TS) by blending every line 1-2-1 with its neighbours, which
+/// come from the other field. Softer than motion-adaptive deinterlacing but
+/// needs no filter graph and costs one pass over the frame.
+static BOOL FFmpegMusicVideoBlendFields(const AVFrame *source, AVFrame *destination) {
+    if (av_frame_make_writable(destination) < 0) return NO;
+    for (int plane = 0; plane < 3; plane++) {
+        const int width = plane == 0 ? destination->width : (destination->width + 1) / 2;
+        const int height = plane == 0 ? destination->height : (destination->height + 1) / 2;
+        for (int y = 0; y < height; y++) {
+            const uint8_t *above = source->data[plane] + (ptrdiff_t)MAX(y - 1, 0) * source->linesize[plane];
+            const uint8_t *line = source->data[plane] + (ptrdiff_t)y * source->linesize[plane];
+            const uint8_t *below = source->data[plane]
+                + (ptrdiff_t)MIN(y + 1, height - 1) * source->linesize[plane];
+            uint8_t *out = destination->data[plane] + (ptrdiff_t)y * destination->linesize[plane];
+            for (int x = 0; x < width; x++) {
+                out[x] = (uint8_t)((above[x] + 2 * line[x] + below[x] + 2) >> 2);
+            }
+        }
+    }
     return YES;
 }
 
@@ -578,7 +615,9 @@ static int FFmpegMusicVideoBestVideoStream(const AVFormatContext *input) {
             if (timestamp != AV_NOPTS_VALUE) {
                 const double seconds = timestamp * av_q2d(out->input->time_base) - startTime;
                 const int percent = (int)MIN(MAX(seconds / totalDuration * 100.0, 0.0), 99.0);
-                if (percent != lastReportedPercent) {
+                // Audio and video packets interleave with slightly different
+                // timestamps; only moving forward keeps the number steady.
+                if (percent > lastReportedPercent) {
                     lastReportedPercent = percent;
                     progress(percent / 100.0);
                 }
@@ -631,6 +670,9 @@ static int FFmpegMusicVideoBestVideoStream(const AVFormatContext *input) {
         goto cleanup;
     }
     headerWritten = NO;
+    for (int index = 0; index < outputCount; index++) {
+        if (outputs[index].deinterlaced) [summary addObject:@"deinterlaced"];
+    }
     if (progress) progress(1.0);
 
 cleanup:
@@ -702,15 +744,8 @@ cleanup:
         frame->height = encoder->height;
     } else {
         if (!out->staging) {
-            out->staging = av_frame_alloc();
+            out->staging = FFmpegMusicVideoAllocate420(encoder->width, encoder->height);
             if (!out->staging) {
-                if (error) *error = FFmpegMusicVideoError(AVERROR(ENOMEM), @"Allocating frame");
-                return NO;
-            }
-            out->staging->format = AV_PIX_FMT_YUV420P;
-            out->staging->width = encoder->width;
-            out->staging->height = encoder->height;
-            if (av_frame_get_buffer(out->staging, 0) < 0) {
                 if (error) *error = FFmpegMusicVideoError(AVERROR(ENOMEM), @"Allocating frame");
                 return NO;
             }
@@ -721,6 +756,16 @@ cleanup:
         }
         out->staging->color_range = frame->color_range;
         source = out->staging;
+    }
+    if (frame->flags & AV_FRAME_FLAG_INTERLACED) {
+        if (!out->blended) {
+            out->blended = FFmpegMusicVideoAllocate420(encoder->width, encoder->height);
+        }
+        if (out->blended && FFmpegMusicVideoBlendFields(source, out->blended)) {
+            out->blended->color_range = source->color_range;
+            source = out->blended;
+            out->deinterlaced = YES;
+        }
     }
     source->pts = pts;
     source->pict_type = AV_PICTURE_TYPE_NONE;

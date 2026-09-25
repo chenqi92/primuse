@@ -2838,13 +2838,6 @@
 "rate_on_app_store" = "Gib uns eine gute Bewertung";
 
 /* MARK: - Startseite: Modusumschalter */
-"home_mode_music" = "Musik";
-"home_mode_radio" = "Radio";
-"home_mode_switch_a11y" = "Zwischen Musik und Radio wechseln";
-"home_mode_face_music" = "SEITE A · MUSIK";
-"home_mode_face_radio" = "SEITE B · RADIO";
-"home_mode_flip_to_music" = "Zu Seite A · Musik wechseln";
-"home_mode_flip_to_radio" = "Zu Seite B · Radio wechseln";
 "home_radio_wall_title" = "Meine Sender";
 "home_radio_wall_manage %lld" = "Verwalten · %lld";
 "home_radio_wall_badge" = "LIVE";
@@ -4574,6 +4567,11 @@
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "Das Playback läuft, es gibt keinen Gesang zum Anpassen.";
 "karaoke_lyrics_from_format" = "Songtext aus „%@“";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Video wird vorbereitet …";
+"music_video_rewrite_failed" = "Dieses Video kann nicht in ein abspielbares Format umgewandelt werden.";
+"music_video_preparing_percent" = "Video wird vorbereitet %d %%";
 "karaoke_ai_title" = "KI-Gesangstrennung";
 "karaoke_ai_download_format" = "Laden (%@)";
 "karaoke_ai_downloading" = "Wird geladen";
@@ -4627,8 +4625,6 @@
 "home_books_in_progress_title" = "Angefangene Bücher";
 "home_books_open_shelf" = "Bücherregal";
 "home_radio_open_all" = "Alle Sender";
-"home_spaces_intro_title" = "Musik, Radio und Hörbücher haben jetzt eigene Tabs";
-"home_spaces_intro_body" = "Jeder Bereich merkt sich, wo du warst – ein Buch oder ein Sender ersetzt deine Musik-Warteschlange nicht mehr. Die Einstellungen findest du jetzt über das Zahnrad oben auf der Startseite.";
 "sleep_at_item_end" = "Am Ende der Folge stoppen";
 "sleep_at_book_end" = "Am Ende des Buchs stoppen";
 "smart_nudge_kind_back_to_music" = "Nach einem Buch anbieten, mit deiner Musik weiterzumachen";
@@ -4664,3 +4660,4 @@
 "stats_spoken_word_time" = "Hörbuchzeit";
 "directory_tag_menu_title" = "Inhalt dieses Ordners";
 "directory_tag_hint" = "Tippe auf das Etikett neben einem ausgewählten Ordner und wähle „Hörbücher“, damit sein Inhalt ins Hörbuchregal statt zur Musik kommt.";
+"home_filter_clear_hint" = "Erneut tippen, um alles anzuzeigen";

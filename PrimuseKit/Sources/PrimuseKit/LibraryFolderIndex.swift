@@ -745,6 +745,28 @@ public struct LibraryFolderNode: Identifiable, Hashable, Sendable {
     public let directSongCount: Int
     public let descendantSongCount: Int
     public let childNodeCount: Int
+
+    /// Also rebuilds a node from a persisted projection, so a page can draw the
+    /// last known folders before the index has been rebuilt.
+    public init(
+        id: LibraryFolderNodeID,
+        parentID: LibraryFolderNodeID?,
+        sourceID: String,
+        kind: LibraryFolderNodeKind,
+        displayName: String?,
+        directSongCount: Int,
+        descendantSongCount: Int,
+        childNodeCount: Int
+    ) {
+        self.id = id
+        self.parentID = parentID
+        self.sourceID = sourceID
+        self.kind = kind
+        self.displayName = displayName
+        self.directSongCount = directSongCount
+        self.descendantSongCount = descendantSongCount
+        self.childNodeCount = childNodeCount
+    }
 }
 
 public enum LibraryFolderSongScope: Hashable, Sendable {

@@ -69,21 +69,12 @@ struct MiniPlayerSwipeContent: View {
                 .padding(.trailing, artworkTrailingSpacing)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 5) {
-                        // 小圆点标出正在听的是音乐、电台还是有声,颜色与各自的标签页一致。
-                        if let space = model.listeningSpace {
-                            Circle()
-                                .fill(space.tint)
-                                .frame(width: 6, height: 6)
-                                .accessibilityHidden(true)
-                        }
-                        Text(model.title)
-                            .font(titleFont)
-                            .fontWeight(.semibold)
-                            .lineLimit(1)
-                            .foregroundStyle(.skin(.textPrimary))
-                            .contentTransition(.opacity)
-                    }
+                    Text(model.title)
+                        .font(titleFont)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                        .foregroundStyle(.skin(.textPrimary))
+                        .contentTransition(.opacity)
 
                     if showsSubtitle, let subtitle = model.subtitle {
                         switch subtitle {

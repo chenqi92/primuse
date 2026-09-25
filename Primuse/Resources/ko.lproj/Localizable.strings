@@ -2838,13 +2838,6 @@
 "rate_on_app_store" = "좋은 평가 남기기";
 
 /* MARK: - Home mode switch */
-"home_mode_music" = "음악";
-"home_mode_radio" = "라디오";
-"home_mode_switch_a11y" = "음악과 라디오 전환";
-"home_mode_face_music" = "A면 · 음악";
-"home_mode_face_radio" = "B면 · 라디오";
-"home_mode_flip_to_music" = "A면 · 음악으로 전환";
-"home_mode_flip_to_radio" = "B면 · 라디오로 전환";
 "home_radio_wall_title" = "내 방송국";
 "home_radio_wall_manage %lld" = "관리 · %lld";
 "home_radio_wall_badge" = "라이브";
@@ -4574,6 +4567,11 @@
 "karaoke_backing_track" = "반주 트랙";
 "karaoke_backing_track_playing" = "반주 트랙을 재생 중이라 조절할 보컬이 없습니다.";
 "karaoke_lyrics_from_format" = "가사 출처: “%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "비디오 준비 중…";
+"music_video_rewrite_failed" = "이 비디오를 재생 가능한 형식으로 변환할 수 없습니다.";
+"music_video_preparing_percent" = "비디오 준비 중 %d%%";
 "karaoke_ai_title" = "AI 보컬 분리";
 "karaoke_ai_download_format" = "다운로드(%@)";
 "karaoke_ai_downloading" = "다운로드 중";
@@ -4627,8 +4625,6 @@
 "home_books_in_progress_title" = "듣고 있는 책";
 "home_books_open_shelf" = "책장";
 "home_radio_open_all" = "모든 방송국";
-"home_spaces_intro_title" = "음악, 라디오, 오디오북이 각자의 탭으로 나뉘었습니다";
-"home_spaces_intro_body" = "각각 듣던 위치를 기억하므로 책이나 라디오를 들어도 음악 대기열이 사라지지 않습니다. 설정은 홈 오른쪽 위 톱니바퀴로 옮겼습니다.";
 "sleep_at_item_end" = "이 회차가 끝나면 정지";
 "sleep_at_book_end" = "책이 끝나면 정지";
 "smart_nudge_kind_back_to_music" = "책이 끝날 때 듣던 음악 이어서 듣기 제안";
@@ -4664,3 +4660,4 @@
 "stats_spoken_word_time" = "오디오북 청취 시간";
 "directory_tag_menu_title" = "이 폴더의 콘텐츠";
 "directory_tag_hint" = "선택한 폴더 옆의 태그를 탭하고 오디오북을 선택하면 그 안의 콘텐츠가 음악이 아닌 오디오북 서가로 들어갑니다.";
+"home_filter_clear_hint" = "다시 탭하면 전체를 표시합니다";

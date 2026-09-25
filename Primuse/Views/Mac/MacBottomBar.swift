@@ -82,13 +82,6 @@ struct MacBottomBar: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    // 正在播的空间用一个小圆点标出颜色: 音乐 / 电台 / 有声。
-                    if let space = playingSpace {
-                        Circle()
-                            .fill(MacListeningSpaceStyle.color(for: space))
-                            .frame(width: 6, height: 6)
-                            .accessibilityHidden(true)
-                    }
                     Text(player.currentSong?.title ?? String(localized: "player_empty_title"))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(player.currentSong == nil ? PMColor.textMuted : PMColor.text)
@@ -150,10 +143,6 @@ struct MacBottomBar: View {
             }
         }
         .help(Text(isExpanded ? "close" : "now_playing"))
-    }
-
-    private var playingSpace: ListeningSpace? {
-        MacListeningSpaceStyle.playingSpace(of: player)
     }
 
     /// 有声且带章节时, 标题后面跟「第 n 章」。
@@ -625,7 +614,7 @@ private struct PMRoundBtnIcon: View {
 // MARK: - Listening space style
 
 /// 三个收听空间在 Mac 上的共用小零件: 正在播的是哪个空间、每个空间的颜色。
-/// 首页「接着听」、底栏圆点和睡眠定时面板都从这里取, 免得各处各判一遍。
+/// 首页「接着听」和睡眠定时面板都从这里取, 免得各处各判一遍。
 enum MacListeningSpaceStyle {
     /// 正在播 (或暂停在) 哪个空间; 什么都没有时为 nil。
     @MainActor

@@ -15,7 +15,6 @@
 "update_banner_skip" = "Bu Sürümü Atla";
 "no_folder_selected" = "Hiçbir klasör seçilmedi";
 "yearly_card_hero_swipe" = "İncelemenize başlamak için yukarı kaydırın";
-"home_mode_flip_to_music" = "A Tarafına Çevir · Müzik";
 "cast_local_subtitle" = "Bu cihazda oyna";
 "settings_relay_waiting" = "LAN adresi alınıyor… (Wi-Fi'nin bağlı olduğundan emin olun)";
 "stats_range" = "Aralık";
@@ -393,7 +392,6 @@
 "ai_provider_preset_qwen" = "Qwen";
 "ai_path_mode" = "API yolu";
 "relay_share_configuration_footer" = "URL hizmetinizi ve yönetici anahtarınızı girin. URL bu cihazda kalır ve anahtar, Anahtarlıkta güvenli bir şekilde saklanır.";
-"home_mode_face_radio" = "B TARAFI · RADYO";
 "playlist_import_kind_fuzzy" = "Bulanık";
 "lyrics_editor_empty_live_detail" = "Her satır sonuyla yeni bir satır başlar; zamanlama siz yazarken kaydedilir";
 "artwork_processing" = "Sanat eseri hazırlanıyor…";
@@ -1277,7 +1275,6 @@
 "Software Update" = "Yazılım Güncelleme";
 "stats_top_songs" = "En Popüler Şarkılar";
 "home_health_title" = "Arşiv durumu";
-"home_mode_face_music" = "A YÜZÜ · MÜZİK";
 "apple_music_library_hint" = "Apple Music arşivinizdeki şarkılar, Primuse'deki müziğinizin geri kalanıyla birlikte görünür.";
 "relay_share_allow_import" = "Primuse'ye İçe Aktarmaya İzin Ver";
 "library_sections_settings_footer" = "Yeniden sıralamak için sürükleyin. Bir kategoriyi Arşiv'tan ve kenar çubuğundan gizlemek için kapatın.";
@@ -2033,7 +2030,6 @@
 "Word-by-Word Lyrics" = "Sözcük sözcük eşitlenen sözler";
 "source_diag_checks" = "Çekler";
 "server_share_unsupported_message" = "Bu sunucu OpenSubsonic paylaşımını uygulamıyor veya yöneticisi paylaşımı devre dışı bırakmış.";
-"home_mode_music" = "Müzik";
 "scrape_candidate_source_format" = "%@ adayı";
 "scrobble_mac_no_recent_reports" = "Yeni gönderim yok";
 "relay_share_token" = "Yönetici anahtarı";
@@ -2183,7 +2179,6 @@
 "artist_layout" = "Görünüm";
 "artist_layout_grid" = "Izgara";
 "artist_layout_list" = "Liste";
-"home_mode_switch_a11y" = "Müzik ve radyo arasında geçiş yapın";
 "Clean Up Now" = "Şimdi Temizleyin";
 "scraper_review_headers" = "Başlıklar";
 "status" = "Durum";
@@ -2788,7 +2783,6 @@
 "similar_songs" = "Benzer Şarkılar";
 "carplay_empty_playlists_subtitle" = "Arabada dinlemek için iPhone cihazınızda çalma listeleri oluşturun";
 "yearly_card_growth_more_format" = "%d%% geçen yıla göre daha fazla";
-"home_mode_flip_to_radio" = "B Tarafına Çevir · Radyo";
 "ai_recommendation_status_local" = "Yerel öneriler";
 "onboarding_metadata_settings" = "Ayarlar > Üst veri ve üst veri alımı bölümünde bunları etkinleştirin ve yeniden sıralayın";
 "lyrics_editor_live_undo" = "Satırı geri al";
@@ -3188,7 +3182,6 @@
 "custom_credentials_advanced" = "Özel Kimlik Bilgilerini Kullan (Gelişmiş)";
 "ai_recommendation_custom_add" = "Odak Ekle";
 "metadata_status_card_retry_format" = "%d'yi yeniden deneyin";
-"home_mode_radio" = "Radyo";
 "Restore" = "Geri yükle";
 "scrobble_mac_user_token_login" = "Kullanıcı belirteci oturum açma";
 "radio_logo_invalid" = "750 KB'tan küçük bir resim seçin.";
@@ -4480,6 +4473,11 @@
 "karaoke_backing_track" = "Altyapı";
 "karaoke_backing_track_playing" = "Altyapı çalıyor, ayarlanacak vokal yok.";
 "karaoke_lyrics_from_format" = "Sözler: “%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Video hazırlanıyor…";
+"music_video_rewrite_failed" = "Bu video oynatılabilir bir biçime dönüştürülemiyor.";
+"music_video_preparing_percent" = "Video hazırlanıyor %%%d";
 "karaoke_ai_title" = "Yapay zekâ ile vokal ayırma";
 "karaoke_ai_download_format" = "İndir (%@)";
 "karaoke_ai_downloading" = "İndiriliyor";
@@ -4533,8 +4531,6 @@
 "home_books_in_progress_title" = "Dinlenen kitaplar";
 "home_books_open_shelf" = "Kitaplık";
 "home_radio_open_all" = "Tüm istasyonlar";
-"home_spaces_intro_title" = "Müzik, radyo ve sesli kitapların artık kendi sekmeleri var";
-"home_spaces_intro_body" = "Her biri kaldığın yeri hatırlar; artık bir kitap ya da istasyon müzik kuyruğunun yerini almaz. Ayarlar, Ana Sayfa’nın üstündeki dişli simgesine taşındı.";
 "sleep_at_item_end" = "Bölüm bitince durdur";
 "sleep_at_book_end" = "Kitap bitince durdur";
 "smart_nudge_kind_back_to_music" = "Kitap bitince müziğe devam etmeyi öner";
@@ -4570,3 +4566,4 @@
 "stats_spoken_word_time" = "Sesli kitap süresi";
 "directory_tag_menu_title" = "Bu klasördeki içerik";
 "directory_tag_hint" = "Seçili bir klasörün yanındaki etikete dokunup Sesli Kitaplar’ı seçerseniz içindekiler müziğiniz yerine sesli kitap rafına gider.";
+"home_filter_clear_hint" = "Tümünü göstermek için tekrar dokunun";

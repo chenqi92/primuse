@@ -15,7 +15,6 @@
 "update_banner_skip" = "Пропустити цю версію";
 "no_folder_selected" = "Папка не вибрана";
 "yearly_card_hero_swipe" = "Проведіть пальцем угору, щоб розпочати перегляд";
-"home_mode_flip_to_music" = "Перевернути на сторону A · Музика";
 "cast_local_subtitle" = "Грати на цьому пристрої";
 "settings_relay_waiting" = "Отримання адреси LAN… (переконайтеся, що Wi-Fi підключено)";
 "stats_range" = "Діапазон";
@@ -393,7 +392,6 @@
 "ai_provider_preset_qwen" = "Qwen";
 "ai_path_mode" = "API";
 "relay_share_configuration_footer" = "Введіть свій службовий URL і ключ адміністратора. URL залишається на цьому пристрої, а ключ надійно зберігається в Keychain.";
-"home_mode_face_radio" = "СТОРОНА B · РАДІО";
 "playlist_import_kind_fuzzy" = "Фузі";
 "lyrics_editor_empty_live_detail" = "Кожне натискання Enter починає новий рядок і записує його час";
 "artwork_processing" = "Підготовка ілюстрації…";
@@ -1277,7 +1275,6 @@
 "Software Update" = "Оновлення програмного забезпечення";
 "stats_top_songs" = "Найкращі пісні";
 "home_health_title" = "Стан медіатеки";
-"home_mode_face_music" = "СТОРОНА А · МУЗИКА";
 "apple_music_library_hint" = "Пісні у вашій бібліотеці Apple Music відображаються разом із рештою вашої музики в Primuse.";
 "relay_share_allow_import" = "Дозволити імпорт до Primuse";
 "library_sections_settings_footer" = "Перетягніть, щоб змінити порядок. Вимкніть категорію, щоб приховати її в бібліотеці та на бічній панелі.";
@@ -2033,7 +2030,6 @@
 "Word-by-Word Lyrics" = "Текст із синхронізацією за словами";
 "source_diag_checks" = "Чеки";
 "server_share_unsupported_message" = "Цей сервер не підтримує спільний доступ до OpenSubsonic, або його адміністратор вимкнув спільний доступ.";
-"home_mode_music" = "Музика";
 "scrape_candidate_source_format" = "Кандидат %@";
 "scrobble_mac_no_recent_reports" = "Немає останніх надсилань";
 "relay_share_token" = "Ключ адміністратора";
@@ -2183,7 +2179,6 @@
 "artist_layout" = "Вигляд";
 "artist_layout_grid" = "Сітка";
 "artist_layout_list" = "Список";
-"home_mode_switch_a11y" = "Перемикання між музикою та радіо";
 "Clean Up Now" = "Прибирай зараз";
 "scraper_review_headers" = "Заголовки";
 "status" = "Статус";
@@ -2788,7 +2783,6 @@
 "similar_songs" = "Схожі пісні";
 "carplay_empty_playlists_subtitle" = "Створюйте списки відтворення на iPhone для прослуховування в автомобілі";
 "yearly_card_growth_more_format" = "%d%% більше, ніж минулого року";
-"home_mode_flip_to_radio" = "Перевернути на сторону B · Радіо";
 "ai_recommendation_status_local" = "Місцеві рекомендації";
 "onboarding_metadata_settings" = "Увімкніть і змініть їх порядок у Налаштуваннях > Метадані та отримання метаданих";
 "lyrics_editor_live_undo" = "Скасувати рядок";
@@ -3188,7 +3182,6 @@
 "custom_credentials_advanced" = "Використовувати спеціальні облікові дані (розширений)";
 "ai_recommendation_custom_add" = "Додайте фокус";
 "metadata_status_card_retry_format" = "Повторити %d";
-"home_mode_radio" = "Радіо";
 "Restore" = "Відновити";
 "scrobble_mac_user_token_login" = "Вхід маркером користувача";
 "radio_logo_invalid" = "Виберіть зображення розміром менше 750 Кб.";
@@ -4480,6 +4473,11 @@
 "karaoke_backing_track" = "Мінусовка";
 "karaoke_backing_track_playing" = "Грає мінусовка, регулювати нічого.";
 "karaoke_lyrics_from_format" = "Текст із «%@»";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Підготовка відео…";
+"music_video_rewrite_failed" = "Не вдається перетворити це відео на формат, який можна відтворити.";
+"music_video_preparing_percent" = "Підготовка відео %d %%";
 "karaoke_ai_title" = "ШІ-відокремлення вокалу";
 "karaoke_ai_download_format" = "Завантажити (%@)";
 "karaoke_ai_downloading" = "Завантаження";
@@ -4533,8 +4531,6 @@
 "home_books_in_progress_title" = "Слухаю зараз";
 "home_books_open_shelf" = "Книжкова полиця";
 "home_radio_open_all" = "Усі станції";
-"home_spaces_intro_title" = "Музика, радіо та аудіокниги тепер мають власні вкладки";
-"home_spaces_intro_body" = "Кожен розділ пам’ятає, де ви зупинилися, — книга чи станція більше не замінюють музичну чергу. Налаштування тепер відкриваються шестернею вгорі головної сторінки.";
 "sleep_at_item_end" = "Зупинити в кінці епізоду";
 "sleep_at_book_end" = "Зупинити в кінці книги";
 "smart_nudge_kind_back_to_music" = "Пропонувати повернутися до музики, коли книга закінчується";
@@ -4570,3 +4566,4 @@
 "stats_spoken_word_time" = "Час аудіокниг";
 "directory_tag_menu_title" = "Вміст цієї теки";
 "directory_tag_hint" = "Торкніться мітки біля вибраної теки й виберіть «Аудіокниги», щоб її вміст потрапив на полицю аудіокниг, а не до музики.";
+"home_filter_clear_hint" = "Торкніться ще раз, щоб показати все";

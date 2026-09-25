@@ -2104,7 +2104,7 @@ enum MusicDiscoveryReason: String, Sendable {
     var localizationKey: String { "discovery_reason_\(rawValue)" }
 }
 
-struct MusicDiscoveryResult: Identifiable, Sendable {
+struct MusicDiscoveryResult: Identifiable, Equatable, Sendable {
     let song: Song
     let score: Double
     let reasons: [MusicDiscoveryReason]

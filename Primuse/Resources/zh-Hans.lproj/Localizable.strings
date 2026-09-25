@@ -2939,13 +2939,6 @@
 "rate_on_app_store" = "给个好评";
 
 /* MARK: - 首页模式切换 */
-"home_mode_music" = "音乐";
-"home_mode_radio" = "电台";
-"home_mode_switch_a11y" = "在音乐和电台之间切换";
-"home_mode_face_music" = "A 面 · 音乐";
-"home_mode_face_radio" = "B 面 · 电台";
-"home_mode_flip_to_music" = "翻到 A 面 · 音乐";
-"home_mode_flip_to_radio" = "翻到 B 面 · 电台";
 "home_radio_wall_title" = "我的电台";
 "home_radio_wall_manage %lld" = "管理 · %lld";
 "home_radio_wall_badge" = "直播";
@@ -4667,6 +4660,11 @@
 "karaoke_backing_track" = "伴奏音轨";
 "karaoke_backing_track_playing" = "正在播放伴奏音轨，没有人声可调。";
 "karaoke_lyrics_from_format" = "歌词来自《%@》";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "正在准备视频…";
+"music_video_rewrite_failed" = "这个视频无法转换成可播放的格式。";
+"music_video_preparing_percent" = "正在准备视频 %d%%";
 "karaoke_ai_title" = "AI 人声分离";
 "karaoke_ai_download_format" = "下载模型（%@）";
 "karaoke_ai_downloading" = "正在下载";
@@ -4720,8 +4718,6 @@
 "home_books_in_progress_title" = "在听的书";
 "home_books_open_shelf" = "书架";
 "home_radio_open_all" = "全部电台";
-"home_spaces_intro_title" = "音乐、电台、有声各有了自己的标签页";
-"home_spaces_intro_body" = "各自记住听到哪里，听书或听电台不会再冲掉你的音乐队列。设置移到了首页右上角的齿轮。";
 "sleep_at_item_end" = "本集结束后停止";
 "sleep_at_book_end" = "整本听完后停止";
 "smart_nudge_kind_back_to_music" = "书听完时提议接着放之前的音乐";
@@ -4757,3 +4753,4 @@
 "stats_spoken_word_time" = "听书时长";
 "directory_tag_menu_title" = "目录里的内容";
 "directory_tag_hint" = "点一下已选目录旁的标签改成「有声」，里面的内容会放进有声书架，不和音乐混在一起。";
+"home_filter_clear_hint" = "再点一次回到全部";

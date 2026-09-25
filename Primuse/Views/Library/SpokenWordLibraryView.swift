@@ -14,6 +14,33 @@ import SwiftUI
 /// finished ones folded away underneath.
 struct SpokenWordLibraryView: View {
     @Environment(MusicLibrary.self) private var library
+
+    var body: some View {
+        ScrollView {
+            SpokenWordShelf()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+        }
+        .navigationTitle("tab_spoken_word")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .overlay {
+            if library.spokenWordSongs.isEmpty {
+                ContentUnavailableView(
+                    "tab_spoken_word",
+                    systemImage: "books.vertical",
+                    description: Text("spoken_word_empty_hint")
+                )
+            }
+        }
+    }
+}
+
+/// 书架本身:在听的那本大卡、书架网格、折叠的已听完。有声页与首页的「有声」一面共用,
+/// 外面的滚动容器与边距由放它的地方给。
+struct SpokenWordShelf: View {
+    @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @AppStorage("spokenWord.shelf.showsFinished") private var showsFinished = false
 
@@ -49,80 +76,63 @@ struct SpokenWordLibraryView: View {
         let finished = all.filter(\.isFinished)
             .sorted { ($0.lastListenedAt ?? .distantPast) > ($1.lastListenedAt ?? .distantPast) }
 
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 28) {
-                if let current {
-                    SpokenWordNowListeningCard(
-                        book: current,
-                        songs: current.items.compactMap { songsByID[$0.id] },
-                        tint: tint
-                    )
-                    .contextMenu {
-                        bookMenu(current, songs: current.items.compactMap { songsByID[$0.id] })
-                    }
+        LazyVStack(alignment: .leading, spacing: 28) {
+            if let current {
+                SpokenWordNowListeningCard(
+                    book: current,
+                    songs: current.items.compactMap { songsByID[$0.id] },
+                    tint: tint
+                )
+                .contextMenu {
+                    bookMenu(current, songs: current.items.compactMap { songsByID[$0.id] })
                 }
+            }
 
-                if !shelf.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("spoken_word_shelf_section")
-                            .font(.title3.weight(.semibold))
-                            .accessibilityAddTraits(.isHeader)
-                        LazyVGrid(columns: gridColumns, spacing: 22) {
-                            ForEach(shelf) { book in
-                                bookCell(book, songsByID: songsByID)
-                            }
-                        }
-                    }
-                }
-
-                if !finished.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Button {
-                            pmWithAnimation(.panel) { showsFinished.toggle() }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text("spoken_word_finished")
-                                    .font(.title3.weight(.semibold))
-                                Text(verbatim: "\(finished.count)")
-                                    .font(.subheadline.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                Spacer(minLength: 0)
-                                Image(systemName: "chevron.right")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                    .rotationEffect(.degrees(showsFinished ? 90 : 0))
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .contentShape(Rectangle())
+            if !shelf.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("spoken_word_shelf_section")
+                        .font(.title3.weight(.semibold))
                         .accessibilityAddTraits(.isHeader)
-
-                        if showsFinished {
-                            LazyVGrid(columns: gridColumns, spacing: 22) {
-                                ForEach(finished) { book in
-                                    bookCell(book, songsByID: songsByID)
-                                }
-                            }
-                            .pmFadeTransition(motion: .panel)
+                    LazyVGrid(columns: gridColumns, spacing: 22) {
+                        ForEach(shelf) { book in
+                            bookCell(book, songsByID: songsByID)
                         }
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-        .navigationTitle("tab_spoken_word")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .overlay {
-            if all.isEmpty {
-                ContentUnavailableView(
-                    "tab_spoken_word",
-                    systemImage: "books.vertical",
-                    description: Text("spoken_word_empty_hint")
-                )
+
+            if !finished.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Button {
+                        pmWithAnimation(.panel) { showsFinished.toggle() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("spoken_word_finished")
+                                .font(.title3.weight(.semibold))
+                            Text(verbatim: "\(finished.count)")
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(showsFinished ? 90 : 0))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .accessibilityAddTraits(.isHeader)
+
+                    if showsFinished {
+                        LazyVGrid(columns: gridColumns, spacing: 22) {
+                            ForEach(finished) { book in
+                                bookCell(book, songsByID: songsByID)
+                            }
+                        }
+                        .pmFadeTransition(motion: .panel)
+                    }
+                }
             }
         }
     }

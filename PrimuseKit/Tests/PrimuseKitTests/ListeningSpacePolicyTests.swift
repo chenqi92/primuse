@@ -63,13 +63,6 @@ struct ListeningSpacePolicyTests {
         )
         #expect(whilePlayingBook.map(\.space) == [.music])
     }
-
-    @Test("The introduction is only for people who used the old layout")
-    func introduction() {
-        #expect(ListeningSpacesIntroductionPolicy.shouldShow(hasSeen: false, isExistingUser: true))
-        #expect(!ListeningSpacesIntroductionPolicy.shouldShow(hasSeen: false, isExistingUser: false))
-        #expect(!ListeningSpacesIntroductionPolicy.shouldShow(hasSeen: true, isExistingUser: true))
-    }
 }
 
 @Suite("Listening-space nudges")

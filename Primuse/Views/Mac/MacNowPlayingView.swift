@@ -662,6 +662,9 @@ struct MacNowPlayingView: View {
                     .artworkCrossfade()
                     .aspectRatio(1, contentMode: .fit)
                     .frame(width: coverSize, height: coverSize)
+                    .overlay(alignment: .bottom) {
+                        MusicVideoPreparationBadge(songID: song.id)
+                    }
                 } else {
                     CoverArtView(data: nil, size: coverSize, cornerRadius: coverRadius)
                 }

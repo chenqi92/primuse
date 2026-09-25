@@ -1436,13 +1436,6 @@
 "home_library_mix_subtitle" = "Rozpocznij od losowego utworu, a następnie zachowaj pełną bibliotekę w kolejce.";
 "home_library_mix_title" = "Zacznij od całej biblioteki";
 "home_lyrics" = "Dostępność tekstów";
-"home_mode_face_music" = "STRONA A · MUZYKA";
-"home_mode_face_radio" = "STRONA B · RADIO";
-"home_mode_flip_to_music" = "Przewróć na stronę A · Muzyka";
-"home_mode_flip_to_radio" = "Przewróć na stronę B · Radio";
-"home_mode_music" = "Muzyka";
-"home_mode_radio" = "Radia";
-"home_mode_switch_a11y" = "Przełączanie między muzyką a radiem";
 "home_no_playing" = "Nic nie jest odtwarzane";
 "home_no_scans" = "Żadne skanowanie nie jest w toku";
 "home_no_scans_short" = "Bezczynność";
@@ -4480,6 +4473,11 @@
 "karaoke_backing_track" = "Podkład";
 "karaoke_backing_track_playing" = "Odtwarzany jest podkład, więc nie ma wokalu do regulacji.";
 "karaoke_lyrics_from_format" = "Tekst z „%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Przygotowywanie wideo…";
+"music_video_rewrite_failed" = "Nie można przekonwertować tego wideo na odtwarzalny format.";
+"music_video_preparing_percent" = "Przygotowywanie wideo %d%%";
 "karaoke_ai_title" = "Separacja wokalu AI";
 "karaoke_ai_download_format" = "Pobierz (%@)";
 "karaoke_ai_downloading" = "Pobieranie";
@@ -4533,8 +4531,6 @@
 "home_books_in_progress_title" = "Rozpoczęte książki";
 "home_books_open_shelf" = "Półka";
 "home_radio_open_all" = "Wszystkie stacje";
-"home_spaces_intro_title" = "Muzyka, radio i audiobooki mają teraz własne karty";
-"home_spaces_intro_body" = "Każda z nich pamięta, gdzie skończyłeś, więc książka czy stacja nie zastępuje już kolejki muzyki. Ustawienia są teraz pod kołem zębatym u góry strony głównej.";
 "sleep_at_item_end" = "Zatrzymaj na końcu odcinka";
 "sleep_at_book_end" = "Zatrzymaj na końcu książki";
 "smart_nudge_kind_back_to_music" = "Proponuj powrót do muzyki po zakończeniu książki";
@@ -4570,3 +4566,4 @@
 "stats_spoken_word_time" = "Czas audiobooków";
 "directory_tag_menu_title" = "Zawartość tego folderu";
 "directory_tag_hint" = "Stuknij etykietę obok wybranego folderu i wybierz Audiobooki, aby jego zawartość trafiła na półkę z audiobookami zamiast do muzyki.";
+"home_filter_clear_hint" = "Stuknij ponownie, aby pokazać wszystko";

@@ -210,26 +210,74 @@ private struct HomeSectionDragPreview: View {
     }
 }
 
-/// 首页翻面的转场：横向压成一条再展开，看起来像绕竖轴翻过去。
-///
-/// 挂在滚动内容上，不能挂到 ScrollView 本身：它背后是 UIScrollView，导航栏与滚动边缘
-/// 效果要换算它的几何，挂过一版整页透视变换，切到电台时在布局提交里抛异常闪退。
-/// 也不用 rotation3DEffect：透视按被变换内容的尺寸算，电台上千个时内容有十几万点高，
-/// 早已压成平面，看起来与横向压扁无异，却要系统对整块内容做 3D 合成、再反推可见区。
-/// 纵向不缩放，可见区才不会被推出内容。
-private struct HomeFaceFlipModifier: ViewModifier {
-    /// 横向宽度比例，1 是正面。
-    let widthScale: CGFloat
-    let opacity: Double
+/// 首页顶上的「音乐 · 电台 · 有声」筛选胶囊(照 Spotify、YouTube Music 首页的做法)。
+/// 都不选是「全部」;选中的那颗是这种听法自己的颜色、带一个 ✕,和播放条、首页卡片上的颜色一致。
+private struct HomeSpaceFilterBar: View {
+    let spaces: [ListeningSpace]
+    let selection: ListeningSpace?
+    let onSelect: (ListeningSpace) -> Void
 
-    func body(content: Content) -> some View {
-        content
-            .opacity(opacity)
-            .scaleEffect(x: widthScale, y: 1, anchor: .center)
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(spaces, id: \.self) { space in
+                chip(space)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("home.spaceFilter")
+    }
+
+    private func chip(_ space: ListeningSpace) -> some View {
+        let isSelected = space == selection
+        return Button {
+            onSelect(space)
+        } label: {
+            Label {
+                HStack(spacing: 5) {
+                    Text(space.titleKey)
+                    if isSelected {
+                        Image(systemName: "xmark")
+                            .font(.caption2.weight(.bold))
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+            } icon: {
+                Image(systemName: space.systemImage)
+                    .symbolVariant(isSelected ? .fill : .none)
+            }
+            .labelStyle(HomeSpaceChipLabelStyle())
+            .font(.subheadline.weight(isSelected ? .semibold : .medium))
+            .foregroundStyle(isSelected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .padding(.horizontal, 14)
+            .frame(minHeight: 36)
+            .background {
+                Capsule()
+                    .fill(isSelected ? AnyShapeStyle(space.tint.gradient) : AnyShapeStyle(.quaternary.opacity(0.7)))
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(HomeSpaceChipButtonStyle())
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityHint(isSelected ? String(localized: "home_filter_clear_hint") : "")
+        .accessibilityIdentifier("home.spaceFilter.\(space.rawValue)")
     }
 }
 
-private struct HomeModeFlipButtonStyle: ButtonStyle {
+private struct HomeSpaceChipLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon
+                .font(.footnote.weight(.semibold))
+            configuration.title
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct HomeSpaceChipButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.58 : 1)
@@ -454,33 +502,6 @@ private struct HomeRadioWallCard: View {
 }
 
 /// 首页的两种展示模式。翻面只切换首页内容，不改变当前音乐或电台的播放状态。
-enum HomeMode: String, CaseIterable, Hashable {
-    case music
-    case radio
-
-    var titleKey: String.LocalizationValue {
-        self == .music ? "home_mode_music" : "home_mode_radio"
-    }
-
-    var icon: String {
-        self == .music ? "music.note" : "radio.fill"
-    }
-
-    var faceTitleKey: String.LocalizationValue {
-        self == .music ? "home_mode_face_music" : "home_mode_face_radio"
-    }
-
-    var opposite: HomeMode {
-        self == .music ? .radio : .music
-    }
-
-    /// The toolbar describes the destination, not the current state: while the
-    /// user is on Side A it should read “Flip to Side B · Radio”.
-    var flipTitleKey: String.LocalizationValue {
-        opposite == .music ? "home_mode_flip_to_music" : "home_mode_flip_to_radio"
-    }
-}
-
 struct HomeView: View {
     var switchToSettingsTab: (() -> Void)?
     let model: Model
@@ -543,10 +564,9 @@ struct HomeView: View {
     @State private var showUpdateSheet: Bool = false
     @State private var selectedHomeRadioID: String?
     @State private var pendingInsecureHomeStation: RadioStation?
-    @State private var homeModeSwitchTurn = 0
-    /// 首页当前处在音乐态还是电台态。持久化 —— 常听电台的人不该每次回首页
-    /// 都手动切一次。
-    @AppStorage("primuse.home.mode") private var homeModeRawValue = HomeMode.music.rawValue
+    /// 顶上筛选胶囊选中的那一类;nil 是「全部」,三类混排。只在这次打开 App 时记着:
+    /// 下次打开首页仍从全部开始,不会让人以为别的内容不见了。
+    @State private var homeFilter: ListeningSpace?
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     #if os(iOS)
     @Environment(\.usesTopTabsShell) private var usesTopTabsShell
@@ -566,34 +586,32 @@ struct HomeView: View {
         #endif
     }
 
-    /// 首页有没有「翻到电台」这一面。顶部 tab 外壳里电台是一个 tab,首页只剩音乐面。
-    private var showsRadioFace: Bool {
+    /// 筛选胶囊有哪几颗。电台跟着首页编辑里的开关走(没有电台时筛出来的是添加电台的入口);
+    /// 有声只在真有有声内容时出现;只有音乐一类时整排不出现。顶部 tab 外壳里电台、有声各是一个 tab,不摆这一排。
+    private var homeFilterSpaces: [ListeningSpace] {
+        guard !editorMode else { return [] }
         #if os(iOS)
-        showRadioOnHome && !usesTopTabsShell
-        #else
-        showRadioOnHome
+        guard !usesTopTabsShell else { return [] }
         #endif
+        var spaces: [ListeningSpace] = [.music]
+        if showRadioOnHome { spaces.append(.radio) }
+        if !library.spokenWordSongs.isEmpty { spaces.append(.spokenWord) }
+        return spaces.count > 1 ? spaces : []
     }
 
-    /// 首页不再翻面到电台:电台有了自己的标签页,首页只放一块电台区。
-    private var homeMode: HomeMode { .music }
-
-    @AppStorage(ListeningSpacesIntroductionPolicy.seenKey) private var hasSeenListeningSpacesIntro = false
-
-    /// 老用户第一次看到新布局时的一张说明卡。新装的人一开始就是新布局(首启引导
-    /// 那一刻已记为看过),顶部 tab 外壳是另一套布局,两者都不出。
-    private var showsListeningSpacesIntro: Bool {
-        #if os(iOS)
-        guard !usesTopTabsShell else { return false }
-        #endif
-        return ListeningSpacesIntroductionPolicy.shouldShow(
-            hasSeen: hasSeenListeningSpacesIntro,
-            isExistingUser: model.snapshot.hasContent
-        )
+    /// 实际生效的筛选。选中的那一类没了(关掉了首页电台、书都移走了)就回到全部。
+    private var activeHomeFilter: ListeningSpace? {
+        guard let homeFilter, homeFilterSpaces.contains(homeFilter) else { return nil }
+        return homeFilter
     }
 
+    /// 首页卡片上的「全部」「书架」:外壳接管时交给外壳,否则就在首页筛出那一类。
     private func openSpace(_ space: ListeningSpace) {
-        openListeningSpace?(space)
+        if let openListeningSpace {
+            openListeningSpace(space)
+        } else {
+            setHomeFilter(space)
+        }
     }
 
     /// 是不是该按 iPad 那档取尺寸与条目数。
@@ -618,25 +636,44 @@ struct HomeView: View {
     }
 
     private var observedHomeContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                if homeMode == .radio, !editorMode {
-                    radioModeContent
-                        .transition(homeFaceTransition)
-                } else if !model.isPrepared {
-                    initialLoadingView
-                        .transition(homeFaceTransition)
-                } else if hasContent {
-                    contentView
-                        .transition(homeFaceTransition)
-                } else {
-                    emptyView
-                        .transition(homeFaceTransition)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    let spaces = homeFilterSpaces
+                    if !spaces.isEmpty {
+                        HomeSpaceFilterBar(spaces: spaces, selection: activeHomeFilter) { space in
+                            // 再点一次选中的那颗(或它上面的 ✕)回到全部。
+                            setHomeFilter(activeHomeFilter == space ? nil : space)
+                        }
+                        .id(Self.homeTopAnchor)
+                    }
+
+                    if activeHomeFilter == .radio {
+                        radioModeContent
+                            .transition(homeFaceTransition)
+                    } else if activeHomeFilter == .spokenWord {
+                        SpokenWordShelf()
+                            .padding(.horizontal, 16)
+                            .transition(homeFaceTransition)
+                    } else if !model.isPrepared {
+                        initialLoadingView
+                            .transition(homeFaceTransition)
+                    } else if hasContent {
+                        contentView
+                            .transition(homeFaceTransition)
+                    } else {
+                        emptyView
+                            .transition(homeFaceTransition)
+                    }
                 }
+                .padding(.top, topTabsContentInset)
+                .padding(.bottom, bottomChromeClearance)
+                .pmAnimation(.contentAppear, value: model.isPrepared)
             }
-            .padding(.top, topTabsContentInset)
-            .padding(.bottom, bottomChromeClearance)
-            .pmAnimation(.contentAppear, value: model.isPrepared)
+            .onChange(of: activeHomeFilter) { _, _ in
+                // 从全部中段的「全部」「书架」筛过去时,筛出来的内容从顶上开始看。
+                proxy.scrollTo(Self.homeTopAnchor, anchor: .top)
+            }
         }
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
@@ -651,7 +688,8 @@ struct HomeView: View {
                 onLibraryRevisionChange: scheduleDebouncedHomeRefresh,
                 onPlaylistRevisionChange: refreshHomeSnapshotForPlaylistChange
             )
-            if homeMode == .music, showFolders || showListeningRanking {
+            if activeHomeFilter != .radio, activeHomeFilter != .spokenWord,
+               showFolders || showListeningRanking {
                 HomeDiscoveryObserver(model: model.discovery)
             }
         }
@@ -727,22 +765,6 @@ struct HomeView: View {
             #if os(iOS)
             .minimalNavigationRoot()
             #endif
-            .toolbar {
-                // 设置从标签栏挪到这里。极简导航的顶栏自带设置入口,不重复。
-                #if os(iOS)
-                if !usesTopTabsShell, let switchToSettingsTab {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        HomeSettingsButton(action: switchToSettingsTab)
-                    }
-                }
-                #else
-                if let switchToSettingsTab {
-                    ToolbarItem(placement: .primaryAction) {
-                        HomeSettingsButton(action: switchToSettingsTab)
-                    }
-                }
-                #endif
-            }
             .sheet(isPresented: $showRadioBatchAdd) {
                 RadioBatchAddView()
             }
@@ -770,16 +792,9 @@ struct HomeView: View {
             }
             .onAppear {
                 isHomeVisible = true
-                if !showRadioOnHome {
-                    homeModeRawValue = HomeMode.music.rawValue
-                }
                 if updateChecker.availableUpdate != nil {
                     UpdateBannerSheet.presentWithoutSystemTransition { showUpdateSheet = true }
                 }
-            }
-            .onChange(of: showRadioOnHome) { _, isVisible in
-                guard !isVisible else { return }
-                homeModeRawValue = HomeMode.music.rawValue
             }
             .alert("insecure_http_warning_title", isPresented: Binding(
                 get: { pendingInsecureHomeStation != nil },
@@ -880,7 +895,7 @@ struct HomeView: View {
         let showsRecommendations: Bool
     }
 
-    struct HomeAlbumTile: Identifiable, Sendable {
+    struct HomeAlbumTile: Identifiable, Equatable, Sendable {
         let album: Album
         let artworkSong: Song?
 
@@ -961,10 +976,8 @@ struct HomeView: View {
             } else if model.snapshot.hasContent {
                 libraryHeroSection
             }
-            if !editorMode {
-                if showsListeningSpacesIntro {
-                    HomeListeningSpacesIntroCard()
-                }
+            // 这两排横跨三类,只在「全部」里出现;筛到音乐时只留音乐自己的区块。
+            if !editorMode, activeHomeFilter == nil {
                 HomeContinueSpacesRow(openSpace: openSpace)
                 HomeBooksInProgressStrip(minimumCount: 2, openSpace: openSpace)
             }
@@ -1004,7 +1017,7 @@ struct HomeView: View {
     private func homeSectionHasContent(_ section: HomeSectionKind) -> Bool {
         switch section {
         case .continueListening: showContinueListening && !model.snapshot.recentSongs.isEmpty
-        case .radio: false
+        case .radio: showRadioOnHome && activeHomeFilter == nil
         case .quickAccess: showQuickAccess && !model.snapshot.quickItems.isEmpty
         case .forYou: showForYou && !model.snapshot.forYouResults.isEmpty
         case .playlists: showPlaylists && !model.snapshot.playlists.isEmpty
@@ -1027,8 +1040,8 @@ struct HomeView: View {
                 HomeDeferredSection { continueListeningSection(style) }
             }
         case .radio:
-            // 电台有了自己的标签页;首页留一条横排,没有电台时是一张添加卡片。
-            if showRadioOnHome {
+            // 「全部」里一条电台横排,没有电台时是一张添加卡片;「全部 ›」筛到电台。
+            if showRadioOnHome, activeHomeFilter == nil {
                 HomeRadioSpaceSection(openSpace: openSpace)
             }
         case .quickAccess:
@@ -1366,8 +1379,6 @@ struct HomeView: View {
         let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
 
         return VStack(alignment: .leading, spacing: heightClass.value(14, compact: 10)) {
-            homeFaceHeader(.radio, onDarkSurface: true)
-
             HStack(spacing: 16) {
                 RadioStationArtworkView(
                     station: station,
@@ -1489,93 +1500,36 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - 模式切换
+    // MARK: - 筛选音乐 / 电台 / 有声
 
-    /// 固定在导航栏里的“翻面”入口。文案始终描述目的地，让用户不用先猜当前
-    /// 图标代表状态还是动作；无底色的轻按钮也不会和页面主操作争夺视觉层级。
-    private var modeToggleButton: some View {
-        Button {
-            switchHomeMode()
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 12, weight: .semibold))
-                    .rotationEffect(.degrees(Double(homeModeSwitchTurn) * 180))
-
-                Text(String(localized: homeMode.flipTitleKey))
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .contentTransition(.opacity)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 6)
-            .contentShape(.rect)
-        }
-        .buttonStyle(HomeModeFlipButtonStyle())
-        .accessibilityLabel(String(localized: homeMode.flipTitleKey))
-        .accessibilityHint(String(localized: "home_mode_switch_a11y"))
-    }
+    private static let homeTopAnchor = "home.top"
 
     private var homeFaceTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
-        return .modifier(
-            active: HomeFaceFlipModifier(widthScale: 0.2, opacity: 0),
-            identity: HomeFaceFlipModifier(widthScale: 1, opacity: 1)
+        return .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: 10)),
+            removal: .opacity
         )
     }
 
-    private func switchHomeMode(to destination: HomeMode? = nil) {
-        let nextMode = destination ?? homeMode.opposite
-        guard nextMode != homeMode else { return }
-
+    private func setHomeFilter(_ space: ListeningSpace?) {
+        let space = space.flatMap { homeFilterSpaces.contains($0) ? $0 : nil }
+        guard space != activeHomeFilter else { return }
         if reduceMotion {
-            homeModeRawValue = nextMode.rawValue
+            homeFilter = space
         } else {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
-                homeModeSwitchTurn += 1
-                homeModeRawValue = nextMode.rawValue
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                homeFilter = space
             }
         }
-
         #if os(iOS)
-        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        UISelectionFeedbackGenerator().selectionChanged()
         #endif
-    }
-
-    @ViewBuilder
-    private func homeFaceHeader(_ mode: HomeMode, onDarkSurface: Bool = false) -> some View {
-        if showsRadioFace {
-            HStack(spacing: 12) {
-                Text(String(localized: mode.faceTitleKey))
-                    .font(.caption.weight(.semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(onDarkSurface ? Color.white.opacity(0.72) : Color.secondary)
-
-                Spacer()
-
-                Button {
-                    switchHomeMode(to: mode.opposite)
-                } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 13, weight: .semibold))
-                        .rotationEffect(.degrees(Double(homeModeSwitchTurn) * 180))
-                        .frame(width: 32, height: 32)
-                        .contentShape(.circle)
-                        .background(
-                            onDarkSurface ? Color.white.opacity(0.12) : Color.primary.opacity(0.06),
-                            in: Circle()
-                        )
-                }
-                .buttonStyle(HomeModeFlipButtonStyle())
-                .accessibilityLabel(String(localized: mode.flipTitleKey))
-            }
-        }
     }
 
     // MARK: - 电台态
 
-    /// 电台态整页：正在直播的大卡 + 我的电台墙。跟音乐态互斥，切过来时
+    /// 电台那一面：正在直播的大卡 + 我的电台墙。跟音乐面互斥，切过来时
     /// 用户面对的只有电台这一件事。
     ///
     /// 外层是普通 VStack：电台墙自己就是懒加载网格，外面再套一层懒加载容器，
@@ -1614,9 +1568,6 @@ struct HomeView: View {
 
     private var radioModeEmptyState: some View {
         VStack(spacing: 16) {
-            homeFaceHeader(.radio)
-                .padding(.horizontal, 20)
-
             Spacer(minLength: 40)
 
             Image(systemName: "radio")
@@ -2036,9 +1987,17 @@ struct HomeView: View {
             }
 
             guard !Task.isCancelled, homeSnapshotSignature == signature else { return }
-            model.snapshot.heroCoverSongs = payload.0
-            model.snapshot.recentlyAddedAlbums = payload.1
-            model.snapshot.recentSongs = payload.3
+            // 首页正文都读同一个 snapshot，写一次整页重新描述。冷启动时先画的是上次
+            // 存下的样子，后台算完多半一模一样，这时不写，免得刚开始滚动就整页重算。
+            if model.snapshot.heroCoverSongs != payload.0
+                || model.snapshot.recentlyAddedAlbums != payload.1
+                || model.snapshot.recentSongs != payload.3 {
+                var snapshot = model.snapshot
+                snapshot.heroCoverSongs = payload.0
+                snapshot.recentlyAddedAlbums = payload.1
+                snapshot.recentSongs = payload.3
+                model.snapshot = snapshot
+            }
             model.highlightsSignature = signature
             persistInitialHomeSnapshotCache(signature: signature)
 
@@ -2074,7 +2033,9 @@ struct HomeView: View {
             }
 
             guard !Task.isCancelled, homeSnapshotSignature == signature else { return }
-            model.snapshot.forYouResults = payload.0
+            if model.snapshot.forYouResults != payload.0 {
+                model.snapshot.forYouResults = payload.0
+            }
             model.recommendationSignature = signature
             tintProvider.prepare(payload.0.map(\.song))
             persistInitialHomeSnapshotCache(signature: signature)
@@ -2422,8 +2383,6 @@ struct HomeView: View {
     @ViewBuilder
     private func todaysPickHero(pick: Song) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            homeFaceHeader(.music)
-
             HStack(alignment: .center, spacing: 14) {
                 CachedArtworkView(
                     coverRef: pick.coverArtFileName,
@@ -2511,8 +2470,6 @@ struct HomeView: View {
     /// old library-mix CTA so the user always has something to tap.
     private var libraryMixHeroFallback: some View {
         VStack(spacing: heightClass.value(14, compact: 10)) {
-            homeFaceHeader(.music)
-
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(greeting)
@@ -2644,8 +2601,6 @@ struct HomeView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: compact ? 8 : 12) {
-                homeFaceHeader(.music, onDarkSurface: true)
-
                 Spacer(minLength: 0)
 
                 Text(greeting)

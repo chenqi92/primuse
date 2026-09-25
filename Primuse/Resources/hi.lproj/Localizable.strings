@@ -1436,13 +1436,6 @@
 "home_library_mix_subtitle" = "एक यादृच्छिक गीत के साथ शुरुआत करें, फिर पूरी लाइब्रेरी को कतार में रखें।";
 "home_library_mix_title" = "अपनी संपूर्ण लाइब्रेरी से शुरुआत करें";
 "home_lyrics" = "गीत के बोल कवरेज";
-"home_mode_face_music" = "साइड ए · संगीत";
-"home_mode_face_radio" = "साइड बी · रेडियो";
-"home_mode_flip_to_music" = "फ्लिप टू साइड ए · संगीत";
-"home_mode_flip_to_radio" = "साइड बी की ओर पलटें · रेडियो";
-"home_mode_music" = "संगीत";
-"home_mode_radio" = "रेडियो";
-"home_mode_switch_a11y" = "संगीत और रेडियो के बीच स्विच करें";
 "home_no_playing" = "कुछ नहीं चल रहा";
 "home_no_scans" = "कोई स्कैन प्रगति पर नहीं है";
 "home_no_scans_short" = "निष्क्रिय";
@@ -4480,6 +4473,11 @@
 "karaoke_backing_track" = "बैकिंग ट्रैक";
 "karaoke_backing_track_playing" = "बैकिंग ट्रैक चल रहा है, इसलिए समायोजित करने को कोई वोकल नहीं है।";
 "karaoke_lyrics_from_format" = "बोल “%@” से";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "वीडियो तैयार हो रहा है…";
+"music_video_rewrite_failed" = "इस वीडियो को चलाने योग्य फ़ॉर्मैट में नहीं बदला जा सकता।";
+"music_video_preparing_percent" = "वीडियो तैयार हो रहा है %d%%";
 "karaoke_ai_title" = "AI वोकल सेपरेशन";
 "karaoke_ai_download_format" = "डाउनलोड (%@)";
 "karaoke_ai_downloading" = "डाउनलोड हो रहा है";
@@ -4533,8 +4531,6 @@
 "home_books_in_progress_title" = "सुनी जा रही किताबें";
 "home_books_open_shelf" = "बुकशेल्फ़";
 "home_radio_open_all" = "सभी स्टेशन";
-"home_spaces_intro_title" = "संगीत, रेडियो और ऑडियोबुक के अब अपने-अपने टैब हैं";
-"home_spaces_intro_body" = "हर एक याद रखता है कि आप कहाँ रुके थे, इसलिए किताब या स्टेशन अब आपकी संगीत कतार को नहीं हटाता। सेटिंग्स अब होम के ऊपर गियर में हैं।";
 "sleep_at_item_end" = "एपिसोड के अंत में रोकें";
 "sleep_at_book_end" = "किताब के अंत में रोकें";
 "smart_nudge_kind_back_to_music" = "किताब खत्म होने पर संगीत जारी रखने का सुझाव दें";
@@ -4570,3 +4566,4 @@
 "stats_spoken_word_time" = "ऑडियोबुक समय";
 "directory_tag_menu_title" = "इस फ़ोल्डर में क्या है";
 "directory_tag_hint" = "चुने गए फ़ोल्डर के पास वाले टैग पर टैप करके ऑडियोबुक चुनें, ताकि उसकी सामग्री संगीत की बजाय ऑडियोबुक शेल्फ़ में जाए।";
+"home_filter_clear_hint" = "सब कुछ दिखाने के लिए फिर से टैप करें";

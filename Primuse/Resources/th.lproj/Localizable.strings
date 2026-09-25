@@ -1436,13 +1436,6 @@
 "home_library_mix_subtitle" = "เริ่มต้นด้วยการสุ่มเพลง จากนั้นเก็บคลังเพลงทั้งหมดไว้ในคิว";
 "home_library_mix_title" = "เริ่มต้นด้วยคลังเพลงทั้งหมดของคุณ";
 "home_lyrics" = "ครอบคลุมเนื้อเพลง";
-"home_mode_face_music" = "ไซด์ เอ · เพลง";
-"home_mode_face_radio" = "ด้าน B · วิทยุ";
-"home_mode_flip_to_music" = "พลิกไปด้าน A ·ดนตรี";
-"home_mode_flip_to_radio" = "พลิกไปด้าน B · วิทยุ";
-"home_mode_music" = "ดนตรี";
-"home_mode_radio" = "วิทยุ";
-"home_mode_switch_a11y" = "สลับระหว่างเพลงและวิทยุ";
 "home_no_playing" = "ยังไม่ได้เล่นเพลง";
 "home_no_scans" = "ไม่มีการสแกนอยู่ระหว่างดำเนินการ";
 "home_no_scans_short" = "ไม่ได้ใช้งาน";
@@ -4480,6 +4473,11 @@
 "karaoke_backing_track" = "แทร็กดนตรี";
 "karaoke_backing_track_playing" = "กำลังเล่นแทร็กดนตรี จึงไม่มีเสียงร้องให้ปรับ";
 "karaoke_lyrics_from_format" = "เนื้อเพลงจาก “%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "กำลังเตรียมวิดีโอ…";
+"music_video_rewrite_failed" = "ไม่สามารถแปลงวิดีโอนี้เป็นรูปแบบที่เล่นได้";
+"music_video_preparing_percent" = "กำลังเตรียมวิดีโอ %d%%";
 "karaoke_ai_title" = "แยกเสียงร้องด้วย AI";
 "karaoke_ai_download_format" = "ดาวน์โหลด (%@)";
 "karaoke_ai_downloading" = "กำลังดาวน์โหลด";
@@ -4533,8 +4531,6 @@
 "home_books_in_progress_title" = "หนังสือที่กำลังฟัง";
 "home_books_open_shelf" = "ชั้นหนังสือ";
 "home_radio_open_all" = "สถานีทั้งหมด";
-"home_spaces_intro_title" = "เพลง วิทยุ และหนังสือเสียงมีแท็บของตัวเองแล้ว";
-"home_spaces_intro_body" = "แต่ละส่วนจำตำแหน่งที่ฟังค้างไว้ หนังสือหรือสถานีวิทยุจึงไม่ทับคิวเพลงของคุณอีก การตั้งค่าย้ายไปอยู่ที่รูปเฟืองด้านบนของหน้าหลัก";
 "sleep_at_item_end" = "หยุดเมื่อจบตอนนี้";
 "sleep_at_book_end" = "หยุดเมื่อจบเล่ม";
 "smart_nudge_kind_back_to_music" = "เสนอให้ฟังเพลงต่อเมื่อหนังสือจบ";
@@ -4570,3 +4566,4 @@
 "stats_spoken_word_time" = "เวลาฟังหนังสือเสียง";
 "directory_tag_menu_title" = "เนื้อหาในโฟลเดอร์นี้";
 "directory_tag_hint" = "แตะป้ายข้างโฟลเดอร์ที่เลือกแล้วเลือก หนังสือเสียง เพื่อให้เนื้อหาในโฟลเดอร์ไปอยู่บนชั้นหนังสือเสียงแทนที่จะปนกับเพลง";
+"home_filter_clear_hint" = "แตะอีกครั้งเพื่อแสดงทั้งหมด";

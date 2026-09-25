@@ -1337,7 +1337,10 @@ final class TVPlaybackCoordinator {
             fileSize: asset.song.fileSize
         )
         var downloadedURL: URL?
+        let status = MusicVideoPreparationStatus.shared
+        let songID = song.id
         defer {
+            status.finish(songID: songID)
             if let downloadedURL {
                 _ = try? TVDecodedTemporaryFilePolicy.removeIfManaged(
                     downloadedURL,
@@ -1350,6 +1353,7 @@ final class TVPlaybackCoordinator {
             if let cached = await MusicVideoCompatibilityConverter.shared.cachedURL(identity: identity) {
                 playableURL = cached
             } else {
+                status.begin(songID: songID)
                 plog("🎬 TV play: MV '\(asset.fileExtension)' → download and rewrite into MP4")
                 let original = try await downloadToTemp(
                     song: asset.song,
@@ -1363,7 +1367,10 @@ final class TVPlaybackCoordinator {
                 try ensureCurrent(requestID, store: store)
                 playableURL = try await MusicVideoCompatibilityConverter.shared.playableURL(
                     for: original,
-                    identity: identity
+                    identity: identity,
+                    progress: { fraction in
+                        Task { @MainActor in status.update(songID: songID, fraction: fraction) }
+                    }
                 )
             }
             try ensureCurrent(requestID, store: store)

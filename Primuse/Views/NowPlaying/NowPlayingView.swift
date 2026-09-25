@@ -3901,6 +3901,9 @@ struct NowPlayingView: View {
                 isSource: !isLyricsCompactArtworkVisible
             )
             .frame(width: size, height: size)
+            .overlay(alignment: .bottom) {
+                MusicVideoPreparationBadge(songID: player.currentSong?.id)
+            }
             #if os(iOS)
             .modifier(
                 NowPlayingAlbumTransitionSourceModifier(
@@ -9740,6 +9743,34 @@ enum NowPlayingArrangement: Equatable {
     case split(canSplit: Bool)
     /// 桌面半折:折痕的上下沿(播放页自己的坐标)。
     case tabletop(foldMinY: CGFloat, foldMaxY: CGFloat)
+}
+
+/// Over the artwork while a music video in a container AVPlayer cannot open
+/// is fetched and rewritten into MP4 (first play only). Reads the status
+/// itself so its progress updates never re-render the player.
+struct MusicVideoPreparationBadge: View {
+    let songID: String?
+
+    var body: some View {
+        if let text = MusicVideoPreparationStatus.shared.label(for: songID) {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+                Text(text)
+                    .font(.caption.weight(.medium))
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.black.opacity(0.55), in: Capsule())
+            .padding(10)
+            .transition(.opacity)
+            .accessibilityElement(children: .combine)
+        }
+    }
 }
 
 /// `sheet(item:)` needs an identifiable value; a station id is one.

@@ -1,5 +1,8 @@
 import Foundation
 import PrimuseKit
+#if os(iOS)
+import UIKit
+#endif
 
 /// Thread-safe file logger that writes to the app's Caches directory.
 /// The log file URL is exposed via `logFileURL` for sharing/diagnostics
@@ -328,6 +331,53 @@ func plog(_ message: String, file: String = #file, line: Int = #line) {
 }
 
 #if DEBUG
+#if os(iOS)
+/// 掉帧记录：1 秒级的主线程探测看不见滚动时几十毫秒的卡顿。显示链接每帧回调一次，
+/// 两帧间隔超过预期的 1.5 倍且不短于 50ms 就算一次掉帧，当场记一行（每 10 秒最多
+/// 20 行，免得刷屏），带上时间戳好和同一时刻的其它日志对上。只在诊断模式里跑。
+@MainActor
+final class FrameHitchMonitor: NSObject {
+    static let shared = FrameHitchMonitor()
+
+    private var link: CADisplayLink?
+    private var lastTimestamp: CFTimeInterval?
+    private var windowStart: CFTimeInterval = 0
+    private var loggedInWindow = 0
+
+    func start() {
+        guard link == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(resetTimestamp),
+            name: UIApplication.willEnterForegroundNotification, object: nil
+        )
+    }
+
+    /// 回到前台前的那段间隔是挂起，不是掉帧。
+    @objc private func resetTimestamp() {
+        lastTimestamp = nil
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        defer { lastTimestamp = link.timestamp }
+        guard let lastTimestamp, UIApplication.shared.applicationState == .active else { return }
+        let gap = link.timestamp - lastTimestamp
+        let expected = max(link.targetTimestamp - link.timestamp, 1.0 / 120)
+        guard gap >= 0.05, gap > expected * 1.5, gap < 5 else { return }
+        RuntimeDiagnosticsSampler.shared.recordHitch(gap)
+        if link.timestamp - windowStart >= 10 {
+            windowStart = link.timestamp
+            loggedInWindow = 0
+        }
+        guard loggedInWindow < 20 else { return }
+        loggedInWindow += 1
+        plog(String(format: "🩺 frame hitch %.0fms", gap * 1000))
+    }
+}
+#endif
+
 /// 诊断日志模式下的运行状态采样, 只在 Debug 构建里存在。
 ///
 /// 每 10 秒一行 `🩺`: CPU、线程数、内存占用、磁盘读写增量、唤醒次数、主线程最长延迟
@@ -345,6 +395,8 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
     private var probeSentAt: TimeInterval?
     private var maxMainLatency: TimeInterval = 0
     private var stallCount = 0
+    private var hitchCount = 0
+    private var worstHitch: TimeInterval = 0
     private var reportedCounterCheck = false
 
     private struct Sample {
@@ -376,6 +428,17 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
             probe.setEventHandler { [weak self] in self?.probeMainThread() }
             probe.resume()
             probeTimer = probe
+        }
+        #if os(iOS)
+        Task { @MainActor in FrameHitchMonitor.shared.start() }
+        #endif
+    }
+
+    /// 掉帧由主线程上的显示链接报过来，在采样行里汇总。
+    func recordHitch(_ duration: TimeInterval) {
+        queue.async { [self] in
+            hitchCount += 1
+            worstHitch = max(worstHitch, duration)
         }
     }
 
@@ -411,6 +474,8 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
             self.previous = current
             self.maxMainLatency = 0
             self.stallCount = 0
+            self.hitchCount = 0
+            self.worstHitch = 0
         }
         guard let previous = self.previous else { return }
         let wall = current.uptime - previous.uptime
@@ -440,6 +505,9 @@ final class RuntimeDiagnosticsSampler: @unchecked Sendable {
         parts.append(String(format: "mainMax=%.0fms", maxMainLatency * 1000))
         if stallCount > 0 {
             parts.append("stalls=\(stallCount)")
+        }
+        if hitchCount > 0 {
+            parts.append(String(format: "hitches=%d worstHitch=%.0fms", hitchCount, worstHitch * 1000))
         }
         if let sentAt = probeSentAt, current.uptime - sentAt >= 1 {
             parts.append(String(format: "mainBlockedNow=%.1fs", current.uptime - sentAt))
