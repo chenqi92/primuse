@@ -188,6 +188,76 @@ private struct HomeDeferredSection<Content: View>: View {
     }
 }
 
+/// 首页区块的两栏排布(iPhone Duo 内屏横握):有内容的区块按顺序交替放进左右两栏
+/// (`WideCanvasColumnsPolicy.homeColumns`),两栏各占一半宽度、各自从上往下排,区块贴各栏的前沿。
+/// 单栏时首页用的是同间距的 `VStackLayout`,两者经 `AnyLayout` 互换,区块的视图身份不变。
+private struct HomeTwoColumnSectionsLayout: Layout {
+    var spacing: CGFloat
+
+    private struct Placement {
+        var index: Int
+        var origin: CGPoint
+        var size: CGSize
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let columnWidth = columnWidth(for: proposal.width, subviews: subviews)
+        let placements = placements(columnWidth: columnWidth, subviews: subviews)
+        let height = placements.map { $0.origin.y + $0.size.height }.max() ?? 0
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? columnWidth * 2
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let columnWidth = columnWidth(for: bounds.width, subviews: subviews)
+        let placed = placements(columnWidth: columnWidth, subviews: subviews)
+        var placedIndices = Set<Int>()
+        for placement in placed {
+            placedIndices.insert(placement.index)
+            subviews[placement.index].place(
+                at: CGPoint(x: bounds.minX + placement.origin.x, y: bounds.minY + placement.origin.y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: columnWidth, height: placement.size.height)
+            )
+        }
+        // 没内容(量出来零高度)的区块不占位置,放在左上角、按零尺寸摆。
+        for index in subviews.indices where !placedIndices.contains(index) {
+            subviews[index].place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading, proposal: .zero)
+        }
+    }
+
+    /// 每栏的宽度:整行的一半。没给宽度时(求理想尺寸)取各区块理想宽度里最宽的。
+    private func columnWidth(for width: CGFloat?, subviews: Subviews) -> CGFloat {
+        if let width, width.isFinite {
+            return max(0, width / 2)
+        }
+        return subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+    }
+
+    private func placements(columnWidth: CGFloat, subviews: Subviews) -> [Placement] {
+        let proposal = ProposedViewSize(width: columnWidth, height: nil)
+        let visible: [(index: Int, size: CGSize)] = subviews.indices.compactMap { index in
+            let size = subviews[index].sizeThatFits(proposal)
+            return size.height > 0 ? (index, size) : nil
+        }
+        let columns = WideCanvasColumnsPolicy.homeColumns(sectionCount: visible.count)
+        var result: [Placement] = []
+        for (column, members) in [columns.leading, columns.trailing].enumerated() {
+            var y: CGFloat = 0
+            for member in members {
+                let item = visible[member]
+                result.append(Placement(
+                    index: item.index,
+                    origin: CGPoint(x: CGFloat(column) * columnWidth, y: y),
+                    size: item.size
+                ))
+                y += item.size.height + spacing
+            }
+        }
+        return result
+    }
+}
+
 /// 首页排版拖动时显示的提示胶囊。
 ///
 /// 预览在自己的视图图里渲染,这里只用文字和字形,不读任何环境对象。
@@ -555,6 +625,10 @@ struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// iPhone 才在宽画布(Duo 内屏横握)上把区块排成两栏,iPad 保持原样。
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiom
+    /// 首页滚动区的尺寸,决定要不要排成两栏。
+    @State private var homeCanvasSize: CGSize = .zero
     @State private var showUpdateSheet: Bool = false
     @State private var selectedHomeRadioID: String?
     @State private var pendingInsecureHomeStation: RadioStation?
@@ -602,7 +676,19 @@ struct HomeView: View {
     /// 搬进一个只有四百来点高的视口 —— 同一个 App 在两台手机上长成两副样子。
     /// 常规宽度还得配上常规高度才算 iPad。
     private var usesPadMetrics: Bool {
-        sizeClass == .regular && !heightClass.isCompact
+        sizeClass == .regular && !heightClass.isCompact && !usesTwoColumnHome
+    }
+
+    /// 宽画布(Duo 内屏横握)上区块排成两栏,每栏按手机的尺寸取值 —— 像「音乐」那样,
+    /// 外屏的竖向单栏在内屏变宽时重排,内容与顺序不变。编辑态始终单栏。
+    private var usesTwoColumnHome: Bool {
+        !editorMode && WideCanvasColumnsPolicy.usesTwoColumns(
+            isPhone: isPhoneIdiom,
+            isRegularWidth: sizeClass == .regular,
+            isCompactHeight: heightClass.isCompact,
+            width: Double(homeCanvasSize.width),
+            height: Double(homeCanvasSize.height)
+        )
     }
 
     private var observedHomeContent: some View {
@@ -643,6 +729,11 @@ struct HomeView: View {
                 // 从全部中段的「全部」「书架」筛过去时,筛出来的内容从顶上开始看。
                 proxy.scrollTo(Self.homeTopAnchor, anchor: .top)
             }
+        }
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            homeCanvasSize = size
         }
         .task {
             await refreshHomeSnapshotAfterPresentationIfNeeded()
@@ -948,10 +1039,27 @@ struct HomeView: View {
                 HomeBooksInProgressStrip(minimumCount: 2, openSpace: openSpace)
             }
 
+            homeSections
+        }
+    }
+
+    /// 首页各区块。宽画布(Duo 内屏横握)上排成两栏:按顺序交替放进左右两栏,各栏按紧凑宽度(手机)排版。
+    ///
+    /// 单栏与两栏用 `AnyLayout` 互换而不是换一棵视图树:开合、转屏时区块保持原来的身份,
+    /// 从原位置滑到新位置,横滑区块滚到的位置、长按菜单的宿主都留着。
+    private var homeSections: some View {
+        let twoColumns = usesTwoColumnHome
+        let layout = twoColumns
+            ? AnyLayout(HomeTwoColumnSectionsLayout(spacing: 24))
+            : AnyLayout(VStackLayout(alignment: .leading, spacing: editorMode ? 12 : 24))
+        return layout {
             ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
                 homeSectionRow(section)
             }
         }
+        .environment(\.horizontalSizeClass, twoColumns ? .compact : sizeClass)
+        // iPhone Duo 开合、内屏转屏时单栏 ⇄ 两栏:各区块从原位置滑到新位置。
+        .pmLayoutSwitchAnimation(twoColumns)
     }
 
     /// 分区本身经 `HomeDeferredSection` 推迟构造，别直接内联回来（见那个类型的说明）；
