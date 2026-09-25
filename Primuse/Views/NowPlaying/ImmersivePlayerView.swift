@@ -20,9 +20,10 @@ struct ImmersivePlayerView: View {
     let onDismiss: () -> Void
     let onMinimize: () -> Void
     let onShowQueue: () -> Void
-    /// 系统竖栏那一侧的安全区(iPhone Duo 等)。全屏页挂在忽略安全区的播放页里,自己量到的左右安全区是 0,
-    /// 竖栏那条安全区里还有前置摄像头,由播放页按窗口实际的安全区交进来;没有竖栏的设备为 0,排版不变。
-    var verticalBarInsets = EdgeInsets()
+    /// 遮挡区(iPhone Duo 外屏竖排的状态栏与前置摄像头),用全屏页自己的坐标,由播放页量好交进来。
+    /// 全屏播放是沉浸式、不滚动的界面,按整屏居中,只让开这一块:顶部控件排在遮挡那一侧让开,
+    /// 舞台内容只有上沿落进遮挡区那段高度时才在那一侧让。没有竖栏的设备为空,排版不变。
+    var occlusions: [OcclusionAvoidancePolicy.Region] = []
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(AudioVisualizerService.self) private var visualizer
@@ -70,8 +71,10 @@ struct ImmersivePlayerView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let safeArea = stageSafeArea(geometry.safeAreaInsets)
+            let safeArea = stageSafeArea(geometry.safeAreaInsets, size: geometry.size)
             let metrics = ImmersiveStageMetrics(size: geometry.size, safeArea: safeArea)
+            // 控件按真实安全区排(顶上那排另外在遮挡那一侧让开),舞台内容可能被推到遮挡区下面。
+            let chromeMetrics = ImmersiveStageMetrics(size: geometry.size, safeArea: geometry.safeAreaInsets)
 
             ZStack {
                 stage(metrics: metrics)
@@ -107,7 +110,7 @@ struct ImmersivePlayerView: View {
                 }
 
                 if showsChrome && !isAmbientRest {
-                    chrome(metrics: metrics)
+                    chrome(metrics: chromeMetrics)
                         .offset(y: showsChrome ? 0 : 8)
                         .transition(.opacity.combined(with: .offset(y: 8)))
                 }
@@ -325,12 +328,20 @@ struct ImmersivePlayerView: View {
     // MARK: - 控件
 
     private func chrome(metrics: ImmersiveStageMetrics) -> some View {
-        VStack(spacing: 0) {
+        let topInset = topChromeInset(metrics)
+        // 顶部这排圆钮只在遮挡区那一侧让开它(整屏居中的界面不为整条竖栏让位)。
+        let clearance = OcclusionAvoidancePolicy.sideClearance(
+            regions: occlusions,
+            bandMinY: Double(topInset),
+            bandMaxY: Double(topInset) + 44,
+            width: Double(metrics.size.width)
+        )
+        return VStack(spacing: 0) {
             // 左右安全区按侧取值:折叠屏的系统竖栏只在一侧,另一侧不该陪着空出同样宽。
             topChrome(metrics: metrics)
-            .padding(.leading, max(metrics.safeArea.leading + 16, 20))
-            .padding(.trailing, max(metrics.safeArea.trailing + 16, 20))
-            .padding(.top, topChromeInset(metrics))
+            .padding(.leading, max(metrics.safeArea.leading + 16, 20, CGFloat(clearance.leading) + 12))
+            .padding(.trailing, max(metrics.safeArea.trailing + 16, 20, CGFloat(clearance.trailing) + 12))
+            .padding(.top, topInset)
 
             if let error = player.lastPlaybackError {
                 playbackErrorBanner(error)
@@ -368,13 +379,34 @@ struct ImmersivePlayerView: View {
             .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    /// 左右各取自己量到的与播放页交进来的竖栏安全区中较大的那个。
-    private func stageSafeArea(_ measured: EdgeInsets) -> EdgeInsets {
-        EdgeInsets(
+    /// 舞台的安全区。整屏居中:舞台内容上沿落进遮挡区那段高度时,把上沿推到遮挡区下面,
+    /// 两侧都不让;只有推下去要吃掉三成以上的高度时,才退回在遮挡那一侧让开。
+    private func stageSafeArea(_ measured: EdgeInsets, size: CGSize) -> EdgeInsets {
+        guard !occlusions.isEmpty else { return measured }
+        let probe = ImmersiveStageMetrics(size: size, safeArea: measured)
+        let contentTop = probe.stageContentTopInset(isTV: false)
+        let clearance = OcclusionAvoidancePolicy.sideClearance(
+            regions: occlusions,
+            bandMinY: Double(contentTop),
+            bandMaxY: Double(size.height),
+            width: Double(size.width)
+        )
+        guard !clearance.isZero else { return measured }
+        let pushedTop = CGFloat(OcclusionAvoidancePolicy.lowestEdge(of: occlusions)) + 8
+        if pushedTop - contentTop <= size.height * 0.3 {
+            // 上沿 = max(安全区上沿, 保底值) + 多留的那段;把安全区上沿抬到让上沿正好落在遮挡区下面。
+            return EdgeInsets(
+                top: max(measured.top, pushedTop - probe.stageContentTopExtra(isTV: false)),
+                leading: measured.leading,
+                bottom: measured.bottom,
+                trailing: measured.trailing
+            )
+        }
+        return EdgeInsets(
             top: measured.top,
-            leading: max(measured.leading, verticalBarInsets.leading),
+            leading: max(measured.leading, CGFloat(clearance.leading)),
             bottom: measured.bottom,
-            trailing: max(measured.trailing, verticalBarInsets.trailing)
+            trailing: max(measured.trailing, CGFloat(clearance.trailing))
         )
     }
 

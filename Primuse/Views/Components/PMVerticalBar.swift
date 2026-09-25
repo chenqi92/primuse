@@ -1,4 +1,5 @@
 import SwiftUI
+import PrimuseKit
 
 /// iOS 27.1 起,iPhone Duo 这类设备会把状态栏、导航栏按钮、标签栏竖排进屏幕一侧的一条竖栏
 /// (系统叫 vertical bar):那一侧多出一条安全区,顶部安全区变成 0。自绘的栏(极简的 tab 条)
@@ -32,4 +33,36 @@ enum PMReservedRegions {
         #endif
         return []
     }
+
+    /// 正在生效的遮挡区(竖排的状态栏、前置摄像头;灵动岛展开实时活动时会变大),用 proxy 自己的坐标。
+    /// 播放页这类整屏居中的界面只让开这一块,见 `OcclusionAvoidancePolicy`。Xcode 27.0 构建时为空。
+    /// 调试构建可以用 `PRIMUSE_DEBUG_OCCLUSION=trailing,84,320` 叠一块假的(模拟实时活动、iPad 取证)。
+    static func activeOcclusions(in proxy: GeometryProxy) -> [OcclusionAvoidancePolicy.Region] {
+        var regions: [OcclusionAvoidancePolicy.Region] = []
+        #if os(iOS) && canImport(SwiftUI, _version: 8.0.85)
+        if #available(iOS 27.1, *) {
+            regions = proxy.reservedRegions(kind: .occlusion)
+                .filter { $0.isActive }
+                .map {
+                    OcclusionAvoidancePolicy.Region(
+                        x: Double($0.frame.minX),
+                        y: Double($0.frame.minY),
+                        width: Double($0.frame.width),
+                        height: Double($0.frame.height)
+                    )
+                }
+        }
+        #endif
+        #if DEBUG
+        regions += OcclusionAvoidancePolicy.debugRegions(
+            from: debugOcclusionSpecification,
+            width: Double(proxy.size.width)
+        )
+        #endif
+        return regions
+    }
+
+    #if DEBUG
+    private static let debugOcclusionSpecification = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_OCCLUSION"]
+    #endif
 }

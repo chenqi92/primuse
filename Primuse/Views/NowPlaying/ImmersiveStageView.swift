@@ -249,14 +249,7 @@ struct ImmersiveStageView<Artwork: View>: View {
     }
 
     private var topInset: CGFloat {
-        switch metrics.layout {
-        case .phonePortrait:
-            max(metrics.safeArea.top, metrics.s(54)) + metrics.s(30)
-        case .phoneLandscape:
-            max(metrics.safeArea.top, metrics.s(20)) + metrics.s(18)
-        case .wide:
-            max(metrics.safeArea.top, metrics.s(platform == .tvOS ? 76 : 48))
-        }
+        metrics.stageContentTopInset(isTV: platform == .tvOS)
     }
 
     private var bottomInset: CGFloat {

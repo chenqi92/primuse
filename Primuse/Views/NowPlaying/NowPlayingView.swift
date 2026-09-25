@@ -1209,6 +1209,85 @@ struct NowPlayingView: View {
         #endif
     }
 
+    /// 系统竖栏的设备(iPhone Duo)上,播放页这种沉浸式、不滚动的界面按整屏居中,只让开遮挡区
+    /// (竖排的状态栏与前置摄像头),见 HIG「Designing for iPhone Duo」。其它设备与 Xcode 27.0 构建为 false,
+    /// 照旧按安全区排。
+    private var centersOnFullScreen: Bool {
+        #if os(iOS)
+        verticalBarEdge != nil
+        #else
+        false
+        #endif
+    }
+
+    /// 竖屏布局左右各让多少。不居中时就是安全区(按侧取值);整屏居中时:
+    /// 封面宽度不超过「两边都不碰遮挡区」的上限,封面下面几行只在灵动岛长到它们那段高度时才两边一起让,
+    /// 歌词模式的歌词与顶栏是会滚动 / 贴边的内容,在遮挡那一侧让开。
+    private func portraitInsets(
+        geo: GeometryProxy,
+        safeInsets: EdgeInsets,
+        occlusions: [OcclusionAvoidancePolicy.Region]
+    ) -> NowPlayingPortraitInsets {
+        guard centersOnFullScreen else {
+            return NowPlayingPortraitInsets(
+                containerLeading: safeInsets.leading,
+                containerTrailing: safeInsets.trailing,
+                artworkSize: min(
+                    geo.size.width - safeInsets.leading - safeInsets.trailing - 60,
+                    geo.size.height * 0.38
+                ),
+                mediaWidthLimit: .infinity,
+                rows: 0,
+                lyricsLeading: 0,
+                lyricsTrailing: 0
+            )
+        }
+        let width = Double(geo.size.width)
+        let height = Double(geo.size.height)
+        // 把手那一段:上安全区 + 6 + 5 + 10。
+        let artworkTop = Double(topSafeArea) + 21
+        let preferred = min(geo.size.width - 60, geo.size.height * 0.38)
+        let limit = CGFloat(OcclusionAvoidancePolicy.centeredWidthLimit(
+            regions: occlusions,
+            bandMinY: artworkTop,
+            bandMaxY: artworkTop + Double(preferred),
+            width: width,
+            gap: 16
+        ))
+        let artworkSize = max(0, min(preferred, limit))
+        let rows = OcclusionAvoidancePolicy.sideClearance(
+            regions: occlusions,
+            bandMinY: artworkTop + Double(artworkSize),
+            bandMaxY: height,
+            width: width
+        ).larger
+        let lyrics = OcclusionAvoidancePolicy.sideClearance(
+            regions: occlusions,
+            bandMinY: 0,
+            bandMaxY: height,
+            width: width
+        )
+        let topRow = OcclusionAvoidancePolicy.sideClearance(
+            regions: occlusions,
+            bandMinY: 0,
+            bandMaxY: Double(max(topSafeArea, 10) + 8 + 44),
+            width: width
+        )
+        let lowest = OcclusionAvoidancePolicy.lowestEdge(of: occlusions)
+        return NowPlayingPortraitInsets(
+            containerLeading: 0,
+            containerTrailing: 0,
+            artworkSize: artworkSize,
+            mediaWidthLimit: limit,
+            rows: CGFloat(rows),
+            lyricsLeading: CGFloat(lyrics.leading),
+            lyricsTrailing: CGFloat(lyrics.trailing),
+            immersiveContentTop: lowest > 0 ? CGFloat(lowest) + 8 : 0,
+            immersiveTopRowLeading: CGFloat(topRow.leading),
+            immersiveTopRowTrailing: CGFloat(topRow.trailing)
+        )
+    }
+
     /// iPad 横屏(regular size class + 宽 > 高)启用左右双栏 —— 左封面 + 控件,
     /// 右常驻歌词。其它(iPhone / iPad 竖屏 / 分屏小窗 compact)还走原来的
     /// 上下结构,showLyrics 切歌词 / 封面模式。
@@ -1315,11 +1394,10 @@ struct NowPlayingView: View {
     var body: some View {
         GeometryReader { geo in
             let safeInsets = resolvedSafeAreaInsets(for: geo)
-            // 竖屏布局左右按侧让出安全区(折叠屏的系统竖栏只在一侧),封面按让完之后的宽度取值。
-            let artSize = min(
-                geo.size.width - safeInsets.leading - safeInsets.trailing - 60,
-                geo.size.height * 0.38
-            )
+            // 系统竖栏的设备(iPhone Duo)上播放页整屏居中,只让开遮挡区;其它设备这里恒为空。
+            let occlusions = centersOnFullScreen ? PMReservedRegions.activeOcclusions(in: geo) : []
+            let portraitLayoutInsets = portraitInsets(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
+            let artSize = portraitLayoutInsets.artworkSize
             let verticalDismissStartMaximumY = showLyrics
                 ? CGFloat(NowPlayingDismissGesturePolicy.topStartMaximumY)
                 : max(
@@ -1390,13 +1468,14 @@ struct NowPlayingView: View {
                         // Debug 构建下这里会把主线程的栈吃满（见那个类型的说明）。
                         if player.isLiveRadio {
                             NowPlayingDeferredContent {
-                                liveRadioLayout(geo: geo, safeInsets: safeInsets)
+                                liveRadioLayout(geo: geo, safeInsets: safeInsets, occlusions: occlusions)
                             }
                         } else if usesCompactLandscapeSkeleton {
                             NowPlayingDeferredContent {
                                 compactLandscapePlayerLayout(
                                     geo: geo,
-                                    safeInsets: safeInsets
+                                    safeInsets: safeInsets,
+                                    occlusions: occlusions
                                 )
                             }
                         } else {
@@ -1408,7 +1487,7 @@ struct NowPlayingView: View {
                                     }
                                 } else {
                                     NowPlayingDeferredContent {
-                                        portraitLayout(geo: geo, artSize: artSize, safeInsets: safeInsets)
+                                        portraitLayout(geo: geo, artSize: artSize, insets: portraitLayoutInsets)
                                     }
                                 }
                             case .immersiveLyrics:
@@ -1424,13 +1503,14 @@ struct NowPlayingView: View {
                                 switch playerLayoutMode {
                                 case .portrait:
                                     NowPlayingDeferredContent {
-                                        portraitLayout(geo: geo, artSize: artSize, safeInsets: safeInsets)
+                                        portraitLayout(geo: geo, artSize: artSize, insets: portraitLayoutInsets)
                                     }
                                 case .compactLandscape:
                                     NowPlayingDeferredContent {
                                         compactLandscapePlayerLayout(
                                             geo: geo,
-                                            safeInsets: safeInsets
+                                            safeInsets: safeInsets,
+                                            occlusions: occlusions
                                         )
                                     }
                                 case .wideLandscape:
@@ -1472,9 +1552,7 @@ struct NowPlayingView: View {
                         onDismiss: dismissFullscreenPlayer,
                         onMinimize: minimizeFullscreenPlayer,
                         onShowQueue: { showQueue = true },
-                        verticalBarInsets: verticalBarEdge == nil
-                            ? EdgeInsets()
-                            : EdgeInsets(top: 0, leading: safeInsets.leading, bottom: 0, trailing: safeInsets.trailing)
+                        occlusions: occlusions
                     )
                     .zIndex(100)
                 }
@@ -1811,8 +1889,20 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func liveRadioLayout(geo: GeometryProxy, safeInsets: EdgeInsets) -> some View {
-        let artworkSize = min(geo.size.width * (geo.size.width > geo.size.height ? 0.30 : 0.72), 430)
+    private func liveRadioLayout(
+        geo: GeometryProxy,
+        safeInsets: EdgeInsets,
+        occlusions: [OcclusionAvoidancePolicy.Region] = []
+    ) -> some View {
+        let preferredArtworkSize = min(geo.size.width * (geo.size.width > geo.size.height ? 0.30 : 0.72), 430)
+        // 整屏居中(iPhone Duo)时台标在遮挡区那段高度里两边都不碰它;其它设备不设限。
+        let artworkSize = min(preferredArtworkSize, CGFloat(OcclusionAvoidancePolicy.centeredWidthLimit(
+            regions: occlusions,
+            bandMinY: Double(topSafeArea) + 11,
+            bandMaxY: Double(topSafeArea + 11 + preferredArtworkSize),
+            width: Double(geo.size.width),
+            gap: 16
+        )))
 
         VStack(spacing: 0) {
             Capsule()
@@ -1935,8 +2025,9 @@ struct NowPlayingView: View {
             .padding(.bottom, max(bottomSafeArea, 16))
         }
         // 侧边安全区按侧取值，内容不会压到侧置系统控件或摄像头区域下面。
-        .padding(.leading, safeInsets.leading)
-        .padding(.trailing, safeInsets.trailing)
+        // 整屏居中(iPhone Duo)时两侧都是 0,只由台标让开遮挡区。
+        .padding(.leading, centersOnFullScreen ? 0 : safeInsets.leading)
+        .padding(.trailing, centersOnFullScreen ? 0 : safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -2022,10 +2113,31 @@ struct NowPlayingView: View {
     /// 和传输键 —— 面板压在歌词上，圆钮排里的锁定 / 队列 / 投放 / 全屏也都没了。
     private func compactLandscapePlayerLayout(
         geo: GeometryProxy,
-        safeInsets: EdgeInsets
+        safeInsets windowInsets: EdgeInsets,
+        occlusions: [OcclusionAvoidancePolicy.Region] = []
     ) -> some View {
+        // 系统竖栏的设备(iPhone Duo 外屏横握)上两栏整屏居中:两侧只留固定内边距,顶部圆钮排
+        // 与歌词栏顶端单独让开遮挡区;封面落进遮挡区时策略会退回按安全区让位。其它设备原样。
+        let safeInsets = compactLandscapeSafeInsets(geo: geo, windowInsets: windowInsets, occlusions: occlusions)
         let metrics = compactLandscapeMetrics(geo: geo, safeInsets: safeInsets)
         let lyricsMetrics = compactLandscapeLyricsMetrics(geo: geo, safeInsets: safeInsets)
+        let chromeClearance = OcclusionAvoidancePolicy.sideClearance(
+            regions: occlusions,
+            bandMinY: metrics.topInset,
+            bandMaxY: metrics.topInset + metrics.chromeRowHeight,
+            width: Double(geo.size.width)
+        )
+        let chromeLeading = chromeClearance.leading > 0
+            ? max(0, CGFloat(chromeClearance.leading + metrics.chromeBottomSpacing - metrics.leadingInset))
+            : 0
+        let chromeTrailing = chromeClearance.trailing > 0
+            ? max(0, CGFloat(chromeClearance.trailing + metrics.chromeBottomSpacing - metrics.trailingInset))
+            : 0
+        let lyricsPaneTop = compactLandscapeLyricsPaneTopClearance(
+            occlusions: occlusions,
+            metrics: metrics,
+            lyricsMetrics: lyricsMetrics
+        )
         // 两端的随机 / 循环摆不摆得下，两种模式的右栏宽度不同，各算各的。
         let showsEdgeToggles = showLyrics
             ? lyricsMetrics.showsEdgeToggles
@@ -2038,12 +2150,18 @@ struct NowPlayingView: View {
                 Color.clear
                     .frame(height: CGFloat(metrics.chromeRowHeight + metrics.chromeBottomSpacing))
 
-                compactLandscapeColumns(metrics: metrics, lyricsMetrics: lyricsMetrics)
+                compactLandscapeColumns(
+                    metrics: metrics,
+                    lyricsMetrics: lyricsMetrics,
+                    lyricsPaneTopClearance: lyricsPaneTop
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(!isCompactLandscapeLocked)
 
             compactLandscapeChromeLayer
+                .padding(.leading, chromeLeading)
+                .padding(.trailing, chromeTrailing)
         }
         .padding(.leading, CGFloat(metrics.leadingInset))
         .padding(.trailing, CGFloat(metrics.trailingInset))
@@ -2057,6 +2175,49 @@ struct NowPlayingView: View {
             isCompactLandscapeLocked = false
             compactLandscapeHidesModeToggles = false
         }
+    }
+
+    private func compactLandscapeSafeInsets(
+        geo: GeometryProxy,
+        windowInsets: EdgeInsets,
+        occlusions: [OcclusionAvoidancePolicy.Region]
+    ) -> EdgeInsets {
+        guard centersOnFullScreen else { return windowInsets }
+        let sides = NowPlayingCompactLandscapeLayoutPolicy.centeredSideSafeArea(
+            viewportWidth: Double(geo.size.width),
+            viewportHeight: Double(geo.size.height),
+            safeAreaTop: Double(windowInsets.top),
+            safeAreaBottom: Double(windowInsets.bottom),
+            safeAreaLeading: Double(windowInsets.leading),
+            safeAreaTrailing: Double(windowInsets.trailing),
+            occlusions: occlusions,
+            prefersVolumeBar: showsPlayerVolumeBar,
+            textScale: compactLandscapeTextScale
+        )
+        return EdgeInsets(
+            top: windowInsets.top,
+            leading: CGFloat(sides.leading),
+            bottom: windowInsets.bottom,
+            trailing: CGFloat(sides.trailing)
+        )
+    }
+
+    /// 歌词栏在遮挡区下面才开始:只在它横向碰到遮挡区时把栏顶往下挪到遮挡区下沿。
+    private func compactLandscapeLyricsPaneTopClearance(
+        occlusions: [OcclusionAvoidancePolicy.Region],
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
+        lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+    ) -> CGFloat {
+        guard !occlusions.isEmpty else { return 0 }
+        let paneTop = metrics.topInset + metrics.chromeRowHeight + metrics.chromeBottomSpacing
+        let paneMinX = metrics.leadingInset
+        let paneMaxX = paneMinX + lyricsMetrics.lyricsPaneWidth
+        let bottom = occlusions
+            .filter { $0.maxX > paneMinX && $0.minX < paneMaxX && $0.maxY > paneTop }
+            .map(\.maxY)
+            .max()
+        guard let bottom else { return 0 }
+        return CGFloat(bottom + metrics.chromeBottomSpacing - paneTop)
     }
 
     private func compactLandscapeMetrics(
@@ -2107,7 +2268,8 @@ struct NowPlayingView: View {
 
     private func compactLandscapeColumns(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
-        lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
+        lyricsMetrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics,
+        lyricsPaneTopClearance: CGFloat = 0
     ) -> some View {
         let leftColumnWidth = CGFloat(
             showLyrics ? lyricsMetrics.lyricsPaneWidth : metrics.artworkColumnWidth
@@ -2118,6 +2280,7 @@ struct NowPlayingView: View {
             ZStack {
                 if showLyrics {
                     compactLandscapeLyricsPane(metrics: lyricsMetrics)
+                        .padding(.top, lyricsPaneTopClearance)
                         .transition(lyricsPanelTransition)
                 } else {
                     compactLandscapeArtwork(metrics: metrics)
@@ -2871,14 +3034,31 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private func immersiveLandscapeLyricsLayout(geo: GeometryProxy) -> some View {
-        let safeInsets = resolvedSafeAreaInsets(for: geo)
+        let windowInsets = resolvedSafeAreaInsets(for: geo)
+        // 整屏居中(iPhone Duo 外屏横握):两侧不为竖栏让位,歌词与封面从遮挡区下沿以下开始,
+        // 顶上那排圆钮在遮挡那一侧让开。其它设备照旧按安全区。
+        let occlusions = centersOnFullScreen ? PMReservedRegions.activeOcclusions(in: geo) : []
+        let topRow = OcclusionAvoidancePolicy.sideClearance(
+            regions: occlusions,
+            bandMinY: 0,
+            bandMaxY: Double(max(topSafeArea, 10) + 44),
+            width: Double(geo.size.width)
+        )
+        let lowest = OcclusionAvoidancePolicy.lowestEdge(of: occlusions)
+        let safeInsets = centersOnFullScreen
+            ? EdgeInsets(top: windowInsets.top, leading: 0, bottom: windowInsets.bottom, trailing: 0)
+            : windowInsets
+        let contentTop: CGFloat = lowest > 0 ? CGFloat(lowest) + 8 : 0
         let playerWidth = min(max(geo.size.width * 0.34, 260), 410)
-        let artSize = min(max(0, playerWidth - 52), geo.size.height * 0.56)
+        let artSize = min(max(0, playerWidth - 52), (geo.size.height - contentTop) * 0.56)
 
         immersiveLyricsExperience(
             isLandscape: true,
             leadingSafeInset: safeInsets.leading,
-            trailingSafeInset: safeInsets.trailing
+            trailingSafeInset: safeInsets.trailing,
+            topRowLeadingInset: centersOnFullScreen ? CGFloat(topRow.leading) : nil,
+            topRowTrailingInset: centersOnFullScreen ? CGFloat(topRow.trailing) : nil,
+            contentTopInset: contentTop
         ) {
             HStack(spacing: 28) {
                 VStack(spacing: 18) {
@@ -2970,11 +3150,11 @@ struct NowPlayingView: View {
     // MARK: - 原 portrait layout (iPhone + iPad 竖屏 + 分屏小窗)
 
     @ViewBuilder
-    private func portraitLayout(geo: GeometryProxy, artSize: CGFloat, safeInsets: EdgeInsets) -> some View {
+    private func portraitLayout(geo: GeometryProxy, artSize: CGFloat, insets: NowPlayingPortraitInsets) -> some View {
         // MV 是 16:9，若沿用方形封面按高度推导出的宽度，会在竖屏里显得
         // 明显偏小。视频改为尽量吃满屏宽；方形封面仍保持原来的视觉尺度。
         let mediaWidth = player.isMusicVideoPlaybackActive
-            ? min(max(0, geo.size.width - 20), 720)
+            ? min(max(0, geo.size.width - 20), 720, insets.mediaWidthLimit)
             : artSize
 
         VStack(spacing: 0) {
@@ -3059,17 +3239,26 @@ struct NowPlayingView: View {
                             moreMenu
                             }
                             .padding(.horizontal, 20).padding(.bottom, 6)
+                            .padding(.leading, insets.lyricsLeading)
+                            .padding(.trailing, insets.lyricsTrailing)
                             .transition(lyricsHeaderTransition)
                         }
 
                         // Full screen lyrics
                         if isLyricsImmersive {
-                            immersiveLyricsExperience(isLandscape: false) {
+                            immersiveLyricsExperience(
+                                isLandscape: false,
+                                topRowLeadingInset: insets.immersiveTopRowLeading,
+                                topRowTrailingInset: insets.immersiveTopRowTrailing,
+                                contentTopInset: insets.immersiveContentTop
+                            ) {
                                 lyricsFullView
                             }
                             .transition(.opacity)
                         } else {
                             lyricsFullView
+                                .padding(.leading, insets.lyricsLeading)
+                                .padding(.trailing, insets.lyricsTrailing)
                                 .transition(lyricsPanelTransition)
                         }
                     } else {
@@ -3107,10 +3296,12 @@ struct NowPlayingView: View {
                     if !showLyrics {
                         nowPlayingSongHeader(titleFont: .title3, metadataFont: .body)
                             .padding(.horizontal, 26)
+                            .padding(.horizontal, insets.rows)
                             .padding(.top, 12)
 
                         nowPlayingReviewSection
                             .padding(.horizontal, 26)
+                            .padding(.horizontal, insets.rows)
                     }
 
                     // Progress — 抽成独立子 view 隔离 player.currentTime 的高频
@@ -3120,6 +3311,7 @@ struct NowPlayingView: View {
                     if !showLyrics || !isLyricsImmersive {
                         PlaybackProgressBar(fillTint: themedControlAccent)
                             .padding(.horizontal, 26).padding(.top, 8)
+                            .padding(.horizontal, insets.rows)
 
                         // Controls
                         HStack(spacing: 0) {
@@ -3154,18 +3346,21 @@ struct NowPlayingView: View {
                         Spacer()
                         }
                         .padding(.top, 12)
+                        .padding(.horizontal, insets.rows)
 
                         if showsPlayerVolumeBar {
                             playerVolumeRow
                                 .padding(.horizontal, 26).padding(.top, 10)
+                                .padding(.horizontal, insets.rows)
                         }
 
                         portraitBottomBar
+                            .padding(.horizontal, insets.rows)
                     }
                 }
-                // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。
-                .padding(.leading, safeInsets.leading)
-                .padding(.trailing, safeInsets.trailing)
+                // 侧边安全区按侧取值；上下仍沿用窗口安全区的既有处理。整屏居中(iPhone Duo)时两侧都是 0。
+                .padding(.leading, insets.containerLeading)
+                .padding(.trailing, insets.containerTrailing)
     }
 
     @ViewBuilder
@@ -3173,10 +3368,14 @@ struct NowPlayingView: View {
         isLandscape: Bool,
         leadingSafeInset: CGFloat = 0,
         trailingSafeInset: CGFloat = 0,
+        topRowLeadingInset: CGFloat? = nil,
+        topRowTrailingInset: CGFloat? = nil,
+        contentTopInset: CGFloat = 0,
         @ViewBuilder content: () -> Content
     ) -> some View {
         ZStack {
             content()
+                .padding(.top, contentTopInset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
 
@@ -3189,7 +3388,9 @@ struct NowPlayingView: View {
             immersiveLyricsChrome(
                 isLandscape: isLandscape,
                 leadingSafeInset: leadingSafeInset,
-                trailingSafeInset: trailingSafeInset
+                trailingSafeInset: trailingSafeInset,
+                topRowLeadingInset: topRowLeadingInset ?? leadingSafeInset,
+                topRowTrailingInset: topRowTrailingInset ?? trailingSafeInset
             )
         }
     }
@@ -3198,7 +3399,9 @@ struct NowPlayingView: View {
     private func immersiveLyricsChrome(
         isLandscape: Bool,
         leadingSafeInset: CGFloat,
-        trailingSafeInset: CGFloat
+        trailingSafeInset: CGFloat,
+        topRowLeadingInset: CGFloat,
+        topRowTrailingInset: CGFloat
     ) -> some View {
         if immersiveControlsState.showsPrimaryControls {
             VStack(spacing: 0) {
@@ -3238,8 +3441,8 @@ struct NowPlayingView: View {
                         dismissImmersiveLyrics()
                     }
                 }
-                .padding(.leading, leadingSafeInset + (isLandscape ? 24 : 20))
-                .padding(.trailing, trailingSafeInset + (isLandscape ? 24 : 20))
+                .padding(.leading, topRowLeadingInset + (isLandscape ? 24 : 20))
+                .padding(.trailing, topRowTrailingInset + (isLandscape ? 24 : 20))
                 .padding(.top, max(topSafeArea, 10) + (isLandscape ? 0 : 8))
 
                 Spacer()
@@ -9182,4 +9385,24 @@ struct CastDevicePickerSheet: View {
             }
         }
     }
+}
+
+/// 竖屏播放页左右各让多少,见 `NowPlayingView.portraitInsets`。普通设备上只有 `container*` 非零(= 安全区)。
+struct NowPlayingPortraitInsets: Equatable {
+    /// 整列两侧。
+    var containerLeading: CGFloat
+    var containerTrailing: CGFloat
+    /// 方形封面边长。
+    var artworkSize: CGFloat
+    /// MV 画面的宽度上限(整屏居中时不碰遮挡区)。
+    var mediaWidthLimit: CGFloat
+    /// 封面下面几行两边各多让的(灵动岛长到这段高度时)。
+    var rows: CGFloat
+    /// 歌词模式里歌词与顶栏在遮挡那一侧让的。
+    var lyricsLeading: CGFloat
+    var lyricsTrailing: CGFloat
+    /// 沉浸歌词:歌词区从遮挡区下沿以下才开始(整屏居中,不为整条竖栏让位),顶上那排圆钮在遮挡那侧让开。
+    var immersiveContentTop: CGFloat = 0
+    var immersiveTopRowLeading: CGFloat = 0
+    var immersiveTopRowTrailing: CGFloat = 0
 }

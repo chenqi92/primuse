@@ -242,6 +242,60 @@ public enum NowPlayingCompactLandscapeLayoutPolicy {
         )
     }
 
+    // MARK: - 整屏居中(系统竖栏的设备)
+
+    /// 系统把工具栏竖排到一侧的设备(iPhone Duo 外屏横握)上,播放页不滚动,按苹果的做法整屏居中:
+    /// 两栏两侧都只留固定内边距,只让开遮挡区(竖排的状态栏与前置摄像头)。返回两侧该按多宽的
+    /// 安全区去算 `metrics` / `lyricsMetrics`:通常是 0 与 0;只有居中排出来的封面或右栏落进了
+    /// 遮挡区,才退回真实安全区,整块照旧让开那条竖栏。顶部圆钮排另由视图层单独让开遮挡区。
+    public static func centeredSideSafeArea(
+        viewportWidth: Double,
+        viewportHeight: Double,
+        safeAreaTop: Double,
+        safeAreaBottom: Double,
+        safeAreaLeading: Double,
+        safeAreaTrailing: Double,
+        occlusions: [OcclusionAvoidancePolicy.Region],
+        prefersVolumeBar: Bool,
+        textScale: Double = 1
+    ) -> (leading: Double, trailing: Double) {
+        let fallback = (leading: sanitized(safeAreaLeading), trailing: sanitized(safeAreaTrailing))
+        guard !occlusions.isEmpty else { return (0, 0) }
+        let centered = metrics(
+            viewportWidth: viewportWidth,
+            viewportHeight: viewportHeight,
+            safeAreaTop: safeAreaTop,
+            safeAreaBottom: safeAreaBottom,
+            safeAreaLeading: 0,
+            safeAreaTrailing: 0,
+            prefersVolumeBar: prefersVolumeBar,
+            textScale: textScale
+        )
+        let columnsTop = centered.topInset + centered.chromeRowHeight + centered.chromeBottomSpacing
+        let artworkTop = columnsTop + (centered.availableContentHeight - centered.artworkSize) / 2
+        let artwork = OcclusionAvoidancePolicy.Region(
+            x: centered.leadingInset,
+            y: artworkTop,
+            width: centered.artworkSize,
+            height: centered.artworkSize
+        )
+        let detailTop = columnsTop + max(0, (centered.availableContentHeight - centered.detailStackHeight) / 2)
+        let detail = OcclusionAvoidancePolicy.Region(
+            x: centered.leadingInset + centered.artworkSize + centered.columnSpacing,
+            y: detailTop,
+            width: centered.detailColumnWidth,
+            height: centered.detailStackHeight
+        )
+        let gap = chromeBottomSpacing
+        let collides = occlusions.contains { region in
+            [artwork, detail].contains { block in
+                region.maxX + gap > block.minX && region.minX - gap < block.maxX
+                    && region.maxY + gap > block.minY && region.minY - gap < block.maxY
+            }
+        }
+        return collides ? fallback : (0, 0)
+    }
+
     // MARK: - 歌词模式
     //
     // 歌词模式沿用同一副骨架：顶部圆钮排不动，右栏的进度条与传输键留在原位，

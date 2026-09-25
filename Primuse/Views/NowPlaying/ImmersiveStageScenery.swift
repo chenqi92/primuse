@@ -122,6 +122,27 @@ struct ImmersiveStageMetrics {
     var isWide: Bool { layout == .wide }
     var isPortrait: Bool { layout == .phonePortrait }
 
+    /// 各效果共用的舞台内容上沿。全屏页也按它判断内容会不会落进遮挡区那段高度。
+    func stageContentTopInset(isTV: Bool) -> CGFloat {
+        switch layout {
+        case .phonePortrait:
+            max(safeArea.top, s(54)) + stageContentTopExtra(isTV: isTV)
+        case .phoneLandscape:
+            max(safeArea.top, s(20)) + stageContentTopExtra(isTV: isTV)
+        case .wide:
+            max(safeArea.top, s(isTV ? 76 : 48)) + stageContentTopExtra(isTV: isTV)
+        }
+    }
+
+    /// 上沿里安全区(或保底值)之外再多留的那一段。
+    func stageContentTopExtra(isTV: Bool) -> CGFloat {
+        switch layout {
+        case .phonePortrait: s(30)
+        case .phoneLandscape: s(18)
+        case .wide: 0
+        }
+    }
+
     /// 设计稿像素 → 当前视口点数(取整,用于间距与字号)
     func s(_ value: CGFloat) -> CGFloat { (value * scale).rounded() }
 
