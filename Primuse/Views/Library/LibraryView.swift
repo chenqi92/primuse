@@ -2324,6 +2324,17 @@ private struct GenreArtworkMosaic: View {
     }
 }
 
+#if DEBUG && os(iOS)
+/// 调试取证页（`LibraryDetailEvidenceHost`）用：流派详情页本身是这个文件私有的。
+struct DebugGenreDetailEvidencePage: View {
+    let genre: LibraryGenre
+
+    var body: some View {
+        GenreDetailView(genre: genre)
+    }
+}
+#endif
+
 private struct GenreDetailView: View {
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)

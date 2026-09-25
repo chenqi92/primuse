@@ -9,16 +9,19 @@ import SwiftUI
 /// 安全区与「是不是 iPhone」渲染，看宽画布上的版式。
 ///
 /// - `PRIMUSE_EVIDENCE_SET`：`inner`（默认，Duo 内屏两种推算尺寸下的各页，含分栏的「接下来播放」与桌面半折）/
-///   `phone`（手机横屏的沉浸歌词与播放页）。
+///   `phone`（手机横屏的沉浸歌词与播放页）/ `details`（五种详情页在内屏两种尺寸下的两栏）。
 /// - `PRIMUSE_EVIDENCE_ONLY=<n>`：只画这一组里的第 n 个框（从 0 数），放到整屏那么大。
 /// - `PRIMUSE_EVIDENCE_ALBUM` / `PRIMUSE_EVIDENCE_ARTIST` / `PRIMUSE_EVIDENCE_PLAYLIST`：标题片段，默认取第一张 / 第一位 / 第一张。
 /// 播放页的几个框配合 `PRIMUSE_AUTOPLAY_SONG`（`PRIMUSE_AUTOPLAY_PAUSE=1` 定住进度）。
+/// - `PRIMUSE_EVIDENCE_MORPH=<页面>`：只画这一页的一个框，每隔 `PRIMUSE_EVIDENCE_MORPH_INTERVAL` 秒（默认 3）在
+///   `PRIMUSE_EVIDENCE_MORPH_VIEWPORTS`（默认 `outer,inner`；可选 `outer` `inner` `innerSmall` `innerPortrait`
+///   `phone` `phoneLandscape`）之间换一次尺寸，模拟开合、转屏，录屏看换构图的过渡。
 struct LibraryDetailEvidenceHost: View {
     @Environment(MusicLibrary.self) private var library
     @State private var homeModel = HomeView.Model()
 
     private enum Page: String {
-        case player, lyrics, immersive, queue, tabletop, home, album, artist, playlist, smart
+        case player, lyrics, immersive, queue, tabletop, home, album, artist, genre, playlist, smart
     }
 
     fileprivate struct Viewport {
@@ -49,6 +52,10 @@ struct LibraryDetailEvidenceHost: View {
                                                  top: 0, leading: 0, trailing: 84, bottom: 20, isRegularWidth: true)
     fileprivate static let innerPortrait = Viewport(name: "Duo inner port", size: CGSize(width: 669, height: 951),
                                                     top: 24, leading: 0, trailing: 0, bottom: 20, isRegularWidth: true)
+    fileprivate static let outerPortrait = Viewport(name: "Duo outer", size: CGSize(width: 466, height: 678),
+                                                    top: 0, leading: 0, trailing: 84, bottom: 34)
+    fileprivate static let phonePortrait = Viewport(name: "phone", size: CGSize(width: 393, height: 852),
+                                                    top: 59, leading: 0, trailing: 0, bottom: 34)
     fileprivate static let phoneLandscape = Viewport(name: "landscape", size: CGSize(width: 852, height: 393),
                                                      top: 0, leading: 59, trailing: 59, bottom: 21, isCompactHeight: true)
     fileprivate static let seLandscape = Viewport(name: "SE land", size: CGSize(width: 667, height: 375),
@@ -62,8 +69,17 @@ struct LibraryDetailEvidenceHost: View {
     private let albumNeedle: String
     private let artistNeedle: String
     private let playlistNeedle: String
+    private let morphPage: Page?
+    private let morphViewports: [Viewport]
+    private let morphInterval: Double
+    @State private var morphStep = 0
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        morphPage = environment["PRIMUSE_EVIDENCE_MORPH"].flatMap(Page.init(rawValue:))
+        morphViewports = (environment["PRIMUSE_EVIDENCE_MORPH_VIEWPORTS"] ?? "outer,inner")
+            .split(separator: ",")
+            .compactMap { Self.viewport(named: String($0)) }
+        morphInterval = environment["PRIMUSE_EVIDENCE_MORPH_INTERVAL"].flatMap(Double.init) ?? 3
         set = environment["PRIMUSE_EVIDENCE_SET"]?.lowercased() ?? "inner"
         onlyIndex = environment["PRIMUSE_EVIDENCE_ONLY"].flatMap(Int.init)
         albumNeedle = environment["PRIMUSE_EVIDENCE_ALBUM"]?.lowercased() ?? ""
@@ -74,6 +90,10 @@ struct LibraryDetailEvidenceHost: View {
     private var frames: [Frame] {
         var result: [Frame] = []
         switch set {
+        case "details":
+            result = [Page.album, .artist, .genre, .playlist, .smart].flatMap { page in
+                [Frame(page: page, viewport: Self.inner), Frame(page: page, viewport: Self.innerSmall)]
+            }
         case "phone":
             result = [
                 Frame(page: .immersive, viewport: Self.phoneLandscape),
@@ -107,11 +127,40 @@ struct LibraryDetailEvidenceHost: View {
         return result
     }
 
+    private static func viewport(named name: String) -> Viewport? {
+        switch name {
+        case "outer": return outerPortrait
+        case "inner": return inner
+        case "innerSmall": return innerSmall
+        case "innerPortrait": return innerPortrait
+        case "phone": return phonePortrait
+        case "phoneLandscape": return phoneLandscape
+        default: return nil
+        }
+    }
+
     var body: some View {
         let album = library.visibleAlbums.first { albumNeedle.isEmpty || $0.title.lowercased().contains(albumNeedle) }
         let artist = library.visibleArtists.first { artistNeedle.isEmpty || $0.name.lowercased().contains(artistNeedle) }
         GeometryReader { geometry in
-            if let album, let artist {
+            if let album, let artist, let morphPage, morphViewports.count > 1 {
+                // 同一个页面、同一个框，只换尺寸：页面自己的视图身份不变，和真机开合、转屏一样。
+                let widest = morphViewports.map(\.size.width).max() ?? 1
+                let tallest = morphViewports.map(\.size.height).max() ?? 1
+                let scale = min(
+                    (geometry.size.width - Self.margin * 2) / widest,
+                    (geometry.size.height - Self.margin * 2 - Self.labelHeight - 2) / tallest
+                )
+                let viewport = morphViewports[morphStep % morphViewports.count]
+                framed(Frame(page: morphPage, viewport: viewport), scale: scale, album: album, artist: artist)
+                    .padding(Self.margin)
+                    .task {
+                        while !Task.isCancelled {
+                            try? await Task.sleep(for: .seconds(morphInterval))
+                            morphStep += 1
+                        }
+                    }
+            } else if let album, let artist {
                 let frames = frames
                 let rows = Self.rows(for: frames, in: geometry.size)
                 VStack(alignment: .leading, spacing: Self.rowSpacing) {
@@ -180,6 +229,12 @@ struct LibraryDetailEvidenceHost: View {
             NavigationStack { AlbumDetailView(album: album) }
         case .artist:
             NavigationStack { ArtistDetailView(artist: artist) }
+        case .genre:
+            if let genre = library.visibleGenres.first {
+                NavigationStack { DebugGenreDetailEvidencePage(genre: genre) }
+            } else {
+                Text(verbatim: "no genre")
+            }
         case .playlist:
             if let playlist = library.playlists.first(where: {
                 playlistNeedle.isEmpty || $0.name.lowercased().contains(playlistNeedle)
