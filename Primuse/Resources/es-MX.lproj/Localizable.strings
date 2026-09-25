@@ -4448,6 +4448,11 @@
 "karaoke_backing_track" = "Pista de acompañamiento";
 "karaoke_backing_track_playing" = "Se está reproduciendo la pista de acompañamiento, no hay voz que ajustar.";
 "karaoke_lyrics_from_format" = "Letra de “%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Preparando el video…";
+"music_video_rewrite_failed" = "No se puede convertir este video a un formato reproducible.";
+"music_video_preparing_percent" = "Preparando el video %d %%";
 "karaoke_ai_title" = "Separación vocal con IA";
 "karaoke_ai_download_format" = "Descargar (%@)";
 "karaoke_ai_downloading" = "Descargando";

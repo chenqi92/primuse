@@ -4985,6 +4985,10 @@ final class SourceManager {
         if let converted = await MusicVideoCompatibilityConverter.shared.cachedURL(identity: identity) {
             return .url(converted)
         }
+        let status = MusicVideoPreparationStatus.shared
+        let songID = song.id
+        status.begin(songID: songID)
+        defer { status.finish(songID: songID) }
         guard case .url(let original)? = try await resolveOriginalVideoAsset(
             for: song,
             mvPath: mvPath,
@@ -4994,7 +4998,10 @@ final class SourceManager {
         }
         return .url(try await MusicVideoCompatibilityConverter.shared.playableURL(
             for: original,
-            identity: identity
+            identity: identity,
+            progress: { fraction in
+                Task { @MainActor in status.update(songID: songID, fraction: fraction) }
+            }
         ))
     }
 

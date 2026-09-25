@@ -4448,6 +4448,11 @@
 "karaoke_backing_track" = "बैकिंग ट्रैक";
 "karaoke_backing_track_playing" = "बैकिंग ट्रैक चल रहा है, इसलिए समायोजित करने को कोई वोकल नहीं है।";
 "karaoke_lyrics_from_format" = "बोल “%@” से";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "वीडियो तैयार हो रहा है…";
+"music_video_rewrite_failed" = "इस वीडियो को चलाने योग्य फ़ॉर्मैट में नहीं बदला जा सकता।";
+"music_video_preparing_percent" = "वीडियो तैयार हो रहा है %d%%";
 "karaoke_ai_title" = "AI वोकल सेपरेशन";
 "karaoke_ai_download_format" = "डाउनलोड (%@)";
 "karaoke_ai_downloading" = "डाउनलोड हो रहा है";

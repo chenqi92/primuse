@@ -4305,6 +4305,11 @@
 "karaoke_backing_track" = "Backing Track";
 "karaoke_backing_track_playing" = "Playing the backing track, so there are no vocals to adjust.";
 "karaoke_lyrics_from_format" = "Lyrics from “%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Preparing video…";
+"music_video_rewrite_failed" = "This video can’t be converted into a playable format.";
+"music_video_preparing_percent" = "Preparing video %d%%";
 "karaoke_ai_title" = "AI Vocal Separation";
 "karaoke_ai_download_format" = "Download (%@)";
 "karaoke_ai_downloading" = "Downloading";

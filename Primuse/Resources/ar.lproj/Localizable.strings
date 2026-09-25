@@ -4448,6 +4448,11 @@
 "karaoke_backing_track" = "المسار المرافق";
 "karaoke_backing_track_playing" = "يتم تشغيل المسار المرافق، لذا لا يوجد غناء لضبطه.";
 "karaoke_lyrics_from_format" = "الكلمات من “%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "جارٍ تجهيز الفيديو…";
+"music_video_rewrite_failed" = "تعذّر تحويل هذا الفيديو إلى تنسيق قابل للتشغيل.";
+"music_video_preparing_percent" = "جارٍ تجهيز الفيديو %d%%";
 "karaoke_ai_title" = "فصل الصوت بالذكاء الاصطناعي";
 "karaoke_ai_download_format" = "تنزيل (%@)";
 "karaoke_ai_downloading" = "جارٍ التنزيل";

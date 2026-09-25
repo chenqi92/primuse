@@ -400,6 +400,12 @@ struct TVNowPlayingView: View {
                         .foregroundStyle(TVColor.warn)
                         .lineLimit(2)
                         .padding(.bottom, 18)
+                } else if let preparing = MusicVideoPreparationStatus.shared.label(for: np.songID) {
+                    Label(preparing, systemImage: "film")
+                        .tvFont(.caption, weight: .medium)
+                        .foregroundStyle(.white.opacity(0.74))
+                        .monospacedDigit()
+                        .padding(.bottom, 18)
                 }
 
                 scrubber(immersiveDark: true)
@@ -467,6 +473,10 @@ struct TVNowPlayingView: View {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
                     .tvFont(.meta, weight: .medium).foregroundStyle(TVColor.warn)
                     .lineLimit(3).frame(maxWidth: 580, alignment: .leading).padding(.top, 14)
+            } else if let preparing = MusicVideoPreparationStatus.shared.label(for: np.songID) {
+                Label(preparing, systemImage: "film")
+                    .tvFont(.meta, weight: .medium).foregroundStyle(TVColor.textMuted)
+                    .monospacedDigit().padding(.top, 14)
             }
 
             Spacer(minLength: 24)

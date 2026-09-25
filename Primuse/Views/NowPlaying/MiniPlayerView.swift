@@ -67,21 +67,12 @@ struct MiniPlayerSwipeContent: View {
                 .padding(.trailing, artworkTrailingSpacing)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 5) {
-                        // 小圆点标出正在听的是音乐、电台还是有声,颜色与各自的标签页一致。
-                        if let space = player.currentListeningSpace {
-                            Circle()
-                                .fill(space.tint)
-                                .frame(width: 6, height: 6)
-                                .accessibilityHidden(true)
-                        }
-                        Text(player.currentSong?.title ?? "")
-                            .font(titleFont)
-                            .fontWeight(.semibold)
-                            .lineLimit(1)
-                            .foregroundStyle(.primary)
-                            .contentTransition(.opacity)
-                    }
+                    Text(player.currentSong?.title ?? "")
+                        .font(titleFont)
+                        .fontWeight(.semibold)
+                        .lineLimit(1)
+                        .foregroundStyle(.primary)
+                        .contentTransition(.opacity)
 
                     if showsSubtitle, let error = player.lastPlaybackError {
                         // A song picked from a list can fail with the player

@@ -1,8 +1,48 @@
 @preconcurrency import AVFoundation
 import CryptoKit
 import Foundation
+import Observation
 import PrimuseKit
 import VideoToolbox
+
+/// What the now-playing screens show while a music video that AVPlayer
+/// cannot open is fetched and rewritten. The video replaces the artwork once
+/// it plays, so until then the artwork carries this state.
+@MainActor
+@Observable
+final class MusicVideoPreparationStatus {
+    static let shared = MusicVideoPreparationStatus()
+
+    private(set) var songID: String?
+    /// nil while the original is still being fetched; 0...1 while rewriting.
+    private(set) var fraction: Double?
+
+    func begin(songID: String) {
+        self.songID = songID
+        fraction = nil
+    }
+
+    func update(songID: String, fraction: Double) {
+        guard self.songID == songID else { return }
+        self.fraction = min(max(fraction, 0), 1)
+    }
+
+    func finish(songID: String) {
+        guard self.songID == songID else { return }
+        self.songID = nil
+        fraction = nil
+    }
+
+    /// The line to show for `songID`, or nil when it is not being prepared.
+    func label(for songID: String?) -> String? {
+        guard let songID, songID == self.songID else { return nil }
+        guard let fraction else { return String(localized: "music_video_preparing") }
+        return String(
+            format: String(localized: "music_video_preparing_percent"),
+            Int((fraction * 100).rounded(.down))
+        )
+    }
+}
 
 /// Makes music videos AVPlayer cannot open (MKV, WebM, AVI, FLV, WMV,
 /// MPEG-PS/TS, RMVB, OGV, 3GP) playable by rewriting them into an MP4 the
@@ -45,7 +85,11 @@ actor MusicVideoCompatibilityConverter {
     /// Rewrites the local file `input` (the complete original) and returns
     /// the cached MP4. `identity` names the original independently of where
     /// it was downloaded to: source, path, size.
-    func playableURL(for input: URL, identity: String) async throws -> URL {
+    func playableURL(
+        for input: URL,
+        identity: String,
+        progress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> URL {
         if let cached = cachedURL(identity: identity) { return cached }
         let output = outputURL(identity: identity)
         if let task = running[identity] { return try await task.value }
@@ -57,7 +101,7 @@ actor MusicVideoCompatibilityConverter {
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let task = Task.detached(priority: .userInitiated) {
-            try await Self.convert(input: input, output: output)
+            try await Self.convert(input: input, output: output, progress: progress)
         }
         running[identity] = task
         defer { running[identity] = nil }
@@ -141,7 +185,11 @@ actor MusicVideoCompatibilityConverter {
         init(_ converter: FFmpegMusicVideoConverter) { self.converter = converter }
     }
 
-    private static func convert(input: URL, output: URL) async throws -> URL {
+    private static func convert(
+        input: URL,
+        output: URL,
+        progress: (@Sendable (Double) -> Void)?
+    ) async throws -> URL {
         let partial = output.deletingPathExtension()
             .appendingPathExtension(String(partialSuffix.dropFirst()))
         try? FileManager.default.removeItem(at: partial)
@@ -160,15 +208,16 @@ actor MusicVideoCompatibilityConverter {
                 on: platform
             )
         }
-        try await run(box, forcingTranscode: false)
+        try await run(box, forcingTranscode: false, progress: progress)
         // A copied stream AVFoundation will not take (the muxer accepted it)
         // gets one more pass with everything re-encoded.
         if converter.copiedAnyStream, await !isPlayable(partial) {
             plog("🎞️ MV rewrite: copied streams not playable (\(converter.summary)); re-encoding")
-            try await run(box, forcingTranscode: true)
+            try await run(box, forcingTranscode: true, progress: progress)
         }
         guard await isPlayable(partial) else {
             try? FileManager.default.removeItem(at: partial)
+            plog("🎞️ MV rewrite: output not playable (\(converter.summary))")
             throw MusicVideoCompatibilityError.unplayable(converter.summary)
         }
         try? FileManager.default.removeItem(at: output)
@@ -180,13 +229,17 @@ actor MusicVideoCompatibilityConverter {
         return output
     }
 
-    private static func run(_ box: ConverterBox, forcingTranscode: Bool) async throws {
+    private static func run(
+        _ box: ConverterBox,
+        forcingTranscode: Bool,
+        progress: (@Sendable (Double) -> Void)?
+    ) async throws {
         try Task.checkCancellation()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 conversionQueue.async {
                     do {
-                        try box.converter.convert(forcingTranscode: forcingTranscode, progress: nil)
+                        try box.converter.convert(forcingTranscode: forcingTranscode, progress: progress)
                         continuation.resume()
                     } catch {
                         continuation.resume(throwing: error)
@@ -238,12 +291,14 @@ actor MusicVideoCompatibilityConverter {
     }
 }
 
+/// The stream summary stays in the log (`plog` in `convert`); the listener
+/// sees a plain sentence.
 enum MusicVideoCompatibilityError: LocalizedError {
     case unplayable(String)
 
     var errorDescription: String? {
         switch self {
-        case .unplayable(let summary): "Rewritten music video is not playable (\(summary))"
+        case .unplayable: String(localized: "music_video_rewrite_failed")
         }
     }
 }

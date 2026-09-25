@@ -4542,6 +4542,11 @@
 "karaoke_backing_track" = "Version instrumentale";
 "karaoke_backing_track_playing" = "La version instrumentale est en lecture : aucune voix à régler.";
 "karaoke_lyrics_from_format" = "Paroles de « %@ »";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Préparation de la vidéo…";
+"music_video_rewrite_failed" = "Impossible de convertir cette vidéo dans un format lisible.";
+"music_video_preparing_percent" = "Préparation de la vidéo %d %%";
 "karaoke_ai_title" = "Séparation vocale IA";
 "karaoke_ai_download_format" = "Télécharger (%@)";
 "karaoke_ai_downloading" = "Téléchargement";

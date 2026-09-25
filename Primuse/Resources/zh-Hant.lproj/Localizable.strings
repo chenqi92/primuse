@@ -4519,6 +4519,11 @@
 "karaoke_backing_track" = "伴奏音軌";
 "karaoke_backing_track_playing" = "正在播放伴奏音軌，沒有人聲可調。";
 "karaoke_lyrics_from_format" = "歌詞來自《%@》";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "正在準備影片…";
+"music_video_rewrite_failed" = "這部影片無法轉換成可播放的格式。";
+"music_video_preparing_percent" = "正在準備影片 %d%%";
 "karaoke_ai_title" = "AI 人聲分離";
 "karaoke_ai_download_format" = "下載模型（%@）";
 "karaoke_ai_downloading" = "正在下載";

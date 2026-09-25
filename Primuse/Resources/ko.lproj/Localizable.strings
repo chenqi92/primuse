@@ -4542,6 +4542,11 @@
 "karaoke_backing_track" = "반주 트랙";
 "karaoke_backing_track_playing" = "반주 트랙을 재생 중이라 조절할 보컬이 없습니다.";
 "karaoke_lyrics_from_format" = "가사 출처: “%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "비디오 준비 중…";
+"music_video_rewrite_failed" = "이 비디오를 재생 가능한 형식으로 변환할 수 없습니다.";
+"music_video_preparing_percent" = "비디오 준비 중 %d%%";
 "karaoke_ai_title" = "AI 보컬 분리";
 "karaoke_ai_download_format" = "다운로드(%@)";
 "karaoke_ai_downloading" = "다운로드 중";

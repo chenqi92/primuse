@@ -4448,6 +4448,11 @@
 "karaoke_backing_track" = "Минусовка";
 "karaoke_backing_track_playing" = "Играет минусовка, регулировать нечего.";
 "karaoke_lyrics_from_format" = "Текст из «%@»";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Подготовка видео…";
+"music_video_rewrite_failed" = "Не удаётся преобразовать это видео в воспроизводимый формат.";
+"music_video_preparing_percent" = "Подготовка видео %d %%";
 "karaoke_ai_title" = "ИИ-отделение вокала";
 "karaoke_ai_download_format" = "Загрузить (%@)";
 "karaoke_ai_downloading" = "Загрузка";

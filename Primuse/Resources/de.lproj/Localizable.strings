@@ -4542,6 +4542,11 @@
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "Das Playback läuft, es gibt keinen Gesang zum Anpassen.";
 "karaoke_lyrics_from_format" = "Songtext aus „%@“";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Video wird vorbereitet …";
+"music_video_rewrite_failed" = "Dieses Video kann nicht in ein abspielbares Format umgewandelt werden.";
+"music_video_preparing_percent" = "Video wird vorbereitet %d %%";
 "karaoke_ai_title" = "KI-Gesangstrennung";
 "karaoke_ai_download_format" = "Laden (%@)";
 "karaoke_ai_downloading" = "Wird geladen";

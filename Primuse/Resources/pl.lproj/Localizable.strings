@@ -4448,6 +4448,11 @@
 "karaoke_backing_track" = "Podkład";
 "karaoke_backing_track_playing" = "Odtwarzany jest podkład, więc nie ma wokalu do regulacji.";
 "karaoke_lyrics_from_format" = "Tekst z „%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Przygotowywanie wideo…";
+"music_video_rewrite_failed" = "Nie można przekonwertować tego wideo na odtwarzalny format.";
+"music_video_preparing_percent" = "Przygotowywanie wideo %d%%";
 "karaoke_ai_title" = "Separacja wokalu AI";
 "karaoke_ai_download_format" = "Pobierz (%@)";
 "karaoke_ai_downloading" = "Pobieranie";

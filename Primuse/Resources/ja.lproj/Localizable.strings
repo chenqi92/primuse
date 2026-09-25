@@ -4543,6 +4543,11 @@
 "karaoke_backing_track" = "伴奏トラック";
 "karaoke_backing_track_playing" = "伴奏トラックを再生中のため、ボーカルは調整できません。";
 "karaoke_lyrics_from_format" = "歌詞：「%@」より";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "ビデオを準備中…";
+"music_video_rewrite_failed" = "このビデオを再生可能な形式に変換できません。";
+"music_video_preparing_percent" = "ビデオを準備中 %d%%";
 "karaoke_ai_title" = "AIボーカル分離";
 "karaoke_ai_download_format" = "ダウンロード（%@）";
 "karaoke_ai_downloading" = "ダウンロード中";

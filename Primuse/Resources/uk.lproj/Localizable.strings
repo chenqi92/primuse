@@ -4448,6 +4448,11 @@
 "karaoke_backing_track" = "Мінусовка";
 "karaoke_backing_track_playing" = "Грає мінусовка, регулювати нічого.";
 "karaoke_lyrics_from_format" = "Текст із «%@»";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Підготовка відео…";
+"music_video_rewrite_failed" = "Не вдається перетворити це відео на формат, який можна відтворити.";
+"music_video_preparing_percent" = "Підготовка відео %d %%";
 "karaoke_ai_title" = "ШІ-відокремлення вокалу";
 "karaoke_ai_download_format" = "Завантажити (%@)";
 "karaoke_ai_downloading" = "Завантаження";

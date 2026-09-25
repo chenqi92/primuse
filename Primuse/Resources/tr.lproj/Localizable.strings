@@ -4448,6 +4448,11 @@
 "karaoke_backing_track" = "Altyapı";
 "karaoke_backing_track_playing" = "Altyapı çalıyor, ayarlanacak vokal yok.";
 "karaoke_lyrics_from_format" = "Sözler: “%@”";
+
+/* Music video in MKV/AVI/… being fetched and rewritten into MP4 on first play */
+"music_video_preparing" = "Video hazırlanıyor…";
+"music_video_rewrite_failed" = "Bu video oynatılabilir bir biçime dönüştürülemiyor.";
+"music_video_preparing_percent" = "Video hazırlanıyor %%%d";
 "karaoke_ai_title" = "Yapay zekâ ile vokal ayırma";
 "karaoke_ai_download_format" = "İndir (%@)";
 "karaoke_ai_downloading" = "İndiriliyor";
