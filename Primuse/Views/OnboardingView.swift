@@ -26,6 +26,7 @@ struct OnboardingView: View {
     @State private var presentAddSource = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     private var pageCount: Int {
         #if os(macOS)
@@ -118,8 +119,17 @@ struct OnboardingView: View {
                     .padding(.horizontal, 32)
                     .padding(.bottom, heightClass.value(36, compact: 16))
             }
+            // iPhone Duo 外屏竖握时系统竖栏在一侧：这一页不滚动、底色铺满整屏，按苹果的做法整屏居中，
+            // 不再只在竖栏以外的那一段里居中（整页偏向一边）。竖排状态栏与摄像头那块遮挡区在右上角，
+            // 居中的插画与标题碰不到它；两页操作示意是滚动的，由 `OnboardingGuideLayout` 自己让开。
+            // 横握（紧凑高度）时各页是滚动的，照旧按安全区让开竖栏。
+            .ignoresSafeArea(.container, edges: centersOnFullWidth ? .horizontal : [])
         }
         #endif
+    }
+
+    private var centersOnFullWidth: Bool {
+        verticalBarEdge != nil && !heightClass.isCompact
     }
 
     #if os(macOS)

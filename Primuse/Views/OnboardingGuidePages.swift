@@ -443,7 +443,19 @@ private struct OnboardingGuideLayout<Screen: View, Steps: View>: View {
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+        #if os(iOS)
+        // iPhone Duo：引导页整屏居中后，标题从页顶开始，别让它落进竖排状态栏与摄像头那块遮挡区。
+        // 没有遮挡区时传 nil，保持系统默认的边距。
+        .contentMargins(.top, occlusionClearance > 0 ? occlusionClearance : nil, for: .scrollContent)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            max(0, CGFloat(OcclusionAvoidancePolicy.lowestEdge(of: PMReservedRegions.activeOcclusions(in: proxy))))
+        } action: { lowest in
+            occlusionClearance = lowest
+        }
+        #endif
     }
+
+    @State private var occlusionClearance: CGFloat = 0
 }
 
 /// 手机屏幕的小样。固定深色，跟引导页的深色底融在一起；内容只是示意，
