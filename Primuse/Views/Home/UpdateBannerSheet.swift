@@ -8,33 +8,88 @@ import AppKit
 /// 轻量更新卡片。使用用户当前选择的真实 App 图标，把信息收敛成：
 /// 新版本 → 版本变化 → 更新摘要 → 主操作。普通更新不是强制升级，因此
 /// 关闭按钮和点击遮罩都等同于「稍后提醒」，不会把用户困在弹框中。
+///
+/// iOS 上挂在透明底的 fullScreenCover 里,系统那段「整屏从底部推上来」的转场被关掉
+/// (见 `presentWithoutSystemTransition`),遮罩淡入、卡片轻微放大浮现都由这里自己做;
+/// 收起时先把卡片淡出,再无动画地撤掉 cover。
 struct UpdateBannerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppUpdateChecker.self) private var checker
     @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isNotesExpanded = false
+    @State private var isShown = false
+    @State private var isClosing = false
+
+    /// 让随后那次 `isPresented = true` 不走系统的 cover 推入动画。
+    @MainActor
+    static func presentWithoutSystemTransition(_ present: () -> Void) {
+        #if os(iOS)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, present)
+        #else
+        present()
+        #endif
+    }
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.36)
+            Color.black.opacity(isShown ? 0.4 : 0)
                 .ignoresSafeArea()
-                .onTapGesture { checker.snooze() }
+                .contentShape(Rectangle())
+                .onTapGesture { close(then: checker.snooze) }
+                .accessibilityHidden(true)
 
             if let update = checker.availableUpdate {
                 cardContent(update: update)
-                    .frame(maxWidth: 360)
-                    .padding(.horizontal, 22)
+                    .frame(maxWidth: 380)
+                    .padding(.horizontal, 20)
                     // 手机横屏下卡片会占满整个可用高度,不贴着上下边缘。
                     .padding(.vertical, heightClass.value(0, compact: 12))
-            } else {
-                Color.clear.onAppear { dismiss() }
+                    .scaleEffect(isShown || reduceMotion ? 1 : 0.94)
+                    .opacity(isShown ? 1 : 0)
+                    .accessibilityAddTraits(.isModal)
             }
         }
-        .background(BackgroundClearView())
-        .onChange(of: checker.availableUpdate) { _, newValue in
-            if newValue == nil { dismiss() }
-            isNotesExpanded = false
+        #if os(iOS)
+        .presentationBackground(.clear)
+        #endif
+        .onAppear {
+            guard checker.availableUpdate != nil else {
+                dismissWithoutSystemTransition()
+                return
+            }
+            withAnimation(appearAnimation) { isShown = true }
         }
+        .onChange(of: checker.availableUpdate) { _, newValue in
+            isNotesExpanded = false
+            // 卡片上的按钮自己走 close;这里只接外部把更新清掉的情况。
+            guard newValue == nil, !isClosing else { return }
+            close {}
+        }
+    }
+
+    private var appearAnimation: Animation {
+        reduceMotion ? PMMotion.control.animation : .spring(response: 0.34, dampingFraction: 0.86)
+    }
+
+    /// 先把遮罩和卡片淡出,动画结束后执行 `action`(稍后提醒 / 跳过)并撤掉 cover。
+    private func close(then action: @escaping () -> Void) {
+        guard !isClosing else { return }
+        isClosing = true
+        withAnimation(PMMotion.control.animation) {
+            isShown = false
+        } completion: {
+            action()
+            dismissWithoutSystemTransition()
+        }
+    }
+
+    private func dismissWithoutSystemTransition() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { dismiss() }
     }
 
     @ViewBuilder
@@ -55,27 +110,30 @@ struct UpdateBannerSheet: View {
             closeButton
         }
         #if os(iOS)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
+        .background(Color(.secondarySystemGroupedBackground), in: cardShape)
         #else
-        .background(Color(NSColor.windowBackgroundColor), in: RoundedRectangle(cornerRadius: 28))
+        .background(Color(NSColor.windowBackgroundColor), in: cardShape)
         #endif
         .overlay {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(Color.accentColor.opacity(0.14), lineWidth: 0.5)
+            cardShape.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: .black.opacity(0.28), radius: 34, y: 14)
+        .clipShape(cardShape)
+        .shadow(color: .black.opacity(0.3), radius: 40, y: 18)
+    }
+
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 34, style: .continuous)
     }
 
     private var closeButton: some View {
         Button {
-            checker.snooze()
+            close(then: checker.snooze)
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 34, height: 34)
-                .background(.thinMaterial, in: Circle())
+                .frame(width: 36, height: 36)
+                .modifier(UpdateCloseButtonBackground())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -114,7 +172,7 @@ struct UpdateBannerSheet: View {
                 checker.openAppStore()
                 // Returning from the App Store should not immediately show
                 // the same prompt again if the user postponed installation.
-                checker.snooze()
+                close(then: checker.snooze)
             } label: {
                 HStack(spacing: 8) {
                     Text("update_banner_now")
@@ -124,34 +182,45 @@ struct UpdateBannerSheet: View {
                         .font(.body.weight(.semibold))
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 18)
-                .frame(maxWidth: .infinity, minHeight: 50)
-                .background(Color.accentColor, in: .rect(cornerRadius: 14))
+                .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(Color.accentColor, in: Capsule())
+                .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pmPressable)
             .padding(.horizontal, 20)
             .padding(.top, primaryActionTopSpacing)
             .shadow(color: Color.accentColor.opacity(0.24), radius: 10, y: 4)
 
-            HStack(spacing: 14) {
-                Button("update_banner_later") {
-                    checker.snooze()
+            HStack(spacing: 0) {
+                footerButton("update_banner_later") {
+                    close(then: checker.snooze)
                 }
 
                 Rectangle()
                     .fill(Color.secondary.opacity(0.22))
-                    .frame(width: 1, height: 12)
+                    .frame(width: 1, height: 14)
 
-                Button("update_banner_skip") {
-                    checker.skipCurrentVersion()
+                footerButton("update_banner_skip") {
+                    close(then: checker.skipCurrentVersion)
                 }
             }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .buttonStyle(.plain)
+            .padding(.horizontal, 20)
             .padding(.top, footerTopSpacing)
             .padding(.bottom, footerBottomSpacing)
         }
+    }
+
+    /// 两个次要按钮各占一半宽、44 点高 —— 原来只有文字本身能点,手指很难按中。
+    private func footerButton(_ title: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.pmPressable)
     }
 
     private var updateHero: some View {
@@ -267,7 +336,7 @@ struct UpdateBannerSheet: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         #if os(iOS)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 14))
+        .background(Color(.tertiarySystemGroupedBackground), in: .rect(cornerRadius: 18, style: .continuous))
         #else
         .background(Color(NSColor.controlBackgroundColor), in: .rect(cornerRadius: 14))
         #endif
@@ -301,20 +370,17 @@ struct UpdateBannerSheet: View {
     }
 }
 
-#if os(iOS)
-private struct BackgroundClearView: UIViewRepresentable {
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        DispatchQueue.main.async {
-            view.superview?.superview?.backgroundColor = .clear
+/// iOS 26 起用 Liquid Glass,更早的系统退回材质底。
+private struct UpdateCloseButtonBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            content.background(.thinMaterial, in: Circle())
         }
-        return view
+        #else
+        content.background(.thinMaterial, in: Circle())
+        #endif
     }
-    func updateUIView(_ uiView: UIView, context: Context) {}
 }
-#else
-/// macOS 上 sheet 默认是不透明窗口背景, 不需要透明背景 trick。
-private struct BackgroundClearView: View {
-    var body: some View { Color.clear }
-}
-#endif

@@ -4500,3 +4500,12 @@
 "karaoke_vocal_assist_active" = "मूल आवाज़ मदद कर रही है";
 "karaoke_vocal_assist_paused" = "वोकल सहायता रोकी गई: माइक्रोफ़ोन स्पीकर की आवाज़ पकड़ रहा है। हेडफ़ोन इस्तेमाल करें।";
 "karaoke_ai_cooling" = "डिवाइस गर्म है, ठंडा होने पर जारी रहेगा";
+"karaoke_speed" = "गति";
+"karaoke_speed_normal" = "सामान्य";
+"karaoke_speed_down" = "धीमा करें";
+"karaoke_speed_up" = "तेज़ करें";
+"karaoke_loop" = "यह पंक्ति दोहराएँ";
+"karaoke_loop_stop" = "दोहराना बंद करें";
+"karaoke_loop_lines_format" = "%d पंक्तियाँ दोहराई जा रही हैं";
+"karaoke_loop_extend" = "पंक्ति जोड़ें";
+"karaoke_practice_not_scored" = "अभ्यास के दौरान न स्कोर होगा, न रिकॉर्डिंग।";

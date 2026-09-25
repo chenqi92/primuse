@@ -4687,3 +4687,12 @@
 "karaoke_vocal_assist_active" = "原唱带唱中";
 "karaoke_vocal_assist_paused" = "麦克风收到了外放的声音，原唱带唱已暂停；戴耳机效果更好。";
 "karaoke_ai_cooling" = "设备较热，降温后继续";
+"karaoke_speed" = "速度";
+"karaoke_speed_normal" = "原速";
+"karaoke_speed_down" = "放慢";
+"karaoke_speed_up" = "加快";
+"karaoke_loop" = "循环本句";
+"karaoke_loop_stop" = "停止循环";
+"karaoke_loop_lines_format" = "循环 %d 句";
+"karaoke_loop_extend" = "加一句";
+"karaoke_practice_not_scored" = "练习中不计分、不录音。";

@@ -4595,3 +4595,12 @@
 "karaoke_vocal_assist_active" = "ガイドボーカル再生中";
 "karaoke_vocal_assist_paused" = "マイクがスピーカーの音を拾っているため、ガイドボーカルを一時停止しました。ヘッドホンをお使いください。";
 "karaoke_ai_cooling" = "デバイスが熱いため、冷えてから再開します";
+"karaoke_speed" = "速度";
+"karaoke_speed_normal" = "等速";
+"karaoke_speed_down" = "遅く";
+"karaoke_speed_up" = "速く";
+"karaoke_loop" = "この行をループ";
+"karaoke_loop_stop" = "ループを停止";
+"karaoke_loop_lines_format" = "%d 行をループ中";
+"karaoke_loop_extend" = "1 行追加";
+"karaoke_practice_not_scored" = "練習中は採点・録音しません。";

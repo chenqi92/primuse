@@ -4500,3 +4500,12 @@
 "karaoke_vocal_assist_active" = "Pomaga oryginalny wokal";
 "karaoke_vocal_assist_paused" = "Pomoc wokalna wstrzymana: mikrofon słyszy głośnik. Użyj słuchawek.";
 "karaoke_ai_cooling" = "Urządzenie jest gorące, wznowi po ostygnięciu";
+"karaoke_speed" = "Tempo";
+"karaoke_speed_normal" = "Normalne";
+"karaoke_speed_down" = "Wolniej";
+"karaoke_speed_up" = "Szybciej";
+"karaoke_loop" = "Zapętl ten wers";
+"karaoke_loop_stop" = "Zatrzymaj pętlę";
+"karaoke_loop_lines_format" = "Zapętlone wersy: %d";
+"karaoke_loop_extend" = "Dodaj wers";
+"karaoke_practice_not_scored" = "Tryb ćwiczeń: bez oceniania i nagrywania.";

@@ -4594,3 +4594,12 @@
 "karaoke_vocal_assist_active" = "Originalgesang hilft";
 "karaoke_vocal_assist_paused" = "Gesangshilfe pausiert: Das Mikrofon hört den Lautsprecher. Verwende Kopfhörer.";
 "karaoke_ai_cooling" = "Gerät ist heiß, geht nach dem Abkühlen weiter";
+"karaoke_speed" = "Tempo";
+"karaoke_speed_normal" = "Normal";
+"karaoke_speed_down" = "Langsamer";
+"karaoke_speed_up" = "Schneller";
+"karaoke_loop" = "Zeile wiederholen";
+"karaoke_loop_stop" = "Wiederholen beenden";
+"karaoke_loop_lines_format" = "%d Zeilen in Schleife";
+"karaoke_loop_extend" = "Zeile hinzufügen";
+"karaoke_practice_not_scored" = "Beim Üben wird nicht bewertet oder aufgenommen.";

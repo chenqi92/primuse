@@ -47,15 +47,22 @@ private struct KaraokeStageContent: View {
                 Spacer(minLength: 12)
                 stage
                 Spacer(minLength: 12)
-                if session.isVocalAssisting {
-                    Label("karaoke_vocal_assist_active", systemImage: "person.wave.2.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(.white.opacity(0.14), in: Capsule())
-                        .padding(.bottom, 6)
-                        .transition(.opacity)
+                if session.isVocalAssisting || session.loop != nil {
+                    HStack(spacing: 8) {
+                        if let loop = session.loop {
+                            KaraokeLoopChip(session: session, lineCount: loop.lineCount)
+                        }
+                        if session.isVocalAssisting {
+                            Label("karaoke_vocal_assist_active", systemImage: "person.wave.2.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(.white.opacity(0.14), in: Capsule())
+                        }
+                    }
+                    .padding(.bottom, 6)
+                    .transition(.opacity)
                 }
                 if session.microphoneState == .on {
                     KaraokePitchLane(points: session.pitchHistory)
@@ -71,6 +78,7 @@ private struct KaraokeStageContent: View {
         }
         .animation(.easeInOut(duration: 0.25), value: session.microphoneState)
         .animation(.easeInOut(duration: 0.25), value: session.isVocalAssisting)
+        .animation(.easeInOut(duration: 0.25), value: session.loop)
         .sheet(item: $session.completedPerformance) { performance in
             KaraokeResultView(performance: performance, session: session)
         }
@@ -373,8 +381,34 @@ private struct KaraokeControlPanel: View {
             }
             .disabled(session.availability != .available || session.isPlayingInstrumental)
 
-            HStack(spacing: 10) {
-                keyStepper
+            HStack(spacing: 8) {
+                KaraokeStepper(
+                    titleKey: "karaoke_key",
+                    value: keyLabel,
+                    downLabel: "karaoke_key_down",
+                    upLabel: "karaoke_key_up",
+                    canStepDown: session.keyShift > KaraokeKeyShiftPolicy.range.lowerBound,
+                    canStepUp: session.keyShift < KaraokeKeyShiftPolicy.range.upperBound,
+                    stepDown: { session.keyShift -= 1 },
+                    stepUp: { session.keyShift += 1 }
+                )
+                KaraokeStepper(
+                    titleKey: "karaoke_speed",
+                    value: speedLabel,
+                    downLabel: "karaoke_speed_down",
+                    upLabel: "karaoke_speed_up",
+                    canStepDown: session.practiceRate > KaraokePracticePolicy.rates[0],
+                    canStepUp: session.practiceRate < 1,
+                    stepDown: { session.practiceRate = KaraokePracticePolicy.stepped(session.practiceRate, up: false) },
+                    stepUp: { session.practiceRate = KaraokePracticePolicy.stepped(session.practiceRate, up: true) }
+                )
+                Spacer(minLength: 0)
+                loopButton
+            }
+            .disabled(session.availability != .available)
+
+            if session.canToggleBackingTrack || session.isSwitchingTrack || session.hasDuetParts {
+                HStack(spacing: 10) {
                 if session.canToggleBackingTrack || session.isSwitchingTrack {
                     backingTrackButton
                 }
@@ -388,6 +422,7 @@ private struct KaraokeControlPanel: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                }
                 }
             }
 
@@ -443,43 +478,22 @@ private struct KaraokeControlPanel: View {
         .environment(\.colorScheme, .dark)
     }
 
-    private var keyStepper: some View {
-        HStack(spacing: 0) {
-            Button {
-                session.keyShift -= 1
-            } label: {
-                Image(systemName: "minus")
-                    .frame(width: 36, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .disabled(session.keyShift <= KaraokeKeyShiftPolicy.range.lowerBound)
-            .accessibilityLabel(Text("karaoke_key_down"))
-
-            VStack(spacing: 0) {
-                Text("karaoke_key")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.6))
-                Text(keyLabel)
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
-            }
-            .frame(minWidth: 58)
-            .accessibilityElement(children: .combine)
-
-            Button {
-                session.keyShift += 1
-            } label: {
-                Image(systemName: "plus")
-                    .frame(width: 36, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .disabled(session.keyShift >= KaraokeKeyShiftPolicy.range.upperBound)
-            .accessibilityLabel(Text("karaoke_key_up"))
+    private var loopButton: some View {
+        Button(action: session.toggleLoop) {
+            Image(systemName: "repeat")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 40, height: 40)
+                .background(
+                    session.loop != nil ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.1)),
+                    in: Circle()
+                )
+                .foregroundStyle(session.loop != nil ? .black : .white)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white)
-        .padding(.horizontal, 4)
-        .background(.white.opacity(0.1), in: Capsule())
-        .disabled(session.availability != .available)
+        .disabled(session.loop == nil && session.windows.isEmpty)
+        .accessibilityLabel(Text(session.loop != nil ? LocalizedStringKey("karaoke_loop_stop") : LocalizedStringKey("karaoke_loop")))
+        .accessibilityAddTraits(session.loop != nil ? .isSelected : [])
     }
 
     private var backingTrackButton: some View {
@@ -508,6 +522,12 @@ private struct KaraokeControlPanel: View {
         .accessibilityAddTraits(session.isPlayingInstrumental ? .isSelected : [])
     }
 
+    private var speedLabel: String {
+        session.practiceRate >= 1
+            ? String(localized: "karaoke_speed_normal")
+            : String(format: "%.1f×", session.practiceRate)
+    }
+
     private var keyLabel: String {
         session.keyShift == 0
             ? String(localized: "karaoke_key_original")
@@ -524,6 +544,9 @@ private struct KaraokeControlPanel: View {
         default: break
         }
         if session.isVocalAssistSuppressed { return String(localized: "karaoke_vocal_assist_paused") }
+        if session.isPracticing, session.microphoneState == .on {
+            return String(localized: "karaoke_practice_not_scored")
+        }
         if session.isMixingRecording { return String(localized: "karaoke_mixing") }
         if session.recordingFailed { return String(localized: "karaoke_recording_failed") }
         if session.lastRecordingURL != nil { return String(localized: "karaoke_recording_saved") }
@@ -675,6 +698,85 @@ private struct KaraokeStageMenu: View {
                 Label("karaoke_ai_remove_model", systemImage: "xmark.bin")
             }
         }
+    }
+}
+
+/// The lines being looped, with a way to take in the next one.
+private struct KaraokeLoopChip: View {
+    let session: KaraokeSession
+    let lineCount: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Label(
+                String(format: String(localized: "karaoke_loop_lines_format"), lineCount),
+                systemImage: "repeat"
+            )
+            .font(.caption.weight(.semibold))
+            if session.canExtendLoop {
+                Button(action: session.extendLoop) {
+                    Label("karaoke_loop_extend", systemImage: "plus")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.white.opacity(0.18), in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .foregroundStyle(.white.opacity(0.9))
+        .padding(.leading, 10)
+        .padding(.trailing, session.canExtendLoop ? 4 : 10)
+        .padding(.vertical, 4)
+        .background(.white.opacity(0.14), in: Capsule())
+    }
+}
+
+/// A labelled minus/plus pair, for the key and the practice speed.
+private struct KaraokeStepper: View {
+    let titleKey: LocalizedStringKey
+    let value: String
+    let downLabel: LocalizedStringKey
+    let upLabel: LocalizedStringKey
+    let canStepDown: Bool
+    let canStepUp: Bool
+    let stepDown: () -> Void
+    let stepUp: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button(action: stepDown) {
+                Image(systemName: "minus")
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!canStepDown)
+            .accessibilityLabel(Text(downLabel))
+
+            VStack(spacing: 0) {
+                Text(titleKey)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.6))
+                Text(value)
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+            }
+            .lineLimit(1)
+            .frame(minWidth: 50)
+            .accessibilityElement(children: .combine)
+
+            Button(action: stepUp) {
+                Image(systemName: "plus")
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!canStepUp)
+            .accessibilityLabel(Text(upLabel))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 4)
+        .background(.white.opacity(0.1), in: Capsule())
     }
 }
 

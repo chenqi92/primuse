@@ -4500,3 +4500,12 @@
 "karaoke_vocal_assist_active" = "เสียงต้นฉบับกำลังช่วยร้อง";
 "karaoke_vocal_assist_paused" = "หยุดตัวช่วยร้องชั่วคราว: ไมโครโฟนได้ยินเสียงลำโพง ใช้หูฟังจะดีกว่า";
 "karaoke_ai_cooling" = "อุปกรณ์ร้อน จะทำต่อเมื่อเย็นลง";
+"karaoke_speed" = "ความเร็ว";
+"karaoke_speed_normal" = "ปกติ";
+"karaoke_speed_down" = "ช้าลง";
+"karaoke_speed_up" = "เร็วขึ้น";
+"karaoke_loop" = "วนท่อนนี้";
+"karaoke_loop_stop" = "หยุดวน";
+"karaoke_loop_lines_format" = "กำลังวน %d ท่อน";
+"karaoke_loop_extend" = "เพิ่มหนึ่งท่อน";
+"karaoke_practice_not_scored" = "ระหว่างฝึกจะไม่ให้คะแนนและไม่บันทึกเสียง";

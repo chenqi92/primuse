@@ -4500,3 +4500,12 @@
 "karaoke_vocal_assist_active" = "A voz original está ajudando";
 "karaoke_vocal_assist_paused" = "Assistência vocal pausada: o microfone está captando o alto-falante. Use fones de ouvido.";
 "karaoke_ai_cooling" = "Dispositivo quente; continua quando esfriar";
+"karaoke_speed" = "Velocidade";
+"karaoke_speed_normal" = "Normal";
+"karaoke_speed_down" = "Mais devagar";
+"karaoke_speed_up" = "Mais rápido";
+"karaoke_loop" = "Repetir esta linha";
+"karaoke_loop_stop" = "Parar de repetir";
+"karaoke_loop_lines_format" = "Repetindo %d linhas";
+"karaoke_loop_extend" = "Adicionar linha";
+"karaoke_practice_not_scored" = "Praticando: sem pontuação nem gravação.";

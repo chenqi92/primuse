@@ -4594,3 +4594,12 @@
 "karaoke_vocal_assist_active" = "La voix originale vous aide";
 "karaoke_vocal_assist_paused" = "Aide vocale en pause : le micro capte le haut-parleur. Utilisez un casque.";
 "karaoke_ai_cooling" = "Appareil chaud, reprise après refroidissement";
+"karaoke_speed" = "Vitesse";
+"karaoke_speed_normal" = "Normale";
+"karaoke_speed_down" = "Ralentir";
+"karaoke_speed_up" = "Accélérer";
+"karaoke_loop" = "Boucler cette ligne";
+"karaoke_loop_stop" = "Arrêter la boucle";
+"karaoke_loop_lines_format" = "%d lignes en boucle";
+"karaoke_loop_extend" = "Ajouter une ligne";
+"karaoke_practice_not_scored" = "En entraînement : pas de score ni d’enregistrement.";

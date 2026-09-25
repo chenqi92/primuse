@@ -147,7 +147,10 @@ extension AudioPlayerService {
     /// The rate `song` should play at: the spoken-word rate for spoken word,
     /// the music rate otherwise, 1× where the output cannot time-stretch.
     func requestedPlaybackRate(for song: Song?) -> Float {
-        SpokenWordPlaybackRatePolicy.effectiveRate(
+        if let practice = karaokePracticeRate, playbackSettings.outputMode == .effects {
+            return practice
+        }
+        return SpokenWordPlaybackRatePolicy.effectiveRate(
             isSpokenWord: song.map { SpokenWordStore.shared.isSpokenWord($0) } ?? false,
             musicRate: playbackSettings.playbackRate,
             spokenWordRate: playbackSettings.spokenWordPlaybackRate,
@@ -157,7 +160,10 @@ extension AudioPlayerService {
 
     /// The rate for the item that is playing now.
     var requestedPlaybackRate: Float {
-        SpokenWordPlaybackRatePolicy.effectiveRate(
+        if let practice = karaokePracticeRate, playbackSettings.outputMode == .effects {
+            return practice
+        }
+        return SpokenWordPlaybackRatePolicy.effectiveRate(
             isSpokenWord: currentItemIsSpokenWord,
             musicRate: playbackSettings.playbackRate,
             spokenWordRate: playbackSettings.spokenWordPlaybackRate,
