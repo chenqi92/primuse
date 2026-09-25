@@ -39,7 +39,8 @@ struct HomeListeningRankingSection: View {
         let calendar: Calendar
     }
 
-    /// 横向放得下「领奖台在左、名次榜在右」：iPad，以及所有横屏的手机。
+    /// 想要「领奖台在左、名次榜在右」：iPad，以及所有横屏的手机。真正并不并排还要看
+    /// 这一栏实际有多宽，见 `ListeningRankBoardLayout`。
     private var usesSideBySideBoard: Bool {
         sizeClass == .regular || heightClass.isCompact
     }
@@ -197,10 +198,7 @@ struct HomeListeningRankingSection: View {
         let showsCard = !rows.isEmpty || offersExpansion
         // 横竖屏之间只换排布、不换子树：名次行和领奖台上都挂着长按菜单，
         // 旋转时把菜单的宿主换掉是记录在案的崩溃形态。
-        let arrangement = usesSideBySideBoard
-            ? AnyLayout(HStackLayout(alignment: .top, spacing: 20))
-            : AnyLayout(VStackLayout(spacing: 14))
-        return arrangement {
+        return ListeningRankBoardLayout(prefersSideBySide: usesSideBySideBoard) {
             ListeningRankPodium(count: podiumCount) { place in
                 podiumColumn(ranks[place], place: place)
             }
@@ -496,5 +494,92 @@ private struct HomeRankedSongsView: View {
         .safeAreaInset(edge: .bottom, spacing: legacyBottomClearance == 0 ? 0 : nil) {
             Color.clear.frame(height: legacyBottomClearance)
         }
+    }
+}
+
+/// 领奖台与名次卡的排布:想并排、而且这一栏确实放得下才并排,否则上下叠。
+///
+/// 只看 size class 不够 —— iPad mini 竖屏开着侧栏时详情栏只有四百多点,仍是 regular。
+/// 领奖台三张封面加评分最窄三百来点,名次卡最窄两百出头,硬并排时整块比这一栏还宽,
+/// 把首页整个撑宽,左右两边的内容一起被裁掉。宽度要在布局阶段按父视图给的建议宽度判,
+/// 不能测完再写回状态:溢出时量到的正是被撑大的宽度。
+private struct ListeningRankBoardLayout: Layout {
+    let prefersSideBySide: Bool
+
+    private static let rowSpacing: CGFloat = 20
+    private static let columnSpacing: CGFloat = 14
+    /// 并排时名次卡除了自身最窄宽度,还要给歌名留出的余量 —— 刚好塞下时歌名全成省略号。
+    private static let titleAllowance: CGFloat = 64
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let frames = arrange(width: proposal.width, subviews: subviews)
+        let union = frames.reduce(CGRect.null) { $0.union($1) }
+        return union.isNull ? .zero : CGSize(width: union.maxX, height: union.maxY)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (subview, frame) in zip(subviews, arrange(width: bounds.width, subviews: subviews)) {
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                proposal: ProposedViewSize(frame.size)
+            )
+        }
+    }
+
+    /// 并排时的分法与原来的 `HStack(alignment: .top, spacing: 20)` 相同:领奖台先拿
+    /// 一半(被它自己的 360 上限和最窄宽度夹住),名次卡拿剩下的。上下叠时与
+    /// `VStack(spacing: 14)` 相同:各自按整栏宽度量,水平居中。
+    private func arrange(width: CGFloat?, subviews: Subviews) -> [CGRect] {
+        guard let podium = subviews.first else { return [] }
+        guard subviews.count > 1 else {
+            let size = podium.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            return [CGRect(origin: .zero, size: size)]
+        }
+        let card = subviews[1]
+
+        if usesRow(width: width, podium: podium, card: card) {
+            guard let width else {
+                let podiumSize = podium.sizeThatFits(.unspecified)
+                let cardSize = card.sizeThatFits(.unspecified)
+                return [
+                    CGRect(origin: .zero, size: podiumSize),
+                    CGRect(x: podiumSize.width + Self.rowSpacing, y: 0,
+                           width: cardSize.width, height: cardSize.height),
+                ]
+            }
+            let podiumSize = podium.sizeThatFits(
+                ProposedViewSize(width: max(0, (width - Self.rowSpacing) / 2), height: nil)
+            )
+            let cardWidth = max(0, width - Self.rowSpacing - podiumSize.width)
+            let cardSize = card.sizeThatFits(ProposedViewSize(width: cardWidth, height: nil))
+            return [
+                CGRect(origin: .zero, size: podiumSize),
+                CGRect(x: podiumSize.width + Self.rowSpacing, y: 0,
+                       width: cardSize.width, height: cardSize.height),
+            ]
+        }
+
+        let proposal = ProposedViewSize(width: width, height: nil)
+        let podiumSize = podium.sizeThatFits(proposal)
+        let cardSize = card.sizeThatFits(proposal)
+        let columnWidth = max(podiumSize.width, cardSize.width)
+        return [
+            CGRect(x: (columnWidth - podiumSize.width) / 2, y: 0,
+                   width: podiumSize.width, height: podiumSize.height),
+            CGRect(x: (columnWidth - cardSize.width) / 2, y: podiumSize.height + Self.columnSpacing,
+                   width: cardSize.width, height: cardSize.height),
+        ]
+    }
+
+    private func usesRow(width: CGFloat?, podium: LayoutSubview, card: LayoutSubview) -> Bool {
+        guard prefersSideBySide else { return false }
+        // 求理想尺寸(没有建议宽度)时按并排报。
+        guard let width, width.isFinite else { return true }
+        let narrowest = ProposedViewSize(width: 0, height: nil)
+        let required = podium.sizeThatFits(narrowest).width
+            + Self.rowSpacing
+            + card.sizeThatFits(narrowest).width
+            + Self.titleAllowance
+        return required <= width
     }
 }

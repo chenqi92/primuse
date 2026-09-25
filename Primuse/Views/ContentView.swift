@@ -1450,10 +1450,6 @@ struct ContentView: View {
                     }
                 }
         }
-        // 默认的 .automatic 在窄一些的 iPad 竖屏(iPad mini 744 点)上会让侧栏浮在
-        // 详情页上面,首页左边一截被盖住、也不变暗,看着像布局错位。改成并排:
-        // 侧栏出来时详情页让出宽度,收起侧栏才占满全宽。更宽的 iPad 竖屏本来就是并排。
-        .navigationSplitViewStyle(.balanced)
         .softNavigationScrollEdges()
     }
 
