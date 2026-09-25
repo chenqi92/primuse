@@ -38,6 +38,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     @State private var showDeleteConfirm = false
     @State private var deleteErrorMessage: String?
     @State private var scrapeAlertMessage: String?
+    @State private var pendingMedleySongs: [Song]?
     @State private var isScrapingCurrentSong = false
     @State private var sourceLyricsReloadAlertMessage: String?
     @State private var sourceLyricsReloadingSongID: String?
@@ -130,6 +131,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 guard player.currentSong?.id == updated.id else { return }
                 player.syncSongMetadata(updated)
             }
+        }
+        .medleyDataUsageConfirmation(pendingSongs: $pendingMedleySongs) { songs in
+            Task { await player.playMedley(songs) }
         }
         .alert(String(localized: "scrape_song"),
                isPresented: Binding(get: { scrapeAlertMessage != nil },
@@ -334,7 +338,11 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     player.playbackSettings.medleySegmentSeconds
                 ), symbol: "rectangle.stack.badge.play") {
                     let songs = player.medleyCandidatesFromQueue
-                    Task { await player.playMedley(songs) }
+                    if player.medleyNeedsDataUsageConfirmation(for: songs) {
+                        pendingMedleySongs = songs
+                    } else {
+                        Task { await player.playMedley(songs) }
+                    }
                 }
             }
             if player.currentItemIsSpokenWord, !player.isLiveRadio {

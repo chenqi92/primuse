@@ -95,3 +95,23 @@ public enum MedleySegmentPolicy {
         return min(12, segmentLength * 0.3)
     }
 }
+
+/// Whether starting a medley should first say it will use mobile data. A medley
+/// downloads the next songs whole so each slice can blend into the next, which
+/// on a metered connection costs far more than playing the same slices plainly.
+public enum MedleyDataUsagePolicy {
+    /// Set once the listener chose "don't ask again".
+    public static let promptDisabledKey = "primuse.medley.meteredDataPromptDisabled"
+    /// Only the opening of the medley is looked at; by the time later songs are
+    /// fetched the listener has already agreed.
+    public static let inspectedSongCount = 60
+
+    public static func shouldConfirm(
+        networkIsDetermined: Bool,
+        isOnUnmeteredNetwork: Bool,
+        promptDisabled: Bool,
+        hasSongToDownload: Bool
+    ) -> Bool {
+        networkIsDetermined && !isOnUnmeteredNetwork && !promptDisabled && hasSongToDownload
+    }
+}

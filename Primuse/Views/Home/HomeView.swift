@@ -190,6 +190,76 @@ private struct HomeDeferredSection<Content: View>: View {
     }
 }
 
+/// 首页区块的两栏排布(iPhone Duo 内屏横握):有内容的区块按顺序交替放进左右两栏
+/// (`WideCanvasColumnsPolicy.homeColumns`),两栏各占一半宽度、各自从上往下排,区块贴各栏的前沿。
+/// 单栏时首页用的是同间距的 `VStackLayout`,两者经 `AnyLayout` 互换,区块的视图身份不变。
+private struct HomeTwoColumnSectionsLayout: Layout {
+    var spacing: CGFloat
+
+    private struct Placement {
+        var index: Int
+        var origin: CGPoint
+        var size: CGSize
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let columnWidth = columnWidth(for: proposal.width, subviews: subviews)
+        let placements = placements(columnWidth: columnWidth, subviews: subviews)
+        let height = placements.map { $0.origin.y + $0.size.height }.max() ?? 0
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? columnWidth * 2
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let columnWidth = columnWidth(for: bounds.width, subviews: subviews)
+        let placed = placements(columnWidth: columnWidth, subviews: subviews)
+        var placedIndices = Set<Int>()
+        for placement in placed {
+            placedIndices.insert(placement.index)
+            subviews[placement.index].place(
+                at: CGPoint(x: bounds.minX + placement.origin.x, y: bounds.minY + placement.origin.y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: columnWidth, height: placement.size.height)
+            )
+        }
+        // 没内容(量出来零高度)的区块不占位置,放在左上角、按零尺寸摆。
+        for index in subviews.indices where !placedIndices.contains(index) {
+            subviews[index].place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading, proposal: .zero)
+        }
+    }
+
+    /// 每栏的宽度:整行的一半。没给宽度时(求理想尺寸)取各区块理想宽度里最宽的。
+    private func columnWidth(for width: CGFloat?, subviews: Subviews) -> CGFloat {
+        if let width, width.isFinite {
+            return max(0, width / 2)
+        }
+        return subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+    }
+
+    private func placements(columnWidth: CGFloat, subviews: Subviews) -> [Placement] {
+        let proposal = ProposedViewSize(width: columnWidth, height: nil)
+        let visible: [(index: Int, size: CGSize)] = subviews.indices.compactMap { index in
+            let size = subviews[index].sizeThatFits(proposal)
+            return size.height > 0 ? (index, size) : nil
+        }
+        let columns = WideCanvasColumnsPolicy.homeColumns(sectionCount: visible.count)
+        var result: [Placement] = []
+        for (column, members) in [columns.leading, columns.trailing].enumerated() {
+            var y: CGFloat = 0
+            for member in members {
+                let item = visible[member]
+                result.append(Placement(
+                    index: item.index,
+                    origin: CGPoint(x: CGFloat(column) * columnWidth, y: y),
+                    size: item.size
+                ))
+                y += item.size.height + spacing
+            }
+        }
+        return result
+    }
+}
+
 /// 首页排版拖动时显示的提示胶囊。
 ///
 /// 预览在自己的视图图里渲染,这里只用文字和字形,不读任何环境对象。
@@ -723,7 +793,11 @@ struct HomeView: View {
         .onChange(of: showForYou) { _, _ in
             refreshHomeSnapshot()
         }
+        .onAppear {
+            isSceneActive = scenePhase == .active
+        }
         .onChange(of: scenePhase) { _, phase in
+            isSceneActive = phase == .active
             if phase == .active {
                 guard isHomeVisible, needsHomeRefreshWhenActive else { return }
                 needsHomeRefreshWhenActive = false
@@ -855,6 +929,10 @@ struct HomeView: View {
     /// 首页这一层导航栈的 zoom 命名空间:卡片放大成详情页,返回时缩回卡片。
     @Namespace private var homeZoomNamespace
     @State private var needsHomeRefreshWhenActive = false
+    /// 场景此刻在不在前台。刷新路径里判断前台读这一份，不读 `scenePhase`：异步任务里读到的
+    /// `scenePhase` 是任务创建那一刻的值，冷启动时首页若在场景进入前台之前出现，任务醒来后仍以为
+    /// 在后台，把首次加载推给「回到前台」—— 而那次回到前台已经过去了，首页就一直停在加载占位。
+    @State private var isSceneActive = false
     // Debounce for `searchRevision`-driven refreshes. MusicLibrary bumps
     // `searchRevision` on *every* upsert batch during a scan, so a large
     // library scan would otherwise fire refreshHomeSnapshot() dozens
@@ -984,51 +1062,27 @@ struct HomeView: View {
                 HomeBooksInProgressStrip(minimumCount: 2, openSpace: openSpace)
             }
 
-            if usesTwoColumnHome {
-                homeTwoColumnSections
-            } else {
-                ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
-                    homeSectionRow(section)
-                }
-            }
+            homeSections
         }
     }
 
-    /// 两栏:可见的区块按顺序交替放进左右两栏,各栏按紧凑宽度(手机)排版。
-    private var homeTwoColumnSections: some View {
-        let visible = homeSectionOrder.filter(homeSectionHasContent)
-        let columns = WideCanvasColumnsPolicy.homeColumns(sectionCount: visible.count)
-        return HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 24) {
-                ForEach(columns.leading.map { visible[$0] }) { section in
-                    homeSectionRow(section)
-                }
+    /// 首页各区块。宽画布(Duo 内屏横握)上排成两栏:按顺序交替放进左右两栏,各栏按紧凑宽度(手机)排版。
+    ///
+    /// 单栏与两栏用 `AnyLayout` 互换而不是换一棵视图树:开合、转屏时区块保持原来的身份,
+    /// 从原位置滑到新位置,横滑区块滚到的位置、长按菜单的宿主都留着。
+    private var homeSections: some View {
+        let twoColumns = usesTwoColumnHome
+        let layout = twoColumns
+            ? AnyLayout(HomeTwoColumnSectionsLayout(spacing: 24))
+            : AnyLayout(VStackLayout(alignment: .leading, spacing: editorMode ? 12 : 24))
+        return layout {
+            ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
+                homeSectionRow(section)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            VStack(alignment: .leading, spacing: 24) {
-                ForEach(columns.trailing.map { visible[$0] }) { section in
-                    homeSectionRow(section)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .environment(\.horizontalSizeClass, .compact)
-    }
-
-    /// 这个区块此刻有没有东西可显示(与 `homeSectionContent` 的显示条件一致),两栏分配只数有内容的。
-    private func homeSectionHasContent(_ section: HomeSectionKind) -> Bool {
-        switch section {
-        case .continueListening: showContinueListening && !model.snapshot.recentSongs.isEmpty
-        case .radio: showRadioOnHome && activeHomeFilter == nil
-        case .quickAccess: showQuickAccess && !model.snapshot.quickItems.isEmpty
-        case .forYou: showForYou && !model.snapshot.forYouResults.isEmpty
-        case .playlists: showPlaylists && !model.snapshot.playlists.isEmpty
-        case .folders: showFolders
-        case .listeningRanking: showListeningRanking
-        case .topArtists: showTopArtists && !model.snapshot.topArtists.isEmpty
-        case .recentlyAdded: showRecentlyAdded && !model.snapshot.recentlyAddedAlbums.isEmpty
-        case .stats: showStatsGlimpse && model.snapshot.statsGlimpse != nil
-        }
+        .environment(\.horizontalSizeClass, twoColumns ? .compact : sizeClass)
+        // iPhone Duo 开合、内屏转屏时单栏 ⇄ 两栏:各区块从原位置滑到新位置。
+        .pmLayoutSwitchAnimation(twoColumns)
     }
 
     /// 分区本身经 `HomeDeferredSection` 推迟构造，别直接内联回来（见那个类型的说明）；
@@ -1638,7 +1692,7 @@ struct HomeView: View {
     /// snapshot. Recheck the signature after the delay so a foreground event
     /// or returning to this page does not repeat an already completed refresh.
     private func scheduleDebouncedHomeRefresh() {
-        guard scenePhase == .active, isHomeVisible else {
+        guard isSceneActive, isHomeVisible else {
             needsHomeRefreshWhenActive = true
             refreshCoordinator.cancelAll()
             return
@@ -1695,7 +1749,7 @@ struct HomeView: View {
         isHomeVisible = true
         await Task.yield()
         guard !Task.isCancelled else { return }
-        guard scenePhase == .active else {
+        guard isSceneActive else {
             needsHomeRefreshWhenActive = true
             return
         }
@@ -1872,7 +1926,7 @@ struct HomeView: View {
     }
 
     private func refreshHomeSnapshot() {
-        guard scenePhase == .active, isHomeVisible else {
+        guard isSceneActive, isHomeVisible else {
             needsHomeRefreshWhenActive = true
             refreshCoordinator.cancelAll()
             return

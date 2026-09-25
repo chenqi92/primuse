@@ -4300,6 +4300,10 @@
 "medley_continue_full" = "Słuchaj całego utworu";
 "medley_continue_full_short" = "Całość";
 "medley_badge_format" = "Składanka · po %lld s";
+"medley_data_title" = "Korzystasz z danych komórkowych";
+"medley_data_message" = "Aby płynnie łączyć fragmenty, składanka pobiera kolejne utwory w całości, co może zużyć dużo danych.";
+"medley_data_continue" = "Odtwórz składankę";
+"medley_data_dont_ask" = "Odtwórz i nie pytaj ponownie";
 "smart_nudge_section" = "Podpowiedzi podczas słuchania";
 "smart_nudge_enabled" = "Pokazuj podpowiedzi";
 "smart_nudge_footer" = "Od czasu do czasu mały baner podpowiada coś pasującego do chwili – na przykład dodanie do ulubionych utworu, którego słuchasz w kółko. Nie przerywa odtwarzania, znika sam i nie wraca po odrzuceniu. Wszystko jest liczone na tym urządzeniu.";

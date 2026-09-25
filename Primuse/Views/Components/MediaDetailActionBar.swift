@@ -196,6 +196,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
 
     /// 单栏 ⇄ 两栏时头图(封面、标题、操作行)从旧位置滑到新位置。
     @Namespace private var layoutNamespace
+    @State private var headerSwitch = LibraryDetailHeaderSwitch()
 
     /// 头图里大标题的下沿（头部坐标）。页面给大标题挂上 `libraryDetailHeroTitle()` 才有值。
     @State private var heroTitleBottom: CGFloat?
@@ -253,6 +254,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                     header(insets)
                         .coordinateSpace(.named(LibraryDetailHeroSpace.name))
                         .libraryDetailMatchedHeader()
+                        .libraryDetailSingleHeaderSwitch(headerSwitch)
                     content
                         .padding(.leading, safeArea.leading)
                         .padding(.trailing, safeArea.trailing)
@@ -288,6 +290,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             )
             // iPhone Duo 开合时单栏 ⇄ 两栏换构图：头图滑到新位置，曲目等其余内容淡入。
             .pmLayoutSwitchAnimation(usesTwoColumns)
+            .libraryDetailTracksHeaderSwitch(usesTwoColumns, state: $headerSwitch)
         }
         .environment(\.libraryDetailHeroTitleReporter, { bottom in
             if heroTitleBottom != bottom { heroTitleBottom = bottom }
@@ -634,10 +637,25 @@ private struct LibraryDetailLayoutNamespaceKey: EnvironmentKey {
 
 private enum LibraryDetailLayoutElement: Hashable {
     case header
+    /// 刚从两栏换回单栏时单栏头部用的身份：不和正在退场的左栏头部配对，直接出现在自己的位置。
+    case headerInPlace
+}
+
+private struct LibraryDetailHeaderJoinsMatchKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    /// 头部这一次要不要和另一种排法的头部配对滑动。两栏切回单栏时为假（见 `LibraryDetailHeaderSwitch`）。
+    fileprivate var libraryDetailHeaderJoinsMatch: Bool {
+        get { self[LibraryDetailHeaderJoinsMatchKey.self] }
+        set { self[LibraryDetailHeaderJoinsMatchKey.self] = newValue }
+    }
 }
 
 extension View {
-    /// 把详情页头部挂到两栏容器的命名空间上：单栏 ⇄ 两栏时头部滑到新位置。没有命名空间（不是 iPhone）时原样返回。
+    /// 把详情页头部挂到两栏容器的命名空间上：单栏换成两栏时头部滑到左栏；两栏换回单栏时旧头部在原处淡出、
+    /// 新头部直接出现在自己的位置。没有命名空间（不是 iPhone）时原样返回。
     func libraryDetailMatchedHeader() -> some View {
         modifier(LibraryDetailMatchedHeader())
     }
@@ -645,19 +663,95 @@ extension View {
 
 private struct LibraryDetailMatchedHeader: ViewModifier {
     @Environment(\.libraryDetailLayoutNamespace) private var namespace
+    @Environment(\.libraryDetailHeaderJoinsMatch) private var joinsMatch
 
     func body(content: Content) -> some View {
         if let namespace {
             // 只对齐位置、不插值尺寸：单栏与左栏宽度差得多，插值宽度会让标题与按钮一路折行。
-            content.matchedGeometryEffect(
-                id: LibraryDetailLayoutElement.header,
-                in: namespace,
-                properties: .position,
-                anchor: .top
-            )
+            // 换排法时新旧两份头部同时在场：新的保持不透明，旧的很快淡出，不会叠成两份实心的。
+            content
+                .matchedGeometryEffect(
+                    id: joinsMatch ? LibraryDetailLayoutElement.header : .headerInPlace,
+                    in: namespace,
+                    properties: .position,
+                    anchor: .top
+                )
+                .pmLayoutSwitchQuickFadeOut()
         } else {
             content
         }
+    }
+}
+
+/// 详情页头部在单栏与两栏之间换排法的方向。
+///
+/// 单栏换成两栏时，窄的左栏头部从单栏头部的中点滑过去，全程在屏幕里。反过来两栏换回单栏时，整幅宽的新头部
+/// 要是从窄左栏的中点起步，左半截会越过屏幕左缘被裁掉 —— 所以这一次单栏头部不配对，旧头部在原处很快淡出、
+/// 新头部直接出现在自己的位置。换完、旧头部退场之后单栏头部再回到配对里，下一次换成两栏时照样滑。
+struct LibraryDetailHeaderSwitch: Equatable {
+    struct Pending: Equatable {
+        var twoColumns: Bool
+        var generation: Int
+    }
+
+    /// 页面最后停稳在哪种排法。还没排过时为 nil。
+    private(set) var settledTwoColumns: Bool?
+    /// 正在换过去、过渡还没走完的排法。
+    private(set) var pending: Pending?
+    private var generation = 0
+
+    /// 单栏头部此刻要不要参与配对：页面停在两栏、正要换回单栏时不配对。
+    var singleHeaderJoinsMatch: Bool {
+        settledTwoColumns != true
+    }
+
+    mutating func change(to twoColumns: Bool) {
+        guard let settled = settledTwoColumns else {
+            settledTwoColumns = twoColumns
+            return
+        }
+        guard settled != twoColumns else {
+            pending = nil
+            return
+        }
+        generation += 1
+        pending = Pending(twoColumns: twoColumns, generation: generation)
+    }
+
+    mutating func settle(_ done: Pending) {
+        guard pending == done else { return }
+        settledTwoColumns = done.twoColumns
+        pending = nil
+    }
+}
+
+extension View {
+    /// 单栏那一份头部所在的子树：两栏刚换回单栏时头部不配对，直接出现在自己的位置。
+    func libraryDetailSingleHeaderSwitch(_ state: LibraryDetailHeaderSwitch) -> some View {
+        environment(\.libraryDetailHeaderJoinsMatch, state.singleHeaderJoinsMatch)
+    }
+
+    /// 跟着排法记下换排法的方向；等这一次换构图的过渡走完（旧头部退场）才记成停稳。
+    func libraryDetailTracksHeaderSwitch(_ twoColumns: Bool, state: Binding<LibraryDetailHeaderSwitch>) -> some View {
+        modifier(LibraryDetailHeaderSwitchTracker(twoColumns: twoColumns, state: state))
+    }
+}
+
+private struct LibraryDetailHeaderSwitchTracker: ViewModifier {
+    let twoColumns: Bool
+    @Binding var state: LibraryDetailHeaderSwitch
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: twoColumns, initial: true) { _, newValue in
+                state.change(to: newValue)
+            }
+            .task(id: state.pending) {
+                guard let pending = state.pending else { return }
+                try? await Task.sleep(for: PMLayoutSwitchTiming.settleDelay)
+                guard !Task.isCancelled else { return }
+                state.settle(pending)
+            }
     }
 }
 
@@ -675,6 +769,7 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
     /// 单栏 ⇄ 两栏时头部从旧位置滑到新位置(页面在头部上挂 `libraryDetailMatchedHeader()`)。
     @Namespace private var layoutNamespace
+    @State private var headerSwitch = LibraryDetailHeaderSwitch()
     #endif
 
     var body: some View {
@@ -721,15 +816,19 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
                     .transition(PMLayoutSwitchTransition())
                 } else {
                     single()
+                        .libraryDetailSingleHeaderSwitch(headerSwitch)
                         .transition(PMLayoutSwitchTransition())
                 }
                 }
                 // iPhone Duo 内屏转屏时单栏 ⇄ 两栏换构图：头部滑到新位置，曲目等其余内容淡入。
                 .pmLayoutSwitchAnimation(usesTwoColumns)
+                .libraryDetailTracksHeaderSwitch(usesTwoColumns, state: $headerSwitch)
             }
         } else {
             single()
+                .libraryDetailSingleHeaderSwitch(headerSwitch)
                 .transition(PMLayoutSwitchTransition())
+                .libraryDetailTracksHeaderSwitch(false, state: $headerSwitch)
         }
         }
         // 头部挂到同一个命名空间上：外屏(紧凑宽度)展开到内屏时，单栏的头部也滑到两栏的左栏。
@@ -886,11 +985,14 @@ struct LibraryDetailPlayShuffleRow: View {
 
 /// 详情页操作行在窄栏里的退让。整行放得下就是 `full`（原来的排法）；iPhone Duo 两栏的左栏、
 /// 系统竖栏这类新画布上放不下时依次换成 `reduced`、`minimal`，按钮文字永不折行。
-/// 普通 iPhone 与 iPad 只走 `full`，和原来逐像素一致。
+/// 普通 iPhone 与 iPad 只走 `full`，和原来逐像素一致；`adaptsAtAnyWidth` 的行（整行文字在普通 iPhone
+/// 上本来就放不下的）不论画布都按宽度退让。
 ///
 /// 不用 `ViewThatFits`：它按理想宽度摆选中的那一种，撑满整行的按钮会缩成按文字宽。这里先在一层
 /// 不显示的背景里量出各排法不折行时要多宽，再按这一行实际有多宽挑一种正常摆。
 struct LibraryDetailAdaptiveActionRow<Full: View, Reduced: View, Minimal: View>: View {
+    /// 不论在什么画布上都按这一行的实际宽度退让。
+    var adaptsAtAnyWidth = false
     @ViewBuilder let full: () -> Full
     @ViewBuilder let reduced: () -> Reduced
     @ViewBuilder let minimal: () -> Minimal
@@ -900,15 +1002,28 @@ struct LibraryDetailAdaptiveActionRow<Full: View, Reduced: View, Minimal: View>:
     @State private var widths = LibraryDetailActionRowWidths()
 
     var body: some View {
-        if adaptsInColumn || verticalBarEdge != nil {
+        if adaptsAtAnyWidth || adaptsInColumn || verticalBarEdge != nil {
             chosenRow
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.available = $0 }
                 .background {
                     ZStack {
                         full()
-                            .fixedSize(horizontal: true, vertical: false)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.full = $0 }
+                            .fixedSize()
+                            .onGeometryChange(for: CGSize.self) { $0.size } action: {
+                                widths.full = $0.width
+                                widths.fullSingleLineHeight = $0.height
+                            }
+                        if let available = widths.available {
+                            // 按这一行实际的宽度再排一次：等宽的几颗按钮是平分整行的，总宽放得下时
+                            // 最长的那颗仍可能折行，比一比高度就知道。
+                            full()
+                                .frame(width: available)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                                    widths.fullHeightAtAvailable = $0
+                                }
+                        }
                         reduced()
                             .fixedSize(horizontal: true, vertical: false)
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.reduced = $0 }
@@ -941,11 +1056,19 @@ struct LibraryDetailActionRowWidths: Equatable {
     var available: CGFloat?
     var full: CGFloat?
     var reduced: CGFloat?
+    /// `full` 不折行时的高度，和按这一行实际宽度排出来的高度。后者更高就是有按钮的文字折行了。
+    var fullSingleLineHeight: CGFloat?
+    var fullHeightAtAvailable: CGFloat?
+
+    private var fullWrapsAtAvailable: Bool {
+        guard let fullSingleLineHeight, let fullHeightAtAvailable else { return false }
+        return fullHeightAtAvailable > fullSingleLineHeight + 0.5
+    }
 
     var step: Step {
         guard let available else { return .full }
         // 半个点的余量：量出来的理想宽度与实际摆放的宽度会差一点浮点零头。
-        if let full, full <= available + 0.5 { return .full }
+        if let full, full <= available + 0.5, !fullWrapsAtAvailable { return .full }
         if let reduced, reduced <= available + 0.5 { return .reduced }
         return full == nil || reduced == nil ? .full : .minimal
     }

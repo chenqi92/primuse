@@ -829,6 +829,7 @@
 		853427FA20B67053FED472A3 /* TVSourceAssetReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 139EF58C77552DC03F51190D /* TVSourceAssetReader.swift */; };
 		8555E09C98B0CBABEC2E578A /* AudioCacheEvictionPlanPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1484D3544FDD6966114DAE4 /* AudioCacheEvictionPlanPolicy.swift */; };
 		85596F93306BD339283AB936 /* PMMenuLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8355C8D0FBADBC25AF310BF4 /* PMMenuLayout.swift */; };
+		C20ECE59FC662C5D0682E673 /* MedleyDataUsageConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AFE1C52D20F2EB259DD8D28 /* MedleyDataUsageConfirmation.swift */; };
 		855F531A2B63BA3F028FA596 /* HomeListeningRankingSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58A8EAF8B5EACE572269A93 /* HomeListeningRankingSection.swift */; };
 		856C70EA0F1E8E9D577A8A5F /* TVPlaybackPipelinePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C899A774E84E601D74500D /* TVPlaybackPipelinePolicy.swift */; };
 		857DFB55DB78805ACDA080D1 /* GRDB-dynamic in Frameworks */ = {isa = PBXBuildFile; productRef = 03F49385D51C82C1ED9551A7 /* GRDB-dynamic */; };
@@ -1357,6 +1358,7 @@
 		D9EACD0E66A448D26DAB2D59 /* PrimuseAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECCDD80F05FA4A71FA0CB32 /* PrimuseAppIntents.swift */; };
 		DA414524DD0D815F8DE6E173 /* ConnectorRefreshInvalidationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FDA42A505F2E43E118256B8 /* ConnectorRefreshInvalidationPolicy.swift */; };
 		DAA94A7E4E994B6DF5DE2460 /* PMMenuLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8355C8D0FBADBC25AF310BF4 /* PMMenuLayout.swift */; };
+		4B78A470E7AB27D01773E3F3 /* MedleyDataUsageConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AFE1C52D20F2EB259DD8D28 /* MedleyDataUsageConfirmation.swift */; };
 		DADB58E8CA347DB9AF6A9362 /* RadioStationListeningHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCDA7B2128C0FC37EF91FA77 /* RadioStationListeningHistory.swift */; };
 		DB18A0C7FC05D5856F733A90 /* MacRadioStationEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEF5FD80A376FCFC69894248 /* MacRadioStationEditorView.swift */; };
 		DB9E5F2628D4E445C822E8D3 /* LyricsTranslationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8CBD34CDDF944EDE45F0D28 /* LyricsTranslationCache.swift */; };
@@ -2446,6 +2448,7 @@
 		8321DC84502AE307E1C3B466 /* FnMusicServiceClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnMusicServiceClient.swift; sourceTree = "<group>"; };
 		83377FF5AF91C222F2FF3DF7 /* MacBottomBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacBottomBar.swift; sourceTree = "<group>"; };
 		8355C8D0FBADBC25AF310BF4 /* PMMenuLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PMMenuLayout.swift; sourceTree = "<group>"; };
+		6AFE1C52D20F2EB259DD8D28 /* MedleyDataUsageConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedleyDataUsageConfirmation.swift; sourceTree = "<group>"; };
 		83ED706EE476BAD28EE3B6AE /* FnMusicAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnMusicAPI.swift; sourceTree = "<group>"; };
 		83F26AFF21D6618168FD2742 /* AudioQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioQuality.swift; sourceTree = "<group>"; };
 		841D9FCD00F604D560C3B8D9 /* AppleMusicCatalogHit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicCatalogHit.swift; sourceTree = "<group>"; };
@@ -4387,6 +4390,7 @@
 				0C23E16B81AA656BE6367D72 /* PMVerticalBarChrome.swift */,
 				5942C7DC21067087685B0762 /* PMSheetFitting.swift */,
 				8355C8D0FBADBC25AF310BF4 /* PMMenuLayout.swift */,
+				6AFE1C52D20F2EB259DD8D28 /* MedleyDataUsageConfirmation.swift */,
 				C24789082CEFB3C4913FB3F1 /* PMMotion.swift */,
 				23CA6DF05BAC0E0F38218C88 /* RevealableSecureField.swift */,
 				9492D5CC5D1370DFED401085 /* ScraperSourceGate.swift */,
@@ -5978,6 +5982,7 @@
 				19E71BD71839EEB9402FE979 /* PMVerticalBarChrome.swift in Sources */,
 				13EE3E55F622A116D6B96EFE /* PMSheetFitting.swift in Sources */,
 				DAA94A7E4E994B6DF5DE2460 /* PMMenuLayout.swift in Sources */,
+				4B78A470E7AB27D01773E3F3 /* MedleyDataUsageConfirmation.swift in Sources */,
 				469B765AB0F7DD2B9A045EC2 /* PMMotion.swift in Sources */,
 				3043FF24779407E29FC86609 /* PMPlaybackVolumeControl.swift in Sources */,
 				33291B00F794529D46E2B888 /* PMTitleBar.swift in Sources */,
@@ -6574,6 +6579,7 @@
 				EC461F765597559BD825773A /* PMVerticalBarChrome.swift in Sources */,
 				DE9F4721AE1A72BC3A3DFDDA /* PMSheetFitting.swift in Sources */,
 				85596F93306BD339283AB936 /* PMMenuLayout.swift in Sources */,
+				C20ECE59FC662C5D0682E673 /* MedleyDataUsageConfirmation.swift in Sources */,
 				3D3465A697969C95DA2DA42B /* PMMotion.swift in Sources */,
 				E69C14A8F61B6822F6426908 /* PMPlaybackVolumeControl.swift in Sources */,
 				E3900CCC1A7A9AEC7FAB20FE /* PMTitleBar.swift in Sources */,

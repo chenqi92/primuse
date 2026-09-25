@@ -4300,6 +4300,10 @@
 "medley_continue_full" = "Seguir con esta canción completa";
 "medley_continue_full_short" = "Completa";
 "medley_badge_format" = "Popurrí · %lld s cada una";
+"medley_data_title" = "Estás usando datos móviles";
+"medley_data_message" = "Para enlazar cada parte sin cortes, el popurrí descarga completas las siguientes canciones, lo que puede consumir muchos datos.";
+"medley_data_continue" = "Reproducir popurrí";
+"medley_data_dont_ask" = "Reproducir y no volver a preguntar";
 "smart_nudge_section" = "Sugerencias al escuchar";
 "smart_nudge_enabled" = "Mostrar sugerencias";
 "smart_nudge_footer" = "De vez en cuando, un pequeño aviso sugiere lo que encaja con el momento, como agregar a Favoritos una canción que repites. No interrumpe la reproducción, desaparece solo y no se repite si lo rechazas. Todo se calcula en este dispositivo.";

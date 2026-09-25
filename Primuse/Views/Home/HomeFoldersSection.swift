@@ -631,7 +631,7 @@ struct HomeFolderBrowser: View {
         .toolbar {
             if let node {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    pinButton(node.id)
+                    pinButton(node.id, titled: verticalBarEdge != nil)
                     Menu {
                         Button("play", systemImage: "play.fill") { playFolder(node.id, shuffle: false) }
                         Button("shuffle", systemImage: "shuffle") { playFolder(node.id, shuffle: true) }
@@ -1118,21 +1118,33 @@ struct HomeFolderBrowser: View {
         #endif
     }
 
-    private func pinButton(_ id: LibraryFolderNodeID) -> some View {
+    /// `titled`：放在系统竖栏(iPhone Duo)里时带上标题，空间不够被收进系统溢出菜单时看得懂。
+    @ViewBuilder
+    private func pinButton(_ id: LibraryFolderNodeID, titled: Bool = false) -> some View {
         let pinned = pins.contains(id)
-        return Button {
-            togglePin(id)
-        } label: {
-            Image(systemName: pinned ? "pin.fill" : "pin")
-                #if os(macOS)
-                .frame(width: 30, height: 30)
-                #else
-                .frame(width: 44, height: 44)
-                #endif
-                .foregroundStyle(pinned ? Color.accentColor : Color.secondary)
+        let title = HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder")
+        if titled {
+            Button {
+                togglePin(id)
+            } label: {
+                PMToolbarItemLabel(verbatim: title, systemImage: pinned ? "pin.fill" : "pin", titled: true)
+            }
+            .accessibilityLabel(title)
+        } else {
+            Button {
+                togglePin(id)
+            } label: {
+                Image(systemName: pinned ? "pin.fill" : "pin")
+                    #if os(macOS)
+                    .frame(width: 30, height: 30)
+                    #else
+                    .frame(width: 44, height: 44)
+                    #endif
+                    .foregroundStyle(pinned ? Color.accentColor : Color.secondary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(title)
         }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(HomeDiscoveryText.string(pinned ? "unpin_folder" : "pin_folder"))
     }
 
     private func togglePin(_ id: LibraryFolderNodeID) {

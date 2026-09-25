@@ -20,3 +20,29 @@ import Testing
         #expect(MedleySegmentPolicy.preparationLead(segmentLength: .nan) == 0)
     }
 }
+
+@Suite struct MedleyDataUsagePolicyTests {
+    @Test func asksOnlyOnMeteredNetworkWithSomethingToDownload() {
+        #expect(MedleyDataUsagePolicy.shouldConfirm(
+            networkIsDetermined: true, isOnUnmeteredNetwork: false,
+            promptDisabled: false, hasSongToDownload: true
+        ))
+        #expect(!MedleyDataUsagePolicy.shouldConfirm(
+            networkIsDetermined: true, isOnUnmeteredNetwork: true,
+            promptDisabled: false, hasSongToDownload: true
+        ))
+        #expect(!MedleyDataUsagePolicy.shouldConfirm(
+            networkIsDetermined: true, isOnUnmeteredNetwork: false,
+            promptDisabled: false, hasSongToDownload: false
+        ))
+        #expect(!MedleyDataUsagePolicy.shouldConfirm(
+            networkIsDetermined: true, isOnUnmeteredNetwork: false,
+            promptDisabled: true, hasSongToDownload: true
+        ))
+        // Before the first network path arrives nothing is known to be metered.
+        #expect(!MedleyDataUsagePolicy.shouldConfirm(
+            networkIsDetermined: false, isOnUnmeteredNetwork: false,
+            promptDisabled: false, hasSongToDownload: true
+        ))
+    }
+}
