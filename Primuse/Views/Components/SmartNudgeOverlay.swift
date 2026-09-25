@@ -149,6 +149,10 @@ private struct SmartNudgeBanner: View {
             String(localized: "smart_nudge_continue_message")
         case .sleepTimer:
             String(localized: "smart_nudge_sleep_message")
+        case .backToMusic:
+            String(localized: "smart_nudge_back_to_music_message")
+        case .classifyAsSpokenWord:
+            String(localized: "smart_nudge_classify_spoken_message")
         }
     }
 
@@ -156,6 +160,8 @@ private struct SmartNudgeBanner: View {
         switch nudge.kind {
         case .sleepTimer:
             return nil
+        case .backToMusic:
+            return MusicSessionMemoryStore.shared.memory?.title
         case .continueWithRecommendations, .playSimilar:
             return String(format: String(localized: "smart_nudge_songs_format"), nudge.songs.count)
         default:
@@ -170,6 +176,8 @@ private struct SmartNudgeBanner: View {
         case .removeFromFavorites: String(localized: "smart_nudge_action_unlike")
         case .continueWithRecommendations: String(localized: "smart_nudge_action_add")
         case .sleepTimer: String(localized: "smart_nudge_action_set")
+        case .backToMusic: String(localized: "smart_nudge_action_add")
+        case .classifyAsSpokenWord: String(localized: "smart_nudge_action_move")
         }
     }
 }

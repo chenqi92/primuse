@@ -664,6 +664,8 @@ struct NowPlayingView: View {
     @State private var showCastPicker = false
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
+    /// 电台的「刚播过」:这个台上听到过的曲目标题。
+    @State private var radioDetailStationID: String?
     @State private var showKaraoke = false
     @State private var showDeleteConfirm = false
     @State private var deleteErrorMessage: String?
@@ -1652,21 +1654,16 @@ struct NowPlayingView: View {
             dismissMusicVideoFullScreen()
         }
         #endif
+        .sheet(item: Binding(
+            get: { radioDetailStationID.map(RadioDetailSheetID.init) },
+            set: { radioDetailStationID = $0?.id }
+        )) { item in
+            RadioStationDetailView(stationID: item.id)
+        }
         .confirmationDialog(String(localized: "sleep_timer"), isPresented: $showSleepTimer) {
-            Button("5 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 5) }
-            Button("15 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 15) }
-            Button("30 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 30) }
-            Button("45 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 45) }
-            Button("60 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 60) }
-            if player.isLiveRadio {
-                Button("90 " + String(localized: "minutes")) { player.scheduleSleep(minutes: 90) }
-            } else {
-                Button(String(localized: "sleep_at_track_end")) { player.scheduleSleepAtTrackEnd() }
-                    .disabled(player.currentSong == nil)
-                if player.hasChapters {
-                    Button(String(localized: "sleep_at_chapter_end")) { player.scheduleSleepAtChapterEnd() }
-                        .disabled(player.currentChapterIndex == nil)
-                }
+            // 三种收听各有各的「到哪儿停」:电台只有分钟数,有声多出本章、本集、整本。
+            ForEach(sleepTimerOptions, id: \.self) { option in
+                sleepTimerOptionButton(option)
             }
             if player.isSleepTimerActive {
                 Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
@@ -1887,6 +1884,16 @@ struct NowPlayingView: View {
                     }
                     .accessibilityLabel(Text("share"))
                 }
+                if let stationID = player.currentRadioStation?.id {
+                    Button {
+                        radioDetailStationID = stationID
+                    } label: {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .frame(width: 36, height: 36)
+                    }
+                    .foregroundStyle(appearance.secondary)
+                    .accessibilityLabel(Text("radio_detail_heard_title"))
+                }
                 radioSleepTimerButton
             }
             .padding(.top, 10)
@@ -1896,6 +1903,31 @@ struct NowPlayingView: View {
         .padding(.leading, safeInsets.leading)
         .padding(.trailing, safeInsets.trailing)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var sleepTimerOptions: [SleepTimerOption] {
+        let space = player.currentListeningSpace ?? .music
+        return SleepTimerOptionPolicy.options(for: space, hasChapters: player.hasChapters)
+    }
+
+    @ViewBuilder
+    private func sleepTimerOptionButton(_ option: SleepTimerOption) -> some View {
+        switch option {
+        case .minutes(let minutes):
+            Button("\(minutes) " + String(localized: "minutes")) { player.scheduleSleep(minutes: minutes) }
+        case .endOfTrack:
+            if player.currentListeningSpace == .spokenWord {
+                Button(String(localized: "sleep_at_item_end")) { player.scheduleSleepAtTrackEnd() }
+            } else {
+                Button(String(localized: "sleep_at_track_end")) { player.scheduleSleepAtTrackEnd() }
+                    .disabled(player.currentSong == nil)
+            }
+        case .endOfChapter:
+            Button(String(localized: "sleep_at_chapter_end")) { player.scheduleSleepAtChapterEnd() }
+                .disabled(player.currentChapterIndex == nil)
+        case .endOfBook:
+            Button(String(localized: "sleep_at_book_end")) { player.scheduleSleepAtBookEnd() }
+        }
     }
 
     /// 电台没有曲终可等，睡眠定时是这里唯一的自动停止手段。歌曲布局把它收在
@@ -2346,6 +2378,34 @@ struct NowPlayingView: View {
             : String(localized: "a11y_next_track")
     }
 
+    /// 有声的快退/快进长按:有章节时跳章,一本书有多集时跳集。
+    @ViewBuilder
+    private func bookJumpItems(forward: Bool) -> some View {
+        if forward {
+            if player.hasChapters {
+                Button { player.seekToNextChapter() } label: {
+                    Label("spoken_word_next_chapter", systemImage: "forward.end")
+                }
+            }
+            if player.hasNextBookItem {
+                Button { player.skipToNextBookItem() } label: {
+                    Label("spoken_word_next_item", systemImage: "forward.end.alt")
+                }
+            }
+        } else {
+            if player.hasChapters {
+                Button { player.seekToPreviousChapter() } label: {
+                    Label("spoken_word_previous_chapter", systemImage: "backward.end")
+                }
+            }
+            if player.hasPreviousBookItem {
+                Button { player.skipToPreviousBookItem() } label: {
+                    Label("spoken_word_previous_item", systemImage: "backward.end.alt")
+                }
+            }
+        }
+    }
+
     private func transportBackward() {
         if usesSpokenWordTransport {
             player.skipSpokenWordBackward()
@@ -2617,6 +2677,7 @@ struct NowPlayingView: View {
                 }
                 .frame(width: 56, height: 56)
                 .accessibilityLabel(transportBackwardLabel)
+                .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
                 Spacer()
                 Button { player.togglePlayPause() } label: {
                     ZStack {
@@ -2643,6 +2704,7 @@ struct NowPlayingView: View {
                 }
                 .frame(width: 56, height: 56)
                 .accessibilityLabel(transportForwardLabel)
+                .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
                 Spacer()
                 ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
                     switch player.repeatMode {
@@ -3040,6 +3102,7 @@ struct NowPlayingView: View {
                         }
                         .frame(width: 56, height: 56)
                         .accessibilityLabel(transportBackwardLabel)
+                        .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
                         Spacer()
                         Button { player.togglePlayPause() } label: {
                             ZStack {
@@ -3072,6 +3135,7 @@ struct NowPlayingView: View {
                         }
                         .frame(width: 56, height: 56)
                         .accessibilityLabel(transportForwardLabel)
+                        .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
                         Spacer()
                         ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
                             switch player.repeatMode {
@@ -3248,6 +3312,7 @@ struct NowPlayingView: View {
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .accessibilityLabel(transportBackwardLabel)
+                .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
 
                 Button { player.togglePlayPause() } label: {
                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -3265,6 +3330,7 @@ struct NowPlayingView: View {
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .accessibilityLabel(transportForwardLabel)
+                .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
             }
             .font(.title3)
             .foregroundStyle(appearance.primary)
@@ -3575,7 +3641,7 @@ struct NowPlayingView: View {
             playbackRate: playbackSettings.outputMode == .highFidelity
                 ? 1
                 : (player.currentItemIsSpokenWord
-                    ? playbackSettings.spokenWordPlaybackRate
+                    ? player.currentSpokenWordRate
                     : playbackSettings.playbackRate),
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
             showsPlaybackModeActions: compactLandscapeHidesModeToggles,
@@ -3598,14 +3664,15 @@ struct NowPlayingView: View {
                 get: {
                     guard playbackSettings.outputMode != .highFidelity else { return 1 }
                     return player.currentItemIsSpokenWord
-                        ? playbackSettings.spokenWordPlaybackRate
+                        ? player.currentSpokenWordRate
                         : playbackSettings.playbackRate
                 },
                 set: {
                     guard playbackSettings.outputMode == .effects else { return }
-                    // 有声内容与音乐各记一档速度, 菜单改的是正在播的这一类。
+                    // 有声内容与音乐各记一档速度, 菜单改的是正在播的这一类;
+                    // 有声按书记,每本书可以有自己的速度。
                     if player.currentItemIsSpokenWord {
-                        playbackSettings.spokenWordPlaybackRate = $0
+                        player.setSpokenWordRateForCurrentBook($0)
                     } else {
                         playbackSettings.playbackRate = $0
                     }
@@ -3890,7 +3957,7 @@ struct NowPlayingView: View {
                     } label: {
                         Text(verbatim: SpokenWordPlaybackRatePolicy.label(
                             for: playbackSettings.outputMode == .effects
-                                ? playbackSettings.spokenWordPlaybackRate
+                                ? player.currentSpokenWordRate
                                 : 1
                         ))
                         .font(.footnote.monospacedDigit().weight(.semibold))
@@ -3950,8 +4017,8 @@ struct NowPlayingView: View {
 
     private var spokenWordRateBinding: Binding<Float> {
         Binding(
-            get: { playbackSettings.spokenWordPlaybackRate },
-            set: { playbackSettings.spokenWordPlaybackRate = $0 }
+            get: { player.currentSpokenWordRate },
+            set: { player.setSpokenWordRateForCurrentBook($0) }
         )
     }
 
@@ -8897,6 +8964,24 @@ struct CastDevicePickerSheet: View {
                 // 进 sheet 立刻主动扫一遍, 不等下一次周期触发
                 renderer.refreshRemoteRenderers()
             }
+        }
+    }
+}
+
+/// `sheet(item:)` needs an identifiable value; a station id is one.
+private struct RadioDetailSheetID: Identifiable {
+    let id: String
+}
+
+private extension View {
+    /// A long-press menu that exists only while `isEnabled`, so music keeps
+    /// its plain buttons.
+    @ViewBuilder
+    func bookJumpMenu<Items: View>(isEnabled: Bool, @ViewBuilder items: () -> Items) -> some View {
+        if isEnabled {
+            contextMenu { items() }
+        } else {
+            self
         }
     }
 }

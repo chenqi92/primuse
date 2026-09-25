@@ -14,6 +14,12 @@ public enum SmartNudgeKind: String, Codable, CaseIterable, Sendable {
     case continueWithRecommendations
     /// Listening late into the night without a timer.
     case sleepTimer
+    /// The last chapter of a book is ending and there is music the listener
+    /// left for it: carry on with that music afterwards.
+    case backToMusic
+    /// A long file with no album or artist playing as music: ask whether it
+    /// is spoken word, since guessing wrong would bury it among songs.
+    case classifyAsSpokenWord
 }
 
 public struct SmartNudgeContext: Equatable, Sendable {
@@ -36,6 +42,10 @@ public struct SmartNudgeContext: Equatable, Sendable {
     /// Minutes of uninterrupted listening up to now.
     public var continuousListeningMinutes: Double
     public var hour: Int
+    /// A music queue was set aside for the book now playing.
+    public var hasRememberedMusic: Bool
+    /// Long, no album and no artist, and nobody has classified it by hand.
+    public var isLongUntagged: Bool
 
     public init(
         songID: String?,
@@ -51,7 +61,9 @@ public struct SmartNudgeContext: Equatable, Sendable {
         isMedley: Bool = false,
         sleepTimerActive: Bool = false,
         continuousListeningMinutes: Double = 0,
-        hour: Int = 12
+        hour: Int = 12,
+        hasRememberedMusic: Bool = false,
+        isLongUntagged: Bool = false
     ) {
         self.songID = songID
         self.isLiked = isLiked
@@ -67,6 +79,8 @@ public struct SmartNudgeContext: Equatable, Sendable {
         self.sleepTimerActive = sleepTimerActive
         self.continuousListeningMinutes = continuousListeningMinutes
         self.hour = hour
+        self.hasRememberedMusic = hasRememberedMusic
+        self.isLongUntagged = isLongUntagged
     }
 }
 
@@ -113,10 +127,23 @@ public enum SmartNudgePolicy {
     public static let similarRepeatThreshold = 2
     public static let skipThreshold = 3
     public static let lateNightListeningMinutes: Double = 45
+    /// How far into the last chapter "back to music" is offered.
+    public static let bookEndingProgress = 0.8
+    /// Shorter than this, an untagged file is more likely a song or a demo
+    /// than a chapter or an episode.
+    public static let longUntaggedMinimumDuration: TimeInterval = 20 * 60
+
+    /// Whether an item looks like spoken word that was never tagged as such.
+    public static func isLongUntagged(duration: TimeInterval, albumTitle: String?, artistName: String?) -> Bool {
+        func isBlank(_ value: String?) -> Bool {
+            value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        }
+        return duration >= longUntaggedMinimumDuration && isBlank(albumTitle) && isBlank(artistName)
+    }
 
     public static func key(kind: SmartNudgeKind, songID: String?) -> String {
         switch kind {
-        case .sleepTimer, .continueWithRecommendations:
+        case .sleepTimer, .continueWithRecommendations, .backToMusic:
             return kind.rawValue
         default:
             return kind.rawValue + "|" + (songID ?? "")
@@ -164,7 +191,15 @@ public enum SmartNudgePolicy {
            context.continuousListeningMinutes >= lateNightListeningMinutes {
             result.append(.sleepTimer)
         }
+        if hasSong, context.isSpokenWord, context.hasRememberedMusic, context.isLastInQueue,
+           !context.repeatsQueue, context.progress >= bookEndingProgress {
+            result.append(.backToMusic)
+        }
         guard hasSong, !context.isSpokenWord else { return result }
+
+        if context.isLongUntagged, context.progress >= 0.05 {
+            result.append(.classifyAsSpokenWord)
+        }
 
         if context.isLiked, context.recentEarlySkips >= skipThreshold, context.progress < 0.15 {
             result.append(.removeFromFavorites)

@@ -56,5 +56,7 @@ extension Notification.Name {
     /// 跳到侧栏的「电台」项。首页电台分区的「全部」用它 —— 侧栏本来就有这一项,
     /// push 一个带返回键的新页面等于同一个目的地有两条路径。
     static let primuseSelectRadio = Notification.Name("primuse.route.radio")
+    /// 跳到侧栏的「有声」项。首页「在听的书」一栏的「全部」用它, 理由同上。
+    static let primuseSelectSpokenWord = Notification.Name("primuse.route.spokenWord")
 }
 #endif

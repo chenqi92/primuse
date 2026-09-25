@@ -67,12 +67,21 @@ struct MiniPlayerSwipeContent: View {
                 .padding(.trailing, artworkTrailingSpacing)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(player.currentSong?.title ?? "")
-                        .font(titleFont)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                        .foregroundStyle(.primary)
-                        .contentTransition(.opacity)
+                    HStack(spacing: 5) {
+                        // 小圆点标出正在听的是音乐、电台还是有声,颜色与各自的标签页一致。
+                        if let space = player.currentListeningSpace {
+                            Circle()
+                                .fill(space.tint)
+                                .frame(width: 6, height: 6)
+                                .accessibilityHidden(true)
+                        }
+                        Text(player.currentSong?.title ?? "")
+                            .font(titleFont)
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .foregroundStyle(.primary)
+                            .contentTransition(.opacity)
+                    }
 
                     if showsSubtitle, let error = player.lastPlaybackError {
                         // A song picked from a list can fail with the player
@@ -147,9 +156,15 @@ struct MiniPlayerSwipeContent: View {
         return parts.filter { !$0.isEmpty }.joined(separator: ": ")
     }
 
+    private var allowsSwipe: Bool {
+        player.currentListeningSpace != .spokenWord
+    }
+
     private func swipeGesture(containerWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: MiniPlayerSwipePolicy.minimumGestureDistance)
             .onChanged { value in
+                // 有声内容不滑动换条目:下一条是另一集甚至另一本,误触代价太大。
+                guard allowsSwipe else { return }
                 let sample = swipeSample(value, containerWidth: containerWidth)
                 directionHint = MiniPlayerSwipePolicy.directionHint(for: sample)
                 feedbackOffset = MiniPlayerSwipePolicy.feedbackOffset(
@@ -158,6 +173,7 @@ struct MiniPlayerSwipeContent: View {
                 )
             }
             .onEnded { value in
+                guard allowsSwipe else { return }
                 let action = MiniPlayerSwipePolicy.action(
                     for: swipeSample(value, containerWidth: containerWidth)
                 )

@@ -1663,6 +1663,10 @@ struct PrimuseApp: App {
                             : nil
                     )
                 }
+                // 别的设备把某条改成了有声或音乐:重新分一次,标签页和列表跟着变。
+                .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordClassificationDidChange)) { _ in
+                    AppServices.shared.musicLibrary.refreshContentClassification()
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidCache)) { note in
                     guard let cachedSongID = note.object as? String,
                           let currentSong = playerService.currentSong,
@@ -1780,12 +1784,14 @@ struct PrimuseApp: App {
                         sourcesStore.flushCoalescedPersist()
                         // 电台的最近收听时间同理，攒着的现在写掉。
                         radioStationsStore.flushPendingPersist()
+                        RadioTitleHistoryStore.shared.flush()
 
                     case .background:
                         // Every platform: flush the coalesced source counters
                         // before the scene is gone.
                         sourcesStore.flushCoalescedPersist()
                         radioStationsStore.flushPendingPersist()
+                        RadioTitleHistoryStore.shared.flush()
                         #if os(iOS)
                         // Only iOS suspends the process, and it can do so while
                         // a cancelled scan task is still unwinding — so from

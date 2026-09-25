@@ -427,7 +427,8 @@ struct HomeListeningRankingSection: View {
         // spinner height and repeatedly move it across the visible boundary.
         guard preparedRequest != request else { return }
         isLoading = ranks.isEmpty
-        let events = PlayHistoryStore.shared.entries.map(\.listeningEvent)
+        // Music only: audiobook chapters are not songs to rank.
+        let events = PlayHistoryStore.shared.musicEntries.map(\.listeningEvent)
         let songs = model.songsByID
         let folders = model.index
         let period = period

@@ -486,6 +486,8 @@ struct HomeView: View {
     /// 由「设置 › 外观 › 界面编辑」嵌入时为 true：去掉自己的导航栈与工具栏，
     /// 每个区块套上编辑操作条，内容本身不可点 —— 编辑的是版面，不是内容。
     var editorMode = false
+    /// Home cards and "see all" links that lead into radio or spoken word.
+    var openListeningSpace: ((ListeningSpace) -> Void)? = nil
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(CoverTintProvider.self) private var tintProvider
@@ -546,9 +548,26 @@ struct HomeView: View {
     /// 入口跟着搬到文件夹这一块的操作条里，免得整个功能没了去处。
     @State private var showsFolderManager = false
 
-    private var homeMode: HomeMode {
-        guard showRadioOnHome else { return .music }
-        return HomeMode(rawValue: homeModeRawValue) ?? .music
+    /// 首页不再翻面到电台:电台有了自己的标签页,首页只放一块电台区。
+    /// 翻面相关的代码暂留,2.0 界面分支还在用它。
+    private var homeMode: HomeMode { .music }
+
+    @AppStorage(ListeningSpacesIntroductionPolicy.seenKey) private var hasSeenListeningSpacesIntro = false
+
+    /// 老用户第一次看到新布局时的一张说明卡。新装的人一开始就是新布局(首启引导
+    /// 那一刻已记为看过),极简导航的布局没变,两者都不出。
+    private var showsListeningSpacesIntro: Bool {
+        #if os(iOS)
+        guard appNavigationMode != .minimal else { return false }
+        #endif
+        return ListeningSpacesIntroductionPolicy.shouldShow(
+            hasSeen: hasSeenListeningSpacesIntro,
+            isExistingUser: model.snapshot.hasContent
+        )
+    }
+
+    private func openSpace(_ space: ListeningSpace) {
+        openListeningSpace?(space)
     }
 
     /// 是不是该按 iPad 那档取尺寸与条目数。
@@ -665,23 +684,17 @@ struct HomeView: View {
             .minimalNavigationRoot()
             #endif
             .toolbar {
+                // 设置从标签栏挪到这里。极简导航的顶栏自带设置入口,不重复。
                 #if os(iOS)
-                if showRadioOnHome && appNavigationMode != .minimal {
-                    if #available(iOS 26.0, *) {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            modeToggleButton
-                        }
-                        .sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            modeToggleButton
-                        }
+                if appNavigationMode != .minimal, let switchToSettingsTab {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        HomeSettingsButton(action: switchToSettingsTab)
                     }
                 }
                 #else
-                if showRadioOnHome {
+                if let switchToSettingsTab {
                     ToolbarItem(placement: .primaryAction) {
-                        modeToggleButton
+                        HomeSettingsButton(action: switchToSettingsTab)
                     }
                 }
                 #endif
@@ -904,6 +917,13 @@ struct HomeView: View {
             } else if model.snapshot.hasContent {
                 libraryHeroSection
             }
+            if !editorMode {
+                if showsListeningSpacesIntro {
+                    HomeListeningSpacesIntroCard()
+                }
+                HomeContinueSpacesRow(openSpace: openSpace)
+                HomeBooksInProgressStrip(minimumCount: 2, openSpace: openSpace)
+            }
 
             ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
                 homeSectionRow(section)
@@ -922,8 +942,10 @@ struct HomeView: View {
                 HomeDeferredSection { continueListeningSection(style) }
             }
         case .radio:
-            // 电台有自己的模式(右上角切换)，音乐态里不再重复一块。
-            EmptyView()
+            // 电台有了自己的标签页;首页留一条横排,没有电台时是一张添加卡片。
+            if showRadioOnHome {
+                HomeRadioSpaceSection(openSpace: openSpace)
+            }
         case .quickAccess:
             if showQuickAccess, !model.snapshot.quickItems.isEmpty {
                 HomeDeferredSection { quickAccessSection(style) }

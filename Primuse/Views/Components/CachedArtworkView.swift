@@ -547,7 +547,19 @@ struct CachedArtworkView: View {
             symbolicPlaceholder
         }
         #else
-        symbolicPlaceholder
+        if placeholderIcon == "music.note" || placeholderIcon == "square.stack" {
+            // 默认封面只给「确实没有封面」的歌;还在读的时候先放一块素色底,
+            // 免得列表滚动时每个格子都先闪一下默认插画再换成真封面。
+            if loadedIdentity == loadIdentity {
+                DefaultCoverArtwork()
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            } else {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(Color.gray.opacity(0.18))
+            }
+        } else {
+            symbolicPlaceholder
+        }
         #endif
     }
 

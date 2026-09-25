@@ -1874,6 +1874,13 @@ extension AudioPlayerService {
     ) {
         // Any other queue replaces the medley.
         if !isInstallingMedleyQueue { endMedleyIfNeeded() }
+        // Music, radio and books each keep their own "where was I": a book
+        // replacing a music queue leaves that queue remembered, and a new
+        // music queue makes the remembered one moot.
+        if !isInstallingMedleyQueue, songs.indices.contains(index) {
+            rememberMusicSessionIfLeaving(from: currentSong, to: songs[index])
+            forgetMusicSessionIfMusicStarts(songs[index])
+        }
         guard !songs.isEmpty else {
             plog("🎶 setQueue empty — clearing queue")
             clearQueue()

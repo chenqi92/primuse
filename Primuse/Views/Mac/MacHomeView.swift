@@ -52,16 +52,7 @@ struct MacHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("primuse.home.showRadio") private var showRadio = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded = true
-    @State private var selectedRadioID: String?
     @State private var pendingInsecureStation: RadioStation?
-    @State private var radioColumnCount = 1
-
-    private let radioGridLayout = RadioStationArtworkGridLayout(
-        minimumItemWidth: 200,
-        maximumItemWidth: .infinity,
-        spacing: Double(PMSpace.m14),
-        horizontalPadding: 0
-    )
 
     // 派生聚合缓存 —— mosaicSongs(全库 sort)、heroStats(全库 reduce)、三个 ratio
     // (各一次全库 filter) 都很重。首页同时观察 scanStates(每扫一个文件就变)和
@@ -218,6 +209,11 @@ struct MacHomeView: View {
     private func resolvedDashboardContent(hasContent: Bool) -> some View {
         // 每个区块自己淡入: 骨架换内容、推荐/电台这些异步算完才出现的区块都只动透明度。
         // 成对分支不做交叉淡入 —— 过渡期间新旧两块会同时占着这个 VStack 的位置。
+        // 「接着听」: 每个收听空间最多一张卡, 最新的在前, 正在播的那个不出现。
+        MacHomeResumeRow(
+            onResumeMusic: { song in playSong(song) },
+            onTuneIn: { station in tuneIn(station) }
+        )
         heroSection
             .pmAppearFade(.contentAppear)
         if showRadio,
@@ -246,6 +242,7 @@ struct MacHomeView: View {
                 radioSpotlightSection
                     .pmAppearFade(.contentAppear)
             }
+            MacHomeBooksStrip()
             if !model.snapshot.artists.isEmpty {
                 artistsSection
                     .pmAppearFade(.contentAppear)
@@ -257,6 +254,7 @@ struct MacHomeView: View {
                 radioSpotlightSection
                     .pmAppearFade(.contentAppear)
             }
+            MacHomeBooksStrip()
         }
     }
 
@@ -411,10 +409,14 @@ struct MacHomeView: View {
     /// Deduplication happens before recommendation inputs traverse the library.
     /// The remaining aggregates run off actor while the cached page stays visible.
     private func refreshDerived(signature: DerivedSignature) {
-        let songs = library.visibleSongs
+        // 首页的计数、最近播放和封面马赛克都只算音乐: 有声内容按书在自己那一栏,
+        // 一部几百集的评书不该把「最近播放」和歌曲总数撑满。
+        let songs = library.musicSongs
         let albums = library.visibleAlbums
         let artists = library.visibleArtists
+        let spokenWordSongIDs = library.spokenWordSongIDs
         let recentlyPlayed = library.recentlyPlayedSongs(limit: 100)
+            .filter { !spokenWordSongIDs.contains($0.id) }
         let recommendationSnapshot = MusicDiscoveryEngine.recommendationSnapshot(in: library)
 
         refreshCoordinator.computeTask?.cancel()
@@ -824,101 +826,9 @@ struct MacHomeView: View {
                 .foregroundStyle(PMColor.brand)
             }
 
-            radioStationGrid
+            // 跟 iPhone 首页同一条电台条: 最近听过的在前, 右键有「电台信息」。
+            RadioStationStrip(horizontalInset: 0)
         }
-        .onChange(of: player.currentRadioStation?.id) { _, stationID in
-            guard let stationID,
-                  radioStationsStore.stations.contains(where: { $0.id == stationID }) else { return }
-            selectedRadioID = stationID
-        }
-    }
-
-    private var radioStationGrid: some View {
-        LazyVGrid(
-            columns: Array(
-                repeating: GridItem(.flexible(), spacing: PMSpace.m14),
-                count: radioColumnCount
-            ),
-            alignment: .leading,
-            spacing: PMSpace.m14
-        ) {
-            ForEach(radioStationsStore.stations.prefix(radioColumnCount)) { station in
-                radioStationTile(station)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: Int.self) { geometry in
-            radioGridLayout.measure(containerWidth: geometry.size.width).columnCount
-        } action: { columnCount in
-            radioColumnCount = columnCount
-        }
-    }
-
-    private func radioStationTile(_ station: RadioStation) -> some View {
-        let isCurrent = player.currentRadioStation?.id == station.id
-        let isPlaying = isCurrent && (player.isPlaying || player.isLoading)
-
-        return Button {
-            selectedRadioID = station.id
-            toggleRadio(station)
-        } label: {
-            VStack(alignment: .leading, spacing: PMSpace.s10) {
-                RadioStationArtworkContent(station: station, decodeSize: 260)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 96)
-                    .clipShape(RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous))
-                    .overlay(alignment: .topLeading) {
-                        radioTileBadge(isPlaying: isPlaying)
-                            .padding(PMSpace.s)
-                    }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(station.name)
-                        .font(PMFont.cardTitleS)
-                        .foregroundStyle(PMColor.text)
-                        .lineLimit(1)
-
-                    Text(isCurrent
-                         ? (player.radioMetadataTitle ?? station.playbackSubtitle)
-                         : station.playbackSubtitle)
-                        .font(PMFont.caption)
-                        .foregroundStyle(isCurrent ? PMColor.brand : PMColor.textMuted)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(PMSpace.s10)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .pmCard(cornerRadius: PMRadius.l14)
-        .overlay {
-            RoundedRectangle(cornerRadius: PMRadius.l14, style: .continuous)
-                .strokeBorder(isCurrent ? PMColor.brand.opacity(0.55) : .clear, lineWidth: 1)
-        }
-        .pmHoverLift()
-    }
-
-    /// 只有真在播才亮红点 LIVE —— 无条件亮着的话，没播放时卡片也在说
-    /// "正在直播"，跟底部播放条自相矛盾。
-    @ViewBuilder
-    private func radioTileBadge(isPlaying: Bool) -> some View {
-        HStack(spacing: 5) {
-            if isPlaying {
-                Circle().fill(.red).frame(width: 6, height: 6)
-                Text("live_badge")
-            } else {
-                Image(systemName: "radio")
-                    .font(.system(size: 9, weight: .semibold))
-                Text("radio_title")
-            }
-        }
-        .font(.system(size: 9.5, weight: .bold))
-        .tracking(0.8)
-        .foregroundStyle(.white)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(.black.opacity(0.38), in: Capsule())
     }
 
     private func toggleRadio(_ station: RadioStation) {
@@ -942,6 +852,16 @@ struct MacHomeView: View {
             SiriMediaInteractionDonor.donate(station: station)
             Task { await player.play(station: station, within: radioStationsStore.stations) }
         }
+    }
+
+    /// 「接着听」的电台卡: 调回那个台。它正在播时卡片本来就不出现, 所以这里
+    /// 不做暂停, 只负责起播 (包括明文 HTTP 的确认)。
+    private func tuneIn(_ station: RadioStation) {
+        if player.currentRadioStation?.id == station.id,
+           player.isPlaying || player.isLoading {
+            return
+        }
+        toggleRadio(station)
     }
 
     private var coverMosaic: some View {
@@ -1674,11 +1594,13 @@ struct MacHomeView: View {
     // MARK: - Actions
 
     private func playSong(_ song: Song) {
+        let spokenWordSongIDs = library.spokenWordSongIDs
         var queue = library.recentlyPlayedSongs(limit: 50)
+            .filter { !spokenWordSongIDs.contains($0.id) }
         if !queue.contains(where: { $0.id == song.id }) { queue.insert(song, at: 0) }
         if queue.count < 20 {
             let existingIDs = Set(queue.map(\.id))
-            queue.append(contentsOf: library.visibleSongs.filter { !existingIDs.contains($0.id) })
+            queue.append(contentsOf: library.musicSongs.filter { !existingIDs.contains($0.id) })
         }
         queue = queue.filteredPlayable()
         guard let startIndex = queue.firstIndex(where: { $0.id == song.id }) else { return }
@@ -1688,7 +1610,7 @@ struct MacHomeView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
-        let candidates = library.visibleSongs.filteredPlayable()
+        let candidates = library.musicSongs.filteredPlayable()
         guard !candidates.isEmpty else { return }
         let queue = shuffled ? candidates.shuffled() : candidates
         guard !queue.isEmpty else { return }
@@ -2019,6 +1941,393 @@ private final class WindowSafeNSButton: NSButton {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
+    }
+}
+
+// MARK: - Continue listening (one card per listening space)
+
+/// 首页第一行「接着听」。单独成一个视图: 它要盯播放器、电台库和听书位置,
+/// 这些都比首页其余部分变得勤, 放在这里只重算这一小块。
+private struct MacHomeResumeRow: View {
+    let onResumeMusic: (Song) -> Void
+    let onTuneIn: (RadioStation) -> Void
+
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+    @Environment(RadioStationsStore.self) private var radioStationsStore
+
+    private var store: SpokenWordStore { SpokenWordStore.shared }
+
+    private enum Card: Identifiable {
+        /// 离开音乐去听书/电台时存下的那条队列 (`MusicSessionMemoryStore`)。
+        case musicMemory(MusicSessionMemoryStore.Memory, song: Song?)
+        /// 没存过队列时退回最近播过的一首音乐。
+        case music(Song)
+        case radio(RadioStation)
+        case book(SpokenWordBook, songs: [Song])
+
+        var id: ListeningSpace {
+            switch self {
+            case .musicMemory, .music: return .music
+            case .radio: return .radio
+            case .book: return .spokenWord
+            }
+        }
+    }
+
+    var body: some View {
+        let cards = resumeCards
+        if !cards.isEmpty {
+            VStack(alignment: .leading, spacing: PMSpace.m) {
+                Text("home_continue_spaces_title")
+                    .font(.system(size: 17, weight: .semibold))
+                    .tracking(-0.3)
+                    .foregroundStyle(PMColor.text)
+
+                HStack(spacing: PMSpace.m14) {
+                    ForEach(cards) { card in
+                        cardView(card)
+                            .frame(maxWidth: .infinity)
+                    }
+                    // 不足三张时不把卡片拉成整行宽。
+                    ForEach(min(cards.count, 3)..<3, id: \.self) { _ in
+                        Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
+                    }
+                }
+            }
+            .pmAppearFade(.contentAppear)
+        }
+    }
+
+    private var resumeCards: [Card] {
+        var candidates: [ListeningResumeCandidate] = []
+        var cardsBySpace: [ListeningSpace: Card] = [:]
+
+        // 音乐: 优先是离开音乐时存下的队列; 没有时退回最近播过的一首音乐,
+        // 时间取听歌记录里最后一次听音乐的时刻。
+        let spokenWordSongIDs = library.spokenWordSongIDs
+        if let memory = MusicSessionMemoryStore.shared.memory {
+            candidates.append(ListeningResumeCandidate(space: .music, lastListenedAt: memory.savedAt))
+            cardsBySpace[.music] = .musicMemory(memory, song: library.song(id: memory.songID))
+        } else if let song = library.recentlyPlayedSongs(limit: 20)
+            .first(where: { !spokenWordSongIDs.contains($0.id) }),
+           let lastMusic = PlayHistoryStore.shared.entries
+            .first(where: { !spokenWordSongIDs.contains($0.songID) }) {
+            candidates.append(ListeningResumeCandidate(space: .music, lastListenedAt: lastMusic.playedAt))
+            cardsBySpace[.music] = .music(song)
+        }
+
+        // 电台: 最后收听的那个台。
+        if let station = radioStationsStore.stations
+            .filter({ $0.lastPlayedAt != nil })
+            .max(by: { ($0.lastPlayedAt ?? .distantPast) < ($1.lastPlayedAt ?? .distantPast) }),
+           let lastPlayedAt = station.lastPlayedAt {
+            candidates.append(ListeningResumeCandidate(space: .radio, lastListenedAt: lastPlayedAt))
+            cardsBySpace[.radio] = .radio(station)
+        }
+
+        // 有声: 最近在听、还没听完的那本 (书架排序已把它排在最前)。
+        if !library.spokenWordSongs.isEmpty {
+            _ = store.revision
+            let items = library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
+            if let book = SpokenWordBookGrouping.books(from: items).first(where: \.isInProgress),
+               let lastListenedAt = book.lastListenedAt {
+                let songsByID = Dictionary(
+                    library.spokenWordSongs.map { ($0.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                let songs = book.items.compactMap { songsByID[$0.id] }
+                if !songs.isEmpty {
+                    candidates.append(ListeningResumeCandidate(space: .spokenWord, lastListenedAt: lastListenedAt))
+                    cardsBySpace[.spokenWord] = .book(book, songs: songs)
+                }
+            }
+        }
+
+        return ListeningResumePolicy.cards(
+            from: candidates,
+            playingSpace: MacListeningSpaceStyle.playingSpace(of: player),
+            now: Date()
+        )
+        .compactMap { cardsBySpace[$0.space] }
+    }
+
+    @ViewBuilder
+    private func cardView(_ card: Card) -> some View {
+        switch card {
+        case .musicMemory(let memory, let song):
+            resumeCard(
+                space: .music,
+                spaceLabel: ListeningSpace.music.titleKey,
+                title: memory.title,
+                subtitle: memory.subtitle ?? "",
+                progress: nil,
+                action: {
+                    Task {
+                        let resumed = await player.resumeMusicSession()
+                        if !resumed, let song { onResumeMusic(song) }
+                    }
+                }
+            ) {
+                if let song {
+                    CachedArtworkView(
+                        coverRef: song.coverArtFileName, songID: song.id,
+                        size: 56, cornerRadius: PMRadius.m,
+                        sourceID: song.sourceID, filePath: song.filePath,
+                        fileFormat: song.fileFormat
+                    )
+                } else {
+                    CoverArtView(data: nil, size: 56, cornerRadius: PMRadius.m)
+                }
+            }
+        case .music(let song):
+            resumeCard(
+                space: .music,
+                spaceLabel: ListeningSpace.music.titleKey,
+                title: song.title,
+                subtitle: library.artistDisplayName(for: song) ?? song.albumTitle ?? "",
+                progress: nil,
+                action: { onResumeMusic(song) }
+            ) {
+                CachedArtworkView(
+                    coverRef: song.coverArtFileName, songID: song.id,
+                    size: 56, cornerRadius: PMRadius.m,
+                    sourceID: song.sourceID, filePath: song.filePath,
+                    fileFormat: song.fileFormat
+                )
+            }
+        case .radio(let station):
+            resumeCard(
+                space: .radio,
+                spaceLabel: ListeningSpace.radio.titleKey,
+                title: station.name,
+                subtitle: station.playbackSubtitle,
+                progress: nil,
+                action: { onTuneIn(station) }
+            ) {
+                RadioStationArtworkContent(station: station, decodeSize: 56)
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: PMRadius.m, style: .continuous))
+            }
+        case .book(let book, let songs):
+            let cover = songs.first { $0.id == book.resumeItemID } ?? songs[0]
+            resumeCard(
+                space: .spokenWord,
+                spaceLabel: ListeningSpace.spokenWord.titleKey,
+                title: book.title,
+                subtitle: MacHomeBookText.detail(book),
+                progress: book.fractionComplete,
+                action: {
+                    SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+                }
+            ) {
+                CachedArtworkView(
+                    coverRef: cover.coverArtFileName, songID: cover.id,
+                    size: 56, cornerRadius: PMRadius.m,
+                    sourceID: cover.sourceID, filePath: cover.filePath,
+                    fileFormat: cover.fileFormat
+                )
+            }
+        }
+    }
+
+    private func resumeCard<Artwork: View>(
+        space: ListeningSpace,
+        spaceLabel: LocalizedStringKey,
+        title: String,
+        subtitle: String,
+        progress: Double?,
+        action: @escaping () -> Void,
+        @ViewBuilder artwork: () -> Artwork
+    ) -> some View {
+        let tint = MacListeningSpaceStyle.color(for: space)
+        return Button(action: action) {
+            HStack(spacing: PMSpace.m) {
+                artwork()
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
+                        Circle().fill(tint).frame(width: 6, height: 6)
+                        Text(spaceLabel)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .tracking(0.6)
+                            .textCase(.uppercase)
+                            .foregroundStyle(tint)
+                    }
+                    Text(verbatim: title)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(PMColor.text)
+                        .lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(verbatim: subtitle)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(PMColor.textMuted)
+                            .lineLimit(1)
+                    }
+                    if let progress {
+                        MacHomeBookProgressBar(fraction: progress, tint: tint)
+                            .padding(.top, 2)
+                    }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "play.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(tint, in: Circle())
+            }
+            .padding(PMSpace.m)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pmCard(cornerRadius: PMRadius.l14)
+        .pmHoverLift()
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Books in progress
+
+/// 「在听的书」: 还没听完的书, 封面下面一条进度。点封面从上次的位置接着听。
+private struct MacHomeBooksStrip: View {
+    @Environment(AudioPlayerService.self) private var player
+    @Environment(MusicLibrary.self) private var library
+
+    private var store: SpokenWordStore { SpokenWordStore.shared }
+
+    var body: some View {
+        let entries = inProgressBooks
+        if !entries.isEmpty {
+            VStack(alignment: .leading, spacing: PMSpace.m) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("home_books_in_progress_title")
+                        .font(.system(size: 17, weight: .semibold))
+                        .tracking(-0.3)
+                        .foregroundStyle(PMColor.text)
+                    Spacer()
+                    // 切到侧栏的「有声」项, 不 push 第二条路径 (同电台)。
+                    Button {
+                        NotificationCenter.default.post(name: .primuseSelectSpokenWord, object: nil)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("home_section_view_all")
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9.5, weight: .semibold))
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(PMColor.brand)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: PMSpace.m16) {
+                        ForEach(entries) { entry in
+                            bookTile(entry.book, songs: entry.songs)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .pmAppearFade(.contentAppear)
+        }
+    }
+
+    private struct Entry: Identifiable {
+        let book: SpokenWordBook
+        let songs: [Song]
+        var id: String { book.id }
+    }
+
+    private var inProgressBooks: [Entry] {
+        guard !library.spokenWordSongs.isEmpty else { return [] }
+        _ = store.revision
+        let items = library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
+        let books = SpokenWordBookGrouping.books(from: items).filter(\.isInProgress)
+        guard !books.isEmpty else { return [] }
+        let songsByID = Dictionary(
+            library.spokenWordSongs.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return books.prefix(20).compactMap { book -> Entry? in
+            let songs = book.items.compactMap { songsByID[$0.id] }
+            return songs.isEmpty ? nil : Entry(book: book, songs: songs)
+        }
+    }
+
+    private func bookTile(_ book: SpokenWordBook, songs: [Song]) -> some View {
+        let cover = songs.first { $0.id == book.resumeItemID } ?? songs[0]
+        let isPlaying = songs.contains { $0.id == player.currentSong?.id }
+        let tint = MacListeningSpaceStyle.color(for: .spokenWord)
+        return Button {
+            SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                CachedArtworkView(
+                    coverRef: cover.coverArtFileName, songID: cover.id,
+                    size: 132, cornerRadius: PMRadius.m10,
+                    sourceID: cover.sourceID, filePath: cover.filePath,
+                    fileFormat: cover.fileFormat
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: PMRadius.m10, style: .continuous)
+                        .strokeBorder(isPlaying ? tint : .clear, lineWidth: 1.5)
+                }
+                MacHomeBookProgressBar(fraction: book.fractionComplete, tint: tint)
+                Text(verbatim: book.title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(1)
+                Text(verbatim: MacHomeBookText.detail(book))
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+            }
+            .frame(width: 132, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pmHoverLift()
+        .help(Text("spoken_word_continue"))
+    }
+}
+
+private struct MacHomeBookProgressBar: View {
+    let fraction: Double
+    let tint: Color
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(PMColor.dividerStrong)
+                Capsule()
+                    .fill(tint)
+                    .frame(width: geometry.size.width * CGFloat(min(1, max(0, fraction))))
+            }
+        }
+        .frame(height: 3)
+        .accessibilityHidden(true)
+    }
+}
+
+private enum MacHomeBookText {
+    /// 书的第二行: 在听的那一章 (多章时) + 还剩多久。
+    static func detail(_ book: SpokenWordBook) -> String {
+        var parts: [String] = []
+        if book.chapterCount > 1, let item = book.resumeItem {
+            parts.append(item.title)
+        }
+        if let remaining = book.remainingDuration, remaining > 0 {
+            parts.append(String(
+                format: String(localized: "spoken_word_remaining_format"),
+                ChapterTimeFormatter.string(from: remaining)
+            ))
+        }
+        if parts.isEmpty, let author = book.author {
+            parts.append(author)
+        }
+        return parts.joined(separator: " · ")
     }
 }
 #endif

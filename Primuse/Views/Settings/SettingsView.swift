@@ -16,6 +16,9 @@ struct SettingsView: View {
     @State private var search: SettingsSearchState
     @State private var rootItemID: String?
     @State private var rootFocusRevision = UUID()
+    /// Set when settings is presented as a sheet (from the home page's gear)
+    /// rather than as a tab: adds a close button to the root page.
+    private let onClose: (() -> Void)?
     #if os(iOS)
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
@@ -23,9 +26,11 @@ struct SettingsView: View {
 
     init(
         scraperSettingsRoute: Binding<ScraperSettingsRouteState> = .constant(.init()),
-        search: SettingsSearchState? = nil
+        search: SettingsSearchState? = nil,
+        onClose: (() -> Void)? = nil
     ) {
         _scraperSettingsRoute = scraperSettingsRoute
+        self.onClose = onClose
         _search = State(initialValue: search ?? SettingsSearchState())
     }
 
@@ -121,6 +126,12 @@ struct SettingsView: View {
             .toolbar {
                 if #available(iOS 26.0, *), !usesMinimalSearch {
                     DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
+                }
+                if let onClose {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("done", action: onClose)
+                            .accessibilityIdentifier("settings.close")
+                    }
                 }
             }
             #endif

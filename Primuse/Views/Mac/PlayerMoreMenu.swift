@@ -706,14 +706,30 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
     }
 }
 
-private struct MacSleepTimerPopover: View {
+/// 睡眠定时面板。选项按正在播的空间给 (`SleepTimerOptionPolicy`): 音乐是分钟数
+/// + 本曲结束; 电台只有分钟数 (直播流没有「结束」); 有声是分钟数 + 本章 /
+/// 本集 / 整本结束。底栏的月亮键和「更多」菜单打开的是同一个面板。
+struct MacSleepTimerPopover: View {
     var onClose: () -> Void
 
     @Environment(AudioPlayerService.self) private var player
     @State private var customMinutes: Double = 30
     @State private var now = Date()
 
-    private let presets = [15, 30, 45, 60]
+    private var space: ListeningSpace {
+        MacListeningSpaceStyle.playingSpace(of: player) ?? .music
+    }
+
+    private var options: [SleepTimerOption] {
+        SleepTimerOptionPolicy.options(for: space, hasChapters: player.hasChapters)
+    }
+
+    private var presets: [Int] {
+        options.compactMap { option in
+            if case .minutes(let minutes) = option { return minutes }
+            return nil
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -729,62 +745,8 @@ private struct MacSleepTimerPopover: View {
             .padding(.bottom, 12)
 
             VStack(alignment: .leading, spacing: 10) {
-                // 直播流永远不会走到曲终,这个选项在电台下点了等于永不触发。
-                if !player.isLiveRadio {
-                    Button {
-                        player.scheduleSleepAtTrackEnd()
-                        onClose()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 10))
-                            Text("sleep_at_track_end")
-                                .font(.system(size: 12, weight: .medium))
-                            Spacer()
-                            if player.sleepStopAfterSongID != nil {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
-                        }
-                        .foregroundStyle(PMColor.text)
-                        .padding(.horizontal, 12)
-                        .frame(height: 34)
-                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if player.hasChapters, !player.isLiveRadio {
-                    Button {
-                        player.scheduleSleepAtChapterEnd()
-                        onClose()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "list.bullet.indent")
-                                .font(.system(size: 10))
-                            Text("sleep_at_chapter_end")
-                                .font(.system(size: 12, weight: .medium))
-                            Spacer()
-                            if player.sleepStopAfterChapter != nil {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
-                        }
-                        .foregroundStyle(PMColor.text)
-                        .padding(.horizontal, 12)
-                        .frame(height: 34)
-                        .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(player.currentChapterIndex == nil)
+                ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                    endOptionRow(option)
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -822,6 +784,76 @@ private struct MacSleepTimerPopover: View {
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { value in
             now = value
         }
+    }
+
+    /// 「……结束后停止」这几行。分钟数在上面的网格里, 这里不出现。
+    @ViewBuilder
+    private func endOptionRow(_ option: SleepTimerOption) -> some View {
+        switch option {
+        case .minutes:
+            EmptyView()
+        case .endOfTrack:
+            endRow(
+                title: space == .spokenWord
+                    ? String(localized: "sleep_at_item_end")
+                    : String(localized: "sleep_at_track_end"),
+                symbol: "play.fill",
+                isSelected: player.sleepStopAfterSongID != nil
+            ) {
+                player.scheduleSleepAtTrackEnd()
+            }
+        case .endOfChapter:
+            endRow(
+                title: String(localized: "sleep_at_chapter_end"),
+                symbol: "list.bullet.indent",
+                isSelected: player.sleepStopAfterChapter != nil
+            ) {
+                player.scheduleSleepAtChapterEnd()
+            }
+            .disabled(player.currentChapterIndex == nil)
+        case .endOfBook:
+            endRow(
+                title: String(localized: "sleep_at_book_end"),
+                symbol: "book.closed",
+                isSelected: player.sleepStopAfterBook != nil
+            ) {
+                player.scheduleSleepAtBookEnd()
+            }
+        }
+    }
+
+    private func endRow(
+        title: String,
+        symbol: String,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            action()
+            onClose()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 10))
+                Text(verbatim: title)
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+            }
+            .foregroundStyle(PMColor.text)
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(PMColor.glassBtn, in: .rect(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var header: some View {
@@ -902,6 +934,9 @@ private struct MacSleepTimerPopover: View {
         }
         if player.sleepStopAfterChapter != nil {
             return String(localized: "sleep_at_chapter_end")
+        }
+        if player.sleepStopAfterBook != nil {
+            return String(localized: "sleep_at_book_end")
         }
         return Lz("Not Enabled")
     }

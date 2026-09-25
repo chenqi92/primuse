@@ -72,15 +72,22 @@ struct ListeningRankArtwork: View {
         .accessibilityHidden(true)
     }
 
+    @ViewBuilder
     private var placeholder: some View {
-        RoundedRectangle(cornerRadius: isArtist ? size / 2 : cornerRadius, style: .continuous)
-            .fill(.quaternary)
-            .frame(width: size, height: size)
-            .overlay {
-                Image(systemName: isArtist ? "music.mic" : "music.note")
-                    .font(.system(size: size * 0.36))
-                    .foregroundStyle(.secondary)
-            }
+        if isArtist {
+            RoundedRectangle(cornerRadius: size / 2, style: .continuous)
+                .fill(.quaternary)
+                .frame(width: size, height: size)
+                .overlay {
+                    Image(systemName: "music.mic")
+                        .font(.system(size: size * 0.36))
+                        .foregroundStyle(.secondary)
+                }
+        } else {
+            DefaultCoverArtwork()
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
     }
 }
 

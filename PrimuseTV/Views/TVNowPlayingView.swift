@@ -514,6 +514,8 @@ struct TVNowPlayingView: View {
 
     private func transport(immersiveDark: Bool) -> some View {
         let availability = store.trackNavigationAvailability
+        // 有声内容:上一首 / 下一首换成后退 15 秒 / 前进 30 秒(与 iPhone、Mac 一致)。
+        let isSpokenWord = store.currentItemIsSpokenWord
         return HStack(spacing: 20) {
             Spacer()
             TVRoundBtn(icon: "shuffle", size: 64, active: store.shuffleEnabled,
@@ -528,13 +530,15 @@ struct TVNowPlayingView: View {
                            onInteraction: registerInteraction) { store.toggleMusicVideoMode() }
             }
             focusedRoundButton(
-                icon: "backward.fill",
+                icon: isSpokenWord ? "gobackward.15" : "backward.fill",
                 size: 64,
-                accessibilityLabel: PMString("ext.control.previous"),
+                accessibilityLabel: isSpokenWord
+                    ? String(localized: "spoken_word_skip_backward")
+                    : PMString("ext.control.previous"),
                 immersiveDark: immersiveDark,
                 target: .previous
-            ) { store.previous() }
-                .disabled(!availability.canGoPrevious)
+            ) { store.transportBackward() }
+                .disabled(!isSpokenWord && !availability.canGoPrevious)
             focusedRoundButton(
                 icon: store.isPlaying ? "pause.fill" : "play.fill",
                 size: 64,
@@ -545,13 +549,15 @@ struct TVNowPlayingView: View {
                 target: immersiveDark ? .songPrimary : .playPause
             ) { store.togglePlayPause() }
             focusedRoundButton(
-                icon: "forward.fill",
+                icon: isSpokenWord ? "goforward.30" : "forward.fill",
                 size: 64,
-                accessibilityLabel: PMString("ext.control.next"),
+                accessibilityLabel: isSpokenWord
+                    ? String(localized: "spoken_word_skip_forward")
+                    : PMString("ext.control.next"),
                 immersiveDark: immersiveDark,
                 target: .next
-            ) { store.next() }
-                .disabled(!availability.canGoNext)
+            ) { store.transportForward() }
+                .disabled(!isSpokenWord && !availability.canGoNext)
             TVRoundBtn(icon: store.repeatMode == .one ? "repeat.1" : "repeat", size: 64,
                        active: store.repeatMode != .off,
                        immersiveDark: immersiveDark,
@@ -588,8 +594,8 @@ struct TVNowPlayingView: View {
             assistiveNavigationEnabled: false
         )
         switch action {
-        case .previousTrack: store.previous(restartCurrentIfNeeded: false)
-        case .nextTrack: store.next()
+        case .previousTrack: store.transportBackward(restartCurrentIfNeeded: false)
+        case .nextTrack: store.transportForward()
         default: break
         }
     }

@@ -2162,7 +2162,8 @@ enum MusicDiscoveryEngine {
         limit: Int = 24
     ) -> [MusicDiscoveryResult] {
         let recentIDs = Set(history.entries(in: .month).map(\.songID))
-        return library.visibleSongs
+        // Music only: spoken word is never suggested as "similar".
+        return library.musicSongs
             .filteredPlayable()
             .compactMap { candidate -> MusicDiscoveryResult? in
                 guard candidate.id != seed.id else { return nil }
@@ -2203,10 +2204,11 @@ enum MusicDiscoveryEngine {
         history: PlayHistoryStore = .shared,
         now: Date = Date()
     ) -> RecommendationSnapshot {
+        // Music only: books neither get recommended nor seed recommendations.
         RecommendationSnapshot(
-            songs: library.visibleSongs,
+            songs: library.musicSongs,
             recentSongs: library.recentlyPlayedSongs(limit: 12),
-            historyEntries: history.entries,
+            historyEntries: history.musicEntries,
             now: now
         )
     }
@@ -2381,7 +2383,7 @@ enum MusicDiscoveryEngine {
         // iteration — multiple seconds on a 10k-song library, all on the main
         // actor. Now the per-iteration work is a single O(N) pass over cached
         // numbers/strings.
-        let candidates = library.visibleSongs.filteredPlayable()
+        let candidates = library.musicSongs.filteredPlayable()
         let recentMonthIDs = Set(history.entries(in: .month, now: now).map(\.songID))
         let features = candidates.map { NormalizedSong(song: $0) }
         let seedFeature = NormalizedSong(song: seed)
@@ -3213,7 +3215,14 @@ final class MusicLibrary {
             LibraryArrayReclaimer.release(previous)
         }
     }
-    @ObservationIgnored private(set) var spokenWordSongIDs: Set<String> = []
+    @ObservationIgnored private(set) var spokenWordSongIDs: Set<String> = [] {
+        didSet {
+            // Music rankings and stats read the split from the play history.
+            if PlayHistoryStore.shared.spokenWordSongIDs != spokenWordSongIDs {
+                PlayHistoryStore.shared.spokenWordSongIDs = spokenWordSongIDs
+            }
+        }
+    }
     private var visibleAlbumsReference = LibraryArrayReference<Album>()
     private(set) var visibleAlbums: [Album] {
         get { visibleAlbumsReference.value }
@@ -6605,9 +6614,18 @@ final class MusicLibrary {
         songSummary(forPlaylist: playlistID).count
     }
 
+    /// Recently played music. Spoken word is left out — a book is resumed
+    /// from its own shelf, and one evening of chapters would otherwise fill
+    /// the row.
     func recentlyPlayedSongs(limit: Int = 6) -> [Song] {
         _ = visibleSongsReference
-        return Array(recentPlaybackSongIDs.prefix(limit).compactMap { visibleSongByID[$0] })
+        _ = musicSongsReference
+        var result: [Song] = []
+        for songID in recentPlaybackSongIDs where !spokenWordSongIDs.contains(songID) {
+            guard result.count < limit else { break }
+            if let song = visibleSongByID[songID] { result.append(song) }
+        }
+        return result
     }
 
     func contains(songID: String, inPlaylist playlistID: String) -> Bool {

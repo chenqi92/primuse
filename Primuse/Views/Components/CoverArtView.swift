@@ -15,13 +15,7 @@ struct CoverArtView: View {
                 #if os(macOS)
                 MacDefaultArtwork()
                 #else
-                ZStack {
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(.ultraThinMaterial)
-                    Image(systemName: "music.note")
-                        .font(.system(size: size * 0.4))
-                        .foregroundStyle(.secondary)
-                }
+                DefaultCoverArtwork()
                 #endif
             }
         }
@@ -39,17 +33,29 @@ struct CoverArtView: View {
     .padding()
 }
 
+/// 歌曲、专辑没有封面时的默认封面：「Chris's Muse」插画（资源 DefaultCover，
+/// 浅色/深色各一张，不随用户挑选的 App 图标变化）。插画本身是满版方图、自带底色，
+/// 这里只负责铺满；圆角与裁切交给调用方原有的 clipShape。
+struct DefaultCoverArtwork: View {
+    var body: some View {
+        Image("DefaultCover")
+            .renderingMode(.original)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            .clipped()
+            .accessibilityHidden(true)
+    }
+}
+
 #if os(macOS)
 struct MacDefaultArtwork: View {
     var isLoading = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Image("AppIconPreview")
-            .renderingMode(.original)
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fill)
+        DefaultCoverArtwork()
             .overlay(alignment: .bottom) {
                 GeometryReader { geometry in
                     let side = min(geometry.size.width, geometry.size.height)

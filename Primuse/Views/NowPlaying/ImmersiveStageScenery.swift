@@ -702,17 +702,12 @@ struct ImmersiveArtworkFallback: View {
         #if os(macOS)
         MacDefaultArtwork()
         #else
-        ZStack {
-            LinearGradient(
-                colors: [palette.primary.opacity(0.72), palette.secondary.opacity(0.92)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Image(systemName: "music.note")
-                .font(.system(size: 44, weight: .medium))
-                .foregroundStyle(.white.opacity(0.72))
-                .symbolRenderingMode(.hierarchical)
-        }
+        // tvOS 也编这个文件,但没有 DefaultCoverArtwork;两端的资源目录里都有 DefaultCover。
+        Image("DefaultCover")
+            .renderingMode(.original)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
         #endif
     }
 }

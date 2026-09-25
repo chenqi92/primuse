@@ -101,6 +101,9 @@ enum TVColor {
     static let ok = adaptive(light: rgb(0x287A3B), dark: rgb(0x7ED187))
     static let warn = adaptive(light: rgb(0x9A551F), dark: rgb(0xF0B078))
     static let bad = adaptive(light: rgb(0xB8322B), dark: rgb(0xFF7565))
+    /// 三个收听空间各自的标识色:音乐跟随品牌色,电台与有声固定。
+    static let radioSpace = adaptive(light: rgb(0xD9480F), dark: rgb(0xFF8A4C))
+    static let spokenWordSpace = adaptive(light: rgb(0x0F8A6A), dark: rgb(0x3FD1A6))
 
     static func brand(hex: String) -> Color {
         let source = color(hex: hex)
@@ -519,9 +522,9 @@ enum TVArtworkPlaceholderKind: Equatable {
     case playlist
 }
 
-/// 歌曲、专辑与歌单真正缺少封面时使用的语义占位。
+/// 歌曲、专辑与歌单真正缺少封面时使用的占位。
 ///
-/// 低饱和语义底色负责与相邻卡片区分，单一 SF Symbol 负责远距离识别；不再把
+/// 歌曲与专辑（`.music`）直接显示默认封面插画；歌单沿用下面的语义占位：低饱和语义底色负责与相邻卡片区分，单一 SF Symbol 负责远距离识别；不再把
 /// 标题首字母当作专辑封面，也不使用容易形成“靶心”观感的多重同心圆。
 struct TVMusicPlaceholder: View {
     var tint: Color
@@ -544,10 +547,32 @@ struct TVMusicPlaceholder: View {
     }
 
     var body: some View {
+        switch kind {
+        case .music:
+            defaultCover
+        case .playlist:
+            semanticPlaceholder
+        }
+    }
+
+    /// 歌曲与专辑缺图时的默认封面：与 iPhone / Mac 共用同一张「Chris's Muse」
+    /// 插画（DefaultCover，浅色/深色两套），整张铺满后按调用方的圆角裁切。
+    private var defaultCover: some View {
+        Image("DefaultCover")
+            .renderingMode(.original)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
+            .frame(width: width, height: height)
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .accessibilityHidden(true)
+    }
+
+    private var semanticPlaceholder: some View {
         let m = min(width, height)
         let isDark = colorScheme == .dark
 
-        ZStack {
+        return ZStack {
             LinearGradient(
                 colors: [TVColor.bgElev, TVColor.bgDeep],
                 startPoint: .topLeading,
