@@ -8,7 +8,8 @@ import SwiftUI
 /// 就在 Duo 外屏上按固定尺寸的框渲染真实的播放页、首页与各详情页：框里按那台设备的尺寸等级、
 /// 安全区与「是不是 iPhone」渲染，看宽画布上的版式。
 ///
-/// - `PRIMUSE_EVIDENCE_SET`：`inner`（默认，Duo 内屏两种推算尺寸下的各页）/ `phone`（手机横屏的沉浸歌词与播放页）。
+/// - `PRIMUSE_EVIDENCE_SET`：`inner`（默认，Duo 内屏两种推算尺寸下的各页，含分栏的「接下来播放」与桌面半折）/
+///   `phone`（手机横屏的沉浸歌词与播放页）。
 /// - `PRIMUSE_EVIDENCE_ONLY=<n>`：只画这一组里的第 n 个框（从 0 数），放到整屏那么大。
 /// - `PRIMUSE_EVIDENCE_ALBUM` / `PRIMUSE_EVIDENCE_ARTIST` / `PRIMUSE_EVIDENCE_PLAYLIST`：标题片段，默认取第一张 / 第一位 / 第一张。
 /// 播放页的几个框配合 `PRIMUSE_AUTOPLAY_SONG`（`PRIMUSE_AUTOPLAY_PAUSE=1` 定住进度）。
@@ -17,7 +18,7 @@ struct LibraryDetailEvidenceHost: View {
     @State private var homeModel = HomeView.Model()
 
     private enum Page: String {
-        case player, lyrics, immersive, home, album, artist, playlist, smart
+        case player, lyrics, immersive, queue, tabletop, home, album, artist, playlist, smart
     }
 
     fileprivate struct Viewport {
@@ -96,6 +97,8 @@ struct LibraryDetailEvidenceHost: View {
                 Frame(page: .playlist, viewport: Self.inner),
                 Frame(page: .smart, viewport: Self.inner),
                 Frame(page: .album, viewport: Self.innerPortrait),
+                Frame(page: .queue, viewport: Self.inner),
+                Frame(page: .tabletop, viewport: Self.innerPortrait),
             ]
         }
         if let onlyIndex {
@@ -191,10 +194,12 @@ struct LibraryDetailEvidenceHost: View {
             } else {
                 Text(verbatim: "no smart playlist")
             }
-        case .player, .lyrics, .immersive:
+        case .player, .lyrics, .immersive, .queue, .tabletop:
             // 播放页在外壳里是整屏铺开、自己读窗口安全区的一层，这里照样不吃框的安全区。
+            // 桌面半折那一框模拟一道横在屏幕中间的折痕。
             NowPlayingView()
                 .environment(\.pmDebugPlayerMode, frame.page.rawValue)
+                .environment(\.pmDebugFoldAxis, frame.page == .tabletop ? .horizontal : nil)
                 .ignoresSafeArea()
         case .home:
             HomeView(model: homeModel, openLibrarySongs: {})
