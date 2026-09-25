@@ -1111,6 +1111,7 @@ struct SearchView: View {
         }
         .navigationTitle(usesMinimalNavigation ? Text("") : Text("search_title"))
         .toolbarTitleDisplayMode(usesMinimalNavigation ? .inline : .inlineLarge)
+        .pmVerticalBarTitleEdge()
         #if os(iOS)
         .minimalNavigationRoot()
         .toolbar {

@@ -439,6 +439,7 @@ struct LibraryView: View {
             rootContent
             .navigationTitle(rootSection?.title ?? "library_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            .pmVerticalBarTitleEdge()
             #if os(iOS)
             .minimalNavigationRoot()
             #endif

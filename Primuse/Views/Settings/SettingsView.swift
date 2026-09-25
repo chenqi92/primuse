@@ -116,6 +116,7 @@ struct SettingsView: View {
             .autocorrectionDisabled()
             .navigationTitle("settings_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            .pmVerticalBarTitleEdge()
             #if os(iOS)
             .minimalNavigationRoot()
             .toolbar {

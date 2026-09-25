@@ -503,6 +503,7 @@ struct SourcesContentView: View {
         }
             .navigationTitle("sources_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            .pmVerticalBarTitleEdge()
             .overlay(alignment: .bottom) {
                 if let toast = undoToast {
                     undoToastView(toast)
