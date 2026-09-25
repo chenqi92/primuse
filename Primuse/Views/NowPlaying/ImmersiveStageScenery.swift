@@ -131,6 +131,29 @@ struct ImmersiveStageMetrics {
     var isWide: Bool { layout == .wide }
     var isPortrait: Bool { layout == .phonePortrait }
 
+    /// 各效果共用的舞台内容上沿。全屏页也按它判断内容会不会落进遮挡区那段高度。
+    /// 手持的大画布上至少让开全屏页的圆钮排(`handheldChromeClearance`),手机上为 0,取值不变。
+    func stageContentTopInset(isTV: Bool) -> CGFloat {
+        let base: CGFloat = switch layout {
+        case .phonePortrait:
+            max(safeArea.top, s(54)) + stageContentTopExtra(isTV: isTV)
+        case .phoneLandscape:
+            max(safeArea.top, s(20)) + stageContentTopExtra(isTV: isTV)
+        case .wide:
+            max(safeArea.top, s(isTV ? 76 : 48)) + stageContentTopExtra(isTV: isTV)
+        }
+        return max(base, handheldChromeClearance)
+    }
+
+    /// 上沿里安全区(或保底值)之外再多留的那一段。
+    func stageContentTopExtra(isTV: Bool) -> CGFloat {
+        switch layout {
+        case .phonePortrait: s(30)
+        case .phoneLandscape: s(18)
+        case .wide: 0
+        }
+    }
+
     /// 全屏页顶部那排 44pt 圆钮(收起、效果、队列)的下沿再留一点。手机上舞台内容照旧按原来的上沿排,
     /// 手持的大画布上舞台内容的上沿至少落在这里,左上角的歌名 / 小封面不会被收起键压住。
     var handheldChromeClearance: CGFloat {
@@ -638,7 +661,6 @@ private struct ImmersiveEvidenceChromeOverlay: View {
 
     var body: some View {
         let safe = metrics.safeArea
-        let sideInset = max(safe.leading, safe.trailing)
         let topInset = ImmersivePlayerView.topChromeInset(metrics)
         VStack(spacing: 0) {
             HStack(spacing: 10) {
@@ -647,7 +669,8 @@ private struct ImmersiveEvidenceChromeOverlay: View {
                 dot(44)
                 dot(44)
             }
-            .padding(.horizontal, max(sideInset + 16, 20))
+            .padding(.leading, max(safe.leading + 16, 20))
+            .padding(.trailing, max(safe.trailing + 16, 20))
             .padding(.top, topInset)
             Spacer()
             HStack(spacing: metrics.s(18)) {
@@ -663,7 +686,8 @@ private struct ImmersiveEvidenceChromeOverlay: View {
                 maxWidth: .infinity,
                 alignment: ImmersivePlayerView.showcaseControlAlignment(effect: effect, metrics: metrics)
             )
-            .padding(.horizontal, sideInset + 20)
+            .padding(.leading, safe.leading + 20)
+            .padding(.trailing, safe.trailing + 20)
             .padding(.bottom, max(safe.bottom + 10, 18))
         }
         .allowsHitTesting(false)
@@ -949,7 +973,9 @@ struct ImmersiveAmbientRestOverlay: View {
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, max(metrics.safeArea.leading + 28, metrics.s(30)))
+            // 两侧各按自己的安全区让位(折叠屏的系统竖栏只在一侧)。
+            .padding(.leading, max(metrics.safeArea.leading + 28, metrics.s(30)))
+            .padding(.trailing, max(metrics.safeArea.trailing + 28, metrics.s(30)))
             .padding(.bottom, max(metrics.safeArea.bottom + 38, metrics.s(54)))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
