@@ -9,13 +9,16 @@ import SwiftUI
 /// 上下两条半透明色带标出被导航栏和标签栏 / 迷你条盖住的区域，操作行必须整条落在两条色带之间。
 ///
 /// - `PRIMUSE_EVIDENCE_SET`：`all`（默认，全部一屏排开）/ `album` / `artist` / `ax`（无障碍字号那一组）/
-///   `dock`（极简的底部停靠条压在专辑页上：竖屏、两种手机横屏、折叠屏内外屏，看宽视口里的限宽，配合 `PRIMUSE_AUTOPLAY_SONG`）。
+///   `dock`（极简的底部停靠条压在专辑页上：竖屏、两种手机横屏、折叠屏内外屏，看宽视口里的限宽，配合 `PRIMUSE_AUTOPLAY_SONG`）/
+///   `inner`(Duo 内屏:播放页分栏、竖握单栏、桌面半折,首页与专辑页的两栏;框里按 iPhone 处理,
+///   在 iOS 27.1 的 iPad 模拟器里跑才有 `ArrangementView`,配合 `PRIMUSE_AUTOPLAY_SONG`)。
 /// - `PRIMUSE_EVIDENCE_ALBUM` / `PRIMUSE_EVIDENCE_ARTIST`：标题片段，默认 evidence / nova。
 struct LibraryDetailEvidenceHost: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
+    @State private var homeModel = HomeView.Model()
 
-    private enum Page: String { case album, artist, dock }
+    private enum Page: String { case album, artist, dock, player, tabletop, home }
 
     fileprivate struct Viewport {
         let name: String
@@ -77,11 +80,14 @@ struct LibraryDetailEvidenceHost: View {
     ]
 
     private let set: String
+    /// `PRIMUSE_EVIDENCE_ONLY=<n>`:只画这一组里的第 n 个框(从 0 数),放到整屏那么大。
+    private let onlyIndex: Int?
     private let albumNeedle: String
     private let artistNeedle: String
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         set = environment["PRIMUSE_EVIDENCE_SET"]?.lowercased() ?? "all"
+        onlyIndex = environment["PRIMUSE_EVIDENCE_ONLY"].flatMap(Int.init)
         albumNeedle = environment["PRIMUSE_EVIDENCE_ALBUM"]?.lowercased() ?? "evidence"
         artistNeedle = environment["PRIMUSE_EVIDENCE_ARTIST"]?.lowercased() ?? "nova"
     }
@@ -100,6 +106,25 @@ struct LibraryDetailEvidenceHost: View {
                 result.append(Frame(page: .album, viewport: viewport, typeSize: .accessibility1))
                 result.append(Frame(page: .artist, viewport: viewport, typeSize: .accessibility1))
             }
+        }
+        if set == "inner" {
+            let inner = Self.viewports.first { $0.name == "Duo inner sim" }!
+            let innerSmall = Self.viewports.first { $0.name == "Duo inner" }!
+            let portrait = Viewport(name: "Duo inner port", size: CGSize(width: 669, height: 951), statusTop: 24,
+                                    leading: 0, trailing: 0, bottom: 139, homeIndicator: 20, isRegularWidth: true)
+            result += [
+                Frame(page: .player, viewport: inner, typeSize: .large),
+                Frame(page: .player, viewport: innerSmall, typeSize: .large),
+                Frame(page: .player, viewport: portrait, typeSize: .large),
+                Frame(page: .tabletop, viewport: portrait, typeSize: .large),
+                Frame(page: .home, viewport: inner, typeSize: .large),
+                Frame(page: .album, viewport: inner, typeSize: .large),
+                Frame(page: .album, viewport: innerSmall, typeSize: .large),
+                Frame(page: .artist, viewport: inner, typeSize: .large),
+            ]
+        }
+        if let onlyIndex, set == "inner" {
+            return result.indices.contains(onlyIndex) ? [result[onlyIndex]] : []
         }
         if set == "dock" {
             let names = ["18 Pro", "Duo cover", "Duo cover land", "landscape", "Pro Max land", "Duo inner"]
@@ -150,6 +175,10 @@ struct LibraryDetailEvidenceHost: View {
                 .lineLimit(1)
                 .frame(width: size.width * scale, alignment: .leading)
             page(frame, album: album, artist: artist)
+                .environment(\.pmIsPhoneIdiom, set == "inner")
+                // 取证页可能跑在 Duo 外屏上(iOS 27.1 模拟器只有 Duo):框里模拟的是内屏,不带外屏的系统竖栏。
+                .environment(\.pmDebugSuppressesVerticalBar, set == "inner")
+                .environment(\.pmDebugFoldAxis, frame.page == .tabletop ? .horizontal : nil)
                 .environment(\.verticalSizeClass, viewport.isCompactHeight ? .compact : .regular)
                 .environment(\.horizontalSizeClass, viewport.isRegularWidth ? .regular : .compact)
                 .environment(\.dynamicTypeSize, frame.typeSize)
@@ -164,11 +193,13 @@ struct LibraryDetailEvidenceHost: View {
                     dockOverlay(frame)
                 }
                 .overlay(alignment: .top) {
-                    chromeBand(height: viewport.top, color: .cyan)
+                    if set != "inner" {
+                        chromeBand(height: viewport.top, color: .cyan)
+                    }
                 }
                 .overlay(alignment: .bottom) {
-                    // 停靠条那一组要看的是条子本身,不画经典外壳的底部遮挡色带。
-                    if frame.page != .dock {
+                    // 停靠条那一组要看的是条子本身,不画经典外壳的底部遮挡色带;内屏那一组看的是整页版式。
+                    if frame.page != .dock && set != "inner" {
                         chromeBand(height: viewport.bottom, color: .orange)
                     }
                 }
@@ -182,9 +213,26 @@ struct LibraryDetailEvidenceHost: View {
     @ViewBuilder
     private func page(_ frame: Frame, album: Album, artist: Artist) -> some View {
         switch frame.page {
-        case .album: AlbumDetailView(album: album)
-        case .artist: ArtistDetailView(artist: artist)
+        case .album:
+            if set == "inner" {
+                NavigationStack { AlbumDetailView(album: album) }
+            } else {
+                AlbumDetailView(album: album)
+            }
+        case .artist:
+            if set == "inner" {
+                NavigationStack { ArtistDetailView(artist: artist) }
+            } else {
+                ArtistDetailView(artist: artist)
+            }
         case .dock: AlbumDetailView(album: album)
+        case .player, .tabletop:
+            // 播放页在外壳里是整屏铺开、自己读窗口安全区的一层,这里照样不吃框的安全区。
+            NowPlayingView()
+                .ignoresSafeArea()
+        case .home:
+            HomeView(model: homeModel, openLibrarySongs: {})
+                .environment(homeModel)
         }
     }
 

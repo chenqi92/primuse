@@ -14,6 +14,9 @@ extension EnvironmentValues {
     /// 系统竖栏在哪一侧。系统在这台设备、这个方向上从不竖排时为 nil
     /// (普通 iPhone、iPad、Mac,以及 Xcode 27.0 构建的 App)。
     var pmVerticalBarEdge: HorizontalEdge? {
+        #if DEBUG
+        if pmDebugSuppressesVerticalBar { return nil }
+        #endif
         #if os(iOS) && canImport(SwiftUI, _version: 8.0.85)
         if #available(iOS 27.1, *) {
             return toolbarVerticalEdge
@@ -98,6 +101,10 @@ private struct PMIsPhoneIdiomKey: EnvironmentKey {
 private struct PMDebugFoldAxisKey: EnvironmentKey {
     static let defaultValue: Axis? = nil
 }
+
+private struct PMDebugSuppressesVerticalBarKey: EnvironmentKey {
+    static let defaultValue = false
+}
 #endif
 
 extension EnvironmentValues {
@@ -114,6 +121,12 @@ extension EnvironmentValues {
     var pmDebugFoldAxis: Axis? {
         get { self[PMDebugFoldAxisKey.self] }
         set { self[PMDebugFoldAxisKey.self] = newValue }
+    }
+
+    /// 调试取证页在 Duo 外屏上模拟内屏时,框里当作没有系统竖栏。
+    var pmDebugSuppressesVerticalBar: Bool {
+        get { self[PMDebugSuppressesVerticalBarKey.self] }
+        set { self[PMDebugSuppressesVerticalBarKey.self] = newValue }
     }
     #endif
 }
