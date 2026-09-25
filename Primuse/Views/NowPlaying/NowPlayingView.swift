@@ -747,13 +747,15 @@ struct NowPlayingView: View {
         !isPresentationSettled || player.isPlaying || player.isLoading
     }
 
+    /// 只取当前歌前后这一段。`player.queue` 会把整条队列复制成 [Song],
+    /// 整库随机后是几万首, 而这里每次视图更新都会跑。
     private func handoffQueueIDs() -> [String] {
-        let queue = player.queue
-        guard !queue.isEmpty else { return [] }
-        let index = min(max(player.currentIndex, 0), queue.count - 1)
+        let entries = player.queueEntries
+        guard !entries.isEmpty else { return [] }
+        let index = min(max(player.currentIndex, 0), entries.count - 1)
         let lowerBound = max(0, index - 5)
-        let upperBound = min(queue.count, lowerBound + 50)
-        return queue[lowerBound..<upperBound].map { song in song.id }
+        let upperBound = min(entries.count, lowerBound + 50)
+        return entries[lowerBound..<upperBound].map(\.song.id)
     }
 
     private var isScrapingCurrentSong: Bool {
@@ -832,13 +834,10 @@ struct NowPlayingView: View {
     /// so retain a normalized-name fallback instead of silently hiding links.
     private var currentArtists: [Artist] {
         guard let song = player.currentSong else { return [] }
-        let artistsByID = Dictionary(
-            library.visibleArtists.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        // 播放页每次更新都会读几遍, 按 id 走曲库的 O(1) 索引, 别整库建字典。
         return library.artistNames(for: song).compactMap { name in
             let id = MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey(name))
-            if let artist = artistsByID[id] { return artist }
+            if let artist = library.visibleArtist(id: id) { return artist }
             return library.visibleArtists.first {
                 $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
             }
@@ -857,7 +856,7 @@ struct NowPlayingView: View {
     private var currentAlbum: Album? {
         guard let song = player.currentSong else { return nil }
         if let albumID = song.albumID,
-           let album = library.visibleAlbums.first(where: { $0.id == albumID }) {
+           let album = library.visibleAlbum(id: albumID) {
             return album
         }
         let albumTitle = song.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
