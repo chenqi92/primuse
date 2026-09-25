@@ -1471,9 +1471,18 @@ struct NowPlayingView: View {
 
     /// 桌面半折:上半屏立着、离人远,放封面(开着歌词时放歌词);下半屏平放在桌上、手够得着,
     /// 放歌名、进度与全部控件。同一个播放页换个排法,控件与其它形态一样一个不少。
+    /// 队列里不止一首时,下半屏控件上方再横排一条「接下来播放」的封面,左右滑直接切歌。
     private func tabletopPlayerLayout(geo: GeometryProxy, foldMinY: CGFloat, foldMaxY: CGFloat) -> some View {
         let topHeight = max(0, foldMinY)
         let artworkSide = max(0, min(geo.size.width - 96, topHeight - topSafeArea - 44))
+        #if os(iOS)
+        let showsQueueStrip = player.queueCount > 1 && !player.isMusicVideoPlaybackActive
+        #else
+        let showsQueueStrip = false
+        #endif
+        // 下半屏放不下封面条时音量条先让位(与手机横屏骨架的让步顺序一致)，音量键照样能调。
+        let showsVolumeRow = showsPlayerVolumeBar
+            && !(showsQueueStrip && geo.size.height - foldMaxY < 560)
         return VStack(spacing: 0) {
             VStack(spacing: 0) {
                 Capsule()
@@ -1506,6 +1515,15 @@ struct NowPlayingView: View {
                 .frame(height: max(0, foldMaxY - foldMinY))
 
             VStack(spacing: 0) {
+                #if os(iOS)
+                if showsQueueStrip {
+                    // 吃掉下半屏控件以外的高度；放不下一张像样的封面时自己不显示。
+                    TabletopQueueStrip(player: player)
+                        .padding(.top, 14)
+                        .frame(maxHeight: .infinity)
+                        .pmLayoutSwitchFade()
+                }
+                #endif
                 nowPlayingSongHeader(titleFont: .title2, metadataFont: .body)
                     .matchedLayoutElement(.songHeading, in: layoutNamespace)
                     .padding(.horizontal, 36)
@@ -1518,14 +1536,17 @@ struct NowPlayingView: View {
                     .matchedLayoutElement(.transport, in: layoutNamespace)
                     .padding(.top, 10)
                     .padding(.horizontal, 24)
-                if showsPlayerVolumeBar {
+                if showsVolumeRow {
                     playerVolumeRow
                         .padding(.horizontal, 36)
                         .padding(.top, 10)
                         .pmLayoutSwitchFade()
                 }
-                Spacer(minLength: 0)
+                if !showsQueueStrip {
+                    Spacer(minLength: 0)
+                }
                 portraitBottomBar
+                    .padding(.top, showsQueueStrip ? 6 : 0)
                     .padding(.bottom, bottomSafeArea)
                     .pmLayoutSwitchFade()
             }
