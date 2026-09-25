@@ -1645,11 +1645,30 @@ actor ConnectorScanner {
         from item: RemoteFileItem
     ) {
         guard song.userMetadataEditedAt == nil, !song.isCueTrack else { return }
+        let fileStem = sourceTitle(from: item)
         if let corrected = MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
             title: song.title,
             artist: song.artistName,
-            fileStem: sourceTitle(from: item)
+            fileStem: fileStem
         ) {
+            if let artist = MetadataTitleResolutionPolicy.artistCorrectingDuplicatedArtist(
+                title: song.title,
+                artist: song.artistName,
+                fileStem: fileStem
+            ) {
+                // The album artist fell back to the same polluted track
+                // artist, so it moves with it to keep the album together.
+                if song.albumArtistName == song.artistName {
+                    song.albumArtistName = artist
+                    if let album = song.albumTitle {
+                        song.albumID = hash("\(artist.lowercased()):\(album.lowercased())")
+                    }
+                }
+                song.artistName = artist
+                song.artistID = hash(artist.lowercased())
+                song.sourceArtistNames = [artist]
+                song.artistPinyin = nil
+            }
             song.title = corrected
             song.titlePinyin = nil
             return

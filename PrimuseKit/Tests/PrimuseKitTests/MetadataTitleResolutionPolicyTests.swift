@@ -40,6 +40,40 @@ struct MetadataTitleResolutionPolicyTests {
         ) == "走在冷风中 - Live")
     }
 
+    @Test("A copy counter duplicated into both tags is recovered", arguments: [
+        ("百年孤寂 - 王菲", "王菲 (1)"),
+        ("王菲 - 百年孤寂", "王菲 (2)"),
+        ("百年孤寂 - 王菲", "王菲（1）"),
+        ("百年孤寂 - 王菲 (1)", "王菲 (1)"),
+    ])
+    func copyCounterDuplicatedIntoTags(fileStem: String, tag: String) {
+        #expect(MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+            title: tag, artist: tag, fileStem: fileStem
+        ) == "百年孤寂")
+    }
+
+    @Test("Only a filename-confirmed bare artist drops the copy counter")
+    func copyCounterArtistCorrection() {
+        #expect(MetadataTitleResolutionPolicy.artistCorrectingDuplicatedArtist(
+            title: "王菲 (1)", artist: "王菲 (1)", fileStem: "百年孤寂 - 王菲"
+        ) == "王菲")
+        // The filename carries the counter itself: nothing proves it is noise.
+        #expect(MetadataTitleResolutionPolicy.artistCorrectingDuplicatedArtist(
+            title: "王菲 (1)", artist: "王菲 (1)", fileStem: "百年孤寂 - 王菲 (1)"
+        ) == nil)
+        #expect(MetadataTitleResolutionPolicy.artistCorrectingDuplicatedArtist(
+            title: "刘思涵", artist: "刘思涵", fileStem: "走在冷风中 - 刘思涵"
+        ) == nil)
+        // Years are not copy counters.
+        #expect(MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+            title: "Band (1994)", artist: "Band (1994)", fileStem: "Song - Band"
+        ) == nil)
+        // Distinct title tag stays authoritative.
+        #expect(MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+            title: "百年孤寂", artist: "王菲 (1)", fileStem: "百年孤寂 - 王菲"
+        ) == nil)
+    }
+
     @Test("Common title remains authoritative")
     func commonTitleWins() {
         let title = MetadataTitleResolutionPolicy.preferredEmbeddedTitle(from: [

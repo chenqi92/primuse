@@ -1592,6 +1592,45 @@ final class MetadataBackfillService {
             UserDefaults.standard.set(true, forKey: formatSpecificTitleKey)
         }
 
+        // Rows whose title tag merely repeats the artist ("王菲 (1)" twice,
+        // written by download tools that rename duplicates) were stored before
+        // the copy counter was recognized. Re-read only untouched rows whose
+        // filename still has an "a - b" pair the policy can check.
+        let duplicatedArtistTitleKey = "primuse.backfillState.v2026_09_duplicatedArtistCopyCounter"
+        if !UserDefaults.standard.bool(forKey: duplicatedArtistTitleKey) {
+            let sourceIDs = backfillableSourceIDs()
+            let retryIDs = Set(library.songs.lazy.filter { song in
+                guard sourceIDs.contains(song.sourceID),
+                      song.userMetadataEditedAt == nil, !song.isCueTrack,
+                      let artist = song.artistName,
+                      song.title.compare(artist, options: [.caseInsensitive, .widthInsensitive]) == .orderedSame
+                else { return false }
+                let stem = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
+                return stem.contains(" - ") || stem.contains(" _ ")
+                    || stem.contains(" – ") || stem.contains(" — ")
+            }.map(\.id))
+            if !retryIDs.isEmpty {
+                failedSongIDs.subtract(retryIDs)
+                incompleteSongIDs.subtract(retryIDs)
+                sourceIssueSongIDs.subtract(retryIDs)
+                sessionGivenUpIDs.subtract(retryIDs)
+                sessionNetworkParkedIDs.subtract(retryIDs)
+                sessionStallParkedIDs.subtract(retryIDs)
+                lastProcessedSnapshotIDs.subtract(retryIDs)
+                mutateDeferredRetries { $0.subtract(retryIDs) }
+                titleCheckedIDs.subtract(retryIDs)
+                artistCheckedIDs.subtract(retryIDs)
+                for id in retryIDs { transientFailureCounts[id] = nil }
+                saveFailed()
+                saveDeferredRetries()
+                saveInspectionState()
+                saveRetryCounts()
+                plog("📥 Backfill: reopening \(retryIDs.count) rows whose title repeats the artist")
+            }
+            markQueueDirty()
+            UserDefaults.standard.set(true, forKey: duplicatedArtistTitleKey)
+        }
+
         // 封面落在 head/tail 两个有界窗口之外时(超过 4 MB 上限的 ID3 标签、
         // 夹在中段的 moov 等), 这首歌以前会被直接记进 artworkGivenUpIDs
         // 永久跳过。同一张专辑的标签由同一个工具写出、布局一致, 于是整张
@@ -5049,18 +5088,26 @@ final class MetadataBackfillService {
         let rawStem = (component as NSString).deletingPathExtension
         let userEdited = song.userMetadataEditedAt != nil
         let mayInferFromFilename = hasVerifiedAudioEvidence(metadata)
-        let correctedTitle: String? = if !userEdited, !song.isCueTrack, mayInferFromFilename {
+        let fileStems: [String] = if !userEdited, !song.isCueTrack, mayInferFromFilename {
             [sourceFileName(song).map { ($0 as NSString).deletingPathExtension }, rawStem, song.title]
-                .compactMap { stem in
-                    MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
-                        title: metadata.embeddedTitle,
-                        artist: metadata.embeddedArtist,
-                        fileStem: stem
-                    )
-                }.first
+                .compactMap { $0 }
         } else {
-            nil
+            []
         }
+        let correctedTitle = fileStems.lazy.compactMap { stem in
+            MetadataTitleResolutionPolicy.titleCorrectingDuplicatedArtist(
+                title: metadata.embeddedTitle,
+                artist: metadata.embeddedArtist,
+                fileStem: stem
+            )
+        }.first
+        let correctedArtist = fileStems.lazy.compactMap { stem in
+            MetadataTitleResolutionPolicy.artistCorrectingDuplicatedArtist(
+                title: metadata.embeddedTitle,
+                artist: metadata.embeddedArtist,
+                fileStem: stem
+            )
+        }.first
         return (
             correctedTitle.map { MetadataResolvedText(value: $0, source: .filenameInference) }
                 ?? MetadataIdentityFallbackPolicy.resolve(
@@ -5073,7 +5120,8 @@ final class MetadataBackfillService {
                 isCueTrack: song.isCueTrack,
                 userEdited: userEdited
             ),
-            MetadataIdentityFallbackPolicy.resolve(
+            correctedArtist.map { MetadataResolvedText(value: $0, source: .filenameInference) }
+                ?? MetadataIdentityFallbackPolicy.resolve(
                 existing: song.artistName,
                 embedded: metadata.embeddedArtist,
                 filenameInference: mayInferFromFilename

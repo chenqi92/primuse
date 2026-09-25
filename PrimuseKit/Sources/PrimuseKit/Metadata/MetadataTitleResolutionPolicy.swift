@@ -27,6 +27,25 @@ public enum MetadataTitleResolutionPolicy {
         artist: String?,
         fileStem: String?
     ) -> String? {
+        duplicatedArtistCorrection(title: title, artist: artist, fileStem: fileStem)?.title
+    }
+
+    /// Download tools that rename duplicates write the copy counter into both
+    /// tags ("王菲 (1)"). When the filename confirms the bare artist, the
+    /// counter is dropped from the artist too; otherwise the tag stays as-is.
+    public static func artistCorrectingDuplicatedArtist(
+        title: String?,
+        artist: String?,
+        fileStem: String?
+    ) -> String? {
+        duplicatedArtistCorrection(title: title, artist: artist, fileStem: fileStem)?.artist
+    }
+
+    private static func duplicatedArtistCorrection(
+        title: String?,
+        artist: String?,
+        fileStem: String?
+    ) -> (title: String, artist: String?)? {
         guard let title = MediaMetadataTextRepair.repaired(title),
               let artist = MediaMetadataTextRepair.repaired(artist),
               let stem = MediaMetadataTextRepair.repaired(fileStem),
@@ -35,6 +54,7 @@ public enum MetadataTitleResolutionPolicy {
               !MediaMetadataTextRepair.isSuspicious(artist),
               !MediaMetadataTextRepair.isSuspicious(stem) else { return nil }
 
+        let bareArtist = strippingCopyCounter(artist)
         let separators = stem.ranges(of: /\s+[-–—_]\s+/)
         for separator in separators {
             let left = String(stem[..<separator.lowerBound])
@@ -42,19 +62,31 @@ public enum MetadataTitleResolutionPolicy {
             let right = String(stem[separator.upperBound...])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let candidate: String
-            if equivalent(left, artist) {
+            let matchedArtist: String
+            if let match = [artist, bareArtist].compactMap({ $0 }).first(where: { equivalent(left, $0) }) {
                 candidate = right
-            } else if equivalent(right, artist) {
+                matchedArtist = match
+            } else if let match = [artist, bareArtist].compactMap({ $0 }).first(where: { equivalent(right, $0) }) {
                 candidate = left
+                matchedArtist = match
             } else {
                 continue
             }
             guard !candidate.isEmpty,
                   !candidate.allSatisfy(\.isNumber),
-                  !equivalent(candidate, artist) else { continue }
-            return candidate
+                  !equivalent(candidate, artist),
+                  !equivalent(candidate, matchedArtist) else { continue }
+            return (candidate, matchedArtist == artist ? nil : matchedArtist)
         }
         return nil
+    }
+
+    /// "王菲 (1)" → "王菲"; one- or two-digit counters only, so a year such as
+    /// "(1994)" is never mistaken for a copy number.
+    private static func strippingCopyCounter(_ value: String) -> String? {
+        guard let match = value.wholeMatch(of: /(.+?)\s*[(（]\d{1,2}[)）]/) else { return nil }
+        let base = String(match.1).trimmingCharacters(in: .whitespacesAndNewlines)
+        return base.isEmpty ? nil : base
     }
 
     private static func equivalent(_ lhs: String, _ rhs: String) -> Bool {
