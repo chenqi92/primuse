@@ -11,6 +11,8 @@ struct PlaylistListView: View {
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.appNavigationMode) private var appNavigationMode
+    @Environment(\.pmHeightClass) private var heightClass
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
     #endif
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
@@ -306,13 +308,24 @@ struct PlaylistListView: View {
         .overlay(alignment: .top) { Divider() }
     }
 
+    #if os(iOS)
+    /// iPhone 上常规宽度、常规高度的画布（iPhone Duo 内屏）。
+    private var isPhoneRegularCanvas: Bool {
+        (isPhoneIdiomEnvironment || UIDevice.current.userInterfaceIdiom == .phone)
+            && horizontalSizeClass == .regular
+            && !heightClass.isCompact
+    }
+    #endif
+
     private var playlistManageBottomClearance: CGFloat {
         #if os(iOS)
         guard player.currentSong != nil || appleMusic.nowPlayingSong != nil else {
             return 0
         }
         if appNavigationMode == .minimal { return 0 }
-        if horizontalSizeClass == .regular { return 68 }
+        // 68 是 iPad 分栏外壳里那条自绘迷你条的高度。iPhone Duo 展开的内屏也是常规宽高，
+        // 但它用的是 iPhone 的标签栏与系统附件，照 iPhone 那一支让位。
+        if horizontalSizeClass == .regular && !isPhoneRegularCanvas { return 68 }
         if #available(iOS 26.1, *) { return 0 }
         return 52
         #else
