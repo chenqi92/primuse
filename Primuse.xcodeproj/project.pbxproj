@@ -328,6 +328,7 @@
 		338CFE65AF69397D9FB501E6 /* BuiltInCloudCredentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82C951D83E89D86B5BBCCF22 /* BuiltInCloudCredentials.swift */; };
 		33A23E0F39BFFDDC2D2CF20D /* MusicSourceSecurityRevision.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0151590C869EF8F0A71F4937 /* MusicSourceSecurityRevision.swift */; };
 		33BFB78315BD7A0C12AA01A5 /* SubsonicCatalogPagingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE60851F0BAD299352085E5 /* SubsonicCatalogPagingPolicy.swift */; };
+		C7A1D2E3F4051627384950A1 /* CatalogWalkDriftTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A1D2E3F4051627384950A2 /* CatalogWalkDriftTracker.swift */; };
 		264E4973896F5439958F45CC /* ExternalPlaylistImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 625B1A5727BE745F656DF8DF /* ExternalPlaylistImport.swift */; };
 		33D39EA2304DE87CF1275DA2 /* KaraokeStageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 687F3C3C65037E39E9F006CD /* KaraokeStageView.swift */; };
 		343FCF30CA6E76B6324DC099 /* ServerPlaylistMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B60495B4617035491BA0CFA /* ServerPlaylistMirror.swift */; };
@@ -2575,6 +2576,7 @@
 		BE69A02662AAFCFBE4F8A060 /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/MetadataReading.strings"; sourceTree = "<group>"; };
 		BE9678E678B62A15290407A4 /* TVStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVStore.swift; sourceTree = "<group>"; };
 		BEE60851F0BAD299352085E5 /* SubsonicCatalogPagingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubsonicCatalogPagingPolicy.swift; sourceTree = "<group>"; };
+		C7A1D2E3F4051627384950A2 /* CatalogWalkDriftTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogWalkDriftTracker.swift; sourceTree = "<group>"; };
 		BEF1C4D090D0F65114B8F0D5 /* SMBSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMBSource.swift; sourceTree = "<group>"; };
 		BEF5FD80A376FCFC69894248 /* MacRadioStationEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRadioStationEditorView.swift; sourceTree = "<group>"; };
 		BF06D8057352A89852BD7638 /* TVLocalTransferSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLocalTransferSource.swift; sourceTree = "<group>"; };
@@ -3437,6 +3439,7 @@
 				4050394EDE5DC6FF5F6F9554 /* StartupPrewarmAdmissionPolicy.swift */,
 				7D6572FBDDB559AF4C8F938E /* StreamingDownloadRetirementPolicy.swift */,
 				BEE60851F0BAD299352085E5 /* SubsonicCatalogPagingPolicy.swift */,
+				C7A1D2E3F4051627384950A2 /* CatalogWalkDriftTracker.swift */,
 				27289C451E5716F15CE941FB /* SVGImageSupport.swift */,
 				E1C899A774E84E601D74500D /* TVPlaybackPipelinePolicy.swift */,
 				D20345197F0912E9D2DB2082 /* TVScanPipelinePolicy.swift */,
@@ -5434,6 +5437,7 @@
 				7EF2B2A250EA93BDEFFDA5F3 /* StreamResolverRegistry.swift in Sources */,
 				E50445C2B80FC61EE1451C9E /* StreamingDownloadRetirementPolicy.swift in Sources */,
 				33BFB78315BD7A0C12AA01A5 /* SubsonicCatalogPagingPolicy.swift in Sources */,
+				C7A1D2E3F4051627384950A1 /* CatalogWalkDriftTracker.swift in Sources */,
 				B92C0208877DCAFFFE4ABC19 /* SubsonicStreamResolver.swift in Sources */,
 				1E23DEFCD7F7486B955033C1 /* SubtitleLyricsParser.swift in Sources */,
 				B88D64F74EB70F4438DCCCBC /* SyncedCredentialAvailability.swift in Sources */,
