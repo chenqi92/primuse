@@ -675,14 +675,23 @@ enum SpokenWordBookSupport {
         from itemID: String?,
         player: AudioPlayerService
     ) {
-        guard !songs.isEmpty else { return }
-        let startID = itemID ?? book.resumeItemID ?? songs[0].id
+        guard let index = prepareStart(of: book, songs: songs, from: itemID) else { return }
+        Task { await player.play(queue: songs, startingAt: index) }
+    }
+
+    /// The queue index playing `book` starts at: `itemID`, or where the
+    /// listener left off. A finished item that is replayed starts again from
+    /// the beginning, so its finished mark is lifted here. CarPlay shares
+    /// this and plays through its own path.
+    @MainActor
+    static func prepareStart(of book: SpokenWordBook, songs: [Song], from itemID: String?) -> Int? {
+        guard !songs.isEmpty else { return nil }
+        let startID = SpokenWordCarPlayShelfPolicy.startItemID(for: book, requested: itemID) ?? songs[0].id
         let index = songs.firstIndex { $0.id == startID } ?? 0
-        // A finished item that is replayed starts again from the beginning.
         if SpokenWordStore.shared.isFinished(songID: songs[index].id) {
             SpokenWordStore.shared.markFinished(false, songIDs: [songs[index].id])
         }
-        Task { await player.play(queue: songs, startingAt: index) }
+        return index
     }
 
     /// The "now listening" book: the in-progress one heard most recently.

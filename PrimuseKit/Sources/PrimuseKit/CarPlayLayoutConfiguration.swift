@@ -28,6 +28,8 @@ public enum CarPlayHomeSection: String, Codable, CaseIterable, Identifiable, Sen
 public struct CarPlayMainTab: Codable, Equatable, Identifiable, Sendable {
     public enum Kind: String, Codable, CaseIterable, Sendable {
         case home, library, radio, playlists, songs, albums, artists, folders, search, collection
+        /// Books and other spoken word: in progress first, never shuffled.
+        case spokenWord
 
         public var titleKey: String {
             switch self {
@@ -38,6 +40,7 @@ public struct CarPlayMainTab: Codable, Equatable, Identifiable, Sendable {
             case .folders: "library_browse_folder"
             case .search: "search_title"
             case .collection: "carplay_content_sources"
+            case .spokenWord: "listening_space_spoken_word"
             }
         }
 
@@ -52,6 +55,7 @@ public struct CarPlayMainTab: Codable, Equatable, Identifiable, Sendable {
             case .artists: "music.mic"
             case .folders: "folder"
             case .search: "magnifyingglass"
+            case .spokenWord: "books.vertical"
             }
         }
     }

@@ -168,7 +168,7 @@ struct CarPlayEditorCanvas: View {
         switch tab.kind {
         case .home: EmptyView()
         case .library:
-            ForEach([CarPlayMainTab.Kind.folders, .playlists, .songs, .albums, .artists, .radio, .search], id: \.self) { kind in
+            ForEach(libraryPreviewKinds, id: \.self) { kind in
                 Button { browseKind = kind } label: { menuRow(NSLocalizedString(kind.titleKey, comment: ""), symbol: kind.symbol) }
             }
         case .songs: mediaRows(Array((catalog.entries[.song] ?? []).prefix(60)))
@@ -183,6 +183,7 @@ struct CarPlayEditorCanvas: View {
         case .folders:
             mediaRows((CarPlayFolderLibrary.shared.index?.sourceNodes ?? []).prefix(60).map { CarPlayEditorCatalog.Snapshot.folder($0).configured(directly: false) })
         case .search: searchRows
+        case .spokenWord: spokenWordRows
         case .collection:
             if let content = tab.content {
                 if let folderID = content.folderID, let node = CarPlayFolderLibrary.shared.index?.node(withID: folderID) {
@@ -199,6 +200,25 @@ struct CarPlayEditorCanvas: View {
         block.playsImmediately = configuration.playsCollectionsDirectly
         let items = Array((catalog.entries[.playlist] ?? []).prefix(60)).map { $0.configured(directly: configuration.playsCollectionsDirectly) }
         return blockView(CarPlayHomeBlock(configuration: block, items: items))
+    }
+
+    /// The car's library menu, which lists spoken word once there is some.
+    private var libraryPreviewKinds: [CarPlayMainTab.Kind] {
+        let hasSpokenWord = !AppServices.shared.musicLibrary.spokenWordSongs.isEmpty
+        return [.folders, .playlists, .songs, .albums, .artists] + (hasSpokenWord ? [.spokenWord] : []) + [.radio, .search]
+    }
+
+    /// Book titles in the order the car lists them.
+    @ViewBuilder private var spokenWordRows: some View {
+        let library = AppServices.shared.musicLibrary
+        let books = SpokenWordBookGrouping.books(
+            from: library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: .shared) }
+        )
+        let listed = SpokenWordCarPlayShelfPolicy.sections(from: books, limit: 60).flatMap(\.books)
+        ForEach(listed) { book in
+            menuRow(book.title, symbol: CarPlayMainTab.Kind.spokenWord.symbol)
+        }
+        if listed.isEmpty { emptyContent }
     }
 
     private func menuRow(_ title: String, symbol: String) -> some View {

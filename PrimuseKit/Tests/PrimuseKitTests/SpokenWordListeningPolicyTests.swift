@@ -278,3 +278,55 @@ struct SpokenWordBookGroupingTests {
         #expect(books.map(\.title) == ["Newest", "Middle", "Alpha", "Finished", "Zeta"])
     }
 }
+
+@Suite("Spoken word on CarPlay")
+struct SpokenWordCarPlayShelfPolicyTests {
+    private let base = Date(timeIntervalSince1970: 10_000)
+
+    private func books() -> [SpokenWordBook] {
+        SpokenWordBookGrouping.books(from: [
+            // Heard an hour ago, part way.
+            .init(id: "a1", title: "1", albumTitle: "Older", trackNumber: 1, duration: 600,
+                  position: 100, positionUpdatedAt: base.addingTimeInterval(-3600)),
+            .init(id: "a2", title: "2", albumTitle: "Older", trackNumber: 2, duration: 600),
+            // Heard a minute ago, chapter 1 done, chapter 2 started.
+            .init(id: "b1", title: "1", albumTitle: "Recent", trackNumber: 1, duration: 600,
+                  finishedAt: base.addingTimeInterval(-600)),
+            .init(id: "b2", title: "2", albumTitle: "Recent", trackNumber: 2, duration: 600,
+                  position: 30, positionUpdatedAt: base.addingTimeInterval(-60)),
+            // Never started.
+            .init(id: "c1", title: "1", albumTitle: "Untouched", trackNumber: 1, duration: 600),
+            // Finished.
+            .init(id: "d1", title: "1", albumTitle: "Done", trackNumber: 1, duration: 600,
+                  finishedAt: base.addingTimeInterval(-7200)),
+        ])
+    }
+
+    @Test("In progress first, most recent first; then the shelf; then finished")
+    func order() {
+        let sections = SpokenWordCarPlayShelfPolicy.sections(from: books(), limit: 12)
+        #expect(sections.map(\.section) == [.continueListening, .shelf, .finished])
+        #expect(sections[0].books.map(\.title) == ["Recent", "Older"])
+        #expect(sections[1].books.map(\.title) == ["Untouched"])
+        #expect(sections[2].books.map(\.title) == ["Done"])
+    }
+
+    @Test("The row limit cuts from the end, never the book being listened to")
+    func limit() {
+        let sections = SpokenWordCarPlayShelfPolicy.sections(from: books(), limit: 3)
+        #expect(sections.map(\.section) == [.continueListening, .shelf])
+        #expect(sections.flatMap(\.books).map(\.title) == ["Recent", "Older", "Untouched"])
+        #expect(SpokenWordCarPlayShelfPolicy.sections(from: books(), limit: 0).isEmpty)
+        #expect(SpokenWordCarPlayShelfPolicy.sections(from: [], limit: 10).isEmpty)
+    }
+
+    @Test("Playing a book resumes where it was left, or honours the chapter asked for")
+    func start() {
+        let recent = books().first { $0.title == "Recent" }!
+        #expect(SpokenWordCarPlayShelfPolicy.startItemID(for: recent) == "b2")
+        #expect(SpokenWordCarPlayShelfPolicy.startItemID(for: recent, requested: "b1") == "b1")
+        #expect(SpokenWordCarPlayShelfPolicy.startItemID(for: recent, requested: "nope") == "b2")
+        let untouched = books().first { $0.title == "Untouched" }!
+        #expect(SpokenWordCarPlayShelfPolicy.startItemID(for: untouched) == "c1")
+    }
+}

@@ -92,6 +92,9 @@ final class CarPlayEditorCatalog {
         var artistNames: ArtistNameConfiguration
         var history: [HomeListeningEvent] = []
         var artists: [Artist] = []
+        /// Kept out of "recently added": one scanned-in audiobook would fill
+        /// the whole block with its chapters.
+        var spokenWordSongIDs: Set<String> = []
     }
 
     private(set) var snapshot = Snapshot()
@@ -151,7 +154,8 @@ final class CarPlayEditorCatalog {
             playlists: playlists, memberships: Dictionary(uniqueKeysWithValues: playlists.map { ($0.id, library.rawSongIDs(forPlaylist: $0.id)) }),
             stations: AppServices.shared.radioStationsStore.stations.map {
                 CarPlayHomeItem(id: $0.id, title: $0.name, subtitle: $0.playbackSubtitle, symbol: "radio", target: .radio($0.id))
-            }, artistNames: library.artistNameConfiguration, history: PlayHistoryStore.shared.musicEntries.map(\.listeningEvent), artists: library.visibleArtists)
+            }, artistNames: library.artistNameConfiguration, history: PlayHistoryStore.shared.musicEntries.map(\.listeningEvent), artists: library.visibleArtists,
+            spokenWordSongIDs: library.spokenWordSongIDs)
         load(input, sourceVersion: version)
     }
 
@@ -187,7 +191,7 @@ final class CarPlayEditorCatalog {
             CarPlayHomeItem(id: $0.id, title: $0.title, subtitle: $0.displayArtistName(configuration: input.artistNames), artwork: .songReference(id: $0.id, coverRef: $0.coverArtFileName), target: .song($0.id, queue: [$0.id]))
         }
         guard !Task.isCancelled else { return result }
-        let recent = input.songs.sorted { $0.dateAdded == $1.dateAdded ? $0.id < $1.id : $0.dateAdded > $1.dateAdded }.prefix(100)
+        let recent = input.songs.filter { !input.spokenWordSongIDs.contains($0.id) }.sorted { $0.dateAdded == $1.dateAdded ? $0.id < $1.id : $0.dateAdded > $1.dateAdded }.prefix(100)
         let queue = recent.map(\.id)
         result.recent = recent.map {
             CarPlayHomeItem(id: $0.id, title: $0.title, subtitle: $0.displayArtistName(configuration: input.artistNames), artwork: .songReference(id: $0.id, coverRef: $0.coverArtFileName), target: .song($0.id, queue: queue))
