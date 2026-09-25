@@ -689,7 +689,7 @@ private struct ImmersivePreviewArtwork: View {
         Image("BrandMark")
             .resizable()
         #else
-        Image(DefaultCoverArtwork.assetName)
+        Image("AppIconPreview")
             .resizable()
         #endif
     }
@@ -701,15 +701,18 @@ struct ImmersiveArtworkFallback: View {
     var body: some View {
         #if os(macOS)
         MacDefaultArtwork()
-        #elseif os(tvOS)
-        // tvOS 也编这个文件,但没有 DefaultCoverArtwork(那里不能换图标),用默认图标的插画。
-        Image("DefaultCover")
-            .renderingMode(.original)
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fill)
         #else
-        DefaultCoverArtwork()
+        ZStack {
+            LinearGradient(
+                colors: [palette.primary.opacity(0.72), palette.secondary.opacity(0.92)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: "music.note")
+                .font(.system(size: 44, weight: .medium))
+                .foregroundStyle(.white.opacity(0.72))
+                .symbolRenderingMode(.hierarchical)
+        }
         #endif
     }
 }

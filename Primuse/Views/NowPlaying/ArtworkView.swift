@@ -14,7 +14,13 @@ struct ArtworkView: View {
                 #if os(macOS)
                 MacDefaultArtwork()
                 #else
-                DefaultCoverArtwork()
+                ZStack {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(.ultraThinMaterial)
+                    Image(systemName: "music.note")
+                        .font(.system(size: 60))
+                        .foregroundStyle(.secondary)
+                }
                 #endif
             }
         }

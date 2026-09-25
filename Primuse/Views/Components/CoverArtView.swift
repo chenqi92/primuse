@@ -15,7 +15,13 @@ struct CoverArtView: View {
                 #if os(macOS)
                 MacDefaultArtwork()
                 #else
-                DefaultCoverArtwork()
+                ZStack {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(.ultraThinMaterial)
+                    Image(systemName: "music.note")
+                        .font(.system(size: size * 0.4))
+                        .foregroundStyle(.secondary)
+                }
                 #endif
             }
         }
@@ -33,42 +39,17 @@ struct CoverArtView: View {
     .padding()
 }
 
-/// 歌曲、专辑没有封面时的默认封面：用户当前选的 App 图标（它的预览资源，带浅色/深色
-/// 两套）。换了图标，没封面的歌跟着换。预览图是满版方图、自带底色，这里只负责铺满；
-/// 圆角与裁切交给调用方原有的 clipShape。
-struct DefaultCoverArtwork: View {
-    /// 当前图标的预览资源名。两个设置都是 @Observable，读它的视图会随切换刷新。
-    @MainActor
-    static var assetName: String {
-        #if os(iOS)
-        let service = AppIconService.shared
-        return service.options.first { $0.id == service.currentIconID }?.previewAsset ?? "AppIconPreview"
-        #elseif os(macOS)
-        return MacAppIcon.option(for: MacUIPreferences.shared.appIconID).previewAsset
-        #else
-        return "AppIconPreview"
-        #endif
-    }
-
-    var body: some View {
-        Image(Self.assetName)
-            .renderingMode(.original)
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fill)
-            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-            .clipped()
-            .accessibilityHidden(true)
-    }
-}
-
 #if os(macOS)
 struct MacDefaultArtwork: View {
     var isLoading = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        DefaultCoverArtwork()
+        Image("AppIconPreview")
+            .renderingMode(.original)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
             .overlay(alignment: .bottom) {
                 GeometryReader { geometry in
                     let side = min(geometry.size.width, geometry.size.height)

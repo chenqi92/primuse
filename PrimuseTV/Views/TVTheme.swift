@@ -522,9 +522,9 @@ enum TVArtworkPlaceholderKind: Equatable {
     case playlist
 }
 
-/// 歌曲、专辑与歌单真正缺少封面时使用的占位。
+/// 歌曲、专辑与歌单真正缺少封面时使用的语义占位。
 ///
-/// 歌曲与专辑（`.music`）直接显示默认封面插画；歌单沿用下面的语义占位：低饱和语义底色负责与相邻卡片区分，单一 SF Symbol 负责远距离识别；不再把
+/// 低饱和语义底色负责与相邻卡片区分，单一 SF Symbol 负责远距离识别；不再把
 /// 标题首字母当作专辑封面，也不使用容易形成“靶心”观感的多重同心圆。
 struct TVMusicPlaceholder: View {
     var tint: Color
@@ -547,32 +547,10 @@ struct TVMusicPlaceholder: View {
     }
 
     var body: some View {
-        switch kind {
-        case .music:
-            defaultCover
-        case .playlist:
-            semanticPlaceholder
-        }
-    }
-
-    /// 歌曲与专辑缺图时的默认封面：Apple TV 不能换 App 图标，所以就是默认图标
-    /// 「Chris's Muse」的插画（DefaultCover，浅色/深色两套），整张铺满后按调用方的圆角裁切。
-    private var defaultCover: some View {
-        Image("DefaultCover")
-            .renderingMode(.original)
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fill)
-            .frame(width: width, height: height)
-            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .accessibilityHidden(true)
-    }
-
-    private var semanticPlaceholder: some View {
         let m = min(width, height)
         let isDark = colorScheme == .dark
 
-        return ZStack {
+        ZStack {
             LinearGradient(
                 colors: [TVColor.bgElev, TVColor.bgDeep],
                 startPoint: .topLeading,
