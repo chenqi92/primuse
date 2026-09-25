@@ -251,10 +251,10 @@ struct SmartPlaylistDetailView: View {
         .padding(.horizontal, bandHorizontalPadding)
     }
 
-    /// 三颗等宽的带字按钮。窄栏里（iPhone Duo 两栏的左栏）放不下时先把随机与下载收成图标、
+    /// 三颗等宽的带字按钮。放不下时（普通 iPhone 上的中文、iPhone Duo 两栏的左栏）先把随机与下载收成图标、
     /// 再连「播放全部」也只留图标，文字不折行。
     private func legacyActionButtons(_ matched: [Song]) -> some View {
-        LibraryDetailAdaptiveActionRow {
+        LibraryDetailAdaptiveActionRow(adaptsAtAnyWidth: true) {
             legacyLabeledActionButtons(matched)
         } reduced: {
             legacyCompactActionButtons(matched, showsPlayTitle: true)

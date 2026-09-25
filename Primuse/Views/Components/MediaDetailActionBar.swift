@@ -692,11 +692,14 @@ struct LibraryDetailPlayShuffleRow: View {
 
 /// 详情页操作行在窄栏里的退让。整行放得下就是 `full`（原来的排法）；iPhone Duo 两栏的左栏、
 /// 系统竖栏这类新画布上放不下时依次换成 `reduced`、`minimal`，按钮文字永不折行。
-/// 普通 iPhone 与 iPad 只走 `full`，和原来逐像素一致。
+/// 普通 iPhone 与 iPad 只走 `full`，和原来逐像素一致；`adaptsAtAnyWidth` 的行（整行文字在普通 iPhone
+/// 上本来就放不下的）不论画布都按宽度退让。
 ///
 /// 不用 `ViewThatFits`：它按理想宽度摆选中的那一种，撑满整行的按钮会缩成按文字宽。这里先在一层
 /// 不显示的背景里量出各排法不折行时要多宽，再按这一行实际有多宽挑一种正常摆。
 struct LibraryDetailAdaptiveActionRow<Full: View, Reduced: View, Minimal: View>: View {
+    /// 不论在什么画布上都按这一行的实际宽度退让。
+    var adaptsAtAnyWidth = false
     @ViewBuilder let full: () -> Full
     @ViewBuilder let reduced: () -> Reduced
     @ViewBuilder let minimal: () -> Minimal
@@ -706,15 +709,28 @@ struct LibraryDetailAdaptiveActionRow<Full: View, Reduced: View, Minimal: View>:
     @State private var widths = LibraryDetailActionRowWidths()
 
     var body: some View {
-        if adaptsInColumn || verticalBarEdge != nil {
+        if adaptsAtAnyWidth || adaptsInColumn || verticalBarEdge != nil {
             chosenRow
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.available = $0 }
                 .background {
                     ZStack {
                         full()
-                            .fixedSize(horizontal: true, vertical: false)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.full = $0 }
+                            .fixedSize()
+                            .onGeometryChange(for: CGSize.self) { $0.size } action: {
+                                widths.full = $0.width
+                                widths.fullSingleLineHeight = $0.height
+                            }
+                        if let available = widths.available {
+                            // 按这一行实际的宽度再排一次：等宽的几颗按钮是平分整行的，总宽放得下时
+                            // 最长的那颗仍可能折行，比一比高度就知道。
+                            full()
+                                .frame(width: available)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                                    widths.fullHeightAtAvailable = $0
+                                }
+                        }
                         reduced()
                             .fixedSize(horizontal: true, vertical: false)
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.reduced = $0 }
@@ -747,11 +763,19 @@ struct LibraryDetailActionRowWidths: Equatable {
     var available: CGFloat?
     var full: CGFloat?
     var reduced: CGFloat?
+    /// `full` 不折行时的高度，和按这一行实际宽度排出来的高度。后者更高就是有按钮的文字折行了。
+    var fullSingleLineHeight: CGFloat?
+    var fullHeightAtAvailable: CGFloat?
+
+    private var fullWrapsAtAvailable: Bool {
+        guard let fullSingleLineHeight, let fullHeightAtAvailable else { return false }
+        return fullHeightAtAvailable > fullSingleLineHeight + 0.5
+    }
 
     var step: Step {
         guard let available else { return .full }
         // 半个点的余量：量出来的理想宽度与实际摆放的宽度会差一点浮点零头。
-        if let full, full <= available + 0.5 { return .full }
+        if let full, full <= available + 0.5, !fullWrapsAtAvailable { return .full }
         if let reduced, reduced <= available + 0.5 { return .reduced }
         return full == nil || reduced == nil ? .full : .minimal
     }
