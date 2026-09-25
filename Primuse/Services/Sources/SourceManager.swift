@@ -1724,6 +1724,15 @@ actor SourceConnectionRouter {
 
     private func isTransportFailure(_ error: Error) -> Bool {
         guard !Task.isCancelled else { return false }
+        return SourceTransportFailure.isTransportFailure(error)
+    }
+}
+
+/// Connection-level failures of a source request, including the NIO errors
+/// thrown by the plain-socket transport. Shared by route failover and the
+/// playback chunk retry so both agree on what a dropped connection is.
+enum SourceTransportFailure {
+    static func isTransportFailure(_ error: any Error) -> Bool {
         if let ioError = error as? IOError {
             return SourceNetworkFailurePolicy.isNetworkFailure(
                 NSError(domain: NSPOSIXErrorDomain, code: Int(ioError.errnoCode))
@@ -11095,7 +11104,7 @@ final class SourceManager {
     func playbackSourceEndpointsAreUnavailable(
         sourceID: String,
         refresh: Bool = false,
-        probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check
+        probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.availabilityCheck
     ) async -> Bool {
         guard !Task.isCancelled,
               let sources = try? await sourcesProvider(),
@@ -11108,7 +11117,7 @@ final class SourceManager {
     private func playbackSourceEndpointsAreUnavailable(
         for source: MusicSource,
         refresh: Bool = false,
-        probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.check
+        probe: @escaping SourceNetworkFailurePolicy.EndpointProbe = SourceConnectionPreflight.availabilityCheck
     ) async -> Bool {
         let networkGeneration = NetworkMonitor.shared.pathGeneration
         let sourceGeneration = connectorScopeValidationGenerationBySourceID[source.id] ?? 0
@@ -11379,7 +11388,8 @@ final class SourceManager {
             SourceNetworkFailurePolicy.availabilityEndpoints(
                 source.connectionCandidates,
                 localRouteBackedOff: localRouteBackedOff
-            )
+            ),
+            probe: SourceConnectionPreflight.availabilityCheck
         )
     }
 
@@ -11723,8 +11733,12 @@ final class SourceManager {
         return !Self.isProbablyLocalHost(host)
     }
 
+    /// Synology is not here: its download URL carries a `_sid` that DSM
+    /// revokes on its own (idle timeout, or a client address change on IPv6
+    /// privacy addresses). A plain URL keeps the dead sid for the rest of the
+    /// song, while the connector re-logs in and repeats the range. Its per-chunk
+    /// connector cost is the same single GET.
     private static let nasAPIPlainStreamingTypes: Set<MusicSourceType> = [
-        .synology,
         .qnap,
         .ugreen,
     ]
