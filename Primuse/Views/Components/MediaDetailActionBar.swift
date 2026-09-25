@@ -191,6 +191,8 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.legacyBottomChromeOverlayActive) private var legacyBottomChromeOverlayActive
+    /// iPhone 才在宽画布(Duo 内屏横握)上把头图与列表并排,iPad 保持原样。
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiom
 
     /// 头图里大标题的下沿（头部坐标）。页面给大标题挂上 `libraryDetailHeroTitle()` 才有值。
     @State private var heroTitleBottom: CGFloat?
@@ -233,6 +235,15 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             // 连左右安全区一起出血, 正文再把左右安全区按侧加回来 —— 头部自己
             // 拿 insets 消费, 底图就是唯一铺到边的那一层。
             let pageWidth = geometry.size.width + safeArea.leading + safeArea.trailing
+            if WideCanvasColumnsPolicy.usesTwoColumns(
+                isPhone: isPhoneIdiom,
+                isRegularWidth: horizontalSizeClass == .regular,
+                isCompactHeight: heightClass.isCompact,
+                width: Double(pageWidth),
+                height: viewport.height
+            ) {
+                twoColumnPage(geometry: geometry, viewport: viewport, pageWidth: pageWidth)
+            } else {
             ScrollView {
                 VStack(spacing: 0) {
                     header(insets)
@@ -260,6 +271,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             .onChange(of: safeArea.top, initial: true) { _, top in
                 heroTopInset = top
             }
+            }
         }
         .environment(\.libraryDetailHeroTitleReporter, { bottom in
             if heroTitleBottom != bottom { heroTitleBottom = bottom }
@@ -283,6 +295,57 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 }
             }
         }
+    }
+
+    /// 宽画布(iPhone Duo 内屏横握)上的两栏:头图(封面、标题、操作行)在左栏,曲目与其余内容在右栏,
+    /// 两栏各自滚动。头图按左栏那么宽的竖版手机算几何,和外屏上看到的是同一副头图;大标题始终在左栏里,
+    /// 导航栏不再淡入小标题。
+    @ViewBuilder
+    private func twoColumnPage(
+        geometry: GeometryProxy,
+        viewport: LibraryDetailHeroViewport,
+        pageWidth: CGFloat
+    ) -> some View {
+        let safeArea = geometry.safeAreaInsets
+        let leadingWidth = CGFloat(WideCanvasColumnsPolicy.detailLeadingColumnWidth(pageWidth: Double(pageWidth)))
+        let trailingWidth = max(0, pageWidth - leadingWidth)
+        let columnViewport = LibraryDetailHeroViewport(
+            width: Double(leadingWidth - safeArea.leading),
+            height: viewport.height,
+            topInset: viewport.topInset,
+            bottomInset: viewport.bottomInset,
+            isCompactHeight: viewport.isCompactHeight,
+            isRegularWidth: false,
+            typeSize: viewport.typeSize
+        )
+        let insets = ImmersiveLibraryDetailInsets(
+            top: safeArea.top,
+            leading: safeArea.leading,
+            trailing: 0,
+            hero: LibraryDetailHeroLayoutPolicy.layout(for: columnViewport)
+        )
+        HStack(alignment: .top, spacing: 0) {
+            ScrollView {
+                header(insets)
+                    .coordinateSpace(.named(LibraryDetailHeroSpace.name))
+                    .frame(width: leadingWidth)
+                    .environment(\.horizontalSizeClass, .compact)
+            }
+            .scrollIndicators(.hidden)
+            .frame(width: leadingWidth)
+
+            ScrollView {
+                content
+                    .padding(.top, safeArea.top + 16)
+                    .padding(.trailing, safeArea.trailing)
+                    .frame(width: trailingWidth)
+            }
+            .frame(width: trailingWidth)
+        }
+        .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
+        .tint(tint == nil ? nil : Color.white)
+        .ignoresSafeArea(.container, edges: [.top, .horizontal])
+        .libraryDetailSoftTopEdge()
     }
 
     /// 大标题淡到一半（下沿离导航栏下沿还剩一半淡出距离）时换成导航栏里的小标题；

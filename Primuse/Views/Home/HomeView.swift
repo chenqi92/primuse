@@ -534,6 +534,10 @@ struct HomeView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// iPhone 才在宽画布(Duo 内屏横握)上把区块排成两栏,iPad 保持原样。
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiom
+    /// 首页滚动区的尺寸,决定要不要排成两栏。
+    @State private var homeCanvasSize: CGSize = .zero
     @State private var showUpdateSheet: Bool = false
     @State private var selectedHomeRadioID: String?
     @State private var pendingInsecureHomeStation: RadioStation?
@@ -580,7 +584,19 @@ struct HomeView: View {
     /// 搬进一个只有四百来点高的视口 —— 同一个 App 在两台手机上长成两副样子。
     /// 常规宽度还得配上常规高度才算 iPad。
     private var usesPadMetrics: Bool {
-        sizeClass == .regular && !heightClass.isCompact
+        sizeClass == .regular && !heightClass.isCompact && !usesTwoColumnHome
+    }
+
+    /// 宽画布(Duo 内屏横握)上区块排成两栏,每栏按手机的尺寸取值 —— 像「音乐」那样,
+    /// 外屏的竖向单栏在内屏变宽时重排,内容与顺序不变。编辑态始终单栏。
+    private var usesTwoColumnHome: Bool {
+        !editorMode && WideCanvasColumnsPolicy.usesTwoColumns(
+            isPhone: isPhoneIdiom,
+            isRegularWidth: sizeClass == .regular,
+            isCompactHeight: heightClass.isCompact,
+            width: Double(homeCanvasSize.width),
+            height: Double(homeCanvasSize.height)
+        )
     }
 
     private var observedHomeContent: some View {
@@ -603,6 +619,11 @@ struct HomeView: View {
             .padding(.top, topTabsContentInset)
             .padding(.bottom, bottomChromeClearance)
             .pmAnimation(.contentAppear, value: model.isPrepared)
+        }
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            homeCanvasSize = size
         }
         .task {
             await refreshHomeSnapshotAfterPresentationIfNeeded()
@@ -925,9 +946,50 @@ struct HomeView: View {
                 libraryHeroSection
             }
 
-            ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
-                homeSectionRow(section)
+            if usesTwoColumnHome {
+                homeTwoColumnSections
+            } else {
+                ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
+                    homeSectionRow(section)
+                }
             }
+        }
+    }
+
+    /// 两栏:可见的区块按顺序交替放进左右两栏,各栏按紧凑宽度(手机)排版。
+    private var homeTwoColumnSections: some View {
+        let visible = homeSectionOrder.filter(homeSectionHasContent)
+        let columns = WideCanvasColumnsPolicy.homeColumns(sectionCount: visible.count)
+        return HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 24) {
+                ForEach(columns.leading.map { visible[$0] }) { section in
+                    homeSectionRow(section)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 24) {
+                ForEach(columns.trailing.map { visible[$0] }) { section in
+                    homeSectionRow(section)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .environment(\.horizontalSizeClass, .compact)
+    }
+
+    /// 这个区块此刻有没有东西可显示(与 `homeSectionContent` 的显示条件一致),两栏分配只数有内容的。
+    private func homeSectionHasContent(_ section: HomeSectionKind) -> Bool {
+        switch section {
+        case .continueListening: showContinueListening && !model.snapshot.recentSongs.isEmpty
+        case .radio: false
+        case .quickAccess: showQuickAccess && !model.snapshot.quickItems.isEmpty
+        case .forYou: showForYou && !model.snapshot.forYouResults.isEmpty
+        case .playlists: showPlaylists && !model.snapshot.playlists.isEmpty
+        case .folders: showFolders
+        case .listeningRanking: showListeningRanking
+        case .topArtists: showTopArtists && !model.snapshot.topArtists.isEmpty
+        case .recentlyAdded: showRecentlyAdded && !model.snapshot.recentlyAddedAlbums.isEmpty
+        case .stats: showStatsGlimpse && model.snapshot.statsGlimpse != nil
         }
     }
 
