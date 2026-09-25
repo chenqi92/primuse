@@ -1069,6 +1069,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 limit: limit
             )
             if let total = result.totalRecordCount, total != segment.count {
+                plog("↻ \(kind) library \(segment.library.id): total \(segment.count) → \(total) at index \(startIndex)")
                 throw PagedSongCatalogError.snapshotChangedDuringPagination
             }
             guard result.items.count <= limit else {

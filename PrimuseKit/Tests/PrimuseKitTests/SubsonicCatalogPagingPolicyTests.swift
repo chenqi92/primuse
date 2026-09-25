@@ -205,6 +205,102 @@ struct PagedSongCatalogStagingStoreTests {
         }
     }
 
+    @Test("Re-anchoring keeps staged pages and lets the walk read on under a new revision")
+    func reanchorKeepsStagedPages() throws {
+        try withStore { store in
+            try store.reset(
+                sourceID: "source",
+                stageSessionID: "session-a",
+                ownerGeneration: 1,
+                replacingStageSessionID: nil,
+                scopeFingerprint: "account-a",
+                catalogRevision: "scan-a"
+            )
+            let first = makeSong(index: 1)
+            _ = try store.stagePage(
+                sourceID: "source",
+                stageSessionID: "session-a",
+                scopeFingerprint: "account-a",
+                catalogRevision: "scan-a",
+                offset: 0,
+                nextOffset: 500,
+                itemIDs: ["item-1"],
+                songs: [first],
+                metadataInspectedSongIDs: [],
+                hierarchyItems: [],
+                addedSongCount: 1
+            )
+            #expect(
+                try store.stagedItemIDs(sourceID: "source", among: ["item-2", "item-1"])
+                    == ["item-1"]
+            )
+
+            #expect(throws: PagedSongCatalogStagingError.scopeChanged) {
+                try store.reanchor(
+                    sourceID: "source",
+                    stageSessionID: "stale-session",
+                    catalogRevision: "scan-b",
+                    nextOffset: 500
+                )
+            }
+            let moved = try store.reanchor(
+                sourceID: "source",
+                stageSessionID: "session-a",
+                catalogRevision: "scan-b",
+                nextOffset: 500
+            )
+            #expect(moved.catalogRevision == "scan-b")
+            #expect(moved.nextOffset == 500)
+            #expect(moved.stagedItemCount == 1)
+            #expect(moved.firstPageItemIDs == ["item-1"])
+
+            // The old revision can no longer stage; the new one reads on.
+            #expect(throws: PagedSongCatalogStagingError.revisionChanged) {
+                try store.stagePage(
+                    sourceID: "source",
+                    stageSessionID: "session-a",
+                    scopeFingerprint: "account-a",
+                    catalogRevision: "scan-a",
+                    offset: 500,
+                    nextOffset: nil,
+                    itemIDs: ["item-2"],
+                    songs: [makeSong(index: 2)],
+                    metadataInspectedSongIDs: [],
+                    hierarchyItems: [],
+                    addedSongCount: 1
+                )
+            }
+            let second = makeSong(index: 2)
+            let finished = try store.stagePage(
+                sourceID: "source",
+                stageSessionID: "session-a",
+                scopeFingerprint: "account-a",
+                catalogRevision: "scan-b",
+                offset: 500,
+                nextOffset: nil,
+                itemIDs: ["item-2"],
+                songs: [second],
+                metadataInspectedSongIDs: [],
+                hierarchyItems: [],
+                addedSongCount: 1
+            )
+            #expect(finished.nextOffset == nil)
+            #expect(finished.stagedItemCount == 2)
+            let delta = try store.delta(sourceID: "source", existingByID: [:])
+            #expect(delta.authoritativeSongIDs == [first.id, second.id])
+
+            // A walk that grew past its end reopens a finished stage.
+            let reopened = try store.reanchor(
+                sourceID: "source",
+                stageSessionID: "session-a",
+                catalogRevision: "scan-c",
+                nextOffset: 500
+            )
+            #expect(reopened.nextOffset == 500)
+            #expect(reopened.completedPageCount == 2)
+        }
+    }
+
     @Test("A newer scan generation owns reset and stale cancellation cannot erase it")
     func resetUsesGenerationCompareAndSwap() throws {
         try withStore { store in

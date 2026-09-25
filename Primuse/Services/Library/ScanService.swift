@@ -457,6 +457,9 @@ final class ScanService {
     /// adaptive persistence interval: a multi-megabyte checkpoint is rewritten
     /// far less often than a small one (see ScanCheckpointPersistencePolicy).
     private var lastCheckpointEncodedByteCount = 0
+    /// A drift-tolerant walk may move onto a new catalogue revision this many
+    /// times in a row without staging a page before it is reported as failed.
+    private static let maximumCatalogDriftReanchorsWithoutProgress = 5
     /// macOS has no scene-background flush before quit, so keep the widest
     /// checkpoint interval shorter there than on iOS, where cancellation on
     /// `.inactive` always forces a final write.
@@ -3376,6 +3379,41 @@ final class ScanService {
         var resumeCheckpoint = checkpoint
         var activeStageSessionID = checkpoint?.subsonicCatalogState?.stageSessionID
         var snapshotRestartCount = 0
+        // A busy public server keeps ingesting while a 70,000-row walk is under
+        // way, so a strict snapshot restarted from zero never finishes. Sources
+        // with stable row ids keep their staged pages instead, move onto the
+        // new revision and commit the result as add-and-update only.
+        let toleratesCatalogDrift = source.type.toleratesPagedCatalogDrift
+        var catalogDriftObserved = false
+        var driftReanchorsWithoutProgress = 0
+        func persistPagedCatalogState(
+            _ snapshot: PagedSongCatalogStageSnapshot,
+            totalCount: Int,
+            currentFile: String
+        ) {
+            persistCheckpoint(
+                sourceID: source.id,
+                directories: directories,
+                songs: [],
+                totalCount: totalCount,
+                currentFile: currentFile,
+                directoryState: SourceScanResumeState(
+                    pendingDirectories: [],
+                    encounteredSongIDs: [],
+                    index: [:]
+                ),
+                subsonicCatalogState: SubsonicCatalogResumeState(
+                    stageSessionID: snapshot.stageSessionID,
+                    catalogRevision: snapshot.catalogRevision,
+                    nextOffset: snapshot.nextOffset,
+                    completedPageCount: snapshot.completedPageCount,
+                    stagedSongCount: snapshot.stagedSongCount,
+                    stagedItemCount: snapshot.stagedItemCount,
+                    firstPageItemIDs: snapshot.firstPageItemIDs,
+                    observedCatalogDrift: catalogDriftObserved ? true : nil
+                )
+            )
+        }
 
         pagedSnapshotLoop: while snapshotRestartCount < 2 {
             do {
@@ -3424,9 +3462,10 @@ final class ScanService {
                             == SubsonicCatalogResumeState.currentSchemaVersion,
                           persistedState.pageSize == SubsonicCatalogPagingPolicy.pageSize,
                           persistedState.stageSessionID == storedSnapshot.stageSessionID,
-                          persistedState.catalogRevision == initialRevision,
+                          persistedState.catalogRevision == storedSnapshot.catalogRevision,
                           storedSnapshot.scopeFingerprint == scopeFingerprint,
-                          storedSnapshot.catalogRevision == initialRevision,
+                          toleratesCatalogDrift
+                            || storedSnapshot.catalogRevision == initialRevision,
                           storedSnapshot.completedPageCount >= persistedState.completedPageCount,
                           storedSnapshot.stagedSongCount >= persistedState.stagedSongCount,
                           storedSnapshot.stagedItemCount >= (persistedState.stagedItemCount ?? 0),
@@ -3438,7 +3477,39 @@ final class ScanService {
                 }()
 
                 var stageSnapshot: PagedSongCatalogStageSnapshot
-                if canResume, let storedSnapshot {
+                if canResume, let storedSnapshot, toleratesCatalogDrift {
+                    if persistedState?.observedCatalogDrift == true {
+                        catalogDriftObserved = true
+                    }
+                    if storedSnapshot.catalogRevision == initialRevision {
+                        stageSnapshot = storedSnapshot
+                    } else {
+                        catalogDriftObserved = true
+                        plog("↻ \(source.name): catalogue moved since page \(storedSnapshot.completedPageCount); keeping \(storedSnapshot.stagedItemCount) staged row(s) and continuing")
+                        let reanchoredSessionID = storedSnapshot.stageSessionID
+                        let reanchoredOffset = storedSnapshot.nextOffset
+                        stageSnapshot = try await Task.detached(priority: .utility) {
+                            try stagingStore.reanchor(
+                                sourceID: source.id,
+                                stageSessionID: reanchoredSessionID,
+                                catalogRevision: initialRevision,
+                                nextOffset: reanchoredOffset
+                            )
+                        }.value
+                        try checkScanCommitFence(
+                            sourceID: source.id,
+                            generation: generation,
+                            expectedScopeFingerprint: scopeFingerprint,
+                            expectedScopeDirectories: directories,
+                            sourceStore: sourceStore
+                        )
+                        persistPagedCatalogState(
+                            stageSnapshot,
+                            totalCount: expectedCatalogCount,
+                            currentFile: ""
+                        )
+                    }
+                } else if canResume, let storedSnapshot {
                     let verificationPage = try await connector.songCatalogPage(
                         from: catalogPath,
                         offset: 0
@@ -3512,7 +3583,7 @@ final class ScanService {
                         return true
                     }
 
-                    let page = try await connector.songCatalogPage(
+                    var page = try await connector.songCatalogPage(
                         from: catalogPath,
                         offset: offset
                     )
@@ -3546,6 +3617,35 @@ final class ScanService {
                             "Subsonic song catalog exceeded the safety limit"
                         )
                     }
+                    // The offset window as the server answered it; dropping
+                    // rows seen before must not move the terminal probe.
+                    let receivedItemCount = page.itemIDs.count
+                    if toleratesCatalogDrift,
+                       !page.itemIDs.isEmpty,
+                       page.songs.count == page.itemIDs.count {
+                        // Rows added or removed ahead of the cursor shift the
+                        // window, so a row read on an earlier page comes back.
+                        let lookupIDs = page.itemIDs
+                        var seenItemIDs = try await Task.detached(priority: .utility) {
+                            try stagingStore.stagedItemIDs(sourceID: source.id, among: lookupIDs)
+                        }.value
+                        var keptItemIDs: [String] = []
+                        var keptSongs: [ConnectorScannedSong] = []
+                        for (itemID, scannedSong) in zip(page.itemIDs, page.songs)
+                        where seenItemIDs.insert(itemID).inserted {
+                            keptItemIDs.append(itemID)
+                            keptSongs.append(scannedSong)
+                        }
+                        if keptItemIDs.count < receivedItemCount {
+                            catalogDriftObserved = true
+                            plog("↻ \(source.name): \(receivedItemCount - keptItemIDs.count) row(s) at offset \(offset) were already staged; skipped")
+                            page = PagedSongCatalogPage(
+                                songs: keptSongs,
+                                itemIDs: keptItemIDs,
+                                nextOffset: page.nextOffset
+                            )
+                        }
+                    }
 
                     let pageSongs = songIDsByServerSongID.isEmpty
                         ? page.songs
@@ -3574,6 +3674,8 @@ final class ScanService {
                         if existingByID[song.id] == nil { count += 1 }
                     }
                     let stageSessionID = stageSnapshot.stageSessionID
+                    let pageNextOffset = page.nextOffset
+                    let pageItemIDs = page.itemIDs
                     let updatedStageSnapshot: PagedSongCatalogStageSnapshot
                     do {
                         updatedStageSnapshot = try await Task.detached(priority: .utility) {
@@ -3583,15 +3685,16 @@ final class ScanService {
                                 scopeFingerprint: scopeFingerprint,
                                 catalogRevision: initialRevision,
                                 offset: offset,
-                                nextOffset: page.nextOffset,
-                                itemIDs: page.itemIDs,
+                                nextOffset: pageNextOffset,
+                                itemIDs: pageItemIDs,
                                 songs: stagedPageSongs,
                                 metadataInspectedSongIDs: inspectedSongIDs,
                                 hierarchyItems: hierarchyItems,
                                 addedSongCount: addedOnPage
                             )
                         }.value
-                    } catch is PagedSongCatalogStagingError {
+                    } catch let stagingError as PagedSongCatalogStagingError {
+                        plog("↻ \(source.name): page at offset \(offset) rejected by the stage (\(stagingError))")
                         throw PagedSongCatalogError.snapshotChangedDuringPagination
                     }
                     try checkScanCommitFence(
@@ -3602,37 +3705,20 @@ final class ScanService {
                         sourceStore: sourceStore
                     )
                     stageSnapshot = updatedStageSnapshot
-                    if page.itemIDs.isEmpty, page.songs.isEmpty, page.nextOffset == nil {
+                    driftReanchorsWithoutProgress = 0
+                    if receivedItemCount == 0, page.songs.isEmpty, page.nextOffset == nil {
                         observedEmptyTerminalOffset = offset
                     }
                     terminalProbeOffset = SubsonicCatalogPagingPolicy
                         .terminalVerificationOffset(
                             currentOffset: offset,
-                            receivedCount: page.itemIDs.count,
+                            receivedCount: receivedItemCount,
                             nextOffset: page.nextOffset
                         ) ?? terminalProbeOffset
-                    let nextState = SubsonicCatalogResumeState(
-                        stageSessionID: stageSnapshot.stageSessionID,
-                        catalogRevision: initialRevision,
-                        nextOffset: stageSnapshot.nextOffset,
-                        completedPageCount: stageSnapshot.completedPageCount,
-                        stagedSongCount: stageSnapshot.stagedSongCount,
-                        stagedItemCount: stageSnapshot.stagedItemCount,
-                        firstPageItemIDs: stageSnapshot.firstPageItemIDs
-                    )
-                    let directoryState = SourceScanResumeState(
-                        pendingDirectories: [],
-                        encounteredSongIDs: [],
-                        index: [:]
-                    )
-                    persistCheckpoint(
-                        sourceID: source.id,
-                        directories: directories,
-                        songs: [],
+                    persistPagedCatalogState(
+                        stageSnapshot,
                         totalCount: expectedCatalogCount,
-                        currentFile: page.songs.last?.displayName ?? "",
-                        directoryState: directoryState,
-                        subsonicCatalogState: nextState
+                        currentFile: page.songs.last?.displayName ?? ""
                     )
                     // The page is durable and has passed duplicate/offset
                     // validation. Publish it as merge-only observation; only
@@ -3677,6 +3763,28 @@ final class ScanService {
                         // offset is truly empty. This catches servers that
                         // silently truncate search3 while keeping a stable
                         // scan revision.
+                        if toleratesCatalogDrift {
+                            // The catalogue grew past the end. Reopen the walk
+                            // at the page holding the old end; rows read
+                            // twice are skipped.
+                            let pageSize = SubsonicCatalogPagingPolicy.pageSize
+                            let reopenedOffset = terminalProbeOffset / pageSize * pageSize
+                            let reopenedSessionID = stageSnapshot.stageSessionID
+                            stageSnapshot = try await Task.detached(priority: .utility) {
+                                try stagingStore.reanchor(
+                                    sourceID: source.id,
+                                    stageSessionID: reopenedSessionID,
+                                    catalogRevision: finalRevisionBeforePage,
+                                    nextOffset: reopenedOffset
+                                )
+                            }.value
+                            catalogDriftObserved = true
+                            persistPagedCatalogState(
+                                stageSnapshot,
+                                totalCount: expectedCatalogCount,
+                                currentFile: ""
+                            )
+                        }
                         throw PagedSongCatalogError.snapshotChangedDuringPagination
                     }
                 }
@@ -3685,10 +3793,16 @@ final class ScanService {
                     offset: 0
                 )
                 let finalRevisionAfterPage = try await connector.stableSongCatalogRevision()
-                guard finalRevisionBeforePage == initialRevision,
-                      finalRevisionAfterPage == initialRevision,
-                      finalFirstPage.itemIDs == stageSnapshot.firstPageItemIDs else {
-                    throw PagedSongCatalogError.snapshotChangedDuringPagination
+                if finalRevisionBeforePage != initialRevision
+                    || finalRevisionAfterPage != initialRevision
+                    || finalFirstPage.itemIDs != stageSnapshot.firstPageItemIDs {
+                    // Every page was read, just not from one still catalogue.
+                    // A drift-tolerant walk keeps what it saw and gives up the
+                    // right to remove anything.
+                    guard toleratesCatalogDrift else {
+                        throw PagedSongCatalogError.snapshotChangedDuringPagination
+                    }
+                    catalogDriftObserved = true
                 }
                 try checkScanCommitFence(
                     sourceID: source.id,
@@ -3771,7 +3885,15 @@ final class ScanService {
                         authoritativeSongIDs: stagedCommit.0.authoritativeSongIDs,
                         confirmedDeletionSongIDs: deletionPlan.confirmedDeletionSongIDs
                     )
-                if !deletionPlan.confirmedDeletionSongIDs.isEmpty {
+                // A walk that re-anchored mid-way is a union of observations
+                // from a moving catalogue: rows shifted past the cursor were
+                // never read, so their absence proves nothing. It adds and
+                // updates only, leaves the deletion evidence as it was, and
+                // records the rows it actually holds so the next incremental
+                // pass lists every id and fetches whatever this one missed.
+                if catalogDriftObserved {
+                    plog("↻ \(source.name): catalogue moved during the walk; committing \(stageSnapshot.stagedItemCount) of \(expectedCatalogCount) row(s) without removals")
+                } else if !deletionPlan.confirmedDeletionSongIDs.isEmpty {
                     plog("🗑️ \(source.name): removing \(deletionPlan.confirmedDeletionSongIDs.count) song(s) confirmed gone from the server catalogue")
                 }
                 let candidateState = SourceSyncState(
@@ -3784,20 +3906,26 @@ final class ScanService {
                     lastSuccessfulSyncAt: committedAt,
                     identityAliases: previousState?.identityAliases ?? [:],
                     rootIdentities: previousState?.rootIdentities ?? [],
-                    reconciliation: deletionPlan.isMassDisappearance
+                    reconciliation: deletionPlan.isMassDisappearance && !catalogDriftObserved
                         ? SourceSyncReconciliation(
                             kind: .serverCatalogMassDisappearance,
                             unresolvedStableKeys: Array(deletionPlan.pendingSongIDs),
                             detectedAt: committedAt
                         )
                         : nil,
-                    missingCatalogSongIDs: deletionPlan.missingCounts,
-                    deletionEvidenceRevision: deletionPlan.evidenceRevision,
+                    missingCatalogSongIDs: catalogDriftObserved
+                        ? previousState?.missingCatalogSongIDs ?? [:]
+                        : deletionPlan.missingCounts,
+                    deletionEvidenceRevision: catalogDriftObserved
+                        ? previousState?.deletionEvidenceRevision
+                        : deletionPlan.evidenceRevision,
                     // This walk verified the whole catalogue, so it is the
                     // baseline the next pass may ask "what changed" against.
                     catalogSyncMarker: ServerCatalogIncrementalSyncPolicy.seedMarker(
                         catalogRevision: initialRevision,
-                        itemCount: expectedCatalogCount,
+                        itemCount: catalogDriftObserved
+                            ? stageSnapshot.stagedItemCount
+                            : expectedCatalogCount,
                         now: committedAt
                     )
                 )
@@ -3808,8 +3936,8 @@ final class ScanService {
                     // Prune against the retained set, not the raw snapshot: it
                     // removes exactly the confirmed rows and leaves absences
                     // that are still gathering witnesses in place.
-                    authoritativeSongIDs: prunableSongIDs,
-                    pruneMissingSongs: true,
+                    authoritativeSongIDs: catalogDriftObserved ? nil : prunableSongIDs,
+                    pruneMissingSongs: !catalogDriftObserved,
                     expectedScopeFingerprint: scopeFingerprint,
                     expectedScopeDirectories: directories,
                     library: library,
@@ -3873,6 +4001,18 @@ final class ScanService {
                 return pagedFenceIsValid() ? false : true
             } catch PagedSongCatalogError.snapshotChangedDuringPagination {
                 guard pagedFenceIsValid() else { return true }
+                if toleratesCatalogDrift,
+                   activeStageSessionID != nil,
+                   driftReanchorsWithoutProgress < Self.maximumCatalogDriftReanchorsWithoutProgress {
+                    // Back to the top, which moves the staged pages onto the
+                    // revision the server reports now and reads on from there.
+                    driftReanchorsWithoutProgress += 1
+                    catalogDriftObserved = true
+                    plog("↻ \(source.name): catalogue moved during pagination; continuing from the staged pages (\(driftReanchorsWithoutProgress))")
+                    resumeCheckpoint = checkpoints[source.id]
+                    await Task.yield()
+                    continue pagedSnapshotLoop
+                }
                 snapshotRestartCount += 1
                 do {
                     try await resetPagedServerCatalogCheckpoint(
