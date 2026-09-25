@@ -5968,6 +5968,43 @@ public enum QueuePresentationPolicy {
         return occurrences(in: played, queueCount: queueCount, roundOffset: 0)
     }
 
+    /// 本轮待播里前 `limit` 个满足 `include` 的队列下标，顺序与
+    /// `upcomingOccurrences` 的 roundOffset == 0 部分一致，但边走边判断、够数就停。
+    /// 播放页菜单和每几秒一次的智能提示只想知道「还有没有」，整库队列时展开
+    /// 整轮会在主线程上花掉几百毫秒。
+    public static func firstCurrentRoundUpcomingIndices(
+        queueCount: Int,
+        currentIndex: Int,
+        shuffledIndices: [Int]?,
+        shufflePosition: Int,
+        limit: Int,
+        where include: (Int) -> Bool = { _ in true }
+    ) -> [Int] {
+        guard queueCount > 0, limit > 0 else { return [] }
+        var result: [Int] = []
+        guard let shuffledIndices, !shuffledIndices.isEmpty else {
+            let start = min(max(currentIndex + 1, 0), queueCount)
+            for index in start..<queueCount where include(index) {
+                result.append(index)
+                if result.count == limit { break }
+            }
+            return result
+        }
+
+        let currentPosition = min(max(shufflePosition, 0), shuffledIndices.count - 1)
+        var excluded: Set<Int>?
+        var seen = Set<Int>()
+        for index in shuffledIndices.dropFirst(currentPosition + 1) {
+            guard index != currentIndex, (0..<queueCount).contains(index) else { continue }
+            let consumed = excluded ?? Set(shuffledIndices.prefix(currentPosition + 1))
+            excluded = consumed
+            guard !consumed.contains(index), seen.insert(index).inserted, include(index) else { continue }
+            result.append(index)
+            if result.count == limit { break }
+        }
+        return result
+    }
+
     public static func upcomingOccurrences(
         queueCount: Int,
         currentIndex: Int,

@@ -101,7 +101,7 @@ final class SmartNudgeCenter {
             consecutive += 1
         }
         let progress = player.duration > 0 ? min(1, max(0, player.currentTime / player.duration)) : 0
-        let isLast = player.upcomingQueueEntries.first { $0.id.roundOffset == 0 } == nil
+        let isLast = player.firstCurrentRoundUpcomingSongs(limit: 1).isEmpty
 
         let context = SmartNudgeContext(
             songID: song.id,

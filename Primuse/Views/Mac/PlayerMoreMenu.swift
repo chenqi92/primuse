@@ -328,7 +328,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     Task { await player.continueCurrentMedleySongInFull() }
                 }
             } else if !player.isLiveRadio, !player.isAppleMusicMode,
-                      player.medleyCandidatesFromQueue.count >= 2 {
+                      player.canPlayMedleyFromQueue {
                 menuRow(titleText: String(
                     format: String(localized: "medley_start_queue_format"),
                     player.playbackSettings.medleySegmentSeconds

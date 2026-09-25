@@ -2347,6 +2347,22 @@ extension AudioPlayerService {
         return presentationEntries(for: occurrences)
     }
 
+    /// 本轮待播里前 `limit` 首满足 `include` 的歌。只想知道「后面还有没有」的
+    /// 地方用它, 别展开 `upcomingQueueEntries` —— 整库队列时那是几万个条目。
+    func firstCurrentRoundUpcomingSongs(
+        limit: Int,
+        where include: (Song) -> Bool = { _ in true }
+    ) -> [Song] {
+        QueuePresentationPolicy.firstCurrentRoundUpcomingIndices(
+            queueCount: queueEntries.count,
+            currentIndex: currentIndex,
+            shuffledIndices: usesManagedShuffleOrder ? shuffledIndices : nil,
+            shufflePosition: shuffleAnchorPosition ?? shufflePosition,
+            limit: limit,
+            where: { include(queueEntries[$0].song) }
+        ).map { queueEntries[$0].song }
+    }
+
     var usesManagedShuffleOrder: Bool {
         shuffleEnabled && !(isAppleMusicMode && !isPrimuseManagingAppleMusicQueue)
     }

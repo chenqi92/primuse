@@ -33,6 +33,15 @@ extension AudioPlayerService {
         return ([current] + upcoming).filter(canIncludeInMedley)
     }
 
+    /// Whether "medley from the queue" has at least two songs to join. Menus
+    /// ask this while they are drawn, so it stops at the second song instead
+    /// of classifying the whole round of a library-sized queue.
+    var canPlayMedleyFromQueue: Bool {
+        guard let current = currentSong else { return false }
+        let needed = canIncludeInMedley(current) ? 1 : 2
+        return firstCurrentRoundUpcomingSongs(limit: needed, where: canIncludeInMedley).count == needed
+    }
+
     /// Builds the slices for `songs` and starts playing them.
     /// - Returns: false when none of the songs can be sliced.
     @discardableResult

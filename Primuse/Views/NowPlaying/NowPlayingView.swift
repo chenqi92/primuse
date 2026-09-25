@@ -3736,7 +3736,7 @@ struct NowPlayingView: View {
             repeatMode: player.repeatMode,
             isMedleyActive: player.isMedleyActive,
             canStartMedley: !player.isAppleMusicMode && !player.isLiveRadio
-                && medleyCandidateSongs.count >= 2,
+                && player.canPlayMedleyFromQueue,
             canStartKaraoke: player.currentSong != nil && !player.isAppleMusicMode
                 && !player.isLiveRadio,
             medleySegmentSeconds: playbackSettings.medleySegmentSeconds,
