@@ -171,6 +171,7 @@ struct HomeListeningRankingSection: View {
             }
             .padding(.horizontal, 20)
         }
+        .pmStopsAtVerticalBar()
     }
 
     private func categoryTitle(_ category: HomeListeningCategory) -> String {
@@ -325,6 +326,7 @@ struct HomeListeningRankingSection: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 6)
         }
+        .pmStopsAtVerticalBar()
     }
 
     // MARK: - 共用

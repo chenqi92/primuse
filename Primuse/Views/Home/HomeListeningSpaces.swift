@@ -39,6 +39,7 @@ struct HomeContinueSpacesRow: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .pmStopsAtVerticalBar()
             }
         }
     }
@@ -235,6 +236,7 @@ struct HomeBooksInProgressStrip: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .pmStopsAtVerticalBar()
             }
         }
     }

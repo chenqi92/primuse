@@ -593,6 +593,7 @@ struct LibraryView: View {
                     }
                     .padding(.horizontal, 16)
                 }
+                .pmStopsAtVerticalBar()
                 .contentMargins(.horizontal, 0, for: .scrollContent)
             }
         }
@@ -2558,6 +2559,7 @@ private struct GenreDetailView: View {
                 }
                 .padding(.horizontal, 20)
             }
+            .pmStopsAtVerticalBar()
             .contentMargins(.horizontal, 0, for: .scrollContent)
         }
     }

@@ -1996,6 +1996,7 @@ private struct MinimalTopNavigationBar: View {
                         }
                         .padding(.horizontal, 12)
                     }
+                    .pmStopsAtVerticalBar()
                     .frame(height: chipRowHeight)
                     .padding(.top, MinimalNavigationChromeMetrics.categoryRowTopPadding)
                     .onChange(of: selection.id, initial: true) { _, pageID in

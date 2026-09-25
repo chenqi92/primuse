@@ -371,6 +371,7 @@ struct LyricPosterShareSheet: View {
                 .padding(.horizontal, 2)
                 .padding(.vertical, 4)
             }
+            .pmStopsAtVerticalBar()
 
             sectionLabel("lyric_poster_canvas")
             Picker("lyric_poster_canvas", selection: canvasBinding) {
@@ -437,6 +438,7 @@ struct LyricPosterShareSheet: View {
             .padding(.horizontal, 2)
             .padding(.vertical, 4)
         }
+        .pmStopsAtVerticalBar()
     }
 
     private func filterCard(_ spec: LyricPosterFilterSpec) -> some View {
@@ -500,6 +502,7 @@ struct LyricPosterShareSheet: View {
                     .padding(.horizontal, 2)
                     .padding(.vertical, 4)
                 }
+                .pmStopsAtVerticalBar()
             }
         }
     }

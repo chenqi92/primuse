@@ -361,6 +361,7 @@ struct AIRecommendationLibraryView: View {
                     }
                 }
             }
+            .pmStopsAtVerticalBar()
         }
     }
 

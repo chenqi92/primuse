@@ -199,6 +199,7 @@ struct RadioStationTileRow: View {
             }
             .padding(.horizontal, horizontalInset)
         }
+        .pmStopsAtVerticalBar()
     }
 }
 

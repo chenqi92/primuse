@@ -732,6 +732,7 @@ struct ServerListeningStatsView: View {
                 }
                 .padding(.vertical, 2)
             }
+            .pmStopsAtVerticalBar()
         }
     }
 

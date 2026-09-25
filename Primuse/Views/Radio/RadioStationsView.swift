@@ -350,6 +350,7 @@ struct RadioStationsView: View {
                         }
                         .padding(.horizontal, 16)
                     }
+                    .pmStopsAtVerticalBar()
                 }
 
                 if !tagChips.isEmpty {
@@ -374,6 +375,7 @@ struct RadioStationsView: View {
                         }
                         .padding(.horizontal, 16)
                     }
+                    .pmStopsAtVerticalBar()
                 }
             }
             .padding(.top, 8)

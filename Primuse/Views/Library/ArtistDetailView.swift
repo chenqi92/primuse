@@ -385,6 +385,7 @@ struct ArtistDetailView: View {
                 }
                 .padding(.horizontal, 20)
             }
+            .pmStopsAtVerticalBar()
             .contentMargins(.horizontal, 0, for: .scrollContent)
         }
     }

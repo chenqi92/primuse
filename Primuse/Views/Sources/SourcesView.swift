@@ -876,6 +876,7 @@ struct SourcesContentView: View {
                         }
                     }
                 }
+                .pmStopsAtVerticalBar()
             }
 
             SourceScanStateReader(sourceID: source.id) { scanning in
