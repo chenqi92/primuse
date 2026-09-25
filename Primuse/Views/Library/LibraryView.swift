@@ -472,14 +472,14 @@ struct LibraryView: View {
         // 「有声内容」只在真的有的时候出现: 绝大多数曲库一本有声书也没有,
         // 给它们摆一个永远空着的入口是噪音。
         .filter { $0 != .spokenWord || !library.spokenWordSongs.isEmpty }
-        // 标签栏里电台、有声已是和音乐并列的一格,音乐页不再重复这两个入口;
-        // 极简导航没有这两格,仍在这里列出。
-        .filter { usesMinimalSectionControls || ($0 != .radio && $0 != .spokenWord) }
+        // 电台、有声已是和音乐并列的一格(标签栏、侧栏与顶部 tab 外壳都是),音乐页不再重复这两个入口。
+        // 顶部 tab 外壳不经过这张根页,它的分类页是 `rootSection`。
+        .filter { $0 != .radio && $0 != .spokenWord }
     }
 
-    /// 标签栏里这一页就叫「音乐」;极简导航沿用「资料库」。
+    /// 这一页就叫「音乐」。
     private var rootTitle: LocalizedStringKey {
-        usesMinimalSectionControls ? "library_title" : "listening_space_music"
+        "listening_space_music"
     }
     private var artworkPreviewRevision: String {
         // 电台部分用存储里缓存的摘要：这个属性一次刷新要被求值好几遍，
