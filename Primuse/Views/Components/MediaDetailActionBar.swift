@@ -236,7 +236,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     /// 曲目与其余内容在右栏，两栏各自滚动。头图按左栏那么宽排，和外屏上看到的是同一副；
     /// 列表不再横跨整块内屏、跨过中间的折痕。
     private func twoColumnPage(safeArea: EdgeInsets, pageWidth: CGFloat) -> some View {
-        let leadingWidth = CGFloat(WideCanvasColumnsPolicy.detailLeadingColumnWidth(pageWidth: Double(pageWidth)))
+        let leadingWidth = LibraryDetailWideCanvas.leadingColumnWidth(pageWidth: pageWidth, safeArea: safeArea)
         let trailingWidth = max(0, pageWidth - leadingWidth)
         return HStack(alignment: .top, spacing: 0) {
             ScrollView {
@@ -246,6 +246,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                     trailing: 0
                 ))
                 .frame(width: leadingWidth)
+                .environment(\.libraryDetailActionsAdapt, true)
             }
             .scrollIndicators(.hidden)
             .frame(width: leadingWidth)
@@ -297,6 +298,14 @@ enum LibraryDetailWideCanvas {
             && !heightClass.isCompact
     }
 
+    /// 左栏（头图）的宽度：按扣掉两侧安全区之后的可用宽度取，再加上左侧安全区 ——
+    /// 系统竖栏落在左侧时，头图的封面与操作行照样有那么宽，不被竖栏吃掉一截。
+    static func leadingColumnWidth(pageWidth: CGFloat, safeArea: EdgeInsets) -> CGFloat {
+        let contentWidth = max(0, pageWidth - safeArea.leading - safeArea.trailing)
+        return CGFloat(WideCanvasColumnsPolicy.detailLeadingColumnWidth(pageWidth: Double(contentWidth)))
+            + safeArea.leading
+    }
+
     @MainActor
     private static func isPhoneCanvas(_ isPhoneIdiom: Bool) -> Bool {
         isPhoneIdiom || UIDevice.current.userInterfaceIdiom == .phone
@@ -336,15 +345,14 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
                 )
                 Group {
                 if usesTwoColumns {
-                    let leadingWidth = CGFloat(WideCanvasColumnsPolicy.detailLeadingColumnWidth(
-                        pageWidth: Double(pageWidth)
-                    ))
+                    let leadingWidth = LibraryDetailWideCanvas.leadingColumnWidth(pageWidth: pageWidth, safeArea: safeArea)
                     HStack(alignment: .top, spacing: 0) {
                         ScrollView {
                             header()
                                 .padding(.leading, safeArea.leading)
                                 .padding(.top, 16)
                                 .frame(width: leadingWidth)
+                                .environment(\.libraryDetailActionsAdapt, true)
                         }
                         .scrollIndicators(.hidden)
                         .frame(width: leadingWidth)
@@ -375,11 +383,22 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
 
 
 struct LibraryDetailActionButton: View {
+    /// 按钮的样子。窄栏里整行文字放不下时，操作行会退到后两种（见 `LibraryDetailAdaptiveActionRow`）。
+    enum Form {
+        /// 图标 + 文字的胶囊（原来的样子）。
+        case capsule
+        /// 只有图标的胶囊，文字留给旁白。
+        case iconCapsule
+        /// 只有图标的圆形。
+        case circle
+    }
+
     let title: LocalizedStringKey
     let systemImage: String
     var emphasized = false
     var onArtwork = true
     var fillsWidth = false
+    var form: Form = .capsule
     let disabled: Bool
     let action: () -> Void
 
@@ -405,16 +424,177 @@ struct LibraryDetailActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
-                .foregroundStyle(labelColor)
-                .padding(.horizontal, 20)
-                .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 48)
-                .background(fillColor, in: Capsule())
+            switch form {
+            case .capsule:
+                Label(title, systemImage: systemImage)
+                    .font(.headline)
+                    .foregroundStyle(labelColor)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 48)
+                    .background(fillColor, in: Capsule())
+            case .iconCapsule:
+                Label(title, systemImage: systemImage)
+                    .labelStyle(.iconOnly)
+                    .font(.headline)
+                    .foregroundStyle(labelColor)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 48)
+                    .background(fillColor, in: Capsule())
+            case .circle:
+                // 圆要把图标整个圈住：大字号下图标比 48 还大，四周再留一圈。
+                Label(title, systemImage: systemImage)
+                    .labelStyle(.iconOnly)
+                    .font(.headline)
+                    .foregroundStyle(labelColor)
+                    .padding(12)
+                    .frame(minWidth: 48, minHeight: 48)
+                    .background(fillColor, in: Circle())
+            }
         }
         .buttonStyle(.plain)
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1)
+    }
+}
+
+/// 专辑、艺术家、流派详情页头部的「播放 / 随机播放」一行。
+///
+/// 放得下时就是原来那两颗胶囊（`stacksAtLargeType` 时大字号下上下叠）。窄栏里整行文字放不下时
+/// 依次退成「播放通栏 + 圆形随机」「只剩图标」，按钮文字不折成两行。
+struct LibraryDetailPlayShuffleRow: View {
+    /// 专辑、艺术家的两颗胶囊平分整行；流派的按文字宽。
+    var fillsWidth = true
+    /// 大字号（xxLarge 起）时两颗上下叠。
+    var stacksAtLargeType = true
+    let playDisabled: Bool
+    let shuffleDisabled: Bool
+    let play: () -> Void
+    let shuffle: () -> Void
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        LibraryDetailAdaptiveActionRow {
+            let layout = stacksAtLargeType && dynamicTypeSize >= .xxLarge
+                ? AnyLayout(VStackLayout(spacing: 10))
+                : AnyLayout(HStackLayout(spacing: 10))
+            layout {
+                playButton(.capsule, fills: fillsWidth)
+                shuffleButton(.capsule, fills: fillsWidth)
+            }
+        } reduced: {
+            HStack(spacing: 10) {
+                playButton(.capsule, fills: true)
+                shuffleButton(.circle, fills: false)
+            }
+        } minimal: {
+            HStack(spacing: 10) {
+                playButton(.iconCapsule, fills: true)
+                shuffleButton(.circle, fills: false)
+            }
+        }
+    }
+
+    private func playButton(_ form: LibraryDetailActionButton.Form, fills: Bool) -> some View {
+        LibraryDetailActionButton(
+            title: "play",
+            systemImage: "play.fill",
+            emphasized: true,
+            fillsWidth: fills,
+            form: form,
+            disabled: playDisabled,
+            action: play
+        )
+    }
+
+    private func shuffleButton(_ form: LibraryDetailActionButton.Form, fills: Bool) -> some View {
+        LibraryDetailActionButton(
+            title: "shuffle",
+            systemImage: "shuffle",
+            fillsWidth: fills,
+            form: form,
+            disabled: shuffleDisabled,
+            action: shuffle
+        )
+    }
+}
+
+/// 详情页操作行在窄栏里的退让。整行放得下就是 `full`（原来的排法）；iPhone Duo 两栏的左栏、
+/// 系统竖栏这类新画布上放不下时依次换成 `reduced`、`minimal`，按钮文字永不折行。
+/// 普通 iPhone 与 iPad 只走 `full`，和原来逐像素一致。
+///
+/// 不用 `ViewThatFits`：它按理想宽度摆选中的那一种，撑满整行的按钮会缩成按文字宽。这里先在一层
+/// 不显示的背景里量出各排法不折行时要多宽，再按这一行实际有多宽挑一种正常摆。
+struct LibraryDetailAdaptiveActionRow<Full: View, Reduced: View, Minimal: View>: View {
+    @ViewBuilder let full: () -> Full
+    @ViewBuilder let reduced: () -> Reduced
+    @ViewBuilder let minimal: () -> Minimal
+
+    @Environment(\.libraryDetailActionsAdapt) private var adaptsInColumn
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+    @State private var widths = LibraryDetailActionRowWidths()
+
+    var body: some View {
+        if adaptsInColumn || verticalBarEdge != nil {
+            chosenRow
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.available = $0 }
+                .background {
+                    ZStack {
+                        full()
+                            .fixedSize(horizontal: true, vertical: false)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.full = $0 }
+                        reduced()
+                            .fixedSize(horizontal: true, vertical: false)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { widths.reduced = $0 }
+                    }
+                    .hidden()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+        } else {
+            full()
+        }
+    }
+
+    @ViewBuilder
+    private var chosenRow: some View {
+        switch widths.step {
+        case .full: full()
+        case .reduced: reduced()
+        case .minimal: minimal()
+        }
+    }
+}
+
+/// 操作行这一栏有多宽、各排法不折行时要多宽，按此挑排法。还没量出来时先用原来的排法。
+struct LibraryDetailActionRowWidths: Equatable {
+    enum Step {
+        case full, reduced, minimal
+    }
+
+    var available: CGFloat?
+    var full: CGFloat?
+    var reduced: CGFloat?
+
+    var step: Step {
+        guard let available else { return .full }
+        // 半个点的余量：量出来的理想宽度与实际摆放的宽度会差一点浮点零头。
+        if let full, full <= available + 0.5 { return .full }
+        if let reduced, reduced <= available + 0.5 { return .reduced }
+        return full == nil || reduced == nil ? .full : .minimal
+    }
+}
+
+private struct LibraryDetailActionsAdaptKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// 详情页头部排在窄栏里（iPhone Duo 两栏的左栏）：操作行放不下整行文字时换更省地方的排法。
+    var libraryDetailActionsAdapt: Bool {
+        get { self[LibraryDetailActionsAdaptKey.self] }
+        set { self[LibraryDetailActionsAdaptKey.self] = newValue }
     }
 }
 

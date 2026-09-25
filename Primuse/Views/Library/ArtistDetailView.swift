@@ -233,9 +233,6 @@ struct ArtistDetailView: View {
         let identityLayout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
-        let actionLayout = dynamicTypeSize >= .xxLarge
-            ? AnyLayout(VStackLayout(spacing: 10))
-            : AnyLayout(HStackLayout(spacing: 10))
         let avatarSide = heightClass.value(88, compact: 64)
         let blockSpacing = heightClass.value(20, compact: 12)
         let heroTopPadding = heightClass.value(12, compact: 8)
@@ -272,23 +269,12 @@ struct ArtistDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            actionLayout {
-                LibraryDetailActionButton(
-                    title: "play",
-                    systemImage: "play.fill",
-                    emphasized: true,
-                    fillsWidth: true,
-                    disabled: playableSongs.isEmpty,
-                    action: playAll
-                )
-                LibraryDetailActionButton(
-                    title: "shuffle",
-                    systemImage: "shuffle",
-                    fillsWidth: true,
-                    disabled: playableSongs.count < 2,
-                    action: shuffleAll
-                )
-            }
+            LibraryDetailPlayShuffleRow(
+                playDisabled: playableSongs.isEmpty,
+                shuffleDisabled: playableSongs.count < 2,
+                play: playAll,
+                shuffle: shuffleAll
+            )
         }
         // 底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
         .padding(.leading, insets.leading + 20)

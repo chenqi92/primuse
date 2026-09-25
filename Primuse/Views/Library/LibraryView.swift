@@ -2470,21 +2470,14 @@ private struct GenreDetailView: View {
                 .foregroundStyle(.white.opacity(0.74))
             }
 
-            HStack(spacing: 10) {
-                LibraryDetailActionButton(
-                    title: "play",
-                    systemImage: "play.fill",
-                    emphasized: true,
-                    disabled: playableSongs.isEmpty,
-                    action: playAll
-                )
-                LibraryDetailActionButton(
-                    title: "shuffle",
-                    systemImage: "shuffle",
-                    disabled: playableSongs.count < 2,
-                    action: shuffleAll
-                )
-            }
+            LibraryDetailPlayShuffleRow(
+                fillsWidth: false,
+                stacksAtLargeType: false,
+                playDisabled: playableSongs.isEmpty,
+                shuffleDisabled: playableSongs.count < 2,
+                play: playAll,
+                shuffle: shuffleAll
+            )
 
             LibraryReviewSection(
                 subject: .genre(genre.id),

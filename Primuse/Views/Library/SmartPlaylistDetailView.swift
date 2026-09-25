@@ -247,7 +247,56 @@ struct SmartPlaylistDetailView: View {
         .padding(.horizontal, bandHorizontalPadding)
     }
 
+    /// 三颗等宽的带字按钮。窄栏里（iPhone Duo 两栏的左栏）放不下时先把随机与下载收成图标、
+    /// 再连「播放全部」也只留图标，文字不折行。
     private func legacyActionButtons(_ matched: [Song]) -> some View {
+        LibraryDetailAdaptiveActionRow {
+            legacyLabeledActionButtons(matched)
+        } reduced: {
+            legacyCompactActionButtons(matched, showsPlayTitle: true)
+        } minimal: {
+            legacyCompactActionButtons(matched, showsPlayTitle: false)
+        }
+    }
+
+    private func legacyCompactActionButtons(_ matched: [Song], showsPlayTitle: Bool) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                playAll()
+            } label: {
+                if showsPlayTitle {
+                    Label("play_all", systemImage: "play.fill")
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("play_all", systemImage: "play.fill")
+                        .labelStyle(.iconOnly)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(matched.isEmpty)
+
+            Button {
+                playAll(shuffled: true)
+            } label: {
+                Label("shuffle", systemImage: "shuffle")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.bordered)
+            .disabled(matched.isEmpty)
+
+            Button {
+                sourceManager.downloadForOffline(songs: matched)
+            } label: {
+                Label("offline_download", systemImage: "arrow.down.circle")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.bordered)
+            .disabled(matched.filteredPlayable().isEmpty)
+        }
+    }
+
+    private func legacyLabeledActionButtons(_ matched: [Song]) -> some View {
         HStack(spacing: 12) {
             Button {
                 playAll()

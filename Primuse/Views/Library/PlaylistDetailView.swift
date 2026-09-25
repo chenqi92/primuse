@@ -570,14 +570,33 @@ struct PlaylistDetailView: View {
     /// Action buttons ── 主按钮"播放全部"占大头, 旁边两个紧凑图标按钮。
     /// 三按钮等分时中文 label 在 iPhone 上挤换行 / 截断, 这套 Apple Music
     /// 风格的 1+2 布局更稳。
+    ///
+    /// 窄栏里（iPhone Duo 两栏的左栏）连「播放全部」都放不下时，主按钮只留图标，文字不折行。
     private var playlistActionButtons: some View {
+        LibraryDetailAdaptiveActionRow {
+            playlistActionButtonRow(showsPlayTitle: true)
+        } reduced: {
+            playlistActionButtonRow(showsPlayTitle: false)
+        } minimal: {
+            playlistActionButtonRow(showsPlayTitle: false)
+        }
+    }
+
+    private func playlistActionButtonRow(showsPlayTitle: Bool) -> some View {
         HStack(spacing: 10) {
             Button {
                 playAll()
             } label: {
-                Label("play_all", systemImage: "play.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
+                if showsPlayTitle {
+                    Label("play_all", systemImage: "play.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("play_all", systemImage: "play.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)

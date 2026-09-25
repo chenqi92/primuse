@@ -173,9 +173,6 @@ struct AlbumDetailView: View {
         let heroTopPadding: CGFloat = compact ? 18 : 52
         let heroBottomPadding: CGFloat = compact ? 16 : 26
         let blockSpacing: CGFloat = compact ? 14 : 18
-        let actionLayout = dynamicTypeSize >= .xxLarge
-            ? AnyLayout(VStackLayout(spacing: 10))
-            : AnyLayout(HStackLayout(spacing: 10))
 
         return VStack(alignment: stacksIdentity ? .center : .leading, spacing: blockSpacing) {
             if stacksIdentity {
@@ -191,23 +188,12 @@ struct AlbumDetailView: View {
                 }
             }
 
-            actionLayout {
-                LibraryDetailActionButton(
-                    title: "play",
-                    systemImage: "play.fill",
-                    emphasized: true,
-                    fillsWidth: true,
-                    disabled: songs.filteredPlayable().isEmpty,
-                    action: { playAll() }
-                )
-                LibraryDetailActionButton(
-                    title: "shuffle",
-                    systemImage: "shuffle",
-                    fillsWidth: true,
-                    disabled: songs.filteredPlayable().count < 2,
-                    action: shuffleAll
-                )
-            }
+            LibraryDetailPlayShuffleRow(
+                playDisabled: songs.filteredPlayable().isEmpty,
+                shuffleDisabled: songs.filteredPlayable().count < 2,
+                play: { playAll() },
+                shuffle: shuffleAll
+            )
 
             LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
         }
