@@ -4008,6 +4008,14 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
 
     @State private var indexScrollRequest: IOSSongIndexScrollRequest?
     @State private var scrollPosition = ScrollPosition(idType: Int.self)
+    /// 系统把工具栏竖排到右侧时(iPhone Duo 等),字母索引紧挨着那一列系统按钮:
+    /// 往里让一段,拖着索引快速定位时手指不会滑到返回、更多这些键上。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+
+    /// 字母索引离容器右缘多远;行尾给索引的让位跟着一起加。
+    private var sectionIndexTrailingInset: CGFloat {
+        verticalBarEdge == .trailing ? 10 : 2
+    }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.cache === rhs.cache
@@ -4025,7 +4033,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                         IOSSongListPositionSlot(
                             position: position,
                             isLast: position == cache.positionCount - 1,
-                            trailingPadding: showsSectionIndex ? 42 : 16,
+                            trailingPadding: showsSectionIndex ? 40 + sectionIndexTrailingInset : 16,
                             cache: cache,
                             locatedSongID: locatedSongID,
                             selection: selection,
@@ -4055,7 +4063,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
                     )
                 }
                 .frame(width: 112)
-                .padding(.trailing, 2)
+                .padding(.trailing, sectionIndexTrailingInset)
                 .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
             }
         }

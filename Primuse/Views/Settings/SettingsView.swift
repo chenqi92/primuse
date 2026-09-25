@@ -19,6 +19,8 @@ struct SettingsView: View {
     #if os(iOS)
     @AppStorage(AppNavigationMode.storageKey)
     private var navigationModeRawValue = AppNavigationMode.standard.rawValue
+    /// 系统把工具栏竖排到侧边时(iPhone Duo)为非 nil。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     #endif
 
     init(
@@ -34,6 +36,26 @@ struct SettingsView: View {
         AppNavigationMode.resolve(navigationModeRawValue) == .minimal
         #else
         false
+        #endif
+    }
+
+    /// 系统工具栏竖排到侧边时(iPhone Duo),搜索框固定在列表顶上。
+    ///
+    /// 工具栏里那颗收起的搜索键展开后是一条横着的输入框,竖栏放不下,只能浮在页面中间
+    /// 压住设置行(外接键盘、没有软键盘托着的时候最明显)。放回列表顶上,展开不压任何内容。
+    private var searchSitsAboveList: Bool {
+        #if os(iOS)
+        verticalBarEdge != nil
+        #else
+        false
+        #endif
+    }
+
+    private var searchPlacement: SearchFieldPlacement {
+        #if os(iOS)
+        searchSitsAboveList ? .navigationBarDrawer(displayMode: .always) : .toolbar
+        #else
+        .toolbar
         #endif
     }
 
@@ -55,7 +77,7 @@ struct SettingsView: View {
 
     var body: some View {
         #if os(iOS)
-        if #available(iOS 26.0, *), !usesMinimalSearch {
+        if #available(iOS 26.0, *), !usesMinimalSearch, !searchSitsAboveList {
             searchableNavigation.searchToolbarBehavior(.minimize)
         } else {
             searchableNavigation
@@ -105,7 +127,7 @@ struct SettingsView: View {
         } else {
             // Search belongs to this column; putting it on the stack hides it in iPad split view.
             settingsContent
-                .searchable(text: $search.query, isPresented: $search.isPresented, placement: .toolbar,
+                .searchable(text: $search.query, isPresented: $search.isPresented, placement: searchPlacement,
                             prompt: Text(SettingsStrings.text("Search settings")))
         }
     }
@@ -120,7 +142,7 @@ struct SettingsView: View {
             #if os(iOS)
             .minimalNavigationRoot()
             .toolbar {
-                if #available(iOS 26.0, *), !usesMinimalSearch {
+                if #available(iOS 26.0, *), !usesMinimalSearch, !searchSitsAboveList {
                     DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
                 }
             }
