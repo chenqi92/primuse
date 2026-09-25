@@ -2713,7 +2713,8 @@ struct LyricsEditorView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
-        .presentationDetents([.medium, .large])
+        // 半屏装不下时（手机横屏、iPhone SE、iPhone Duo 外屏）改停在装得下的高度。
+        .pmFitsContentInSheet()
         #endif
     }
 

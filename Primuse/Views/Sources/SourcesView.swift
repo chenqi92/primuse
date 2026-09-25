@@ -310,14 +310,6 @@ private struct MetadataFastReadingConfirmation: View {
     @Environment(\.pmHeightClass) private var heightClass
     let onConfirm: () -> Void
 
-    /// 两颗按钮竖排要 160pt，手机横屏的 .medium 下正文只剩三十来点。
-    /// 换排布方向用布局容器而不是换一棵子树，旋转时按钮的身份不变。
-    private var actionLayout: AnyLayout {
-        heightClass.isCompact
-            ? AnyLayout(HStackLayout(spacing: 12))
-            : AnyLayout(VStackLayout(spacing: 12))
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -338,36 +330,70 @@ private struct MetadataFastReadingConfirmation: View {
             .padding(24)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            actionLayout {
-                Button {
-                    dismiss()
-                    onConfirm()
-                } label: {
-                    Text(MetadataReadingText.string("fastWarningConfirm"))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .accessibilityIdentifier("sources.metadataBackfillFastConfirm")
-
-                Button(role: .cancel) { dismiss() } label: {
-                    Text(MetadataReadingText.string("cancel"))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .keyboardShortcut(.cancelAction)
-                .accessibilityIdentifier("sources.metadataBackfillFastCancel")
-            }
-            .controlSize(.large)
-            .padding(heightClass.value(24, compact: 16))
-            .background(.background)
+            MetadataFastReadingActions(onConfirm: {
+                dismiss()
+                onConfirm()
+            }, onCancel: { dismiss() })
         }
         #if os(iOS)
-        .presentationDetents([.medium, .large])
+        // 矮屏（iPhone SE、iPhone Duo 外屏）上半屏装不下时改停在装得下的高度；普通 iPhone 仍是半屏。
+        .pmSheetSymmetricMargins()
+        .pmFitsContentInSheet()
         .presentationDragIndicator(.visible)
         #else
         .frame(width: 440, height: 420)
         #endif
+    }
+}
+
+/// 「开启全速读取？」底部的两颗按钮。
+private struct MetadataFastReadingActions: View {
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    @Environment(\.pmHeightClass) private var heightClass
+    #if os(iOS)
+    @Environment(\.pmSheetContentOverflowed) private var contentOverflowed
+    #endif
+
+    /// 两颗按钮竖排要 160pt，手机横屏的 .medium 下正文只剩三十来点。半屏装不下的矮屏
+    /// （iPhone Duo 外屏这类又宽又矮的）也改成并排，省出一行给正文。
+    /// 换排布方向用布局容器而不是换一棵子树，旋转时按钮的身份不变。
+    private var actionLayout: AnyLayout {
+        heightClass.isCompact || prefersSideBySide
+            ? AnyLayout(HStackLayout(spacing: 12))
+            : AnyLayout(VStackLayout(spacing: 12))
+    }
+
+    private var prefersSideBySide: Bool {
+        #if os(iOS)
+        contentOverflowed
+        #else
+        false
+        #endif
+    }
+
+    var body: some View {
+        actionLayout {
+            Button(action: onConfirm) {
+                Text(MetadataReadingText.string("fastWarningConfirm"))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .accessibilityIdentifier("sources.metadataBackfillFastConfirm")
+
+            Button(role: .cancel, action: onCancel) {
+                Text(MetadataReadingText.string("cancel"))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .keyboardShortcut(.cancelAction)
+            .accessibilityIdentifier("sources.metadataBackfillFastCancel")
+        }
+        .controlSize(.large)
+        .padding(heightClass.value(24, compact: 16))
+        .background(.background)
     }
 }
 

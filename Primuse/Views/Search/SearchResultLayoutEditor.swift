@@ -132,8 +132,11 @@ struct SearchResultLayoutEditor: View {
                     Button("done") { dismiss() }
                 }
             }
+            // 矮屏（iPhone SE、iPhone Duo 外屏）上半屏只放得下五六行，页脚与「恢复默认」落在折下，
+            // 这时改停在装得下整张表的高度；普通 iPhone 仍是半屏。
+            .pmSheetSymmetricMargins()
+            .pmFitsContentInSheet()
         }
-        .presentationDetents([.medium, .large])
     }
     #endif
 
