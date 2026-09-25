@@ -1443,8 +1443,10 @@ struct PrimuseApp: App {
         #if DEBUG
         if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "immersiveStage" {
             ImmersiveStageEvidenceHost()
+                .modifier(DebugEvidenceOrientation())
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "libraryDetail" {
             LibraryDetailEvidenceHost()
+                .modifier(DebugEvidenceOrientation())
         } else {
             iosAppContent
         }
@@ -2268,11 +2270,26 @@ private struct IOSWindowAppearanceModifier: ViewModifier {
 }
 #endif
 
+#if DEBUG && os(iOS)
+/// 取证页也认 `PRIMUSE_ORIENTATION=landscape|portrait`：模拟器没有命令行转屏，由 App 自己请求。
+private struct DebugEvidenceOrientation: ViewModifier {
+    func body(content: Content) -> some View {
+        content.task {
+            guard let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
+                  orientation == "landscape" || orientation == "portrait" else { return }
+            try? await Task.sleep(for: .seconds(1))
+            InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
+        }
+    }
+}
+#endif
+
 #if DEBUG
 /// 调试构建的启动自动化，由环境变量驱动，给编译机上无人值守的实机检查用：
 /// - `PRIMUSE_OPEN_SETTINGS=<设置目录 id>`：启动后打开该设置项（Mac 打开设置窗口，iOS 推入对应页）。
 /// - `PRIMUSE_AUTOPLAY_SONG=<标题片段>`：曲库里出现标题包含该片段的歌后自动播放它。
-///   另给 `PRIMUSE_AUTOPLAY_PAUSE=1` 时开播后立刻暂停并回到开头，进度与播放键都定住，截图可逐像素对照。
+///   另给 `PRIMUSE_AUTOPLAY_PAUSE=1` 时开播后立刻暂停并回到开头，进度与播放键都定住，截图可逐像素对照；
+///   `PRIMUSE_AUTOPLAY_QUEUE=album` 时把整张专辑按曲序排成队列、从这首开始放（看「接下来播放」用）。
 /// - `PRIMUSE_SWITCH_SKIN=<皮肤 id>`（iOS）：启动 8 秒后换到这套皮肤，看换外壳时人是否仍停在外观设置里。
 private struct DebugLaunchAutomation: ViewModifier {
     func body(content: Content) -> some View {
@@ -2305,7 +2322,14 @@ private struct DebugLaunchAutomation: ViewModifier {
                     guard let song = songs.first(where: { $0.title.lowercased().contains(needle) }) else { continue }
                     plog("🧪 DebugLaunchAutomation: autoplay '\(song.title)'")
                     let player = AppServices.shared.playerService
-                    await player.play(song: song)
+                    if env["PRIMUSE_AUTOPLAY_QUEUE"] == "album", let albumTitle = song.albumTitle {
+                        let album = songs
+                            .filter { $0.albumTitle == albumTitle }
+                            .sorted { ($0.trackNumber ?? 0, $0.title) < ($1.trackNumber ?? 0, $1.title) }
+                        await player.play(queue: album, startingAt: album.firstIndex { $0.id == song.id } ?? 0)
+                    } else {
+                        await player.play(song: song)
+                    }
                     if env["PRIMUSE_AUTOPLAY_PAUSE"] == "1" {
                         var waits = 0
                         while !player.isPlaybackActive, waits < 40 {
@@ -2557,6 +2581,7 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
         case "karaoke":
             KaraokeStageView()
                 .environment(services.playerService)
+                .environment(services.themeService)
         case "batchEdit":
             BatchTagEditorView(songs: item.songs)
         case "tidy":

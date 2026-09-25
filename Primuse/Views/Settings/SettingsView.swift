@@ -116,6 +116,7 @@ struct SettingsView: View {
             #else
             .toolbarTitleDisplayMode(.inlineLarge)
             #endif
+            .pmVerticalBarTitleEdge()
             #if os(iOS)
             .minimalNavigationRoot()
             .toolbar {

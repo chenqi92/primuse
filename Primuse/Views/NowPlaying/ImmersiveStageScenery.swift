@@ -90,15 +90,20 @@ struct ImmersiveStageMetrics {
     let size: CGSize
     let safeArea: EdgeInsets
     let scale: CGFloat
+    /// 手持的大画布:iPhone 上短边也有五六百点的视口(iPhone Duo 展开的内屏)。
+    /// 它照手机的构图与比例放大,不按电视那套 1920×1080 缩小;顶部内容另外让开全屏页的圆钮排。
+    let isHandheldCanvas: Bool
 
-    init(size: CGSize, safeArea: EdgeInsets = EdgeInsets(), prefersWide: Bool = false) {
+    /// - Parameter isHandheld: 这是不是 iPhone 上的全屏页。iPad、Mac、电视恒为 false。
+    init(size: CGSize, safeArea: EdgeInsets = EdgeInsets(), prefersWide: Bool = false, isHandheld: Bool = false) {
         self.size = size
         self.safeArea = safeArea
 
         let isLandscape = size.width > size.height
         // 大画布判定看短边:iPhone 横屏短边不到 500pt,iPad / Mac / TV 都远超。
         let shortSide = min(size.width, size.height)
-        if prefersWide || shortSide >= 500 {
+        isHandheldCanvas = isHandheld && !prefersWide && shortSide >= 500
+        if prefersWide || (shortSide >= 500 && !isHandheldCanvas) {
             layout = .wide
         } else {
             layout = isLandscape ? .phoneLandscape : .phonePortrait
@@ -109,7 +114,11 @@ struct ImmersiveStageMetrics {
             // 1920×1080 基准。宽高同时约束,窗口变矮时字号跟着收,不会顶出画面。
             scale = min(max(min(size.width / 1920, size.height / 1080), 0.42), 1.35)
         case .phoneLandscape:
-            scale = min(max(size.width / 852, 0.78), 1.25)
+            // 手机横屏按宽度取值;iPhone Duo 内屏横握(约 890~951 × 626~669)照同一套构图按宽度放大,
+            // 宽高同时约束只是兜底,那块屏比手机横屏高得多,实际仍是宽度说了算。
+            scale = isHandheldCanvas
+                ? min(max(min(size.width / 852, size.height / 393), 0.78), 1.25)
+                : min(max(size.width / 852, 0.78), 1.25)
         case .phonePortrait:
             // 竖屏同样受高度约束。699 = 393 × 667 / 375,即 iPhone SE 按宽度缩放时
             // 每个设计单位分到的高度;现有 iPhone 都比它瘦长,照旧按宽度取值。
@@ -123,8 +132,9 @@ struct ImmersiveStageMetrics {
     var isPortrait: Bool { layout == .phonePortrait }
 
     /// 各效果共用的舞台内容上沿。全屏页也按它判断内容会不会落进遮挡区那段高度。
+    /// 手持的大画布上至少让开全屏页的圆钮排(`handheldChromeClearance`),手机上为 0,取值不变。
     func stageContentTopInset(isTV: Bool) -> CGFloat {
-        switch layout {
+        let base: CGFloat = switch layout {
         case .phonePortrait:
             max(safeArea.top, s(54)) + stageContentTopExtra(isTV: isTV)
         case .phoneLandscape:
@@ -132,6 +142,7 @@ struct ImmersiveStageMetrics {
         case .wide:
             max(safeArea.top, s(isTV ? 76 : 48)) + stageContentTopExtra(isTV: isTV)
         }
+        return max(base, handheldChromeClearance)
     }
 
     /// 上沿里安全区(或保底值)之外再多留的那一段。
@@ -141,6 +152,14 @@ struct ImmersiveStageMetrics {
         case .phoneLandscape: s(18)
         case .wide: 0
         }
+    }
+
+    /// 全屏页顶部那排 44pt 圆钮(收起、效果、队列)的下沿再留一点。手机上舞台内容照旧按原来的上沿排,
+    /// 手持的大画布上舞台内容的上沿至少落在这里,左上角的歌名 / 小封面不会被收起键压住。
+    var handheldChromeClearance: CGFloat {
+        guard isHandheldCanvas else { return 0 }
+        let chromeTop: CGFloat = isPortrait ? max(safeArea.top + 10, s(55)) : max(safeArea.top + 10, 18)
+        return chromeTop + 44 + s(14)
     }
 
     /// 设计稿像素 → 当前视口点数(取整,用于间距与字号)
@@ -481,10 +500,12 @@ enum ImmersiveDemoStage {
 #if DEBUG && os(iOS)
 /// 调试构建的舞台取证页，`PRIMUSE_VISUAL_EVIDENCE=immersiveStage` 启动时替换根视图。
 /// `PRIMUSE_EVIDENCE_EFFECT`（rawValue，逗号分隔，默认 radialPulse）指定效果，
-/// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认全部）指定视口；
+/// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认这三种；另有 iPhone Duo 内屏的
+/// innerLandscape 951×669 / innerLandscapeSmall 890×626 / innerPortrait 669×951）指定视口；
 /// `PRIMUSE_EVIDENCE_RESTING`（lyric / title）按休憩态渲染：舞台文字淡出、压暗，叠上带歌词或只有歌名的休憩层。
 /// 每个视口按真实尺寸、安全区与控件占位渲染一帧静态舞台，缩放到屏宽后纵向排开，
-/// 直接用模拟器截图就能看到三种排版。
+/// 直接用模拟器截图就能看到三种排版。手机上的各帧另外按全屏播放的真实位置叠上顶部圆钮与底部控件胶囊
+/// （半透明占位），看舞台文字会不会被它们压住。
 struct ImmersiveStageEvidenceHost: View {
     private enum RestingVariant: String {
         case lyric, title
@@ -498,6 +519,10 @@ struct ImmersiveStageEvidenceHost: View {
         let prefersWide: Bool
         /// 设计稿单位的控件占位，与 `ImmersivePlayerView.controlsInset` 的 showcase 取值一致。
         let controlsInsetDesignValue: CGFloat
+        /// 叠上 iOS 全屏播放的控件占位（宽画布那一帧代表 Mac / 电视，不叠）。
+        var showsIOSChrome = true
+        /// 按 iPhone 上的全屏页算度量（iPhone Duo 内屏那几帧）。
+        var isHandheld = false
 
         var id: String { "\(effect.rawValue)-\(layout)" }
     }
@@ -536,7 +561,22 @@ struct ImmersiveStageEvidenceHost: View {
                         effect: effect, layout: layout,
                         size: CGSize(width: 960, height: 540),
                         safeArea: EdgeInsets(),
-                        prefersWide: true, controlsInsetDesignValue: 112
+                        prefersWide: true, controlsInsetDesignValue: 112,
+                        showsIOSChrome: false
+                    ))
+                case "innerLandscape", "innerLandscapeSmall", "innerPortrait":
+                    // iPhone Duo 内屏：状态栏收起，全屏页自己量到的左右安全区是 0，底部留 home 指示条。
+                    let size = switch layout {
+                    case "innerLandscape": CGSize(width: 951, height: 669)
+                    case "innerLandscapeSmall": CGSize(width: 890, height: 626)
+                    default: CGSize(width: 669, height: 951)
+                    }
+                    frames.append(Frame(
+                        effect: effect, layout: layout,
+                        size: size,
+                        safeArea: EdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 0),
+                        prefersWide: false, controlsInsetDesignValue: 0,
+                        isHandheld: true
                     ))
                 default:
                     continue
@@ -554,8 +594,12 @@ struct ImmersiveStageEvidenceHost: View {
                         let metrics = ImmersiveStageMetrics(
                             size: frame.size,
                             safeArea: frame.safeArea,
-                            prefersWide: frame.prefersWide
+                            prefersWide: frame.prefersWide,
+                            isHandheld: frame.isHandheld
                         )
+                        let controlsInset = metrics.s(frame.controlsInsetDesignValue > 0
+                            ? frame.controlsInsetDesignValue
+                            : Self.showcaseControlsInsetDesignValue(metrics.layout))
                         let scale = geometry.size.width / frame.size.width
                         Text(verbatim: "\(frame.effect.rawValue) · \(frame.layout) · \(Int(frame.size.width))×\(Int(frame.size.height))\(resting.map { " · resting:\($0.rawValue)" } ?? "")")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -569,9 +613,12 @@ struct ImmersiveStageEvidenceHost: View {
                                 levels: ImmersiveDemoStage.baseLevels,
                                 elapsed: 108,
                                 animates: false,
-                                controlsInset: metrics.s(frame.controlsInsetDesignValue),
+                                controlsInset: controlsInset,
                                 isResting: resting != nil
                             )
+                            if frame.showsIOSChrome, resting == nil {
+                                ImmersiveEvidenceChromeOverlay(effect: frame.effect, metrics: metrics)
+                            }
                             if let resting {
                                 Color.black.opacity(0.60)
                                 ImmersiveAmbientRestOverlay(
@@ -594,6 +641,63 @@ struct ImmersiveStageEvidenceHost: View {
             .background(Color.black.ignoresSafeArea())
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// 与 `ImmersivePlayerView.controlsInset` 的 showcase 取值一致。
+    private static func showcaseControlsInsetDesignValue(_ layout: ImmersiveStageLayout) -> CGFloat {
+        switch layout {
+        case .wide: 112
+        case .phoneLandscape: 76
+        case .phonePortrait: 106
+        }
+    }
+}
+
+/// iOS 全屏播放的控件占位：左上收起键、右上效果与队列两个圆钮（44pt），底部上一首 / 播放 / 下一首的胶囊。
+/// 位置照 `ImmersivePlayerView.chrome` 的排法算，半透明画出来，只用来看舞台文字会不会被压住。
+private struct ImmersiveEvidenceChromeOverlay: View {
+    let effect: FullscreenPlayerEffect
+    let metrics: ImmersiveStageMetrics
+
+    var body: some View {
+        let safe = metrics.safeArea
+        let topInset = ImmersivePlayerView.topChromeInset(metrics)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                dot(44)
+                Spacer()
+                dot(44)
+                dot(44)
+            }
+            .padding(.leading, max(safe.leading + 16, 20))
+            .padding(.trailing, max(safe.trailing + 16, 20))
+            .padding(.top, topInset)
+            Spacer()
+            HStack(spacing: metrics.s(18)) {
+                dot(38)
+                dot(48)
+                dot(38)
+            }
+            .padding(.horizontal, metrics.s(18))
+            .padding(.vertical, metrics.s(8))
+            .background(Capsule().fill(.white.opacity(0.16)))
+            .overlay(Capsule().strokeBorder(.white.opacity(0.5), lineWidth: 1))
+            .frame(
+                maxWidth: .infinity,
+                alignment: ImmersivePlayerView.showcaseControlAlignment(effect: effect, metrics: metrics)
+            )
+            .padding(.leading, safe.leading + 20)
+            .padding(.trailing, safe.trailing + 20)
+            .padding(.bottom, max(safe.bottom + 10, 18))
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func dot(_ diameter: CGFloat) -> some View {
+        Circle()
+            .fill(.white.opacity(0.22))
+            .overlay(Circle().strokeBorder(.white.opacity(0.6), lineWidth: 1))
+            .frame(width: diameter, height: diameter)
     }
 }
 #endif

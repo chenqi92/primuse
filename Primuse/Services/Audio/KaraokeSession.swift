@@ -113,7 +113,13 @@ final class KaraokeSession {
     /// 1 keeps the original vocal, 0 removes it.
     var vocalLevel: Double {
         didSet {
-            vocalLevel = min(1, max(0, vocalLevel))
+            // @Observable 把 didSet 挪到底层存储上，这里回写走的是带观察的 setter，
+            // 会再进一次 didSet；不比较就回写会无限递归把栈撑爆。
+            let clamped = vocalLevel.isFinite ? min(1, max(0, vocalLevel)) : Self.defaultVocalLevel
+            guard clamped == vocalLevel else {
+                vocalLevel = clamped
+                return
+            }
             defaults.set(vocalLevel, forKey: Self.vocalLevelKey)
             applyRenderSettings()
         }
@@ -121,7 +127,11 @@ final class KaraokeSession {
 
     var keyShift = 0 {
         didSet {
-            keyShift = KaraokeKeyShiftPolicy.clamped(keyShift)
+            let clamped = KaraokeKeyShiftPolicy.clamped(keyShift)
+            guard clamped == keyShift else {
+                keyShift = clamped
+                return
+            }
             applyRenderSettings()
         }
     }

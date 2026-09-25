@@ -19,8 +19,11 @@ enum InterfaceOrientationLock {
 
     static func enterPortrait() {
         // 平板与折叠屏内屏本来就装得下这类页面，不去强转；也只有手机会接受朝向请求。
+        // 折叠屏内屏的 idiom 仍是手机，但系统不接受它的朝向请求（被拒时的回调在后台队列上），
+        // 按宽高都是常规尺寸把它认出来。
         guard UIDevice.current.userInterfaceIdiom == .phone,
-              let scene = foregroundWindowScene else { return }
+              let scene = foregroundWindowScene,
+              !isRegularCanvas(scene) else { return }
 
         // 只在第一次进入时记录。页面重新出现（例如分享面板收起）时再记一次，
         // 记下的就成了已经被自己转成的竖屏，原来的朝向会丢。
@@ -36,8 +39,15 @@ enum InterfaceOrientationLock {
         // 下次进页面会把它当成「进来之前的朝向」还原，反而转到一个用户没要过的方向。
         self.restoreMask = nil
         guard UIDevice.current.userInterfaceIdiom == .phone,
-              let scene = foregroundWindowScene else { return }
+              let scene = foregroundWindowScene,
+              !isRegularCanvas(scene) else { return }
         request(restoreMask, in: scene)
+    }
+
+    /// 宽高都是常规尺寸：iPhone Duo 展开的内屏。Plus / Pro Max 横屏是常规宽度、紧凑高度，照旧请求。
+    private static func isRegularCanvas(_ scene: UIWindowScene) -> Bool {
+        let traits = scene.traitCollection
+        return traits.horizontalSizeClass == .regular && traits.verticalSizeClass == .regular
     }
 
     #if DEBUG

@@ -834,9 +834,9 @@ extension AudioPlayerService {
             invalidateInterruptionResumePreservingIntent()
             return await AppServices.shared.appleMusic.skipToNextAppleMusic()
         }
-        guard !queue.isEmpty else { return false }
+        guard !queueEntries.isEmpty else { return false }
         let callerFile = (caller as NSString).lastPathComponent
-        plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queue.count)")
+        plog("⏭️ next() called FROM=\(callerFile):\(callerLine) currentIndex=\(currentIndex) queueCount=\(queueEntries.count)")
         // Track end and failure recovery arrive here with the default context
         // too, so a real press is told apart by `isAutomaticAdvance`: by then
         // the outgoing node has nothing left to blend out of.
@@ -857,7 +857,7 @@ extension AudioPlayerService {
             applyQueueTraversalTarget(pendingTarget)
             countedPendingSkip = true
         }
-        if queue.count == 1, shuffleEnabled, repeatMode == .off {
+        if queueEntries.count == 1, shuffleEnabled, repeatMode == .off {
             _ = extendExhaustedShuffleFromLibrary()
         }
         // A manual next skips past repeat-one when there is another queue
@@ -881,14 +881,14 @@ extension AudioPlayerService {
             }
         }
         guard ManualQueueAdvancePolicy.shouldAdvance(
-            queueCount: queue.count,
+            queueCount: queueEntries.count,
             repeatMode: repeatMode,
             shuffleEnabled: shuffleEnabled,
             hasSuccessor: successor != nil
         ), let successor else {
-            if countedPendingSkip, queue.indices.contains(currentIndex) {
+            if countedPendingSkip, queueEntries.indices.contains(currentIndex) {
                 // The counted skip already moved the queue position.
-                await play(song: queue[currentIndex])
+                await play(song: queueEntries[currentIndex].song)
                 return true
             }
             plog("⏭️ next: no enabled successor; keeping current playback")
@@ -899,21 +899,21 @@ extension AudioPlayerService {
         // (mp3 + flac, 不同目录) scan 后是不同 song.id, 但用户看就是同一首,
         // 自动 next 跳到 "下一首是自己" 体验很怪。最多跳 1 次, 防止整个
         // queue 全是同一首时死循环。
-        let candidate = queue[currentIndex]
+        let candidate = queueEntries[currentIndex].song
         if skipsAdjacentDuplicate(candidate, context: context) {
             plog("⏭️ next: skipping duplicate '\(candidate.title)' (same title+artist as current)")
             if let following = manualNextTraversalTarget() {
                 applyQueueTraversalTarget(following)
             }
         }
-        await play(song: queue[currentIndex])
+        await play(song: queueEntries[currentIndex].song)
         return true
     }
 
     private func skipsAdjacentDuplicate(_ candidate: Song, context: QueueAdvanceContext) -> Bool {
         guard let cur = currentSong else { return false }
         return QueueAdjacentDuplicatePolicy.shouldSkipCandidate(
-            queueCount: queue.count,
+            queueCount: queueEntries.count,
             currentTitle: cur.title,
             currentArtist: cur.artistName,
             candidateTitle: candidate.title,
@@ -942,7 +942,7 @@ extension AudioPlayerService {
                 return await AppServices.shared.appleMusic.skipToPreviousAppleMusic()
             }
         }
-        guard !queue.isEmpty else { return false }
+        guard !queueEntries.isEmpty else { return false }
         if currentTime > 3 {
             seek(to: 0)
             return true
@@ -960,7 +960,7 @@ extension AudioPlayerService {
             break
         }
         applyQueueTraversalTarget(predecessor)
-        await play(song: queue[currentIndex])
+        await play(song: queueEntries[currentIndex].song)
         return true
     }
 
@@ -1800,7 +1800,7 @@ extension AudioPlayerService {
             return
         }
         // 连不上的源里的歌, 别的源有同一首就先换过去, 剩下的才走下面的跳过逻辑。
-        let songs = substitutingReachableCopies(in: songs)
+        let songs = substitutingReachableCopies(in: songs, startingAt: index)
         var selectedIndex = max(0, min(index, songs.count - 1))
         var skippedSourceID: String?
         // The requested start cannot play on this network. Begin at the first
@@ -2345,6 +2345,22 @@ extension AudioPlayerService {
             nextRoundIndices: nextRoundIndices
         )
         return presentationEntries(for: occurrences)
+    }
+
+    /// 本轮待播里前 `limit` 首满足 `include` 的歌。只想知道「后面还有没有」的
+    /// 地方用它, 别展开 `upcomingQueueEntries` —— 整库队列时那是几万个条目。
+    func firstCurrentRoundUpcomingSongs(
+        limit: Int,
+        where include: (Song) -> Bool = { _ in true }
+    ) -> [Song] {
+        QueuePresentationPolicy.firstCurrentRoundUpcomingIndices(
+            queueCount: queueEntries.count,
+            currentIndex: currentIndex,
+            shuffledIndices: usesManagedShuffleOrder ? shuffledIndices : nil,
+            shufflePosition: shuffleAnchorPosition ?? shufflePosition,
+            limit: limit,
+            where: { include(queueEntries[$0].song) }
+        ).map { queueEntries[$0].song }
     }
 
     var usesManagedShuffleOrder: Bool {

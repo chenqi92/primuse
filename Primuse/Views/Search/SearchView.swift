@@ -1136,6 +1136,7 @@ struct SearchView: View {
         #else
         .toolbarTitleDisplayMode(.inlineLarge)
         #endif
+        .pmVerticalBarTitleEdge()
         #if os(iOS)
         .minimalNavigationRoot()
         .toolbar {
@@ -1158,6 +1159,14 @@ struct SearchView: View {
             requestsResultLayoutEditor = false
             showsResultLayoutEditor = true
         }
+        #if DEBUG
+        .task {
+            // 取证用：`PRIMUSE_DEBUG_SHEET=searchLayout` 打开搜索页后直接弹出「调整搜索结果」。
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SHEET"] == "searchLayout" else { return }
+            try? await Task.sleep(for: .seconds(2))
+            showsResultLayoutEditor = true
+        }
+        #endif
         #endif
         .navigationDestination(for: PrimuseKit.Album.self) {
             AlbumDetailView(album: $0)

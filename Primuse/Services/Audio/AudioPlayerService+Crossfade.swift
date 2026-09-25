@@ -53,8 +53,8 @@ extension AudioPlayerService {
     /// past repeat-one and wraps a multi-song queue even with repeat off.
     func manualNextTraversalTarget() -> QueueTraversalTarget? {
         nextQueueTraversalTarget(
-            respectsRepeatOne: queue.count == 1,
-            wrapsAtEnd: queue.count > 1 || repeatMode == .all
+            respectsRepeatOne: queueEntries.count == 1,
+            wrapsAtEnd: queueEntries.count > 1 || repeatMode == .all
         )
     }
 
@@ -364,6 +364,11 @@ extension AudioPlayerService {
         let requestedOverlap = isMedleyActive
             ? MedleySegmentPolicy.overlap(segmentLength: nominalDuration)
             : settings.crossfadeDuration
+        // A slice starts mid-file; open and seek the next one ahead of time and
+        // hold its opening until the blend is due.
+        let preparationLead = isMedleySlice
+            ? MedleySegmentPolicy.preparationLead(segmentLength: nominalDuration)
+            : 0
         let sourceTimelineOffset = smartMixAnalysis?.backend == .musicUnderstanding
             ? (currentSong?.cueStartTime ?? 0)
             : 0
@@ -374,7 +379,7 @@ extension AudioPlayerService {
             analysis: smartMixAnalysis,
             analysisTimelineOffset: sourceTimelineOffset
                 + (silenceProfile?.leadingTrimmedDuration ?? 0)
-        ), currentTime >= transitionPlan.triggerTime else { return }
+        ), currentTime >= transitionPlan.triggerTime - preparationLead else { return }
         // "Stop after this song" owns the upcoming boundary. Let the normal
         // end callback stop playback instead of committing the next queue item.
         if let lockedID = sleepStopAfterSongID, currentSong?.id == lockedID {
@@ -392,12 +397,18 @@ extension AudioPlayerService {
         guard nextSong.id != currentSong?.id else { return }
         guard shouldBypassContinuousAudioTransition(for: nextSong) == false else { return }
         guard crossfadeSuitsSpaces(into: nextSong) else { return }
+        if let failed = lastFailedAutomaticCrossfade,
+           failed.playID == sourcePlayID, failed.entryID == nextEntry.id,
+           ProcessInfo.processInfo.systemUptime - failed.uptime < 2 {
+            return
+        }
 
         let attemptID = UUID()
         let sourceQueueGeneration = queueGeneration
+        let fadeStartTime = max(currentTime, transitionPlan.triggerTime)
         let effectiveDuration = SmartTransitionPolicy.effectiveOverlap(
             requestedOverlap: transitionPlan.overlapDuration,
-            currentTime: currentTime,
+            currentTime: fadeStartTime,
             playableEndpoint: transitionPlan.playableEndpoint
         )
         guard effectiveDuration > 0 else { return }
@@ -420,8 +431,20 @@ extension AudioPlayerService {
                 attemptID: attemptID,
                 sourcePlayID: sourcePlayID,
                 queueGeneration: sourceQueueGeneration,
-                nextEntryID: nextEntry.id
+                nextEntryID: nextEntry.id,
+                // A slow medley slice is given up on while the current one still
+                // plays and retried a couple of seconds later, by which time its
+                // prefetch may have brought it onto this device.
+                preparationTimeout: isMedleySlice
+                    ? max(3, fadeStartTime - currentTime + effectiveDuration / 2)
+                    : TimeInterval(AudioPlayerService.firstBufferTimeoutSeconds),
+                notBefore: fadeStartTime > currentTime ? fadeStartTime : nil
             )
+            if lastFailedCrossfadeAttemptID == attemptID {
+                lastFailedAutomaticCrossfade = (
+                    sourcePlayID, nextEntry.id, ProcessInfo.processInfo.systemUptime
+                )
+            }
             // 过期退出(暂停、别的播放请求、后继歌曲变了)不会走 failCrossfadeAttempt,
             // 这一尝试的标记就留在了原地。没人会再清它: `crossfadeTriggered` 挡住
             // 本首后面的重试, `isCrossfading` 会同时关掉曲末看门狗与每拍的
@@ -441,8 +464,27 @@ extension AudioPlayerService {
         queueGeneration sourceQueueGeneration: Int,
         nextEntryID: UUID,
         successorRule: CrossfadeSuccessorRule = .automatic,
-        preparationTimeout: TimeInterval = TimeInterval(AudioPlayerService.firstBufferTimeoutSeconds)
+        preparationTimeout: TimeInterval = TimeInterval(AudioPlayerService.firstBufferTimeoutSeconds),
+        notBefore fadeStartTime: TimeInterval? = nil
     ) async {
+        // In a medley a next slice that fails to open (an error, not merely a
+        // slow start) is dropped here while the current slice still plays, and
+        // the one after it is prepared on the next tick; otherwise the medley
+        // would stall on it at the boundary and then report the failure.
+        func failAndSkipMedleySlice() {
+            failCrossfadeAttempt(attemptID)
+            guard successorRule == .automatic, isMedleyActive,
+                  playID == sourcePlayID,
+                  queueEntries.indices.contains(currentIndex),
+                  queueEntries[currentIndex].id != nextEntryID else { return }
+            if removeUpcomingQueueEntry(QueueReorderOccurrenceID(
+                queueEntryID: nextEntryID,
+                roundOffset: 0
+            )) {
+                plog("🎛️ Medley: skipped a slice that could not be prepared")
+            }
+        }
+
         guard isCurrentCrossfadeAttempt(
             attemptID,
             sourcePlayID: sourcePlayID,
@@ -529,7 +571,7 @@ extension AudioPlayerService {
                 outputFormat: outputFormat,
                 sourceStreamEpoch: sourceStreamEpoch
             ) else {
-                failCrossfadeAttempt(attemptID)
+                failAndSkipMedleySlice()
                 return
             }
             let iteratorBox = BufferIteratorBox(stream.makeAsyncIterator())
@@ -600,6 +642,19 @@ extension AudioPlayerService {
                 nextEntryID: nextEntryID,
                 successorRule: successorRule
             ) else { return }
+            // A medley slice prepared ahead waits here, decoded, for its blend.
+            if let fadeStartTime {
+                while interpolatedTime() < fadeStartTime {
+                    try await Task.sleep(for: .milliseconds(50))
+                    guard isCurrentCrossfadeAttempt(
+                        attemptID,
+                        sourcePlayID: sourcePlayID,
+                        queueGeneration: sourceQueueGeneration,
+                        nextEntryID: nextEntryID,
+                        successorRule: successorRule
+                    ) else { return }
+                }
+            }
             // Settings and the sleep lock can change while remote resolution
             // or prefetch is in flight. Revalidate at the commit boundary.
             guard shouldUseCrossfade(playbackSettings.snapshot()),
@@ -747,7 +802,12 @@ extension AudioPlayerService {
         } catch {
             guard crossfadeAttemptID == attemptID else { return }
             plog("Crossfade start error: \(error)")
-            failCrossfadeAttempt(attemptID)
+            if Task.isCancelled || error is CancellationError
+                || (error as? URLError)?.code == .cancelled {
+                failCrossfadeAttempt(attemptID)
+            } else {
+                failAndSkipMedleySlice()
+            }
         }
     }
 

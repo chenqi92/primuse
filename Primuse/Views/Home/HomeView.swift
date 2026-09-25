@@ -762,6 +762,8 @@ struct HomeView: View {
             observedHomeContent
             .navigationTitle("home_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            // iPhone Duo 竖栏时标题带很薄，滚上去的卡片不能和「首页」叠字。
+            .pmVerticalBarTitleEdge()
             #if os(iOS)
             .minimalNavigationRoot()
             #endif

@@ -5339,11 +5339,24 @@ public enum NowPlayingPlayerLayoutPolicy {
     /// width class alone sends them into the iPad two-column composition that
     /// is laid out for a full-height canvas. The height class is what actually
     /// separates a phone in landscape from a tablet.
+    ///
+    /// iPhone Duo 展开的内屏也是常规宽度、常规高度，但它仍是手持的 iPhone：iPad 那套两栏
+    /// 按一千多点的高度标定，放到六百多点的内屏上会压扁、互相重叠。iPhone 上一律走手机的横屏骨架。
     public static func prefersWideColumns(
         isRegularWidth: Bool,
-        isCompactHeight: Bool
+        isCompactHeight: Bool,
+        isPhone: Bool = false
     ) -> Bool {
-        isRegularWidth && !isCompactHeight
+        isRegularWidth && !isCompactHeight && !isPhone
+    }
+
+    /// 横屏时封面、歌词、全屏歌词共用同一副骨架（顶部圆钮排、左栏、右栏进度与传输键），
+    /// 三种模式之间切换时控件原地不动。MV 横屏另有整屏的版式。
+    public static func usesLandscapeSkeleton(
+        layoutMode: NowPlayingPlayerLayoutMode,
+        landscapeMode: NowPlayingLandscapeMode
+    ) -> Bool {
+        layoutMode == .compactLandscape && landscapeMode != .musicVideo
     }
 
     public static func mode(
@@ -5953,6 +5966,43 @@ public enum QueuePresentationPolicy {
         let played = Array(shuffledIndices.prefix(currentPosition))
             .filter { $0 != currentIndex }
         return occurrences(in: played, queueCount: queueCount, roundOffset: 0)
+    }
+
+    /// 本轮待播里前 `limit` 个满足 `include` 的队列下标，顺序与
+    /// `upcomingOccurrences` 的 roundOffset == 0 部分一致，但边走边判断、够数就停。
+    /// 播放页菜单和每几秒一次的智能提示只想知道「还有没有」，整库队列时展开
+    /// 整轮会在主线程上花掉几百毫秒。
+    public static func firstCurrentRoundUpcomingIndices(
+        queueCount: Int,
+        currentIndex: Int,
+        shuffledIndices: [Int]?,
+        shufflePosition: Int,
+        limit: Int,
+        where include: (Int) -> Bool = { _ in true }
+    ) -> [Int] {
+        guard queueCount > 0, limit > 0 else { return [] }
+        var result: [Int] = []
+        guard let shuffledIndices, !shuffledIndices.isEmpty else {
+            let start = min(max(currentIndex + 1, 0), queueCount)
+            for index in start..<queueCount where include(index) {
+                result.append(index)
+                if result.count == limit { break }
+            }
+            return result
+        }
+
+        let currentPosition = min(max(shufflePosition, 0), shuffledIndices.count - 1)
+        var excluded: Set<Int>?
+        var seen = Set<Int>()
+        for index in shuffledIndices.dropFirst(currentPosition + 1) {
+            guard index != currentIndex, (0..<queueCount).contains(index) else { continue }
+            let consumed = excluded ?? Set(shuffledIndices.prefix(currentPosition + 1))
+            excluded = consumed
+            guard !consumed.contains(index), seen.insert(index).inserted, include(index) else { continue }
+            result.append(index)
+            if result.count == limit { break }
+        }
+        return result
     }
 
     public static func upcomingOccurrences(

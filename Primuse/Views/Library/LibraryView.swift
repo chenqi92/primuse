@@ -503,6 +503,7 @@ struct LibraryView: View {
             rootContent
             .navigationTitle(rootSection?.title ?? "library_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            .pmVerticalBarTitleEdge()
             #if os(iOS)
             .minimalNavigationRoot()
             #endif
@@ -2474,6 +2475,17 @@ struct GenreArtworkMosaic: View {
     }
 }
 
+#if DEBUG && os(iOS)
+/// 调试取证页（`LibraryDetailEvidenceHost`）用：流派详情页本身是这个文件私有的。
+struct DebugGenreDetailEvidencePage: View {
+    let genre: LibraryGenre
+
+    var body: some View {
+        GenreDetailView(genre: genre)
+    }
+}
+#endif
+
 private struct GenreDetailView: View {
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
@@ -2630,21 +2642,14 @@ private struct GenreDetailView: View {
                 .foregroundStyle(.white.opacity(0.74))
             }
 
-            HStack(spacing: 10) {
-                LibraryDetailActionButton(
-                    title: "play",
-                    systemImage: "play.fill",
-                    emphasized: true,
-                    disabled: playableSongs.isEmpty,
-                    action: playAll
-                )
-                LibraryDetailActionButton(
-                    title: "shuffle",
-                    systemImage: "shuffle",
-                    disabled: playableSongs.count < 2,
-                    action: shuffleAll
-                )
-            }
+            LibraryDetailPlayShuffleRow(
+                fillsWidth: false,
+                stacksAtLargeType: false,
+                playDisabled: playableSongs.isEmpty,
+                shuffleDisabled: playableSongs.count < 2,
+                play: playAll,
+                shuffle: shuffleAll
+            )
 
             LibraryReviewSection(
                 subject: .genre(genre.id),

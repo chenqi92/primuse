@@ -25,7 +25,13 @@ final class TVKaraokeSession {
     /// preference of the same name.
     var vocalLevel: Double {
         didSet {
-            vocalLevel = min(1, max(0, vocalLevel))
+            // @Observable 把 didSet 挪到底层存储上，这里回写走的是带观察的 setter，
+            // 会再进一次 didSet；不比较就回写会无限递归把栈撑爆。
+            let clamped = vocalLevel.isFinite ? min(1, max(0, vocalLevel)) : 0.1
+            guard clamped == vocalLevel else {
+                vocalLevel = clamped
+                return
+            }
             UserDefaults.standard.set(vocalLevel, forKey: "karaokeVocalLevel")
             applySettings()
         }
@@ -43,7 +49,11 @@ final class TVKaraokeSession {
     /// Key change in semitones for the karaoke track.
     var keyShift = 0 {
         didSet {
-            keyShift = KaraokeKeyShiftPolicy.clamped(keyShift)
+            let clamped = KaraokeKeyShiftPolicy.clamped(keyShift)
+            guard clamped == keyShift else {
+                keyShift = clamped
+                return
+            }
             applySettings()
         }
     }

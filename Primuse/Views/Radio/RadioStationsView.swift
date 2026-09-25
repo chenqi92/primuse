@@ -14,7 +14,7 @@ struct RadioStationsView: View {
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.skin) private var skin
-    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:整理菜单并进系统溢出菜单。
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:整理菜单并进系统溢出菜单,按钮带标题并分组。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @State private var editingStation: RadioStation?
     @State private var showingNewStation = false
@@ -475,50 +475,49 @@ struct RadioStationsView: View {
                     }
                 }
             } else {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        radioManageMenuItems
-                    } label: {
-                        Label("radio_manage", systemImage: "ellipsis.circle")
-                    }
-                }
+                radioManageMenuItem
             }
             #else
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    radioManageMenuItems
-                } label: {
-                    Label("radio_manage", systemImage: "ellipsis.circle")
-                }
-            }
+            radioManageMenuItem
             #endif
         } else {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if !store.stations.isEmpty {
-                    Button {
-                        pmWithAnimation(.list) { isManaging = true }
-                    } label: {
-                        Label("radio_manage", systemImage: "checklist")
-                    }
+            #if os(iOS)
+            if verticalBarEdge != nil {
+                // 系统竖栏(iPhone Duo):「添加」一组、空间不够时最后才收;整理与版式一组,按钮都带标题。
+                ToolbarItemGroup(placement: .primaryAction) {
+                    radioAddMenu
                 }
-
-                // 版式一共就两种，展开一个菜单去点其中一个不如按一下直接换。
-                // 图标画的是「点下去会变成的那种」，当前是哪种交给旁白报。
-                Button {
-                    layoutModeRaw = alternateLayoutMode.rawValue
-                } label: {
-                    PMToolbarItemLabel(
-                        verbatim: String(localized: alternateLayoutMode.titleKey),
-                        systemImage: alternateLayoutMode.icon,
-                        titled: verticalBarEdge != nil
-                    )
+                .pmHighVisibilityPriority()
+                ToolbarItemGroup(placement: .primaryAction) {
+                    radioManageButton
+                    radioLayoutToggle(titled: true)
                 }
-                .accessibilityLabel(Text(String(localized: alternateLayoutMode.titleKey)))
-                .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
-                .accessibilityIdentifier("radioLayoutMode.toggle")
-
-                radioAddMenu
+            } else {
+                radioStandardToolbarGroup
             }
+            #else
+            radioStandardToolbarGroup
+            #endif
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var radioManageMenuItem: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                radioManageMenuItems
+            } label: {
+                Label("radio_manage", systemImage: "ellipsis.circle")
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var radioStandardToolbarGroup: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            radioManageButton
+            radioLayoutToggle(titled: false)
+            radioAddMenu
         }
     }
 
@@ -588,6 +587,34 @@ struct RadioStationsView: View {
             }
             .disabled(selectedStations.isEmpty)
         }
+    }
+
+    @ViewBuilder
+    private var radioManageButton: some View {
+        if !store.stations.isEmpty {
+            Button {
+                pmWithAnimation(.list) { isManaging = true }
+            } label: {
+                Label("radio_manage", systemImage: "checklist")
+            }
+        }
+    }
+
+    /// 版式一共就两种，展开一个菜单去点其中一个不如按一下直接换。
+    /// 图标画的是「点下去会变成的那种」，当前是哪种交给旁白报。
+    private func radioLayoutToggle(titled: Bool) -> some View {
+        Button {
+            layoutModeRaw = alternateLayoutMode.rawValue
+        } label: {
+            PMToolbarItemLabel(
+                verbatim: String(localized: alternateLayoutMode.titleKey),
+                systemImage: alternateLayoutMode.icon,
+                titled: titled
+            )
+        }
+        .accessibilityLabel(Text(String(localized: alternateLayoutMode.titleKey)))
+        .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
+        .accessibilityIdentifier("radioLayoutMode.toggle")
     }
 
     /// 添加电台、批量添加、订阅、新建文件夹、按名称排序。

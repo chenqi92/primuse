@@ -337,3 +337,17 @@ public enum PlayableCopyPreferencePolicy {
         }.map(\.element)
     }
 }
+
+/// 换成别的源里的同一首只看队列从某处起往后的一段。每首都要查一次本机缓存文件、
+/// 再和整库比对同曲，整库随机播放时这份活放在出声之前会把界面卡住好几秒；
+/// 段外的歌播到时仍按「源连不上就跳过」处理。
+public enum QueueCopySubstitutionWindowPolicy {
+    public static let defaultLimit = 300
+
+    /// 从 `start` 起按队列顺序（到尾部折回开头）最多 `limit` 个下标。
+    public static func indices(count: Int, startingAt start: Int, limit: Int = defaultLimit) -> [Int] {
+        guard count > 0, limit > 0 else { return [] }
+        let first = min(max(0, start), count - 1)
+        return (0..<min(count, limit)).map { (first + $0) % count }
+    }
+}

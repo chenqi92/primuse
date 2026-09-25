@@ -12,13 +12,13 @@ struct QueueView: View {
     @Environment(SourceManager.self) private var sourceManager
     /// 队列以半屏 sheet 呈现, 手机横屏下可视高度只够两行出头, 行距与底部留白收一档。
     @Environment(\.pmHeightClass) private var heightClass
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:随机键带上标题、优先留在竖栏里。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @State private var dropTarget: QueueReorderOccurrenceID?
     /// `Queue.nowPlayingCard` 下已播放默认收起:队列页要看的是
     /// 接下来放什么,听过的列表越放越长会把它挤下去。
     @State private var showsPlayed = false
     @Environment(\.skin) private var skin
-    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
-    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     var body: some View {
         // 在这里取值再传给工具栏:导航栏条目由独立宿主渲染,不在那里读环境。
@@ -43,6 +43,21 @@ struct QueueView: View {
     /// 由独立的宿主渲染, 在那里读必需的环境值会直接崩。
     @ToolbarContentBuilder
     private func shuffleToolbarContent(showsRepeat: Bool, titled: Bool) -> some ToolbarContent {
+        if titled {
+            // 系统竖栏(iPhone Duo):带上标题(收进系统溢出菜单时要用),空间不够时最后才收。
+            shuffleToolbarItem(titled: true)
+                .pmHighVisibilityPriority()
+        } else {
+            shuffleToolbarItem(titled: false)
+        }
+        // 循环也放在这里:关 → 全部 → 单曲,和播放页的循环键同一个顺序。
+        if showsRepeat {
+            repeatToolbarItem(titled: titled)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private func shuffleToolbarItem(titled: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             let isOn = player.shuffleEnabled
             Button {
@@ -68,34 +83,35 @@ struct QueueView: View {
             .accessibilityLabel(Text("a11y_shuffle"))
             .accessibilityValue(Text(isOn ? "a11y_value_on" : "a11y_value_off"))
         }
-        // 循环也放在这里:关 → 全部 → 单曲,和播放页的循环键同一个顺序。
-        if showsRepeat {
-            ToolbarItem(placement: .primaryAction) {
-                let mode = player.repeatMode
-                Button {
-                    switch mode {
-                    case .off: player.repeatMode = .all
-                    case .all: player.repeatMode = .one
-                    case .one: player.repeatMode = .off
-                    }
-                } label: {
-                    if titled {
-                        Label {
-                            Text("a11y_repeat")
-                        } icon: {
-                            Image(systemName: mode == .one ? "repeat.1" : "repeat")
-                                .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                    } else {
+    }
+
+    @ToolbarContentBuilder
+    private func repeatToolbarItem(titled: Bool) -> some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            let mode = player.repeatMode
+            Button {
+                switch mode {
+                case .off: player.repeatMode = .all
+                case .all: player.repeatMode = .one
+                case .one: player.repeatMode = .off
+                }
+            } label: {
+                if titled {
+                    Label {
+                        Text("a11y_repeat")
+                    } icon: {
                         Image(systemName: mode == .one ? "repeat.1" : "repeat")
                             .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
                             .contentTransition(.symbolEffect(.replace))
                     }
+                } else {
+                    Image(systemName: mode == .one ? "repeat.1" : "repeat")
+                        .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
+                        .contentTransition(.symbolEffect(.replace))
                 }
-                .accessibilityLabel(Text("a11y_repeat"))
-                .accessibilityValue(Text(mode == .off ? "a11y_value_off" : "a11y_value_on"))
             }
+            .accessibilityLabel(Text("a11y_repeat"))
+            .accessibilityValue(Text(mode == .off ? "a11y_value_off" : "a11y_value_on"))
         }
     }
 

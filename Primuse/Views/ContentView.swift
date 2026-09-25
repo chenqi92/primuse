@@ -2136,7 +2136,7 @@ struct ContentView: View {
 /// 取值：`home` / `library` / `songs` / `albums` / `artists` / `playlists` / `radio` / `section:<分类 rawValue>` /
 /// `album:<标题片段>` / `albumback:<标题片段>`（打开后三秒退回）/ `artist:<名字片段>` / `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `queue` / `search` / `settings` /
 /// `lasttab`（顶部 tab 外壳：先停在歌曲，两秒半后切到最后一个 tab，看指示器与自动滚动）。
-/// `searchidle`（打开搜索但不弹键盘）。另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
+/// `searchidle`（打开搜索但不弹键盘）/ `onboarding`（首启引导）。另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
 /// 详情页取证用：`playlist:<名字片段>`（`liked` 是「喜欢」）/ `genre:<名字片段>` /
 /// `zoom:<专辑标题片段>`（先停在专辑网格，再从网格推入专辑页、退回、再推入，录缩放转场用）。
 /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）；
@@ -2328,6 +2328,8 @@ extension ContentView {
             searchFieldActivationRequested = false
         case "settings":
             selectMinimalPage(.settings)
+        case "onboarding":
+            showInitialOnboarding = true
         default:
             plog("🧪 DebugLaunchAutomation: unknown page '\(raw)'")
         }
@@ -2497,7 +2499,9 @@ struct PlayerOverlay: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var presentationPhase = PresentationPhase.staging
     @State private var presentationHasSettled = false
-    @State private var interactiveOffset = CGSize.zero
+    /// 拖动隐藏时每帧都在变。放在引用模型里、只由偏移修饰符读取, 拖动就只刷新
+    /// 偏移, 不会每帧重建整个 NowPlayingView (它的 body 很重)。
+    @State private var interactiveDrag = PlayerOverlayInteractiveDrag()
     @State private var dismissalState = PlayerOverlayDismissalState()
     @State private var dismissalTask: Task<Void, Never>?
 
@@ -2545,7 +2549,10 @@ struct PlayerOverlay: View {
                 // image-backed descendants can commit at their final position
                 // while the background is still entering from the bottom.
                 .compositingGroup()
-                .offset(transitionOffset(travel: travel))
+                .modifier(PlayerOverlayOffsetModifier(
+                    drag: interactiveDrag,
+                    phaseOffset: phaseOffset(travel: travel)
+                ))
         }
         .ignoresSafeArea()
         .allowsHitTesting(presentationPhase == .visible && !dismissalState.isDismissing)
@@ -2580,7 +2587,7 @@ struct PlayerOverlay: View {
                 return
             }
             guard newPhase != .active,
-                  dismissalState.isDismissing || interactiveOffset != .zero else { return }
+                  dismissalState.isDismissing || interactiveDrag.offset != .zero else { return }
             // Control Center / screen recording can interrupt an in-flight
             // transition. Invalidate its delayed completion and restore the
             // mounted player so an old callback cannot leave an invisible
@@ -2593,7 +2600,7 @@ struct PlayerOverlay: View {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                interactiveOffset = .zero
+                interactiveDrag.offset = .zero
                 presentationPhase = .visible
             }
         }
@@ -2603,12 +2610,13 @@ struct PlayerOverlay: View {
         }
     }
 
-    private func transitionOffset(travel: CGFloat) -> CGSize {
+    /// nil = 停在可见位置, 由拖动偏移决定。
+    private func phaseOffset(travel: CGFloat) -> CGSize? {
         switch presentationPhase {
         case .staging:
             return CGSize(width: 0, height: travel)
         case .visible:
-            return interactiveOffset
+            return nil
         case .dismissingDown:
             return CGSize(width: 0, height: travel)
         case .dismissingLeading:
@@ -2634,9 +2642,9 @@ struct PlayerOverlay: View {
         withTransaction(transaction) {
             switch axis {
             case .horizontal:
-                interactiveOffset = CGSize(width: value, height: 0)
+                interactiveDrag.offset = CGSize(width: value, height: 0)
             case .vertical:
-                interactiveOffset = CGSize(width: 0, height: value)
+                interactiveDrag.offset = CGSize(width: 0, height: value)
             }
         }
     }
@@ -2650,7 +2658,7 @@ struct PlayerOverlay: View {
         } else {
             guard presentationPhase == .visible, !dismissalState.isDismissing else { return }
             withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
-                interactiveOffset = .zero
+                interactiveDrag.offset = .zero
             }
         }
     }
@@ -2687,6 +2695,22 @@ struct PlayerOverlay: View {
         withTransaction(transaction) {
             isPresented = false
         }
+    }
+}
+
+@MainActor
+@Observable
+private final class PlayerOverlayInteractiveDrag {
+    var offset = CGSize.zero
+}
+
+/// 只有这里读拖动偏移, 所以拖动时失效的是这个修饰符而不是整个播放页。
+private struct PlayerOverlayOffsetModifier: ViewModifier {
+    let drag: PlayerOverlayInteractiveDrag
+    let phaseOffset: CGSize?
+
+    func body(content: Content) -> some View {
+        content.offset(phaseOffset ?? drag.offset)
     }
 }
 

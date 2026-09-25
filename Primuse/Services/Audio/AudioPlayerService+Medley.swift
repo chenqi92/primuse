@@ -33,6 +33,15 @@ extension AudioPlayerService {
         return ([current] + upcoming).filter(canIncludeInMedley)
     }
 
+    /// Whether "medley from the queue" has at least two songs to join. Menus
+    /// ask this while they are drawn, so it stops at the second song instead
+    /// of classifying the whole round of a library-sized queue.
+    var canPlayMedleyFromQueue: Bool {
+        guard let current = currentSong else { return false }
+        let needed = canIncludeInMedley(current) ? 1 : 2
+        return firstCurrentRoundUpcomingSongs(limit: needed, where: canIncludeInMedley).count == needed
+    }
+
     /// Builds the slices for `songs` and starts playing them.
     /// - Returns: false when none of the songs can be sliced.
     @discardableResult
@@ -52,7 +61,11 @@ extension AudioPlayerService {
         let length = playbackSettings.medleySegmentSeconds
         var seen = Set<String>()
         var slices: [Song] = []
-        for song in songs where canIncludeInMedley(song) && seen.insert(song.id).inserted {
+        // A song whose source cannot be reached right now and has no copy on
+        // this device would only stall the medley at its boundary.
+        for song in songs where canIncludeInMedley(song)
+            && isSongAvailableForNewPlayback(song)
+            && seen.insert(song.id).inserted {
             // Structure analysis from Apple's music understanding covers the
             // complete file on its real timeline; the streaming analyser only
             // saw what was played, so its boundaries are not used.

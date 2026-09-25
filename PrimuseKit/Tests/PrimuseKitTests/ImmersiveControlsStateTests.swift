@@ -349,6 +349,47 @@ struct NowPlayingPlayerLayoutPolicyTests {
         ) == .compactLandscape)
     }
 
+    @Test("An iPhone Duo inner display keeps the phone landscape skeleton instead of the tablet columns")
+    func phoneRegularCanvasStaysOnPhoneSkeleton() {
+        let prefersWideColumns = NowPlayingPlayerLayoutPolicy.prefersWideColumns(
+            isRegularWidth: true,
+            isCompactHeight: false,
+            isPhone: true
+        )
+        #expect(prefersWideColumns == false)
+        for (width, height) in [(951.0, 669.0), (890.0, 626.0)] {
+            #expect(NowPlayingPlayerLayoutPolicy.mode(
+                viewportWidth: width,
+                viewportHeight: height,
+                prefersWideColumns: prefersWideColumns
+            ) == .compactLandscape)
+        }
+        // 内屏竖握仍是竖版。
+        #expect(NowPlayingPlayerLayoutPolicy.mode(
+            viewportWidth: 669,
+            viewportHeight: 951,
+            prefersWideColumns: prefersWideColumns
+        ) == .portrait)
+    }
+
+    @Test("Cover, lyrics and full-screen lyrics share the landscape skeleton; video does not")
+    func landscapeSkeletonCoversEveryLyricsMode() {
+        for mode in [NowPlayingLandscapeMode.none, .standardLyrics, .immersiveLyrics] {
+            #expect(NowPlayingPlayerLayoutPolicy.usesLandscapeSkeleton(
+                layoutMode: .compactLandscape,
+                landscapeMode: mode
+            ))
+            #expect(NowPlayingPlayerLayoutPolicy.usesLandscapeSkeleton(
+                layoutMode: .wideLandscape,
+                landscapeMode: mode
+            ) == false)
+        }
+        #expect(NowPlayingPlayerLayoutPolicy.usesLandscapeSkeleton(
+            layoutMode: .compactLandscape,
+            landscapeMode: .musicVideo
+        ) == false)
+    }
+
     @Test("A tablet in landscape still opts into the wide columns")
     func tabletLandscapePrefersWideColumns() {
         #expect(NowPlayingPlayerLayoutPolicy.prefersWideColumns(

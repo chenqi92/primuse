@@ -359,96 +359,7 @@ struct PlaylistDetailView: View {
                 .pmHighVisibilityPriority()
                 if #available(iOS 27.0, *) {
                     ToolbarOverflowMenu {
-                        // 最常用的三个排成顶部一行。队列两项用同一份可播放曲目,
-                        // 文案跟歌曲行保持一致(`insert_next`,不是更长的 `up_next`)。
-                        PMMenuQuickActions {
-                            PMMenuQuickActionButton(
-                                shortKey: "insert_next_short",
-                                fullKey: "insert_next",
-                                systemImage: "text.line.first.and.arrowtriangle.forward"
-                            ) {
-                                player.insertNextInQueue(songs.filteredPlayable())
-                            }
-                            .disabled(songs.filteredPlayable().isEmpty)
-
-                            PMMenuQuickActionButton(
-                                shortKey: "add_to_queue_short",
-                                fullKey: "add_to_queue",
-                                systemImage: "text.line.last.and.arrowtriangle.forward"
-                            ) {
-                                player.appendToQueue(songs.filteredPlayable())
-                            }
-                            .disabled(songs.filteredPlayable().isEmpty)
-
-                            Button {
-                                if selection.isActive {
-                                    selection.deactivate()
-                                } else {
-                                    selection.activate()
-                                }
-                            } label: {
-                                Label(selection.isActive ? "done" : "batch_select",
-                                      systemImage: "checkmark.circle")
-                            }
-                            .disabled(songs.isEmpty)
-                        }
-
-                        Section {
-                            // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
-                            // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
-                            if allowsPlaylistRemoval {
-                                Button {
-                                    // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
-                                    // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
-                                    displaySortRawValue = ""
-                                    showReorderSheet = true
-                                } label: {
-                                    Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
-                                }
-                                .disabled(songs.count < 2)
-                            }
-                            Button {
-                                showArtworkEditor = true
-                            } label: {
-                                Label("artwork_edit", systemImage: "photo.badge.plus")
-                            }
-                            Button {
-                                startPlaylistScrape()
-                            } label: {
-                                Label("scrape_missing_metadata", systemImage: "wand.and.stars")
-                            }
-                            .disabled(songs.isEmpty || scraperService.isScraping)
-                            if let target = playlistServerMediaShareTarget {
-                                Button {
-                                    serverMediaShareTarget = target
-                                } label: {
-                                    Label("server_share_action", systemImage: "link.badge.plus")
-                                }
-                            }
-                            Button {
-                                showExportFormats = true
-                            } label: {
-                                Label("export", systemImage: "square.and.arrow.up")
-                            }
-                        }
-
-                        if canDeletePlaylist(playlist.id) {
-                            Section {
-                                Button(role: .destructive) {
-                                    deleteCurrentPlaylist()
-                                } label: {
-                                    Label("delete_playlist", systemImage: "trash")
-                                }
-                            }
-                        } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
-                            Section {
-                                Button {
-                                    hideCurrentPlaylist()
-                                } label: {
-                                    Label("hide_playlist_from_primuse", systemImage: "eye.slash")
-                                }
-                            }
-                        }
+                        playlistMoreMenuContent
                     }
                 }
             } else {
@@ -464,96 +375,7 @@ struct PlaylistDetailView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    // 最常用的三个排成顶部一行。队列两项用同一份可播放曲目,
-                    // 文案跟歌曲行保持一致(`insert_next`,不是更长的 `up_next`)。
-                    PMMenuQuickActions {
-                        PMMenuQuickActionButton(
-                            shortKey: "insert_next_short",
-                            fullKey: "insert_next",
-                            systemImage: "text.line.first.and.arrowtriangle.forward"
-                        ) {
-                            player.insertNextInQueue(songs.filteredPlayable())
-                        }
-                        .disabled(songs.filteredPlayable().isEmpty)
-
-                        PMMenuQuickActionButton(
-                            shortKey: "add_to_queue_short",
-                            fullKey: "add_to_queue",
-                            systemImage: "text.line.last.and.arrowtriangle.forward"
-                        ) {
-                            player.appendToQueue(songs.filteredPlayable())
-                        }
-                        .disabled(songs.filteredPlayable().isEmpty)
-
-                        Button {
-                            if selection.isActive {
-                                selection.deactivate()
-                            } else {
-                                selection.activate()
-                            }
-                        } label: {
-                            Label(selection.isActive ? "done" : "batch_select",
-                                  systemImage: "checkmark.circle")
-                        }
-                        .disabled(songs.isEmpty)
-                    }
-
-                    Section {
-                        // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
-                        // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
-                        if allowsPlaylistRemoval {
-                            Button {
-                                // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
-                                // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
-                                displaySortRawValue = ""
-                                showReorderSheet = true
-                            } label: {
-                                Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
-                            }
-                            .disabled(songs.count < 2)
-                        }
-                        Button {
-                            showArtworkEditor = true
-                        } label: {
-                            Label("artwork_edit", systemImage: "photo.badge.plus")
-                        }
-                        Button {
-                            startPlaylistScrape()
-                        } label: {
-                            Label("scrape_missing_metadata", systemImage: "wand.and.stars")
-                        }
-                        .disabled(songs.isEmpty || scraperService.isScraping)
-                        if let target = playlistServerMediaShareTarget {
-                            Button {
-                                serverMediaShareTarget = target
-                            } label: {
-                                Label("server_share_action", systemImage: "link.badge.plus")
-                            }
-                        }
-                        Button {
-                            showExportFormats = true
-                        } label: {
-                            Label("export", systemImage: "square.and.arrow.up")
-                        }
-                    }
-
-                    if canDeletePlaylist(playlist.id) {
-                        Section {
-                            Button(role: .destructive) {
-                                deleteCurrentPlaylist()
-                            } label: {
-                                Label("delete_playlist", systemImage: "trash")
-                            }
-                        }
-                    } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
-                        Section {
-                            Button {
-                                hideCurrentPlaylist()
-                            } label: {
-                                Label("hide_playlist_from_primuse", systemImage: "eye.slash")
-                            }
-                        }
-                    }
+                    playlistMoreMenuContent
                 } label: {
                     Image(systemName: "ellipsis")
                 }
@@ -579,6 +401,101 @@ struct PlaylistDetailView: View {
                isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("ok", role: .cancel) {}
         } message: { Text(exportError ?? "") }
+    }
+
+    /// 歌单页「⋯」菜单的内容。普通 iPhone 上是工具栏里那颗「⋯」,iPhone Duo 竖栏里并进系统溢出菜单。
+    @ViewBuilder
+    private var playlistMoreMenuContent: some View {
+        // 最常用的三个排成顶部一行。队列两项用同一份可播放曲目,
+        // 文案跟歌曲行保持一致(`insert_next`,不是更长的 `up_next`)。
+        PMMenuQuickActions {
+            PMMenuQuickActionButton(
+                shortKey: "insert_next_short",
+                fullKey: "insert_next",
+                systemImage: "text.line.first.and.arrowtriangle.forward"
+            ) {
+                player.insertNextInQueue(songs.filteredPlayable())
+            }
+            .disabled(songs.filteredPlayable().isEmpty)
+
+            PMMenuQuickActionButton(
+                shortKey: "add_to_queue_short",
+                fullKey: "add_to_queue",
+                systemImage: "text.line.last.and.arrowtriangle.forward"
+            ) {
+                player.appendToQueue(songs.filteredPlayable())
+            }
+            .disabled(songs.filteredPlayable().isEmpty)
+
+            Button {
+                if selection.isActive {
+                    selection.deactivate()
+                } else {
+                    selection.activate()
+                }
+            } label: {
+                Label(selection.isActive ? "done" : "batch_select",
+                      systemImage: "checkmark.circle")
+            }
+            .disabled(songs.isEmpty)
+        }
+
+        Section {
+            // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
+            // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
+            if allowsPlaylistRemoval {
+                Button {
+                    // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
+                    // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
+                    displaySortRawValue = ""
+                    showReorderSheet = true
+                } label: {
+                    Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
+                }
+                .disabled(songs.count < 2)
+            }
+            Button {
+                showArtworkEditor = true
+            } label: {
+                Label("artwork_edit", systemImage: "photo.badge.plus")
+            }
+            Button {
+                startPlaylistScrape()
+            } label: {
+                Label("scrape_missing_metadata", systemImage: "wand.and.stars")
+            }
+            .disabled(songs.isEmpty || scraperService.isScraping)
+            if let target = playlistServerMediaShareTarget {
+                Button {
+                    serverMediaShareTarget = target
+                } label: {
+                    Label("server_share_action", systemImage: "link.badge.plus")
+                }
+            }
+            Button {
+                showExportFormats = true
+            } label: {
+                Label("export", systemImage: "square.and.arrow.up")
+            }
+        }
+
+        if canDeletePlaylist(playlist.id) {
+            Section {
+                Button(role: .destructive) {
+                    deleteCurrentPlaylist()
+                } label: {
+                    Label("delete_playlist", systemImage: "trash")
+                }
+            }
+        } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+            Section {
+                Button {
+                    hideCurrentPlaylist()
+                } label: {
+                    Label("hide_playlist_from_primuse", systemImage: "eye.slash")
+                }
+            }
+        }
     }
 
     /// 头图与操作行的数据:封面墙(封面不够时是歌单封面)、标题(「我喜欢」带一颗心)、首数 · 总时长,

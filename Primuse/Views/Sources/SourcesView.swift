@@ -288,6 +288,14 @@ struct MetadataBackfillPerformanceButton<Label: View>: View {
         .accessibilityLabel(MetadataReadingText.string("title"))
         .accessibilityValue(MetadataReadingText.string(mode.rawValue))
         .accessibilityIdentifier("sources.metadataBackfillPerformance")
+        #if DEBUG
+        .task {
+            // 取证用：`PRIMUSE_DEBUG_SHEET=fastReading` 打开音乐源页后直接弹出「开启全速读取？」。
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SHEET"] == "fastReading" else { return }
+            try? await Task.sleep(for: .seconds(2))
+            showingFastConfirmation = true
+        }
+        #endif
         .sheet(isPresented: $showingFastConfirmation) {
             MetadataFastReadingConfirmation {
                 storedMode = MetadataReadingMode.fast.rawValue
@@ -301,14 +309,6 @@ private struct MetadataFastReadingConfirmation: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.pmHeightClass) private var heightClass
     let onConfirm: () -> Void
-
-    /// 两颗按钮竖排要 160pt，手机横屏的 .medium 下正文只剩三十来点。
-    /// 换排布方向用布局容器而不是换一棵子树，旋转时按钮的身份不变。
-    private var actionLayout: AnyLayout {
-        heightClass.isCompact
-            ? AnyLayout(HStackLayout(spacing: 12))
-            : AnyLayout(VStackLayout(spacing: 12))
-    }
 
     var body: some View {
         ScrollView {
@@ -330,36 +330,70 @@ private struct MetadataFastReadingConfirmation: View {
             .padding(24)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            actionLayout {
-                Button {
-                    dismiss()
-                    onConfirm()
-                } label: {
-                    Text(MetadataReadingText.string("fastWarningConfirm"))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .accessibilityIdentifier("sources.metadataBackfillFastConfirm")
-
-                Button(role: .cancel) { dismiss() } label: {
-                    Text(MetadataReadingText.string("cancel"))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .keyboardShortcut(.cancelAction)
-                .accessibilityIdentifier("sources.metadataBackfillFastCancel")
-            }
-            .controlSize(.large)
-            .padding(heightClass.value(24, compact: 16))
-            .background(.background)
+            MetadataFastReadingActions(onConfirm: {
+                dismiss()
+                onConfirm()
+            }, onCancel: { dismiss() })
         }
         #if os(iOS)
-        .presentationDetents([.medium, .large])
+        // 矮屏（iPhone SE、iPhone Duo 外屏）上半屏装不下时改停在装得下的高度；普通 iPhone 仍是半屏。
+        .pmSheetSymmetricMargins()
+        .pmFitsContentInSheet()
         .presentationDragIndicator(.visible)
         #else
         .frame(width: 440, height: 420)
         #endif
+    }
+}
+
+/// 「开启全速读取？」底部的两颗按钮。
+private struct MetadataFastReadingActions: View {
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    @Environment(\.pmHeightClass) private var heightClass
+    #if os(iOS)
+    @Environment(\.pmSheetContentOverflowed) private var contentOverflowed
+    #endif
+
+    /// 两颗按钮竖排要 160pt，手机横屏的 .medium 下正文只剩三十来点。半屏装不下的矮屏
+    /// （iPhone Duo 外屏这类又宽又矮的）也改成并排，省出一行给正文。
+    /// 换排布方向用布局容器而不是换一棵子树，旋转时按钮的身份不变。
+    private var actionLayout: AnyLayout {
+        heightClass.isCompact || prefersSideBySide
+            ? AnyLayout(HStackLayout(spacing: 12))
+            : AnyLayout(VStackLayout(spacing: 12))
+    }
+
+    private var prefersSideBySide: Bool {
+        #if os(iOS)
+        contentOverflowed
+        #else
+        false
+        #endif
+    }
+
+    var body: some View {
+        actionLayout {
+            Button(action: onConfirm) {
+                Text(MetadataReadingText.string("fastWarningConfirm"))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .accessibilityIdentifier("sources.metadataBackfillFastConfirm")
+
+            Button(role: .cancel, action: onCancel) {
+                Text(MetadataReadingText.string("cancel"))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .keyboardShortcut(.cancelAction)
+            .accessibilityIdentifier("sources.metadataBackfillFastCancel")
+        }
+        .controlSize(.large)
+        .padding(heightClass.value(24, compact: 16))
+        .background(.background)
     }
 }
 
@@ -419,7 +453,7 @@ struct SourcesView: View {
 /// Sources page content. Push this from an existing NavigationStack to avoid
 /// nested stacks resetting the back button or immediately dismissing the page.
 struct SourcesContentView: View {
-    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(SourceManager.self) private var sourceManager
     @Environment(\.skin) private var skin
@@ -472,6 +506,7 @@ struct SourcesContentView: View {
         }
             .navigationTitle("sources_title")
             .toolbarTitleDisplayMode(.inlineLarge)
+            .pmVerticalBarTitleEdge()
             .overlay(alignment: .bottom) {
                 if let toast = undoToast {
                     undoToastView(toast)
@@ -502,12 +537,18 @@ struct SourcesContentView: View {
                 ToolbarItemGroup(placement: .primaryAction) {
                     #if !os(macOS)
                     MetadataBackfillPerformanceButton { mode in
-                        Image(systemName: mode.symbol)
-                            .foregroundStyle(mode == .fast ? Color.orange : Color.primary)
+                        PMToolbarItemLabel(
+                            verbatim: MetadataReadingText.string("title"),
+                            systemImage: mode.symbol,
+                            titled: verticalBarEdge != nil
+                        )
+                        .foregroundStyle(mode == .fast ? Color.orange : Color.primary)
                     }
                     #endif
 
-                    Button { showAddSource = true } label: { PMToolbarItemLabel("add_source", systemImage: "plus", titled: verticalBarEdge != nil) }
+                    Button { showAddSource = true } label: {
+                        PMToolbarItemLabel("add_source", systemImage: "plus", titled: verticalBarEdge != nil)
+                    }
                         .accessibilityIdentifier("sources.add")
                     Button { showTransfer = true } label: {
                         Label(WiFiTransferText.string("nativeTitle"), systemImage: "laptopcomputer.and.iphone")

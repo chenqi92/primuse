@@ -32,6 +32,7 @@ struct ImmersivePlayerView: View {
     @Environment(ThemeService.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
     @AppStorage(ImmersiveLyricsMotionSettings.storageKey)
     private var lyricsMotionEnabled = ImmersiveLyricsMotionSettings.defaultValue
     @State private var showsChrome = true
@@ -50,6 +51,12 @@ struct ImmersivePlayerView: View {
     @State private var lyricInterlude = false
     @State private var visualizerOwnerID = UUID()
     @State private var visualizerRetryTask: Task<Void, Never>?
+
+    /// iPhone(含 iPhone Duo 内屏)上的全屏页。内屏的画布有五六百点高,舞台照手机的构图放大,
+    /// 不走 iPad / Mac 的大画布那一套。
+    private var isPhoneIdiom: Bool {
+        isPhoneIdiomEnvironment || UIDevice.current.userInterfaceIdiom == .phone
+    }
 
     private var presentationEffect: FullscreenPlayerEffect {
         let raw = ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
@@ -72,12 +79,22 @@ struct ImmersivePlayerView: View {
     var body: some View {
         GeometryReader { geometry in
             let safeArea = stageSafeArea(geometry.safeAreaInsets, size: geometry.size)
-            let metrics = ImmersiveStageMetrics(size: geometry.size, safeArea: safeArea)
+            let metrics = ImmersiveStageMetrics(
+                size: geometry.size,
+                safeArea: safeArea,
+                isHandheld: isPhoneIdiom
+            )
             // 控件按真实安全区排(顶上那排另外在遮挡那一侧让开),舞台内容可能被推到遮挡区下面。
-            let chromeMetrics = ImmersiveStageMetrics(size: geometry.size, safeArea: geometry.safeAreaInsets)
+            let chromeMetrics = ImmersiveStageMetrics(
+                size: geometry.size,
+                safeArea: geometry.safeAreaInsets,
+                isHandheld: isPhoneIdiom
+            )
 
             ZStack {
                 stage(metrics: metrics)
+                    // 开合、转屏让舞台换构图(竖版 / 横版)时新构图淡入。
+                    .pmLayoutChangeFade(metrics.layout)
                     .scaleEffect(isAmbientRest ? 1.018 : 1)
                     .offset(
                         x: isAmbientRest ? (ambientDrift ? metrics.s(8) : -metrics.s(8)) : 0,
@@ -383,7 +400,7 @@ struct ImmersivePlayerView: View {
     /// 两侧都不让;只有推下去要吃掉三成以上的高度时,才退回在遮挡那一侧让开。
     private func stageSafeArea(_ measured: EdgeInsets, size: CGSize) -> EdgeInsets {
         guard !occlusions.isEmpty else { return measured }
-        let probe = ImmersiveStageMetrics(size: size, safeArea: measured)
+        let probe = ImmersiveStageMetrics(size: size, safeArea: measured, isHandheld: isPhoneIdiom)
         let contentTop = probe.stageContentTopInset(isTV: false)
         let clearance = OcclusionAvoidancePolicy.sideClearance(
             regions: occlusions,
@@ -421,6 +438,11 @@ struct ImmersivePlayerView: View {
     }
 
     private func topChromeInset(_ metrics: ImmersiveStageMetrics) -> CGFloat {
+        Self.topChromeInset(metrics)
+    }
+
+    /// 顶部圆钮排的上沿。取证页（`ImmersiveStageEvidenceHost`）按同一个值画控件占位。
+    static func topChromeInset(_ metrics: ImmersiveStageMetrics) -> CGFloat {
         if metrics.layout == .phonePortrait {
             return max(metrics.safeArea.top + 10, metrics.s(55))
         }
@@ -503,8 +525,16 @@ struct ImmersivePlayerView: View {
     }
 
     private func showcaseControlAlignment(_ metrics: ImmersiveStageMetrics) -> Alignment {
+        Self.showcaseControlAlignment(effect: presentationEffect, metrics: metrics)
+    }
+
+    /// 底部控件胶囊靠哪一边。取证页按同一个值画控件占位。
+    static func showcaseControlAlignment(
+        effect: FullscreenPlayerEffect,
+        metrics: ImmersiveStageMetrics
+    ) -> Alignment {
         guard metrics.layout != .phonePortrait else { return .center }
-        switch presentationEffect {
+        switch effect {
         case .vinylDeck, .particleBloom:
             return .leading
         case .coverFlow, .coverGallery, .starryNight, .flowingLines, .kineticTitle,

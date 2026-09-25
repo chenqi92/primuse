@@ -330,6 +330,7 @@ struct BrowserBottomBar: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
                 }
+                .pmStopsAtVerticalBar()
                 .pmAnimation(.list, value: chips)
             }
             #endif
