@@ -682,7 +682,7 @@ struct ConnectionFlowView: View {
                let active = ordered.first(where: { $0.kind == activeSynologyCandidateKind }) {
                 candidate = active
             } else {
-                candidate = ordered.first(where: { attemptedKinds.contains($0.kind) == false })
+                candidate = await firstReachableSynologyCandidate(in: ordered, excluding: attemptedKinds)
             }
         } else {
             candidate = nil
@@ -913,6 +913,35 @@ struct ConnectionFlowView: View {
         }
     }
 
+    /// The first route worth signing in on. DSM's login has no deadline of
+    /// its own: pointed at a private address that is not on this network it
+    /// sits out the 15-second request timeout before the public route gets a
+    /// turn. A TCP probe settles that in about a second (the budget the
+    /// routers use) and its verdict is shared with them. A route that does
+    /// not answer stays available as the last resort.
+    private func firstReachableSynologyCandidate(
+        in ordered: [SourceConnectionCandidate],
+        excluding attemptedKinds: Set<SourceConnectionCandidateKind>
+    ) async -> SourceConnectionCandidate? {
+        let remaining = ordered.filter { attemptedKinds.contains($0.kind) == false }
+        guard let first = remaining.first else { return nil }
+        guard first.kind == .localAddress, remaining.count > 1,
+              let endpoint = first.endpoint else { return first }
+        do {
+            try await SourceConnectionPreflight.check(endpoint)
+            return first
+        } catch {
+            guard !Task.isCancelled else { return first }
+            await SourceConnectionRuntime.shared.recordFailure(
+                of: .localAddress,
+                for: source.id,
+                reason: SourceRouteFailureReason.classify(error)
+            )
+            plog("🧭 Synology LAN route did not answer; signing in on \(remaining[1].kind.rawValue) first")
+            return remaining[1]
+        }
+    }
+
     private func handleSynologyRouteFailure(
         _ error: Error,
         candidate: SourceConnectionCandidate?,
@@ -931,7 +960,18 @@ struct ConnectionFlowView: View {
 
         var attempted = attemptedKinds
         attempted.insert(candidate.kind)
-        await SourceConnectionRuntime.shared.invalidate(sourceID: source.id)
+        // Remember the failure for the routers too. Clearing the memory here
+        // used to wipe the very cooldown that should keep the next attempt —
+        // and the scan and playback connectors — off a dead private address.
+        if candidate.kind == .localAddress, SourceNetworkFailurePolicy.isStalledHandshake(error) {
+            await SourceConnectionRuntime.shared.recordLocalHandshakeFailure(for: source.id)
+        } else {
+            await SourceConnectionRuntime.shared.recordFailure(
+                of: candidate.kind,
+                for: source.id,
+                reason: SourceRouteFailureReason.classify(error)
+            )
+        }
         let ordered = source.connectionCandidates
         if let next = ordered.first(where: { attempted.contains($0.kind) == false }) {
             await connectCurrentSource(
@@ -982,7 +1022,7 @@ struct ConnectionFlowView: View {
                let active = ordered.first(where: { $0.kind == activeSynologyCandidateKind }) {
                 candidate = active
             } else {
-                candidate = ordered.first(where: { attemptedKinds.contains($0.kind) == false })
+                candidate = await firstReachableSynologyCandidate(in: ordered, excluding: attemptedKinds)
             }
         } else {
             candidate = nil
