@@ -2,6 +2,8 @@ import SwiftUI
 import PrimuseKit
 
 struct PlaylistListView: View {
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
@@ -270,7 +272,7 @@ struct PlaylistListView: View {
                 }
             }
         } label: {
-            Label("add", systemImage: "plus")
+            PMToolbarItemLabel("add", systemImage: "plus", titled: verticalBarEdge != nil)
         }
         .accessibilityIdentifier("playlists.add")
     }

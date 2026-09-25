@@ -303,3 +303,36 @@ extension ToolbarContent {
         }
     }
 }
+
+/// 工具栏按钮的标签。系统竖栏(iPhone Duo)时给出标题 + 图标:竖栏里按图标排,收进系统溢出菜单时用标题;
+/// 其它时候仍是原来的纯图标 —— 普通 iPhone 的导航栏把 Label 的图标排得和单独一张 Image 差一个像素,
+/// 这样那边逐像素不变。
+struct PMToolbarItemLabel: View {
+    private let title: Text
+    private let systemImage: String
+    private let titled: Bool
+
+    init(_ titleKey: LocalizedStringKey, systemImage: String, titled: Bool) {
+        title = Text(titleKey)
+        self.systemImage = systemImage
+        self.titled = titled
+    }
+
+    init(verbatim title: String, systemImage: String, titled: Bool) {
+        self.title = Text(verbatim: title)
+        self.systemImage = systemImage
+        self.titled = titled
+    }
+
+    var body: some View {
+        if titled {
+            Label {
+                title
+            } icon: {
+                Image(systemName: systemImage)
+            }
+        } else {
+            Image(systemName: systemImage)
+        }
+    }
+}

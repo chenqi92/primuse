@@ -3245,13 +3245,14 @@ struct SongListView: View {
                 SongListShuffleToolbarButton(
                     selection: selection,
                     isEnabled: !showsFolderBrowser && filteredProjection.playableCount > 1,
+                    titled: true,
                     action: shuffleVisibleSongs
                 )
-                SongListBrowseModeToolbarButton(selection: selection, browseMode: $browseMode)
+                SongListBrowseModeToolbarButton(selection: selection, browseMode: $browseMode, titled: true)
             }
             .pmHighVisibilityPriority()
             ToolbarItem(placement: .topBarTrailing) {
-                SongSelectionCancelToolbarItem(selection: selection)
+                SongSelectionCancelToolbarItem(selection: selection, titled: true)
             }
             #if os(iOS)
             if #available(iOS 27.0, *) {
@@ -5438,9 +5439,10 @@ private struct LibraryFolderNodeView: View {
                 LibraryFolderPlayAllToolbarItem(
                     selection: selection,
                     isEnabled: !actionSongIDs.isEmpty,
+                    titled: true,
                     action: playAllSongsInFolder
                 )
-                SongSelectionCancelToolbarItem(selection: selection)
+                SongSelectionCancelToolbarItem(selection: selection, titled: true)
             }
             .pmHighVisibilityPriority()
             if #available(iOS 27.0, *) {
@@ -5772,13 +5774,15 @@ private struct SongSortSubmenu: View {
 private struct SongListShuffleToolbarButton: View {
     let selection: SongSelectionModel
     let isEnabled: Bool
+    /// 系统竖栏里带上标题(收进溢出菜单时要用),其它时候仍是纯图标。
+    var titled = false
     let action: () -> Void
 
     @ViewBuilder
     var body: some View {
         if !selection.isActive {
             Button(action: action) {
-                Label("shuffle_all", systemImage: "shuffle")
+                PMToolbarItemLabel("shuffle_all", systemImage: "shuffle", titled: titled)
             }
             .disabled(!isEnabled)
             .accessibilityLabel(Text("shuffle_all"))
@@ -5790,15 +5794,17 @@ private struct SongListShuffleToolbarButton: View {
 private struct SongListBrowseModeToolbarButton: View {
     let selection: SongSelectionModel
     @Binding var browseMode: LibrarySongBrowseMode
+    var titled = false
 
     var body: some View {
         if !selection.isActive {
             Button {
                 browseMode = browseMode == .folder ? .flat : .folder
             } label: {
-                Label(
+                PMToolbarItemLabel(
                     LocalizedStringKey(browseMode == .folder ? "library_browse_flat" : "library_browse_folder"),
-                    systemImage: browseMode == .folder ? "list.bullet" : "folder"
+                    systemImage: browseMode == .folder ? "list.bullet" : "folder",
+                    titled: titled
                 )
             }
             .accessibilityLabel(Text(LocalizedStringKey(
@@ -5831,7 +5837,7 @@ private struct SongListNormalToolbarMenu: View {
                 Menu {
                     items
                 } label: {
-                    Label("a11y_more_actions", systemImage: "ellipsis")
+                    Image(systemName: "ellipsis")
                 }
                 .accessibilityLabel(Text("a11y_more_actions"))
             }
@@ -5905,6 +5911,7 @@ private struct SongSelectionOptionsToolbarItem: View {
 
 private struct SongSelectionCancelToolbarItem: View {
     let selection: SongSelectionModel
+    var titled = false
 
     @ViewBuilder
     var body: some View {
@@ -5912,7 +5919,7 @@ private struct SongSelectionCancelToolbarItem: View {
             Button {
                 selection.deactivate()
             } label: {
-                Label("cancel", systemImage: "xmark")
+                PMToolbarItemLabel("cancel", systemImage: "xmark", titled: titled)
             }
             .accessibilityLabel(Text("cancel"))
             .accessibilityIdentifier("batchSelection.cancel")
@@ -5939,13 +5946,14 @@ private struct LibraryFolderToolbarPrincipal: View {
 private struct LibraryFolderPlayAllToolbarItem: View {
     let selection: SongSelectionModel
     let isEnabled: Bool
+    var titled = false
     let action: () -> Void
 
     @ViewBuilder
     var body: some View {
         if !selection.isActive {
             Button(action: action) {
-                Label("play_all", systemImage: "play.fill")
+                PMToolbarItemLabel("play_all", systemImage: "play.fill", titled: titled)
             }
             .disabled(!isEnabled)
             .accessibilityLabel(Text("play_all"))
@@ -5982,7 +5990,7 @@ private struct LibraryFolderNormalToolbarMenu: View {
                 Menu {
                     items
                 } label: {
-                    Label("a11y_more_actions", systemImage: "ellipsis")
+                    Image(systemName: "ellipsis")
                 }
                 .accessibilityLabel(Text("a11y_more_actions"))
             }
@@ -6043,7 +6051,7 @@ private struct SongSelectionOptionsMenu: View {
             Menu {
                 items
             } label: {
-                Label("a11y_more_actions", systemImage: "ellipsis")
+                Image(systemName: "ellipsis")
             }
             .accessibilityLabel(Text("a11y_more_actions"))
         }

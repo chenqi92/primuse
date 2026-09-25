@@ -419,6 +419,8 @@ struct SourcesView: View {
 /// Sources page content. Push this from an existing NavigationStack to avoid
 /// nested stacks resetting the back button or immediately dismissing the page.
 struct SourcesContentView: View {
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(SourceManager.self) private var sourceManager
     @Environment(\.skin) private var skin
     @Environment(SourcesStore.self) private var sourceStore
@@ -505,7 +507,7 @@ struct SourcesContentView: View {
                     }
                     #endif
 
-                    Button { showAddSource = true } label: { Label("add_source", systemImage: "plus") }
+                    Button { showAddSource = true } label: { PMToolbarItemLabel("add_source", systemImage: "plus", titled: verticalBarEdge != nil) }
                         .accessibilityIdentifier("sources.add")
                     Button { showTransfer = true } label: {
                         Label(WiFiTransferText.string("nativeTitle"), systemImage: "laptopcomputer.and.iphone")

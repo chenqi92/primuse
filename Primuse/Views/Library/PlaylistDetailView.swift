@@ -456,7 +456,7 @@ struct PlaylistDetailView: View {
                 Menu {
                     sortMenuOptions
                 } label: {
-                    Label("sort_by", systemImage: "arrow.up.arrow.down")
+                    Image(systemName: "arrow.up.arrow.down")
                 }
                 .disabled(songs.count < 2)
                 .accessibilityLabel(Text("sort_by"))
@@ -555,7 +555,7 @@ struct PlaylistDetailView: View {
                         }
                     }
                 } label: {
-                    Label("a11y_more_actions", systemImage: "ellipsis")
+                    Image(systemName: "ellipsis")
                 }
                 // Do not disable the whole menu for an empty playlist. Actions
                 // that require tracks already carry their own disabled state,

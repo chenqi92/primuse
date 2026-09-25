@@ -502,7 +502,11 @@ struct RadioStationsView: View {
                 Button {
                     layoutModeRaw = alternateLayoutMode.rawValue
                 } label: {
-                    Label(String(localized: alternateLayoutMode.titleKey), systemImage: alternateLayoutMode.icon)
+                    PMToolbarItemLabel(
+                        verbatim: String(localized: alternateLayoutMode.titleKey),
+                        systemImage: alternateLayoutMode.icon,
+                        titled: verticalBarEdge != nil
+                    )
                 }
                 .accessibilityLabel(Text(String(localized: alternateLayoutMode.titleKey)))
                 .accessibilityValue(Text(String(localized: layoutMode.titleKey)))

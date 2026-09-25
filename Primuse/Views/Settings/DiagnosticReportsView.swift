@@ -6,6 +6,8 @@ import PrimuseKit
 /// 存放,不会自动外发 —— 顶部的「发送给开发者」按钮也只是把系统邮件草稿
 /// 填好,仍然要用户自己按发送。
 struct DiagnosticReportsView: View {
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @State private var reports: [DiagnosticReport] = []
     /// 系统每天投递的指标载荷。不进列表(它不是崩溃), 但发给开发者时一起带上 ——
     /// 没有崩溃报告的"闪退"只能从它的退出原因统计里认出来。
@@ -102,7 +104,7 @@ struct DiagnosticReportsView: View {
                     Button(role: .destructive) {
                         showClearConfirm = true
                     } label: {
-                        Label(String(localized: "diagnostics_clear"), systemImage: "trash")
+                        PMToolbarItemLabel(verbatim: String(localized: "diagnostics_clear"), systemImage: "trash", titled: verticalBarEdge != nil)
                     }
                     .accessibilityLabel(String(localized: "diagnostics_clear"))
                 }

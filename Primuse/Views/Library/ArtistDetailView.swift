@@ -192,7 +192,7 @@ struct ArtistDetailView: View {
                     Button {
                         serverMediaShareTarget = target
                     } label: {
-                        Label("server_share_action", systemImage: "square.and.arrow.up")
+                        Image(systemName: "square.and.arrow.up")
                     }
                     .accessibilityLabel(Text("server_share_action"))
                 }
@@ -201,7 +201,7 @@ struct ArtistDetailView: View {
                         Label("artwork_edit", systemImage: "photo.badge.plus")
                     }
                 } label: {
-                    Label("a11y_more_actions", systemImage: "ellipsis")
+                    Image(systemName: "ellipsis")
                 }
                 .accessibilityLabel(Text("a11y_more_actions"))
             }

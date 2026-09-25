@@ -453,6 +453,8 @@ extension View {
 /// 经典外壳下什么都不做。
 private struct MinimalNavigationRootModifier: ViewModifier {
     @Environment(\.usesTopTabsShell) private var usesTopTabsShell
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:返回键带上标题。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(\.minimalNavigationDetailScope) private var scope
     @Environment(\.topTabsShellContext) private var shell
     /// 这一页自己的歌曲多选。按页记:常驻在别的槽位里的页面还在多选,不该让当前页也交出导航栏。
@@ -496,7 +498,7 @@ private struct MinimalNavigationRootModifier: ViewModifier {
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(action: close) {
-                                Label("minimal_utility_back", systemImage: "chevron.backward")
+                                PMToolbarItemLabel("minimal_utility_back", systemImage: "chevron.backward", titled: verticalBarEdge != nil)
                             }
                             .accessibilityLabel(Text("minimal_utility_back"))
                             .accessibilityIdentifier("topTabs.utilityBack")

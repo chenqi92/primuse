@@ -34,6 +34,8 @@ struct ArtistListView: View {
     #endif
 
     @Environment(\.pmHeightClass) private var heightClass
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     @AppStorage(ArtistLayoutMode.storageKey)
     private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
@@ -100,7 +102,7 @@ struct ArtistListView: View {
             )
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    ArtistLayoutToolbarButton()
+                    ArtistLayoutToolbarButton(titled: verticalBarEdge != nil)
                 }
             }
             .minimalRootActions {
@@ -315,6 +317,8 @@ struct ArtistListView: View {
 private struct ArtistLayoutToolbarButton: View {
     @AppStorage(ArtistLayoutMode.storageKey)
     private var layoutModeRaw = ArtistLayoutMode.grid.rawValue
+    /// 系统竖栏里带上标题(收进溢出菜单时要用),其它时候仍是纯图标。
+    var titled = false
 
     private var layoutMode: ArtistLayoutMode {
         ArtistLayoutMode(rawValue: layoutModeRaw) ?? .grid
@@ -328,7 +332,7 @@ private struct ArtistLayoutToolbarButton: View {
         Button {
             layoutModeRaw = nextMode.rawValue
         } label: {
-            Label(String(localized: nextMode.titleKey), systemImage: nextMode.icon)
+            PMToolbarItemLabel(verbatim: String(localized: nextMode.titleKey), systemImage: nextMode.icon, titled: titled)
         }
         .accessibilityLabel(Text(String(localized: nextMode.titleKey)))
         .accessibilityValue(Text(String(localized: layoutMode.titleKey)))

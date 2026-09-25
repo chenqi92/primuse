@@ -17,6 +17,8 @@ struct QueueView: View {
     /// 接下来放什么,听过的列表越放越长会把它挤下去。
     @State private var showsPlayed = false
     @Environment(\.skin) private var skin
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     var body: some View {
         // 在这里取值再传给工具栏:导航栏条目由独立宿主渲染,不在那里读环境。
@@ -30,7 +32,7 @@ struct QueueView: View {
                     #if os(iOS)
                     .navigationBarTitleDisplayMode(.inline)
                     #endif
-                    .toolbar { shuffleToolbarContent(showsRepeat: extendedQueue) }
+                    .toolbar { shuffleToolbarContent(showsRepeat: extendedQueue, titled: verticalBarEdge != nil) }
             }
         }
     }
@@ -40,15 +42,22 @@ struct QueueView: View {
     /// 只读 `player` 这个存储属性, 不碰 @Environment: 导航栏条目会在转场期间
     /// 由独立的宿主渲染, 在那里读必需的环境值会直接崩。
     @ToolbarContentBuilder
-    private func shuffleToolbarContent(showsRepeat: Bool) -> some ToolbarContent {
+    private func shuffleToolbarContent(showsRepeat: Bool, titled: Bool) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             let isOn = player.shuffleEnabled
             Button {
                 player.shuffleEnabled.toggle()
             } label: {
-                Label {
-                    Text("a11y_shuffle")
-                } icon: {
+                // 系统竖栏里带上标题(收进溢出菜单时要用),其它时候仍是原来的纯图标。
+                if titled {
+                    Label {
+                        Text("a11y_shuffle")
+                    } icon: {
+                        Image(systemName: "shuffle")
+                            .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+                            .symbolEffect(.bounce, value: isOn)
+                    }
+                } else {
                     Image(systemName: "shuffle")
                         .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
                         // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
@@ -70,9 +79,15 @@ struct QueueView: View {
                     case .one: player.repeatMode = .off
                     }
                 } label: {
-                    Label {
-                        Text("a11y_repeat")
-                    } icon: {
+                    if titled {
+                        Label {
+                            Text("a11y_repeat")
+                        } icon: {
+                            Image(systemName: mode == .one ? "repeat.1" : "repeat")
+                                .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                    } else {
                         Image(systemName: mode == .one ? "repeat.1" : "repeat")
                             .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
                             .contentTransition(.symbolEffect(.replace))

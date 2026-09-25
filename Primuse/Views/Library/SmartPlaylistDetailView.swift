@@ -4,6 +4,8 @@ import PrimuseKit
 /// 智能歌单详情页。规则型会实时匹配资料库；AI 型按生成时保存的跨设备歌曲身份
 /// 解析，并可从详情页继续输入描述追加歌曲。
 struct SmartPlaylistDetailView: View {
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     /// 用 ID 查找而不是直接持值, 让规则编辑后 detail 能跟着 library 状态刷新。
     let smartPlaylistID: String
     private let onMacInlineBack: (() -> Void)?
@@ -140,11 +142,12 @@ struct SmartPlaylistDetailView: View {
                         Button {
                             showEditor = true
                         } label: {
-                            Label(
+                            PMToolbarItemLabel(
                                 smart.effectiveKind == .ai
                                     ? LocalizedStringKey("ai_playlist_add_songs")
                                     : LocalizedStringKey("smart_edit_rules"),
-                                systemImage: kindSymbol(smart)
+                                systemImage: kindSymbol(smart),
+                                titled: verticalBarEdge != nil
                             )
                         }
                         // 三元表达式得到的是 String,会被当成原文显示;显式包成 LocalizedStringKey。

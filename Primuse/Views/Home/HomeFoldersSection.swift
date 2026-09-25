@@ -541,7 +541,7 @@ struct HomeFolderBrowser: View {
                     Menu {
                         Button("play", systemImage: "play.fill") { playFolder(node.id, shuffle: false) }
                         Button("shuffle", systemImage: "shuffle") { playFolder(node.id, shuffle: true) }
-                    } label: { Label("play", systemImage: "play.circle") }
+                    } label: { PMToolbarItemLabel("play", systemImage: "play.circle", titled: verticalBarEdge != nil) }
                     .disabled(node.descendantSongCount == 0)
                     .accessibilityLabel("play")
                     if FolderPlaylistMenuButton.supports(node), verticalBarEdge == nil {
@@ -552,7 +552,7 @@ struct HomeFolderBrowser: View {
                                 library: library,
                                 source: sourcesStore.source(id: node.sourceID)
                             )
-                        } label: { Label("a11y_more_actions", systemImage: "ellipsis") }
+                        } label: { Image(systemName: "ellipsis") }
                         .accessibilityLabel("a11y_more_actions")
                     }
                 }
