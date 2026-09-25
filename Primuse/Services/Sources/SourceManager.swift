@@ -3442,6 +3442,7 @@ final class SourceManager {
             $0 + ($1?.endpoint == nil ? 0 : 1) + ($1?.kind == .vendorRemote ? 1 : 0) + 1 + roots.count
         })
         var connections: [SourceDiagnosticConnectionResult] = []
+        var routeResults: [(kind: SourceConnectionCandidateKind, isAvailable: Bool)] = []
         var wasCancelled = false
         var lastFailure: (any Error)?
         // A TCP answer is weak evidence on a tunnelled path: a VPN or proxy in
@@ -3630,6 +3631,15 @@ final class SourceManager {
             }
             if wasCancelled || Task.isCancelled { wasCancelled = true; break }
             connections.append(SourceDiagnosticConnectionResult(title: routeTitle, isAvailable: available))
+            if let kind = candidate?.kind { routeResults.append((kind, available)) }
+        }
+        // Every route was just tried end to end. Hand the verdict to the
+        // route memory the playback, scan and folder-picker connectors share,
+        // so the next request does not re-learn it by waiting on a dead LAN.
+        if !wasCancelled, !Task.isCancelled,
+           let verdict = SourceDiagnosedRoutePolicy.verdict(results: routeResults) {
+            await SourceConnectionRuntime.shared.recordDiagnosis(verdict, for: source.id)
+            plog("🧭 Route verdict for \(source.id.prefix(8)): use \(verdict.workingKind.rawValue), LAN failed=\(verdict.localFailed)")
         }
         return SourceDiagnosticReport(
             source: source, startedAt: startedAt, checks: progress.checks,

@@ -4662,3 +4662,5 @@
 "spoken_word_book_speed" = "Tempo für dieses Buch";
 "spoken_word_book_speed_default_format" = "Standard (%@)";
 "stats_spoken_word_time" = "Hörbuchzeit";
+"directory_tag_menu_title" = "Inhalt dieses Ordners";
+"directory_tag_hint" = "Tippe auf das Etikett neben einem ausgewählten Ordner und wähle „Hörbücher“, damit sein Inhalt ins Hörbuchregal statt zur Musik kommt.";

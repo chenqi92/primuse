@@ -4662,3 +4662,5 @@
 "spoken_word_book_speed" = "이 책의 재생 속도";
 "spoken_word_book_speed_default_format" = "기본값(%@)";
 "stats_spoken_word_time" = "오디오북 청취 시간";
+"directory_tag_menu_title" = "이 폴더의 콘텐츠";
+"directory_tag_hint" = "선택한 폴더 옆의 태그를 탭하고 오디오북을 선택하면 그 안의 콘텐츠가 음악이 아닌 오디오북 서가로 들어갑니다.";

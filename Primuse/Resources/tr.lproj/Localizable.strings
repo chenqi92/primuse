@@ -4568,3 +4568,5 @@
 "spoken_word_book_speed" = "Bu kitabın hızı";
 "spoken_word_book_speed_default_format" = "Varsayılan (%@)";
 "stats_spoken_word_time" = "Sesli kitap süresi";
+"directory_tag_menu_title" = "Bu klasördeki içerik";
+"directory_tag_hint" = "Seçili bir klasörün yanındaki etikete dokunup Sesli Kitaplar’ı seçerseniz içindekiler müziğiniz yerine sesli kitap rafına gider.";

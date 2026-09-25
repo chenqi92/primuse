@@ -4663,3 +4663,5 @@
 "spoken_word_book_speed" = "この本の再生速度";
 "spoken_word_book_speed_default_format" = "デフォルト（%@）";
 "stats_spoken_word_time" = "オーディオブック再生時間";
+"directory_tag_menu_title" = "このフォルダの内容";
+"directory_tag_hint" = "選択したフォルダの横のタグをタップして「オーディオブック」を選ぶと、中身がミュージックではなくオーディオブックの棚に入ります。";

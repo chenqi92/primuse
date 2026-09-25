@@ -4568,3 +4568,5 @@
 "spoken_word_book_speed" = "Швидкість для цієї книги";
 "spoken_word_book_speed_default_format" = "Типово (%@)";
 "stats_spoken_word_time" = "Час аудіокниг";
+"directory_tag_menu_title" = "Вміст цієї теки";
+"directory_tag_hint" = "Торкніться мітки біля вибраної теки й виберіть «Аудіокниги», щоб її вміст потрапив на полицю аудіокниг, а не до музики.";

@@ -4662,3 +4662,5 @@
 "spoken_word_book_speed" = "Vitesse pour ce livre";
 "spoken_word_book_speed_default_format" = "Par défaut (%@)";
 "stats_spoken_word_time" = "Temps de livres audio";
+"directory_tag_menu_title" = "Contenu de ce dossier";
+"directory_tag_hint" = "Touchez l’étiquette à côté d’un dossier sélectionné et choisissez Livres audio pour ranger son contenu dans l’étagère des livres audio plutôt qu’avec la musique.";

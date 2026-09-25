@@ -354,3 +354,45 @@ public enum SpokenWordBookGrouping {
         )
     }
 }
+
+/// The spoken-word list on CarPlay: what a driver wants within reach is the
+/// book they are in the middle of, so it comes first, then the rest of the
+/// shelf, then what they have finished — recent listening first, which is
+/// also the listening history.
+public enum SpokenWordCarPlayShelfPolicy {
+    public enum Section: Equatable, Sendable {
+        case continueListening
+        case shelf
+        case finished
+    }
+
+    /// - Parameters:
+    ///   - books: as `SpokenWordBookGrouping.books` returns them.
+    ///   - limit: how many rows the car's list takes in total.
+    public static func sections(
+        from books: [SpokenWordBook],
+        limit: Int
+    ) -> [(section: Section, books: [SpokenWordBook])] {
+        let inProgress = books.filter(\.isInProgress)
+            .sorted { ($0.lastListenedAt ?? .distantPast) > ($1.lastListenedAt ?? .distantPast) }
+        let shelf = books.filter { !$0.isInProgress && !$0.isFinished }
+        let finished = books.filter(\.isFinished)
+            .sorted { ($0.lastListenedAt ?? .distantPast) > ($1.lastListenedAt ?? .distantPast) }
+        var remaining = max(0, limit)
+        var result: [(section: Section, books: [SpokenWordBook])] = []
+        for (section, group) in [(Section.continueListening, inProgress), (.shelf, shelf), (.finished, finished)] {
+            guard remaining > 0, !group.isEmpty else { continue }
+            let taken = Array(group.prefix(remaining))
+            remaining -= taken.count
+            result.append((section, taken))
+        }
+        return result
+    }
+
+    /// Where playing a book starts: the item asked for, else where the
+    /// listener left off, else the first.
+    public static func startItemID(for book: SpokenWordBook, requested: String? = nil) -> String? {
+        if let requested, book.items.contains(where: { $0.id == requested }) { return requested }
+        return book.resumeItemID ?? book.items.first?.id
+    }
+}

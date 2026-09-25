@@ -117,10 +117,11 @@ final class SpokenWordStore {
     // MARK: - Classification
 
     func kind(for song: Song) -> ListeningContentKind {
-        SpokenWordContentPolicy.classify(
+        classificationSnapshot.kind(
+            songID: song.id,
+            sourceID: song.sourceID,
             filePath: song.filePath,
-            genre: song.genre,
-            userOverride: overrides[song.id]
+            genre: song.genre
         )
     }
 
@@ -132,6 +133,90 @@ final class SpokenWordStore {
     /// Snapshot for the library aggregation, which classifies off the main
     /// actor and must not reach back into this object.
     var overrideSnapshot: [String: ListeningContentKind] { overrides }
+
+    /// Per-song corrections plus folder tags, for the library's
+    /// classification pass and for the player, which must agree with it.
+    var classificationSnapshot: SpokenWordClassificationInputs {
+        SpokenWordClassificationInputs(overrides: overrides, folderRules: folderRules)
+    }
+
+    // MARK: - Folder tags
+
+    /// How each source spells its paths, which folder rules need to match
+    /// songs. Kept current by `AppServices` from the source list.
+    @ObservationIgnored private var folderTagSources: [LibraryFolderSourceDescriptor] = []
+    @ObservationIgnored private var cachedFolderRules: (revision: Int, rules: SpokenWordFolderRules)?
+    @ObservationIgnored private var folderTagRefreshTask: Task<Void, Never>?
+
+    private var folderRules: SpokenWordFolderRules {
+        if let cached = cachedFolderRules, cached.revision == revision { return cached.rules }
+        let rules = SpokenWordFolderRules(
+            folders: SpokenWordFolderTag.spokenWordFolders(in: overrides),
+            sources: folderTagSources
+        )
+        cachedFolderRules = (revision, rules)
+        return rules
+    }
+
+    /// Whether `path` of a source is tagged as spoken word.
+    func isSpokenWordFolder(sourceID: String, path: String) -> Bool {
+        overrides[SpokenWordFolderTag.overrideKey(sourceID: sourceID, path: path)] == .spokenWord
+    }
+
+    /// Tags (or untags) a scanned folder. The library is reclassified shortly
+    /// after, once for a burst of changes.
+    func setSpokenWordFolder(_ isSpokenWord: Bool, sourceID: String, path: String) {
+        let key = SpokenWordFolderTag.overrideKey(sourceID: sourceID, path: path)
+        let kind: ListeningContentKind? = isSpokenWord ? .spokenWord : nil
+        guard overrides[key] != kind else { return }
+        overrides[key] = kind
+        ledger.overrideChangedAt[key] = Date()
+        didChange(cloud: .prompt)
+        scheduleFolderTagReclassification()
+    }
+
+    /// Takes the current source list: path spelling for the rules, and tags
+    /// on folders a source no longer scans are dropped, so a tag never keeps
+    /// acting through a folder that was deselected. A source whose folders
+    /// are still being chosen (none saved yet) keeps its tags.
+    func updateFolderTagSources(_ sources: [MusicSource]) {
+        let descriptors = sources.filter { !$0.isDeleted }.map(LibraryFolderSourceDescriptor.init(source:))
+        let scanned = Dictionary(
+            sources.map { ($0.id, Set($0.scannedDirectories)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var removed = false
+        let now = Date()
+        for key in overrides.keys where SpokenWordFolderTag.isFolderKey(key) {
+            guard let tag = SpokenWordFolderTag.parse(overrideKey: key),
+                  let directories = scanned[tag.sourceID],
+                  !directories.isEmpty,
+                  !directories.contains(tag.path) else { continue }
+            overrides.removeValue(forKey: key)
+            ledger.overrideChangedAt[key] = now
+            removed = true
+        }
+        let descriptorsChanged = descriptors != folderTagSources
+        folderTagSources = descriptors
+        if removed {
+            didChange(cloud: .prompt)
+        } else if descriptorsChanged {
+            cachedFolderRules = nil
+        }
+        let hasTags = overrides.keys.contains(where: SpokenWordFolderTag.isFolderKey)
+        if removed || (descriptorsChanged && hasTags) {
+            scheduleFolderTagReclassification()
+        }
+    }
+
+    private func scheduleFolderTagReclassification() {
+        folderTagRefreshTask?.cancel()
+        folderTagRefreshTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            NotificationCenter.default.post(name: .primuseSpokenWordClassificationDidChange, object: nil)
+        }
+    }
 
     /// Applies an explicit kind to whole selections (a song, an album, a
     /// folder). Passing nil returns those songs to inference.
@@ -320,7 +405,11 @@ final class SpokenWordStore {
     /// entry is harmless.
     func pruneMissingSongs(existingIDs: Set<String>) {
         let stale = positions.keys.filter { !existingIDs.contains($0) }
-        let staleOverrides = overrides.keys.filter { !existingIDs.contains($0) }
+        // Folder tags are not songs; they go with their folder instead
+        // (`updateFolderTagSources`).
+        let staleOverrides = overrides.keys.filter {
+            !existingIDs.contains($0) && !SpokenWordFolderTag.isFolderKey($0)
+        }
         let staleBookmarks = bookmarks.keys.filter { !existingIDs.contains($0) }
         let staleFinished = finishedAt.keys.filter { !existingIDs.contains($0) }
         guard !stale.isEmpty || !staleOverrides.isEmpty

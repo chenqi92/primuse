@@ -316,6 +316,7 @@ final class CarPlaySceneDelegate: UIResponder {
     private let folderLibraryOwner = UUID()
     private var connectionGeneration = 0
     private var likeChangesObserver: NSObjectProtocol?
+    private var spokenWordChangesObserver: NSObjectProtocol?
 
     private var layout: CarPlayLayoutConfiguration { CarPlaySettingsStore.shared.configuration }
 }
@@ -401,6 +402,7 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
         observeLibraryChanges(generation: generation)
         observePlayerState(generation: generation)
         observeLikeChanges()
+        observeSpokenWordChanges(generation: generation)
         observeLayoutChanges(generation: generation)
         carplayLog.notice("📱 CarPlay scene fully initialized ✅")
     }
@@ -455,6 +457,8 @@ extension CarPlaySceneDelegate: CPTemplateApplicationSceneDelegate {
             self.lastPlayerState = nil
             if let observer = self.likeChangesObserver { NotificationCenter.default.removeObserver(observer) }
             self.likeChangesObserver = nil
+            if let observer = self.spokenWordChangesObserver { NotificationCenter.default.removeObserver(observer) }
+            self.spokenWordChangesObserver = nil
         }
     }
 }
@@ -856,7 +860,7 @@ extension CarPlaySceneDelegate {
 
 extension CarPlaySceneDelegate {
     fileprivate enum BrowseContext: Sendable {
-        case songs, albums, artists, playlists, radio
+        case songs, albums, artists, playlists, radio, spokenWord
     }
 
     typealias CollectionArtwork = CarPlayContentArtwork
@@ -935,6 +939,18 @@ extension CarPlaySceneDelegate {
             CollectionEntry(title: String(localized: "carplay_artists_title"), symbol: "music.mic") { [weak self] in
                 self?.pushBrowse(.artists, title: String(localized: "carplay_artists_title"))
             },
+        ]
+        // Books have their own list, offered once there are any: the music
+        // lists above leave them out.
+        let spokenWord: [CollectionEntry] = AppServices.shared.musicLibrary.spokenWordSongs.isEmpty ? [] : [
+            CollectionEntry(
+                title: String(localized: "listening_space_spoken_word"),
+                symbol: CarPlayMainTab.Kind.spokenWord.symbol
+            ) { [weak self] in
+                self?.pushBrowse(.spokenWord, title: String(localized: "listening_space_spoken_word"))
+            },
+        ]
+        let trailing: [CollectionEntry] = [
             CollectionEntry(title: String(localized: "radio_title"), symbol: "radio") { [weak self] in
                 guard let self else { return }
                 self.safePush(self.makeRadioTemplate(), label: "Radio")
@@ -943,7 +959,7 @@ extension CarPlaySceneDelegate {
                 self?.pushSearchTemplate()
             }
         ]
-        return collectionSections(entries, style: .list)
+        return collectionSections(entries + spokenWord + trailing, style: .list)
     }
 
     private func pushBrowse(_ context: BrowseContext, title: String) {
@@ -960,6 +976,7 @@ extension CarPlaySceneDelegate {
         case .artists: artistsSections()
         case .playlists: playlistsSections(browseOnly: true)
         case .radio: [radioStationsSection()]
+        case .spokenWord: spokenWordSections()
         }
     }
 
@@ -1275,8 +1292,19 @@ extension CarPlaySceneDelegate {
             presentPlayFailureAlert(songTitle: title)
             return
         }
+        // A folder of chapters plays in order: the player keeps books out of
+        // shuffle, but only for a queue that is not already scrambled.
+        if Self.isSpokenWordOnly(playable) {
+            play(queue: playable, startAt: 0)
+            return
+        }
         AppServices.shared.playerService.shuffleEnabled = shuffled
         play(queue: shuffled ? playable.shuffled() : playable, startAt: 0)
+    }
+
+    private static func isSpokenWordOnly(_ songs: [Song]) -> Bool {
+        let spokenWordIDs = AppServices.shared.musicLibrary.spokenWordSongIDs
+        return !songs.isEmpty && !spokenWordIDs.isEmpty && songs.allSatisfy { spokenWordIDs.contains($0.id) }
     }
 
     private func showExistingNowPlaying() {
@@ -1545,7 +1573,12 @@ extension CarPlaySceneDelegate {
     }
 
     private func artistDetailSection(artistID: String) -> CPListSection {
-        let songs = AppServices.shared.musicLibrary.songs(forArtist: artistID)
+        // An artist who also records 相声 or reads books: the music lists
+        // hold the music, and the books have their own list.
+        let library = AppServices.shared.musicLibrary
+        let spokenWordIDs = library.spokenWordSongIDs
+        let songs = library.songs(forArtist: artistID)
+            .filter { !spokenWordIDs.contains($0.id) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         let items = songs.prefix(max(0, CPListTemplate.maximumItemCount - 2)).enumerated().map { idx, song in
             songItem(song, queueProvider: { (songs, idx) }, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: idx))
@@ -1555,7 +1588,9 @@ extension CarPlaySceneDelegate {
 
     private func collectionPlaybackItems(_ songs: [Song]) -> [CPListItem] {
         guard !songs.isEmpty else { return [] }
-        return [false, true].map { shuffled in
+        // Chapters have no "shuffle all".
+        let modes = Self.isSpokenWordOnly(songs) ? [false] : [false, true]
+        return modes.map { shuffled in
             let title = shuffled ? String(localized: "carplay_shuffle_all") : String(localized: "carplay_play_all")
             return collectionItem(CollectionEntry(title: title, symbol: shuffled ? "shuffle" : "play.fill") { [weak self] in
                 self?.playCollection(songs, title: title, shuffled: shuffled)
@@ -1580,6 +1615,90 @@ extension CarPlaySceneDelegate {
         case .folder(let id):
             updateFolderTemplate(listTemplate, nodeID: id)
         }
+    }
+}
+
+// MARK: - Spoken word
+
+extension CarPlaySceneDelegate {
+    /// Books on CarPlay: the one being listened to first, each row showing
+    /// how far along it is. A tap carries on where it was left, chapter and
+    /// position, and the book plays as the queue in reading order — there
+    /// is deliberately no shuffle here.
+    fileprivate func spokenWordSections() -> [CPListSection] {
+        let library = AppServices.shared.musicLibrary
+        let store = SpokenWordStore.shared
+        let spoken = library.spokenWordSongs
+        guard !spoken.isEmpty else { return [] }
+        let songsByID = Dictionary(spoken.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let books = SpokenWordBookGrouping.books(
+            from: spoken.map { SpokenWordBookSupport.item(for: $0, store: store) }
+        )
+        let currentBookID = AppServices.shared.playerService.currentBookID
+        var artworkIndex = 0
+        return SpokenWordCarPlayShelfPolicy.sections(
+            from: books,
+            limit: CPListTemplate.maximumItemCount
+        ).map { section, books in
+            let items = books.map { book -> CPListItem in
+                let songs = book.items.compactMap { songsByID[$0.id] }
+                defer { artworkIndex += 1 }
+                return spokenWordBookItem(
+                    book,
+                    songs: songs,
+                    isCurrent: book.id == currentBookID,
+                    loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: artworkIndex)
+                )
+            }
+            let header: String
+            switch section {
+            case .continueListening: header = String(localized: "spoken_word_continue_section")
+            case .shelf: header = String(localized: "spoken_word_shelf_section")
+            case .finished: header = String(localized: "spoken_word_finished")
+            }
+            return CPListSection(items: items, header: header, sectionIndexTitle: nil)
+        }
+    }
+
+    private func spokenWordBookItem(
+        _ book: SpokenWordBook,
+        songs: [Song],
+        isCurrent: Bool,
+        loadsArtwork: Bool
+    ) -> CPListItem {
+        var details: [String] = []
+        if book.isInProgress, let remaining = book.remainingDuration, remaining > 0 {
+            details.append(String(
+                format: String(localized: "spoken_word_remaining_format"),
+                ChapterTimeFormatter.string(from: remaining)
+            ))
+            if let position = SpokenWordBookSupport.chapterPosition(book) { details.append(position) }
+        } else {
+            let subtitle = SpokenWordBookSupport.subtitle(book)
+            if !subtitle.isEmpty { details.append(subtitle) }
+        }
+        let item = CPListItem(
+            text: book.title,
+            detailText: details.isEmpty ? nil : details.joined(separator: " · "),
+            image: CarPlayTemplateImages.placeholder(CarPlayMainTab.Kind.spokenWord.symbol)
+        )
+        if book.isInProgress || book.isFinished {
+            item.playbackProgress = CGFloat(book.fractionComplete)
+        }
+        if isCurrent {
+            item.isPlaying = AppServices.shared.playerService.isPlaying
+            item.playingIndicatorLocation = .leading
+        }
+        if loadsArtwork, let cover = songs.first { loadArtwork(for: cover, into: item) }
+        item.handler = { [weak self] _, completion in
+            Task { @MainActor in
+                if let index = SpokenWordBookSupport.prepareStart(of: book, songs: songs, from: nil) {
+                    self?.play(queue: songs, startAt: index)
+                }
+                completion()
+            }
+        }
+        return item
     }
 }
 
@@ -1879,7 +1998,19 @@ extension CarPlaySceneDelegate {
         }
 
         // 直播流不入库,没有"喜欢"可言 —— 上面的 guard 已经挡掉了。
-        var buttons = layout.minimalNowPlaying ? [] : [shuffleButton, repeatButton]
+        // 听书不随机也不循环, 换成语速 (只有效果模式能变速)。
+        var buttons: [CPNowPlayingButton]
+        if layout.minimalNowPlaying {
+            buttons = []
+        } else if player.currentItemIsSpokenWord {
+            buttons = player.playbackSettings.outputMode == .effects
+                ? [CPNowPlayingPlaybackRateButton { [weak self] _ in
+                    Task { @MainActor in self?.cycleSpokenWordRate() }
+                }]
+                : []
+        } else {
+            buttons = [shuffleButton, repeatButton]
+        }
         if let songID = player.currentSong?.id, !layout.minimalNowPlaying {
             let liked = AppServices.shared.musicLibrary.isLiked(songID: songID)
             let likeButton = CPNowPlayingImageButton(
@@ -1903,6 +2034,15 @@ extension CarPlaySceneDelegate {
 
     private func toggleShuffle() {
         AppServices.shared.playerService.shuffleEnabled.toggle()
+    }
+
+    /// The car's rate button steps through the same speeds as the book page.
+    private func cycleSpokenWordRate() {
+        let player = AppServices.shared.playerService
+        let presets = SpokenWordPlaybackRatePolicy.presets
+        let current = player.requestedPlaybackRate(for: player.currentSong)
+        let next = presets.first { $0 > current + 0.01 } ?? presets.first ?? 1
+        player.setSpokenWordRateForCurrentBook(next)
     }
 
     /// 喜欢当前曲目。改完库以后要立刻重绘按钮 —— `playlistSongIDs` 是
@@ -2006,6 +2146,37 @@ extension CarPlaySceneDelegate {
     /// 心形按钮的状态来自 `MusicLibrary.isLiked`, 底层是 private 的
     /// `playlistSongIDs` —— `withObservationTracking` 看不见它。所以改从
     /// 歌单变更通知走: 在手机上、小组件上点喜欢时, 车机的心也要跟着变。
+    /// Positions are stored every 15 seconds while a book plays, and a
+    /// chapter can be finished or an item reclassified. Only a spoken-word
+    /// list on screen is rebuilt; elsewhere it is marked stale.
+    private func observeSpokenWordChanges(generation: Int) {
+        spokenWordChangesObserver = NotificationCenter.default.addObserver(
+            forName: .primuseSpokenWordDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.interfaceController != nil, self.connectionGeneration == generation else { return }
+                self.refreshSpokenWordListsIfVisible()
+            }
+        }
+    }
+
+    private func refreshSpokenWordListsIfVisible() {
+        let spokenRoots = configuredTabs.filter { $0.kind == .spokenWord }.compactMap { menuTemplates[$0.id] }
+        let top = interfaceController?.topTemplate as? CPListTemplate
+        if let top, case .browse(.spokenWord)? = top.userInfo as? DetailContext {
+            top.updateSections(spokenWordSections())
+        }
+        for root in spokenRoots {
+            if interfaceController?.templates.count == 1, tabBarTemplate?.selectedTemplate === root {
+                rebuildRootTemplate(root)
+            } else {
+                staleRootTemplates.insert(ObjectIdentifier(root))
+            }
+        }
+    }
+
     private func observeLikeChanges() {
         likeChangesObserver = NotificationCenter.default.addObserver(
             forName: .primusePlaylistsDidChange,
@@ -2199,6 +2370,7 @@ extension CarPlaySceneDelegate {
         case .albums: template.updateSections(albumsSections())
         case .artists: template.updateSections(artistsSections())
         case .search: template.updateSections(searchSections())
+        case .spokenWord: template.updateSections(spokenWordSections())
         case .folders:
             if case .folder(let id) = template.userInfo as? DetailContext { updateFolderTemplate(template, nodeID: id) }
             else { updateFolderTemplate(template, nodeID: nil) }

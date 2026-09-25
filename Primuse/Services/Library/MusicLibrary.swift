@@ -3653,7 +3653,7 @@ final class MusicLibrary {
             artists: artists,
             artistNameConfiguration: artistNameConfiguration,
             disabledSourceIDs: disabledSourceIDs,
-            spokenWordOverrides: SpokenWordStore.shared.overrideSnapshot,
+            spokenWordClassification: SpokenWordStore.shared.classificationSnapshot,
             previousVisibleSongs: visibleSongs
         )
         applyPreparedVisibleCache(prepared)
@@ -3764,7 +3764,7 @@ final class MusicLibrary {
         artists: [Artist],
         artistNameConfiguration: ArtistNameConfiguration,
         disabledSourceIDs: Set<String>,
-        spokenWordOverrides: [String: ListeningContentKind] = [:],
+        spokenWordClassification: SpokenWordClassificationInputs = .empty,
         previousVisibleSongs: [Song]
     ) -> PreparedVisibleCache {
         let nextVisibleSongs = disabledSourceIDs.isEmpty
@@ -3773,7 +3773,7 @@ final class MusicLibrary {
         let lookups = makeVisibleLookups(
             songs: nextVisibleSongs,
             artistNameConfiguration: artistNameConfiguration,
-            spokenWordOverrides: spokenWordOverrides
+            spokenWordClassification: spokenWordClassification
         )
         // An audiobook or a 200-episode 评书 series would otherwise flood the
         // album and artist grids it has nothing to do with. `visibleSongs`
@@ -3851,7 +3851,7 @@ final class MusicLibrary {
     private nonisolated static func makeVisibleLookups(
         songs: [Song],
         artistNameConfiguration: ArtistNameConfiguration,
-        spokenWordOverrides: [String: ListeningContentKind]
+        spokenWordClassification: SpokenWordClassificationInputs
     ) -> (
         indexByID: [String: Int],
         songByID: [String: Song],
@@ -3878,10 +3878,11 @@ final class MusicLibrary {
         for (index, song) in songs.enumerated() {
             indexByID[song.id] = index
             if songByID[song.id] == nil { songByID[song.id] = song }
-            let isSpokenWord = SpokenWordContentPolicy.classify(
+            let isSpokenWord = spokenWordClassification.kind(
+                songID: song.id,
+                sourceID: song.sourceID,
                 filePath: song.filePath,
-                genre: song.genre,
-                userOverride: spokenWordOverrides[song.id]
+                genre: song.genre
             ) == .spokenWord
             if isSpokenWord { spokenWordSongIDs.insert(song.id) }
             let artistIDs = resolvedArtistIDs(
@@ -9240,7 +9241,7 @@ final class MusicLibrary {
         let songs: [Song]
         let artistNameConfiguration: ArtistNameConfiguration
         let disabledSourceIDs: Set<String>
-        let spokenWordOverrides: [String: ListeningContentKind]
+        let spokenWordClassification: SpokenWordClassificationInputs
         let previousVisibleSongs: [Song]
     }
 
@@ -9365,7 +9366,7 @@ final class MusicLibrary {
             songs: songs,
             artistNameConfiguration: artistNameConfiguration,
             disabledSourceIDs: disabledSourceIDs,
-            spokenWordOverrides: SpokenWordStore.shared.overrideSnapshot,
+            spokenWordClassification: SpokenWordStore.shared.classificationSnapshot,
             previousVisibleSongs: visibleSongs
         )
 
@@ -9415,7 +9416,7 @@ final class MusicLibrary {
                         artists: result.artists,
                         artistNameConfiguration: request.artistNameConfiguration,
                         disabledSourceIDs: request.disabledSourceIDs,
-                        spokenWordOverrides: request.spokenWordOverrides,
+                        spokenWordClassification: request.spokenWordClassification,
                         previousVisibleSongs: request.previousVisibleSongs
                     )
                     if !Task.isCancelled {
@@ -9659,7 +9660,7 @@ final class MusicLibrary {
         /// Empty during the startup snapshot: the corrections live in a
         /// main-actor store that is not up yet. Inference still classifies
         /// every row, and the first main-actor rebuild applies them.
-        var spokenWordOverrides: [String: ListeningContentKind] = [:]
+        var spokenWordClassification: SpokenWordClassificationInputs = .empty
         let songStoreSnapshotWriter: @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64
         var songs: [Song] = []
         var albums: [Album] = []
@@ -9755,7 +9756,7 @@ final class MusicLibrary {
                 songs: songs, albums: albums, artists: artists,
                 artistNameConfiguration: artistNameConfiguration,
                 disabledSourceIDs: disabledSourceIDs,
-                spokenWordOverrides: spokenWordOverrides,
+                spokenWordClassification: spokenWordClassification,
                 previousVisibleSongs: previousVisibleSongs
             )
         }

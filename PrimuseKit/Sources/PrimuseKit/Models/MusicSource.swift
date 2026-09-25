@@ -1266,6 +1266,27 @@ public actor SourceConnectionRuntime {
         }
     }
 
+    /// How long a connection check's "the private route does not work here"
+    /// holds. The check tried every route end to end, which is far stronger
+    /// evidence than one timed-out probe; without it, the folder picker opened
+    /// right afterwards waited out the dead LAN address all over again. A
+    /// network change still clears it at once.
+    public static let diagnosedLocalFailureHold: TimeInterval = 5 * 60
+
+    /// Takes over what a connection check (`SourceDiagnosedRoutePolicy`)
+    /// learned: the route that worked becomes the active one, and a private
+    /// route that failed is only a last resort for `diagnosedLocalFailureHold`.
+    public func recordDiagnosis(_ verdict: SourceDiagnosedRouteVerdict, for sourceID: String, now: Date = Date()) {
+        if verdict.workingKind == .localAddress {
+            record(.localAddress, for: sourceID)
+            return
+        }
+        activeKinds[sourceID] = verdict.workingKind
+        guard verdict.localFailed else { return }
+        let until = now.addingTimeInterval(Self.diagnosedLocalFailureHold)
+        localHandshakeBackoffUntil[sourceID] = max(localHandshakeBackoffUntil[sourceID] ?? until, until)
+    }
+
     /// The private route answered (or seemed to answer) TCP but its protocol
     /// handshake timed out, dropped or failed TLS while an alternative route
     /// exists. Callers only report this when the source has an alternative;

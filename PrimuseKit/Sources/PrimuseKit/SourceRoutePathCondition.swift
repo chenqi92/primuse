@@ -324,3 +324,34 @@ public extension SourceNetworkPathFingerprint {
         }
     }
 }
+
+/// What a connection check found out about routing, in the terms the route
+/// memory keeps.
+public struct SourceDiagnosedRouteVerdict: Equatable, Sendable {
+    public var workingKind: SourceConnectionCandidateKind
+    public var localFailed: Bool
+
+    public init(workingKind: SourceConnectionCandidateKind, localFailed: Bool) {
+        self.workingKind = workingKind
+        self.localFailed = localFailed
+    }
+}
+
+public enum SourceDiagnosedRoutePolicy {
+    /// - Parameter results: each route the check tried, in the order tried,
+    ///   and whether it got all the way through (reachable, signed in, listed).
+    /// - Returns: nil when no route worked, or the check did not decide
+    ///   anything between routes — a source with only one route keeps its
+    ///   usual behaviour.
+    public static func verdict(
+        results: [(kind: SourceConnectionCandidateKind, isAvailable: Bool)]
+    ) -> SourceDiagnosedRouteVerdict? {
+        guard results.count > 1 else { return nil }
+        let localFailed = results.contains { $0.kind == .localAddress && !$0.isAvailable }
+        if results.contains(where: { $0.kind == .localAddress && $0.isAvailable }) {
+            return SourceDiagnosedRouteVerdict(workingKind: .localAddress, localFailed: false)
+        }
+        guard let working = results.first(where: \.isAvailable) else { return nil }
+        return SourceDiagnosedRouteVerdict(workingKind: working.kind, localFailed: localFailed)
+    }
+}

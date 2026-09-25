@@ -4568,3 +4568,5 @@
 "spoken_word_book_speed" = "इस पुस्तक की गति";
 "spoken_word_book_speed_default_format" = "डिफ़ॉल्ट (%@)";
 "stats_spoken_word_time" = "ऑडियोबुक समय";
+"directory_tag_menu_title" = "इस फ़ोल्डर में क्या है";
+"directory_tag_hint" = "चुने गए फ़ोल्डर के पास वाले टैग पर टैप करके ऑडियोबुक चुनें, ताकि उसकी सामग्री संगीत की बजाय ऑडियोबुक शेल्फ़ में जाए।";

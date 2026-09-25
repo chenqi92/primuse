@@ -92,7 +92,8 @@ private struct NFSDirectoryBrowserView: View {
             rootPath: initialPath,
             selectableRootPath: initialPath == "/" ? nil : initialPath,
             failureSource: source,
-            onEditAddress: onEditAddress
+            onEditAddress: onEditAddress,
+            tagSource: source
         )
         #else
         iosBody
@@ -157,7 +158,17 @@ private struct NFSDirectoryBrowserView: View {
 
                 BrowserBottomBar(
                     selectedCount: selectedDirectories.count,
-                    idleIcon: "music.note.list"
+                    idleIcon: "music.note.list",
+                    chips: selectedDirectories.map { path in
+                        BrowserSelectionChip(
+                            id: path,
+                            title: (path as NSString).lastPathComponent,
+                            isSpokenWord: DirectoryFolderTag.forFolder(path: path, of: source)?.isSpokenWord == true
+                        )
+                    },
+                    onRemove: { path in
+                        pmWithAnimation(.list) { selectedDirectories.removeAll { $0 == path } }
+                    }
                 ) {
                     pmWithAnimation(.list) { selectedDirectories.removeAll() }
                 }
@@ -199,7 +210,8 @@ private struct NFSDirectoryBrowserView: View {
                         icon: "folder.fill",
                         iconColor: .orange,
                         isNavigable: false,
-                        selectedDirectories: $selectedDirectories
+                        selectedDirectories: $selectedDirectories,
+                        folderTag: DirectoryFolderTag.forFolder(path: currentPath, of: source)
                     )
                 }
 
@@ -212,7 +224,8 @@ private struct NFSDirectoryBrowserView: View {
                         iconColor: currentPath == "/" ? .accentColor : .blue,
                         isNavigable: true,
                         selectedDirectories: $selectedDirectories,
-                        onNavigate: { enterDirectory(item) }
+                        onNavigate: { enterDirectory(item) },
+                        folderTag: DirectoryFolderTag.forFolder(path: item.path, of: source)
                     )
                 }
             }

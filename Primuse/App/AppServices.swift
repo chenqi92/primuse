@@ -1070,6 +1070,9 @@ final class AppServices {
 
         loadPendingSourceCloudCleanups()
         observeSourceLifecycle()
+        // Folder tags need to know how each source spells its paths before
+        // the first classification that uses them.
+        SpokenWordStore.shared.updateFolderTagSources(sourcesStore.allSources)
         observeApplicationActivity()
 
         wireIntentBridge()
@@ -1342,6 +1345,7 @@ final class AppServices {
                 MainActor.assumeIsolated {
                     self.reconcileDisabledSourceIDs()
                     self.serverRatingSync.resume()
+                    SpokenWordStore.shared.updateFolderTagSources(self.sourcesStore.allSources)
                 }
             }
         )
