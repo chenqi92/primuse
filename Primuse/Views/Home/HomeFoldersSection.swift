@@ -329,6 +329,8 @@ struct HomeFolderBrowser: View {
     var showsInlineBack = false
     #if os(iOS)
     @Environment(\.usesTopTabsShell) private var usesTopTabsShell
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:「⋯」的内容并进系统溢出菜单。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(\.editMode) private var editMode
     @Environment(\.legacyBottomChromeOverlayActive)
     private var legacyBottomChromeOverlayActive
@@ -539,10 +541,10 @@ struct HomeFolderBrowser: View {
                     Menu {
                         Button("play", systemImage: "play.fill") { playFolder(node.id, shuffle: false) }
                         Button("shuffle", systemImage: "shuffle") { playFolder(node.id, shuffle: true) }
-                    } label: { Image(systemName: "play.circle") }
+                    } label: { Label("play", systemImage: "play.circle") }
                     .disabled(node.descendantSongCount == 0)
                     .accessibilityLabel("play")
-                    if FolderPlaylistMenuButton.supports(node) {
+                    if FolderPlaylistMenuButton.supports(node), verticalBarEdge == nil {
                         Menu {
                             FolderPlaylistMenuButton(
                                 node: node,
@@ -550,8 +552,21 @@ struct HomeFolderBrowser: View {
                                 library: library,
                                 source: sourcesStore.source(id: node.sourceID)
                             )
-                        } label: { Image(systemName: "ellipsis") }
+                        } label: { Label("a11y_more_actions", systemImage: "ellipsis") }
                         .accessibilityLabel("a11y_more_actions")
+                    }
+                }
+                // 系统竖栏(iPhone Duo):「⋯」里的动作并进系统溢出菜单。
+                if verticalBarEdge != nil, FolderPlaylistMenuButton.supports(node) {
+                    if #available(iOS 27.0, *) {
+                        ToolbarOverflowMenu {
+                            FolderPlaylistMenuButton(
+                                node: node,
+                                index: model.index,
+                                library: library,
+                                source: sourcesStore.source(id: node.sourceID)
+                            )
+                        }
                     }
                 }
             }

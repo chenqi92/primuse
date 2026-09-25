@@ -14,6 +14,8 @@ struct RadioStationsView: View {
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.skin) private var skin
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:整理菜单并进系统溢出菜单。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @State private var editingStation: RadioStation?
     @State private var showingNewStation = false
     @State private var showingBatchAdd = false
@@ -459,75 +461,32 @@ struct RadioStationsView: View {
             // 批量操作收进右上角菜单 —— 这个页面是 push 进 tab 里的，底部已经
             // 被系统 tab bar 和 mini player accessory 占满，任何自绘的底部条
             // 都会被盖住(mini player 是 zIndex overlay，不贡献安全区)。
+            #if os(iOS)
+            if verticalBarEdge != nil {
+                // 系统竖栏(iPhone Duo):批量操作并进系统溢出菜单,不再自己套一层「⋯」。
+                if #available(iOS 27.0, *) {
+                    ToolbarOverflowMenu {
+                        radioManageMenuItems
+                    }
+                }
+            } else {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        radioManageMenuItems
+                    } label: {
+                        Label("radio_manage", systemImage: "ellipsis.circle")
+                    }
+                }
+            }
+            #else
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    // 批量操作里用得最多的三件事排成一行。这三个键在任何选中
-                    // 状态下都在，只是会变灰，所以这一行不会塌成一个键。
-                    PMMenuQuickActions {
-                        let allSelected = selection == visibleStationIDs
-                        PMMenuQuickActionButton(
-                            shortKey: allSelected ? "deselect_all_short" : "select_all_short",
-                            fullKey: allSelected ? "radio_manage_deselect_all" : "select_all",
-                            systemImage: allSelected ? "circle" : "checkmark.circle"
-                        ) {
-                            selection = allSelected ? [] : visibleStationIDs
-                        }
-                        .disabled(visibleStationIDs.isEmpty)
-
-                        PMMenuQuickActionButton(
-                            shortKey: "radio_manage_pin_top_short",
-                            fullKey: "radio_manage_pin_top",
-                            systemImage: "arrow.up.to.line"
-                        ) {
-                            moveToTop(selection)
-                        }
-                        .disabled(selectedStations.isEmpty)
-
-                        Button {
-                            exportSelected()
-                        } label: {
-                            Label("radio_manage_export", systemImage: "square.and.arrow.up")
-                        }
-                        .disabled(selectedStations.isEmpty)
-                    }
-
-                    Section {
-                        Menu {
-                            folderAssignmentActions(for: selectedIDs)
-                        } label: {
-                            Label("radio_folder_move", systemImage: "folder")
-                        }
-                        .disabled(selectedIDs.isEmpty)
-
-                        Menu {
-                            tagAssignmentActions(for: selectedIDs)
-                        } label: {
-                            Label("radio_tags", systemImage: "tag")
-                        }
-                        .disabled(selectedIDs.isEmpty)
-
-                        Button {
-                            guard let station = selectedStations.first else { return }
-                            editingStation = station
-                        } label: {
-                            Label("edit", systemImage: "pencil")
-                        }
-                        // 编辑是单条操作，多选时没有明确目标。
-                        .disabled(selectedStations.count != 1)
-                    }
-
-                    Section {
-                        Button(role: .destructive) {
-                            showDeleteConfirm = true
-                        } label: {
-                            Label("delete", systemImage: "trash")
-                        }
-                        .disabled(selectedStations.isEmpty)
-                    }
+                    radioManageMenuItems
                 } label: {
                     Label("radio_manage", systemImage: "ellipsis.circle")
                 }
             }
+            #endif
         } else {
             ToolbarItemGroup(placement: .primaryAction) {
                 if !store.stations.isEmpty {
@@ -543,7 +502,7 @@ struct RadioStationsView: View {
                 Button {
                     layoutModeRaw = alternateLayoutMode.rawValue
                 } label: {
-                    Image(systemName: alternateLayoutMode.icon)
+                    Label(String(localized: alternateLayoutMode.titleKey), systemImage: alternateLayoutMode.icon)
                 }
                 .accessibilityLabel(Text(String(localized: alternateLayoutMode.titleKey)))
                 .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
@@ -551,6 +510,74 @@ struct RadioStationsView: View {
 
                 radioAddMenu
             }
+        }
+    }
+
+    /// 整理状态下的批量操作(全选、置顶、导出、移到文件夹、标签、编辑、删除)。
+    @ViewBuilder
+    private var radioManageMenuItems: some View {
+        // 批量操作里用得最多的三件事排成一行。这三个键在任何选中
+        // 状态下都在，只是会变灰，所以这一行不会塌成一个键。
+        PMMenuQuickActions {
+            let allSelected = selection == visibleStationIDs
+            PMMenuQuickActionButton(
+                shortKey: allSelected ? "deselect_all_short" : "select_all_short",
+                fullKey: allSelected ? "radio_manage_deselect_all" : "select_all",
+                systemImage: allSelected ? "circle" : "checkmark.circle"
+            ) {
+                selection = allSelected ? [] : visibleStationIDs
+            }
+            .disabled(visibleStationIDs.isEmpty)
+
+            PMMenuQuickActionButton(
+                shortKey: "radio_manage_pin_top_short",
+                fullKey: "radio_manage_pin_top",
+                systemImage: "arrow.up.to.line"
+            ) {
+                moveToTop(selection)
+            }
+            .disabled(selectedStations.isEmpty)
+
+            Button {
+                exportSelected()
+            } label: {
+                Label("radio_manage_export", systemImage: "square.and.arrow.up")
+            }
+            .disabled(selectedStations.isEmpty)
+        }
+
+        Section {
+            Menu {
+                folderAssignmentActions(for: selectedIDs)
+            } label: {
+                Label("radio_folder_move", systemImage: "folder")
+            }
+            .disabled(selectedIDs.isEmpty)
+
+            Menu {
+                tagAssignmentActions(for: selectedIDs)
+            } label: {
+                Label("radio_tags", systemImage: "tag")
+            }
+            .disabled(selectedIDs.isEmpty)
+
+            Button {
+                guard let station = selectedStations.first else { return }
+                editingStation = station
+            } label: {
+                Label("edit", systemImage: "pencil")
+            }
+            // 编辑是单条操作，多选时没有明确目标。
+            .disabled(selectedStations.count != 1)
+        }
+
+        Section {
+            Button(role: .destructive) {
+                showDeleteConfirm = true
+            } label: {
+                Label("delete", systemImage: "trash")
+            }
+            .disabled(selectedStations.isEmpty)
         }
     }
 

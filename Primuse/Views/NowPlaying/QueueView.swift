@@ -39,10 +39,14 @@ struct QueueView: View {
             Button {
                 player.shuffleEnabled.toggle()
             } label: {
-                Image(systemName: "shuffle")
-                    .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
-                    // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
-                    .symbolEffect(.bounce, value: isOn)
+                Label {
+                    Text("a11y_shuffle")
+                } icon: {
+                    Image(systemName: "shuffle")
+                        .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+                        // 导航栏条目里只用系统修饰符, 不碰任何会读环境的封装。
+                        .symbolEffect(.bounce, value: isOn)
+                }
             }
             .disabled(player.queueCount < 2)
             .accessibilityLabel(Text("a11y_shuffle"))
@@ -59,9 +63,13 @@ struct QueueView: View {
                     case .one: player.repeatMode = .off
                     }
                 } label: {
-                    Image(systemName: mode == .one ? "repeat.1" : "repeat")
-                        .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
-                        .contentTransition(.symbolEffect(.replace))
+                    Label {
+                        Text("a11y_repeat")
+                    } icon: {
+                        Image(systemName: mode == .one ? "repeat.1" : "repeat")
+                            .foregroundStyle(mode == .off ? Color.secondary : Color.accentColor)
+                            .contentTransition(.symbolEffect(.replace))
+                    }
                 }
                 .accessibilityLabel(Text("a11y_repeat"))
                 .accessibilityValue(Text(mode == .off ? "a11y_value_off" : "a11y_value_on"))

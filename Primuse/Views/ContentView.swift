@@ -496,7 +496,7 @@ private struct MinimalNavigationRootModifier: ViewModifier {
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(action: close) {
-                                Image(systemName: "chevron.backward")
+                                Label("minimal_utility_back", systemImage: "chevron.backward")
                             }
                             .accessibilityLabel(Text("minimal_utility_back"))
                             .accessibilityIdentifier("topTabs.utilityBack")

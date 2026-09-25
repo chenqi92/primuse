@@ -13,6 +13,8 @@ struct ArtistDetailView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(MetadataBackfillService.self) private var backfill
     @Environment(\.skin) private var skin
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:「⋯」的内容并进系统溢出菜单。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if os(iOS)
     @Environment(\.legacyBottomChromeOverlayActive)
@@ -166,12 +168,31 @@ struct ArtistDetailView: View {
         #endif
         #if os(iOS)
         .toolbar {
+            if verticalBarEdge != nil {
+                // 系统竖栏(iPhone Duo):分享留在栏里,「⋯」里的动作并进系统溢出菜单。
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if let target = artistServerMediaShareTarget {
+                        Button {
+                            serverMediaShareTarget = target
+                        } label: {
+                            Label("server_share_action", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                }
+                if #available(iOS 27.0, *) {
+                    ToolbarOverflowMenu {
+                        Button { showArtworkEditor = true } label: {
+                            Label("artwork_edit", systemImage: "photo.badge.plus")
+                        }
+                    }
+                }
+            } else {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if let target = artistServerMediaShareTarget {
                     Button {
                         serverMediaShareTarget = target
                     } label: {
-                        Image(systemName: "square.and.arrow.up")
+                        Label("server_share_action", systemImage: "square.and.arrow.up")
                     }
                     .accessibilityLabel(Text("server_share_action"))
                 }
@@ -180,9 +201,10 @@ struct ArtistDetailView: View {
                         Label("artwork_edit", systemImage: "photo.badge.plus")
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
+                    Label("a11y_more_actions", systemImage: "ellipsis")
                 }
                 .accessibilityLabel(Text("a11y_more_actions"))
+            }
             }
         }
         #endif

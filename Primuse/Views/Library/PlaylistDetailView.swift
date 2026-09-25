@@ -9,6 +9,8 @@ import AppKit
 struct PlaylistDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AudioPlayerService.self) private var player
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:「⋯」的内容并进系统溢出菜单。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(MusicLibrary.self) private var library
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
@@ -343,11 +345,118 @@ struct PlaylistDetailView: View {
             ))
         }
         .toolbar {
+            if verticalBarEdge != nil {
+                // 系统竖栏(iPhone Duo):排序留在栏里(优先保留),「⋯」里的动作并进系统溢出菜单。
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        sortMenuOptions
+                    } label: {
+                        Label("sort_by", systemImage: "arrow.up.arrow.down")
+                    }
+                    .disabled(songs.count < 2)
+                    .accessibilityIdentifier("playlistDetail.sort")
+                }
+                .pmHighVisibilityPriority()
+                if #available(iOS 27.0, *) {
+                    ToolbarOverflowMenu {
+                        // 最常用的三个排成顶部一行。队列两项用同一份可播放曲目,
+                        // 文案跟歌曲行保持一致(`insert_next`,不是更长的 `up_next`)。
+                        PMMenuQuickActions {
+                            PMMenuQuickActionButton(
+                                shortKey: "insert_next_short",
+                                fullKey: "insert_next",
+                                systemImage: "text.line.first.and.arrowtriangle.forward"
+                            ) {
+                                player.insertNextInQueue(songs.filteredPlayable())
+                            }
+                            .disabled(songs.filteredPlayable().isEmpty)
+
+                            PMMenuQuickActionButton(
+                                shortKey: "add_to_queue_short",
+                                fullKey: "add_to_queue",
+                                systemImage: "text.line.last.and.arrowtriangle.forward"
+                            ) {
+                                player.appendToQueue(songs.filteredPlayable())
+                            }
+                            .disabled(songs.filteredPlayable().isEmpty)
+
+                            Button {
+                                if selection.isActive {
+                                    selection.deactivate()
+                                } else {
+                                    selection.activate()
+                                }
+                            } label: {
+                                Label(selection.isActive ? "done" : "batch_select",
+                                      systemImage: "checkmark.circle")
+                            }
+                            .disabled(songs.isEmpty)
+                        }
+
+                        Section {
+                            // 镜像歌单不让用户重排 ── 下次 sync / 扫描会被覆盖,
+                            // 重排白做; 普通用户歌单 + 智能歌单的衍生不在这里。
+                            if allowsPlaylistRemoval {
+                                Button {
+                                    // 排序菜单改的是显示顺序,重排面板拖的是歌单真正的顺序。
+                                    // 先切回歌单顺序,用户拖的就是他刚才看到的那一列。
+                                    displaySortRawValue = ""
+                                    showReorderSheet = true
+                                } label: {
+                                    Label("playlist_reorder", systemImage: "arrow.up.arrow.down")
+                                }
+                                .disabled(songs.count < 2)
+                            }
+                            Button {
+                                showArtworkEditor = true
+                            } label: {
+                                Label("artwork_edit", systemImage: "photo.badge.plus")
+                            }
+                            Button {
+                                startPlaylistScrape()
+                            } label: {
+                                Label("scrape_missing_metadata", systemImage: "wand.and.stars")
+                            }
+                            .disabled(songs.isEmpty || scraperService.isScraping)
+                            if let target = playlistServerMediaShareTarget {
+                                Button {
+                                    serverMediaShareTarget = target
+                                } label: {
+                                    Label("server_share_action", systemImage: "link.badge.plus")
+                                }
+                            }
+                            Button {
+                                showExportFormats = true
+                            } label: {
+                                Label("export", systemImage: "square.and.arrow.up")
+                            }
+                        }
+
+                        if canDeletePlaylist(playlist.id) {
+                            Section {
+                                Button(role: .destructive) {
+                                    deleteCurrentPlaylist()
+                                } label: {
+                                    Label("delete_playlist", systemImage: "trash")
+                                }
+                            }
+                        } else if MirrorPlaylistIdentity.isMirrorPlaylist(playlist.id) {
+                            Section {
+                                Button {
+                                    hideCurrentPlaylist()
+                                } label: {
+                                    Label("hide_playlist_from_primuse", systemImage: "eye.slash")
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     sortMenuOptions
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
+                    Label("sort_by", systemImage: "arrow.up.arrow.down")
                 }
                 .disabled(songs.count < 2)
                 .accessibilityLabel(Text("sort_by"))
@@ -446,12 +555,13 @@ struct PlaylistDetailView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
+                    Label("a11y_more_actions", systemImage: "ellipsis")
                 }
                 // Do not disable the whole menu for an empty playlist. Actions
                 // that require tracks already carry their own disabled state,
                 // while exporting or deleting the playlist must remain usable.
                 .accessibilityLabel(Text("a11y_more_actions"))
+            }
             }
         }
         .sheet(item: $exportShareItem) { item in

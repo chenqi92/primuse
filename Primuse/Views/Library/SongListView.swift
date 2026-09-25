@@ -733,6 +733,8 @@ private struct SongListSortProgressIndicator: View {
 struct SongListView: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.skin) private var skin
+    /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:「⋯」并进系统溢出菜单,按钮分组并标优先级。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(SourceManager.self) private var sourceManager
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(ScanService.self) private var scanService
@@ -3237,6 +3239,41 @@ struct SongListView: View {
                 progress: sortProgress
             )
         }
+        if verticalBarEdge != nil {
+            // 系统竖栏(iPhone Duo):随机与版式一组、优先留在栏里;「⋯」的内容并进系统溢出菜单。
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                SongListShuffleToolbarButton(
+                    selection: selection,
+                    isEnabled: !showsFolderBrowser && filteredProjection.playableCount > 1,
+                    action: shuffleVisibleSongs
+                )
+                SongListBrowseModeToolbarButton(selection: selection, browseMode: $browseMode)
+            }
+            .pmHighVisibilityPriority()
+            ToolbarItem(placement: .topBarTrailing) {
+                SongSelectionCancelToolbarItem(selection: selection)
+            }
+            #if os(iOS)
+            if #available(iOS 27.0, *) {
+                ToolbarOverflowMenu {
+                    SongListNormalToolbarMenu(
+                        selection: selection,
+                        sortOrder: sortOrderBinding,
+                        filter: $songFilter,
+                        manageHomeFolders: showsFolderBrowser ? { showsHomeFolders = true } : nil,
+                        asOverflowItems: true
+                    )
+                    if selection.isActive {
+                        SongSelectionOptionsMenu(
+                            selection: selection,
+                            orderedIDs: { batchOrderedSongIDs },
+                            asOverflowItems: true
+                        )
+                    }
+                }
+            }
+            #endif
+        } else {
         ToolbarItem(placement: .topBarTrailing) {
             SongListShuffleToolbarButton(
                 selection: selection,
@@ -3266,6 +3303,7 @@ struct SongListView: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             SongSelectionCancelToolbarItem(selection: selection)
+        }
         }
     }
 
@@ -5207,6 +5245,7 @@ private struct LibraryFolderNodeView: View {
     #if os(iOS)
     @Environment(\.usesTopTabsShell) private var usesTopTabsShell
     #endif
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     let nodeID: LibraryFolderNodeID
     let folderCache: LibraryFolderBrowserCache
@@ -5394,6 +5433,37 @@ private struct LibraryFolderNodeView: View {
                 title: navigationTitle
             )
         }
+        if verticalBarEdge != nil {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                LibraryFolderPlayAllToolbarItem(
+                    selection: selection,
+                    isEnabled: !actionSongIDs.isEmpty,
+                    action: playAllSongsInFolder
+                )
+                SongSelectionCancelToolbarItem(selection: selection)
+            }
+            .pmHighVisibilityPriority()
+            if #available(iOS 27.0, *) {
+                ToolbarOverflowMenu {
+                    LibraryFolderNormalToolbarMenu(
+                        selection: selection,
+                        sortOrder: $sortOrder,
+                        nodeID: nodeID,
+                        index: folderCache.index,
+                        library: library,
+                        source: sourcesStore.source(id: nodeID.sourceID),
+                        asOverflowItems: true
+                    )
+                    if selection.isActive {
+                        SongSelectionOptionsMenu(
+                            selection: selection,
+                            orderedIDs: { actionSongIDs },
+                            asOverflowItems: true
+                        )
+                    }
+                }
+            }
+        } else {
         ToolbarItem(placement: .topBarTrailing) {
             LibraryFolderPlayAllToolbarItem(
                 selection: selection,
@@ -5419,6 +5489,7 @@ private struct LibraryFolderNodeView: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             SongSelectionCancelToolbarItem(selection: selection)
+        }
         }
     }
     #endif
@@ -5707,7 +5778,7 @@ private struct SongListShuffleToolbarButton: View {
     var body: some View {
         if !selection.isActive {
             Button(action: action) {
-                Image(systemName: "shuffle")
+                Label("shuffle_all", systemImage: "shuffle")
             }
             .disabled(!isEnabled)
             .accessibilityLabel(Text("shuffle_all"))
@@ -5725,7 +5796,10 @@ private struct SongListBrowseModeToolbarButton: View {
             Button {
                 browseMode = browseMode == .folder ? .flat : .folder
             } label: {
-                Image(systemName: browseMode == .folder ? "list.bullet" : "folder")
+                Label(
+                    LocalizedStringKey(browseMode == .folder ? "library_browse_flat" : "library_browse_folder"),
+                    systemImage: browseMode == .folder ? "list.bullet" : "folder"
+                )
             }
             .accessibilityLabel(Text(LocalizedStringKey(
                 browseMode == .folder ? "library_browse_flat" : "library_browse_folder"
@@ -5745,11 +5819,27 @@ private struct SongListNormalToolbarMenu: View {
     var manageHomeFolders: (() -> Void)?
     /// 顶部 tab 外壳里没有单独的版式键,「平铺 / 按文件夹」也收进这个菜单。
     var browseMode: Binding<LibrarySongBrowseMode>?
+    /// 只给出菜单项,由系统的溢出菜单(`ToolbarOverflowMenu`,系统竖栏里)收进去,自己不再套一层「⋯」。
+    var asOverflowItems = false
 
     @ViewBuilder
     var body: some View {
         if !selection.isActive {
-            Menu {
+            if asOverflowItems {
+                items
+            } else {
+                Menu {
+                    items
+                } label: {
+                    Label("a11y_more_actions", systemImage: "ellipsis")
+                }
+                .accessibilityLabel(Text("a11y_more_actions"))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var items: some View {
                 if let browseMode {
                     Section {
                         Button {
@@ -5788,11 +5878,6 @@ private struct SongListNormalToolbarMenu: View {
                             .accessibilityIdentifier("library.manageHomeFolders")
                     }
                 }
-            } label: {
-                Image(systemName: "ellipsis")
-            }
-            .accessibilityLabel(Text("a11y_more_actions"))
-        }
     }
 
     private var downloadedBinding: Binding<Bool> {
@@ -5827,7 +5912,7 @@ private struct SongSelectionCancelToolbarItem: View {
             Button {
                 selection.deactivate()
             } label: {
-                Image(systemName: "xmark")
+                Label("cancel", systemImage: "xmark")
             }
             .accessibilityLabel(Text("cancel"))
             .accessibilityIdentifier("batchSelection.cancel")
@@ -5860,7 +5945,7 @@ private struct LibraryFolderPlayAllToolbarItem: View {
     var body: some View {
         if !selection.isActive {
             Button(action: action) {
-                Image(systemName: "play.fill")
+                Label("play_all", systemImage: "play.fill")
             }
             .disabled(!isEnabled)
             .accessibilityLabel(Text("play_all"))
@@ -5881,6 +5966,9 @@ private struct LibraryFolderNormalToolbarMenu: View {
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
     @AppStorage(HomeFolderPinStorage.displayCountKey) private var displayCount = HomeFolderPinStorage.defaultDisplayCount
 
+    /// 只给出菜单项,由系统竖栏的溢出菜单收进去。
+    var asOverflowItems = false
+
     private var pins: [LibraryFolderNodeID] {
         HomeFolderPinStorage.resolvedPins(pinsRawValue, index: index, defaultCount: displayCount)
     }
@@ -5888,7 +5976,21 @@ private struct LibraryFolderNormalToolbarMenu: View {
     @ViewBuilder
     var body: some View {
         if !selection.isActive {
-            Menu {
+            if asOverflowItems {
+                items
+            } else {
+                Menu {
+                    items
+                } label: {
+                    Label("a11y_more_actions", systemImage: "ellipsis")
+                }
+                .accessibilityLabel(Text("a11y_more_actions"))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var items: some View {
                 // 三个常用动作交给系统排成顶部一行, 剩下的一行是排序。
                 PMMenuQuickActions {
                     let pinned = pins.contains(nodeID)
@@ -5924,20 +6026,31 @@ private struct LibraryFolderNormalToolbarMenu: View {
                 }
 
                 SongSortSubmenu(sortOrder: $sortOrder)
-            } label: {
-                Image(systemName: "ellipsis")
-            }
-            .accessibilityLabel(Text("a11y_more_actions"))
-        }
     }
 }
 
 private struct SongSelectionOptionsMenu: View {
     let selection: SongSelectionModel
     let orderedIDs: () -> [String]
+    /// 只给出菜单项,由系统竖栏的溢出菜单收进去。
+    var asOverflowItems = false
 
+    @ViewBuilder
     var body: some View {
-        Menu {
+        if asOverflowItems {
+            items
+        } else {
+            Menu {
+                items
+            } label: {
+                Label("a11y_more_actions", systemImage: "ellipsis")
+            }
+            .accessibilityLabel(Text("a11y_more_actions"))
+        }
+    }
+
+    @ViewBuilder
+    private var items: some View {
             Button {
                 selection.selectAll(orderedIDs())
             } label: {
@@ -5950,10 +6063,6 @@ private struct SongSelectionOptionsMenu: View {
                 Label("batch_deselect_all", systemImage: "circle.dashed")
             }
             .disabled(selection.isEmpty)
-        } label: {
-            Image(systemName: "ellipsis")
-        }
-        .accessibilityLabel(Text("a11y_more_actions"))
     }
 }
 

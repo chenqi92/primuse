@@ -102,7 +102,7 @@ struct DiagnosticReportsView: View {
                     Button(role: .destructive) {
                         showClearConfirm = true
                     } label: {
-                        Image(systemName: "trash")
+                        Label(String(localized: "diagnostics_clear"), systemImage: "trash")
                     }
                     .accessibilityLabel(String(localized: "diagnostics_clear"))
                 }

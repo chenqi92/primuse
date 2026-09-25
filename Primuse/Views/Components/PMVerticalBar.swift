@@ -179,3 +179,15 @@ struct PMWindowMetricsReader: UIViewRepresentable {
     }
 }
 #endif
+
+extension ToolbarContent {
+    /// 系统竖栏(iPhone Duo)空间不够时,这一组最后才收进系统溢出菜单。iOS 27 以前原样返回。
+    @MainActor @ToolbarContentBuilder
+    func pmHighVisibilityPriority() -> some ToolbarContent {
+        if #available(iOS 27.0, macOS 26.1, *) {
+            visibilityPriority(.high)
+        } else {
+            self
+        }
+    }
+}

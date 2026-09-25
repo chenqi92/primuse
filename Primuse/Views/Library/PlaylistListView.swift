@@ -270,7 +270,7 @@ struct PlaylistListView: View {
                 }
             }
         } label: {
-            Image(systemName: "plus")
+            Label("add", systemImage: "plus")
         }
         .accessibilityIdentifier("playlists.add")
     }

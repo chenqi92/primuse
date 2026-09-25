@@ -140,7 +140,12 @@ struct SmartPlaylistDetailView: View {
                         Button {
                             showEditor = true
                         } label: {
-                            Image(systemName: kindSymbol(smart))
+                            Label(
+                                smart.effectiveKind == .ai
+                                    ? LocalizedStringKey("ai_playlist_add_songs")
+                                    : LocalizedStringKey("smart_edit_rules"),
+                                systemImage: kindSymbol(smart)
+                            )
                         }
                         // 三元表达式得到的是 String,会被当成原文显示;显式包成 LocalizedStringKey。
                         .accessibilityLabel(Text(smart.effectiveKind == .ai

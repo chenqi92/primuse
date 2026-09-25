@@ -328,7 +328,7 @@ private struct ArtistLayoutToolbarButton: View {
         Button {
             layoutModeRaw = nextMode.rawValue
         } label: {
-            Image(systemName: nextMode.icon)
+            Label(String(localized: nextMode.titleKey), systemImage: nextMode.icon)
         }
         .accessibilityLabel(Text(String(localized: nextMode.titleKey)))
         .accessibilityValue(Text(String(localized: layoutMode.titleKey)))
