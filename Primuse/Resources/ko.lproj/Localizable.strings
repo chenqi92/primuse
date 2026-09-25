@@ -998,7 +998,7 @@
 "playlist_export_failed_title" = "내보내기 실패";
 "playlist_import_title" = "재생 목록 가져오기";
 "playlist_import_intro_title" = "m3u8 또는 Primuse JSON 파일 선택";
-"playlist_import_intro_desc" = "Files / AirDrop으로 받은 재생 목록 파일은 파일 이름 + 제목/아티스트를 기준으로 라이브러리와 매칭됩니다.";
+"playlist_import_intro_desc" = "플레이리스트 파일(m3u, json 또는 Apple Music, Spotify 내보내기 도구, foobar2000, VLC, Windows Media Player에서 내보낸 csv / txt / xml / pls / xspf / wpl)은 파일 이름과 제목/아티스트로 보관함과 대조됩니다.";
 "playlist_import_pick_file" = "파일 선택";
 "playlist_import_create" = "만들기";
 "playlist_import_matched" = "라이브러리에서 매칭됨";
@@ -1015,7 +1015,7 @@
 "playlist_import_err_empty" = "재생 목록에 곡이 없습니다";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · 파일을 선택하면 로컬 라이브러리와 자동으로 일치시킵니다";
 "playlist_import_mac_intro_title" = "재생 목록 파일을 선택하여 시작하기";
-"playlist_import_mac_intro_desc" = ".m3u, .m3u8, .json을 지원합니다. 가져오기 전에 일치한 항목과 누락된 항목을 미리 봅니다.";
+"playlist_import_mac_intro_desc" = ".m3u, .m3u8, .json, .csv, .txt, .xml, .pls, .xspf, .wpl 파일을 지원합니다. 가져오기 전에 일치 항목과 누락 항목을 미리 보여 줍니다.";
 "playlist_import_matched_count_format" = "%d개 일치";
 "playlist_import_pending_count_format" = "%d개 대기 중";
 "playlist_import_entries_count_format" = "항목 %d개";
@@ -4504,7 +4504,7 @@
 "playlist_import_mode_file" = "파일";
 "playlist_import_mode_link" = "공유 링크";
 "playlist_import_mode_text" = "텍스트 목록";
-"playlist_import_link_placeholder" = "플레이리스트 공유 링크 붙여넣기 (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify)";
+"playlist_import_link_placeholder" = "플레이리스트 공유 링크 붙여넣기 (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili, YouTube)";
 "playlist_import_link_desc" = "공개 플레이리스트의 곡명, 아티스트, 앨범, 길이만 읽으며 오디오는 다운로드하지 않습니다. 비공개 플레이리스트는 원래 앱에서 먼저 공개로 바꿔 주세요.";
 "playlist_import_link_fetch" = "플레이리스트 읽기";
 "playlist_import_text_order" = "줄 형식";
@@ -4520,7 +4520,7 @@
 "playlist_import_confirm_all_probable_format" = "%d곡 모두 확인";
 "playlist_import_create_with_pending_format" = "플레이리스트 만들기 (%1$d곡, 회색 %2$d곡)";
 "playlist_import_pending_kept_hint" = "일치하지 않는 항목은 회색으로 유지됩니다";
-"playlist_import_link_err_unrecognized" = "플레이리스트 링크를 찾지 못했습니다. NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify 공유 링크를 지원합니다.";
+"playlist_import_link_err_unrecognized" = "플레이리스트 링크를 찾지 못했습니다. NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili, YouTube 공유 링크를 지원합니다.";
 "playlist_import_link_err_private" = "이 플레이리스트를 읽을 수 없습니다. 삭제되었거나 비공개일 수 있습니다. 원래 앱에서 공개로 바꾼 뒤 다시 시도하세요.";
 "playlist_import_link_err_changed" = "서비스가 예상과 다른 응답을 보냈습니다. 인터페이스가 바뀌었을 수 있습니다. 텍스트 목록으로 가져오세요.";
 "playlist_import_link_err_network_format" = "네트워크 요청 실패: %@";
@@ -4536,6 +4536,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "반주 트랙";
 "karaoke_backing_track_playing" = "반주 트랙을 재생 중이라 조절할 보컬이 없습니다.";
 "karaoke_lyrics_from_format" = "가사 출처: “%@”";

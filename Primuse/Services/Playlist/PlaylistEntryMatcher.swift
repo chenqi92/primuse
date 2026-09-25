@@ -50,6 +50,18 @@ struct PlaylistEntryMatcher: Sendable {
         return result
     }
 
+    /// 同一条的几种读法（视频标题「A - B」的两种顺序等）：有一种够得上「就是它」就用那种，
+    /// 否则取第一种有「可能是」候选的。
+    func match(anyOf subjects: [ExternalTrackMatchPolicy.Subject]) -> Match {
+        var fallback = Match()
+        for subject in subjects {
+            let result = match(subject)
+            if !result.confident.isEmpty { return result }
+            if fallback.probable.isEmpty, !result.probable.isEmpty { fallback = result }
+        }
+        return fallback
+    }
+
     static func subject(of song: Song) -> ExternalTrackMatchPolicy.Subject {
         .init(title: song.title, artists: artists(of: song), duration: song.duration)
     }

@@ -1338,7 +1338,7 @@
 "fullscreen_effect_vinyl" = "Винил";
 "scraper_musicbrainz_desc" = "Открытая музыкальная база данных, метаданные и каверы.";
 "settings_dlna_devices_empty" = "Пока нет подключенных устройств. Выберите Primuse в приложении точки управления на том же Wi-Fi.";
-"playlist_import_intro_desc" = "Файлы плейлистов, полученные через Files/AirDrop, будут сопоставляться с вашей медиатекой по имени файла + названию/исполнителю.";
+"playlist_import_intro_desc" = "Файлы плейлистов (m3u, json или csv / txt / xml / pls / xspf / wpl, экспортированные из Apple Music, инструментов экспорта Spotify, foobar2000, VLC или Windows Media Player) сопоставляются с медиатекой по имени файла и названию/исполнителю.";
 "home_for_you_title" = "Для тебя";
 "search_match_time_format" = "Матч на %@";
 "Small room → large hall" = "Маленькая комната → большой зал.";
@@ -1688,7 +1688,7 @@
 "audio_output_error_follow_system %d" = "Не удалось проследить вывод системы (статус = %d).";
 "source_synced_ago_format" = "Синхронизировано %@";
 "similar_loading" = "Загрузка похожих треков из Last.fm…";
-"playlist_import_mac_intro_desc" = "Поддерживает .m3u, .m3u8 и .json. Совпадения и недостающие записи просматриваются перед импортом.";
+"playlist_import_mac_intro_desc" = "Поддерживаются .m3u, .m3u8, .json, .csv, .txt, .xml, .pls, .xspf, .wpl. Совпадения и отсутствующие элементы показываются перед импортом.";
 "sample_rate_label" = "Частота дискретизации";
 "META-03 · Paste JSON or Import from URL" = "META-03 · Вставьте JSON или импортируйте из URL.";
 "metadata_writeback_plex_missing_album" = "Этот трек Plex не имеет записываемого элемента альбома.";
@@ -4410,7 +4410,7 @@
 "playlist_import_mode_file" = "Файл";
 "playlist_import_mode_link" = "Ссылка";
 "playlist_import_mode_text" = "Текстовый список";
-"playlist_import_link_placeholder" = "Вставьте ссылку на плейлист (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music или Spotify)";
+"playlist_import_link_placeholder" = "Вставьте ссылку на плейлист (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili или YouTube)";
 "playlist_import_link_desc" = "Читаются только названия, исполнители, альбомы и длительность публичных плейлистов; аудио не загружается. Сначала сделайте закрытый плейлист публичным в его приложении.";
 "playlist_import_link_fetch" = "Прочитать плейлист";
 "playlist_import_text_order" = "Формат строки";
@@ -4426,7 +4426,7 @@
 "playlist_import_confirm_all_probable_format" = "Подтвердить все (%d)";
 "playlist_import_create_with_pending_format" = "Создать плейлист (%1$d, серых %2$d)";
 "playlist_import_pending_kept_hint" = "Ненайденные элементы останутся серыми";
-"playlist_import_link_err_unrecognized" = "Ссылка на плейлист не распознана. Поддерживаются ссылки NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music и Spotify.";
+"playlist_import_link_err_unrecognized" = "Ссылка на плейлист не распознана. Поддерживаются ссылки NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili и YouTube.";
 "playlist_import_link_err_private" = "Не удаётся прочитать плейлист. Возможно, он удалён или закрыт. Сделайте его публичным в приложении и повторите попытку.";
 "playlist_import_link_err_changed" = "Сервис вернул неожиданный ответ; возможно, его интерфейс изменился. Импортируйте через текстовый список.";
 "playlist_import_link_err_network_format" = "Ошибка сетевого запроса: %@";
@@ -4442,6 +4442,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Минусовка";
 "karaoke_backing_track_playing" = "Играет минусовка, регулировать нечего.";
 "karaoke_lyrics_from_format" = "Текст из «%@»";

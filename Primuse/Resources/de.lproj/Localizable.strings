@@ -998,7 +998,7 @@
 "playlist_export_failed_title" = "Export fehlgeschlagen";
 "playlist_import_title" = "Wiedergabeliste importieren";
 "playlist_import_intro_title" = "Wähle eine m3u8- oder Primuse-JSON-Datei";
-"playlist_import_intro_desc" = "Über Dateien / AirDrop empfangene Wiedergabelisten-Dateien werden anhand von Dateiname + Titel/Künstler mit deiner Mediathek abgeglichen.";
+"playlist_import_intro_desc" = "Playlist-Dateien (m3u, json oder csv / txt / xml / pls / xspf / wpl aus Apple Music, Spotify-Exporttools, foobar2000, VLC oder Windows Media Player) werden per Dateiname sowie Titel/Interpret mit deiner Mediathek abgeglichen.";
 "playlist_import_pick_file" = "Datei wählen";
 "playlist_import_create" = "Erstellen";
 "playlist_import_matched" = "In Mediathek gefunden";
@@ -1015,7 +1015,7 @@
 "playlist_import_err_empty" = "Wiedergabeliste enthält keine Titel";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · gleicht nach Auswahl einer Datei automatisch mit deiner lokalen Mediathek ab";
 "playlist_import_mac_intro_title" = "Wähle zum Starten eine Wiedergabelisten-Datei";
-"playlist_import_mac_intro_desc" = "Unterstützt .m3u, .m3u8 und .json. Übereinstimmungen und fehlende Einträge werden vor dem Import angezeigt.";
+"playlist_import_mac_intro_desc" = "Unterstützt .m3u, .m3u8, .json, .csv, .txt, .xml, .pls, .xspf, .wpl. Treffer und fehlende Einträge werden vor dem Import angezeigt.";
 "playlist_import_matched_count_format" = "%d zugeordnet";
 "playlist_import_pending_count_format" = "%d ausstehend";
 "playlist_import_entries_count_format" = "%d Einträge";
@@ -4504,7 +4504,7 @@
 "playlist_import_mode_file" = "Datei";
 "playlist_import_mode_link" = "Freigabelink";
 "playlist_import_mode_text" = "Textliste";
-"playlist_import_link_placeholder" = "Playlist-Freigabelink einfügen (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music oder Spotify)";
+"playlist_import_link_placeholder" = "Playlist-Freigabelink einfügen (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili oder YouTube)";
 "playlist_import_link_desc" = "Es werden nur Titel, Interpreten, Alben und Längen öffentlicher Playlists gelesen, keine Audiodaten. Private Playlists zuerst in der jeweiligen App öffentlich machen.";
 "playlist_import_link_fetch" = "Playlist lesen";
 "playlist_import_text_order" = "Zeilenformat";
@@ -4520,7 +4520,7 @@
 "playlist_import_confirm_all_probable_format" = "Alle %d bestätigen";
 "playlist_import_create_with_pending_format" = "Playlist erstellen (%1$d, %2$d grau)";
 "playlist_import_pending_kept_hint" = "Nicht gefundene Einträge bleiben grau erhalten";
-"playlist_import_link_err_unrecognized" = "Kein Playlist-Link erkannt. Unterstützt werden Links von NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music und Spotify.";
+"playlist_import_link_err_unrecognized" = "Kein Playlist-Link erkannt. Unterstützt werden Links von NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili und YouTube.";
 "playlist_import_link_err_private" = "Diese Playlist kann nicht gelesen werden. Sie wurde vielleicht gelöscht oder ist privat. Mache sie in der App öffentlich und versuche es erneut.";
 "playlist_import_link_err_changed" = "Der Dienst hat etwas Unerwartetes geliefert; die Schnittstelle hat sich vielleicht geändert. Importiere stattdessen per Textliste.";
 "playlist_import_link_err_network_format" = "Netzwerkanfrage fehlgeschlagen: %@";
@@ -4536,6 +4536,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Playback";
 "karaoke_backing_track_playing" = "Das Playback läuft, es gibt keinen Gesang zum Anpassen.";
 "karaoke_lyrics_from_format" = "Songtext aus „%@“";

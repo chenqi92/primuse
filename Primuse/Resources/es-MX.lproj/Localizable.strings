@@ -2293,12 +2293,12 @@
 "playlist_import_err_malformed_format" = "Archivo con formato incorrecto: %@";
 "playlist_import_err_title" = "Error de importación";
 "playlist_import_export_unmatched_csv" = "Exportar no coincidente → CSV";
-"playlist_import_intro_desc" = "Los archivos de listas de reproducción recibidos a través de Archivos/AirDrop se compararán con su biblioteca por nombre de archivo + título/artista.";
+"playlist_import_intro_desc" = "Los archivos de playlist (m3u, json, o csv / txt / xml / pls / xspf / wpl exportados de Apple Music, herramientas de exportación de Spotify, foobar2000, VLC o Windows Media Player) se comparan con tu biblioteca por nombre de archivo y título/artista.";
 "playlist_import_intro_title" = "Elija un archivo m3u8 o Primuse JSON";
 "playlist_import_kind_fuzzy" = "Borroso";
 "playlist_import_kind_id" = "Coincidencia de ID";
 "playlist_import_kind_path" = "Nombre de archivo";
-"playlist_import_mac_intro_desc" = "Admite .m3u, .m3u8 y .json. Las coincidencias y las entradas faltantes se obtienen una vista previa antes de la importación.";
+"playlist_import_mac_intro_desc" = "Admite .m3u, .m3u8, .json, .csv, .txt, .xml, .pls, .xspf, .wpl. Las coincidencias y las entradas faltantes se muestran antes de importar.";
 "playlist_import_mac_intro_title" = "Elija un archivo de lista de reproducción para comenzar";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · coincide automáticamente con su biblioteca local después de seleccionar un archivo";
 "playlist_import_manual_match" = "Coincidencia manual…";
@@ -4410,7 +4410,7 @@
 "playlist_import_mode_file" = "Archivo";
 "playlist_import_mode_link" = "Enlace";
 "playlist_import_mode_text" = "Lista de texto";
-"playlist_import_link_placeholder" = "Pega el enlace de una playlist (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music o Spotify)";
+"playlist_import_link_placeholder" = "Pega el enlace de una playlist (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili o YouTube)";
 "playlist_import_link_desc" = "Solo se leen títulos, artistas, álbumes y duraciones de playlists públicas; no se descarga audio. Haz pública una playlist privada en su app primero.";
 "playlist_import_link_fetch" = "Leer playlist";
 "playlist_import_text_order" = "Formato de línea";
@@ -4426,7 +4426,7 @@
 "playlist_import_confirm_all_probable_format" = "Confirmar las %d";
 "playlist_import_create_with_pending_format" = "Crear playlist (%1$d, %2$d en gris)";
 "playlist_import_pending_kept_hint" = "Los elementos sin coincidencia se conservarán en gris";
-"playlist_import_link_err_unrecognized" = "No se reconoció un enlace de playlist. Se admiten enlaces de NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music y Spotify.";
+"playlist_import_link_err_unrecognized" = "No se reconoció un enlace de playlist. Se admiten enlaces de NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili y YouTube.";
 "playlist_import_link_err_private" = "No se puede leer esta playlist. Quizá se eliminó o es privada. Hazla pública en su app e inténtalo de nuevo.";
 "playlist_import_link_err_changed" = "El servicio devolvió algo inesperado; su interfaz pudo haber cambiado. Importa con una lista de texto.";
 "playlist_import_link_err_network_format" = "Falló la solicitud de red: %@";
@@ -4442,6 +4442,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Pista de acompañamiento";
 "karaoke_backing_track_playing" = "Se está reproduciendo la pista de acompañamiento, no hay voz que ajustar.";
 "karaoke_lyrics_from_format" = "Letra de “%@”";

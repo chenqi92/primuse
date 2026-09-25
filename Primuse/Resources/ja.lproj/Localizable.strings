@@ -999,7 +999,7 @@
 "playlist_export_failed_title" = "書き出しに失敗しました";
 "playlist_import_title" = "プレイリストを読み込む";
 "playlist_import_intro_title" = "m3u8 または Primuse JSON ファイルを選択";
-"playlist_import_intro_desc" = "ファイル／AirDrop で受け取ったプレイリストファイルは、ファイル名とタイトル／アーティストでライブラリと照合されます。";
+"playlist_import_intro_desc" = "プレイリストファイル（m3u、json、または Apple Music・Spotify 書き出しツール・foobar2000・VLC・Windows Media Player が書き出した csv／txt／xml／pls／xspf／wpl）は、ファイル名とタイトル／アーティストでライブラリと照合されます。";
 "playlist_import_pick_file" = "ファイルを選択";
 "playlist_import_create" = "作成";
 "playlist_import_matched" = "ライブラリで一致";
@@ -1016,7 +1016,7 @@
 "playlist_import_err_empty" = "プレイリストに曲がありません";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · ファイルを選択するとローカルライブラリと自動でマッチングします";
 "playlist_import_mac_intro_title" = "プレイリストファイルを選択して開始";
-"playlist_import_mac_intro_desc" = ".m3u、.m3u8、.json に対応しています。読み込み前に一致したエントリと見つからなかったエントリをプレビューします。";
+"playlist_import_mac_intro_desc" = ".m3u、.m3u8、.json、.csv、.txt、.xml、.pls、.xspf、.wpl に対応しています。読み込み前に一致したエントリと見つからなかったエントリをプレビューします。";
 "playlist_import_matched_count_format" = "%d 件一致";
 "playlist_import_pending_count_format" = "%d 件保留中";
 "playlist_import_entries_count_format" = "%d 件のエントリ";
@@ -4505,7 +4505,7 @@
 "playlist_import_mode_file" = "ファイル";
 "playlist_import_mode_link" = "共有リンク";
 "playlist_import_mode_text" = "テキスト";
-"playlist_import_link_placeholder" = "プレイリストの共有リンクを貼り付け（NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify）";
+"playlist_import_link_placeholder" = "プレイリストの共有リンクを貼り付け（NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify、Deezer、bilibili、YouTube）";
 "playlist_import_link_desc" = "公開プレイリストの曲名・アーティスト・アルバム・長さのみを読み込み、音声はダウンロードしません。非公開のプレイリストは元のアプリで公開してください。";
 "playlist_import_link_fetch" = "プレイリストを読み込む";
 "playlist_import_text_order" = "行の形式";
@@ -4521,7 +4521,7 @@
 "playlist_import_confirm_all_probable_format" = "%d 曲すべて確定";
 "playlist_import_create_with_pending_format" = "プレイリストを作成（%1$d 曲、グレー %2$d 曲）";
 "playlist_import_pending_kept_hint" = "一致しない項目はグレーで残ります";
-"playlist_import_link_err_unrecognized" = "プレイリストのリンクが見つかりません。NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify の共有リンクに対応しています。";
+"playlist_import_link_err_unrecognized" = "プレイリストのリンクが見つかりません。NetEase Cloud Music、QQ Music、Kugou、Kuwo、Bodian、Migu、Soda Music、Apple Music、Spotify、Deezer、bilibili、YouTube の共有リンクに対応しています。";
 "playlist_import_link_err_private" = "このプレイリストを読み込めません。削除されたか非公開の可能性があります。元のアプリで公開してから再試行してください。";
 "playlist_import_link_err_changed" = "サービスから想定外の応答がありました。仕様が変わった可能性があります。テキストでの読み込みをお試しください。";
 "playlist_import_link_err_network_format" = "ネットワーク要求に失敗しました: %@";
@@ -4537,6 +4537,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "伴奏トラック";
 "karaoke_backing_track_playing" = "伴奏トラックを再生中のため、ボーカルは調整できません。";
 "karaoke_lyrics_from_format" = "歌詞：「%@」より";

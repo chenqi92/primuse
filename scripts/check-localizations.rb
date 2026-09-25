@@ -278,7 +278,12 @@ HAN_LITERAL_ALLOWLIST = {
   # from other music apps. They are data, never shown as UI copy.
   "PrimuseKit/Sources/PrimuseKit/Library/ExternalTrackMatchPolicy.swift" => [
     /现场|演唱会|伴奏|纯音乐|消音版|混音|不插电|小样|翻唱|加速版|主题曲|插曲|未知|群星|佚名/,
-    /hasSuffix\("版"\)/
+    /hasSuffix\("版"\)/,
+    /官方|完整版|高音质|动态歌词/
+  ],
+  # Titles of deleted bilibili favourites, matched against API data, never shown.
+  "PrimuseKit/Sources/PrimuseKit/Import/ExternalPlaylistFiles.swift" => [
+    /已失效视频|歌名|曲名|名称|专辑|歌手|艺人|表演者|时长|时间|名稱|專輯|藝人|演出者|時長|時間|标题|標題|歌曲|艺术家|藝術家/
   ],
   "PrimuseKit/Sources/PrimuseKit/LogBacklogPolicy.swift" => [
     /日志积压超限, 已丢弃/,

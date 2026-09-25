@@ -2293,12 +2293,12 @@
 "playlist_import_err_malformed_format" = "ملف تالف: %@";
 "playlist_import_err_title" = "فشل الاستيراد";
 "playlist_import_export_unmatched_csv" = "تصدير لا مثيل له → CSV";
-"playlist_import_intro_desc" = "ستتم مطابقة ملفات قائمة التشغيل المستلمة عبر Files / AirDrop مع مكتبتك عن طريق اسم الملف + العنوان/الفنان.";
+"playlist_import_intro_desc" = "تُطابَق ملفات القوائم (m3u وjson، أو csv / txt / xml / pls / xspf / wpl المُصدَّرة من Apple Music وأدوات تصدير Spotify وfoobar2000 وVLC وWindows Media Player) مع مكتبتك حسب اسم الملف والعنوان/الفنان.";
 "playlist_import_intro_title" = "اختر ملف m3u8 أو Primuse JSON";
 "playlist_import_kind_fuzzy" = "غامض";
 "playlist_import_kind_id" = "ID مباراة";
 "playlist_import_kind_path" = "اسم الملف";
-"playlist_import_mac_intro_desc" = "يدعم .m3u، .m3u8، و.json. تتم معاينة التطابقات والإدخالات المفقودة قبل الاستيراد.";
+"playlist_import_mac_intro_desc" = "يدعم .m3u, .m3u8, .json, .csv, .txt, .xml, .pls, .xspf, .wpl. تُعرض المطابقات والعناصر المفقودة قبل الاستيراد.";
 "playlist_import_mac_intro_title" = "اختر ملف قائمة التشغيل للبدء";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · يطابق مكتبتك المحلية تلقائيًا بعد اختيار ملف";
 "playlist_import_manual_match" = "المباراة اليدوية…";
@@ -4410,7 +4410,7 @@
 "playlist_import_mode_file" = "ملف";
 "playlist_import_mode_link" = "رابط مشاركة";
 "playlist_import_mode_text" = "قائمة نصية";
-"playlist_import_link_placeholder" = "ألصق رابط قائمة تشغيل (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music أو Spotify)";
+"playlist_import_link_placeholder" = "ألصق رابط قائمة تشغيل (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili أو YouTube)";
 "playlist_import_link_desc" = "تُقرأ فقط أسماء الأغاني والفنانين والألبومات والمدد في القوائم العامة، ولا يُنزَّل أي صوت. اجعل القائمة الخاصة عامة في تطبيقها أولًا.";
 "playlist_import_link_fetch" = "قراءة القائمة";
 "playlist_import_text_order" = "تنسيق السطر";
@@ -4426,7 +4426,7 @@
 "playlist_import_confirm_all_probable_format" = "تأكيد الكل (%d)";
 "playlist_import_create_with_pending_format" = "إنشاء القائمة (%1$d، رمادية %2$d)";
 "playlist_import_pending_kept_hint" = "ستبقى العناصر غير المطابقة رمادية";
-"playlist_import_link_err_unrecognized" = "لم يُتعرَّف على رابط قائمة تشغيل. تُدعم روابط NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music وSpotify.";
+"playlist_import_link_err_unrecognized" = "لم يُتعرَّف على رابط قائمة تشغيل. تُدعم روابط NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili وYouTube.";
 "playlist_import_link_err_private" = "تتعذر قراءة هذه القائمة. ربما حُذفت أو أنها خاصة. اجعلها عامة في تطبيقها ثم أعد المحاولة.";
 "playlist_import_link_err_changed" = "أعادت الخدمة ردًا غير متوقع؛ ربما تغيّرت واجهتها. استورد باستخدام قائمة نصية بدلًا من ذلك.";
 "playlist_import_link_err_network_format" = "فشل طلب الشبكة: %@";
@@ -4442,6 +4442,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "المسار المرافق";
 "karaoke_backing_track_playing" = "يتم تشغيل المسار المرافق، لذا لا يوجد غناء لضبطه.";
 "karaoke_lyrics_from_format" = "الكلمات من “%@”";

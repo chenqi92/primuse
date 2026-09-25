@@ -14,7 +14,7 @@ public enum ExternalTrackMatchPolicy {
     public static let rejectDurationDifference: Double = 10
 
     /// 参与匹配的一首歌，只含匹配要用的字段，好在 Linux 上直接测。
-    public struct Subject: Sendable, Hashable {
+    public struct Subject: Codable, Sendable, Hashable {
         public var title: String
         public var artists: [String]
         /// 秒；nil 或 ≤0 表示不知道。
@@ -210,6 +210,8 @@ public enum ExternalTrackMatchPolicy {
     private static let neutralKeywords = [
         "remaster", "feat", "ft.", "mono", "stereo", "version", "ver.", "single", "radio edit",
         "主题曲", "主題曲", "插曲", "片尾曲", "片头曲", "原声", "原聲", "电视剧", "電視劇", "电影", "電影",
+        // 视频标题里常见的尾巴
+        "official", "mv", "m/v", "lyric", "audio", "visualizer", "官方", "完整版", "高音质", "高音質", "动态歌词", "動態歌詞",
     ]
 
     private static let openingBrackets: Set<Character> = ["(", "（", "[", "【", "［", "〔", "「", "『", "<", "《"]

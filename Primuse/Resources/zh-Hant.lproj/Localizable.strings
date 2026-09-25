@@ -773,7 +773,7 @@
 "playlist_export_failed_title" = "匯出失敗";
 "playlist_import_title" = "匯入歌單";
 "playlist_import_intro_title" = "選擇 m3u8 或 Primuse JSON";
-"playlist_import_intro_desc" = "Files / AirDrop 收到的歌單檔案,會依檔名 + 標題演出者比對你曲庫裡的歌曲。";
+"playlist_import_intro_desc" = "收到的歌單檔案（m3u、json，或 Apple Music、Spotify 匯出工具、foobar2000、VLC、Windows Media Player 匯出的 csv / txt / xml / pls / xspf / wpl）會依檔名和歌名歌手比對你音樂庫裡的歌曲。";
 "playlist_import_pick_file" = "選擇檔案";
 "playlist_import_create" = "建立";
 "playlist_import_matched" = "已比對到歌曲";
@@ -790,7 +790,7 @@
 "playlist_import_err_empty" = "歌單裡一首歌都沒有";
 "playlist_import_mac_subtitle" = "M3U8 / JSON · 選擇檔案後自動比對本機資料庫";
 "playlist_import_mac_intro_title" = "選擇一個歌單檔案開始";
-"playlist_import_mac_intro_desc" = "支援 .m3u / .m3u8 / .json，匯入前會先顯示比對與缺漏項目。";
+"playlist_import_mac_intro_desc" = "支援 .m3u / .m3u8 / .json / .csv / .txt / .xml / .pls / .xspf / .wpl，匯入前會先顯示比對與缺少的項目。";
 "playlist_import_matched_count_format" = "%d 已比對";
 "playlist_import_pending_count_format" = "%d 待處理";
 "playlist_import_entries_count_format" = "%d 個項目";
@@ -4481,7 +4481,7 @@
 "playlist_import_mode_file" = "檔案";
 "playlist_import_mode_link" = "分享連結";
 "playlist_import_mode_text" = "文字清單";
-"playlist_import_link_placeholder" = "貼上歌單分享連結：網易雲音樂、QQ 音樂、酷狗、酷我、波點、咪咕、汽水音樂、Apple Music、Spotify";
+"playlist_import_link_placeholder" = "貼上歌單分享連結：網易雲音樂、QQ 音樂、酷狗、酷我、波點、咪咕、汽水音樂、Apple Music、Spotify、Deezer、嗶哩嗶哩、YouTube";
 "playlist_import_link_desc" = "只讀取公開歌單的歌名、歌手、專輯和時長，不下載音訊。私密歌單請先在原 App 裡設為公開。";
 "playlist_import_link_fetch" = "讀取歌單";
 "playlist_import_text_order" = "每行格式";
@@ -4497,7 +4497,7 @@
 "playlist_import_confirm_all_probable_format" = "確認全部 %d 首";
 "playlist_import_create_with_pending_format" = "建立歌單（%1$d 首，%2$d 首置灰）";
 "playlist_import_pending_kept_hint" = "未比對條目將置灰保留";
-"playlist_import_link_err_unrecognized" = "沒有認出歌單連結。支援網易雲音樂、QQ 音樂、酷狗、酷我、波點、咪咕、汽水音樂、Apple Music 和 Spotify 的歌單分享連結。";
+"playlist_import_link_err_unrecognized" = "沒有認出歌單連結。支援網易雲音樂、QQ 音樂、酷狗、酷我、波點、咪咕、汽水音樂、Apple Music、Spotify、Deezer、嗶哩嗶哩和 YouTube 的歌單分享連結。";
 "playlist_import_link_err_private" = "讀不到這個歌單：它可能已刪除，或者是私密歌單。請在原 App 裡把歌單設為公開後再試。";
 "playlist_import_link_err_changed" = "平台回傳的內容和預期不一致，可能是對方介面有變化。可以改用「文字清單」匯入。";
 "playlist_import_link_err_network_format" = "網路請求失敗：%@";
@@ -4513,6 +4513,9 @@
 "playlist_import_platform_soda" = "汽水音樂";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "嗶哩嗶哩";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "伴奏音軌";
 "karaoke_backing_track_playing" = "正在播放伴奏音軌，沒有人聲可調。";
 "karaoke_lyrics_from_format" = "歌詞來自《%@》";

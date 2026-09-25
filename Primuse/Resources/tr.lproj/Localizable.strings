@@ -1338,7 +1338,7 @@
 "fullscreen_effect_vinyl" = "Vinil";
 "scraper_musicbrainz_desc" = "Açık müzik veritabanı, üst veriler ve kapaklar";
 "settings_dlna_devices_empty" = "Henüz bağlı cihaz yok. Aynı Wi-Fi üzerindeki kontrol noktası uygulamasında Primuse'yi seçin.";
-"playlist_import_intro_desc" = "Dosyalar / AirDrop aracılığıyla alınan çalma listesi dosyaları, dosya adı + başlık/sanatçıya göre arşivinizla eşleştirilecektir.";
+"playlist_import_intro_desc" = "Çalma listesi dosyaları (m3u, json veya Apple Music, Spotify dışa aktarma araçları, foobar2000, VLC ya da Windows Media Player'dan dışa aktarılan csv / txt / xml / pls / xspf / wpl) dosya adı ve şarkı/sanatçıya göre arşivinizle eşleştirilir.";
 "home_for_you_title" = "Sizin İçin";
 "search_match_time_format" = "%@'deki maç";
 "Small room → large hall" = "Küçük oda → büyük salon";
@@ -1688,7 +1688,7 @@
 "audio_output_error_follow_system %d" = "Sistem çıkışı takip edilemedi (durum=%d).";
 "source_synced_ago_format" = "Senkronize %@";
 "similar_loading" = "Last.fm'den benzer parçalar yükleniyor…";
-"playlist_import_mac_intro_desc" = ".m3u, .m3u8 ve .json'u destekler. Eşleşmeler ve eksik girişler içe aktarmadan önce önizlenir.";
+"playlist_import_mac_intro_desc" = ".m3u, .m3u8, .json, .csv, .txt, .xml, .pls, .xspf, .wpl desteklenir. Eşleşen ve eksik öğeler içe aktarmadan önce gösterilir.";
 "sample_rate_label" = "Örnek Oranı";
 "META-03 · Paste JSON or Import from URL" = "META-03 · JSON'yi yapıştırın veya URL'den içe aktarın";
 "metadata_writeback_plex_missing_album" = "Bu Plex parçasının yazılabilir albüm öğesi yok.";
@@ -4410,7 +4410,7 @@
 "playlist_import_mode_file" = "Dosya";
 "playlist_import_mode_link" = "Paylaşım bağlantısı";
 "playlist_import_mode_text" = "Metin listesi";
-"playlist_import_link_placeholder" = "Çalma listesi bağlantısını yapıştırın (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music veya Spotify)";
+"playlist_import_link_placeholder" = "Çalma listesi bağlantısını yapıştırın (NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili veya YouTube)";
 "playlist_import_link_desc" = "Yalnızca herkese açık listelerin şarkı adı, sanatçı, albüm ve süreleri okunur; ses indirilmez. Gizli listeyi önce kendi uygulamasında herkese açık yapın.";
 "playlist_import_link_fetch" = "Listeyi oku";
 "playlist_import_text_order" = "Satır biçimi";
@@ -4426,7 +4426,7 @@
 "playlist_import_confirm_all_probable_format" = "Tümünü onayla (%d)";
 "playlist_import_create_with_pending_format" = "Liste oluştur (%1$d, gri %2$d)";
 "playlist_import_pending_kept_hint" = "Eşleşmeyen öğeler gri olarak tutulacak";
-"playlist_import_link_err_unrecognized" = "Çalma listesi bağlantısı tanınmadı. NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music ve Spotify bağlantıları desteklenir.";
+"playlist_import_link_err_unrecognized" = "Çalma listesi bağlantısı tanınmadı. NetEase Cloud Music, QQ Music, Kugou, Kuwo, Bodian, Migu, Soda Music, Apple Music, Spotify, Deezer, bilibili ve YouTube bağlantıları desteklenir.";
 "playlist_import_link_err_private" = "Bu liste okunamıyor. Silinmiş ya da gizli olabilir. Kendi uygulamasında herkese açık yapıp yeniden deneyin.";
 "playlist_import_link_err_changed" = "Hizmet beklenmedik bir yanıt verdi; arayüzü değişmiş olabilir. Bunun yerine metin listesiyle içe aktarın.";
 "playlist_import_link_err_network_format" = "Ağ isteği başarısız: %@";
@@ -4442,6 +4442,9 @@
 "playlist_import_platform_soda" = "Soda Music";
 "playlist_import_platform_apple_music" = "Apple Music";
 "playlist_import_platform_spotify" = "Spotify";
+"playlist_import_platform_deezer" = "Deezer";
+"playlist_import_platform_bilibili" = "bilibili";
+"playlist_import_platform_youtube" = "YouTube";
 "karaoke_backing_track" = "Altyapı";
 "karaoke_backing_track_playing" = "Altyapı çalıyor, ayarlanacak vokal yok.";
 "karaoke_lyrics_from_format" = "Sözler: “%@”";
