@@ -20,10 +20,13 @@ extension View {
 }
 
 private struct PMContentFittingSheetDetents: ViewModifier {
-    /// 滚动内容还差多少点才能完整显示；≤ 0 表示装得下（负数是多出来的空白）。
-    @State private var overflow: CGFloat = 0
-    /// 面板这一层的可见高度。
+    /// 滚动内容完整显示要多高（内容本身 + 滚动视图上下让出的那几段：导航栏、底部按钮区）。
+    /// 用滚动视图报上来的内容高度算，不用它的容器高度：列表在面板改变高度时不一定跟着报新的容器尺寸。
+    @State private var requiredHeight: CGFloat = 0
+    /// 面板这一层的可见高度(连同上下安全区)。
     @State private var visibleHeight: CGFloat = 0
+    /// 面板底部的安全区(home 指示条)。`.height` 这一档量的是它之上的高度。
+    @State private var bottomSafeArea: CGFloat = 0
     /// 改停的高度。nil 时还是原来的半屏 / 全屏两档。
     @State private var fittedHeight: CGFloat?
     /// 面板此刻停在哪一档。只在停在最矮那一档时才按量出来的差值调整：拉到全屏时量到的空白
@@ -37,20 +40,25 @@ private struct PMContentFittingSheetDetents: ViewModifier {
         content
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom
-                    - geometry.containerSize.height
             } action: { _, value in
-                overflow = value
+                requiredHeight = value
             }
             .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.height
+                // 与滚动视图的内容高度同一口径：连上下伸进去的安全区(导航栏、home 指示条)一起算。
+                proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
             } action: { height in
                 visibleHeight = height
             }
-            .onChange(of: overflow) { _, value in
-                fit(overflow: value)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.safeAreaInsets.bottom
+            } action: { inset in
+                bottomSafeArea = inset
+            }
+            .onChange(of: requiredHeight) { _, _ in
+                fit()
             }
             .onChange(of: visibleHeight) { _, _ in
-                fit(overflow: overflow)
+                fit()
             }
             .environment(\.pmSheetContentOverflowed, fittedHeight != nil)
             .presentationDetents(
@@ -59,8 +67,10 @@ private struct PMContentFittingSheetDetents: ViewModifier {
             )
     }
 
-    private func fit(overflow: CGFloat) {
-        guard visibleHeight > 0, adjustments < 4 else { return }
+    private func fit() {
+        // 内容还没量出来（第一帧是 0）时不动。
+        guard visibleHeight > 0, requiredHeight > 1, adjustments < 4 else { return }
+        let overflow = requiredHeight - visibleHeight
         if let fittedHeight {
             // 已经改停过、此刻也停在这一档：还差就补，多出来的空白也收回。
             guard selection == .height(fittedHeight), abs(overflow) > 1 else { return }
@@ -72,7 +82,7 @@ private struct PMContentFittingSheetDetents: ViewModifier {
             // 还停在半屏：只有真的装不下才改停。
             guard selection == .medium, overflow > 1 else { return }
             adjustments += 1
-            let height = visibleHeight + overflow.rounded(.up)
+            let height = max((requiredHeight - bottomSafeArea).rounded(.up), 1)
             fittedHeight = height
             selection = .height(height)
         }
