@@ -4347,6 +4347,15 @@
 "tag_reason_unified_spelling" = "Bu seçimde aynı ad farklı yazılmış";
 "tag_reason_invalid_year" = "Olanaksız yıl";
 "tag_reason_track_from_file" = "Dosya adından parça numarası";
+"tag_reason_title_from_file" = "Başlık yalnızca sanatçıyı tekrarlıyor; şarkı adı dosya adından alındı";
+"tag_reason_copy_counter" = "Bir indirme aracının kopya dosyaya eklediği numara";
+"tag_tidy_library_action" = "Tüm arşivin etiketlerini denetle";
+"tag_tidy_library_button" = "Denetle";
+"tag_tidy_library_footer" = "Site adlarını, yer tutucu değerleri, yalnızca sanatçıyı tekrarlayan başlıkları, fazladan \"(1)\" kopya numaralarını ve daha fazlasını bulur. Her şey önce onayınız için listelenir; yalnızca işaretledikleriniz yazılır ve geri alınabilir.";
+"tag_tidy_library_checked" = "Denetlenen şarkılar";
+"tag_editor_suggestions_title" = "Önerilen düzeltmeler";
+"tag_editor_suggestions_apply_all" = "Tümünü uygula";
+"tag_editor_suggestion_apply" = "Uygula";
 
 // MARK: - Karaoke
 "karaoke_title" = "Karaoke";

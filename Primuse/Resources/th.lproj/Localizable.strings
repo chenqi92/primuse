@@ -4347,6 +4347,15 @@
 "tag_reason_unified_spelling" = "ชื่อเดียวกันสะกดต่างกันในรายการที่เลือก";
 "tag_reason_invalid_year" = "ปีที่เป็นไปไม่ได้";
 "tag_reason_track_from_file" = "เลขแทร็กจากชื่อไฟล์";
+"tag_reason_title_from_file" = "ชื่อเพลงเป็นแค่ชื่อศิลปินซ้ำ จึงใช้ชื่อเพลงจากชื่อไฟล์";
+"tag_reason_copy_counter" = "หมายเลขสำเนาที่เครื่องมือดาวน์โหลดเติมให้ไฟล์ซ้ำ";
+"tag_tidy_library_action" = "ตรวจแท็กทั้งคลังเพลง";
+"tag_tidy_library_button" = "ตรวจ";
+"tag_tidy_library_footer" = "ค้นหาชื่อเว็บไซต์ ค่าตัวยึด ชื่อเพลงที่เป็นแค่ชื่อศิลปิน หมายเลขสำเนา \"(1)\" ที่เกินมา และอื่น ๆ ทุกอย่างจะแสดงให้ยืนยันก่อน เฉพาะรายการที่เลือกจะถูกเขียน และเลิกทำได้";
+"tag_tidy_library_checked" = "เพลงที่ตรวจแล้ว";
+"tag_editor_suggestions_title" = "การแก้ไขที่แนะนำ";
+"tag_editor_suggestions_apply_all" = "ใช้ทั้งหมด";
+"tag_editor_suggestion_apply" = "ใช้";
 
 // MARK: - Karaoke
 "karaoke_title" = "คาราโอเกะ";

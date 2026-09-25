@@ -4441,6 +4441,15 @@
 "tag_reason_unified_spelling" = "선택 항목 안에서 다르게 쓴 같은 이름";
 "tag_reason_invalid_year" = "불가능한 연도";
 "tag_reason_track_from_file" = "파일 이름의 트랙 번호";
+"tag_reason_title_from_file" = "제목이 아티스트 이름을 반복하고 있어 파일 이름에서 곡명을 가져옴";
+"tag_reason_copy_counter" = "다운로드 도구가 중복 파일에 붙인 번호";
+"tag_tidy_library_action" = "보관함 전체 태그 검사";
+"tag_tidy_library_button" = "검사";
+"tag_tidy_library_footer" = "사이트 이름, 자리표시 값, 아티스트 이름만 적힌 제목, 중복 파일의 \"(1)\" 번호 등을 찾습니다. 먼저 목록으로 확인하고, 선택한 항목만 기록되며 되돌릴 수 있습니다.";
+"tag_tidy_library_checked" = "검사한 곡";
+"tag_editor_suggestions_title" = "수정 제안";
+"tag_editor_suggestions_apply_all" = "모두 적용";
+"tag_editor_suggestion_apply" = "적용";
 
 // MARK: - Karaoke
 "karaoke_title" = "노래방";

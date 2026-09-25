@@ -4418,6 +4418,15 @@
 "tag_reason_unified_spelling" = "所選歌曲裡同一個名字寫法不一";
 "tag_reason_invalid_year" = "年份不合理";
 "tag_reason_track_from_file" = "從檔名取音軌號";
+"tag_reason_title_from_file" = "標題只是重複了歌手名，依檔名取回歌名";
+"tag_reason_copy_counter" = "移除下載工具替重名檔案加上的編號";
+"tag_tidy_library_action" = "檢查整個資料庫的標籤";
+"tag_tidy_library_button" = "檢查";
+"tag_tidy_library_footer" = "找出廣告、佔位值、標題只寫了歌手名、重名檔案多出的「(1)」等問題。先逐項列給你確認，勾選的才寫入，寫入後可復原。";
+"tag_tidy_library_checked" = "已檢查的歌曲";
+"tag_editor_suggestions_title" = "建議修改";
+"tag_editor_suggestions_apply_all" = "全部套用";
+"tag_editor_suggestion_apply" = "套用";
 
 // MARK: - Karaoke
 "karaoke_title" = "卡拉OK";

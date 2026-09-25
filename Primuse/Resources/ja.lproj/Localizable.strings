@@ -4442,6 +4442,15 @@
 "tag_reason_unified_spelling" = "この選択内で表記ゆれ";
 "tag_reason_invalid_year" = "ありえない年";
 "tag_reason_track_from_file" = "ファイル名からのトラック番号";
+"tag_reason_title_from_file" = "タイトルがアーティスト名の繰り返しのため、ファイル名から曲名を復元";
+"tag_reason_copy_counter" = "ダウンロードツールが重複ファイルに付けた番号";
+"tag_tidy_library_action" = "ライブラリ全体のタグをチェック";
+"tag_tidy_library_button" = "チェック";
+"tag_tidy_library_footer" = "サイト名、仮の値、アーティスト名だけのタイトル、重複ファイルの「(1)」などを見つけます。まず一覧で確認でき、チェックした項目だけが書き込まれ、取り消しもできます。";
+"tag_tidy_library_checked" = "チェックした曲";
+"tag_editor_suggestions_title" = "修正の提案";
+"tag_editor_suggestions_apply_all" = "すべて適用";
+"tag_editor_suggestion_apply" = "適用";
 
 // MARK: - Karaoke
 "karaoke_title" = "カラオケ";

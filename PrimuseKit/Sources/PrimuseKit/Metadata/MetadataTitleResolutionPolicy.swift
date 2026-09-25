@@ -83,7 +83,7 @@ public enum MetadataTitleResolutionPolicy {
 
     /// "王菲 (1)" → "王菲"; one- or two-digit counters only, so a year such as
     /// "(1994)" is never mistaken for a copy number.
-    private static func strippingCopyCounter(_ value: String) -> String? {
+    static func strippingCopyCounter(_ value: String) -> String? {
         guard let match = value.wholeMatch(of: /(.+?)\s*[(（]\d{1,2}[)）]/) else { return nil }
         let base = String(match.1).trimmingCharacters(in: .whitespacesAndNewlines)
         return base.isEmpty ? nil : base

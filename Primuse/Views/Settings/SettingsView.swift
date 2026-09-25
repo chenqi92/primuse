@@ -1145,6 +1145,7 @@ struct MetadataScrapingView: View {
     @State private var pendingLyricsEmbeddingMode: LyricsEmbeddingMode?
     @State private var showLyricsServers = false
     @State private var lyricsServerStore = LyricsAPIServerStore.shared
+    @State private var libraryTidySongs: BatchSongSelection?
 
 
     var body: some View {
@@ -1359,6 +1360,22 @@ struct MetadataScrapingView: View {
             } footer: {
                 Text("scrape_description")
             }
+
+            Section {
+                Button {
+                    libraryTidySongs = BatchSongSelection(songs: library.songs.filter {
+                        $0.sourceID != AppleMusicLibraryService.systemSourceID
+                    })
+                } label: {
+                    Label("tag_tidy_library_action", systemImage: "wand.and.sparkles")
+                }
+                .settingsAnchor("scraping.tidyLibrary")
+            } footer: {
+                Text("tag_tidy_library_footer")
+            }
+        }
+        .sheet(item: $libraryTidySongs) { batch in
+            TagTidyView(songs: batch.songs, isLibraryWide: true)
         }
         .navigationDestination(isPresented: $showLyricsServers) {
             LyricsAPIServersView()

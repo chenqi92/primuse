@@ -4347,6 +4347,15 @@
 "tag_reason_unified_spelling" = "Ta sama nazwa zapisana różnie w zaznaczeniu";
 "tag_reason_invalid_year" = "Niemożliwy rok";
 "tag_reason_track_from_file" = "Numer ścieżki z nazwy pliku";
+"tag_reason_title_from_file" = "Tytuł tylko powtarza wykonawcę; nazwa utworu wzięta z nazwy pliku";
+"tag_reason_copy_counter" = "Numer kopii dodany przez program do pobierania do zduplikowanego pliku";
+"tag_tidy_library_action" = "Sprawdź tagi całej biblioteki";
+"tag_tidy_library_button" = "Sprawdź";
+"tag_tidy_library_footer" = "Wykrywa nazwy stron, wartości zastępcze, tytuły powtarzające wykonawcę, zbędne numery kopii „(1)” i inne. Najpierw wszystko jest wyświetlane do potwierdzenia; zapisywane jest tylko to, co zaznaczysz, i można to cofnąć.";
+"tag_tidy_library_checked" = "Sprawdzone utwory";
+"tag_editor_suggestions_title" = "Sugerowane poprawki";
+"tag_editor_suggestions_apply_all" = "Zastosuj wszystkie";
+"tag_editor_suggestion_apply" = "Zastosuj";
 
 // MARK: - Karaoke
 "karaoke_title" = "Karaoke";

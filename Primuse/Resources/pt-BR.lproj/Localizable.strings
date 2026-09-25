@@ -4347,6 +4347,15 @@
 "tag_reason_unified_spelling" = "Mesmo nome escrito de outro jeito na seleção";
 "tag_reason_invalid_year" = "Ano impossível";
 "tag_reason_track_from_file" = "Número da faixa pelo nome do arquivo";
+"tag_reason_title_from_file" = "O título só repete o artista; nome da música tirado do nome do arquivo";
+"tag_reason_copy_counter" = "Número de cópia que um programa de download adicionou a um arquivo duplicado";
+"tag_tidy_library_action" = "Verificar tags de toda a biblioteca";
+"tag_tidy_library_button" = "Verificar";
+"tag_tidy_library_footer" = "Encontra nomes de sites, valores genéricos, títulos que só repetem o artista, números de cópia \"(1)\" a mais e outros. Tudo é listado primeiro para você confirmar; só o que você marcar é gravado, e dá para desfazer.";
+"tag_tidy_library_checked" = "Músicas verificadas";
+"tag_editor_suggestions_title" = "Correções sugeridas";
+"tag_editor_suggestions_apply_all" = "Aplicar tudo";
+"tag_editor_suggestion_apply" = "Aplicar";
 
 // MARK: - Karaoke
 "karaoke_title" = "Karaokê";

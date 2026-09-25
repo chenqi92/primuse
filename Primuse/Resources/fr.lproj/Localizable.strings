@@ -4441,6 +4441,15 @@
 "tag_reason_unified_spelling" = "Même nom écrit autrement dans cette sélection";
 "tag_reason_invalid_year" = "Année impossible";
 "tag_reason_track_from_file" = "Numéro de piste tiré du nom de fichier";
+"tag_reason_title_from_file" = "Le titre ne fait que répéter l’artiste ; nom du morceau repris du nom de fichier";
+"tag_reason_copy_counter" = "Numéro de copie ajouté par un outil de téléchargement à un fichier en double";
+"tag_tidy_library_action" = "Vérifier les tags de toute la bibliothèque";
+"tag_tidy_library_button" = "Vérifier";
+"tag_tidy_library_footer" = "Repère les noms de sites, les valeurs par défaut, les titres qui répètent l’artiste, les numéros de copie « (1) » en trop, etc. Tout est d’abord listé pour confirmation ; seul ce que vous cochez est écrit, et c’est annulable.";
+"tag_tidy_library_checked" = "Morceaux vérifiés";
+"tag_editor_suggestions_title" = "Corrections suggérées";
+"tag_editor_suggestions_apply_all" = "Tout appliquer";
+"tag_editor_suggestion_apply" = "Appliquer";
 
 // MARK: - Karaoke
 "karaoke_title" = "Karaoké";

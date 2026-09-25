@@ -4347,6 +4347,15 @@
 "tag_reason_unified_spelling" = "الاسم نفسه مكتوب بطرق مختلفة في هذا التحديد";
 "tag_reason_invalid_year" = "سنة غير ممكنة";
 "tag_reason_track_from_file" = "رقم المقطع من اسم الملف";
+"tag_reason_title_from_file" = "العنوان يكرر اسم الفنان فقط؛ أُخذ اسم الأغنية من اسم الملف";
+"tag_reason_copy_counter" = "رقم نسخة أضافته أداة تنزيل إلى ملف مكرر";
+"tag_tidy_library_action" = "فحص وسوم المكتبة بأكملها";
+"tag_tidy_library_button" = "فحص";
+"tag_tidy_library_footer" = "يعثر على أسماء المواقع والقيم المؤقتة والعناوين التي تكرر اسم الفنان وأرقام النسخ الزائدة مثل \"(1)\" وغيرها. يُعرض كل شيء أولًا لتأكيده؛ لا يُكتب إلا ما تحدده، ويمكن التراجع عنه.";
+"tag_tidy_library_checked" = "الأغاني التي فُحصت";
+"tag_editor_suggestions_title" = "إصلاحات مقترحة";
+"tag_editor_suggestions_apply_all" = "تطبيق الكل";
+"tag_editor_suggestion_apply" = "تطبيق";
 
 // MARK: - Karaoke
 "karaoke_title" = "كاريوكي";

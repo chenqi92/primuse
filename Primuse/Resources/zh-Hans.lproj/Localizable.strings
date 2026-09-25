@@ -4534,6 +4534,15 @@
 "tag_reason_unified_spelling" = "所选歌曲里同一个名字写法不一";
 "tag_reason_invalid_year" = "年份不合理";
 "tag_reason_track_from_file" = "从文件名取音轨号";
+"tag_reason_title_from_file" = "标题只是重复了歌手名，按文件名取回歌名";
+"tag_reason_copy_counter" = "去掉下载工具给重名文件加的编号";
+"tag_tidy_library_action" = "检查整个曲库的标签";
+"tag_tidy_library_button" = "检查";
+"tag_tidy_library_footer" = "找出广告、占位值、标题只写了歌手名、重名文件多出的「(1)」等问题。先逐项列给你确认，勾选的才写入，写入后可撤销。";
+"tag_tidy_library_checked" = "已检查的歌曲";
+"tag_editor_suggestions_title" = "建议修改";
+"tag_editor_suggestions_apply_all" = "全部采用";
+"tag_editor_suggestion_apply" = "采用";
 
 // MARK: - Karaoke
 "karaoke_title" = "卡拉OK";

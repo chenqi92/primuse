@@ -4347,6 +4347,15 @@
 "tag_reason_unified_spelling" = "Mismo nombre escrito distinto en la selección";
 "tag_reason_invalid_year" = "Año imposible";
 "tag_reason_track_from_file" = "Número de pista del nombre de archivo";
+"tag_reason_title_from_file" = "El título solo repite al artista; nombre de la canción tomado del nombre de archivo";
+"tag_reason_copy_counter" = "Número de copia que una herramienta de descarga añadió a un archivo duplicado";
+"tag_tidy_library_action" = "Revisar etiquetas de toda la biblioteca";
+"tag_tidy_library_button" = "Revisar";
+"tag_tidy_library_footer" = "Encuentra nombres de sitios, valores genéricos, títulos que solo repiten al artista, números de copia \"(1)\" sobrantes y más. Todo se muestra primero para que lo confirmes; solo se escribe lo que marques y se puede deshacer.";
+"tag_tidy_library_checked" = "Canciones revisadas";
+"tag_editor_suggestions_title" = "Correcciones sugeridas";
+"tag_editor_suggestions_apply_all" = "Aplicar todo";
+"tag_editor_suggestion_apply" = "Aplicar";
 
 // MARK: - Karaoke
 "karaoke_title" = "Karaoke";

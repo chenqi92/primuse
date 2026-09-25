@@ -4347,6 +4347,15 @@
 "tag_reason_unified_spelling" = "इस चयन में एक ही नाम अलग लिखा है";
 "tag_reason_invalid_year" = "असंभव वर्ष";
 "tag_reason_track_from_file" = "फ़ाइल नाम से ट्रैक नंबर";
+"tag_reason_title_from_file" = "शीर्षक में केवल कलाकार का नाम दोहराया गया है; गाने का नाम फ़ाइल नाम से लिया गया";
+"tag_reason_copy_counter" = "डाउनलोड टूल द्वारा डुप्लिकेट फ़ाइल में जोड़ी गई कॉपी संख्या";
+"tag_tidy_library_action" = "पूरी लाइब्रेरी के टैग जाँचें";
+"tag_tidy_library_button" = "जाँचें";
+"tag_tidy_library_footer" = "साइट के नाम, प्लेसहोल्डर मान, केवल कलाकार दोहराने वाले शीर्षक, अतिरिक्त \"(1)\" कॉपी संख्या आदि खोजता है। पहले सब कुछ पुष्टि के लिए दिखाया जाता है; केवल चुने गए बदलाव लिखे जाते हैं और उन्हें पूर्ववत किया जा सकता है।";
+"tag_tidy_library_checked" = "जाँचे गए गाने";
+"tag_editor_suggestions_title" = "सुझाए गए सुधार";
+"tag_editor_suggestions_apply_all" = "सभी लागू करें";
+"tag_editor_suggestion_apply" = "लागू करें";
 
 // MARK: - Karaoke
 "karaoke_title" = "कराओके";

@@ -4347,6 +4347,15 @@
 "tag_reason_unified_spelling" = "Одно имя написано по-разному";
 "tag_reason_invalid_year" = "Невозможный год";
 "tag_reason_track_from_file" = "Номер трека из имени файла";
+"tag_reason_title_from_file" = "Название лишь повторяет исполнителя; название песни взято из имени файла";
+"tag_reason_copy_counter" = "Номер копии, который загрузчик добавил к дублирующемуся файлу";
+"tag_tidy_library_action" = "Проверить теги всей медиатеки";
+"tag_tidy_library_button" = "Проверить";
+"tag_tidy_library_footer" = "Находит названия сайтов, заглушки, названия, повторяющие исполнителя, лишние номера копий «(1)» и другое. Сначала всё показывается для подтверждения; записывается только отмеченное, и это можно отменить.";
+"tag_tidy_library_checked" = "Проверено песен";
+"tag_editor_suggestions_title" = "Предлагаемые исправления";
+"tag_editor_suggestions_apply_all" = "Применить все";
+"tag_editor_suggestion_apply" = "Применить";
 
 // MARK: - Karaoke
 "karaoke_title" = "Караоке";

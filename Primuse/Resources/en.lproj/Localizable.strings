@@ -4204,6 +4204,15 @@
 "tag_reason_unified_spelling" = "Same name written differently in this selection";
 "tag_reason_invalid_year" = "Impossible year";
 "tag_reason_track_from_file" = "Track number from the file name";
+"tag_reason_title_from_file" = "The title only repeats the artist; song name taken from the file name";
+"tag_reason_copy_counter" = "Copy number a download tool added to a duplicate file";
+"tag_tidy_library_action" = "Check Tags in the Whole Library";
+"tag_tidy_library_button" = "Check";
+"tag_tidy_library_footer" = "Finds site names, placeholder values, titles that only repeat the artist, stray \"(1)\" copy numbers and more. Everything is listed for you to confirm first; only what you tick is written, and it can be undone.";
+"tag_tidy_library_checked" = "Songs checked";
+"tag_editor_suggestions_title" = "Suggested Fixes";
+"tag_editor_suggestions_apply_all" = "Apply All";
+"tag_editor_suggestion_apply" = "Apply";
 
 // MARK: - Karaoke
 "karaoke_title" = "Karaoke";

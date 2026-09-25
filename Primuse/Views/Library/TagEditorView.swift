@@ -231,6 +231,7 @@ struct TagEditorView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         filenameHeader
+                        suggestionCard
                         titleField
                         artistField
                         albumAndYearFields
@@ -434,6 +435,114 @@ struct TagEditorView: View {
             trackText = String(track)
         }
         didApplySplit = true
+    }
+
+    // MARK: - 建议修改
+
+    /// 规则整理对这一首给出的建议。只列用户还没动过的字段 —— 采用了、或者
+    /// 自己改过了，那一条就不再出现。只填进表单，保存仍由用户点。
+    private var tagSuggestions: [TagCleanupProposal] {
+        guard !song.isCueTrack else { return [] }
+        let year = Calendar.current.component(.year, from: Date())
+        return TagCleanupPolicy.proposals(
+            for: [BatchTagEditService.cleanupSong(song)],
+            currentYear: year
+        )
+        .filter { editorText(for: $0.field) == ($0.oldValue ?? "") }
+        .sorted { $0.field.sortOrder < $1.field.sortOrder }
+    }
+
+    private func editorText(for field: TagCleanupField) -> String {
+        switch field {
+        case .title: title
+        case .artist: artist
+        case .album: album
+        case .genre: genre
+        case .year: yearText
+        case .trackNumber: trackText
+        case .discNumber: discText
+        }
+    }
+
+    private func applySuggestion(_ proposal: TagCleanupProposal) {
+        let value = proposal.newValue ?? ""
+        switch proposal.field {
+        case .title: title = value
+        case .artist: artist = value
+        case .album: album = value
+        case .genre: genre = value
+        case .year: yearText = value
+        case .trackNumber: trackText = value
+        case .discNumber: discText = value
+        }
+    }
+
+    @ViewBuilder
+    private var suggestionCard: some View {
+        let suggestions = tagSuggestions
+        if !suggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Label(String(localized: "tag_editor_suggestions_title"), systemImage: "wand.and.sparkles")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                    Spacer(minLength: 8)
+                    if suggestions.count > 1 {
+                        Button(String(localized: "tag_editor_suggestions_apply_all")) {
+                            withAnimation(PMMotion.control.animation) {
+                                suggestions.forEach(applySuggestion)
+                            }
+                        }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.borderless)
+                    }
+                }
+                ForEach(suggestions) { proposal in
+                    HStack(alignment: .center, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(proposal.field.titleKey)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Text(proposal.oldValue ?? String(localized: "batch_edit_value_empty"))
+                                    .strikethrough(proposal.oldValue != nil)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Image(systemName: "arrow.right")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                    .accessibilityHidden(true)
+                                Text(proposal.newValue ?? String(localized: "batch_edit_value_cleared"))
+                                    .fontWeight(.medium)
+                                    .lineLimit(1)
+                            }
+                            .font(.subheadline)
+                            if let reason = proposal.reasonText {
+                                Text(reason)
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(2)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        Button(String(localized: "tag_editor_suggestion_apply")) {
+                            withAnimation(PMMotion.control.animation) { applySuggestion(proposal) }
+                        }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                Color.accentColor.opacity(0.08),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .disabled(isSaving)
+            .transition(.opacity)
+        }
     }
 
     // MARK: - 字段 + 候选
@@ -799,6 +908,8 @@ struct TagEditorView: View {
 
             ScrollView {
                 VStack(spacing: 6) {
+                    suggestionCard
+                        .padding(.bottom, tagSuggestions.isEmpty ? 0 : 6)
                     macField(String(localized: "tag_editor_title"), text: $title, original: song.title)
                     macField(String(localized: "tag_editor_artist"), text: $artist, original: song.artistName ?? "")
                     macField(String(localized: "tag_editor_album"), text: $album, original: song.albumTitle ?? "")
