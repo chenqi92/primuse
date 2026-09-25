@@ -3273,12 +3273,10 @@ struct HomeView: View {
         plog("🏠 playSong TAPPED: '\(song.title)' id=\(song.id.prefix(12)) path=\(song.filePath)")
 
         // Build queue from recently played songs, supplemented by library.
-        // Only items of the tapped one's kind: a song must not be followed
-        // by a book chapter heard yesterday, nor a chapter by songs.
-        let tappedIsSpokenWord = library.spokenWordSongIDs.contains(song.id)
-        var queueSongs = library.recentlyPlayedSongs(limit: 50).filter {
-            library.spokenWordSongIDs.contains($0.id) == tappedIsSpokenWord
-        }
+        // Those are songs only; a chapter found by search plays on its own
+        // rather than running on into music.
+        let isSpokenWord = library.spokenWordSongIDs.contains(song.id)
+        var queueSongs = isSpokenWord ? [song] : library.recentlyPlayedSongs(limit: 50)
         plog("🏠 recentlyPlayed queue: \(queueSongs.count) songs, first3=\(queueSongs.prefix(3).map(\.title))")
 
         // If tapped song isn't in recent list, prepend it
@@ -3288,7 +3286,7 @@ struct HomeView: View {
         }
 
         // Supplement with library songs if queue is too small
-        if queueSongs.count < 20, !tappedIsSpokenWord {
+        if queueSongs.count < 20, !isSpokenWord {
             let existingIDs = Set(queueSongs.map(\.id))
             let extra = library.musicSongs.filter { !existingIDs.contains($0.id) }
             queueSongs.append(contentsOf: extra)
