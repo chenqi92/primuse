@@ -189,12 +189,14 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             // 连左右安全区一起出血, 正文再把左右安全区按侧加回来 —— 头部自己
             // 拿 insets 消费, 底图就是唯一铺到边的那一层。
             let pageWidth = geometry.size.width + safeArea.leading + safeArea.trailing
-            if LibraryDetailWideCanvas.usesTwoColumns(
+            let usesTwoColumns = LibraryDetailWideCanvas.usesTwoColumns(
                 isPhoneIdiom: isPhoneIdiomEnvironment,
                 horizontalSizeClass: horizontalSizeClass,
                 heightClass: heightClass,
                 size: CGSize(width: pageWidth, height: geometry.size.height + safeArea.top + safeArea.bottom)
-            ) {
+            )
+            Group {
+            if usesTwoColumns {
                 twoColumnPage(safeArea: safeArea, pageWidth: pageWidth)
             } else {
             ScrollView {
@@ -215,6 +217,9 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             }
             .ignoresSafeArea(.container, edges: [.top, .horizontal])
             }
+            }
+            // iPhone Duo 开合时单栏 ⇄ 两栏换构图，新构图淡入。
+            .pmLayoutChangeFade(usesTwoColumns)
         }
         .background {
             if let tint {
@@ -323,12 +328,14 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
             GeometryReader { geometry in
                 let safeArea = geometry.safeAreaInsets
                 let pageWidth = geometry.size.width + safeArea.leading + safeArea.trailing
-                if LibraryDetailWideCanvas.usesTwoColumns(
+                let usesTwoColumns = LibraryDetailWideCanvas.usesTwoColumns(
                     isPhoneIdiom: isPhoneIdiomEnvironment,
                     horizontalSizeClass: horizontalSizeClass,
                     heightClass: heightClass,
                     size: CGSize(width: pageWidth, height: geometry.size.height + safeArea.top + safeArea.bottom)
-                ) {
+                )
+                Group {
+                if usesTwoColumns {
                     let leadingWidth = CGFloat(WideCanvasColumnsPolicy.detailLeadingColumnWidth(
                         pageWidth: Double(pageWidth)
                     ))
@@ -353,6 +360,9 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
                 } else {
                     single()
                 }
+                }
+                // iPhone Duo 开合时单栏 ⇄ 两栏换构图，新构图淡入。
+                .pmLayoutChangeFade(usesTwoColumns)
             }
         } else {
             single()

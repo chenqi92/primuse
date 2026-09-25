@@ -93,6 +93,8 @@ struct ImmersivePlayerView: View {
 
             ZStack {
                 stage(metrics: metrics)
+                    // 开合、转屏让舞台换构图(竖版 / 横版)时新构图淡入。
+                    .pmLayoutChangeFade(metrics.layout)
                     .scaleEffect(isAmbientRest ? 1.018 : 1)
                     .offset(
                         x: isAmbientRest ? (ambientDrift ? metrics.s(8) : -metrics.s(8)) : 0,

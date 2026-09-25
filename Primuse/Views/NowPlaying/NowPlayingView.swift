@@ -1522,6 +1522,8 @@ struct NowPlayingView: View {
                         }
 
                     }
+                    // iPhone Duo 开合、转屏换构图(竖版 / 横屏骨架 / iPad 双栏)时新构图淡入，不闪一下。
+                    .pmLayoutChangeFade(playerLayoutMode)
                     .contentShape(Rectangle())
                     // 横屏锁上、或者效果抽屉开着的时候，整页不再响应最小化手势：
                     // 前者是锁的语义，后者是抽屉之外的一切都只该用来收起抽屉。
