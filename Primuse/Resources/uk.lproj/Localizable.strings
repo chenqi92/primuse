@@ -4468,3 +4468,12 @@
 "karaoke_vocal_assist_active" = "Підспівує оригінал";
 "karaoke_vocal_assist_paused" = "Підказку призупинено: мікрофон чує динамік. Використовуйте навушники.";
 "karaoke_ai_cooling" = "Пристрій нагрівся, продовжимо після охолодження";
+"karaoke_speed" = "Темп";
+"karaoke_speed_normal" = "Звичайний";
+"karaoke_speed_down" = "Повільніше";
+"karaoke_speed_up" = "Швидше";
+"karaoke_loop" = "Повторювати рядок";
+"karaoke_loop_stop" = "Зупинити повтор";
+"karaoke_loop_lines_format" = "Повтор рядків: %d";
+"karaoke_loop_extend" = "Додати рядок";
+"karaoke_practice_not_scored" = "Режим практики: без оцінки та запису.";

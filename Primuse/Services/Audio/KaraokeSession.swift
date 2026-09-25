@@ -159,6 +159,19 @@ final class KaraokeSession {
     }
     let separation = KaraokeSeparationService.shared
 
+    /// Practice speed; the key stays. Not kept once the stage closes.
+    var practiceRate: Double = 1 {
+        didSet {
+            guard practiceRate != oldValue else { return }
+            applyPracticeRate()
+            if isPracticing, isRecording { finishRecording() }
+        }
+    }
+    /// The lines being played over and over.
+    private(set) var loop: KaraokePracticePolicy.Loop?
+    /// Slowed down or looping: nothing is scored or recorded meanwhile.
+    var isPracticing: Bool { loop != nil || practiceRate < 1 }
+
     /// Brings the original vocal back while the singer is silent in their line.
     var vocalAssistEnabled: Bool {
         didSet {
@@ -223,6 +236,9 @@ final class KaraokeSession {
     private static let recordingPauseTicks = 40
     @ObservationIgnored private var wordTimingSongID: String?
     @ObservationIgnored private var vocalAssist = KaraokeVocalAssistPolicy()
+    /// A jump back to the loop start is on its way; the playhead still
+    /// reads past the end until it lands.
+    @ObservationIgnored private var loopJumpIssuedAt: Date?
     /// Headphones: the returning original cannot reach the microphone.
     @ObservationIgnored private var assistRouteAllows = false
     @ObservationIgnored private var wordTimingTask: Task<Void, Never>?
@@ -248,6 +264,9 @@ final class KaraokeSession {
         guard !isActive else { return }
         isActive = true
         player.setKaraokeSessionActive(true)
+        #if DEBUG
+        startDebugPractice()
+        #endif
         tick()
         tickTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -270,8 +289,12 @@ final class KaraokeSession {
         if isRecording { finishRecording() }
         stopMicrophone()
         removeStem()
+        loop = nil
+        player.karaokePracticeRate = nil
+        player.applyPlaybackRate()
         let control = engine.karaokeControl
         control.isActive = false
+        control.bridgesStem = false
         control.capturesVocal = false
         engine.applyKaraokePitch(cents: 0)
         player.setKaraokeSessionActive(false)
@@ -303,6 +326,7 @@ final class KaraokeSession {
         if isStemActive, tickCount % 5 == 0 {
             alignStemIfIdle()
         }
+        followLoop()
 
         // A take ends when playback stays paused. Resuming can take a moment
         // (a seek, a restart after the song ended), so a start is given time.
@@ -326,6 +350,7 @@ final class KaraokeSession {
         let reduces = processes && !isPlayingInstrumental
         // With an AI stem loaded the graph subtracts it instead.
         control.isActive = reduces && !isStemActive
+        control.bridgesStem = reduces && isStemActive
         control.capturesVocal = reduces && microphoneState == .on
         let time = player.interpolatedTime()
         let factor = KaraokeDuetGatePolicy.reductionFactor(windows: windows, part: part, at: time)
@@ -357,6 +382,7 @@ final class KaraokeSession {
         carriedSongID = nil
         pairedOriginal = nil
         vocalAssist.reset()
+        loop = nil
         instrumentalCompanion = nil
         wordTimingTask?.cancel()
         wordTimingTask = nil
@@ -702,7 +728,8 @@ final class KaraokeSession {
         let vocalRate = engine.outputFormat?.sampleRate ?? 0
         let microphoneRate = microphone.sampleRate
         let time = player.interpolatedTime()
-        let lag = microphone.inputLatency + engine.outputPresentationLatency
+        // Wall-clock latency covers less of the song while slowed down.
+        let lag = (microphone.inputLatency + engine.outputPresentationLatency) * practiceRate
         let expectedSongID = songID
         Task { @MainActor [weak self] in
             let reading = await analyzer.analyze(
@@ -724,7 +751,9 @@ final class KaraokeSession {
         // The voice heard now answers audio rendered `lag` earlier.
         let sungTime = time - microphoneLag
         let reference = referenceTrack.note(at: sungTime)
-        scorer.record(time: sungTime, reference: reference, sung: reading.sung)
+        if !isPracticing {
+            scorer.record(time: sungTime, reference: reference, sung: reading.sung)
+        }
         if vocalAssistApplies {
             vocalAssist.observe(
                 time: sungTime,
@@ -819,6 +848,79 @@ final class KaraokeSession {
 
     var canRecord: Bool {
         microphoneState == .on && availability == .available && engine.karaokeRecordingTapNode != nil
+            && !isPracticing
+    }
+
+    // MARK: - Practice
+
+    /// Loops the line being sung (or the next one), or stops looping.
+    func toggleLoop() {
+        if loop != nil {
+            loop = nil
+            return
+        }
+        guard let created = KaraokePracticePolicy.loop(windows: windows, at: player.interpolatedTime()) else { return }
+        if isRecording { finishRecording() }
+        loop = created
+        loopJumpIssuedAt = nil
+    }
+
+    /// Adds the following line to the loop.
+    func extendLoop() {
+        guard let loop, let extended = KaraokePracticePolicy.extended(loop, windows: windows) else { return }
+        self.loop = extended
+    }
+
+    var canExtendLoop: Bool {
+        guard let loop else { return false }
+        return loop.lastWindow + 1 < windows.count
+    }
+
+    #if DEBUG
+    /// `PRIMUSE_DEBUG_KARAOKE_PRACTICE=<rate>`: a few seconds in, slows down
+    /// to `rate` and loops the line being sung.
+    private func startDebugPractice() {
+        guard let value = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_KARAOKE_PRACTICE"],
+              let rate = Double(value) else { return }
+        Task { @MainActor [weak self] in
+            for _ in 0..<60 {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, self.isActive else { return }
+                guard self.player.isPlaying, self.player.interpolatedTime() > 3, !self.windows.isEmpty else { continue }
+                self.practiceRate = rate
+                self.toggleLoop()
+                plog("🧪 Karaoke: practice rate=\(rate) loop=\(String(describing: self.loop))")
+                return
+            }
+        }
+    }
+    #endif
+
+    private func applyPracticeRate() {
+        player.karaokePracticeRate = practiceRate < 1 ? Float(practiceRate) : nil
+        player.applyPlaybackRate()
+    }
+
+    private func followLoop() {
+        guard let loop, player.isPlaying else { return }
+        let time = player.interpolatedTime()
+        if let issued = loopJumpIssuedAt {
+            guard time >= loop.end, Date().timeIntervalSince(issued) < 2 else {
+                loopJumpIssuedAt = nil
+                return
+            }
+            return
+        }
+        switch KaraokePracticePolicy.action(for: loop, at: time) {
+        case .none:
+            break
+        case .jumpBack:
+            loopJumpIssuedAt = Date()
+            plog("🎤 Karaoke: loop back to \(String(format: "%.1f", loop.start))s from \(String(format: "%.1f", time))s")
+            player.seek(to: loop.start, startPlaying: true)
+        case .leave:
+            self.loop = nil
+        }
     }
 
     func toggleRecording() {

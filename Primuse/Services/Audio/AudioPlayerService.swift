@@ -619,6 +619,8 @@ final class AudioPlayerService {
     var isSystemAudioPlaybackActive = false
     /// 卡拉OK舞台开着。人声消除要拿到 PCM, 系统多声道播放器给不了。
     @ObservationIgnored private(set) var isKaraokeSessionActive = false
+    /// 卡拉OK练习放慢(不变调)。只在舞台开着时由会话设置, 不写进播放设置。
+    @ObservationIgnored var karaokePracticeRate: Float?
     private var systemAudioFallbackContext: (
         song: Song,
         url: URL,

@@ -4468,3 +4468,12 @@
 "karaoke_vocal_assist_active" = "الصوت الأصلي يساعدك";
 "karaoke_vocal_assist_paused" = "تم إيقاف مساعدة الغناء مؤقتًا: الميكروفون يلتقط صوت مكبر الصوت. استخدم سماعات الرأس.";
 "karaoke_ai_cooling" = "الجهاز ساخن، سيستمر بعد أن يبرد";
+"karaoke_speed" = "السرعة";
+"karaoke_speed_normal" = "عادية";
+"karaoke_speed_down" = "أبطأ";
+"karaoke_speed_up" = "أسرع";
+"karaoke_loop" = "تكرار هذا السطر";
+"karaoke_loop_stop" = "إيقاف التكرار";
+"karaoke_loop_lines_format" = "تكرار %d أسطر";
+"karaoke_loop_extend" = "إضافة سطر";
+"karaoke_practice_not_scored" = "وضع التمرين: بلا تقييم أو تسجيل.";

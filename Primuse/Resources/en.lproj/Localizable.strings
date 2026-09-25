@@ -4325,3 +4325,12 @@
 "karaoke_vocal_assist_active" = "Original vocal is helping";
 "karaoke_vocal_assist_paused" = "Vocal assist paused: the microphone is picking up the speaker. Use headphones.";
 "karaoke_ai_cooling" = "Device is hot, continuing once it cools";
+"karaoke_speed" = "Speed";
+"karaoke_speed_normal" = "Normal";
+"karaoke_speed_down" = "Slow Down";
+"karaoke_speed_up" = "Speed Up";
+"karaoke_loop" = "Loop This Line";
+"karaoke_loop_stop" = "Stop Looping";
+"karaoke_loop_lines_format" = "Looping %d lines";
+"karaoke_loop_extend" = "Add Line";
+"karaoke_practice_not_scored" = "Practicing: not scored or recorded.";

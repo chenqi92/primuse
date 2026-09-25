@@ -4468,3 +4468,12 @@
 "karaoke_vocal_assist_active" = "Подпевает оригинал";
 "karaoke_vocal_assist_paused" = "Подсказка приостановлена: микрофон слышит динамик. Используйте наушники.";
 "karaoke_ai_cooling" = "Устройство нагрелось, продолжим после остывания";
+"karaoke_speed" = "Темп";
+"karaoke_speed_normal" = "Обычный";
+"karaoke_speed_down" = "Медленнее";
+"karaoke_speed_up" = "Быстрее";
+"karaoke_loop" = "Повторять строку";
+"karaoke_loop_stop" = "Остановить повтор";
+"karaoke_loop_lines_format" = "Повтор строк: %d";
+"karaoke_loop_extend" = "Добавить строку";
+"karaoke_practice_not_scored" = "Режим практики: без оценки и записи.";

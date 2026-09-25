@@ -111,6 +111,7 @@ final class KaraokeRenderControl: Sendable {
     private let activeFlag = Atomic<Bool>(false)
     private let reductionBits = Atomic<UInt32>(Float(1).bitPattern)
     private let capturesVocalFlag = Atomic<Bool>(false)
+    private let bridgesStemFlag = Atomic<Bool>(false)
     private let effectivelyMonoFlag = Atomic<Bool>(false)
     private let processingFlag = Atomic<Bool>(false)
     private let discontinuityFlag = Atomic<Bool>(false)
@@ -145,6 +146,13 @@ final class KaraokeRenderControl: Sendable {
     var capturesVocal: Bool {
         get { capturesVocalFlag.load(ordering: .relaxed) }
         set { capturesVocalFlag.store(newValue, ordering: .relaxed) }
+    }
+
+    /// With a stem loaded: reduce spectrally until it is locked (song start,
+    /// after every seek), instead of letting the whole vocal through.
+    var bridgesStem: Bool {
+        get { bridgesStemFlag.load(ordering: .relaxed) }
+        set { bridgesStemFlag.store(newValue, ordering: .relaxed) }
     }
 
     /// Reported by the render thread.
@@ -421,10 +429,24 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
                         control.vocalRing.write(resources.vocal, count: frames)
                     }
                 }
-                if reducer.phase != .bypassed {
-                    reducer.process(left: left, right: right, frameCount: frames, isActive: false, reduction: 0)
+                // Unlocked: the spectral reducer stands in, and hands over
+                // with a crossfade once the lock lands.
+                let bridges = stem.delta == nil && control.bridgesStem
+                if bridges || reducer.phase != .bypassed {
+                    let capturesBridge = bridges && captures
+                    reducer.process(
+                        left: left,
+                        right: right,
+                        frameCount: frames,
+                        isActive: bridges,
+                        reduction: control.reduction,
+                        vocal: capturesBridge ? resources.vocal : nil
+                    )
+                    if capturesBridge {
+                        control.vocalRing.write(resources.vocal, count: frames)
+                    }
                 }
-                control.report(isEffectivelyMono: false, isProcessing: stem.delta != nil)
+                control.report(isEffectivelyMono: false, isProcessing: stem.delta != nil || bridges)
                 return noErr
             }
             resources.stemGain = 0

@@ -4468,3 +4468,12 @@
 "karaoke_vocal_assist_active" = "Orijinal vokal yardım ediyor";
 "karaoke_vocal_assist_paused" = "Vokal desteği duraklatıldı: mikrofon hoparlörü duyuyor. Kulaklık kullanın.";
 "karaoke_ai_cooling" = "Cihaz ısındı, soğuyunca devam edecek";
+"karaoke_speed" = "Hız";
+"karaoke_speed_normal" = "Normal";
+"karaoke_speed_down" = "Yavaşlat";
+"karaoke_speed_up" = "Hızlandır";
+"karaoke_loop" = "Bu satırı döngüye al";
+"karaoke_loop_stop" = "Döngüyü durdur";
+"karaoke_loop_lines_format" = "%d satır döngüde";
+"karaoke_loop_extend" = "Satır ekle";
+"karaoke_practice_not_scored" = "Alıştırmada puanlama ve kayıt yapılmaz.";

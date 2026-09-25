@@ -4562,3 +4562,12 @@
 "karaoke_vocal_assist_active" = "원곡 보컬이 돕는 중";
 "karaoke_vocal_assist_paused" = "마이크에 스피커 소리가 들어가 가이드 보컬을 일시 중지했습니다. 헤드폰을 사용하세요.";
 "karaoke_ai_cooling" = "기기가 뜨거워 식은 후 계속합니다";
+"karaoke_speed" = "속도";
+"karaoke_speed_normal" = "원래 속도";
+"karaoke_speed_down" = "느리게";
+"karaoke_speed_up" = "빠르게";
+"karaoke_loop" = "이 소절 반복";
+"karaoke_loop_stop" = "반복 중지";
+"karaoke_loop_lines_format" = "%d소절 반복 중";
+"karaoke_loop_extend" = "한 소절 추가";
+"karaoke_practice_not_scored" = "연습 중에는 채점·녹음하지 않습니다.";
