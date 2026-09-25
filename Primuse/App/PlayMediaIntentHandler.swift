@@ -482,10 +482,13 @@ final class PlayMediaIntentHandler: NSObject,
             return nil
         }
 
+        // "Play music" names nothing and shuffles the library: that is the
+        // songs, not the audiobooks. A named request still finds a book.
+        let playsWholeLibrary = identifierGroups.isEmpty && !query.hasSearchTerm
         guard let resolution = resolveSongs(
             query: query,
             identifierGroups: identifierGroups,
-            songs: library.visibleSongs
+            songs: playsWholeLibrary ? library.musicSongs : library.visibleSongs
         ) else {
             return nil
         }

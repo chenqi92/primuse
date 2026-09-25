@@ -3272,8 +3272,13 @@ struct HomeView: View {
     private func playSong(_ song: Song) {
         plog("🏠 playSong TAPPED: '\(song.title)' id=\(song.id.prefix(12)) path=\(song.filePath)")
 
-        // Build queue from recently played songs, supplemented by library
-        var queueSongs = library.recentlyPlayedSongs(limit: 50)
+        // Build queue from recently played songs, supplemented by library.
+        // Only items of the tapped one's kind: a song must not be followed
+        // by a book chapter heard yesterday, nor a chapter by songs.
+        let tappedIsSpokenWord = library.spokenWordSongIDs.contains(song.id)
+        var queueSongs = library.recentlyPlayedSongs(limit: 50).filter {
+            library.spokenWordSongIDs.contains($0.id) == tappedIsSpokenWord
+        }
         plog("🏠 recentlyPlayed queue: \(queueSongs.count) songs, first3=\(queueSongs.prefix(3).map(\.title))")
 
         // If tapped song isn't in recent list, prepend it
@@ -3283,9 +3288,9 @@ struct HomeView: View {
         }
 
         // Supplement with library songs if queue is too small
-        if queueSongs.count < 20 {
+        if queueSongs.count < 20, !tappedIsSpokenWord {
             let existingIDs = Set(queueSongs.map(\.id))
-            let extra = library.visibleSongs.filter { !existingIDs.contains($0.id) }
+            let extra = library.musicSongs.filter { !existingIDs.contains($0.id) }
             queueSongs.append(contentsOf: extra)
         }
 
@@ -3311,7 +3316,7 @@ struct HomeView: View {
         // Skip cloud songs that haven't been backfilled yet — they have no
         // duration / cover / metadata and would land in the queue with a
         // blank progress bar. Once backfill catches up they become eligible.
-        let candidates = library.visibleSongs.filteredPlayable()
+        let candidates = library.musicSongs.filteredPlayable()
         guard !candidates.isEmpty else { return }
 
         let queueSongs = shuffled ? candidates.shuffled() : candidates

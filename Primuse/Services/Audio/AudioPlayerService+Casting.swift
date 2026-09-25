@@ -1916,6 +1916,11 @@ extension AudioPlayerService {
         // Drop any pre-built next round — the queue itself changed, so
         // prior shuffle plans (and their indices into the old queue)
         // are stale and would index out-of-bounds on wrap.
+        // A book plays in reading order; music gets its own shuffle and
+        // repeat back when it replaces a book.
+        if !isInstallingMedleyQueue {
+            applyListeningPlayMode(forQueueStartingWith: queueEntries[currentIndex].song)
+        }
         pendingNextShuffleIndices = nil
         if shuffleEnabled { rebuildShuffleOrder() }
         persistPlaybackSession()

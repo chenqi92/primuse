@@ -276,7 +276,8 @@ extension AudioPlayerService {
                 || seekTask != nil
                 || activeStreamingDownloadPreparation != nil,
             neighbourIsCurrentSong: song.id == currentSong?.id,
-            neighbourBypassesContinuousAudio: shouldBypassContinuousAudioTransition(for: song),
+            neighbourBypassesContinuousAudio: shouldBypassContinuousAudioTransition(for: song)
+                || !crossfadeSuitsSpaces(into: song),
             neighbourHasLocalAudio: hasLocalAudio
         )) else { return nil }
 
@@ -333,6 +334,16 @@ extension AudioPlayerService {
         return outcome
     }
 
+    /// Chapters, and a book giving way to music, change over without an
+    /// overlap; crossfading is for songs.
+    func crossfadeSuitsSpaces(into song: Song) -> Bool {
+        guard let current = currentSong else { return false }
+        return ListeningSpaceTransitionPolicy.allowsCrossfade(
+            from: listeningSpace(of: current),
+            to: listeningSpace(of: song)
+        )
+    }
+
     func checkCrossfade() {
         // This runs on every playback progress tick. Avoid copying the full
         // settings payload in the overwhelmingly common disabled case.
@@ -380,6 +391,7 @@ extension AudioPlayerService {
         let nextSong = nextEntry.song
         guard nextSong.id != currentSong?.id else { return }
         guard shouldBypassContinuousAudioTransition(for: nextSong) == false else { return }
+        guard crossfadeSuitsSpaces(into: nextSong) else { return }
 
         let attemptID = UUID()
         let sourceQueueGeneration = queueGeneration

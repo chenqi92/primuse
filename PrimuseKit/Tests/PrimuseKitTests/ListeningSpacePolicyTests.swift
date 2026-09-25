@@ -107,3 +107,89 @@ struct ListeningSpaceNudgeTests {
         #expect(SmartNudgePolicy.nudge(for: spoken, history: .init(), now: now) == nil)
     }
 }
+
+@Suite("Shuffle and repeat per listening space")
+struct ListeningPlayModeLedgerTests {
+    private let shuffledLoop = ListeningPlayMode(shuffleEnabled: true, repeatMode: .all)
+
+    @Test("A book opened after shuffled, looping music plays in order, once")
+    func bookStartsInOrder() {
+        var ledger = ListeningPlayModeLedger()
+        #expect(ledger.queueInstalled(ownedBy: .spokenWord, current: shuffledLoop) == .inOrder)
+        #expect(ledger.activeSpace == .spokenWord)
+        #expect(ledger.parkedMusicMode == shuffledLoop)
+    }
+
+    @Test("Music gets its own switches back when a music queue replaces the book")
+    func musicRestored() {
+        var ledger = ListeningPlayModeLedger()
+        _ = ledger.queueInstalled(ownedBy: .spokenWord, current: shuffledLoop)
+        #expect(ledger.queueInstalled(ownedBy: .music, current: .inOrder) == shuffledLoop)
+        #expect(ledger.activeSpace == .music)
+        #expect(ledger.parkedMusicMode == nil)
+        // Music after music changes nothing.
+        #expect(ledger.queueInstalled(ownedBy: .music, current: shuffledLoop) == nil)
+    }
+
+    @Test("A switch touched during the book is the listener's latest word")
+    func touchedSwitchKept() {
+        var ledger = ListeningPlayModeLedger()
+        _ = ledger.queueInstalled(ownedBy: .spokenWord, current: shuffledLoop)
+        // "Play in order" entry point for music, or a toggle during the book.
+        ledger.shuffleChanged()
+        let restored = ledger.queueInstalled(
+            ownedBy: .music,
+            current: ListeningPlayMode(shuffleEnabled: false, repeatMode: .off)
+        )
+        #expect(restored == ListeningPlayMode(shuffleEnabled: false, repeatMode: .all))
+    }
+
+    @Test("Touching a switch during music is not remembered as a book change")
+    func musicTouchesIgnored() {
+        var ledger = ListeningPlayModeLedger()
+        ledger.shuffleChanged()
+        ledger.repeatChanged()
+        #expect(!ledger.shuffleChangedDuringBook)
+        #expect(!ledger.repeatChangedDuringBook)
+    }
+
+    @Test("A second book starts in order and keeps music parked")
+    func bookAfterBook() {
+        var ledger = ListeningPlayModeLedger()
+        _ = ledger.queueInstalled(ownedBy: .spokenWord, current: shuffledLoop)
+        ledger.repeatChanged()
+        let looping = ListeningPlayMode(shuffleEnabled: false, repeatMode: .one)
+        #expect(ledger.queueInstalled(ownedBy: .spokenWord, current: looping) == .inOrder)
+        #expect(!ledger.repeatChangedDuringBook)
+        #expect(ledger.queueInstalled(ownedBy: .music, current: .inOrder) == shuffledLoop)
+    }
+
+    @Test("Radio never moves the ledger")
+    func radioIgnored() {
+        var ledger = ListeningPlayModeLedger()
+        #expect(ledger.queueInstalled(ownedBy: .radio, current: shuffledLoop) == nil)
+        _ = ledger.queueInstalled(ownedBy: .spokenWord, current: shuffledLoop)
+        #expect(ledger.queueInstalled(ownedBy: .radio, current: .inOrder) == nil)
+        #expect(ledger.activeSpace == .spokenWord)
+    }
+
+    @Test("The ledger survives a relaunch")
+    func codable() throws {
+        var ledger = ListeningPlayModeLedger()
+        _ = ledger.queueInstalled(ownedBy: .spokenWord, current: shuffledLoop)
+        ledger.shuffleChanged()
+        let data = try JSONEncoder().encode(ledger)
+        #expect(try JSONDecoder().decode(ListeningPlayModeLedger.self, from: data) == ledger)
+    }
+
+    @Test("Only music crossfades, and only music tops up from the library")
+    func transitions() {
+        #expect(ListeningSpaceTransitionPolicy.allowsCrossfade(from: .music, to: .music))
+        #expect(!ListeningSpaceTransitionPolicy.allowsCrossfade(from: .spokenWord, to: .spokenWord))
+        #expect(!ListeningSpaceTransitionPolicy.allowsCrossfade(from: .spokenWord, to: .music))
+        #expect(!ListeningSpaceTransitionPolicy.allowsCrossfade(from: .music, to: .spokenWord))
+        #expect(ShuffleLibraryContinuationPolicy.continuesFromLibrary(currentSpace: .music))
+        #expect(!ShuffleLibraryContinuationPolicy.continuesFromLibrary(currentSpace: .spokenWord))
+        #expect(!ShuffleLibraryContinuationPolicy.continuesFromLibrary(currentSpace: nil))
+    }
+}

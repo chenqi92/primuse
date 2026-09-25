@@ -823,7 +823,7 @@ extension CarPlaySceneDelegate {
 
     private func songsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
-        let songs = Array(library.visibleSongs
+        let songs = Array(library.musicSongs
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             .prefix(500))
         // queueProvider closures need a stable index into the whole sorted

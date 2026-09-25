@@ -49,7 +49,57 @@ final class MusicSessionMemoryStore {
     }
 }
 
+/// Which space holds the queue and the music shuffle/repeat parked while a
+/// book does (`ListeningPlayModeLedger`). Persisted beside the playback
+/// session, whose switches it explains after a relaunch.
+@MainActor
+final class ListeningPlayModeStore {
+    static let shared = ListeningPlayModeStore()
+
+    private(set) var ledger: ListeningPlayModeLedger
+
+    private let defaults: UserDefaults
+    private static let key = "primuse.listeningSpaces.playModes.v1"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        ledger = defaults.data(forKey: Self.key)
+            .flatMap { try? JSONDecoder().decode(ListeningPlayModeLedger.self, from: $0) }
+            ?? ListeningPlayModeLedger()
+    }
+
+    @discardableResult
+    func update<Result>(_ change: (inout ListeningPlayModeLedger) -> Result) -> Result {
+        var next = ledger
+        let result = change(&next)
+        if next != ledger {
+            ledger = next
+            if let data = try? JSONEncoder().encode(next) {
+                defaults.set(data, forKey: Self.key)
+            }
+        }
+        return result
+    }
+}
+
 extension AudioPlayerService {
+    /// Gives a newly installed queue its space's shuffle and repeat: a book
+    /// starts in reading order, and music replacing a book gets back what it
+    /// had. Called with the new queue in place, before its shuffle order is
+    /// built.
+    func applyListeningPlayMode(forQueueStartingWith song: Song) {
+        let current = ListeningPlayMode(shuffleEnabled: shuffleEnabled, repeatMode: repeatMode)
+        let space = listeningSpace(of: song)
+        guard let mode = ListeningPlayModeStore.shared.update({
+            $0.queueInstalled(ownedBy: space, current: current)
+        }) else { return }
+        isApplyingListeningPlayMode = true
+        defer { isApplyingListeningPlayMode = false }
+        repeatMode = mode.repeatMode
+        shuffleEnabled = mode.shuffleEnabled
+        plog("🎚️ Play mode for \(space.rawValue): shuffle=\(mode.shuffleEnabled) repeat=\(mode.repeatMode.rawValue)")
+    }
+
     /// The space the current item belongs to, or nil when nothing is loaded.
     var currentListeningSpace: ListeningSpace? {
         guard let song = currentSong else { return nil }

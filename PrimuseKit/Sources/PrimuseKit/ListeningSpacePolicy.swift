@@ -115,3 +115,109 @@ public enum ListeningSpacesIntroductionPolicy {
         !hasSeen && isExistingUser
     }
 }
+
+/// Shuffle and repeat as one space has them set.
+public struct ListeningPlayMode: Codable, Equatable, Sendable {
+    public var shuffleEnabled: Bool
+    public var repeatMode: RepeatMode
+
+    public init(shuffleEnabled: Bool, repeatMode: RepeatMode) {
+        self.shuffleEnabled = shuffleEnabled
+        self.repeatMode = repeatMode
+    }
+
+    /// How a book is heard: chapter after chapter, once.
+    public static let inOrder = ListeningPlayMode(shuffleEnabled: false, repeatMode: .off)
+}
+
+/// Shuffle and repeat belong to a way of listening, not to the player.
+///
+/// The player has one queue and one pair of switches, so without this a book
+/// opened after shuffled music would play its chapters in random order — and,
+/// once they ran out, shuffle would top the queue up from the library and the
+/// book would end in the middle of someone else's album. A book therefore
+/// starts in reading order, and music gets its own settings back when a music
+/// queue replaces the book. A switch the listener touched while the book held
+/// the queue is their latest word and is kept rather than overwritten; that
+/// also covers a "shuffle" entry point that sets the switch just before it
+/// installs its music queue.
+///
+/// Only a queue replacement moves the ledger: the item changing inside one
+/// queue (music queued after the book's last chapter) leaves it alone, since
+/// reshuffling a queue mid-way would replay what was already heard.
+public struct ListeningPlayModeLedger: Codable, Equatable, Sendable {
+    /// The space whose queue is installed. Radio never owns the queue.
+    public private(set) var activeSpace: ListeningSpace = .music
+    /// Music's own settings, kept while a book holds the queue.
+    public private(set) var parkedMusicMode: ListeningPlayMode?
+    public private(set) var shuffleChangedDuringBook = false
+    public private(set) var repeatChangedDuringBook = false
+
+    public init() {}
+
+    /// A queue starting on an item of `owner` replaced the current one.
+    /// - Parameter current: the switches as they are right now.
+    /// - Returns: the switches the new queue should play with, or nil to
+    ///   leave them as they are.
+    public mutating func queueInstalled(
+        ownedBy owner: ListeningSpace,
+        current: ListeningPlayMode
+    ) -> ListeningPlayMode? {
+        switch (activeSpace, owner) {
+        case (_, .radio), (.music, .music), (.radio, _):
+            return nil
+        case (.music, .spokenWord):
+            activeSpace = .spokenWord
+            parkedMusicMode = current
+            shuffleChangedDuringBook = false
+            repeatChangedDuringBook = false
+            return current == .inOrder ? nil : .inOrder
+        case (.spokenWord, .spokenWord):
+            // Another book starts in order too; music stays parked.
+            shuffleChangedDuringBook = false
+            repeatChangedDuringBook = false
+            return current == .inOrder ? nil : .inOrder
+        case (.spokenWord, .music):
+            let parked = parkedMusicMode ?? current
+            let restored = ListeningPlayMode(
+                shuffleEnabled: shuffleChangedDuringBook ? current.shuffleEnabled : parked.shuffleEnabled,
+                repeatMode: repeatChangedDuringBook ? current.repeatMode : parked.repeatMode
+            )
+            activeSpace = .music
+            parkedMusicMode = nil
+            shuffleChangedDuringBook = false
+            repeatChangedDuringBook = false
+            return restored == current ? nil : restored
+        }
+    }
+
+    /// The listener (or an entry point acting for them) flipped shuffle.
+    public mutating func shuffleChanged() {
+        if activeSpace == .spokenWord { shuffleChangedDuringBook = true }
+    }
+
+    /// The listener (or an entry point acting for them) changed repeat.
+    public mutating func repeatChanged() {
+        if activeSpace == .spokenWord { repeatChangedDuringBook = true }
+    }
+}
+
+/// Which queue transitions may overlap two items.
+public enum ListeningSpaceTransitionPolicy {
+    /// Crossfading is a music effect. Between chapters it talks over the last
+    /// sentence of one and the first of the next, and between a book and a
+    /// song it blends two ways of listening that should simply change over.
+    public static func allowsCrossfade(from outgoing: ListeningSpace, to incoming: ListeningSpace) -> Bool {
+        outgoing == .music && incoming == .music
+    }
+}
+
+/// Where shuffle may top up an exhausted queue from.
+public enum ShuffleLibraryContinuationPolicy {
+    /// Only music continues from the library, and only with music: a book
+    /// ends when its chapters do, and a book's chapters are not songs to be
+    /// shuffled in among an album.
+    public static func continuesFromLibrary(currentSpace: ListeningSpace?) -> Bool {
+        currentSpace == .music
+    }
+}

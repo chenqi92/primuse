@@ -735,6 +735,9 @@ final class AudioPlayerService {
     var shuffleEnabled = false {
         didSet {
             guard shuffleEnabled != oldValue else { return }
+            if !isApplyingListeningPlayMode, !isRestoringPlaybackSession, !isMirroringFromAppleMusic {
+                ListeningPlayModeStore.shared.update { $0.shuffleChanged() }
+            }
             defer {
                 if !isRestoringPlaybackSession {
                     persistPlaybackSession()
@@ -755,6 +758,9 @@ final class AudioPlayerService {
     var repeatMode: RepeatMode = .off {
         didSet {
             guard repeatMode != oldValue else { return }
+            if !isApplyingListeningPlayMode, !isRestoringPlaybackSession, !isMirroringFromAppleMusic {
+                ListeningPlayModeStore.shared.update { $0.repeatChanged() }
+            }
             defer {
                 if !isRestoringPlaybackSession {
                     updatePlaybackState()
@@ -786,6 +792,10 @@ final class AudioPlayerService {
     /// mirror task 写自己字段时设为 true, 让 didSet 跳过"再写回 Apple Music"
     /// 的副作用, 避免 mirror → setRepeat/setShuffle → polling → mirror 的回环。
     var isMirroringFromAppleMusic = false
+
+    /// Set while a new queue takes its space's shuffle and repeat, so that
+    /// switching them is not mistaken for the listener changing them.
+    @ObservationIgnored var isApplyingListeningPlayMode = false
 
     /// MusicKit renders a contiguous segment; Primuse retains the complete
     /// queue and each occurrence's identity across providers and edits.
