@@ -13,6 +13,8 @@ actor UPnPSource: SongScanningConnector {
     private let cacheDirectory: URL
     private var discoveredServers: [String: UPnPMediaServer] = [:]
     private var lastDiscoveryAt: Date?
+    /// Set by `scanSongs` when a container moved while it was being paged.
+    private var catalogDriftInLastWalk = false
 
     init(sourceID: String) {
         self.sourceID = sourceID
@@ -127,13 +129,15 @@ actor UPnPSource: SongScanningConnector {
                 requestedCount: pageSize
             )
 
-            try validateCatalogPage(
+            if try validateCatalogPage(
                 page,
                 startIndex: startIndex,
                 pageSize: pageSize,
                 expectedTotal: &expectedTotal,
                 seenPages: &seenPages
-            )
+            ) {
+                break
+            }
 
             for node in page.nodes where node.kind == .container {
                 containers.append(
@@ -376,13 +380,15 @@ actor UPnPSource: SongScanningConnector {
                 requestedCount: pageSize
             )
 
-            try validateCatalogPage(
+            if try validateCatalogPage(
                 page,
                 startIndex: startIndex,
                 pageSize: pageSize,
                 expectedTotal: &expectedTotal,
                 seenPages: &seenPages
-            )
+            ) {
+                break
+            }
 
             var childContainers: [UPnPNode] = []
             for node in page.nodes {
@@ -602,28 +608,31 @@ actor UPnPSource: SongScanningConnector {
         pageSize: Int,
         expectedTotal: inout Int?,
         seenPages: inout Set<String>
-    ) throws {
+    ) throws -> Bool {
         guard page.nodes.count <= pageSize,
               page.numberReturned >= 0,
               page.numberReturned <= pageSize,
               page.totalMatches >= 0 else {
             throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
         }
+        // A server still indexing moves the count and the rows under the
+        // walk. Keep what was read; the scan then only adds and updates.
         if page.totalMatches > 0 {
             if let expectedTotal, expectedTotal != page.totalMatches {
-                throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
+                catalogDriftInLastWalk = true
             }
             expectedTotal = page.totalMatches
-            guard startIndex <= page.totalMatches else {
-                throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
-            }
-            if page.nodes.isEmpty, startIndex < page.totalMatches {
-                throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
+            if startIndex > page.totalMatches
+                || (page.nodes.isEmpty && startIndex < page.totalMatches) {
+                catalogDriftInLastWalk = true
             }
         }
         guard page.nodes.isEmpty || seenPages.insert(Self.catalogPageSignature(page.nodes)).inserted else {
-            throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
+            // The same page again: the offset is not moving, so stop here.
+            catalogDriftInLastWalk = true
+            return true
         }
+        return false
     }
 
     private static func catalogPageSignature(_ nodes: [UPnPNode]) -> String {
@@ -1840,5 +1849,12 @@ private final class UPnPDeviceDescriptionParserDelegate: NSObject, XMLParserDele
 
         let baseURL = baseURL ?? location.deletingLastPathComponent()
         return URL(string: value, relativeTo: baseURL)?.absoluteURL
+    }
+}
+
+extension UPnPSource: CatalogDriftReportingConnector {
+    func takeCatalogDriftObservation() -> Bool {
+        defer { catalogDriftInLastWalk = false }
+        return catalogDriftInLastWalk
     }
 }

@@ -2956,6 +2956,16 @@ final class ScanService {
                 }
             }
 
+            // The server added or removed rows while the walk was paging, so
+            // some rows may have slid past the cursor unread. What was read is
+            // still good; the absence of the rest proves nothing.
+            if let driftReporter = connector as? any CatalogDriftReportingConnector,
+               await driftReporter.takeCatalogDriftObservation(),
+               allowsAuthoritativeCatalogPrune {
+                allowsAuthoritativeCatalogPrune = false
+                plog("↻ \(source.name): catalogue moved during the walk; committing without removals")
+            }
+
             let metadataInspectedSongIDs = await scanner.takeMetadataInspectedSongIDs()
             try checkScanCommitFence(
                 sourceID: source.id,
@@ -3620,34 +3630,24 @@ final class ScanService {
                     // The offset window as the server answered it; dropping
                     // rows seen before must not move the terminal probe.
                     let receivedItemCount = page.itemIDs.count
-                    if toleratesCatalogDrift,
-                       !page.itemIDs.isEmpty,
-                       page.songs.count == page.itemIDs.count {
+                    var skippedRowCount = 0
+                    if toleratesCatalogDrift, !page.itemIDs.isEmpty {
                         // Rows added or removed ahead of the cursor shift the
                         // window, so a row read on an earlier page comes back.
                         let lookupIDs = page.itemIDs
                         var seenItemIDs = try await Task.detached(priority: .utility) {
                             try stagingStore.stagedItemIDs(sourceID: source.id, among: lookupIDs)
                         }.value
-                        var keptItemIDs: [String] = []
-                        var keptSongs: [ConnectorScannedSong] = []
-                        for (itemID, scannedSong) in zip(page.itemIDs, page.songs)
-                        where seenItemIDs.insert(itemID).inserted {
-                            keptItemIDs.append(itemID)
-                            keptSongs.append(scannedSong)
-                        }
-                        if keptItemIDs.count < receivedItemCount {
-                            catalogDriftObserved = true
-                            plog("↻ \(source.name): \(receivedItemCount - keptItemIDs.count) row(s) at offset \(offset) were already staged; skipped")
-                            page = PagedSongCatalogPage(
-                                songs: keptSongs,
-                                itemIDs: keptItemIDs,
-                                nextOffset: page.nextOffset
-                            )
-                        }
+                        let keptItemIDs = lookupIDs.filter { seenItemIDs.insert($0).inserted }
+                        skippedRowCount = lookupIDs.count - keptItemIDs.count
+                        page = PagedSongCatalogPage(
+                            songs: page.songs,
+                            itemIDs: keptItemIDs,
+                            nextOffset: page.nextOffset
+                        )
                     }
 
-                    let pageSongs = songIDsByServerSongID.isEmpty
+                    var pageSongs = songIDsByServerSongID.isEmpty
                         ? page.songs
                         : page.songs.map { scannedSong in
                             scannedSong.carryingSongIdentity(
@@ -3655,6 +3655,21 @@ final class ScanService {
                                 songIDsByServerSongID: songIDsByServerSongID
                             )
                         }
+                    if toleratesCatalogDrift, !pageSongs.isEmpty {
+                        // Songs are matched on their final id: item ids and song
+                        // ids differ (video rows, carried Navidrome identities).
+                        let lookupSongIDs = pageSongs.map(\.song.id)
+                        var seenSongIDs = try await Task.detached(priority: .utility) {
+                            try stagingStore.stagedSongIDs(sourceID: source.id, among: lookupSongIDs)
+                        }.value
+                        let keptSongs = pageSongs.filter { seenSongIDs.insert($0.song.id).inserted }
+                        skippedRowCount = max(skippedRowCount, pageSongs.count - keptSongs.count)
+                        pageSongs = keptSongs
+                    }
+                    if skippedRowCount > 0 {
+                        catalogDriftObserved = true
+                        plog("↻ \(source.name): \(skippedRowCount) row(s) at offset \(offset) were already staged; skipped")
+                    }
                     let inspectedSongIDs = Set(pageSongs.compactMap { scannedSong in
                         scannedSong.titleMetadataInspected ? scannedSong.song.id : nil
                     })

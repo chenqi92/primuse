@@ -3479,8 +3479,12 @@ final class TVStore {
             // A cancelled scan still commits the discovery batches already
             // accepted by the store, but never prunes or announces completion.
             try await Task { try await self.flushScanBatch(sourceID: source.id) }.value
-            guard isCurrentScan(source: source, generation: generation), result.canPrune else { return false }
-            pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
+            guard isCurrentScan(source: source, generation: generation), result.canCommit else { return false }
+            // A walk that saw the catalogue move keeps what it read (the batches
+            // above) but cannot vouch for songs it never listed.
+            if result.canPrune {
+                pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
+            }
             let persistence = await scanPersistence(library)
             guard isCurrentScan(source: source, generation: generation) else { throw CancellationError() }
             guard case .success = persistence else { throw CocoaError(.fileWriteUnknown) }

@@ -278,7 +278,7 @@ public enum SynologyAudioStationAPI {
     }
 
     /// 按标题排序:几份资料都列了这个排序键。翻页期间曲库若有增删,`total`
-    /// 会变,由 `SynologyAudioStationCatalogPagination` 拒收。
+    /// 会变、条目会挪位,由 `SynologyAudioStationCatalogPagination` 记成漂移。
     public static func songListCall(offset: Int, limit: Int) -> SynologyAudioStationCall {
         SynologyAudioStationCall(interface: .song, method: "list", parameters: [
             SynologyAudioStationParameter("library", library),
@@ -1101,28 +1101,35 @@ public struct SynologyAudioStationSongPage: Decodable, Sendable {
     }
 }
 
-/// 整库快照不完整时拒收,不让任何一端据此删歌。
+/// 整库逐页走查。格式不对的页拒收;NAS 还在建索引导致总数变化、条目挪位、
+/// 提前结束时不再整轮失败,而是跳过重复条目走完,并记下 `driftObserved` ——
+/// 这样的结果只能新增和更新,不让任何一端据此删歌。
 public struct SynologyAudioStationCatalogPagination: Sendable {
-    private var total: Int?
-    private var seen: Set<String> = []
+    private var walk = CatalogWalkDriftTracker()
     public private(set) var offset = 0
 
     public init() {}
 
-    public mutating func accept(_ page: SynologyAudioStationSongPage, requestedLimit: Int) throws -> Bool {
+    public var driftObserved: Bool { walk.driftObserved }
+
+    /// 返回本页第一次见到的歌,以及走查是否已到头。
+    public mutating func accept(
+        _ page: SynologyAudioStationSongPage,
+        requestedLimit: Int
+    ) throws -> (finished: Bool, songs: [SynologyAudioStationSong]) {
         guard requestedLimit > 0, page.total >= 0,
               page.offset == nil || page.offset == offset,
-              page.songs.count <= requestedLimit,
-              total == nil || total == page.total,
-              page.songs.count <= page.total - offset else { throw SynologyAudioStationError.invalidResponse }
-        total = page.total
-        for song in page.songs {
-            guard seen.insert(song.id).inserted else { throw SynologyAudioStationError.invalidResponse }
-        }
+              page.songs.count <= requestedLimit else { throw SynologyAudioStationError.invalidResponse }
+        walk.observeTotal(page.total)
+        let fresh = page.songs.filter { walk.admit($0.id) }
         offset += page.songs.count
-        if offset == page.total { return true }
-        guard page.songs.count == requestedLimit else { throw SynologyAudioStationError.invalidResponse }
-        return false
+        let finished = walk.isFinished(offset: offset, rawCount: page.songs.count, pageSize: requestedLimit)
+        return (finished, fresh)
+    }
+
+    /// 走完后再问一次总数,和最后一页不同也算漂移。
+    public mutating func observeClosingTotal(_ total: Int) {
+        walk.observeTotal(total)
     }
 }
 

@@ -451,17 +451,31 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
 
     /// The subset of `itemIDs` an earlier page of this stage already holds.
     public func stagedItemIDs(sourceID: String, among itemIDs: [String]) throws -> Set<String> {
+        try stagedIDs(in: "pagedCatalogItems", column: "itemID", sourceID: sourceID, among: itemIDs)
+    }
+
+    /// The subset of `songIDs` an earlier page of this stage already holds.
+    public func stagedSongIDs(sourceID: String, among songIDs: [String]) throws -> Set<String> {
+        try stagedIDs(in: "pagedCatalogSongs", column: "songID", sourceID: sourceID, among: songIDs)
+    }
+
+    private func stagedIDs(
+        in table: String,
+        column: String,
+        sourceID: String,
+        among values: [String]
+    ) throws -> Set<String> {
         try database.read { db in
             var result = Set<String>()
-            for start in stride(from: 0, to: itemIDs.count, by: 400) {
-                let chunk = Array(itemIDs[start..<min(start + 400, itemIDs.count)])
+            for start in stride(from: 0, to: values.count, by: 400) {
+                let chunk = Array(values[start..<min(start + 400, values.count)])
                 let placeholders = Array(repeating: "?", count: chunk.count)
                     .joined(separator: ",")
                 let found = try String.fetchAll(
                     db,
                     sql: """
-                        SELECT itemID FROM pagedCatalogItems
-                        WHERE sourceID = ? AND itemID IN (\(placeholders))
+                        SELECT \(column) FROM \(table)
+                        WHERE sourceID = ? AND \(column) IN (\(placeholders))
                         """,
                     arguments: StatementArguments([sourceID] + chunk)
                 )

@@ -68,6 +68,16 @@ public actor SongloftServiceClient {
     private var session: Session?
     private var authTask: (id: UUID, task: Task<Session, Error>)?
     private var sessionGeneration = UUID()
+    /// Set by a whole-library `catalog()` walk that saw the library move.
+    private var catalogDriftObserved = false
+    private static let maximumCatalogTracks = 10_000_000
+
+    /// Whether a whole-library `catalog()` walk since the last call saw the
+    /// library move. Such a walk may add and update songs but must not prune.
+    public func takeCatalogDriftObservation() -> Bool {
+        defer { catalogDriftObserved = false }
+        return catalogDriftObserved
+    }
 
     public init(source: MusicSource, credential: SourceCredential?, transport: SongloftRequestTransport? = nil) {
         baseURL = SongloftAPIProtocol.serverBaseURL(
@@ -134,27 +144,26 @@ public actor SongloftServiceClient {
                 do {
                     let expected = try await self.catalogIDs(type: type)
                     var pagination = SongloftCatalogPagination()
-                    var observed: [Int64] = []
                     while true {
                         try Task.checkCancellation()
                         let page = try await self.trackPage(offset: pagination.offset, type: type)
-                        let finished = try pagination.accept(page, requestedLimit: SongloftAPIProtocol.pageSize)
-                        let pageIDs = page.tracks.map(\.id)
-                        let end = observed.count + pageIDs.count
-                        guard end <= expected.count,
-                              expected[observed.count..<end].elementsEqual(pageIDs) else {
-                            throw SongloftServiceError.invalidResponse
-                        }
-                        observed.append(contentsOf: pageIDs)
-                        for track in page.tracks {
+                        let outcome = try pagination.accept(page, requestedLimit: SongloftAPIProtocol.pageSize)
+                        for track in outcome.tracks {
                             try Task.checkCancellation()
                             continuation.yield(track)
                         }
-                        if finished { break }
+                        if outcome.finished { break }
+                        guard pagination.offset <= Self.maximumCatalogTracks else {
+                            throw SongloftServiceError.invalidResponse
+                        }
                     }
-                    guard observed == expected, try await self.catalogIDs(type: type) == expected else {
-                        throw SongloftServiceError.invalidResponse
-                    }
+                    // The id listings before and after bracket the walk: a
+                    // walk that does not match both read a moving library.
+                    let closingIDs = try await self.catalogIDs(type: type)
+                    let moved = pagination.driftObserved
+                        || pagination.admittedIDs != expected
+                        || closingIDs != expected
+                    if moved, type == nil { self.catalogDriftObserved = true }
                     try Task.checkCancellation()
                     continuation.finish()
                 } catch { continuation.finish(throwing: error) }

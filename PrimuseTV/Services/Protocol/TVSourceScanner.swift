@@ -1115,8 +1115,13 @@ struct TVScanResult: Sendable {
     let metadataFailureCount: Int
     let completion: TVScanCompletion
     let resumeState: SourceScanResumeState
+    /// The server added or removed rows while the walk paged. Everything read
+    /// is kept, but rows that slid past the cursor were never seen, so their
+    /// absence is no reason to remove them.
+    var catalogDriftObserved = false
 
-    var canPrune: Bool {
+    /// The walk reached the end: its songs may be committed as a finished scan.
+    var canCommit: Bool {
         guard enumerationCompleted else { return false }
         switch completion {
         case .completed, .completedWithMetadataFailures:
@@ -1125,6 +1130,11 @@ struct TVScanResult: Sendable {
              .metadataDeliveryFailed, .cancelled:
             return false
         }
+    }
+
+    /// The walk also saw one still catalogue, so songs it did not list are gone.
+    var canPrune: Bool {
+        canCommit && !catalogDriftObserved
     }
 }
 
@@ -1145,6 +1155,8 @@ final class TVSourceScanner {
     var currentFile: String = ""
     var metadataIssueCount = 0
     var needsTwoFactor = false
+    /// Set by a server-catalogue walk that saw the catalogue move under it.
+    @ObservationIgnored private var catalogDriftObserved = false
     private let metadataInspections: TVMetadataInspectionStore
     @ObservationIgnored var readingEnvironment: (Bool) -> MetadataReadingEnvironment
     @ObservationIgnored private let readingMode: () -> MetadataReadingMode
@@ -1397,6 +1409,7 @@ final class TVSourceScanner {
         rereadMetadata: Bool,
         onSkeletonBatch: @escaping TVScanBatchHandler
     ) async -> TVScanResult {
+        catalogDriftObserved = false
         let existingByID = Self.existingSongsByCanonicalID(existingSongs)
         let existingByLocation = Self.existingSongsByLocation(existingSongs)
         // Navidrome 0.64 换掉了几乎所有歌曲 ID；按路径里的服务端 ID 接回原来那一行，
@@ -1512,7 +1525,8 @@ final class TVSourceScanner {
                 metadataCompleted: true,
                 metadataFailureCount: 0,
                 completion: .completed,
-                resumeState: SourceScanResumeState(pendingDirectories: [])
+                resumeState: SourceScanResumeState(pendingDirectories: []),
+                catalogDriftObserved: catalogDriftObserved
             )
         } catch is CancellationError {
             try? await flush(
@@ -2285,8 +2299,8 @@ final class TVSourceScanner {
         }
     }
 
-    /// 严格分页读取整库。任何缺页、重复项、总数漂移或无法构造 Song 的项目都会
-    /// 让整次扫描失败，调用方因此不会用不完整结果覆盖既有曲库。
+    /// 分页读取整库。格式不对的页或无法构造 Song 的项目让整次扫描失败；NAS 还在
+    /// 建索引导致总数变化、重复项、提前结束时走完并记成漂移，这一轮只增改不删。
     private func scanFnMusic(
         source: MusicSource,
         credential: SourceCredential?,
@@ -2295,9 +2309,9 @@ final class TVSourceScanner {
         let client = fnMusicClient(source: source, credential: credential)
         var page = 1
         var received = 0
-        var expectedTotal: Int?
-        var seenTrackGUIDs: Set<String> = []
+        var walk = CatalogWalkDriftTracker()
         var songs: [Song] = []
+        defer { if walk.driftObserved { catalogDriftObserved = true } }
 
         while true {
             try Task.checkCancellation()
@@ -2307,34 +2321,20 @@ final class TVSourceScanner {
             guard let pageTotal = result.total else {
                 throw FnMusicServiceError.invalidResponse(PMString("error.catalog.missingTotal"))
             }
-            if let expectedTotal, expectedTotal != pageTotal {
-                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.totalChanged"))
-            }
-            expectedTotal = pageTotal
+            walk.observeTotal(pageTotal)
 
             guard result.rawCount == result.tracks.count,
                   result.rawCount <= Self.fnMusicPageSize else {
                 throw FnMusicServiceError.invalidResponse(PMString("error.catalog.invalidPageCount"))
             }
-            if pageTotal == 0 {
-                guard page == 1, result.rawCount == 0 else {
-                    throw FnMusicServiceError.invalidResponse(PMString("error.catalog.pageTotalMismatch"))
-                }
+            if result.rawCount == 0 {
+                _ = walk.isFinished(offset: received, rawCount: 0, pageSize: Self.fnMusicPageSize)
                 break
-            }
-            guard result.rawCount > 0 else {
-                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.pageEndedEarly"))
-            }
-            guard result.rawCount <= pageTotal,
-                  received <= pageTotal - result.rawCount else {
-                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.pageExceedsTotal"))
             }
 
             for track in result.tracks {
                 try Task.checkCancellation()
-                guard seenTrackGUIDs.insert(track.guid).inserted else {
-                    throw FnMusicServiceError.invalidResponse(PMString("error.catalog.duplicateItem"))
-                }
+                guard walk.admit(track.guid) else { continue }
                 guard let song = track.makeSong(sourceID: source.id) else {
                     throw FnMusicServiceError.invalidResponse(PMString("error.catalog.trackMissingFormat", track.title))
                 }
@@ -2345,11 +2345,10 @@ final class TVSourceScanner {
             }
 
             received += result.rawCount
-            if received == pageTotal { break }
-            guard result.rawCount == Self.fnMusicPageSize else {
-                throw FnMusicServiceError.invalidResponse(PMString("error.catalog.incompletePage"))
+            if walk.isFinished(offset: received, rawCount: result.rawCount, pageSize: Self.fnMusicPageSize) {
+                break
             }
-            guard page < Int.max else {
+            guard page < Int.max, SubsonicCatalogPagingPolicy.isWithinSongLimit(received) else {
                 throw FnMusicServiceError.invalidResponse(PMString("error.catalog.pageOverflow"))
             }
             page += 1
@@ -2401,6 +2400,10 @@ final class TVSourceScanner {
             songs.append(scanned.song)
             try await onSong(scanned.song)
         }
+        if let driftReporter = connector as? any CatalogDriftReportingConnector,
+           await driftReporter.takeCatalogDriftObservation() {
+            catalogDriftObserved = true
+        }
         return songs
     }
 
@@ -2418,11 +2421,12 @@ final class TVSourceScanner {
             songs.append(song)
             try await onSong(song)
         }
+        if await client.takeCatalogDriftObservation() { catalogDriftObserved = true }
         return songs
     }
 
-    /// 群晖 Audio Station:客户端逐页校验总数与重复 id,任何一页对不上都以错误结束,
-    /// 这一轮就不算完整,不会拿来删歌。映射与 iPhone 端连接器同一份
+    /// 群晖 Audio Station:客户端逐页校验,格式不对的页以错误结束;走查期间曲库在变
+    /// 则走完并记成漂移,这一轮只增改、不拿来删歌。映射与 iPhone 端连接器同一份
     /// (`makeSong` + `ConnectorScannedSong` 的标题清理),两端扫出来的是同一首歌。
     private func scanSynologyAudioStation(
         source: MusicSource,
@@ -2448,6 +2452,7 @@ final class TVSourceScanner {
         } catch {
             throw SynologyAudioStationStreamResolver.streamError(from: error)
         }
+        if await client.takeCatalogDriftObservation() { catalogDriftObserved = true }
         return songs
     }
 
@@ -2466,37 +2471,27 @@ final class TVSourceScanner {
             throw DaoLiYuServiceError.invalidURL
         }
         var skip = 0
-        var expectedTotal: Int?
-        var seenIDs: Set<String> = []
+        var walk = CatalogWalkDriftTracker()
         var songs: [Song] = []
+        defer { if walk.driftObserved { catalogDriftObserved = true } }
 
         while true {
             try Task.checkCancellation()
             let page = try await client.trackPage(skip: skip, take: Self.daoLiYuPageSize)
             try Task.checkCancellation()
-            if let expectedTotal, expectedTotal != page.total {
-                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.totalChanged"))
-            }
-            expectedTotal = page.total
+            walk.observeTotal(page.total)
             guard page.skip == skip,
                   page.rawCount == page.tracks.count,
                   page.rawCount <= Self.daoLiYuPageSize else {
                 throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidPagePositionOrCount"))
             }
-            if page.total == 0 {
-                guard skip == 0, page.rawCount == 0 else {
-                    throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageTotalMismatch"))
-                }
+            if page.rawCount == 0 {
+                _ = walk.isFinished(offset: skip, rawCount: 0, pageSize: Self.daoLiYuPageSize)
                 break
-            }
-            guard page.rawCount > 0, skip <= page.total - page.rawCount else {
-                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageEndedEarlyOrExceeded"))
             }
             for track in page.tracks {
                 try Task.checkCancellation()
-                guard seenIDs.insert(track.id).inserted else {
-                    throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.duplicateItem"))
-                }
+                guard walk.admit(track.id) else { continue }
                 guard let song = track.makeSong(sourceID: source.id, serverBaseURL: baseURL) else {
                     throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.trackMissingFormat", track.title))
                 }
@@ -2506,9 +2501,11 @@ final class TVSourceScanner {
                 currentFile = track.title
             }
             skip += page.rawCount
-            if skip == page.total { break }
-            guard page.rawCount == Self.daoLiYuPageSize else {
-                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.incompletePage"))
+            guard SubsonicCatalogPagingPolicy.isWithinSongLimit(skip) else {
+                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageOverflow"))
+            }
+            if walk.isFinished(offset: skip, rawCount: page.rawCount, pageSize: Self.daoLiYuPageSize) {
+                break
             }
         }
         return songs

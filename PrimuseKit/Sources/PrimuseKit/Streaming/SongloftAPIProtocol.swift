@@ -177,27 +177,38 @@ public struct SongloftTrackPage: Decodable, Sendable {
     public var tracks: [SongloftTrack] { songs ?? [] }
 }
 
-/// Reject incomplete snapshots before either platform is allowed to prune its old library.
+/// Malformed pages are rejected. A library that moves while it is paged — the
+/// total changes, a row repeats, a page ends early — is walked to the end with
+/// repeats skipped, and `driftObserved` tells either platform that the result
+/// may add and update songs but must not prune the old library.
 public struct SongloftCatalogPagination: Sendable {
-    private var total: Int?
-    private var seen: Set<Int64> = []
+    private var walk = CatalogWalkDriftTracker()
     public private(set) var offset = 0
+    public private(set) var admittedIDs: [Int64] = []
     public init() {}
 
-    public mutating func accept(_ page: SongloftTrackPage, requestedLimit: Int) throws -> Bool {
+    public var driftObserved: Bool { walk.driftObserved }
+
+    /// The tracks seen for the first time on this page, and whether the walk is done.
+    public mutating func accept(
+        _ page: SongloftTrackPage,
+        requestedLimit: Int
+    ) throws -> (finished: Bool, tracks: [SongloftTrack]) {
         guard page.total >= 0, page.offset == offset, page.limit == requestedLimit,
-              page.tracks.count <= requestedLimit, page.songs != nil || page.total == 0,
-              total == nil || total == page.total,
-              page.tracks.count <= page.total - offset else { throw SongloftServiceError.invalidResponse }
-        total = page.total
-        for track in page.tracks {
-            guard track.id > 0, ["local", "remote", "radio"].contains(track.type),
-                  seen.insert(track.id).inserted else { throw SongloftServiceError.invalidResponse }
+              page.tracks.count <= requestedLimit, page.songs != nil || page.total == 0 else {
+            throw SongloftServiceError.invalidResponse
         }
+        for track in page.tracks {
+            guard track.id > 0, ["local", "remote", "radio"].contains(track.type) else {
+                throw SongloftServiceError.invalidResponse
+            }
+        }
+        walk.observeTotal(page.total)
+        let fresh = page.tracks.filter { walk.admit(String($0.id)) }
+        admittedIDs.append(contentsOf: fresh.map(\.id))
         offset += page.tracks.count
-        if offset == page.total { return true }
-        guard page.tracks.count == requestedLimit else { throw SongloftServiceError.invalidResponse }
-        return false
+        let finished = walk.isFinished(offset: offset, rawCount: page.tracks.count, pageSize: requestedLimit)
+        return (finished, fresh)
     }
 }
 

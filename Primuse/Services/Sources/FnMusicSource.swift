@@ -40,6 +40,8 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     /// 整个源的专辑最多翻这么多页, 防住 total 不实时时的空转。
     private static let albumPageLimit = 500
     private var albumListPrimed = false
+    /// Set by `scanSongs` when the catalogue moved while it was being paged.
+    private var catalogDriftInLastWalk = false
     /// 老版本飞牛没有专辑详情这个接口。一次成功都没有就别再撞了, 否则每页都要
     /// 白发一轮请求。取消不算失败, 每次扫描开始时重新给它一次机会。
     private static let albumDetailFailureLimit = 8
@@ -223,8 +225,9 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                 do {
                     var page = 1
                     var received = 0
-                    var expectedTotal: Int?
-                    var seenTrackGUIDs: Set<String> = []
+                    // A NAS still indexing new uploads moves the total and the
+                    // rows under the walk; see `CatalogWalkDriftTracker`.
+                    var walk = CatalogWalkDriftTracker()
                     while true {
                         try Task.checkCancellation()
                         let result = try await self.trackPage(page: page, size: Self.pageSize)
@@ -232,32 +235,25 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                         guard let pageTotal = result.total else {
                             throw SourceError.connectionFailed(PMString("error.catalog.missingTotal"))
                         }
-                        if let expectedTotal, expectedTotal != pageTotal {
-                            throw SourceError.connectionFailed(PMString("error.catalog.totalChanged"))
-                        }
-                        expectedTotal = pageTotal
+                        walk.observeTotal(pageTotal)
 
                         guard result.rawCount <= Self.pageSize else {
                             throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
                         }
-                        if pageTotal == 0 {
-                            guard page == 1, result.rawCount == 0 else {
-                                throw SourceError.connectionFailed(PMString("error.catalog.pageTotalMismatch"))
-                            }
+                        if result.rawCount == 0 {
+                            _ = walk.isFinished(offset: received, rawCount: 0, pageSize: Self.pageSize)
                             break
-                        }
-                        guard result.rawCount > 0 else {
-                            throw SourceError.connectionFailed(PMString("error.catalog.pageEndedEarly"))
                         }
 
                         received += result.rawCount
+                        guard SubsonicCatalogPagingPolicy.isWithinSongLimit(received) else {
+                            throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
+                        }
                         await self.primeAlbumArtists()
                         let albumArtists = await self.albumArtistNames(for: result.tracks)
                         for track in result.tracks {
                             try Task.checkCancellation()
-                            guard seenTrackGUIDs.insert(track.guid).inserted else {
-                                throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
-                            }
+                            guard walk.admit(track.guid) else { continue }
                             let scanned = try self.scannedSong(
                                 from: track,
                                 albumArtistName: track.albumGUID.flatMap { albumArtists[$0] }
@@ -265,17 +261,12 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
                             continuation.yield(scanned)
                         }
 
-                        guard received <= pageTotal else {
-                            throw SourceError.connectionFailed(PMString("error.catalog.pageExceedsTotal"))
-                        }
-                        if received == pageTotal {
+                        if walk.isFinished(offset: received, rawCount: result.rawCount, pageSize: Self.pageSize) {
                             break
-                        }
-                        guard result.rawCount == Self.pageSize else {
-                            throw SourceError.connectionFailed(PMString("error.catalog.incompletePage"))
                         }
                         page += 1
                     }
+                    self.recordCatalogDrift(walk.driftObserved)
                     continuation.finish()
                 } catch {
                     Task.isCancelled
@@ -693,5 +684,18 @@ extension FnMusicSource {
 
     func removeLyrics(for song: Song) async -> MediaServerWritebackResult {
         MediaServerWritebackResult(unsupported: [String(localized: "metadata_writeback_error_unsupported")])
+    }
+}
+
+extension FnMusicSource: CatalogDriftReportingConnector {
+    func takeCatalogDriftObservation() -> Bool {
+        defer { catalogDriftInLastWalk = false }
+        return catalogDriftInLastWalk
+    }
+
+    fileprivate func recordCatalogDrift(_ observed: Bool) {
+        guard observed else { return }
+        catalogDriftInLastWalk = true
+        plog("↻ fnMusic: catalogue moved during the walk")
     }
 }

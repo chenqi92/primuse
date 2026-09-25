@@ -11,6 +11,8 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
     private let serverBaseURL: URL?
     private let audioCacheDirectory: URL
     private var connected = false
+    /// Set by `scanSongs` when the catalogue moved while it was being paged.
+    private var catalogDriftInLastWalk = false
 
     init(
         sourceID: String,
@@ -124,38 +126,29 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
             let producer = Task {
                 do {
                     var skip = 0
-                    var expectedTotal: Int?
-                    var seenIDs: Set<String> = []
+                    // The server keeps indexing while the walk pages; see
+                    // `CatalogWalkDriftTracker`.
+                    var walk = CatalogWalkDriftTracker()
                     while true {
                         try Task.checkCancellation()
                         let page = try await self.client.trackPage(
                             skip: skip,
                             take: Self.pageSize
                         )
-                        if let expectedTotal, expectedTotal != page.total {
-                            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.totalChanged"))
-                        }
-                        expectedTotal = page.total
+                        walk.observeTotal(page.total)
                         guard page.skip == skip,
                               page.rawCount == page.tracks.count,
                               page.rawCount <= Self.pageSize else {
                             throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.invalidPagePositionOrCount"))
                         }
-                        if page.total == 0 {
-                            guard skip == 0, page.rawCount == 0 else {
-                                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageTotalMismatch"))
-                            }
+                        if page.rawCount == 0 {
+                            _ = walk.isFinished(offset: skip, rawCount: 0, pageSize: Self.pageSize)
                             break
-                        }
-                        guard page.rawCount > 0, skip <= page.total - page.rawCount else {
-                            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageEndedEarlyOrExceeded"))
                         }
 
                         for track in page.tracks {
                             try Task.checkCancellation()
-                            guard seenIDs.insert(track.id).inserted else {
-                                throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.duplicateItem"))
-                            }
+                            guard walk.admit(track.id) else { continue }
                             guard let song = track.makeSong(
                                 sourceID: self.sourceID,
                                 serverBaseURL: serverBaseURL
@@ -176,11 +169,14 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
                         }
 
                         skip += page.rawCount
-                        if skip == page.total { break }
-                        guard page.rawCount == Self.pageSize else {
-                            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.incompletePage"))
+                        guard SubsonicCatalogPagingPolicy.isWithinSongLimit(skip) else {
+                            throw DaoLiYuServiceError.invalidResponse(PMString("error.catalog.pageOverflow"))
+                        }
+                        if walk.isFinished(offset: skip, rawCount: page.rawCount, pageSize: Self.pageSize) {
+                            break
                         }
                     }
+                    self.recordCatalogDrift(walk.driftObserved)
                     continuation.finish()
                 } catch {
                     Task.isCancelled
@@ -345,5 +341,18 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
         } catch {
             return .unavailable
         }
+    }
+}
+
+extension DaoLiYuSource: CatalogDriftReportingConnector {
+    func takeCatalogDriftObservation() -> Bool {
+        defer { catalogDriftInLastWalk = false }
+        return catalogDriftInLastWalk
+    }
+
+    fileprivate func recordCatalogDrift(_ observed: Bool) {
+        guard observed else { return }
+        catalogDriftInLastWalk = true
+        plog("↻ daoliyu: catalogue moved during the walk")
     }
 }
