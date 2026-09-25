@@ -1499,9 +1499,9 @@
 "icloud_sync_title" = "Synchronizacja iCloud";
 "icon_appearance_gray" = "Szary";
 "icon_appearance_hint" = "Ikona pojawia się na ekranie głównym. Dotknij i przytrzymaj ekran główny, a następnie wybierz Edycja → Dostosuj → Automatycznie.";
-"icon_default" = "Miękka nuta";
+"icon_default" = "Chris’s Muse";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_13" = "Chris’s Muse";
+"icon_theme_18" = "Miękka nuta";
 "icon_theme_14" = "Litera P";
 "icon_theme_15" = "Złożona nuta";
 "icon_theme_16" = "NonoEnd";

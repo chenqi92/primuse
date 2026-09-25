@@ -389,11 +389,11 @@
 "theme_color_hex" = "カラー値";
 "app_icon" = "App アイコン";
 "app_icon_dock_hint" = "macOS は Primuse の実行中しか Dock アイコンを差し替えられません。終了すると Dock はアプリバンドル内のアイコンに戻ります。";
-"icon_default" = "やわらかな音符";
+"icon_default" = "Chris’s Muse";
 "icon_appearance_gray" = "グレー";
 "icon_appearance_hint" = "アイコンはホーム画面の外観に合わせて切り替わります。ホーム画面を長押しして、「編集」→「カスタマイズ」→「自動」を選択してください。";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_13" = "Chris’s Muse";
+"icon_theme_18" = "やわらかな音符";
 "icon_theme_14" = "文字 P";
 "icon_theme_15" = "折り返し音符";
 "icon_theme_16" = "NonoEnd";

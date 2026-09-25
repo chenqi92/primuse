@@ -555,8 +555,8 @@ struct TVMusicPlaceholder: View {
         }
     }
 
-    /// 歌曲与专辑缺图时的默认封面：与 iPhone / Mac 共用同一张「Chris's Muse」
-    /// 插画（DefaultCover，浅色/深色两套），整张铺满后按调用方的圆角裁切。
+    /// 歌曲与专辑缺图时的默认封面：Apple TV 不能换 App 图标，所以就是默认图标
+    /// 「Chris's Muse」的插画（DefaultCover，浅色/深色两套），整张铺满后按调用方的圆角裁切。
     private var defaultCover: some View {
         Image("DefaultCover")
             .renderingMode(.original)

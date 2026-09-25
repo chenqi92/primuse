@@ -689,7 +689,7 @@ private struct ImmersivePreviewArtwork: View {
         Image("BrandMark")
             .resizable()
         #else
-        Image("AppIconPreview")
+        Image(DefaultCoverArtwork.assetName)
             .resizable()
         #endif
     }
@@ -701,13 +701,15 @@ struct ImmersiveArtworkFallback: View {
     var body: some View {
         #if os(macOS)
         MacDefaultArtwork()
-        #else
-        // tvOS 也编这个文件,但没有 DefaultCoverArtwork;两端的资源目录里都有 DefaultCover。
+        #elseif os(tvOS)
+        // tvOS 也编这个文件,但没有 DefaultCoverArtwork(那里不能换图标),用默认图标的插画。
         Image("DefaultCover")
             .renderingMode(.original)
             .resizable()
             .interpolation(.high)
             .aspectRatio(contentMode: .fill)
+        #else
+        DefaultCoverArtwork()
         #endif
     }
 }

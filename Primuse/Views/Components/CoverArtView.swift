@@ -33,12 +33,25 @@ struct CoverArtView: View {
     .padding()
 }
 
-/// 歌曲、专辑没有封面时的默认封面：「Chris's Muse」插画（资源 DefaultCover，
-/// 浅色/深色各一张，不随用户挑选的 App 图标变化）。插画本身是满版方图、自带底色，
-/// 这里只负责铺满；圆角与裁切交给调用方原有的 clipShape。
+/// 歌曲、专辑没有封面时的默认封面：用户当前选的 App 图标（它的预览资源，带浅色/深色
+/// 两套）。换了图标，没封面的歌跟着换。预览图是满版方图、自带底色，这里只负责铺满；
+/// 圆角与裁切交给调用方原有的 clipShape。
 struct DefaultCoverArtwork: View {
+    /// 当前图标的预览资源名。两个设置都是 @Observable，读它的视图会随切换刷新。
+    @MainActor
+    static var assetName: String {
+        #if os(iOS)
+        let service = AppIconService.shared
+        return service.options.first { $0.id == service.currentIconID }?.previewAsset ?? "AppIconPreview"
+        #elseif os(macOS)
+        return MacAppIcon.option(for: MacUIPreferences.shared.appIconID).previewAsset
+        #else
+        return "AppIconPreview"
+        #endif
+    }
+
     var body: some View {
-        Image("DefaultCover")
+        Image(Self.assetName)
             .renderingMode(.original)
             .resizable()
             .interpolation(.high)
