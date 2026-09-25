@@ -1419,6 +1419,10 @@ struct PrimuseApp: App {
         #if DEBUG
         if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "immersiveStage" {
             ImmersiveStageEvidenceHost()
+                .modifier(DebugEvidenceOrientation())
+        } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "libraryDetail" {
+            LibraryDetailEvidenceHost()
+                .modifier(DebugEvidenceOrientation())
         } else {
             iosAppContent
         }
@@ -1429,6 +1433,7 @@ struct PrimuseApp: App {
 
     private var iosAppContent: some View {
         ContentView()
+            .environment(\.pmIsPhoneIdiom, UIDevice.current.userInterfaceIdiom == .phone)
             .preferredColorScheme(iOSAppearance.colorScheme)
             .modifier(IOSWindowAppearanceModifier(preference: iOSAppearance))
             .modifier(ExternalDisplaySceneAccessoryModifier())
@@ -2241,10 +2246,25 @@ private struct IOSWindowAppearanceModifier: ViewModifier {
 }
 #endif
 
+#if DEBUG && os(iOS)
+/// 取证页也认 `PRIMUSE_ORIENTATION=landscape|portrait`：模拟器没有命令行转屏，由 App 自己请求。
+private struct DebugEvidenceOrientation: ViewModifier {
+    func body(content: Content) -> some View {
+        content.task {
+            guard let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
+                  orientation == "landscape" || orientation == "portrait" else { return }
+            try? await Task.sleep(for: .seconds(1))
+            InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
+        }
+    }
+}
+#endif
+
 #if DEBUG
 /// 调试构建的启动自动化，由环境变量驱动，给编译机上无人值守的实机检查用：
 /// - `PRIMUSE_OPEN_SETTINGS=<设置目录 id>`：启动后打开该设置项（Mac 打开设置窗口，iOS 推入对应页）。
 /// - `PRIMUSE_AUTOPLAY_SONG=<标题片段>`：曲库里出现标题包含该片段的歌后自动播放它。
+///   另给 `PRIMUSE_AUTOPLAY_PAUSE=1` 时开播后立刻暂停并回到开头，进度与播放键都定住，截图可逐像素对照。
 private struct DebugLaunchAutomation: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -2265,7 +2285,18 @@ private struct DebugLaunchAutomation: ViewModifier {
                     let songs = AppServices.shared.musicLibrary.songs
                     guard let song = songs.first(where: { $0.title.lowercased().contains(needle) }) else { continue }
                     plog("🧪 DebugLaunchAutomation: autoplay '\(song.title)'")
-                    await AppServices.shared.playerService.play(song: song)
+                    let player = AppServices.shared.playerService
+                    await player.play(song: song)
+                    if env["PRIMUSE_AUTOPLAY_PAUSE"] == "1" {
+                        var waits = 0
+                        while !player.isPlaybackActive, waits < 40 {
+                            try? await Task.sleep(for: .milliseconds(250))
+                            waits += 1
+                        }
+                        player.pause()
+                        player.seek(to: 0, startPlaying: false)
+                        plog("🧪 DebugLaunchAutomation: paused at the start")
+                    }
                     return
                 }
                 plog("🧪 DebugLaunchAutomation: no song matching '\(needle)' within the wait window")

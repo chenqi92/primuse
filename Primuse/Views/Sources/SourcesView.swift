@@ -288,6 +288,14 @@ struct MetadataBackfillPerformanceButton<Label: View>: View {
         .accessibilityLabel(MetadataReadingText.string("title"))
         .accessibilityValue(MetadataReadingText.string(mode.rawValue))
         .accessibilityIdentifier("sources.metadataBackfillPerformance")
+        #if DEBUG
+        .task {
+            // 取证用：`PRIMUSE_DEBUG_SHEET=fastReading` 打开音乐源页后直接弹出「开启全速读取？」。
+            guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SHEET"] == "fastReading" else { return }
+            try? await Task.sleep(for: .seconds(2))
+            showingFastConfirmation = true
+        }
+        #endif
         .sheet(isPresented: $showingFastConfirmation) {
             MetadataFastReadingConfirmation {
                 storedMode = MetadataReadingMode.fast.rawValue

@@ -460,10 +460,12 @@ enum ImmersiveDemoStage {
 #if DEBUG && os(iOS)
 /// 调试构建的舞台取证页，`PRIMUSE_VISUAL_EVIDENCE=immersiveStage` 启动时替换根视图。
 /// `PRIMUSE_EVIDENCE_EFFECT`（rawValue，逗号分隔，默认 radialPulse）指定效果，
-/// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认全部）指定视口；
+/// `PRIMUSE_EVIDENCE_LAYOUTS`（phoneLandscape / phonePortrait / wide，默认这三种；另有 iPhone Duo 内屏的
+/// innerLandscape 951×669 / innerLandscapeSmall 890×626 / innerPortrait 669×951）指定视口；
 /// `PRIMUSE_EVIDENCE_RESTING`（lyric / title）按休憩态渲染：舞台文字淡出、压暗，叠上带歌词或只有歌名的休憩层。
 /// 每个视口按真实尺寸、安全区与控件占位渲染一帧静态舞台，缩放到屏宽后纵向排开，
-/// 直接用模拟器截图就能看到三种排版。
+/// 直接用模拟器截图就能看到三种排版。手机上的各帧另外按全屏播放的真实位置叠上顶部圆钮与底部控件胶囊
+/// （半透明占位），看舞台文字会不会被它们压住。
 struct ImmersiveStageEvidenceHost: View {
     private enum RestingVariant: String {
         case lyric, title
@@ -477,6 +479,8 @@ struct ImmersiveStageEvidenceHost: View {
         let prefersWide: Bool
         /// 设计稿单位的控件占位，与 `ImmersivePlayerView.controlsInset` 的 showcase 取值一致。
         let controlsInsetDesignValue: CGFloat
+        /// 叠上 iOS 全屏播放的控件占位（宽画布那一帧代表 Mac / 电视，不叠）。
+        var showsIOSChrome = true
 
         var id: String { "\(effect.rawValue)-\(layout)" }
     }
@@ -515,7 +519,21 @@ struct ImmersiveStageEvidenceHost: View {
                         effect: effect, layout: layout,
                         size: CGSize(width: 960, height: 540),
                         safeArea: EdgeInsets(),
-                        prefersWide: true, controlsInsetDesignValue: 112
+                        prefersWide: true, controlsInsetDesignValue: 112,
+                        showsIOSChrome: false
+                    ))
+                case "innerLandscape", "innerLandscapeSmall", "innerPortrait":
+                    // iPhone Duo 内屏：状态栏收起，全屏页自己量到的左右安全区是 0，底部留 home 指示条。
+                    let size = switch layout {
+                    case "innerLandscape": CGSize(width: 951, height: 669)
+                    case "innerLandscapeSmall": CGSize(width: 890, height: 626)
+                    default: CGSize(width: 669, height: 951)
+                    }
+                    frames.append(Frame(
+                        effect: effect, layout: layout,
+                        size: size,
+                        safeArea: EdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 0),
+                        prefersWide: false, controlsInsetDesignValue: 0
                     ))
                 default:
                     continue
@@ -535,6 +553,9 @@ struct ImmersiveStageEvidenceHost: View {
                             safeArea: frame.safeArea,
                             prefersWide: frame.prefersWide
                         )
+                        let controlsInset = metrics.s(frame.controlsInsetDesignValue > 0
+                            ? frame.controlsInsetDesignValue
+                            : Self.showcaseControlsInsetDesignValue(metrics.layout))
                         let scale = geometry.size.width / frame.size.width
                         Text(verbatim: "\(frame.effect.rawValue) · \(frame.layout) · \(Int(frame.size.width))×\(Int(frame.size.height))\(resting.map { " · resting:\($0.rawValue)" } ?? "")")
                             .font(.system(size: 11, weight: .semibold, design: .monospaced))
@@ -548,9 +569,12 @@ struct ImmersiveStageEvidenceHost: View {
                                 levels: ImmersiveDemoStage.baseLevels,
                                 elapsed: 108,
                                 animates: false,
-                                controlsInset: metrics.s(frame.controlsInsetDesignValue),
+                                controlsInset: controlsInset,
                                 isResting: resting != nil
                             )
+                            if frame.showsIOSChrome, resting == nil {
+                                ImmersiveEvidenceChromeOverlay(effect: frame.effect, metrics: metrics)
+                            }
                             if let resting {
                                 Color.black.opacity(0.60)
                                 ImmersiveAmbientRestOverlay(
@@ -573,6 +597,62 @@ struct ImmersiveStageEvidenceHost: View {
             .background(Color.black.ignoresSafeArea())
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// 与 `ImmersivePlayerView.controlsInset` 的 showcase 取值一致。
+    private static func showcaseControlsInsetDesignValue(_ layout: ImmersiveStageLayout) -> CGFloat {
+        switch layout {
+        case .wide: 112
+        case .phoneLandscape: 76
+        case .phonePortrait: 106
+        }
+    }
+}
+
+/// iOS 全屏播放的控件占位：左上收起键、右上效果与队列两个圆钮（44pt），底部上一首 / 播放 / 下一首的胶囊。
+/// 位置照 `ImmersivePlayerView.chrome` 的排法算，半透明画出来，只用来看舞台文字会不会被压住。
+private struct ImmersiveEvidenceChromeOverlay: View {
+    let effect: FullscreenPlayerEffect
+    let metrics: ImmersiveStageMetrics
+
+    var body: some View {
+        let safe = metrics.safeArea
+        let sideInset = max(safe.leading, safe.trailing)
+        let topInset = ImmersivePlayerView.topChromeInset(metrics)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                dot(44)
+                Spacer()
+                dot(44)
+                dot(44)
+            }
+            .padding(.horizontal, max(sideInset + 16, 20))
+            .padding(.top, topInset)
+            Spacer()
+            HStack(spacing: metrics.s(18)) {
+                dot(38)
+                dot(48)
+                dot(38)
+            }
+            .padding(.horizontal, metrics.s(18))
+            .padding(.vertical, metrics.s(8))
+            .background(Capsule().fill(.white.opacity(0.16)))
+            .overlay(Capsule().strokeBorder(.white.opacity(0.5), lineWidth: 1))
+            .frame(
+                maxWidth: .infinity,
+                alignment: ImmersivePlayerView.showcaseControlAlignment(effect: effect, metrics: metrics)
+            )
+            .padding(.horizontal, sideInset + 20)
+            .padding(.bottom, max(safe.bottom + 10, 18))
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func dot(_ diameter: CGFloat) -> some View {
+        Circle()
+            .fill(.white.opacity(0.22))
+            .overlay(Circle().strokeBorder(.white.opacity(0.6), lineWidth: 1))
+            .frame(width: diameter, height: diameter)
     }
 }
 #endif

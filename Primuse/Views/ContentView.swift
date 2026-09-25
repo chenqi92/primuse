@@ -1295,6 +1295,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .primuseRequestShowNowPlaying)) { _ in
             presentNowPlaying()
         }
+        #if DEBUG
+        .task { await runDebugOpenPage() }
+        #endif
         .alert(
             String(localized: "server_favorite_update_failed_title"),
             isPresented: Binding(
@@ -2655,5 +2658,97 @@ struct NowPlayingAccessory: View {
     ContentView()
         .environment(AudioPlayerService())
         .environment(MusicLibrary())
+}
+#endif
+
+#if DEBUG && os(iOS)
+/// 调试构建的启动自动化：`PRIMUSE_OPEN_PAGE=<页面>` 在曲库装载后直接打开指定页面，给编译机上无人值守截图用。
+/// 取值：`home` / `library` / `songs` / `albums` / `artists` / `playlists` / `album:<标题片段>` / `artist:<名字片段>` /
+/// `playlist:<名字片段>`（`liked` 是「喜欢」）/ `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `search` / `settings` / `onboarding`。
+/// 另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
+extension ContentView {
+    @MainActor
+    private func runDebugOpenPage() async {
+        guard let raw = ProcessInfo.processInfo.environment["PRIMUSE_OPEN_PAGE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return }
+        let parts = raw.split(separator: ":", maxSplits: 1).map(String.init)
+        let page = parts[0].lowercased()
+        let needle = parts.count > 1 ? parts[1].lowercased() : ""
+
+        // 等曲库里有歌（最多一分钟），再给界面一点时间把标签页搭好。
+        for _ in 0..<30 where library.visibleSongs.isEmpty {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+        }
+        try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { return }
+        if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
+           orientation == "landscape" || orientation == "portrait" {
+            InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
+            try? await Task.sleep(for: .seconds(1))
+        }
+        plog("🧪 DebugLaunchAutomation: open page \(raw)")
+
+        let namedSections: [String: LibrarySection] = [
+            "songs": .songs, "albums": .albums, "artists": .artists, "playlists": .playlists,
+        ]
+        switch page {
+        case "home":
+            selectTab(0)
+        case "library":
+            openLibraryDeepLink(.root)
+        case _ where namedSections[page] != nil:
+            openLibraryDeepLink(.section(namedSections[page]!))
+        case "album":
+            for _ in 0..<30 {
+                if let album = library.visibleAlbums.first(where: {
+                    needle.isEmpty || $0.title.lowercased().contains(needle)
+                }) {
+                    openLibraryDeepLink(.album(album))
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+            }
+            plog("🧪 DebugLaunchAutomation: no album matching '\(needle)'")
+        case "artist":
+            for _ in 0..<30 {
+                if let artist = library.visibleArtists.first(where: {
+                    needle.isEmpty || $0.name.lowercased().contains(needle)
+                }) {
+                    openLibraryDeepLink(.artist(artist))
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+            }
+            plog("🧪 DebugLaunchAutomation: no artist matching '\(needle)'")
+        case "playlist":
+            let match = needle == "liked"
+                ? library.playlists.first(where: { $0.id == MusicLibrary.likedSongsPlaylistID })
+                : library.playlists.first(where: { needle.isEmpty || $0.name.lowercased().contains(needle) })
+            if let match {
+                openLibraryDeepLink(.playlist(match))
+            } else {
+                plog("🧪 DebugLaunchAutomation: no playlist matching '\(needle)'")
+            }
+        case "player":
+            // 等 `PRIMUSE_AUTOPLAY_SONG` 把歌放起来，没有也照样打开。
+            for _ in 0..<20 where player.currentSong == nil {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+            }
+            presentNowPlaying()
+        case "search":
+            selectTab(2)
+        case "settings":
+            selectTab(3)
+        case "onboarding":
+            showInitialOnboarding = true
+        default:
+            plog("🧪 DebugLaunchAutomation: unknown page '\(page)'")
+        }
+    }
 }
 #endif

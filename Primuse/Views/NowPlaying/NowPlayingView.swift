@@ -618,6 +618,9 @@ struct NowPlayingView: View {
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
     @State private var activeMinimizeDragStartLocation: CGPoint?
     @State private var isLyricsImmersive = false
+    #if DEBUG && os(iOS)
+    @Environment(\.pmDebugPlayerMode) private var debugPlayerMode
+    #endif
     @State private var isFullscreenPlayerPresented = false
     @State private var immersiveControlsState = ImmersiveControlsState.inactive
     @State private var immersiveControlsAutoHideTask: Task<Void, Never>?
@@ -1468,6 +1471,21 @@ struct NowPlayingView: View {
             }
         }
         .onAppear { FullscreenPlayerEffectSync.shared.install() }
+        #if DEBUG && os(iOS)
+        .task {
+            // 取证页让播放页一出现就处在歌词 / 全屏歌词模式。
+            switch debugPlayerMode {
+            case "lyrics":
+                showLyrics = true
+            case "immersive":
+                showLyrics = true
+                isLyricsImmersive = true
+                immersiveControlsState = .presented
+            default:
+                break
+            }
+        }
+        #endif
         .onChange(of: isVisualSceneActive) { _, isActive in
             if isActive {
                 if isLyricsImmersive, immersiveControlsState.isVisible {

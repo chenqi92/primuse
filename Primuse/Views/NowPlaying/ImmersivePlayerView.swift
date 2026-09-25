@@ -372,6 +372,11 @@ struct ImmersivePlayerView: View {
     }
 
     private func topChromeInset(_ metrics: ImmersiveStageMetrics) -> CGFloat {
+        Self.topChromeInset(metrics)
+    }
+
+    /// 顶部圆钮排的上沿。取证页（`ImmersiveStageEvidenceHost`）按同一个值画控件占位。
+    static func topChromeInset(_ metrics: ImmersiveStageMetrics) -> CGFloat {
         if metrics.layout == .phonePortrait {
             return max(metrics.safeArea.top + 10, metrics.s(55))
         }
@@ -454,8 +459,16 @@ struct ImmersivePlayerView: View {
     }
 
     private func showcaseControlAlignment(_ metrics: ImmersiveStageMetrics) -> Alignment {
+        Self.showcaseControlAlignment(effect: presentationEffect, metrics: metrics)
+    }
+
+    /// 底部控件胶囊靠哪一边。取证页按同一个值画控件占位。
+    static func showcaseControlAlignment(
+        effect: FullscreenPlayerEffect,
+        metrics: ImmersiveStageMetrics
+    ) -> Alignment {
         guard metrics.layout != .phonePortrait else { return .center }
-        switch presentationEffect {
+        switch effect {
         case .vinylDeck, .particleBloom:
             return .leading
         case .coverFlow, .coverGallery, .starryNight, .flowingLines, .kineticTitle,
