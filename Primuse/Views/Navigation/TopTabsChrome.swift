@@ -217,6 +217,8 @@ struct TopTabsChrome: View {
     @Namespace private var indicatorNamespace
     /// 竖栏顶端要让开的遮挡(竖排的状态栏与摄像头),按系统报的遮挡区量出来。
     @State private var railTopClearance = CGFloat(TopTabsRailLayoutPolicy.minimumTopClearance)
+    /// 竖栏那一列的中线相对竖栏正中的偏移:系统自己的竖栏按钮列对着前置摄像头的中线,这里跟它对齐。
+    @State private var railColumnOffset: CGFloat = 0
 
     private var isRail: Bool { railEdge != nil }
 
@@ -264,35 +266,38 @@ struct TopTabsChrome: View {
     }
 
     /// tab 与右侧(竖栏时是底部)那组按钮。
+    ///
+    /// 竖栏时和系统竖栏同一种画法:没有整条底色,tab 是一颗玻璃胶囊(顶上,贴着遮挡区下沿),
+    /// 页面动作与搜索、设置各是一颗玻璃胶囊(底下);整列对着前置摄像头的中线,和系统竖栏的按钮列对齐。
     private var bar: some View {
         let isRail = isRail
-        let layout = isRail ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        let layout = isRail
+            ? AnyLayout(TopTabsRailColumnLayout(spacing: 12))
+            : AnyLayout(HStackLayout(spacing: 0))
         return layout {
             tabStrip
             trailingCluster
         }
         .frame(height: isRail ? nil : rowHeight)
         .padding(.top, isRail ? railTopClearance : 0)
-        .background {
-            if isRail {
-                chromeFill
-                    .ignoresSafeArea(.container, edges: [.vertical, .horizontal])
-            }
-        }
-        .overlay(alignment: railEdge == .leading ? .trailing : .leading) {
-            if isRail {
-                hairline(vertical: true)
-                    .ignoresSafeArea(.container, edges: .vertical)
-            }
-        }
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            guard isRail else { return CGFloat(TopTabsRailLayoutPolicy.minimumTopClearance) }
-            return CGFloat(TopTabsRailLayoutPolicy.topClearance(
-                occlusions: PMReservedRegions.activeOcclusionSpans(in: proxy),
+        .padding(.bottom, isRail ? Self.railBottomInset : 0)
+        .offset(x: isRail ? railColumnOffset : 0)
+        .onGeometryChange(for: TopTabsRailPlacement.self) { proxy in
+            guard isRail else { return TopTabsRailPlacement() }
+            let occlusions = PMReservedRegions.activeOcclusions(in: proxy)
+            let clearance = CGFloat(TopTabsRailLayoutPolicy.topClearance(
+                occlusions: occlusions.map { (minY: $0.minY, maxY: $0.maxY) },
                 railHeight: Double(proxy.size.height)
             ))
-        } action: { clearance in
-            railTopClearance = clearance
+            // 前置摄像头是竖栏里那块小的遮挡区;对不上(没有摄像头、或不在这一列里)就不挪。
+            let camera = occlusions
+                .filter { $0.width <= 60 && $0.minX >= 0 && $0.maxX <= Double(proxy.size.width) }
+                .min { $0.width < $1.width }
+            let offset = camera.map { CGFloat(($0.minX + $0.maxX) / 2) - proxy.size.width / 2 } ?? 0
+            return TopTabsRailPlacement(topClearance: clearance, columnOffset: max(-12, min(12, offset)))
+        } action: { placement in
+            railTopClearance = placement.topClearance
+            railColumnOffset = placement.columnOffset
         }
     }
 
@@ -337,10 +342,18 @@ struct TopTabsChrome: View {
                     }
                 }
                 .padding(isRail ? .vertical : .horizontal, isRail ? 4 : skin.rawMetric(.chromeHorizontalInset) + 4)
+                .padding(.horizontal, isRail ? 4 : 0)
                 .frame(maxWidth: isRail ? .infinity : nil, maxHeight: isRail ? nil : .infinity)
                 .animation(skin.animation(.selection), value: selection)
             }
+            .scrollBounceBehavior(.basedOnSize, axes: isRail ? .vertical : [])
             .mask { edgeFade }
+            .frame(width: isRail ? Self.railCapsuleWidth : nil)
+            .background {
+                if isRail {
+                    TopTabsRailGlass()
+                }
+            }
             .onAppear {
                 guard let selection else { return }
                 proxy.scrollTo(selection, anchor: .center)
@@ -367,12 +380,12 @@ struct TopTabsChrome: View {
             LinearGradient(colors: [.clear, .black],
                            startPoint: isRail ? .top : .leading,
                            endPoint: isRail ? .bottom : .trailing)
-                .frame(width: isRail ? nil : 10, height: isRail ? 10 : nil)
+                .frame(width: isRail ? nil : 10, height: isRail ? 6 : nil)
             Rectangle().fill(.black)
             LinearGradient(colors: [.black, .clear],
                            startPoint: isRail ? .top : .leading,
                            endPoint: isRail ? .bottom : .trailing)
-                .frame(width: isRail ? nil : 18, height: isRail ? 18 : nil)
+                .frame(width: isRail ? nil : 18, height: isRail ? 10 : nil)
         }
     }
 
@@ -394,12 +407,35 @@ struct TopTabsChrome: View {
         }
     }
 
+    /// 页面动作一组、搜索与设置一组。横排时两组紧挨着排成一行(与原来逐个排开完全一样);
+    /// 竖栏时各是一颗玻璃胶囊,上下隔开 —— 系统竖栏也是这样按原来的分组分开的。
     private var trailingCluster: some View {
         let isRail = isRail
         let layout = isRail
-            ? AnyLayout(TopTabsRailClusterLayout(width: railWidth))
+            ? AnyLayout(VStackLayout(spacing: 10))
             : AnyLayout(HStackLayout(spacing: 0))
         return layout {
+            pageActionGroup
+            appActionGroup
+        }
+        .buttonStyle(TopTabsChromeButtonStyle(height: isRail ? Self.railButtonHeight : rowHeight))
+        .font(.system(size: skin.metric(.iconSizeMedium), weight: .semibold))
+        .foregroundStyle(.skin(.textPrimary))
+        .padding(isRail ? .bottom : .trailing, isRail ? 0 : max(0, skin.rawMetric(.chromeHorizontalInset) - 6))
+        .fixedSize(horizontal: !isRail, vertical: isRail)
+    }
+
+    private var railGroupLayout: AnyLayout {
+        isRail
+            ? AnyLayout(TopTabsRailClusterLayout(width: Self.railCapsuleWidth))
+            : AnyLayout(HStackLayout(spacing: 0))
+    }
+
+    /// 当前页的筛选与页面动作。没有时竖栏里不画这颗胶囊。
+    private var pageActionGroup: some View {
+        let isRail = isRail
+        let hasContent = filter != nil || actions != nil
+        return railGroupLayout {
             if let filter {
                 let isOpen = filter.isPresented.wrappedValue
                 Button {
@@ -420,7 +456,18 @@ struct TopTabsChrome: View {
                     .labelStyle(.iconOnly)
                     .menuStyle(.button)
             }
+        }
+        .padding(.vertical, isRail && hasContent ? 4 : 0)
+        .background {
+            if isRail && hasContent {
+                TopTabsRailGlass()
+            }
+        }
+    }
 
+    private var appActionGroup: some View {
+        let isRail = isRail
+        return railGroupLayout {
             Button(action: onSearch) {
                 Image(systemName: "magnifyingglass")
             }
@@ -433,25 +480,73 @@ struct TopTabsChrome: View {
             .accessibilityLabel(Text("settings_title"))
             .accessibilityIdentifier("topTabs.settings")
         }
-        .buttonStyle(TopTabsChromeButtonStyle(height: isRail ? Self.railButtonHeight : rowHeight))
-        .font(.system(size: skin.metric(.iconSizeMedium), weight: .semibold))
-        .foregroundStyle(.skin(.textPrimary))
-        .padding(isRail ? .bottom : .trailing, isRail ? 4 : max(0, skin.rawMetric(.chromeHorizontalInset) - 6))
-        // 竖栏里这组按钮紧接在 tab 下面:上沿一道短分隔线,页面动作不会被看成又一个 tab。
-        .padding(.top, isRail ? 9 : 0)
-        .overlay(alignment: .top) {
+        .padding(.vertical, isRail ? 4 : 0)
+        .background {
             if isRail {
-                Capsule()
-                    .fill(skin.color(.separator))
-                    .frame(width: 28, height: 1)
-                    .allowsHitTesting(false)
+                TopTabsRailGlass()
             }
         }
-        .fixedSize(horizontal: !isRail, vertical: isRail)
     }
 
     /// 竖栏底部按钮的高度(宽度仍是 40 起)。
     private static let railButtonHeight: CGFloat = 44
+    /// 竖栏里玻璃胶囊的宽度,与系统竖栏的胶囊一样宽。
+    static let railCapsuleWidth: CGFloat = 52
+    /// 竖栏底部离屏幕下沿(安全区以内)的距离。
+    private static let railBottomInset: CGFloat = 4
+}
+
+/// 竖栏的遮挡区读数:顶端要让多少、整列往哪边挪多少。
+private struct TopTabsRailPlacement: Equatable {
+    var topClearance = CGFloat(TopTabsRailLayoutPolicy.minimumTopClearance)
+    var columnOffset: CGFloat = 0
+}
+
+/// 竖栏里的玻璃胶囊底,与系统竖栏同一种材质;iOS 26 以前(竖栏本来也不会出现)退回半透明材质。
+private struct TopTabsRailGlass: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.skin) private var skin
+
+    var body: some View {
+        if reduceTransparency {
+            Capsule().fill(skin.color(.canvasElevated))
+                .overlay { Capsule().strokeBorder(skin.color(.separator), lineWidth: skin.rawMetric(.hairline)) }
+        } else if #available(iOS 26.0, *) {
+            Color.clear.glassEffect(.regular.interactive(), in: Capsule())
+        } else {
+            Capsule().fill(.regularMaterial)
+        }
+    }
+}
+
+/// 竖栏那一列:tab 胶囊贴顶(内容少时只有内容那么高,多了在胶囊里滚),按钮组贴底。
+private struct TopTabsRailColumnLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)).width }.max() ?? 0
+        return CGSize(width: proposal.width ?? width, height: proposal.height ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let tabs = subviews.first else { return }
+        let bottom = subviews.count > 1 ? subviews[subviews.count - 1] : nil
+        let bottomSize = bottom?.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)) ?? .zero
+        let available = max(0, bounds.height - bottomSize.height - (bottom == nil ? 0 : spacing))
+        let ideal = tabs.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)).height
+        let tabsHeight = min(ideal, available)
+        let tabsWidth = tabs.sizeThatFits(ProposedViewSize(width: bounds.width, height: tabsHeight)).width
+        tabs.place(
+            at: CGPoint(x: bounds.midX - tabsWidth / 2, y: bounds.minY),
+            proposal: ProposedViewSize(width: tabsWidth, height: tabsHeight)
+        )
+        if let bottom {
+            bottom.place(
+                at: CGPoint(x: bounds.midX - bottomSize.width / 2, y: bounds.maxY - bottomSize.height),
+                proposal: ProposedViewSize(bottomSize)
+            )
+        }
+    }
 }
 
 /// 竖栏时 tab 条的外层排法:第一个子视图(tab 与按钮那一列)放进系统竖栏让出的那条安全区 ——
@@ -536,46 +631,53 @@ private struct TopTabsChromeTab: View {
     var body: some View {
         let isRail = railEdge != nil
         Button(action: action) {
-            // 竖栏只有七八十点宽,放不下整行文字:图标在上、两行小字在下,像系统竖排的标签栏那样。
+            // 竖栏与系统竖排的标签栏一个样:只有符号,选中的那格垫一块圆角底、符号换成实心的强调色。
             VStack(spacing: 3) {
                 if isRail {
                     Image(systemName: page.railSymbol)
                         .symbolVariant(isSelected ? .fill : .none)
-                        .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
-                        .foregroundStyle(isSelected ? skin.color(.accent) : skin.color(.chromeItem))
+                        .font(.system(size: 20, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? skin.color(.accent) : skin.color(.textPrimary))
                         .frame(height: 24)
+                } else {
+                    ZStack {
+                        // 按选中时的粗体占好宽度,切换选中时文字不会把两边的 tab 挤得跳一下。
+                        Text(verbatim: page.localizedTitle)
+                            .font(labelFont(selected: true, isRail: isRail))
+                            .hidden()
+                        Text(verbatim: page.localizedTitle)
+                            .font(labelFont(selected: isSelected, isRail: isRail))
+                            .foregroundStyle(isSelected ? skin.color(.textPrimary) : skin.color(.chromeItem))
+                    }
+                    .lineLimit(1)
+                    .multilineTextAlignment(.leading)
+                    .minimumScaleFactor(1)
+                    .fixedSize(horizontal: true, vertical: true)
                 }
-                ZStack {
-                    // 按选中时的粗体占好宽度,切换选中时文字不会把两边的 tab 挤得跳一下。
-                    Text(verbatim: page.localizedTitle)
-                        .font(labelFont(selected: true, isRail: isRail))
-                        .hidden()
-                    Text(verbatim: page.localizedTitle)
-                        .font(labelFont(selected: isSelected, isRail: isRail))
-                        .foregroundStyle(isSelected ? skin.color(.textPrimary) : skin.color(.chromeItem))
-                }
-                // 竖栏里多个词的标题折成两行;一个长词(德语、俄语常见)不在词中间断开,缩小到放得下。
-                .lineLimit(isRail && page.localizedTitle.contains(" ") ? 2 : 1)
-                .multilineTextAlignment(isRail ? .center : .leading)
-                .minimumScaleFactor(isRail ? 0.6 : 1)
-                .fixedSize(horizontal: !isRail, vertical: true)
             }
             .frame(maxWidth: isRail ? .infinity : nil, maxHeight: isRail ? nil : .infinity)
-            .padding(.vertical, isRail ? 8 : 0)
-            .padding(.horizontal, isRail ? 5 : 0)
+            .frame(height: isRail ? 44 : nil)
+            .background {
+                if isSelected && isRail {
+                    Capsule()
+                        .fill(skin.color(.textPrimary).opacity(0.09))
+                        .matchedGeometryEffect(id: "topTabs.indicator", in: namespace)
+                }
+            }
             .overlay(alignment: indicatorAlignment) {
-                if isSelected {
+                if isSelected && !isRail {
                     Capsule()
                         .fill(skin.color(.accent))
-                        .frame(width: isRail ? 3 : 18, height: isRail ? 22 : 3)
+                        .frame(width: 18, height: 3)
                         .matchedGeometryEffect(id: "topTabs.indicator", in: namespace)
-                        .padding(.bottom, isRail ? 0 : 4)
+                        .padding(.bottom, 4)
                 }
             }
             // plain 样式的点击热区只有文字本身,整格(含上下留白)都要能点。
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: page.localizedTitle))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("topTabs.tab.\(page.id)")
     }
