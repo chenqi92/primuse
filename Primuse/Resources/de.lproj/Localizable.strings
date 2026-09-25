@@ -4362,6 +4362,10 @@
 "medley_continue_full" = "Diesen Song ganz weiterhören";
 "medley_continue_full_short" = "Ganz hören";
 "medley_badge_format" = "Medley · je %lld s";
+"medley_data_title" = "Mobile Daten aktiv";
+"medley_data_message" = "Damit die Übergänge flüssig sind, lädt ein Medley die nächsten Titel vollständig. Das kann viel Datenvolumen verbrauchen.";
+"medley_data_continue" = "Medley abspielen";
+"medley_data_dont_ask" = "Abspielen, nicht mehr fragen";
 "smart_nudge_section" = "Vorschläge beim Hören";
 "smart_nudge_enabled" = "Vorschläge anzeigen";
 "smart_nudge_footer" = "Ab und zu schlägt ein kleines Banner vor, was gerade passt – etwa einen oft wiederholten Song zu den Favoriten hinzuzufügen. Es unterbricht nichts, verschwindet von selbst und wird nach einer Ablehnung nicht wiederholt. Alles wird auf diesem Gerät berechnet.";

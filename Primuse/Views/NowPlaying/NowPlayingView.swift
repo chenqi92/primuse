@@ -678,6 +678,8 @@ struct NowPlayingView: View {
     @State private var showCastPicker = false
     @State private var showSongInfo = false
     @State private var showSleepTimer = false
+    /// A medley waiting for the listener to agree to use mobile data.
+    @State private var pendingMedleySongs: [Song]?
     /// 电台的「刚播过」:这个台上听到过的曲目标题。
     @State private var radioDetailStationID: String?
     @State private var showKaraoke = false
@@ -2097,6 +2099,9 @@ struct NowPlayingView: View {
                 Button(String(localized: "cancel_timer"), role: .destructive) { player.cancelSleep() }
             }
             Button(String(localized: "cancel"), role: .cancel) {}
+        }
+        .medleyDataUsageConfirmation(pendingSongs: $pendingMedleySongs) { songs in
+            Task { await player.playMedley(songs) }
         }
         .alert(String(localized: "scrape_song"),
                isPresented: Binding(
@@ -4332,7 +4337,11 @@ struct NowPlayingView: View {
             onCycleRepeatMode: { cycleRepeatMode() },
             onStartMedley: {
                 let songs = medleyCandidateSongs
-                Task { await player.playMedley(songs) }
+                if player.medleyNeedsDataUsageConfirmation(for: songs) {
+                    pendingMedleySongs = songs
+                } else {
+                    Task { await player.playMedley(songs) }
+                }
             },
             onContinueMedleySongInFull: {
                 Task { await player.continueCurrentMedleySongInFull() }

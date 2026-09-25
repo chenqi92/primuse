@@ -4268,6 +4268,10 @@
 "medley_continue_full" = "Bu şarkıyı tamamını dinle";
 "medley_continue_full_short" = "Tamamı";
 "medley_badge_format" = "Medley · her biri %lld sn";
+"medley_data_title" = "Mobil veri kullanılıyor";
+"medley_data_message" = "Parçaların kesintisiz bağlanması için medley sıradaki şarkıları tamamen indirir; bu çok veri kullanabilir.";
+"medley_data_continue" = "Medley'i çal";
+"medley_data_dont_ask" = "Çal, bir daha sorma";
 "smart_nudge_section" = "Dinlerken öneriler";
 "smart_nudge_enabled" = "Önerileri göster";
 "smart_nudge_footer" = "Ara sıra küçük bir afiş o ana uygun bir şey önerir; örneğin sürekli tekrar dinlediğin şarkıyı Favorilere eklemek. Çalmayı kesmez, kendiliğinden kaybolur ve reddettiğinde tekrarlanmaz. Her şey bu cihazda hesaplanır.";

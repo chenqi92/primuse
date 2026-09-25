@@ -42,6 +42,25 @@ extension AudioPlayerService {
         return firstCurrentRoundUpcomingSongs(limit: needed, where: canIncludeInMedley).count == needed
     }
 
+    /// Whether a medley of `songs` should first warn about mobile data: the
+    /// connection is metered and some of its opening songs would be downloaded.
+    func medleyNeedsDataUsageConfirmation(for songs: [Song]) -> Bool {
+        let network = NetworkMonitor.shared
+        let promptDisabled = UserDefaults.standard.bool(forKey: MedleyDataUsagePolicy.promptDisabledKey)
+        guard network.hasDeterminedPath, !network.isOnUnmeteredNetwork, !promptDisabled else { return false }
+        let hasSongToDownload = songs.prefix(MedleyDataUsagePolicy.inspectedSongCount).contains { song in
+            canIncludeInMedley(song)
+                && playbackMetadataSourceType?(song.sourceID) != .local
+                && sourceManager?.hasUsableCachedAudioForPlayback(song) != true
+        }
+        return MedleyDataUsagePolicy.shouldConfirm(
+            networkIsDetermined: network.hasDeterminedPath,
+            isOnUnmeteredNetwork: network.isOnUnmeteredNetwork,
+            promptDisabled: promptDisabled,
+            hasSongToDownload: hasSongToDownload
+        )
+    }
+
     /// Builds the slices for `songs` and starts playing them.
     /// - Returns: false when none of the songs can be sliced.
     @discardableResult

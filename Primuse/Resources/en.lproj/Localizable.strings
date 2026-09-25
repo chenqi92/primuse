@@ -4125,6 +4125,10 @@
 "medley_continue_full" = "Keep Playing This Song in Full";
 "medley_continue_full_short" = "Play in Full";
 "medley_badge_format" = "Medley · %lld s each";
+"medley_data_title" = "You're on Mobile Data";
+"medley_data_message" = "To blend each part smoothly, a medley downloads the next songs in full, which can use a lot of data.";
+"medley_data_continue" = "Play Medley";
+"medley_data_dont_ask" = "Play, Don't Ask Again";
 "smart_nudge_section" = "Suggestions While Playing";
 "smart_nudge_enabled" = "Show Suggestions";
 "smart_nudge_footer" = "A small banner now and then offers what fits the moment — for example adding a song you keep replaying to Favorites. It never interrupts playback, disappears on its own, and is not repeated after you turn it down. Everything is worked out on this device.";

@@ -4455,6 +4455,10 @@
 "medley_continue_full" = "完整播放这首歌";
 "medley_continue_full_short" = "听完整版";
 "medley_badge_format" = "串烧 · 每首 %lld 秒";
+"medley_data_title" = "正在使用移动网络";
+"medley_data_message" = "串烧会提前下载接下来的整首歌，好让每段衔接顺畅，会消耗较多流量。";
+"medley_data_continue" = "继续串烧";
+"medley_data_dont_ask" = "继续，不再提醒";
 "smart_nudge_section" = "播放时的智能提示";
 "smart_nudge_enabled" = "显示智能提示";
 "smart_nudge_footer" = "播放时偶尔在顶部弹出一条小提示，比如反复在听的歌要不要加入我喜欢。它不打断播放、几秒后自动消失，拒绝过的提示不会反复出现。所有判断都在本机完成。";

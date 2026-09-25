@@ -4339,6 +4339,10 @@
 "medley_continue_full" = "完整播放這首歌";
 "medley_continue_full_short" = "聽完整版";
 "medley_badge_format" = "串燒 · 每首 %lld 秒";
+"medley_data_title" = "正在使用行動網路";
+"medley_data_message" = "串燒會提前下載接下來的整首歌，讓每段銜接順暢，會消耗較多流量。";
+"medley_data_continue" = "繼續串燒";
+"medley_data_dont_ask" = "繼續，不再提醒";
 "smart_nudge_section" = "播放時的智慧提示";
 "smart_nudge_enabled" = "顯示智慧提示";
 "smart_nudge_footer" = "播放時偶爾在頂部跳出一則小提示，例如反覆在聽的歌要不要加入我的最愛。它不打斷播放、幾秒後自動消失，拒絕過的提示不會一再出現。所有判斷都在本機完成。";

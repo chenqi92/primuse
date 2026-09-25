@@ -199,6 +199,7 @@ private struct SongBatchActionsModifier: ViewModifier {
 
     @State private var showAddToPlaylist = false
     @State private var pendingDeletion: PendingDeletion?
+    @State private var pendingMedleySongs: [Song]?
     /// 选中的歌全都来自没有删除能力的源时，改为提供「仅从本机移除」。
     @State private var noDeletableSourceFallback: [Song]?
     @State private var showNoScraperSourceAlert = false
@@ -241,6 +242,9 @@ private struct SongBatchActionsModifier: ViewModifier {
                 TagTidyView(songs: batch.songs) {
                     selection.deactivate()
                 }
+            }
+            .medleyDataUsageConfirmation(pendingSongs: $pendingMedleySongs) { songs in
+                playMedley(songs)
             }
             .alert(
                 deletionAlertTitle,
@@ -612,6 +616,14 @@ private struct SongBatchActionsModifier: ViewModifier {
     private func startMedley() {
         let songs = playableSelection()
         guard songs.count >= 2 else { return }
+        if player.medleyNeedsDataUsageConfirmation(for: songs) {
+            pendingMedleySongs = songs
+        } else {
+            playMedley(songs)
+        }
+    }
+
+    private func playMedley(_ songs: [Song]) {
         Task {
             if await player.playMedley(songs) {
                 selection.deactivate()
