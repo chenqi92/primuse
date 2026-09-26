@@ -4151,18 +4151,11 @@ struct NowPlayingView: View {
                             portraitBottomBar
                             .padding(.horizontal, insets.rows)
                             .pmLayoutSwitchFade()
-                        } else if skin.usesSheetActionsPlayer {
-                            // 分组面板那一套的音质与来源在底栏中间的胶囊里:底栏的键排进竖栏那一列之后,
-                            // 胶囊单独留在原处,不跟着一起消失。
-                            portraitQualityChip
-                                .padding(.top, 12)
-                                .padding(.bottom, 6)
-                                .padding(.horizontal, insets.rows)
-                                .pmLayoutSwitchFade()
                         }
 
-                        // Format & source(分组面板那一套收进了底栏中间的音质胶囊)
-                        if !skin.usesSheetActionsPlayer, let song = player.currentSong {
+                        // Format & source(分组面板那一套收进了底栏中间的音质胶囊;底栏的键排进 iPhone Duo
+                        // 竖栏那一列、底栏不画时,和经典一样在这里单独一行)
+                        if !skin.usesSheetActionsPlayer || usesToolColumn, let song = player.currentSong {
                             HStack(spacing: 4) {
                                 Text(song.fileFormat.displayName)
                                 if let sr = song.sampleRate { Text("·"); Text("\(sr / 1000)kHz") }

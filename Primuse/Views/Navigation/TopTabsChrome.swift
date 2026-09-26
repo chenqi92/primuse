@@ -255,6 +255,9 @@ struct TopTabsChrome: View {
                             onSelect: onSelect
                         )
                         .frame(height: musicCategoryRowHeight)
+                        // 竖栏时这一行是固定在页面顶上的头部:横滑的分类停在竖栏前,不伸到竖排状态栏与摄像头底下
+                        // (页面的滚动内容铺过去,固定的头部不铺)。横排时不裁,和原来一样。
+                        .clipShape(TopTabsRailRowClip(clips: isRail))
                         .transition(.opacity)
                     }
 
@@ -524,6 +527,16 @@ struct TopTabsChrome: View {
     static let railCapsuleWidth: CGFloat = 52
     /// 竖栏底部离屏幕下沿(安全区以内)的距离。
     private static let railBottomInset: CGFloat = 4
+}
+
+/// 竖栏时固定在页面顶上的那几行只画在页面这一块里(横滑的内容会顺着滚动方向伸进安全区);
+/// 横排时给一块足够大的区域,等于不裁。用形状而不是条件分支,竖排 ⇄ 横排时这一行的滚动位置不丢。
+private struct TopTabsRailRowClip: Shape {
+    var clips: Bool
+
+    func path(in rect: CGRect) -> Path {
+        Path(clips ? rect : rect.insetBy(dx: -10_000, dy: -10_000))
+    }
 }
 
 /// 竖栏的遮挡区读数:顶端要让多少、整列往哪边挪多少。
