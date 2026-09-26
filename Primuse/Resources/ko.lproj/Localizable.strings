@@ -4557,6 +4557,8 @@
 "karaoke_ai_aligning" = "맞추는 중…";
 "karaoke_ai_unsupported_song" = "이 곡은 AI 분리를 할 수 없어 일반 제거를 사용합니다.";
 "karaoke_ai_retry" = "다시 시도";
+"karaoke_ai_download_dev_build" = "개발 빌드에서는 App Store에서 모델을 다운로드할 수 없습니다. TestFlight 또는 App Store 버전을 사용하세요.";
+"karaoke_ai_download_failed_format" = "다운로드 실패: %@";
 "karaoke_ai_preparing" = "준비 중…";
 "karaoke_ai_clear_cache_format" = "분리된 곡 삭제(%@)";
 "karaoke_ai_remove_model" = "AI 모델 삭제";

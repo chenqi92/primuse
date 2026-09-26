@@ -858,9 +858,18 @@ private struct KaraokeAISeparationRow: View {
         case .downloading(let fraction):
             progress(String(localized: "karaoke_ai_downloading"), fraction)
         case .failed:
-            Button("karaoke_ai_retry") { session.separation.downloadModel() }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                Button("karaoke_ai_retry") { session.separation.downloadModel() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                if let reason = session.separation.modelFailureReason {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         case .ready:
             songStatus
         }

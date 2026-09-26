@@ -4557,6 +4557,8 @@
 "karaoke_ai_aligning" = "Wird synchronisiert …";
 "karaoke_ai_unsupported_song" = "Für diesen Titel nicht verfügbar – normale Entfernung aktiv.";
 "karaoke_ai_retry" = "Erneut versuchen";
+"karaoke_ai_download_dev_build" = "Entwicklungs-Builds können das Modell nicht aus dem App Store laden. Verwende die TestFlight- oder App-Store-Version.";
+"karaoke_ai_download_failed_format" = "Download fehlgeschlagen: %@";
 "karaoke_ai_preparing" = "Wird vorbereitet …";
 "karaoke_ai_clear_cache_format" = "Getrennte Titel löschen (%@)";
 "karaoke_ai_remove_model" = "KI-Modell entfernen";

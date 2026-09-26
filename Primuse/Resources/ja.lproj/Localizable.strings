@@ -4558,6 +4558,8 @@
 "karaoke_ai_aligning" = "同期中…";
 "karaoke_ai_unsupported_song" = "この曲はAI分離できないため、通常の除去を使います。";
 "karaoke_ai_retry" = "再試行";
+"karaoke_ai_download_dev_build" = "開発ビルドでは App Store からモデルをダウンロードできません。TestFlight 版または App Store 版をご利用ください。";
+"karaoke_ai_download_failed_format" = "ダウンロードに失敗しました：%@";
 "karaoke_ai_preparing" = "準備中…";
 "karaoke_ai_clear_cache_format" = "分離済みの曲を削除（%@）";
 "karaoke_ai_remove_model" = "AIモデルを削除";

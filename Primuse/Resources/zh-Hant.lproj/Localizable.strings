@@ -4534,6 +4534,8 @@
 "karaoke_ai_aligning" = "正在對齊…";
 "karaoke_ai_unsupported_song" = "這首歌無法 AI 分離，已改用一般消除。";
 "karaoke_ai_retry" = "重試";
+"karaoke_ai_download_dev_build" = "開發版本無法從 App Store 下載模型，請使用 TestFlight 或 App Store 版本。";
+"karaoke_ai_download_failed_format" = "下載失敗：%@";
 "karaoke_ai_preparing" = "準備中…";
 "karaoke_ai_clear_cache_format" = "清除 AI 分離快取（%@）";
 "karaoke_ai_remove_model" = "刪除 AI 模型";

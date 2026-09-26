@@ -4463,6 +4463,8 @@
 "karaoke_ai_aligning" = "Синхронізація…";
 "karaoke_ai_unsupported_song" = "Для цієї пісні недоступно — використовується звичайне видалення.";
 "karaoke_ai_retry" = "Повторити";
+"karaoke_ai_download_dev_build" = "Збірки для розробки не можуть завантажити модель з App Store. Використовуйте версію з TestFlight або App Store.";
+"karaoke_ai_download_failed_format" = "Не вдалося завантажити: %@";
 "karaoke_ai_preparing" = "Підготовка…";
 "karaoke_ai_clear_cache_format" = "Очистити розділені пісні (%@)";
 "karaoke_ai_remove_model" = "Видалити модель ШІ";

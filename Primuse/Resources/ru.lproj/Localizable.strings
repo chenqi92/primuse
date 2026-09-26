@@ -4463,6 +4463,8 @@
 "karaoke_ai_aligning" = "Синхронизация…";
 "karaoke_ai_unsupported_song" = "Для этой песни недоступно — используется обычное удаление.";
 "karaoke_ai_retry" = "Повторить";
+"karaoke_ai_download_dev_build" = "Сборки для разработки не могут загрузить модель из App Store. Используйте версию из TestFlight или App Store.";
+"karaoke_ai_download_failed_format" = "Не удалось загрузить: %@";
 "karaoke_ai_preparing" = "Подготовка…";
 "karaoke_ai_clear_cache_format" = "Очистить разделённые песни (%@)";
 "karaoke_ai_remove_model" = "Удалить модель ИИ";

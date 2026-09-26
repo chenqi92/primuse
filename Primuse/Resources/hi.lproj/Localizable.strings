@@ -4463,6 +4463,8 @@
 "karaoke_ai_aligning" = "सिंक हो रहा है…";
 "karaoke_ai_unsupported_song" = "इस गाने के लिए उपलब्ध नहीं; सामान्य हटाना इस्तेमाल हो रहा है।";
 "karaoke_ai_retry" = "फिर से कोशिश करें";
+"karaoke_ai_download_dev_build" = "डेवलपमेंट बिल्ड App Store से मॉडल डाउनलोड नहीं कर सकते। TestFlight या App Store संस्करण का उपयोग करें।";
+"karaoke_ai_download_failed_format" = "डाउनलोड विफल: %@";
 "karaoke_ai_preparing" = "तैयार हो रहा है…";
 "karaoke_ai_clear_cache_format" = "अलग किए गए गाने हटाएँ (%@)";
 "karaoke_ai_remove_model" = "AI मॉडल हटाएँ";

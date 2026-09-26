@@ -117,6 +117,8 @@ final class KaraokeSeparationService {
     }
 
     private(set) var modelState: ModelState
+    /// Why the last model download failed, shown under the retry button.
+    private(set) var modelFailureReason: String?
     /// Songs whose separation waits for the device to cool down.
     private(set) var coolingSongIDs: Set<String> = []
     private(set) var songStates: [String: SongState] = [:]
@@ -143,6 +145,7 @@ final class KaraokeSeparationService {
     func downloadModel() {
         guard modelState == .notDownloaded || modelState == .failed, downloadTask == nil else { return }
         modelState = .downloading(0)
+        modelFailureReason = nil
         // The service lives for the whole process, so strong captures are fine.
         downloadTask = Task { @MainActor in
             do {
@@ -154,7 +157,14 @@ final class KaraokeSeparationService {
                 }
                 self.modelState = .ready
             } catch {
-                plog("⚠️ Karaoke: vocal model download failed: \(error.localizedDescription)")
+                let nsError = error as NSError
+                let channel = Bundle.main.distributionChannel
+                plog("⚠️ Karaoke: vocal model download failed channel=\(channel.rawValue) domain=\(nsError.domain) code=\(nsError.code): \(String(describing: error))")
+                // App Store 托管的资源包只有 TestFlight 与 App Store 版本能下，Xcode 装的包
+                // 必然失败；直接说明，免得对着「重试」一遍遍点。
+                self.modelFailureReason = channel == .development
+                    ? String(localized: "karaoke_ai_download_dev_build")
+                    : String(format: String(localized: "karaoke_ai_download_failed_format"), error.localizedDescription)
                 self.modelState = .failed
             }
             self.downloadTask = nil

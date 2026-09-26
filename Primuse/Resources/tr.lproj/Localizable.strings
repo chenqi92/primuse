@@ -4463,6 +4463,8 @@
 "karaoke_ai_aligning" = "Eşitleniyor…";
 "karaoke_ai_unsupported_song" = "Bu şarkı için kullanılamıyor; standart kaldırma kullanılıyor.";
 "karaoke_ai_retry" = "Yeniden dene";
+"karaoke_ai_download_dev_build" = "Geliştirme sürümleri modeli App Store'dan indiremez. TestFlight veya App Store sürümünü kullanın.";
+"karaoke_ai_download_failed_format" = "İndirme başarısız: %@";
 "karaoke_ai_preparing" = "Hazırlanıyor…";
 "karaoke_ai_clear_cache_format" = "Ayrılmış şarkıları temizle (%@)";
 "karaoke_ai_remove_model" = "Yapay zekâ modelini kaldır";

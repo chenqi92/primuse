@@ -4557,6 +4557,8 @@
 "karaoke_ai_aligning" = "Synchronisation…";
 "karaoke_ai_unsupported_song" = "Indisponible pour ce morceau : suppression standard utilisée.";
 "karaoke_ai_retry" = "Réessayer";
+"karaoke_ai_download_dev_build" = "Les versions de développement ne peuvent pas télécharger le modèle depuis l’App Store. Utilisez la version TestFlight ou App Store.";
+"karaoke_ai_download_failed_format" = "Échec du téléchargement : %@";
 "karaoke_ai_preparing" = "Préparation…";
 "karaoke_ai_clear_cache_format" = "Effacer les morceaux séparés (%@)";
 "karaoke_ai_remove_model" = "Supprimer le modèle IA";

@@ -4463,6 +4463,8 @@
 "karaoke_ai_aligning" = "กำลังซิงค์…";
 "karaoke_ai_unsupported_song" = "ใช้กับเพลงนี้ไม่ได้ จึงใช้การลบแบบปกติแทน";
 "karaoke_ai_retry" = "ลองอีกครั้ง";
+"karaoke_ai_download_dev_build" = "บิลด์สำหรับพัฒนาไม่สามารถดาวน์โหลดโมเดลจาก App Store ได้ โปรดใช้เวอร์ชัน TestFlight หรือ App Store";
+"karaoke_ai_download_failed_format" = "ดาวน์โหลดไม่สำเร็จ: %@";
 "karaoke_ai_preparing" = "กำลังเตรียม…";
 "karaoke_ai_clear_cache_format" = "ล้างเพลงที่แยกแล้ว (%@)";
 "karaoke_ai_remove_model" = "ลบโมเดล AI";
