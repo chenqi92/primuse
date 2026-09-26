@@ -19,6 +19,10 @@ DEVICE_DISCOVERY_TIMEOUT="${DEVICE_DISCOVERY_TIMEOUT:-15}"
 APP_GROUP_ID="${APP_GROUP_ID:-group.com.welape.yuanyin}"
 LOG_OUTPUT_DIR="${LOG_OUTPUT_DIR:-$ROOT_DIR/logs}"
 SYNC_TEST_WAIT="${SYNC_TEST_WAIT:-180}"
+IOS_RUN_MODE="${IOS_RUN_MODE:-}"
+DIAGNOSTIC_HOURS="${DIAGNOSTIC_HOURS:-24}"
+IOS_DIAGNOSTIC_REQUEST=""
+IOS_RUN_MODE_LABEL=""
 # 设备上日志轮转最多保留几代（与 App 里 DiagnosticLoggingPolicy.diagnosticLimits 一致）。
 LOG_GENERATIONS=4
 
@@ -26,6 +30,7 @@ LOG_GENERATIONS=4
 USER_DEVELOPER_DIR="${DEVELOPER_DIR:-}"
 USER_IOS_DERIVED_DATA="${IOS_DERIVED_DATA:-}"
 USER_TV_DERIVED_DATA="${TV_DERIVED_DATA:-}"
+USER_IOS_APP_PATH="${IOS_APP_PATH:-}"
 USER_IOS_SIMULATOR_APP_PATH="${IOS_SIMULATOR_APP_PATH:-}"
 USER_TV_SIMULATOR_APP_PATH="${TV_SIMULATOR_APP_PATH:-}"
 
@@ -57,6 +62,11 @@ usage() {
 用法：
   scripts/primuse-dev.sh              不带参数时显示交互菜单
   scripts/primuse-dev.sh <操作> [参数]
+
+交互运行时会在执行操作前选择本次使用的 Xcode，可按回车保留自动选择。
+已设置 XCODE 或 DEVELOPER_DIR 时直接使用指定版本；带操作参数的非交互调用不弹出菜单。
+iPhone/iPad 与 iOS 模拟器安装时还可选择普通运行或诊断运行，覆盖安装和完全重装均支持。
+诊断运行使用 Debug 构建，自动开启掉帧及性能日志，默认持续 24 小时；普通运行关闭诊断采样。
 
 安装与运行
   install           选择 iPhone/iPad，再选覆盖安装或完全重装
@@ -91,6 +101,9 @@ usage() {
   TV_DEVICE_ID            tvOS 目标设备名称、CoreDevice ID 或 UDID；优先于 DEVICE_ID
   SIM_DEVICE_ID           iOS 模拟器名称或 UDID；未设置时交互选择
   IOS_CONFIGURATION       iOS 构建配置，默认 Debug
+  IOS_RUN_MODE            normal（普通运行）或 diagnostic（诊断运行，使用 Debug）；
+                          未设置时交互选择，非交互安装默认 normal
+  DIAGNOSTIC_HOURS        诊断运行的记录时长，默认 24 小时（1–72），到期恢复常规日志
   MAC_CONFIGURATION       macOS 构建配置，默认 Debug
   TV_CONFIGURATION        tvOS 构建配置，默认 Debug
   IOS_DERIVED_DATA        iOS DerivedData 路径
@@ -509,7 +522,80 @@ install_ios() {
         "$IOS_APP_PATH"
 }
 
+use_ios_debug_configuration() {
+    local target="$1"
+    if [[ "$IOS_CONFIGURATION" != "Debug" ]]; then
+        if [[ ( "$target" == "physical" && -n "$USER_IOS_APP_PATH" ) || \
+              ( "$target" == "simulator" && -n "$USER_IOS_SIMULATOR_APP_PATH" ) ]]; then
+            echo "诊断运行需要 Debug 构建；请同时将 IOS_CONFIGURATION 和自定义 App 路径设为 Debug，或取消自定义 App 路径。" >&2
+            exit 1
+        fi
+        IOS_CONFIGURATION="Debug"
+    fi
+    if [[ -z "$USER_IOS_APP_PATH" ]]; then
+        IOS_APP_PATH="$IOS_DERIVED_DATA/Build/Products/$IOS_CONFIGURATION-iphoneos/Primuse.app"
+    fi
+    if [[ -z "$USER_IOS_SIMULATOR_APP_PATH" ]]; then
+        IOS_SIMULATOR_APP_PATH="$IOS_DERIVED_DATA/Build/Products/$IOS_CONFIGURATION-iphonesimulator/Primuse.app"
+    fi
+}
+
+prepare_ios_run_mode() {
+    local target="$1"
+    local force_prompt="${2:-false}"
+    local mode="$IOS_RUN_MODE"
+    local selection
+    if [[ -z "$mode" && ( "$force_prompt" == "true" || -t 0 ) ]]; then
+        echo
+        echo "请选择安装后的运行模式："
+        echo "1) 普通运行（默认，关闭诊断采样）"
+        echo "2) 诊断运行（Debug，记录掉帧、CPU、内存等日志 ${DIAGNOSTIC_HOURS} 小时）"
+        echo "q) 取消"
+        while [[ -z "$mode" ]]; do
+            printf "请选择运行模式（回车普通运行）："
+            if ! IFS= read -r selection; then
+                echo
+                echo "操作已取消。"
+                return 1
+            fi
+            case "$selection" in
+                ""|1) mode="normal" ;;
+                2) mode="diagnostic" ;;
+                q|Q) echo "操作已取消。"; return 1 ;;
+                *) echo "无效选项：${selection}" >&2 ;;
+            esac
+        done
+    fi
+    mode="${mode:-normal}"
+    case "$mode" in
+        normal)
+            IOS_DIAGNOSTIC_REQUEST="off"
+            IOS_RUN_MODE_LABEL="普通运行"
+            ;;
+        diagnostic)
+            if [[ ! "$DIAGNOSTIC_HOURS" =~ ^[0-9]{1,2}$ ]] || \
+               ((10#$DIAGNOSTIC_HOURS < 1 || 10#$DIAGNOSTIC_HOURS > 72)); then
+                echo "DIAGNOSTIC_HOURS 必须是 1–72 小时：${DIAGNOSTIC_HOURS}" >&2
+                exit 1
+            fi
+            use_ios_debug_configuration "$target"
+            IOS_DIAGNOSTIC_REQUEST="$((10#$DIAGNOSTIC_HOURS))"
+            IOS_RUN_MODE_LABEL="诊断运行，记录 ${IOS_DIAGNOSTIC_REQUEST} 小时"
+            ;;
+        *)
+            echo "IOS_RUN_MODE 必须是 normal 或 diagnostic：${mode}" >&2
+            exit 1
+            ;;
+    esac
+    IOS_RUN_MODE="$mode"
+    echo "运行模式：${IOS_RUN_MODE_LABEL}（${IOS_CONFIGURATION} 构建）"
+}
+
 launch_ios() {
+    if [[ -n "$IOS_DIAGNOSTIC_REQUEST" ]]; then
+        launch_ios_with_env "$IOS_RUN_MODE_LABEL" "PRIMUSE_DIAGNOSTIC_LOGGING=${IOS_DIAGNOSTIC_REQUEST}"
+        return
+    fi
     echo
     echo "正在启动 ${DEVICE_NAME} 上的 App……"
     if xcrun devicectl device process launch \
@@ -533,6 +619,7 @@ ensure_ios_device_selected() {
 
 ios_clean_install() {
     ensure_ios_device_selected
+    prepare_ios_run_mode physical "${1:-false}" || return 0
 
     confirm_delete "警告：下一步会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 上的全部本地数据。" || return 0
 
@@ -559,6 +646,7 @@ ios_clean_install_confirmed() {
 
 ios_overwrite_install() {
     ensure_ios_device_selected
+    prepare_ios_run_mode physical "${1:-false}" || return 0
     build_ios
 
     # 不执行 uninstall，系统会替换 App 包并保留现有数据容器。
@@ -587,11 +675,11 @@ interactive_ios_install() {
 
         case "$install_selection" in
             1)
-                ios_overwrite_install
+                ios_overwrite_install true
                 return
                 ;;
             2)
-                ios_clean_install
+                ios_clean_install true
                 return
                 ;;
             q|Q)
@@ -1036,6 +1124,7 @@ diag_enable() {
         echo "开启时长要在 1–72 小时之间：${hours}" >&2
         return 1
     fi
+    use_ios_debug_configuration physical
 
     echo
     echo "诊断日志模式：开启 ${hours} 小时。"
@@ -1168,6 +1257,12 @@ load_xcode_candidates() {
     local existing
     local duplicate
     for candidate in "${candidates[@]+"${candidates[@]}"}"; do
+        if [[ -x "$candidate/Contents/Developer/usr/bin/xcodebuild" ]]; then
+            candidate="${candidate%/}/Contents/Developer"
+        fi
+        if [[ ! -x "$candidate/usr/bin/xcodebuild" ]]; then
+            continue
+        fi
         duplicate="false"
         for existing in "${XCODE_DEVELOPER_DIRS[@]+"${XCODE_DEVELOPER_DIRS[@]}"}"; do
             if [[ "$existing" == "$candidate" ]]; then
@@ -1211,6 +1306,13 @@ resolve_xcode_choice() {
     return 1
 }
 
+set_xcode_developer_dir() {
+    export DEVELOPER_DIR="$1"
+    USER_DEVELOPER_DIR="$1"
+    XCODE_CANDIDATES_LOADED=""
+    XCODE_DEVELOPER_DIRS=()
+}
+
 # 启动时处理 XCODE 环境变量：指定了就本次全程使用它，不再自动切换。
 apply_xcode_choice() {
     if [[ -z "${XCODE:-}" ]]; then
@@ -1224,10 +1326,7 @@ apply_xcode_choice() {
         exit 1
     fi
 
-    export DEVELOPER_DIR="$developer_dir"
-    USER_DEVELOPER_DIR="$developer_dir"
-    XCODE_CANDIDATES_LOADED=""
-    XCODE_DEVELOPER_DIRS=()
+    set_xcode_developer_dir "$developer_dir"
     echo "按 XCODE=${XCODE} 使用 $(xcode_display_name "$developer_dir") $(xcode_version "$developer_dir")：$developer_dir"
 }
 
@@ -1241,19 +1340,75 @@ show_xcodes() {
     local index
     local developer_dir
     local marker
+    local prefix
+    local active_dir="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || true)}"
+    if [[ -x "$active_dir/Contents/Developer/usr/bin/xcodebuild" ]]; then
+        active_dir="${active_dir%/}/Contents/Developer"
+    fi
     for ((index = 0; index < ${#XCODE_DEVELOPER_DIRS[@]}; index++)); do
         developer_dir="${XCODE_DEVELOPER_DIRS[$index]}"
         marker=""
-        if [[ $index -eq 0 ]]; then
-            marker="（当前默认）"
+        if [[ "$developer_dir" == "$active_dir" ]]; then
+            marker="（当前使用）"
         fi
-        printf -- "- %s %s%s — iOS %s / tvOS %s SDK — %s\n" \
+        prefix="-"
+        if [[ "${1:-}" == "menu" ]]; then
+            prefix="$((index + 1)))"
+        fi
+        printf -- "%s %s %s%s — iOS %s / tvOS %s SDK — %s\n" \
+            "$prefix" \
             "$(xcode_display_name "$developer_dir")" \
             "$(xcode_version "$developer_dir")" \
             "$marker" \
             "$(xcode_sdk_version "$developer_dir" iphonesimulator)" \
             "$(xcode_sdk_version "$developer_dir" appletvsimulator)" \
             "$developer_dir"
+    done
+}
+
+select_xcode_interactively() {
+    load_xcode_candidates
+    if [[ ${#XCODE_DEVELOPER_DIRS[@]} -eq 0 ]]; then
+        echo "没有检测到 Xcode，请先安装 Xcode。" >&2
+        exit 1
+    fi
+
+    echo
+    echo "请选择本次使用的 Xcode："
+    echo "0) 自动选择（默认；按目标模拟器的系统版本匹配 SDK）"
+    show_xcodes menu
+    echo "q) 取消"
+    echo
+
+    local selection
+    local index
+    local developer_dir
+    while true; do
+        printf "请选择 Xcode（序号，回车自动选择）："
+        if ! IFS= read -r selection; then
+            echo
+            echo "操作已取消。"
+            return 1
+        fi
+        case "$selection" in
+            ""|0)
+                echo "本次自动选择 Xcode。"
+                return
+                ;;
+            q|Q)
+                echo "操作已取消。"
+                return 1
+                ;;
+        esac
+        for ((index = 0; index < ${#XCODE_DEVELOPER_DIRS[@]}; index++)); do
+            if [[ "$selection" == "$((index + 1))" ]]; then
+                developer_dir="${XCODE_DEVELOPER_DIRS[$index]}"
+                set_xcode_developer_dir "$developer_dir"
+                echo "本次使用 $(xcode_display_name "$developer_dir") $(xcode_version "$developer_dir")：$developer_dir"
+                return
+            fi
+        done
+        echo "无效选项：${selection}，请输入列表中的序号。" >&2
     done
 }
 
@@ -1599,7 +1754,8 @@ launch_ios_simulator() {
     echo
     echo "正在启动 ${DEVICE_NAME} 模拟器上的 App……"
     prepare_simulator
-    if xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$BUNDLE_ID"; then
+    if env "SIMCTL_CHILD_PRIMUSE_DIAGNOSTIC_LOGGING=${IOS_DIAGNOSTIC_REQUEST:-off}" \
+        xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$BUNDLE_ID"; then
         echo "${DEVICE_NAME} 模拟器上的 App 已安装并启动。"
         return
     fi
@@ -1616,6 +1772,7 @@ ensure_ios_simulator_selected() {
 
 sim_clean_install() {
     ensure_ios_simulator_selected
+    prepare_ios_run_mode simulator "${1:-false}" || return 0
 
     confirm_delete "警告：下一步会卸载 ${BUNDLE_ID}，并删除它在 ${DEVICE_NAME} 模拟器上的全部本地数据。" || return 0
 
@@ -1636,6 +1793,7 @@ sim_clean_install() {
 
 sim_overwrite_install() {
     ensure_ios_simulator_selected
+    prepare_ios_run_mode simulator "${1:-false}" || return 0
     build_ios_simulator
     install_ios_simulator
     launch_ios_simulator
@@ -1662,11 +1820,11 @@ interactive_sim_install() {
 
         case "$install_selection" in
             1)
-                sim_overwrite_install
+                sim_overwrite_install true
                 return
                 ;;
             2)
-                sim_clean_install
+                sim_clean_install true
                 return
                 ;;
             q|Q)
@@ -2299,6 +2457,7 @@ interactive_action() {
 
 main() {
     local action="${1:-}"
+    local interactive="false"
 
     if [[ "$action" == "--help" || "$action" == "-h" ]]; then
         usage
@@ -2312,6 +2471,7 @@ main() {
     fi
 
     if [[ -z "$action" ]]; then
+        interactive="true"
         SELECTED_ACTION=""
         interactive_action
         action="$SELECTED_ACTION"
@@ -2325,6 +2485,20 @@ main() {
     require_command xcodebuild
     ensure_project_exists
     apply_xcode_choice
+
+    case "$action" in
+        install|ios-clean|iphone-clean|ios-overwrite|iphone-overwrite|devices|\
+        sim|sim-overwrite|sim-install|sim-clean|sim-devices|\
+        tv|tv-overwrite|tv-install|tv-clean|tv-devices|mac|\
+        sync-test|pull-logs|diag|diag-on|diag-off)
+            if [[ -z "${XCODE:-}" && -z "$USER_DEVELOPER_DIR" && \
+                  ( "$interactive" == "true" || -t 0 ) ]]; then
+                if ! select_xcode_interactively; then
+                    return
+                fi
+            fi
+            ;;
+    esac
 
     case "$action" in
         install)
