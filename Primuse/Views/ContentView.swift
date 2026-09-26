@@ -2002,7 +2002,8 @@ private struct MinimalTopNavigationBar: View {
                         }
                         .padding(.horizontal, 12)
                     }
-                    .pmStopsAtVerticalBar()
+                    // 固定在顶上的分类行:iPhone Duo 竖栏时停在竖栏前,不滑到竖排状态栏与摄像头底下。
+                    .pmPinnedRowStopsAtVerticalBar()
                     .frame(height: chipRowHeight)
                     .padding(.top, MinimalNavigationChromeMetrics.categoryRowTopPadding)
                     .onChange(of: selection.id, initial: true) { _, pageID in
@@ -2675,7 +2676,8 @@ struct NowPlayingAccessory: View {
 /// 另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
 /// `section:<分类 rawValue>`（如 `section:folders`）。
 /// 详情页取证用：`genre:<名字片段>` / `smart:<名字片段>`（智能歌单）。
-/// `PRIMUSE_DEBUG_SEED_RADIO=1` 建几个取证用的电台（看电台页版式）。
+/// `PRIMUSE_DEBUG_SEED_RADIO=1` 建几个取证用的电台（看电台页版式）；`=organized` 另把它们分进几个文件夹、
+/// 打上几个标签（看电台页顶上两排筛选胶囊）。
 /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）；
 /// 另建两张同样形态的取证智能歌单（Evidence Smart Wall / Evidence Smart Single），用 `smart:<名字片段>` 打开。
 extension ContentView {
@@ -2854,14 +2856,26 @@ extension ContentView {
     }
 
     /// `PRIMUSE_DEBUG_SEED_RADIO=1`：没有电台时建几个取证用的（地址不通，只看版式），名字固定，重复启动不会重复建。
+    /// `=organized`：再分进四个文件夹、打上六个标签，电台页顶上的两排筛选胶囊都比屏幕宽。
     private func debugSeedRadioIfRequested() {
-        guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_RADIO"] == "1" else { return }
+        let request = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_RADIO"]
+        guard request == "1" || request == "organized" else { return }
         let existing = Set(debugRadioStore.stations.map(\.name))
         for index in 1...8 where !existing.contains("Evidence FM \(index)") {
             debugRadioStore.add(RadioStation(
                 name: "Evidence FM \(index)",
                 streamURL: "https://radio.example.com/evidence\(index).mp3"
             ))
+        }
+        guard request == "organized" else { return }
+        let seeded = debugRadioStore.stations
+            .filter { $0.name.hasPrefix("Evidence FM ") }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let folders = ["Evidence News", "Evidence Music", "Evidence Talk", "Evidence Night"]
+        let tags = ["Jazz", "Classical", "Lo-fi Beats", "Morning Drive", "Late Night", "Talk Radio"]
+        for (offset, station) in seeded.enumerated() {
+            debugRadioStore.setFolder(folders[offset % folders.count], forStationIDs: [station.id])
+            debugRadioStore.addTag(tags[offset % tags.count], toStationIDs: [station.id])
         }
     }
 }

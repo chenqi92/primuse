@@ -261,6 +261,8 @@ struct LibraryDetailEvidenceHost: View {
                 .environment(\.pmDebugSimulatedVerticalBarEdge, viewport.hasVerticalBar ? .trailing : nil)
                 .environment(\.verticalSizeClass, viewport.isCompactHeight ? .compact : .regular)
                 .environment(\.horizontalSizeClass, viewport.isRegularWidth ? .regular : .compact)
+                // 框就是模拟的那扇窗：和尺寸等级同一次更新换尺寸（真机上由根视图按窗口写入）。
+                .environment(\.pmWindowCanvasSize, size)
                 .safeAreaPadding(EdgeInsets(
                     top: viewport.top,
                     leading: viewport.leading,

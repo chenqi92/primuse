@@ -53,9 +53,20 @@ extension View {
 
     /// 铺到竖栏底下的滚动内容里，静止时就在最上面、带着可点按钮的那一块（歌单页头部的封面、标题与
     /// 播放 / 随机）照旧让开竖栏：那一段竖栏里是返回键和工具栏，不该叠在一起。
+    /// `clears` 为 false 时不让（按条件让开时用它，视图身份不随条件变）。
     /// 所在的滚动容器没有铺过去（普通 iPhone 等）时原样返回。
-    func pmClearOfVerticalBar() -> some View {
-        modifier(PMClearOfVerticalBar())
+    func pmClearOfVerticalBar(_ clears: Bool = true) -> some View {
+        modifier(PMClearOfVerticalBar(clears: clears))
+    }
+
+    /// 固定在页面上、不随内容滚动的横滑一排（电台的文件夹 / 标签筛选、极简的资料库分类行、目录路径条）
+    /// 遇到系统竖栏时停在竖栏前。横向 ScrollView 会顺着滚动方向伸进安全区：页面的滚动内容铺到竖栏底下
+    /// 是有意的（`pmExtendsUnderVerticalBar()`），可固定的这一排一直待在竖排状态栏、摄像头或竖栏按钮
+    /// 底下，滑过去的胶囊会和时间、按钮叠在一起。这时只画在这一排自己的位置里（左右两侧都按竖栏停，
+    /// 外屏横握竖栏在前沿时同理）；上下不裁。随内容滚动的横滑照旧用 `pmStopsAtVerticalBar()`。
+    /// 没有竖栏（普通 iPhone、iPad、Mac、Xcode 27.0 构建）时原样返回。
+    func pmPinnedRowStopsAtVerticalBar() -> some View {
+        modifier(PMPinnedRowClip())
     }
 }
 
@@ -73,15 +84,39 @@ extension EnvironmentValues {
 }
 
 private struct PMClearOfVerticalBar: ViewModifier {
+    var clears = true
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(\.pmVerticalBarOverlap) private var overlap
 
     func body(content: Content) -> some View {
         if verticalBarEdge != nil {
-            content.padding(.trailing, overlap)
+            content.padding(.trailing, clears ? overlap : 0)
         } else {
             content
         }
+    }
+}
+
+private struct PMPinnedRowClip: ViewModifier {
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
+
+    func body(content: Content) -> some View {
+        if verticalBarEdge != nil {
+            // 裁的是外面这层框：横向 ScrollView 伸进安全区时伸的是它自己的框，外面这层仍是这一排
+            // 在页面里的位置（不含竖栏那一条）。
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .clipShape(PMHorizontalClipShape())
+        } else {
+            content
+        }
+    }
+}
+
+/// 只在左右两侧裁、上下放开的裁切形状：胶囊按下时的放大、选中的光晕不被这一排的上下沿切掉。
+private struct PMHorizontalClipShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(rect.insetBy(dx: 0, dy: -10_000))
     }
 }
 

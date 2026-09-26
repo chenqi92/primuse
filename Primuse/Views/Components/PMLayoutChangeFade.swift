@@ -221,6 +221,20 @@ private struct PMScreenChangeSettleEffect: ViewModifier {
     }
 }
 
+private struct PMWindowCanvasSizeKey: EnvironmentKey {
+    static let defaultValue: CGSize? = nil
+}
+
+extension EnvironmentValues {
+    /// 承载界面的窗口尺寸。只有折叠屏 iPhone 的根视图写入（`pmScreenChangeTransition()`，和尺寸等级在同一次
+    /// 更新里变），按画布宽窄换栏数的页面（首页）据此在开合的第一帧就排对，不必等自己量出来的尺寸晚一帧。
+    /// 其它设备与取证框之外为 nil，页面照旧用自己量出来的尺寸。
+    var pmWindowCanvasSize: CGSize? {
+        get { self[PMWindowCanvasSizeKey.self] }
+        set { self[PMWindowCanvasSizeKey.self] = newValue }
+    }
+}
+
 #if os(iOS)
 import UIKit
 
@@ -266,6 +280,7 @@ private struct PMScreenChangeTransition: ViewModifier {
                 revision: windowRevision
             )
             content
+                .environment(\.pmWindowCanvasSize, tracker.windowSize)
                 .pmScreenChangeSettle(trigger: tracker.generation, axis: tracker.axis)
                 .background {
                     PMScreenChangeWindowProbe(tracker: tracker) { windowRevision &+= 1 }
@@ -284,6 +299,8 @@ private struct PMScreenChangeTransition: ViewModifier {
 final class PMScreenChangeTracker {
     weak var window: UIWindow?
     private(set) var generation = 0
+    /// 这次求值时窗口的尺寸（还没拿到窗口时为 nil）。
+    var windowSize: CGSize? { window?.bounds.size }
     private(set) var axis: ScreenChangeTransitionPolicy.Axis = .horizontal
     private var last: ScreenChangeTransitionPolicy.Canvas?
 

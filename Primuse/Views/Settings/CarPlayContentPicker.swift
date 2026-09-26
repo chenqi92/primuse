@@ -116,7 +116,8 @@ struct CarPlayContentPicker: View {
                         }
                     }
                 }
-                .pmStopsAtVerticalBar()
+                // 固定在内容列表上方:iPhone Duo 竖栏时停在竖栏前。
+                .pmPinnedRowStopsAtVerticalBar()
                 .scrollIndicators(.hidden)
                 .accessibilityIdentifier("carplay.contentKinds")
             }

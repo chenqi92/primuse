@@ -2994,6 +2994,8 @@ struct SearchView: View {
                         Button("clear_all", role: .destructive, action: clearRecentSearches)
                             .font(.caption)
                     }
+                    // 列表铺到 iPhone Duo 竖栏底下时，吸顶的分组标题会停在竖排状态栏旁边：行尾的按钮让开竖栏。
+                    .pmClearOfVerticalBar()
                 }
             }
 
@@ -3140,6 +3142,8 @@ struct SearchView: View {
                     .textCase(nil)
             }
         }
+        // 吸顶的分组标题：iPhone Duo 竖栏时「全部」让开竖排状态栏与竖栏按钮。
+        .pmClearOfVerticalBar()
     }
 
     @ViewBuilder
@@ -3172,6 +3176,8 @@ struct SearchView: View {
                     .textCase(nil)
                     #endif
                 }
+                // 吸顶的分组标题：iPhone Duo 竖栏时「全部」让开竖排状态栏与竖栏按钮。
+                .pmClearOfVerticalBar()
             }
         }
     }

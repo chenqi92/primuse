@@ -315,6 +315,7 @@ struct RadioStationsView: View {
 
     // MARK: - 文件夹与标签筛选条
 
+    /// 固定在电台列表上方、不随列表滚动;iPhone Duo 竖栏时两排胶囊停在竖栏前(列表本身铺过去)。
     @ViewBuilder
     private var organizeBar: some View {
         let folderChips = folders
@@ -357,7 +358,7 @@ struct RadioStationsView: View {
                         }
                         .padding(.horizontal, 16)
                     }
-                    .pmStopsAtVerticalBar()
+                    .pmPinnedRowStopsAtVerticalBar()
                 }
 
                 if !tagChips.isEmpty {
@@ -382,7 +383,7 @@ struct RadioStationsView: View {
                         }
                         .padding(.horizontal, 16)
                     }
-                    .pmStopsAtVerticalBar()
+                    .pmPinnedRowStopsAtVerticalBar()
                 }
             }
             .padding(.top, 8)

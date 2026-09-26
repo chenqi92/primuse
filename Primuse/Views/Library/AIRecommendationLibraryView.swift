@@ -215,8 +215,11 @@ struct AIRecommendationLibraryView: View {
         #endif
         return ScrollView(.vertical, showsIndicators: showsIndicators) {
             LazyVStack(alignment: .leading, spacing: platformSectionSpacing) {
+                // 铺到 iPhone Duo 竖栏底下时，静止时就在最上面、带着按钮的两块照旧让开竖栏。
                 hero
+                    .pmClearOfVerticalBar()
                 recommendationControls
+                    .pmClearOfVerticalBar()
                 if showsActionableStatus {
                     statusPanel
                 }
@@ -226,6 +229,8 @@ struct AIRecommendationLibraryView: View {
             .padding(.top, platformTopPadding)
             .padding(.bottom, bottomChromeClearance)
         }
+        // iPhone Duo 竖栏：推荐卡片铺到屏幕边缘，系统的玻璃胶囊浮在上面。
+        .pmExtendsUnderVerticalBar()
     }
 
     private var hero: some View {

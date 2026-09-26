@@ -629,6 +629,8 @@ struct HomeView: View {
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiom
     /// 首页滚动区的尺寸,决定要不要排成两栏。
     @State private var homeCanvasSize: CGSize = .zero
+    /// 折叠屏上根视图写入的窗口尺寸(与尺寸等级同一次更新);其它设备为 nil。
+    @Environment(\.pmWindowCanvasSize) private var windowCanvasSize
     @State private var showUpdateSheet: Bool = false
     @State private var selectedHomeRadioID: String?
     @State private var pendingInsecureHomeStation: RadioStation?
@@ -683,19 +685,35 @@ struct HomeView: View {
     /// 大屏手机横屏也是常规宽度,只看宽度会把 iPad 的大卡片、成倍的条目数
     /// 搬进一个只有四百来点高的视口 —— 同一个 App 在两台手机上长成两副样子。
     /// 常规宽度还得配上常规高度才算 iPad。
+    ///
+    /// iPhone(iPhone Duo 内屏竖握)还要画布真有内屏那么宽:展开的那一刻尺寸等级已经变成常规,
+    /// 量出来的尺寸可能还是外屏的,这一帧照外屏的样子排,不先闪一下 iPad 的大卡片单栏。
+    /// 还没量到尺寸(刚出现)时照旧按尺寸等级。
     private var usesPadMetrics: Bool {
-        sizeClass == .regular && !heightClass.isCompact && !usesTwoColumnHome
+        let canvasWidth = homeCanvas.width
+        return sizeClass == .regular && !heightClass.isCompact && !usesTwoColumnHome
+            && (!isPhoneIdiom || canvasWidth <= 0 || canvasWidth >= Self.phonePadMetricsMinimumWidth)
+    }
+
+    /// iPhone 上按 iPad 那档取值的最窄画布:iPhone Duo 内屏竖握(约 626–669)够,外屏(466 以内)不够。
+    private static let phonePadMetricsMinimumWidth: CGFloat = 600
+
+    /// 判断栏数用的画布:折叠屏上用根上和尺寸等级同一次更新的窗口尺寸(展开第一帧就按两栏排),
+    /// 拿不到时(普通 iPhone、iPad、Mac)用量出来的滚动区尺寸。
+    private var homeCanvas: CGSize {
+        windowCanvasSize ?? homeCanvasSize
     }
 
     /// 宽画布(Duo 内屏横握)上区块排成两栏,每栏按手机的尺寸取值 —— 像「音乐」那样,
     /// 外屏的竖向单栏在内屏变宽时重排,内容与顺序不变。编辑态始终单栏。
     private var usesTwoColumnHome: Bool {
-        !editorMode && WideCanvasColumnsPolicy.usesTwoColumns(
+        let canvas = homeCanvas
+        return !editorMode && WideCanvasColumnsPolicy.usesTwoColumns(
             isPhone: isPhoneIdiom,
             isRegularWidth: sizeClass == .regular,
             isCompactHeight: heightClass.isCompact,
-            width: Double(homeCanvasSize.width),
-            height: Double(homeCanvasSize.height)
+            width: Double(canvas.width),
+            height: Double(canvas.height)
         )
     }
 
@@ -709,6 +727,8 @@ struct HomeView: View {
                             // 再点一次选中的那颗(或它上面的 ✕)回到全部。
                             setHomeFilter(activeHomeFilter == space ? nil : space)
                         }
+                        // iPhone Duo 竖栏:静止时就在竖排状态栏旁边,筛选胶囊照旧让开竖栏。
+                        .pmClearOfVerticalBar()
                         .id(Self.homeTopAnchor)
                     }
 
