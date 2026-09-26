@@ -430,6 +430,12 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
         TVOS_DEPLOYMENT_TARGET: "26.0"
+        # 64 位扩展在 tvOS 上必须声明 arm64,否则上传报 Invalid Bundle。
+        # 同一份 Info.plist 三端共用,所以只按 tvOS SDK 合并进这一项。
+        # macOS 不开生成,否则会多出一个空的 UIRequiredDeviceCapabilities。
+        GENERATE_INFOPLIST_FILE: YES
+        "GENERATE_INFOPLIST_FILE[sdk=macosx*]": NO
+        "INFOPLIST_KEY_UIRequiredDeviceCapabilities[sdk=appletvos*]": arm64
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseKaraokeModelDownloader.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Config/PrimuseKaraokeModelDownloader-macOS.entitlements
         "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
