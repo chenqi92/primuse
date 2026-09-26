@@ -4293,7 +4293,7 @@
 "seconds_value_format" = "%lld ث";
 "medley_title" = "ميدلي";
 "medley_start_queue" = "تشغيل القائمة كميدلي";
-"medley_start_queue_format" = "تشغيل القائمة كميدلي (%lld ث لكل أغنية)";
+"medley_queue_detail_format" = "القائمة الحالية · %lld ث لكل أغنية";
 "medley_play_selection" = "تشغيل كميدلي";
 "medley_segment_length" = "المدة لكل أغنية";
 "medley_settings_footer" = "يشغّل الميدلي الجزء الأكثر تميزًا من كل أغنية ويصل بينها بتلاشٍ قصير. لا يُحسب في سجل الاستماع ولا يُرسل كـ Scrobble.";
@@ -4304,6 +4304,8 @@
 "medley_data_message" = "لتتصل المقاطع بسلاسة، يُنزّل الميدلي الأغاني التالية كاملة، وقد يستهلك ذلك كثيرًا من البيانات.";
 "medley_data_continue" = "تشغيل الميدلي";
 "medley_data_dont_ask" = "تشغيل وعدم السؤال مجددًا";
+"medley_data_prompt_toggle" = "التنبيه عند استخدام بيانات الجوال";
+"medley_data_prompt_hint" = "السؤال قبل بدء الميدلي على بيانات الجوال أو في وضع البيانات المنخفضة، لأنه يُنزّل الأغاني التالية كاملة.";
 "smart_nudge_section" = "اقتراحات أثناء التشغيل";
 "smart_nudge_enabled" = "إظهار الاقتراحات";
 "smart_nudge_footer" = "يعرض شريط صغير أحيانًا ما يناسب اللحظة، مثل إضافة أغنية تكررها إلى المفضلة. لا يقاطع التشغيل، ويختفي من تلقاء نفسه، ولا يتكرر بعد رفضه. تتم كل الحسابات على هذا الجهاز.";
@@ -4413,6 +4415,9 @@
 "karaoke_unavailable_casting" = "لا يمكن خفض صوت المغني أثناء البث إلى جهاز آخر.";
 "karaoke_unavailable_high_fidelity" = "إخراج الدقة العالية لا يمر بالمؤثرات، لذا لا يمكن خفض صوت المغني.";
 "karaoke_mono_warning" = "هذا التسجيل شبه أحادي، لذا لا يمكن فصل الغناء عن الموسيقى.";
+"karaoke_mono_download_ai" = "شبه أحادي. نزّل نموذج الذكاء الاصطناعي لفصل الغناء.";
+"karaoke_mono_enable_ai" = "شبه أحادي. شغّل فصل الغناء بالذكاء الاصطناعي.";
+"karaoke_mono_ai_pending" = "شبه أحادي. يبقى الغناء حتى ينتهي الفصل بالذكاء الاصطناعي.";
 "karaoke_mic_denied" = "الوصول إلى الميكروفون متوقف. يمكنك تشغيله من الإعدادات.";
 "karaoke_mic_unavailable" = "تعذّر تشغيل الميكروفون.";
 "karaoke_monitor_needs_wired" = "استخدم سماعات الرأس للحصول على تقييم أدق. تتطلب المراقبة سماعات سلكية.";
@@ -4490,6 +4495,8 @@
 "karaoke_ai_aligning" = "جارٍ المزامنة…";
 "karaoke_ai_unsupported_song" = "غير متاح لهذه الأغنية؛ تُستخدم الإزالة العادية.";
 "karaoke_ai_retry" = "إعادة المحاولة";
+"karaoke_ai_download_dev_build" = "لا يمكن لإصدارات التطوير تنزيل النموذج من App Store. استخدم إصدار TestFlight أو App Store.";
+"karaoke_ai_download_failed_format" = "تعذّر التنزيل: %@";
 "karaoke_ai_preparing" = "جارٍ التحضير…";
 "karaoke_ai_clear_cache_format" = "مسح الأغاني المفصولة (%@)";
 "karaoke_ai_remove_model" = "إزالة نموذج الذكاء الاصطناعي";

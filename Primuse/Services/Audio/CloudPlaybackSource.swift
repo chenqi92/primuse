@@ -1145,6 +1145,7 @@ private final class State: @unchecked Sendable {
             // → 重新拉整个 1MB (重复拉前 256KB), 浪费带宽和时间。
             // 推 fetchStart 到 cache 末尾后, 只拉缺失的 [256KB..1MB]。
             let fetchDeadline = DispatchTime.now() + .seconds(30)
+            let serveStartedAt = Date()
             let chunkSize = CloudPlaybackSource.chunkSize
             let chunkAlign = (offset / chunkSize) * chunkSize
             let chunkEnd = min(chunkAlign + chunkSize, totalLength)
@@ -1248,20 +1249,44 @@ private final class State: @unchecked Sendable {
             let result = FetchResultBox()
             let semaphore = DispatchSemaphore(value: 0)
             let startedAt = Date()
-            let fetchTask = Task<Void, Never> { [connectorFetch] in
+            let fetchTask = Task<Void, Never> { [connectorFetch, label] in
                 defer { semaphore.signal() }
-                do {
+                // One dropped keep-alive connection (-1005, ECONNRESET) used to
+                // fail the decoder and with it the whole song. Re-request the
+                // same range in place; the deadline above still bounds it.
+                var failedAttempts = 0
+                while true {
                     if Task.isCancelled {
                         result.error = CancellationError()
                         return
                     }
-                    result.data = try await connectorFetch(
-                        chunkStart,
-                        want,
-                        .userInitiated
-                    )
-                } catch {
-                    result.error = error
+                    do {
+                        result.data = try await connectorFetch(
+                            chunkStart,
+                            want,
+                            .userInitiated
+                        )
+                        return
+                    } catch {
+                        failedAttempts += 1
+                        guard !Task.isCancelled,
+                              let delay = PlaybackChunkRetryPolicy.delay(
+                                  isTransportFailure: SourceTransportFailure.isTransportFailure(error),
+                                  failedAttempts: failedAttempts,
+                                  elapsed: Date().timeIntervalSince(serveStartedAt)
+                              ) else {
+                            result.error = error
+                            return
+                        }
+                        let failure = error as NSError
+                        plog("🔁 Cloud stream '\(label)' chunk retry chunkStart=\(chunkStart) attempt=\(failedAttempts + 1) delay=\(delay)s error=\(failure.domain)/\(failure.code)")
+                        do {
+                            try await Task.sleep(for: .seconds(delay))
+                        } catch {
+                            result.error = CancellationError()
+                            return
+                        }
+                    }
                 }
             }
             guard let fetchID = registerForegroundFetch(fetchTask) else {

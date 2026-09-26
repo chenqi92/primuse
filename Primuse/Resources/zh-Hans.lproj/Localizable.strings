@@ -4480,7 +4480,7 @@
 "seconds_value_format" = "%lld 秒";
 "medley_title" = "串烧";
 "medley_start_queue" = "把当前队列串烧播放";
-"medley_start_queue_format" = "把当前队列串烧播放（每首 %lld 秒）";
+"medley_queue_detail_format" = "当前队列 · 每首 %lld 秒";
 "medley_play_selection" = "串烧播放";
 "medley_segment_length" = "每首时长";
 "medley_settings_footer" = "串烧会截取每首歌最有辨识度的一段，用短暂的淡入淡出连起来。串烧不计入收听记录，也不会上报 Scrobble。";
@@ -4491,6 +4491,8 @@
 "medley_data_message" = "串烧会提前下载接下来的整首歌，好让每段衔接顺畅，会消耗较多流量。";
 "medley_data_continue" = "继续串烧";
 "medley_data_dont_ask" = "继续，不再提醒";
+"medley_data_prompt_toggle" = "移动网络下提醒流量";
+"medley_data_prompt_hint" = "在移动网络或低数据模式下开始串烧前先提醒，串烧会提前下载接下来的整首歌。";
 "smart_nudge_section" = "播放时的智能提示";
 "smart_nudge_enabled" = "显示智能提示";
 "smart_nudge_footer" = "播放时偶尔在顶部弹出一条小提示，比如反复在听的歌要不要加入我喜欢。它不打断播放、几秒后自动消失，拒绝过的提示不会反复出现。所有判断都在本机完成。";
@@ -4600,6 +4602,9 @@
 "karaoke_unavailable_casting" = "投放到其他设备时无法降低人声。";
 "karaoke_unavailable_high_fidelity" = "高保真输出不经过音效处理，无法降低人声。";
 "karaoke_mono_warning" = "这首歌接近单声道，人声无法和伴奏分开。";
+"karaoke_mono_download_ai" = "接近单声道，普通消除分不开人声，下载 AI 模型就能分离。";
+"karaoke_mono_enable_ai" = "接近单声道，普通消除分不开人声，打开 AI 人声分离就能分离。";
+"karaoke_mono_ai_pending" = "接近单声道，AI 分离完成前先保留人声。";
 "karaoke_mic_denied" = "没有麦克风权限，可以在系统设置中打开。";
 "karaoke_mic_unavailable" = "麦克风无法启动。";
 "karaoke_monitor_needs_wired" = "戴耳机唱评分更准；耳返需要有线耳机。";
@@ -4677,6 +4682,8 @@
 "karaoke_ai_aligning" = "正在对齐…";
 "karaoke_ai_unsupported_song" = "这首歌无法 AI 分离，已改用普通消除。";
 "karaoke_ai_retry" = "重试";
+"karaoke_ai_download_dev_build" = "开发构建无法从 App Store 下载模型，请使用 TestFlight 或 App Store 版本。";
+"karaoke_ai_download_failed_format" = "下载失败：%@";
 "karaoke_ai_preparing" = "准备中…";
 "karaoke_ai_clear_cache_format" = "清除 AI 分离缓存（%@）";
 "karaoke_ai_remove_model" = "删除 AI 模型";

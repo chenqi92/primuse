@@ -4387,7 +4387,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Medley";
 "medley_start_queue" = "Lire la file en medley";
-"medley_start_queue_format" = "Lire la file en medley (%lld s chacun)";
+"medley_queue_detail_format" = "File actuelle · %lld s chacun";
 "medley_play_selection" = "Lire en medley";
 "medley_segment_length" = "Durée par morceau";
 "medley_settings_footer" = "Un medley joue le passage le plus reconnaissable de chaque morceau et les enchaîne par de courts fondus. Il n’est compté ni dans l’historique ni dans les scrobbles.";
@@ -4398,6 +4398,8 @@
 "medley_data_message" = "Pour enchaîner les extraits sans coupure, le medley télécharge entièrement les morceaux suivants, ce qui peut consommer beaucoup de données.";
 "medley_data_continue" = "Lire le medley";
 "medley_data_dont_ask" = "Lire, ne plus demander";
+"medley_data_prompt_toggle" = "Avertir en données cellulaires";
+"medley_data_prompt_hint" = "Demander avant de lancer un medley en données cellulaires ou en mode Données réduites, car il télécharge entièrement les morceaux suivants.";
 "smart_nudge_section" = "Suggestions pendant l’écoute";
 "smart_nudge_enabled" = "Afficher les suggestions";
 "smart_nudge_footer" = "De temps en temps, un petit bandeau propose ce qui convient au moment – par exemple ajouter aux favoris un morceau que vous réécoutez. Il n’interrompt rien, disparaît seul et ne revient pas après un refus. Tout est calculé sur cet appareil.";
@@ -4507,6 +4509,9 @@
 "karaoke_unavailable_casting" = "Impossible de baisser la voix pendant la diffusion sur un autre appareil.";
 "karaoke_unavailable_high_fidelity" = "La sortie haute fidélité ne passe pas par les effets : impossible de baisser la voix.";
 "karaoke_mono_warning" = "Cet enregistrement est presque mono : la voix ne peut pas être séparée de la musique.";
+"karaoke_mono_download_ai" = "Presque mono. Téléchargez le modèle IA pour séparer la voix.";
+"karaoke_mono_enable_ai" = "Presque mono. Activez la séparation vocale IA.";
+"karaoke_mono_ai_pending" = "Presque mono. La voix reste jusqu’à la fin de la séparation IA.";
 "karaoke_mic_denied" = "L’accès au micro est désactivé. Vous pouvez l’activer dans Réglages.";
 "karaoke_mic_unavailable" = "Impossible de démarrer le micro.";
 "karaoke_monitor_needs_wired" = "Avec un casque, le score est plus précis. Le retour nécessite un casque filaire.";
@@ -4584,6 +4589,8 @@
 "karaoke_ai_aligning" = "Synchronisation…";
 "karaoke_ai_unsupported_song" = "Indisponible pour ce morceau : suppression standard utilisée.";
 "karaoke_ai_retry" = "Réessayer";
+"karaoke_ai_download_dev_build" = "Les versions de développement ne peuvent pas télécharger le modèle depuis l’App Store. Utilisez la version TestFlight ou App Store.";
+"karaoke_ai_download_failed_format" = "Échec du téléchargement : %@";
 "karaoke_ai_preparing" = "Préparation…";
 "karaoke_ai_clear_cache_format" = "Effacer les morceaux séparés (%@)";
 "karaoke_ai_remove_model" = "Supprimer le modèle IA";

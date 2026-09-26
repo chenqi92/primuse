@@ -4293,7 +4293,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Składanka";
 "medley_start_queue" = "Odtwórz kolejkę jako składankę";
-"medley_start_queue_format" = "Kolejka jako składanka (po %lld s)";
+"medley_queue_detail_format" = "Bieżąca kolejka · po %lld s";
 "medley_play_selection" = "Odtwórz jako składankę";
 "medley_segment_length" = "Długość na utwór";
 "medley_settings_footer" = "Składanka odtwarza najbardziej rozpoznawalny fragment każdego utworu i łączy je krótkimi przejściami. Nie trafia do historii słuchania ani scrobbli.";
@@ -4304,6 +4304,8 @@
 "medley_data_message" = "Aby płynnie łączyć fragmenty, składanka pobiera kolejne utwory w całości, co może zużyć dużo danych.";
 "medley_data_continue" = "Odtwórz składankę";
 "medley_data_dont_ask" = "Odtwórz i nie pytaj ponownie";
+"medley_data_prompt_toggle" = "Ostrzegaj przy danych komórkowych";
+"medley_data_prompt_hint" = "Pytaj przed uruchomieniem składanki na danych komórkowych lub w trybie niskiego zużycia danych, bo pobiera ona kolejne utwory w całości.";
 "smart_nudge_section" = "Podpowiedzi podczas słuchania";
 "smart_nudge_enabled" = "Pokazuj podpowiedzi";
 "smart_nudge_footer" = "Od czasu do czasu mały baner podpowiada coś pasującego do chwili – na przykład dodanie do ulubionych utworu, którego słuchasz w kółko. Nie przerywa odtwarzania, znika sam i nie wraca po odrzuceniu. Wszystko jest liczone na tym urządzeniu.";
@@ -4413,6 +4415,9 @@
 "karaoke_unavailable_casting" = "Podczas przesyłania na inne urządzenie nie można ściszyć wokalu.";
 "karaoke_unavailable_high_fidelity" = "Wyjście wysokiej wierności pomija efekty, więc nie można ściszyć wokalu.";
 "karaoke_mono_warning" = "To nagranie jest prawie mono, więc wokalu nie da się oddzielić od muzyki.";
+"karaoke_mono_download_ai" = "Prawie mono. Pobierz model AI, aby oddzielić wokal.";
+"karaoke_mono_enable_ai" = "Prawie mono. Włącz oddzielanie wokalu AI.";
+"karaoke_mono_ai_pending" = "Prawie mono. Wokal zostaje do końca separacji AI.";
 "karaoke_mic_denied" = "Dostęp do mikrofonu jest wyłączony. Możesz go włączyć w Ustawieniach.";
 "karaoke_mic_unavailable" = "Nie udało się uruchomić mikrofonu.";
 "karaoke_monitor_needs_wired" = "W słuchawkach ocena jest dokładniejsza. Odsłuch wymaga słuchawek przewodowych.";
@@ -4490,6 +4495,8 @@
 "karaoke_ai_aligning" = "Synchronizacja…";
 "karaoke_ai_unsupported_song" = "Niedostępne dla tego utworu – używane jest zwykłe usuwanie.";
 "karaoke_ai_retry" = "Ponów";
+"karaoke_ai_download_dev_build" = "Wersje deweloperskie nie mogą pobrać modelu z App Store. Użyj wersji z TestFlight lub App Store.";
+"karaoke_ai_download_failed_format" = "Pobieranie nie powiodło się: %@";
 "karaoke_ai_preparing" = "Przygotowywanie…";
 "karaoke_ai_clear_cache_format" = "Wyczyść rozdzielone utwory (%@)";
 "karaoke_ai_remove_model" = "Usuń model AI";

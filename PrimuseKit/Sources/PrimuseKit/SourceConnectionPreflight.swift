@@ -43,6 +43,38 @@ public enum SourceConnectionPreflight {
         }
     }
 
+    /// The probe behind "is this whole source unavailable". That verdict greys
+    /// out and skips every uncached song of the source for at least twenty
+    /// seconds, so a public route does not lose it to one lost SYN: an
+    /// IPv6-only DDNS name on a flaky path answers the second attempt. Private
+    /// addresses keep their single LAN-budget attempt, and tunnel routes keep
+    /// the retry `check` already gives them.
+    public static func availabilityCheck(_ rawEndpoint: SourceConnectionEndpoint) async throws {
+        let condition = await SourceConnectionRuntime.shared.pathCondition()
+        try await availabilityCheck(rawEndpoint, condition: condition, probe: connect)
+    }
+
+    static func availabilityCheck(
+        _ rawEndpoint: SourceConnectionEndpoint,
+        condition: SourceRoutePathCondition,
+        probe: @Sendable (SourceConnectionEndpoint, TimeInterval) async throws -> Void
+    ) async throws {
+        do {
+            try await check(rawEndpoint, condition: condition, probe: probe)
+        } catch {
+            let host = rawEndpoint.normalized.host
+            guard !Task.isCancelled,
+                  !condition.retriesTimedOutProbe(for: rawEndpoint),
+                  !host.isEmpty,
+                  !InsecureHTTPHostPolicy.isLocalNetworkHost(host),
+                  !PrivateOverlayHostPolicy.isOverlayHost(host),
+                  SourceNetworkFailurePolicy.isNetworkFailure(error) else {
+                throw error
+            }
+            try await check(rawEndpoint, condition: condition, probe: probe)
+        }
+    }
+
     public static func connect(
         _ rawEndpoint: SourceConnectionEndpoint,
         timeout: TimeInterval = SourceRoutePathCondition.directProbeTimeout

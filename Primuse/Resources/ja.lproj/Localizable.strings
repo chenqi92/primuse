@@ -4388,7 +4388,7 @@
 "seconds_value_format" = "%lld 秒";
 "medley_title" = "メドレー";
 "medley_start_queue" = "再生キューをメドレーで";
-"medley_start_queue_format" = "キューをメドレーで再生（各 %lld 秒）";
+"medley_queue_detail_format" = "現在のキュー・各 %lld 秒";
 "medley_play_selection" = "メドレーで再生";
 "medley_segment_length" = "1曲あたりの長さ";
 "medley_settings_footer" = "メドレーは各曲の聴きどころを再生し、短いクロスフェードでつなぎます。再生履歴や Scrobble には記録されません。";
@@ -4399,6 +4399,8 @@
 "medley_data_message" = "各パートを滑らかにつなぐため、メドレーは次の曲を丸ごと先にダウンロードします。データ通信量が多くなる場合があります。";
 "medley_data_continue" = "メドレーを再生";
 "medley_data_dont_ask" = "再生して今後は確認しない";
+"medley_data_prompt_toggle" = "モバイルデータ通信時に確認";
+"medley_data_prompt_hint" = "モバイルデータ通信や省データモードでメドレーを始める前に確認します。メドレーは次の曲を丸ごと先にダウンロードします。";
 "smart_nudge_section" = "再生中の提案";
 "smart_nudge_enabled" = "提案を表示";
 "smart_nudge_footer" = "ときどき小さなバナーで、今に合った操作を提案します（何度も聴いている曲をお気に入りに追加するなど）。再生を妨げず、自動で消え、断った提案は繰り返しません。すべてこのデバイス上で判断します。";
@@ -4508,6 +4510,9 @@
 "karaoke_unavailable_casting" = "他のデバイスにキャスト中はボーカルを下げられません。";
 "karaoke_unavailable_high_fidelity" = "高音質出力ではエフェクト処理を通らないため、ボーカルを下げられません。";
 "karaoke_mono_warning" = "この曲はほぼモノラルのため、ボーカルを伴奏から分離できません。";
+"karaoke_mono_download_ai" = "ほぼモノラルです。AI モデルをダウンロードするとボーカルを分離できます。";
+"karaoke_mono_enable_ai" = "ほぼモノラルです。AI ボーカル分離をオンにしてください。";
+"karaoke_mono_ai_pending" = "ほぼモノラルです。AI 分離が終わるまでボーカルはそのままです。";
 "karaoke_mic_denied" = "マイクへのアクセスがオフです。設定でオンにできます。";
 "karaoke_mic_unavailable" = "マイクを起動できませんでした。";
 "karaoke_monitor_needs_wired" = "ヘッドフォンで歌うと採点がより正確になります。モニターには有線ヘッドフォンが必要です。";
@@ -4585,6 +4590,8 @@
 "karaoke_ai_aligning" = "同期中…";
 "karaoke_ai_unsupported_song" = "この曲はAI分離できないため、通常の除去を使います。";
 "karaoke_ai_retry" = "再試行";
+"karaoke_ai_download_dev_build" = "開発ビルドでは App Store からモデルをダウンロードできません。TestFlight 版または App Store 版をご利用ください。";
+"karaoke_ai_download_failed_format" = "ダウンロードに失敗しました：%@";
 "karaoke_ai_preparing" = "準備中…";
 "karaoke_ai_clear_cache_format" = "分離済みの曲を削除（%@）";
 "karaoke_ai_remove_model" = "AIモデルを削除";

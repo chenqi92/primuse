@@ -4293,7 +4293,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Popurrí";
 "medley_start_queue" = "Reproducir cola como popurrí";
-"medley_start_queue_format" = "Cola como popurrí (%lld s cada una)";
+"medley_queue_detail_format" = "Cola actual · %lld s cada una";
 "medley_play_selection" = "Reproducir como popurrí";
 "medley_segment_length" = "Duración por canción";
 "medley_settings_footer" = "Un popurrí reproduce la parte más reconocible de cada canción y las une con fundidos cortos. No cuenta en el historial ni en los scrobbles.";
@@ -4304,6 +4304,8 @@
 "medley_data_message" = "Para enlazar cada parte sin cortes, el popurrí descarga completas las siguientes canciones, lo que puede consumir muchos datos.";
 "medley_data_continue" = "Reproducir popurrí";
 "medley_data_dont_ask" = "Reproducir y no volver a preguntar";
+"medley_data_prompt_toggle" = "Avisar con datos móviles";
+"medley_data_prompt_hint" = "Preguntar antes de iniciar un popurrí con datos móviles o en modo de datos reducidos, ya que descarga completas las siguientes canciones.";
 "smart_nudge_section" = "Sugerencias al escuchar";
 "smart_nudge_enabled" = "Mostrar sugerencias";
 "smart_nudge_footer" = "De vez en cuando, un pequeño aviso sugiere lo que encaja con el momento, como agregar a Favoritos una canción que repites. No interrumpe la reproducción, desaparece solo y no se repite si lo rechazas. Todo se calcula en este dispositivo.";
@@ -4413,6 +4415,9 @@
 "karaoke_unavailable_casting" = "No se puede bajar la voz mientras transmites a otro dispositivo.";
 "karaoke_unavailable_high_fidelity" = "La salida de alta fidelidad no pasa por los efectos, así que no se puede bajar la voz.";
 "karaoke_mono_warning" = "Esta grabación es casi mono, así que la voz no se puede separar de la música.";
+"karaoke_mono_download_ai" = "Casi mono. Descarga el modelo de IA para separar la voz.";
+"karaoke_mono_enable_ai" = "Casi mono. Activa la separación de voz con IA.";
+"karaoke_mono_ai_pending" = "Casi mono. La voz se mantiene hasta que termine la separación con IA.";
 "karaoke_mic_denied" = "El acceso al micrófono está desactivado. Puedes activarlo en Configuración.";
 "karaoke_mic_unavailable" = "No se pudo iniciar el micrófono.";
 "karaoke_monitor_needs_wired" = "Con audífonos la puntuación es más precisa. El monitor necesita audífonos con cable.";
@@ -4490,6 +4495,8 @@
 "karaoke_ai_aligning" = "Sincronizando…";
 "karaoke_ai_unsupported_song" = "No disponible para esta canción; se usa la eliminación estándar.";
 "karaoke_ai_retry" = "Reintentar";
+"karaoke_ai_download_dev_build" = "Las compilaciones de desarrollo no pueden descargar el modelo desde la App Store. Usa la versión de TestFlight o de la App Store.";
+"karaoke_ai_download_failed_format" = "No se pudo descargar: %@";
 "karaoke_ai_preparing" = "Preparando…";
 "karaoke_ai_clear_cache_format" = "Borrar canciones separadas (%@)";
 "karaoke_ai_remove_model" = "Eliminar modelo de IA";

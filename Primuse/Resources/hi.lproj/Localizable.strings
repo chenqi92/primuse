@@ -4293,7 +4293,7 @@
 "seconds_value_format" = "%lld से.";
 "medley_title" = "मेडली";
 "medley_start_queue" = "कतार को मेडली में चलाएँ";
-"medley_start_queue_format" = "कतार मेडली में (हर गीत %lld से.)";
+"medley_queue_detail_format" = "वर्तमान कतार · हर गीत %lld से.";
 "medley_play_selection" = "मेडली में चलाएँ";
 "medley_segment_length" = "प्रति गीत अवधि";
 "medley_settings_footer" = "मेडली हर गीत का सबसे पहचाना हिस्सा चलाता है और उन्हें छोटे क्रॉसफ़ेड से जोड़ता है। यह सुनने के इतिहास या स्क्रॉबल में नहीं गिना जाता।";
@@ -4304,6 +4304,8 @@
 "medley_data_message" = "हर हिस्से को सहज जोड़ने के लिए मेडली अगले गीत पूरे पहले से डाउनलोड करती है, जिससे काफ़ी डेटा खर्च हो सकता है।";
 "medley_data_continue" = "मेडली चलाएँ";
 "medley_data_dont_ask" = "चलाएँ, फिर न पूछें";
+"medley_data_prompt_toggle" = "मोबाइल डेटा पर चेतावनी";
+"medley_data_prompt_hint" = "मोबाइल डेटा या लो डेटा मोड में मेडली शुरू करने से पहले पूछें, क्योंकि यह अगले गीत पूरे डाउनलोड करती है।";
 "smart_nudge_section" = "चलते समय सुझाव";
 "smart_nudge_enabled" = "सुझाव दिखाएँ";
 "smart_nudge_footer" = "कभी-कभी एक छोटा बैनर इस पल के अनुकूल सुझाव देता है — जैसे बार-बार सुना जा रहा गीत पसंदीदा में जोड़ना। यह प्लेबैक नहीं रोकता, अपने आप गायब हो जाता है और मना करने पर दोबारा नहीं आता। सब कुछ इसी डिवाइस पर तय होता है।";
@@ -4413,6 +4415,9 @@
 "karaoke_unavailable_casting" = "दूसरे डिवाइस पर कास्ट करते समय वोकल कम नहीं किया जा सकता।";
 "karaoke_unavailable_high_fidelity" = "हाई-फ़िडेलिटी आउटपुट इफ़ेक्ट्स से नहीं गुज़रता, इसलिए वोकल कम नहीं किया जा सकता।";
 "karaoke_mono_warning" = "यह रिकॉर्डिंग लगभग मोनो है, इसलिए वोकल को संगीत से अलग नहीं किया जा सकता।";
+"karaoke_mono_download_ai" = "लगभग मोनो। वोकल अलग करने के लिए AI मॉडल डाउनलोड करें।";
+"karaoke_mono_enable_ai" = "लगभग मोनो। AI वोकल पृथक्करण चालू करें।";
+"karaoke_mono_ai_pending" = "लगभग मोनो। AI पृथक्करण पूरा होने तक वोकल रहेगा।";
 "karaoke_mic_denied" = "माइक्रोफ़ोन एक्सेस बंद है। आप इसे सेटिंग्स में चालू कर सकते हैं।";
 "karaoke_mic_unavailable" = "माइक्रोफ़ोन शुरू नहीं हो सका।";
 "karaoke_monitor_needs_wired" = "हेडफ़ोन पहनकर गाने से स्कोर ज़्यादा सटीक होता है। मॉनिटर के लिए वायर्ड हेडफ़ोन चाहिए।";
@@ -4490,6 +4495,8 @@
 "karaoke_ai_aligning" = "सिंक हो रहा है…";
 "karaoke_ai_unsupported_song" = "इस गाने के लिए उपलब्ध नहीं; सामान्य हटाना इस्तेमाल हो रहा है।";
 "karaoke_ai_retry" = "फिर से कोशिश करें";
+"karaoke_ai_download_dev_build" = "डेवलपमेंट बिल्ड App Store से मॉडल डाउनलोड नहीं कर सकते। TestFlight या App Store संस्करण का उपयोग करें।";
+"karaoke_ai_download_failed_format" = "डाउनलोड विफल: %@";
 "karaoke_ai_preparing" = "तैयार हो रहा है…";
 "karaoke_ai_clear_cache_format" = "अलग किए गए गाने हटाएँ (%@)";
 "karaoke_ai_remove_model" = "AI मॉडल हटाएँ";

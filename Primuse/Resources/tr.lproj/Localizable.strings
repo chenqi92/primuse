@@ -4293,7 +4293,7 @@
 "seconds_value_format" = "%lld sn";
 "medley_title" = "Medley";
 "medley_start_queue" = "Sırayı medley olarak çal";
-"medley_start_queue_format" = "Sırayı medley çal (her biri %lld sn)";
+"medley_queue_detail_format" = "Mevcut sıra · her biri %lld sn";
 "medley_play_selection" = "Medley olarak çal";
 "medley_segment_length" = "Şarkı başına süre";
 "medley_settings_footer" = "Medley her şarkının en tanınan bölümünü çalar ve kısa geçişlerle birleştirir. Dinleme geçmişine ve scrobble'a sayılmaz.";
@@ -4304,6 +4304,8 @@
 "medley_data_message" = "Parçaların kesintisiz bağlanması için medley sıradaki şarkıları tamamen indirir; bu çok veri kullanabilir.";
 "medley_data_continue" = "Medley'i çal";
 "medley_data_dont_ask" = "Çal, bir daha sorma";
+"medley_data_prompt_toggle" = "Mobil veride uyar";
+"medley_data_prompt_hint" = "Mobil veride veya Düşük Veri Modu'nda medley başlatmadan önce sor; sıradaki şarkılar tamamen indirilir.";
 "smart_nudge_section" = "Dinlerken öneriler";
 "smart_nudge_enabled" = "Önerileri göster";
 "smart_nudge_footer" = "Ara sıra küçük bir afiş o ana uygun bir şey önerir; örneğin sürekli tekrar dinlediğin şarkıyı Favorilere eklemek. Çalmayı kesmez, kendiliğinden kaybolur ve reddettiğinde tekrarlanmaz. Her şey bu cihazda hesaplanır.";
@@ -4413,6 +4415,9 @@
 "karaoke_unavailable_casting" = "Başka bir cihaza yayın yapılırken vokal kısılamaz.";
 "karaoke_unavailable_high_fidelity" = "Yüksek doğruluklu çıkış efekt işlemesinden geçmez, bu yüzden vokal kısılamaz.";
 "karaoke_mono_warning" = "Bu kayıt neredeyse mono, bu yüzden vokal müzikten ayrılamaz.";
+"karaoke_mono_download_ai" = "Neredeyse mono. Vokali ayırmak için AI modelini indirin.";
+"karaoke_mono_enable_ai" = "Neredeyse mono. AI vokal ayırmayı açın.";
+"karaoke_mono_ai_pending" = "Neredeyse mono. AI ayırma bitene kadar vokal kalır.";
 "karaoke_mic_denied" = "Mikrofon erişimi kapalı. Ayarlar’dan açabilirsin.";
 "karaoke_mic_unavailable" = "Mikrofon başlatılamadı.";
 "karaoke_monitor_needs_wired" = "Kulaklıkla puanlama daha doğru olur. Dönüş için kablolu kulaklık gerekir.";
@@ -4490,6 +4495,8 @@
 "karaoke_ai_aligning" = "Eşitleniyor…";
 "karaoke_ai_unsupported_song" = "Bu şarkı için kullanılamıyor; standart kaldırma kullanılıyor.";
 "karaoke_ai_retry" = "Yeniden dene";
+"karaoke_ai_download_dev_build" = "Geliştirme sürümleri modeli App Store'dan indiremez. TestFlight veya App Store sürümünü kullanın.";
+"karaoke_ai_download_failed_format" = "İndirme başarısız: %@";
 "karaoke_ai_preparing" = "Hazırlanıyor…";
 "karaoke_ai_clear_cache_format" = "Ayrılmış şarkıları temizle (%@)";
 "karaoke_ai_remove_model" = "Yapay zekâ modelini kaldır";

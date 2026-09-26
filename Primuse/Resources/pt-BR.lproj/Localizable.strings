@@ -4293,7 +4293,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Medley";
 "medley_start_queue" = "Tocar fila como medley";
-"medley_start_queue_format" = "Fila como medley (%lld s cada)";
+"medley_queue_detail_format" = "Fila atual · %lld s cada";
 "medley_play_selection" = "Tocar como medley";
 "medley_segment_length" = "Duração por música";
 "medley_settings_footer" = "Um medley toca o trecho mais reconhecível de cada música e as une com transições curtas. Não entra no histórico nem nos scrobbles.";
@@ -4304,6 +4304,8 @@
 "medley_data_message" = "Para emendar cada trecho sem cortes, o medley baixa as próximas músicas inteiras, o que pode consumir muitos dados.";
 "medley_data_continue" = "Tocar medley";
 "medley_data_dont_ask" = "Tocar e não perguntar de novo";
+"medley_data_prompt_toggle" = "Avisar em dados móveis";
+"medley_data_prompt_hint" = "Perguntar antes de iniciar um medley em dados móveis ou no Modo Pouco Dados, pois ele baixa as próximas músicas inteiras.";
 "smart_nudge_section" = "Sugestões durante a reprodução";
 "smart_nudge_enabled" = "Mostrar sugestões";
 "smart_nudge_footer" = "De vez em quando, um pequeno aviso sugere o que combina com o momento, como adicionar aos Favoritos uma música que você repete. Não interrompe a reprodução, some sozinho e não se repete depois de recusado. Tudo é calculado neste dispositivo.";
@@ -4413,6 +4415,9 @@
 "karaoke_unavailable_casting" = "Não é possível baixar a voz ao transmitir para outro dispositivo.";
 "karaoke_unavailable_high_fidelity" = "A saída de alta fidelidade não passa pelos efeitos, então não é possível baixar a voz.";
 "karaoke_mono_warning" = "Esta gravação é quase mono, então a voz não pode ser separada da música.";
+"karaoke_mono_download_ai" = "Quase mono. Baixe o modelo de IA para separar a voz.";
+"karaoke_mono_enable_ai" = "Quase mono. Ative a separação de voz com IA.";
+"karaoke_mono_ai_pending" = "Quase mono. A voz fica até a separação com IA terminar.";
 "karaoke_mic_denied" = "O acesso ao microfone está desativado. Você pode ativá-lo nos Ajustes.";
 "karaoke_mic_unavailable" = "Não foi possível iniciar o microfone.";
 "karaoke_monitor_needs_wired" = "Com fones, a pontuação fica mais precisa. O retorno precisa de fones com fio.";
@@ -4490,6 +4495,8 @@
 "karaoke_ai_aligning" = "Sincronizando…";
 "karaoke_ai_unsupported_song" = "Indisponível para esta música; usando a remoção padrão.";
 "karaoke_ai_retry" = "Tentar de novo";
+"karaoke_ai_download_dev_build" = "Builds de desenvolvimento não podem baixar o modelo da App Store. Use a versão do TestFlight ou da App Store.";
+"karaoke_ai_download_failed_format" = "Falha no download: %@";
 "karaoke_ai_preparing" = "Preparando…";
 "karaoke_ai_clear_cache_format" = "Limpar músicas separadas (%@)";
 "karaoke_ai_remove_model" = "Remover modelo de IA";

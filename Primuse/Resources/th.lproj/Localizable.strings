@@ -4293,7 +4293,7 @@
 "seconds_value_format" = "%lld วิ";
 "medley_title" = "เมดเลย์";
 "medley_start_queue" = "เล่นคิวเป็นเมดเลย์";
-"medley_start_queue_format" = "เล่นคิวเป็นเมดเลย์ (เพลงละ %lld วิ)";
+"medley_queue_detail_format" = "คิวปัจจุบัน · เพลงละ %lld วิ";
 "medley_play_selection" = "เล่นเป็นเมดเลย์";
 "medley_segment_length" = "ความยาวต่อเพลง";
 "medley_settings_footer" = "เมดเลย์จะเล่นท่อนที่คุ้นหูที่สุดของแต่ละเพลงและเชื่อมด้วยการเฟดสั้น ๆ โดยไม่นับในประวัติการฟังหรือ Scrobble";
@@ -4304,6 +4304,8 @@
 "medley_data_message" = "เพื่อให้แต่ละช่วงต่อกันอย่างลื่นไหล เมดเลย์จะดาวน์โหลดเพลงถัดไปทั้งเพลงล่วงหน้า ซึ่งอาจใช้ข้อมูลมาก";
 "medley_data_continue" = "เล่นเมดเลย์";
 "medley_data_dont_ask" = "เล่น และไม่ต้องถามอีก";
+"medley_data_prompt_toggle" = "เตือนเมื่อใช้อินเทอร์เน็ตมือถือ";
+"medley_data_prompt_hint" = "ถามก่อนเริ่มเมดเลย์เมื่อใช้อินเทอร์เน็ตมือถือหรือโหมดข้อมูลต่ำ เพราะจะดาวน์โหลดเพลงถัดไปทั้งเพลง";
 "smart_nudge_section" = "คำแนะนำระหว่างฟัง";
 "smart_nudge_enabled" = "แสดงคำแนะนำ";
 "smart_nudge_footer" = "บางครั้งจะมีแบนเนอร์เล็ก ๆ แนะนำสิ่งที่เหมาะกับตอนนั้น เช่น เพิ่มเพลงที่ฟังซ้ำบ่อยลงในรายการโปรด โดยไม่ขัดจังหวะการเล่น หายไปเอง และจะไม่แสดงซ้ำเมื่อปฏิเสธแล้ว ทุกอย่างคำนวณบนอุปกรณ์นี้";
@@ -4413,6 +4415,9 @@
 "karaoke_unavailable_casting" = "ลดเสียงร้องไม่ได้ขณะส่งไปยังอุปกรณ์อื่น";
 "karaoke_unavailable_high_fidelity" = "เอาต์พุตความเที่ยงตรงสูงไม่ผ่านเอฟเฟกต์ จึงลดเสียงร้องไม่ได้";
 "karaoke_mono_warning" = "เพลงนี้เกือบเป็นโมโน จึงแยกเสียงร้องออกจากดนตรีไม่ได้";
+"karaoke_mono_download_ai" = "เกือบเป็นโมโน ดาวน์โหลดโมเดล AI เพื่อแยกเสียงร้อง";
+"karaoke_mono_enable_ai" = "เกือบเป็นโมโน เปิดการแยกเสียงร้องด้วย AI";
+"karaoke_mono_ai_pending" = "เกือบเป็นโมโน เสียงร้องจะยังอยู่จนกว่า AI จะแยกเสร็จ";
 "karaoke_mic_denied" = "การเข้าถึงไมโครโฟนปิดอยู่ เปิดได้ในการตั้งค่า";
 "karaoke_mic_unavailable" = "เริ่มไมโครโฟนไม่ได้";
 "karaoke_monitor_needs_wired" = "ใส่หูฟังจะให้คะแนนแม่นขึ้น การมอนิเตอร์ต้องใช้หูฟังแบบมีสาย";
@@ -4490,6 +4495,8 @@
 "karaoke_ai_aligning" = "กำลังซิงค์…";
 "karaoke_ai_unsupported_song" = "ใช้กับเพลงนี้ไม่ได้ จึงใช้การลบแบบปกติแทน";
 "karaoke_ai_retry" = "ลองอีกครั้ง";
+"karaoke_ai_download_dev_build" = "บิลด์สำหรับพัฒนาไม่สามารถดาวน์โหลดโมเดลจาก App Store ได้ โปรดใช้เวอร์ชัน TestFlight หรือ App Store";
+"karaoke_ai_download_failed_format" = "ดาวน์โหลดไม่สำเร็จ: %@";
 "karaoke_ai_preparing" = "กำลังเตรียม…";
 "karaoke_ai_clear_cache_format" = "ล้างเพลงที่แยกแล้ว (%@)";
 "karaoke_ai_remove_model" = "ลบโมเดล AI";

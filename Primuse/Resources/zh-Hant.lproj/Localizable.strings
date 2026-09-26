@@ -4364,7 +4364,7 @@
 "seconds_value_format" = "%lld 秒";
 "medley_title" = "串燒";
 "medley_start_queue" = "把目前佇列串燒播放";
-"medley_start_queue_format" = "把目前佇列串燒播放（每首 %lld 秒）";
+"medley_queue_detail_format" = "目前佇列 · 每首 %lld 秒";
 "medley_play_selection" = "串燒播放";
 "medley_segment_length" = "每首時長";
 "medley_settings_footer" = "串燒會擷取每首歌最有辨識度的一段，用短暫的淡入淡出串起來。串燒不計入收聽紀錄，也不會回報 Scrobble。";
@@ -4375,6 +4375,8 @@
 "medley_data_message" = "串燒會提前下載接下來的整首歌，讓每段銜接順暢，會消耗較多流量。";
 "medley_data_continue" = "繼續串燒";
 "medley_data_dont_ask" = "繼續，不再提醒";
+"medley_data_prompt_toggle" = "行動網路下提醒流量";
+"medley_data_prompt_hint" = "在行動網路或低數據模式下開始串燒前先提醒，串燒會提前下載接下來的整首歌。";
 "smart_nudge_section" = "播放時的智慧提示";
 "smart_nudge_enabled" = "顯示智慧提示";
 "smart_nudge_footer" = "播放時偶爾在頂部跳出一則小提示，例如反覆在聽的歌要不要加入我的最愛。它不打斷播放、幾秒後自動消失，拒絕過的提示不會一再出現。所有判斷都在本機完成。";
@@ -4484,6 +4486,9 @@
 "karaoke_unavailable_casting" = "投放到其他裝置時無法降低人聲。";
 "karaoke_unavailable_high_fidelity" = "高保真輸出不經過音效處理，無法降低人聲。";
 "karaoke_mono_warning" = "這首歌接近單聲道，人聲無法和伴奏分開。";
+"karaoke_mono_download_ai" = "接近單聲道，一般消除分不開人聲，下載 AI 模型就能分離。";
+"karaoke_mono_enable_ai" = "接近單聲道，一般消除分不開人聲，打開 AI 人聲分離就能分離。";
+"karaoke_mono_ai_pending" = "接近單聲道，AI 分離完成前先保留人聲。";
 "karaoke_mic_denied" = "沒有麥克風權限，可以在系統設定中開啟。";
 "karaoke_mic_unavailable" = "麥克風無法啟動。";
 "karaoke_monitor_needs_wired" = "戴耳機唱評分更準；耳返需要有線耳機。";
@@ -4561,6 +4566,8 @@
 "karaoke_ai_aligning" = "正在對齊…";
 "karaoke_ai_unsupported_song" = "這首歌無法 AI 分離，已改用一般消除。";
 "karaoke_ai_retry" = "重試";
+"karaoke_ai_download_dev_build" = "開發版本無法從 App Store 下載模型，請使用 TestFlight 或 App Store 版本。";
+"karaoke_ai_download_failed_format" = "下載失敗：%@";
 "karaoke_ai_preparing" = "準備中…";
 "karaoke_ai_clear_cache_format" = "清除 AI 分離快取（%@）";
 "karaoke_ai_remove_model" = "刪除 AI 模型";

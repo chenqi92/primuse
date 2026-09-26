@@ -4387,7 +4387,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Medley";
 "medley_start_queue" = "Warteschlange als Medley";
-"medley_start_queue_format" = "Warteschlange als Medley (je %lld s)";
+"medley_queue_detail_format" = "Aktuelle Warteschlange · je %lld s";
 "medley_play_selection" = "Als Medley abspielen";
 "medley_segment_length" = "Länge pro Song";
 "medley_settings_footer" = "Ein Medley spielt den bekanntesten Teil jedes Songs und verbindet sie mit kurzen Überblendungen. Es zählt nicht zum Hörverlauf und wird nicht gescrobbelt.";
@@ -4398,6 +4398,8 @@
 "medley_data_message" = "Damit die Übergänge flüssig sind, lädt ein Medley die nächsten Titel vollständig. Das kann viel Datenvolumen verbrauchen.";
 "medley_data_continue" = "Medley abspielen";
 "medley_data_dont_ask" = "Abspielen, nicht mehr fragen";
+"medley_data_prompt_toggle" = "Bei mobilen Daten warnen";
+"medley_data_prompt_hint" = "Vor einem Medley über mobile Daten oder im Modus „Wenig Daten“ nachfragen, da es die nächsten Titel vollständig lädt.";
 "smart_nudge_section" = "Vorschläge beim Hören";
 "smart_nudge_enabled" = "Vorschläge anzeigen";
 "smart_nudge_footer" = "Ab und zu schlägt ein kleines Banner vor, was gerade passt – etwa einen oft wiederholten Song zu den Favoriten hinzuzufügen. Es unterbricht nichts, verschwindet von selbst und wird nach einer Ablehnung nicht wiederholt. Alles wird auf diesem Gerät berechnet.";
@@ -4507,6 +4509,9 @@
 "karaoke_unavailable_casting" = "Während der Wiedergabe auf einem anderen Gerät lässt sich der Gesang nicht absenken.";
 "karaoke_unavailable_high_fidelity" = "Die High-Fidelity-Ausgabe umgeht die Effektverarbeitung, daher lässt sich der Gesang nicht absenken.";
 "karaoke_mono_warning" = "Diese Aufnahme ist nahezu mono, der Gesang lässt sich nicht von der Musik trennen.";
+"karaoke_mono_download_ai" = "Nahezu mono. Lade das KI-Modell, um den Gesang zu trennen.";
+"karaoke_mono_enable_ai" = "Nahezu mono. Aktiviere die KI-Gesangstrennung.";
+"karaoke_mono_ai_pending" = "Nahezu mono. Der Gesang bleibt, bis die KI-Trennung fertig ist.";
 "karaoke_mic_denied" = "Der Mikrofonzugriff ist deaktiviert. Du kannst ihn in den Einstellungen aktivieren.";
 "karaoke_mic_unavailable" = "Das Mikrofon konnte nicht gestartet werden.";
 "karaoke_monitor_needs_wired" = "Mit Kopfhörern wird die Wertung genauer. Mithören funktioniert nur mit kabelgebundenen Kopfhörern.";
@@ -4584,6 +4589,8 @@
 "karaoke_ai_aligning" = "Wird synchronisiert …";
 "karaoke_ai_unsupported_song" = "Für diesen Titel nicht verfügbar – normale Entfernung aktiv.";
 "karaoke_ai_retry" = "Erneut versuchen";
+"karaoke_ai_download_dev_build" = "Entwicklungs-Builds können das Modell nicht aus dem App Store laden. Verwende die TestFlight- oder App-Store-Version.";
+"karaoke_ai_download_failed_format" = "Download fehlgeschlagen: %@";
 "karaoke_ai_preparing" = "Wird vorbereitet …";
 "karaoke_ai_clear_cache_format" = "Getrennte Titel löschen (%@)";
 "karaoke_ai_remove_model" = "KI-Modell entfernen";

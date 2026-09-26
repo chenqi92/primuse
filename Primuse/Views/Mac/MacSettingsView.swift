@@ -1494,6 +1494,8 @@ private struct MacSTPlaybackView: View {
     @Environment(PlaybackSettingsStore.self) private var store
     @Environment(SourceManager.self) private var sourceManager
     @State private var highFidelityConfirmShown = false
+    /// 串烧开始前的流量提醒里选「不再提醒」写的就是这个键。
+    @AppStorage(MedleyDataUsagePolicy.promptDisabledKey) private var medleyDataPromptDisabled = false
 
     /// 高保真直通会让这一页下面大半截失效 —— 均衡器、变速、淡入淡出、空间音频、
     /// 回放增益全被绕过去, 用户多半不知道自己刚关掉了什么, 只会觉得这些功能坏了。
@@ -1668,6 +1670,16 @@ private struct MacSTPlaybackView: View {
                     )
                 }
                 .settingsAnchor("playback.medley")
+                MacSTRow(
+                    String(localized: "medley_data_prompt_toggle"),
+                    hint: String(localized: "medley_data_prompt_hint"),
+                    hintLineLimit: 2
+                ) {
+                    MacSTToggle(isOn: Binding(
+                        get: { !medleyDataPromptDisabled },
+                        set: { medleyDataPromptDisabled = !$0 }
+                    ))
+                }
             }
         }
 
