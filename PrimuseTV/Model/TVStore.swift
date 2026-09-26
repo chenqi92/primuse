@@ -4409,6 +4409,8 @@ final class TVStore {
             duration: duration > 0 ? duration : nowPlaying.duration,
             forSongID: songID
         )
+        // 直接落盘:闪退或被系统杀掉时,不必再多丢一段防抖窗口。
+        SpokenWordStore.shared.persistLocally()
     }
 
     /// 用户选台(卡片、Top Shelf 深链)。上一台 / 下一台走 `switchRadioStation`。

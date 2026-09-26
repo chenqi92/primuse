@@ -473,6 +473,15 @@ final class SpokenWordStore {
         }
     }
 
+    /// Writes the local file now, without the two-second debounce and without
+    /// touching iCloud. The player calls it with each listening position, so
+    /// a crash loses at most one autosave interval, not that plus the debounce.
+    func persistLocally() {
+        saveTask?.cancel()
+        saveTask = nil
+        saveNow()
+    }
+
     /// Writes immediately. Used when the app is about to lose the foreground,
     /// where a debounced save would never run.
     func flush() {

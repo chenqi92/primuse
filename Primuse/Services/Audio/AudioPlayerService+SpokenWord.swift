@@ -104,6 +104,10 @@ extension AudioPlayerService {
             duration: duration > 0 ? duration : song.duration,
             forSongID: song.id
         )
+        // Straight to disk: a crash or a kill without a background transition
+        // must not also lose the debounce window. One small write per
+        // autosave interval, the same count the debounce would have made.
+        SpokenWordStore.shared.persistLocally()
     }
 
     /// Writes through to disk as well. Used when the app is backgrounded or
