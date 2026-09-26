@@ -26,7 +26,7 @@ public actor SynologyAudioStationStreamResolver: StreamResolver {
     }
 
     /// 两步验证时随登录申请受信设备令牌用的设备名,与群晖直连在电视上的写法一致。
-    public static let trustedDeviceName = "Apple TV"
+    public static let trustedDeviceName = SynologyStreamResolver.trustedDeviceName
 
     private var clients: [String: Entry] = [:]
     private let transport: SynologyAudioStationRequestTransport?
@@ -142,6 +142,7 @@ public actor SynologyAudioStationStreamResolver: StreamResolver {
         let client = SynologyAudioStationClient(
             source: source,
             credential: credential,
+            deviceName: source.deviceId?.isEmpty == false ? Self.trustedDeviceName : nil,
             transport: transport,
             quickConnectResolver: quickConnectResolver
         )

@@ -6,6 +6,7 @@ import PrimuseKit
 enum TVPlaybackIssue: Equatable {
     case unsupported(String)         // 源类型在 tvOS 不支持(展示名)
     case missingCredential(String)   // 缺凭据(源名)
+    case needsTwoFactor(String)      // 需要验证的源 ID
     case failed(String)
 
     var message: String {
@@ -14,6 +15,7 @@ enum TVPlaybackIssue: Equatable {
             return PMString("ext.tv.playback.unsupported", name)
         case .missingCredential(let name):
             return PMString("ext.tv.playback.missingCredential", name)
+        case .needsTwoFactor: return PMString("ext.tv.source.error.needs2FA")
         case .failed(let msg): return msg
         }
     }
@@ -2087,14 +2089,15 @@ final class TVPlaybackCoordinator {
     }
 
     private func issue(for error: StreamResolveError, source: MusicSource) -> TVPlaybackIssue {
-        issue(for: error, sourceName: source.name)
+        if error == .needs2FA { return .needsTwoFactor(source.id) }
+        return issue(for: error, sourceName: source.name)
     }
 
     private func issue(for error: StreamResolveError, sourceName: String) -> TVPlaybackIssue {
         switch error {
         case .unsupportedSourceType(let type): return .unsupported(type.displayName)
         case .missingCredential: return .missingCredential(sourceName)
-        case .needs2FA: return .failed(PMString("ext.tv.test.needs2FA"))
+        case .needs2FA: return .failed(PMString("ext.tv.source.error.needs2FA"))
         case .authFailed: return .failed(PMString("ext.tv.playback.authFailed"))
         case .badServerResponse(let code): return .failed(PMString("ext.tv.playback.httpError", code))
         case .cannotBuildURL: return .failed(PMString("ext.tv.playback.cannotBuildURL"))

@@ -107,7 +107,6 @@ struct TVSourcesView: View {
                                                         sourceForm = TVSourceForm(editing: src, type: src.type)
                                                     }
                                                 },
-                                                onLogin2FA: { otpSource = s },
                                                 onScan: { if let src = store.source(id: s.id) { scanSource = src } },
                                                 onRereadTags: {
                                                     if let src = store.source(id: s.id) { rereadSource = src }
@@ -283,7 +282,7 @@ struct TVSourcesView: View {
             TVRecycleBinView().environment(store)
         }
         .fullScreenCover(item: $otpSource, onDismiss: restorePrimaryFocus) { src in
-            TVOTPEntryView(source: src).environment(store)
+            TVOTPEntryView(source: src, onVerified: { runTest(src) }).environment(store)
         }
         .fullScreenCover(item: $rereadSource, onDismiss: restorePrimaryFocus) { src in
             TVScanFlowView(source: src, rereadMetadata: true).environment(store)
@@ -303,6 +302,11 @@ struct TVSourcesView: View {
         Task {
             let msg = await store.testConnection(forSourceID: s.id)
             testingSourceIDs.remove(s.id)
+            if s.supports2FA, msg == PMString("ext.tv.test.needs2FA")
+                || msg == PMString("ext.tv.source.error.needs2FA") {
+                otpSource = s
+                return
+            }
             let completed = TVTestResult(sourceName: s.name, message: msg)
             if testResult == nil {
                 testResult = completed
@@ -544,7 +548,6 @@ private struct TVSourceRow: View {
     var onEnterCredential: () -> Void = {}   // 长按菜单:输入登录凭据
     var onTestConnection: () -> Void = {}    // 长按菜单:测试连接
     var onEdit: () -> Void = {}              // 长按菜单:编辑连接参数
-    var onLogin2FA: () -> Void = {}          // 长按菜单:两步验证登录(NAS)
     var onScan: () -> Void = {}              // 长按菜单:选目录 + 扫描(SMB)
     var onRereadTags: () -> Void = {}        // 长按菜单:只重读这一个源的标签
 
@@ -635,11 +638,6 @@ private struct TVSourceRow: View {
                 }
                 Button { onRereadTags() } label: {
                     Label(PMString("ext.tv.sources.rereadTags"), systemImage: "arrow.clockwise")
-                }
-            }
-            if source.supports2FA {
-                Button { onLogin2FA() } label: {
-                    Label(PMString("ext.tv.sources.login2FA"), systemImage: "lock.shield")
                 }
             }
             Button { onTestConnection() } label: {

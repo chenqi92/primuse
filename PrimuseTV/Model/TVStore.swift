@@ -544,7 +544,35 @@ final class TVStore {
         }
     }
     var queueUpNextIDs: [String] = []
-    var playbackIssue: TVPlaybackIssue?   // 解析/播放受阻原因(展示用)
+    struct PlaybackAuthentication: Identifiable {
+        let id: UUID
+        let songID: String
+        let source: TVSource
+    }
+    var playbackAuthentication: PlaybackAuthentication?
+    @ObservationIgnored private var lastAuthenticationRequestID: UUID?
+    var playbackIssue: TVPlaybackIssue? {
+        didSet {
+            if case .needsTwoFactor(let sourceID) = playbackIssue,
+               let requestID = activePlaybackRequestID,
+               lastAuthenticationRequestID != requestID,
+               let songID = currentSongID,
+               let source = sources.first(where: { $0.id == sourceID && $0.supports2FA }) {
+                lastAuthenticationRequestID = requestID
+                playbackAuthentication = PlaybackAuthentication(
+                    id: requestID, songID: songID, source: source
+                )
+            } else if playbackIssue == nil {
+                playbackAuthentication = nil
+            }
+        }
+    }
+
+    func resumeAfterAuthentication(_ request: PlaybackAuthentication) {
+        guard request.id == activePlaybackRequestID, request.songID == currentSongID,
+              library.song(id: request.songID)?.sourceID == request.source.id else { return }
+        resumePlayback()
+    }
     var radioStations: [RadioStation] = [] {
         didSet {
             rebuildRadioDerivedState()
@@ -1236,7 +1264,7 @@ final class TVStore {
         smartPlaylistHistoryRevision = playHistoryRevision
         smartPlaylistCollectionRevision = playlistRevision
     }
-    private func map(_ s: MusicSource) -> TVSource {
+    func map(_ s: MusicSource) -> TVSource {
         let cnt = library.songs.lazy.filter { $0.sourceID == s.id }.count
         let (c, _) = Self.tint(s.id)
         let canScan = canScanOnTV(s)
@@ -1262,13 +1290,15 @@ final class TVStore {
 
     /// NAS 两步验证:用一次性验证码登录,成功则把申请到的「受信设备」令牌(deviceId)存进源,
     /// 之后该设备登录即可跳过 OTP。返回 nil 表示成功,否则返回错误文案。
-    func login2FA(sourceID: String, otp: String) async -> String? {
+    func login2FA(sourceID: String, otp: String, registry: StreamResolverRegistry = .shared) async -> String? {
         guard canMutateLibrary else { return PMString("ext.tv.persistence.failed") }
         guard let source = sourcesStore.source(id: sourceID) else { return PMString("ext.tv.test.sourceNotFound") }
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        plog("TV 2FA begin source=\(sourceID) type=\(source.type.rawValue) trustedDevicePresent=\(source.deviceId?.isEmpty == false)")
         do {
-            let did = try await StreamResolverRegistry.shared.loginForDeviceToken(
+            let did = try await registry.loginForDeviceToken(
                 source: source, credential: cred, otp: otp)
+            plog("TV 2FA response source=\(sourceID) trustedDevicePresent=\(did?.isEmpty == false)")
             // 登录是一次网络往返,这期间后台同步或扫描可能改过这条源的 `modifiedAt`、
             // `songCount` 之类与验证无关的字段。`MusicSource` 的相等是全字段合成的,
             // 拿整个结构体比会把这类无关改动当成「源变了」,于是一次成功的验证被报成
@@ -1281,13 +1311,17 @@ final class TVStore {
                     return PMString("ext.tv.persistence.failed")
                 }
             } catch {
+                plog("TV 2FA persistence failed source=\(sourceID)")
                 return PMString("ext.tv.persistence.failed")
             }
-            await StreamResolverRegistry.shared.invalidateSession(for: source)
+            plog("TV 2FA persisted source=\(sourceID)")
+            await registry.invalidateSession(for: source)
+            sourceAuthenticationFailures.remove(sourceID)
             sourcesRevision += 1
             enqueueSnapshotUpload()
             return nil
         } catch let e as StreamResolveError {
+            plog("TV 2FA resolver failed source=\(sourceID) needs2FA=\(e == .needs2FA)")
             switch e {
             case .needs2FA: return PMString("ext.tv.otp.invalid")
             case .missingCredential: return PMString("ext.tv.otp.missingCredential")

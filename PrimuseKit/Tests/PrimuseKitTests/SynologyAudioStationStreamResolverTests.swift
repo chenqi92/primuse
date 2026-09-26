@@ -57,8 +57,8 @@ struct SynologyAudioStationStreamResolverTests {
         _ = try await resolver.streamURL(for: track, source: trusted, credential: fixture.credential)
         #expect(await fixture.logins == 4)
         let body = try #require(await fixture.loginBodies().last)
-        // 普通登录只带受信设备令牌,不再申请新的。
-        #expect(body["device_id"] == "did-tv" && body["device_name"] == nil && body["enable_device_token"] == nil)
+        #expect(body["device_id"] == "did-tv" && body["device_name"] == "Apple TV")
+        #expect(body["otp_code"] == nil)
         #expect(await fixture.requestPaths.filter { $0.hasSuffix("/query.cgi") }.count == 4)
     }
 
@@ -125,6 +125,11 @@ struct SynologyAudioStationStreamResolverTests {
         trusted.deviceId = token
         let url = try await resolver.streamURL(for: track, source: trusted, credential: fixture.credential)
         #expect(resolverFormDecode(url.query ?? "")["id"] == "music_6906")
+
+        // 冷启动从磁盘恢复源后也必须携带相同的设备名称,不能靠刚验证的内存会话。
+        let restored = try JSONDecoder().decode(MusicSource.self, from: JSONEncoder().encode(trusted))
+        _ = try await fixture.resolver().streamURL(for: track, source: restored, credential: fixture.credential)
+        #expect(await fixture.loginBodies().last?["otp_code"] == nil)
     }
 
     @Test func accountErrorsBecomeStreamErrorsAndOthersKeepTheirMeaning() async throws {
@@ -237,7 +242,8 @@ private actor ResolverFixture {
             if mode == .wrongPassword {
                 return json(url, #"{"error":{"code":400},"success":false}"#)
             }
-            if mode == .twoFactor, params["device_id"] != Self.trustedDeviceID {
+            let trusted = params["device_id"] == Self.trustedDeviceID && params["device_name"] == "Apple TV"
+            if mode == .twoFactor, !trusted {
                 switch params["otp_code"] {
                 case nil:
                     return json(url, #"{"error":{"code":403,"errors":{"token":"otp-token","types":[{"type":"otp"}]}},"success":false}"#)

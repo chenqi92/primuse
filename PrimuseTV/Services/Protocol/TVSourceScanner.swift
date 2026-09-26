@@ -1311,7 +1311,10 @@ final class TVSourceScanner {
             return TVSongloftLister(client: SongloftServiceClient(source: source, credential: credential))
         case .synologyAudioStation:
             return TVSynologyAudioStationLister(
-                client: SynologyAudioStationClient(source: source, credential: credential)
+                client: SynologyAudioStationClient(
+                    source: source, credential: credential,
+                    deviceName: source.deviceId?.isEmpty == false ? SynologyAudioStationStreamResolver.trustedDeviceName : nil
+                )
             )
         default: return nil
         }
@@ -2175,7 +2178,10 @@ final class TVSourceScanner {
         credential: SourceCredential?
     ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
         do {
-            return try await SynologyAudioStationClient(source: source, credential: credential)
+            return try await SynologyAudioStationClient(
+                source: source, credential: credential,
+                deviceName: source.deviceId?.isEmpty == false ? SynologyAudioStationStreamResolver.trustedDeviceName : nil
+            )
                 .playlistMirrorSnapshot()
         } catch {
             throw SynologyAudioStationStreamResolver.streamError(from: error)
@@ -2433,7 +2439,10 @@ final class TVSourceScanner {
         credential: SourceCredential?,
         onSong: (Song) async throws -> Void
     ) async throws -> [Song] {
-        let client = SynologyAudioStationClient(source: source, credential: credential)
+        let client = SynologyAudioStationClient(
+            source: source, credential: credential,
+            deviceName: source.deviceId?.isEmpty == false ? SynologyAudioStationStreamResolver.trustedDeviceName : nil
+        )
         let catalog = await client.songs()
         var songs: [Song] = []
         do {

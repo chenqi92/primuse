@@ -4,9 +4,9 @@ import Foundation
 /// `_sid` 会过期;协调器收到 `.authFailed` 会调用 `invalidateSession` 后重试一次(重登)。
 ///
 /// 字段映射(同 iOS SynologySource):host/port/useSsl、username、password(凭据)、
-/// deviceId(2FA 受信设备,跳过 OTP)。注:tvOS 无 OTP 输入界面,需要 OTP 的账号
-/// 会在登录失败时报 `.authFailed`(请在手机上勾选「记住此设备」后再同步)。
+/// deviceId(本机 2FA 受信设备令牌)。需要 OTP 时由电视输入并持久化令牌。
 public actor SynologyStreamResolver: StreamResolver {
+    public static let trustedDeviceName = "Apple TV"
     private var sessions: [String: String] = [:]   // sourceID → _sid
     private var endpoints: [String: URL] = [:]     // sourceID → resolved direct/relay endpoint
     private var sessionTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
@@ -124,10 +124,13 @@ public actor SynologyStreamResolver: StreamResolver {
         if let deviceID, !deviceID.isEmpty {
             fields.append(("device_id", deviceID))
         }
+        // DSM 的免 OTP 登录需要同一对设备名称和令牌。
+        if deviceID?.isEmpty == false || otp?.isEmpty == false {
+            fields.append(("device_name", Self.trustedDeviceName))
+        }
         if let otp, !otp.isEmpty {
             fields.append(("otp_code", otp))
             fields.append(("enable_device_token", "yes"))
-            fields.append(("device_name", "Apple TV"))
         }
         var req = URLRequest(url: base.appendingPathComponent("webapi/auth.cgi"))
         req.httpMethod = "POST"

@@ -170,6 +170,7 @@ struct TVRoot: View {
     @State private var showSettings = false
     @State private var showQueue = false
     @State private var showOptions = false
+    @State private var verifiedPlaybackAuthentication: TVStore.PlaybackAuthentication?
     @State private var libraryFocusRequest = 0
     @State private var nowPlayingFocusRequest: TVContentFocusRequest?
     @State private var sourcesFocusRequest = 0
@@ -326,6 +327,24 @@ struct TVRoot: View {
         .fullScreenCover(isPresented: $showOptions) {
             TVOptionsView().environment(store)
         }
+        .fullScreenCover(item: Binding(
+            get: {
+                guard !showSettings, !showQueue, !showOptions, !hasChildModalPresentation,
+                      certificateTrustStore.pendingRequest == nil,
+                      certificateTrustStore.pendingInsecureHTTPRequest == nil else { return nil }
+                return store.playbackAuthentication
+            },
+            set: { store.playbackAuthentication = $0 }
+        ), onDismiss: {
+            if let request = verifiedPlaybackAuthentication {
+                verifiedPlaybackAuthentication = nil
+                store.resumeAfterAuthentication(request)
+            }
+        }) { request in
+            TVOTPEntryView(source: request.source, onVerified: {
+                verifiedPlaybackAuthentication = request
+            }).environment(store)
+        }
         .task {
             #if DEBUG
             switch TVDebugLaunch.screen {
@@ -457,6 +476,7 @@ struct TVRoot: View {
             showSettings,
             showQueue,
             showOptions,
+            store.playbackAuthentication != nil,
             certificateTrustStore.pendingRequest != nil,
             certificateTrustStore.pendingInsecureHTTPRequest != nil,
         ].filter { $0 }.count
