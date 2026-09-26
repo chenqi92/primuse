@@ -323,6 +323,9 @@ struct SpokenWordBookDetailView: View {
     @Environment(AudioPlayerService.self) private var player
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
+    /// 滚动位置单独放在一个可观察对象里: 每帧写它只会让滑块重画, 不会让整页
+    /// (连同上面的分书)跟着重算。
+    @State private var chapterScroll = SpokenWordChapterScrollState()
 
     private var book: SpokenWordBook? {
         _ = store.revision
@@ -339,6 +342,8 @@ struct SpokenWordBookDetailView: View {
         Group {
             if let book {
                 let songs = book.items.compactMap { songsByID[$0.id] }
+                let showsScrubber = SpokenWordChapterScrubber.isShown(chapterCount: book.items.count)
+                ScrollViewReader { proxy in
                 List {
                     Section {
                         header(book, songs: songs)
@@ -355,6 +360,8 @@ struct SpokenWordBookDetailView: View {
                                     isResumeItem: item.id == book.resumeItemID && book.isInProgress,
                                     isPlaying: player.currentSong?.id == item.id
                                 )
+                                // 给右缘的滑块让出位置, 长标题不会压在它下面。
+                                .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth : 0)
                             }
                             .buttonStyle(.plain)
                             .contentShape(Rectangle())
@@ -397,6 +404,34 @@ struct SpokenWordBookDetailView: View {
                     }
                 }
                 .listStyle(.plain)
+                #if os(iOS)
+                .onScrollGeometryChange(for: Double.self) { geometry in
+                    SpokenWordChapterScrubber.scrollFraction(
+                        offset: geometry.contentOffset.y + geometry.contentInsets.top,
+                        contentHeight: geometry.contentSize.height
+                            + geometry.contentInsets.top + geometry.contentInsets.bottom,
+                        visibleHeight: geometry.containerSize.height
+                    )
+                } action: { _, fraction in
+                    chapterScroll.update(fraction: fraction)
+                }
+                .onScrollPhaseChange { _, phase in
+                    chapterScroll.isScrolling = phase != .idle
+                }
+                .overlay(alignment: .trailing) {
+                    if showsScrubber {
+                        let items = book.items
+                        SpokenWordChapterScrubber(
+                            scroll: chapterScroll,
+                            count: items.count,
+                            title: { items[$0].title }
+                        ) { index in
+                            proxy.scrollTo(items[index].id, anchor: .top)
+                        }
+                    }
+                }
+                #endif
+                }
                 .navigationTitle(book.title)
             } else {
                 ContentUnavailableView("tab_spoken_word", systemImage: "books.vertical")
@@ -554,6 +589,144 @@ struct SpokenWordBookCover: View {
             .overlay {
                 shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
             }
+    }
+}
+
+/// Where the chapter list is scrolled to, kept apart from the page so a
+/// scroll frame redraws only the scrubber.
+@MainActor
+@Observable
+final class SpokenWordChapterScrollState {
+    var fraction: Double = 0
+    var isScrolling = false
+
+    func update(fraction newValue: Double) {
+        // Sub-pixel changes are not worth a redraw.
+        guard abs(newValue - fraction) > 0.0005 else { return }
+        fraction = newValue
+    }
+}
+
+/// 章节很多时, 章节列表右缘的快速拖动条: 滑块跟着列表位置走, 按住拖动时
+/// 列表跟手跳到对应章节, 旁边的气泡报出第几章与章节名。只抓滑块本身, 列表其余
+/// 部分的点按和滚动照旧。
+struct SpokenWordChapterScrubber: View {
+    /// 少于这么多章时一屏两屏就翻完了, 不需要它。
+    static let minimumChapterCount = 30
+    /// 行尾给滑块留的宽度。
+    static let reservedWidth: CGFloat = 14
+
+    static func isShown(chapterCount: Int) -> Bool {
+        #if os(iOS)
+        chapterCount >= minimumChapterCount
+        #else
+        // Mac 的滚动条本身就能拖。
+        false
+        #endif
+    }
+
+    /// 0 在顶, 1 在底。
+    static func scrollFraction(offset: Double, contentHeight: Double, visibleHeight: Double) -> Double {
+        let scrollable = contentHeight - visibleHeight
+        guard scrollable > 1, offset.isFinite else { return 0 }
+        return min(1, max(0, offset / scrollable))
+    }
+
+    static func index(forFraction fraction: Double, count: Int) -> Int {
+        guard count > 1, fraction.isFinite else { return 0 }
+        return Int((min(1, max(0, fraction)) * Double(count - 1)).rounded())
+    }
+
+    let scroll: SpokenWordChapterScrollState
+    let count: Int
+    let title: (Int) -> String
+    let onScrub: (Int) -> Void
+
+    @State private var dragStartFraction: Double?
+    @State private var dragFraction: Double?
+    @State private var scrubbedIndex: Int?
+    @State private var hapticTrigger = 0
+
+    private let thumbHeight: CGFloat = 48
+    private let verticalInset: CGFloat = 6
+
+    var body: some View {
+        GeometryReader { geometry in
+            let track = max(1, geometry.size.height - verticalInset * 2 - thumbHeight)
+            let fraction = dragFraction ?? scroll.fraction
+            let thumbTop = verticalInset + track * CGFloat(min(1, max(0, fraction)))
+            let isDragging = dragFraction != nil
+
+            ZStack(alignment: .topTrailing) {
+                Capsule()
+                    .fill(ListeningSpace.spokenWord.tint)
+                    .frame(width: isDragging ? 8 : 5, height: thumbHeight)
+                    .opacity(isDragging || scroll.isScrolling ? 0.95 : 0.4)
+                    // 比看到的滑块宽得多的抓取区, 手指不用对得很准。
+                    .frame(width: 36, height: thumbHeight + 16)
+                    .contentShape(Rectangle())
+                    .gesture(dragGesture(track: track))
+                    .offset(y: thumbTop - 8)
+
+                if let scrubbedIndex {
+                    bubble(for: scrubbedIndex)
+                        .offset(x: -40, y: bubbleTop(thumbTop: thumbTop, height: geometry.size.height))
+                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        }
+        .frame(width: 280)
+        .sensoryFeedback(.selection, trigger: hapticTrigger)
+        .pmAnimation(.control, value: scrubbedIndex == nil)
+        // 读屏用户照常滚列表; 这条只是给手指的捷径。
+        .accessibilityHidden(true)
+    }
+
+    private func dragGesture(track: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                let start = dragStartFraction ?? scroll.fraction
+                if dragStartFraction == nil { dragStartFraction = start }
+                let fraction = min(1, max(0, start + Double(value.translation.height / track)))
+                dragFraction = fraction
+                let index = Self.index(forFraction: fraction, count: count)
+                guard index != scrubbedIndex else { return }
+                scrubbedIndex = index
+                hapticTrigger &+= 1
+                onScrub(index)
+            }
+            .onEnded { _ in
+                dragStartFraction = nil
+                dragFraction = nil
+                scrubbedIndex = nil
+            }
+    }
+
+    private func bubble(for index: Int) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(verbatim: "\(index + 1) / \(count)")
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(ListeningSpace.spokenWord.tint)
+            Text(verbatim: title(index))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 220, alignment: .trailing)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+        .fixedSize(horizontal: false, vertical: true)
+        .allowsHitTesting(false)
+    }
+
+    /// 气泡与滑块中线对齐, 但不越出列表上下缘。
+    private func bubbleTop(thumbTop: CGFloat, height: CGFloat) -> CGFloat {
+        let bubbleHeight: CGFloat = 52
+        let centered = thumbTop + thumbHeight / 2 - bubbleHeight / 2
+        return min(max(0, centered), max(0, height - bubbleHeight))
     }
 }
 
