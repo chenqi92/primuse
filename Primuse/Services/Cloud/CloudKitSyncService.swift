@@ -890,29 +890,20 @@ final class CloudKitSyncService {
         }
     }
 
-    /// Fire a user-visible notification when sync first transitions into a
-    /// hard error state. We deliberately ignore `.networkUnavailable` (will
-    /// auto-recover when the device reconnects) and `.syncing → upToDate`
-    /// roundtrips. Dedup'd by category identifier — repeat hits replace the
-    /// existing notification rather than stacking.
+    /// Notifies only when sync is stuck on something the listener has to fix
+    /// (iCloud storage full). Every other failure — partial uploads, network
+    /// drops, server hiccups — is retried by the engine on its own and shown
+    /// in settings; a banner carrying a raw CloudKit error there reads as
+    /// noise. Repeats are held to once a day by `UserNotificationPolicy`.
     private static func notifyOnErrorTransition(old: CloudSyncStatus, new: CloudSyncStatus) {
-        guard old != new else { return }
+        guard old != new, new == .quotaExceeded else { return }
         let title = String(localized: "notify_cloud_sync_failed_title")
-        let message: String?
-        switch new {
-        case .error(let detail):
-            message = detail
-        case .quotaExceeded:
-            message = String(localized: "icloud_quota_exceeded")
-        default:
-            message = nil
-        }
-        guard let message else { return }
+        let message = String(localized: "icloud_quota_exceeded")
         #if os(tvOS)
         plog("TV cloud synchronization failed: \(message)")
         #else
         Task { @MainActor in
-            await UserNotificationService.shared.postError(
+            await UserNotificationService.shared.postActionRequired(
                 category: .cloudSyncFailed,
                 title: title,
                 body: message

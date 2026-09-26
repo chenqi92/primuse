@@ -638,6 +638,8 @@ final class AppServices {
     let musicIntelligence: MusicIntelligenceService
 
     private var sourceLifecycleObserverTokens: [NSObjectProtocol] = []
+    /// Feeds the "continue listening" widget.
+    private var spokenWordWidgetPublisher: SpokenWordWidgetPublisher?
     /// Stage 2: 把离线准备结果送进主线程发布的那一步。生产环境不取消它 ——
     /// 库不发布就永远停在 `.preparing`; 句柄保留下来只为让测试可以 await。
     private var startupPublication: Task<Void, Never>?
@@ -1076,6 +1078,9 @@ final class AppServices {
         observeApplicationActivity()
 
         wireIntentBridge()
+        let spokenWordWidgets = SpokenWordWidgetPublisher(library: musicLibrary)
+        spokenWordWidgets.start()
+        spokenWordWidgetPublisher = spokenWordWidgets
         observeSiriRadioCatalog()
         observeSpotlightSynchronization()
         musicIntelligence.start()
@@ -1950,6 +1955,31 @@ final class AppServices {
         }
         bridge.next = { await player.next(caller: "AppIntent") }
         bridge.previous = { await player.previous() }
+        bridge.skipBackward = {
+            player.skipSpokenWordBackward()
+            player.updatePlaybackState()
+        }
+        bridge.skipForward = {
+            player.skipSpokenWordForward()
+            player.updatePlaybackState()
+        }
+        bridge.resumeSpokenWordBook = { [self] bookID in
+            await awaitLibraryForIntent()
+            let songs = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
+            guard !songs.isEmpty else { return false }
+            let store = SpokenWordStore.shared
+            let books = SpokenWordBookGrouping.books(
+                from: songs.map { SpokenWordBookSupport.item(for: $0, store: store) }
+            )
+            guard let book = books.first(where: { $0.id == bookID }) ?? books.first else { return false }
+            let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let ordered = book.items.compactMap { songsByID[$0.id] }
+            guard let index = SpokenWordBookSupport.prepareStart(of: book, songs: ordered, from: nil) else {
+                return false
+            }
+            await player.play(queue: ordered, startingAt: index)
+            return true
+        }
         bridge.resumePlayback = {
             guard player.currentSong != nil else { return false }
             player.resume()

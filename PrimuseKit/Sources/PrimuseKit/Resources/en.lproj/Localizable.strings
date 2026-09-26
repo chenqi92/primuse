@@ -942,3 +942,16 @@
 "apple_music_pick_adding" = "Adding to library…";
 "apple_music_pick_added" = "Added %d, syncing";
 "apple_music_pick_failed" = "Couldn’t add to library";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "Listening";
+"ext.widget.spokenWord.partFormat" = "Part %1$ld of %2$ld";
+"ext.widget.spokenWord.remainingFormat" = "%@ left";
+"ext.widget.spokenWord.bookProgress" = "Book progress";
+"ext.widget.spokenWord.skipBackFormat" = "Back %ld seconds";
+"ext.widget.spokenWord.skipForwardFormat" = "Forward %ld seconds";
+"ext.widget.spokenWordShelf.displayName" = "Continue Listening";
+"ext.widget.spokenWordShelf.description" = "Pick up the audiobook you were listening to.";
+"ext.widget.spokenWordShelf.eyebrow" = "Continue Listening";
+"ext.widget.spokenWordShelf.empty.title" = "No book in progress";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Start an audiobook in Primuse to pick it up from here.";

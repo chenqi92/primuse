@@ -317,7 +317,7 @@ private struct SmallNowPlayingView: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
-                    Text(state.artistName ?? PMString("ext.widget.unknownArtist"))
+                    Text(nowPlayingSubtitle(state))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.white.opacity(0.78))
                         .lineLimit(1)
@@ -362,7 +362,7 @@ private struct MediumNowPlayingView: View {
                             .foregroundStyle(WidgetDesign.strongText)
                             .lineLimit(2)
                             .minimumScaleFactor(0.86)
-                        Text(state.artistName ?? PMString("ext.widget.unknownArtist"))
+                        Text(nowPlayingSubtitle(state))
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(WidgetDesign.secondaryText)
                             .lineLimit(1)
@@ -425,7 +425,7 @@ private struct LargeNowPlayingView: View {
                                 .foregroundStyle(WidgetDesign.strongText)
                                 .lineLimit(2)
                                 .minimumScaleFactor(0.82)
-                            Text(state.artistName ?? PMString("ext.widget.unknownArtist"))
+                            Text(nowPlayingSubtitle(state))
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(WidgetDesign.secondaryText)
                                 .lineLimit(1)
@@ -437,7 +437,12 @@ private struct LargeNowPlayingView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    if !state.isLiveStream {
+                    if let spokenWord = state.spokenWord, state.isSpokenWord {
+                        // 有声内容几乎没有歌词, 这块换成整本书的进度。
+                        SpokenWordBookProgressPanel(info: spokenWord)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .layoutPriority(1)
+                    } else if !state.isLiveStream {
                         NowPlayingLyricsPreview(snapshot: lyricsSnapshot)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
@@ -472,7 +477,7 @@ private struct NowPlayingEyebrow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: state.isLiveStream ? "dot.radiowaves.left.and.right" : (state.isPlaying ? "waveform" : "pause.fill"))
+            Image(systemName: nowPlayingSymbol(state))
                 .font(.system(size: 9.5, weight: .bold))
             Text(verbatim: eyebrowText)
                 .font(.system(size: 10, weight: .bold, design: .rounded))
@@ -483,6 +488,9 @@ private struct NowPlayingEyebrow: View {
 
     private var eyebrowText: String {
         if state.isLiveStream { return PMString("ext.widget.live") }
+        if state.isSpokenWord {
+            return PMString(state.isPlaying ? "ext.widget.spokenWord.listening" : "ext.widget.nowPlaying.paused")
+        }
         let format = state.fileFormat?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let format, !format.isEmpty {
             // 暂停时图标已经是 pause, 文案不能还写着"正在播放 · DTS"。
@@ -497,7 +505,46 @@ private struct NowPlayingEyebrow: View {
     }
 }
 
+/// 标题下面那一行: 音乐是艺人, 有声内容是书名。
+private func nowPlayingSubtitle(_ state: PlaybackState) -> String {
+    if state.isSpokenWord, let spokenWord = state.spokenWord {
+        let book = spokenWord.bookTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !book.isEmpty { return book }
+    }
+    return state.artistName ?? PMString("ext.widget.unknownArtist")
+}
+
+private func nowPlayingSymbol(_ state: PlaybackState) -> String {
+    if state.isLiveStream { return "dot.radiowaves.left.and.right" }
+    if !state.isPlaying { return "pause.fill" }
+    return state.isSpokenWord ? "book.fill" : "waveform"
+}
+
+/// 「第 3/12 章」, 书只有一部分时为 nil。
+private func spokenWordPartText(_ info: SpokenWordPlaybackInfo) -> String? {
+    guard let index = info.partIndex, let count = info.partCount, count > 1 else { return nil }
+    return PMString("ext.widget.spokenWord.partFormat", index, count)
+}
+
+/// 「剩 5 小时 12 分」。
+func spokenWordRemainingText(_ remaining: TimeInterval?) -> String? {
+    guard let remaining, remaining.isFinite, remaining >= 60 else { return nil }
+    let formatter = DateComponentsFormatter()
+    formatter.unitsStyle = .abbreviated
+    formatter.allowedUnits = remaining >= 3600 ? [.hour, .minute] : [.minute]
+    formatter.maximumUnitCount = 2
+    guard let text = formatter.string(from: remaining) else { return nil }
+    return PMString("ext.widget.spokenWord.remainingFormat", text)
+}
+
 private func secondaryMetadata(_ state: PlaybackState) -> String {
+    if state.isSpokenWord, let spokenWord = state.spokenWord {
+        let parts = [spokenWord.bookAuthor, spokenWordPartText(spokenWord)]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !parts.isEmpty { return parts.joined(separator: " · ") }
+        return state.artistName ?? ""
+    }
     if state.isLiveStream {
         let format = state.fileFormat?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return format.isEmpty ? PMString("ext.widget.live") : format.uppercased()
@@ -528,6 +575,38 @@ private struct NowPlayingControls: View {
     var compact: Bool
 
     var body: some View {
+        if let spokenWord = state.spokenWord, state.isSpokenWord {
+            spokenWordControls(spokenWord)
+        } else {
+            musicControls
+        }
+    }
+
+    /// 听书: 后退、播放 / 暂停、前进; 随机、循环、喜欢对一本书没有意义。
+    private func spokenWordControls(_ info: SpokenWordPlaybackInfo) -> some View {
+        HStack(spacing: compact ? 12 : 22) {
+            Button(intent: PrimuseSkipBackwardIntent()) {
+                controlIcon(symbol: info.skipBackwardSymbol)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(PMString("ext.widget.spokenWord.skipBackFormat", info.skipBackwardSeconds))
+
+            Button(intent: PrimusePlayPauseIntent()) {
+                controlIcon(symbol: state.isPlaying ? "pause.fill" : "play.fill", prominent: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(PMString(state.isPlaying ? "ext.control.pause" : "ext.control.play"))
+
+            Button(intent: PrimuseSkipForwardIntent()) {
+                controlIcon(symbol: info.skipForwardSymbol)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(PMString("ext.widget.spokenWord.skipForwardFormat", info.skipForwardSeconds))
+        }
+        .frame(maxWidth: .infinity, alignment: compact ? .leading : .center)
+    }
+
+    private var musicControls: some View {
         HStack(spacing: compact ? 10 : 14) {
             if !state.isLiveStream, !compact {
                 Button(intent: PrimuseShuffleAllIntent()) {
@@ -629,6 +708,59 @@ private struct NowPlayingControls: View {
             return WidgetDesign.brandTint.opacity(0.22)
         }
         return Color.primary.opacity(0.06)
+    }
+}
+
+/// 大号小组件里给有声内容的那一块: 整本书读到哪里、还剩多久。
+private struct SpokenWordBookProgressPanel: View {
+    let info: SpokenWordPlaybackInfo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label {
+                Text(verbatim: PMString("ext.widget.spokenWord.bookProgress"))
+            } icon: {
+                Image(systemName: "book.closed.fill")
+            }
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(WidgetDesign.tertiaryText)
+
+            if let fraction = info.bookFraction {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: "\(Int((min(1, max(0, fraction)) * 100).rounded()))%")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(WidgetDesign.strongText)
+                        .monospacedDigit()
+                    if let remaining = spokenWordRemainingText(info.bookRemaining) {
+                        Text(verbatim: remaining)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(WidgetDesign.secondaryText)
+                            .lineLimit(1)
+                    }
+                }
+                ProgressView(value: min(1, max(0, fraction)))
+                    .progressViewStyle(HairlineProgressStyle(
+                        track: Color.primary.opacity(0.12),
+                        fill: WidgetDesign.brandTint
+                    ))
+                    .frame(height: 2.5)
+            }
+            if let part = spokenWordPartText(info) {
+                Text(verbatim: part)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(WidgetDesign.secondaryText)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.primary.opacity(0.055), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(WidgetDesign.hairline, lineWidth: 1)
+        }
     }
 }
 
@@ -760,7 +892,7 @@ private struct AccessoryCircularNowPlaying: View {
                     EmptyView()
                 }
                 .progressViewStyle(.circular)
-                Image(systemName: "waveform")
+                Image(systemName: state.isSpokenWord ? "book.fill" : "waveform")
                     .font(.system(size: 13, weight: .semibold))
             } else if progress.duration > 0 {
                 // 暂停但有时长: 静态环停在当前比例。
@@ -785,17 +917,24 @@ private struct AccessoryRectangularNowPlaying: View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
-                    Image(systemName: state.isLiveStream ? "dot.radiowaves.left.and.right" : (state.isPlaying ? "waveform" : "pause.fill"))
+                    Image(systemName: nowPlayingSymbol(state))
                         .font(.system(size: 11, weight: .semibold))
                         .widgetAccentable()
                     Text(state.songTitle ?? PMString("ext.widget.unknownSong"))
                         .font(.headline)
                         .lineLimit(1)
                 }
-                Text(state.artistName ?? PMString("ext.widget.unknownArtist"))
+                Text(nowPlayingSubtitle(state))
                     .font(.caption2)
                     .lineLimit(1)
-                if state.isLiveStream {
+                if state.isSpokenWord, let spokenWord = state.spokenWord {
+                    let detail = spokenWordPartText(spokenWord) ?? spokenWord.bookAuthor ?? ""
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
+                } else if state.isLiveStream {
                     Text(verbatim: PMString("ext.widget.live"))
                         .font(.caption2.weight(.bold))
                         .lineLimit(1)
@@ -807,8 +946,8 @@ private struct AccessoryRectangularNowPlaying: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // 直播流不入库, 没有"喜欢"可言。
-            if !state.isLiveStream, state.currentSongID != nil {
+            // 直播流不入库, 没有"喜欢"可言; 书也不进「我喜欢」。
+            if !state.isLiveStream, !state.isSpokenWord, state.currentSongID != nil {
                 AccessoryLikeToggle(isLiked: state.isLiked ?? false)
             }
         }
@@ -842,10 +981,10 @@ private struct AccessoryInlineNowPlaying: View {
 
     var body: some View {
         let title = state.songTitle ?? PMString("ext.widget.unknownSong")
-        let artist = state.artistName ?? ""
+        let artist = state.isSpokenWord ? nowPlayingSubtitle(state) : (state.artistName ?? "")
         let symbol = state.isLiveStream
             ? "dot.radiowaves.left.and.right"
-            : (state.isPlaying ? "play.fill" : "pause.fill")
+            : (state.isPlaying ? (state.isSpokenWord ? "book.fill" : "play.fill") : "pause.fill")
         Label {
             if artist.isEmpty {
                 Text(title)

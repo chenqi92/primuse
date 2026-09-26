@@ -30,7 +30,7 @@ enum WidgetSharedStore {
     }
 
     /// Removes every widget cover file the main app drops in the shared
-    /// container (`widget_cover.png` + `widget_album_*.jpg`). Call this when
+    /// container (`widget_cover.png`, `widget_album_*.jpg`, `widget_book_*.jpg`). Call this when
     /// widget sync is turned off or the shared data scope is narrowed below
     /// `cover`, so the WidgetKit extension can't keep rendering album art the
     /// user no longer wants disclosed. Returns silently if the container is
@@ -44,7 +44,8 @@ enum WidgetSharedStore {
             at: containerURL,
             includingPropertiesForKeys: nil
         ) else { return }
-        for url in entries where url.lastPathComponent.hasPrefix("widget_album_") {
+        for url in entries where url.lastPathComponent.hasPrefix("widget_album_")
+            || url.lastPathComponent.hasPrefix(SpokenWordWidgetPolicy.coverFilePrefix) {
             try? fm.removeItem(at: url)
         }
     }

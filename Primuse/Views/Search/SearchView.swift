@@ -805,9 +805,10 @@ struct SearchView: View {
         guard !hit.songs.isEmpty else { return }
         addRecentSearch(searchText)
         let store = SpokenWordStore.shared
-        let book = SpokenWordBookGrouping.books(
+        let regrouped = SpokenWordBookGrouping.books(
             from: hit.songs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-        ).first ?? hit.book
+        )
+        let book = regrouped.first { $0.id == hit.book.id } ?? regrouped.first ?? hit.book
         let songsByID = Dictionary(hit.songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let orderedSongs = book.items.compactMap { songsByID[$0.id] }
         SpokenWordBookSupport.play(book, songs: orderedSongs, from: nil, player: player)
@@ -3047,6 +3048,7 @@ struct SearchView: View {
                 Text(scope?.title ?? String(localized: "library"))
             }
         }
+        .pmExtendsUnderVerticalBar()
     }
 
     /// 最近搜索排成一行行胶囊,下面是按流派浏览,最后一行资料库计数。
@@ -3095,6 +3097,8 @@ struct SearchView: View {
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.immediately)
+        // iPhone Duo 竖栏：和经典的最近搜索列表一样铺到屏幕边缘。
+        .pmExtendsUnderVerticalBar()
     }
 
     private func searchSectionTitle(_ key: LocalizedStringKey) -> some View {
@@ -3250,6 +3254,8 @@ struct SearchView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(skin.paintsPageBackground ? .hidden : .automatic)
+        // iPhone Duo 竖栏：结果行铺到屏幕边缘；上面的范围与分类选择不在列表里，照旧让开竖栏。
+        .pmExtendsUnderVerticalBar()
         // 结果表够宽时, 歌曲行把专辑与时长排成对齐列。
         .songRowColumnsContainer()
     }

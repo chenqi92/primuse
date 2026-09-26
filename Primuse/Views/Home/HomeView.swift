@@ -740,6 +740,8 @@ struct HomeView: View {
                 .padding(.bottom, bottomChromeClearance)
                 .pmAnimation(.contentAppear, value: model.isPrepared)
             }
+            // iPhone Duo 竖栏：卡片与横滑区铺到屏幕右缘，系统的玻璃胶囊浮在上面。
+            .pmExtendsUnderVerticalBar()
             .onChange(of: activeHomeFilter) { _, _ in
                 // 从全部中段的「全部」「书架」筛过去时,筛出来的内容从顶上开始看。
                 proxy.scrollTo(Self.homeTopAnchor, anchor: .top)

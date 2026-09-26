@@ -15,7 +15,14 @@ extension EnvironmentValues {
     /// (普通 iPhone、iPad、Mac,以及 Xcode 27.0 构建的 App)。
     var pmVerticalBarEdge: HorizontalEdge? {
         #if DEBUG
-        if pmDebugSuppressesVerticalBar { return nil }
+        if pmDebugSuppressesVerticalBar {
+            // 取证框模拟的视口:只在能有竖栏的构建(27.1 SDK)里按它自己的那一条排。
+            #if os(iOS) && canImport(SwiftUI, _version: 8.0.85)
+            return pmDebugSimulatedVerticalBarEdge
+            #else
+            return nil
+            #endif
+        }
         #endif
         #if os(iOS) && canImport(SwiftUI, _version: 8.0.85)
         if #available(iOS 27.1, *) {
@@ -105,6 +112,10 @@ private struct PMDebugFoldAxisKey: EnvironmentKey {
 private struct PMDebugSuppressesVerticalBarKey: EnvironmentKey {
     static let defaultValue = false
 }
+
+private struct PMDebugSimulatedVerticalBarEdgeKey: EnvironmentKey {
+    static let defaultValue: HorizontalEdge? = nil
+}
 #endif
 
 extension EnvironmentValues {
@@ -127,6 +138,13 @@ extension EnvironmentValues {
     var pmDebugSuppressesVerticalBar: Bool {
         get { self[PMDebugSuppressesVerticalBarKey.self] }
         set { self[PMDebugSuppressesVerticalBarKey.self] = newValue }
+    }
+
+    /// 取证框模拟的视口本身有系统竖栏(内屏横握、外屏竖握)时,框里按这一侧有竖栏排
+    /// (外屏自己的竖栏照旧不算)。
+    var pmDebugSimulatedVerticalBarEdge: HorizontalEdge? {
+        get { self[PMDebugSimulatedVerticalBarEdgeKey.self] }
+        set { self[PMDebugSimulatedVerticalBarEdgeKey.self] = newValue }
     }
     #endif
 }
@@ -183,114 +201,17 @@ struct PMHorizontalArrangement<Primary: View, Secondary: View>: View {
 }
 
 extension View {
-    /// 横滑的一排(首页各区块、详情页「更多来自」、搜索页流派……)在系统竖栏前停住。
+    /// 横滑的一排(首页各区块、详情页「更多来自」、搜索页流派……)遇到系统竖栏时怎么排。
     ///
-    /// 横向 ScrollView 会顺着滚动方向伸进安全区:普通 iPhone 横屏卡片在刘海下面继续露出来是系统习惯,
-    /// 可 iPhone Duo 的竖栏是一条放着按钮与状态栏的控件区,卡片钻到它底下会被切成半张。有系统竖栏时
-    /// 把伸进竖栏那一侧的部分裁掉;滚动边距系统已经按安全区给了,最后一张照样能完整滚出来。
-    /// 没有竖栏(普通 iPhone、iPad、Mac、Xcode 27.0 构建)时原样返回。
+    /// iPhone Duo 的竖栏是一列浮在内容上的玻璃胶囊:竖栏在尾侧时页面的滚动内容铺到屏幕物理边缘
+    /// (`pmExtendsUnderVerticalBar()`),横滑的卡片也和其它内容一样铺到屏幕边缘、像普通 iPhone 那样
+    /// 在屏幕边上露出下一张,胶囊浮在上面,不在竖栏前截断。竖栏在前沿(外屏横握)、或所在页面没有铺过去时,
+    /// 横向 ScrollView 本来就顺着滚动方向伸进安全区、滚动边距也按安全区给了,静止时第一张照旧在竖栏外,
+    /// 最后一张照样能完整滚出来。所以这里不再裁切;留着这个入口是为了规则再变时只改一处。
     func pmStopsAtVerticalBar() -> some View {
-        modifier(PMVerticalBarCarouselClip())
+        self
     }
 }
-
-private struct PMVerticalBarCarouselClip: ViewModifier {
-    @Environment(\.pmVerticalBarEdge) private var edge
-    @Environment(\.layoutDirection) private var layoutDirection
-    /// 这一排在屏幕上的位置(窗口坐标)。
-    @State private var frameInWindow: CGRect = .zero
-    /// 窗口的尺寸与安全区:竖栏那条就是窗口那一侧的安全区。
-    @State private var window = PMWindowMetrics()
-
-    func body(content: Content) -> some View {
-        if edge != nil {
-            // 按屏幕上的实际位置算伸进竖栏多少:横向 ScrollView 在两侧伸进安全区的方式不一样
-            // (竖握时顺着滚动方向伸到竖栏底下,横握时自己的安全区读数也会把竖栏算进去),
-            // 只信窗口坐标。左右两侧各按窗口安全区裁,另一侧没有竖栏时安全区是 0,不裁。
-            let left = max(0, window.safeLeft - frameInWindow.minX)
-            let right = max(0, frameInWindow.maxX - (window.width - window.safeRight))
-            let isRTL = layoutDirection == .rightToLeft
-            content
-                .onGeometryChange(for: CGRect.self) { proxy in
-                    proxy.frame(in: .global)
-                } action: { frameInWindow = $0 }
-                .background {
-                    #if os(iOS)
-                    PMWindowMetricsReader { window = $0 }
-                        .frame(width: 0, height: 0)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                    #endif
-                }
-                .mask {
-                    Rectangle()
-                        .padding(.leading, isRTL ? right : left)
-                        .padding(.trailing, isRTL ? left : right)
-                }
-        } else {
-            content
-        }
-    }
-}
-
-/// 窗口的宽度与左右安全区(竖排的系统栏就在其中一侧的安全区里)。
-struct PMWindowMetrics: Equatable {
-    var width: CGFloat = .greatestFiniteMagnitude
-    var safeLeft: CGFloat = 0
-    var safeRight: CGFloat = 0
-}
-
-#if os(iOS)
-/// 读所在窗口的宽度与左右安全区,变化时回报。
-struct PMWindowMetricsReader: UIViewRepresentable {
-    let onChange: (PMWindowMetrics) -> Void
-
-    func makeUIView(context: Context) -> ReaderView {
-        let view = ReaderView()
-        view.onChange = onChange
-        return view
-    }
-
-    func updateUIView(_ uiView: ReaderView, context: Context) {
-        uiView.onChange = onChange
-        uiView.publishIfNeeded()
-    }
-
-    final class ReaderView: UIView {
-        var onChange: ((PMWindowMetrics) -> Void)?
-        private var last: PMWindowMetrics?
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            publishIfNeeded()
-        }
-
-        override func safeAreaInsetsDidChange() {
-            super.safeAreaInsetsDidChange()
-            publishIfNeeded()
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            publishIfNeeded()
-        }
-
-        func publishIfNeeded() {
-            guard let window else { return }
-            let metrics = PMWindowMetrics(
-                width: window.bounds.width,
-                safeLeft: window.safeAreaInsets.left,
-                safeRight: window.safeAreaInsets.right
-            )
-            guard metrics != last else { return }
-            last = metrics
-            DispatchQueue.main.async { [weak self] in
-                self?.onChange?(metrics)
-            }
-        }
-    }
-}
-#endif
 
 extension ToolbarContent {
     /// 系统竖栏(iPhone Duo)空间不够时,这一组最后才收进系统溢出菜单。iOS 27 以前原样返回。

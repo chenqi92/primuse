@@ -182,10 +182,13 @@ final class AudioEngine {
     private static let transportFadeStepDuration: Duration = .milliseconds(8)
 
     private var engineIdleShutdownTask: Task<Void, Never>?
-    /// How long the render graph stays live after a transport pause. It covers
-    /// Play/Pause tapping and picking the next song from a paused transport,
-    /// which is where a hardware restart is both audible and avoidable.
-    private static let engineIdleShutdownDelay: Duration = .seconds(12)
+    /// How long the render graph stays live after a transport pause: long
+    /// enough for the effect chain to drain its tail, and for a quick
+    /// Play/Pause reversal to reuse the live graph. It must stay short —
+    /// iOS derives the Control Center / lock screen play-pause glyph from
+    /// whether the app's audio IO is still running, not from the published
+    /// playback rate, so a running engine keeps showing Pause after a pause.
+    private static let engineIdleShutdownDelay: Duration = .milliseconds(300)
 
     /// DLNA 后台保活用 ── 喂一段 -90 dB 的极小振幅 buffer 让 iOS audio
     /// background mode 不挂起进程, NWListener 才能持续接 SSDP / control 请求。
@@ -1447,11 +1450,10 @@ final class AudioEngine {
         engine.mainMixerNode.reset()
     }
 
-    /// Keeps the graph running across a transport pause, then releases the
-    /// hardware once the pause is clearly not momentary. Within the window a
-    /// resume — or a song started from the paused transport — reuses the live
-    /// graph: no `AVAudioEngine.start()` on the critical path, and no frozen
-    /// tail waiting to be flushed into the first moments of the new audio.
+    /// Keeps the graph running briefly across a transport pause, then releases
+    /// the hardware. Within the window a resume reuses the live graph; after
+    /// it every start flushes the effect chain first, so the stale tail never
+    /// reaches the output either way.
     private func scheduleEngineIdleShutdown() {
         cancelEngineIdleShutdown()
         engineIdleShutdownTask = Task { @MainActor [weak self] in

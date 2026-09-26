@@ -483,6 +483,10 @@ final class ScanService {
     /// 用户回到前台, 凭它决定还能不能再申请一次。
     @ObservationIgnored private var userInitiatedScanIntents: Set<String> = []
     #endif
+    /// Sources whose latest scan was started by the listener in the app.
+    /// Unlike `userInitiatedScanIntents` this covers every platform and every
+    /// source type; it only decides whether a failure notification is sent.
+    @ObservationIgnored private var userInitiatedScanSourceIDs: Set<String> = []
 
     /// The profile every running scan currently obeys. Derived rather than
     /// stored per scan: a scan started in the foreground and still running
@@ -1031,6 +1035,13 @@ final class ScanService {
 
         scanGenerations[source.id, default: 0] += 1
         let generation = scanGenerations[source.id] ?? 0
+        // Only the latest scan of a source decides whether its failure is
+        // worth a notification.
+        if snapshotExecutionContext == .userInitiatedForeground {
+            userInitiatedScanSourceIDs.insert(source.id)
+        } else {
+            userInitiatedScanSourceIDs.remove(source.id)
+        }
         if LocalImportService.isManagedSource(source) {
             localImportScanRevisions[source.id] = (generation, LocalImportService.pendingScanRevision)
         }
@@ -2301,7 +2312,10 @@ final class ScanService {
                 sourceID: source.id,
                 message: sourceManager.scanFailureMessage(for: error, source: source)
             )
-            Self.notifyScanFailed(sourceName: source.name, error: error)
+            notifyScanFailed(
+                for: source,
+                message: sourceManager.scanFailureMessage(for: error, source: source)
+            )
         }
     }
 
@@ -3031,7 +3045,10 @@ final class ScanService {
                     sourceID: source.id,
                     message: sourceManager.scanFailureMessage(for: error, source: source)
                 )
-                Self.notifyScanFailed(sourceName: source.name, error: error)
+                notifyScanFailed(
+                    for: source,
+                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                )
                 return
             }
             let trusted = await SSLTrustStore.shared.handleSSLErrorIfNeeded(error)
@@ -3073,7 +3090,10 @@ final class ScanService {
                 sourceID: source.id,
                 message: sourceManager.scanFailureMessage(for: error, source: source)
             )
-            Self.notifyScanFailed(sourceName: source.name, error: error)
+            notifyScanFailed(
+                for: source,
+                message: sourceManager.scanFailureMessage(for: error, source: source)
+            )
         }
     }
 
@@ -4088,7 +4108,10 @@ final class ScanService {
                     message: sourceManager.scanFailureMessage(for: error, source: source),
                     scannedCount: 0
                 )
-                Self.notifyScanFailed(sourceName: source.name, error: error)
+                notifyScanFailed(
+                    for: source,
+                    message: sourceManager.scanFailureMessage(for: error, source: source)
+                )
                 return true
             }
         }
@@ -4149,18 +4172,21 @@ final class ScanService {
         )
     }
 
-    /// Build & post the "scan failed" error notification. Only the
-    /// localizedDescription leaks to the user — full error chains stay in the
-    /// log via the existing `currentFile` debug field.
-    private static func notifyScanFailed(sourceName: String, error: Error) {
+    /// Posts the "scan failed" notification, worded like the failure shown on
+    /// the source card. Automatic scans (launch resume, directory upkeep,
+    /// background wake-ups) fail quietly into that card: a banner about work
+    /// nobody asked for, often while away from the home network, only
+    /// confuses.
+    private func notifyScanFailed(for source: MusicSource, message: String) {
+        let isUserInitiated = userInitiatedScanSourceIDs.contains(source.id)
         let title = String(localized: "notify_scan_failed_title")
-        let format = String(localized: "notify_scan_failed_body")
-        let body = String(format: format, sourceName, error.localizedDescription)
+        let body = String(format: String(localized: "notify_scan_failed_body"), source.name, message)
         Task { @MainActor in
-            await UserNotificationService.shared.postError(
+            await UserNotificationService.shared.postFailure(
                 category: .scanFailed,
                 title: title,
-                body: body
+                body: body,
+                isUserInitiated: isUserInitiated
             )
         }
     }

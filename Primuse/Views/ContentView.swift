@@ -1713,6 +1713,8 @@ struct ContentView: View {
                     .zIndex(2)
             }
         }
+        // iPhone Duo 合上、展开时整屏做一次归位（模糊、沿开合方向拉伸后回到原样），播放页也在里面。
+        .pmScreenChangeTransition()
         .environment(\.librarySearchNavigation, searchNavigation)
         .environment(\.usesTopTabsShell, rootLayout == .minimal)
         .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
@@ -1781,6 +1783,7 @@ struct ContentView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .task { await runDebugRotation() }
         #endif
         .alert(
             String(localized: "server_favorite_update_failed_title"),
@@ -2139,6 +2142,7 @@ struct ContentView: View {
 /// `searchidle`（打开搜索但不弹键盘）/ `onboarding`（首启引导）。另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
 /// 详情页取证用：`playlist:<名字片段>`（`liked` 是「喜欢」）/ `genre:<名字片段>` /
 /// `zoom:<专辑标题片段>`（先停在专辑网格，再从网格推入专辑页、退回、再推入，录缩放转场用）。
+/// `PRIMUSE_DEBUG_SEED_RADIO=1` 建几个取证用的电台（看电台页版式）。
 /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）；
 /// 另建两张同样形态的取证智能歌单（Evidence Smart Wall / Evidence Smart Single），用 `smart:<名字片段>` 打开。
 /// `scopedsearch:<专辑标题片段>`：打开专辑页，三秒后进「在这张专辑里搜索」（顶部 tab 外壳走详情页的放大镜，经典走搜索标签）。
@@ -2161,6 +2165,7 @@ extension ContentView {
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
         debugSeedPlaylistsIfRequested()
+        debugSeedRadioIfRequested()
         if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
            orientation == "landscape" || orientation == "portrait" {
             InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
@@ -2335,6 +2340,22 @@ extension ContentView {
         }
     }
 
+    /// `PRIMUSE_DEBUG_ROTATE_EVERY=<秒>`：每隔这么久请求一次转屏（竖 ⇄ 横），走系统真实的转屏过渡，
+    /// 录屏看换构图的元素过渡在系统过渡里是不是还在。起始方向跟 `PRIMUSE_ORIENTATION`。
+    @MainActor
+    private func runDebugRotation() async {
+        let environment = ProcessInfo.processInfo.environment
+        guard let every = environment["PRIMUSE_DEBUG_ROTATE_EVERY"].flatMap(Double.init), every > 0 else { return }
+        var landscape = environment["PRIMUSE_ORIENTATION"]?.lowercased() == "landscape"
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(every))
+            guard !Task.isCancelled else { return }
+            landscape.toggle()
+            plog("🧪 DebugLaunchAutomation: rotate to \(landscape ? "landscape" : "portrait")")
+            InterfaceOrientationLock.debugRequest(landscape: landscape)
+        }
+    }
+
     @MainActor
     private func debugOpenSection(_ section: LibrarySection) {
         openLibraryDeepLink(.section(section))
@@ -2367,6 +2388,18 @@ extension ContentView {
             library.saveSmartPlaylist(SmartPlaylist(
                 name: "Evidence Smart Single",
                 rules: [SmartPlaylistRule(field: .albumTitle, op: .contains, value: "Evidence")]
+            ))
+        }
+    }
+
+    /// `PRIMUSE_DEBUG_SEED_RADIO=1`：没有电台时建几个取证用的（地址不通，只看版式），名字固定，重复启动不会重复建。
+    private func debugSeedRadioIfRequested() {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_RADIO"] == "1" else { return }
+        let existing = Set(radioStationsStore.stations.map(\.name))
+        for index in 1...8 where !existing.contains("Evidence FM \(index)") {
+            radioStationsStore.add(RadioStation(
+                name: "Evidence FM \(index)",
+                streamURL: "https://radio.example.com/evidence\(index).mp3"
             ))
         }
     }

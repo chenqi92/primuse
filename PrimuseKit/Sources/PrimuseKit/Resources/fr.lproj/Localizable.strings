@@ -944,3 +944,16 @@
 "apple_music_pick_adding" = "Ajout à la bibliothèque…";
 "apple_music_pick_added" = "%d ajoutés, synchronisation";
 "apple_music_pick_failed" = "Échec de l’ajout à la bibliothèque";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "En écoute";
+"ext.widget.spokenWord.partFormat" = "Partie %1$ld sur %2$ld";
+"ext.widget.spokenWord.remainingFormat" = "%@ restant";
+"ext.widget.spokenWord.bookProgress" = "Progression du livre";
+"ext.widget.spokenWord.skipBackFormat" = "Reculer de %ld secondes";
+"ext.widget.spokenWord.skipForwardFormat" = "Avancer de %ld secondes";
+"ext.widget.spokenWordShelf.displayName" = "Reprendre l’écoute";
+"ext.widget.spokenWordShelf.description" = "Reprenez le livre audio que vous écoutiez.";
+"ext.widget.spokenWordShelf.eyebrow" = "Reprendre l’écoute";
+"ext.widget.spokenWordShelf.empty.title" = "Aucun livre en cours";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Commencez un livre audio dans Primuse pour le reprendre ici.";

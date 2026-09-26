@@ -314,7 +314,8 @@ enum LyricsLoader {
                 if sourceResult == .emptyPreservingCache {
                     let onlineCacheSnapshot = await MetadataAssetStore.shared
                         .cachedLyrics(forSongID: song.id)
-                    if let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
+                    if songAcceptsAutomaticOnlineLyrics(song),
+                       let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
                         title: song.title,
                         artist: song.artistName,
                         album: song.albumTitle,
@@ -601,6 +602,14 @@ actor AutomaticOnlineLyricsLedger {
 }
 
 extension LyricsLoader {
+    /// 在线歌词源按「标题+艺人」找歌词，有声内容的标题是「第 12 集」「Chapter 3」
+    /// 这类章节名，搜到的只会是同名歌曲的歌词，和正在讲的内容毫无关系。所以有声
+    /// 内容只认源里自带的（同目录 .lrc/.vtt/.srt、内嵌、服务端），自动在线查找
+    /// 一律不走；用户在刮削页手动搜仍然可以。
+    static func songAcceptsAutomaticOnlineLyrics(_ song: Song) -> Bool {
+        !SpokenWordStore.shared.isSpokenWord(song)
+    }
+
     /// Tier4：本地/网盘等普通源确实没有歌词时，按启用顺序向在线歌词源取一次并写入缓存。
     /// 开关关、没有启用的歌词源、台账说最近问过、任务被取消 → nil。
     static func automaticOnlineLyrics(
@@ -608,6 +617,7 @@ extension LyricsLoader {
         expectedFingerprint: LyricsDocumentFingerprint?
     ) async -> [LyricLine]? {
         guard !Task.isCancelled else { return nil }
+        guard songAcceptsAutomaticOnlineLyrics(song) else { return nil }
         let settings = ScraperSettings.load()
         guard settings.autoFetchOnlineLyrics else { return nil }
         let hasLyricsServers = !LyricsAPIServerSettings.load().servers.isEmpty

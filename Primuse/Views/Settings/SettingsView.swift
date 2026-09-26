@@ -2147,7 +2147,8 @@ struct StorageManagementView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(MetadataBackfillService.self) private var backfill
     @AppStorage(MetadataBackfillService.wifiOnlyDefaultsKey) private var cloudScanWifiOnly: Bool = true
-    @AppStorage(UserNotificationService.notifyLongTasksKey) private var notifyBackfillComplete: Bool = false
+    @AppStorage(UserNotificationService.notifyLongTasksKey) private var notifyBackfillComplete: Bool =
+        UserNotificationPolicy.completionNotificationsDefault
     /// 系统授权状态 ── 进页面时查一次。用户在系统 Settings 关掉后, toggle
     /// 仍是 on 但显示"已被系统拒绝"提示, 让用户知道为什么开关无效。
     @State private var notificationStatusDenied: Bool = false
@@ -2175,32 +2176,6 @@ struct StorageManagementView: View {
                         // start (or stop) right after flipping the switch.
                         backfill.refreshQueue()
                     }
-                Toggle("notify_backfill_complete", isOn: $notifyBackfillComplete)
-                .settingsAnchor("storage.notifyBackfill")
-                    .onChange(of: notifyBackfillComplete) { _, on in
-                        guard on else { return }
-                        // 用户从关 → 开: 主动请求权限。UserNotificationService 内部
-                        // 会 lazy 请求, 这里直接发一条 silent 'probe' 触发授权
-                        // 弹窗即可; 之前 deny 过的话不会再弹, 我们改用直接查询
-                        // UNUserNotificationCenter.notificationSettings() 检测。
-                        Task {
-                            let center = UNUserNotificationCenter.current()
-                            let settings = await center.notificationSettings()
-                            if settings.authorizationStatus == .notDetermined {
-                                let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
-                                if !granted {
-                                    notificationStatusDenied = true
-                                }
-                            } else if settings.authorizationStatus == .denied {
-                                notificationStatusDenied = true
-                            }
-                        }
-                    }
-                if notifyBackfillComplete && notificationStatusDenied {
-                    Label("notify_permission_denied_hint", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
                 if backfill.statusCount > 0 {
                     HStack {
                         switch backfill.activityState {
@@ -2255,12 +2230,30 @@ struct StorageManagementView: View {
             } footer: {
                 Text("cloud_scan_wifi_only_footer")
             }
+
+            Section {
+                Toggle("notify_backfill_complete", isOn: $notifyBackfillComplete)
+                    .settingsAnchor("storage.notifyBackfill")
+                    .onChange(of: notifyBackfillComplete) { _, on in
+                        guard on else { return }
+                        Task {
+                            notificationStatusDenied = await !UserNotificationService.shared.requestAuthorizationIfNeeded()
+                        }
+                    }
+                if notifyBackfillComplete && notificationStatusDenied {
+                    Label("notify_permission_denied_hint", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Text("notifications_section")
+            } footer: {
+                Text("notify_long_tasks_footer")
+            }
             .task {
-                // 进设置页时查一次系统授权状态。如果用户在 Settings 关掉了,
-                // toggle 显示打开但 notificationStatusDenied 让 UI 提示。
+                // 用户可能在系统设置里关掉了通知：开关还开着，就提示为什么不生效。
                 if notifyBackfillComplete {
-                    let settings = await UNUserNotificationCenter.current().notificationSettings()
-                    notificationStatusDenied = (settings.authorizationStatus == .denied)
+                    notificationStatusDenied = await UserNotificationService.shared.isAuthorizationDenied()
                 }
             }
 

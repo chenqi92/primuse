@@ -1144,7 +1144,7 @@
 "backfill_done_title" = "标签读取完成";
 "backfill_done_body" = "已检查 %d 首歌的文件标签。";
 "backfill_keep_app_alive_hint" = "播放任意一首歌曲可让标签持续读取";
-"notify_backfill_complete" = "标签读取完成时通知我";
+"notify_backfill_complete" = "长任务完成时通知我";
 "notify_permission_denied_hint" = "通知权限已被拒绝。请到系统「设置 → Primuse」中允许通知。";
 
 // MARK: - 年度音乐报告
@@ -4460,6 +4460,7 @@
 "spoken_word_bookmarks_title" = "书签";
 "spoken_word_bookmarks_empty" = "收听时点书签按钮，就能记下想再回来听的位置。";
 "spoken_word_chapters_and_bookmarks" = "章节与书签";
+"spoken_word_go_to_book" = "前往这本书";
 "spoken_word_delete_bookmark" = "删除书签";
 "spoken_word_continue" = "继续收听";
 "spoken_word_start" = "开始收听";
@@ -4765,3 +4766,14 @@
 "directory_tag_menu_title" = "目录里的内容";
 "directory_tag_hint" = "点一下已选目录旁的标签改成「有声」，里面的内容会放进有声书架，不和音乐混在一起。";
 "home_filter_clear_hint" = "再点一次回到全部";
+"notifications_section" = "通知";
+"notify_long_tasks_footer" = "你发起的扫描、标签读取和刮削在后台完成时提醒你。扫描失败、iCloud 空间已满这类需要你处理的问题不受此开关影响；App 在前台时不会发通知。";
+
+/* Spoken word widget intents */
+"Skip Back" = "后退";
+"Go back a few seconds in the book playing in Primuse." = "在 Primuse 正在播放的书里往回退几秒。";
+"Skip Forward" = "前进";
+"Go forward a few seconds in the book playing in Primuse." = "在 Primuse 正在播放的书里往前跳几秒。";
+"Continue Listening" = "继续收听";
+"Continue a book in Primuse from where you left off." = "从上次停下的地方接着听 Primuse 里的一本书。";
+"Book" = "书";

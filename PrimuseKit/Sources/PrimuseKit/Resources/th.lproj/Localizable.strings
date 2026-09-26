@@ -891,3 +891,16 @@
 "apple_music_pick_adding" = "กำลังเพิ่มลงคลัง…";
 "apple_music_pick_added" = "เพิ่มแล้ว %d เพลง กำลังซิงค์";
 "apple_music_pick_failed" = "เพิ่มลงคลังไม่สำเร็จ";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "กำลังฟัง";
+"ext.widget.spokenWord.partFormat" = "ตอนที่ %1$ld จาก %2$ld";
+"ext.widget.spokenWord.remainingFormat" = "เหลือ %@";
+"ext.widget.spokenWord.bookProgress" = "ความคืบหน้าของหนังสือ";
+"ext.widget.spokenWord.skipBackFormat" = "ย้อนกลับ %ld วินาที";
+"ext.widget.spokenWord.skipForwardFormat" = "ข้ามไป %ld วินาที";
+"ext.widget.spokenWordShelf.displayName" = "ฟังต่อ";
+"ext.widget.spokenWordShelf.description" = "ฟังหนังสือเสียงที่ค้างไว้ต่อทันที";
+"ext.widget.spokenWordShelf.eyebrow" = "ฟังต่อ";
+"ext.widget.spokenWordShelf.empty.title" = "ยังไม่มีหนังสือที่กำลังฟัง";
+"ext.widget.spokenWordShelf.empty.subtitle" = "เริ่มฟังหนังสือเสียงใน Primuse แล้วฟังต่อได้จากตรงนี้";

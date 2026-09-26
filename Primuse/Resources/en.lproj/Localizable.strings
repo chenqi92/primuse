@@ -1128,7 +1128,7 @@
 "backfill_done_title" = "Tag reading complete";
 "backfill_done_body" = "File tags inspected for %d songs.";
 "backfill_keep_app_alive_hint" = "Play any song to keep tag reading running";
-"notify_backfill_complete" = "Notify when tag reading completes";
+"notify_backfill_complete" = "Notify when long tasks finish";
 "notify_permission_denied_hint" = "Notification permission denied. Allow it in iOS Settings → Primuse.";
 
 // MARK: - Yearly music report
@@ -4130,6 +4130,7 @@
 "spoken_word_bookmarks_title" = "Bookmarks";
 "spoken_word_bookmarks_empty" = "Tap the bookmark button while listening to mark a place you want to come back to.";
 "spoken_word_chapters_and_bookmarks" = "Chapters & Bookmarks";
+"spoken_word_go_to_book" = "Go to Book";
 "spoken_word_delete_bookmark" = "Delete Bookmark";
 "spoken_word_continue" = "Continue";
 "spoken_word_start" = "Start Listening";
@@ -4435,3 +4436,14 @@
 "directory_tag_menu_title" = "What’s in This Folder";
 "directory_tag_hint" = "Tap the tag next to a selected folder and choose Spoken Word to put everything in it on the books shelf instead of in your music.";
 "home_filter_clear_hint" = "Tap again to show everything";
+"notifications_section" = "Notifications";
+"notify_long_tasks_footer" = "Get notified when a scan, tag reading or metadata scrape you started finishes in the background. Problems that need you, like a failed scan or full iCloud storage, are reported either way. Nothing is sent while the app is open.";
+
+/* Spoken word widget intents */
+"Skip Back" = "Skip Back";
+"Go back a few seconds in the book playing in Primuse." = "Go back a few seconds in the book playing in Primuse.";
+"Skip Forward" = "Skip Forward";
+"Go forward a few seconds in the book playing in Primuse." = "Go forward a few seconds in the book playing in Primuse.";
+"Continue Listening" = "Continue Listening";
+"Continue a book in Primuse from where you left off." = "Continue a book in Primuse from where you left off.";
+"Book" = "Book";

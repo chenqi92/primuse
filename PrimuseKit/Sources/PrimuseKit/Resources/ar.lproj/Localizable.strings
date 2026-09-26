@@ -891,3 +891,16 @@
 "apple_music_pick_adding" = "جارٍ الإضافة إلى المكتبة…";
 "apple_music_pick_added" = "تمت إضافة %d، جارٍ المزامنة";
 "apple_music_pick_failed" = "تعذّرت الإضافة إلى المكتبة";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "قيد الاستماع";
+"ext.widget.spokenWord.partFormat" = "الجزء %1$ld من %2$ld";
+"ext.widget.spokenWord.remainingFormat" = "متبقٍ %@";
+"ext.widget.spokenWord.bookProgress" = "تقدم الكتاب";
+"ext.widget.spokenWord.skipBackFormat" = "رجوع %ld ثانية";
+"ext.widget.spokenWord.skipForwardFormat" = "تقدّم %ld ثانية";
+"ext.widget.spokenWordShelf.displayName" = "متابعة الاستماع";
+"ext.widget.spokenWordShelf.description" = "تابع الكتاب الصوتي الذي كنت تستمع إليه.";
+"ext.widget.spokenWordShelf.eyebrow" = "متابعة الاستماع";
+"ext.widget.spokenWordShelf.empty.title" = "لا يوجد كتاب قيد الاستماع";
+"ext.widget.spokenWordShelf.empty.subtitle" = "ابدأ كتابًا صوتيًا في Primuse لمتابعته من هنا.";

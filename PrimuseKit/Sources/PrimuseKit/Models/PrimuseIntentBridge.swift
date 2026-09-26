@@ -48,6 +48,13 @@ public final class PrimuseIntentBridge {
     public var setPlaying: @MainActor (Bool) -> Void = { _ in }
     public var next: @MainActor () async -> Void = {}
     public var previous: @MainActor () async -> Void = {}
+    /// Spoken word's replacements for previous / next: back and forward by
+    /// the listener's skip intervals.
+    public var skipBackward: @MainActor () -> Void = {}
+    public var skipForward: @MainActor () -> Void = {}
+    /// Continues a book (`SpokenWordBook.id`) from where it was left off.
+    /// False when the book is no longer in the library.
+    public var resumeSpokenWordBook: @MainActor (_ bookID: String) async -> Bool = { _ in false }
     /// Resumes the retained song or live station. Returns false when no
     /// resumable playback session exists.
     public var resumePlayback: @MainActor () async -> Bool = { false }

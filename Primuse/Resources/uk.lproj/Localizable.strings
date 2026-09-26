@@ -2902,7 +2902,7 @@
 "scraper_review_capabilities" = "Можливості";
 "edit_source" = "Редагувати джерело";
 "yearly_card_genres_unit" = "типи";
-"notify_backfill_complete" = "Повідомити, коли читання тегу завершиться";
+"notify_backfill_complete" = "Сповіщати про завершення довгих завдань";
 "onboarding_mac_welcome_desc" = "Нативний плеєр macOS, створений для ентузіастів NAS / медіасерверів. Помістіть свої файли FLAC, DSD і APE в одну об’єднану медіатеку.";
 "ai_audio_transcription_action" = "Транскрибувати пісню";
 "a11y_disable_music_video" = "Вимкнути музичне відео";
@@ -4273,6 +4273,7 @@
 "spoken_word_bookmarks_title" = "Закладки";
 "spoken_word_bookmarks_empty" = "Під час прослуховування натисніть кнопку закладки, щоб позначити місце, до якого хочете повернутися.";
 "spoken_word_chapters_and_bookmarks" = "Розділи й закладки";
+"spoken_word_go_to_book" = "Перейти до книги";
 "spoken_word_delete_bookmark" = "Видалити закладку";
 "spoken_word_continue" = "Продовжити";
 "spoken_word_start" = "Почати слухати";
@@ -4578,3 +4579,14 @@
 "directory_tag_menu_title" = "Вміст цієї теки";
 "directory_tag_hint" = "Торкніться мітки біля вибраної теки й виберіть «Аудіокниги», щоб її вміст потрапив на полицю аудіокниг, а не до музики.";
 "home_filter_clear_hint" = "Торкніться ще раз, щоб показати все";
+"notifications_section" = "Сповіщення";
+"notify_long_tasks_footer" = "Сповіщення надійде, коли запущені вами сканування, читання тегів або завантаження метаданих завершаться у фоні. Про проблеми, які потребують вашої участі, як-от невдале сканування чи заповнене сховище iCloud, сповіщення надійде в будь-якому разі. Поки застосунок відкритий, сповіщення не надсилаються.";
+
+/* Spoken word widget intents */
+"Skip Back" = "Назад";
+"Go back a few seconds in the book playing in Primuse." = "Перемотати книгу в Primuse на кілька секунд назад.";
+"Skip Forward" = "Уперед";
+"Go forward a few seconds in the book playing in Primuse." = "Перемотати книгу в Primuse на кілька секунд уперед.";
+"Continue Listening" = "Продовжити";
+"Continue a book in Primuse from where you left off." = "Продовжити книгу в Primuse з місця зупинки.";
+"Book" = "Книга";

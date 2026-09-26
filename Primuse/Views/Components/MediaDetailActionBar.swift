@@ -193,6 +193,9 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
     @Environment(\.legacyBottomChromeOverlayActive) private var legacyBottomChromeOverlayActive
     /// iPhone 才在宽画布(Duo 内屏横握)上把头图与列表并排,iPad 保持原样。
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiom
+    /// iPhone Duo 竖栏在尾侧时：曲目等正文铺到屏幕边缘，尾侧不再把安全区垫回来（头图照旧按侧让开）。
+    /// 竖栏在前沿（外屏横握）时照旧垫回来，行首不压在胶囊下面。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
 
     /// 单栏 ⇄ 两栏时头图(封面、标题、操作行)从旧位置滑到新位置。
     @Namespace private var layoutNamespace
@@ -257,7 +260,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                         .libraryDetailSingleHeaderSwitch(headerSwitch)
                     content
                         .padding(.leading, safeArea.leading)
-                        .padding(.trailing, safeArea.trailing)
+                        .padding(.trailing, verticalBarEdge == .trailing ? 0 : safeArea.trailing)
                         .pmLayoutSwitchFade()
                 }
                 // Horizontal artwork shelves must not determine the page width.
@@ -270,6 +273,7 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
                 .tint(tint == nil ? nil : Color.white)
             }
             .ignoresSafeArea(.container, edges: [.top, .horizontal])
+            .pmVerticalBarScrollEdge()
             .libraryDetailSoftTopEdge()
             .onScrollGeometryChange(for: CGFloat.self) { scroll in
                 scroll.contentOffset.y + scroll.contentInsets.top
@@ -359,10 +363,11 @@ struct ImmersiveLibraryDetailScrollView<Header: View, Content: View>: View {
             ScrollView {
                 content
                     .padding(.top, safeArea.top + 16)
-                    .padding(.trailing, safeArea.trailing)
+                    .padding(.trailing, verticalBarEdge == .trailing ? 0 : safeArea.trailing)
                     .frame(width: trailingWidth)
             }
             .frame(width: trailingWidth)
+            .pmVerticalBarScrollEdge()
             .pmLayoutSwitchFade()
         }
         .environment(\.colorScheme, tint == nil ? colorScheme : .dark)
@@ -779,6 +784,8 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.pmHeightClass) private var heightClass
     @Environment(\.pmIsPhoneIdiom) private var isPhoneIdiomEnvironment
+    /// iPhone Duo 竖栏：右栏的曲目铺到屏幕边缘，不再把竖栏那一条垫回来。
+    @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     /// 单栏 ⇄ 两栏时头部从旧位置滑到新位置(页面在头部上挂 `libraryDetailMatchedHeader()`)。
     @Namespace private var layoutNamespace
     @State private var headerSwitch = LibraryDetailHeaderSwitch()
@@ -819,9 +826,10 @@ struct LibraryDetailWideColumns<Single: View, Header: View, Content: View>: View
                         ScrollView {
                             content()
                                 .padding(.top, 16)
-                                .padding(.trailing, safeArea.trailing)
+                                .padding(.trailing, verticalBarEdge == .trailing ? 0 : safeArea.trailing)
                                 .frame(width: max(0, pageWidth - leadingWidth))
                         }
+                        .pmVerticalBarScrollEdge()
                         .pmLayoutSwitchFade()
                     }
                     .ignoresSafeArea(.container, edges: .horizontal)

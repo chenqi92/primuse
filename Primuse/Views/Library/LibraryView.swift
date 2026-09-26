@@ -637,6 +637,7 @@ struct LibraryView: View {
             .padding(.top, 8)
             .padding(.bottom, 32)
         }
+        .pmExtendsUnderVerticalBar()
         .task(id: previewRevision) {
             await refreshArtworkPreviews(for: previewRevision)
         }
@@ -1515,6 +1516,7 @@ struct LibraryView: View {
                 quickAccessSection
                     .padding(.vertical, 16)
             }
+            .pmExtendsUnderVerticalBar()
         case .folders:
             HomeFolderManagementView()
         case .statistics:
@@ -2245,6 +2247,7 @@ struct GenreLibraryView: View {
                     .pmAppearFade(.contentAppear)
                 }
             }
+            .pmExtendsUnderVerticalBar()
             .searchable(
                 text: $searchText,
                 placement: .navigationBarDrawer(displayMode: .always),

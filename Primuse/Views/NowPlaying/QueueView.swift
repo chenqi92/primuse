@@ -211,6 +211,8 @@ struct QueueView: View {
                 .padding(.vertical, heightClass.value(12, compact: 8))
                 .padding(.bottom, heightClass.value(28, compact: 12))
             }
+            // 半屏队列(iPhone Duo 竖栏)里的行铺到屏幕边缘;嵌在播放页右栏时竖栏那一条归播放页自己用,不铺过去。
+            .modifier(QueueVerticalBarFill(isEnabled: !isEmbedded))
             // 空态与列表只让新的那块淡入: 两者不重叠, 交叉过渡期间会前后叠排。
             // 行级增删仍然走各自的动画。
             .pmAppearFade(.contentAppear)
@@ -443,6 +445,19 @@ struct QueueView: View {
         }
         pmWithAnimation(.list) {
             _ = player.moveUpcomingQueueEntry(entryID, over: sameRound[targetIndex])
+        }
+    }
+}
+
+/// 半屏队列在 iPhone Duo 竖栏下铺到屏幕边缘；嵌在播放页右栏时不铺（见 `QueueView.isEmbedded`）。
+private struct QueueVerticalBarFill: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.pmExtendsUnderVerticalBar()
+        } else {
+            content
         }
     }
 }

@@ -520,6 +520,7 @@ struct TVAmbientBackdrop: View {
 enum TVArtworkPlaceholderKind: Equatable {
     case music
     case playlist
+    case book
 }
 
 /// 歌曲、专辑与歌单真正缺少封面时使用的语义占位。
@@ -599,6 +600,11 @@ struct TVMusicPlaceholder: View {
                 .frame(width: size * 0.24, height: size * 0.24)
         case .playlist:
             Image(systemName: "music.note.list")
+                .font(.system(size: size * 0.19, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(TVColor.text.opacity(opacity))
+        case .book:
+            Image(systemName: "book.closed")
                 .font(.system(size: size * 0.19, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(TVColor.text.opacity(opacity))

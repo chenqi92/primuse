@@ -2107,7 +2107,7 @@
 "no_subdirectories" = "कोई उपनिर्देशिका नहीं";
 "no_subdirectories_desc" = "इस निर्देशिका में कोई उपनिर्देशिका नहीं है";
 "no_trusted_domains" = "कोई विश्वसनीय डोमेन नहीं";
-"notify_backfill_complete" = "टैग रीडिंग पूरी होने पर सूचित करें";
+"notify_backfill_complete" = "लंबे काम पूरे होने पर सूचित करें";
 "notify_cloud_sync_failed_title" = "iCloud सिंक विफल";
 "notify_permission_denied_hint" = "अधिसूचना की अनुमति अस्वीकृत। इसे iOS सेटिंग्स → Primuse में अनुमति दें।";
 "notify_rescrape_done_title" = "संपूर्ण मेटाडेटा पुनः प्राप्त करें";
@@ -4273,6 +4273,7 @@
 "spoken_word_bookmarks_title" = "बुकमार्क";
 "spoken_word_bookmarks_empty" = "सुनते समय बुकमार्क बटन दबाएँ, ताकि जिस जगह लौटना हो उसे चिह्नित कर सकें।";
 "spoken_word_chapters_and_bookmarks" = "अध्याय और बुकमार्क";
+"spoken_word_go_to_book" = "पुस्तक पर जाएँ";
 "spoken_word_delete_bookmark" = "बुकमार्क हटाएँ";
 "spoken_word_continue" = "जारी रखें";
 "spoken_word_start" = "सुनना शुरू करें";
@@ -4578,3 +4579,14 @@
 "directory_tag_menu_title" = "इस फ़ोल्डर में क्या है";
 "directory_tag_hint" = "चुने गए फ़ोल्डर के पास वाले टैग पर टैप करके ऑडियोबुक चुनें, ताकि उसकी सामग्री संगीत की बजाय ऑडियोबुक शेल्फ़ में जाए।";
 "home_filter_clear_hint" = "सब कुछ दिखाने के लिए फिर से टैप करें";
+"notifications_section" = "सूचनाएँ";
+"notify_long_tasks_footer" = "आपके शुरू किए गए स्कैन, टैग पढ़ने या मेटाडेटा लाने का काम बैकग्राउंड में पूरा होने पर सूचना मिलेगी। जिन समस्याओं पर आपको ध्यान देना है, जैसे स्कैन विफल होना या iCloud स्टोरेज भर जाना, उनकी सूचना हर हाल में मिलेगी। ऐप खुला रहने पर कोई सूचना नहीं भेजी जाती।";
+
+/* Spoken word widget intents */
+"Skip Back" = "पीछे जाएं";
+"Go back a few seconds in the book playing in Primuse." = "Primuse में चल रही किताब को कुछ सेकंड पीछे ले जाएं।";
+"Skip Forward" = "आगे जाएं";
+"Go forward a few seconds in the book playing in Primuse." = "Primuse में चल रही किताब को कुछ सेकंड आगे ले जाएं।";
+"Continue Listening" = "सुनना जारी रखें";
+"Continue a book in Primuse from where you left off." = "Primuse में किसी किताब को वहीं से जारी रखें जहां छोड़ा था।";
+"Book" = "किताब";

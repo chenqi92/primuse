@@ -891,3 +891,16 @@
 "apple_music_pick_adding" = "लाइब्रेरी में जोड़ा जा रहा है…";
 "apple_music_pick_added" = "%d जोड़े गए, सिंक हो रहा है";
 "apple_music_pick_failed" = "लाइब्रेरी में नहीं जोड़ा जा सका";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "सुन रहे हैं";
+"ext.widget.spokenWord.partFormat" = "भाग %1$ld / %2$ld";
+"ext.widget.spokenWord.remainingFormat" = "%@ बाकी";
+"ext.widget.spokenWord.bookProgress" = "किताब की प्रगति";
+"ext.widget.spokenWord.skipBackFormat" = "%ld सेकंड पीछे";
+"ext.widget.spokenWord.skipForwardFormat" = "%ld सेकंड आगे";
+"ext.widget.spokenWordShelf.displayName" = "सुनना जारी रखें";
+"ext.widget.spokenWordShelf.description" = "जिस ऑडियोबुक को सुन रहे थे, उसे फिर से शुरू करें।";
+"ext.widget.spokenWordShelf.eyebrow" = "सुनना जारी रखें";
+"ext.widget.spokenWordShelf.empty.title" = "कोई किताब चालू नहीं";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Primuse में कोई ऑडियोबुक सुनना शुरू करें, फिर यहीं से जारी रखें।";

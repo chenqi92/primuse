@@ -1295,7 +1295,7 @@
 "backfill_done_title" = "Tag-Auslesen abgeschlossen";
 "backfill_done_body" = "Tags für %d Titel geladen.";
 "backfill_keep_app_alive_hint" = "Spiele einen beliebigen Titel, damit das Tag-Auslesen weiterläuft";
-"notify_backfill_complete" = "Benachrichtigen, wenn das Tag-Auslesen abgeschlossen ist";
+"notify_backfill_complete" = "Benachrichtigen, wenn lange Aufgaben fertig sind";
 "notify_permission_denied_hint" = "Mitteilungsberechtigung verweigert. Erlaube sie unter „Einstellungen“ → „Primuse“.";
 "yearly_report_title" = "Dein Musikjahr";
 "yearly_report_entry_title" = "Dein Musikjahr %d";
@@ -4367,6 +4367,7 @@
 "spoken_word_bookmarks_title" = "Lesezeichen";
 "spoken_word_bookmarks_empty" = "Tippe beim Hören auf das Lesezeichen, um eine Stelle für später zu markieren.";
 "spoken_word_chapters_and_bookmarks" = "Kapitel & Lesezeichen";
+"spoken_word_go_to_book" = "Zum Buch";
 "spoken_word_delete_bookmark" = "Lesezeichen löschen";
 "spoken_word_continue" = "Weiterhören";
 "spoken_word_start" = "Anhören";
@@ -4672,3 +4673,14 @@
 "directory_tag_menu_title" = "Inhalt dieses Ordners";
 "directory_tag_hint" = "Tippe auf das Etikett neben einem ausgewählten Ordner und wähle „Hörbücher“, damit sein Inhalt ins Hörbuchregal statt zur Musik kommt.";
 "home_filter_clear_hint" = "Erneut tippen, um alles anzuzeigen";
+"notifications_section" = "Mitteilungen";
+"notify_long_tasks_footer" = "Du wirst benachrichtigt, wenn ein von dir gestarteter Scan, das Auslesen von Tags oder das Abrufen von Metadaten im Hintergrund fertig ist. Probleme, die dich brauchen – etwa ein fehlgeschlagener Scan oder voller iCloud-Speicher –, werden immer gemeldet. Solange die App geöffnet ist, wird nichts gesendet.";
+
+/* Spoken word widget intents */
+"Skip Back" = "Zurückspringen";
+"Go back a few seconds in the book playing in Primuse." = "Springt im Buch, das in Primuse läuft, ein paar Sekunden zurück.";
+"Skip Forward" = "Vorspringen";
+"Go forward a few seconds in the book playing in Primuse." = "Springt im Buch, das in Primuse läuft, ein paar Sekunden vor.";
+"Continue Listening" = "Weiterhören";
+"Continue a book in Primuse from where you left off." = "Setzt ein Buch in Primuse dort fort, wo du aufgehört hast.";
+"Book" = "Buch";

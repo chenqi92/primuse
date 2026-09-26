@@ -944,3 +944,16 @@
 "apple_music_pick_adding" = "보관함에 추가 중…";
 "apple_music_pick_added" = "%d곡 추가됨, 동기화 중";
 "apple_music_pick_failed" = "보관함에 추가하지 못했습니다";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "듣는 중";
+"ext.widget.spokenWord.partFormat" = "%1$ld/%2$ld부";
+"ext.widget.spokenWord.remainingFormat" = "%@ 남음";
+"ext.widget.spokenWord.bookProgress" = "책 진행률";
+"ext.widget.spokenWord.skipBackFormat" = "%ld초 뒤로";
+"ext.widget.spokenWord.skipForwardFormat" = "%ld초 앞으로";
+"ext.widget.spokenWordShelf.displayName" = "이어 듣기";
+"ext.widget.spokenWordShelf.description" = "듣던 오디오북을 바로 이어서 듣습니다.";
+"ext.widget.spokenWordShelf.eyebrow" = "이어 듣기";
+"ext.widget.spokenWordShelf.empty.title" = "듣고 있는 책이 없습니다";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Primuse에서 오디오북을 듣기 시작하면 여기서 이어 들을 수 있습니다.";

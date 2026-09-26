@@ -11,15 +11,8 @@ enum TVSpokenWordBooks {
     static func item(for song: Song, store: SpokenWordStore) -> SpokenWordBookItem {
         let stored = store.position(forSongID: song.id)
         return SpokenWordBookItem(
-            id: song.id,
-            title: song.title,
-            albumTitle: song.albumTitle,
-            albumArtist: song.albumArtistName,
-            artist: song.artistName,
-            discNumber: song.discNumber,
-            trackNumber: song.trackNumber,
-            duration: song.duration > 0 ? song.duration : (stored?.duration ?? 0),
-            fileName: song.filePath,
+            song: song,
+            knownDuration: stored?.duration,
             position: stored?.position,
             positionUpdatedAt: stored?.updatedAt,
             finishedAt: store.finishedDate(forSongID: song.id)
@@ -75,7 +68,8 @@ struct TVSpokenWordView: View {
     @State private var showsFinished = false
     @State private var opensPlayerAfterDetailDismissal = false
 
-    private let columns = 5
+    // 书的封面是竖长的:一行六本,行高才和方形封面时的五本相当。
+    private let columns = 6
     private let gap: CGFloat = 36
 
     var body: some View {
@@ -220,10 +214,12 @@ struct TVSpokenWordView: View {
 
 // MARK: - 卡片
 
-/// 一本书的封面:用第一章的封面(有声书的章节通常共用一张)。
+/// 一本书的封面:用第一章的封面(有声书的章节通常共用一张)。按书的形状画成
+/// 竖长框(`SpokenWordCoverLayout`),封面整张放进去,不裁成方形也不拉伸。
 struct TVSpokenWordCover: View {
     @Environment(TVStore.self) private var store
     let book: SpokenWordBook
+    /// 封面宽度;高度按书的比例算。
     let size: CGFloat
     var radius: CGFloat = TVRadius.cover
 
@@ -240,9 +236,12 @@ struct TVSpokenWordCover: View {
             tint: palette?.primary ?? TVColor.spokenWordSpace,
             tint2: palette?.secondary ?? .black,
             glyph: book.title.isEmpty ? "♪" : String(book.title.prefix(1)),
+            placeholderKind: .book,
             size: size,
+            height: SpokenWordCoverLayout.height(forWidth: size),
             radius: radius
         )
+        .bookCoverLayout()
     }
 }
 
@@ -309,7 +308,7 @@ struct TVSpokenWordListeningCard: View {
     var body: some View {
         TVFocusButton(radius: TVRadius.card, scale: 1.04, lift: 8, action: action) { focused in
             HStack(alignment: .center, spacing: 28) {
-                TVSpokenWordCover(book: book, size: 220)
+                TVSpokenWordCover(book: book, size: SpokenWordCoverLayout.width(forHeight: 220))
                 VStack(alignment: .leading, spacing: 10) {
                     Text(book.title).tvFont(.sectionTitle)
                         .foregroundStyle(TVColor.text)
@@ -377,7 +376,7 @@ struct TVSpokenWordBookDetailView: View {
             TVColor.bg.opacity(0.34).ignoresSafeArea()
             HStack(alignment: .top, spacing: 72) {
                 VStack(alignment: .leading, spacing: 22) {
-                    TVSpokenWordCover(book: book, size: 320)
+                    TVSpokenWordCover(book: book, size: 270)
                     Text(book.title)
                         .tvFont(.pageTitle)
                         .foregroundStyle(TVColor.text)

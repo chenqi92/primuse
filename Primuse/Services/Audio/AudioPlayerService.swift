@@ -184,6 +184,7 @@ struct MacWidgetPlaybackPublishRequest: Sendable {
     let radioStationID: String?
     let repeatMode: RepeatMode
     let isLiked: Bool?
+    let spokenWord: SpokenWordPlaybackInfo?
 }
 
 /// Serial, latest-wins widget publisher for macOS.
@@ -314,7 +315,17 @@ actor MacWidgetPlaybackPublisher {
             radioStationID: request.radioStationID,
             repeatMode: request.repeatMode,
             isLiked: request.isLiked,
-            updatedAt: request.sampledAt
+            updatedAt: request.sampledAt,
+            spokenWord: request.spokenWord.map { info in
+                // Book progress is progress: it goes with the scope that
+                // withholds the play head.
+                var info = info
+                if !scope.includesProgress {
+                    info.bookFraction = nil
+                    info.bookRemaining = nil
+                }
+                return info
+            }
         )
         state.save()
 
@@ -488,6 +499,7 @@ actor MacWidgetPlaybackPublisher {
             state.isLiked == true ? "1" : "0",
             String(state.currentTime.rounded().finiteInt()),
             String(state.duration.rounded().finiteInt()),
+            AudioPlayerService.spokenWordSignature(state.spokenWord),
         ].joined(separator: "|")
     }
 }

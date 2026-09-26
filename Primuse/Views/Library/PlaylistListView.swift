@@ -195,6 +195,7 @@ struct PlaylistListView: View {
                         }
                     }
                 }
+                .pmExtendsUnderVerticalBar()
             }
         }
         .toolbar {
@@ -297,6 +298,7 @@ struct PlaylistListView: View {
         #if os(iOS)
         .listStyle(.insetGrouped)
         .environment(\.editMode, .constant(.active))
+        .pmExtendsUnderVerticalBar()
         #endif
     }
 

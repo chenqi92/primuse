@@ -1296,7 +1296,7 @@
 "backfill_done_title" = "タグの読み込みが完了しました";
 "backfill_done_body" = "%d 曲のタグを読み込みました。";
 "backfill_keep_app_alive_hint" = "いずれかの曲を再生すると、タグの読み込みが継続されます";
-"notify_backfill_complete" = "タグの読み込み完了時に通知";
+"notify_backfill_complete" = "長時間の処理が終わったら通知";
 "notify_permission_denied_hint" = "通知が許可されていません。「設定」→「Primuse」で許可してください。";
 "yearly_report_title" = "ミュージックの1年";
 "yearly_report_entry_title" = "%d 年のミュージックの1年";
@@ -4368,6 +4368,7 @@
 "spoken_word_bookmarks_title" = "ブックマーク";
 "spoken_word_bookmarks_empty" = "聴きながらブックマークボタンをタップすると、あとで戻りたい位置を記録できます。";
 "spoken_word_chapters_and_bookmarks" = "チャプターとブックマーク";
+"spoken_word_go_to_book" = "ブックへ移動";
 "spoken_word_delete_bookmark" = "ブックマークを削除";
 "spoken_word_continue" = "続きから再生";
 "spoken_word_start" = "最初から再生";
@@ -4673,3 +4674,14 @@
 "directory_tag_menu_title" = "このフォルダの内容";
 "directory_tag_hint" = "選択したフォルダの横のタグをタップして「オーディオブック」を選ぶと、中身がミュージックではなくオーディオブックの棚に入ります。";
 "home_filter_clear_hint" = "もう一度タップするとすべて表示します";
+"notifications_section" = "通知";
+"notify_long_tasks_footer" = "自分で開始したスキャン、タグの読み込み、メタデータ取得がバックグラウンドで終わったときに通知します。スキャンの失敗や iCloud の容量不足など対応が必要な問題は、この設定に関係なく通知されます。アプリを開いている間は通知しません。";
+
+/* Spoken word widget intents */
+"Skip Back" = "戻る";
+"Go back a few seconds in the book playing in Primuse." = "Primuse で再生中の本を数秒戻します。";
+"Skip Forward" = "進む";
+"Go forward a few seconds in the book playing in Primuse." = "Primuse で再生中の本を数秒進めます。";
+"Continue Listening" = "続きを聴く";
+"Continue a book in Primuse from where you left off." = "Primuse の本を前回の続きから再生します。";
+"Book" = "本";

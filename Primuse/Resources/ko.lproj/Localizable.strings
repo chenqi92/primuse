@@ -1295,7 +1295,7 @@
 "backfill_done_title" = "태그 읽기 완료";
 "backfill_done_body" = "%d곡의 태그를 읽어 들였습니다.";
 "backfill_keep_app_alive_hint" = "아무 곡이나 재생하면 태그 읽기를 계속할 수 있습니다";
-"notify_backfill_complete" = "태그 읽기가 완료되면 알림";
+"notify_backfill_complete" = "긴 작업이 끝나면 알림";
 "notify_permission_denied_hint" = "알림 권한이 거부되었습니다. iOS 설정 → Primuse에서 허용하세요.";
 "yearly_report_title" = "올해의 음악";
 "yearly_report_entry_title" = "%d년 올해의 음악";
@@ -4367,6 +4367,7 @@
 "spoken_word_bookmarks_title" = "북마크";
 "spoken_word_bookmarks_empty" = "듣는 중에 북마크 버튼을 누르면 다시 돌아올 위치를 표시할 수 있습니다.";
 "spoken_word_chapters_and_bookmarks" = "챕터 및 북마크";
+"spoken_word_go_to_book" = "책으로 이동";
 "spoken_word_delete_bookmark" = "북마크 삭제";
 "spoken_word_continue" = "이어서 듣기";
 "spoken_word_start" = "듣기 시작";
@@ -4672,3 +4673,14 @@
 "directory_tag_menu_title" = "이 폴더의 콘텐츠";
 "directory_tag_hint" = "선택한 폴더 옆의 태그를 탭하고 오디오북을 선택하면 그 안의 콘텐츠가 음악이 아닌 오디오북 서가로 들어갑니다.";
 "home_filter_clear_hint" = "다시 탭하면 전체를 표시합니다";
+"notifications_section" = "알림";
+"notify_long_tasks_footer" = "직접 시작한 스캔, 태그 읽기, 메타데이터 가져오기가 백그라운드에서 끝나면 알려 줍니다. 스캔 실패나 iCloud 저장 공간 부족처럼 조치가 필요한 문제는 이 설정과 관계없이 알립니다. 앱을 사용 중일 때는 알림을 보내지 않습니다.";
+
+/* Spoken word widget intents */
+"Skip Back" = "뒤로";
+"Go back a few seconds in the book playing in Primuse." = "Primuse에서 재생 중인 책을 몇 초 뒤로 이동합니다.";
+"Skip Forward" = "앞으로";
+"Go forward a few seconds in the book playing in Primuse." = "Primuse에서 재생 중인 책을 몇 초 앞으로 이동합니다.";
+"Continue Listening" = "이어 듣기";
+"Continue a book in Primuse from where you left off." = "Primuse의 책을 마지막으로 멈춘 곳부터 이어 듣습니다.";
+"Book" = "책";

@@ -952,7 +952,9 @@ final class MusicScraperService {
         in library: MusicLibrary,
         forceRescrape: Bool
     ) -> BatchScrapeStartResult {
-        startScraping(songs: library.visibleSongs, in: library, forceRescrape: forceRescrape)
+        // 整库刮削只管音乐：有声内容按章节名去音乐库里匹配，拿回来的是同名
+        // 歌曲的歌词、封面和专辑，只会把书弄乱。单独选中的有声条目仍照常刮。
+        startScraping(songs: library.musicSongs, in: library, forceRescrape: forceRescrape)
     }
 
     @discardableResult
@@ -1556,7 +1558,11 @@ final class MusicScraperService {
         await UserNotificationService.shared.postLongTaskCompletion(
             category: forceRescrape ? .rescrapeLibraryDone : .scrapeMissingDone,
             title: title,
-            body: body
+            body: body,
+            // Batch scrapes only start from the listener's action (or resume
+            // one after an interruption).
+            isUserInitiated: true,
+            itemCount: completion.songCount
         )
     }
 

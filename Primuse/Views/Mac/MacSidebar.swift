@@ -44,20 +44,10 @@ struct MacSidebar: View {
         )
     }
 
-    /// 有声内容按「书」计数: 一部 200 集的评书是一本, 不是 200 条。
-    /// 只拿分组要用的字段现造条目, 不读 `SpokenWordStore` 的收听位置 —— 否则
-    /// 听书时位置每写一次, 整列侧栏都要跟着重算。
+    /// 有声内容按「书」计数: 一部 200 集的评书是一本, 不是 200 条。分组在曲库
+    /// 发布时算好一次, 这里不读收听位置, 听书时侧栏也不跟着重算。
     private var spokenWordBookCount: Int {
-        SpokenWordBookGrouping.books(from: library.spokenWordSongs.map { song in
-            SpokenWordBookItem(
-                id: song.id,
-                title: song.title,
-                albumTitle: song.albumTitle,
-                albumArtist: song.albumArtistName,
-                artist: song.artistName,
-                duration: 0
-            )
-        }).count
+        library.spokenWordBookCount
     }
 
     var body: some View {

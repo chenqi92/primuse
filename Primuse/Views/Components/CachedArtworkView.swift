@@ -64,6 +64,9 @@ struct CachedArtworkView: View {
     /// 常驻的「当前歌曲封面」位专用，见 `artworkCrossfade(_:)`。列表、网格里的封面
     /// 不要开：缓存命中的图必须瞬间显示。
     private var crossfadesArtwork = false
+    /// 书籍封面位专用，见 `bookCoverLayout(_:)`：不强制方形，整张图等比放进
+    /// 调用方给的框，空出的边用同一张图的模糊放大版垫底。
+    private var fitsWholeArtwork = false
 
     @Environment(SourceManager.self) private var sourceManager
     @Environment(MusicLibrary.self) private var library
@@ -316,7 +319,9 @@ struct CachedArtworkView: View {
         .if(size != nil && !fillsProposedSize) { view in
             view.frame(width: size!, height: size!)
         }
-        .aspectRatio(1, contentMode: .fit)
+        .if(!fitsWholeArtwork) { view in
+            view.aspectRatio(1, contentMode: .fit)
+        }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .task(id: loadTaskIdentity) {
             await loadImage(
@@ -439,7 +444,9 @@ struct CachedArtworkView: View {
     /// 上一层的「占位 ↔ 封面」之间，动静态互换不会因此闪一下。
     @ViewBuilder
     private func decodedArtwork(_ image: PlatformImage) -> some View {
-        if let animatedArtworkData, let animatedArtworkDescriptor {
+        if fitsWholeArtwork {
+            wholeArtwork(image)
+        } else if let animatedArtworkData, let animatedArtworkDescriptor {
             AnimatedArtworkDataView(
                 data: animatedArtworkData,
                 descriptor: animatedArtworkDescriptor,
@@ -459,6 +466,27 @@ struct CachedArtworkView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fill)
         }
+    }
+
+    /// 整张封面等比放进框里，不裁不压。模糊背景用 `Color.clear.overlay` 钉在框内：
+    /// 直接把 aspect-fill 的图放进 ZStack 会按图的比例把容器撑大。
+    private func wholeArtwork(_ image: PlatformImage) -> some View {
+        ZStack {
+            Color.clear
+                .overlay {
+                    Image(platformImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
+                .clipped()
+                .blur(radius: max(6, (size ?? 120) * 0.08), opaque: true)
+                .overlay(Color.black.opacity(0.16))
+            Image(platformImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .shadow(color: .black.opacity(0.22), radius: 3, y: 1)
+        }
+        .clipped()
     }
 
     private func appleMusicArtworkView(_ artwork: MusicKit.Artwork) -> some View {
@@ -1983,6 +2011,14 @@ extension CachedArtworkView {
     func artworkCrossfade(_ enabled: Bool = true) -> CachedArtworkView {
         var copy = self
         copy.crossfadesArtwork = enabled
+        return copy
+    }
+
+    /// 书籍封面位：外层给定竖长的框（`fillsProposedSize` 一并打开），封面按原比例
+    /// 整张显示，不再强制方形，也不填满裁切。动态封面在这里只取静态帧。
+    func bookCoverLayout(_ enabled: Bool = true) -> CachedArtworkView {
+        var copy = self
+        copy.fitsWholeArtwork = enabled
         return copy
     }
 }

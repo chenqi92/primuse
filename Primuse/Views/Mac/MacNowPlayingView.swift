@@ -298,7 +298,10 @@ struct MacNowPlayingView: View {
         if isWindowFullScreen, !isImmersiveStageActive {
             HStack(spacing: 10) {
                 exitFullScreenPill
-                nativeFullscreenEffectButton
+                // 全屏效果是给音乐的可视化, 有声内容不给入口。
+                if !(player.currentItemIsSpokenWord && !player.isLiveRadio) {
+                    nativeFullscreenEffectButton
+                }
             }
             .padding(.top, 18)
             .padding(.leading, 22)
@@ -1142,17 +1145,19 @@ struct MacNowPlayingView: View {
 
     private var floatingControls: some View {
         HStack(spacing: 8) {
-            // Heart
-            Button { toggleLikedCurrent() } label: {
-                circleIcon(isCurrentLiked ? "heart.fill" : "heart",
-                           tint: isCurrentLiked ? theme.onAccent : nil,
-                           fill: isCurrentLiked ? theme.accentColor : nil)
-                    .contentTransition(.symbolEffect(.replace))
+            // Heart —— 「我喜欢」是音乐歌单, 有声内容不出现。
+            if !(player.currentItemIsSpokenWord && !player.isLiveRadio) {
+                Button { toggleLikedCurrent() } label: {
+                    circleIcon(isCurrentLiked ? "heart.fill" : "heart",
+                               tint: isCurrentLiked ? theme.onAccent : nil,
+                               fill: isCurrentLiked ? theme.accentColor : nil)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.plain)
+                .pmGlassControl(Circle())
+                .help(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+                .disabled(player.currentSong == nil)
             }
-            .buttonStyle(.plain)
-            .pmGlassControl(Circle())
-            .help(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
-            .disabled(player.currentSong == nil)
 
             // 独立 MV 始终走视频管线, 模式开关对它无意义, 不显示
             if player.canPlayMusicVideo, player.currentSong?.isStandaloneMusicVideo != true {
@@ -1488,6 +1493,14 @@ private struct MacNowPlayingMetadata: View {
     let foreground: Color
     let highlight: Color
     @Environment(MusicLibrary.self) private var library
+    @Environment(AudioPlayerService.self) private var player
+
+    /// 正在播的有声内容所在的书; 艺人页与专辑页只收音乐, 对它是空的。
+    private var bookID: String? {
+        guard player.currentSong?.id == song.id,
+              player.currentItemIsSpokenWord, !player.isLiveRadio else { return nil }
+        return player.currentBookID
+    }
 
     var body: some View {
         let names = library.artistNames(for: song)
@@ -1510,7 +1523,11 @@ private struct MacNowPlayingMetadata: View {
                 }
             }
             if let title = trimmed(song.albumTitle) {
-                if let album = matchingAlbum {
+                if let bookID {
+                    metadataLink(title, help: "spoken_word_go_to_book") {
+                        NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
+                    }
+                } else if let album = matchingAlbum {
                     metadataLink(title, help: "go_to_album") {
                         NotificationCenter.default.post(name: .primuseDetailOpenAlbum, object: album)
                     }

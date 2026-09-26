@@ -2107,7 +2107,7 @@
 "no_subdirectories" = "Sem subdiretórios";
 "no_subdirectories_desc" = "Este diretório não possui subdiretórios";
 "no_trusted_domains" = "Nenhum domínio confiável";
-"notify_backfill_complete" = "Notificar quando a leitura da tag for concluída";
+"notify_backfill_complete" = "Notificar quando tarefas longas terminarem";
 "notify_cloud_sync_failed_title" = "Falha na sincronização iCloud";
 "notify_permission_denied_hint" = "Permissão de notificação negada. Permita em Configurações iOS → Primuse.";
 "notify_rescrape_done_title" = "Nova busca de metadados concluída";
@@ -4273,6 +4273,7 @@
 "spoken_word_bookmarks_title" = "Marcadores";
 "spoken_word_bookmarks_empty" = "Toque no marcador enquanto ouve para marcar um trecho ao qual quer voltar.";
 "spoken_word_chapters_and_bookmarks" = "Capítulos e marcadores";
+"spoken_word_go_to_book" = "Ir para o livro";
 "spoken_word_delete_bookmark" = "Apagar marcador";
 "spoken_word_continue" = "Continuar";
 "spoken_word_start" = "Começar a ouvir";
@@ -4578,3 +4579,14 @@
 "directory_tag_menu_title" = "Conteúdo desta pasta";
 "directory_tag_hint" = "Toque na etiqueta ao lado de uma pasta selecionada e escolha Audiolivros para que o conteúdo vá para a estante de audiolivros em vez da sua música.";
 "home_filter_clear_hint" = "Toque de novo para mostrar tudo";
+"notifications_section" = "Notificações";
+"notify_long_tasks_footer" = "Receba um aviso quando um escaneamento, uma leitura de tags ou uma busca de metadados iniciada por você terminar em segundo plano. Problemas que precisam de você, como um escaneamento com falha ou o armazenamento do iCloud cheio, são avisados de qualquer forma. Nada é enviado enquanto o app está aberto.";
+
+/* Spoken word widget intents */
+"Skip Back" = "Voltar";
+"Go back a few seconds in the book playing in Primuse." = "Volta alguns segundos no livro que está tocando no Primuse.";
+"Skip Forward" = "Avançar";
+"Go forward a few seconds in the book playing in Primuse." = "Avança alguns segundos no livro que está tocando no Primuse.";
+"Continue Listening" = "Continuar ouvindo";
+"Continue a book in Primuse from where you left off." = "Retoma um livro no Primuse de onde você parou.";
+"Book" = "Livro";

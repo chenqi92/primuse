@@ -132,6 +132,7 @@ struct ArtistListView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 18)
         }
+        .pmExtendsUnderVerticalBar()
     }
 
     private func artistGridCell(_ artist: Artist) -> some View {
@@ -175,6 +176,7 @@ struct ArtistListView: View {
             .mediaZoomSource(.artist, id: artist.id)
         }
         .listStyle(.plain)
+        .pmExtendsUnderVerticalBar()
     }
 
     #if os(macOS)
