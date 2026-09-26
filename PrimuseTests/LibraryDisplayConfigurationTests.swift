@@ -110,9 +110,10 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
     }
 
     func testListeningSpaceSectionsKeepTheirPlaceOnceStored() {
-        let original: [HomeSectionKind] = [.stats, .audiobooks, .radio, .continueSpaces, .booksInProgress]
+        let leading: [HomeSectionKind] = [.stats, .audiobooks, .radio, .continueSpaces, .booksInProgress]
+        let original = leading + HomeSectionConfiguration.defaultOrder.filter { !leading.contains($0) }
         let decoded = HomeSectionConfiguration.decode(HomeSectionConfiguration.encode(original))
-        XCTAssertEqual(Array(decoded.prefix(original.count)), original)
+        XCTAssertEqual(decoded, original)
         XCTAssertEqual(Set(decoded), Set(HomeSectionKind.allCases))
     }
 
