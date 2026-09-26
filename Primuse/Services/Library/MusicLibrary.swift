@@ -2918,6 +2918,10 @@ final class MusicLibrary {
         }
     }
     private(set) var artistNameConfiguration: ArtistNameConfiguration
+    /// 按文件 ID 寻址的网盘(Google Drive、OneDrive、123…)的歌曲父目录。它们的
+    /// `filePath` 是文件 ID, 推不出目录, 专辑艺术家推断原先只能把整个源当成
+    /// 没有目录; 父目录来自扫描同步索引, 由 `ScanService` 送进来。
+    @ObservationIgnored private(set) var albumArtistFolders: AlbumArtistFolderIndex = .empty
     /// 按「原始艺术家字段 + 源给的艺术家数组」记住解析出来的显示名。列表每一行都要
     /// 问一次 `artistDisplayName(for:)`,而解析要折叠整套分隔符/保护名再逐字比对,
     /// Mac 端一次窗口跳变重建几十行时就是明显的掉帧 (#156)。同一串字段的结果只跟
@@ -3425,6 +3429,7 @@ final class MusicLibrary {
     /// S2 例外 1: `.preparing` 期间记录下来的配置最新值, 发布后对账用。
     @ObservationIgnored private var preparingDisabledSourceIDs: Set<String>?
     @ObservationIgnored private var preparingArtistNameConfiguration: ArtistNameConfiguration?
+    @ObservationIgnored private var preparingAlbumArtistFolders: AlbumArtistFolderIndex?
     /// S1: `.preparing` 期间被拦截的持久化请求, 发布后各补一次。
     @ObservationIgnored private var deferredPortableSnapshotPersistRequested = false
     @ObservationIgnored private var deferredStartupCacheWriteRequested = false
@@ -3557,6 +3562,10 @@ final class MusicLibrary {
         if let configuration = preparingArtistNameConfiguration {
             preparingArtistNameConfiguration = nil
             updateArtistNameConfiguration(configuration)
+        }
+        if let folders = preparingAlbumArtistFolders {
+            preparingAlbumArtistFolders = nil
+            updateAlbumArtistFolders(folders)
         }
     }
 
@@ -6566,7 +6575,7 @@ final class MusicLibrary {
         var nextSongs = songs
         var changedSongs: [Song] = []
         changedSongs.reserveCapacity(nextSongs.count)
-        let inferred = Self.inferredAlbumArtists(for: nextSongs)
+        let inferred = Self.inferredAlbumArtists(for: nextSongs, folders: albumArtistFolders)
         for index in nextSongs.indices {
             let previousArtistID = nextSongs[index].artistID
             let previousAlbumID = nextSongs[index].albumID
@@ -6593,6 +6602,20 @@ final class MusicLibrary {
 
         requestLibraryIndexMaintenance(.immediate)
         invalidateSearchCaches()
+    }
+
+    /// 目录只影响专辑归属: 整库派生重建会按新目录重算专辑艺术家, 纠正并落盘
+    /// 每首歌的 albumID, 所以这里只换掉目录再触发一次重建。准备期间照配置的
+    /// 例外处理, 发布后对账; 启动装载时没有目录, 所以网盘用户每次启动都会在
+    /// 这里补一次后台重建。
+    func updateAlbumArtistFolders(_ value: AlbumArtistFolderIndex) {
+        if isPreparing {
+            preparingAlbumArtistFolders = value
+            return
+        }
+        guard albumArtistFolders != value else { return }
+        albumArtistFolders = value
+        rebuildIndex()
     }
 
     func recentlyAddedAlbums(limit: Int = 10) -> [Album] {
@@ -8672,7 +8695,11 @@ final class MusicLibrary {
         var s = updatedSong
         // 标签编辑要按它将要落在的那个目录来判专辑归属, 否则改完一首歌
         // 它会先从合并后的专辑里弹出去, 等下一次整库重建才回来。
-        let inferred = MusicLibrary.inferredAlbumArtists(for: [s], among: currentSongs)
+        let inferred = MusicLibrary.inferredAlbumArtists(
+            for: [s],
+            among: currentSongs,
+            folders: albumArtistFolders
+        )
         MusicLibrary.fillDerivedIDs(
             &s,
             configuration: artistNameConfiguration,
@@ -8741,7 +8768,8 @@ final class MusicLibrary {
         // 短暂地掉出已经合并好的专辑。
         let inferred = MusicLibrary.inferredAlbumArtists(
             for: updatedSongs,
-            among: originalSongs
+            among: originalSongs,
+            folders: albumArtistFolders
         )
 
         var lastApplied: Song?
@@ -9272,6 +9300,7 @@ final class MusicLibrary {
         let songMutationGeneration: UInt64
         let songs: [Song]
         let artistNameConfiguration: ArtistNameConfiguration
+        let albumArtistFolders: AlbumArtistFolderIndex
         let disabledSourceIDs: Set<String>
         let spokenWordClassification: SpokenWordClassificationInputs
         let previousVisibleSongs: [Song]
@@ -9397,6 +9426,7 @@ final class MusicLibrary {
             songMutationGeneration: songMutationGeneration,
             songs: songs,
             artistNameConfiguration: artistNameConfiguration,
+            albumArtistFolders: albumArtistFolders,
             disabledSourceIDs: disabledSourceIDs,
             spokenWordClassification: SpokenWordStore.shared.classificationSnapshot,
             previousVisibleSongs: visibleSongs
@@ -9430,7 +9460,8 @@ final class MusicLibrary {
                 if !Task.isCancelled,
                    let result = MusicLibrary.computeAlbumsAndArtistsCancellable(
                     songs: request.songs,
-                    configuration: request.artistNameConfiguration
+                    configuration: request.artistNameConfiguration,
+                    folders: request.albumArtistFolders
                    ), !Task.isCancelled {
                     // 可见缓存要看的是纠正后的 albumID, 否则刚合并的那几首会
                     // 在下一次整库重建之前一直挂在旧专辑上。
@@ -9536,7 +9567,8 @@ final class MusicLibrary {
     private func rebuildIndexSync(precomputedSignature: String? = nil) {
         let result = MusicLibrary.computeAlbumsAndArtists(
             songs: songs,
-            configuration: artistNameConfiguration
+            configuration: artistNameConfiguration,
+            folders: albumArtistFolders
         )
         albums = result.albums
         artists = result.artists
@@ -9637,12 +9669,17 @@ final class MusicLibrary {
             let visibilityGeneration = visibleCacheGeneration
             let snapshot = songs
             let configuration = artistNameConfiguration
+            let folders = albumArtistFolders
             let hidden = disabledSourceIDs
             let classification = SpokenWordStore.shared.classificationSnapshot
             let previousVisible = visibleSongs
             let prepared = await Task.detached(priority: .userInitiated) {
                 var remapped = Self.songsByRemappingIDs(snapshot, replacements: replacements)
-                let result = Self.computeAlbumsAndArtists(songs: remapped, configuration: configuration)
+                let result = Self.computeAlbumsAndArtists(
+                    songs: remapped,
+                    configuration: configuration,
+                    folders: folders
+                )
                 for index in remapped.indices {
                     if let corrected = result.albumIDCorrections[remapped[index].id] {
                         remapped[index].albumID = corrected
@@ -9858,6 +9895,7 @@ final class MusicLibrary {
             )
         }
         mutating func rebuildIndexSync(precomputedSignature: String) {
+            // 启动阶段还没有网盘父目录, 见 `migrateLoadedSongs`。
             let result = MusicLibrary.computeAlbumsAndArtists(songs: songs, configuration: artistNameConfiguration)
             albums = result.albums
             artists = result.artists
@@ -10605,8 +10643,9 @@ final class MusicLibrary {
         var repairedDTSDurationCount = 0
         var changedSongs: [Song] = []
         // 同一目录同名专辑的 album artist 归属只有整库口径才算得出来,
-        // 装载时算一次, 逐首复用。
-        let inferred = inferredAlbumArtists(for: songs)
+        // 装载时算一次, 逐首复用。网盘的父目录在扫描同步索引里, 装载时还
+        // 拿不到; 发布后 `updateAlbumArtistFolders` 会按目录再整库重建一次。
+        let inferred = inferredAlbumArtists(for: songs, folders: .empty)
 
         for index in songs.indices {
             var song = songs[index]
@@ -12036,12 +12075,13 @@ final class MusicLibrary {
     }
 
     nonisolated static func albumArtistInferenceTrack(
-        _ song: Song
+        _ song: Song,
+        folders: AlbumArtistFolderIndex
     ) -> AlbumArtistInferencePolicy.Track {
         AlbumArtistInferencePolicy.Track(
             id: song.id,
             sourceID: song.sourceID,
-            directory: AlbumArtistInferencePolicy.directory(ofPath: song.filePath),
+            directory: folders.directory(sourceID: song.sourceID, filePath: song.filePath),
             albumTitle: song.albumTitle,
             albumArtistName: song.albumArtistName,
             trackArtistName: song.artistName
@@ -12049,9 +12089,12 @@ final class MusicLibrary {
     }
 
     /// 整库口径: 每个源的所有歌一起判定目录权威性与同目录同名专辑的归属。
-    nonisolated static func inferredAlbumArtists(for songs: [Song]) -> [String: String] {
+    nonisolated static func inferredAlbumArtists(
+        for songs: [Song],
+        folders: AlbumArtistFolderIndex
+    ) -> [String: String] {
         AlbumArtistInferencePolicy.inferredAlbumArtists(
-            for: songs.map(albumArtistInferenceTrack)
+            for: songs.map { albumArtistInferenceTrack($0, folders: folders) }
         )
     }
 
@@ -12065,7 +12108,8 @@ final class MusicLibrary {
     /// at the second distinct folder of a source.
     nonisolated static func inferredAlbumArtists(
         for candidates: [Song],
-        among library: [Song]
+        among library: [Song],
+        folders: AlbumArtistFolderIndex
     ) -> [String: String] {
         guard !candidates.isEmpty else { return [:] }
         var titlesBySource: [String: Set<String>] = [:]
@@ -12076,11 +12120,12 @@ final class MusicLibrary {
         guard !titlesBySource.isEmpty else { return [:] }
 
         let candidateIDs = Set(candidates.map(\.id))
-        let candidateTracks = candidates.map(albumArtistInferenceTrack)
+        let candidateTracks = candidates.map { albumArtistInferenceTrack($0, folders: folders) }
         var directoriesBySource: [String: Set<String>] = [:]
         var authoritative: Set<String> = []
         for track in candidateTracks {
-            directoriesBySource[track.sourceID, default: []].insert(track.directory)
+            guard let directory = track.directory else { continue }
+            directoriesBySource[track.sourceID, default: []].insert(directory)
         }
 
         var scoped: [AlbumArtistInferencePolicy.Track] = []
@@ -12090,9 +12135,9 @@ final class MusicLibrary {
             let sharesTitle = albumArtistInferenceTitle(song.albumTitle)
                 .map { titles.contains($0) } ?? false
             guard needsAuthority || sharesTitle else { continue }
-            let track = albumArtistInferenceTrack(song)
-            if needsAuthority {
-                directoriesBySource[song.sourceID, default: []].insert(track.directory)
+            let track = albumArtistInferenceTrack(song, folders: folders)
+            if needsAuthority, let directory = track.directory {
+                directoriesBySource[song.sourceID, default: []].insert(directory)
                 if (directoriesBySource[song.sourceID]?.count ?? 0) >= 2 {
                     authoritative.insert(song.sourceID)
                 }
@@ -12123,11 +12168,13 @@ final class MusicLibrary {
     /// 派生集合, 不操作 self。
     nonisolated static func computeAlbumsAndArtists(
         songs: [Song],
-        configuration: ArtistNameConfiguration = .defaultValue
+        configuration: ArtistNameConfiguration = .defaultValue,
+        folders: AlbumArtistFolderIndex = .empty
     ) -> (albums: [Album], artists: [Artist], albumIDCorrections: [String: String]) {
         computeAlbumsAndArtists(
             songs: songs,
             configuration: configuration,
+            folders: folders,
             cancellationCheck: { false }
         )!
     }
@@ -12137,11 +12184,13 @@ final class MusicLibrary {
     /// completed, so every superseded task still consumed a full-library pass.
     private nonisolated static func computeAlbumsAndArtistsCancellable(
         songs: [Song],
-        configuration: ArtistNameConfiguration
+        configuration: ArtistNameConfiguration,
+        folders: AlbumArtistFolderIndex
     ) -> (albums: [Album], artists: [Artist], albumIDCorrections: [String: String])? {
         computeAlbumsAndArtists(
             songs: songs,
             configuration: configuration,
+            folders: folders,
             cancellationCheck: { Task.isCancelled }
         )
     }
@@ -12149,12 +12198,13 @@ final class MusicLibrary {
     private nonisolated static func computeAlbumsAndArtists(
         songs: [Song],
         configuration: ArtistNameConfiguration,
+        folders: AlbumArtistFolderIndex,
         cancellationCheck: () -> Bool
     ) -> (albums: [Album], artists: [Artist], albumIDCorrections: [String: String])? {
         guard !cancellationCheck() else { return nil }
         // 整库才看得见同一目录里的兄弟文件, 所以 album artist 的补全在这里先
         // 算一次, 下面两处 identity 与逐首 albumID 的对账都用同一份结果。
-        let inferredAlbumArtists = Self.inferredAlbumArtists(for: songs)
+        let inferredAlbumArtists = Self.inferredAlbumArtists(for: songs, folders: folders)
         guard !cancellationCheck() else { return nil }
         let unknownArtist = String(localized: "unknown_artist")
 

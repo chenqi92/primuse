@@ -15,12 +15,19 @@ import Foundation
 /// server answers the album artist for some of its tracks and not the rest.
 /// Those sources are grouped by album title alone and only the unambiguous
 /// verdict is taken: one explicit tag in the album, everyone else untagged.
+///
+/// Cloud drives that address files by item ID (Google Drive, OneDrive, 123…)
+/// do have real folders, only not in the path. `AlbumArtistFolderIndex`
+/// carries the parent each file was listed under, and a track whose parent is
+/// not known yet has no directory: it takes the explicit-tag verdict only.
 public enum AlbumArtistInferencePolicy {
     public struct Track: Sendable, Equatable {
         public let id: String
         public let sourceID: String
-        /// Parent directory of the source-relative path; see `directory(ofPath:)`.
-        public let directory: String
+        /// Parent directory of the source-relative path (see `directory(ofPath:)`),
+        /// or nil when the source's paths carry no folder and the track's
+        /// folder is not known.
+        public let directory: String?
         public let albumTitle: String?
         public let albumArtistName: String?
         public let trackArtistName: String?
@@ -28,7 +35,7 @@ public enum AlbumArtistInferencePolicy {
         public init(
             id: String,
             sourceID: String,
-            directory: String,
+            directory: String?,
             albumTitle: String?,
             albumArtistName: String?,
             trackArtistName: String?
@@ -51,8 +58,9 @@ public enum AlbumArtistInferencePolicy {
         var directoriesBySource: [String: Set<String>] = [:]
         var authoritative: Set<String> = []
         for track in tracks {
-            guard !authoritative.contains(track.sourceID) else { continue }
-            directoriesBySource[track.sourceID, default: []].insert(track.directory)
+            guard !authoritative.contains(track.sourceID),
+                  let directory = track.directory else { continue }
+            directoriesBySource[track.sourceID, default: []].insert(directory)
             if (directoriesBySource[track.sourceID]?.count ?? 0) >= 2 {
                 authoritative.insert(track.sourceID)
                 directoriesBySource[track.sourceID] = nil
@@ -76,15 +84,15 @@ public enum AlbumArtistInferencePolicy {
             }
         }
 
-        // Sources without real folders. Their scope spans a whole album title,
-        // so a majority vote would be free to rename a same-titled album by
-        // another artist; only an undisputed explicit tag may speak for them.
-        var synthetic: Set<String> = []
-        for track in tracks where !directoryAuthoritativeSourceIDs.contains(track.sourceID) {
-            synthetic.insert(track.sourceID)
+        // Sources without real folders, and tracks whose folder is not known.
+        // Their scope spans a whole album title, so a majority vote would be
+        // free to rename a same-titled album by another artist; only an
+        // undisputed explicit tag may speak for them.
+        let unfoldered = tracks.filter {
+            !directoryAuthoritativeSourceIDs.contains($0.sourceID) || $0.directory == nil
         }
-        guard !synthetic.isEmpty else { return result }
-        for scope in scopes(for: tracks, restrictedTo: synthetic, byDirectory: false)
+        guard !unfoldered.isEmpty else { return result }
+        for scope in scopes(for: unfoldered, restrictedTo: nil, byDirectory: false)
         where scope.count >= 2 {
             guard let target = target(for: scope, explicitTagsOnly: true) else { continue }
             for track in scope where effective(track) != target {
@@ -147,7 +155,13 @@ public enum AlbumArtistInferencePolicy {
         for track in tracks {
             if let sourceIDs, !sourceIDs.contains(track.sourceID) { continue }
             guard let albumTitle = trimmed(track.albumTitle) else { continue }
-            let directory = byDirectory ? track.directory : ""
+            let directory: String
+            if byDirectory {
+                guard let known = track.directory else { continue }
+                directory = known
+            } else {
+                directory = ""
+            }
             let key = "\(track.sourceID)\u{1F}\(directory)\u{1F}\(albumTitle)"
             if let index = scopeIndexByKey[key] {
                 scopedTracks[index].append(track)
@@ -276,5 +290,46 @@ public enum AlbumArtistInferencePolicy {
         guard let albumArtist = trimmed(track.albumArtistName) else { return false }
         guard let trackArtist = trimmed(track.trackArtistName) else { return true }
         return albumArtist.caseInsensitiveCompare(trackArtist) != .orderedSame
+    }
+}
+
+/// Parent folders of tracks whose `filePath` is a provider item ID. The path
+/// of such a track carries no folder, while the scan's sync index keeps the
+/// parent the provider listed the file under — the same rows the folder view
+/// is built from. A source present here is judged by these folders; one of its
+/// files missing from the map has no known folder. A source absent from it
+/// keeps the folder of its path.
+public struct AlbumArtistFolderIndex: Sendable, Equatable {
+    public static let empty = AlbumArtistFolderIndex(parentsBySource: [:])
+
+    /// sourceID → file path (the provider item ID) → parent folder identifier.
+    public let parentsBySource: [String: [String: String]]
+
+    public init(parentsBySource: [String: [String: String]]) {
+        self.parentsBySource = parentsBySource.filter { !$0.value.isEmpty }
+    }
+
+    public func directory(sourceID: String, filePath: String) -> String? {
+        guard let parents = parentsBySource[sourceID] else {
+            return AlbumArtistInferencePolicy.directory(ofPath: filePath)
+        }
+        return parents[filePath]
+    }
+
+    /// File path → parent folder from one source's sync index. Keyed by the
+    /// file rather than the song so CUE tracks cut from one file, and songs
+    /// whose IDs were migrated, still find their folder.
+    public static func parents(
+        fromSyncIndex index: [String: SourceSyncIndexedItem]
+    ) -> [String: String] {
+        var result: [String: String] = [:]
+        for item in index.values where !item.isDirectory {
+            guard let parent = item.parentPath, !parent.isEmpty else { continue }
+            // A file listed by two rows would otherwise follow Dictionary
+            // order; keep the verdict stable across launches.
+            if let existing = result[item.path], existing <= parent { continue }
+            result[item.path] = parent
+        }
+        return result
     }
 }

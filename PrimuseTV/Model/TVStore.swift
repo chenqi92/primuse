@@ -467,6 +467,11 @@ final class TVStore {
         hasPendingSnapshotRecovery = pendingSnapshotRecovery
         locallyRemovedSourceIDs = Set(defaults.stringArray(forKey: "tv.removedSourceIDs") ?? [])
         locallyScannedSourceIDs = Set(defaults.stringArray(forKey: "tv.scannedSourceIDs") ?? [])
+        if let data = try? Data(contentsOf: Self.albumArtistFoldersURL(sessionStore: sessionStore)),
+           let parents = try? JSONDecoder().decode([String: [String: String]].self, from: data) {
+            albumArtistFolderParents = parents
+            self.library.updateAlbumArtistFolders(AlbumArtistFolderIndex(parentsBySource: parents))
+        }
         scanner.readingEnvironment = { [weak self] offline in
             .current(playbackActive: self?.isPlaying == true || self?.isLoading == true,
                      offlineSource: offline)
@@ -698,6 +703,10 @@ final class TVStore {
     @ObservationIgnored private var playbackRecoveryAttempt = 0
     @ObservationIgnored private var playbackRestoreAttempted = false
     @ObservationIgnored private var sessionStore = PlaybackSessionStore()
+    /// 按文件 ID 寻址的网盘(Google Drive、OneDrive、阿里云盘…)的歌曲父目录,
+    /// 专辑艺术家推断按它分文件夹(见 `AlbumArtistFolderIndex`)。电视扫描完成后
+    /// 检查点连同同步索引一起删掉, 所以目录单独存一份, 启动时交给资料库。
+    @ObservationIgnored private var albumArtistFolderParents: [String: [String: String]] = [:]
 
     // 单条查询索引:song(_:)/album(_:) 命中字典而非全量 map 整库。
     // 在 refreshVisibility()(reload / 改源后)重建,曲库快照变更即失效。
@@ -3611,6 +3620,37 @@ final class TVStore {
         lastScanFlush = Date()
     }
 
+    private static func albumArtistFoldersURL(sessionStore: PlaybackSessionStore) -> URL {
+        sessionStore.url.deletingLastPathComponent()
+            .appendingPathComponent("album-artist-folders.json")
+    }
+
+    /// 走完整个源的那次扫描替换这个源的目录; 半路见到目录变动的那次只补上
+    /// 它列到的文件, 没列到的沿用上一次。已删除的源顺手清掉。
+    private func recordAlbumArtistFolders(
+        sourceID: String,
+        index: [String: SourceSyncIndexedItem],
+        isCompleteListing: Bool
+    ) {
+        let parents = AlbumArtistFolderIndex.parents(fromSyncIndex: index)
+        var next = albumArtistFolderParents
+        next[sourceID] = isCompleteListing
+            ? parents
+            : (next[sourceID] ?? [:]).merging(parents) { _, listed in listed }
+        next = next.filter { sourcesStore.source(id: $0.key)?.isDeleted == false && !$0.value.isEmpty }
+        guard next != albumArtistFolderParents else { return }
+        albumArtistFolderParents = next
+        do {
+            try JSONEncoder().encode(next).write(
+                to: Self.albumArtistFoldersURL(sessionStore: sessionStore),
+                options: .atomic
+            )
+        } catch {
+            plog("⚠️ TV album-artist folders not saved: \(error.localizedDescription)")
+        }
+        library.updateAlbumArtistFolders(AlbumArtistFolderIndex(parentsBySource: next))
+    }
+
     private func acceptScanBatch(_ songs: [Song], sourceID: String, generation: UUID) async throws {
         guard scanGeneration == generation, !locallyRemovedSourceIDs.contains(sourceID),
               sourcesStore.source(id: sourceID)?.isDeleted == false else { throw CancellationError() }
@@ -3706,6 +3746,13 @@ final class TVStore {
                 && source.type != .synologyAudioStation {
                 library.updateAutomaticArtistArtworkCatalog(
                     SourceArtistArtworkCatalog(sourceID: source.id, index: result.resumeState.index)
+                )
+            }
+            if source.type.usesOpaqueDirectoryIdentifiers {
+                recordAlbumArtistFolders(
+                    sourceID: source.id,
+                    index: result.resumeState.index,
+                    isCompleteListing: result.canPrune
                 )
             }
             refreshVisibility()

@@ -909,6 +909,19 @@ final class AppServices {
             await favoriteSync?.refresh(source: source, applyFence: applyFence)
             if applyFence() { ratingSync?.resume(sourceID: source.id) }
         }
+        // 按文件 ID 寻址的网盘, 歌曲路径里没有目录; 专辑艺术家推断改用扫描同步
+        // 索引里记下的父目录。索引一变 (扫描提交、同步状态作废) 就重送一份。
+        let publishAlbumArtistFolders = { [weak scanService, weak library, weak store] in
+            guard let scanService, let library, let store else { return }
+            let sourceIDs = Set(
+                store.allSources.lazy
+                    .filter { $0.type.usesOpaqueDirectoryIdentifiers }
+                    .map(\.id)
+            )
+            library.updateAlbumArtistFolders(scanService.albumArtistFolderIndex(for: sourceIDs))
+        }
+        scanService.folderHierarchyChangeHandler = publishAlbumArtistFolders
+        publishAlbumArtistFolders()
         // 扫描收尾之外的那一轮镜像刷新。顺序与收尾一致: 歌单 →「喜欢」/ 评分 →
         // 电台, 每一步之前重新过闸, 源在半路被停用或被扫描接手就停下。
         let serverMirrorRefresh = ServerMirrorRefreshCoordinator(

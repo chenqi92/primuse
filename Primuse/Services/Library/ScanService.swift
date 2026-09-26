@@ -358,6 +358,10 @@ final class ScanService {
     /// Successful catalogue access can reopen an exhausted metadata-read
     /// circuit breaker without coupling ScanService to the backfill worker.
     @ObservationIgnored var successfulSourceScanHandler: ((String, SourceScanLifecycleCompletion) -> Void)?
+    /// Called whenever `folderHierarchyRevision` advances. AppServices uses it
+    /// to hand the ID-addressed drives' folders to the library's album-artist
+    /// inference, which cannot read them from those songs' paths.
+    @ObservationIgnored var folderHierarchyChangeHandler: (() -> Void)?
     /// AppServices injects the radio store without making every scan call site
     /// carry another dependency. Invoked only after a successful server-library
     /// catalogue commit, alongside server playlist mirroring.
@@ -726,7 +730,7 @@ final class ScanService {
         let mutationEpoch = syncStateMutationEpochs[sourceID, default: 0] &+ 1
         syncStateMutationEpochs[sourceID] = mutationEpoch
         if discardingState, syncStates.removeValue(forKey: sourceID) != nil {
-            folderHierarchyRevision &+= 1
+            advanceFolderHierarchyRevision()
         }
         guard let syncStateStore else { return }
         Task {
@@ -752,6 +756,18 @@ final class ScanService {
         for sourceID: String
     ) -> [String: SourceSyncIndexedItem] {
         syncStates[sourceID]?.index ?? [:]
+    }
+
+    /// Parent folders for the given sources' files, read from the same sync
+    /// index the folder view uses. Only ID-addressed drives belong here: a
+    /// path-addressed source already carries its folder in every path.
+    func albumArtistFolderIndex(for sourceIDs: Set<String>) -> AlbumArtistFolderIndex {
+        var parentsBySource: [String: [String: String]] = [:]
+        for sourceID in sourceIDs {
+            guard let index = syncStates[sourceID]?.index else { continue }
+            parentsBySource[sourceID] = AlbumArtistFolderIndex.parents(fromSyncIndex: index)
+        }
+        return AlbumArtistFolderIndex(parentsBySource: parentsBySource)
     }
 
     func recordMetadataFileReplacement(original: Song, updated: Song, in library: MusicLibrary) async throws {
@@ -4866,8 +4882,13 @@ final class ScanService {
         syncStateAppliedRevisions[sourceID] = receipt.sourceRevision
         syncStates[sourceID] = state
         if changesFolderHierarchy {
-            folderHierarchyRevision &+= 1
+            advanceFolderHierarchyRevision()
         }
+    }
+
+    private func advanceFolderHierarchyRevision() {
+        folderHierarchyRevision &+= 1
+        folderHierarchyChangeHandler?()
     }
 
     private func persistBaiduSnapshotProgress(

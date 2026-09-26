@@ -7,7 +7,7 @@ struct AlbumArtistInferencePolicyTests {
     private func track(
         _ id: String,
         sourceID: String = "source",
-        directory: String = "/music/ost",
+        directory: String? = "/music/ost",
         albumTitle: String? = "鸣潮 原声带",
         albumArtistName: String? = nil,
         trackArtistName: String? = nil
@@ -272,6 +272,100 @@ struct AlbumArtistInferencePolicyTests {
         )
         // 推断仍然按目录走, 它会改写分组, 必须保守。
         #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks).isEmpty)
+    }
+
+    /// Google Drive and the other ID-addressed drives list every file under a
+    /// real folder, but the path is the item ID, so all their tracks used to
+    /// share the directory "" and the drive never got a majority vote. With
+    /// the parents from the sync index it is judged folder by folder.
+    @Test func anIDAddressedDriveIsJudgedByItsIndexedFolders() {
+        let folders = AlbumArtistFolderIndex(parentsBySource: [
+            "drive": [
+                "1AbC": "folder-ost", "2DeF": "folder-ost", "3GhI": "folder-ost",
+                "4JkL": "folder-other",
+            ],
+        ])
+        func tracks(_ folders: AlbumArtistFolderIndex) -> [AlbumArtistInferencePolicy.Track] {
+            [
+                ("1AbC", "鸣潮 原声带", "鸣潮先约电台"),
+                ("2DeF", "鸣潮 原声带", "鸣潮先约电台"),
+                ("3GhI", "鸣潮 原声带", "作曲家甲"),
+                ("4JkL", "别的专辑", "别人"),
+            ].map { path, album, artist in
+                track(
+                    path,
+                    sourceID: "drive",
+                    directory: folders.directory(sourceID: "drive", filePath: path),
+                    albumTitle: album,
+                    trackArtistName: artist
+                )
+            }
+        }
+
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks(.empty)).isEmpty)
+        #expect(
+            AlbumArtistInferencePolicy.directoryAuthoritativeSourceIDs(for: tracks(folders))
+                == ["drive"]
+        )
+        #expect(
+            AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks(folders))
+                == ["3GhI": "鸣潮先约电台"]
+        )
+    }
+
+    /// A file the index has not listed yet — added by a scan that has not
+    /// committed — has no folder. It must not land in one catch-all folder
+    /// where a majority could rename it; only an undisputed explicit tag in its
+    /// album title reaches it.
+    @Test func aTrackWithoutAKnownFolderTakesOnlyTheExplicitVerdict() {
+        let tracks = [
+            track("a1", sourceID: "drive", directory: "folder-a", trackArtistName: "Host"),
+            track("b1", sourceID: "drive", directory: "folder-b", albumTitle: "别的专辑",
+                  trackArtistName: "别人"),
+            track("u1", sourceID: "drive", directory: nil, albumTitle: "新专辑",
+                  trackArtistName: "Host"),
+            track("u2", sourceID: "drive", directory: nil, albumTitle: "新专辑",
+                  trackArtistName: "Host"),
+            track("u3", sourceID: "drive", directory: nil, albumTitle: "新专辑",
+                  trackArtistName: "Guest"),
+            track("u4", sourceID: "drive", directory: nil, albumTitle: "合辑",
+                  albumArtistName: "Label", trackArtistName: "Composer A"),
+            track("u5", sourceID: "drive", directory: nil, albumTitle: "合辑",
+                  trackArtistName: "Composer B"),
+        ]
+
+        #expect(AlbumArtistInferencePolicy.directoryAuthoritativeSourceIDs(for: tracks) == ["drive"])
+        #expect(AlbumArtistInferencePolicy.inferredAlbumArtists(for: tracks) == ["u5": "Label"])
+    }
+
+    @Test func folderIndexReadsTheFileRowsOfASyncIndex() {
+        let index: [String: SourceSyncIndexedItem] = [
+            "folder-ost": SourceSyncIndexedItem(
+                stableKey: "folder-ost", path: "folder-ost", displayName: "OST",
+                parentPath: "root", isDirectory: true,
+                size: 0, modifiedDate: nil, revision: nil
+            ),
+            "file-1": SourceSyncIndexedItem(
+                stableKey: "file-1", path: "file-1", parentPath: "folder-ost",
+                isDirectory: false, songIDs: ["song-1", "song-1-cue-2"],
+                size: 1, modifiedDate: nil, revision: nil
+            ),
+            "file-2": SourceSyncIndexedItem(
+                stableKey: "file-2", path: "file-2", parentPath: nil,
+                isDirectory: false, songIDs: ["song-2"],
+                size: 1, modifiedDate: nil, revision: nil
+            ),
+        ]
+
+        let parents = AlbumArtistFolderIndex.parents(fromSyncIndex: index)
+        #expect(parents == ["file-1": "folder-ost"])
+
+        let folders = AlbumArtistFolderIndex(parentsBySource: ["drive": parents, "unscanned": [:]])
+        #expect(Set(folders.parentsBySource.keys) == ["drive"])
+        #expect(folders.directory(sourceID: "drive", filePath: "file-1") == "folder-ost")
+        #expect(folders.directory(sourceID: "drive", filePath: "file-2") == nil)
+        #expect(folders.directory(sourceID: "disk", filePath: "/music/a/b.flac") == "/music/a")
+        #expect(folders.directory(sourceID: "unscanned", filePath: "3GhI") == "")
     }
 
     @Test func directoryOfPathMatchesFoundationPathSemantics() {

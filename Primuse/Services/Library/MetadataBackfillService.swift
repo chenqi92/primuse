@@ -2724,10 +2724,11 @@ final class MetadataBackfillService {
                 || now.timeIntervalSince(albumArtistVerdictComputedAt)
                     >= Self.albumArtistVerdictInterval else { return }
         let songs = library.songs
+        let folders = library.albumArtistFolders
         let rechecked = albumArtistRecheckedIDs
         let verdict = await Task.detached(priority: .utility) {
             AlbumArtistInferencePolicy.unconfirmedAlbumArtistTrackIDs(
-                for: songs.map { MusicLibrary.albumArtistInferenceTrack($0) }
+                for: songs.map { MusicLibrary.albumArtistInferenceTrack($0, folders: folders) }
             ).subtracting(rechecked)
         }.value
         albumArtistUnconfirmedIDs = verdict
