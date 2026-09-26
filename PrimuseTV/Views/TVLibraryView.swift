@@ -184,11 +184,11 @@ struct TVLibraryView: View {
         let columns = Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols)
         switch filter {
         case .albums:
-            LazyVGrid(columns: columns, alignment: .leading, spacing: gap) {
-                ForEach(store.albums) { a in
-                    TVAlbumCard(album: a, width: cell,
-                                subtitleOverride: a.year > 0 ? "\(a.artist) · \(a.year)" : a.artist, action: openPlayer)
-                }
+            TVPagedGrid(items: store.albums, columns: columns, spacing: gap) { index, album, focusChanged in
+                TVAlbumCard(album: album, width: cell,
+                            subtitleOverride: album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist,
+                            action: openPlayer, onFocusChanged: focusChanged)
+                    .accessibilityIdentifier("tv.library.album.\(index)")
             }
         case .recommendations:
             VStack(alignment: .leading, spacing: 22) {
@@ -261,15 +261,15 @@ struct TVLibraryView: View {
                 }
             }
         case .artists:
-            LazyVGrid(columns: columns, alignment: .leading, spacing: gap) {
-                ForEach(store.artists) { artist in
-                    TVArtistCard(
-                        artist: artist,
-                        size: cell * 0.82,
-                        action: { selectedArtist = artist }
-                    )
-                        .frame(width: cell)
-                }
+            TVPagedGrid(items: store.artists, columns: columns, spacing: gap) { index, artist, focusChanged in
+                TVArtistCard(
+                    artist: artist,
+                    size: cell * 0.82,
+                    action: { selectedArtist = artist },
+                    onFocusChanged: focusChanged
+                )
+                    .frame(width: cell)
+                    .accessibilityIdentifier("tv.library.artist.\(index)")
             }
         case .songs:
             TVPagedSongIDList(songIDs: store.songIDs, alignment: .leading, action: openPlayer)

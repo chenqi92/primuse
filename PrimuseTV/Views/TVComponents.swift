@@ -274,11 +274,13 @@ struct TVAlbumCard: View {
     var titleOverride: String? = nil
     var subtitleOverride: String? = nil
     var action: () -> Void = {}
+    var onFocusChanged: (Bool) -> Void = { _ in }
     @Environment(TVStore.self) private var store
 
     var body: some View {
         TVFocusButton(ring: false,
-                      action: { store.play(album: album); action() }) { focused in
+                      action: { store.play(album: album); action() },
+                      onFocusChanged: onFocusChanged) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVArtworkView(album: album, size: width)
                     .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
@@ -556,9 +558,10 @@ struct TVArtistCard: View {
     let artist: TVArtist
     var size: CGFloat = 180
     var action: () -> Void = {}
+    var onFocusChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
-        TVFocusButton(ring: false, action: action) { focused in
+        TVFocusButton(ring: false, action: action, onFocusChanged: onFocusChanged) { focused in
             VStack(spacing: 12) {
                 TVArtistArtworkView(artist: artist, size: size)
                     .tvFocusRing(focused, radius: size / 2, scale: 1.04, lift: 0)
@@ -880,6 +883,36 @@ struct TVPagedList<Item, ID: Hashable, Row: View>: View {
                     guard focused else { return }
                     renderedRowCount = TVLongListPagingPolicy.limit(
                         after: shown, focusedRow: entry.index, totalCount: total
+                    )
+                }
+            }
+        }
+    }
+}
+
+/// 网格也限制参与布局和焦点搜索的项目数；保留已加载项目的身份，靠近末尾时续页。
+struct TVPagedGrid<Item: Identifiable, Cell: View>: View {
+    private struct Entry: Identifiable {
+        var id: Item.ID { item.id }
+        let index: Int
+        let item: Item
+    }
+
+    let items: [Item]
+    let columns: [GridItem]
+    var spacing: CGFloat = 28
+    @ViewBuilder var cell: (Int, Item, @escaping (Bool) -> Void) -> Cell
+    @State private var renderedItemCount = TVLongListPagingPolicy.pageSize
+
+    var body: some View {
+        let shown = TVLongListPagingPolicy.clamped(limit: renderedItemCount, totalCount: items.count)
+        let entries = items.prefix(shown).enumerated().map { Entry(index: $0, item: $1) }
+        LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
+            ForEach(entries) { entry in
+                cell(entry.index, entry.item) { focused in
+                    guard focused else { return }
+                    renderedItemCount = TVLongListPagingPolicy.limit(
+                        after: shown, focusedRow: entry.index, totalCount: items.count
                     )
                 }
             }
