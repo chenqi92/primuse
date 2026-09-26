@@ -314,7 +314,7 @@ enum LyricsLoader {
                 if sourceResult == .emptyPreservingCache {
                     let onlineCacheSnapshot = await MetadataAssetStore.shared
                         .cachedLyrics(forSongID: song.id)
-                    if allowsAutomaticOnlineLyrics(for: song),
+                    if songAcceptsAutomaticOnlineLyrics(song),
                        let online = await AppServices.shared.scraperService.fetchOnlineLyrics(
                         title: song.title,
                         artist: song.artistName,
@@ -606,7 +606,7 @@ extension LyricsLoader {
     /// 这类章节名，搜到的只会是同名歌曲的歌词，和正在讲的内容毫无关系。所以有声
     /// 内容只认源里自带的（同目录 .lrc/.vtt/.srt、内嵌、服务端），自动在线查找
     /// 一律不走；用户在刮削页手动搜仍然可以。
-    static func allowsAutomaticOnlineLyrics(for song: Song) -> Bool {
+    static func songAcceptsAutomaticOnlineLyrics(_ song: Song) -> Bool {
         !SpokenWordStore.shared.isSpokenWord(song)
     }
 
@@ -617,7 +617,7 @@ extension LyricsLoader {
         expectedFingerprint: LyricsDocumentFingerprint?
     ) async -> [LyricLine]? {
         guard !Task.isCancelled else { return nil }
-        guard allowsAutomaticOnlineLyrics(for: song) else { return nil }
+        guard songAcceptsAutomaticOnlineLyrics(song) else { return nil }
         let settings = ScraperSettings.load()
         guard settings.autoFetchOnlineLyrics else { return nil }
         let hasLyricsServers = !LyricsAPIServerSettings.load().servers.isEmpty

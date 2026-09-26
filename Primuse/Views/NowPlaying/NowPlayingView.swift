@@ -5072,7 +5072,7 @@ struct NowPlayingView: View {
                     // not a terminal app result: fall through to the same
                     // title-compatible online lyrics pipeline used by manual
                     // scraping, then bind the result to this local song ID.
-                    if LyricsLoader.allowsAutomaticOnlineLyrics(for: song),
+                    if LyricsLoader.songAcceptsAutomaticOnlineLyrics(song),
                        let online = await capturedScraperService.fetchOnlineLyrics(
                         title: song.title,
                         artist: song.artistName,
