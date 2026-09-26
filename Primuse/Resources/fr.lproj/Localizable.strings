@@ -4477,6 +4477,9 @@
 "karaoke_unavailable_casting" = "Impossible de baisser la voix pendant la diffusion sur un autre appareil.";
 "karaoke_unavailable_high_fidelity" = "La sortie haute fidélité ne passe pas par les effets : impossible de baisser la voix.";
 "karaoke_mono_warning" = "Cet enregistrement est presque mono : la voix ne peut pas être séparée de la musique.";
+"karaoke_mono_download_ai" = "Presque mono. Téléchargez le modèle IA pour séparer la voix.";
+"karaoke_mono_enable_ai" = "Presque mono. Activez la séparation vocale IA.";
+"karaoke_mono_ai_pending" = "Presque mono. La voix reste jusqu’à la fin de la séparation IA.";
 "karaoke_mic_denied" = "L’accès au micro est désactivé. Vous pouvez l’activer dans Réglages.";
 "karaoke_mic_unavailable" = "Impossible de démarrer le micro.";
 "karaoke_monitor_needs_wired" = "Avec un casque, le score est plus précis. Le retour nécessite un casque filaire.";

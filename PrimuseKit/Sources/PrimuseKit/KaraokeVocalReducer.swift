@@ -231,6 +231,10 @@ public final class KaraokeVocalReducer: @unchecked Sendable {
     public private(set) var stereoWidth: Float = 1
     /// True while the recording is too close to mono for vocal removal;
     /// suppression is then faded out instead of hollowing out the whole mix.
+    /// The verdict only changes after the width has stayed on the other side
+    /// for a while and survives seeks, so a near-mono song whose width hovers
+    /// around the threshold does not flip suppression (and the loudness) on
+    /// and off every few frames.
     public private(set) var isEffectivelyMono = false
 
     private let fft: KaraokeComplexFFT
@@ -260,6 +264,16 @@ public final class KaraokeVocalReducer: @unchecked Sendable {
     /// Set after a discontinuity: priming outputs silence instead of dry.
     private var fadesFromSilence = false
     private let outputScale: Float
+    /// Whether `stereoWidth` holds a measurement yet; the first one seeds it.
+    private var hasWidthEstimate = false
+    /// Hops the width has spent on the far side of the current verdict.
+    private var monoVerdictDwell = 0
+    /// Suppression share the mono guard allows, ramped rather than switched.
+    private var monoGuardGain: Float = 1
+    private let widthSmoothing: Float
+    private let monoEnterHops: Int
+    private let monoLeaveHops: Int
+    private let monoGuardStep: Float
 
     public init(sampleRate: Double, configuration: Configuration = Configuration()) {
         let size = configuration.fftSize
@@ -288,6 +302,13 @@ public final class KaraokeVocalReducer: @unchecked Sendable {
             window[index] = Float(hann.squareRoot())
         }
         outputScale = 1 / (2 * Float(size))
+        let hopSeconds = Double(size / 4) / sampleRate
+        // Width follows a ~0.4 s average; mono is declared after 0.3 s below
+        // the floor and revoked only after 1 s clearly above it.
+        widthSmoothing = Float(min(1, hopSeconds / 0.4))
+        monoEnterHops = max(1, Int((0.3 / hopSeconds).rounded()))
+        monoLeaveHops = max(1, Int((1.0 / hopSeconds).rounded()))
+        monoGuardStep = Float(min(1, hopSeconds / 0.4))
 
         let bins = size / 2 + 1
         bandWeight = buffer(bins)
@@ -359,8 +380,8 @@ public final class KaraokeVocalReducer: @unchecked Sendable {
         transitionPosition = 0
         appliedReduction = 0
         phase = .bypassed
-        stereoWidth = 1
-        isEffectivelyMono = false
+        monoVerdictDwell = 0
+        monoGuardGain = isEffectivelyMono ? 0 : 1
         fadesFromSilence = false
     }
 
@@ -522,8 +543,12 @@ public final class KaraokeVocalReducer: @unchecked Sendable {
         } else if appliedReduction > targetReduction {
             appliedReduction = max(targetReduction, appliedReduction - step)
         }
-        let monoFade = isEffectivelyMono ? Float(0) : Float(1)
-        let gain = appliedReduction * monoFade
+        if isEffectivelyMono {
+            monoGuardGain = max(0, monoGuardGain - monoGuardStep)
+        } else {
+            monoGuardGain = min(1, monoGuardGain + monoGuardStep)
+        }
+        let gain = appliedReduction * monoGuardGain
 
         let floor = configuration.similarityFloor
         let span = max(0.0001, configuration.similarityCeiling - floor)
@@ -588,12 +613,19 @@ public final class KaraokeVocalReducer: @unchecked Sendable {
 
         if totalEnergy > 1e-9 {
             let width = min(1, sideEnergy / totalEnergy)
-            stereoWidth = 0.9 * stereoWidth + 0.1 * width
-            // Hysteresis keeps a quiet, narrow passage from flickering.
-            if isEffectivelyMono {
-                if stereoWidth > 0.02 { isEffectivelyMono = false }
-            } else if stereoWidth < 0.008 {
-                isEffectivelyMono = true
+            if hasWidthEstimate {
+                stereoWidth += widthSmoothing * (width - stereoWidth)
+            } else {
+                stereoWidth = width
+                hasWidthEstimate = true
+            }
+            // Wide hysteresis plus dwell times keep a narrow mix, or a quiet
+            // passage in one, from toggling the verdict.
+            let crossing = isEffectivelyMono ? stereoWidth > 0.03 : stereoWidth < 0.008
+            monoVerdictDwell = crossing ? monoVerdictDwell + 1 : 0
+            if monoVerdictDwell >= (isEffectivelyMono ? monoLeaveHops : monoEnterHops) {
+                isEffectivelyMono.toggle()
+                monoVerdictDwell = 0
             }
         }
 

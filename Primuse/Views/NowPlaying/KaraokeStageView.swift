@@ -388,6 +388,8 @@ private struct KaraokeControlDeck: View {
                 KaraokeProgressRow(player: session.player)
                 KaraokeTransportRow(session: session)
             }
+            // 状态胶囊出现/消失会改变整块高度，过渡一下而不是瞬间跳。
+            .animation(.easeInOut(duration: 0.25), value: session.isEffectivelyMono)
             .padding(.top, 4)
         }
         .scrollIndicators(.hidden)
@@ -440,15 +442,17 @@ private struct KaraokeStatusStrip: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
                     .karaokeGlass(Capsule())
+                    .transition(.opacity)
                 }
             }
             .frame(maxWidth: .infinity)
+            .animation(.easeInOut(duration: 0.25), value: status)
         }
     }
 
     private var statusMessage: String? {
         if session.isPlayingInstrumental { return String(localized: "karaoke_backing_track_playing") }
-        if session.isEffectivelyMono { return String(localized: "karaoke_mono_warning") }
+        if session.isEffectivelyMono { return monoMessage }
         switch session.microphoneState {
         case .denied: return String(localized: "karaoke_mic_denied")
         case .unavailable: return String(localized: "karaoke_mic_unavailable")
@@ -463,6 +467,17 @@ private struct KaraokeStatusStrip: View {
         if session.recordingFailed { return String(localized: "karaoke_recording_failed") }
         if session.lastRecordingURL != nil { return String(localized: "karaoke_recording_saved") }
         return nil
+    }
+
+    /// 频谱法对单声道无能为力，但 AI 分离不挑声道：能走 AI 就告诉用户差哪一步。
+    private var monoMessage: String {
+        let modelState = session.separation.modelState
+        if modelState == .unsupportedSystem || session.currentSeparationState == .unsupported {
+            return String(localized: "karaoke_mono_warning")
+        }
+        if modelState != .ready { return String(localized: "karaoke_mono_download_ai") }
+        if !session.aiSeparationEnabled { return String(localized: "karaoke_mono_enable_ai") }
+        return String(localized: "karaoke_mono_ai_pending")
     }
 }
 

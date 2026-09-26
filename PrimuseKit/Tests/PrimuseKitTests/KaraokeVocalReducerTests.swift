@@ -190,6 +190,59 @@ struct KaraokeVocalReducerTests {
         #expect(Self.toneAmplitude(left[tail], frequency: 880) > 0.25)
     }
 
+    @Test("A near-mono mix does not flip the mono verdict back and forth")
+    func nearMonoVerdictIsStable() {
+        let reducer = KaraokeVocalReducer(sampleRate: Self.sampleRate)
+        var noise = Noise(state: 11)
+        let count = Int(Self.sampleRate * 8)
+        let block = Int(Self.sampleRate / 4)
+        var left = [Float](repeating: 0, count: count)
+        var right = [Float](repeating: 0, count: count)
+        for index in 0..<count {
+            let voice = Self.sine(880, index) + 0.02 * noise.next()
+            // A faint one-sided part that comes and goes every 0.25 s keeps the
+            // width hovering around the mono threshold.
+            let side: Float = (index / block) % 2 == 0 ? 0 : Self.sine(1_320, index, amplitude: 0.09)
+            left[index] = voice + side
+            right[index] = voice
+        }
+        var vocal = [Float](repeating: 0, count: count)
+        var flips = 0
+        var last = reducer.isEffectivelyMono
+        var offset = 0
+        while offset < count {
+            let chunk = min(512, count - offset)
+            left.withUnsafeMutableBufferPointer { l in
+                right.withUnsafeMutableBufferPointer { r in
+                    vocal.withUnsafeMutableBufferPointer { v in
+                        reducer.process(
+                            left: l.baseAddress! + offset,
+                            right: r.baseAddress! + offset,
+                            frameCount: chunk,
+                            isActive: true,
+                            reduction: 1,
+                            vocal: v.baseAddress! + offset
+                        )
+                    }
+                }
+            }
+            if reducer.isEffectivelyMono != last {
+                flips += 1
+                last = reducer.isEffectivelyMono
+            }
+            offset += chunk
+        }
+        #expect(flips <= 1, "verdict flipped \(flips) times")
+
+        // Loudness settles instead of pumping between hollowed and full.
+        let blocks = stride(from: 2 * block, to: count - block, by: block).map {
+            Self.energy(left[$0..<($0 + block)])
+        }
+        let settled = blocks.suffix(16)
+        let ratio = (settled.max() ?? 0) / max(1e-12, settled.min() ?? 0)
+        #expect(ratio < 2, "block energy ratio \(ratio)")
+    }
+
     @Test("Switching on and off never produces a jump")
     func transitionsAreSmooth() {
         let reducer = KaraokeVocalReducer(sampleRate: Self.sampleRate)

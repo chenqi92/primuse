@@ -4383,6 +4383,9 @@
 "karaoke_unavailable_casting" = "Podczas przesyłania na inne urządzenie nie można ściszyć wokalu.";
 "karaoke_unavailable_high_fidelity" = "Wyjście wysokiej wierności pomija efekty, więc nie można ściszyć wokalu.";
 "karaoke_mono_warning" = "To nagranie jest prawie mono, więc wokalu nie da się oddzielić od muzyki.";
+"karaoke_mono_download_ai" = "Prawie mono. Pobierz model AI, aby oddzielić wokal.";
+"karaoke_mono_enable_ai" = "Prawie mono. Włącz oddzielanie wokalu AI.";
+"karaoke_mono_ai_pending" = "Prawie mono. Wokal zostaje do końca separacji AI.";
 "karaoke_mic_denied" = "Dostęp do mikrofonu jest wyłączony. Możesz go włączyć w Ustawieniach.";
 "karaoke_mic_unavailable" = "Nie udało się uruchomić mikrofonu.";
 "karaoke_monitor_needs_wired" = "W słuchawkach ocena jest dokładniejsza. Odsłuch wymaga słuchawek przewodowych.";

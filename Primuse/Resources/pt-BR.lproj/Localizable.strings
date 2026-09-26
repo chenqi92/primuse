@@ -4383,6 +4383,9 @@
 "karaoke_unavailable_casting" = "Não é possível baixar a voz ao transmitir para outro dispositivo.";
 "karaoke_unavailable_high_fidelity" = "A saída de alta fidelidade não passa pelos efeitos, então não é possível baixar a voz.";
 "karaoke_mono_warning" = "Esta gravação é quase mono, então a voz não pode ser separada da música.";
+"karaoke_mono_download_ai" = "Quase mono. Baixe o modelo de IA para separar a voz.";
+"karaoke_mono_enable_ai" = "Quase mono. Ative a separação de voz com IA.";
+"karaoke_mono_ai_pending" = "Quase mono. A voz fica até a separação com IA terminar.";
 "karaoke_mic_denied" = "O acesso ao microfone está desativado. Você pode ativá-lo nos Ajustes.";
 "karaoke_mic_unavailable" = "Não foi possível iniciar o microfone.";
 "karaoke_monitor_needs_wired" = "Com fones, a pontuação fica mais precisa. O retorno precisa de fones com fio.";
