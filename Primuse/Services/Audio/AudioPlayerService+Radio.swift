@@ -18,6 +18,9 @@ import WidgetKit
 extension AudioPlayerService {
     @discardableResult
     func play(station: RadioStation, within stations: [RadioStation] = []) async -> Bool {
+        // 从有声书切到电台:趁播放头还是书的位置先记下来。不记的话只剩最多 15 秒前的
+        // 自动保存,续播再回退 5 秒,回到书里就比离开时靠前一截。
+        rememberSpokenWordPosition(force: true)
         let resolutionID = UUID()
         let resolutionGeneration = playbackAdvancePolicy.generation
         pendingRadioResolutionID = resolutionID
@@ -54,18 +57,14 @@ extension AudioPlayerService {
         if TrustedHTTPTransport.requiresPlainSocket(for: url),
            let trustTarget = TrustedHTTPTransport.trustTarget(for: url),
            !SSLTrustStore.allowsInsecureHTTPHostSync(domain: trustTarget) {
-            // `.pls` 包装拆出来的真实流主机,电台页起播前看不见(它只看得见包装地址),
-            // 只能在这里问用户。
-            guard RadioImportParser.isPlaylistWrapper(station.streamURL) else {
-                pendingRadioResolutionID = nil
-                showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), trustTarget))
-                return false
-            }
+            // 没被允许过的明文主机一律先问用户:从首页卡片、订阅清单、车机或 `.pls` 包装拆出来的
+            // 真实流起播时,电台页都没有机会先问。允许后照常起播,拒绝才停下。
             let approved = await SSLTrustStore.shared.requestInsecureHTTPTrust(domain: trustTarget)
             guard pendingRadioResolutionID == resolutionID,
                   playbackAdvancePolicy.generation == resolutionGeneration else { return false }
             guard approved else {
                 pendingRadioResolutionID = nil
+                showPlaybackError(String(format: String(localized: "insecure_http_permission_required %@"), trustTarget))
                 return false
             }
         }
