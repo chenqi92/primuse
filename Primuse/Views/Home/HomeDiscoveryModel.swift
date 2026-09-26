@@ -137,6 +137,8 @@ final class HomeDiscoveryModel {
     @ObservationIgnored private var coverSongIDSet: Set<String> = []
     @ObservationIgnored private var publishedHistorySignature: HistorySignature?
     var nameRevision = 0
+    /// 只存当封面的歌(每个文件夹至多 4 首)。整库的歌按需从资料库取, 不在这里再存
+    /// 一份 —— 二十多万首的曲库光这张表就要常驻上百 MB。
     @ObservationIgnored private(set) var songsByID: [String: Song] = [:]
     @ObservationIgnored private(set) var folderCoverSongIDs: [LibraryFolderNodeID: [String]] = [:]
     @ObservationIgnored private(set) var lastPlayedByFolder: [LibraryFolderNodeID: Date] = [:]
@@ -206,7 +208,7 @@ final class HomeDiscoveryModel {
 
     func updateMetadata(song: Song) {
         let previousCover = songsByID[song.id]?.coverArtFileName
-        songsByID[song.id] = song
+        if songsByID[song.id] != nil { songsByID[song.id] = song }
         var coversChanged = false
         if song.coverArtFileName != nil {
             var nodeID = index?.nodeID(containingSongID: song.id)
@@ -215,6 +217,7 @@ final class HomeDiscoveryModel {
                    !(folderCoverSongIDs[id]?.contains(song.id) ?? false) {
                     folderCoverSongIDs[id, default: []].append(song.id)
                     coverSongIDSet.insert(song.id)
+                    songsByID[song.id] = song
                     coversChanged = true
                 }
                 nodeID = index?.node(withID: id)?.parentID
@@ -320,9 +323,13 @@ final class HomeDiscoveryModel {
         return HomeFolderPinStorage.resolvedPins(rawValue, index: index, defaultCount: count)
     }
 
-    func songs(in id: LibraryFolderNodeID, scope: LibraryFolderSongScope = .descendants) -> [Song] {
+    func songs(
+        in id: LibraryFolderNodeID,
+        scope: LibraryFolderSongScope = .descendants,
+        songForID: (String) -> Song?
+    ) -> [Song] {
         LibraryFolderBrowsePolicy.sortedSongs(
-            (index?.songIDs(in: id, scope: scope) ?? []).compactMap { songsByID[$0] }
+            (index?.songIDs(in: id, scope: scope) ?? []).compactMap(songForID)
         )
     }
 }
@@ -477,17 +484,20 @@ struct HomeDiscoveryObserver: View {
                 ))
             }
             let index = LibraryFolderIndexBuilder.build(sources: resolved, songs: songs, virtualCollections: collections)
-            let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var coverSongsByID: [String: Song] = [:]
             var covers: [LibraryFolderNodeID: [String]] = [:]
             for song in songs where song.coverArtFileName != nil {
                 if Task.isCancelled { break }
                 var id = index.nodeID(containingSongID: song.id)
                 while let current = id {
-                    if (covers[current]?.count ?? 0) < 4 { covers[current, default: []].append(song.id) }
+                    if (covers[current]?.count ?? 0) < 4 {
+                        covers[current, default: []].append(song.id)
+                        if coverSongsByID[song.id] == nil { coverSongsByID[song.id] = song }
+                    }
                     id = index.node(withID: current)?.parentID
                 }
             }
-            return (index, songsByID, covers)
+            return (index, coverSongsByID, covers)
         }
         let result = await withTaskCancellationHandler {
             await task.value

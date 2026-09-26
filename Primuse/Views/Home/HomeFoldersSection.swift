@@ -411,7 +411,7 @@ private struct HomeFolderRow: View {
 
     private func play(shuffle: Bool) {
         HomeDiscoveryPlayback.play(
-            ids: model.songs(in: node.id).map(\.id), shuffle: shuffle,
+            ids: model.songs(in: node.id, songForID: library.unobservedVisibleSong(id:)).map(\.id), shuffle: shuffle,
             library: library, player: player
         )
     }
@@ -1142,7 +1142,7 @@ struct HomeFolderBrowser: View {
     }
 
     private func playFolder(_ id: LibraryFolderNodeID, shuffle: Bool) {
-        HomeDiscoveryPlayback.play(ids: model.songs(in: id).map(\.id), shuffle: shuffle, library: library, player: player)
+        HomeDiscoveryPlayback.play(ids: model.songs(in: id, songForID: library.unobservedVisibleSong(id:)).map(\.id), shuffle: shuffle, library: library, player: player)
     }
 }
 

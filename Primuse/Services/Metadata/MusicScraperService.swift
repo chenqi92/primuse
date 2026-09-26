@@ -981,17 +981,16 @@ final class MusicScraperService {
             return .deferred
         }
 
-        let latestByID = Dictionary(library.visibleSongs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let songs = requestedSongs.reduce(into: (ordered: [Song](), seen: Set<String>())) { result, song in
             guard result.seen.insert(song.id).inserted else { return }
-            result.ordered.append(latestByID[song.id] ?? song)
+            result.ordered.append(library.unobservedVisibleSong(id: song.id) ?? song)
         }.ordered
         guard !songs.isEmpty else { return .empty }
         let pendingSongs = (requestedPendingSongs ?? songs).reduce(
             into: (ordered: [Song](), seen: Set<String>())
         ) { result, song in
             guard result.seen.insert(song.id).inserted else { return }
-            result.ordered.append(latestByID[song.id] ?? song)
+            result.ordered.append(library.unobservedVisibleSong(id: song.id) ?? song)
         }.ordered
         let runID = resumeCheckpoint?.runID ?? UUID()
         let runOriginPlaylistID = resumeCheckpoint?.originPlaylistID ?? originPlaylistID

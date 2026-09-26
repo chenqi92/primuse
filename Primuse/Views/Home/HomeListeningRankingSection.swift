@@ -411,7 +411,7 @@ struct HomeListeningRankingSection: View {
     }
 
     private func play(_ rank: HomeListeningRank) {
-        let ids = rank.folderID.map { model.songs(in: $0).map(\.id) } ?? rank.songIDs
+        let ids = rank.folderID.map { model.songs(in: $0, songForID: library.unobservedVisibleSong(id:)).map(\.id) } ?? rank.songIDs
         HomeDiscoveryPlayback.play(ids: ids, library: library, player: player)
     }
 

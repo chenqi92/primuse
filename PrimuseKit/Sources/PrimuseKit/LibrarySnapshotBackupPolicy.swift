@@ -16,7 +16,24 @@ public enum LibrarySnapshotBackupPolicy {
     public nonisolated static func existingFileIsKnownValid(
         previousChainedWriteSucceeded: Bool?
     ) -> Bool {
-        previousChainedWriteSucceeded == true
+        existingFileIsKnownValid(
+            previousChainedWriteSucceeded: previousChainedWriteSucceeded,
+            existingFileMatchesLastVerifiedWrite: false
+        )
+    }
+
+    /// A successful write also records the file identity (size, modification
+    /// time, file number) it left behind. When the file on disk still carries
+    /// that identity, those are the bytes an earlier — possibly previous-launch —
+    /// write encoded and replaced atomically, so the whole-file decode would only
+    /// re-prove what is already known. On a 200K-song library that decode is
+    /// hundreds of MB on top of the encode and is enough to get the app killed.
+    /// Any other producer replaces the file and changes its identity.
+    public nonisolated static func existingFileIsKnownValid(
+        previousChainedWriteSucceeded: Bool?,
+        existingFileMatchesLastVerifiedWrite: Bool
+    ) -> Bool {
+        previousChainedWriteSucceeded == true || existingFileMatchesLastVerifiedWrite
     }
 
     /// Decode the existing file exactly when its validity is not already known.

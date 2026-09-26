@@ -92,4 +92,27 @@ struct LibrarySnapshotBackupPolicyTests {
             ) == false
         )
     }
+
+    @Test("A file still matching the last verified write is known-valid without a predecessor")
+    func matchingVerifiedWriteSkipsDecode() {
+        for predecessor in [nil, false, true] as [Bool?] {
+            let knownValid = LibrarySnapshotBackupPolicy.existingFileIsKnownValid(
+                previousChainedWriteSucceeded: predecessor,
+                existingFileMatchesLastVerifiedWrite: true
+            )
+            #expect(knownValid)
+            #expect(
+                LibrarySnapshotBackupPolicy.shouldValidateExistingFile(
+                    existingFileIsKnownValid: knownValid
+                ) == false
+            )
+        }
+        // No match: falls back to the chained predecessor alone.
+        #expect(
+            LibrarySnapshotBackupPolicy.existingFileIsKnownValid(
+                previousChainedWriteSucceeded: nil,
+                existingFileMatchesLastVerifiedWrite: false
+            ) == false
+        )
+    }
 }

@@ -369,8 +369,16 @@ private enum LibraryArtworkPreviewBuilder {
             maximumCount: maximumCount,
             randomSeed: randomSeed
         )
-        let itemsByID = Dictionary(items.map { (id($0), $0) }) { first, _ in first }
-        return selectedIDs.compactMap { itemsByID[$0] }
+        // 只挑几件, 别为此把整个列表复制进字典(二十多万首歌时是上百 MB 的瞬时占用)。
+        let wanted = Set(selectedIDs)
+        var selectedByID: [String: Item] = [:]
+        for item in items {
+            let key = id(item)
+            guard wanted.contains(key), selectedByID[key] == nil else { continue }
+            selectedByID[key] = item
+            if selectedByID.count == wanted.count { break }
+        }
+        return selectedIDs.compactMap { selectedByID[$0] }
     }
 }
 
@@ -1301,11 +1309,13 @@ struct LibraryView: View {
         let selection = await LibraryArtworkPreviewSessionStore.shared.selection(
             for: revision
         ) { randomSeed in
-            let songsWithArtworkHint = songsSnapshot.filter(
-                LibraryArtworkPreviewBuilder.songHasArtworkHint
-            )
-            let albumIDsWithSongArtworkHint = Set(songsWithArtworkHint.compactMap(\.albumID))
-            let artistIDsWithSongArtworkHint = Set(songsWithArtworkHint.compactMap(\.artistID))
+            // 只要两组 id, 不复制一份整库歌曲数组。
+            var albumIDsWithSongArtworkHint = Set<String>()
+            var artistIDsWithSongArtworkHint = Set<String>()
+            for song in songsSnapshot where LibraryArtworkPreviewBuilder.songHasArtworkHint(song) {
+                if let albumID = song.albumID { albumIDsWithSongArtworkHint.insert(albumID) }
+                if let artistID = song.artistID { artistIDsWithSongArtworkHint.insert(artistID) }
+            }
 
             let selectedSongs = LibraryArtworkPreviewBuilder.select(
                 songsSnapshot,

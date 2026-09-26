@@ -1073,7 +1073,16 @@ actor LibrarySearchIndex {
         lastMetadataRevisionKey = metadataRevisionKey
 
         do {
-            let songByID = Dictionary(uniqueKeysWithValues: songs.map { ($0.id, $0) })
+            // 只存下标: 每次查询都把整库歌曲拷进字典, 二十多万首时就是几百 MB。
+            let songIndexByID: [String: Int] = {
+                var indexByID: [String: Int] = [:]
+                indexByID.reserveCapacity(songs.count)
+                for (offset, song) in songs.enumerated() where indexByID[song.id] == nil {
+                    indexByID[song.id] = offset
+                }
+                return indexByID
+            }()
+            func indexedSong(withID id: String) -> Song? { songIndexByID[id].map { songs[$0] } }
             var metadataIDs: [String] = []
             var seenMetadata = Set<String>()
             var pathIDs: [String] = []
@@ -1207,7 +1216,7 @@ actor LibrarySearchIndex {
             ))
             var resultIDs = Set<String>()
             for (offset, id) in metadataIDs.enumerated() {
-                guard let song = songByID[id] else { continue }
+                guard let song = indexedSong(withID: id) else { continue }
                 let literal = Self.metadataContainsLiteral(song, query: trimmed)
                 let kind: LibrarySearchMatchKind = literal ? .metadata : .fuzzy
                 // 用户关掉的那类命中不占这首歌, 让它还能落进路径或歌词命中。
@@ -1222,7 +1231,7 @@ actor LibrarySearchIndex {
                 resultIDs.insert(id)
             }
             for (offset, id) in pathIDs.enumerated() where !resultIDs.contains(id) {
-                guard let song = songByID[id] else { continue }
+                guard let song = indexedSong(withID: id) else { continue }
                 ranked.append(LibrarySearchResult(
                     song: song,
                     matchKind: .path,
@@ -1233,7 +1242,7 @@ actor LibrarySearchIndex {
                 resultIDs.insert(id)
             }
             for (offset, hit) in lyricHits.enumerated() where !resultIDs.contains(hit.songID) {
-                guard let song = songByID[hit.songID] else { continue }
+                guard let song = indexedSong(withID: hit.songID) else { continue }
                 ranked.append(LibrarySearchResult(
                     song: song,
                     matchKind: .lyrics,
@@ -1252,7 +1261,7 @@ actor LibrarySearchIndex {
             var albumResults: [Album] = []
             var albumIDs = Set<String>()
             for id in metadataIDs {
-                guard let albumID = songByID[id]?.albumID,
+                guard let albumID = indexedSong(withID: id)?.albumID,
                       !albumIDs.contains(albumID),
                       let album = albumByID[albumID] else { continue }
                 albumIDs.insert(albumID)
@@ -2244,11 +2253,14 @@ enum MusicDiscoveryEngine {
             normalizedSongs.append(NormalizedSong(song: song))
         }
         guard !isCancelled() else { return [] }
-        let byID = Dictionary(
-            normalizedSongs.map { ($0.song.id, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-        let seeds = input.seedIDs.compactMap { byID[$0] }
+        // 种子最多二十几首; 只为它们建索引, 别把整库(连同每首歌的整份拷贝)
+        // 再装进一个字典 —— 二十多万首时这一步就是几百 MB 的瞬时占用。
+        let seedIDSet = Set(input.seedIDs)
+        var seedsByID: [String: NormalizedSong] = [:]
+        for normalizedSong in normalizedSongs where seedIDSet.contains(normalizedSong.song.id) {
+            if seedsByID[normalizedSong.song.id] == nil { seedsByID[normalizedSong.song.id] = normalizedSong }
+        }
+        let seeds = input.seedIDs.compactMap { seedsByID[$0] }
 
         guard !seeds.isEmpty else {
             return coldStartRecommendations(
@@ -2261,7 +2273,6 @@ enum MusicDiscoveryEngine {
         }
 
         var results: [MusicDiscoveryResult] = []
-        results.reserveCapacity(normalizedSongs.count)
         for (index, candidate) in normalizedSongs.enumerated() {
             if index.isMultiple(of: 128), isCancelled() { return [] }
             let song = candidate.song
@@ -2308,12 +2319,14 @@ enum MusicDiscoveryEngine {
         guard !isCancelled() else { return [] }
 
         var ranked = uniqued(results)
-        let availableArtistCount = Set(
-            songs
-                .filter { !input.recentWeekIDs.contains($0.id) }
-                .map(artistIdentity)
-        ).count
-        let targetArtistCount = min(4, min(max(0, limit), availableArtistCount))
+        // 目标最多 4 位艺人, 数够就停; 也不必先把整库过滤复制一遍。
+        let artistCountCap = min(4, max(0, limit))
+        var availableArtists = Set<String>()
+        for song in songs where availableArtists.count < artistCountCap {
+            guard !input.recentWeekIDs.contains(song.id) else { continue }
+            availableArtists.insert(artistIdentity(song))
+        }
+        let targetArtistCount = min(artistCountCap, availableArtists.count)
         let rankedArtistCount = Set(ranked.map { artistIdentity($0.song) }).count
         if ranked.count < limit || rankedArtistCount < targetArtistCount {
             let excluded = Set(ranked.map(\.song.id)).union(input.recentWeekIDs)
@@ -11206,9 +11219,10 @@ final class MusicLibrary {
     ///
     /// `existingFileIsKnownValid` 只在这条串行写入链的前一笔刚刚把同一份字节
     /// 写进 `url` 并报告成功时为真; 那一次解码是纯粹的重复劳动 (整份快照含
-    /// 内嵌歌词, 一次解码就是一遍完整的 `Song` 反序列化)。其它任何来源 ——
-    /// 上一次启动、`reloadFromDisk`、iCloud / Apple TV 快照导入、失败的写入 ——
-    /// 都走原来的解码校验, 它是"损坏文件不得被提升为备份"的那道保险。
+    /// 内嵌歌词, 一次解码就是一遍完整的 `Song` 反序列化)。每次成功写入还会记下
+    /// 文件身份, 下次(包括下一次启动)文件身份没变也视为有效。其它任何来源 ——
+    /// `reloadFromDisk`、iCloud / Apple TV 快照导入、失败的写入 —— 都会换掉文件
+    /// 身份, 走原来的解码校验, 它是"损坏文件不得被提升为备份"的那道保险。
     private nonisolated static func writeSnapshot(
         _ snapshot: Snapshot,
         to url: URL,
@@ -11216,20 +11230,25 @@ final class MusicLibrary {
         existingFileIsKnownValid: Bool
     ) -> Bool {
         let startedAt = ProcessInfo.processInfo.systemUptime
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
         let data: Data
         do {
-            data = try encoder.encode(snapshot)
+            data = try encodeSnapshotForDisk(snapshot)
         } catch {
             plog("⚠️ Library snapshot encoding failed: \(error.localizedDescription)")
             return false
         }
         let encodedAt = ProcessInfo.processInfo.systemUptime
+        let verifiedFingerprintURL = verifiedSnapshotFingerprintURL(for: url)
+        let existingFingerprint = snapshotFingerprint(at: url)
+        let existingFileMatchesLastVerifiedWrite = existingFingerprint != nil
+            && existingFingerprint == loadVerifiedSnapshotFingerprint(from: verifiedFingerprintURL)
+        let existingValidityKnown = LibrarySnapshotBackupPolicy.existingFileIsKnownValid(
+            previousChainedWriteSucceeded: existingFileIsKnownValid ? true : nil,
+            existingFileMatchesLastVerifiedWrite: existingFileMatchesLastVerifiedWrite
+        )
         let existingFileIsValid: Bool?
         if LibrarySnapshotBackupPolicy.shouldValidateExistingFile(
-            existingFileIsKnownValid: existingFileIsKnownValid
+            existingFileIsKnownValid: existingValidityKnown
         ) {
             existingFileIsValid = (try? Data(contentsOf: url))
                 .map(isValidSnapshotData) ?? false
@@ -11238,7 +11257,7 @@ final class MusicLibrary {
         }
         let shouldPreserveCurrentAsBackup = LibrarySnapshotBackupPolicy
             .shouldPreserveExistingAsBackup(
-                existingFileIsKnownValid: existingFileIsKnownValid,
+                existingFileIsKnownValid: existingValidityKnown,
                 existingFileIsValid: existingFileIsValid
             )
         do {
@@ -11248,17 +11267,62 @@ final class MusicLibrary {
                 backupURL: backupURL,
                 preserveExistingAsBackup: shouldPreserveCurrentAsBackup
             )
+            saveVerifiedSnapshotFingerprint(snapshotFingerprint(at: url), to: verifiedFingerprintURL)
             let finishedAt = ProcessInfo.processInfo.systemUptime
             plog(
                 "💾 Library snapshot written bytes=\(data.count) songs=\(snapshot.songs.count) "
                     + "encode=\(Int((encodedAt - startedAt) * 1000))ms "
-                    + "write=\(Int((finishedAt - encodedAt) * 1000))ms"
+                    + "write=\(Int((finishedAt - encodedAt) * 1000))ms "
+                    + "validatedExisting=\(existingFileIsValid != nil)"
             )
             return true
         } catch {
             plog("⚠️ Library snapshot write failed: \(error.localizedDescription)")
             return false
         }
+    }
+
+    /// 整库快照的 JSON 字节。歌曲数组按批编码再拼接, 字节与整份 `encode` 相同,
+    /// 但不必为二十多万首歌一次建出整棵值树(实测多占近 1GB, 大曲库会因此被系统
+    /// 按内存超限杀掉)。拼不上时(比如以后加了排在 `songs` 之后的键)退回整份编码。
+    private nonisolated static func encodeSnapshotForDisk(_ snapshot: Snapshot) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        var head = snapshot
+        head.songs = []
+        if let data = try TrailingArrayJSONEncoding.encode(
+            emptyArrayObject: encoder.encode(head),
+            trailingKey: "songs",
+            elements: snapshot.songs,
+            encoder: encoder
+        ) {
+            return data
+        }
+        return try encoder.encode(snapshot)
+    }
+
+    /// 上一次成功写入后快照文件的身份(大小、修改时间、文件号)。磁盘上的文件还是
+    /// 这个身份, 就是那次编码并原子替换的字节, 不必再整份解码一遍来证明它有效。
+    private nonisolated static func verifiedSnapshotFingerprintURL(for snapshotURL: URL) -> URL {
+        snapshotURL.deletingLastPathComponent()
+            .appendingPathComponent("library-cache.verified-fingerprint.json")
+    }
+
+    private nonisolated static func loadVerifiedSnapshotFingerprint(from url: URL) -> SnapshotFileFingerprint? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(SnapshotFileFingerprint.self, from: data)
+    }
+
+    private nonisolated static func saveVerifiedSnapshotFingerprint(
+        _ fingerprint: SnapshotFileFingerprint?,
+        to url: URL
+    ) {
+        guard let fingerprint, let data = try? JSONEncoder().encode(fingerprint) else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        try? data.write(to: url, options: .atomic)
     }
 
     /// 装载时对账一次墓碑账本, 规则与跨设备合并完全一致, 只是这里没有第二份
