@@ -160,11 +160,16 @@ final class KaraokeSession {
     private(set) var lyricsBorrowedFromTitle: String?
     private(set) var isSwitchingTrack = false
 
-    /// Use the AI-separated vocal when this device has the model.
+    /// Use the AI-separated vocal. Off until the user asks for it; turning
+    /// it on is what fetches the model, so the 80 MB download is never a surprise.
     var aiSeparationEnabled: Bool {
         didSet {
             defaults.set(aiSeparationEnabled, forKey: Self.aiSeparationKey)
-            if !aiSeparationEnabled { removeStem() }
+            if aiSeparationEnabled {
+                separation.downloadModel()
+            } else {
+                removeStem()
+            }
         }
     }
     let separation = KaraokeSeparationService.shared
@@ -253,12 +258,29 @@ final class KaraokeSession {
     @ObservationIgnored private var assistRouteAllows = false
     @ObservationIgnored private var wordTimingTask: Task<Void, Never>?
 
+    /// The switch only reads as on when it can take effect or is on its way:
+    /// with the model gone (never fetched, or deleted) it starts off. A model
+    /// already on the device from before the switch defaulted to off keeps it on.
+    private static func initialAISeparationEnabled(
+        stored: Bool?,
+        modelState: KaraokeSeparationService.ModelState
+    ) -> Bool {
+        switch modelState {
+        case .ready: stored ?? true
+        case .downloading: stored ?? false
+        case .notDownloaded, .failed, .unsupportedSystem: false
+        }
+    }
+
     init(player: AudioPlayerService, defaults: UserDefaults = .standard) {
         self.player = player
         engine = player.audioEngine
         self.defaults = defaults
         vocalLevel = defaults.object(forKey: Self.vocalLevelKey) as? Double ?? Self.defaultVocalLevel
-        aiSeparationEnabled = defaults.object(forKey: Self.aiSeparationKey) as? Bool ?? true
+        aiSeparationEnabled = Self.initialAISeparationEnabled(
+            stored: defaults.object(forKey: Self.aiSeparationKey) as? Bool,
+            modelState: KaraokeSeparationService.shared.modelState
+        )
         vocalAssistEnabled = defaults.object(forKey: Self.vocalAssistKey) as? Bool ?? true
         let microphone = KaraokeMicrophone()
         self.microphone = microphone

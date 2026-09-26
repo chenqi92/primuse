@@ -475,7 +475,6 @@ private struct KaraokeStatusStrip: View {
         if modelState == .unsupportedSystem || session.currentSeparationState == .unsupported {
             return String(localized: "karaoke_mono_warning")
         }
-        if modelState != .ready { return String(localized: "karaoke_mono_download_ai") }
         if !session.aiSeparationEnabled { return String(localized: "karaoke_mono_enable_ai") }
         return String(localized: "karaoke_mono_ai_pending")
     }
@@ -829,6 +828,15 @@ private struct KaraokeAISeparationRow: View {
                         status
                             .font(.footnote)
                             .foregroundStyle(.white.opacity(0.75))
+                    } else if session.separation.modelState == .notDownloaded
+                                || session.separation.modelState == .failed {
+                        // 打开开关就会开始下载，先把体积说清楚。
+                        Text(String(
+                            format: String(localized: "karaoke_ai_download_on_enable_format"),
+                            ByteCountFormatter.string(fromByteCount: KaraokeVocalModel.approximateDownloadBytes, countStyle: .file)
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.6))
                     }
                 }
                 Spacer(minLength: 8)
@@ -961,7 +969,11 @@ private struct KaraokeStageMenu: View {
         }
         if session.separation.modelState == .ready {
             Button(role: .destructive) {
-                Task { await session.separation.removeModel() }
+                Task {
+                    await session.separation.removeModel()
+                    // 模型没了开关就不该还亮着；再打开会重新下载。
+                    session.aiSeparationEnabled = false
+                }
             } label: {
                 Label("karaoke_ai_remove_model", systemImage: "xmark.bin")
             }

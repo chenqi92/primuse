@@ -4415,7 +4415,6 @@
 "karaoke_unavailable_casting" = "दूसरे डिवाइस पर कास्ट करते समय वोकल कम नहीं किया जा सकता।";
 "karaoke_unavailable_high_fidelity" = "हाई-फ़िडेलिटी आउटपुट इफ़ेक्ट्स से नहीं गुज़रता, इसलिए वोकल कम नहीं किया जा सकता।";
 "karaoke_mono_warning" = "यह रिकॉर्डिंग लगभग मोनो है, इसलिए वोकल को संगीत से अलग नहीं किया जा सकता।";
-"karaoke_mono_download_ai" = "लगभग मोनो। वोकल अलग करने के लिए AI मॉडल डाउनलोड करें।";
 "karaoke_mono_enable_ai" = "लगभग मोनो। AI वोकल पृथक्करण चालू करें।";
 "karaoke_mono_ai_pending" = "लगभग मोनो। AI पृथक्करण पूरा होने तक वोकल रहेगा।";
 "karaoke_mic_denied" = "माइक्रोफ़ोन एक्सेस बंद है। आप इसे सेटिंग्स में चालू कर सकते हैं।";
@@ -4489,6 +4488,7 @@
 "music_video_preparing_percent" = "वीडियो तैयार हो रहा है %d%%";
 "karaoke_ai_title" = "AI वोकल सेपरेशन";
 "karaoke_ai_download_format" = "डाउनलोड (%@)";
+"karaoke_ai_download_on_enable_format" = "चालू करने पर मॉडल (%@) डाउनलोड होगा";
 "karaoke_ai_downloading" = "डाउनलोड हो रहा है";
 "karaoke_ai_separating" = "अलग किया जा रहा है";
 "karaoke_ai_active" = "चालू";

@@ -4602,7 +4602,6 @@
 "karaoke_unavailable_casting" = "投放到其他设备时无法降低人声。";
 "karaoke_unavailable_high_fidelity" = "高保真输出不经过音效处理，无法降低人声。";
 "karaoke_mono_warning" = "这首歌接近单声道，人声无法和伴奏分开。";
-"karaoke_mono_download_ai" = "接近单声道，普通消除分不开人声，下载 AI 模型就能分离。";
 "karaoke_mono_enable_ai" = "接近单声道，普通消除分不开人声，打开 AI 人声分离就能分离。";
 "karaoke_mono_ai_pending" = "接近单声道，AI 分离完成前先保留人声。";
 "karaoke_mic_denied" = "没有麦克风权限，可以在系统设置中打开。";
@@ -4676,6 +4675,7 @@
 "music_video_preparing_percent" = "正在准备视频 %d%%";
 "karaoke_ai_title" = "AI 人声分离";
 "karaoke_ai_download_format" = "下载模型（%@）";
+"karaoke_ai_download_on_enable_format" = "打开后下载模型（%@）";
 "karaoke_ai_downloading" = "正在下载";
 "karaoke_ai_separating" = "正在分离";
 "karaoke_ai_active" = "已开启";

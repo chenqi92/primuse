@@ -4509,7 +4509,6 @@
 "karaoke_unavailable_casting" = "다른 기기로 전송하는 동안에는 보컬을 줄일 수 없습니다.";
 "karaoke_unavailable_high_fidelity" = "고음질 출력은 효과 처리를 거치지 않아 보컬을 줄일 수 없습니다.";
 "karaoke_mono_warning" = "이 곡은 모노에 가까워 보컬을 반주와 분리할 수 없습니다.";
-"karaoke_mono_download_ai" = "모노에 가깝습니다. AI 모델을 다운로드하면 보컬을 분리할 수 있습니다.";
 "karaoke_mono_enable_ai" = "모노에 가깝습니다. AI 보컬 분리를 켜 주세요.";
 "karaoke_mono_ai_pending" = "모노에 가깝습니다. AI 분리가 끝날 때까지 보컬이 유지됩니다.";
 "karaoke_mic_denied" = "마이크 접근이 꺼져 있습니다. 설정에서 켤 수 있습니다.";
@@ -4583,6 +4582,7 @@
 "music_video_preparing_percent" = "비디오 준비 중 %d%%";
 "karaoke_ai_title" = "AI 보컬 분리";
 "karaoke_ai_download_format" = "다운로드(%@)";
+"karaoke_ai_download_on_enable_format" = "켜면 모델(%@)을 다운로드합니다";
 "karaoke_ai_downloading" = "다운로드 중";
 "karaoke_ai_separating" = "분리 중";
 "karaoke_ai_active" = "켜짐";

@@ -4415,7 +4415,6 @@
 "karaoke_unavailable_casting" = "لا يمكن خفض صوت المغني أثناء البث إلى جهاز آخر.";
 "karaoke_unavailable_high_fidelity" = "إخراج الدقة العالية لا يمر بالمؤثرات، لذا لا يمكن خفض صوت المغني.";
 "karaoke_mono_warning" = "هذا التسجيل شبه أحادي، لذا لا يمكن فصل الغناء عن الموسيقى.";
-"karaoke_mono_download_ai" = "شبه أحادي. نزّل نموذج الذكاء الاصطناعي لفصل الغناء.";
 "karaoke_mono_enable_ai" = "شبه أحادي. شغّل فصل الغناء بالذكاء الاصطناعي.";
 "karaoke_mono_ai_pending" = "شبه أحادي. يبقى الغناء حتى ينتهي الفصل بالذكاء الاصطناعي.";
 "karaoke_mic_denied" = "الوصول إلى الميكروفون متوقف. يمكنك تشغيله من الإعدادات.";
@@ -4489,6 +4488,7 @@
 "music_video_preparing_percent" = "جارٍ تجهيز الفيديو %d%%";
 "karaoke_ai_title" = "فصل الصوت بالذكاء الاصطناعي";
 "karaoke_ai_download_format" = "تنزيل (%@)";
+"karaoke_ai_download_on_enable_format" = "يُنزَّل النموذج (%@) عند التشغيل";
 "karaoke_ai_downloading" = "جارٍ التنزيل";
 "karaoke_ai_separating" = "جارٍ الفصل";
 "karaoke_ai_active" = "مفعّل";

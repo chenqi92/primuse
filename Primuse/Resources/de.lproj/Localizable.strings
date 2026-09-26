@@ -4509,7 +4509,6 @@
 "karaoke_unavailable_casting" = "Während der Wiedergabe auf einem anderen Gerät lässt sich der Gesang nicht absenken.";
 "karaoke_unavailable_high_fidelity" = "Die High-Fidelity-Ausgabe umgeht die Effektverarbeitung, daher lässt sich der Gesang nicht absenken.";
 "karaoke_mono_warning" = "Diese Aufnahme ist nahezu mono, der Gesang lässt sich nicht von der Musik trennen.";
-"karaoke_mono_download_ai" = "Nahezu mono. Lade das KI-Modell, um den Gesang zu trennen.";
 "karaoke_mono_enable_ai" = "Nahezu mono. Aktiviere die KI-Gesangstrennung.";
 "karaoke_mono_ai_pending" = "Nahezu mono. Der Gesang bleibt, bis die KI-Trennung fertig ist.";
 "karaoke_mic_denied" = "Der Mikrofonzugriff ist deaktiviert. Du kannst ihn in den Einstellungen aktivieren.";
@@ -4583,6 +4582,7 @@
 "music_video_preparing_percent" = "Video wird vorbereitet %d %%";
 "karaoke_ai_title" = "KI-Gesangstrennung";
 "karaoke_ai_download_format" = "Laden (%@)";
+"karaoke_ai_download_on_enable_format" = "Lädt beim Einschalten das Modell (%@)";
 "karaoke_ai_downloading" = "Wird geladen";
 "karaoke_ai_separating" = "Trennung läuft";
 "karaoke_ai_active" = "Aktiv";
