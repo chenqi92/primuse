@@ -2082,7 +2082,7 @@
 "no_subdirectories" = "لا توجد أدلة فرعية";
 "no_subdirectories_desc" = "لا يحتوي هذا الدليل على أدلة فرعية";
 "no_trusted_domains" = "لا توجد مجالات موثوقة";
-"notify_backfill_complete" = "الإخطار عند اكتمال قراءة العلامة";
+"notify_backfill_complete" = "الإشعار عند انتهاء المهام الطويلة";
 "notify_cloud_sync_failed_title" = "iCloud فشلت المزامنة";
 "notify_permission_denied_hint" = "تم رفض إذن الإعلام. اسمح بذلك في إعدادات iOS → Primuse.";
 "notify_rescrape_done_title" = "اكتمل الاسترداد";
@@ -4547,3 +4547,5 @@
 "directory_tag_menu_title" = "محتوى هذا المجلد";
 "directory_tag_hint" = "اضغط على الوسم بجوار المجلد المحدد واختر «الكتب الصوتية» لتذهب محتوياته إلى رف الكتب الصوتية بدل الموسيقى.";
 "home_filter_clear_hint" = "اضغط مرة أخرى لعرض الكل";
+"notifications_section" = "الإشعارات";
+"notify_long_tasks_footer" = "تلقَّ إشعارًا عند انتهاء فحص أو قراءة وسوم أو جلب بيانات وصفية بدأته أنت في الخلفية. المشكلات التي تحتاج إلى تدخلك، مثل فشل الفحص أو امتلاء مساحة iCloud، يُبلَّغ عنها في كل الأحوال. لا يُرسل شيء أثناء فتح التطبيق.";

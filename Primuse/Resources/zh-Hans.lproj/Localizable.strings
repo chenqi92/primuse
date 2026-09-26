@@ -1144,7 +1144,7 @@
 "backfill_done_title" = "标签读取完成";
 "backfill_done_body" = "已检查 %d 首歌的文件标签。";
 "backfill_keep_app_alive_hint" = "播放任意一首歌曲可让标签持续读取";
-"notify_backfill_complete" = "标签读取完成时通知我";
+"notify_backfill_complete" = "长任务完成时通知我";
 "notify_permission_denied_hint" = "通知权限已被拒绝。请到系统「设置 → Primuse」中允许通知。";
 
 // MARK: - 年度音乐报告
@@ -4734,3 +4734,5 @@
 "directory_tag_menu_title" = "目录里的内容";
 "directory_tag_hint" = "点一下已选目录旁的标签改成「有声」，里面的内容会放进有声书架，不和音乐混在一起。";
 "home_filter_clear_hint" = "再点一次回到全部";
+"notifications_section" = "通知";
+"notify_long_tasks_footer" = "你发起的扫描、标签读取和刮削在后台完成时提醒你。扫描失败、iCloud 空间已满这类需要你处理的问题不受此开关影响；App 在前台时不会发通知。";

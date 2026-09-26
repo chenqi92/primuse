@@ -1558,7 +1558,11 @@ final class MusicScraperService {
         await UserNotificationService.shared.postLongTaskCompletion(
             category: forceRescrape ? .rescrapeLibraryDone : .scrapeMissingDone,
             title: title,
-            body: body
+            body: body,
+            // Batch scrapes only start from the listener's action (or resume
+            // one after an interruption).
+            isUserInitiated: true,
+            itemCount: completion.songCount
         )
     }
 

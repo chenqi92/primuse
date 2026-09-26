@@ -2082,7 +2082,7 @@
 "no_subdirectories" = "Sem subdiretórios";
 "no_subdirectories_desc" = "Este diretório não possui subdiretórios";
 "no_trusted_domains" = "Nenhum domínio confiável";
-"notify_backfill_complete" = "Notificar quando a leitura da tag for concluída";
+"notify_backfill_complete" = "Notificar quando tarefas longas terminarem";
 "notify_cloud_sync_failed_title" = "Falha na sincronização iCloud";
 "notify_permission_denied_hint" = "Permissão de notificação negada. Permita em Configurações iOS → Primuse.";
 "notify_rescrape_done_title" = "Nova busca de metadados concluída";
@@ -4547,3 +4547,5 @@
 "directory_tag_menu_title" = "Conteúdo desta pasta";
 "directory_tag_hint" = "Toque na etiqueta ao lado de uma pasta selecionada e escolha Audiolivros para que o conteúdo vá para a estante de audiolivros em vez da sua música.";
 "home_filter_clear_hint" = "Toque de novo para mostrar tudo";
+"notifications_section" = "Notificações";
+"notify_long_tasks_footer" = "Receba um aviso quando um escaneamento, uma leitura de tags ou uma busca de metadados iniciada por você terminar em segundo plano. Problemas que precisam de você, como um escaneamento com falha ou o armazenamento do iCloud cheio, são avisados de qualquer forma. Nada é enviado enquanto o app está aberto.";

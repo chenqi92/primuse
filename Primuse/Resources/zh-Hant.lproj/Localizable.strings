@@ -1070,7 +1070,7 @@
 "backfill_done_title" = "標籤讀取完成";
 "backfill_done_body" = "已檢查 %d 首歌的檔案標籤。";
 "backfill_keep_app_alive_hint" = "播放任一首歌曲可讓標籤持續讀取";
-"notify_backfill_complete" = "標籤讀取完成時通知我";
+"notify_backfill_complete" = "長任務完成時通知我";
 "notify_permission_denied_hint" = "通知權限已被拒絕。請到系統「設定 → Primuse」中允許通知。";
 "yearly_report_title" = "年度音樂報告";
 "yearly_report_entry_title" = "%d 年度音樂報告";
@@ -4618,3 +4618,5 @@
 "directory_tag_menu_title" = "資料夾裡的內容";
 "directory_tag_hint" = "點一下已選資料夾旁的標籤改成「有聲」，裡面的內容會放進有聲書架，不和音樂混在一起。";
 "home_filter_clear_hint" = "再點一次回到全部";
+"notifications_section" = "通知";
+"notify_long_tasks_footer" = "你發起的掃描、標籤讀取和刮削在背景完成時提醒你。掃描失敗、iCloud 空間已滿這類需要你處理的問題不受此開關影響；App 在前景時不會發通知。";

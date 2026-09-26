@@ -1295,7 +1295,7 @@
 "backfill_done_title" = "Lecture des tags terminée";
 "backfill_done_body" = "Tags chargés pour %d morceaux.";
 "backfill_keep_app_alive_hint" = "Lisez un morceau pour maintenir la lecture des tags active";
-"notify_backfill_complete" = "Me prévenir à la fin de la lecture des tags";
+"notify_backfill_complete" = "Me prévenir à la fin des tâches longues";
 "notify_permission_denied_hint" = "Autorisation de notification refusée. Activez-la dans Réglages iOS → Primuse.";
 "yearly_report_title" = "Bilan musical de l'année";
 "yearly_report_entry_title" = "Votre bilan musical %d";
@@ -4641,3 +4641,5 @@
 "directory_tag_menu_title" = "Contenu de ce dossier";
 "directory_tag_hint" = "Touchez l’étiquette à côté d’un dossier sélectionné et choisissez Livres audio pour ranger son contenu dans l’étagère des livres audio plutôt qu’avec la musique.";
 "home_filter_clear_hint" = "Touchez à nouveau pour tout afficher";
+"notifications_section" = "Notifications";
+"notify_long_tasks_footer" = "Recevez une notification quand une analyse, une lecture des tags ou une récupération de métadonnées que vous avez lancée se termine en arrière-plan. Les problèmes qui demandent votre intervention, comme une analyse échouée ou un stockage iCloud plein, sont signalés dans tous les cas. Rien n’est envoyé tant que l’app est ouverte.";

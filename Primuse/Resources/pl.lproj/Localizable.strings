@@ -2082,7 +2082,7 @@
 "no_subdirectories" = "Brak podkatalogów";
 "no_subdirectories_desc" = "Ten katalog nie zawiera podkatalogów";
 "no_trusted_domains" = "Brak zaufanych domen";
-"notify_backfill_complete" = "Powiadamiaj o zakończeniu odczytu tagu";
+"notify_backfill_complete" = "Powiadamiaj o zakończeniu długich zadań";
 "notify_cloud_sync_failed_title" = "Synchronizacja iCloud nie powiodła się";
 "notify_permission_denied_hint" = "Odmowa pozwolenia na powiadomienie. Zezwól na to w Ustawieniach iOS → Primuse.";
 "notify_rescrape_done_title" = "Ponowne pobieranie metadanych zakończone";
@@ -4547,3 +4547,5 @@
 "directory_tag_menu_title" = "Zawartość tego folderu";
 "directory_tag_hint" = "Stuknij etykietę obok wybranego folderu i wybierz Audiobooki, aby jego zawartość trafiła na półkę z audiobookami zamiast do muzyki.";
 "home_filter_clear_hint" = "Stuknij ponownie, aby pokazać wszystko";
+"notifications_section" = "Powiadomienia";
+"notify_long_tasks_footer" = "Otrzymasz powiadomienie, gdy uruchomione przez Ciebie skanowanie, odczyt tagów lub pobieranie metadanych zakończy się w tle. O problemach wymagających Twojej reakcji, takich jak nieudane skanowanie czy pełny iCloud, powiadomimy zawsze. Gdy aplikacja jest otwarta, nic nie jest wysyłane.";

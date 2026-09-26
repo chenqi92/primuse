@@ -1816,6 +1816,7 @@ final class MetadataBackfillService {
                 }
                 guard self.workerGeneration == generation else { return }
                 let processed = self.processedTotal
+                let wasUserInitiated = self.executionMode == .userInitiated
                 self.processedCount = processed
                 self.worker = nil
                 self.isRunning = false
@@ -1851,17 +1852,17 @@ final class MetadataBackfillService {
                     _ = self.resumeAutomaticForegroundIfNeeded()
                 }
                 #endif
-                // 完成通知 ── 处理 >= 5 首才发, 避免每次 worker 短跑都打扰用户。
-                // hasPendingWork == false 表示当前没遗留 ── 队列全清才算"完成"。
-                // postIfEnabled 内部会检查用户在设置页是否开了开关 + 系统是否已授权,
-                // 不满足条件直接 noop。
-                if processed >= 5 && !self.hasPendingWork {
+                // 完成通知只给用户自己点开始的读取，而且要等队列全清；自动读取
+                // 在后台悄悄做完，弹一条通知只会让人莫名其妙。
+                if !self.hasPendingWork {
                     let processedCount = processed
                     Task {
                         await UserNotificationService.shared.postLongTaskCompletion(
                             category: .rescrapeLibraryDone,
                             title: String(localized: "backfill_done_title"),
-                            body: String(format: String(localized: "backfill_done_body"), processedCount)
+                            body: String(format: String(localized: "backfill_done_body"), processedCount),
+                            isUserInitiated: wasUserInitiated,
+                            itemCount: processedCount
                         )
                     }
                 }

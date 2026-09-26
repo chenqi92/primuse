@@ -71,7 +71,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "storage.clearPartial", titleKey: "cache_partial", iosPage: .storage, macPage: nil, anchor: "storage.clearAudioCache"),
         SettingDefinition(id: "storage.clearOrphaned", titleKey: "cache_orphaned", iosPage: .storage, macPage: nil, anchor: "storage.clearAudioCache"),
         SettingDefinition(id: "storage.wifiOnly", titleKey: "cloud_scan_wifi_only", iosPage: .storage, macPage: nil, keywords: ["wifi", "wi-fi", "cellular", "save data", "省流量", "流量", "手机网络", "蜂窝网络"]),
-        SettingDefinition(id: "storage.notifyBackfill", titleKey: "notify_backfill_complete", iosPage: .storage, macPage: nil, keywords: ["notification", "通知", "标签读取完成"]),
+        SettingDefinition(id: "storage.notifyBackfill", titleKey: "notify_backfill_complete", iosPage: .storage, macPage: .storage, keywords: ["notification", "notify", "通知", "提醒", "标签读取完成", "扫描完成", "刮削完成"]),
         SettingDefinition(id: "storage.retryBackfill", titleKey: "Retry paused tag reading", table: "SettingsSearch", iosPage: .storage, macPage: nil, anchor: "storage.wifiOnly"),
         SettingDefinition(id: "storage.exportLog", titleKey: "storage_export_log", iosPage: .diagnostics, macPage: nil, keywords: ["log", "日志", "导出日志", "排查", "diagnostics", "troubleshoot"], requiresDiagnosticBuild: true),
         SettingDefinition(id: "appearance.scheme", titleKey: "appearance", iosPage: .appearance, macPage: .appearance, keywords: ["dark mode", "深色", "浅色", "夜间模式", "Theme"]),

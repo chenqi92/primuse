@@ -2899,7 +2899,7 @@
 "scraper_review_capabilities" = "Yetenekler";
 "edit_source" = "Kaynağı Düzenle";
 "yearly_card_genres_unit" = "türleri";
-"notify_backfill_complete" = "Etiket okuma tamamlandığında bildirim gönder";
+"notify_backfill_complete" = "Uzun görevler bitince bildir";
 "onboarding_mac_welcome_desc" = "NAS / medya sunucusu meraklıları için oluşturulmuş yerel bir macOS oynatıcı. FLAC, DSD ve APE dosyalarınıza tek bir birleşik arşivde bir yuva kazandırın.";
 "ai_audio_transcription_action" = "Şarkıyı Metne Yaz";
 "a11y_disable_music_video" = "Müzik videosunu devre dışı bırak";
@@ -4547,3 +4547,5 @@
 "directory_tag_menu_title" = "Bu klasördeki içerik";
 "directory_tag_hint" = "Seçili bir klasörün yanındaki etikete dokunup Sesli Kitaplar’ı seçerseniz içindekiler müziğiniz yerine sesli kitap rafına gider.";
 "home_filter_clear_hint" = "Tümünü göstermek için tekrar dokunun";
+"notifications_section" = "Bildirimler";
+"notify_long_tasks_footer" = "Başlattığınız tarama, etiket okuma veya meta veri getirme arka planda bittiğinde bildirim alırsınız. Başarısız tarama ya da dolu iCloud depolama alanı gibi müdahale gerektiren sorunlar her durumda bildirilir. Uygulama açıkken bildirim gönderilmez.";

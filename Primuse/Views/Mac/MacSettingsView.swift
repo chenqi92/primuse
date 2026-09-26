@@ -418,6 +418,9 @@ struct MacSettingsView: View {
 private struct MacSTStorageView: View {
     @Environment(PlaybackSettingsStore.self) private var playbackSettings
     @Environment(SourceManager.self) private var sourceManager
+    @AppStorage(UserNotificationService.notifyLongTasksKey) private var notifyLongTasks: Bool =
+        UserNotificationPolicy.completionNotificationsDefault
+    @State private var notificationStatusDenied = false
 
     var body: some View {
         @Bindable var settings = playbackSettings
@@ -446,6 +449,33 @@ private struct MacSTStorageView: View {
                     }
                     .settingsAnchor("storage.audioCacheLimit")
                 }
+            }
+
+            MacSTSection(String(localized: "notifications_section")) {
+                MacSTGroup {
+                    MacSTRow(
+                        String(localized: "notify_backfill_complete"),
+                        hint: notifyLongTasks && notificationStatusDenied
+                            ? String(localized: "notify_permission_denied_hint")
+                            : String(localized: "notify_long_tasks_footer"),
+                        hintLineLimit: 3,
+                        divider: false
+                    ) {
+                        MacSTToggle(isOn: $notifyLongTasks)
+                    }
+                    .settingsAnchor("storage.notifyBackfill")
+                }
+            }
+        }
+        .onChange(of: notifyLongTasks) { _, on in
+            guard on else { return }
+            Task {
+                notificationStatusDenied = await !UserNotificationService.shared.requestAuthorizationIfNeeded()
+            }
+        }
+        .task {
+            if notifyLongTasks {
+                notificationStatusDenied = await UserNotificationService.shared.isAuthorizationDenied()
             }
         }
     }

@@ -1296,7 +1296,7 @@
 "backfill_done_title" = "タグの読み込みが完了しました";
 "backfill_done_body" = "%d 曲のタグを読み込みました。";
 "backfill_keep_app_alive_hint" = "いずれかの曲を再生すると、タグの読み込みが継続されます";
-"notify_backfill_complete" = "タグの読み込み完了時に通知";
+"notify_backfill_complete" = "長時間の処理が終わったら通知";
 "notify_permission_denied_hint" = "通知が許可されていません。「設定」→「Primuse」で許可してください。";
 "yearly_report_title" = "ミュージックの1年";
 "yearly_report_entry_title" = "%d 年のミュージックの1年";
@@ -4642,3 +4642,5 @@
 "directory_tag_menu_title" = "このフォルダの内容";
 "directory_tag_hint" = "選択したフォルダの横のタグをタップして「オーディオブック」を選ぶと、中身がミュージックではなくオーディオブックの棚に入ります。";
 "home_filter_clear_hint" = "もう一度タップするとすべて表示します";
+"notifications_section" = "通知";
+"notify_long_tasks_footer" = "自分で開始したスキャン、タグの読み込み、メタデータ取得がバックグラウンドで終わったときに通知します。スキャンの失敗や iCloud の容量不足など対応が必要な問題は、この設定に関係なく通知されます。アプリを開いている間は通知しません。";

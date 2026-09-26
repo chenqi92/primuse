@@ -1295,7 +1295,7 @@
 "backfill_done_title" = "Tag-Auslesen abgeschlossen";
 "backfill_done_body" = "Tags für %d Titel geladen.";
 "backfill_keep_app_alive_hint" = "Spiele einen beliebigen Titel, damit das Tag-Auslesen weiterläuft";
-"notify_backfill_complete" = "Benachrichtigen, wenn das Tag-Auslesen abgeschlossen ist";
+"notify_backfill_complete" = "Benachrichtigen, wenn lange Aufgaben fertig sind";
 "notify_permission_denied_hint" = "Mitteilungsberechtigung verweigert. Erlaube sie unter „Einstellungen“ → „Primuse“.";
 "yearly_report_title" = "Dein Musikjahr";
 "yearly_report_entry_title" = "Dein Musikjahr %d";
@@ -4641,3 +4641,5 @@
 "directory_tag_menu_title" = "Inhalt dieses Ordners";
 "directory_tag_hint" = "Tippe auf das Etikett neben einem ausgewählten Ordner und wähle „Hörbücher“, damit sein Inhalt ins Hörbuchregal statt zur Musik kommt.";
 "home_filter_clear_hint" = "Erneut tippen, um alles anzuzeigen";
+"notifications_section" = "Mitteilungen";
+"notify_long_tasks_footer" = "Du wirst benachrichtigt, wenn ein von dir gestarteter Scan, das Auslesen von Tags oder das Abrufen von Metadaten im Hintergrund fertig ist. Probleme, die dich brauchen – etwa ein fehlgeschlagener Scan oder voller iCloud-Speicher –, werden immer gemeldet. Solange die App geöffnet ist, wird nichts gesendet.";

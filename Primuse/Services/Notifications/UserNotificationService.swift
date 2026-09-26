@@ -1,42 +1,39 @@
 import Foundation
+import PrimuseKit
 import UserNotifications
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 /// Cross-platform local user notifications. Wraps `UNUserNotificationCenter`
-/// so call sites don't have to think about authorization, the global
-/// "long-task notifications" toggle, or per-category dedup.
+/// so call sites don't have to think about authorization, the "long-task
+/// notifications" switch, or repeats. Whether a notification is worth posting
+/// at all is `UserNotificationPolicy`'s call: only work the listener started,
+/// only while the app is not in front, never with blank text.
 ///
-/// - Long-task completions (scrape finished, full library rescrape done) are
-///   gated by `notifyLongTasksEnabled`. Errors always go through — they need
-///   attention even when the user opted out of progress notifications.
-/// - Authorization is requested **lazily** on the first post, never at
-///   launch. The system prompt is benign and won't fire if the user already
-///   answered (allow or deny).
+/// Authorization is requested **lazily** on the first post, never at launch.
 @MainActor
 final class UserNotificationService {
     static let shared = UserNotificationService()
 
-    /// `UserDefaults` key for the user-facing toggle. Read directly via
-    /// `@AppStorage` from settings, mirrored here so service callers can
-    /// short-circuit before touching UNUserNotificationCenter.
+    /// `UserDefaults` key for the user-facing switch, read directly via
+    /// `@AppStorage` in settings.
     static let notifyLongTasksKey = "primuse.notifyLongTasks"
 
-    /// User-facing toggle. Long-task completion notifications honour it;
-    /// error notifications ignore it. Default on.
+    /// Completion notifications are opt-in, with the same default the
+    /// settings switch shows.
     var notifyLongTasksEnabled: Bool {
-        // `object(forKey:)` returns nil before the user has interacted with
-        // the setting → treat that as "on" so first-run users actually see
-        // the notifications we're advertising.
-        UserDefaults.standard.object(forKey: Self.notifyLongTasksKey) as? Bool ?? true
+        UserDefaults.standard.object(forKey: Self.notifyLongTasksKey) as? Bool
+            ?? UserNotificationPolicy.completionNotificationsDefault
     }
 
     private var permissionRequested = false
     private var permissionGranted = false
     /// Re-adding a request with the same identifier replaces the Notification
     /// Center entry, but iOS still presents a fresh banner and sound every time.
-    /// Suppress identical content posted repeatedly by scan/backfill lifecycle
-    /// callbacks while preserving distinct errors from other sources.
     private var lastPostAtBySignature: [String: Date] = [:]
-    private static let duplicatePostCooldown: TimeInterval = 5 * 60
 
     private init() {}
 
@@ -49,29 +46,101 @@ final class UserNotificationService {
         case cloudSyncFailed
     }
 
-    /// Post a long-task completion notification (B1 / B2). No-op when the
-    /// toggle is off or the user denied authorization.
-    func postLongTaskCompletion(category: Category, title: String, body: String) async {
-        guard notifyLongTasksEnabled else { return }
-        await post(category: category, title: title, body: body)
+    /// A long task the listener started has finished.
+    func postLongTaskCompletion(
+        category: Category,
+        title: String,
+        body: String,
+        isUserInitiated: Bool,
+        itemCount: Int
+    ) async {
+        await post(
+            kind: .completion,
+            category: category,
+            title: title,
+            body: body,
+            isUserInitiated: isUserInitiated,
+            itemCount: itemCount
+        )
     }
 
-    /// Post an error notification. Always shown when authorization granted —
-    /// errors bypass the long-task toggle so users don't miss real failures.
-    func postError(category: Category, title: String, body: String) async {
-        await post(category: category, title: title, body: body)
+    /// A task the listener started has failed. Failures of automatic work
+    /// show up in the app only.
+    func postFailure(category: Category, title: String, body: String, isUserInitiated: Bool) async {
+        await post(kind: .failure, category: category, title: title, body: body, isUserInitiated: isUserInitiated)
+    }
+
+    /// Something only the listener can fix, whoever started the work.
+    func postActionRequired(category: Category, title: String, body: String) async {
+        await post(kind: .actionRequired, category: category, title: title, body: body, isUserInitiated: false)
+    }
+
+    // MARK: - Settings
+
+    /// Asks for permission when the listener turns notifications on. Returns
+    /// false when notifications are (or were just) refused.
+    func requestAuthorizationIfNeeded() async -> Bool {
+        let center = UNUserNotificationCenter.current()
+        switch await center.notificationSettings().authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .notDetermined:
+            permissionRequested = true
+            permissionGranted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+            return permissionGranted
+        default:
+            return false
+        }
+    }
+
+    func isAuthorizationDenied() async -> Bool {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
     }
 
     // MARK: - Internals
 
-    private func post(category: Category, title: String, body: String) async {
+    private var isApplicationActive: Bool {
+        #if os(iOS)
+        UIApplication.shared.applicationState == .active
+        #elseif os(macOS)
+        NSApp.isActive
+        #else
+        true
+        #endif
+    }
+
+    private func post(
+        kind: UserNotificationPolicy.Kind,
+        category: Category,
+        title: String,
+        body: String,
+        isUserInitiated: Bool,
+        itemCount: Int? = nil
+    ) async {
+        let decision = UserNotificationPolicy.decision(
+            kind: kind,
+            title: title,
+            body: body,
+            isApplicationActive: isApplicationActive,
+            isUserInitiated: isUserInitiated,
+            completionNotificationsEnabled: notifyLongTasksEnabled,
+            itemCount: itemCount
+        )
+        guard decision == .post else {
+            if case .skip(let reason) = decision {
+                plog("🔔 Notification skipped: \(category.rawValue) reason=\(reason.rawValue)")
+            }
+            return
+        }
+
         let signature = "\(category.rawValue)\u{0}\(title)\u{0}\(body)"
         let now = Date()
+        let repeatInterval = UserNotificationPolicy.repeatInterval(for: kind)
         lastPostAtBySignature = lastPostAtBySignature.filter {
-            now.timeIntervalSince($0.value) < Self.duplicatePostCooldown
+            now.timeIntervalSince($0.value) < UserNotificationPolicy.repeatInterval(for: .actionRequired)
         }
         if let lastPostAt = lastPostAtBySignature[signature],
-           now.timeIntervalSince(lastPostAt) < Self.duplicatePostCooldown {
+           now.timeIntervalSince(lastPostAt) < repeatInterval {
             return
         }
         // Reserve before the authorization/add awaits. MainActor methods are
@@ -79,7 +148,7 @@ final class UserNotificationService {
         // while the first one is suspended in UserNotifications.
         lastPostAtBySignature[signature] = now
 
-        guard await ensureAuthorized() else {
+        guard await ensureAuthorized(), !isApplicationActive else {
             if lastPostAtBySignature[signature] == now {
                 lastPostAtBySignature[signature] = nil
             }
@@ -94,7 +163,7 @@ final class UserNotificationService {
 
         // Per-category identifier so a fresh notification of the same kind
         // replaces the previous one in Notification Center instead of
-        // stacking up after repeat scrape runs.
+        // stacking up after repeat runs.
         let request = UNNotificationRequest(
             identifier: category.rawValue,
             content: content,
@@ -102,6 +171,7 @@ final class UserNotificationService {
         )
         do {
             try await UNUserNotificationCenter.current().add(request)
+            plog("🔔 Notification posted: \(category.rawValue)")
         } catch {
             if lastPostAtBySignature[signature] == now {
                 lastPostAtBySignature[signature] = nil
