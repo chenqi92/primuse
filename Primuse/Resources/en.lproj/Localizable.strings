@@ -4416,3 +4416,22 @@
 "Continue Listening" = "Continue Listening";
 "Continue a book in Primuse from where you left off." = "Continue a book in Primuse from where you left off.";
 "Book" = "Book";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "Audiobooks";
+"home_spotlight_manage" = "Choose What Shows on Home";
+"home_spotlight_manage_radio" = "Radio on Home";
+"home_spotlight_manage_books" = "Audiobooks on Home";
+"home_spotlight_add" = "Show on Home";
+"home_spotlight_remove" = "Remove from Home";
+"home_spotlight_order" = "Sort By";
+"home_spotlight_order_recent" = "Recently Played";
+"home_spotlight_order_custom" = "Custom Order";
+"home_spotlight_order_name" = "Name";
+"home_spotlight_automatic_radio_footer" = "Until you pick stations, Home shows all of them, sorted as chosen above. Set how many in the Home editor.";
+"home_spotlight_automatic_books_footer" = "Until you pick books, Home shows your shelf. While “Books in Progress” is on, books you’re partway through aren’t repeated.";
+"home_spotlight_pinned_footer" = "Home shows only the items you picked. Choose Custom Order to drag them into place; clear the list to go back to automatic.";
+"home_spotlight_pinned_section" = "On Home";
+"home_spotlight_clear" = "Clear";
+"home_spotlight_all_radio" = "All Stations";
+"home_spotlight_all_books" = "All Audiobooks";

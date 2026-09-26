@@ -4653,3 +4653,22 @@
 "Continue Listening" = "이어 듣기";
 "Continue a book in Primuse from where you left off." = "Primuse의 책을 마지막으로 멈춘 곳부터 이어 듣습니다.";
 "Book" = "책";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "오디오북";
+"home_spotlight_manage" = "홈에 표시할 항목 선택";
+"home_spotlight_manage_radio" = "홈 라디오";
+"home_spotlight_manage_books" = "홈 오디오북";
+"home_spotlight_add" = "홈에 표시";
+"home_spotlight_remove" = "홈에서 제거";
+"home_spotlight_order" = "정렬 기준";
+"home_spotlight_order_recent" = "최근 재생";
+"home_spotlight_order_custom" = "사용자 지정 순서";
+"home_spotlight_order_name" = "이름";
+"home_spotlight_automatic_radio_footer" = "방송국을 고르기 전에는 홈에 모든 방송국이 위의 순서대로 표시됩니다. 표시 개수는 홈 편집에서 조정하세요.";
+"home_spotlight_automatic_books_footer" = "책을 고르기 전에는 홈에 책장의 책이 표시됩니다. ‘듣고 있는 책’이 켜져 있으면 듣던 책은 중복 표시하지 않습니다.";
+"home_spotlight_pinned_footer" = "홈에는 고른 항목만 표시됩니다. ‘사용자 지정 순서’를 선택하면 끌어서 순서를 바꿀 수 있고, 비우면 자동으로 돌아갑니다.";
+"home_spotlight_pinned_section" = "홈에 표시 중";
+"home_spotlight_clear" = "비우기";
+"home_spotlight_all_radio" = "모든 방송국";
+"home_spotlight_all_books" = "모든 오디오북";

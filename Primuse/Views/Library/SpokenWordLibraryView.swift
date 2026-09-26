@@ -15,6 +15,20 @@ struct SpokenWordLibrarySnapshot: Sendable {
     let finished: [Entry]
     let isPrepared: Bool
 
+    /// 每本书一次:在听的、书架、已听完,与书架页从上到下的顺序一致。
+    var allEntries: [Entry] {
+        (nowListening.map { [$0] } ?? []) + shelf + finished
+    }
+
+    /// 同上,再按书架页里拖出来的顺序(`spokenWord.shelf.order`)排 —— 首页「有声书」
+    /// 没挑过时的「自定义顺序」就是书架的顺序。
+    func allEntries(shelfOrder rawValue: String) -> [Entry] {
+        let preferred = SpokenWordShelfOrder.decode(rawValue)
+        guard !preferred.isEmpty else { return allEntries }
+        return SpokenWordShelfOrder.orderedIDs(allEntries.map(\.id), preferred: preferred)
+            .compactMap { entriesByID[$0] }
+    }
+
     init(books: [SpokenWordBook] = [], songsByID: [String: Song] = [:], isPrepared: Bool = true) {
         let entries = books.map { book in
             Entry(book: book, songs: book.items.compactMap { songsByID[$0.id] })
@@ -161,6 +175,9 @@ enum SpokenWordShelfOrder {
 /// finished ones folded away underneath.
 struct SpokenWordLibraryView: View {
     @Environment(MusicLibrary.self) private var library
+    #if os(iOS)
+    @State private var showsHomeSpotlight = false
+    #endif
 
     var body: some View {
         ScrollView {
@@ -171,6 +188,21 @@ struct SpokenWordLibraryView: View {
         .navigationTitle("tab_spoken_word")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !library.spokenWordSongs.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showsHomeSpotlight = true
+                    } label: {
+                        Label("home_spotlight_manage_books", systemImage: "house")
+                    }
+                    .accessibilityIdentifier("spokenWord.homeSpotlight")
+                }
+            }
+        }
+        .sheet(isPresented: $showsHomeSpotlight) {
+            NavigationStack { HomeSpotlightManagementView(section: .audiobooks) }
+        }
         #endif
         .overlay {
             if library.spokenWordSongs.isEmpty {
@@ -201,6 +233,7 @@ struct SpokenWordShelfContent: View {
     @AppStorage("spokenWord.shelf.showsFinished") private var showsFinished = false
     @AppStorage("spokenWord.shelf.layout") private var layout = SpokenWordShelfLayout.bookshelf
     @AppStorage("spokenWord.shelf.order") private var savedOrder = ""
+    @AppStorage(HomeSpotlightSelection.booksStorageKey) private var homeSpotlightRawValue = ""
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
@@ -434,6 +467,21 @@ struct SpokenWordShelfContent: View {
                 Label(String(localized: "spoken_word_mark_finished"), systemImage: "checkmark.circle")
             }
         }
+        #if os(iOS)
+        // 首页的「有声书」一排放哪些书。Mac 首页只列在听的书,不读这份挑选。
+        let homeSelection = HomeSpotlightSelection.decode(homeSpotlightRawValue)
+        let isOnHome = homeSelection.isPinned(book.id)
+        Button {
+            var updated = homeSelection
+            updated.togglePin(book.id)
+            homeSpotlightRawValue = updated.encoded()
+        } label: {
+            Label(
+                String(localized: isOnHome ? "home_spotlight_remove" : "home_spotlight_add"),
+                systemImage: isOnHome ? "house.slash" : "house"
+            )
+        }
+        #endif
         Button {
             store.setKind(.music, forSongIDs: book.items.map(\.id))
             library.refreshContentClassification()

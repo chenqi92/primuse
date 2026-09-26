@@ -4559,3 +4559,22 @@
 "Continue Listening" = "Dinlemeye devam et";
 "Continue a book in Primuse from where you left off." = "Primuse'daki bir kitaba kaldığın yerden devam et.";
 "Book" = "Kitap";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "Sesli kitaplar";
+"home_spotlight_manage" = "Ana sayfada gösterilecekleri seç";
+"home_spotlight_manage_radio" = "Ana sayfada radyo";
+"home_spotlight_manage_books" = "Ana sayfada sesli kitaplar";
+"home_spotlight_add" = "Ana sayfada göster";
+"home_spotlight_remove" = "Ana sayfadan kaldır";
+"home_spotlight_order" = "Sıralama";
+"home_spotlight_order_recent" = "Son dinlenenler";
+"home_spotlight_order_custom" = "Özel sıra";
+"home_spotlight_order_name" = "Ad";
+"home_spotlight_automatic_radio_footer" = "İstasyon seçmediğiniz sürece ana sayfa tüm istasyonları yukarıdaki sırayla gösterir. Kaç tane gösterileceğini ana sayfa düzenleyicisinden ayarlayın.";
+"home_spotlight_automatic_books_footer" = "Kitap seçmediğiniz sürece ana sayfa kitaplığınızı gösterir. “Dinlenen kitaplar” açıkken yarım kalan kitaplar tekrar gösterilmez.";
+"home_spotlight_pinned_footer" = "Ana sayfa yalnızca seçtiklerinizi gösterir. Sürükleyerek sıralamak için Özel sıra’yı seçin; otomatiğe dönmek için listeyi temizleyin.";
+"home_spotlight_pinned_section" = "Ana sayfada";
+"home_spotlight_clear" = "Temizle";
+"home_spotlight_all_radio" = "Tüm istasyonlar";
+"home_spotlight_all_books" = "Tüm sesli kitaplar";

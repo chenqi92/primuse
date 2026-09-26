@@ -641,9 +641,14 @@ struct HomeView: View {
     /// 文件夹的钉选管理原本挂在设置那张列表上，那张列表已被界面编辑取代，
     /// 入口跟着搬到文件夹这一块的操作条里，免得整个功能没了去处。
     @State private var showsFolderManager = false
+    /// 编辑态里「电台」「有声书」两块的挑选页。
+    @State private var spotlightManagerSection: HomeSectionKind?
+    /// 没有对应胶囊时,卡片上的「全部」「书架」推进来的那一页。
+    @State private var pushedSpacePage: ListeningSpace?
 
-    /// 筛选胶囊有哪几颗。电台跟着首页编辑里的开关走(没有电台时筛出来的是添加电台的入口);
-    /// 有声只在真有有声内容时出现;只有音乐一类时整排不出现。极简导航的顶栏自带电台、有声分类,不摆这一排。
+    /// 筛选胶囊有哪几颗。电台、有声分别跟着首页编辑里「电台」「有声书」两块的开关走
+    /// (没有电台时筛出来的是添加电台的入口;有声还要真有有声内容);两块都关着时首页只剩音乐,
+    /// 整排不出现。极简导航的顶栏自带电台、有声分类,不摆这一排。
     private var homeFilterSpaces: [ListeningSpace] {
         guard !editorMode else { return [] }
         #if os(iOS)
@@ -651,7 +656,7 @@ struct HomeView: View {
         #endif
         var spaces: [ListeningSpace] = [.music]
         if showRadioOnHome { spaces.append(.radio) }
-        if !library.spokenWordSongs.isEmpty { spaces.append(.spokenWord) }
+        if showAudiobooks, !library.spokenWordSongs.isEmpty { spaces.append(.spokenWord) }
         return spaces.count > 1 ? spaces : []
     }
 
@@ -661,12 +666,15 @@ struct HomeView: View {
         return homeFilter
     }
 
-    /// 首页卡片上的「全部」「书架」:外壳接管时交给外壳,否则就在首页筛出那一类。
+    /// 首页卡片上的「全部」「书架」:外壳接管时交给外壳;有那颗胶囊就在首页筛出那一类,
+    /// 胶囊被关掉了(接着听、在听的书仍可能指向它)就直接推进电台页或书架页。
     private func openSpace(_ space: ListeningSpace) {
         if let openListeningSpace {
             openListeningSpace(space)
-        } else {
+        } else if homeFilterSpaces.contains(space) {
             setHomeFilter(space)
+        } else if space != .music, !editorMode {
+            pushedSpacePage = space
         }
     }
 
@@ -811,6 +819,9 @@ struct HomeView: View {
                     .sheet(isPresented: $showsFolderManager) {
                         NavigationStack { HomeFolderManagementView() }
                     }
+                    .sheet(item: $spotlightManagerSection) { section in
+                        NavigationStack { HomeSpotlightManagementView(section: section) }
+                    }
             } else {
                 navigationRoot
             }
@@ -830,6 +841,16 @@ struct HomeView: View {
             #endif
             .sheet(isPresented: $showRadioBatchAdd) {
                 RadioBatchAddView()
+            }
+            .navigationDestination(item: $pushedSpacePage) { space in
+                if space == .radio {
+                    HomeRadioStationsPage()
+                } else {
+                    SpokenWordLibraryView()
+                        #if os(iOS)
+                        .minimalNavigationDetail()
+                        #endif
+                }
             }
             .navigationDestination(for: Album.self) {
                 AlbumDetailView(album: $0)
@@ -908,6 +929,9 @@ struct HomeView: View {
     @AppStorage("primuse.home.showPlaylists") private var showPlaylists: Bool = true
     @AppStorage("primuse.home.showFolders") private var showFolders = true
     @AppStorage("primuse.home.showListeningRanking") private var showListeningRanking = true
+    @AppStorage("primuse.home.showContinueSpaces") private var showContinueSpaces = true
+    @AppStorage("primuse.home.showBooksInProgress") private var showBooksInProgress = true
+    @AppStorage("primuse.home.showAudiobooks") private var showAudiobooks = true
     @AppStorage(HomeSectionConfiguration.orderKey) private var homeSectionOrderRawValue = ""
     @AppStorage(HomeSectionLayoutConfiguration.storageKey) private var homeSectionLayoutRawValue = ""
     @AppStorage(LibraryPinStorage.defaultsKey) private var quickAccessRawValue = ""
@@ -1034,24 +1058,17 @@ struct HomeView: View {
         // Section contents are bounded. Stable vertical sizes avoid lazy
         // placement loops when a ranking card changes height near the viewport.
         SpokenWordLibraryContent { snapshot in
-            let books = snapshot.inProgress
             VStack(alignment: .leading, spacing: editorMode ? 12 : 24) {
                 if editorMode {
                     Text("home_editor_hint")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 20)
-                    homeEditorRadioToggle
                 } else if model.snapshot.hasContent {
                     libraryHeroSection
                 }
-                // 这两排横跨三类,只在「全部」里出现;筛到音乐时只留音乐自己的区块。
-                if !editorMode, activeHomeFilter == nil {
-                    HomeContinueSpacesRow(books: books, openSpace: openSpace)
-                    HomeBooksInProgressStrip(books: books, minimumCount: 2, openSpace: openSpace)
-                }
 
-                homeSections
+                homeSections(snapshot)
             }
         }
     }
@@ -1060,14 +1077,14 @@ struct HomeView: View {
     ///
     /// 单栏与两栏用 `AnyLayout` 互换而不是换一棵视图树:开合、转屏时区块保持原来的身份,
     /// 从原位置滑到新位置,横滑区块滚到的位置、长按菜单的宿主都留着。
-    private var homeSections: some View {
+    private func homeSections(_ books: SpokenWordLibrarySnapshot) -> some View {
         let twoColumns = usesTwoColumnHome
         let layout = twoColumns
             ? AnyLayout(HomeTwoColumnSectionsLayout(spacing: 24))
             : AnyLayout(VStackLayout(alignment: .leading, spacing: editorMode ? 12 : 24))
         return layout {
             ForEach(editorMode ? editableHomeSections : homeSectionOrder) { section in
-                homeSectionRow(section)
+                homeSectionRow(section, books: books)
             }
         }
         .environment(\.horizontalSizeClass, twoColumns ? .compact : sizeClass)
@@ -1078,17 +1095,42 @@ struct HomeView: View {
     /// 分区本身经 `HomeDeferredSection` 推迟构造，别直接内联回来（见那个类型的说明）；
     /// 显示条件留在这里判断，失效范围与原来一致。
     @ViewBuilder
-    private func homeSectionContent(_ section: HomeSectionKind) -> some View {
+    private func homeSectionContent(_ section: HomeSectionKind, books: SpokenWordLibrarySnapshot) -> some View {
         let style = homeLayout.style(for: section)
+        // 横跨三类的区块只在「全部」里出现;筛到音乐时只留音乐自己的区块。
+        let showsCrossSpace = activeHomeFilter == nil
         switch section {
+        case .continueSpaces:
+            if showContinueSpaces, showsCrossSpace {
+                HomeContinueSpacesRow(books: books.inProgress, openSpace: openSpace)
+            }
+        case .booksInProgress:
+            if showBooksInProgress, showsCrossSpace {
+                // 接着听已经给了最近那本;它开着时这一排从第二本起才值得占位。
+                HomeBooksInProgressStrip(
+                    books: books.inProgress,
+                    minimumCount: showContinueSpaces ? 2 : 1,
+                    limit: sectionItemCount(.booksInProgress, 12),
+                    openSpace: openSpace
+                )
+            }
+        case .audiobooks:
+            if showAudiobooks, showsCrossSpace, !library.spokenWordSongs.isEmpty {
+                HomeAudiobooksSection(
+                    snapshot: books,
+                    limit: sectionItemCount(.audiobooks, 10),
+                    excludesInProgressWhenAutomatic: showBooksInProgress,
+                    openSpace: openSpace
+                )
+            }
         case .continueListening:
             if showContinueListening, !model.snapshot.recentSongs.isEmpty {
                 HomeDeferredSection { continueListeningSection(style) }
             }
         case .radio:
             // 「全部」里一条电台横排,没有电台时是一张添加卡片;「全部 ›」筛到电台。
-            if showRadioOnHome, activeHomeFilter == nil {
-                HomeRadioSpaceSection(openSpace: openSpace)
+            if showRadioOnHome, showsCrossSpace {
+                HomeRadioSpaceSection(limit: sectionItemCount(.radio, 12), openSpace: openSpace)
             }
         case .quickAccess:
             if showQuickAccess, !model.snapshot.quickItems.isEmpty {
@@ -1149,6 +1191,9 @@ struct HomeView: View {
 
     private func isSectionVisible(_ section: HomeSectionKind) -> Bool {
         switch section {
+        case .continueSpaces: showContinueSpaces
+        case .booksInProgress: showBooksInProgress
+        case .audiobooks: showAudiobooks
         case .continueListening: showContinueListening
         case .quickAccess: showQuickAccess
         case .forYou: showForYou
@@ -1158,12 +1203,15 @@ struct HomeView: View {
         case .topArtists: showTopArtists
         case .recentlyAdded: showRecentlyAdded
         case .stats: showStatsGlimpse
-        case .radio: true
+        case .radio: showRadioOnHome
         }
     }
 
     private func setSectionVisible(_ section: HomeSectionKind, _ visible: Bool) {
         switch section {
+        case .continueSpaces: showContinueSpaces = visible
+        case .booksInProgress: showBooksInProgress = visible
+        case .audiobooks: showAudiobooks = visible
         case .continueListening: showContinueListening = visible
         case .quickAccess: showQuickAccess = visible
         case .forYou: showForYou = visible
@@ -1173,7 +1221,7 @@ struct HomeView: View {
         case .topArtists: showTopArtists = visible
         case .recentlyAdded: showRecentlyAdded = visible
         case .stats: showStatsGlimpse = visible
-        case .radio: break
+        case .radio: showRadioOnHome = visible
         }
     }
 
@@ -1187,23 +1235,6 @@ struct HomeView: View {
             : homeLayout.rowCount(for: section) + 1
         configuration.setRowCount(next, for: section)
         homeSectionLayoutRawValue = configuration.encoded()
-    }
-
-    /// 电台是首页的另一面（右上角切换），不参与区块排序，但用户在这里就想
-    /// 一并决定它显不显示，所以放在编辑态的最前面。
-    private var homeEditorRadioToggle: some View {
-        Toggle(isOn: $showRadioOnHome) {
-            Label("radio_home_visibility", systemImage: "radio")
-                .font(.subheadline.weight(.semibold))
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
-        .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(homeCardSurface.opacity(0.55))
-        }
-        .padding(.horizontal, 12)
-        .accessibilityIdentifier("home.edit.radio")
     }
 
     private func advanceSectionLayout(_ section: HomeSectionKind) {
@@ -1243,14 +1274,14 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func homeSectionRow(_ section: HomeSectionKind) -> some View {
+    private func homeSectionRow(_ section: HomeSectionKind, books: SpokenWordLibrarySnapshot) -> some View {
         if editorMode {
             VStack(alignment: .leading, spacing: 10) {
                 homeSectionEditBar(section)
                 if isSectionVisible(section) {
                     // 编辑的是版面，不是内容：区块里的封面和按钮一律不响应，
                     // 免得一边排版一边误触播放或跳转。
-                    homeSectionContent(section)
+                    homeSectionContent(section, books: books)
                         .allowsHitTesting(false)
                 }
             }
@@ -1289,7 +1320,7 @@ struct HomeView: View {
                 } label: { Label("home_edit_move_down", systemImage: "arrow.down") }
             }
         } else {
-            homeSectionContent(section)
+            homeSectionContent(section, books: books)
         }
     }
 
@@ -1311,6 +1342,18 @@ struct HomeView: View {
                     .lineLimit(1)
 
                 Spacer(minLength: 8)
+
+                if section.spotlightSpace != nil {
+                    Button { spotlightManagerSection = section } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .accessibilityLabel(Text("home_spotlight_manage"))
+                    .accessibilityIdentifier("home.edit.spotlight." + section.rawValue)
+                }
 
                 if section == .folders {
                     Button { showsFolderManager = true } label: {

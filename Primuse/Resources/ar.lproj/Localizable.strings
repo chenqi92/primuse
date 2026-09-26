@@ -4559,3 +4559,22 @@
 "Continue Listening" = "متابعة الاستماع";
 "Continue a book in Primuse from where you left off." = "متابعة كتاب في Primuse من حيث توقفت.";
 "Book" = "كتاب";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "الكتب الصوتية";
+"home_spotlight_manage" = "اختيار ما يظهر في الرئيسية";
+"home_spotlight_manage_radio" = "الراديو في الرئيسية";
+"home_spotlight_manage_books" = "الكتب الصوتية في الرئيسية";
+"home_spotlight_add" = "إظهار في الرئيسية";
+"home_spotlight_remove" = "إزالة من الرئيسية";
+"home_spotlight_order" = "الترتيب حسب";
+"home_spotlight_order_recent" = "المُستمع إليه مؤخرًا";
+"home_spotlight_order_custom" = "ترتيب مخصص";
+"home_spotlight_order_name" = "الاسم";
+"home_spotlight_automatic_radio_footer" = "إلى أن تختار محطات، تعرض الرئيسية كل المحطات بالترتيب المحدد أعلاه. اضبط عددها من محرر الرئيسية.";
+"home_spotlight_automatic_books_footer" = "إلى أن تختار كتبًا، تعرض الرئيسية رف الكتب. عند تشغيل «كتب قيد الاستماع» لا تتكرر الكتب التي بدأتها.";
+"home_spotlight_pinned_footer" = "تعرض الرئيسية العناصر المختارة فقط. اختر الترتيب المخصص لسحبها وترتيبها، وامسح القائمة للعودة إلى الوضع التلقائي.";
+"home_spotlight_pinned_section" = "في الرئيسية";
+"home_spotlight_clear" = "مسح";
+"home_spotlight_all_radio" = "كل المحطات";
+"home_spotlight_all_books" = "كل الكتب الصوتية";

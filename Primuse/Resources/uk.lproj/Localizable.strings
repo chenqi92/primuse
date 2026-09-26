@@ -4559,3 +4559,22 @@
 "Continue Listening" = "Продовжити";
 "Continue a book in Primuse from where you left off." = "Продовжити книгу в Primuse з місця зупинки.";
 "Book" = "Книга";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "Аудіокниги";
+"home_spotlight_manage" = "Що показувати на головній";
+"home_spotlight_manage_radio" = "Радіо на головній";
+"home_spotlight_manage_books" = "Аудіокниги на головній";
+"home_spotlight_add" = "Показувати на головній";
+"home_spotlight_remove" = "Прибрати з головної";
+"home_spotlight_order" = "Сортування";
+"home_spotlight_order_recent" = "Нещодавно прослухані";
+"home_spotlight_order_custom" = "Власний порядок";
+"home_spotlight_order_name" = "Назва";
+"home_spotlight_automatic_radio_footer" = "Поки станції не вибрано, на головній показуються всі станції в порядку, вибраному вище. Кількість задається в редакторі головної.";
+"home_spotlight_automatic_books_footer" = "Поки книги не вибрано, на головній показується полиця. Якщо ввімкнено «Слухаю зараз», розпочаті книги не повторюються.";
+"home_spotlight_pinned_footer" = "На головній показуються лише вибрані. У режимі «Власний порядок» їх можна перетягувати; очистьте список, щоб повернутися до автоматичного вибору.";
+"home_spotlight_pinned_section" = "На головній";
+"home_spotlight_clear" = "Очистити";
+"home_spotlight_all_radio" = "Усі станції";
+"home_spotlight_all_books" = "Усі аудіокниги";

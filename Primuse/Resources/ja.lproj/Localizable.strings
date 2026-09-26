@@ -4654,3 +4654,22 @@
 "Continue Listening" = "続きを聴く";
 "Continue a book in Primuse from where you left off." = "Primuse の本を前回の続きから再生します。";
 "Book" = "本";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "オーディオブック";
+"home_spotlight_manage" = "ホームに表示する項目を選択";
+"home_spotlight_manage_radio" = "ホームのラジオ";
+"home_spotlight_manage_books" = "ホームのオーディオブック";
+"home_spotlight_add" = "ホームに表示";
+"home_spotlight_remove" = "ホームから削除";
+"home_spotlight_order" = "並び順";
+"home_spotlight_order_recent" = "最近再生した順";
+"home_spotlight_order_custom" = "カスタム順";
+"home_spotlight_order_name" = "名前";
+"home_spotlight_automatic_radio_footer" = "ステーションを選ぶまでは、ホームにすべてのステーションが上の順で表示されます。表示数はホームの編集で変更できます。";
+"home_spotlight_automatic_books_footer" = "本を選ぶまでは、ホームに本棚の本が表示されます。「聴いている本」がオンのときは途中の本を重複して表示しません。";
+"home_spotlight_pinned_footer" = "ホームには選んだ項目だけが表示されます。「カスタム順」を選ぶとドラッグで並べ替えできます。クリアすると自動に戻ります。";
+"home_spotlight_pinned_section" = "ホームに表示中";
+"home_spotlight_clear" = "クリア";
+"home_spotlight_all_radio" = "すべてのステーション";
+"home_spotlight_all_books" = "すべてのオーディオブック";

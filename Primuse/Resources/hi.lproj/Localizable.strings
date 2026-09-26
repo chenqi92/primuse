@@ -4559,3 +4559,22 @@
 "Continue Listening" = "सुनना जारी रखें";
 "Continue a book in Primuse from where you left off." = "Primuse में किसी किताब को वहीं से जारी रखें जहां छोड़ा था।";
 "Book" = "किताब";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "ऑडियोबुक";
+"home_spotlight_manage" = "होम पर क्या दिखे चुनें";
+"home_spotlight_manage_radio" = "होम पर रेडियो";
+"home_spotlight_manage_books" = "होम पर ऑडियोबुक";
+"home_spotlight_add" = "होम पर दिखाएँ";
+"home_spotlight_remove" = "होम से हटाएँ";
+"home_spotlight_order" = "क्रम";
+"home_spotlight_order_recent" = "हाल में सुने";
+"home_spotlight_order_custom" = "अपना क्रम";
+"home_spotlight_order_name" = "नाम";
+"home_spotlight_automatic_radio_footer" = "जब तक आप स्टेशन नहीं चुनते, होम पर सभी स्टेशन ऊपर चुने क्रम में दिखते हैं। संख्या होम संपादक में तय करें।";
+"home_spotlight_automatic_books_footer" = "जब तक आप किताबें नहीं चुनते, होम पर आपकी बुकशेल्फ़ दिखती है। “सुनी जा रही किताबें” चालू हो तो अधूरी किताबें दोबारा नहीं दिखतीं।";
+"home_spotlight_pinned_footer" = "होम पर केवल चुनी गई चीज़ें दिखती हैं। खींचकर क्रम बदलने के लिए अपना क्रम चुनें; सूची खाली करने पर फिर से स्वचालित हो जाता है।";
+"home_spotlight_pinned_section" = "होम पर";
+"home_spotlight_clear" = "खाली करें";
+"home_spotlight_all_radio" = "सभी स्टेशन";
+"home_spotlight_all_books" = "सभी ऑडियोबुक";
