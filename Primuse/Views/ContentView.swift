@@ -1232,6 +1232,8 @@ struct ContentView: View {
                     .zIndex(2)
             }
         }
+        // iPhone Duo 合上、展开时整屏做一次归位（模糊、沿开合方向拉伸后回到原样），播放页也在里面。
+        .pmScreenChangeTransition()
         .environment(\.librarySearchNavigation, searchNavigation)
         .environment(\.appNavigationMode, navigationMode)
         .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
@@ -1300,6 +1302,7 @@ struct ContentView: View {
         }
         #if DEBUG
         .task { await runDebugOpenPage() }
+        .task { await runDebugRotation() }
         #endif
         .alert(
             String(localized: "server_favorite_update_failed_title"),
@@ -2795,6 +2798,22 @@ extension ContentView {
             showInitialOnboarding = true
         default:
             plog("🧪 DebugLaunchAutomation: unknown page '\(page)'")
+        }
+    }
+
+    /// `PRIMUSE_DEBUG_ROTATE_EVERY=<秒>`：每隔这么久请求一次转屏（竖 ⇄ 横），走系统真实的转屏过渡，
+    /// 录屏看换构图的元素过渡在系统过渡里是不是还在。起始方向跟 `PRIMUSE_ORIENTATION`。
+    @MainActor
+    private func runDebugRotation() async {
+        let environment = ProcessInfo.processInfo.environment
+        guard let every = environment["PRIMUSE_DEBUG_ROTATE_EVERY"].flatMap(Double.init), every > 0 else { return }
+        var landscape = environment["PRIMUSE_ORIENTATION"]?.lowercased() == "landscape"
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(every))
+            guard !Task.isCancelled else { return }
+            landscape.toggle()
+            plog("🧪 DebugLaunchAutomation: rotate to \(landscape ? "landscape" : "portrait")")
+            InterfaceOrientationLock.debugRequest(landscape: landscape)
         }
     }
 

@@ -1011,6 +1011,7 @@
 		E665C543B0B27FFFC0987DD2 /* WideCanvasColumnsPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77D0B5B96665C5BD4B151A1 /* WideCanvasColumnsPolicy.swift */; };
 		DD612D26DA54C27F00B61474 /* TabletopQueueStripPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68802420910729C94641D743 /* TabletopQueueStripPolicy.swift */; };
 		71DF86EC414F4FF8DD30E368 /* OcclusionAvoidancePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7225CE44B39C0780955DE35 /* OcclusionAvoidancePolicy.swift */; };
+		DC24CBCC7DEE84917BFCA358 /* ScreenChangeTransitionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3D3C5080A153D3A0469A88B /* ScreenChangeTransitionPolicy.swift */; };
 		A864476C00E1EDA87E6C1C4D /* SourceNetworkFailurePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 138331B0F98D6FA99394A41F /* SourceNetworkFailurePolicy.swift */; };
 		A875F21264F6C5B8DC612465 /* SFTPBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51F211B7D47D87F19AEBC79C /* SFTPBrowserView.swift */; };
 		A89D684D60AE5D0ED46CD0B5 /* InterfaceOrientationLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = E85209503CD504D721015FB8 /* InterfaceOrientationLock.swift */; };
@@ -2007,6 +2008,7 @@
 		A77D0B5B96665C5BD4B151A1 /* WideCanvasColumnsPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WideCanvasColumnsPolicy.swift; sourceTree = "<group>"; };
 		68802420910729C94641D743 /* TabletopQueueStripPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabletopQueueStripPolicy.swift; sourceTree = "<group>"; };
 		C7225CE44B39C0780955DE35 /* OcclusionAvoidancePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OcclusionAvoidancePolicy.swift; sourceTree = "<group>"; };
+		F3D3C5080A153D3A0469A88B /* ScreenChangeTransitionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenChangeTransitionPolicy.swift; sourceTree = "<group>"; };
 		35F073A9086FA22C2E168810 /* ServerCatalogDeletionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerCatalogDeletionPolicy.swift; sourceTree = "<group>"; };
 		363F869C6171BAEF3E787B3A /* ArtworkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkView.swift; sourceTree = "<group>"; };
 		366DFF0895E102E8E4A21111 /* SettingsDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDiscoveryTests.swift; sourceTree = "<group>"; };
@@ -3429,6 +3431,7 @@
 				A77D0B5B96665C5BD4B151A1 /* WideCanvasColumnsPolicy.swift */,
 				68802420910729C94641D743 /* TabletopQueueStripPolicy.swift */,
 				C7225CE44B39C0780955DE35 /* OcclusionAvoidancePolicy.swift */,
+				F3D3C5080A153D3A0469A88B /* ScreenChangeTransitionPolicy.swift */,
 				3A2283C5F87BB4C24B484473 /* NowPlayingInteractionPolicy.swift */,
 				12AD42B5CE1CE635F570F26F /* NowPlayingPlaybackProjection.swift */,
 				7A3BEB79E8DE72E16EB57E5A /* NowPlayingVisualActivityPolicy.swift */,
@@ -5396,6 +5399,7 @@
 				E665C543B0B27FFFC0987DD2 /* WideCanvasColumnsPolicy.swift in Sources */,
 				DD612D26DA54C27F00B61474 /* TabletopQueueStripPolicy.swift in Sources */,
 				71DF86EC414F4FF8DD30E368 /* OcclusionAvoidancePolicy.swift in Sources */,
+				DC24CBCC7DEE84917BFCA358 /* ScreenChangeTransitionPolicy.swift in Sources */,
 				C745C034D5E10AB99280C4BD /* NowPlayingInteractionPolicy.swift in Sources */,
 				4C4AE61F50C0DEE6BFA6B242 /* NowPlayingPlaybackProjection.swift in Sources */,
 				AC258909596CC7BDAE289DF9 /* NowPlayingVisualActivityPolicy.swift in Sources */,

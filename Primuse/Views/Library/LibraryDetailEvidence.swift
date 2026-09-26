@@ -15,7 +15,8 @@ import SwiftUI
 /// 播放页的几个框配合 `PRIMUSE_AUTOPLAY_SONG`（`PRIMUSE_AUTOPLAY_PAUSE=1` 定住进度）。
 /// - `PRIMUSE_EVIDENCE_MORPH=<页面>`：只画这一页的一个框，每隔 `PRIMUSE_EVIDENCE_MORPH_INTERVAL` 秒（默认 3）在
 ///   `PRIMUSE_EVIDENCE_MORPH_VIEWPORTS`（默认 `outer,inner`；可选 `outer` `inner` `innerSmall` `innerPortrait`
-///   `phone` `phoneLandscape`）之间换一次尺寸，模拟开合、转屏，录屏看换构图的过渡。
+///   `phone` `phoneLandscape`）之间换一次尺寸，模拟开合、转屏，录屏看换构图的过渡；框在外屏与内屏
+///   之间换（常规宽高翻转）时按根上同一个判定做整屏归位（`ScreenChangeTransitionPolicy`）。
 /// 有竖栏的视口（内屏横握、外屏竖握）框里按有竖栏排：内容铺到竖栏底下。
 struct LibraryDetailEvidenceHost: View {
     @Environment(MusicLibrary.self) private var library
@@ -40,6 +41,19 @@ struct LibraryDetailEvidenceHost: View {
         /// 这个视口有系统竖栏（在尾侧那条安全区里）：框里按有竖栏排，内容铺到竖栏底下。
         var hasVerticalBar = false
 
+        /// 换屏过渡按同一个判定比较前后两个视口（框总是铺满「屏幕」）。
+        var canvas: ScreenChangeTransitionPolicy.Canvas {
+            ScreenChangeTransitionPolicy.Canvas(
+                screenID: nil,
+                width: Double(size.width),
+                height: Double(size.height),
+                screenWidth: Double(size.width),
+                screenHeight: Double(size.height),
+                isRegularWidth: isRegularWidth,
+                isRegularHeight: !isCompactHeight,
+                isPhone: true
+            )
+        }
     }
 
     private struct Frame: Identifiable {
@@ -83,6 +97,9 @@ struct LibraryDetailEvidenceHost: View {
     private let morphViewports: [Viewport]
     private let morphInterval: Double
     @State private var morphStep = 0
+    /// 模拟换屏：框在「常规宽 + 常规高」与其它之间翻转时（外屏 ⇄ 内屏），按根上同一个判定触发整屏归位。
+    @State private var screenChangeGeneration = 0
+    @State private var screenChangeAxis: ScreenChangeTransitionPolicy.Axis = .horizontal
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         morphPage = environment["PRIMUSE_EVIDENCE_MORPH"].flatMap(Page.init(rawValue:))
@@ -167,6 +184,12 @@ struct LibraryDetailEvidenceHost: View {
                     .task {
                         while !Task.isCancelled {
                             try? await Task.sleep(for: .seconds(morphInterval))
+                            let previous = morphViewports[morphStep % morphViewports.count]
+                            let next = morphViewports[(morphStep + 1) % morphViewports.count]
+                            if let change = ScreenChangeTransitionPolicy.change(from: previous.canvas, to: next.canvas) {
+                                screenChangeGeneration += 1
+                                screenChangeAxis = change.axis
+                            }
                             morphStep += 1
                         }
                     }
@@ -219,6 +242,8 @@ struct LibraryDetailEvidenceHost: View {
                     trailing: viewport.trailing
                 ))
                 .frame(width: size.width, height: size.height)
+                // 模拟换屏（外屏 ⇄ 内屏）时和真机根上同一个整屏归位。
+                .pmScreenChangeSettle(trigger: screenChangeGeneration, axis: screenChangeAxis)
                 .overlay(alignment: .trailing) {
                     // 系统竖栏的位置（按钮本身由系统画，这里只标出那一条）。
                     if viewport.trailing > 0 {
