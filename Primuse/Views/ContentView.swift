@@ -2673,7 +2673,8 @@ struct NowPlayingAccessory: View {
 /// 调试构建的启动自动化：`PRIMUSE_OPEN_PAGE=<页面>` 在曲库装载后直接打开指定页面，给编译机上无人值守截图用。
 /// 取值：`home` / `library` / `songs` / `albums` / `artists` / `playlists` / `album:<标题片段>` / `artist:<名字片段>` /
 /// `playlist:<名字片段>`（`liked` 是「喜欢」）/ `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `search` / `settings` / `onboarding`。
-/// 另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
+/// 另有 `PRIMUSE_ORIENTATION=landscape|portrait|landscapeLeft|landscapeRight`：打开页面前先请求转屏
+/// （`landscape` 即 `landscapeRight`）。
 /// `section:<分类 rawValue>`（如 `section:folders`）。
 /// 详情页取证用：`genre:<名字片段>` / `smart:<名字片段>`（智能歌单）。
 /// `PRIMUSE_DEBUG_SEED_RADIO=1` 建几个取证用的电台（看电台页版式）；`=organized` 另把它们分进几个文件夹、
@@ -2700,8 +2701,8 @@ extension ContentView {
         debugSeedPlaylistsIfRequested()
         debugSeedRadioIfRequested()
         if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
-           orientation == "landscape" || orientation == "portrait" {
-            InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
+           ["landscape", "portrait", "landscapeleft", "landscaperight"].contains(orientation) {
+            InterfaceOrientationLock.debugRequest(named: orientation)
             try? await Task.sleep(for: .seconds(1))
         }
         plog("🧪 DebugLaunchAutomation: open page \(raw)")

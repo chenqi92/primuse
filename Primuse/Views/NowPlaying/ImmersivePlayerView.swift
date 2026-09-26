@@ -346,6 +346,13 @@ struct ImmersivePlayerView: View {
 
     private func chrome(metrics: ImmersiveStageMetrics) -> some View {
         let topInset = topChromeInset(metrics)
+        let bottomInset = max(metrics.safeArea.bottom + 10, 18)
+        let bottomClearance = OcclusionAvoidancePolicy.sideClearance(
+            regions: occlusions,
+            bandMinY: Double(metrics.size.height - bottomInset) - 72,
+            bandMaxY: Double(metrics.size.height),
+            width: Double(metrics.size.width)
+        )
         // 顶部这排圆钮只在遮挡区那一侧让开它(整屏居中的界面不为整条竖栏让位)。
         let clearance = OcclusionAvoidancePolicy.sideClearance(
             regions: occlusions,
@@ -367,10 +374,11 @@ struct ImmersivePlayerView: View {
 
             Spacer()
 
+            // 底部这排也只在遮挡区那一侧让开它(遮挡区贴着屏幕下沿时,例如外屏横握摄像头在右下角)。
             bottomChrome(metrics: metrics)
-            .padding(.leading, metrics.safeArea.leading + 20)
-            .padding(.trailing, metrics.safeArea.trailing + 20)
-            .padding(.bottom, max(metrics.safeArea.bottom + 10, 18))
+            .padding(.leading, max(metrics.safeArea.leading + 20, CGFloat(bottomClearance.leading) + 12))
+            .padding(.trailing, max(metrics.safeArea.trailing + 20, CGFloat(bottomClearance.trailing) + 12))
+            .padding(.bottom, bottomInset)
         }
     }
 
@@ -398,33 +406,47 @@ struct ImmersivePlayerView: View {
 
     /// 舞台的安全区。整屏居中:舞台内容上沿落进遮挡区那段高度时,把上沿推到遮挡区下面,
     /// 两侧都不让;只有推下去要吃掉三成以上的高度时,才退回在遮挡那一侧让开。
+    /// 遮挡区贴着屏幕下沿时(外屏横握摄像头在右下角的那个方向)同理:把下沿抬到它上面,抬不动再侧让。
     private func stageSafeArea(_ measured: EdgeInsets, size: CGSize) -> EdgeInsets {
         guard !occlusions.isEmpty else { return measured }
+        let height = Double(size.height)
+        let upper = occlusions.filter { ($0.minY + $0.maxY) / 2 < height / 2 }
+        let lower = occlusions.filter { ($0.minY + $0.maxY) / 2 >= height / 2 }
+        var result = measured
         let probe = ImmersiveStageMetrics(size: size, safeArea: measured, isHandheld: isPhoneIdiom)
         let contentTop = probe.stageContentTopInset(isTV: false)
         let clearance = OcclusionAvoidancePolicy.sideClearance(
-            regions: occlusions,
+            regions: upper,
             bandMinY: Double(contentTop),
-            bandMaxY: Double(size.height),
+            bandMaxY: height,
             width: Double(size.width)
         )
-        guard !clearance.isZero else { return measured }
-        let pushedTop = CGFloat(OcclusionAvoidancePolicy.lowestEdge(of: occlusions)) + 8
-        if pushedTop - contentTop <= size.height * 0.3 {
-            // 上沿 = max(安全区上沿, 保底值) + 多留的那段;把安全区上沿抬到让上沿正好落在遮挡区下面。
-            return EdgeInsets(
-                top: max(measured.top, pushedTop - probe.stageContentTopExtra(isTV: false)),
-                leading: measured.leading,
-                bottom: measured.bottom,
-                trailing: measured.trailing
-            )
+        if !clearance.isZero {
+            let pushedTop = CGFloat(OcclusionAvoidancePolicy.topEdge(of: upper, height: height)) + 8
+            if pushedTop - contentTop <= size.height * 0.3 {
+                // 上沿 = max(安全区上沿, 保底值) + 多留的那段;把安全区上沿抬到让上沿正好落在遮挡区下面。
+                result.top = max(measured.top, pushedTop - probe.stageContentTopExtra(isTV: false))
+            } else {
+                result.leading = max(result.leading, CGFloat(clearance.leading))
+                result.trailing = max(result.trailing, CGFloat(clearance.trailing))
+            }
         }
-        return EdgeInsets(
-            top: measured.top,
-            leading: max(measured.leading, CGFloat(clearance.leading)),
-            bottom: measured.bottom,
-            trailing: max(measured.trailing, CGFloat(clearance.trailing))
-        )
+        if !lower.isEmpty {
+            let pushedBottom = CGFloat(OcclusionAvoidancePolicy.bottomExtent(of: lower, height: height)) + 8
+            if pushedBottom - measured.bottom <= size.height * 0.3 {
+                result.bottom = max(result.bottom, pushedBottom)
+            } else {
+                let lowerClearance = OcclusionAvoidancePolicy.sideClearance(
+                    regions: lower,
+                    bandMinY: 0,
+                    bandMaxY: height,
+                    width: Double(size.width)
+                )
+                result.leading = max(result.leading, CGFloat(lowerClearance.leading))
+                result.trailing = max(result.trailing, CGFloat(lowerClearance.trailing))
+            }
+        }
+        return result
     }
 
     @ViewBuilder

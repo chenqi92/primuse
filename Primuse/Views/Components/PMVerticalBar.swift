@@ -49,7 +49,8 @@ enum PMReservedRegions {
 
     /// 正在生效的遮挡区(竖排的状态栏、前置摄像头;灵动岛展开实时活动时会变大),用 proxy 自己的坐标。
     /// 播放页这类整屏居中的界面只让开这一块,见 `OcclusionAvoidancePolicy`。Xcode 27.0 构建时为空。
-    /// 调试构建可以用 `PRIMUSE_DEBUG_OCCLUSION=trailing,84,320` 叠一块假的(模拟实时活动、iPad 取证)。
+    /// 调试构建可以用 `PRIMUSE_DEBUG_OCCLUSION=trailing,84,320` 叠一块假的(模拟实时活动、iPad 取证);
+    /// 写成 `trailing,84,82,bottom` 时贴着下沿(外屏横握摄像头在右下角的那个方向)。
     static func activeOcclusions(in proxy: GeometryProxy) -> [OcclusionAvoidancePolicy.Region] {
         var regions: [OcclusionAvoidancePolicy.Region] = []
         #if os(iOS) && canImport(SwiftUI, _version: 8.0.85)
@@ -69,7 +70,8 @@ enum PMReservedRegions {
         #if DEBUG
         regions += OcclusionAvoidancePolicy.debugRegions(
             from: debugOcclusionSpecification,
-            width: Double(proxy.size.width)
+            width: Double(proxy.size.width),
+            height: Double(proxy.size.height)
         )
         #endif
         return regions

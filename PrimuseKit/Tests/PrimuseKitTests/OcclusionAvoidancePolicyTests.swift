@@ -97,4 +97,71 @@ struct OcclusionAvoidancePolicyTests {
         )
         #expect(none.leading == 0)
     }
+
+    /// 外屏横握的另一个方向:摄像头在右下角,竖栏在右侧,遮挡区贴着竖栏底部。
+    private let landscapeBottomRegions = [
+        Region(x: 594, y: 384, width: 84, height: 82),
+        Region(x: 617.7, y: 399.7, width: 37, height: 37),
+    ]
+
+    @Test("遮挡区在上半屏才把内容上沿往下推,在下半屏时算作下沿要让的高度")
+    func topAndBottomEdges() {
+        #expect(Policy.topEdge(of: portraitRegions, height: 678) == 170)
+        #expect(Policy.topEdge(of: landscapeRegions, height: 466) == 82)
+        #expect(Policy.topEdge(of: landscapeBottomRegions, height: 466) == 0)
+        #expect(Policy.bottomExtent(of: landscapeBottomRegions, height: 466) == 82)
+        #expect(Policy.bottomExtent(of: portraitRegions, height: 678) == 0)
+        #expect(Policy.topEdge(of: [], height: 466) == 0)
+    }
+
+    @Test("竖栏那一列:遮挡区在顶上时从它下面往下排")
+    func columnBelowTopOcclusion() {
+        let segment = Policy.columnSegment(
+            regions: portraitRegions, bandMinX: 382, bandMaxX: 466,
+            height: 678, topInset: 0, bottomInset: 34, margin: 12
+        )
+        #expect(segment == .init(minY: 182, maxY: 632, alignsToBottom: false))
+        let landscape = Policy.columnSegment(
+            regions: landscapeRegions, bandMinX: 0, bandMaxX: 84,
+            height: 466, topInset: 0, bottomInset: 21, margin: 12
+        )
+        #expect(landscape == .init(minY: 94, maxY: 433, alignsToBottom: false))
+    }
+
+    @Test("竖栏那一列:遮挡区在底下时到它上面为止、贴着它排")
+    func columnAboveBottomOcclusion() {
+        let segment = Policy.columnSegment(
+            regions: landscapeBottomRegions, bandMinX: 594, bandMaxX: 678,
+            height: 466, topInset: 0, bottomInset: 21, margin: 12
+        )
+        #expect(segment == .init(minY: 12, maxY: 372, alignsToBottom: true))
+        // 另一侧的遮挡区不算。
+        let otherSide = Policy.columnSegment(
+            regions: landscapeRegions, bandMinX: 594, bandMaxX: 678,
+            height: 466, topInset: 0, bottomInset: 21, margin: 12
+        )
+        #expect(otherSide == .init(minY: 12, maxY: 433, alignsToBottom: false))
+    }
+
+    @Test("按钮先一起缩到 34,还放不下再从最后一组收进「更多」")
+    func columnFitShrinksThenOverflows() {
+        // 1 + 2 + 5 颗,三组:固定部分 12×2 + 4×2×3 = 48。
+        let roomy = Policy.columnFit(length: 450, groups: [1, 2, 5], droppable: 3, spacing: 12, capsulePadding: 4)
+        #expect(roomy == .init(itemSize: 44, overflowCount: 0))
+        let tight = Policy.columnFit(length: 330, groups: [1, 2, 5], droppable: 3, spacing: 12, capsulePadding: 4)
+        #expect(tight == .init(itemSize: 35, overflowCount: 0))
+        let tooShort = Policy.columnFit(length: 280, groups: [1, 2, 5], droppable: 3, spacing: 12, capsulePadding: 4)
+        #expect(tooShort == .init(itemSize: 38, overflowCount: 2))
+        // 最后一组至少留一颗(「更多」)。
+        let tiny = Policy.columnFit(length: 120, groups: [1, 2, 5], droppable: 9, spacing: 12, capsulePadding: 4)
+        #expect(tiny.overflowCount == 4)
+        #expect(tiny.itemSize == 34)
+    }
+
+    @Test("调试用的假遮挡区可以贴着下沿")
+    func debugSpecificationAtBottom() {
+        let regions = Policy.debugRegions(from: "trailing,84,82,bottom", width: 678, height: 466)
+        #expect(regions == [Region(x: 594, y: 384, width: 84, height: 82)])
+        #expect(Policy.debugRegions(from: "trailing,84,82,bottom", width: 678) == [Region(x: 594, y: 0, width: 84, height: 82)])
+    }
 }

@@ -1315,7 +1315,8 @@ struct NowPlayingView: View {
             bandMaxY: Double(max(topSafeArea, 10) + 8 + 44),
             width: width
         )
-        let lowest = OcclusionAvoidancePolicy.lowestEdge(of: occlusions)
+        // 只看贴着屏幕上沿的遮挡区:在下半屏的(外屏横握摄像头在右下角的方向)不该把内容往下推。
+        let lowest = OcclusionAvoidancePolicy.topEdge(of: occlusions, height: height)
         return NowPlayingPortraitInsets(
             containerLeading: 0,
             containerTrailing: 0,
@@ -1551,12 +1552,20 @@ struct NowPlayingView: View {
     // MARK: - iPhone Duo 竖栏里的那一列
 
     /// 正在生效的遮挡区(竖排状态栏、前置摄像头)。取证框模拟有竖栏的视口时,按系统那一条的样子
-    /// 在尾侧摆一块(框里读到的是外屏自己的遮挡区,位置对不上)。
+    /// 在尾侧摆一块(框里读到的是外屏自己的遮挡区,位置对不上);`PRIMUSE_EVIDENCE_OCCLUSION=bottom`
+    /// 时摆在尾侧底部(外屏横握摄像头在右下角的那个方向)。
     private func playerOcclusions(in geo: GeometryProxy) -> [OcclusionAvoidancePolicy.Region] {
         guard centersOnFullScreen else { return [] }
         #if DEBUG && os(iOS)
         if debugSuppressesVerticalBar {
             let width = Double(geo.size.width)
+            if ProcessInfo.processInfo.environment["PRIMUSE_EVIDENCE_OCCLUSION"] == "bottom" {
+                let height = Double(geo.size.height)
+                return [
+                    .init(x: width - 84, y: height - 82, width: 84, height: 82),
+                    .init(x: width - 60.5, y: height - 61, width: 37, height: 37),
+                ]
+            }
             return [
                 .init(x: width - 84, y: 0, width: 84, height: 150),
                 .init(x: width - 60.5, y: 24, width: 37, height: 37),
@@ -1601,8 +1610,10 @@ struct NowPlayingView: View {
 
     #if os(iOS)
     /// 播放页的次要操作(收起播放页 · 歌词 / 右栏、接下来播放 · 喜欢、投放、全屏效果、更多)排成竖栏那一列:
-    /// 和系统竖栏同一套玻璃胶囊分组,对准前置摄像头的中线,从竖排状态栏下面开始;外屏横握时在左侧。
-    /// 播放器这边只留封面、歌名、进度与传输键。高度不够(外屏横握)时每颗按钮一起缩一点,一个不少。
+    /// 和系统竖栏同一套玻璃胶囊分组,对准前置摄像头的中线。按系统报告的遮挡区(竖排状态栏 + 摄像头)实际
+    /// 在哪排:遮挡区在竖栏顶上时从它下面往下排,在底下(外屏横握摄像头在右下角的那个方向)时到它上面为止、
+    /// 贴着它往上排,任何一颗都不落进遮挡区或屏幕外。播放器这边只留封面、歌名、进度与传输键。
+    /// 高度不够时每颗按钮一起缩一点(44 → 34);还放不下就把锁、全屏效果、喜欢依次收进「更多」。
     private func barToolColumn(
         edge: HorizontalEdge,
         geo: GeometryProxy,
@@ -1619,22 +1630,39 @@ struct NowPlayingView: View {
         let camera = barRegions.min { $0.width * $0.height < $1.width * $1.height }
         let centerX = camera.map { $0.minX + $0.width / 2 }
             ?? (isRight ? width - max(barWidth, 60) / 2 : max(barWidth, 60) / 2)
-        let top = max(barRegions.map(\.maxY).max() ?? 0, Double(topSafeArea)) + 12
-        let bottom = Double(bottomSafeArea) + 12
+        let segment = OcclusionAvoidancePolicy.columnSegment(
+            regions: barRegions,
+            bandMinX: band.lowerBound,
+            bandMaxX: band.upperBound,
+            height: Double(geo.size.height),
+            topInset: Double(topSafeArea),
+            bottomInset: Double(bottomSafeArea),
+            margin: 12
+        )
         let music = !usesSpokenWordTransport
         // 有声内容没有文字稿时不给文字键,这一组只剩目录。
         let showsTextToggle = music || !lyrics.isEmpty
-        let groups = [
-            1,
-            showsTextToggle ? 2 : 1,
-            (music ? 2 : 0) + 2 + (offersLock ? 1 : 0),
-        ]
-        let itemCount = Double(groups.reduce(0, +))
+        // 放不下时依次收进「更多」的:锁、全屏效果、喜欢。
+        let droppable = (offersLock ? 1 : 0) + (music ? 2 : 0)
         let spacing = 12.0
         let capsulePadding = 4.0
-        let fixed = spacing * Double(groups.count - 1) + capsulePadding * 2 * Double(groups.count)
-        let available = Double(geo.size.height) - top - bottom
-        let itemSize = CGFloat(min(44, max(34, ((available - fixed) / max(itemCount, 1)).rounded(.down))))
+        let fit = OcclusionAvoidancePolicy.columnFit(
+            length: segment.length,
+            groups: [
+                1,
+                showsTextToggle ? 2 : 1,
+                (music ? 2 : 0) + 2 + (offersLock ? 1 : 0),
+            ],
+            droppable: droppable,
+            spacing: spacing,
+            capsulePadding: capsulePadding
+        )
+        let itemSize = CGFloat(fit.itemSize)
+        var overflow = NowPlayingBarColumnOverflow()
+        var remaining = fit.overflowCount
+        if offersLock, remaining > 0 { overflow.lock = true; remaining -= 1 }
+        if music, remaining > 0 { overflow.effect = true; remaining -= 1 }
+        if music, remaining > 0 { overflow.like = true; remaining -= 1 }
         let lyricsSelected = isPlayerSplit ? (!sidePaneHidden && showLyrics) : showLyrics
         let queueSelected = isPlayerSplit && !sidePaneHidden && !showLyrics
 
@@ -1695,7 +1723,7 @@ struct NowPlayingView: View {
 
                 barColumnGroup {
                     // 「我喜欢」是音乐歌单, 有声内容不出现。
-                    if music {
+                    if music, !overflow.like {
                         Button {
                             toggleLikedCurrent()
                         } label: {
@@ -1716,11 +1744,11 @@ struct NowPlayingView: View {
                         .frame(width: itemSize * 0.62, height: itemSize * 0.62)
                         .frame(width: itemSize, height: itemSize)
 
-                    if music {
+                    if music, !overflow.effect {
                         immersiveEffectButton(glass: .barColumn(itemSize: itemSize))
                     }
 
-                    if offersLock {
+                    if offersLock, !overflow.lock {
                         Button {
                             immersiveControlsAutoHideTask?.cancel()
                             isCompactLandscapeLocked = true
@@ -1731,15 +1759,17 @@ struct NowPlayingView: View {
                         .accessibilityLabel(Text("immersive_lock_controls"))
                     }
 
-                    makeMoreMenu(immersiveChrome: true, chromeGlass: .barColumn(itemSize: itemSize))
+                    makeMoreMenu(
+                        immersiveChrome: true,
+                        chromeGlass: .barColumn(itemSize: itemSize),
+                        columnOverflow: overflow
+                    )
                 }
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .padding(.top, CGFloat(top))
-        .padding(.bottom, CGFloat(bottom))
+        .frame(height: CGFloat(segment.length), alignment: segment.alignsToBottom ? .bottom : .top)
         .frame(width: itemSize + CGFloat(capsulePadding) * 2 + 8)
-        .position(x: CGFloat(centerX), y: geo.size.height / 2)
+        .position(x: CGFloat(centerX), y: CGFloat(segment.minY + segment.length / 2))
         .frame(width: geo.size.width, height: geo.size.height)
         .pmAnimation(.control, value: isCompactLandscapeLocked)
     }
@@ -2220,7 +2250,8 @@ struct NowPlayingView: View {
         #if DEBUG && os(iOS)
         .task {
             // 取证页让播放页一出现就处在歌词 / 全屏歌词模式。真机上无人值守截图用
-            // `PRIMUSE_DEBUG_PLAYER_MODE`(同样的取值,另有 `queueSheet`:弹出半屏的接下来播放)。
+            // `PRIMUSE_DEBUG_PLAYER_MODE`(同样的取值,另有 `queueSheet`:弹出半屏的接下来播放;
+            // `fullscreen`:进全屏播放)。
             switch debugPlayerMode ?? ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_PLAYER_MODE"] {
             case "lyrics":
                 showLyrics = true
@@ -2242,6 +2273,10 @@ struct NowPlayingView: View {
                 // 有声内容的目录与书签面板。
                 try? await Task.sleep(for: .seconds(1))
                 showChapterList = true
+            case "fullscreen":
+                // 全屏播放(当前选的全屏效果;原生效果时是全屏歌词)。
+                try? await Task.sleep(for: .seconds(1))
+                presentImmersiveLyrics()
             default:
                 break
             }
@@ -2934,7 +2969,8 @@ struct NowPlayingView: View {
         )
     }
 
-    /// 歌词栏在遮挡区下面才开始:只在它横向碰到遮挡区时把栏顶往下挪到遮挡区下沿。
+    /// 歌词栏在遮挡区下面才开始:只在它横向碰到从栏顶以上伸下来的遮挡区时把栏顶往下挪到遮挡区下沿
+    /// (贴着屏幕下沿的遮挡区不算,那样栏顶会被推出屏幕)。
     private func compactLandscapeLyricsPaneTopClearance(
         occlusions: [OcclusionAvoidancePolicy.Region],
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics,
@@ -2945,7 +2981,7 @@ struct NowPlayingView: View {
         let paneMinX = metrics.leadingInset
         let paneMaxX = paneMinX + lyricsMetrics.lyricsPaneWidth
         let bottom = occlusions
-            .filter { $0.maxX > paneMinX && $0.minX < paneMaxX && $0.maxY > paneTop }
+            .filter { $0.maxX > paneMinX && $0.minX < paneMaxX && $0.maxY > paneTop && $0.minY < paneTop }
             .map(\.maxY)
             .max()
         guard let bottom else { return 0 }
@@ -4726,7 +4762,8 @@ struct NowPlayingView: View {
 
     private func makeMoreMenu(
         immersiveChrome: Bool = false,
-        chromeGlass: NowPlayingChromeGlass = .immersive
+        chromeGlass: NowPlayingChromeGlass = .immersive,
+        columnOverflow: NowPlayingBarColumnOverflow = NowPlayingBarColumnOverflow()
     ) -> some View {
         // 有声内容只留听书用得上的项: 相似歌曲、串烧、卡拉OK、全屏效果、随机、
         // 在线刮削(查的是音乐库)与歌词动效都是音乐的玩法, 「转到专辑」换成
@@ -4775,7 +4812,9 @@ struct NowPlayingView: View {
                 && !player.isLiveRadio,
             medleySegmentSeconds: playbackSettings.medleySegmentSeconds,
             colorScheme: colorScheme,
-            colorSchemeContrast: colorSchemeContrast
+            colorSchemeContrast: colorSchemeContrast,
+            columnOverflow: columnOverflow,
+            isCurrentLiked: isCurrentLiked
         )
 
         return NowPlayingMoreMenu(
@@ -4831,6 +4870,15 @@ struct NowPlayingView: View {
             },
             onShare: { shareSong = player.currentSong },
             onShowCastPicker: { showCastPicker = true },
+            onToggleLike: { toggleLikedCurrent() },
+            onShowEffectPicker: {
+                immersiveControlsAutoHideTask?.cancel()
+                showsImmersiveEffectPicker = true
+            },
+            onLockControls: {
+                immersiveControlsAutoHideTask?.cancel()
+                isCompactLandscapeLocked = true
+            },
             onToggleLyricsTranslation: {
                 LyricsTranslationSettingsStore.shared.isEnabled.toggle()
             },
@@ -7332,6 +7380,18 @@ private struct NowPlayingMoreMenuSnapshot: Equatable {
     let medleySegmentSeconds: Int
     let colorScheme: ColorScheme
     let colorSchemeContrast: ColorSchemeContrast
+    /// iPhone Duo 竖栏那一列放不下时收进这里的按钮。
+    let columnOverflow: NowPlayingBarColumnOverflow
+    let isCurrentLiked: Bool
+}
+
+/// iPhone Duo 竖栏那一列按钮放不下时收进「更多」的几颗(按收走的先后:锁、全屏效果、喜欢)。
+struct NowPlayingBarColumnOverflow: Equatable {
+    var lock = false
+    var effect = false
+    var like = false
+
+    var isEmpty: Bool { !lock && !effect && !like }
 }
 
 /// Keeps the existing SwiftUI `Menu` interaction and visual design, while using
@@ -7362,6 +7422,9 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onOpenInAppleMusic: () -> Void
     let onShare: () -> Void
     let onShowCastPicker: () -> Void
+    let onToggleLike: () -> Void
+    let onShowEffectPicker: () -> Void
+    let onLockControls: () -> Void
     let onToggleLyricsTranslation: () -> Void
     let onShowSleepTimer: () -> Void
     let onToggleShuffle: () -> Void
@@ -7481,6 +7544,32 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                                 format: String(localized: "medley_queue_detail_format"),
                                 snapshot.medleySegmentSeconds
                             ))
+                        }
+                    }
+                }
+            }
+
+            if !snapshot.columnOverflow.isEmpty {
+                // iPhone Duo 竖栏那一列放不下时收进来的按钮。
+                Section {
+                    if snapshot.columnOverflow.like {
+                        Button(action: onToggleLike) {
+                            if snapshot.isCurrentLiked {
+                                Label(String(localized: "a11y_unlike"), systemImage: "heart.fill")
+                            } else {
+                                Label(String(localized: "a11y_like"), systemImage: "heart")
+                            }
+                        }
+                        .disabled(!snapshot.hasSong)
+                    }
+                    if snapshot.columnOverflow.effect {
+                        Button(action: onShowEffectPicker) {
+                            Label(String(localized: "fullscreen_effect_settings_title"), systemImage: "viewfinder.rectangular")
+                        }
+                    }
+                    if snapshot.columnOverflow.lock {
+                        Button(action: onLockControls) {
+                            Label(String(localized: "immersive_lock_controls"), systemImage: "lock")
                         }
                     }
                 }

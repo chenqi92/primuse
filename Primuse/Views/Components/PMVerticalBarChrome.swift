@@ -140,9 +140,11 @@ private struct PMVerticalBarContentFill: ViewModifier {
                     if fills {
                         GeometryReader { proxy in
                             if let column = PMStatusColumn.frame(in: proxy) {
-                                PMStatusColumnEdge()
+                                // 遮挡区贴着竖栏底部时(外屏横握摄像头在右下角),毛玻璃从下往上淡出。
+                                let fromBottom = column.midY > proxy.size.height / 2
+                                PMStatusColumnEdge(fromBottom: fromBottom)
                                     .frame(width: column.width, height: column.height + 28)
-                                    .offset(x: column.minX, y: column.minY)
+                                    .offset(x: column.minX, y: fromBottom ? column.minY - 28 : column.minY)
                             }
                         }
                         .ignoresSafeArea()
@@ -180,8 +182,10 @@ private enum PMStatusColumn {
 }
 
 /// 竖排状态栏下面那层渐隐的毛玻璃：和普通 iPhone 顶部状态栏下的滚动边缘一个意思，
-/// 往下、往里两个方向都淡出，静止时看不出一块边。
+/// 往屏幕中间、往里两个方向都淡出，静止时看不出一块边。遮挡区在竖栏顶上时往下淡，在底下时往上淡。
 private struct PMStatusColumnEdge: View {
+    var fromBottom = false
+
     var body: some View {
         Rectangle()
             .fill(.bar)
@@ -192,8 +196,8 @@ private struct PMStatusColumnEdge: View {
                         .init(color: .black, location: 0.72),
                         .init(color: .clear, location: 1),
                     ],
-                    startPoint: .top,
-                    endPoint: .bottom
+                    startPoint: fromBottom ? .bottom : .top,
+                    endPoint: fromBottom ? .top : .bottom
                 )
             }
             .mask {
