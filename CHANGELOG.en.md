@@ -4,9 +4,56 @@
 
 ---
 
-## [1.9.8] (build 78) - 2026-09-21
+## [1.10.1] (build 82-85) - 2026-09-26
 
-This release redesigns key search and immersive-player interactions, expands Apple Music, music-source connection, and startup diagnostics, and fixes Mac full-screen playback, desktop lyrics, and several playback issues.
+This release adds karaoke, audiobooks, and music medleys, expands audio/video formats and playlist import, adapts the whole app to iPhone Duo, and improves Home, Apple TV, and playback reliability.
+
+### Added
+
+- **Karaoke mode** — lower the vocals, shift the key, split duet parts, and score and record yourself with the microphone; AI vocal separation downloads its model when you turn it on and removes the original vocals more cleanly; guide vocals step in when you stop singing; practice mode loops single lines and slows down without changing pitch; instrumental versions in your library are found automatically and reuse the original lyrics
+- **Karaoke on Apple TV** — sing on the TV with an iPhone scanned in as the microphone for scoring, use AI vocals separated on iPhone, shift the key, and split duet parts
+- **Audiobooks** — a bookshelf grouped by work and a dedicated player with chapters, bookmarks, speed, and sleep timer on all three platforms; a scrubber jumps through long chapter lists and books can be reordered by dragging; CarPlay and widgets support audiobooks, with a new Continue Listening widget; Apple TV adds chapter markers and speed control for every format
+- **Music medleys** — start one in a single step from the player menu; the next segment is prepared before the transition and unplayable songs are skipped; starting on cellular warns about data use, and the reminder can be re-enabled in Settings
+- **Playlist import** — import playlist links from NetEase Cloud Music, QQ Music, Kuwo, Kugou, Migu, Bodian, Soda Music, Apple Music, Spotify, Deezer, bilibili, and YouTube, as well as text lists, CSV, and Apple Music txt/xml, pls, xspf, and wpl files; songs not yet in your library stay greyed out and light up once they arrive
+- **More audio and video formats** — MKA, WebM, MP2, Wave64, RF64, RealAudio, and tracker modules such as MOD, XM, IT, and S3M; music videos in MKV, WebM, AVI, FLV, WMV, TS, MPG, and RMVB are converted and cached on first play, with progress and failure reasons
+- **Tag suggestions and batch editing** — the tag editor suggests fixes, can check the whole library at once, and can edit several songs together; smart tips appear during playback when relevant
+- **AI service presets** — added SenseNova and Agnes AI, including Agnes AI (China) (#157)
+
+### Changed
+
+- **Home** — filter Home by Music, Radio, or Spoken Word; Home editing now covers Continue Listening, radio, books in progress, and audiobooks, including which stations and books appear and in what order; the Mac bookshelf can also be shown on Home
+- **iPhone Duo** — inner and outer displays, landscape grip, tabletop half-fold, and the system side bar are fully supported: two-column Home and detail pages, a split player, controls and Up Next on the lower half when half-folded, and elements that glide to their new place when folding or rotating
+- **Spoken word kept separate** — audiobooks and music no longer bleed into each other, spoken-word chapters found in search play on their own, and listening positions are saved immediately, including when the Mac app quits
+- **Mac desktop lyrics** — first opens just above the Dock; with the backing panel hidden, hovering the lyrics still reveals the toolbar (#149 #156)
+- **Full-screen playback** — stage text fades out in rest mode instead of overlapping the clock and lyrics (#154); lyric translations appear without leaving and re-entering
+- **Bilingual lyrics** — lines with only phonetic guides or other languages are still translated, and romaji, pinyin, and romanized Korean are no longer treated as translations
+- **Feiniu Music** — lyrics prefer parseable candidates and keep the server's calibrated offset on iPhone, Mac, and Apple TV; tag write-back can rename albums, creates new genres, and uploads artwork; playlist indexes are read in one pass
+- **ReplayGain** — volume no longer jumps when combined with crossfade, gapless playback, pause fades, or the equalizer
+- **Plain-HTTP radio** — stations on hosts not yet allowed ask whether to trust them, then play right away once allowed
+- **Source scanning** — Emby/Jellyfin and other server sources no longer fail when songs are added or removed mid-scan; checked sources use a reachable route when picking folders; the folder picker is redesigned and folders can be tagged as Spoken Word
+- **System notifications** — sent only when a task you started finishes while you are outside the app
+
+### Fixed
+
+- **Playback** — fixed a pause before sound when shuffling or playing all, and the Control Center and Lock Screen play button taking about ten seconds to update after pausing (#159)
+- **Karaoke** — fixed a possible crash when changing songs, crashes when dragging the vocal slider or shifting the key, leftover vocals after seeking, and recordings stopping immediately when started while paused
+- **Remote connections** — brief network drops when reaching a NAS from outside no longer interrupt playback or mark the whole source unavailable
+- **Tags** — fixed unreadable track and disc numbers in m4a files, write-back overwriting unchanged fields, and a downloader's "(1)" suffix turning song titles into artist names
+- **Interface** — fixed Home occasionally stuck on its loading placeholder after a cold launch, Home being widened by the listening chart in narrow iPad layouts, crashes when the system refuses a rotation request, and confirmation dialogs and adjustment panels being cut off on short screens
+- **Update check** — new versions are detected again, and a manual check opens the update card directly
+- **Apple TV** — fixed Synology verification not persisting, book artwork failing to load, and sluggish focus navigation in large libraries
+- **Wording** — the Chinese Back and Next buttons no longer read as Previous and Next Image, and the radio management hints match the actual controls
+
+### Performance
+
+- **Player** — opening and swiping away the player no longer stutters, and the More menu and smart tips no longer expand the whole queue
+- **Home and library** — Home scrolls smoothly after a cold launch, and the library loads faster
+
+---
+
+## [1.9.8] (build 78-82) - 2026-09-21
+
+This release redesigns key search and immersive-player interactions, adds spoken-word content and radio management on Apple TV, expands Apple Music, music-source connection, iCloud sync, and startup diagnostics, and fixes Mac full-screen playback, desktop lyrics, and several playback issues.
 
 ### Added
 
@@ -15,6 +62,12 @@ This release redesigns key search and immersive-player interactions, expands App
 - **Apple Music quality details** — show actual Lossless, Hi-Res Lossless, and Dolby Atmos availability instead of labeling every track AAC
 - **Startup recovery and diagnostics** — report the stage where startup stopped and enter safe mode after repeated failures; diagnostic reports now include system-exit reasons and connection candidates
 - **Dynamic detail backgrounds** — album, artist, and genre detail screens use a full-page tint derived from their artwork
+- **Spoken word** — audiobooks, crosstalk, and other spoken-word content are supported, and m4b audiobook files play directly
+- **Radio management on Apple TV** — add, delete, reorder, and rename stations and browse the library on the TV; stations appear on the Top Shelf, and logos support SVG and music-source stations (#151)
+- **Custom lyrics servers** — scraping can use a lyrics API server you provide and fetch lyrics online automatically when none are found
+- **Keep screen on** — the player can keep the display awake, with the switch in Player settings (#154)
+- **Source health check** — shows progress item by item and checks every connection route
+- **NonoEnd icon** — a new bass-clef alternate icon; the default icon is now Soft Note
 
 ### Changed
 
@@ -23,6 +76,12 @@ This release redesigns key search and immersive-player interactions, expands App
 - **Tag reading schedule** — new tracks receive tags before full-library rechecks, WebDAV and NAS reads are faster, and desktop platforms use the fastest level supported by the device
 - **Immersive effect drawer** — tap outside the drawer to close it on iPhone; Mac now uses a right-side preview drawer with more reliable full-screen transitions and window restoration
 - **Desktop lyric interaction** — when the backing panel is hidden or locked, areas outside the lyrics pass clicks to the window behind, and the panel adapts to the display size (#149)
+- **Remote routing** — stalled or failed LAN handshakes fall back to the public address instead of waiting out the full timeout; server sources re-confirm their route after a network change, and the health check no longer counts a proxy handshake as reachable
+- **iCloud sync** — three-way playlist merging, deleted stations no longer come back, and very large playlists sync; turning on settings sync no longer overwrites other devices, device-specific hardware and storage options stay local, and device-only credentials are no longer migrated to iCloud Keychain
+- **Apple TV library snapshots** — recorded per uploading device and merged by song; libraries sent over the local network are not overwritten by older cloud copies, and station edits made on the TV are preserved
+- **Full-screen effects** — removed Light Rhythm and Live Waveform; the radial spectrum is centred on landscape and wide canvases
+- **CarPlay Up Next** — shows artwork and follows the actual playback order
+- **Siri song requests** — song titles are recognised more reliably, and Siri explains why when nothing is found
 - **Feedback entries** — About now offers separate "Report a Problem" and "Feature Request" links that open a form with the version, device model, and OS already filled in and editable; only the description is required
 
 ### Fixed
@@ -36,6 +95,10 @@ This release redesigns key search and immersive-player interactions, expands App
 - **Memory pressure** — artwork caches are released first when memory is tight, reducing the chance of system termination
 - **Safe mode false alarms** — launches the system starts in the background (scan resume, silent push) are no longer counted as aborted launches and can no longer lock the app into safe mode; a wrongly latched safe mode is cleared after updating
 - **Feiniu playlist and favorite sync** — empty server lists no longer fail with “not valid Feiniu Music JSON”, and unpaged playlist indexes are read correctly
+- **Playback** — fixed radio not playing on Apple TV, playback stopping after one song with crossfade on, and a few songs without a readable duration being re-read endlessly and slowing the interface
+- **Lyric highlighting** — fixed the original line not highlighting in mixed-language lyrics such as Korean with English
+- **Music sources** — fixed connection failures from a protocol option out of sync with the address, Synology password editing and re-authentication, songs remaining after a folder is unchecked, and 123 Cloud tag write-back reporting failure while the server is still merging
+- **Interface** — fixed a crash from Home folders "See All", the old two-column player in landscape on Plus and Pro Max models, and stutter while scanning or editing a music source
 
 ### Performance
 
