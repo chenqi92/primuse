@@ -802,8 +802,6 @@ struct MacNowPlayingView: View {
 
             SpokenWordPartRemainingLabel(color: playerSecondaryColor)
 
-            SpokenWordBookProgressRow(palette: spokenWordPalette)
-
             SpokenWordActionTiles(
                 palette: spokenWordPalette,
                 showsContents: false,

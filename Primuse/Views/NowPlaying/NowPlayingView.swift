@@ -1201,16 +1201,14 @@ struct NowPlayingView: View {
         tint: Color,
         isSelected: Bool = false
     ) -> some View {
+        // 与旁边的隔空播放键同一种写法:只有图标,不垫圆底也不描边。选中态由图标本身
+        // (实心符号、红心)表达。
         Image(systemName: symbol)
-            .font(.system(size: 15, weight: .semibold))
+            .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(tint)
             .contentTransition(.symbolEffect(.replace))
             .frame(width: 38, height: 38)
-            .background(appearance.primary.opacity(isSelected ? 0.10 : 0.065), in: Circle())
-            .overlay {
-                Circle()
-                    .strokeBorder(appearance.primary.opacity(isSelected ? 0.24 : 0.14), lineWidth: 0.75)
-            }
+            .contentShape(Rectangle())
     }
 
 
@@ -3088,7 +3086,7 @@ struct NowPlayingView: View {
                 }
             }
 
-            PlaybackProgressBar(fillTint: themedControlAccent, showsSpokenWordBookRow: false)
+            PlaybackProgressBar(fillTint: themedControlAccent)
                 .matchedLayoutElement(.progress, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
                 .opacity(compactLandscapeControlsHidden ? 0 : 1)
@@ -3131,6 +3129,8 @@ struct NowPlayingView: View {
                 titleFont: .title,
                 partFont: .body,
                 titleLineLimit: 1,
+                // 右栏按固定高度排版,全书进度在目录里看。
+                showsBookProgress: false,
                 onOpenBook: { presentCurrentBook() },
                 onOpenContents: { openQueue() }
             )
@@ -7685,16 +7685,12 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
         if immersiveChrome {
             chromeMenuLabel
         } else {
+            // 只有图标,和隔空播放键一样不垫圆底。
             Image(systemName: "ellipsis")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(appearance.secondary)
-                .frame(width: 38, height: 38)
-                .background(appearance.primary.opacity(0.065), in: Circle())
-                .overlay {
-                    Circle()
-                        .strokeBorder(appearance.primary.opacity(0.14), lineWidth: 0.75)
-                }
                 .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
     }
 
@@ -9786,8 +9782,6 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 /// 选择)在用户操作期间不会被强制关闭。
 fileprivate struct PlaybackProgressBar: View {
     var fillTint: Color? = nil
-    /// 有声内容在时间标签下再排一行全书进度。手机横屏的右栏按固定高度排版,那边关掉。
-    var showsSpokenWordBookRow = true
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -9850,16 +9844,6 @@ fileprivate struct PlaybackProgressBar: View {
                     .font(.caption2).foregroundStyle(appearance.tertiary).monospacedDigit()
                     .pmAnimation(.control, value: animatedSecond)
 
-                    if isSpokenWord, showsSpokenWordBookRow {
-                        SpokenWordBookProgressRow(palette: SpokenWordPlayerPalette(
-                            primary: appearance.primary,
-                            secondary: appearance.secondary,
-                            tertiary: appearance.tertiary,
-                            accent: fillTint ?? appearance.primary,
-                            tileFill: .clear
-                        ))
-                        .padding(.top, 6)
-                    }
                 }
             }
         }

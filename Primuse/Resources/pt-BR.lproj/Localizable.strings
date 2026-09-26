@@ -4561,7 +4561,7 @@
 "spoken_word_bookmarks_count_format" = "Marcadores · %lld";
 "spoken_word_contents_position_format" = "Em %1$@ · faltam %2$@";
 "spoken_word_bookmark_where_format" = "Capítulo %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "Este arquivo é decodificado de um jeito que, na Apple TV, só toca na velocidade normal.";
+"tv_spoken_word_rate_unavailable" = "Ao tocar em outro dispositivo (como AirPlay), só é possível usar a velocidade normal.";
 "stats_spoken_word_time" = "Tempo de audiolivros";
 "directory_tag_menu_title" = "Conteúdo desta pasta";
 "directory_tag_hint" = "Toque na etiqueta ao lado de uma pasta selecionada e escolha Audiolivros para que o conteúdo vá para a estante de audiolivros em vez da sua música.";

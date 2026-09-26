@@ -4561,7 +4561,7 @@
 "spoken_word_bookmarks_count_format" = "बुकमार्क · %lld";
 "spoken_word_contents_position_format" = "%1$@ पर · %2$@ बाकी";
 "spoken_word_bookmark_where_format" = "अध्याय %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "Apple TV पर यह फ़ाइल ऐसे डिकोड होती है कि केवल सामान्य गति पर चलती है।";
+"tv_spoken_word_rate_unavailable" = "किसी दूसरे डिवाइस (जैसे AirPlay) पर चलाते समय केवल सामान्य गति उपलब्ध है।";
 "stats_spoken_word_time" = "ऑडियोबुक समय";
 "directory_tag_menu_title" = "इस फ़ोल्डर में क्या है";
 "directory_tag_hint" = "चुने गए फ़ोल्डर के पास वाले टैग पर टैप करके ऑडियोबुक चुनें, ताकि उसकी सामग्री संगीत की बजाय ऑडियोबुक शेल्फ़ में जाए।";

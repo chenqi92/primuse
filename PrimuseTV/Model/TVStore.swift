@@ -763,8 +763,11 @@ final class TVStore {
     private(set) var sleepStopAfterItemID: String?
     /// 「整本听完后停止」锁住的那本书。
     private(set) var sleepStopAfterBookID: String?
+    /// 「本章结束后停止」锁住的那一条里的那个章节标记。
+    private(set) var sleepStopAfterChapter: (songID: String, chapterIndex: Int)?
     var isSleepTimerActive: Bool {
         sleepTimerMinutes > 0 || sleepStopAfterItemID != nil || sleepStopAfterBookID != nil
+            || sleepStopAfterChapter != nil
     }
 
     // 有声内容的续播:每一条记住自己听到哪一秒(与 iPhone / Mac 共用 SpokenWordStore)。
@@ -4109,6 +4112,8 @@ final class TVStore {
         spokenWordPositionArmed = false
         pendingSpokenWordResume = nil
         lastSpokenWordPositionSave = 0
+        // 有声内容才读章节标记。
+        engine.wantsChapters = isSpokenWord
         // 听书有自己的语速(按书记,与 iPhone / Mac 同步);音乐回到 1×。
         engine.setSpokenWordRate(isSpokenWord
             ? Double(spokenWordRate(forBookID: spokenWordBookID(forSongID: song.id)))
@@ -4179,24 +4184,51 @@ final class TVStore {
             currentItemID: nowPlaying.songID,
             position: currentTime,
             duration: duration > 0 ? duration : nowPlaying.duration,
-            chapterCount: 0,
-            currentChapterIndex: nil
+            chapterCount: spokenWordChapters.count,
+            currentChapterIndex: currentSpokenWordChapterIndex
+        )
+    }
+
+    /// 这一条文件里的章节标记(AVPlayer 从流里读,SFB 路径从下载的文件里读)。
+    var spokenWordChapters: [MediaChapter] {
+        currentItemIsSpokenWord && !isLiveRadio ? engine.chapters : []
+    }
+
+    /// 播放头所在的章节;读播放头。
+    var currentSpokenWordChapterIndex: Int? {
+        spokenWordChapters.chapterIndex(at: currentTime)
+    }
+
+    var currentSpokenWordChapter: MediaChapter? {
+        guard let index = currentSpokenWordChapterIndex, spokenWordChapters.indices.contains(index) else { return nil }
+        return spokenWordChapters[index]
+    }
+
+    /// 本章(有章节标记时到下一个标记,否则到这一条结尾)还剩多少内容时长。
+    var spokenWordPartRemaining: TimeInterval? {
+        SpokenWordNowPlayingPolicy.partRemaining(
+            position: currentTime,
+            duration: duration,
+            chapters: spokenWordChapters,
+            currentChapterIndex: currentSpokenWordChapterIndex
         )
     }
 
     /// 这本书的目录。用存档位置而不是播放头:上千章的列表不该每拍重排。
-    /// 电视上读不到文件里的章节标记(远端流不为几个标题整本拉下来),目录只列文件。
+    /// 正在播的文件带章节标记时,标记列在它下面(单文件的书直接列标记)。
     func spokenWordContentsRows() -> [SpokenWordContentsRow] {
         guard currentItemIsSpokenWord, hasNowPlaying, !isLiveRadio else { return [] }
         let songID = nowPlaying.songID
+        let stored = SpokenWordStore.shared.position(forSongID: songID)?.position ?? 0
+        let chapters = spokenWordChapters
         return SpokenWordContentsPolicy.rows(
             book: currentSpokenWordBook,
             currentItemID: songID,
             currentItemTitle: nowPlaying.title,
-            position: SpokenWordStore.shared.position(forSongID: songID)?.position ?? 0,
+            position: stored,
             duration: duration > 0 ? duration : nowPlaying.duration,
-            chapters: [],
-            currentChapterIndex: nil
+            chapters: chapters,
+            currentChapterIndex: chapters.chapterIndex(at: stored)
         )
     }
 
@@ -4212,10 +4244,11 @@ final class TVStore {
     func addSpokenWordBookmark() -> Bool {
         guard currentItemIsSpokenWord, hasNowPlaying, !isLiveRadio else { return false }
         let position = max(0, currentTime)
+        let time = TVFmt.time(position)
         let added = SpokenWordStore.shared.addBookmark(SpokenWordBookmark(
             songID: nowPlaying.songID,
             position: position,
-            title: TVFmt.time(position)
+            title: currentSpokenWordChapter.map { "\($0.title) · \(time)" } ?? time
         ))
         if added { rememberSpokenWordPosition(force: true) }
         return added
@@ -4270,30 +4303,55 @@ final class TVStore {
         )
     }
 
-    var canGoToNextSpokenWordPart: Bool { adjacentSpokenWordItemIDs.next != nil }
+    var canGoToNextSpokenWordPart: Bool {
+        SpokenWordPartNavigationPolicy.canGoNext(
+            chapters: spokenWordChapters,
+            currentChapterIndex: currentSpokenWordChapterIndex,
+            hasNextItem: adjacentSpokenWordItemIDs.next != nil
+        )
+    }
 
-    /// 上一章:先回到这一条开头,开头几秒内再按才到上一条。
+    private func seekWithinSpokenWordItem(to position: Double) {
+        pendingSpokenWordResume = nil
+        engine.seek(to: position)
+        rememberSpokenWordPosition(force: true)
+    }
+
+    /// 上一章:先回到本章开头,开头几秒内再按才到上一章;章节标记到头再换到上一条。
     func goToPreviousSpokenWordPart() {
         let adjacent = adjacentSpokenWordItemIDs
+        let chapters = spokenWordChapters
         switch SpokenWordPartNavigationPolicy.previous(
             position: currentTime,
-            chapters: [],
-            currentChapterIndex: nil,
+            chapters: chapters,
+            currentChapterIndex: currentSpokenWordChapterIndex,
             hasPreviousItem: adjacent.previous != nil
         ) {
+        case .seekToChapter(let index):
+            seekWithinSpokenWordItem(to: chapters[index].startTime)
         case .previousItem:
             if let id = adjacent.previous { playSpokenWordBookItem(id: id) }
-        case .restartItem, .seekToChapter:
-            pendingSpokenWordResume = nil
-            engine.seek(to: 0)
-            rememberSpokenWordPosition(force: true)
+        case .restartItem:
+            seekWithinSpokenWordItem(to: 0)
         case .nextItem, .none:
             break
         }
     }
 
     func goToNextSpokenWordPart() {
-        if let id = adjacentSpokenWordItemIDs.next { playSpokenWordBookItem(id: id) }
+        let chapters = spokenWordChapters
+        switch SpokenWordPartNavigationPolicy.next(
+            chapters: chapters,
+            currentChapterIndex: currentSpokenWordChapterIndex,
+            hasNextItem: adjacentSpokenWordItemIDs.next != nil
+        ) {
+        case .seekToChapter(let index):
+            seekWithinSpokenWordItem(to: chapters[index].startTime)
+        case .nextItem:
+            if let id = adjacentSpokenWordItemIDs.next { playSpokenWordBookItem(id: id) }
+        case .restartItem, .previousItem, .none:
+            break
+        }
     }
 
     /// 一本书的语速:这本书自己的,否则 1×(电视没有单独的全局听书速度)。
@@ -4306,7 +4364,7 @@ final class TVStore {
 
     var currentSpokenWordRate: Float { spokenWordRate(forBookID: currentSpokenWordBookID) }
 
-    /// 能不能变速:SFB 解码(WMA、DTS 这类)与外部驱动只能 1×。
+    /// 能不能变速:只有外部驱动(AirPlay 接管)时只能 1×。
     var canChangeSpokenWordRate: Bool { engine.supportsPlaybackRate }
 
     func setSpokenWordRateForCurrentBook(_ rate: Float) {
@@ -4689,6 +4747,7 @@ final class TVStore {
         sleepWorkItem = nil
         sleepStopAfterItemID = nil
         sleepStopAfterBookID = nil
+        sleepStopAfterChapter = nil
         sleepTimerMinutes = max(0, minutes)
         guard sleepTimerMinutes > 0 else {
             sleepTimerEndDate = nil
@@ -4715,6 +4774,34 @@ final class TVStore {
         guard currentItemIsSpokenWord, hasNowPlaying else { return }
         setSleepTimer(minutes: 0)
         sleepStopAfterItemID = nowPlaying.songID
+    }
+
+    /// 有声内容:播放头所在的章节标记结束就停。最后一章就是这一条的结尾,交给「本集结束」。
+    func scheduleSleepAtSpokenWordChapterEnd() {
+        guard currentItemIsSpokenWord, hasNowPlaying,
+              let index = currentSpokenWordChapterIndex else { return }
+        guard index < spokenWordChapters.count - 1 else {
+            scheduleSleepAtSpokenWordItemEnd()
+            return
+        }
+        setSleepTimer(minutes: 0)
+        sleepStopAfterChapter = (nowPlaying.songID, index)
+    }
+
+    /// 播放时钟每秒检查一次:锁住的章节播完就暂停;换到别的条目说明用户自己换了,撤锁。
+    private func enforceSpokenWordChapterSleepIfNeeded() {
+        guard let lock = sleepStopAfterChapter else { return }
+        guard hasNowPlaying, nowPlaying.songID == lock.songID else {
+            sleepStopAfterChapter = nil
+            return
+        }
+        guard SpokenWordChapterSleepPolicy.shouldStop(
+            lockedChapterIndex: lock.chapterIndex,
+            currentChapterIndex: currentSpokenWordChapterIndex
+        ) else { return }
+        sleepStopAfterChapter = nil
+        plog("🎧 TV sleep: chapter \(lock.chapterIndex + 1) ended, pausing")
+        pausePlayback()
     }
 
     /// 有声内容:这本书的最后一条播完才停。
@@ -5112,6 +5199,7 @@ final class TVStore {
                 PlayHistoryStore.shared.tick(playedDelta: delta)
                 ScrobbleService.shared.handleProgressTick(playedDelta: delta)
                 self.rememberSpokenWordPosition()
+                self.enforceSpokenWordChapterSleepIfNeeded()
                 ticks += 1
                 if ticks % 5 == 0 { self.persistPlaybackSession() }
             }

@@ -20,9 +20,16 @@ enum TVSpokenWordText {
         return artist.isEmpty ? nil : artist
     }
 
-    /// 正在听的这一条;只会重复书名时不显示。
+    /// 正在听的这一章:单文件的书是章节标记的标题,多文件的书是文件标题(带章节标记时跟在后面)。
+    /// 只会重复书名时不显示。
     static func partTitle(_ store: TVStore) -> String? {
-        let title = store.nowPlaying.title
+        let isOneFileBook = (store.currentSpokenWordBook?.items.count ?? 1) <= 1
+        let chapterTitle = store.currentSpokenWordChapter?.title
+        if isOneFileBook, let chapterTitle, !chapterTitle.isEmpty { return chapterTitle }
+        var title = store.nowPlaying.title
+        if let chapterTitle, !chapterTitle.isEmpty, chapterTitle != title {
+            title += " · " + chapterTitle
+        }
         return title.isEmpty || title == bookTitle(store) ? nil : title
     }
 
@@ -42,10 +49,9 @@ enum TVSpokenWordText {
 
     /// 「本章还剩约 18 分钟」,按这本书的语速折算。
     static func partRemaining(_ store: TVStore) -> String? {
-        let duration = store.duration
-        guard duration > 0 else { return nil }
+        guard let content = store.spokenWordPartRemaining else { return nil }
         let remaining = SpokenWordNowPlayingPolicy.listeningTime(
-            forContent: max(0, duration - store.currentTime),
+            forContent: content,
             rate: store.currentSpokenWordRate
         )
         return String(
@@ -55,6 +61,7 @@ enum TVSpokenWordText {
     }
 
     static func sleepLabel(_ store: TVStore) -> String {
+        if store.sleepStopAfterChapter != nil { return String(localized: "spoken_word_sleep_chapter_short") }
         if store.sleepStopAfterItemID != nil { return String(localized: "spoken_word_sleep_item_short") }
         if store.sleepStopAfterBookID != nil { return String(localized: "spoken_word_sleep_book_short") }
         return String(localized: "spoken_word_sleep_short")
@@ -130,7 +137,7 @@ struct TVSpokenWordBookmarkTicks: View {
 // MARK: - 右栏:目录与书签
 
 /// 播放页右栏:这本书的目录,切到「书签」看整本书的书签。选一条就从那里播。
-/// 电视读不到文件里的章节标记,目录列的是这本书的各个文件。
+/// 目录列这本书的各个文件;正在播的文件带章节标记时列在它下面,单文件的书直接列标记。
 struct TVSpokenWordContentsColumn: View {
     @Environment(TVStore.self) private var store
     var onInteraction: () -> Void = {}
@@ -232,7 +239,7 @@ struct TVSpokenWordContentsColumn: View {
                     .frame(width: 30, height: 30)
             }
             .padding(.horizontal, 22)
-            .frame(minHeight: 84)
+            .frame(minHeight: row.isNested ? 72 : 84)
             .background(
                 focused ? TVColor.surfaceStrong
                     : (row.isCurrent ? TVColor.spokenWordSpace.opacity(0.16) : TVColor.card),
@@ -240,6 +247,8 @@ struct TVSpokenWordContentsColumn: View {
             )
             .contentShape(Rectangle())
         }
+        // 文件自己的章节标记缩进排在它下面。
+        .padding(.leading, row.isNested ? 56 : 0)
         .accessibilityElement(children: .combine)
     }
 
@@ -445,6 +454,15 @@ struct TVSpokenWordSleepPicker: View {
                     isSelected: store.sleepTimerMinutes == minutes
                 ) {
                     store.setSleepTimer(minutes: minutes)
+                    dismiss()
+                }
+            }
+            if !store.spokenWordChapters.isEmpty {
+                TVSpokenWordChoiceRow(
+                    title: String(localized: "sleep_at_chapter_end"),
+                    isSelected: store.sleepStopAfterChapter != nil
+                ) {
+                    store.scheduleSleepAtSpokenWordChapterEnd()
                     dismiss()
                 }
             }

@@ -4561,7 +4561,7 @@
 "spoken_word_bookmarks_count_format" = "العلامات · %lld";
 "spoken_word_contents_position_format" = "عند %1$@ · يتبقى %2$@";
 "spoken_word_bookmark_where_format" = "الفصل %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "يُفك ترميز هذا الملف على Apple TV بطريقة لا تسمح إلا بالسرعة العادية.";
+"tv_spoken_word_rate_unavailable" = "عند التشغيل عبر جهاز آخر (مثل AirPlay) لا تتوفر إلا السرعة العادية.";
 "stats_spoken_word_time" = "وقت الكتب الصوتية";
 "directory_tag_menu_title" = "محتوى هذا المجلد";
 "directory_tag_hint" = "اضغط على الوسم بجوار المجلد المحدد واختر «الكتب الصوتية» لتذهب محتوياته إلى رف الكتب الصوتية بدل الموسيقى.";

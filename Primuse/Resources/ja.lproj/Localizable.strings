@@ -4656,7 +4656,7 @@
 "spoken_word_bookmarks_count_format" = "ブックマーク · %lld";
 "spoken_word_contents_position_format" = "%1$@まで · 残り %2$@";
 "spoken_word_bookmark_where_format" = "第%1$lld章 · %2$@";
-"tv_spoken_word_rate_unavailable" = "このファイルは Apple TV では標準速度でのみ再生できる方法でデコードされます。";
+"tv_spoken_word_rate_unavailable" = "AirPlay などの外部デバイスで再生中は、標準速度でのみ再生できます。";
 "stats_spoken_word_time" = "オーディオブック再生時間";
 "directory_tag_menu_title" = "このフォルダの内容";
 "directory_tag_hint" = "選択したフォルダの横のタグをタップして「オーディオブック」を選ぶと、中身がミュージックではなくオーディオブックの棚に入ります。";

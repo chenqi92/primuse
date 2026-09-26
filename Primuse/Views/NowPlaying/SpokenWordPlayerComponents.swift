@@ -117,15 +117,22 @@ enum SpokenWordPlayerText {
 
 // MARK: - Progress details
 
-/// The two lines under the spoken-word progress bar's times: nothing here
-/// needs a second clock — the parent progress bar already observes the play
-/// head, so this is drawn inside it.
+/// Whole-book progress: a thin bar, the percentage and the time left in the
+/// book. Part of the book's title block, apart from the scrubber and the
+/// volume, which are about the part being heard. Reads stored positions, not
+/// the clock, so it moves every few seconds and its host never redraws per tick.
 struct SpokenWordBookProgressRow: View {
     let palette: SpokenWordPlayerPalette
     @Environment(AudioPlayerService.self) private var player
 
     var body: some View {
-        if let summary = player.spokenWordNowPlayingSummary, summary.partCount != nil || summary.bookRemaining != nil {
+        let store = SpokenWordStore.shared
+        // Registers the row with the store, so the stored positions it reads
+        // redraw it when they change.
+        let _ = store.positions.count
+        let _ = store.finishedAt.count
+        if let summary = player.spokenWordNowPlayingSummary(live: false),
+           summary.partCount != nil || summary.bookRemaining != nil {
             HStack(spacing: 10) {
                 Text(verbatim: SpokenWordPlayerText.bookFraction(summary.bookFraction))
                     .lineLimit(1)
@@ -330,6 +337,8 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
     var partFont: Font = .body
     var alignment: HorizontalAlignment = .leading
     var titleLineLimit = 2
+    /// Whole-book progress under the narrator line.
+    var showsBookProgress = true
     let onOpenBook: () -> Void
     let onOpenContents: () -> Void
     @ViewBuilder var trailing: () -> Trailing
@@ -377,7 +386,7 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
                         .foregroundStyle(palette.secondary)
                 }
                 if alignment != .center { Spacer(minLength: 0) }
-                if let position = SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary) {
+                if let position = SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary(live: false)) {
                     Button(action: onOpenContents) {
                         HStack(spacing: 3) {
                             Text(verbatim: position)
@@ -397,6 +406,11 @@ struct SpokenWordPlayerHeading<Trailing: View>: View {
             }
             .font(.footnote)
             .frame(maxWidth: .infinity, alignment: frameAlignment)
+
+            if showsBookProgress {
+                SpokenWordBookProgressRow(palette: palette)
+                    .padding(.top, 2)
+            }
         }
         .contentTransition(.opacity)
         .pmAnimation(.trackChange, value: player.currentSong?.id)
@@ -410,6 +424,7 @@ extension SpokenWordPlayerHeading where Trailing == EmptyView {
         partFont: Font = .body,
         alignment: HorizontalAlignment = .leading,
         titleLineLimit: Int = 2,
+        showsBookProgress: Bool = true,
         onOpenBook: @escaping () -> Void,
         onOpenContents: @escaping () -> Void
     ) {
@@ -419,6 +434,7 @@ extension SpokenWordPlayerHeading where Trailing == EmptyView {
             partFont: partFont,
             alignment: alignment,
             titleLineLimit: titleLineLimit,
+            showsBookProgress: showsBookProgress,
             onOpenBook: onOpenBook,
             onOpenContents: onOpenContents,
             trailing: { EmptyView() }

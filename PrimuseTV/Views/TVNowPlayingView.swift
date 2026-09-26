@@ -583,6 +583,10 @@ struct TVNowPlayingView: View {
                     }
                     .tvFont(.caption, weight: .medium)
                     .foregroundStyle(TVColor.textMuted)
+                    // 全书进度属于书的信息,放在书名这一块,不和本章进度条挤在一起。
+                    TVSpokenWordBookProgressRow()
+                        .frame(maxWidth: 560)
+                        .padding(.top, 6)
                 }
                 .padding(.bottom, 6)
             }
@@ -607,10 +611,7 @@ struct TVNowPlayingView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 2)
             }
-            TVSpokenWordBookProgressRow()
-                .padding(.horizontal, timeLabelWidth + 16)
-                .padding(.top, 14)
-                .padding(.bottom, 22)
+            Spacer().frame(height: 22)
             spokenWordTransport
         }
     }

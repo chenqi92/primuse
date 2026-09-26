@@ -4655,7 +4655,7 @@
 "spoken_word_bookmarks_count_format" = "Lesezeichen · %lld";
 "spoken_word_contents_position_format" = "Bei %1$@ · noch %2$@";
 "spoken_word_bookmark_where_format" = "Kapitel %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "Diese Datei wird auf dem Apple TV so decodiert, dass sie nur in normaler Geschwindigkeit läuft.";
+"tv_spoken_word_rate_unavailable" = "Bei Wiedergabe über ein anderes Gerät (z. B. AirPlay) ist nur normale Geschwindigkeit möglich.";
 "stats_spoken_word_time" = "Hörbuchzeit";
 "directory_tag_menu_title" = "Inhalt dieses Ordners";
 "directory_tag_hint" = "Tippe auf das Etikett neben einem ausgewählten Ordner und wähle „Hörbücher“, damit sein Inhalt ins Hörbuchregal statt zur Musik kommt.";

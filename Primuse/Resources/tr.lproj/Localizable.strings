@@ -4561,7 +4561,7 @@
 "spoken_word_bookmarks_count_format" = "Yer imleri · %lld";
 "spoken_word_contents_position_format" = "%1$@ · %2$@ kaldı";
 "spoken_word_bookmark_where_format" = "Bölüm %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "Bu dosya Apple TV’de yalnızca normal hızda çalınabilecek şekilde çözülüyor.";
+"tv_spoken_word_rate_unavailable" = "Başka bir cihazda (ör. AirPlay) çalarken yalnızca normal hız kullanılabilir.";
 "stats_spoken_word_time" = "Sesli kitap süresi";
 "directory_tag_menu_title" = "Bu klasördeki içerik";
 "directory_tag_hint" = "Seçili bir klasörün yanındaki etikete dokunup Sesli Kitaplar’ı seçerseniz içindekiler müziğiniz yerine sesli kitap rafına gider.";

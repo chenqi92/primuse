@@ -4561,7 +4561,7 @@
 "spoken_word_bookmarks_count_format" = "Zakładki · %lld";
 "spoken_word_contents_position_format" = "Na %1$@ · zostało %2$@";
 "spoken_word_bookmark_where_format" = "Rozdział %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "Na Apple TV ten plik jest dekodowany w sposób pozwalający tylko na normalną prędkość.";
+"tv_spoken_word_rate_unavailable" = "Podczas odtwarzania na innym urządzeniu (np. przez AirPlay) dostępna jest tylko normalna prędkość.";
 "stats_spoken_word_time" = "Czas audiobooków";
 "directory_tag_menu_title" = "Zawartość tego folderu";
 "directory_tag_hint" = "Stuknij etykietę obok wybranego folderu i wybierz Audiobooki, aby jego zawartość trafiła na półkę z audiobookami zamiast do muzyki.";

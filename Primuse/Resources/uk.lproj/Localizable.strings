@@ -4561,7 +4561,7 @@
 "spoken_word_bookmarks_count_format" = "Закладки · %lld";
 "spoken_word_contents_position_format" = "На %1$@ · залишилося %2$@";
 "spoken_word_bookmark_where_format" = "Розділ %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "На Apple TV цей файл декодується так, що відтворюється лише зі звичайною швидкістю.";
+"tv_spoken_word_rate_unavailable" = "Під час відтворення через інший пристрій (наприклад, AirPlay) доступна лише звичайна швидкість.";
 "stats_spoken_word_time" = "Час аудіокниг";
 "directory_tag_menu_title" = "Вміст цієї теки";
 "directory_tag_hint" = "Торкніться мітки біля вибраної теки й виберіть «Аудіокниги», щоб її вміст потрапив на полицю аудіокниг, а не до музики.";

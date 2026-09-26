@@ -4561,7 +4561,7 @@
 "spoken_word_bookmarks_count_format" = "Закладки · %lld";
 "spoken_word_contents_position_format" = "На %1$@ · осталось %2$@";
 "spoken_word_bookmark_where_format" = "Глава %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "На Apple TV этот файл декодируется так, что воспроизводится только с обычной скоростью.";
+"tv_spoken_word_rate_unavailable" = "При воспроизведении через другое устройство (например, AirPlay) доступна только обычная скорость.";
 "stats_spoken_word_time" = "Время аудиокниг";
 "directory_tag_menu_title" = "Содержимое папки";
 "directory_tag_hint" = "Нажмите на метку рядом с выбранной папкой и выберите «Аудиокниги», чтобы её содержимое попало на полку аудиокниг, а не в музыку.";

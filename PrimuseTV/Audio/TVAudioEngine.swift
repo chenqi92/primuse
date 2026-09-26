@@ -191,10 +191,12 @@ final class TVAudioEngine {
     var supportsKaraokePractice: Bool {
         !isExternallyDriven && !isLiveStream && !usingSFB && !usingLivePCM
     }
-    /// 能不能变速:只有 AVPlayer 这条路径能;SFB / 直播 PCM 与外部驱动都按 1× 播。
-    var supportsPlaybackRate: Bool { supportsKaraokePractice }
+    /// 能不能变速:AVPlayer 用自带的变速,SFB / FFmpeg 解码的文件经 `TVSFBEngine` 里的变速单元;
+    /// 直播与外部驱动(AirPlay 接管)按 1× 播。
+    var supportsPlaybackRate: Bool { !isExternallyDriven && !isLiveStream && !usingLivePCM }
     private var effectivePlaybackRate: Double {
-        guard supportsKaraokePractice else { return 1 }
+        guard supportsPlaybackRate else { return 1 }
+        if usingSFB { return spokenWordRate }
         // 卡拉OK练习与听书不会同时发生;练习速度在用时优先。
         return karaokePracticeRate != 1 ? karaokePracticeRate : spokenWordRate
     }
@@ -204,10 +206,80 @@ final class TVAudioEngine {
         guard clamped != spokenWordRate else { return }
         currentTime = interpolatedTime()
         spokenWordRate = clamped
+        // SFB 那边的变速单元每换一个文件都要重建,速度记在它自己那里,换文件后照样生效。
+        sfb.setPlaybackRate(Float(clamped))
         player.defaultRate = Float(effectivePlaybackRate)
         player.currentItem?.audioTimePitchAlgorithm = .timeDomain
         if isPlaying, supportsKaraokePractice { player.rate = Float(effectivePlaybackRate) }
         updateNowPlayingInfo()
+    }
+
+    // MARK: 章节标记(有声内容)
+
+    /// 当前这一条文件里的章节标记;没有或不需要时为空。
+    private(set) var chapters: [MediaChapter] = []
+    /// 下一次载入要不要读章节标记。TVStore 在起播有声内容前置上,音乐不读。
+    @ObservationIgnored var wantsChapters = false
+    @ObservationIgnored private var chapterTask: Task<Void, Never>?
+
+    /// AVPlayer 路径:从资产里读章节元数据。经 resource loader 按需取 moov 所在的那几段,
+    /// 不会为此把整本书下载下来(与 iPhone 读本机文件得到的是同一份章节)。
+    private func loadChapters(from asset: AVAsset, expectedItemID: ObjectIdentifier) {
+        chapterTask?.cancel()
+        chapters = []
+        guard wantsChapters, !isVideoMode, playbackSegment.physicalStart == 0 else { return }
+        // AVAsset 的 async load 接口本身是线程安全的,只是类型没标 Sendable。
+        nonisolated(unsafe) let chapterAsset = asset
+        chapterTask = Task { [weak self] in
+            let found = await Self.readChapters(from: chapterAsset)
+            guard !Task.isCancelled, let self, self.activeItemID == expectedItemID else { return }
+            self.applyChapters(found)
+        }
+    }
+
+    /// 在主线程之外读章节,只把 `MediaChapter` 交回来。
+    nonisolated private static func readChapters(from asset: AVAsset) async -> [MediaChapter] {
+        let groups = (try? await asset.loadChapterMetadataGroups(
+            bestMatchingPreferredLanguages: Locale.preferredLanguages
+        )) ?? []
+        var result: [MediaChapter] = []
+        for (index, group) in groups.enumerated() {
+            let start = group.timeRange.start.seconds
+            guard start.isFinite, start >= 0 else { continue }
+            var title = ""
+            if let item = AVMetadataItem.metadataItems(
+                from: group.items,
+                filteredByIdentifier: .commonIdentifierTitle
+            ).first {
+                title = (try? await item.load(.stringValue)) ?? ""
+            }
+            result.append(MediaChapter(startTime: start, title: title.isEmpty ? String(index + 1) : title))
+        }
+        return result
+    }
+
+    /// SFB / FFmpeg 路径:文件已经下到本地,直接解析 ISO base media 的章节。
+    private func loadChapters(fromLocalFile url: URL) {
+        chapterTask?.cancel()
+        chapters = []
+        guard wantsChapters,
+              ["m4a", "m4b", "mp4", "m4v", "mov", "alac"].contains(url.pathExtension.lowercased()) else { return }
+        chapterTask = Task { [weak self] in
+            let parsed = await Task.detached(priority: .utility) { () -> [MediaChapter] in
+                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return [] }
+                return ISOBaseMediaChapterParser.chapters(in: data)
+            }.value
+            guard !Task.isCancelled, let self, self.decodedTemporaryFileURL == url else { return }
+            self.applyChapters(parsed)
+        }
+    }
+
+    private func applyChapters(_ found: [MediaChapter]) {
+        let sorted = found.sorted { $0.startTime < $1.startTime }
+        chapters = sorted.count > 1 ? sorted : []
+        if !chapters.isEmpty {
+            plog("📺 TV chapters: \(chapters.count) marks")
+        }
     }
 
     func setKaraokePracticeRate(_ rate: Double) {
@@ -830,6 +902,7 @@ final class TVAudioEngine {
             }
         }
         player.replaceCurrentItem(with: item)
+        loadChapters(from: item.asset, expectedItemID: observedItemID)
         playerTimeControlObs?.invalidate()
         playerTimeControlObs = player.observe(\.timeControlStatus, options: [.new]) {
             [weak self] player, _ in
@@ -908,6 +981,7 @@ final class TVAudioEngine {
         startSFBPolling()
         do {
             activeSFBGeneration = try sfb.play(url: fileURL, decoder: decoder)
+            loadChapters(fromLocalFile: fileURL)
             if spectrumAnalysisEnabled { installSFBSpectrumTap() }
             isPlaying = true
             status = .playing

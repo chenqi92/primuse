@@ -240,11 +240,22 @@ extension AudioPlayerService {
 
     /// Where the listener is in the book, at the live play head.
     var spokenWordNowPlayingSummary: SpokenWordNowPlayingSummary? {
+        spokenWordNowPlayingSummary(live: true)
+    }
+
+    /// `live: false` places the playing item at its stored position (written
+    /// every few seconds), so a view showing whole-book progress does not
+    /// redraw on every clock tick — the title block holds the More menu,
+    /// which closes when its host redraws.
+    func spokenWordNowPlayingSummary(live: Bool) -> SpokenWordNowPlayingSummary? {
         guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio else { return nil }
+        let position = live
+            ? currentTime
+            : (SpokenWordStore.shared.position(forSongID: song.id)?.position ?? 0)
         return SpokenWordNowPlayingPolicy.summary(
             book: currentSpokenWordBook,
             currentItemID: song.id,
-            position: currentTime,
+            position: position,
             duration: duration > 0 ? duration : song.duration,
             chapterCount: spokenWordChapters.count,
             currentChapterIndex: currentChapterIndex

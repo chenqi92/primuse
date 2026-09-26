@@ -155,7 +155,7 @@ struct MacBottomBar: View {
     /// 有声内容的标题是书名, 后面跟「第 n / m 章」。
     private var chapterLabel: String? {
         guard isSpokenWord else { return nil }
-        return SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary)
+        return SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary(live: false))
     }
 
     private var metaLine: String {

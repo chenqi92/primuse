@@ -4418,7 +4418,7 @@
 "spoken_word_bookmarks_count_format" = "Bookmarks · %lld";
 "spoken_word_contents_position_format" = "At %1$@ · %2$@ left";
 "spoken_word_bookmark_where_format" = "Chapter %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "This file is decoded in a way that only plays at normal speed on Apple TV.";
+"tv_spoken_word_rate_unavailable" = "While playing through another device (such as AirPlay), speed can only be normal.";
 "stats_spoken_word_time" = "Audiobook Time";
 "directory_tag_menu_title" = "What’s in This Folder";
 "directory_tag_hint" = "Tap the tag next to a selected folder and choose Spoken Word to put everything in it on the books shelf instead of in your music.";

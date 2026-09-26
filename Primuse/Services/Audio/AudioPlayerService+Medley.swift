@@ -65,6 +65,8 @@ extension AudioPlayerService {
     /// - Returns: false when none of the songs can be sliced.
     @discardableResult
     func playMedley(_ songs: [Song]) async -> Bool {
+        // 从有声书切到串烧:先记下书听到哪里,原因同 `play(station:)`。
+        rememberSpokenWordPosition(force: true)
         let slices = medleySlices(for: songs)
         guard !slices.isEmpty else { return false }
         installMedley(slices)
