@@ -177,7 +177,8 @@ struct DirectoryBreadcrumb: View {
                 .padding(.vertical, 6)
                 #endif
             }
-            .pmStopsAtVerticalBar()
+            // 路径条固定在目录列表上方:iPhone Duo 竖栏时停在竖栏前。
+            .pmPinnedRowStopsAtVerticalBar()
             .onChange(of: segments.count) { _, _ in
                 pmWithAnimation(.list) { proxy.scrollTo(segments.count - 1, anchor: .trailing) }
             }
@@ -330,7 +331,8 @@ struct BrowserBottomBar: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
                 }
-                .pmStopsAtVerticalBar()
+                // 底栏固定不动:已选目录的胶囊停在竖栏前。
+                .pmPinnedRowStopsAtVerticalBar()
                 .pmAnimation(.list, value: chips)
             }
             #endif

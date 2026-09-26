@@ -5,8 +5,14 @@ import Foundation
 /// 顺序、显隐与每块的视图方案都按这个枚举存盘,所以它必须留在 Kit 里:
 /// 存的是 rawValue,一旦某个 case 消失,用户攒下来的整份配置就解不出来了。
 public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendable {
+    /// 「接着听」:音乐、电台、有声各一张接续卡。
+    case continueSpaces
     case continueListening
     case radio
+    /// 「在听的书」:听到一半的书。
+    case booksInProgress
+    /// 「有声书」:书架里挑出来放到首页的书。
+    case audiobooks
     case quickAccess
     case forYou
     case playlists
@@ -18,15 +24,24 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
 
     public var id: String { rawValue }
 
-    /// 电台不再是首页的一个分区 —— 它有了自己的模式(右上角切换),音乐态里
-    /// 再放一块电台就是重复内容。case 本身保留,否则老用户存下来的排序 JSON
-    /// 解不出来会被整个丢弃、自定义顺序全丢。
-    public var isUserConfigurable: Bool { self != .radio }
+    /// 首页的每一块都能在界面编辑里显隐、排序。
+    public var isUserConfigurable: Bool { true }
+
+    /// 横跨音乐、电台、有声三类的区块:只在「全部」里出现,筛到某一类时不画。
+    public var isCrossSpace: Bool {
+        switch self {
+        case .continueSpaces, .radio, .booksInProgress, .audiobooks: true
+        default: false
+        }
+    }
 
     public var icon: String {
         switch self {
+        case .continueSpaces: "arrow.uturn.forward.circle"
         case .continueListening: "play.circle"
         case .radio: "radio.fill"
+        case .booksInProgress: "book"
+        case .audiobooks: "books.vertical"
         case .quickAccess: "pin"
         case .forYou: "sparkles"
         case .playlists: "music.note.list"
@@ -84,7 +99,7 @@ public enum HomeSectionLayoutPolicy {
         case .quickAccess: [.grid, .carousel]
         case .folders: [.list, .grid, .carousel]
         case .listeningRanking: [.list, .carousel]
-        case .radio, .stats: []
+        case .continueSpaces, .radio, .booksInProgress, .audiobooks, .stats: []
         }
     }
 
@@ -140,7 +155,10 @@ public enum HomeSectionLayoutPolicy {
         case .forYou: 3...12
         // 列表:展开后最多列到第几名,调到 5 及以下就是不提供展开。横排:货架铺到第几名。
         case .listeningRanking: 0...20
-        case .quickAccess, .folders, .stats, .radio: nil
+        case .radio: 4...30
+        case .booksInProgress: 2...20
+        case .audiobooks: 3...30
+        case .quickAccess, .folders, .stats, .continueSpaces: nil
         }
     }
 
@@ -157,7 +175,10 @@ public enum HomeSectionLayoutPolicy {
         case .recentlyAdded: 6
         case .forYou: 5
         case .listeningRanking: 20
-        case .quickAccess, .folders, .stats, .radio: 0
+        case .radio: 12
+        case .booksInProgress: 12
+        case .audiobooks: 10
+        case .quickAccess, .folders, .stats, .continueSpaces: 0
         }
     }
 

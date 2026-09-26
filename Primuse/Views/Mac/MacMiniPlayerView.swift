@@ -223,16 +223,22 @@ struct MacMiniPlayerView: View {
 
     /// 标题/艺术家 — 居中显示, 紧贴 cover 下方。
     private var metaArea: some View {
-        VStack(spacing: 2) {
-            Text(player.currentRadioStation?.name ?? player.currentSong?.title ?? "—")
+        // 有声内容:书名在上,正在听的这一章在下。
+        let isSpokenWord = player.currentItemIsSpokenWord && !player.isLiveRadio
+        return VStack(spacing: 2) {
+            Text(isSpokenWord
+                ? SpokenWordPlayerText.bookTitle(player)
+                : (player.currentRadioStation?.name ?? player.currentSong?.title ?? "—"))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(PMColor.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Text(
-                player.radioMetadataTitle
-                    ?? player.currentSong.flatMap { library.artistDisplayName(for: $0) }
-                    ?? ""
+                isSpokenWord
+                    ? (SpokenWordPlayerText.partTitle(player) ?? SpokenWordPlayerText.author(player) ?? "")
+                    : (player.radioMetadataTitle
+                        ?? player.currentSong.flatMap { library.artistDisplayName(for: $0) }
+                        ?? "")
             )
                 .font(.system(size: 11))
                 .foregroundStyle(PMColor.textMuted)

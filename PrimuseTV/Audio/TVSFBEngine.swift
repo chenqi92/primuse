@@ -15,6 +15,37 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
     private var delegateProxy: DelegateProxy?
     private var nextGeneration: Generation = 0
     private var mixVolume: Float = 1
+    /// 听书语速。每个 `AudioPlayer` 在源节点与主混音之间挂一个变速单元;1× 时旁路,
+    /// 音乐(APE、DSD 等也走这条路)不经过任何处理。
+    private var playbackRate: Float = 1
+    private var timePitch: AVAudioUnitTimePitch?
+
+    func setPlaybackRate(_ rate: Float) {
+        let clamped = rate.isFinite ? min(2, max(0.5, rate)) : 1
+        playbackRate = clamped
+        guard let timePitch else { return }
+        player.modifyProcessingGraph { _ in
+            timePitch.rate = clamped
+            timePitch.bypass = abs(clamped - 1) < 0.001
+        }
+    }
+
+    /// 把变速单元插进 `sourceNode → mainMixerNode` 这一段(SFBAudioEngine 允许改动的唯一一段)。
+    /// 之后源格式变化时,SFBAudioEngine 会经代理的 `reconfigureProcessingGraph` 回来问该接到哪个节点。
+    private func insertTimePitch(into player: AudioPlayer) -> AVAudioUnitTimePitch {
+        let unit = AVAudioUnitTimePitch()
+        unit.rate = playbackRate
+        unit.bypass = abs(playbackRate - 1) < 0.001
+        let source = player.sourceNode
+        player.modifyProcessingGraph { engine in
+            let format = source.outputFormat(forBus: 0)
+            engine.attach(unit)
+            engine.disconnectNodeOutput(source)
+            engine.connect(source, to: unit, format: format)
+            engine.connect(unit, to: engine.mainMixerNode, format: format)
+        }
+        return unit
+    }
 
     func setMixVolume(_ volume: Float) {
         mixVolume = min(1, max(0, volume))
@@ -36,9 +67,11 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
         nextGeneration &+= 1
         let generation = nextGeneration
         let player = AudioPlayer()
-        let proxy = DelegateProxy(owner: self, generation: generation)
+        let unit = insertTimePitch(into: player)
+        let proxy = DelegateProxy(owner: self, generation: generation, timePitch: unit)
         player.delegate = proxy
         self.player = player
+        timePitch = unit
         delegateProxy = proxy
         let gain = mixVolume
         player.modifyProcessingGraph { $0.mainMixerNode.outputVolume = gain }
@@ -105,10 +138,24 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
     private final class DelegateProxy: NSObject, AudioPlayer.Delegate, @unchecked Sendable {
         weak var owner: TVSFBEngine?
         let generation: Generation
+        let timePitch: AVAudioUnitTimePitch
 
-        init(owner: TVSFBEngine, generation: Generation) {
+        init(owner: TVSFBEngine, generation: Generation, timePitch: AVAudioUnitTimePitch) {
             self.owner = owner
             self.generation = generation
+            self.timePitch = timePitch
+        }
+
+        /// 源格式变了(换了解码器、采样率或声道数):变速单元照旧接在源节点后面,
+        /// 按新格式重接到主混音。
+        func audioPlayer(
+            _ audioPlayer: AudioPlayer,
+            reconfigureProcessingGraph engine: AVAudioEngine,
+            with format: AVAudioFormat
+        ) -> AVAudioNode {
+            engine.disconnectNodeOutput(timePitch)
+            engine.connect(timePitch, to: engine.mainMixerNode, format: format)
+            return timePitch
         }
 
         func audioPlayerEndOfAudio(_ audioPlayer: AudioPlayer) {

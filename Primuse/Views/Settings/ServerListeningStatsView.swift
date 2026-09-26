@@ -68,6 +68,8 @@ struct ServerListeningStatsView: View {
             if let sourceSelection {
                 Section {
                     sourceSelection
+                        // 铺到 iPhone Duo 竖栏底下时，静止时就在最上面的来源选择照旧让开竖栏。
+                        .pmClearOfVerticalBar()
                 }
             }
             serverStatusSection
@@ -107,6 +109,8 @@ struct ServerListeningStatsView: View {
                 refreshButton
             }
         }
+        // iPhone Duo 竖栏：分组卡片铺到屏幕右缘，系统的玻璃胶囊浮在上面。
+        .pmExtendsUnderVerticalBar()
         .navigationTitle("stats_title")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

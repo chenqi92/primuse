@@ -135,6 +135,7 @@ struct ListeningStatsView: View {
             Section {
                 if showsInlineSourcePicker {
                     inlineSourcePicker
+                        .pmClearOfVerticalBar()
                 }
                 Picker("stats_range", selection: $range) {
                     ForEach(PlayHistoryStore.Range.allCases) { r in
@@ -143,6 +144,8 @@ struct ListeningStatsView: View {
                 }
                 .settingsAnchor("stats.range")
                 .pickerStyle(.segmented)
+                // 铺到 iPhone Duo 竖栏底下时，静止时就在竖排状态栏旁边的这一行选择照旧让开竖栏。
+                .pmClearOfVerticalBar()
             }
 
             if store.entries.isEmpty {
@@ -155,6 +158,8 @@ struct ListeningStatsView: View {
                 clearSection
             }
         }
+        // iPhone Duo 竖栏：分组卡片铺到屏幕右缘，系统的玻璃胶囊浮在上面。
+        .pmExtendsUnderVerticalBar()
         .navigationTitle("stats_title")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

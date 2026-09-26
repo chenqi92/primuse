@@ -82,11 +82,6 @@ extension RadioStationRecencyPolicy {
     static func recentStations(_ stations: [RadioStation], limit: Int = recentLimit) -> [RadioStation] {
         recent(stations, limit: limit, lastPlayedAt: \.lastPlayedAt)
     }
-
-    /// 首页电台条：最近听过的在前，再按优先级补满。
-    static func stripStations(_ stations: [RadioStation], limit: Int = stripLimit) -> [RadioStation] {
-        strip(stations, limit: limit, lastPlayedAt: \.lastPlayedAt)
-    }
 }
 
 // MARK: - 方形台标格
@@ -205,7 +200,8 @@ struct RadioStationTileRow: View {
 
 // MARK: - 首页电台条
 
-/// 首页的电台条：最近听过的台在前，再按优先级补满，最多 12 个。
+/// 首页的电台条：放哪些台、什么顺序由「首页电台」挑选决定（`HomeSpotlightSelection`）；
+/// 没挑过时最近听过的台在前，再按优先级补满，默认最多 12 个。
 ///
 /// 自带起播（含明文 HTTP 确认）和电台详情页，调用方只需要放进去：
 /// `RadioStationStrip()`。环境里要有 `RadioStationsStore`、`AudioPlayerService`
@@ -214,12 +210,14 @@ struct RadioStationTileRow: View {
 /// 不带标题和「全部」入口，那是首页分区标题的事。
 struct RadioStationStrip: View {
     var horizontalInset: CGFloat = 16
+    var limit: Int = RadioStationRecencyPolicy.stripLimit
 
     @Environment(RadioStationsStore.self) private var store
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.pmHeightClass) private var heightClass
     @State private var pendingInsecureStation: RadioStation?
     @State private var detailStation: RadioStation?
+    @AppStorage(HomeSpotlightSelection.radioStorageKey) private var selectionRawValue = ""
 
     private var tileWidth: CGFloat {
         #if os(macOS)
@@ -230,7 +228,13 @@ struct RadioStationStrip: View {
     }
 
     var body: some View {
-        let stations = RadioStationRecencyPolicy.stripStations(store.stations)
+        let stations = HomeSpotlightSelection.decode(selectionRawValue).resolve(
+            store.stations,
+            limit: limit,
+            id: \.id,
+            name: \.name,
+            lastListenedAt: \.lastPlayedAt
+        )
         if !stations.isEmpty {
             RadioStationTileRow(
                 stations: stations,

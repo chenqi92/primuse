@@ -47,7 +47,13 @@ struct NowPlayingBarModel {
     /// 正在播的歌的 id,用来给换歌做过渡。
     var songID: String? { player.currentSong?.id }
 
-    var title: String { player.currentSong?.title ?? "" }
+    /// 第一行:歌名;有声书是书名。
+    var title: String {
+        isSpokenWordBook ? SpokenWordPlayerText.bookTitle(player) : (player.currentSong?.title ?? "")
+    }
+
+    /// 正在播的那一首。有声书的书封按它取图。
+    var currentSong: Song? { player.currentSong }
 
     /// 第二行:出错时是原因,否则是艺术家。
     var subtitle: NowPlayingBarSubtitle? {
@@ -77,9 +83,18 @@ struct NowPlayingBarModel {
     var canSwitchRadioStation: Bool { player.canSwitchRadioStation }
     /// 正在听的是音乐、电台还是有声,播放条用它的颜色标出来。
     var listeningSpace: ListeningSpace? { player.currentListeningSpace }
-    /// 有声内容:下一首换成「前进 30 秒」。
-    var isSpokenWord: Bool { player.currentItemIsSpokenWord }
-    var spokenWordSkipForwardSymbol: String { player.spokenWordSkipForwardSymbol }
+    /// 在听有声书(直播电台不算):封面换成竖的书封,标题是书名,第二行是章节进度;
+    /// 播放键前放「后退」,不给下一条目 —— 下一条是另一集甚至另一本,播放条上误触代价太大。
+    var isSpokenWordBook: Bool { player.currentItemIsSpokenWord && !player.isLiveRadio }
+    var spokenWordSkipBackwardSymbol: String { player.spokenWordSkipBackwardSymbol }
+
+    /// 有声书第二行:「第 12 章 · 本章还剩约 18 分钟」。随播放时钟变,只在画这一行的小视图里读。
+    var spokenWordPartLine: String {
+        [
+            SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary),
+            SpokenWordPlayerText.partRemaining(player),
+        ].compactMap { $0 }.joined(separator: " · ")
+    }
 
     /// 可用的总时长(未知时 0)。
     var duration: Double { NowPlayingBarPresentationPolicy.duration(player.duration) }
@@ -94,10 +109,15 @@ struct NowPlayingBarModel {
     }
 
     /// 整条的朗读标签。第二行只在画出来时才念。
+    /// 有声书在书名后面再念正在听的章节。
     func accessibilityLabel(includesSubtitle: Bool) -> String {
-        NowPlayingBarPresentationPolicy.accessibilityLabel(
+        var spokenTitle = title
+        if isSpokenWordBook, let part = SpokenWordPlayerText.partTitle(player) {
+            spokenTitle = [title, part].filter { !$0.isEmpty }.joined(separator: ": ")
+        }
+        return NowPlayingBarPresentationPolicy.accessibilityLabel(
             nowPlaying: String(localized: "now_playing"),
-            title: title,
+            title: spokenTitle,
             subtitle: includesSubtitle ? subtitle : nil
         )
     }
@@ -118,8 +138,8 @@ struct NowPlayingBarModel {
         await player.previous()
     }
 
-    func skipSpokenWordForward() {
-        player.skipSpokenWordForward()
+    func skipSpokenWordBackward() {
+        player.skipSpokenWordBackward()
     }
 }
 #endif

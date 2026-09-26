@@ -38,7 +38,8 @@ struct FloatingCapsulePlayerBar: View {
 
             FloatingCapsulePlayButton(model: model)
 
-            if showsSecondaryControls {
+            // 有声书不给下一条目(另一集甚至另一本),和其它播放条一个口径。
+            if showsSecondaryControls, !model.isSpokenWordBook {
                 if !model.isLiveRadio || model.canSwitchRadioStation {
                     nextButton
                 }

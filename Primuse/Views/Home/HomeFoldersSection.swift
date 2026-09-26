@@ -575,6 +575,8 @@ struct HomeFolderBrowser: View {
                         }
                         #endif
                     }
+                    // 列表铺到 iPhone Duo 竖栏底下时，行尾的「编辑」照旧让开竖栏。
+                    .pmClearOfVerticalBar()
                 }
             }
 
@@ -606,6 +608,8 @@ struct HomeFolderBrowser: View {
                 }
             }
         }
+        // iPhone Duo 竖栏：文件夹与歌曲行铺到屏幕右缘，系统的玻璃胶囊浮在上面。
+        .pmExtendsUnderVerticalBar()
         .safeAreaInset(edge: .bottom, spacing: legacyBottomClearance == 0 ? 0 : nil) {
             Color.clear.frame(height: legacyBottomClearance)
         }

@@ -50,6 +50,27 @@ struct TopTabsRailLayoutPolicyTests {
             == Policy.minimumTopClearance)
     }
 
+    @Test("横握另一个方向(摄像头在右下角):底部按钮组贴着遮挡区上沿往上排,顶端不让")
+    func bottomOcclusionClearance() {
+        // 竖栏高 432(外屏横握 466 减去底部安全区 34);遮挡区在屏幕下沿 384…466,摄像头 405…442。
+        let occlusions = [(minY: 384.0, maxY: 466.0), (minY: 405.0, maxY: 442.0)]
+        #expect(Policy.bottomClearance(occlusions: occlusions, railHeight: 432) == 56)
+        #expect(Policy.topClearance(occlusions: occlusions, railHeight: 432) == Policy.minimumTopClearance)
+    }
+
+    @Test("底部没有遮挡时按钮组照旧贴底;顶上的遮挡不抬底部")
+    func bottomClearanceFallbacks() {
+        #expect(Policy.bottomClearance(occlusions: [], railHeight: 644) == Policy.minimumBottomClearance)
+        #expect(Policy.bottomClearance(occlusions: [(minY: 0, maxY: 170)], railHeight: 644)
+            == Policy.minimumBottomClearance)
+        #expect(Policy.bottomClearance(occlusions: [(minY: 700, maxY: 760)], railHeight: 644)
+            == Policy.minimumBottomClearance)
+        #expect(Policy.bottomClearance(occlusions: [(minY: .nan, maxY: 600)], railHeight: 644)
+            == Policy.minimumBottomClearance)
+        #expect(Policy.bottomClearance(occlusions: [(minY: 600, maxY: 700)], railHeight: .nan)
+            == Policy.minimumBottomClearance)
+    }
+
     @Test("根页顶部留白:竖握 16、横握 12")
     func contentTopInset() {
         #expect(Policy.contentTopInset(isCompactHeight: false) == 16)

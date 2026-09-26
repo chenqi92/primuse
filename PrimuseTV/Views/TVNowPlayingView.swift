@@ -39,6 +39,9 @@ struct TVNowPlayingView: View {
     @State private var artworkDirectionalCommands = TVImmersiveDirectionalCommandState()
     @State private var showQueue = false
     @State private var showOptions = false
+    @State private var showSpokenWordRate = false
+    @State private var showSpokenWordSleep = false
+    @State private var spokenWordBookmarkFeedback = 0
     @State private var showImmersive = tvDebugImmersiveLaunch.show
     @State private var immersiveStartsWithEffectPicker = tvDebugImmersiveLaunch.picker
     @AppStorage(FullscreenPlayerEffect.storageKey)
@@ -53,7 +56,7 @@ struct TVNowPlayingView: View {
     private let immersiveIdleThreshold: TimeInterval = 20
 
     private var activePresentationCount: Int {
-        [showQueue, showOptions, showImmersive].filter { $0 }.count
+        [showQueue, showOptions, showImmersive, showSpokenWordRate, showSpokenWordSleep].filter { $0 }.count
     }
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
@@ -107,6 +110,8 @@ struct TVNowPlayingView: View {
         }
         .fullScreenCover(isPresented: $showQueue) { TVQueueView().environment(store) }
         .fullScreenCover(isPresented: $showOptions) { TVOptionsView().environment(store) }
+        .fullScreenCover(isPresented: $showSpokenWordRate) { TVSpokenWordRatePicker().environment(store) }
+        .fullScreenCover(isPresented: $showSpokenWordSleep) { TVSpokenWordSleepPicker().environment(store) }
         .fullScreenCover(isPresented: $showImmersive) {
             TVImmersivePlayerView(
                 presentsModePickerOnAppear: immersiveStartsWithEffectPicker
@@ -141,8 +146,10 @@ struct TVNowPlayingView: View {
             // 仅普通歌曲播放态跑空闲检测:直播 / MV 有自己的画面,不进入沉浸展示。
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
+                // 听书不进沉浸展示:那是给音乐的画面,书的播放页本身就是要看的。
                 guard store.hasNowPlaying, store.isPlaying,
                       !store.isLiveRadio, !store.isMusicVideoPlaybackActive,
+                      !store.currentItemIsSpokenWord,
                       fullscreenPlayerEffect != .native,
                       !showImmersive, !showQueue, !showOptions, !scrubberFocused else { continue }
                 if Date().timeIntervalSince(lastInteraction) >= immersiveIdleThreshold {
@@ -179,9 +186,18 @@ struct TVNowPlayingView: View {
                     .ignoresSafeArea()
 
                 HStack(alignment: .top, spacing: 80) {
-                    leftColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .focusSection()
-                    lyricsColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if store.currentItemIsSpokenWord {
+                        // 有声内容:左边是书与听书的控件,右边是这本书的目录与书签。
+                        spokenWordLeftColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .focusSection()
+                        TVSpokenWordContentsColumn(onInteraction: registerInteraction)
+                            .frame(width: 720)
+                            .frame(maxHeight: .infinity)
+                    } else {
+                        leftColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .focusSection()
+                        lyricsColumn.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
                 .focusScope(playerFocus)
                 .padding(.horizontal, 100)
@@ -508,6 +524,188 @@ struct TVNowPlayingView: View {
             scrubber(immersiveDark: false).padding(.bottom, 18)
             transport(immersiveDark: false)
         }
+    }
+
+    // MARK: 左列 — 有声内容
+
+    /// 书封(竖版)、书名、正在听的一条、演播者与「第几章」,进度(带书签刻度)、
+    /// 本章还剩多久与全书进度,再下面是听书的传输键和语速 / 定时 / 书签。
+    private var spokenWordLeftColumn: some View {
+        let np = store.nowPlaying
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .bottom, spacing: 44) {
+                Button {
+                    registerInteraction()
+                    store.togglePlayPause()
+                } label: {
+                    Group {
+                        if let book = store.currentSpokenWordBook {
+                            TVSpokenWordCover(book: book, size: 300, radius: 16)
+                        } else {
+                            TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                                          songID: np.songID, coverRef: np.coverRef,
+                                          tint: np.tint, tint2: np.tint2, glyph: np.glyph,
+                                          placeholderKind: .book,
+                                          size: 300,
+                                          height: SpokenWordCoverLayout.height(forWidth: 300),
+                                          radius: 16)
+                                .bookCoverLayout()
+                        }
+                    }
+                    .shadow(color: .black.opacity(0.5), radius: 30, y: 16)
+                    .tvFocusRing(focusedTransport == .songPrimary, radius: 16,
+                                 accent: TVColor.focusRing, scale: 1.03, lift: 0)
+                }
+                .buttonStyle(TVBareButtonStyle())
+                .focused($focusedTransport, equals: .songPrimary)
+                .focusEffectDisabled()
+                .accessibilityLabel(Text(PMString(store.isPlaying ? "ext.control.pause" : "ext.control.play")))
+                .accessibilityIdentifier("tv.nowPlaying.artworkControls")
+
+                VStack(alignment: .leading, spacing: 12) {
+                    TVEyebrow(text: String(localized: "listening_space_spoken_word"))
+                    Text(TVSpokenWordText.bookTitle(store))
+                        .tvFont(size: 56, weight: .bold, design: .serif, relativeTo: .largeTitle)
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                    if let part = TVSpokenWordText.partTitle(store) {
+                        Text(part).tvFont(.body).foregroundStyle(TVColor.text.opacity(0.86)).lineLimit(2)
+                    }
+                    HStack(spacing: 14) {
+                        if let author = TVSpokenWordText.author(store) {
+                            Text(author).lineLimit(1)
+                        }
+                        if let position = TVSpokenWordText.partPosition(store) {
+                            Text(verbatim: "·")
+                            Text(position).monospacedDigit().foregroundStyle(TVColor.spokenWordSpace)
+                        }
+                    }
+                    .tvFont(.caption, weight: .medium)
+                    .foregroundStyle(TVColor.textMuted)
+                    // 全书进度属于书的信息,放在书名这一块,不和本章进度条挤在一起。
+                    TVSpokenWordBookProgressRow()
+                        .frame(maxWidth: 560)
+                        .padding(.top, 6)
+                }
+                .padding(.bottom, 6)
+            }
+
+            if let issue = store.playbackIssue {
+                Label(issue.message, systemImage: "exclamationmark.triangle.fill")
+                    .tvFont(.meta, weight: .medium).foregroundStyle(TVColor.warn)
+                    .lineLimit(3).frame(maxWidth: 680, alignment: .leading).padding(.top, 14)
+            } else if store.isLoading {
+                loadingStatus.padding(.top, 12)
+            }
+
+            Spacer(minLength: 24)
+
+            scrubber(immersiveDark: false)
+                .overlay { TVSpokenWordBookmarkTicks().padding(.horizontal, timeLabelWidth + 16) }
+            if let remaining = TVSpokenWordText.partRemaining(store) {
+                Text(remaining)
+                    .tvFont(.meta)
+                    .monospacedDigit()
+                    .foregroundStyle(TVColor.textMuted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
+            }
+            Spacer().frame(height: 22)
+            spokenWordTransport
+        }
+    }
+
+    /// 听书的传输键:上一章 · 后退 15 秒 · 播放 · 前进 30 秒 · 下一章,
+    /// 同一行接着语速、睡眠定时、书签与更多。没有随机 / 循环 / 沉浸 / 队列:
+    /// 书按顺序听,目录就在右栏。
+    private var spokenWordTransport: some View {
+        HStack(spacing: 18) {
+            TVRoundBtn(icon: "backward.end.fill", size: 56,
+                       accessibilityLabel: String(localized: "spoken_word_previous_chapter"),
+                       onInteraction: registerInteraction) { store.goToPreviousSpokenWordPart() }
+            focusedRoundButton(
+                icon: "gobackward.15",
+                size: 72,
+                accessibilityLabel: String(localized: "spoken_word_skip_backward"),
+                target: .previous
+            ) { store.transportBackward() }
+            focusedRoundButton(
+                icon: store.isPlaying ? "pause.fill" : "play.fill",
+                size: 84,
+                accessibilityLabel: PMString(store.isPlaying ? "ext.control.pause" : "ext.control.play"),
+                primary: true,
+                target: .playPause
+            ) { store.togglePlayPause() }
+            focusedRoundButton(
+                icon: "goforward.30",
+                size: 72,
+                accessibilityLabel: String(localized: "spoken_word_skip_forward"),
+                target: .next
+            ) { store.transportForward() }
+            TVRoundBtn(icon: "forward.end.fill", size: 56,
+                       accessibilityLabel: String(localized: "spoken_word_next_chapter"),
+                       onInteraction: registerInteraction) { store.goToNextSpokenWordPart() }
+                .disabled(!store.canGoToNextSpokenWordPart)
+                .opacity(store.canGoToNextSpokenWordPart ? 1 : 0.4)
+
+            Spacer(minLength: 12)
+
+            spokenWordPill(
+                title: SpokenWordPlaybackRatePolicy.label(for: store.currentSpokenWordRate),
+                systemImage: "gauge.with.dots.needle.67percent",
+                accessibilityLabel: String(localized: "spoken_word_book_speed")
+            ) { showSpokenWordRate = true }
+            spokenWordPill(
+                title: spokenWordSleepTitle,
+                systemImage: store.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz",
+                accessibilityLabel: store.isSleepTimerActive
+                    ? String(localized: "sleep_timer_active")
+                    : String(localized: "sleep_timer")
+            ) { showSpokenWordSleep = true }
+            TVRoundBtn(icon: "bookmark", size: 64,
+                       accessibilityLabel: String(localized: "spoken_word_add_bookmark"),
+                       onInteraction: registerInteraction) {
+                if store.addSpokenWordBookmark() { spokenWordBookmarkFeedback += 1 }
+            }
+            .symbolEffect(.bounce, value: spokenWordBookmarkFeedback)
+            TVRoundBtn(icon: "ellipsis", size: 64,
+                       onInteraction: registerInteraction) { showOptions = true }
+        }
+    }
+
+    private var spokenWordSleepTitle: String {
+        if let end = store.sleepTimerEndDate {
+            let minutes = max(1, Int((end.timeIntervalSinceNow / 60).rounded(.up)))
+            return "\(minutes) " + String(localized: "minutes")
+        }
+        return TVSpokenWordText.sleepLabel(store)
+    }
+
+    private func spokenWordPill(
+        title: String,
+        systemImage: String,
+        accessibilityLabel: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        TVFocusButton(radius: 32, scale: 1.08, lift: 6, action: {
+            registerInteraction()
+            action()
+        }, onFocusChanged: { focused in
+            if focused { registerInteraction() }
+        }) { focused in
+            HStack(spacing: 10) {
+                Image(systemName: systemImage).font(.system(size: 24, weight: .semibold))
+                Text(title).tvFont(.caption, weight: .semibold).monospacedDigit().lineLimit(1)
+            }
+            .foregroundStyle(focused ? TVColor.onBrand : TVColor.text)
+            .padding(.horizontal, 22)
+            .frame(height: 64)
+            .background(focused ? AnyShapeStyle(TVColor.brand) : AnyShapeStyle(TVColor.surfaceStrong),
+                        in: Capsule())
+        }
+        .accessibilityLabel(Text(accessibilityLabel))
+        .accessibilityValue(Text(title))
     }
 
     private var playerScrim: [Color] {

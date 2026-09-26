@@ -510,6 +510,14 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         MacUIPreferences.shared.applyOnLaunch()
     }
 
+    /// ⌘Q 退出时窗口不一定先失去焦点(失焦才会走 `handleAppWillResignActive`),
+    /// 有声书听到哪里要在这里写掉。
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            AppServices.shared.playerService.flushSpokenWordPosition()
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.registerForRemoteNotifications()
         Task { @MainActor in
@@ -2581,7 +2589,7 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
         case "spokenWord":
             NavigationStack { SpokenWordLibraryView() }
         case "chapters":
-            ChapterListView()
+            SpokenWordContentsView()
         case "karaoke":
             KaraokeStageView()
                 .environment(services.playerService)

@@ -57,6 +57,18 @@ enum InterfaceOrientationLock {
               let scene = foregroundWindowScene else { return }
         request(landscape ? .landscapeRight : .portrait, in: scene)
     }
+
+    /// 同上，指定横握的哪个方向：`landscapeLeft` / `landscapeRight`（iPhone Duo 外屏两个方向的遮挡区
+    /// 一个在左上、一个在右下，都要看）。其它取值同 `debugRequest(landscape:)`。
+    static func debugRequest(named name: String) {
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              let scene = foregroundWindowScene else { return }
+        switch name.lowercased() {
+        case "landscapeleft": request(.landscapeLeft, in: scene)
+        case "landscaperight", "landscape": request(.landscapeRight, in: scene)
+        default: request(.portrait, in: scene)
+        }
+    }
     #endif
 
     private static var foregroundWindowScene: UIWindowScene? {

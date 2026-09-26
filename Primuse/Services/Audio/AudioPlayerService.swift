@@ -1032,6 +1032,12 @@ final class AudioPlayerService {
     /// Set while a resume seek is in flight so the position writer cannot
     /// store the zero the clock reports before the seek lands.
     @ObservationIgnored var pendingSpokenWordResumeSongID: String?
+    /// Where the next item should start instead of its remembered position:
+    /// a bookmark in another item of the book, tapped in the contents.
+    @ObservationIgnored var pendingSpokenWordSeekOverride: (songID: String, position: TimeInterval)?
+    /// The playing item's book, grouped from its own items, with the key it
+    /// was built for. See `currentSpokenWordBook`.
+    @ObservationIgnored var spokenWordBookCache: (key: String, book: SpokenWordBook?)?
 
     // MARK: - Medley
 
@@ -1646,7 +1652,7 @@ final class AudioPlayerService {
 
     /// Request the source rate before selecting the graph's actual format.
     func applyOutputSampleRateMatching(for song: Song, expectedPlayID: UUID) async throws {
-        guard (playbackSettings.matchOutputSampleRate || playbackSettings.outputMode == .highFidelity),
+        guard (playbackSettings.matchOutputSampleRate || outputMode(for: song) == .highFidelity),
               let sr = song.sampleRate, sr > 0 else { return }
         try await prepareHardwareSampleRate(Double(sr), expectedPlayID: expectedPlayID)
     }
@@ -1722,6 +1728,7 @@ final class AudioPlayerService {
         let configurationToken = beginOutputPipelineConfiguration(expectedPlayID: expectedPlayID)
         defer { endOutputPipelineConfiguration(configurationToken) }
         let settings = playbackSettings.snapshot()
+        let graphMode = outputMode(for: song)
         let isLocalDSD = url.isFileURL && nativeDecoder.isDSD(url)
         try activateAudioSession(reacquiringLocalRouteFocus)
         // 打开 DSD 解码器要同步读文件头, 在 NAS / Files provider 上是真实
@@ -1729,7 +1736,7 @@ final class AudioPlayerService {
         // 继续去配置引擎。
         let probe = DSDOutputProbePolicy.required(
             isLocalDSD: isLocalDSD,
-            outputModeIsHighFidelity: settings.outputMode == .highFidelity,
+            outputModeIsHighFidelity: graphMode == .highFidelity,
             dsdPlaybackModeIsPCM: settings.dsdPlaybackMode == .pcm
         )
 
@@ -1763,7 +1770,7 @@ final class AudioPlayerService {
             try await prepareHardwareSampleRate(pcmFormat.sampleRate, expectedPlayID: expectedPlayID)
             directPCMFormat = safeDirectPCMFormat(
                 requestedSourceSampleRate: pcmFormat.sampleRate,
-                outputMode: settings.outputMode
+                outputMode: graphMode
             )
         } else {
             var sourceSampleRate = song.sampleRate.map(Double.init)
@@ -1775,19 +1782,19 @@ final class AudioPlayerService {
                 sourceSampleRate = try? await decoder.fileInfo(for: url).sampleRate
                 guard !Task.isCancelled, playID == expectedPlayID else { throw CancellationError() }
             }
-            if (settings.matchOutputSampleRate || settings.outputMode == .highFidelity),
+            if (settings.matchOutputSampleRate || graphMode == .highFidelity),
                let sourceSampleRate,
                sourceSampleRate > 0 {
                 try await prepareHardwareSampleRate(sourceSampleRate, expectedPlayID: expectedPlayID)
             }
             directPCMFormat = safeDirectPCMFormat(
                 requestedSourceSampleRate: sourceSampleRate,
-                outputMode: settings.outputMode
+                outputMode: graphMode
             )
         }
 
         try audioEngine.configure(
-            outputMode: settings.outputMode,
+            outputMode: graphMode,
             directSourceFormat: directPCMFormat
         )
         return .pcm
@@ -1818,7 +1825,8 @@ final class AudioPlayerService {
             } else {
                 try await applyOutputSampleRateMatching(for: song, expectedPlayID: expectedPlayID)
             }
-            let directFormat = playbackSettings.outputMode == .highFidelity
+            let graphMode = outputMode(for: song)
+            let directFormat = graphMode == .highFidelity
                 ? safeDirectPCMFormat(
                     requestedSourceSampleRate: decodedPCMFormat?.sampleRate
                         ?? song.sampleRate.map(Double.init),
@@ -1826,7 +1834,7 @@ final class AudioPlayerService {
                 )
                 : nil
             try audioEngine.configure(
-                outputMode: playbackSettings.outputMode,
+                outputMode: graphMode,
                 directSourceFormat: directFormat
             )
             try audioEngine.start()
@@ -6584,6 +6592,12 @@ final class AudioPlayerService {
         guard settings.gaplessEnabled,
               !shouldUseCrossfade(settings),
               repeatMode != .one else { return false }
+
+        // Spoken word forces the effects graph (`outputMode(for:)`); a book
+        // next to music on the bit-exact graph needs the graph rebuilt.
+        if let next = nextSongInQueue(), outputMode(for: next) != outputMode(for: currentSong) {
+            return false
+        }
 
         if settings.outputMode == .highFidelity, let next = nextSongInQueue() {
             // A real sample-rate switch or DSD/DoP carrier change requires a

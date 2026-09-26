@@ -1006,7 +1006,7 @@
 "no_trusted_domains" = "Güvenilir alan adı yok";
 "new" = "Yeni";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_18" = "Yumuşak nota";
+"icon_theme_19" = "Chris’s Muse";
 "icon_theme_14" = "P Harfi";
 "icon_theme_15" = "Katlanmış Nota";
 "icon_theme_16" = "NonoEnd";
@@ -3624,7 +3624,7 @@
 "share_song_information_action" = "Şarkı Bilgilerini Paylaş";
 "source_remove_confirm_title" = "Bu Müzik Kaynağı Kaldırılsın mı?";
 "dup_keep_newest" = "En Yeniyi Tut";
-"icon_default" = "Chris’s Muse";
+"icon_default" = "Yumuşak nota";
 "relay_share_action" = "Özel Aktarma ile Bağlantı Oluşturun";
 "dup_mac_cleanup_action" = "Kopyaları Temizle (Son Silinenlere Taşı)";
 "save_then_scan_library_hint" = "Önce kaydedin, ardından bağlanmak ve sunucu kataloğunun tamamını taramak için kaynağa dokunun";
@@ -4576,6 +4576,24 @@
 "spoken_word_chapter_position_format" = "Bölüm %lld / %lld";
 "spoken_word_book_speed" = "Bu kitabın hızı";
 "spoken_word_book_speed_default_format" = "Varsayılan (%@)";
+"spoken_word_under_a_minute" = "bir dakikadan az";
+"spoken_word_part_position_format" = "Bölüm %lld / %lld";
+"spoken_word_part_remaining_format" = "Bölümün bitmesine yaklaşık %@";
+"spoken_word_book_fraction_format" = "Kitabın %%%lld kadarı";
+"spoken_word_book_remaining_format" = "Yaklaşık %@ kaldı";
+"spoken_word_sleep_short" = "Zamanlayıcı";
+"spoken_word_sleep_chapter_short" = "Bölüm sonu";
+"spoken_word_sleep_item_short" = "Bölüm bitince";
+"spoken_word_sleep_book_short" = "Kitap bitince";
+"spoken_word_speed_short" = "Hız";
+"spoken_word_contents_title" = "İçindekiler";
+"spoken_word_text_tab" = "Metin";
+"spoken_word_rename_bookmark" = "Yer İmini Yeniden Adlandır";
+"spoken_word_bookmark_name" = "Yer imi adı";
+"spoken_word_bookmarks_count_format" = "Yer imleri · %lld";
+"spoken_word_contents_position_format" = "%1$@ · %2$@ kaldı";
+"spoken_word_bookmark_where_format" = "Bölüm %1$lld · %2$@";
+"tv_spoken_word_rate_unavailable" = "Başka bir cihazda (ör. AirPlay) çalarken yalnızca normal hız kullanılabilir.";
 "stats_spoken_word_time" = "Sesli kitap süresi";
 "directory_tag_menu_title" = "Bu klasördeki içerik";
 "directory_tag_hint" = "Seçili bir klasörün yanındaki etikete dokunup Sesli Kitaplar’ı seçerseniz içindekiler müziğiniz yerine sesli kitap rafına gider.";
@@ -4591,3 +4609,22 @@
 "Continue Listening" = "Dinlemeye devam et";
 "Continue a book in Primuse from where you left off." = "Primuse'daki bir kitaba kaldığın yerden devam et.";
 "Book" = "Kitap";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "Sesli kitaplar";
+"home_spotlight_manage" = "Ana sayfada gösterilecekleri seç";
+"home_spotlight_manage_radio" = "Ana sayfada radyo";
+"home_spotlight_manage_books" = "Ana sayfada sesli kitaplar";
+"home_spotlight_add" = "Ana sayfada göster";
+"home_spotlight_remove" = "Ana sayfadan kaldır";
+"home_spotlight_order" = "Sıralama";
+"home_spotlight_order_recent" = "Son dinlenenler";
+"home_spotlight_order_custom" = "Özel sıra";
+"home_spotlight_order_name" = "Ad";
+"home_spotlight_automatic_radio_footer" = "İstasyon seçmediğiniz sürece ana sayfa tüm istasyonları yukarıdaki sırayla gösterir. Kaç tane gösterileceğini ana sayfa düzenleyicisinden ayarlayın.";
+"home_spotlight_automatic_books_footer" = "Kitap seçmediğiniz sürece ana sayfa kitaplığınızı gösterir. “Dinlenen kitaplar” açıkken yarım kalan kitaplar tekrar gösterilmez.";
+"home_spotlight_pinned_footer" = "Ana sayfa yalnızca seçtiklerinizi gösterir. Sürükleyerek sıralamak için Özel sıra’yı seçin; otomatiğe dönmek için listeyi temizleyin.";
+"home_spotlight_pinned_section" = "Ana sayfada";
+"home_spotlight_clear" = "Temizle";
+"home_spotlight_all_radio" = "Tüm istasyonlar";
+"home_spotlight_all_books" = "Tüm sesli kitaplar";

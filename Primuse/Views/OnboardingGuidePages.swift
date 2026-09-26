@@ -448,7 +448,11 @@ private struct OnboardingGuideLayout<Screen: View, Steps: View>: View {
         // 没有遮挡区时传 nil，保持系统默认的边距。
         .contentMargins(.top, occlusionClearance > 0 ? occlusionClearance : nil, for: .scrollContent)
         .onGeometryChange(for: CGFloat.self) { proxy in
-            max(0, CGFloat(OcclusionAvoidancePolicy.lowestEdge(of: PMReservedRegions.activeOcclusions(in: proxy))))
+            // 只看贴着上沿的遮挡区;遮挡区在下半屏时(外屏横握摄像头在右下角)不把标题往下推。
+            max(0, CGFloat(OcclusionAvoidancePolicy.topEdge(
+                of: PMReservedRegions.activeOcclusions(in: proxy),
+                height: Double(proxy.size.height)
+            )))
         } action: { lowest in
             occlusionClearance = lowest
         }

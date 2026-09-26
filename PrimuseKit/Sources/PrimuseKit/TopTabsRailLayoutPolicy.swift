@@ -13,6 +13,8 @@ public enum TopTabsRailLayoutPolicy {
     public static let clearanceSpacing: Double = 8
     /// 顶端没有遮挡(横握时状态栏收起)时也留这么一段,不贴着屏幕圆角。
     public static let minimumTopClearance: Double = 12
+    /// 竖栏底部那组按钮离竖栏下沿(底部安全区以内)至少这么远。
+    public static let minimumBottomClearance: Double = 4
 
     /// 是否改成竖栏:系统在这一侧竖排,并且那一侧确实让出了一条够宽的安全区。
     public static func usesRail(hasVerticalBarEdge: Bool, verticalBarInset: Double) -> Bool {
@@ -31,6 +33,20 @@ public enum TopTabsRailLayoutPolicy {
             .map(\.maxY)
         guard let bottom = bottoms.max() else { return minimumTopClearance }
         return max(minimumTopClearance, bottom + clearanceSpacing)
+    }
+
+    /// 竖栏底部那组按钮(筛选、页面动作、搜索、设置)离竖栏下沿多远。
+    ///
+    /// iPhone Duo 外屏横握时遮挡区跟着摄像头转:一个方向在竖栏顶上,另一个方向(摄像头在右下角)
+    /// 贴着竖栏底部 —— 竖排的状态栏与摄像头正好压在按钮组的位置上,按钮组要贴着它上沿往上排。
+    /// 与 `topClearance` 分工:这里只认从下半截开始的遮挡,按伸进竖栏的那一段让开。
+    public static func bottomClearance(occlusions: [(minY: Double, maxY: Double)], railHeight: Double) -> Double {
+        guard railHeight.isFinite, railHeight > 0 else { return minimumBottomClearance }
+        let extents = occlusions
+            .filter { $0.minY.isFinite && $0.maxY.isFinite && $0.minY >= railHeight / 2 && $0.minY < railHeight }
+            .map { railHeight - $0.minY }
+        guard let extent = extents.max() else { return minimumBottomClearance }
+        return max(minimumBottomClearance, extent + clearanceSpacing)
     }
 
     /// 竖栏模式下根页顶部的留白,代替 tab 条那一行的高度。系统竖排后顶部安全区是 0,

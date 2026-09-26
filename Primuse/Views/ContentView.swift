@@ -2139,10 +2139,12 @@ struct ContentView: View {
 /// 取值：`home` / `library` / `songs` / `albums` / `artists` / `playlists` / `radio` / `section:<分类 rawValue>` /
 /// `album:<标题片段>` / `albumback:<标题片段>`（打开后三秒退回）/ `artist:<名字片段>` / `player`（配合 `PRIMUSE_AUTOPLAY_SONG`）/ `queue` / `search` / `settings` /
 /// `lasttab`（顶部 tab 外壳：先停在歌曲，两秒半后切到最后一个 tab，看指示器与自动滚动）。
-/// `searchidle`（打开搜索但不弹键盘）/ `onboarding`（首启引导）。另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
+/// `searchidle`（打开搜索但不弹键盘）/ `onboarding`（首启引导）。另有 `PRIMUSE_ORIENTATION=landscape|portrait|landscapeLeft|landscapeRight`：
+/// 打开页面前先请求转屏（`landscape` 即 `landscapeRight`）。
 /// 详情页取证用：`playlist:<名字片段>`（`liked` 是「喜欢」）/ `genre:<名字片段>` /
 /// `zoom:<专辑标题片段>`（先停在专辑网格，再从网格推入专辑页、退回、再推入，录缩放转场用）。
-/// `PRIMUSE_DEBUG_SEED_RADIO=1` 建几个取证用的电台（看电台页版式）。
+/// `PRIMUSE_DEBUG_SEED_RADIO=1` 建几个取证用的电台（看电台页版式）；`=organized` 另把它们分进几个文件夹、
+/// 打上几个标签（看电台页顶上两排筛选胶囊）。
 /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）；
 /// 另建两张同样形态的取证智能歌单（Evidence Smart Wall / Evidence Smart Single），用 `smart:<名字片段>` 打开。
 /// `scopedsearch:<专辑标题片段>`：打开专辑页，三秒后进「在这张专辑里搜索」（顶部 tab 外壳走详情页的放大镜，经典走搜索标签）。
@@ -2167,8 +2169,8 @@ extension ContentView {
         debugSeedPlaylistsIfRequested()
         debugSeedRadioIfRequested()
         if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
-           orientation == "landscape" || orientation == "portrait" {
-            InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
+           ["landscape", "portrait", "landscapeleft", "landscaperight"].contains(orientation) {
+            InterfaceOrientationLock.debugRequest(named: orientation)
             try? await Task.sleep(for: .seconds(1))
         }
         plog("🧪 DebugLaunchAutomation: open page \(raw)")
@@ -2393,14 +2395,26 @@ extension ContentView {
     }
 
     /// `PRIMUSE_DEBUG_SEED_RADIO=1`：没有电台时建几个取证用的（地址不通，只看版式），名字固定，重复启动不会重复建。
+    /// `=organized`：再分进四个文件夹、打上六个标签，电台页顶上的两排筛选胶囊都比屏幕宽。
     private func debugSeedRadioIfRequested() {
-        guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_RADIO"] == "1" else { return }
+        let request = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_RADIO"]
+        guard request == "1" || request == "organized" else { return }
         let existing = Set(radioStationsStore.stations.map(\.name))
         for index in 1...8 where !existing.contains("Evidence FM \(index)") {
             radioStationsStore.add(RadioStation(
                 name: "Evidence FM \(index)",
                 streamURL: "https://radio.example.com/evidence\(index).mp3"
             ))
+        }
+        guard request == "organized" else { return }
+        let seeded = radioStationsStore.stations
+            .filter { $0.name.hasPrefix("Evidence FM ") }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let folders = ["Evidence News", "Evidence Music", "Evidence Talk", "Evidence Night"]
+        let tags = ["Jazz", "Classical", "Lo-fi Beats", "Morning Drive", "Late Night", "Talk Radio"]
+        for (offset, station) in seeded.enumerated() {
+            radioStationsStore.setFolder(folders[offset % folders.count], forStationIDs: [station.id])
+            radioStationsStore.addTag(tags[offset % tags.count], toStationIDs: [station.id])
         }
     }
 

@@ -43,6 +43,8 @@ struct RadioStationsView: View {
     @State private var subscribedStationToDelete: RadioStation?
     /// 长按 / ⋯ 菜单里「电台信息」打开的详情页。点卡片本身仍是直接起播。
     @State private var detailStation: RadioStation?
+    @State private var showingHomeSpotlight = false
+    @AppStorage(HomeSpotlightSelection.radioStorageKey) private var homeSpotlightRawValue = ""
     @AppStorage(RadioStationLayoutMode.storageKey)
     private var layoutModeRaw = RadioStationLayoutMode.list.rawValue
     @Environment(\.pmHeightClass) private var heightClass
@@ -174,6 +176,9 @@ struct RadioStationsView: View {
         }
         .sheet(item: $detailStation) { station in
             RadioStationDetailView(stationID: station.id)
+        }
+        .sheet(isPresented: $showingHomeSpotlight) {
+            NavigationStack { HomeSpotlightManagementView(section: .radio) }
         }
         .fileExporter(
             isPresented: $showExporter,
@@ -339,6 +344,7 @@ struct RadioStationsView: View {
 
     // MARK: - 文件夹与标签筛选条
 
+    /// 固定在电台列表上方、不随列表滚动;iPhone Duo 竖栏时两排胶囊停在竖栏前(列表本身铺过去)。
     @ViewBuilder
     private var organizeBar: some View {
         let folderChips = folders
@@ -381,7 +387,7 @@ struct RadioStationsView: View {
                         }
                         .padding(.horizontal, 16)
                     }
-                    .pmStopsAtVerticalBar()
+                    .pmPinnedRowStopsAtVerticalBar()
                 }
 
                 if !tagChips.isEmpty {
@@ -406,7 +412,7 @@ struct RadioStationsView: View {
                         }
                         .padding(.horizontal, 16)
                     }
-                    .pmStopsAtVerticalBar()
+                    .pmPinnedRowStopsAtVerticalBar()
                 }
             }
             .padding(.top, 8)
@@ -569,6 +575,9 @@ struct RadioStationsView: View {
             }
             .disabled(selectedIDs.isEmpty)
 
+            homeSpotlightToggle(for: selectedIDs)
+                .disabled(selectedIDs.isEmpty)
+
             Button {
                 guard let station = selectedStations.first else { return }
                 editingStation = station
@@ -638,6 +647,9 @@ struct RadioStationsView: View {
                 Button("radio_priority_sort_by_name", systemImage: "arrow.up.arrow.down") {
                     store.sortStationsByName()
                 }
+                Button("home_spotlight_manage_radio", systemImage: "house") {
+                    showingHomeSpotlight = true
+                }
             }
         } label: {
             Label("radio_add", systemImage: "plus")
@@ -667,6 +679,26 @@ struct RadioStationsView: View {
             Label("a11y_more_actions", systemImage: "ellipsis")
         }
         .accessibilityIdentifier("radio.moreActions")
+    }
+
+    // MARK: - 首页显示
+
+    /// 放到首页 / 从首页移除。选中的全都已在首页时是移除,否则把没在的补进去 ——
+    /// 批量时不会因为混着几个已在首页的,一点下去反而把它们拿掉。
+    @ViewBuilder
+    private func homeSpotlightToggle(for ids: [String]) -> some View {
+        let selection = HomeSpotlightSelection.decode(homeSpotlightRawValue)
+        let allPinned = !ids.isEmpty && ids.allSatisfy(selection.isPinned)
+        Button(
+            LocalizedStringKey(allPinned ? "home_spotlight_remove" : "home_spotlight_add"),
+            systemImage: allPinned ? "house.slash" : "house"
+        ) {
+            var updated = selection
+            for id in ids where updated.isPinned(id) == allPinned {
+                updated.togglePin(id)
+            }
+            homeSpotlightRawValue = updated.encoded()
+        }
     }
 
     // MARK: - 归类动作
@@ -880,6 +912,8 @@ struct RadioStationsView: View {
             }
 
             organizeMenu(for: station)
+
+            homeSpotlightToggle(for: [station.id])
 
             // 自动发现失败过的台在退避期里不会再自己去找，这里给用户一个
             // 「现在就再试一次」的出口。用户自己选过图或填过链接的不提供 ——

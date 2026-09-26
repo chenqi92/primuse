@@ -7,7 +7,8 @@ import SwiftUI
 /// 功能契约与其它播放条一致 —— 只收 `NowPlayingBarModel`:点按打开播放页、左右滑切歌、无障碍动作
 /// 都来自共用的 `MiniPlayerSwipeContent`,播放键沿用悬浮胶囊那颗(加载圈与播放键之间淡入淡出);
 /// 这里只负责画法:左右内缩的圆角条,顶沿一条进度细线,右侧是播放键和队列键。
-/// 右侧第二颗键随听法变:音乐是队列,有声是前进 30 秒(下一条是另一集甚至另一本,不给切),电台没有。
+/// 播放键两侧的键随听法变:音乐在右边放队列;有声在播放键前放「后退」(漏听一句往回倒是听书最常按的键,
+/// 下一条是另一集甚至另一本,不给切),右边不放;电台没有。
 /// 手机横屏与折叠屏内屏这类宽视口里最宽 560、居中(`DockedPlayerBarLayoutPolicy`),
 /// 进度线、点击热区与滑动切歌都在条子里,跟着一起收窄;竖屏 iPhone 仍铺满整行。
 struct DockedPlayerBar: View {
@@ -35,11 +36,13 @@ struct DockedPlayerBar: View {
                 contentHeight: contentHeight
             )
 
+            if model.isSpokenWordBook {
+                skipBackwardButton
+            }
+
             FloatingCapsulePlayButton(model: model, showsProgressRing: false)
 
-            if model.isSpokenWord, !model.isLiveRadio {
-                skipForwardButton
-            } else if !model.isLiveRadio {
+            if !model.isSpokenWordBook, !model.isLiveRadio {
                 queueButton
             }
         }
@@ -85,9 +88,9 @@ struct DockedPlayerBar: View {
         }
     }
 
-    private var skipForwardButton: some View {
-        Button(action: model.skipSpokenWordForward) {
-            Image(systemName: model.spokenWordSkipForwardSymbol)
+    private var skipBackwardButton: some View {
+        Button(action: model.skipSpokenWordBackward) {
+            Image(systemName: model.spokenWordSkipBackwardSymbol)
                 .font(.system(size: 17, weight: .semibold))
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
@@ -95,8 +98,8 @@ struct DockedPlayerBar: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.skin(.textSecondary))
-        .accessibilityLabel(Text("a11y_skip_forward"))
-        .accessibilityIdentifier("dockedBar.skipForward")
+        .accessibilityLabel(Text("a11y_skip_backward"))
+        .accessibilityIdentifier("dockedBar.skipBackward")
     }
 
     private var queueButton: some View {

@@ -94,7 +94,9 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
         let original: [HomeSectionKind] = [.stats, .playlists, .continueListening, .quickAccess]
         let decoded = HomeSectionConfiguration.decode(HomeSectionConfiguration.encode(original))
         XCTAssertEqual(decoded.filter { original.contains($0) }, original)
-        XCTAssertEqual(Array(decoded.prefix(4)), [.stats, .playlists, .folders, .listeningRanking])
+        // 原本钉在最上面的「接着听」「在听的书」纳入排序后仍在最前,新的「有声书」跟在后面。
+        XCTAssertEqual(Array(decoded.prefix(3)), [.continueSpaces, .booksInProgress, .audiobooks])
+        XCTAssertEqual(Array(decoded.dropFirst(3).prefix(4)), [.stats, .playlists, .folders, .listeningRanking])
         XCTAssertEqual(Set(decoded).count, decoded.count)
         XCTAssertEqual(Set(decoded), Set(HomeSectionKind.allCases))
     }
@@ -102,8 +104,17 @@ final class LibraryDisplayConfigurationTests: XCTestCase {
     func testHomeDiscoveryCustomizedPositionsSurviveRoundTrip() {
         let original: [HomeSectionKind] = [.listeningRanking, .stats, .folders, .playlists]
         let decoded = HomeSectionConfiguration.decode(HomeSectionConfiguration.encode(original))
-        XCTAssertEqual(Array(decoded.prefix(original.count)), original)
+        let introduced: Set<HomeSectionKind> = [.continueSpaces, .booksInProgress, .audiobooks]
+        XCTAssertEqual(Array(decoded.filter { !introduced.contains($0) }.prefix(original.count)), original)
         XCTAssertEqual(HomeSectionConfiguration.decode(""), HomeSectionConfiguration.defaultOrder)
+    }
+
+    func testListeningSpaceSectionsKeepTheirPlaceOnceStored() {
+        let leading: [HomeSectionKind] = [.stats, .audiobooks, .radio, .continueSpaces, .booksInProgress]
+        let original = leading + HomeSectionConfiguration.defaultOrder.filter { !leading.contains($0) }
+        let decoded = HomeSectionConfiguration.decode(HomeSectionConfiguration.encode(original))
+        XCTAssertEqual(decoded, original)
+        XCTAssertEqual(Set(decoded), Set(HomeSectionKind.allCases))
     }
 
     func testFreshLibraryUsesRecommendationFirst() {

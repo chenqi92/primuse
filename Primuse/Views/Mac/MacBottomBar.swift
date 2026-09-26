@@ -82,7 +82,9 @@ struct MacBottomBar: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(player.currentSong?.title ?? String(localized: "player_empty_title"))
+                    Text(isSpokenWord
+                        ? SpokenWordPlayerText.bookTitle(player)
+                        : (player.currentSong?.title ?? String(localized: "player_empty_title")))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(player.currentSong == nil ? PMColor.textMuted : PMColor.text)
                         .lineLimit(1)
@@ -106,7 +108,8 @@ struct MacBottomBar: View {
 
             Spacer(minLength: 4)
 
-            if let song = player.currentSong, !player.isLiveRadio {
+            // 「我喜欢」是音乐歌单, 有声内容不出现。
+            if let song = player.currentSong, !player.isLiveRadio, !isSpokenWord {
                 let liked = library.isLiked(songID: song.id)
                 Button {
                     library.toggleLiked(songID: song.id)
@@ -145,14 +148,24 @@ struct MacBottomBar: View {
         .help(Text(isExpanded ? "close" : "now_playing"))
     }
 
-    /// 有声且带章节时, 标题后面跟「第 n 章」。
+    private var isSpokenWord: Bool {
+        player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
+    /// 有声内容的标题是书名, 后面跟「第 n / m 章」。
     private var chapterLabel: String? {
-        guard player.currentItemIsSpokenWord, !player.isLiveRadio,
-              player.hasChapters, let index = player.currentChapterIndex else { return nil }
-        return String(format: String(localized: "mac_player_chapter_number_format"), index + 1)
+        guard isSpokenWord else { return nil }
+        return SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary(live: false))
     }
 
     private var metaLine: String {
+        // 有声内容第二行是正在听的章与演播者。
+        if isSpokenWord {
+            return [SpokenWordPlayerText.partTitle(player), SpokenWordPlayerText.author(player)]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
+        }
         let parts = [
             player.currentSong.flatMap { library.artistDisplayName(for: $0) },
             player.currentSong?.albumTitle,
@@ -166,7 +179,13 @@ struct MacBottomBar: View {
     private var transportColumn: some View {
         VStack(spacing: 4) {
             HStack(spacing: 6) {
-                if !player.isLiveRadio {
+                // 有声内容两端换成上一章 / 下一章: 一本书不随机, 也不单曲循环。
+                if isSpokenWord {
+                    transportBtn("backward.end.fill", size: 12, help: "spoken_word_previous_chapter") {
+                        player.goToPreviousSpokenWordPart()
+                    }
+                    .pmFadeTransition()
+                } else if !player.isLiveRadio {
                     transportBtn("shuffle", size: 13, active: player.shuffleEnabled,
                                  isToggle: true, help: "shuffle") {
                         player.shuffleEnabled.toggle()
@@ -221,7 +240,13 @@ struct MacBottomBar: View {
                     }
                     .pmFadeTransition()
                 }
-                if !player.isLiveRadio {
+                if isSpokenWord {
+                    transportBtn("forward.end.fill", size: 12, help: "spoken_word_next_chapter") {
+                        player.goToNextSpokenWordPart()
+                    }
+                    .disabled(!player.canGoToNextSpokenWordPart)
+                    .pmFadeTransition()
+                } else if !player.isLiveRadio {
                     transportBtn(repeatIconName, size: 13, active: player.repeatMode != .off,
                                  isToggle: true, help: "repeat") {
                         cycleRepeat()

@@ -1006,7 +1006,7 @@
 "no_trusted_domains" = "Нет доверенных доменов.";
 "new" = "Новый";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_18" = "Мягкая нота";
+"icon_theme_19" = "Chris’s Muse";
 "icon_theme_14" = "Буква P";
 "icon_theme_15" = "Сложенная нота";
 "icon_theme_16" = "NonoEnd";
@@ -3624,7 +3624,7 @@
 "share_song_information_action" = "Поделиться информацией о песне";
 "source_remove_confirm_title" = "Удалить этот источник музыки?";
 "dup_keep_newest" = "Будьте в курсе последних новостей";
-"icon_default" = "Chris’s Muse";
+"icon_default" = "Мягкая нота";
 "relay_share_action" = "Создать ссылку с помощью Private Relay";
 "dup_mac_cleanup_action" = "Очистить дубликаты (перейти к недавно удаленным)";
 "save_then_scan_library_hint" = "Сначала сохраните, затем коснитесь источника, чтобы подключиться и отсканировать весь каталог сервера.";
@@ -4576,6 +4576,24 @@
 "spoken_word_chapter_position_format" = "Глава %lld из %lld";
 "spoken_word_book_speed" = "Скорость для этой книги";
 "spoken_word_book_speed_default_format" = "По умолчанию (%@)";
+"spoken_word_under_a_minute" = "меньше минуты";
+"spoken_word_part_position_format" = "Глава %lld / %lld";
+"spoken_word_part_remaining_format" = "До конца главы ~%@";
+"spoken_word_book_fraction_format" = "%lld %% книги";
+"spoken_word_book_remaining_format" = "Осталось ~%@";
+"spoken_word_sleep_short" = "Таймер";
+"spoken_word_sleep_chapter_short" = "Конец главы";
+"spoken_word_sleep_item_short" = "Конец эпизода";
+"spoken_word_sleep_book_short" = "Конец книги";
+"spoken_word_speed_short" = "Скорость";
+"spoken_word_contents_title" = "Содержание";
+"spoken_word_text_tab" = "Текст";
+"spoken_word_rename_bookmark" = "Переименовать закладку";
+"spoken_word_bookmark_name" = "Название закладки";
+"spoken_word_bookmarks_count_format" = "Закладки · %lld";
+"spoken_word_contents_position_format" = "На %1$@ · осталось %2$@";
+"spoken_word_bookmark_where_format" = "Глава %1$lld · %2$@";
+"tv_spoken_word_rate_unavailable" = "При воспроизведении через другое устройство (например, AirPlay) доступна только обычная скорость.";
 "stats_spoken_word_time" = "Время аудиокниг";
 "directory_tag_menu_title" = "Содержимое папки";
 "directory_tag_hint" = "Нажмите на метку рядом с выбранной папкой и выберите «Аудиокниги», чтобы её содержимое попало на полку аудиокниг, а не в музыку.";
@@ -4591,3 +4609,22 @@
 "Continue Listening" = "Продолжить";
 "Continue a book in Primuse from where you left off." = "Продолжить книгу в Primuse с места остановки.";
 "Book" = "Книга";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "Аудиокниги";
+"home_spotlight_manage" = "Что показывать на главной";
+"home_spotlight_manage_radio" = "Радио на главной";
+"home_spotlight_manage_books" = "Аудиокниги на главной";
+"home_spotlight_add" = "Показывать на главной";
+"home_spotlight_remove" = "Убрать с главной";
+"home_spotlight_order" = "Сортировка";
+"home_spotlight_order_recent" = "Недавно прослушанные";
+"home_spotlight_order_custom" = "Свой порядок";
+"home_spotlight_order_name" = "Название";
+"home_spotlight_automatic_radio_footer" = "Пока станции не выбраны, на главной показываются все станции в порядке, выбранном выше. Количество задаётся в редакторе главной.";
+"home_spotlight_automatic_books_footer" = "Пока книги не выбраны, на главной показывается полка. Если включено «Слушаю сейчас», начатые книги не повторяются.";
+"home_spotlight_pinned_footer" = "На главной показываются только выбранные. В режиме «Свой порядок» их можно перетаскивать; очистите список, чтобы вернуться к автоматическому выбору.";
+"home_spotlight_pinned_section" = "На главной";
+"home_spotlight_clear" = "Очистить";
+"home_spotlight_all_radio" = "Все станции";
+"home_spotlight_all_books" = "Все аудиокниги";

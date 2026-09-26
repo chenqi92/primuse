@@ -1006,7 +1006,7 @@
 "no_trusted_domains" = "Немає довірених доменів";
 "new" = "Новинка";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_18" = "М'яка нота";
+"icon_theme_19" = "Chris’s Muse";
 "icon_theme_14" = "Літера P";
 "icon_theme_15" = "Складена нота";
 "icon_theme_16" = "NonoEnd";
@@ -3624,7 +3624,7 @@
 "share_song_information_action" = "Поділіться інформацією про пісню";
 "source_remove_confirm_title" = "Видалити це музичне джерело?";
 "dup_keep_newest" = "Зберігати найновіші";
-"icon_default" = "Chris’s Muse";
+"icon_default" = "М'яка нота";
 "relay_share_action" = "Створити зв’язок із приватним ретранслятором";
 "dup_mac_cleanup_action" = "Очистити дублікати (перемістити до нещодавно видалених)";
 "save_then_scan_library_hint" = "Спочатку збережіть, потім торкніться джерела, щоб підключитися та відсканувати повний каталог сервера";
@@ -4576,6 +4576,24 @@
 "spoken_word_chapter_position_format" = "Розділ %lld з %lld";
 "spoken_word_book_speed" = "Швидкість для цієї книги";
 "spoken_word_book_speed_default_format" = "Типово (%@)";
+"spoken_word_under_a_minute" = "менше хвилини";
+"spoken_word_part_position_format" = "Розділ %lld / %lld";
+"spoken_word_part_remaining_format" = "До кінця розділу ~%@";
+"spoken_word_book_fraction_format" = "%lld %% книги";
+"spoken_word_book_remaining_format" = "Залишилося ~%@";
+"spoken_word_sleep_short" = "Таймер";
+"spoken_word_sleep_chapter_short" = "Кінець розділу";
+"spoken_word_sleep_item_short" = "Кінець епізоду";
+"spoken_word_sleep_book_short" = "Кінець книги";
+"spoken_word_speed_short" = "Швидкість";
+"spoken_word_contents_title" = "Зміст";
+"spoken_word_text_tab" = "Текст";
+"spoken_word_rename_bookmark" = "Перейменувати закладку";
+"spoken_word_bookmark_name" = "Назва закладки";
+"spoken_word_bookmarks_count_format" = "Закладки · %lld";
+"spoken_word_contents_position_format" = "На %1$@ · залишилося %2$@";
+"spoken_word_bookmark_where_format" = "Розділ %1$lld · %2$@";
+"tv_spoken_word_rate_unavailable" = "Під час відтворення через інший пристрій (наприклад, AirPlay) доступна лише звичайна швидкість.";
 "stats_spoken_word_time" = "Час аудіокниг";
 "directory_tag_menu_title" = "Вміст цієї теки";
 "directory_tag_hint" = "Торкніться мітки біля вибраної теки й виберіть «Аудіокниги», щоб її вміст потрапив на полицю аудіокниг, а не до музики.";
@@ -4591,3 +4609,22 @@
 "Continue Listening" = "Продовжити";
 "Continue a book in Primuse from where you left off." = "Продовжити книгу в Primuse з місця зупинки.";
 "Book" = "Книга";
+
+/* 首页电台/有声书挑选 */
+"home_section_audiobooks" = "Аудіокниги";
+"home_spotlight_manage" = "Що показувати на головній";
+"home_spotlight_manage_radio" = "Радіо на головній";
+"home_spotlight_manage_books" = "Аудіокниги на головній";
+"home_spotlight_add" = "Показувати на головній";
+"home_spotlight_remove" = "Прибрати з головної";
+"home_spotlight_order" = "Сортування";
+"home_spotlight_order_recent" = "Нещодавно прослухані";
+"home_spotlight_order_custom" = "Власний порядок";
+"home_spotlight_order_name" = "Назва";
+"home_spotlight_automatic_radio_footer" = "Поки станції не вибрано, на головній показуються всі станції в порядку, вибраному вище. Кількість задається в редакторі головної.";
+"home_spotlight_automatic_books_footer" = "Поки книги не вибрано, на головній показується полиця. Якщо ввімкнено «Слухаю зараз», розпочаті книги не повторюються.";
+"home_spotlight_pinned_footer" = "На головній показуються лише вибрані. У режимі «Власний порядок» їх можна перетягувати; очистьте список, щоб повернутися до автоматичного вибору.";
+"home_spotlight_pinned_section" = "На головній";
+"home_spotlight_clear" = "Очистити";
+"home_spotlight_all_radio" = "Усі станції";
+"home_spotlight_all_books" = "Усі аудіокниги";

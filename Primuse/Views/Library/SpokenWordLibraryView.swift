@@ -15,6 +15,20 @@ struct SpokenWordLibrarySnapshot: Sendable {
     let finished: [Entry]
     let isPrepared: Bool
 
+    /// 每本书一次:在听的、书架、已听完,与书架页从上到下的顺序一致。
+    var allEntries: [Entry] {
+        (nowListening.map { [$0] } ?? []) + shelf + finished
+    }
+
+    /// 同上,再按书架页里拖出来的顺序(`spokenWord.shelf.order`)排 —— 首页「有声书」
+    /// 没挑过时的「自定义顺序」就是书架的顺序。
+    func allEntries(shelfOrder rawValue: String) -> [Entry] {
+        let preferred = SpokenWordShelfOrder.decode(rawValue)
+        guard !preferred.isEmpty else { return allEntries }
+        return SpokenWordShelfOrder.orderedIDs(allEntries.map(\.id), preferred: preferred)
+            .compactMap { entriesByID[$0] }
+    }
+
     init(books: [SpokenWordBook] = [], songsByID: [String: Song] = [:], isPrepared: Bool = true) {
         let entries = books.map { book in
             Entry(book: book, songs: book.items.compactMap { songsByID[$0.id] })
@@ -161,6 +175,7 @@ enum SpokenWordShelfOrder {
 /// finished ones folded away underneath.
 struct SpokenWordLibraryView: View {
     @Environment(MusicLibrary.self) private var library
+    @State private var showsHomeSpotlight = false
 
     var body: some View {
         ScrollView {
@@ -168,10 +183,43 @@ struct SpokenWordLibraryView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
         }
+        // iPhone Duo 竖栏：书架铺到屏幕边缘，系统的玻璃胶囊浮在上面。
+        .pmExtendsUnderVerticalBar()
         .navigationTitle("tab_spoken_word")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            if !library.spokenWordSongs.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showsHomeSpotlight = true
+                    } label: {
+                        Label("home_spotlight_manage_books", systemImage: "house")
+                    }
+                    .accessibilityIdentifier("spokenWord.homeSpotlight")
+                }
+            }
+        }
+        #if os(iOS)
+        // 顶部 tab 外壳里有声是根页,系统导航栏不在:「首页显示哪些书」交给 tab 条。
+        .minimalRootActions {
+            if !library.spokenWordSongs.isEmpty {
+                Button {
+                    showsHomeSpotlight = true
+                } label: {
+                    Label("home_spotlight_manage_books", systemImage: "house")
+                }
+                .accessibilityIdentifier("spokenWord.homeSpotlight")
+            }
+        }
+        #endif
+        .sheet(isPresented: $showsHomeSpotlight) {
+            NavigationStack { HomeSpotlightManagementView(section: .audiobooks) }
+            #if os(macOS)
+                .frame(minWidth: 460, minHeight: 520)
+            #endif
+        }
         .overlay {
             if library.spokenWordSongs.isEmpty {
                 ContentUnavailableView(
@@ -201,6 +249,7 @@ struct SpokenWordShelfContent: View {
     @AppStorage("spokenWord.shelf.showsFinished") private var showsFinished = false
     @AppStorage("spokenWord.shelf.layout") private var layout = SpokenWordShelfLayout.bookshelf
     @AppStorage("spokenWord.shelf.order") private var savedOrder = ""
+    @AppStorage(HomeSpotlightSelection.booksStorageKey) private var homeSpotlightRawValue = ""
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
@@ -233,6 +282,8 @@ struct SpokenWordShelfContent: View {
             if let current = snapshot.nowListening {
                 SpokenWordNowListeningCard(book: current.book, songs: current.songs, tint: tint)
                     .contextMenu { bookMenu(current.book, songs: current.songs) }
+                    // 铺到 iPhone Duo 竖栏底下时，静止时就在最上面、带着「继续」的这张卡照旧让开竖栏。
+                    .pmClearOfVerticalBar()
             }
 
             if !shelf.isEmpty || !finished.isEmpty {
@@ -248,6 +299,8 @@ struct SpokenWordShelfContent: View {
                             layoutButton(.list, icon: "list.bullet", title: "songs_view_list")
                         }
                     }
+                    // 行尾的两颗版式键不钻到 iPhone Duo 竖栏的按钮底下。
+                    .pmClearOfVerticalBar()
                     if !shelf.isEmpty { bookCollection(shelf) }
                 }
             }
@@ -274,6 +327,7 @@ struct SpokenWordShelfContent: View {
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
                     .accessibilityAddTraits(.isHeader)
+                    .pmClearOfVerticalBar()
 
                     if showsFinished {
                         bookCollection(finished)
@@ -433,6 +487,19 @@ struct SpokenWordShelfContent: View {
             } else {
                 Label(String(localized: "spoken_word_mark_finished"), systemImage: "checkmark.circle")
             }
+        }
+        // 首页的「有声书」一排放哪些书。Mac 首页挑过就放挑中的,没挑过仍只列在听的书。
+        let homeSelection = HomeSpotlightSelection.decode(homeSpotlightRawValue)
+        let isOnHome = homeSelection.isPinned(book.id)
+        Button {
+            var updated = homeSelection
+            updated.togglePin(book.id)
+            homeSpotlightRawValue = updated.encoded()
+        } label: {
+            Label(
+                String(localized: isOnHome ? "home_spotlight_remove" : "home_spotlight_add"),
+                systemImage: isOnHome ? "house.slash" : "house"
+            )
         }
         Button {
             store.setKind(.music, forSongIDs: book.items.map(\.id))
@@ -892,6 +959,8 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
                 header()
                     .padding(16)
                     .padding(.trailing, showsScrubber ? 28 : 0)
+                    // 铺到 iPhone Duo 竖栏底下时，带着「继续」与语速的头部照旧让开竖栏。
+                    .pmClearOfVerticalBar()
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     row(index, item)
                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
@@ -901,6 +970,8 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
                             Divider().padding(.leading, 56)
                                 .padding(.trailing, showsScrubber ? SpokenWordChapterScrubber.reservedWidth : 16)
                         }
+                        // 有快速拖动条时它停在竖栏左侧，行尾连竖栏那一条一起让开。
+                        .pmClearOfVerticalBar(showsScrubber)
                         .id(item.id)
                 }
             }
@@ -934,8 +1005,12 @@ struct SpokenWordChapterList<Header: View, Row: View>: View {
                         }
                     }
                 }
+                // 拖动条固定不动：iPhone Duo 竖栏时和字母索引一样停在竖栏左侧。
+                .pmClearOfVerticalBar()
             }
         }
+        // iPhone Duo 竖栏：章节行铺到屏幕边缘，系统的玻璃胶囊浮在上面。
+        .pmExtendsUnderVerticalBar()
     }
 }
 
@@ -1338,8 +1413,8 @@ struct SpokenWordChapterEvidenceHost: View {
         NavigationStack {
             SpokenWordChapterList(items: items) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("山河故人").font(.title2.bold())
-                    Text("\(items.count) 章").foregroundStyle(.secondary)
+                    Text(verbatim: "山河故人").font(.title2.bold())
+                    Text(verbatim: "\(items.count) 章").foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } row: { index, item in

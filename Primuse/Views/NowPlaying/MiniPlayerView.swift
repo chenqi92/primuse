@@ -55,18 +55,30 @@ struct MiniPlayerSwipeContent: View {
         let artwork = model.artwork
         ZStack {
             HStack(spacing: 0) {
-                CachedArtworkView(
-                    coverRef: artwork.coverRef,
-                    songID: artwork.songID,
-                    size: artworkSize,
-                    cornerRadius: artworkCornerRadius,
-                    sourceID: artwork.sourceID,
-                    filePath: artwork.filePath,
-                    fileFormat: artwork.fileFormat,
-                    revisionToken: artwork.revisionToken
-                )
-                .artworkCrossfade()
-                .padding(.trailing, artworkTrailingSpacing)
+                if model.isSpokenWordBook {
+                    // 书是竖的:同一块槽位里放 3:4 的书封。
+                    SpokenWordBookCover(
+                        song: model.currentSong,
+                        width: SpokenWordCoverLayout.width(forHeight: artworkSize),
+                        cornerRadius: max(3, artworkCornerRadius * 0.6),
+                        decodeSize: artworkSize * 2
+                    )
+                    .frame(width: artworkSize, height: artworkSize)
+                    .padding(.trailing, artworkTrailingSpacing)
+                } else {
+                    CachedArtworkView(
+                        coverRef: artwork.coverRef,
+                        songID: artwork.songID,
+                        size: artworkSize,
+                        cornerRadius: artworkCornerRadius,
+                        sourceID: artwork.sourceID,
+                        filePath: artwork.filePath,
+                        fileFormat: artwork.fileFormat,
+                        revisionToken: artwork.revisionToken
+                    )
+                    .artworkCrossfade()
+                    .padding(.trailing, artworkTrailingSpacing)
+                }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(model.title)
@@ -76,23 +88,24 @@ struct MiniPlayerSwipeContent: View {
                         .foregroundStyle(.skin(.textPrimary))
                         .contentTransition(.opacity)
 
-                    if showsSubtitle, let subtitle = model.subtitle {
-                        switch subtitle {
-                        case .error(let error):
-                            // A song picked from a list can fail with the player
-                            // closed; this line is the only place left to say why.
-                            Text(verbatim: error)
-                                .font(.caption2)
-                                .lineLimit(1)
-                                .foregroundStyle(.orange)
-                                .contentTransition(.opacity)
-                        case .artist(let artist):
-                            Text(artist)
-                                .font(.caption2)
-                                .lineLimit(1)
-                                .foregroundStyle(.skin(.textSecondary))
-                                .contentTransition(.opacity)
-                        }
+                    let subtitle = showsSubtitle ? model.subtitle : nil
+                    if case .error(let error)? = subtitle {
+                        // A song picked from a list can fail with the player
+                        // closed; this line is the only place left to say why.
+                        Text(verbatim: error)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .foregroundStyle(.orange)
+                            .contentTransition(.opacity)
+                    } else if model.isSpokenWordBook {
+                        // 有声内容总带这一行:第几章、本章还剩多久。书名已经在上面了。
+                        MiniPlayerSpokenWordSubtitle(model: model)
+                    } else if case .artist(let artist)? = subtitle {
+                        Text(artist)
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .foregroundStyle(.skin(.textSecondary))
+                            .contentTransition(.opacity)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -202,7 +215,21 @@ struct MiniPlayerSwipeContent: View {
     }
 }
 
-/// 附件迷你条右侧的播放 / 暂停与下一首(有声内容是前进 30 秒)。
+/// 迷你条上有声内容的第二行:「第 12 章 · 本章还剩约 18 分钟」。单独一个视图,
+/// 播放时钟的高频刷新只落在这一行上。
+private struct MiniPlayerSpokenWordSubtitle: View {
+    let model: NowPlayingBarModel
+
+    var body: some View {
+        Text(verbatim: model.spokenWordPartLine)
+            .font(.caption2.monospacedDigit())
+            .lineLimit(1)
+            .foregroundStyle(.skin(.textSecondary))
+            .contentTransition(.opacity)
+    }
+}
+
+/// 附件迷你条右侧的播放 / 暂停与下一首(有声内容是播放键前的「后退」)。
 struct MiniPlayerTransportControls: View {
     let model: NowPlayingBarModel
     var isInline = false
@@ -215,6 +242,21 @@ struct MiniPlayerTransportControls: View {
 
     var body: some View {
         HStack(spacing: isInline ? 0 : 4) {
+            // 有声内容在播放键前放「后退」:漏听一句往回倒是听书最常按的键。
+            // 前进与下一条目都不放 —— 下一条目是另一集甚至另一本,迷你条上误触代价太大。
+            if model.isSpokenWordBook {
+                Button {
+                    model.skipSpokenWordBackward()
+                } label: {
+                    Image(systemName: model.spokenWordSkipBackwardSymbol)
+                        .font(iconFont)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .accessibilityLabel(String(localized: "a11y_skip_backward"))
+            }
+
             Button {
                 model.togglePlayPause()
             } label: {
@@ -245,19 +287,8 @@ struct MiniPlayerTransportControls: View {
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play")))
 
-            // 有声内容按「前进 30 秒」用: 下一条目是另一本书或另一集,
-            // 在迷你播放器上误触的代价比漏听一段大得多。
-            if model.isSpokenWord, !model.isLiveRadio {
-                Button {
-                    model.skipSpokenWordForward()
-                } label: {
-                    Image(systemName: model.spokenWordSkipForwardSymbol)
-                        .font(iconFont)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .accessibilityLabel(String(localized: "a11y_skip_forward"))
+            if model.isSpokenWordBook {
+                EmptyView()
             } else if showsNextButton && (!model.isLiveRadio || model.canSwitchRadioStation) {
                 Button {
                     Task { await model.next() }

@@ -195,12 +195,17 @@ final class ListeningFeaturesTests: XCTestCase {
     func testSpokenWordAndMusicKeepSeparateRates() throws {
         let player = try makePlayer()
         player.playbackSettings.outputMode = .effects
-        player.playbackSettings.playbackRate = 1
+        player.playbackSettings.playbackRate = 1.25
         player.playbackSettings.spokenWordPlaybackRate = 1.5
-        XCTAssertEqual(player.requestedPlaybackRate(for: song("m")), 1)
+        XCTAssertEqual(player.requestedPlaybackRate(for: song("m")), 1.25)
         XCTAssertEqual(player.requestedPlaybackRate(for: song("b", genre: "Audiobook")), 1.5)
         player.playbackSettings.outputMode = .highFidelity
-        XCTAssertEqual(player.requestedPlaybackRate(for: song("b", genre: "Audiobook")), 1)
+        XCTAssertEqual(player.requestedPlaybackRate(for: song("b", genre: "Audiobook")), 1.5)
+        XCTAssertEqual(player.outputMode(for: song("b", genre: "Audiobook")), .effects)
+        XCTAssertEqual(player.requestedPlaybackRate(for: song("m")), 1)
+        XCTAssertEqual(player.outputMode(for: song("m")), .highFidelity)
+        XCTAssertEqual(player.playbackSettings.playbackRate, 1.25)
+        XCTAssertEqual(player.playbackSettings.outputMode, .highFidelity)
     }
 
     func testSkipIntervalsFollowTheSettingAndSnapToAGlyph() throws {

@@ -24,6 +24,16 @@ struct NowPlayingMoreActions {
     /// `showsPlaybackModeActions` 决定露不露。
     let toggleShuffle: () -> Void
     let cycleRepeatMode: () -> Void
+    /// 有声内容:目录与书签、转到这本书。
+    let showChapterList: () -> Void
+    let openBook: () -> Void
+    let startKaraoke: () -> Void
+    let startMedley: () -> Void
+    let continueMedleySongInFull: () -> Void
+    /// iPhone Duo 竖栏那一列放不下时收进来的几颗(快照的 `columnOverflow`)。
+    let toggleLike: () -> Void
+    let showEffectPicker: () -> Void
+    let lockControls: () -> Void
 }
 
 /// 播放页「更多」的分组面板(`SkinSurfaceVariant.Player.sheetActions`)。
@@ -60,7 +70,11 @@ struct NowPlayingActionsPanel: View {
 
                 quickTiles
 
+                columnOverflowRow
+
                 playbackModeRow
+
+                playModesRow
 
                 sectionTitle("now_playing_panel_song_section")
                 // 「这首歌」这一组是一排圆形图标:都是一步就走的动作,认图标比读长条快。
@@ -70,16 +84,28 @@ struct NowPlayingActionsPanel: View {
                     spacing: dynamicTypeSize.isAccessibilitySize ? 8 : 14
                 ) {
                     songCell("add_to_playlist", "text.badge.plus", enabled: snapshot.hasSong, actions.addToPlaylist)
-                    songCell("similar_songs", "sparkles", enabled: snapshot.hasSong, actions.showSimilarSongs)
+                    if !snapshot.isSpokenWord {
+                        songCell("similar_songs", "sparkles", enabled: snapshot.hasSong, actions.showSimilarSongs)
+                    }
                     if snapshot.canShare {
                         songCell("share", "square.and.arrow.up", enabled: true, actions.share)
                     }
                     songCell("song_info", "info.circle", enabled: snapshot.hasSong, actions.showSongInfo)
-                    if snapshot.canOpenAlbum {
-                        songCell("go_to_album", "square.stack", enabled: true, actions.openAlbum)
-                    }
-                    if snapshot.canOpenArtist {
-                        songCell("go_to_artist", "music.mic", enabled: true, actions.openArtist)
+                    // 有声内容:「转到专辑 / 艺术家」换成这本书的目录与书页,和系统菜单一个口径。
+                    if snapshot.isSpokenWord {
+                        if snapshot.hasChapterList {
+                            songCell("spoken_word_chapters_and_bookmarks", "list.bullet.indent", enabled: true, actions.showChapterList)
+                        }
+                        if snapshot.canOpenBook {
+                            songCell("spoken_word_go_to_book", "books.vertical", enabled: true, actions.openBook)
+                        }
+                    } else {
+                        if snapshot.canOpenAlbum {
+                            songCell("go_to_album", "square.stack", enabled: true, actions.openAlbum)
+                        }
+                        if snapshot.canOpenArtist {
+                            songCell("go_to_artist", "music.mic", enabled: true, actions.openArtist)
+                        }
                     }
                     if snapshot.appleMusicCatalogURL != nil {
                         songCell("apple_music_open_in_app", "arrow.up.right.square", enabled: true, actions.openInAppleMusic)
@@ -88,12 +114,14 @@ struct NowPlayingActionsPanel: View {
 
                 sectionTitle("now_playing_panel_manage_section")
                 LazyVGrid(columns: columns, spacing: 8) {
-                    cell(
-                        "scrape_song",
-                        "wand.and.stars",
-                        enabled: snapshot.hasSong && !snapshot.isScrapingCurrentSong,
-                        actions.scrape
-                    )
+                    if !snapshot.isSpokenWord {
+                        cell(
+                            "scrape_song",
+                            "wand.and.stars",
+                            enabled: snapshot.hasSong && !snapshot.isScrapingCurrentSong,
+                            actions.scrape
+                        )
+                    }
                     if !snapshot.isAppleMusicMode {
                         cell("tag_editor_menu", "tag", enabled: snapshot.hasSong, actions.editTags)
                         cell("lyrics_editor_menu", "quote.bubble", enabled: snapshot.hasSong, actions.editLyrics)
@@ -108,8 +136,11 @@ struct NowPlayingActionsPanel: View {
                     }
                 }
 
-                sectionTitle("lyrics_title")
-                lyricsSection
+                // 有声内容没有歌词动效,字号与翻译也只在看文字稿时给;都没有时整组不出现。
+                if !snapshot.isSpokenWord || snapshot.showsLyricsPreferences {
+                    sectionTitle("lyrics_title")
+                    lyricsSection
+                }
 
                 if snapshot.canDeleteSourceFile {
                     Button {
@@ -136,23 +167,41 @@ struct NowPlayingActionsPanel: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            CachedArtworkView(
-                coverRef: player.currentSong?.coverArtFileName,
-                songID: player.currentSong?.id ?? "",
-                size: 48,
-                cornerRadius: skin.rawMetric(.radiusArtwork) + 2,
-                sourceID: player.currentSong?.sourceID,
-                filePath: player.currentSong?.filePath,
-                fileFormat: player.currentSong?.fileFormat,
-                revisionToken: player.coverRevision
-            )
+            if snapshot.isSpokenWord {
+                // 书是竖的:同一块槽位里放 3:4 的书封。
+                SpokenWordBookCover(
+                    song: player.currentSong,
+                    width: SpokenWordCoverLayout.width(forHeight: 48),
+                    cornerRadius: skin.rawMetric(.radiusArtwork),
+                    decodeSize: 96
+                )
+                .frame(width: 48, height: 48)
+            } else {
+                CachedArtworkView(
+                    coverRef: player.currentSong?.coverArtFileName,
+                    songID: player.currentSong?.id ?? "",
+                    size: 48,
+                    cornerRadius: skin.rawMetric(.radiusArtwork) + 2,
+                    sourceID: player.currentSong?.sourceID,
+                    filePath: player.currentSong?.filePath,
+                    fileFormat: player.currentSong?.fileFormat,
+                    revisionToken: player.coverRevision
+                )
+            }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(player.currentSong?.title ?? "")
+                Text(snapshot.isSpokenWord ? SpokenWordPlayerText.bookTitle(player) : (player.currentSong?.title ?? ""))
                     .font(skin.font(.bodyStrong))
                     .foregroundStyle(.skin(.textPrimary))
                     .lineLimit(1)
-                if let song = player.currentSong,
+                if snapshot.isSpokenWord {
+                    if let part = SpokenWordPlayerText.partTitle(player) {
+                        Text(part)
+                            .font(skin.font(.caption))
+                            .foregroundStyle(.skin(.textSecondary))
+                            .lineLimit(1)
+                    }
+                } else if let song = player.currentSong,
                    let artist = library.artistDisplayName(for: song),
                    !artist.isEmpty {
                     Text(artist)
@@ -268,6 +317,55 @@ struct NowPlayingActionsPanel: View {
         }
     }
 
+    /// iPhone Duo 竖栏那一列放不下时收进来的按钮(锁、全屏效果、喜欢),与系统菜单里那一组相同。
+    /// 喜欢就地切换,不收起面板;另外两样会换掉播放页的状态,收起面板后再做。
+    @ViewBuilder
+    private var columnOverflowRow: some View {
+        let overflow = snapshot.columnOverflow
+        if !overflow.isEmpty {
+            LazyVGrid(columns: columns, spacing: 8) {
+                if overflow.like {
+                    Button(action: actions.toggleLike) {
+                        cellLabel(
+                            snapshot.isCurrentLiked ? "a11y_unlike" : "a11y_like",
+                            snapshot.isCurrentLiked ? "heart.fill" : "heart",
+                            tint: snapshot.isCurrentLiked ? skin.color(.accent) : nil
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!snapshot.hasSong)
+                    .opacity(snapshot.hasSong ? 1 : 0.4)
+                }
+                if overflow.effect {
+                    cell("fullscreen_effect_settings_title", "viewfinder.rectangular", enabled: true, actions.showEffectPicker)
+                }
+                if overflow.lock {
+                    cell("immersive_lock_controls", "lock", enabled: true, actions.lockControls)
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    /// 卡拉OK 与串烧:和系统菜单一样,只在这首歌能这么玩时出现。
+    @ViewBuilder
+    private var playModesRow: some View {
+        let showsMedley = snapshot.isMedleyActive || snapshot.canStartMedley
+        if snapshot.canStartKaraoke || showsMedley {
+            LazyVGrid(columns: columns, spacing: 8) {
+                if snapshot.canStartKaraoke {
+                    cell("karaoke_title", "music.mic.circle", enabled: true, actions.startKaraoke)
+                }
+                if snapshot.isMedleyActive {
+                    cell("medley_continue_full", "music.note", enabled: true, actions.continueMedleySongInFull)
+                } else if snapshot.canStartMedley {
+                    cell("medley_play_selection", "rectangle.stack.badge.play", enabled: true, actions.startMedley)
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
     /// 循环模式当前状态对应的图标,与系统菜单里那份保持一致。
     private static func repeatSymbol(for mode: RepeatMode) -> String {
         switch mode {
@@ -348,17 +446,19 @@ struct NowPlayingActionsPanel: View {
                 }
             }
 
-            Toggle(isOn: $lyricsMotionEnabled) {
-                Label("immersive_lyrics_motion_title", systemImage: "text.line.first.and.arrowtriangle.forward")
-                    .font(skin.font(.callout))
-                    .foregroundStyle(.skin(.textPrimary))
+            if !snapshot.isSpokenWord {
+                Toggle(isOn: $lyricsMotionEnabled) {
+                    Label("immersive_lyrics_motion_title", systemImage: "text.line.first.and.arrowtriangle.forward")
+                        .font(skin.font(.callout))
+                        .foregroundStyle(.skin(.textPrimary))
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 50)
+                .background(
+                    skin.color(.surface),
+                    in: RoundedRectangle(cornerRadius: skin.rawMetric(.radiusCard), style: .continuous)
+                )
             }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 50)
-            .background(
-                skin.color(.surface),
-                in: RoundedRectangle(cornerRadius: skin.rawMetric(.radiusCard), style: .continuous)
-            )
         }
     }
 

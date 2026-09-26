@@ -223,6 +223,8 @@ struct TopTabsChrome: View {
     @Namespace private var indicatorNamespace
     /// 竖栏顶端要让开的遮挡(竖排的状态栏与摄像头),按系统报的遮挡区量出来。
     @State private var railTopClearance = CGFloat(TopTabsRailLayoutPolicy.minimumTopClearance)
+    /// 竖栏底部按钮组要让开的遮挡:外屏横握摄像头在右下角的那个方向,遮挡区贴着竖栏底部。
+    @State private var railBottomClearance = CGFloat(TopTabsRailLayoutPolicy.minimumBottomClearance)
     /// 竖栏那一列的中线相对竖栏正中的偏移:系统自己的竖栏按钮列对着前置摄像头的中线,这里跟它对齐。
     @State private var railColumnOffset: CGFloat = 0
 
@@ -302,6 +304,8 @@ struct TopTabsChrome: View {
     ///
     /// 竖栏时和系统竖栏同一种画法:没有整条底色,tab 是一颗玻璃胶囊(顶上,贴着遮挡区下沿),
     /// 页面动作与搜索、设置各是一颗玻璃胶囊(底下);整列对着前置摄像头的中线,和系统竖栏的按钮列对齐。
+    /// 遮挡区按系统报的实际矩形让:在竖栏顶上时 tab 胶囊从它下面开始,在底下(外屏横握摄像头在右下角)
+    /// 时按钮组贴着它上沿往上排。
     private var bar: some View {
         let isRail = isRail
         let layout = isRail
@@ -313,13 +317,18 @@ struct TopTabsChrome: View {
         }
         .frame(height: isRail ? nil : rowHeight)
         .padding(.top, isRail ? railTopClearance : 0)
-        .padding(.bottom, isRail ? Self.railBottomInset : 0)
+        .padding(.bottom, isRail ? railBottomClearance : 0)
         .offset(x: isRail ? railColumnOffset : 0)
         .onGeometryChange(for: TopTabsRailPlacement.self) { proxy in
             guard isRail else { return TopTabsRailPlacement() }
             let occlusions = PMReservedRegions.activeOcclusions(in: proxy)
+            let spans = occlusions.map { (minY: $0.minY, maxY: $0.maxY) }
             let clearance = CGFloat(TopTabsRailLayoutPolicy.topClearance(
-                occlusions: occlusions.map { (minY: $0.minY, maxY: $0.maxY) },
+                occlusions: spans,
+                railHeight: Double(proxy.size.height)
+            ))
+            let bottomClearance = CGFloat(TopTabsRailLayoutPolicy.bottomClearance(
+                occlusions: spans,
                 railHeight: Double(proxy.size.height)
             ))
             // 前置摄像头是竖栏里那块小的遮挡区;对不上(没有摄像头、或不在这一列里)就不挪。
@@ -327,9 +336,14 @@ struct TopTabsChrome: View {
                 .filter { $0.width <= 60 && $0.minX >= 0 && $0.maxX <= Double(proxy.size.width) }
                 .min { $0.width < $1.width }
             let offset = camera.map { CGFloat(($0.minX + $0.maxX) / 2) - proxy.size.width / 2 } ?? 0
-            return TopTabsRailPlacement(topClearance: clearance, columnOffset: max(-12, min(12, offset)))
+            return TopTabsRailPlacement(
+                topClearance: clearance,
+                bottomClearance: bottomClearance,
+                columnOffset: max(-12, min(12, offset))
+            )
         } action: { placement in
             railTopClearance = placement.topClearance
+            railBottomClearance = placement.bottomClearance
             railColumnOffset = placement.columnOffset
         }
     }
@@ -525,23 +539,23 @@ struct TopTabsChrome: View {
     private static let railButtonHeight: CGFloat = 44
     /// 竖栏里玻璃胶囊的宽度,与系统竖栏的胶囊一样宽。
     static let railCapsuleWidth: CGFloat = 52
-    /// 竖栏底部离屏幕下沿(安全区以内)的距离。
-    private static let railBottomInset: CGFloat = 4
 }
 
-/// 竖栏时固定在页面顶上的那几行只画在页面这一块里(横滑的内容会顺着滚动方向伸进安全区);
+/// 竖栏时固定在页面顶上的那几行只画在页面这一块里(横滑的内容会顺着滚动方向伸进安全区),
+/// 与 `pmPinnedRowStopsAtVerticalBar()` 一样只裁左右、上下放开(胶囊按下时的放大不被切掉);
 /// 横排时给一块足够大的区域,等于不裁。用形状而不是条件分支,竖排 ⇄ 横排时这一行的滚动位置不丢。
 private struct TopTabsRailRowClip: Shape {
     var clips: Bool
 
     func path(in rect: CGRect) -> Path {
-        Path(clips ? rect : rect.insetBy(dx: -10_000, dy: -10_000))
+        Path(clips ? rect.insetBy(dx: 0, dy: -10_000) : rect.insetBy(dx: -10_000, dy: -10_000))
     }
 }
 
-/// 竖栏的遮挡区读数:顶端要让多少、整列往哪边挪多少。
+/// 竖栏的遮挡区读数:顶端、底部各要让多少,整列往哪边挪多少。
 private struct TopTabsRailPlacement: Equatable {
     var topClearance = CGFloat(TopTabsRailLayoutPolicy.minimumTopClearance)
+    var bottomClearance = CGFloat(TopTabsRailLayoutPolicy.minimumBottomClearance)
     var columnOffset: CGFloat = 0
 }
 

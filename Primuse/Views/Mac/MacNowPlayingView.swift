@@ -55,6 +55,7 @@ struct MacNowPlayingView: View {
     /// 全屏时是否切到「沉浸展示」(共享的 ImmersiveStageView),而非常规播放页。
     @State private var showsImmersiveStage = false
     @State private var showsRadioSleepTimer = false
+    @State private var showsSpokenWordSleepTimer = false
     @State private var radioDetailStationID: String?
     @State private var preferences = MacUIPreferences.shared
     @AppStorage(FullscreenPlayerEffect.storageKey)
@@ -112,6 +113,20 @@ struct MacNowPlayingView: View {
     private var isCurrentLiked: Bool {
         guard let songID = player.currentSong?.id else { return false }
         return library.isLiked(songID: songID)
+    }
+
+    private var isSpokenWord: Bool {
+        player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
+    private var spokenWordPalette: SpokenWordPlayerPalette {
+        SpokenWordPlayerPalette(
+            primary: playerPrimaryColor,
+            secondary: playerSecondaryColor,
+            tertiary: playerFaintColor,
+            accent: theme.accentColor,
+            tileFill: playerGlassFill
+        )
     }
 
     private var usesLightPlayerAppearance: Bool { colorScheme == .light }
@@ -178,8 +193,17 @@ struct MacNowPlayingView: View {
                             artworkPane
                                 .frame(width: isWindowFullScreen ? 520 : 380)
                                 .frame(maxHeight: .infinity)
-                            lyricsPane
+                            if isSpokenWord {
+                                // 有声内容的右栏是这本书的目录与书签;有文字稿时多一页文字。
+                                SpokenWordContentsView(
+                                    presentation: .embedded(spokenWordPalette),
+                                    textTab: lyrics.isEmpty ? nil : AnyView(lyricsPane)
+                                )
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            } else {
+                                lyricsPane
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
                         }
                         .padding(.horizontal, isWindowFullScreen ? 100 : 56)
                         .padding(.top, isWindowFullScreen ? 70 : 50)
@@ -646,6 +670,15 @@ struct MacNowPlayingView: View {
                         RoundedRectangle(cornerRadius: coverRadius, style: .continuous)
                             .strokeBorder(playerPrimaryColor.opacity(0.14), lineWidth: 0.5)
                     }
+                } else if isSpokenWord {
+                    // 书是竖的:3:4 书框,比方形槽位略矮,把高度让给下面的功能块。
+                    SpokenWordBookCover(
+                        song: player.currentSong,
+                        width: (coverSize * 0.72).rounded(),
+                        cornerRadius: coverRadius * 0.6,
+                        decodeSize: coverSize
+                    )
+                    .frame(width: coverSize, height: coverSize * 0.96, alignment: frameAlignment)
                 } else if let song = player.currentSong {
                     CachedArtworkView(
                         coverRef: song.coverArtFileName,
@@ -686,6 +719,9 @@ struct MacNowPlayingView: View {
             )
             .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
 
+            if isSpokenWord {
+                spokenWordDetails(alignment: horizontalAlignment, frameAlignment: frameAlignment, width: coverSize)
+            } else {
             VStack(alignment: horizontalAlignment, spacing: 0) {
                 Text(nowPlayingInfoLine)
                     .font(.system(size: 11, weight: .semibold))
@@ -733,6 +769,7 @@ struct MacNowPlayingView: View {
                 )
                 .frame(width: coverSize, alignment: frameAlignment)
             }
+            }
 
             if isWindowFullScreen {
                 MacNowPlayingProgressRow(width: coverSize, accent: theme.accentColor)
@@ -740,6 +777,46 @@ struct MacNowPlayingView: View {
 
             Spacer(minLength: 0)
         }
+    }
+
+    /// 有声内容的左栏下半截:书名、正在听的章、演播者与「第几章」,全书进度,
+    /// 语速 / 定时 / 书签三块(目录在右栏)。窗口模式下进度条在底栏,这里只补全书那一行。
+    private func spokenWordDetails(
+        alignment: HorizontalAlignment,
+        frameAlignment: Alignment,
+        width: CGFloat
+    ) -> some View {
+        VStack(alignment: alignment, spacing: isWindowFullScreen ? 18 : 12) {
+            SpokenWordPlayerHeading(
+                palette: spokenWordPalette,
+                titleFont: .system(size: isWindowFullScreen ? 48 : 30),
+                partFont: .system(size: isWindowFullScreen ? 22 : 16),
+                alignment: alignment,
+                onOpenBook: {
+                    if let bookID = player.currentBookID {
+                        NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
+                    }
+                },
+                onOpenContents: {}
+            )
+
+            SpokenWordPartRemainingLabel(color: playerSecondaryColor)
+
+            SpokenWordActionTiles(
+                palette: spokenWordPalette,
+                showsContents: false,
+                tileHeight: isWindowFullScreen ? 58 : 50,
+                onSleep: { showsSpokenWordSleepTimer = true },
+                onContents: {}
+            )
+            .popover(isPresented: $showsSpokenWordSleepTimer, arrowEdge: .bottom) {
+                MacSleepTimerPopover {
+                    showsSpokenWordSleepTimer = false
+                }
+                .focusEffectDisabled()
+            }
+        }
+        .frame(width: width, alignment: frameAlignment)
     }
 
     private var lyricsPane: some View {
@@ -1695,7 +1772,7 @@ private struct MacNowPlayingSpokenWordRow: View {
             }
             .foregroundStyle(foreground)
             .sheet(isPresented: $showsChapterList) {
-                ChapterListView()
+                SpokenWordContentsView()
                     .frame(minWidth: 380, minHeight: 440)
             }
         }
