@@ -4241,6 +4241,7 @@
 "spoken_word_bookmarks_title" = "बुकमार्क";
 "spoken_word_bookmarks_empty" = "सुनते समय बुकमार्क बटन दबाएँ, ताकि जिस जगह लौटना हो उसे चिह्नित कर सकें।";
 "spoken_word_chapters_and_bookmarks" = "अध्याय और बुकमार्क";
+"spoken_word_go_to_book" = "पुस्तक पर जाएँ";
 "spoken_word_delete_bookmark" = "बुकमार्क हटाएँ";
 "spoken_word_continue" = "जारी रखें";
 "spoken_word_start" = "सुनना शुरू करें";

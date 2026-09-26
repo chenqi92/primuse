@@ -4241,6 +4241,7 @@
 "spoken_word_bookmarks_title" = "บุ๊กมาร์ก";
 "spoken_word_bookmarks_empty" = "แตะปุ่มบุ๊กมาร์กระหว่างฟังเพื่อจดตำแหน่งที่อยากกลับมาฟังอีก";
 "spoken_word_chapters_and_bookmarks" = "บทและบุ๊กมาร์ก";
+"spoken_word_go_to_book" = "ไปที่หนังสือ";
 "spoken_word_delete_bookmark" = "ลบบุ๊กมาร์ก";
 "spoken_word_continue" = "ฟังต่อ";
 "spoken_word_start" = "เริ่มฟัง";

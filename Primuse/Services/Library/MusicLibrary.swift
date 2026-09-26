@@ -3223,6 +3223,11 @@ final class MusicLibrary {
             }
         }
     }
+
+    /// Spoken-word item id → the id of the book the shelf puts it in.
+    @ObservationIgnored private(set) var spokenWordBookIDs: [String: String] = [:]
+    /// How many books the spoken-word items make.
+    private(set) var spokenWordBookCount = 0
     private var visibleAlbumsReference = LibraryArrayReference<Album>()
     private(set) var visibleAlbums: [Album] {
         get { visibleAlbumsReference.value }
@@ -3314,6 +3319,8 @@ final class MusicLibrary {
         let musicSongs: [Song]
         let spokenWordSongs: [Song]
         let spokenWordSongIDs: Set<String>
+        /// Spoken-word item id → book id, as the bookshelf groups them.
+        let spokenWordBookIDs: [String: String]
         let albums: [Album]
         let artists: [Artist]
         let genres: [LibraryGenre]
@@ -3708,6 +3715,8 @@ final class MusicLibrary {
         musicSongs = prepared.musicSongs
         spokenWordSongs = prepared.spokenWordSongs
         spokenWordSongIDs = prepared.spokenWordSongIDs
+        spokenWordBookIDs = prepared.spokenWordBookIDs
+        spokenWordBookCount = Set(prepared.spokenWordBookIDs.values).count
         visibleAlbums = prepared.albums
         visibleArtists = prepared.artists
         visibleGenres = prepared.genres
@@ -3815,6 +3824,12 @@ final class MusicLibrary {
             musicSongs: musicSongs,
             spokenWordSongs: spokenWordSongs,
             spokenWordSongIDs: spokenWordSongIDs,
+            // Grouping reads other items (a folder's album, an album's only
+            // author), so it is done once per library change, here, rather
+            // than per item wherever a book id is needed.
+            spokenWordBookIDs: spokenWordSongs.isEmpty
+                ? [:]
+                : SpokenWordBookGrouping.bookIDs(for: spokenWordSongs.map { SpokenWordBookItem(song: $0) }),
             albums: nextVisibleAlbums,
             artists: nextVisibleArtists,
             genres: genreIndex.genres,

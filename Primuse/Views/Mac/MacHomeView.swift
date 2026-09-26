@@ -2121,12 +2121,14 @@ private struct MacHomeResumeRow: View {
                     SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
                 }
             ) {
-                CachedArtworkView(
-                    coverRef: cover.coverArtFileName, songID: cover.id,
-                    size: 56, cornerRadius: PMRadius.m,
-                    sourceID: cover.sourceID, filePath: cover.filePath,
-                    fileFormat: cover.fileFormat
+                // Book-shaped at the row's 56 pt height, centred in the same
+                // 56 pt slot as the square covers so titles stay aligned.
+                SpokenWordBookCover(
+                    song: cover,
+                    width: SpokenWordCoverLayout.width(forHeight: 56),
+                    cornerRadius: PMRadius.s
                 )
+                .frame(width: 56, height: 56)
             }
         }
     }

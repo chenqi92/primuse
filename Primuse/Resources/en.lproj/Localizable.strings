@@ -4098,6 +4098,7 @@
 "spoken_word_bookmarks_title" = "Bookmarks";
 "spoken_word_bookmarks_empty" = "Tap the bookmark button while listening to mark a place you want to come back to.";
 "spoken_word_chapters_and_bookmarks" = "Chapters & Bookmarks";
+"spoken_word_go_to_book" = "Go to Book";
 "spoken_word_delete_bookmark" = "Delete Bookmark";
 "spoken_word_continue" = "Continue";
 "spoken_word_start" = "Start Listening";

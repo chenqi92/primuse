@@ -4336,6 +4336,7 @@
 "spoken_word_bookmarks_title" = "ブックマーク";
 "spoken_word_bookmarks_empty" = "聴きながらブックマークボタンをタップすると、あとで戻りたい位置を記録できます。";
 "spoken_word_chapters_and_bookmarks" = "チャプターとブックマーク";
+"spoken_word_go_to_book" = "ブックへ移動";
 "spoken_word_delete_bookmark" = "ブックマークを削除";
 "spoken_word_continue" = "続きから再生";
 "spoken_word_start" = "最初から再生";

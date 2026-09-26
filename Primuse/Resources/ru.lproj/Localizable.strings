@@ -4241,6 +4241,7 @@
 "spoken_word_bookmarks_title" = "Закладки";
 "spoken_word_bookmarks_empty" = "Во время прослушивания нажмите кнопку закладки, чтобы отметить место, к которому хотите вернуться.";
 "spoken_word_chapters_and_bookmarks" = "Главы и закладки";
+"spoken_word_go_to_book" = "Перейти к книге";
 "spoken_word_delete_bookmark" = "Удалить закладку";
 "spoken_word_continue" = "Продолжить";
 "spoken_word_start" = "Начать прослушивание";

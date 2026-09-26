@@ -4312,6 +4312,7 @@
 "spoken_word_bookmarks_title" = "書籤";
 "spoken_word_bookmarks_empty" = "收聽時點書籤按鈕，就能記下想再回來聽的位置。";
 "spoken_word_chapters_and_bookmarks" = "章節與書籤";
+"spoken_word_go_to_book" = "前往這本書";
 "spoken_word_delete_bookmark" = "刪除書籤";
 "spoken_word_continue" = "繼續收聽";
 "spoken_word_start" = "開始收聽";

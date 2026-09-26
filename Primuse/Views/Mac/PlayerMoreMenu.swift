@@ -171,6 +171,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
     }
 
+    /// 正在播有声内容: 收起相似歌曲、串烧、卡拉OK、随机/循环、在线刮削、
+    /// 歌词动效与听歌记录这些音乐的玩法, 「转到专辑/艺人」换成「转到这本书」。
+    private var isSpokenWord: Bool {
+        player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
     /// Popover 内的菜单内容。每个 row 都是真 Button,整个行 hit-testable,
     /// 没有 NSPopUpButton 那种"只点中图标才响应"的问题。
     @ViewBuilder
@@ -187,55 +193,64 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 Task { await player.next() }
             }
             divider()
-            menuRow(title: "shuffle",
-                    symbol: player.shuffleEnabled ? "checkmark" : "shuffle") {
-                player.shuffleEnabled.toggle()
+            // 有声内容按书的顺序听, 随机与循环只会打乱章节。
+            if !isSpokenWord {
+                menuRow(title: "shuffle",
+                        symbol: player.shuffleEnabled ? "checkmark" : "shuffle") {
+                    player.shuffleEnabled.toggle()
+                }
+                menuRow(title: repeatMenuTitleKey,
+                        symbol: player.repeatMode == .off ? "repeat" :
+                                 player.repeatMode == .one ? "repeat.1" : "checkmark") {
+                    cycleRepeat()
+                }
+                divider()
             }
-            menuRow(title: repeatMenuTitleKey,
-                    symbol: player.repeatMode == .off ? "repeat" :
-                             player.repeatMode == .one ? "repeat.1" : "checkmark") {
-                cycleRepeat()
-            }
-            divider()
             menuRow(title: "add_to_playlist",
                     symbol: "text.badge.plus",
                     disabled: player.currentSong == nil) {
                 showAddToPlaylist = true
             }
-            // 相似歌曲 —— 飞出二级浮层 (和字号子菜单一致),点外部自动消失,
-            // 不是之前那个没关闭按钮的固定 sheet。整行 hit-testable。
-            Button {
-                guard player.currentSong != nil else { return }
-                showSimilarSongs.toggle()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "sparkles")
-                        .frame(width: 18)
-                        .foregroundStyle(PMColor.textMuted)
-                    Text("similar_songs")
-                        .font(.callout)
-                        .foregroundStyle(PMColor.text)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                        .foregroundStyle(PMColor.textFaint)
-                }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .pmRowBackground(cornerRadius: 6)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(player.currentSong == nil)
-            .popover(isPresented: $showSimilarSongs, arrowEdge: .leading) {
-                if let song = player.currentSong {
-                    MacSimilarSongsPopover(seed: song) {
-                        showSimilarSongs = false
-                        menuShown = false
+            if !isSpokenWord {
+                // 相似歌曲 —— 飞出二级浮层 (和字号子菜单一致),点外部自动消失,
+                // 不是之前那个没关闭按钮的固定 sheet。整行 hit-testable。
+                Button {
+                    guard player.currentSong != nil else { return }
+                    showSimilarSongs.toggle()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkles")
+                            .frame(width: 18)
+                            .foregroundStyle(PMColor.textMuted)
+                        Text("similar_songs")
+                            .font(.callout)
+                            .foregroundStyle(PMColor.text)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(PMColor.textFaint)
                     }
-                    .focusEffectDisabled()
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .pmRowBackground(cornerRadius: 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.currentSong == nil)
+                .popover(isPresented: $showSimilarSongs, arrowEdge: .leading) {
+                    if let song = player.currentSong {
+                        MacSimilarSongsPopover(seed: song) {
+                            showSimilarSongs = false
+                            menuShown = false
+                        }
+                        .focusEffectDisabled()
+                    }
                 }
             }
-            if let song = player.currentSong {
+            if isSpokenWord, let bookID = player.currentBookID {
+                menuRow(title: "spoken_word_go_to_book", symbol: "books.vertical") {
+                    NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
+                }
+            } else if let song = player.currentSong {
                 if let album = matchingAlbum(for: song) {
                     menuRow(titleText: "\(goToAlbumTitle) · \(album.title)",
                             symbol: "rectangle.stack.fill") {
@@ -260,9 +275,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     disabled: player.currentSong == nil) {
                 lyricsEditorTargetSong = player.currentSong
             }
-            menuRow(title: "scrape_song", symbol: "wand.and.stars",
-                    disabled: player.currentSong == nil || isScrapingCurrentSong) {
-                requestScrapeOptions()
+            // 在线刮削查的是音乐资料库, 拿有声内容的章节名去搜只会配错。
+            if !isSpokenWord {
+                menuRow(title: "scrape_song", symbol: "wand.and.stars",
+                        disabled: player.currentSong == nil || isScrapingCurrentSong) {
+                    requestScrapeOptions()
+                }
             }
             if canReloadLyricsFromSource {
                 menuRow(
@@ -286,21 +304,23 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 shareSong = player.currentSong
             }
             divider()
-            Toggle(isOn: $lyricsMotionEnabled) {
-                HStack(spacing: 10) {
-                    Image(systemName: "text.line.first.and.arrowtriangle.forward")
-                        .frame(width: 18)
-                        .foregroundStyle(PMColor.textMuted)
-                    Text("immersive_lyrics_motion_title")
-                        .font(.callout)
-                        .foregroundStyle(PMColor.text)
-                    Spacer()
+            if !isSpokenWord {
+                Toggle(isOn: $lyricsMotionEnabled) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                            .frame(width: 18)
+                            .foregroundStyle(PMColor.textMuted)
+                        Text("immersive_lyrics_motion_title")
+                            .font(.callout)
+                            .foregroundStyle(PMColor.text)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .pmRowBackground(cornerRadius: 6)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .pmRowBackground(cornerRadius: 6)
-                .contentShape(Rectangle())
+                .toggleStyle(.switch)
             }
-            .toggleStyle(.switch)
 
             // 字号子菜单 —— 用 popover 打开第二层。
             Button { fontPickerShown.toggle() } label: {
@@ -322,7 +342,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 fontPickerPopover
             }
             divider()
-            if player.currentSong != nil, !player.isLiveRadio, !player.isAppleMusicMode {
+            if !isSpokenWord, player.currentSong != nil, !player.isLiveRadio, !player.isAppleMusicMode {
                 menuRow(title: "karaoke_title", symbol: "music.mic.circle") {
                     showKaraoke = true
                 }
@@ -331,7 +351,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 menuRow(title: "medley_continue_full", symbol: "music.note") {
                     Task { await player.continueCurrentMedleySongInFull() }
                 }
-            } else if !player.isLiveRadio, !player.isAppleMusicMode,
+            } else if !isSpokenWord, !player.isLiveRadio, !player.isAppleMusicMode,
                       player.canPlayMedleyFromQueue {
                 menuRow(title: "medley_play_selection", subtitle: String(
                     format: String(localized: "medley_queue_detail_format"),
@@ -359,8 +379,10 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     symbol: player.isSleepTimerActive ? "moon.zzz.fill" : "moon.zzz") {
                 showSleepTimer = true
             }
-            menuRow(title: "scrobble_title", symbol: "waveform.path.ecg") {
-                NotificationCenter.default.post(name: .primuseSelectScrobble, object: nil)
+            if !isSpokenWord {
+                menuRow(title: "scrobble_title", symbol: "waveform.path.ecg") {
+                    NotificationCenter.default.post(name: .primuseSelectScrobble, object: nil)
+                }
             }
             menuRow(titleText: playbackSettingsTitle, symbol: "slider.horizontal.3") {
                 openSettingsWindow()

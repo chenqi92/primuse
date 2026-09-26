@@ -22,13 +22,17 @@ struct TVOptionsView: View {
     private var actions: [Action] {
         let liked = store.currentSongID.map(store.isLiked) ?? false
         let sleepOn = store.sleepTimerMinutes > 0
-        let karaoke: [Action] = store.currentSongID == nil ? [] : [
+        // 有声内容只留睡眠定时: 卡拉OK与「我喜欢」歌单都是音乐的玩法。
+        let isSpokenWord = store.currentItemIsSpokenWord
+        let karaoke: [Action] = store.currentSongID == nil || isSpokenWord ? [] : [
             .init(icon: "music.mic", label: String(localized: "karaoke_title"), run: { showKaraoke = true }),
         ]
-        return karaoke + [
+        let love: [Action] = isSpokenWord ? [] : [
             .init(icon: liked ? "heart.fill" : "heart",
                   label: liked ? PMString("ext.tv.options.loved") : PMString("ext.tv.options.love"), on: liked,
                   run: { if let id = store.currentSongID { store.toggleLiked(id) } }),
+        ]
+        return karaoke + love + [
             .init(icon: "moon.zzz.fill",
                   label: sleepOn ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes) : PMString("ext.tv.options.sleepTimer"), on: sleepOn,
                   run: { store.cycleSleepTimer() }),

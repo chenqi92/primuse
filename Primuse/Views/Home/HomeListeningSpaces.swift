@@ -209,17 +209,7 @@ struct HomeBooksInProgressStrip: View {
                                 SpokenWordBookSupport.play(book, songs: songs, from: nil, player: player)
                             } label: {
                                 VStack(alignment: .leading, spacing: 5) {
-                                    if let cover = songs.first {
-                                        CachedArtworkView(
-                                            coverRef: cover.coverArtFileName,
-                                            songID: cover.id,
-                                            size: 104,
-                                            cornerRadius: 8,
-                                            sourceID: cover.sourceID,
-                                            filePath: cover.filePath,
-                                            fileFormat: cover.fileFormat
-                                        )
-                                    }
+                                    SpokenWordBookCover(song: songs.first, width: 104, cornerRadius: 8)
                                     ProgressView(value: book.fractionComplete)
                                         .progressViewStyle(.linear)
                                         .tint(ListeningSpace.spokenWord.tint)

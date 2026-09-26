@@ -59,9 +59,11 @@ struct SpokenWordShelf: View {
 
     private var gridColumns: [GridItem] {
         #if os(macOS)
-        [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 18, alignment: .top)]
+        [GridItem(.adaptive(minimum: 130, maximum: 180), spacing: 18, alignment: .top)]
         #else
-        [GridItem(.adaptive(minimum: 110, maximum: 180), spacing: 16, alignment: .top)]
+        // Book covers are taller than they are wide: three to a row on a
+        // phone in portrait instead of two oversized ones.
+        [GridItem(.adaptive(minimum: 100, maximum: 170), spacing: 14, alignment: .top)]
         #endif
     }
 
@@ -258,8 +260,7 @@ private struct SpokenWordNowListeningCard: View {
     @ViewBuilder
     private var details: some View {
         let content = HStack(alignment: .top, spacing: 14) {
-            SpokenWordCover(song: songs.first, size: 112, cornerRadius: 12)
-                .frame(width: 112, height: 112)
+            SpokenWordBookCover(song: songs.first, width: 90, cornerRadius: 10)
                 .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
 
             VStack(alignment: .leading, spacing: 5) {
@@ -409,8 +410,7 @@ struct SpokenWordBookDetailView: View {
 
     private func header(_ book: SpokenWordBook, songs: [Song]) -> some View {
         HStack(alignment: .top, spacing: 16) {
-            SpokenWordCover(song: songs.first, size: 96, cornerRadius: 10)
-                .frame(width: 96, height: 96)
+            SpokenWordBookCover(song: songs.first, width: 96, cornerRadius: 10)
             VStack(alignment: .leading, spacing: 6) {
                 Text(book.title)
                     .font(.title3.weight(.semibold))
@@ -457,7 +457,7 @@ struct SpokenWordBookDetailView: View {
 
 // MARK: - Rows
 
-/// One book on the shelf: a square cover with its progress underneath, a
+/// One book on the shelf: a book-shaped cover with its progress underneath, a
 /// check when it has been heard to the end.
 private struct SpokenWordBookCoverCell: View {
     let book: SpokenWordBook
@@ -467,12 +467,7 @@ private struct SpokenWordBookCoverCell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Color.clear
-                .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    SpokenWordCover(song: coverSong, size: 200, cornerRadius: 10, fillsProposedSize: true)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            SpokenWordBookCover(song: coverSong, cornerRadius: 10, decodeSize: 240)
                 .overlay(alignment: .topTrailing) {
                     if book.isFinished {
                         Image(systemName: "checkmark.circle.fill")
@@ -520,24 +515,45 @@ private struct SpokenWordBookCoverCell: View {
     }
 }
 
-/// A book's cover: the first item's artwork, or the default cover.
-private struct SpokenWordCover: View {
+/// A book's cover, the first item's artwork, drawn the shape books are:
+/// a portrait frame (`SpokenWordCoverLayout`) with the artwork fitted whole
+/// inside it, never cropped to a square or stretched. Where a square or wide
+/// cover leaves room, a blurred enlargement of the same art fills it.
+/// Shared by the shelf, the book page and the home cards.
+struct SpokenWordBookCover: View {
     let song: Song?
-    let size: CGFloat
-    let cornerRadius: CGFloat
-    var fillsProposedSize = false
+    /// Fixed width, height following the book shape; nil takes the width
+    /// the container offers (a grid cell).
+    var width: CGFloat? = nil
+    var cornerRadius: CGFloat = 10
+    /// Decode bucket; defaults to the frame's longer side.
+    var decodeSize: CGFloat? = nil
 
     var body: some View {
-        CachedArtworkView(
-            coverRef: song?.coverArtFileName,
-            songID: song?.id,
-            size: size,
-            cornerRadius: cornerRadius,
-            sourceID: song?.sourceID,
-            filePath: song?.filePath,
-            fileFormat: song?.fileFormat,
-            fillsProposedSize: fillsProposedSize
-        )
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        Color.clear
+            .aspectRatio(SpokenWordCoverLayout.aspectRatio, contentMode: .fit)
+            .if(width != nil) { view in
+                view.frame(width: width!, height: SpokenWordCoverLayout.height(forWidth: width!))
+            }
+            .overlay {
+                CachedArtworkView(
+                    coverRef: song?.coverArtFileName,
+                    songID: song?.id,
+                    size: decodeSize ?? width.map { SpokenWordCoverLayout.height(forWidth: $0) } ?? 200,
+                    cornerRadius: 0,
+                    sourceID: song?.sourceID,
+                    filePath: song?.filePath,
+                    fileFormat: song?.fileFormat,
+                    placeholderIcon: "book.closed",
+                    fillsProposedSize: true
+                )
+                .bookCoverLayout()
+            }
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+            }
     }
 }
 
@@ -660,15 +676,8 @@ enum SpokenWordBookSupport {
     static func item(for song: Song, store: SpokenWordStore) -> SpokenWordBookItem {
         let stored = store.position(forSongID: song.id)
         return SpokenWordBookItem(
-            id: song.id,
-            title: song.title,
-            albumTitle: song.albumTitle,
-            albumArtist: song.albumArtistName,
-            artist: song.artistName,
-            discNumber: song.discNumber,
-            trackNumber: song.trackNumber,
-            duration: song.duration > 0 ? song.duration : (stored?.duration ?? 0),
-            fileName: song.filePath,
+            song: song,
+            knownDuration: stored?.duration,
             position: stored?.position,
             positionUpdatedAt: stored?.updatedAt,
             finishedAt: store.finishedDate(forSongID: song.id)

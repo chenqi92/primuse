@@ -4335,6 +4335,7 @@
 "spoken_word_bookmarks_title" = "Signets";
 "spoken_word_bookmarks_empty" = "Touchez le signet pendant l’écoute pour marquer un passage où revenir.";
 "spoken_word_chapters_and_bookmarks" = "Chapitres et signets";
+"spoken_word_go_to_book" = "Aller au livre";
 "spoken_word_delete_bookmark" = "Supprimer le signet";
 "spoken_word_continue" = "Reprendre";
 "spoken_word_start" = "Commencer l’écoute";

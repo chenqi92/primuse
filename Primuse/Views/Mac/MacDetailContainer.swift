@@ -11,6 +11,7 @@ struct MacDetailContainer: View {
     let listeningStatsModel: ListeningStatsView.Model
     @Binding var searchText: String
     @Binding var songLocationRequest: SongLibraryLocationRequest?
+    @Binding var spokenWordBookRequest: String?
     let onShowSongInLibrary: (Song) -> Void
     let onOpenLibrarySongs: () -> Void
     @Environment(MusicLibrary.self) private var library
@@ -41,6 +42,10 @@ struct MacDetailContainer: View {
                         .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
+                .navigationDestination(for: MacSpokenWordBookDestination.self) { destination in
+                    SpokenWordBookDetailView(bookID: destination.bookID)
+                        .pmAppearFade()
+                }
                 .navigationDestination(for: SmartPlaylist.self) { smart in
                     SmartPlaylistDetailView(
                         smartPlaylistID: smart.id,
@@ -57,6 +62,8 @@ struct MacDetailContainer: View {
         .environment(\.macFolderShowInLibrary) { song in
             onShowSongInLibrary(song)
         }
+        .onAppear { consumeSpokenWordBookRequest() }
+        .onChange(of: spokenWordBookRequest) { _, _ in consumeSpokenWordBookRequest() }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailGoBack)) { _ in
             if !path.isEmpty { path.removeLast() }
         }
@@ -175,6 +182,19 @@ struct MacDetailContainer: View {
         path.removeLast()
     }
 
+    /// 播放页「转到这本书」: 只在「有声」一栏取走请求, 书压在书架上面。
+    private func consumeSpokenWordBookRequest() {
+        guard let bookID = spokenWordBookRequest,
+              case .section(.spokenWord) = route else { return }
+        spokenWordBookRequest = nil
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            path = NavigationPath()
+            path.append(MacSpokenWordBookDestination(bookID: bookID))
+        }
+    }
+
     private func clearDetailPath() {
         guard !path.isEmpty else { return }
         var transaction = Transaction()
@@ -183,5 +203,10 @@ struct MacDetailContainer: View {
             path = NavigationPath()
         }
     }
+}
+
+/// 详情栈里的一本有声书。单独一个类型, 免得和别处以 String 压栈的目的地撞上。
+struct MacSpokenWordBookDestination: Hashable {
+    let bookID: String
 }
 #endif

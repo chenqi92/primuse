@@ -4241,6 +4241,7 @@
 "spoken_word_bookmarks_title" = "Zakładki";
 "spoken_word_bookmarks_empty" = "Stuknij zakładkę podczas słuchania, aby zaznaczyć miejsce, do którego chcesz wrócić.";
 "spoken_word_chapters_and_bookmarks" = "Rozdziały i zakładki";
+"spoken_word_go_to_book" = "Przejdź do książki";
 "spoken_word_delete_bookmark" = "Usuń zakładkę";
 "spoken_word_continue" = "Kontynuuj";
 "spoken_word_start" = "Zacznij słuchać";

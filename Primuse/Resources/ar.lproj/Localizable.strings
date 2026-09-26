@@ -4241,6 +4241,7 @@
 "spoken_word_bookmarks_title" = "الإشارات المرجعية";
 "spoken_word_bookmarks_empty" = "اضغط زر الإشارة المرجعية أثناء الاستماع لتحديد موضع تريد العودة إليه.";
 "spoken_word_chapters_and_bookmarks" = "الفصول والإشارات المرجعية";
+"spoken_word_go_to_book" = "اذهب إلى الكتاب";
 "spoken_word_delete_bookmark" = "حذف الإشارة المرجعية";
 "spoken_word_continue" = "متابعة";
 "spoken_word_start" = "بدء الاستماع";

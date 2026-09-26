@@ -624,6 +624,8 @@ struct NowPlayingView: View {
     @Namespace private var albumPresentationNamespace
     @State private var presentedAlbum: Album?
     @State private var albumPresentationSourceID: NowPlayingAlbumTransitionID?
+    /// 「转到这本书」: 有声内容的书详情, 用法同 `presentedAlbum`。
+    @State private var presentedBook: NowPlayingBookRoute?
     #endif
     @State private var showLyrics = false
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
@@ -715,7 +717,7 @@ struct NowPlayingView: View {
 
     private var isAlbumPresentationActive: Bool {
         #if os(iOS)
-        presentedAlbum != nil
+        presentedAlbum != nil || presentedBook != nil
         #else
         false
         #endif
@@ -980,6 +982,17 @@ struct NowPlayingView: View {
         }
     }
     #endif
+
+    /// 有声内容的「转到这本书」: iPhone/iPad 在播放页上弹出书详情(和专辑一样
+    /// 不收起播放页), Mac 交给主窗口的详情栈。
+    private func presentCurrentBook() {
+        guard let bookID = player.currentBookID else { return }
+        #if os(iOS)
+        presentedBook = NowPlayingBookRoute(id: bookID)
+        #elseif os(macOS)
+        NotificationCenter.default.post(name: .primuseDetailOpenSpokenWordBook, object: bookID)
+        #endif
+    }
 
     private func toggleLikedCurrent() {
         guard let songID = player.currentSong?.id else { return }
@@ -1954,6 +1967,14 @@ struct NowPlayingView: View {
             onDismiss: { albumPresentationSourceID = nil }
         ) { album in
             albumDetailPresentation(album)
+        }
+        .sheet(item: $presentedBook) { route in
+            NavigationStack {
+                SpokenWordBookDetailView(bookID: route.id)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
         }
         #endif
         .sheet(item: $scrapeTargetSong) { song in
@@ -3073,19 +3094,24 @@ struct NowPlayingView: View {
 
             Spacer(minLength: 0)
 
-            immersiveEffectButton(glass: .adaptive)
-
-            NowPlayingGlassActionButton(
-                symbol: isCurrentLiked ? "heart.fill" : "heart",
-                label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
-                appearance: appearance,
-                tint: isCurrentLiked ? .red : appearance.primary,
-                diameter: diameter,
-                isSelected: isCurrentLiked
-            ) {
-                toggleLikedCurrent()
+            if !usesSpokenWordTransport {
+                immersiveEffectButton(glass: .adaptive)
             }
-            .disabled(player.currentSong == nil)
+
+            // 「我喜欢」是音乐歌单, 有声内容不出现。
+            if !usesSpokenWordTransport {
+                NowPlayingGlassActionButton(
+                    symbol: isCurrentLiked ? "heart.fill" : "heart",
+                    label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
+                    appearance: appearance,
+                    tint: isCurrentLiked ? .red : appearance.primary,
+                    diameter: diameter,
+                    isSelected: isCurrentLiked
+                ) {
+                    toggleLikedCurrent()
+                }
+                .disabled(player.currentSong == nil)
+            }
 
             makeMoreMenu(immersiveChrome: true, chromeGlass: .adaptive)
 
@@ -3387,17 +3413,20 @@ struct NowPlayingView: View {
 
                     Spacer()
 
-                    Button { toggleLikedCurrent() } label: {
-                        nowPlayingActionIcon(
-                            symbol: isCurrentLiked ? "heart.fill" : "heart",
-                            tint: isCurrentLiked ? .red : appearance.secondary,
-                            isSelected: isCurrentLiked
-                        )
+                    // 「我喜欢」是音乐歌单, 有声内容不出现。
+                    if !usesSpokenWordTransport {
+                        Button { toggleLikedCurrent() } label: {
+                            nowPlayingActionIcon(
+                                symbol: isCurrentLiked ? "heart.fill" : "heart",
+                                tint: isCurrentLiked ? .red : appearance.secondary,
+                                isSelected: isCurrentLiked
+                            )
+                        }
+                        .frame(width: 44, height: 44)
+                        .buttonStyle(.plain)
+                        .disabled(player.currentSong == nil)
+                        .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
                     }
-                    .frame(width: 44, height: 44)
-                    .buttonStyle(.plain)
-                    .disabled(player.currentSong == nil)
-                    .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
                     immersiveMoreMenu
                 }
@@ -3598,16 +3627,19 @@ struct NowPlayingView: View {
 
                             musicVideoToggleButton(font: .title3, trailing: 4)
 
-                            Button { toggleLikedCurrent() } label: {
-                                nowPlayingActionIcon(
-                                    symbol: isCurrentLiked ? "heart.fill" : "heart",
-                                    tint: isCurrentLiked ? .red : appearance.secondary,
-                                    isSelected: isCurrentLiked
-                                )
+                            // 「我喜欢」是音乐歌单, 有声内容不出现。
+                            if !usesSpokenWordTransport {
+                                Button { toggleLikedCurrent() } label: {
+                                    nowPlayingActionIcon(
+                                        symbol: isCurrentLiked ? "heart.fill" : "heart",
+                                        tint: isCurrentLiked ? .red : appearance.secondary,
+                                        isSelected: isCurrentLiked
+                                    )
+                                }
+                                .frame(width: 44, height: 44)
+                                .disabled(player.currentSong == nil)
+                                .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
                             }
-                            .frame(width: 44, height: 44)
-                            .disabled(player.currentSong == nil)
-                            .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
 
                             // More menu
                             moreMenu
@@ -3860,18 +3892,23 @@ struct NowPlayingView: View {
 
                     Spacer()
 
-                    immersiveEffectButton()
-
-                    ImmersiveGlassActionButton(
-                        symbol: isCurrentLiked ? "heart.fill" : "heart",
-                        label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
-                        tint: isCurrentLiked ? .red : appearance.primary,
-                        diameter: 44,
-                        isSelected: isCurrentLiked
-                    ) {
-                        toggleLikedCurrent()
+                    if !usesSpokenWordTransport {
+                        immersiveEffectButton()
                     }
-                    .disabled(player.currentSong == nil)
+
+                    // 「我喜欢」是音乐歌单, 有声内容不出现。
+                    if !usesSpokenWordTransport {
+                        ImmersiveGlassActionButton(
+                            symbol: isCurrentLiked ? "heart.fill" : "heart",
+                            label: isCurrentLiked ? "a11y_unlike" : "a11y_like",
+                            tint: isCurrentLiked ? .red : appearance.primary,
+                            diameter: 44,
+                            isSelected: isCurrentLiked
+                        ) {
+                            toggleLikedCurrent()
+                        }
+                        .disabled(player.currentSong == nil)
+                    }
 
                     immersiveMoreMenu
 
@@ -4235,8 +4272,15 @@ struct NowPlayingView: View {
         immersiveChrome: Bool = false,
         chromeGlass: NowPlayingChromeGlass = .immersive
     ) -> some View {
+        // 有声内容只留听书用得上的项: 相似歌曲、串烧、卡拉OK、全屏效果、随机、
+        // 在线刮削(查的是音乐库)与歌词动效都是音乐的玩法, 「转到专辑」换成
+        // 「转到这本书」。
+        let isSpokenWord = usesSpokenWordTransport
         let snapshot = NowPlayingMoreMenuSnapshot(
             songID: player.currentSong?.id,
+            isSpokenWord: isSpokenWord,
+            canOpenBook: isSpokenWord && player.currentBookID != nil,
+            hasChapterList: player.hasChapters || isSpokenWord,
             hasSong: player.currentSong != nil,
             isScrapingCurrentSong: isScrapeActionUnavailable,
             canReloadLyricsFromSource: canReloadLyricsFromSource,
@@ -4249,7 +4293,7 @@ struct NowPlayingView: View {
             } ?? false,
             appleMusicCatalogURL: appleMusicCatalogURL,
             showsLyricsPreferences: showLyrics,
-            showsFullScreenAction: !isLyricsImmersive && !isFullscreenPlayerPresented,
+            showsFullScreenAction: !isSpokenWord && !isLyricsImmersive && !isFullscreenPlayerPresented,
             albumID: currentAlbum?.id,
             artistID: currentArtist?.id,
             canOpenAlbum: canOpenCurrentAlbum,
@@ -4265,13 +4309,13 @@ struct NowPlayingView: View {
                     ? player.currentSpokenWordRate
                     : playbackSettings.playbackRate),
             isLyricsTranslationEnabled: LyricsTranslationSettingsStore.shared.isEnabled,
-            showsPlaybackModeActions: compactLandscapeHidesModeToggles,
+            showsPlaybackModeActions: compactLandscapeHidesModeToggles && !isSpokenWord,
             isShuffleEnabled: player.shuffleEnabled,
             repeatMode: player.repeatMode,
             isMedleyActive: player.isMedleyActive,
-            canStartMedley: !player.isAppleMusicMode && !player.isLiveRadio
+            canStartMedley: !isSpokenWord && !player.isAppleMusicMode && !player.isLiveRadio
                 && player.canPlayMedleyFromQueue,
-            canStartKaraoke: player.currentSong != nil && !player.isAppleMusicMode
+            canStartKaraoke: !isSpokenWord && player.currentSong != nil && !player.isAppleMusicMode
                 && !player.isLiveRadio,
             medleySegmentSeconds: playbackSettings.medleySegmentSeconds,
             colorScheme: colorScheme,
@@ -4323,6 +4367,8 @@ struct NowPlayingView: View {
                 guard let artist = currentArtist else { return }
                 onOpenArtist?(artist)
             },
+            onOpenBook: { presentCurrentBook() },
+            onShowChapterList: { showChapterList = true },
             onOpenInAppleMusic: {
                 guard let url = appleMusicCatalogURL else { return }
                 openURL(url)
@@ -4486,17 +4532,20 @@ struct NowPlayingView: View {
 
                 HStack(spacing: 4) {
                     musicVideoToggleButton(font: .title3, trailing: 0)
-                    Button { toggleLikedCurrent() } label: {
-                        nowPlayingActionIcon(
-                            symbol: isCurrentLiked ? "heart.fill" : "heart",
-                            tint: isCurrentLiked ? .red : appearance.secondary,
-                            isSelected: isCurrentLiked
-                        )
+                    // 「我喜欢」是音乐歌单, 有声内容不出现。
+                    if !usesSpokenWordTransport {
+                        Button { toggleLikedCurrent() } label: {
+                            nowPlayingActionIcon(
+                                symbol: isCurrentLiked ? "heart.fill" : "heart",
+                                tint: isCurrentLiked ? .red : appearance.secondary,
+                                isSelected: isCurrentLiked
+                            )
+                        }
+                        .frame(width: 44, height: 44)
+                        .buttonStyle(.plain)
+                        .disabled(player.currentSong == nil)
+                        .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
                     }
-                    .frame(width: 44, height: 44)
-                    .buttonStyle(.plain)
-                    .disabled(player.currentSong == nil)
-                    .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
                     moreMenu
                 }
                 .fixedSize()
@@ -4676,7 +4725,15 @@ struct NowPlayingView: View {
             .pmAnimation(.trackChange, value: player.currentSong?.id)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-        if (onOpenArtist != nil && !currentArtists.isEmpty) || canOpenCurrentAlbum {
+        // 有声内容这一行点开是它所在的书: 艺人页与专辑页只收音乐, 对它是空的。
+        let opensBook = usesSpokenWordTransport && player.currentBookID != nil
+        if opensBook {
+            Button { presentCurrentBook() } label: {
+                label
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(Text("spoken_word_go_to_book"))
+        } else if (onOpenArtist != nil && !currentArtists.isEmpty) || canOpenCurrentAlbum {
             Menu {
                 if onOpenArtist != nil {
                     ForEach(currentArtists) { artist in
@@ -5015,7 +5072,8 @@ struct NowPlayingView: View {
                     // not a terminal app result: fall through to the same
                     // title-compatible online lyrics pipeline used by manual
                     // scraping, then bind the result to this local song ID.
-                    if let online = await capturedScraperService.fetchOnlineLyrics(
+                    if LyricsLoader.allowsAutomaticOnlineLyrics(for: song),
+                       let online = await capturedScraperService.fetchOnlineLyrics(
                         title: song.title,
                         artist: song.artistName,
                         album: song.albumTitle,
@@ -6700,8 +6758,17 @@ struct AirPlayButton: View {
 /// Only state that can legitimately change the native menu's contents. Playback
 /// progress and lyric scroll state are intentionally absent, so their frequent
 /// updates cannot invalidate an already-presented menu.
+/// `.sheet(item:)` 要一个 Identifiable; 书详情只认书的 id。
+private struct NowPlayingBookRoute: Identifiable {
+    let id: String
+}
+
 private struct NowPlayingMoreMenuSnapshot: Equatable {
     let songID: String?
+    /// 正在播有声内容: 菜单收起音乐专属的项。
+    let isSpokenWord: Bool
+    let canOpenBook: Bool
+    let hasChapterList: Bool
     let hasSong: Bool
     let isScrapingCurrentSong: Bool
     let canReloadLyricsFromSource: Bool
@@ -6758,6 +6825,8 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
     let onShowSongInfo: () -> Void
     let onOpenAlbum: () -> Void
     let onOpenArtist: () -> Void
+    let onOpenBook: () -> Void
+    let onShowChapterList: () -> Void
     let onOpenInAppleMusic: () -> Void
     let onShare: () -> Void
     let onShowCastPicker: () -> Void
@@ -6908,10 +6977,12 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     addToPlaylistButton(inQuickRow: false)
                 }
 
-                Button(action: onScrape) {
-                    Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+                if !snapshot.isSpokenWord {
+                    Button(action: onScrape) {
+                        Label(String(localized: "scrape_song"), systemImage: "wand.and.stars")
+                    }
+                    .disabled(!snapshot.hasSong || snapshot.isScrapingCurrentSong)
                 }
-                .disabled(!snapshot.hasSong || snapshot.isScrapingCurrentSong)
 
                 if snapshot.canReloadLyricsFromSource {
                     Button(action: onReloadLyricsFromSource) {
@@ -6923,10 +6994,12 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                     .disabled(snapshot.isReloadingLyricsFromSource)
                 }
 
-                Button(action: onShowSimilarSongs) {
-                    Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                if !snapshot.isSpokenWord {
+                    Button(action: onShowSimilarSongs) {
+                        Label(String(localized: "similar_songs"), systemImage: "sparkles")
+                    }
+                    .disabled(!snapshot.hasSong)
                 }
-                .disabled(!snapshot.hasSong)
 
                 if !snapshot.isAppleMusicMode {
                     Button(action: onEditTags) {
@@ -6947,13 +7020,27 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                 }
                 .disabled(!snapshot.hasSong)
 
-                if snapshot.canOpenAlbum {
+                if snapshot.isSpokenWord {
+                    if snapshot.hasChapterList {
+                        Button(action: onShowChapterList) {
+                            Label(
+                                String(localized: "spoken_word_chapters_and_bookmarks"),
+                                systemImage: "list.bullet.indent"
+                            )
+                        }
+                    }
+                    if snapshot.canOpenBook {
+                        Button(action: onOpenBook) {
+                            Label(String(localized: "spoken_word_go_to_book"), systemImage: "books.vertical")
+                        }
+                    }
+                } else if snapshot.canOpenAlbum {
                     Button(action: onOpenAlbum) {
                         Label(String(localized: "go_to_album"), systemImage: "square.stack")
                     }
                 }
 
-                if snapshot.canOpenArtist {
+                if snapshot.canOpenArtist, !snapshot.isSpokenWord {
                     Button(action: onOpenArtist) {
                         Label(String(localized: "go_to_artist"), systemImage: "music.mic")
                     }
@@ -7013,11 +7100,13 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
             }
 
             Section {
-                Toggle(isOn: $lyricsMotionEnabled) {
-                    Label(
-                        String(localized: "immersive_lyrics_motion_title"),
-                        systemImage: "text.line.first.and.arrowtriangle.forward"
-                    )
+                if !snapshot.isSpokenWord {
+                    Toggle(isOn: $lyricsMotionEnabled) {
+                        Label(
+                            String(localized: "immersive_lyrics_motion_title"),
+                            systemImage: "text.line.first.and.arrowtriangle.forward"
+                        )
+                    }
                 }
 
                 Button(action: onShowSleepTimer) {

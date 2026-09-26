@@ -69,6 +69,8 @@ struct MacContentView: View {
     @State private var hostWindow: NSWindow?
     @State private var searchText = ""
     @State private var songLocationRequest: SongLibraryLocationRequest?
+    /// 等「有声」一栏的详情栈建好后要压进去的书; 详情容器取走后清空。
+    @State private var spokenWordBookRequest: String?
     @State private var didRestorePersistedRoute = false
     @State private var preferences = MacUIPreferences.shared
     @State private var showNewPlaylist = false
@@ -173,6 +175,7 @@ struct MacContentView: View {
                         listeningStatsModel: listeningStatsModel,
                         searchText: $searchText,
                         songLocationRequest: $songLocationRequest,
+                        spokenWordBookRequest: $spokenWordBookRequest,
                         onShowSongInLibrary: showSongInLibrary,
                         onOpenLibrarySongs: { selectRoute(.section(.songs)) }
                     )
@@ -181,6 +184,11 @@ struct MacContentView: View {
                         .pmAppearFade()
                         .id(detailNavigationID)
                         .background(PMColor.bg.ignoresSafeArea())
+                        // 挂在这里而不是 body 那条长修饰链上: 那条链再加一个
+                        // onReceive 就超出类型检查的时间上限。
+                        .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenSpokenWordBook)) { note in
+                            openSpokenWordBook(note.object as? String)
+                        }
 
                     if nowPlayingPresented {
                         MacNowPlayingView(onClose: {
@@ -573,6 +581,14 @@ struct MacContentView: View {
 
     private var navigationSelection: Binding<MacRoute> {
         Binding(get: { selection }, set: { selectRoute($0) })
+    }
+
+    /// 播放页「转到这本书」。换栏会重建详情容器(`detailNavigationID`), 书不能
+    /// 直接压栈, 交给新容器出现时取走。
+    private func openSpokenWordBook(_ bookID: String?) {
+        guard let bookID else { return }
+        spokenWordBookRequest = bookID
+        selectRoute(.section(.spokenWord))
     }
 
     private func selectRoute(_ route: MacRoute) {

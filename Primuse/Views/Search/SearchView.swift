@@ -778,9 +778,10 @@ struct SearchView: View {
         guard !hit.songs.isEmpty else { return }
         addRecentSearch(searchText)
         let store = SpokenWordStore.shared
-        let book = SpokenWordBookGrouping.books(
+        let regrouped = SpokenWordBookGrouping.books(
             from: hit.songs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-        ).first ?? hit.book
+        )
+        let book = regrouped.first { $0.id == hit.book.id } ?? regrouped.first ?? hit.book
         let songsByID = Dictionary(hit.songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let orderedSongs = book.items.compactMap { songsByID[$0.id] }
         SpokenWordBookSupport.play(book, songs: orderedSongs, from: nil, player: player)

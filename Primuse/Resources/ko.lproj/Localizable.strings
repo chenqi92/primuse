@@ -4335,6 +4335,7 @@
 "spoken_word_bookmarks_title" = "북마크";
 "spoken_word_bookmarks_empty" = "듣는 중에 북마크 버튼을 누르면 다시 돌아올 위치를 표시할 수 있습니다.";
 "spoken_word_chapters_and_bookmarks" = "챕터 및 북마크";
+"spoken_word_go_to_book" = "책으로 이동";
 "spoken_word_delete_bookmark" = "북마크 삭제";
 "spoken_word_continue" = "이어서 듣기";
 "spoken_word_start" = "듣기 시작";

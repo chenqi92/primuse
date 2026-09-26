@@ -4335,6 +4335,7 @@
 "spoken_word_bookmarks_title" = "Lesezeichen";
 "spoken_word_bookmarks_empty" = "Tippe beim Hören auf das Lesezeichen, um eine Stelle für später zu markieren.";
 "spoken_word_chapters_and_bookmarks" = "Kapitel & Lesezeichen";
+"spoken_word_go_to_book" = "Zum Buch";
 "spoken_word_delete_bookmark" = "Lesezeichen löschen";
 "spoken_word_continue" = "Weiterhören";
 "spoken_word_start" = "Anhören";

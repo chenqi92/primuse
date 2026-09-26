@@ -4241,6 +4241,7 @@
 "spoken_word_bookmarks_title" = "Marcadores";
 "spoken_word_bookmarks_empty" = "Toque no marcador enquanto ouve para marcar um trecho ao qual quer voltar.";
 "spoken_word_chapters_and_bookmarks" = "Capítulos e marcadores";
+"spoken_word_go_to_book" = "Ir para o livro";
 "spoken_word_delete_bookmark" = "Apagar marcador";
 "spoken_word_continue" = "Continuar";
 "spoken_word_start" = "Começar a ouvir";

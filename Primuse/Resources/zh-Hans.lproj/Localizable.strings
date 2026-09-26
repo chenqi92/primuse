@@ -4428,6 +4428,7 @@
 "spoken_word_bookmarks_title" = "书签";
 "spoken_word_bookmarks_empty" = "收听时点书签按钮，就能记下想再回来听的位置。";
 "spoken_word_chapters_and_bookmarks" = "章节与书签";
+"spoken_word_go_to_book" = "前往这本书";
 "spoken_word_delete_bookmark" = "删除书签";
 "spoken_word_continue" = "继续收听";
 "spoken_word_start" = "开始收听";

@@ -4241,6 +4241,7 @@
 "spoken_word_bookmarks_title" = "Yer imleri";
 "spoken_word_bookmarks_empty" = "Dinlerken geri dönmek istediğin yeri işaretlemek için yer imi düğmesine dokun.";
 "spoken_word_chapters_and_bookmarks" = "Bölümler ve yer imleri";
+"spoken_word_go_to_book" = "Kitaba Git";
 "spoken_word_delete_bookmark" = "Yer imini sil";
 "spoken_word_continue" = "Devam et";
 "spoken_word_start" = "Dinlemeye başla";

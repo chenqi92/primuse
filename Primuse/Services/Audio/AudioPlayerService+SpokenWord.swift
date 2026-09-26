@@ -156,7 +156,7 @@ extension AudioPlayerService {
             isSpokenWord: isSpokenWord,
             musicRate: playbackSettings.playbackRate,
             spokenWordRate: song.flatMap { song in
-                isSpokenWord ? spokenWordRate(forBookID: Self.spokenWordBookID(for: song)) : nil
+                isSpokenWord ? spokenWordRate(forBookID: spokenWordBookID(for: song)) : nil
             } ?? playbackSettings.spokenWordPlaybackRate,
             rateAllowed: playbackSettings.outputMode == .effects
         )
@@ -179,22 +179,17 @@ extension AudioPlayerService {
 
     /// The book `song` belongs to — the same id the bookshelf gives it
     /// (`SpokenWordBook.id`), so a per-book setting is found from the item
-    /// that is playing.
-    nonisolated static func spokenWordBookID(for song: Song) -> String {
-        SpokenWordBookGrouping.bookID(for: SpokenWordBookItem(
-            id: song.id,
-            title: song.title,
-            albumTitle: song.albumTitle,
-            albumArtist: song.albumArtistName,
-            artist: song.artistName,
-            duration: song.duration
-        ))
+    /// that is playing. The library groups books once per change; an item it
+    /// does not hold falls back to what its own tags and path say.
+    func spokenWordBookID(for song: Song) -> String {
+        if let bookID = library?.spokenWordBookIDs[song.id] { return bookID }
+        return SpokenWordBookGrouping.bookID(for: SpokenWordBookItem(song: song))
     }
 
     /// The book the current item belongs to; nil for music and radio.
     var currentBookID: String? {
         guard currentItemIsSpokenWord, let song = currentSong else { return nil }
-        return Self.spokenWordBookID(for: song)
+        return spokenWordBookID(for: song)
     }
 
     /// The current book's items as they stand in the queue, in queue order
@@ -204,7 +199,7 @@ extension AudioPlayerService {
         guard let bookID = currentBookID else { return [] }
         return queueEntries.compactMap { entry in
             let song = entry.song
-            guard Self.spokenWordBookID(for: song) == bookID,
+            guard spokenWordBookID(for: song) == bookID,
                   SpokenWordStore.shared.isSpokenWord(song) else { return nil }
             return song.id
         }

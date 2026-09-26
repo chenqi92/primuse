@@ -152,7 +152,11 @@ public struct SpokenWordBookItem: Hashable, Sendable {
     public var discNumber: Int?
     public var trackNumber: Int?
     public var duration: TimeInterval
+    /// The item's path inside its source. Also what orders chapters when
+    /// tags do not, and — with `sourceID` — the folder that holds a book
+    /// whose files carry no usable album tag.
     public var fileName: String
+    public var sourceID: String
     /// Where the listener is in this item, if they are part way through.
     public var position: TimeInterval?
     public var positionUpdatedAt: Date?
@@ -169,6 +173,7 @@ public struct SpokenWordBookItem: Hashable, Sendable {
         trackNumber: Int? = nil,
         duration: TimeInterval,
         fileName: String = "",
+        sourceID: String = "",
         position: TimeInterval? = nil,
         positionUpdatedAt: Date? = nil,
         finishedAt: Date? = nil
@@ -182,6 +187,7 @@ public struct SpokenWordBookItem: Hashable, Sendable {
         self.trackNumber = trackNumber
         self.duration = duration
         self.fileName = fileName
+        self.sourceID = sourceID
         self.position = position
         self.positionUpdatedAt = positionUpdatedAt
         self.finishedAt = finishedAt
@@ -245,46 +251,58 @@ public struct SpokenWordBook: Identifiable, Hashable, Sendable {
 public enum SpokenWordBookGrouping {
     /// Groups items into books.
     ///
-    /// Items sharing an album title and author form one book; an item with
-    /// no album stands alone as a one-item book. Within a book the order is
-    /// disc, track, then file name — the order the files were numbered in —
-    /// and never the position, so a rewind does not reorder chapters.
-    /// Books come back with the ones being listened to first, most recent
-    /// first, then the rest by title.
+    /// Tags decide first: items sharing an album title (chapter numbering
+    /// stripped from it) and album artist form one book. The folder decides
+    /// what tags cannot: items with no usable album join the one book their
+    /// folder holds, or form a book named after the folder. See
+    /// `SpokenWordBookGroupingRules` for the exact rules.
+    ///
+    /// Within a book the order is disc, track, then path — the order the
+    /// files were numbered in — and never the position, so a rewind does not
+    /// reorder chapters. Books come back with the ones being listened to
+    /// first, most recent first, then the rest by title.
     public static func books(from items: [SpokenWordBookItem]) -> [SpokenWordBook] {
+        let assignment = SpokenWordBookGroupingRules.assign(items)
         var groups: [String: [SpokenWordBookItem]] = [:]
         var order: [String] = []
         for item in items {
-            let key = groupingKey(for: item)
+            guard let key = assignment.bookIDs[item.id] else { continue }
             if groups[key] == nil { order.append(key) }
             groups[key, default: []].append(item)
         }
 
         let books = order.map { key -> SpokenWordBook in
-            let members = (groups[key] ?? []).sorted(by: chapterOrder)
-            return makeBook(id: key, items: members)
+            let members = (groups[key] ?? []).sorted {
+                chapterOrder($0, $1, discs: assignment.derivedDiscs)
+            }
+            return makeBook(id: key, items: members, title: assignment.titles[key])
         }
         return books.sorted(by: shelfOrder)
     }
 
+    /// Which book each item belongs to, by item id — the ids `books(from:)`
+    /// gives. Cheaper than building the books when only membership matters
+    /// (the player finding the book of the item it plays, a count).
+    public static func bookIDs(for items: [SpokenWordBookItem]) -> [String: String] {
+        SpokenWordBookGroupingRules.assign(items).bookIDs
+    }
+
+    /// The book id `item` would get on its own, without the rest of the
+    /// library: right whenever its tags decide it, which is the common case.
+    /// Only a fallback — the library-wide `bookIDs(for:)` is authoritative.
     static func groupingKey(for item: SpokenWordBookItem) -> String {
-        let album = normalized(item.albumTitle)
-        guard !album.isEmpty else { return "item:" + item.id }
-        let author = normalized(item.albumArtist).isEmpty
-            ? normalized(item.artist)
-            : normalized(item.albumArtist)
-        return "book:" + album + "\u{1F}" + author
+        SpokenWordBookGroupingRules.standaloneKey(for: item)
     }
 
-    private static func normalized(_ value: String?) -> String {
-        (value ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
-    }
-
-    private static func chapterOrder(_ lhs: SpokenWordBookItem, _ rhs: SpokenWordBookItem) -> Bool {
-        let leftDisc = lhs.discNumber ?? 1
-        let rightDisc = rhs.discNumber ?? 1
+    private static func chapterOrder(
+        _ lhs: SpokenWordBookItem,
+        _ rhs: SpokenWordBookItem,
+        discs: [String: Int]
+    ) -> Bool {
+        // A disc read from a "CD 2" folder counts when the tag is missing,
+        // so two folders each numbered from track 1 do not interleave.
+        let leftDisc = lhs.discNumber ?? discs[lhs.id] ?? 1
+        let rightDisc = rhs.discNumber ?? discs[rhs.id] ?? 1
         if leftDisc != rightDisc { return leftDisc < rightDisc }
         switch (lhs.trackNumber, rhs.trackNumber) {
         case let (left?, right?) where left != right:
@@ -319,14 +337,11 @@ public enum SpokenWordBookGrouping {
         return lhs.id < rhs.id
     }
 
-    private static func makeBook(id: String, items: [SpokenWordBookItem]) -> SpokenWordBook {
+    private static func makeBook(id: String, items: [SpokenWordBookItem], title: String?) -> SpokenWordBook {
         let first = items[0]
-        let albumTitle = first.albumTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let title = id.hasPrefix("item:") || albumTitle.isEmpty ? first.title : albumTitle
-        let authorCandidates = [first.albumArtist, first.artist]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        let author = authorCandidates.first
+        let title = title ?? first.title
+        let author = SpokenWordBookGroupingRules.mostCommon(items.map(\.albumArtist))
+            ?? SpokenWordBookGroupingRules.mostCommon(items.map(\.artist))
 
         let lastListenedAt = items
             .flatMap { [$0.positionUpdatedAt, $0.finishedAt] }
