@@ -409,6 +409,31 @@ final class ListeningFeaturesTests: XCTestCase {
 
 
 extension ListeningFeaturesTests {
+    func testShelfOrderMovesBothWaysAndSurvivesNewAndTemporarilyMissingBooks() throws {
+        let defaults = try makeDefaults()
+        let first = try XCTUnwrap(SpokenWordShelfOrder.moving("c", onto: "a", visible: ["a", "b", "c"],
+                                                            preferred: [], allIDs: ["a", "b", "c"]))
+        XCTAssertEqual(first, ["c", "a", "b"])
+        defaults.set(SpokenWordShelfOrder.encode(first), forKey: "spokenWord.shelf.order")
+        let restored = SpokenWordShelfOrder.decode(try XCTUnwrap(defaults.string(forKey: "spokenWord.shelf.order")))
+        XCTAssertEqual(SpokenWordShelfOrder.orderedIDs(["a", "b", "c", "new"], preferred: restored), ["c", "a", "b", "new"])
+        XCTAssertEqual(SpokenWordShelfOrder.orderedIDs(["a", "b"], preferred: restored), ["a", "b"])
+        XCTAssertEqual(SpokenWordShelfOrder.orderedIDs(["a", "b", "c"], preferred: restored), first)
+        XCTAssertEqual(SpokenWordShelfOrder.moving("c", onto: "b", visible: first, preferred: restored,
+                                                  allIDs: ["a", "b", "c"]), ["a", "b", "c"])
+    }
+
+    func testShelfOrderPreservesOtherSectionsAndRejectsForeignDrops() {
+        let order = ["a", "current", "finished", "b", "unavailable", "c"]
+        XCTAssertEqual(SpokenWordShelfOrder.moving("c", onto: "a", visible: ["a", "b", "c"],
+                                                  preferred: order, allIDs: ["a", "b", "c", "finished", "current"]),
+                       ["c", "current", "finished", "a", "unavailable", "b"])
+        XCTAssertNil(SpokenWordShelfOrder.moving("foreign", onto: "a", visible: ["a", "b"], preferred: [], allIDs: ["a", "b"]))
+        XCTAssertNil(SpokenWordShelfOrder.moving("a", onto: "a", visible: ["a", "b"], preferred: [], allIDs: ["a", "b"]))
+        XCTAssertEqual(SpokenWordShelfOrder.decode("invalid"), [])
+        XCTAssertEqual(SpokenWordShelfOrder.decode("[\"a\",\"a\",\"b\"]"), ["a", "b"])
+    }
+
     func testSpokenWordSnapshotKeepsShelfSectionsAndChapterQueuesConsistent() async throws {
         let model = SpokenWordBooksModel()
         XCTAssertFalse(model.snapshot.isPrepared)
@@ -464,6 +489,71 @@ extension ListeningFeaturesTests {
     }
 
     #if os(iOS)
+    func testLargeSpokenWordShelfOnlyBuildsVisibleCells() async throws {
+        let defaults = try makeDefaults()
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        let player = try makePlayer(library: library)
+        let started = ContinuousClock.now
+        let snapshot = await Task.detached {
+            let items = (0..<2_000).flatMap { book in
+                (0..<10).map { chapter in
+                    SpokenWordBookItem(id: "shelf-\(book)-\(chapter)", title: "Chapter \(chapter)",
+                                      albumTitle: String(format: "Book %04d Novel", book), trackNumber: chapter,
+                                      duration: 300)
+                }
+            }
+            return SpokenWordLibrarySnapshot(books: SpokenWordBookGrouping.books(from: items))
+        }.value
+        print("Shelf preparation (2000 books / 20000 chapters): \(started.duration(to: .now))")
+        XCTAssertEqual(snapshot.shelf.count, 2_000)
+        var built = Set<String>()
+        SpokenWordShelfDiagnostics.didBuildCell = { built.insert($0) }
+        defer { SpokenWordShelfDiagnostics.didBuildCell = nil }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let host = UIHostingController(rootView: NavigationStack {
+            ScrollView {
+                SpokenWordShelfContent(snapshot: snapshot).padding(.horizontal, 16)
+            }
+        }
+            .environment(library)
+            .environment(player)
+            .environment(AppServices.shared.sourceManager)
+            .environment(ThemeService())
+            .defaultAppStorage(defaults))
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let mounted = ContinuousClock.now
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(400))
+        print("Shelf mounted: \(mounted.duration(to: .now)); built cells: \(built.count)")
+        XCTAssertGreaterThan(built.count, 0)
+        XCTAssertLessThan(built.count, 100, "Offscreen books must not render artwork or initialize cells")
+        built = []
+        defaults.set(SpokenWordShelfOrder.encode(Array(snapshot.shelf.map(\.id).reversed())), forKey: "spokenWord.shelf.order")
+        try await Task.sleep(for: .milliseconds(200))
+        print("Shelf reordered built cells: \(built.count)")
+        XCTAssertGreaterThan(built.count, 0)
+        XCTAssertLessThan(built.count, 100, "A saved order must not defeat lazy artwork loading")
+        func descendants(_ view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap(descendants)
+        }
+        let scroll = try XCTUnwrap(descendants(host.view).first { $0.contentSize.height > $0.bounds.height })
+        let initial = built
+        scroll.setContentOffset(CGPoint(x: 0, y: 2_000), animated: false)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertFalse(built.subtracting(initial).isEmpty)
+        XCTAssertLessThan(built.count, 200)
+        defaults.set("list", forKey: "spokenWord.shelf.layout")
+        built = []
+        try await Task.sleep(for: .milliseconds(300))
+        print("Shelf list built cells: \(built.count)")
+        XCTAssertGreaterThan(built.count, 0)
+        XCTAssertLessThan(built.count, 100)
+    }
+
     func testSpokenWordShelfRendersScrollableListAndRemembersLayout() async throws {
         let defaults = try makeDefaults()
         let library = MusicLibrary(storageDirectory: makeDirectory())

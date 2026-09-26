@@ -1423,6 +1423,10 @@ struct PrimuseApp: App {
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "libraryDetail" {
             LibraryDetailEvidenceHost()
                 .modifier(DebugEvidenceOrientation())
+        } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "spokenWordChapters" {
+            SpokenWordChapterEvidenceHost()
+        } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "spokenWordShelf" {
+            SpokenWordShelfEvidenceHost()
         } else {
             iosAppContent
         }
