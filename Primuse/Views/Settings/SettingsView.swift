@@ -1990,8 +1990,8 @@ struct PlaybackSettingsView: View {
                         Text(verbatim: SpokenWordPlaybackRatePolicy.label(for: rate)).tag(rate)
                     }
                 }
+                // 有声内容总走效果链,高保真设置下照样能调速。
                 .settingsAnchor("playback.spokenWordRate")
-                .disabled(settings.outputMode == .highFidelity)
                 Picker("spoken_word_skip_backward", selection: $settings.spokenWordSkipBackwardSeconds) {
                     ForEach(SpokenWordSkipPolicy.allowedIntervals, id: \.self) { seconds in
                         Text(String(format: String(localized: "seconds_value_format"), seconds)).tag(seconds)

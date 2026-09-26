@@ -186,10 +186,29 @@ final class TVAudioEngine {
     }
 
     private(set) var karaokePracticeRate: Double = 1
+    /// 有声内容的语速(0.5–2)。由 TVStore 按正在播的这本书设置,音乐为 1。
+    private(set) var spokenWordRate: Double = 1
     var supportsKaraokePractice: Bool {
         !isExternallyDriven && !isLiveStream && !usingSFB && !usingLivePCM
     }
-    private var effectivePlaybackRate: Double { supportsKaraokePractice ? karaokePracticeRate : 1 }
+    /// 能不能变速:只有 AVPlayer 这条路径能;SFB / 直播 PCM 与外部驱动都按 1× 播。
+    var supportsPlaybackRate: Bool { supportsKaraokePractice }
+    private var effectivePlaybackRate: Double {
+        guard supportsKaraokePractice else { return 1 }
+        // 卡拉OK练习与听书不会同时发生;练习速度在用时优先。
+        return karaokePracticeRate != 1 ? karaokePracticeRate : spokenWordRate
+    }
+
+    func setSpokenWordRate(_ rate: Double) {
+        let clamped = rate.isFinite ? min(2, max(0.5, rate)) : 1
+        guard clamped != spokenWordRate else { return }
+        currentTime = interpolatedTime()
+        spokenWordRate = clamped
+        player.defaultRate = Float(effectivePlaybackRate)
+        player.currentItem?.audioTimePitchAlgorithm = .timeDomain
+        if isPlaying, supportsKaraokePractice { player.rate = Float(effectivePlaybackRate) }
+        updateNowPlayingInfo()
+    }
 
     func setKaraokePracticeRate(_ rate: Double) {
         let clamped = rate.isFinite ? min(1, max(0.5, rate)) : 1

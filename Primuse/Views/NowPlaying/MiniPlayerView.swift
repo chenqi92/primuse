@@ -53,21 +53,33 @@ struct MiniPlayerSwipeContent: View {
     var body: some View {
         ZStack {
             HStack(spacing: 0) {
-                CachedArtworkView(
-                    coverRef: player.currentSong?.coverArtFileName,
-                    songID: player.currentSong?.id ?? "",
-                    size: artworkSize,
-                    cornerRadius: artworkCornerRadius,
-                    sourceID: player.currentSong?.sourceID,
-                    filePath: player.currentSong?.filePath,
-                    fileFormat: player.currentSong?.fileFormat,
-                    revisionToken: player.coverRevision
-                )
-                .artworkCrossfade()
-                .padding(.trailing, artworkTrailingSpacing)
+                if isSpokenWord {
+                    // 书是竖的:同一块槽位里放 3:4 的书封。
+                    SpokenWordBookCover(
+                        song: player.currentSong,
+                        width: SpokenWordCoverLayout.width(forHeight: artworkSize),
+                        cornerRadius: max(3, artworkCornerRadius * 0.6),
+                        decodeSize: artworkSize * 2
+                    )
+                    .frame(width: artworkSize, height: artworkSize)
+                    .padding(.trailing, artworkTrailingSpacing)
+                } else {
+                    CachedArtworkView(
+                        coverRef: player.currentSong?.coverArtFileName,
+                        songID: player.currentSong?.id ?? "",
+                        size: artworkSize,
+                        cornerRadius: artworkCornerRadius,
+                        sourceID: player.currentSong?.sourceID,
+                        filePath: player.currentSong?.filePath,
+                        fileFormat: player.currentSong?.fileFormat,
+                        revisionToken: player.coverRevision
+                    )
+                    .artworkCrossfade()
+                    .padding(.trailing, artworkTrailingSpacing)
+                }
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(player.currentSong?.title ?? "")
+                    Text(isSpokenWord ? SpokenWordPlayerText.bookTitle(player) : (player.currentSong?.title ?? ""))
                         .font(titleFont)
                         .fontWeight(.semibold)
                         .lineLimit(1)
@@ -82,6 +94,9 @@ struct MiniPlayerSwipeContent: View {
                             .lineLimit(1)
                             .foregroundStyle(.orange)
                             .contentTransition(.opacity)
+                    } else if isSpokenWord {
+                        // 有声内容总带这一行:第几章、本章还剩多久。书名已经在上面了。
+                        MiniPlayerSpokenWordSubtitle()
                     } else if showsSubtitle,
                        let song = player.currentSong,
                        let artist = library.artistDisplayName(for: song),
@@ -133,8 +148,11 @@ struct MiniPlayerSwipeContent: View {
     private var accessibilityLabel: String {
         var parts = [
             String(localized: "now_playing"),
-            player.currentSong?.title ?? ""
+            isSpokenWord ? SpokenWordPlayerText.bookTitle(player) : (player.currentSong?.title ?? "")
         ]
+        if isSpokenWord, let part = SpokenWordPlayerText.partTitle(player) {
+            parts.append(part)
+        }
         if showsSubtitle, let error = player.lastPlaybackError {
             return (parts + [error]).filter { !$0.isEmpty }.joined(separator: ": ")
         }
@@ -149,6 +167,10 @@ struct MiniPlayerSwipeContent: View {
 
     private var allowsSwipe: Bool {
         player.currentListeningSpace != .spokenWord
+    }
+
+    private var isSpokenWord: Bool {
+        player.currentItemIsSpokenWord && !player.isLiveRadio
     }
 
     private func swipeGesture(containerWidth: CGFloat) -> some Gesture {
@@ -217,6 +239,24 @@ struct MiniPlayerSwipeContent: View {
     }
 }
 
+/// 迷你条上有声内容的第二行:「第 12 章 · 本章还剩约 18 分钟」。单独一个视图,
+/// 播放时钟的高频刷新只落在这一行上。
+private struct MiniPlayerSpokenWordSubtitle: View {
+    @Environment(AudioPlayerService.self) private var player
+
+    var body: some View {
+        let parts = [
+            SpokenWordPlayerText.partPosition(player.spokenWordNowPlayingSummary),
+            SpokenWordPlayerText.partRemaining(player),
+        ].compactMap { $0 }
+        Text(verbatim: parts.joined(separator: " · "))
+            .font(.caption2.monospacedDigit())
+            .lineLimit(1)
+            .foregroundStyle(.secondary)
+            .contentTransition(.opacity)
+    }
+}
+
 struct MiniPlayerTransportControls: View {
     var isInline = false
     var showsNextButton: Bool
@@ -229,6 +269,21 @@ struct MiniPlayerTransportControls: View {
 
     var body: some View {
         HStack(spacing: isInline ? 0 : 4) {
+            // 有声内容在播放键前放「后退」:漏听一句往回倒是听书最常按的键。
+            // 前进与下一条目都不放 —— 下一条目是另一集甚至另一本,迷你条上误触代价太大。
+            if player.currentItemIsSpokenWord, !player.isLiveRadio {
+                Button {
+                    player.skipSpokenWordBackward()
+                } label: {
+                    Image(systemName: player.spokenWordSkipBackwardSymbol)
+                        .font(iconFont)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .accessibilityLabel(String(localized: "a11y_skip_backward"))
+            }
+
             Button {
                 player.togglePlayPause()
             } label: {
@@ -259,19 +314,8 @@ struct MiniPlayerTransportControls: View {
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play")))
 
-            // 有声内容按「前进 30 秒」用: 下一条目是另一本书或另一集,
-            // 在迷你播放器上误触的代价比漏听一段大得多。
             if player.currentItemIsSpokenWord, !player.isLiveRadio {
-                Button {
-                    player.skipSpokenWordForward()
-                } label: {
-                    Image(systemName: player.spokenWordSkipForwardSymbol)
-                        .font(iconFont)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .accessibilityLabel(String(localized: "a11y_skip_forward"))
+                EmptyView()
             } else if showsNextButton && (!player.isLiveRadio || player.canSwitchRadioStation) {
                 Button {
                     Task { await player.next() }

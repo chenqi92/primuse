@@ -2546,7 +2546,7 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
         case "spokenWord":
             NavigationStack { SpokenWordLibraryView() }
         case "chapters":
-            ChapterListView()
+            SpokenWordContentsView()
         case "karaoke":
             KaraokeStageView()
                 .environment(services.playerService)

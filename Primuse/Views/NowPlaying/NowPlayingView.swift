@@ -1444,17 +1444,20 @@ struct NowPlayingView: View {
     private var nowPlayingSidePane: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Picker(selection: Binding(
-                    get: { showLyrics ? 0 : 1 },
-                    set: { selectSidePane(showsQueue: $0 == 1) }
-                )) {
-                    Text("lyrics_title").tag(0)
-                    Text("up_next").tag(1)
-                } label: {
-                    EmptyView()
+                // 有声内容的右栏自带「目录 / 书签 / 文字」切换。
+                if !usesSpokenWordTransport {
+                    Picker(selection: Binding(
+                        get: { showLyrics ? 0 : 1 },
+                        set: { selectSidePane(showsQueue: $0 == 1) }
+                    )) {
+                        Text("lyrics_title").tag(0)
+                        Text("up_next").tag(1)
+                    } label: {
+                        EmptyView()
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 280)
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 280)
 
                 Spacer(minLength: 0)
 
@@ -1475,7 +1478,10 @@ struct NowPlayingView: View {
             .padding(.horizontal, 24)
 
             ZStack {
-                if !showLyrics {
+                if usesSpokenWordTransport {
+                    spokenWordContentsPane
+                        .pmAppearFade(.contentAppear)
+                } else if !showLyrics {
                     QueueView(player: player, isEmbedded: true)
                         .scrollContentBackground(.hidden)
                         .pmAppearFade(.contentAppear)
@@ -1516,7 +1522,12 @@ struct NowPlayingView: View {
     /// 队列键:分栏时打开右栏的「接下来播放」(已经在看就收起右栏),其它时候弹出半屏队列。
     private func openQueue() {
         guard isPlayerSplit else {
-            showQueue = true
+            // 有声内容的「队列」就是这本书的目录。
+            if usesSpokenWordTransport {
+                showChapterList = true
+            } else {
+                showQueue = true
+            }
             return
         }
         if !sidePaneHidden, !showLyrics {
@@ -1613,9 +1624,11 @@ struct NowPlayingView: View {
         let top = max(barRegions.map(\.maxY).max() ?? 0, Double(topSafeArea)) + 12
         let bottom = Double(bottomSafeArea) + 12
         let music = !usesSpokenWordTransport
+        // 有声内容没有文字稿时不给文字键,这一组只剩目录。
+        let showsTextToggle = music || !lyrics.isEmpty
         let groups = [
             1,
-            2,
+            showsTextToggle ? 2 : 1,
             (music ? 2 : 0) + 2 + (offersLock ? 1 : 0),
         ]
         let itemCount = Double(groups.reduce(0, +))
@@ -1651,11 +1664,12 @@ struct NowPlayingView: View {
                 }
 
                 barColumnGroup {
+                    if showsTextToggle {
                     Button {
                         toggleLyricsForLayout()
                     } label: {
                         NowPlayingBarColumnIcon(
-                            symbol: "quote.bubble",
+                            symbol: music ? "quote.bubble" : "text.bubble",
                             appearance: appearance,
                             size: itemSize,
                             tint: themedControlAccent,
@@ -1664,6 +1678,7 @@ struct NowPlayingView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(lyricsSelected ? "a11y_close_lyrics" : "a11y_open_lyrics"))
+                    }
 
                     Button {
                         openQueue()
@@ -2225,6 +2240,10 @@ struct NowPlayingView: View {
             case "queueSheet":
                 try? await Task.sleep(for: .seconds(1))
                 showQueue = true
+            case "contents":
+                // 有声内容的目录与书签面板。
+                try? await Task.sleep(for: .seconds(1))
+                showChapterList = true
             default:
                 break
             }
@@ -2275,7 +2294,7 @@ struct NowPlayingView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showChapterList) {
-            ChapterListView()
+            SpokenWordContentsView()
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -3069,7 +3088,7 @@ struct NowPlayingView: View {
                 }
             }
 
-            PlaybackProgressBar(fillTint: themedControlAccent)
+            PlaybackProgressBar(fillTint: themedControlAccent, showsSpokenWordBookRow: false)
                 .matchedLayoutElement(.progress, in: layoutNamespace)
                 .padding(.top, CGFloat(NowPlayingCompactLandscapeLayoutPolicy.progressTopSpacing))
                 .opacity(compactLandscapeControlsHidden ? 0 : 1)
@@ -3103,6 +3122,24 @@ struct NowPlayingView: View {
     /// 封面模式右栏的上半截：大歌名、艺人 / 专辑、当前歌词行。
     @ViewBuilder
     private func compactLandscapeCoverHeading(
+        metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
+    ) -> some View {
+        if usesSpokenWordTransport {
+            // 右栏按固定高度排版:书名一行,章名与「第几章」各一行。
+            SpokenWordPlayerHeading(
+                palette: spokenWordPalette,
+                titleFont: .title,
+                partFont: .body,
+                titleLineLimit: 1,
+                onOpenBook: { presentCurrentBook() },
+                onOpenContents: { openQueue() }
+            )
+        } else {
+            compactLandscapeMusicHeading(metrics: metrics)
+        }
+    }
+
+    private func compactLandscapeMusicHeading(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -3217,9 +3254,7 @@ struct NowPlayingView: View {
     private func compactLandscapeTransportRow(showsEdgeToggles: Bool) -> some View {
         HStack(spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.transportSpacing)) {
             if showsEdgeToggles {
-                ctrlBtn("shuffle", active: player.shuffleEnabled) {
-                    player.shuffleEnabled.toggle()
-                }
+                transportLeadingEdgeControl
             }
 
             Spacer(minLength: 0)
@@ -3243,12 +3278,7 @@ struct NowPlayingView: View {
             Spacer(minLength: 0)
 
             if showsEdgeToggles {
-                ctrlBtn(
-                    player.repeatMode == .one ? "repeat.1" : "repeat",
-                    active: player.repeatMode != .off
-                ) {
-                    cycleRepeatMode()
-                }
+                transportTrailingEdgeControl
             }
         }
         .frame(height: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter))
@@ -3261,6 +3291,12 @@ struct NowPlayingView: View {
     /// 电台那套控件在另一处单独实现, 不受影响。
     private var usesSpokenWordTransport: Bool {
         player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
+    /// 有声内容总走效果链(`AudioPlayerService.outputMode(for:)`),语速随时可调;
+    /// 音乐只有效果模式能变速。
+    private var canChangeCurrentPlaybackRate: Bool {
+        player.currentItemIsSpokenWord || playbackSettings.outputMode == .effects
     }
 
     private var transportBackwardSymbol: String {
@@ -3423,7 +3459,18 @@ struct NowPlayingView: View {
 
             Spacer(minLength: 0)
 
-            if !usesSpokenWordTransport {
+            if usesSpokenWordTransport {
+                // 横屏右栏放不下那排功能块;书签留在圆钮排里,语速与定时在更多菜单。
+                NowPlayingGlassActionButton(
+                    symbol: "bookmark",
+                    label: "spoken_word_add_bookmark",
+                    appearance: appearance,
+                    tint: appearance.primary,
+                    diameter: diameter
+                ) {
+                    player.addSpokenWordBookmark()
+                }
+            } else {
                 immersiveEffectButton(glass: .adaptive)
             }
 
@@ -3591,7 +3638,7 @@ struct NowPlayingView: View {
 
             HStack(spacing: 0) {
                 Spacer()
-                ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
+                transportLeadingEdgeControl
                 Spacer()
                 Button { transportBackward() } label: {
                     Image(systemName: transportBackwardSymbol)
@@ -3629,13 +3676,7 @@ struct NowPlayingView: View {
                 .accessibilityLabel(transportForwardLabel)
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
                 Spacer()
-                ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
-                    switch player.repeatMode {
-                    case .off: player.repeatMode = .all
-                    case .all: player.repeatMode = .one
-                    case .one: player.repeatMode = .off
-                    }
-                }
+                transportTrailingEdgeControl
                 Spacer()
             }
             .padding(.top, 14)
@@ -3646,20 +3687,31 @@ struct NowPlayingView: View {
             }
 
             // 底部 bar —— 没有歌词切换按钮(歌词永远在右栏可见),保留 AirPlay
-            // 和队列入口
-            HStack {
-                Spacer()
-                AirPlayButton()
-                    .frame(width: 36, height: 36)
+            // 和队列入口。有声内容的目录常驻右栏,这里换成语速 / 定时 / 书签三块。
+            if usesSpokenWordTransport {
+                SpokenWordActionTiles(
+                    palette: spokenWordPalette,
+                    showsContents: false,
+                    tileHeight: 52,
+                    onSleep: { showSleepTimer = true },
+                    onContents: {}
+                )
+                .padding(.horizontal, 36).padding(.top, 16)
+            } else {
+                HStack {
+                    Spacer()
+                    AirPlayButton()
+                        .frame(width: 36, height: 36)
+                        .frame(width: 44, height: 44)
+                    Spacer()
+                    Button { showQueue = true } label: {
+                        Image(systemName: "list.bullet").foregroundStyle(appearance.secondary)
+                    }
                     .frame(width: 44, height: 44)
-                Spacer()
-                Button { showQueue = true } label: {
-                    Image(systemName: "list.bullet").foregroundStyle(appearance.secondary)
+                    .accessibilityLabel("a11y_queue")
                 }
-                .frame(width: 44, height: 44)
-                .accessibilityLabel("a11y_queue")
+                .font(.body).padding(.horizontal, 80).padding(.top, 14)
             }
-            .font(.body).padding(.horizontal, 80).padding(.top, 14)
 
             if let song = player.currentSong {
                 HStack(spacing: 4) {
@@ -3685,9 +3737,22 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             // 跟左栏 grabber 顶端对齐
             Spacer().frame(height: topSafeArea + 21)
-            lyricsFullView
-                .padding(.bottom, 24)
+            if usesSpokenWordTransport {
+                // 有声内容的右栏是这本书的目录与书签;有文字稿时多一页文字。
+                spokenWordContentsPane
+                    .padding(.bottom, 24)
+            } else {
+                lyricsFullView
+                    .padding(.bottom, 24)
+            }
         }
+    }
+
+    private var spokenWordContentsPane: some View {
+        SpokenWordContentsView(
+            presentation: .embedded(spokenWordPalette),
+            textTab: lyrics.isEmpty ? nil : AnyView(lyricsFullView)
+        )
     }
 
     @ViewBuilder
@@ -4095,7 +4160,7 @@ struct NowPlayingView: View {
     private var portraitTransportRow: some View {
         HStack(spacing: 0) {
         Spacer()
-        ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
+        transportLeadingEdgeControl
         Spacer()
         Button { transportBackward() } label: {
             Image(systemName: transportBackwardSymbol)
@@ -4139,20 +4204,53 @@ struct NowPlayingView: View {
         .accessibilityLabel(transportForwardLabel)
         .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: true) }
         Spacer()
-        ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
-            switch player.repeatMode {
-            case .off: player.repeatMode = .all
-            case .all: player.repeatMode = .one
-            case .one: player.repeatMode = .off
-            }
-        }
+        transportTrailingEdgeControl
         Spacer()
+        }
+    }
+
+    /// 传输键两端:音乐是随机与循环,有声内容换成上一章 / 下一章(有章节标记先按标记走,
+    /// 到头再换到书里相邻的那个文件)。一本书不会随机播,也不会单曲循环。
+    @ViewBuilder
+    private var transportLeadingEdgeControl: some View {
+        if usesSpokenWordTransport {
+            SpokenWordPartButton(forward: false, color: appearance.secondary)
+        } else {
+            ctrlBtn("shuffle", active: player.shuffleEnabled) { player.shuffleEnabled.toggle() }
+        }
+    }
+
+    @ViewBuilder
+    private var transportTrailingEdgeControl: some View {
+        if usesSpokenWordTransport {
+            SpokenWordPartButton(forward: true, color: appearance.secondary)
+        } else {
+            ctrlBtn(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
+                cycleRepeatMode()
+            }
         }
     }
 
     /// 竖版最下面那一排(歌词 · 投放 · 队列)。三个槽位都是 44×44, HStack 的两个 Spacer 才
     /// 会把 AirPlay 分到正中, 左右图标到 padding 边的距离也才相等。
+    @ViewBuilder
     private var portraitBottomBar: some View {
+        if usesSpokenWordTransport {
+            // 有声内容把语速、睡眠定时、书签、目录摆在页面上:听书就是靠这几样,不该藏在菜单里。
+            // 投放在标题右侧,歌词换成有文字稿时才出现的文字键。
+            SpokenWordActionTiles(
+                palette: spokenWordPalette,
+                onSleep: { showSleepTimer = true },
+                onContents: { openQueue() }
+            )
+            .padding(.horizontal, 22)
+            .padding(.top, 16)
+        } else {
+            musicBottomBar
+        }
+    }
+
+    private var musicBottomBar: some View {
         HStack {
         Button { toggleLyricsForLayout() } label: {
             Image(systemName: showLyrics ? "photo" : "quote.bubble")
@@ -4369,6 +4467,21 @@ struct NowPlayingView: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
             }
+        } else if usesSpokenWordTransport {
+            // 书是竖的:封面放进 3:4 的书框,方形或横向的原图整张放进去、空出来的边用它自己的模糊放大垫上,
+            // 和书架、书页是同一个零件。占的仍是原来那块方形槽位,别的布局不用跟着改。
+            SpokenWordBookCover(
+                song: player.currentSong,
+                width: SpokenWordCoverLayout.width(forHeight: size),
+                cornerRadius: max(6, cornerRadius * 0.6),
+                decodeSize: size
+            )
+            .matchedGeometryEffect(
+                id: lyricsArtworkTransitionID,
+                in: lyricsArtworkNamespace,
+                isSource: !isLyricsCompactArtworkVisible
+            )
+            .frame(width: size, height: size)
         } else {
             CachedArtworkView(
                 coverRef: player.currentSong?.coverArtFileName,
@@ -4645,8 +4758,8 @@ struct NowPlayingView: View {
             castingRendererName: player.castingRenderer?.friendlyName,
             isSleepTimerActive: player.isSleepTimerActive,
             lyricsFontScale: lyricsFontScale,
-            canChangePlaybackRate: playbackSettings.outputMode == .effects,
-            playbackRate: playbackSettings.outputMode == .highFidelity
+            canChangePlaybackRate: canChangeCurrentPlaybackRate,
+            playbackRate: !canChangeCurrentPlaybackRate
                 ? 1
                 : (player.currentItemIsSpokenWord
                     ? player.currentSpokenWordRate
@@ -4670,13 +4783,13 @@ struct NowPlayingView: View {
             lyricsFontScale: $lyricsFontScale,
             playbackRate: Binding(
                 get: {
-                    guard playbackSettings.outputMode != .highFidelity else { return 1 }
+                    guard canChangeCurrentPlaybackRate else { return 1 }
                     return player.currentItemIsSpokenWord
                         ? player.currentSpokenWordRate
                         : playbackSettings.playbackRate
                 },
                 set: {
-                    guard playbackSettings.outputMode == .effects else { return }
+                    guard canChangeCurrentPlaybackRate else { return }
                     // 有声内容与音乐各记一档速度, 菜单改的是正在播的这一类;
                     // 有声按书记,每本书可以有自己的速度。
                     if player.currentItemIsSpokenWord {
@@ -4855,7 +4968,76 @@ struct NowPlayingView: View {
         )
     }
 
+    @ViewBuilder
     private func nowPlayingSongHeader(
+        titleFont: Font,
+        metadataFont: Font,
+        showsQuality: Bool = false,
+        inlineActions: Bool = true
+    ) -> some View {
+        if usesSpokenWordTransport {
+            spokenWordHeading(titleFont: titleFont, partFont: metadataFont, inlineActions: inlineActions)
+        } else {
+            musicSongHeader(
+                titleFont: titleFont,
+                metadataFont: metadataFont,
+                showsQuality: showsQuality,
+                inlineActions: inlineActions
+            )
+        }
+    }
+
+    /// 有声内容的标题块:书名作主标题,下面是正在听的章与演播者,「第 12 / 120 章 ›」打开目录。
+    /// 右侧是投放与更多(竖栏那一列里已经有的不重复),有文字稿时多一颗文字键。
+    private func spokenWordHeading(titleFont: Font, partFont: Font, inlineActions: Bool) -> some View {
+        SpokenWordPlayerHeading(
+            palette: spokenWordPalette,
+            titleFont: titleFont,
+            partFont: partFont,
+            onOpenBook: { presentCurrentBook() },
+            onOpenContents: { openQueue() }
+        ) {
+            HStack(spacing: 4) {
+                if inlineActions {
+                    spokenWordTextToggle
+                    AirPlayButton()
+                        .frame(width: 30, height: 30)
+                        .frame(width: 40, height: 44)
+                    moreMenu
+                }
+            }
+            .fixedSize()
+        }
+    }
+
+    /// 有声内容只在这一条目真有带时间的文字(字幕、转写稿按歌词读进来)时才给文字键。
+    @ViewBuilder
+    private var spokenWordTextToggle: some View {
+        if !lyrics.isEmpty {
+            Button { toggleLyricsForLayout() } label: {
+                nowPlayingActionIcon(
+                    symbol: showLyrics ? "text.bubble.fill" : "text.bubble",
+                    tint: showLyrics ? themedControlAccent : appearance.secondary,
+                    isSelected: showLyrics
+                )
+            }
+            .frame(width: 40, height: 44)
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("spoken_word_text_tab"))
+        }
+    }
+
+    private var spokenWordPalette: SpokenWordPlayerPalette {
+        SpokenWordPlayerPalette(
+            primary: appearance.primary,
+            secondary: appearance.secondary,
+            tertiary: appearance.tertiary,
+            accent: themedControlAccent,
+            tileFill: appearance.primary.opacity(appearance.isLight ? 0.07 : 0.10)
+        )
+    }
+
+    private func musicSongHeader(
         titleFont: Font,
         metadataFont: Font,
         showsQuality: Bool = false,
@@ -9604,6 +9786,8 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
 /// 选择)在用户操作期间不会被强制关闭。
 fileprivate struct PlaybackProgressBar: View {
     var fillTint: Color? = nil
+    /// 有声内容在时间标签下再排一行全书进度。手机横屏的右栏按固定高度排版,那边关掉。
+    var showsSpokenWordBookRow = true
     @Environment(AudioPlayerService.self) private var player
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -9633,6 +9817,7 @@ fileprivate struct PlaybackProgressBar: View {
                 .font(.caption)
                 .foregroundStyle(appearance.secondary)
             } else {
+                let isSpokenWord = player.currentItemIsSpokenWord
                 VStack(spacing: 4) {
                     ProgressSlider(
                         value: player.currentTime,
@@ -9642,14 +9827,39 @@ fileprivate struct PlaybackProgressBar: View {
                         onPreview: { previewTime = $0 },
                         onSeek: { player.seek(to: $0) }
                     )
+                    .overlay {
+                        // 有声内容在进度条上标出本条目的书签。
+                        if isSpokenWord {
+                            SpokenWordBookmarkTicks(color: appearance.primary.opacity(0.8))
+                        }
+                    }
                     HStack {
                         Text(displayedTime.formattedDuration)
                             .contentTransition(.numericText()); Spacer()
+                        if isSpokenWord, previewTime == nil,
+                           let remaining = SpokenWordPlayerText.partRemaining(player) {
+                            // 按这本书的语速折算,不是内容时长。
+                            Text(verbatim: remaining)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                            Spacer()
+                        }
                         Text("-\(max(0, player.duration - displayedTime).formattedDuration)")
                             .contentTransition(.numericText())
                     }
                     .font(.caption2).foregroundStyle(appearance.tertiary).monospacedDigit()
                     .pmAnimation(.control, value: animatedSecond)
+
+                    if isSpokenWord, showsSpokenWordBookRow {
+                        SpokenWordBookProgressRow(palette: SpokenWordPlayerPalette(
+                            primary: appearance.primary,
+                            secondary: appearance.secondary,
+                            tertiary: appearance.tertiary,
+                            accent: fillTint ?? appearance.primary,
+                            tileFill: .clear
+                        ))
+                        .padding(.top, 6)
+                    }
                 }
             }
         }

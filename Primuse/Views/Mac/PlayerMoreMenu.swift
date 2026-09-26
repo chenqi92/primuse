@@ -109,7 +109,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             }
         }
         .sheet(isPresented: $showChapterList) {
-            ChapterListView()
+            SpokenWordContentsView()
                 .frame(minWidth: 380, minHeight: 440)
         }
         .sheet(item: $shareSong) { song in

@@ -35,15 +35,23 @@ extension AudioPlayerService {
         }
         guard let song else {
             currentItemIsSpokenWord = false
+            pendingSpokenWordSeekOverride = nil
             updateSpokenWordRemoteCommands()
             return
         }
         currentItemIsSpokenWord = SpokenWordStore.shared.isSpokenWord(song)
+        if let override = pendingSpokenWordSeekOverride, override.songID != song.id {
+            pendingSpokenWordSeekOverride = nil
+        }
         updateSpokenWordRemoteCommands()
-        guard currentItemIsSpokenWord else { return }
+        guard currentItemIsSpokenWord else {
+            pendingSpokenWordSeekOverride = nil
+            return
+        }
         // Arm the resume even when nothing is stored: the seek is skipped, but
         // the flag also tells the position writer to ignore the opening zeroes.
-        if SpokenWordStore.shared.resumePosition(for: song) != nil {
+        if pendingSpokenWordSeekOverride != nil
+            || SpokenWordStore.shared.resumePosition(for: song) != nil {
             pendingSpokenWordResumeSongID = song.id
         }
     }
@@ -63,7 +71,9 @@ extension AudioPlayerService {
             if currentTime >= 2 { pendingSpokenWordResumeSongID = nil }
             return
         }
-        guard let target = SpokenWordStore.shared.resumePosition(for: song) else {
+        let override = pendingSpokenWordSeekOverride.flatMap { $0.songID == song.id ? $0.position : nil }
+        pendingSpokenWordSeekOverride = nil
+        guard let target = override ?? SpokenWordStore.shared.resumePosition(for: song) else {
             pendingSpokenWordResumeSongID = nil
             return
         }
@@ -144,6 +154,15 @@ extension AudioPlayerService {
 
     // MARK: - Playback rate
 
+    /// The render graph `song` plays through. Spoken word always takes the
+    /// effects graph whatever the output setting: its speed is the graph's
+    /// time-pitch unit, and a bit-exact path buys nothing for a voice. Music
+    /// follows the setting.
+    func outputMode(for song: Song?) -> AudioOutputMode {
+        if let song, SpokenWordStore.shared.isSpokenWord(song) { return .effects }
+        return playbackSettings.outputMode
+    }
+
     /// The rate `song` should play at: its book's own speed (or the global
     /// spoken-word speed) for spoken word, the music rate otherwise, 1× where
     /// the output cannot time-stretch.
@@ -158,7 +177,7 @@ extension AudioPlayerService {
             spokenWordRate: song.flatMap { song in
                 isSpokenWord ? spokenWordRate(forBookID: spokenWordBookID(for: song)) : nil
             } ?? playbackSettings.spokenWordPlaybackRate,
-            rateAllowed: playbackSettings.outputMode == .effects
+            rateAllowed: outputMode(for: song) == .effects
         )
     }
 
@@ -171,7 +190,7 @@ extension AudioPlayerService {
             isSpokenWord: currentItemIsSpokenWord,
             musicRate: playbackSettings.playbackRate,
             spokenWordRate: currentSpokenWordRate,
-            rateAllowed: playbackSettings.outputMode == .effects
+            rateAllowed: currentItemIsSpokenWord || playbackSettings.outputMode == .effects
         )
     }
 
@@ -203,6 +222,176 @@ extension AudioPlayerService {
                   SpokenWordStore.shared.isSpokenWord(song) else { return nil }
             return song.id
         }
+    }
+
+    /// The playing item's book, grouped from that book's own items (so a
+    /// publish never regroups the shelf for it). Cached per book, store
+    /// revision and library content, because the player's progress rows ask
+    /// for it on every clock tick.
+    var currentSpokenWordBook: SpokenWordBook? {
+        guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio else { return nil }
+        let bookID = spokenWordBookID(for: song)
+        let key = "\(bookID)|\(SpokenWordStore.shared.revision)|\(library?.spokenWordContentRevision ?? 0)|\(song.id)"
+        if let cache = spokenWordBookCache, cache.key == key { return cache.book }
+        let book = currentBookForWidgets(song)
+        spokenWordBookCache = (key, book)
+        return book
+    }
+
+    /// Where the listener is in the book, at the live play head.
+    var spokenWordNowPlayingSummary: SpokenWordNowPlayingSummary? {
+        guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio else { return nil }
+        return SpokenWordNowPlayingPolicy.summary(
+            book: currentSpokenWordBook,
+            currentItemID: song.id,
+            position: currentTime,
+            duration: duration > 0 ? duration : song.duration,
+            chapterCount: spokenWordChapters.count,
+            currentChapterIndex: currentChapterIndex
+        )
+    }
+
+    /// The contents list of the playing book.
+    ///
+    /// Lists run to a thousand parts, so by default the playing item is
+    /// placed at its stored position (written every few seconds) and the
+    /// list does not observe the clock; the current chapter still follows
+    /// `currentChapterIndex`. `live` reads the play head instead.
+    func spokenWordContentsRows(live: Bool = false) -> [SpokenWordContentsRow] {
+        guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio else { return [] }
+        let position = live
+            ? currentTime
+            : (SpokenWordStore.shared.position(forSongID: song.id)?.position ?? 0)
+        return SpokenWordContentsPolicy.rows(
+            book: currentSpokenWordBook,
+            currentItemID: song.id,
+            currentItemTitle: song.title,
+            position: position,
+            duration: duration > 0 ? duration : song.duration,
+            chapters: spokenWordChapters,
+            currentChapterIndex: currentChapterIndex
+        )
+    }
+
+    /// Every bookmark of the playing book, in reading order.
+    var currentBookBookmarkEntries: [SpokenWordBookBookmarkPolicy.Entry] {
+        guard let song = currentSong, currentItemIsSpokenWord, !isLiveRadio else { return [] }
+        let itemIDs = currentSpokenWordBook?.items.map(\.id) ?? [song.id]
+        let store = SpokenWordStore.shared
+        return SpokenWordBookBookmarkPolicy.entries(itemIDs: itemIDs) { store.bookmarks(forSongID: $0) }
+    }
+
+    /// Content time left in the chapter (or item) being heard.
+    var spokenWordPartRemaining: TimeInterval? {
+        SpokenWordNowPlayingPolicy.partRemaining(
+            position: currentTime,
+            duration: duration > 0 ? duration : (currentSong?.duration ?? 0),
+            chapters: spokenWordChapters,
+            currentChapterIndex: currentChapterIndex
+        )
+    }
+
+    // MARK: - Contents navigation
+
+    /// Plays one item of the playing book from where it was left (a finished
+    /// one from the start). Installs the book as the queue when the item is
+    /// not in it, the way the shelf starts a book.
+    func playSpokenWordBookItem(id itemID: String, at position: TimeInterval? = nil) {
+        guard currentSong?.id != itemID else {
+            if let position {
+                seek(to: position, startPlaying: isPlaying ? true : nil)
+                rememberSpokenWordPosition(force: true)
+            }
+            return
+        }
+        rememberSpokenWordPosition(force: true)
+        let store = SpokenWordStore.shared
+        if store.isFinished(songID: itemID) {
+            store.markFinished(false, songIDs: [itemID])
+        }
+        if let position {
+            pendingSpokenWordSeekOverride = (itemID, position)
+        }
+        if let index = queueEntries.firstIndex(where: { $0.song.id == itemID }) {
+            Task { await playFromQueue(at: index) }
+            return
+        }
+        guard let library, let book = currentSpokenWordBook else { return }
+        let byID = Dictionary(
+            library.spokenWordSongs.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let songs = book.items.compactMap { byID[$0.id] }
+        guard let index = songs.firstIndex(where: { $0.id == itemID }) else { return }
+        Task { await play(queue: songs, startingAt: index) }
+    }
+
+    /// Jumps to a bookmark anywhere in the playing book.
+    func playSpokenWordBookmark(_ bookmark: SpokenWordBookmark) {
+        if currentSong?.id == bookmark.songID {
+            seekToSpokenWordBookmark(bookmark)
+        } else {
+            playSpokenWordBookItem(id: bookmark.songID, at: bookmark.position)
+        }
+    }
+
+    /// Opens a contents row: a chapter mark seeks, an item plays.
+    func openSpokenWordContentsRow(_ row: SpokenWordContentsRow) {
+        switch row.kind {
+        case let .chapter(index, startTime):
+            if currentSong?.id == row.itemID {
+                seekToChapter(at: index)
+            } else {
+                playSpokenWordBookItem(id: row.itemID, at: startTime)
+            }
+        case .item:
+            playSpokenWordBookItem(id: row.itemID)
+        }
+    }
+
+    /// The player's previous-chapter button: back to the start of the
+    /// chapter, then to the previous chapter mark or the previous file.
+    func goToPreviousSpokenWordPart() {
+        switch SpokenWordPartNavigationPolicy.previous(
+            position: currentTime,
+            chapters: spokenWordChapters,
+            currentChapterIndex: currentChapterIndex,
+            hasPreviousItem: hasPreviousBookItem
+        ) {
+        case .seekToChapter(let index):
+            seekToChapter(at: index)
+        case .restartItem:
+            seek(to: 0, startPlaying: isPlaying ? true : nil)
+            rememberSpokenWordPosition(force: true)
+        case .previousItem:
+            moveWithinBook(by: -1)
+        case .nextItem, .none:
+            break
+        }
+    }
+
+    /// The player's next-chapter button.
+    func goToNextSpokenWordPart() {
+        switch SpokenWordPartNavigationPolicy.next(
+            chapters: spokenWordChapters,
+            currentChapterIndex: currentChapterIndex,
+            hasNextItem: hasNextBookItem
+        ) {
+        case .seekToChapter(let index):
+            seekToChapter(at: index)
+        case .nextItem:
+            moveWithinBook(by: 1)
+        case .restartItem, .previousItem, .none:
+            break
+        }
+    }
+
+    var canGoToNextSpokenWordPart: Bool {
+        SpokenWordPartNavigationPolicy.canGoNext(
+            chapters: spokenWordChapters,
+            currentChapterIndex: currentChapterIndex,
+            hasNextItem: hasNextBookItem
+        )
     }
 
     // MARK: - Widgets

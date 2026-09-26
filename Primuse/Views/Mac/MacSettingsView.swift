@@ -1659,8 +1659,8 @@ private struct MacSTPlaybackView: View {
                         width: 120
                     )
                 }
+                // 有声内容总走效果链,高保真设置下照样能调速。
                 .settingsAnchor("playback.spokenWordRate")
-                .disabled(s.outputMode == .highFidelity)
                 MacSTRow(String(localized: "spoken_word_skip_backward")) {
                     MacSTPicker(
                         selection: $s.spokenWordSkipBackwardSeconds,
