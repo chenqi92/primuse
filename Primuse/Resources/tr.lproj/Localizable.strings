@@ -4261,7 +4261,7 @@
 "seconds_value_format" = "%lld sn";
 "medley_title" = "Medley";
 "medley_start_queue" = "Sırayı medley olarak çal";
-"medley_start_queue_format" = "Sırayı medley çal (her biri %lld sn)";
+"medley_queue_detail_format" = "Mevcut sıra · her biri %lld sn";
 "medley_play_selection" = "Medley olarak çal";
 "medley_segment_length" = "Şarkı başına süre";
 "medley_settings_footer" = "Medley her şarkının en tanınan bölümünü çalar ve kısa geçişlerle birleştirir. Dinleme geçmişine ve scrobble'a sayılmaz.";

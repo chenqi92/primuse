@@ -4355,7 +4355,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Medley";
 "medley_start_queue" = "Warteschlange als Medley";
-"medley_start_queue_format" = "Warteschlange als Medley (je %lld s)";
+"medley_queue_detail_format" = "Aktuelle Warteschlange · je %lld s";
 "medley_play_selection" = "Als Medley abspielen";
 "medley_segment_length" = "Länge pro Song";
 "medley_settings_footer" = "Ein Medley spielt den bekanntesten Teil jedes Songs und verbindet sie mit kurzen Überblendungen. Es zählt nicht zum Hörverlauf und wird nicht gescrobbelt.";

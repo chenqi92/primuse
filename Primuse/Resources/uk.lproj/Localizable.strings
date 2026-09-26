@@ -4261,7 +4261,7 @@
 "seconds_value_format" = "%lld с";
 "medley_title" = "Попурі";
 "medley_start_queue" = "Грати чергу попурі";
-"medley_start_queue_format" = "Попурі з черги (по %lld с)";
+"medley_queue_detail_format" = "Поточна черга · по %lld с";
 "medley_play_selection" = "Грати попурі";
 "medley_segment_length" = "Довжина фрагмента";
 "medley_settings_footer" = "Попурі грає найвпізнаванішу частину кожної пісні й поєднує їх короткими переходами. Воно не потрапляє в історію прослуховування і скроблінг.";

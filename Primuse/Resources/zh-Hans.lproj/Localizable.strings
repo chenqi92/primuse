@@ -4448,7 +4448,7 @@
 "seconds_value_format" = "%lld 秒";
 "medley_title" = "串烧";
 "medley_start_queue" = "把当前队列串烧播放";
-"medley_start_queue_format" = "把当前队列串烧播放（每首 %lld 秒）";
+"medley_queue_detail_format" = "当前队列 · 每首 %lld 秒";
 "medley_play_selection" = "串烧播放";
 "medley_segment_length" = "每首时长";
 "medley_settings_footer" = "串烧会截取每首歌最有辨识度的一段，用短暂的淡入淡出连起来。串烧不计入收听记录，也不会上报 Scrobble。";

@@ -4261,7 +4261,7 @@
 "seconds_value_format" = "%lld से.";
 "medley_title" = "मेडली";
 "medley_start_queue" = "कतार को मेडली में चलाएँ";
-"medley_start_queue_format" = "कतार मेडली में (हर गीत %lld से.)";
+"medley_queue_detail_format" = "वर्तमान कतार · हर गीत %lld से.";
 "medley_play_selection" = "मेडली में चलाएँ";
 "medley_segment_length" = "प्रति गीत अवधि";
 "medley_settings_footer" = "मेडली हर गीत का सबसे पहचाना हिस्सा चलाता है और उन्हें छोटे क्रॉसफ़ेड से जोड़ता है। यह सुनने के इतिहास या स्क्रॉबल में नहीं गिना जाता।";

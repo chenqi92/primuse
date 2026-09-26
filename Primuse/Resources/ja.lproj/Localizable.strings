@@ -4356,7 +4356,7 @@
 "seconds_value_format" = "%lld 秒";
 "medley_title" = "メドレー";
 "medley_start_queue" = "再生キューをメドレーで";
-"medley_start_queue_format" = "キューをメドレーで再生（各 %lld 秒）";
+"medley_queue_detail_format" = "現在のキュー・各 %lld 秒";
 "medley_play_selection" = "メドレーで再生";
 "medley_segment_length" = "1曲あたりの長さ";
 "medley_settings_footer" = "メドレーは各曲の聴きどころを再生し、短いクロスフェードでつなぎます。再生履歴や Scrobble には記録されません。";

@@ -4261,7 +4261,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Składanka";
 "medley_start_queue" = "Odtwórz kolejkę jako składankę";
-"medley_start_queue_format" = "Kolejka jako składanka (po %lld s)";
+"medley_queue_detail_format" = "Bieżąca kolejka · po %lld s";
 "medley_play_selection" = "Odtwórz jako składankę";
 "medley_segment_length" = "Długość na utwór";
 "medley_settings_footer" = "Składanka odtwarza najbardziej rozpoznawalny fragment każdego utworu i łączy je krótkimi przejściami. Nie trafia do historii słuchania ani scrobbli.";

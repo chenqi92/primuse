@@ -4261,7 +4261,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Medley";
 "medley_start_queue" = "Tocar fila como medley";
-"medley_start_queue_format" = "Fila como medley (%lld s cada)";
+"medley_queue_detail_format" = "Fila atual · %lld s cada";
 "medley_play_selection" = "Tocar como medley";
 "medley_segment_length" = "Duração por música";
 "medley_settings_footer" = "Um medley toca o trecho mais reconhecível de cada música e as une com transições curtas. Não entra no histórico nem nos scrobbles.";

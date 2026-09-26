@@ -4332,7 +4332,7 @@
 "seconds_value_format" = "%lld 秒";
 "medley_title" = "串燒";
 "medley_start_queue" = "把目前佇列串燒播放";
-"medley_start_queue_format" = "把目前佇列串燒播放（每首 %lld 秒）";
+"medley_queue_detail_format" = "目前佇列 · 每首 %lld 秒";
 "medley_play_selection" = "串燒播放";
 "medley_segment_length" = "每首時長";
 "medley_settings_footer" = "串燒會擷取每首歌最有辨識度的一段，用短暫的淡入淡出串起來。串燒不計入收聽紀錄，也不會回報 Scrobble。";

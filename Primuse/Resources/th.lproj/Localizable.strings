@@ -4261,7 +4261,7 @@
 "seconds_value_format" = "%lld วิ";
 "medley_title" = "เมดเลย์";
 "medley_start_queue" = "เล่นคิวเป็นเมดเลย์";
-"medley_start_queue_format" = "เล่นคิวเป็นเมดเลย์ (เพลงละ %lld วิ)";
+"medley_queue_detail_format" = "คิวปัจจุบัน · เพลงละ %lld วิ";
 "medley_play_selection" = "เล่นเป็นเมดเลย์";
 "medley_segment_length" = "ความยาวต่อเพลง";
 "medley_settings_footer" = "เมดเลย์จะเล่นท่อนที่คุ้นหูที่สุดของแต่ละเพลงและเชื่อมด้วยการเฟดสั้น ๆ โดยไม่นับในประวัติการฟังหรือ Scrobble";

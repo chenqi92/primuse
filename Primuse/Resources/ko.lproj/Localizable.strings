@@ -4355,7 +4355,7 @@
 "seconds_value_format" = "%lld초";
 "medley_title" = "메들리";
 "medley_start_queue" = "대기열을 메들리로 재생";
-"medley_start_queue_format" = "대기열을 메들리로 재생(곡당 %lld초)";
+"medley_queue_detail_format" = "현재 대기열 · 곡당 %lld초";
 "medley_play_selection" = "메들리로 재생";
 "medley_segment_length" = "곡당 길이";
 "medley_settings_footer" = "메들리는 각 곡에서 가장 익숙한 부분을 재생하고 짧은 크로스페이드로 이어 줍니다. 감상 기록과 스크로블에는 포함되지 않습니다.";

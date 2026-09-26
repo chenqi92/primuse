@@ -333,8 +333,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             } else if !player.isLiveRadio, !player.isAppleMusicMode,
                       player.canPlayMedleyFromQueue {
-                menuRow(titleText: String(
-                    format: String(localized: "medley_start_queue_format"),
+                menuRow(title: "medley_play_selection", subtitle: String(
+                    format: String(localized: "medley_queue_detail_format"),
                     player.playbackSettings.medleySegmentSeconds
                 ), symbol: "rectangle.stack.badge.play") {
                     let songs = player.medleyCandidatesFromQueue
@@ -417,7 +417,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         .padding(.vertical, 8)
     }
 
-    private func menuRow(title: LocalizedStringKey, symbol: String,
+    private func menuRow(title: LocalizedStringKey, subtitle: String? = nil, symbol: String,
                          role: ButtonRole? = nil, disabled: Bool = false,
                          action: @escaping () -> Void) -> some View {
         Button(role: role) {
@@ -429,9 +429,18 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     .frame(width: 18)
                     .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.textMuted)
                     .contentTransition(.symbolEffect(.replace))
-                Text(title)
-                    .font(.callout)
-                    .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.text)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.callout)
+                        .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.text)
+                    if let subtitle {
+                        // 跟 iOS 菜单的副标题一样：标题说动作，小字说范围和参数。
+                        Text(verbatim: subtitle)
+                            .font(.caption)
+                            .foregroundStyle(PMColor.textMuted)
+                            .lineLimit(1)
+                    }
+                }
                 Spacer()
             }
             .padding(.horizontal, 12).padding(.vertical, 6)

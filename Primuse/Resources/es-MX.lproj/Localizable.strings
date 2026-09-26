@@ -4261,7 +4261,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Popurrí";
 "medley_start_queue" = "Reproducir cola como popurrí";
-"medley_start_queue_format" = "Cola como popurrí (%lld s cada una)";
+"medley_queue_detail_format" = "Cola actual · %lld s cada una";
 "medley_play_selection" = "Reproducir como popurrí";
 "medley_segment_length" = "Duración por canción";
 "medley_settings_footer" = "Un popurrí reproduce la parte más reconocible de cada canción y las une con fundidos cortos. No cuenta en el historial ni en los scrobbles.";

@@ -4118,7 +4118,7 @@
 "seconds_value_format" = "%lld s";
 "medley_title" = "Medley";
 "medley_start_queue" = "Play Queue as Medley";
-"medley_start_queue_format" = "Play Queue as Medley (%lld s each)";
+"medley_queue_detail_format" = "Current queue · %lld s each";
 "medley_play_selection" = "Play as Medley";
 "medley_segment_length" = "Length per Song";
 "medley_settings_footer" = "A medley plays the most recognisable part of each song and blends them with short crossfades. It does not count toward listening history or scrobbles.";

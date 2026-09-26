@@ -6872,14 +6872,14 @@ private struct NowPlayingMoreMenu: View, @MainActor Equatable {
                         }
                     } else {
                         // 一步开始，不再套两层子菜单；每首时长在设置 › 播放里改。
+                        // 标题只留动作，范围和时长放进系统菜单的副标题行。
                         Button(action: onStartMedley) {
-                            Label(
-                                String(
-                                    format: String(localized: "medley_start_queue_format"),
-                                    snapshot.medleySegmentSeconds
-                                ),
-                                systemImage: "rectangle.stack.badge.play"
-                            )
+                            Label(String(localized: "medley_play_selection"),
+                                  systemImage: "rectangle.stack.badge.play")
+                            Text(String(
+                                format: String(localized: "medley_queue_detail_format"),
+                                snapshot.medleySegmentSeconds
+                            ))
                         }
                     }
                 }

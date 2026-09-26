@@ -4261,7 +4261,7 @@
 "seconds_value_format" = "%lld ث";
 "medley_title" = "ميدلي";
 "medley_start_queue" = "تشغيل القائمة كميدلي";
-"medley_start_queue_format" = "تشغيل القائمة كميدلي (%lld ث لكل أغنية)";
+"medley_queue_detail_format" = "القائمة الحالية · %lld ث لكل أغنية";
 "medley_play_selection" = "تشغيل كميدلي";
 "medley_segment_length" = "المدة لكل أغنية";
 "medley_settings_footer" = "يشغّل الميدلي الجزء الأكثر تميزًا من كل أغنية ويصل بينها بتلاشٍ قصير. لا يُحسب في سجل الاستماع ولا يُرسل كـ Scrobble.";
