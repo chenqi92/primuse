@@ -4478,7 +4478,6 @@
 "karaoke_unavailable_casting" = "他のデバイスにキャスト中はボーカルを下げられません。";
 "karaoke_unavailable_high_fidelity" = "高音質出力ではエフェクト処理を通らないため、ボーカルを下げられません。";
 "karaoke_mono_warning" = "この曲はほぼモノラルのため、ボーカルを伴奏から分離できません。";
-"karaoke_mono_download_ai" = "ほぼモノラルです。AI モデルをダウンロードするとボーカルを分離できます。";
 "karaoke_mono_enable_ai" = "ほぼモノラルです。AI ボーカル分離をオンにしてください。";
 "karaoke_mono_ai_pending" = "ほぼモノラルです。AI 分離が終わるまでボーカルはそのままです。";
 "karaoke_mic_denied" = "マイクへのアクセスがオフです。設定でオンにできます。";
@@ -4552,6 +4551,7 @@
 "music_video_preparing_percent" = "ビデオを準備中 %d%%";
 "karaoke_ai_title" = "AIボーカル分離";
 "karaoke_ai_download_format" = "ダウンロード（%@）";
+"karaoke_ai_download_on_enable_format" = "オンにするとモデル（%@）をダウンロード";
 "karaoke_ai_downloading" = "ダウンロード中";
 "karaoke_ai_separating" = "分離中";
 "karaoke_ai_active" = "オン";

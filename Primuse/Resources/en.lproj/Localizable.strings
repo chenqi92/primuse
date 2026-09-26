@@ -4240,7 +4240,6 @@
 "karaoke_unavailable_casting" = "Vocals can’t be reduced while casting to another device.";
 "karaoke_unavailable_high_fidelity" = "High-fidelity output skips effects processing, so vocals can’t be reduced.";
 "karaoke_mono_warning" = "This recording is close to mono, so the vocals can’t be separated from the music.";
-"karaoke_mono_download_ai" = "Close to mono. Download the AI model to separate the vocals.";
 "karaoke_mono_enable_ai" = "Close to mono. Turn on AI Vocal Separation to remove the vocals.";
 "karaoke_mono_ai_pending" = "Close to mono. Vocals stay until AI separation finishes.";
 "karaoke_mic_denied" = "Microphone access is off. You can turn it on in Settings.";
@@ -4314,6 +4313,7 @@
 "music_video_preparing_percent" = "Preparing video %d%%";
 "karaoke_ai_title" = "AI Vocal Separation";
 "karaoke_ai_download_format" = "Download (%@)";
+"karaoke_ai_download_on_enable_format" = "Downloads the model (%@) when turned on";
 "karaoke_ai_downloading" = "Downloading";
 "karaoke_ai_separating" = "Separating";
 "karaoke_ai_active" = "On";

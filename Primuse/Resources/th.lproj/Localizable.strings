@@ -4383,7 +4383,6 @@
 "karaoke_unavailable_casting" = "ลดเสียงร้องไม่ได้ขณะส่งไปยังอุปกรณ์อื่น";
 "karaoke_unavailable_high_fidelity" = "เอาต์พุตความเที่ยงตรงสูงไม่ผ่านเอฟเฟกต์ จึงลดเสียงร้องไม่ได้";
 "karaoke_mono_warning" = "เพลงนี้เกือบเป็นโมโน จึงแยกเสียงร้องออกจากดนตรีไม่ได้";
-"karaoke_mono_download_ai" = "เกือบเป็นโมโน ดาวน์โหลดโมเดล AI เพื่อแยกเสียงร้อง";
 "karaoke_mono_enable_ai" = "เกือบเป็นโมโน เปิดการแยกเสียงร้องด้วย AI";
 "karaoke_mono_ai_pending" = "เกือบเป็นโมโน เสียงร้องจะยังอยู่จนกว่า AI จะแยกเสร็จ";
 "karaoke_mic_denied" = "การเข้าถึงไมโครโฟนปิดอยู่ เปิดได้ในการตั้งค่า";
@@ -4457,6 +4456,7 @@
 "music_video_preparing_percent" = "กำลังเตรียมวิดีโอ %d%%";
 "karaoke_ai_title" = "แยกเสียงร้องด้วย AI";
 "karaoke_ai_download_format" = "ดาวน์โหลด (%@)";
+"karaoke_ai_download_on_enable_format" = "เปิดแล้วจะดาวน์โหลดโมเดล (%@)";
 "karaoke_ai_downloading" = "กำลังดาวน์โหลด";
 "karaoke_ai_separating" = "กำลังแยก";
 "karaoke_ai_active" = "เปิดอยู่";

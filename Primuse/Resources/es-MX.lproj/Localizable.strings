@@ -4383,7 +4383,6 @@
 "karaoke_unavailable_casting" = "No se puede bajar la voz mientras transmites a otro dispositivo.";
 "karaoke_unavailable_high_fidelity" = "La salida de alta fidelidad no pasa por los efectos, así que no se puede bajar la voz.";
 "karaoke_mono_warning" = "Esta grabación es casi mono, así que la voz no se puede separar de la música.";
-"karaoke_mono_download_ai" = "Casi mono. Descarga el modelo de IA para separar la voz.";
 "karaoke_mono_enable_ai" = "Casi mono. Activa la separación de voz con IA.";
 "karaoke_mono_ai_pending" = "Casi mono. La voz se mantiene hasta que termine la separación con IA.";
 "karaoke_mic_denied" = "El acceso al micrófono está desactivado. Puedes activarlo en Configuración.";
@@ -4457,6 +4456,7 @@
 "music_video_preparing_percent" = "Preparando el video %d %%";
 "karaoke_ai_title" = "Separación vocal con IA";
 "karaoke_ai_download_format" = "Descargar (%@)";
+"karaoke_ai_download_on_enable_format" = "Descarga el modelo (%@) al activarlo";
 "karaoke_ai_downloading" = "Descargando";
 "karaoke_ai_separating" = "Separando";
 "karaoke_ai_active" = "Activada";

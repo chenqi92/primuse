@@ -4383,7 +4383,6 @@
 "karaoke_unavailable_casting" = "Başka bir cihaza yayın yapılırken vokal kısılamaz.";
 "karaoke_unavailable_high_fidelity" = "Yüksek doğruluklu çıkış efekt işlemesinden geçmez, bu yüzden vokal kısılamaz.";
 "karaoke_mono_warning" = "Bu kayıt neredeyse mono, bu yüzden vokal müzikten ayrılamaz.";
-"karaoke_mono_download_ai" = "Neredeyse mono. Vokali ayırmak için AI modelini indirin.";
 "karaoke_mono_enable_ai" = "Neredeyse mono. AI vokal ayırmayı açın.";
 "karaoke_mono_ai_pending" = "Neredeyse mono. AI ayırma bitene kadar vokal kalır.";
 "karaoke_mic_denied" = "Mikrofon erişimi kapalı. Ayarlar’dan açabilirsin.";
@@ -4457,6 +4456,7 @@
 "music_video_preparing_percent" = "Video hazırlanıyor %%%d";
 "karaoke_ai_title" = "Yapay zekâ ile vokal ayırma";
 "karaoke_ai_download_format" = "İndir (%@)";
+"karaoke_ai_download_on_enable_format" = "Açınca modeli indirir (%@)";
 "karaoke_ai_downloading" = "İndiriliyor";
 "karaoke_ai_separating" = "Ayrılıyor";
 "karaoke_ai_active" = "Açık";

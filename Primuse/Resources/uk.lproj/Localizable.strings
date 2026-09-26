@@ -4383,7 +4383,6 @@
 "karaoke_unavailable_casting" = "Під час трансляції на інший пристрій вокал приглушити не можна.";
 "karaoke_unavailable_high_fidelity" = "Вивід високої точності не проходить через ефекти, тож вокал приглушити не можна.";
 "karaoke_mono_warning" = "Запис майже моно, тож вокал не можна відокремити від музики.";
-"karaoke_mono_download_ai" = "Майже моно. Завантажте ШІ-модель, щоб відокремити вокал.";
 "karaoke_mono_enable_ai" = "Майже моно. Увімкніть ШІ-відокремлення вокалу.";
 "karaoke_mono_ai_pending" = "Майже моно. Вокал лишиться до завершення ШІ-розділення.";
 "karaoke_mic_denied" = "Доступ до мікрофона вимкнено. Його можна ввімкнути в Параметрах.";
@@ -4457,6 +4456,7 @@
 "music_video_preparing_percent" = "Підготовка відео %d %%";
 "karaoke_ai_title" = "ШІ-відокремлення вокалу";
 "karaoke_ai_download_format" = "Завантажити (%@)";
+"karaoke_ai_download_on_enable_format" = "Після ввімкнення завантажить модель (%@)";
 "karaoke_ai_downloading" = "Завантаження";
 "karaoke_ai_separating" = "Відокремлення";
 "karaoke_ai_active" = "Увімкнено";
