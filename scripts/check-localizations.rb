@@ -269,6 +269,14 @@ PMSTRING_SOURCE_ROOTS = %w[
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
+  # DEBUG-only chapter/bookshelf evidence hosts: fabricated book data for
+  # screenshots and touch regression, never compiled into release builds.
+  "Primuse/Views/Library/SpokenWordLibraryView.swift" => [
+    /山河故人|远方的故事与漫长旅途中再次相遇的人们/,
+    /"\\\(items\.count\) 章"/,
+    /title: "第\\\(chapter \+ 1\)章"/,
+    /"书籍 %04d · 故事"/
+  ],
   # Version markers matched against song titles and file names to pair a
   # song with its backing track; never shown as UI copy.
   "PrimuseKit/Sources/PrimuseKit/KaraokeCompanionPolicy.swift" => [

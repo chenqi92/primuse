@@ -2194,15 +2194,19 @@ private struct MacHomeResumeRow: View {
 private struct MacHomeBooksStrip: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
+    /// 书架或书的右键菜单里挑过「在首页显示」的书;挑过就放挑中的,没挑过只列在听的书。
+    @AppStorage(HomeSpotlightSelection.booksStorageKey) private var selectionRawValue = ""
+    @AppStorage("spokenWord.shelf.order") private var shelfOrderRawValue = ""
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
 
     var body: some View {
-        let entries = inProgressBooks
+        let selection = HomeSpotlightSelection.decode(selectionRawValue)
+        let entries = selection.isAutomatic ? inProgressBooks : pickedBooks(selection)
         if !entries.isEmpty {
             VStack(alignment: .leading, spacing: PMSpace.m) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("home_books_in_progress_title")
+                    Text(LocalizedStringKey(selection.isAutomatic ? "home_books_in_progress_title" : "home_section_audiobooks"))
                         .font(.system(size: 17, weight: .semibold))
                         .tracking(-0.3)
                         .foregroundStyle(PMColor.text)
@@ -2243,16 +2247,41 @@ private struct MacHomeBooksStrip: View {
     }
 
     private var inProgressBooks: [Entry] {
+        Array(entries(for: allBooks.filter(\.isInProgress)).prefix(20))
+    }
+
+    /// 挑中的书,按挑选页定的排序;没挑的顺序时跟书架拖出来的顺序。
+    private func pickedBooks(_ selection: HomeSpotlightSelection) -> [Entry] {
+        let books = allBooks
+        let byID = Dictionary(books.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let shelfOrdered = SpokenWordShelfOrder.orderedIDs(
+            books.map(\.id),
+            preferred: SpokenWordShelfOrder.decode(shelfOrderRawValue)
+        ).compactMap { byID[$0] }
+        let picked = selection.resolve(
+            shelfOrdered,
+            limit: HomeSectionLayoutPolicy.defaultItemCount(for: .audiobooks) * 2,
+            id: \.id,
+            name: \.title,
+            lastListenedAt: \.lastListenedAt
+        )
+        return entries(for: picked)
+    }
+
+    private var allBooks: [SpokenWordBook] {
         guard !library.spokenWordSongs.isEmpty else { return [] }
         _ = store.revision
         let items = library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-        let books = SpokenWordBookGrouping.books(from: items).filter(\.isInProgress)
+        return SpokenWordBookGrouping.books(from: items)
+    }
+
+    private func entries(for books: [SpokenWordBook]) -> [Entry] {
         guard !books.isEmpty else { return [] }
         let songsByID = Dictionary(
             library.spokenWordSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        return books.prefix(20).compactMap { book -> Entry? in
+        return books.compactMap { book -> Entry? in
             let songs = book.items.compactMap { songsByID[$0.id] }
             return songs.isEmpty ? nil : Entry(book: book, songs: songs)
         }

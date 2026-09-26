@@ -175,9 +175,7 @@ enum SpokenWordShelfOrder {
 /// finished ones folded away underneath.
 struct SpokenWordLibraryView: View {
     @Environment(MusicLibrary.self) private var library
-    #if os(iOS)
     @State private var showsHomeSpotlight = false
-    #endif
 
     var body: some View {
         ScrollView {
@@ -188,6 +186,7 @@ struct SpokenWordLibraryView: View {
         .navigationTitle("tab_spoken_word")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             if !library.spokenWordSongs.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
@@ -202,8 +201,10 @@ struct SpokenWordLibraryView: View {
         }
         .sheet(isPresented: $showsHomeSpotlight) {
             NavigationStack { HomeSpotlightManagementView(section: .audiobooks) }
+            #if os(macOS)
+                .frame(minWidth: 460, minHeight: 520)
+            #endif
         }
-        #endif
         .overlay {
             if library.spokenWordSongs.isEmpty {
                 ContentUnavailableView(
@@ -467,8 +468,7 @@ struct SpokenWordShelfContent: View {
                 Label(String(localized: "spoken_word_mark_finished"), systemImage: "checkmark.circle")
             }
         }
-        #if os(iOS)
-        // 首页的「有声书」一排放哪些书。Mac 首页只列在听的书,不读这份挑选。
+        // 首页的「有声书」一排放哪些书。Mac 首页挑过就放挑中的,没挑过仍只列在听的书。
         let homeSelection = HomeSpotlightSelection.decode(homeSpotlightRawValue)
         let isOnHome = homeSelection.isPinned(book.id)
         Button {
@@ -481,7 +481,6 @@ struct SpokenWordShelfContent: View {
                 systemImage: isOnHome ? "house.slash" : "house"
             )
         }
-        #endif
         Button {
             store.setKind(.music, forSongIDs: book.items.map(\.id))
             library.refreshContentClassification()
@@ -1386,8 +1385,8 @@ struct SpokenWordChapterEvidenceHost: View {
         NavigationStack {
             SpokenWordChapterList(items: items) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("山河故人").font(.title2.bold())
-                    Text("\(items.count) 章").foregroundStyle(.secondary)
+                    Text(verbatim: "山河故人").font(.title2.bold())
+                    Text(verbatim: "\(items.count) 章").foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } row: { index, item in
