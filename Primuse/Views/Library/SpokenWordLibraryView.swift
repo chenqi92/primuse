@@ -1,6 +1,117 @@
 import PrimuseKit
 import SwiftUI
 
+struct SpokenWordLibrarySnapshot: Sendable {
+    struct Entry: Identifiable, Sendable {
+        let book: SpokenWordBook
+        let songs: [Song]
+        var id: String { book.id }
+    }
+
+    let entriesByID: [String: Entry]
+    let inProgress: [(SpokenWordBook, [Song])]
+    let nowListening: Entry?
+    let shelf: [Entry]
+    let finished: [Entry]
+    let isPrepared: Bool
+
+    init(books: [SpokenWordBook] = [], songsByID: [String: Song] = [:], isPrepared: Bool = true) {
+        let entries = books.map { book in
+            Entry(book: book, songs: book.items.compactMap { songsByID[$0.id] })
+        }
+        entriesByID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let progressing = entries.filter { $0.book.isInProgress }
+        inProgress = progressing.map { ($0.book, $0.songs) }
+        let current = progressing.max {
+            ($0.book.lastListenedAt ?? .distantPast) < ($1.book.lastListenedAt ?? .distantPast)
+        }
+        nowListening = current
+        shelf = entries.filter { !$0.book.isFinished && $0.id != current?.id }
+        finished = entries.filter { $0.book.isFinished }.sorted {
+            ($0.book.lastListenedAt ?? .distantPast) > ($1.book.lastListenedAt ?? .distantPast)
+        }
+        self.isPrepared = isPrepared
+    }
+}
+
+@MainActor
+@Observable
+final class SpokenWordBooksModel {
+    private(set) var snapshot = SpokenWordLibrarySnapshot(isPrepared: false)
+    @ObservationIgnored private(set) var requestRevision: UInt = 0
+
+    var inProgress: [(SpokenWordBook, [Song])] { snapshot.inProgress }
+
+    func refresh(
+        songs: [Song],
+        positions: [String: SpokenWordStore.StoredPosition],
+        finishedAt: [String: Date]
+    ) async {
+        guard !Task.isCancelled else { return }
+        requestRevision &+= 1
+        let revision = requestRevision
+        guard !songs.isEmpty else {
+            snapshot = SpokenWordLibrarySnapshot()
+            return
+        }
+        // Build sections and chapter queues together, so scrolling and opening
+        // a book only read an immutable snapshot on the UI executor.
+        let worker = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
+            let songsByID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let items = try songs.map { song in
+                try Task.checkCancellation()
+                let position = positions[song.id]
+                return SpokenWordBookItem(
+                    song: song,
+                    knownDuration: position?.duration,
+                    position: position?.position,
+                    positionUpdatedAt: position?.updatedAt,
+                    finishedAt: finishedAt[song.id]
+                )
+            }
+            let books = SpokenWordBookGrouping.books(from: items)
+            try Task.checkCancellation()
+            return SpokenWordLibrarySnapshot(books: books, songsByID: songsByID)
+        }
+        let result = await withTaskCancellationHandler {
+            try? await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        guard !Task.isCancelled, revision == requestRevision, let result else { return }
+        snapshot = result
+    }
+}
+
+struct SpokenWordLibraryContent<Content: View>: View {
+    @ViewBuilder var content: (SpokenWordLibrarySnapshot) -> Content
+
+    @Environment(MusicLibrary.self) private var library
+    @State private var books = SpokenWordBooksModel()
+    @State private var progressRevision = 0
+
+    private struct RefreshIdentity: Equatable {
+        let libraryRevision: UInt64
+        let progressRevision: Int
+    }
+
+    var body: some View {
+        content(books.snapshot)
+            .task(id: RefreshIdentity(libraryRevision: library.spokenWordContentRevision, progressRevision: progressRevision)) {
+                let store = SpokenWordStore.shared
+                await books.refresh(songs: library.spokenWordSongs, positions: store.positions, finishedAt: store.finishedAt)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .primuseSpokenWordDidChange)) { _ in
+                progressRevision &+= 1
+            }
+    }
+}
+
+enum SpokenWordShelfLayout: String, CaseIterable {
+    case bookshelf, list
+}
+
 /// The audiobooks, 评书/相声 series, radio dramas and lectures in the library,
 /// as a bookshelf.
 ///
@@ -43,17 +154,9 @@ struct SpokenWordShelf: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @AppStorage("spokenWord.shelf.showsFinished") private var showsFinished = false
+    @AppStorage("spokenWord.shelf.layout") private var layout = SpokenWordShelfLayout.bookshelf
 
     private var store: SpokenWordStore { SpokenWordStore.shared }
-
-    private var books: [SpokenWordBook] {
-        // `revision` is read so the shelf refreshes when a position is stored,
-        // a chapter is finished or an item is reclassified.
-        _ = store.revision
-        return SpokenWordBookGrouping.books(
-            from: library.spokenWordSongs.map { SpokenWordBookSupport.item(for: $0, store: store) }
-        )
-    }
 
     private var tint: Color { ListeningSpace.spokenWord.tint }
 
@@ -68,38 +171,39 @@ struct SpokenWordShelf: View {
     }
 
     var body: some View {
-        let all = books
-        let songsByID = Dictionary(
-            library.spokenWordSongs.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let current = SpokenWordBookSupport.nowListening(in: all)
-        let shelf = all.filter { !$0.isFinished && $0.id != current?.id }
-        let finished = all.filter(\.isFinished)
-            .sorted { ($0.lastListenedAt ?? .distantPast) > ($1.lastListenedAt ?? .distantPast) }
+        SpokenWordLibraryContent { snapshot in
+            shelfContent(snapshot)
+        }
+    }
 
-        LazyVStack(alignment: .leading, spacing: 28) {
-            if let current {
-                SpokenWordNowListeningCard(
-                    book: current,
-                    songs: current.items.compactMap { songsByID[$0.id] },
-                    tint: tint
-                )
-                .contextMenu {
-                    bookMenu(current, songs: current.items.compactMap { songsByID[$0.id] })
-                }
+    private func shelfContent(_ snapshot: SpokenWordLibrarySnapshot) -> some View {
+        let shelf = snapshot.shelf
+        let finished = snapshot.finished
+        return LazyVStack(alignment: .leading, spacing: 28) {
+            if !snapshot.isPrepared {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 120)
             }
 
-            if !shelf.isEmpty {
+            if let current = snapshot.nowListening {
+                SpokenWordNowListeningCard(book: current.book, songs: current.songs, tint: tint)
+                    .contextMenu { bookMenu(current.book, songs: current.songs) }
+            }
+
+            if !shelf.isEmpty || !finished.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("spoken_word_shelf_section")
-                        .font(.title3.weight(.semibold))
-                        .accessibilityAddTraits(.isHeader)
-                    LazyVGrid(columns: gridColumns, spacing: 22) {
-                        ForEach(shelf) { book in
-                            bookCell(book, songsByID: songsByID)
+                    HStack {
+                        Text("spoken_word_shelf_section")
+                            .font(.title3.weight(.semibold))
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("spokenWord.shelf.heading")
+                        Spacer(minLength: 12)
+                        HStack(spacing: 0) {
+                            layoutButton(.bookshelf, icon: "square.grid.2x2", title: "spoken_word_shelf_section")
+                            layoutButton(.list, icon: "list.bullet", title: "songs_view_list")
                         }
                     }
+                    if !shelf.isEmpty { bookCollection(shelf) }
                 }
             }
 
@@ -127,27 +231,63 @@ struct SpokenWordShelf: View {
                     .accessibilityAddTraits(.isHeader)
 
                     if showsFinished {
-                        LazyVGrid(columns: gridColumns, spacing: 22) {
-                            ForEach(finished) { book in
-                                bookCell(book, songsByID: songsByID)
-                            }
-                        }
-                        .pmFadeTransition(motion: .panel)
+                        bookCollection(finished)
+                            .pmFadeTransition(motion: .panel)
                     }
                 }
             }
         }
     }
 
+    private func layoutButton(_ mode: SpokenWordShelfLayout, icon: String, title: LocalizedStringKey) -> some View {
+        Button {
+            layout = mode
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(layout == mode ? tint : .secondary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(layout == mode ? .isSelected : [])
+        .accessibilityIdentifier("spokenWord.shelf.layout.\(mode.rawValue)")
+    }
+
     @ViewBuilder
-    private func bookCell(_ book: SpokenWordBook, songsByID: [String: Song]) -> some View {
-        let songs = book.items.compactMap { songsByID[$0.id] }
-        let cell = SpokenWordBookCoverCell(
-            book: book,
-            coverSong: songs.first,
-            isPlaying: player.currentBookID == book.id,
-            tint: tint
-        )
+    private func bookCollection(_ entries: [SpokenWordLibrarySnapshot.Entry]) -> some View {
+        if layout == .bookshelf {
+            LazyVGrid(columns: gridColumns, spacing: 22) {
+                ForEach(entries) { entry in bookCell(entry) }
+            }
+        } else {
+            LazyVStack(spacing: 0) {
+                ForEach(entries) { entry in
+                    bookCell(entry)
+                        .overlay(alignment: .bottom) { Divider().padding(.leading, 66) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bookCell(_ entry: SpokenWordLibrarySnapshot.Entry) -> some View {
+        let book = entry.book
+        let songs = entry.songs
+        let cell = Group {
+            if layout == .bookshelf {
+                SpokenWordBookCoverCell(
+                    book: book, coverSong: songs.first,
+                    isPlaying: player.currentBookID == book.id, tint: tint
+                )
+            } else {
+                SpokenWordBookListRow(
+                    book: book, coverSong: songs.first,
+                    isPlaying: player.currentBookID == book.id, tint: tint
+                )
+            }
+        }
         if book.items.count > 1 {
             NavigationLink {
                 SpokenWordBookDetailView(bookID: book.id)
@@ -327,21 +467,21 @@ struct SpokenWordBookDetailView: View {
     /// (连同上面的分书)跟着重算。
     @State private var chapterScroll = SpokenWordChapterScrollState()
 
-    private var book: SpokenWordBook? {
-        _ = store.revision
-        let items = library.spokenWordSongs
-            .map { SpokenWordBookSupport.item(for: $0, store: store) }
-        return SpokenWordBookGrouping.books(from: items).first { $0.id == bookID }
+    var body: some View {
+        SpokenWordLibraryContent { snapshot in
+            detailContent(snapshot)
+        }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .minimalNavigationDetail()
+        #endif
     }
 
-    var body: some View {
-        let songsByID = Dictionary(
-            library.spokenWordSongs.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+    private func detailContent(_ snapshot: SpokenWordLibrarySnapshot) -> some View {
         Group {
-            if let book {
-                let songs = book.items.compactMap { songsByID[$0.id] }
+            if let entry = snapshot.entriesByID[bookID] {
+                let book = entry.book
+                let songs = entry.songs
                 let showsScrubber = SpokenWordChapterScrubber.isShown(chapterCount: book.items.count)
                 ScrollViewReader { proxy in
                 List {
@@ -433,14 +573,12 @@ struct SpokenWordBookDetailView: View {
                 #endif
                 }
                 .navigationTitle(book.title)
+            } else if !snapshot.isPrepared {
+                ProgressView()
             } else {
                 ContentUnavailableView("tab_spoken_word", systemImage: "books.vertical")
             }
         }
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .minimalNavigationDetail()
-        #endif
     }
 
     private func header(_ book: SpokenWordBook, songs: [Song]) -> some View {
@@ -491,6 +629,57 @@ struct SpokenWordBookDetailView: View {
 }
 
 // MARK: - Rows
+
+private struct SpokenWordBookListRow: View {
+    let book: SpokenWordBook
+    let coverSong: Song?
+    let isPlaying: Bool
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SpokenWordBookCover(song: coverSong, width: 54, cornerRadius: 6, decodeSize: 160)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(book.title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(isPlaying ? tint : .primary)
+                    .lineLimit(2)
+                if let author = book.author {
+                    Text(author)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Text(SpokenWordBookSupport.summary(book))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if book.isInProgress {
+                    ProgressView(value: book.fractionComplete)
+                        .tint(tint)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if isPlaying {
+                Image(systemName: "waveform")
+                    .foregroundStyle(tint)
+            } else if book.isFinished {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(tint)
+                    .accessibilityLabel(Text("spoken_word_finished"))
+            }
+            if book.chapterCount > 1 {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .multilineTextAlignment(.leading)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}
 
 /// One book on the shelf: a book-shaped cover with its progress underneath, a
 /// check when it has been heard to the end.

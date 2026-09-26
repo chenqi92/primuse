@@ -126,7 +126,10 @@ struct TVHomeView: View {
             }
             .ignoresSafeArea()
 
-            if !store.hasRealLibrary && store.radioStations.isEmpty {
+            if !store.library.isReady && !store.hasRealLibrary {
+                ProgressView(String(localized: "library_quick_access_loading"))
+                    .tvFont(.caption)
+            } else if !store.hasRealLibrary && store.radioStations.isEmpty {
                 TVEmptyState(
                     icon: "music.note.house",
                     title: PMString("ext.tv.home.empty"),
@@ -368,6 +371,7 @@ struct TVHomeView: View {
                                  action: { playHero(shuffle: false) })
                     TVPillButton(title: PMString("ext.tv.home.shuffle"), systemImage: "shuffle",
                                  action: { playHero(shuffle: true) })
+                    TVMedleyButton(songIDs: store.songIDs, onStarted: openPlayer)
                 }
                 .padding(.top, 32)
             }

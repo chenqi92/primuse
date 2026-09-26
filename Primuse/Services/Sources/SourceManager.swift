@@ -2712,6 +2712,8 @@ final class SourceManager {
     @ObservationIgnored private var offlineAudioSnapshots: [String: OfflineAudioCacheSnapshot] = [:]
     @ObservationIgnored private var offlineAudioSnapshotVersions: [String: UInt64] = [:]
     @ObservationIgnored private var pendingOfflineAudioCachePaths: Set<String> = []
+    @ObservationIgnored private var offlineAudioObservedSongs: [String: (song: Song, path: String)] = [:]
+    @ObservationIgnored private var offlineAudioSongIDsByPath: [String: Set<String>] = [:]
     @ObservationIgnored private var offlineAudioCacheRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var offlineAudioSnapshotEntries: [String: OfflineAudioSnapshotEntry] = [:]
     /// Lightweight aggregate used by the source cards. Download progress does
@@ -6607,6 +6609,7 @@ final class SourceManager {
     }
 
     func cacheURL(for song: Song) -> URL {
+        observeOfflineAudioSong(song)
         let url = audioCacheDirectory(for: song.sourceID).appendingPathComponent(cacheFileName(for: song))
         if audioCacheReadsAreAllowed(for: song.sourceID) {
             migrateLegacyAudioCacheIfUnambiguous(for: song, destination: url)
@@ -6844,6 +6847,7 @@ final class SourceManager {
     }
 
     func offlineAudioSnapshot(for song: Song) -> OfflineAudioCacheSnapshot {
+        observeOfflineAudioSong(song)
         guard audioCacheReadsAreAllowed(for: song.sourceID) else { return .notCached }
         if let snapshot = offlineAudioSnapshots[song.id] {
             return snapshot
@@ -6877,6 +6881,7 @@ final class SourceManager {
     /// entry from SongRowView does not make that row depend on the complete
     /// SourceManager cache dictionary.
     func offlineAudioSnapshotEntry(for song: Song) -> OfflineAudioSnapshotEntry {
+        observeOfflineAudioSong(song)
         guard audioCacheReadsAreAllowed(for: song.sourceID) else {
             if let entry = offlineAudioSnapshotEntries[song.id] {
                 entry.update(.notCached)
@@ -6919,6 +6924,7 @@ final class SourceManager {
     }
 
     private func removeOfflineAudioSnapshot(for songID: String) {
+        stopObservingOfflineAudioSong(songID)
         offlineAudioSnapshotVersions[songID, default: 0] &+= 1
         let wasDownloaded = offlineAudioSnapshots[songID]?.isDownloaded == true
         offlineAudioSnapshots.removeValue(forKey: songID)
@@ -6937,6 +6943,7 @@ final class SourceManager {
         guard !songIDs.isEmpty else { return }
         var removedDownloadedSong = false
         for songID in songIDs {
+            stopObservingOfflineAudioSong(songID)
             offlineAudioSnapshotVersions[songID, default: 0] &+= 1
             removedDownloadedSong = removedDownloadedSong
                 || offlineAudioSnapshots[songID]?.isDownloaded == true
@@ -6953,6 +6960,7 @@ final class SourceManager {
     /// Populate a row's first snapshot lazily. Negative results are cached as
     /// well, preventing repeated disk stats when the same row is recycled.
     func ensureOfflineAudioSnapshot(for song: Song) async {
+        observeOfflineAudioSong(song)
         guard await ensureAudioCacheScopeValidated(for: song.sourceID) else {
             setOfflineAudioSnapshot(.notCached, for: song.id)
             return
@@ -6974,6 +6982,28 @@ final class SourceManager {
         setOfflineAudioSnapshot(snapshot, for: song.id)
     }
 
+    private func observeOfflineAudioSong(_ song: Song) {
+        if let existing = offlineAudioObservedSongs[song.id],
+           existing.song.sourceID == song.sourceID,
+           existing.song.filePath == song.filePath,
+           existing.song.fileFormat == song.fileFormat {
+            offlineAudioObservedSongs[song.id] = (song, existing.path)
+            return
+        }
+        stopObservingOfflineAudioSong(song.id)
+        let path = audioCacheRelativePath(for: song)
+        offlineAudioObservedSongs[song.id] = (song, path)
+        offlineAudioSongIDsByPath[path, default: []].insert(song.id)
+    }
+
+    private func stopObservingOfflineAudioSong(_ songID: String) {
+        guard let previous = offlineAudioObservedSongs.removeValue(forKey: songID) else { return }
+        offlineAudioSongIDsByPath[previous.path]?.remove(songID)
+        if offlineAudioSongIDsByPath[previous.path]?.isEmpty == true {
+            offlineAudioSongIDsByPath.removeValue(forKey: previous.path)
+        }
+    }
+
     private func enqueueOfflineAudioCacheRefresh(paths: [String]) {
         pendingOfflineAudioCachePaths.formUnion(paths)
         guard offlineAudioCacheRefreshTask == nil else { return }
@@ -6984,13 +7014,15 @@ final class SourceManager {
             while !pendingOfflineAudioCachePaths.isEmpty {
                 let changedPaths = pendingOfflineAudioCachePaths
                 pendingOfflineAudioCachePaths.removeAll(keepingCapacity: true)
-                let songs = songsProvider().filter {
-                    offlineAudioSnapshots[$0.id] != nil
-                        && changedPaths.contains(audioCacheRelativePath(for: $0))
+                let songIDs = changedPaths.reduce(into: Set<String>()) { ids, path in
+                    ids.formUnion(offlineAudioSongIDsByPath[path] ?? [])
                 }
-                for song in songs {
-                    guard offlineAudioSnapshots[song.id]?.isDownloading != true else { continue }
-                    await refreshOfflineAudioSnapshot(for: song)
+                for songID in songIDs {
+                    guard let observed = offlineAudioObservedSongs[songID],
+                          changedPaths.contains(observed.path),
+                          let snapshot = offlineAudioSnapshots[songID],
+                          !snapshot.isDownloading else { continue }
+                    await refreshOfflineAudioSnapshot(for: observed.song)
                 }
             }
             offlineAudioCacheRefreshTask = nil
@@ -6998,6 +7030,7 @@ final class SourceManager {
     }
 
     func refreshOfflineAudioSnapshot(for song: Song) async {
+        observeOfflineAudioSong(song)
         let version = offlineAudioSnapshotVersions[song.id, default: 0]
         let scopeValidated = await ensureAudioCacheScopeValidated(for: song.sourceID)
         guard offlineAudioSnapshotVersions[song.id, default: 0] == version else { return }
@@ -9098,6 +9131,9 @@ final class SourceManager {
         previousSongs: [Song],
         currentSongs: [Song]
     ) {
+        let observedIDs = Set(previousSongs.map(\.id)).intersection(offlineAudioObservedSongs.keys)
+        for songID in observedIDs { stopObservingOfflineAudioSong(songID) }
+        for song in currentSongs where observedIDs.contains(song.id) { observeOfflineAudioSong(song) }
         let pending = pathKeyedReconcileTask
         pathKeyedReconcileTask = Task { @MainActor [weak self] in
             await pending?.value

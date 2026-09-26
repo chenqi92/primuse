@@ -9088,67 +9088,24 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         translatedTextByLineID = [:]
         activity = .idle
 
-        // 歌词文件自带的译文是歌词内容的一部分，不是机器翻译的产物 ——
-        // 双语 LRC 把它和原文写在一起，用户不开「歌词翻译」也应该看得见。
-        // 那个开关管的是「要不要再去翻译一遍」，不该连内容一起藏掉。
-        let translationLines = LyricVoiceTimelinePolicy.flattenedLines(lyrics)
-        // 罗马音 / 拼音这类读音行按整篇判一次，逐行选译文时把它们排除掉。
-        let readingIDs = LyricRomanizedReadingPolicy.readingIDs(in: translationLines)
-        let manualTranslations = translationLines.reduce(into: [String: String]()) { result, line in
-            guard let manualTranslation = LyricManualTranslationPolicy.preferredTranslation(
-                for: line,
+        let prepared: LyricsTranslationPreparer.Prepared
+        do {
+            prepared = try await LyricsTranslationPreparer.shared.prepare(
+                lyrics: lyrics,
                 targetLanguageCode: identity.targetLanguageCode,
-                readingIDs: readingIDs
-            ) else { return }
-            let text = manualTranslation.text
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            result[line.id] = text
-        }
-        translatedTextByLineID = manualTranslations
-
-        guard identity.isEnabled, !lyrics.isEmpty else {
-            activity = .notNeeded
-            return
-        }
-        if LyricManualTranslationPolicy.hasCompleteCoverage(
-            in: translationLines,
-            targetLanguageCode: identity.targetLanguageCode,
-            readingIDs: readingIDs
-        ) {
-            activity = .notNeeded
-            return
-        }
-
-        let explicitlyRequested = settings.consumeSystemTranslationPreparationRequest(
-            revision: identity.systemPreparationRequestRevision
-        )
-
-        let lyricTexts = translationLines.map(\.text)
-        let metadataLines = lyrics.lazy.compactMap(\.metadataLines).first ?? []
-        let declaredSourceLanguageCode = LyricsTranslationSettingsStore
-            .declaredLyricsLanguageCode(from: metadataLines)
-        let fallbackSourceLanguageCode = LyricsTranslationSettingsStore.detectedLyricsLanguageCode(
-            for: lyricTexts,
-            metadataLines: metadataLines
-        )
-        let candidates = translationLines.compactMap { line -> LyricTranslationCandidate? in
-            guard manualTranslations[line.id] == nil else { return nil }
-            let lineDeclaredLanguageCode = line.languageCode ?? declaredSourceLanguageCode
-            return LyricTranslationCandidate(
-                id: line.id,
-                text: line.text,
-                sourceLanguageCode: LyricsTranslationSettingsStore.detectedLanguageCode(
-                    for: line.text,
-                    fallbackLanguageCode: fallbackSourceLanguageCode,
-                    declaredLanguageCode: lineDeclaredLanguageCode
-                )
+                enabled: identity.isEnabled
             )
+        } catch {
+            return
         }
-        let groups = LyricTranslationGroupingPolicy.groups(
-            candidates: candidates,
-            targetLanguageCode: identity.targetLanguageCode,
-            fallbackSourceLanguageCode: fallbackSourceLanguageCode
-        )
+        guard !Task.isCancelled, translationTaskIdentity == identity else { return }
+        let manualTranslations = prepared.manualTranslations
+        let groups = prepared.groups
+        translatedTextByLineID = manualTranslations
+        let explicitlyRequested = prepared.requiresPreparation
+            && settings.consumeSystemTranslationPreparationRequest(
+                revision: identity.systemPreparationRequestRevision
+            )
         guard !groups.isEmpty else {
             activity = .notNeeded
             return
@@ -9333,7 +9290,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         let target = Locale.Language(identifier: identity.targetLanguageCode)
         var installedGroups: [LyricTranslationGroup] = []
         var preparationRequiredGroups: [LyricTranslationGroup] = []
-        var unsupportedSystemLineCount = 0
+        var unsupportedSystemGroups: [LyricTranslationGroup] = []
         var shouldOfferPreparation = deferredSystemLineCount > 0
         var encounteredUnknownAvailabilityStatus = false
         var encounteredAvailabilityError = false
@@ -9343,7 +9300,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                 sourceLanguageCode: group.sourceLanguageCode,
                 targetLanguageCode: identity.targetLanguageCode
             ) else {
-                unsupportedSystemLineCount += group.candidates.count
+                unsupportedSystemGroups.append(group)
                 plog(
                     "Lyrics translation pair unsupported by system provider: "
                         + "\(group.sourceLanguageCode ?? "auto") -> "
@@ -9378,7 +9335,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
                             + identity.targetLanguageCode
                     )
                 case .unsupported:
-                    unsupportedSystemLineCount += group.candidates.count
+                    unsupportedSystemGroups.append(group)
                     plog(
                         "Lyrics translation pair unsupported: "
                             + "\(group.sourceLanguageCode ?? "auto") -> "
@@ -9413,6 +9370,15 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             availableGroups.append(explicitGroup)
             preparationRequiredGroups.removeAll { $0.id == explicitGroup.id }
         }
+        let unsupportedSystemLineCount = unsupportedSystemGroups.reduce(0) {
+            $0 + $1.candidates.count
+        }
+        let unavailableActivity: LyricsTranslationActivity =
+            LyricTranslationNoticePolicy.shouldShowUnavailable(
+                lyrics: lyrics,
+                unsupportedGroups: unsupportedSystemGroups,
+                targetLanguageCode: identity.targetLanguageCode
+            ) ? .systemUnavailable : .idle
         let remainingState = LyricTranslationTerminalPolicy.remainingStateAfterAvailableWork(
             preparationRequiredCandidateCount: preparationRequiredGroups.reduce(0) {
                 $0 + $1.candidates.count
@@ -9427,7 +9393,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
         case .preparationRequired:
             completionActivity = .systemPreparationRequired
         case .unavailable:
-            completionActivity = .systemUnavailable
+            completionActivity = unavailableActivity
         case .ready:
             completionActivity = nil
         }
@@ -9446,7 +9412,7 @@ private struct LyricsTranslationTaskModifier: ViewModifier {
             activity = .notNeeded
             return
         case .unavailable:
-            activity = .systemUnavailable
+            activity = unavailableActivity
             return
         case .preparationRequired:
             activity = .systemPreparationRequired

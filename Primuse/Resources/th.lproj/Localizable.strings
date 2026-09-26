@@ -4480,6 +4480,7 @@
 "karaoke_remote_rejected" = "Apple TV ไม่รับรหัสนี้ สแกนรหัสบนทีวีอีกครั้ง";
 "karaoke_remote_failed" = "เชื่อมต่อ Apple TV ไม่ได้ ตรวจสอบว่าอยู่ในเครือข่ายเดียวกัน";
 "karaoke_remote_hint" = "ถือ iPhone ไว้ใกล้ปาก เสียงร้องได้ยินในห้องตามปกติ iPhone แค่ให้คะแนน";
+"karaoke_tv_ai_local" = "แยกเสียงด้วย AI บน Apple TV";
 "karaoke_tv_ai_active" = "ใช้การแยกเสียงร้องด้วย AI จาก iPhone อยู่";
 "karaoke_tv_ai_preparing_format" = "iPhone กำลังแยกเสียงร้อง… %d%%";
 "karaoke_remote_ai_preparing" = "เตรียมเสียงร้อง AI ให้ทีวี";

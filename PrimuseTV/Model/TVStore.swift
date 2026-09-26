@@ -173,7 +173,12 @@ struct TVSong: Identifiable, Hashable {
     let bitrate: Int
     let sampleRate: Double
     let sourceID: String
-    let displayPath: String?
+    let filePath: String
+    let sourceType: MusicSourceType?
+    // 路径仅用于搜索结果,按需格式化,避免启动时处理整库路径。
+    var displayPath: String? {
+        SongPathPresentationPolicy.displayPath(filePath: filePath, sourceID: sourceID, sourceType: sourceType)
+    }
     let plays: Int
     let liked: Bool
 }
@@ -394,6 +399,16 @@ final class TVStore {
     @ObservationIgnored private lazy var coordinator = TVPlaybackCoordinator(store: self, engine: engine)
     @ObservationIgnored private var playbackTask: Task<Void, Never>?
     @ObservationIgnored private var activePlaybackRequestID: UUID?
+    private(set) var isMedleyActive = false
+    private(set) var medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength
+    @ObservationIgnored private var medleyPlayback: TVMedleyPlayback?
+    @ObservationIgnored private var medleySlices: [String: Song] = [:]
+    @ObservationIgnored private var medleyOriginals: [String: Song] = [:]
+
+    func karaokeAudioFile(for song: Song) async throws -> KaraokeAudioFile {
+        guard currentSongID == song.id, let requestID = activePlaybackRequestID else { throw CancellationError() }
+        return try await coordinator.karaokeAudioFile(for: song, requestID: requestID)
+    }
     @ObservationIgnored private var radioReconnectTask: Task<Void, Never>?
     @ObservationIgnored private var radioReconnectAttempt = 0
     @ObservationIgnored private lazy var radioStore = RadioStationsStore()
@@ -434,9 +449,17 @@ final class TVStore {
                 plog("TV snapshot recovery pending: \(error.localizedDescription)")
             }
         }
-        self.sourcesStore = sourcesStore ?? SourcesStore()
-        self.library = library ?? MusicLibrary(preferExternalSnapshot: pendingSnapshotImport)
+        let initialSources = sourcesStore ?? SourcesStore()
+        let initiallyHidden = Set(initialSources.allSources.filter {
+            $0.isDeleted || !$0.isEnabled || !StreamResolverRegistry.tvSupportedTypes.contains($0.type)
+        }.map(\.id)).union(defaults.stringArray(forKey: "tv.removedSourceIDs") ?? [])
+        self.sourcesStore = initialSources
+        self.library = library ?? MusicLibrary.makePreparing(disabledSourceIDs: initiallyHidden)
         self.defaults = defaults
+        medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(
+            (defaults.object(forKey: "tv.medley.segmentSeconds") as? Int)
+                ?? MedleySegmentPolicy.defaultSegmentLength
+        )
         self.snapshotRecovery = recover
         self.scanPersistence = scanPersistence
         self.sessionStore = sessionStore
@@ -469,8 +492,22 @@ final class TVStore {
         }
         syncTrackNavigationCommands()
         observeLibraryChanges()
+        observePlaybackHistoryChanges()
         observeRadioStoreChanges()
         observePlaybackChanges()
+        if library == nil {
+            let target = self.library
+            let knownSourceIDs = Set(initialSources.allSources.map(\.id))
+            Task {
+                let prepared = await MusicLibrary.prepareStartup(
+                    preferExternalSnapshot: pendingSnapshotImport, disabledSourceIDs: initiallyHidden,
+                    knownSourceIDs: knownSourceIDs
+                )
+                let publishedAt = ProcessInfo.processInfo.systemUptime
+                target.publish(prepared)
+                plog("TV startup publish ms=\(Int((ProcessInfo.processInfo.systemUptime - publishedAt) * 1000))")
+            }
+        }
         if pendingSnapshotImport || pendingSnapshotRecovery {
             Task { [weak self] in
                 _ = await self?.retryPendingSnapshotImport()
@@ -584,7 +621,7 @@ final class TVStore {
     private var hasPendingSnapshotImport = false
     private var hasPendingSnapshotRecovery = false
     private var canMutateLibrary: Bool {
-        !isApplyingSnapshot && !hasPendingSnapshotRecovery && sourcesStore.hasCompleteSnapshot
+        library.isReady && !isApplyingSnapshot && !hasPendingSnapshotRecovery && sourcesStore.hasCompleteSnapshot
     }
     @ObservationIgnored private var pendingImportTask: Task<Bool, Never>?
     @ObservationIgnored private var syncTask: Task<TVSyncOutcome, Never>?
@@ -641,14 +678,28 @@ final class TVStore {
     @ObservationIgnored private var cachedAlbumIndexByID: [String: Int] = [:]
     @ObservationIgnored private var cachedSongs: [TVSong] = []
     @ObservationIgnored private var cachedSongIDs: [String] = []
+    @ObservationIgnored private var cachedAlbumSongIDs: [String: [String]] = [:]
+    @ObservationIgnored private var sortedAlbumSongIDs: [String: [String]] = [:]
     @ObservationIgnored private var cachedAlbums: [TVAlbum] = []
+    @ObservationIgnored private var recentlyAddedAlbumIDs: [String] = []
     @ObservationIgnored private var cachedArtists: [TVArtist] = []
     @ObservationIgnored private var cachedNormalPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var cachedSmartPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var smartPlaylistSongIDs: [String: [String]] = [:]
     @ObservationIgnored private var playCountsBySongID: [String: Int] = [:]
+    private var playHistoryRevision = 0
+    @ObservationIgnored private var sourceTypeByID: [String: MusicSourceType] = [:]
+    private struct LookupRevision: Equatable {
+        let visibleSongs: Int
+        let replacements: UUID
+        let artwork: Int
+        let playlists: Int
+        let sourceTypes: [String: MusicSourceType]
+    }
+    @ObservationIgnored private var lookupRevision: LookupRevision?
     @ObservationIgnored private var normalPlaylistCacheRevision = -1
     @ObservationIgnored private var smartPlaylistCacheRevision = -1
+    @ObservationIgnored private var smartPlaylistHistoryRevision = -1
     @ObservationIgnored private var normalPlaylistCollectionRevision = -1
     @ObservationIgnored private var smartPlaylistCollectionRevision = -1
     @ObservationIgnored private var visibleSongCountsBySource: [String: Int] = [:]
@@ -726,7 +777,7 @@ final class TVStore {
             : (nowPlaying.tint, nowPlaying.tint2)
     }
     var canPlayMusicVideo: Bool {
-        guard !isLiveRadio else { return false }
+        guard !isMedleyActive, !isLiveRadio else { return false }
         guard let id = currentSongID,
               let song = library.song(id: id),
               song.mvPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
@@ -742,7 +793,7 @@ final class TVStore {
         _ = albumArtworkPaletteRevision
         return cachedAlbums
     }
-    var songs: [TVSong] { _ = libraryContentRevision; return cachedSongs }
+    var songs: [TVSong] { _ = libraryContentRevision; _ = playHistoryRevision; return cachedSongs }
     var songIDs: [String] { _ = libraryContentRevision; return cachedSongIDs }
     var artists: [TVArtist] { _ = libraryContentRevision; return cachedArtists }
     var normalPlaylists: [TVPlaylist] {
@@ -752,6 +803,7 @@ final class TVStore {
     }
     var smartPlaylists: [TVPlaylist] {
         _ = libraryContentRevision
+        _ = playHistoryRevision
         rebuildSmartPlaylistCacheIfNeeded()
         return cachedSmartPlaylists
     }
@@ -764,7 +816,7 @@ final class TVStore {
     // MARK: 查询
 
     func album(_ id: String) -> TVAlbum? { albumByID[id] }
-    func song(_ id: String) -> TVSong? { songByID[id] }
+    func song(_ id: String) -> TVSong? { _ = playHistoryRevision; return songByID[id] }
 
     func songs(forArtistID id: String) -> [TVSong] {
         let spokenWordIDs = library.spokenWordSongIDs
@@ -899,7 +951,13 @@ final class TVStore {
     }
     func albumOf(_ song: TVSong) -> TVAlbum? { album(song.albumID) }
     func songs(forAlbum id: String) -> [TVSong] {
-        library.songs(forAlbum: id).map { self.map($0) }
+        _ = libraryContentRevision
+        _ = playHistoryRevision
+        if sortedAlbumSongIDs[id] == nil {
+            let songs = (cachedAlbumSongIDs[id] ?? []).compactMap { library.song(id: $0) }
+            sortedAlbumSongIDs[id] = AlbumTrackOrder.sorted(songs).map(\.id)
+        }
+        return (sortedAlbumSongIDs[id] ?? []).compactMap { songByID[$0] }
     }
 
     var recentlyPlayed: [TVSong] {
@@ -912,7 +970,7 @@ final class TVStore {
     var recentlyAddedAlbums: [TVAlbum] {
         _ = libraryContentRevision
         _ = albumArtworkPaletteRevision
-        return library.recentlyAddedAlbums(limit: 12).map { self.map($0) }
+        return recentlyAddedAlbumIDs.compactMap { albumByID[$0] }
     }
     var recommended: [TVAlbum] {
         _ = libraryContentRevision
@@ -938,7 +996,9 @@ final class TVStore {
             return []
         }
 
+        let preparedAt = ProcessInfo.processInfo.systemUptime
         let input = MusicDiscoveryEngine.recommendationInput(in: library)
+        plog("TV recommendation input ms=\(Int((ProcessInfo.processInfo.systemUptime - preparedAt) * 1000))")
         let worker = Task.detached(priority: .utility) {
             MusicDiscoveryEngine.dailyRecommendations(
                 from: input,
@@ -1072,11 +1132,8 @@ final class TVStore {
                format: s.fileFormat.displayName, bitrate: s.bitRate ?? 0,
                sampleRate: Double(s.sampleRate ?? 0) / 1000,
                sourceID: s.sourceID,
-               displayPath: SongPathPresentationPolicy.displayPath(
-                   filePath: s.filePath,
-                   sourceID: s.sourceID,
-                   sourceType: sourcesStore.source(id: s.sourceID)?.type
-               ),
+               filePath: s.filePath,
+               sourceType: sourceTypeByID[s.sourceID] ?? sourcesStore.source(id: s.sourceID)?.type,
                plays: playCountsBySongID[s.id] ?? 0,
                liked: library.isLiked(songID: s.id))
     }
@@ -1142,7 +1199,7 @@ final class TVStore {
         let matches = SmartPlaylistEngine.match(sp, in: library, history: .shared)
         smartPlaylistSongIDs[sp.id] = matches.map(\.id)
         return TVPlaylist(id: sp.id, name: sp.name, kind: .smart, count: matches.count,
-                          artworkSignature: "smart:\(sp.id):\(libraryContentRevision)",
+                          artworkSignature: "smart:\(sp.id):\(libraryContentRevision):\(playHistoryRevision)",
                           artworkCandidates: matches.prefix(4).map {
             TVPlaylistArtworkCandidate(id: $0.id, kind: .song, songID: $0.id,
                                         coverRef: $0.coverArtFileName, sourceID: $0.sourceID)
@@ -1170,11 +1227,13 @@ final class TVStore {
     private func rebuildSmartPlaylistCacheIfNeeded() {
         let playlistRevision = library.playlistCollectionRevision
         guard smartPlaylistCacheRevision != libraryContentRevision
+                || smartPlaylistHistoryRevision != playHistoryRevision
                 || smartPlaylistCollectionRevision != playlistRevision else {
             return
         }
         cachedSmartPlaylists = library.smartPlaylists.map { self.mapSmart($0) }
         smartPlaylistCacheRevision = libraryContentRevision
+        smartPlaylistHistoryRevision = playHistoryRevision
         smartPlaylistCollectionRevision = playlistRevision
     }
     private func map(_ s: MusicSource) -> TVSource {
@@ -1548,6 +1607,7 @@ final class TVStore {
     }
 
     private func performBootstrap() async -> TVSyncOutcome {
+        await library.whenReady()
         // 这里必须在引擎起来之前就返回。本机快照事务没收尾时,`library-cache.json`
         // 与 `tv-pending-library-import.json` 谁是真相还没定:此刻让 CKSyncEngine
         // 跑起来,它拉回来的歌单会写进 library-cache.json,而下次启动
@@ -1558,7 +1618,7 @@ final class TVStore {
         #if DEBUG
         injectDebugCredential()   // 先注入,避免与自动播放钩子竞态(CloudKit await 期间)
         #endif
-        reload()
+        await prepareLocalLibrary()
         // 总开关关掉后就不该再向 iCloud 要东西 —— 整库快照不属于任何一个
         // channel,`downloadTVPayload()` 自己不看这个开关,只能在这里挡。
         // 局域网扫码直传走 `applyLANPayload`,不经过这里,不受影响。
@@ -1959,10 +2019,8 @@ final class TVStore {
             commitStagedCredentials(staged, incoming: incoming, previousReference: previousCredentialReference,
                                     fromCloud: fromCloud)
         }
-        // 与安装步骤对照:reloadFromDisk 是设计上就同步的整库重载,先量清楚
-        // 两者各占多少,再决定要不要动安装步骤。
         let reloadSignpost = PrimuseSignposts.hitch.beginInterval("tv.reloadMerging")
-        reloadMerging(before: before, installed: prepared)
+        await reloadMerging(before: before, installed: prepared)
         PrimuseSignposts.hitch.endInterval("tv.reloadMerging", reloadSignpost)
         await library.waitForPendingIndex()
         // 重载 + 合并之后内存里就是导入结果与本地改动合并后的真相, 这时候放行
@@ -2032,6 +2090,7 @@ final class TVStore {
     }
 
     func retryPendingSnapshotImport() async -> Bool {
+        await library.whenReady()
         guard hasPendingSnapshotImport || hasPendingSnapshotRecovery else { return true }
         if let pendingImportTask { return await pendingImportTask.value }
         guard !isApplyingSnapshot else { return false }
@@ -2048,7 +2107,7 @@ final class TVStore {
                 do {
                     self.hasPendingSnapshotImport = try self.snapshotRecovery()
                     self.hasPendingSnapshotRecovery = false
-                    self.library.reloadFromDisk(preferExternalSnapshot: self.hasPendingSnapshotImport)
+                    await self.library.reloadFromDiskInBackground(preferExternalSnapshot: self.hasPendingSnapshotImport)
                     self.sourcesStore.reloadFromDisk()
                     // 完成或回滚的那次事务里可能带着电台文件(首次引导整份写入的那种)。
                     self.reloadRadioStations(fromDisk: true)
@@ -2082,9 +2141,9 @@ final class TVStore {
 
     /// 应用手机快照后重载,并把「TV 本机扫的、手机快照里没有的源」的歌合并回来,
     /// 避免整库覆盖冲掉 TV 扫描结果(song id 确定性派生,addSongs 自动去重)。
-    private func reloadMerging(before: [Song], installed plan: LibrarySnapshotSync.TVPayloadInstallPlan) {
+    private func reloadMerging(before: [Song], installed plan: LibrarySnapshotSync.TVPayloadInstallPlan) async {
         scanner.invalidateFnMusicClients()
-        library.reloadFromDisk()
+        await library.reloadFromDiskInBackground()
         let incomingIDs = Set(library.songs.map(\.id))
         let tvOnly = before.filter {
             locallyScannedSourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id)
@@ -2277,7 +2336,37 @@ final class TVStore {
     #endif
 
     /// 仅从本地磁盘重载(不联网),用于关闭自动同步时的启动。
-    func reload() {
+    func prepareLocalLibrary() async {
+        await library.whenReady()
+        while !Task.isCancelled {
+            let generation = library.songMutationGenerationForMaintenance
+            let songs = library.songs
+            let types = Dictionary(sourcesStore.allSources.map { ($0.id, $0.type) }, uniquingKeysWith: { first, _ in first })
+            let plan = await Task.detached(priority: .userInitiated) {
+                Self.legacySongIDMigration(songs: songs, sourceTypes: types)
+            }.value
+            guard !Task.isCancelled else { return }
+            guard generation == library.songMutationGenerationForMaintenance else { continue }
+            guard await library.remapSongIDsInBackground(plan.replacements) else { return }
+            locallyScannedSourceIDs.formUnion(plan.sourceIDs)
+            applySongIDReplacements(plan.replacements, remapLibrary: false)
+            defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
+            reload(reloadLibrary: false, migrateLegacyIDs: false)
+            return
+        }
+    }
+
+    func reload(reloadLibrary: Bool = true, migrateLegacyIDs: Bool = true) {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        defer { plog("TV local reload ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))") }
+        guard library.isReady else {
+            Task { [weak self] in
+                guard let self else { return }
+                await self.library.whenReady()
+                self.reload(reloadLibrary: false)
+            }
+            return
+        }
         guard !hasPendingSnapshotRecovery else {
             playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
             Task { _ = await self.retryPendingSnapshotImport() }
@@ -2286,10 +2375,10 @@ final class TVStore {
         scanner.invalidateFnMusicClients()
         // Normal launch uses the canonical song store. Only a successfully
         // installed external snapshot may replace it from the portable JSON.
-        if activeScanSourceID == nil, !isApplyingSnapshot, !hasPendingSnapshotImport {
+        if reloadLibrary, activeScanSourceID == nil, !isApplyingSnapshot, !hasPendingSnapshotImport {
             library.reloadFromDisk(preferExternalSnapshot: false)
         }
-        migrateLegacySongIDs()
+        if migrateLegacyIDs { migrateLegacySongIDs() }
         sourcesStore.reloadFromDisk()
         // 电台文件只有本进程的电台存储会写(快照事务整份写入时由各安装入口自己重读),
         // 内存里就是最新的,这里不必从磁盘重读。
@@ -2750,6 +2839,16 @@ final class TVStore {
     /// 生成 Top Shelf 展示数据(最近播放 + 电台 + 资料库专辑),后台预取封面并写入 App Group,
     /// 供 Apple TV 主屏「顶部内容展示」扩展读取。没配 App Group 时发布器自身会跳过。
     func publishTopShelf() {
+        topShelfTask?.cancel()
+        topShelfTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, let self else { return }
+            await self.publishSettledTopShelf()
+        }
+    }
+
+    private func publishSettledTopShelf() async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let recent: [TopShelfPublisher.Draft] = recentlyPlayed.prefix(8).map { s in
             let alb = albumOf(s)
             return .init(id: s.id, title: s.title, subtitle: s.artist, artist: s.artist,
@@ -2767,7 +2866,8 @@ final class TVStore {
             .init(station: station,
                   playURL: Self.topShelfLink(host: "radio", key: "id", station.id))
         }
-        let albumList = recentlyAddedAlbums.isEmpty ? albums : recentlyAddedAlbums
+        let added = recentlyAddedAlbums
+        let albumList = added.isEmpty ? albums : added
         let lib: [TopShelfPublisher.Draft] = albumList.prefix(12).map { a in
             .init(id: a.id, title: a.title, subtitle: a.artist, artist: a.artist,
                   album: a.title, coverKey: a.id, songID: nil, coverRef: nil,
@@ -2778,17 +2878,13 @@ final class TVStore {
         let radioLogoSource: @MainActor @Sendable (String) -> TVRadioLogoSourceContext? = { [weak self] id in
             self?.radioLogoSourceContext(sourceID: id)
         }
-        topShelfTask?.cancel()
-        topShelfTask = Task {
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
-            await TopShelfPublisher.publish(
-                recent: recent,
-                radio: radio,
-                albums: lib,
-                radioLogoSource: radioLogoSource
-            )
-        }
+        plog("TV topShelf draft ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+        await TopShelfPublisher.publish(
+            recent: recent,
+            radio: radio,
+            albums: lib,
+            radioLogoSource: radioLogoSource
+        )
     }
 
     private static func topShelfLink(host: String, key: String, _ value: String) -> String {
@@ -2861,6 +2957,8 @@ final class TVStore {
 
     /// 隐藏「停用 / 已删除」音乐源的歌曲——资料库只显示有效源的内容。
     private func refreshVisibility() {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        defer { plog("TV visibility ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))") }
         let known = Set(sourcesStore.allSources.map(\.id))
         let orphaned = Set(library.songs.map(\.sourceID)).subtracting(known)
         // 电视端还解析不了的类型(如 Mac 本机资料库),它的歌同样不显示。
@@ -2880,7 +2978,6 @@ final class TVStore {
             _ = library.albumArtworkLookupRevision
             _ = library.playlistCollectionRevision
             _ = sourcesStore.allSources
-            _ = PlayHistoryStore.shared.entries
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -2894,6 +2991,32 @@ final class TVStore {
                     // 电台的可见性跟着音乐源的启用 / 删除走,源一变电台列表也要重算。
                     self.reloadRadioStations(fromDisk: false)
                 }
+            }
+        }
+    }
+
+    private func observePlaybackHistoryChanges() {
+        withObservationTracking {
+            _ = PlayHistoryStore.shared.entries
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.observePlaybackHistoryChanges()
+                let counts = Dictionary(grouping: PlayHistoryStore.shared.entries, by: \.songID).mapValues(\.count)
+                let changed = Set(counts.keys).union(self.playCountsBySongID.keys).filter {
+                    counts[$0] != self.playCountsBySongID[$0]
+                }
+                self.playCountsBySongID = counts
+                for id in changed {
+                    if let raw = self.library.song(id: id), self.songByID[id] != nil {
+                        self.songByID[id] = self.map(raw)
+                    }
+                }
+                for index in self.cachedSongs.indices where changed.contains(self.cachedSongs[index].id) {
+                    if let updated = self.songByID[self.cachedSongs[index].id] { self.cachedSongs[index] = updated }
+                }
+                self.playHistoryRevision &+= 1
+                self.publishTopShelf()
             }
         }
     }
@@ -2922,18 +3045,37 @@ final class TVStore {
     /// 重建 song(_:)/album(_:) 的单条查询索引。曲库可见集变化后调用一次,
     /// 之后单条查询为 O(1),不再每次访问都全量 map 整库。
     private func rebuildLookupCaches() {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let sourceTypes = Dictionary(sourcesStore.allSources.map { ($0.id, $0.type) }, uniquingKeysWith: { first, _ in first })
+        let revision = LookupRevision(
+            visibleSongs: library.visibleSongCollectionRevision,
+            replacements: library.songReplacementToken,
+            artwork: library.albumArtworkLookupRevision,
+            playlists: library.playlistCollectionRevision,
+            sourceTypes: sourceTypes
+        )
+        guard revision != lookupRevision else { return }
+        sourceTypeByID = sourceTypes
         playCountsBySongID = Dictionary(grouping: PlayHistoryStore.shared.entries, by: \.songID).mapValues(\.count)
         let visibleSongs = library.visibleSongs
         // 有声内容不进音乐的曲库列表 / 首页 / 整库播放,但仍能按 id 查到 ——
         // 有声页、续播和队列都靠 song(_:) 取它。
         let spokenWordIDs = library.spokenWordSongIDs
+        let mapStartedAt = ProcessInfo.processInfo.systemUptime
         let allMapped = visibleSongs.map { self.map($0) }
+        let songsMappedAt = ProcessInfo.processInfo.systemUptime
         cachedSongs = spokenWordIDs.isEmpty
             ? allMapped
             : allMapped.filter { !spokenWordIDs.contains($0.id) }
         cachedSongIDs = cachedSongs.map(\.id)
+        cachedAlbumSongIDs = Dictionary(grouping: visibleSongs, by: { $0.albumID ?? "" })
+            .mapValues { $0.map(\.id) }
+        sortedAlbumSongIDs.removeAll(keepingCapacity: true)
+        let albumsStartedAt = ProcessInfo.processInfo.systemUptime
         cachedAlbums = library.visibleAlbums.map { self.map($0) }
+        recentlyAddedAlbumIDs = library.recentlyAddedAlbums(limit: 12).map(\.id)
         cachedArtists = library.visibleArtists.map { self.map($0) }
+        let albumsMappedAt = ProcessInfo.processInfo.systemUptime
         visibleSongCountsBySource = Dictionary(grouping: visibleSongs, by: \.sourceID)
             .mapValues(\.count)
         songByID = Dictionary(allMapped.map { ($0.id, $0) },
@@ -2944,6 +3086,8 @@ final class TVStore {
             cachedAlbums.indices.map { (cachedAlbums[$0].id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        plog("TV lookup ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songMap=\(Int((songsMappedAt - mapStartedAt) * 1000)) albumTracks=\(Int((albumsStartedAt - songsMappedAt) * 1000)) albumArtist=\(Int((albumsMappedAt - albumsStartedAt) * 1000)) songs=\(visibleSongs.count)")
+        lookupRevision = revision
         libraryContentRevision &+= 1
         syncTrackNavigationCommands()
     }
@@ -3134,6 +3278,7 @@ final class TVStore {
         let plan = QueueBatchRemovalPolicy.plan(queueSongIDs: queue, currentIndex: queueIndex,
                                                currentSongID: currentSongID, removingSongIDs: ids)
         guard plan.action != .unchanged else { return }
+        medleyPlayback?.invalidateSuccessor()
         let removedCurrent = currentSongID.map(ids.contains) ?? false
         let wasPlaying = engine.isPlaying || engine.status == .loading
         if removedCurrent {
@@ -3164,6 +3309,7 @@ final class TVStore {
             queueIndex = index
             if queue.indices.contains(index), let next = song(queue[index]) { startPlaying(next, autoPlay: wasPlaying) }
         case .stopAndClearQueue:
+            endMedley()
             leaveSpokenWordItem()
             queueIndex = 0
             nowPlaying = .none
@@ -3773,7 +3919,7 @@ final class TVStore {
             }
             return
         }
-        if engine.isPlaying {
+        if engine.isPlaying || engine.status == .loading {
             pausePlayback()
         } else {
             resumePlayback()
@@ -3781,6 +3927,7 @@ final class TVStore {
     }
 
     private func pausePlayback() {
+        if isMedleyActive { engine.pause(); return }
         radioReconnectTask?.cancel()
         radioReconnectTask = nil
         if isLiveRadio {
@@ -3794,10 +3941,22 @@ final class TVStore {
             }
             return
         }
+        if engine.status == .loading {
+            playbackTask?.cancel()
+            playbackTask = nil
+            activePlaybackRequestID = nil
+            engine.downloadProgress = nil
+        }
         engine.pause()
     }
 
     private func resumePlayback() {
+        if isMedleyActive {
+            if case .failed = engine.status, let id = currentSongID, let slice = medleySlices[id] {
+                startMedleySelection(slice)
+            } else { _ = engine.play() }
+            return
+        }
         guard !hasPendingSnapshotRecovery else { return }
         if isLiveRadio {
             radioReconnectTask?.cancel()
@@ -4004,6 +4163,7 @@ final class TVStore {
             return
         }
         // 必须在 `markRadioPlayed` 之前记:它会把这个台按最近播放排到最前。
+        endMedley()
         if recordsNavigationOrder {
             radioNavigationOrder = radioStations.map(\.id)
         }
@@ -4125,6 +4285,7 @@ final class TVStore {
     func play(_ song: TVSong) {
         pendingDeepLink = nil
         guard !hasPendingSnapshotRecovery else { return }
+        endMedley()
         setQueueAround(song)
         startPlaying(song)
     }
@@ -4146,6 +4307,7 @@ final class TVStore {
         guard !hasPendingSnapshotRecovery else { return false }
         let resolved = songIDs.filter { song($0) != nil }
         guard !resolved.isEmpty else { return false }
+        endMedley()
         // 按 id 定位首个匹配项(与既有行为一致);随机时由 plan 把选中曲目放在队首。
         let plan = TVPlaybackQueuePolicy.plan(
             count: resolved.count,
@@ -4232,6 +4394,7 @@ final class TVStore {
 
     func toggleShuffle() {
         guard !isLiveRadio else { return }
+        medleyPlayback?.invalidateSuccessor()
         shuffleEnabled.toggle()
         guard queueCanonicalIndices.indices.contains(queueIndex) else { return }
         if shuffleEnabled {
@@ -4252,7 +4415,12 @@ final class TVStore {
 
     func cycleRepeatMode() {
         guard !isLiveRadio else { return }
-        repeatMode = repeatMode == .off ? .all : (repeatMode == .all ? .one : .off)
+        if isMedleyActive {
+            repeatMode = repeatMode == .off ? .all : .off
+            medleyPlayback?.invalidateSuccessor()
+        } else {
+            repeatMode = repeatMode == .off ? .all : (repeatMode == .all ? .one : .off)
+        }
         persistPlaybackSession()
     }
 
@@ -4322,9 +4490,33 @@ final class TVStore {
         queueIndex = plan.queueIndex
     }
 
+    /// Replace only the current queue slot when choosing its paired recording.
+    @discardableResult
+    func switchKaraokeTrack(to songID: String) -> Bool {
+        guard !hasPendingSnapshotRecovery, queue.indices.contains(queueIndex),
+              let song = song(songID) else { return false }
+        let position = interpolatedTime()
+        let shouldPlay = isPlaying
+        queue[queueIndex] = songID
+        if queueCanonicalIndices.indices.contains(queueIndex) {
+            let index = queueCanonicalIndices[queueIndex]
+            if canonicalQueue.indices.contains(index) { canonicalQueue[index] = songID }
+        }
+        startPlaying(song, resumeTime: song.duration > 0 ? min(position, song.duration) : position, autoPlay: shouldPlay)
+        return true
+    }
+
+    func useKaraokeLyrics(from original: Song?) {
+        coordinator.useKaraokeLyrics(from: original, requestID: activePlaybackRequestID)
+    }
+
     /// 设置展示元数据 + 触发真实解析播放。
     private func startPlaying(_ song: TVSong, resumeTime: Double = 0, autoPlay: Bool = true,
-                              isRecovery: Bool = false) {
+                              isRecovery: Bool = false, prepareWhenPaused: Bool = true) {
+        if isMedleyActive, let slice = medleySlices[song.id] {
+            startMedleySelection(slice, at: resumeTime, autoPlay: autoPlay)
+            return
+        }
         // 换条之前先记下上一条有声内容听到哪了,时钟马上就要归零。
         rememberSpokenWordPosition(force: true)
         let startTime = spokenWordStartTime(for: song, requested: resumeTime, isRecovery: isRecovery)
@@ -4343,6 +4535,29 @@ final class TVStore {
         playbackIssue = nil
         engine.prepareForSelection(startAt: startTime)
 
+        presentSelection(song, startTime: startTime)
+        guard autoPlay || prepareWhenPaused else {
+            engine.pause()
+            return
+        }
+        playbackTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.coordinator.play(
+                songID: song.id,
+                requestID: requestID,
+                preferMusicVideo: self.isMusicVideoModeEnabled,
+                startAt: startTime,
+                autoPlay: autoPlay
+            )
+            guard self.isCurrentPlaybackRequest(
+                requestID,
+                isCancelled: Task.isCancelled
+            ) else { return }
+            self.playbackTask = nil
+        }
+    }
+
+    private func presentSelection(_ song: TVSong, startTime: Double) {
         let a = albumOf(song)
         let rawSong = library.song(id: song.id)
         let fallback = Self.tint(song.id)
@@ -4363,26 +4578,12 @@ final class TVStore {
         hasNowPlaying = true
         lyrics = []
         refreshUpNext()
-        playbackTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.coordinator.play(
-                songID: song.id,
-                requestID: requestID,
-                preferMusicVideo: self.isMusicVideoModeEnabled,
-                startAt: startTime,
-                autoPlay: autoPlay
-            )
-            guard self.isCurrentPlaybackRequest(
-                requestID,
-                isCancelled: Task.isCancelled
-            ) else { return }
-            self.playbackTask = nil
-        }
     }
 
     /// 播放一条 Apple Music 目录搜索结果。这首歌不在本机曲库里,所以像电台那样
     /// 直接构造「正在播放」:`songID` 带前缀,避免与曲库歌曲的 ID 撞上。
     func playAppleMusicCatalogHit(_ hit: AppleMusicCatalogHit) {
+        endMedley()
         leaveSpokenWordItem()
         finishListeningSession()
         radioReconnectTask?.cancel()
@@ -4488,6 +4689,7 @@ final class TVStore {
         album: String,
         glyph: String
     ) {
+        endMedley()
         finishListeningSession()
         radioReconnectTask?.cancel()
         radioReconnectTask = nil
@@ -4593,7 +4795,7 @@ final class TVStore {
         persistPlaybackSession()
         // 暂停 / 停止 / 出错都会走到这里:有声内容立刻记下位置。
         if !engine.isPlaying { rememberSpokenWordPosition(force: true) }
-        guard !isLiveRadio, engine.isPlaying, engine.status == .playing,
+        guard !isMedleyActive, !isLiveRadio, engine.isPlaying, engine.status == .playing,
               let requestID = activePlaybackRequestID, let id = currentSongID,
               let raw = library.song(id: id) else { return }
         armSpokenWordPositionIfNeeded()
@@ -4639,7 +4841,7 @@ final class TVStore {
     }
 
     private func persistPlaybackSession() {
-        guard !isLiveRadio, let id = currentSongID,
+        guard !isMedleyActive, !isLiveRadio, let id = currentSongID,
               queueCanonicalIndices.indices.contains(queueIndex) else { return }
         let mode: PrimuseKit.RepeatMode = repeatMode == .off ? .off : (repeatMode == .all ? .all : .one)
         let snapshot = PlaybackSessionSnapshot(
@@ -4674,25 +4876,37 @@ final class TVStore {
             queueIndex = plan.shuffleEnabled ? plan.shufflePosition : plan.currentIndex
             repeatMode = plan.repeatMode == .off ? .off : (plan.repeatMode == .all ? .all : .one)
             if let selected = song(queue[queueIndex]) {
-                startPlaying(selected, resumeTime: plan.currentTime, autoPlay: false)
+                startPlaying(selected, resumeTime: plan.currentTime, autoPlay: false, prepareWhenPaused: false)
             }
         } catch { plog("TV playback session restore failed: \(error.localizedDescription)") }
     }
 
-    private func migrateLegacySongIDs() {
+    nonisolated static func legacySongIDMigration(
+        songs: [Song], sourceTypes: [String: MusicSourceType]
+    ) -> (replacements: [String: String], sourceIDs: Set<String>) {
         var replacements: [String: String] = [:]
-        for raw in library.songs where raw.id.count == 64 {
-            let digest = SHA256.hash(data: Data("\(raw.sourceID):\(raw.filePath)".utf8))
-                .map { String(format: "%02x", $0) }.joined()
-            let type = sourcesStore.source(id: raw.sourceID)?.type
-            guard raw.id == digest || type == .fnMusic || type == .daoliyu || type == .songloft
-                    || type == .synologyAudioStation else { continue }
+        var sources = Set<String>()
+        let hex = Array("0123456789abcdef".utf8)
+        for raw in songs where raw.id.utf8.count == 64 {
             let canonical = TVScanPipelinePolicy.canonicalSongID(raw.id)
             guard canonical != raw.id else { continue }
+            let type = sourceTypes[raw.sourceID]
+            if type != .fnMusic && type != .daoliyu && type != .songloft && type != .synologyAudioStation {
+                let digest = SHA256.hash(data: Data("\(raw.sourceID):\(raw.filePath)".utf8))
+                let encoded = String(decoding: digest.flatMap { [hex[Int($0 >> 4)], hex[Int($0 & 15)]] }, as: UTF8.self)
+                guard raw.id == encoded else { continue }
+            }
             replacements[raw.id] = canonical
-            locallyScannedSourceIDs.insert(raw.sourceID)
+            sources.insert(raw.sourceID)
         }
-        applySongIDReplacements(replacements)
+        return (replacements, sources)
+    }
+
+    private func migrateLegacySongIDs() {
+        let types = Dictionary(sourcesStore.allSources.map { ($0.id, $0.type) }, uniquingKeysWith: { first, _ in first })
+        let plan = Self.legacySongIDMigration(songs: library.songs, sourceTypes: types)
+        locallyScannedSourceIDs.formUnion(plan.sourceIDs)
+        applySongIDReplacements(plan.replacements)
         defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
     }
 
@@ -4701,9 +4915,9 @@ final class TVStore {
          song.cueStartTime.map { String($0) } ?? ""].joined(separator: "\u{0}")
     }
 
-    private func applySongIDReplacements(_ replacements: [String: String]) {
+    private func applySongIDReplacements(_ replacements: [String: String], remapLibrary: Bool = true) {
         guard !replacements.isEmpty else { return }
-        library.remapSongIDs(replacements)
+        if remapLibrary { library.remapSongIDs(replacements) }
         PlayHistoryStore.shared.remapSongIDs(replacements)
         queue = queue.map { replacements[$0] ?? $0 }
         canonicalQueue = canonicalQueue.map { replacements[$0] ?? $0 }
@@ -4806,7 +5020,185 @@ final class TVStore {
     /// 协调器加载完歌词后回填(本地缓存 / 从源读 .lrc)。仅当仍是这首歌时生效。
     func applyLyrics(_ lines: [TVLyricLine], forSongID songID: String) {
         guard currentSongID == songID else { return }
-        lyrics = lines
+        if isMedleyActive, let offset = medleySlices[songID]?.cueStartTime {
+            lyrics = lines.map { $0.shiftedForMedley(by: offset) }
+        } else {
+            lyrics = lines
+        }
+    }
+}
+
+extension TVStore {
+    func queueDuration(for song: TVSong) -> Double {
+        isMedleyActive ? medleySlices[song.id]?.duration ?? song.duration : song.duration
+    }
+
+    var medleyCandidateIDs: [String] {
+        guard queue.indices.contains(queueIndex) else { return [] }
+        return Array(queue[queueIndex...])
+    }
+
+    func canPlayMedley(songIDs: [String]) -> Bool {
+        songIDs.contains { id in library.song(id: id).map(canIncludeInMedley) == true }
+    }
+
+    func medleyNeedsDataUsageConfirmation(songIDs: [String]) -> Bool {
+        TVMedleyNetworkState.shared.isMetered
+            && !UserDefaults.standard.bool(forKey: MedleyDataUsagePolicy.promptDisabledKey)
+            && songIDs.prefix(MedleyDataUsagePolicy.inspectedSongCount).contains { id in
+                guard let raw = library.song(id: id), canIncludeInMedley(raw) else { return false }
+                return sourcesStore.source(id: raw.sourceID)?.type != .local
+            }
+    }
+
+    func medleyPlaylistSongIDs(_ playlist: TVPlaylist) -> [String] {
+        if playlist.kind == .smart {
+            _ = smartPlaylists
+            return smartPlaylistSongIDs[playlist.id] ?? []
+        }
+        return library.songs(forPlaylist: playlist.id).map(\.id)
+    }
+
+    func setMedleySegmentSeconds(_ seconds: Int) {
+        medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(seconds)
+        defaults.set(medleySegmentSeconds, forKey: "tv.medley.segmentSeconds")
+    }
+
+    var activeMedleySegmentSeconds: Int {
+        currentSongID.flatMap { medleySlices[$0] }.map { Int($0.duration) } ?? medleySegmentSeconds
+    }
+
+    func canIncludeInMedley(_ raw: Song) -> Bool {
+        guard song(raw.id) != nil, !raw.isCueTrack, raw.mvPath == nil,
+              !raw.isStandaloneMusicVideo, !library.spokenWordSongIDs.contains(raw.id),
+              let source = sourcesStore.source(id: raw.sourceID), source.isEnabled, !source.isDeleted else { return false }
+        return !AppleMusicTVPlaybackPolicy.usesSystemPlayer(sourceType: source.type, sourceID: raw.sourceID)
+    }
+
+    var canPlayMedleyFromQueue: Bool {
+        guard !isMedleyActive, !isLiveRadio, !currentItemIsSpokenWord,
+              queue.indices.contains(queueIndex) else { return false }
+        return queue[queueIndex...].lazy.compactMap { self.library.song(id: $0) }
+            .filter { self.canIncludeInMedley($0) }.prefix(2).count == 2
+    }
+
+    @discardableResult
+    func playMedleyFromQueue() -> Bool {
+        guard canPlayMedleyFromQueue else { return false }
+        return playMedley(songIDs: Array(queue[queueIndex...]))
+    }
+
+    @discardableResult
+    func playMedley(songIDs: [String]) -> Bool {
+        guard !hasPendingSnapshotRecovery else { return false }
+        var originals: [String: Song] = [:]
+        var slices: [String: Song] = [:]
+        var ids: [String] = []
+        for id in songIDs where originals[id] == nil {
+            guard let raw = library.song(id: id), canIncludeInMedley(raw),
+                  let segment = MedleySegmentPolicy.segment(duration: raw.duration, segmentLength: medleySegmentSeconds) else { continue }
+            originals[id] = raw
+            var slice = raw
+            slice.cueStartTime = segment.start
+            slice.cueEndTime = segment.end
+            slice.duration = segment.length
+            slices[id] = slice
+            ids.append(id)
+        }
+        guard let first = ids.first, let slice = slices[first] else { return false }
+        leaveSpokenWordItem()
+        finishListeningSession()
+        persistPlaybackSession()
+        endMedley()
+        pendingDeepLink = nil
+        isMedleyActive = true
+        medleyOriginals = originals
+        medleySlices = slices
+        canonicalQueue = ids
+        queueCanonicalIndices = Array(ids.indices)
+        queue = ids
+        queueIndex = 0
+        shuffleEnabled = false
+        if repeatMode == .one { repeatMode = .off }
+        startMedleySelection(slice)
+        return true
+    }
+
+    private func startMedleySelection(_ slice: Song, at time: Double = 0, autoPlay: Bool = true) {
+        medleyPlayback?.stop()
+        medleyPlayback = nil
+        coordinator.cancelAuxiliaryTasks()
+        playbackTask?.cancel()
+        playbackTask = nil
+        radioReconnectTask?.cancel()
+        radioReconnectTask = nil
+        isLiveRadio = false
+        currentRadioStationID = nil
+        currentItemIsSpokenWord = false
+        isMusicVideoModeEnabled = false
+        playbackRestoreAttempted = true
+        playbackIssue = nil
+        let requestID = UUID()
+        activePlaybackRequestID = requestID
+        let session = TVMedleyPlayback(store: self, requestID: requestID,
+            nextSong: { [weak self] current, failed in self?.nextMedleySlice(after: current, excluding: failed) },
+            selected: { [weak self] song in self?.presentMedleySelection(song, requestID: requestID) })
+        medleyPlayback = session
+        session.start(slice, at: time, autoPlay: autoPlay)
+        presentMedleySelection(slice, requestID: requestID, at: time)
+    }
+
+    private func nextMedleySlice(after id: String, excluding failed: Set<String>) -> Song? {
+        guard currentSongID == id else { return nil }
+        let index = queueIndex
+        let limit = repeatMode == .all ? queue.count : queue.count - index - 1
+        guard limit > 0 else { return nil }
+        for offset in 1...limit {
+            let candidate = queue[(index + offset) % queue.count]
+            if !failed.contains(candidate), song(candidate) != nil, let slice = medleySlices[candidate] { return slice }
+        }
+        return nil
+    }
+
+    private func presentMedleySelection(_ slice: Song, requestID: UUID, at time: Double = 0) {
+        guard isMedleyActive, activePlaybackRequestID == requestID,
+              let index = queue.firstIndex(of: slice.id), let display = song(slice.id) else { return }
+        queueIndex = index
+        presentSelection(display, startTime: time)
+        nowPlaying.duration = slice.duration
+        engine.updateCatalogMetadata(title: nowPlaying.title, artist: nowPlaying.artist,
+                                     album: nowPlaying.album, duration: slice.duration)
+        if let raw = library.song(id: slice.id) ?? medleyOriginals[slice.id] {
+            coordinator.loadMedleyLyrics(song: raw, requestID: requestID)
+        }
+    }
+
+    func continueCurrentMedleySongInFull() {
+        guard isMedleyActive, let id = currentSongID, let slice = medleySlices[id],
+              let display = song(id) else { return }
+        let position = (slice.cueStartTime ?? 0) + currentTime
+        let shouldPlay = isPlaying || isLoading
+        endMedley()
+        startPlaying(display, resumeTime: position, autoPlay: shouldPlay)
+    }
+
+    private func endMedley() {
+        guard isMedleyActive else { return }
+        medleyPlayback?.stop()
+        medleyPlayback = nil
+        engine.endExternalPlayback()
+        isMedleyActive = false
+        medleySlices = [:]
+        medleyOriginals = [:]
+    }
+}
+
+private extension TVLyricLine {
+    func shiftedForMedley(by offset: Double) -> TVLyricLine {
+        TVLyricLine(id: id, time: time - offset, text: text, isSynchronized: isSynchronized,
+                    syllables: syllables.map { TVSyllable(w: $0.w, start: $0.start - offset, end: $0.end - offset, endTiming: $0.endTiming) },
+                    translation: translation, romanization: romanization, writingDirection: writingDirection,
+                    voice: voice, background: background.map { $0.shiftedForMedley(by: offset) })
     }
 }
 

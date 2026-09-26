@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Medley segments")
 struct MedleySegmentPolicyTests {
+    @Test("The default plays a ten-second slice", arguments: [0.0, 240.0])
+    func defaultSlice(duration: TimeInterval) {
+        let segment = MedleySegmentPolicy.segment(
+            duration: duration, segmentLength: MedleySegmentPolicy.defaultSegmentLength
+        )
+        #expect(segment?.length == 10)
+    }
+
     @Test("A typical song is cut around its first chorus")
     func typicalSong() {
         let segment = MedleySegmentPolicy.segment(duration: 240, segmentLength: 45)
@@ -51,7 +59,7 @@ struct MedleySegmentPolicyTests {
     @Test("Lengths snap to the offered choices")
     func snapping() {
         #expect(MedleySegmentPolicy.clampedSegmentLength(44) == 45)
-        #expect(MedleySegmentPolicy.clampedSegmentLength(1) == 20)
+        #expect(MedleySegmentPolicy.clampedSegmentLength(1) == 10)
         #expect(MedleySegmentPolicy.clampedSegmentLength(1000) == 90)
     }
 

@@ -186,6 +186,27 @@ private enum TVRadioPlaylistFetcher {
     }
 }
 
+private final class TVDecodedDownloadObserver: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    let progress: @Sendable (Double) -> Void
+    private var lastPercentage = -1
+
+    init(progress: @escaping @Sendable (Double) -> Void) { self.progress = progress }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let fraction = min(1, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+        let percentage = Int(fraction * 100)
+        guard percentage != lastPercentage else { return }
+        lastPercentage = percentage
+        progress(fraction)
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {}
+}
+
 private enum TVDecodedDownloadError: Error, LocalizedError, Sendable {
     case invalidContentLength(Int64)
     case incomplete(expected: Int64, actual: Int64)
@@ -268,11 +289,21 @@ enum TVLyricsLoadingPolicy {
 final class TVPlaybackCoordinator {
     private weak var store: TVStore?
     private let engine: TVAudioEngine
+    private let publishesPresentation: Bool
+    private var preparationIssue: TVPlaybackIssue?
+    private var playbackIssue: TVPlaybackIssue? {
+        get { publishesPresentation ? store?.playbackIssue : preparationIssue }
+        set {
+            if publishesPresentation { store?.playbackIssue = newValue }
+            else { preparationIssue = newValue }
+        }
+    }
     /// Apple Music 的系统播放器。只有真正播到 Apple Music 曲目时才会被用到,
     /// 持有它本身不申请授权、也不碰音频会话。
     private lazy var appleMusicPlayer = TVAppleMusicPlayer()
     private let registry = StreamResolverRegistry.shared
     private var lyricsTask: Task<Void, Never>?
+    private var karaokeLyricsSource: (song: Song, playingID: String)?
     private var playbackMetadataTask: Task<Void, Never>?
     private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
     private var playbackMetadataTaskToken: UUID?
@@ -297,9 +328,10 @@ final class TVPlaybackCoordinator {
         }
     }
 
-    init(store: TVStore, engine: TVAudioEngine) {
+    init(store: TVStore, engine: TVAudioEngine, publishesPresentation: Bool = true) {
         self.store = store
         self.engine = engine
+        self.publishesPresentation = publishesPresentation
     }
 
     func resolveRadioStream(
@@ -405,7 +437,8 @@ final class TVPlaybackCoordinator {
         requestID: UUID,
         preferMusicVideo: Bool = false,
         startAt: Double = 0,
-        autoPlay: Bool = true
+        autoPlay: Bool = true,
+        playbackSongOverride: Song? = nil
     ) async {
         cancelAuxiliaryTasks()
         // 换歌先把系统播放器放下:它独占音频会话,不先停就会和本机引擎互抢。
@@ -414,17 +447,22 @@ final class TVPlaybackCoordinator {
         // Keep the store alive for the whole asynchronous playback setup. A queued
         // task may otherwise outlive TVStore and turn an `unowned` access into a trap.
         guard let store, isCurrent(requestID, store: store) else { return }
-        store.playbackIssue = nil
-        guard let song = store.library.song(id: songID) else {
+        defer {
+            if isCurrent(requestID, store: store), let issue = playbackIssue {
+                engine.failPreparation(issue.message)
+            }
+        }
+        playbackIssue = nil
+        guard let song = playbackSongOverride ?? store.library.song(id: songID) else {
             plog("🎬 TV play: song not found id=\(songID)")
             guard isCurrent(requestID, store: store) else { return }
-            store.playbackIssue = .failed(PMString("ext.tv.playback.songNotFound"))
+            playbackIssue = .failed(PMString("ext.tv.playback.songNotFound"))
             return
         }
         guard let source = store.sourcesStore.source(id: song.sourceID) else {
             plog("🎬 TV play: NO source for '\(song.title)' sourceID=\(song.sourceID)")
             guard isCurrent(requestID, store: store) else { return }
-            store.playbackIssue = .unsupported(song.sourceID)
+            playbackIssue = .unsupported(song.sourceID)
             return
         }
         // Apple Music 只有 MusicKit 能播,而且它独占音频会话:在碰任何本机解码 /
@@ -459,7 +497,7 @@ final class TVPlaybackCoordinator {
             } catch {
                 plog("🎬 TV play: STRM resolve error — \(error)")
                 guard isCurrent(requestID, store: store) else { return }
-                store.playbackIssue = .failed(error.localizedDescription)
+                playbackIssue = .failed(error.localizedDescription)
                 return
             }
         }
@@ -602,11 +640,11 @@ final class TVPlaybackCoordinator {
         } catch let error as StreamResolveError {
             plog("🎬 TV play: resolve FAILED — \(error)")
             guard isCurrent(requestID, store: store) else { return }
-            store.playbackIssue = issue(for: error, source: source)
+            playbackIssue = issue(for: error, source: source)
         } catch {
             plog("🎬 TV play: resolve error — \(error)")
             guard isCurrent(requestID, store: store) else { return }
-            store.playbackIssue = .failed(error.localizedDescription)
+            playbackIssue = .failed(error.localizedDescription)
         }
     }
 
@@ -894,7 +932,7 @@ final class TVPlaybackCoordinator {
     ) async {
         guard let store, isCurrent(requestID, store: store) else { return }
         guard let itemID = AppleMusicTVPlaybackPolicy.itemID(fromFilePath: song.filePath) else {
-            store.playbackIssue = .failed(PMString("ext.tv.appleMusic.itemMissing"))
+            playbackIssue = .failed(PMString("ext.tv.appleMusic.itemMissing"))
             return
         }
         guard await playAppleMusicItem(
@@ -919,7 +957,7 @@ final class TVPlaybackCoordinator {
         cancelAuxiliaryTasks()
         releaseAppleMusicIfNeeded()
         guard let store, isCurrent(requestID, store: store) else { return }
-        store.playbackIssue = nil
+        playbackIssue = nil
         _ = await playAppleMusicItem(
             itemID: itemID,
             fallbackDuration: duration,
@@ -945,7 +983,7 @@ final class TVPlaybackCoordinator {
         cancelAuxiliaryTasks()
         releaseAppleMusicIfNeeded()
         guard let store, isCurrent(requestID, store: store) else { return }
-        store.playbackIssue = nil
+        playbackIssue = nil
         await runAppleMusicStart(
             fallbackDuration: fallbackDuration,
             requestID: requestID,
@@ -1027,7 +1065,7 @@ final class TVPlaybackCoordinator {
             guard isCurrent(requestID, store: store) else { return false }
             let message = Self.appleMusicFailureMessage(error)
             engine.failExternalPlayback(message)
-            store.playbackIssue = .failed(message)
+            playbackIssue = .failed(message)
             player.stop()
             player.stopMirroring()
             return false
@@ -1092,6 +1130,7 @@ final class TVPlaybackCoordinator {
         autoPlay: Bool
     ) {
         engine.startPlayback(at: startAt, autoPlay: autoPlay)
+        guard publishesPresentation else { return }
         loadLyrics(song: song, source: source, credential: credential, requestID: requestID)
         schedulePlaybackMetadataRead(
             song: song,
@@ -1311,11 +1350,11 @@ final class TVPlaybackCoordinator {
         } catch let e as StreamResolveError {
             plog("🎬 TV play: non-native resolve FAILED — \(e)")
             guard isCurrent(requestID, store: store) else { return }
-            store.playbackIssue = issue(for: e, source: source)
+            playbackIssue = issue(for: e, source: source)
         } catch {
             plog("🎬 TV play: non-native download error — \(error)")
             guard isCurrent(requestID, store: store) else { return }
-            store.playbackIssue = .failed(error.localizedDescription)
+            playbackIssue = .failed(error.localizedDescription)
         }
     }
 
@@ -1396,12 +1435,31 @@ final class TVPlaybackCoordinator {
         } catch let e as StreamResolveError {
             plog("🎬 TV play: MV resolve FAILED — \(e)")
             guard isCurrent(requestID, store: store) else { return }
-            store.playbackIssue = issue(for: e, source: source)
+            playbackIssue = issue(for: e, source: source)
         } catch {
             plog("🎬 TV play: MV rewrite error — \(error)")
             guard isCurrent(requestID, store: store) else { return }
-            store.playbackIssue = .failed(error.localizedDescription)
+            playbackIssue = .failed(error.localizedDescription)
         }
+    }
+
+    func karaokeAudioFile(for song: Song, requestID: UUID) async throws -> KaraokeAudioFile {
+        guard let store else { throw CancellationError() }
+        try ensureCurrent(requestID, store: store)
+        guard let source = store.sourcesStore.source(id: song.sourceID), source.isEnabled, !source.isDeleted,
+              !AppleMusicTVPlaybackPolicy.usesSystemPlayer(sourceType: source.type, sourceID: song.sourceID) else {
+            throw KaraokeSeparationError.unreadableAudio
+        }
+        let credential = TVCredentialStore.credential(for: source, bundle: store.credentialBundle)
+        var asset = playbackAsset(for: song, preferMusicVideo: false)
+        if song.isStreamDescriptor {
+            asset = try await resolveSTRMPlaybackAsset(asset, source: source, credential: credential, requestID: requestID)
+        }
+        let url = try await downloadToTemp(
+            song: asset.song, source: source, credential: credential,
+            ext: asset.fileExtension, directStream: asset.directStream, requestID: requestID
+        )
+        return KaraokeAudioFile(url: url, removeAfterDecoding: true)
     }
 
     /// 把整文件下载到 tmp:协议源走 reader 分块落盘,HTTP 源走 resolve + URLSession。
@@ -1435,10 +1493,8 @@ final class TVPlaybackCoordinator {
             for (key, value) in directStream.headers {
                 request.setValue(value, forHTTPHeaderField: key)
             }
-            let (downloadedURL, response) = try await StreamResolverHTTPTransport.download(
-                for: request,
-                session: Self.lyricsSession,
-                redirectMode: source.type == .fnMusic ? .fnMusic : .safe
+            let (downloadedURL, response) = try await downloadDecodedRequest(
+                request, source: source, budget: initialBudget, requestID: requestID
             )
             defer { try? FileManager.default.removeItem(at: downloadedURL) }
             try ensureCurrent(requestID, store: store)
@@ -1488,6 +1544,7 @@ final class TVPlaybackCoordinator {
                         }
                         try await writer.append(data)
                         offset += Int64(data.count)
+                        engine.downloadProgress = Double(offset) / Double(total)
                     }
                     guard ExactChunkedDownloadPolicy.isComplete(
                         expectedLength: total,
@@ -1513,13 +1570,8 @@ final class TVPlaybackCoordinator {
         try ensureCurrent(requestID, store: store)
         var req = URLRequest(url: resolved.url)
         for (k, v) in resolved.headers { req.setValue(v, forHTTPHeaderField: k) }
-        let redirectMode: StreamResolverHTTPRedirectMode = source.type == .fnMusic
-            ? .fnMusic
-            : .safe
-        let (downloadedURL, response) = try await StreamResolverHTTPTransport.download(
-            for: req,
-            session: Self.lyricsSession,
-            redirectMode: redirectMode
+        let (downloadedURL, response) = try await downloadDecodedRequest(
+            req, source: source, budget: initialBudget, requestID: requestID
         )
         defer { try? FileManager.default.removeItem(at: downloadedURL) }
         try ensureCurrent(requestID, store: store)
@@ -1534,6 +1586,26 @@ final class TVPlaybackCoordinator {
         try FileManager.default.moveItem(at: downloadedURL, to: tmp)
         shouldKeepFile = true
         return tmp
+    }
+
+    private func downloadDecodedRequest(
+        _ request: URLRequest, source: MusicSource, budget: Int64, requestID: UUID
+    ) async throws -> (URL, URLResponse) {
+        guard store != nil else { throw CancellationError() }
+        guard let url = request.url else { throw URLError(.badURL) }
+        if StreamResolverHTTPTransport.requiresPlainHTTPTransport(url) {
+            return try await StreamResolverHTTPTransport.download(
+                for: request, session: Self.lyricsSession, maximumBytes: budget,
+                redirectMode: source.type == .fnMusic ? .fnMusic : .safe
+            )
+        }
+        let observer = TVDecodedDownloadObserver { [weak self, weak store] fraction in
+            Task { @MainActor in
+                guard let self, let store, self.isCurrent(requestID, store: store) else { return }
+                self.engine.downloadProgress = fraction
+            }
+        }
+        return try await Self.lyricsSession.download(for: request, delegate: observer)
     }
 
     private nonisolated static func decodedDownloadBudget(in directory: URL) async -> Int64 {
@@ -1690,6 +1762,13 @@ final class TVPlaybackCoordinator {
 
     // MARK: 歌词
 
+    func loadMedleyLyrics(song: Song, requestID: UUID) {
+        guard let store, let source = store.sourcesStore.source(id: song.sourceID) else { return }
+        loadLyrics(song: song, source: source,
+                   credential: TVCredentialStore.credential(for: source, bundle: store.credentialBundle),
+                   requestID: requestID)
+    }
+
     func refreshTransferredLyrics(song: Song, source: MusicSource, requestID: UUID) {
         guard TVLocalTransferSource.isOwned(source) else { return }
         loadLyrics(song: song, source: source, credential: nil, requestID: requestID)
@@ -1698,8 +1777,30 @@ final class TVPlaybackCoordinator {
     /// 加载歌词:先本地缓存(随快照同步下来的 / 之前抓过的),再按源能力读取服务端歌词
     /// 或源内 `.lrc` sidecar。`lyricsFileName` 指向源里的歌词文件(NAS 是 `.lrc`
     /// 真实路径,云盘是 item ID),复用 stream resolver 解出下载地址即可。
+    func useKaraokeLyrics(from original: Song?, requestID: UUID?) {
+        karaokeLyricsSource = nil
+        guard let original, let store, let playingID = store.currentSongID,
+              let requestID,
+              let source = store.sourcesStore.source(id: original.sourceID) else { return }
+        karaokeLyricsSource = (original, playingID)
+        loadLyrics(song: original, source: source,
+                   credential: TVCredentialStore.credential(for: source, bundle: store.credentialBundle),
+                   requestID: requestID)
+    }
+
     private func loadLyrics(song: Song, source: MusicSource,
                             credential: SourceCredential?, requestID: UUID) {
+        if let borrowed = karaokeLyricsSource, let store,
+           store.currentSongID == borrowed.playingID, song.id != borrowed.song.id,
+           let source = store.sourcesStore.source(id: borrowed.song.sourceID) {
+            loadLyrics(song: borrowed.song, source: source,
+                       credential: TVCredentialStore.credential(for: source, bundle: store.credentialBundle),
+                       requestID: requestID)
+            return
+        }
+        let destinationID = karaokeLyricsSource.flatMap {
+            $0.song.id == song.id && $0.playingID == store?.currentSongID ? $0.playingID : nil
+        } ?? song.id
         lyricsTask?.cancel()
         lyricsTask = Task { [weak self, weak store, song, source, credential] in
             guard let self, let store,
@@ -1709,7 +1810,7 @@ final class TVPlaybackCoordinator {
                 guard self.isCurrent(requestID, store: store) else { return }
                 store.applyLyrics(
                     Self.toTVLyrics(cached, duration: song.duration),
-                    forSongID: songID
+                    forSongID: destinationID
                 )
                 return
             }
@@ -1727,6 +1828,7 @@ final class TVPlaybackCoordinator {
                         song: song,
                         requestID: requestID,
                         store: store,
+                        destinationID: destinationID,
                         logSource: "Feiniu Music"
                     )
                 } catch is CancellationError {
@@ -1745,6 +1847,7 @@ final class TVPlaybackCoordinator {
                     do {
                         try await self.cacheAndApplyServerLyrics(
                             text, song: song, requestID: requestID, store: store,
+                            destinationID: destinationID,
                             logSource: source.type.displayName
                         )
                     } catch { return }
@@ -1765,6 +1868,7 @@ final class TVPlaybackCoordinator {
                             song: song,
                             requestID: requestID,
                             store: store,
+                            destinationID: destinationID,
                             logSource: source.type.displayName
                         )
                     } catch is CancellationError {
@@ -1812,7 +1916,7 @@ final class TVPlaybackCoordinator {
                 try self.ensureCurrent(requestID, store: store)
                 store.applyLyrics(
                     Self.toTVLyrics(lines, duration: song.duration),
-                    forSongID: songID
+                    forSongID: destinationID
                 )
                 plog("🎬 TV source-lyrics loaded \(lines.count) lines for '\(song.title)'")
             } catch is CancellationError {
@@ -1829,6 +1933,7 @@ final class TVPlaybackCoordinator {
         song: Song,
         requestID: UUID,
         store: TVStore,
+        destinationID: String,
         logSource: String
     ) async throws {
         let lines = LyricsParser.parseText(text)
@@ -1842,7 +1947,7 @@ final class TVPlaybackCoordinator {
         if wrote {
             store.applyLyrics(
                 Self.toTVLyrics(lines, duration: song.duration),
-                forSongID: song.id
+                forSongID: destinationID
             )
             plog("🎬 TV \(logSource) lyrics loaded \(lines.count) lines for '\(song.title)'")
         } else if let preserved = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
@@ -1850,7 +1955,7 @@ final class TVPlaybackCoordinator {
             try ensureCurrent(requestID, store: store)
             store.applyLyrics(
                 Self.toTVLyrics(preserved, duration: song.duration),
-                forSongID: song.id
+                forSongID: destinationID
             )
         }
     }

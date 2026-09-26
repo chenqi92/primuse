@@ -32,7 +32,7 @@ final class TVKaraokeSession {
                 vocalLevel = clamped
                 return
             }
-            UserDefaults.standard.set(vocalLevel, forKey: "karaokeVocalLevel")
+            defaults.set(vocalLevel, forKey: "karaokeVocalLevel")
             applySettings()
         }
     }
@@ -69,7 +69,61 @@ final class TVKaraokeSession {
     private(set) var usesPhoneStem = false
     /// The phone is separating the current song; 0...1.
     private(set) var phoneSeparationProgress: Double?
+    let separation = KaraokeSeparationService.shared
+    var localAIEnabled: Bool {
+        didSet {
+            guard localAIEnabled != oldValue else { return }
+            defaults.set(localAIEnabled, forKey: "karaokeTVLocalAIEnabled")
+            if localAIEnabled {
+                separation.downloadModel()
+                updateLocalSeparation()
+            } else {
+                cancelLocalSeparation()
+                if !usesPhoneStem { removeStem() }
+            }
+        }
+    }
+    private(set) var currentSong: Song?
+    private(set) var usesLocalStem = false
+    private(set) var localStemLoadFailed = false
 
+    private(set) var instrumentalCompanion: Song?
+    private(set) var isPlayingInstrumental = false
+    private(set) var lyricsBorrowedFromTitle: String?
+    private(set) var usesInferredWordTiming = false
+    private(set) var isVocalAssisting = false
+    private(set) var isVocalAssistSuppressed = false
+    var vocalAssistEnabled: Bool {
+        didSet { defaults.set(vocalAssistEnabled, forKey: "karaokeVocalAssistEnabled") }
+    }
+    var practiceRate: Double = 1 {
+        didSet {
+            let clamped = practiceRate.isFinite ? min(1, max(0.5, practiceRate)) : 1
+            guard practiceRate == clamped else { practiceRate = clamped; return }
+            if isActive, practiceRate != oldValue {
+                store.engine.setKaraokePracticeRate(practiceRate)
+                resetPitchTracking()
+            }
+        }
+    }
+    private(set) var loop: KaraokePracticePolicy.Loop?
+    var isPracticing: Bool { loop != nil || practiceRate < 1 }
+    var canPractice: Bool { currentSong != nil && store.engine.supportsKaraokePractice }
+    var isSwitchingTrack: Bool { store.engine.status == .loading && store.playbackIssue == nil }
+    var canToggleBackingTrack: Bool {
+        !isSwitchingTrack && (instrumentalCompanion != nil || (isPlayingInstrumental && pairedOriginal != nil))
+    }
+
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var pairedOriginal: Song?
+    @ObservationIgnored private var carriedSongID: String?
+    @ObservationIgnored private var companionTask: Task<Void, Never>?
+    @ObservationIgnored private var wordTimingTask: Task<Void, Never>?
+    @ObservationIgnored private var wordTimingGeneration = UUID()
+    @ObservationIgnored private var vocalOnsets: [KaraokeOnset]?
+    @ObservationIgnored private var vocalAssist = KaraokeVocalAssistPolicy()
+    @ObservationIgnored private var lastMicReading: Date?
+    @ObservationIgnored private var loopJumpIssuedAt: Date?
     @ObservationIgnored private var songID: String?
     @ObservationIgnored private var lyricsRevision = -1
     @ObservationIgnored private var tickTask: Task<Void, Never>?
@@ -82,10 +136,15 @@ final class TVKaraokeSession {
     @ObservationIgnored private var tickCount = 0
     @ObservationIgnored private var stemTrack: TVKaraokeStemTrack?
     @ObservationIgnored private var retiredStems: [TVKaraokeStemTrack] = []
+    @ObservationIgnored private var localStemTask: Task<Void, Never>?
+    @ObservationIgnored private var stemGeneration = UUID()
 
-    init(store: TVStore) {
+    init(store: TVStore, defaults: UserDefaults = .standard) {
         self.store = store
-        vocalLevel = UserDefaults.standard.object(forKey: "karaokeVocalLevel") as? Double ?? 0.1
+        self.defaults = defaults
+        vocalLevel = defaults.object(forKey: "karaokeVocalLevel") as? Double ?? 0.1
+        localAIEnabled = defaults.bool(forKey: "karaokeTVLocalAIEnabled")
+        vocalAssistEnabled = defaults.object(forKey: "karaokeVocalAssistEnabled") as? Bool ?? true
         micServer.onReading = { [weak self] note in self?.receive(sung: note) }
         micServer.onStem = { [weak self] songID, data in self?.receiveStem(songID: songID, data: data) }
         micServer.onSeparationProgress = { [weak self] songID, fraction in
@@ -105,7 +164,19 @@ final class TVKaraokeSession {
         guard !isActive else { return }
         isActive = true
         store.engine.setKaraokeTapEnabled(true)
+        store.engine.setKaraokePracticeRate(practiceRate)
+        store.engine.karaokeLoopStartAtEnd = { [weak self] in
+            guard let self, self.isActive, self.songID == self.store.currentSongID,
+                  let loop = self.loop else { return nil }
+            guard loop.end >= self.store.duration - KaraokePracticePolicy.leaveMargin else {
+                self.loop = nil
+                return nil
+            }
+            self.resetPitchTracking()
+            return loop.start
+        }
         micServer.start()
+        if localAIEnabled { separation.downloadModel() }
         tick()
         tickTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -121,6 +192,16 @@ final class TVKaraokeSession {
         isActive = false
         tickTask?.cancel()
         tickTask = nil
+        cancelLocalSeparation()
+        companionTask?.cancel()
+        cancelWordTiming()
+        loop = nil
+        practiceRate = 1
+        store.engine.setKaraokePracticeRate(1)
+        store.engine.karaokeLoopStartAtEnd = nil
+        store.useKaraokeLyrics(from: nil)
+        vocalAssist.reset()
+        isVocalAssisting = false
         micServer.stop()
         removeStem()
         store.engine.karaokeProcessor.update(.init())
@@ -141,10 +222,16 @@ final class TVKaraokeSession {
         if store.currentSongID != songID || store.lyricsRevision != lyricsRevision {
             songOrLyricsChanged()
         }
+        updateLocalSeparation()
+        if !canPractice {
+            if practiceRate != 1 { practiceRate = 1 }
+            loop = nil
+        }
+        followLoop()
         applySettings()
         isEffectivelyMono = store.engine.karaokeProcessor.isEffectivelyMono
         tickCount &+= 1
-        if isMicConnected, store.isPlaying {
+        if isMicConnected, store.isPlaying, !isPlayingInstrumental {
             analyzeReferenceIfIdle()
             if tickCount % 40 == 0 {
                 lagEstimator.update(reference: referenceTrack)
@@ -152,7 +239,7 @@ final class TVKaraokeSession {
             }
         }
         if tickCount % 20 == 0 {
-            micServer.sendStatus(songTitle: store.nowPlaying.title, isPlaying: store.isPlaying, score: runningScore)
+            micServer.sendStatus(songTitle: store.nowPlaying.title, isPlaying: store.isPlaying, score: isPracticing ? nil : runningScore)
         }
     }
 
@@ -164,10 +251,16 @@ final class TVKaraokeSession {
             part: hasDuetParts ? part : .all,
             at: store.interpolatedTime()
         )
+        if !vocalAssistApplies { vocalAssist.standDown() }
+        let assistFactor = vocalAssist.advance(to: store.interpolatedTime())
+        let assisting = vocalAssist.level > 0.5
+        if isVocalAssisting != assisting { isVocalAssisting = assisting }
+        if isVocalAssistSuppressed != vocalAssist.isSuppressed { isVocalAssistSuppressed = vocalAssist.isSuppressed }
         store.engine.karaokeProcessor.update(.init(
             isActive: isActive && isVocalReductionAvailable,
-            reduction: Float(1 - vocalLevel) * duetFactor,
-            capturesVocal: isActive && isMicConnected,
+            reduction: isPlayingInstrumental ? 0 : Float((1 - vocalLevel) * assistFactor) * duetFactor,
+            capturesVocal: isActive && isMicConnected && !isPlayingInstrumental,
+            bypassesVocalReduction: isPlayingInstrumental,
             stemAddress: stem.map { UInt(bitPattern: $0.samples) } ?? 0,
             stemFrames: stem?.frames ?? 0,
             stemTimeOffset: store.engine.playbackPhysicalStart,
@@ -177,40 +270,181 @@ final class TVKaraokeSession {
 
     private func songOrLyricsChanged() {
         let songChanged = songID != store.currentSongID
-        if songID != nil, songChanged {
-            finishPerformance()
-        }
-        songID = store.currentSongID
+        let carrying = songChanged && carriedSongID == store.currentSongID && carriedSongID != nil
         if songChanged {
+            if !carrying { finishPerformance() }
+            cancelLocalSeparation()
+            companionTask?.cancel()
+            if !carrying {
+                cancelWordTiming()
+                vocalOnsets = nil
+                pairedOriginal = nil
+                instrumentalCompanion = nil
+                lyricsBorrowedFromTitle = nil
+                loop = nil
+                loopJumpIssuedAt = nil
+                store.useKaraokeLyrics(from: nil)
+            }
+            songID = store.currentSongID
+            currentSong = songID.flatMap { store.library.song(id: $0) }
             removeStem()
             phoneSeparationProgress = nil
-            micServer.sendNowPlaying(songID: songID)
+            carriedSongID = nil
+            isPlayingInstrumental = currentSong.map {
+                KaraokeCompanionPolicy.isInstrumental(Self.companionCandidate($0))
+            } ?? false
+            micServer.sendNowPlaying(songID: isPlayingInstrumental ? nil : songID)
+            resetPitchTracking()
+            if !canPractice { practiceRate = 1 }
+            if !carrying, let currentSong { findCompanion(for: currentSong) }
         }
         lyricsRevision = store.lyricsRevision
-        lyrics = store.lyrics.map(Self.lyricLine)
+        let loaded = store.lyrics.map(Self.lyricLine)
+        // Switching files clears the player's lyrics before the original is loaded.
+        if carrying || (pairedOriginal != nil && loaded.isEmpty && !lyrics.isEmpty) { return }
+        guard songChanged || loaded != lyrics else { return }
+        lyrics = loaded
         windows = KaraokeLineWindowPolicy.windows(in: lyrics)
-        let byIndex = Dictionary(uniqueKeysWithValues: windows.map { ($0.lineIndex, $0) })
-        stageLines = lyrics.enumerated().map { index, line in
-            byIndex[index].map { KaraokeSweepPolicy.sweepLine(line, window: $0) } ?? line
-        }
+        buildStageLines()
         hasDuetParts = KaraokeDuetGatePolicy.hasDuetParts(lyrics)
         if songChanged || !hasDuetParts { part = .all }
+        loop = nil
         scorer = KaraokeScorer(lines: lyrics, part: hasDuetParts ? part : .all)
-        referenceTrack.removeAll()
-        if songChanged {
-            // Readings from the last song would pull the new estimate.
-            lagEstimator.reset()
-            lagIsCalibrated = false
-        }
-        pitchHistory = []
         runningScore = nil
+    }
+
+    private func resetPitchTracking() {
+        referenceTrack.removeAll()
+        lagEstimator.reset()
+        lagIsCalibrated = false
+        pitchHistory = []
+        lastMicReading = nil
+        vocalAssist.reset()
+    }
+
+    nonisolated static func companionCandidate(_ song: Song) -> KaraokeCompanionCandidate {
+        KaraokeCompanionCandidate(id: song.id, title: song.title, artistName: song.artistName,
+                                  albumTitle: song.albumTitle, duration: song.duration,
+                                  filePath: song.filePath, sourceID: song.sourceID)
+    }
+
+    private func findCompanion(for song: Song) {
+        let songs = store.library.visibleSongs
+        let target = Self.companionCandidate(song)
+        let backing = isPlayingInstrumental
+        companionTask = Task { @MainActor [weak self] in
+            let matchID = await Task.detached(priority: .utility) {
+                let candidates = songs.map(Self.companionCandidate)
+                return (backing ? KaraokeCompanionPolicy.original(for: target, in: candidates)
+                        : KaraokeCompanionPolicy.instrumental(for: target, in: candidates))?.id
+            }.value
+            guard !Task.isCancelled, let self, self.isActive, self.songID == song.id else { return }
+            let match = matchID.flatMap { self.store.library.song(id: $0) }
+            if backing, let original = match {
+                self.pairedOriginal = original
+                self.instrumentalCompanion = song
+                self.lyricsBorrowedFromTitle = original.title
+                self.store.useKaraokeLyrics(from: original)
+            } else {
+                self.instrumentalCompanion = match
+            }
+        }
+    }
+
+    func toggleBackingTrack() {
+        guard canToggleBackingTrack, let currentSong else { return }
+        let target = isPlayingInstrumental ? pairedOriginal : instrumentalCompanion
+        guard let target else { return }
+        if !isPlayingInstrumental { pairedOriginal = currentSong }
+        carriedSongID = target.id
+        guard store.switchKaraokeTrack(to: target.id) else { carriedSongID = nil; return }
+        songOrLyricsChanged()
+        lyricsBorrowedFromTitle = isPlayingInstrumental ? pairedOriginal?.title : nil
+        store.useKaraokeLyrics(from: pairedOriginal)
+        applySettings()
+    }
+
+    private func buildStageLines() {
+        let byIndex = Dictionary(uniqueKeysWithValues: windows.map { ($0.lineIndex, $0) })
+        var inferred = false
+        stageLines = lyrics.enumerated().map { index, line in
+            guard let window = byIndex[index] else { return line }
+            if let vocalOnsets, let timed = KaraokeWordTimingPolicy.timedLine(line, window: window, onsets: vocalOnsets) {
+                inferred = true
+                return timed
+            }
+            return KaraokeSweepPolicy.sweepLine(line, window: window)
+        }
+        usesInferredWordTiming = inferred
+    }
+
+    private func cancelWordTiming() {
+        wordTimingGeneration = UUID()
+        wordTimingTask?.cancel()
+        wordTimingTask = nil
+    }
+
+    private func inferWordTiming(from track: TVKaraokeStemTrack) {
+        cancelWordTiming()
+        let generation = wordTimingGeneration
+        wordTimingTask = Task { @MainActor [weak self] in
+            let onsets = await Task.detached(priority: .utility) {
+                track.onsets()
+            }.value
+            guard !Task.isCancelled, let self, self.isActive,
+                  self.wordTimingGeneration == generation else { return }
+            self.wordTimingTask = nil
+            self.vocalOnsets = onsets
+            self.buildStageLines()
+        }
+    }
+
+    private var vocalAssistApplies: Bool {
+        vocalAssistEnabled && isMicConnected && isVocalReductionAvailable
+            && !isPlayingInstrumental && store.isPlaying
+            && lastMicReading.map { Date().timeIntervalSince($0) < 0.75 } == true
+    }
+
+    func toggleLoop() {
+        if loop != nil { loop = nil; return }
+        guard canPractice else { return }
+        loop = KaraokePracticePolicy.loop(windows: windows, at: store.interpolatedTime())
+        loopJumpIssuedAt = nil
+    }
+
+    func extendLoop() {
+        guard let loop else { return }
+        if let extended = KaraokePracticePolicy.extended(loop, windows: windows) { self.loop = extended }
+    }
+
+    var canExtendLoop: Bool {
+        guard let loop else { return false }
+        return loop.lastWindow + 1 < windows.count
+    }
+
+    private func followLoop() {
+        guard let loop, store.isPlaying else { return }
+        let time = store.interpolatedTime()
+        if let issued = loopJumpIssuedAt {
+            if time < loop.end || Date().timeIntervalSince(issued) >= 2 { loopJumpIssuedAt = nil }
+            return
+        }
+        switch KaraokePracticePolicy.action(for: loop, at: time) {
+        case .none: break
+        case .jumpBack:
+            loopJumpIssuedAt = Date()
+            resetPitchTracking()
+            store.engine.seek(to: loop.start)
+        case .leave: self.loop = nil
+        }
     }
 
     // MARK: AI stem from the phone
 
     private func receiveStem(songID stemSongID: String, data: Data) {
-        guard isActive, stemSongID == songID else { return }
+        guard isActive, !isPlayingInstrumental, stemSongID == songID else { return }
         let targetRate = store.engine.karaokeProcessor.sampleRate
+        let generation = stemGeneration
         Task { @MainActor [weak self] in
             let track = await Task.detached(priority: .userInitiated) { () -> TVKaraokeStemTrack? in
                 guard let stem = KaraokeStemFile.decode(data) else { return nil }
@@ -220,10 +454,14 @@ final class TVKaraokeSession {
                 guard let resampled = Self.resample(left: stem.left, right: stem.right, from: stem.header.sampleRate, to: targetRate) else { return nil }
                 return TVKaraokeStemTrack(songID: stemSongID, left: resampled.left, right: resampled.right, sampleRate: targetRate)
             }.value
-            guard let self, self.isActive, let track, track.songID == self.songID else { return }
+            guard let self, self.isActive, generation == self.stemGeneration,
+                  let track, track.songID == self.songID,
+                  abs(track.sampleRate - self.store.engine.karaokeProcessor.sampleRate) < 0.5 else { return }
+            self.cancelLocalSeparation()
             self.removeStem()
             self.stemTrack = track
             self.usesPhoneStem = true
+            self.inferWordTiming(from: track)
             self.phoneSeparationProgress = nil
             self.applySettings()
         }
@@ -235,11 +473,72 @@ final class TVKaraokeSession {
         guard let track = stemTrack else { return }
         stemTrack = nil
         usesPhoneStem = false
+        usesLocalStem = false
         applySettings()
         retiredStems.append(track)
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
             self?.retiredStems.removeAll { $0 === track }
+        }
+    }
+
+    // MARK: AI on this Apple TV
+
+    func retryLocalSeparation() {
+        if localStemLoadFailed, let song = currentSong { separation.discardStem(for: song) }
+        localStemLoadFailed = false
+        if separation.modelState == .failed {
+            separation.downloadModel()
+        } else if let song = currentSong, separation.state(for: song) == .failed {
+            separation.prepare(song) { [store] in try await store.karaokeAudioFile(for: song) }
+        }
+        updateLocalSeparation()
+    }
+
+    private func cancelLocalSeparation() {
+        stemGeneration = UUID()
+        localStemTask?.cancel()
+        localStemTask = nil
+        localStemLoadFailed = false
+        if let songID { separation.cancel(songID) }
+    }
+
+    private func updateLocalSeparation() {
+        guard isActive, localAIEnabled, !isPlayingInstrumental, isVocalReductionAvailable, !usesPhoneStem,
+              let song = currentSong, separation.modelState == .ready else { return }
+        if let track = stemTrack,
+           abs(track.sampleRate - store.engine.karaokeProcessor.sampleRate) >= 0.5 {
+            cancelLocalSeparation()
+            removeStem()
+        }
+        switch separation.state(for: song) {
+        case .idle:
+            separation.prepare(song) { [store] in try await store.karaokeAudioFile(for: song) }
+        case .ready:
+            guard !usesLocalStem, localStemTask == nil, !localStemLoadFailed else { return }
+            let generation = stemGeneration
+            let rate = store.engine.karaokeProcessor.sampleRate
+            localStemTask = Task { @MainActor [weak self, separation] in
+                let samples = await separation.loadStemSamples(for: song, graphSampleRate: rate)
+                let track = await Task.detached(priority: .userInitiated) {
+                    samples.map { TVKaraokeStemTrack(songID: song.id, left: $0.left, right: $0.right, sampleRate: rate) }
+                }.value
+                guard !Task.isCancelled, let self, self.isActive, self.localAIEnabled,
+                      self.stemGeneration == generation, self.songID == song.id, !self.usesPhoneStem else { return }
+                self.localStemTask = nil
+                guard abs(rate - self.store.engine.karaokeProcessor.sampleRate) < 0.5 else { return }
+                guard let track else {
+                    self.localStemLoadFailed = true
+                    return
+                }
+                self.removeStem()
+                self.stemTrack = track
+                self.usesLocalStem = true
+                self.inferWordTiming(from: track)
+                self.applySettings()
+            }
+        case .separating, .unsupported, .failed:
+            break
         }
     }
 
@@ -299,6 +598,7 @@ final class TVKaraokeSession {
         }
         guard let detector else { return }
         let time = store.interpolatedTime()
+        let expectedSongID = songID
         isAnalyzing = true
         Task { @MainActor [weak self] in
             let note = await Task.detached(priority: .utility) { () -> Double? in
@@ -310,6 +610,7 @@ final class TVKaraokeSession {
             }.value
             guard let self else { return }
             self.isAnalyzing = false
+            guard self.isActive, self.songID == expectedSongID, self.store.isPlaying else { return }
             // The vocal is taken before the key change; the singer follows
             // the shifted key.
             let shift = Double(self.isVocalReductionAvailable ? self.keyShift : 0)
@@ -319,11 +620,19 @@ final class TVKaraokeSession {
 
     private func receive(sung note: Double?) {
         guard isActive, store.isPlaying else { return }
+        lastMicReading = Date()
         let now = store.interpolatedTime()
         lagEstimator.record(time: now, sung: note)
         let sungTime = now - lagEstimator.lag
         let reference = referenceTrack.note(at: sungTime)
-        scorer.record(time: sungTime, reference: reference, sung: note)
+        if !isPracticing && !isPlayingInstrumental {
+            scorer.record(time: sungTime, reference: reference, sung: note)
+        }
+        if vocalAssistApplies {
+            vocalAssist.observe(time: sungTime,
+                                inOwnLine: KaraokeVocalAssistPolicy.isOwnLine(windows: windows, part: part, at: sungTime),
+                                sung: note, reference: reference)
+        }
         pitchHistory.append(PitchPoint(time: sungTime, reference: reference, sung: note))
         let cutoff = sungTime - Self.pitchHistoryDuration
         if let first = pitchHistory.firstIndex(where: { $0.time >= cutoff }), first > 0 {

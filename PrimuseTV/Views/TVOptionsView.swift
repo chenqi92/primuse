@@ -8,6 +8,8 @@ struct TVOptionsView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var showKaraoke = false
+    @State private var showMedleySettings = false
+    @State private var pendingMedleyIDs: [String]?
 
     private struct Action: Identifiable {
         let id = UUID()
@@ -24,7 +26,7 @@ struct TVOptionsView: View {
         let sleepOn = store.sleepTimerMinutes > 0
         // 有声内容只留睡眠定时: 卡拉OK与「我喜欢」歌单都是音乐的玩法。
         let isSpokenWord = store.currentItemIsSpokenWord
-        let karaoke: [Action] = store.currentSongID == nil || isSpokenWord ? [] : [
+        let karaoke: [Action] = store.currentSongID == nil || isSpokenWord || store.isMedleyActive ? [] : [
             .init(icon: "music.mic", label: String(localized: "karaoke_title"), run: { showKaraoke = true }),
         ]
         let love: [Action] = isSpokenWord ? [] : [
@@ -32,7 +34,20 @@ struct TVOptionsView: View {
                   label: liked ? PMString("ext.tv.options.loved") : PMString("ext.tv.options.love"), on: liked,
                   run: { if let id = store.currentSongID { store.toggleLiked(id) } }),
         ]
-        return karaoke + love + [
+        let medley: [Action]
+        if store.isMedleyActive {
+            medley = [.init(icon: "music.note", label: String(localized: "medley_continue_full"), run: {
+                store.continueCurrentMedleySongInFull()
+            })]
+        } else if store.canPlayMedleyFromQueue {
+            medley = [.init(icon: "shuffle", label: String(localized: "medley_play_selection"), run: {
+                pendingMedleyIDs = store.medleyCandidateIDs
+            })]
+        } else { medley = [] }
+        let medleySettings: [Action] = isSpokenWord || store.isLiveRadio ? [] : [
+            .init(icon: "timer", label: String(localized: "medley_segment_length"), run: { showMedleySettings = true }),
+        ]
+        return medley + medleySettings + karaoke + love + [
             .init(icon: "moon.zzz.fill",
                   label: sleepOn ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes) : PMString("ext.tv.options.sleepTimer"), on: sleepOn,
                   run: { store.cycleSleepTimer() }),
@@ -79,11 +94,13 @@ struct TVOptionsView: View {
             .padding(.horizontal, 100)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
+        .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs))
         .onExitCommand { dismiss() }
         .onAppear { FullscreenPlayerEffectSync.shared.install() }
         .fullScreenCover(isPresented: $showKaraoke) {
             TVKaraokeStageView()
         }
+        .fullScreenCover(isPresented: $showMedleySettings) { TVMedleySettingsView() }
     }
 
     private func actionTile(_ a: Action) -> some View {

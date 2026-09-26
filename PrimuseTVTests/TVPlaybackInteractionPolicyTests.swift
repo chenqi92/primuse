@@ -1,5 +1,8 @@
 #if os(tvOS)
 import Foundation
+import AVFoundation
+import CloudKit
+import CryptoKit
 import PrimuseKit
 import XCTest
 import UIKit
@@ -1592,4 +1595,350 @@ final class TVPlaybackQueuePolicyTests: XCTestCase {
     }
 }
 
+@MainActor
+final class TVDeviceRegressionTests: XCTestCase {
+    func testLegacyMigrationOnlyAcceptsKnownDigestsAndSupportedProviderIdentities() {
+        let path = "/music/Track.mp3"
+        let digest = SHA256.hash(data: Data("nas:\(path)".utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        let songs = [
+            Song(id: digest, title: "Path", fileFormat: .mp3, filePath: path, sourceID: "nas"),
+            Song(id: String(repeating: "a", count: 64), title: "Provider", fileFormat: .mp3, filePath: path, sourceID: "fn"),
+            Song(id: String(repeating: "b", count: 64), title: "Unrelated", fileFormat: .mp3, filePath: path, sourceID: "nas"),
+            Song(id: String(repeating: "z", count: 64), title: "Opaque", fileFormat: .mp3, filePath: path, sourceID: "fn")
+        ]
+        let plan = TVStore.legacySongIDMigration(songs: songs, sourceTypes: ["nas": .webdav, "fn": .fnMusic])
+        XCTAssertEqual(plan.replacements, [digest: String(digest.prefix(32)), String(repeating: "a", count: 64): String(repeating: "a", count: 32)])
+        XCTAssertEqual(plan.sourceIDs, ["nas", "fn"])
+    }
+
+    func testBackgroundIDMigrationPreservesConcurrentEditsAndPlaylistMembership() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs((0..<1_000).map {
+            Song(id: "old-\($0)", title: "Song \($0)", albumTitle: "Album", fileFormat: .mp3,
+                 filePath: "/\($0).mp3", sourceID: "source")
+        })
+        await library.waitForPendingIndex()
+        var duplicate = try XCTUnwrap(library.song(id: "old-0"))
+        duplicate.id = "new-0"
+        duplicate.title = "Duplicate canonical row"
+        duplicate.filePath = "/canonical.mp3"
+        library.addSongs([duplicate], pruneMissingSongs: false)
+        await library.waitForPendingIndex()
+        XCTAssertNotNil(library.song(id: "old-0"))
+        let migration = Task { await library.remapSongIDsInBackground(["old-0": "new-0"]) }
+        await Task.yield()
+        var edited = try XCTUnwrap(library.song(id: "old-0"))
+        edited.title = "Edited during migration"
+        library.replaceSong(edited)
+        library.setLiked(songID: edited.id, isLiked: true, propagatesServerMutation: false)
+        library.recordPlayback(of: edited.id)
+        library.updateLibraryReview(for: .song(edited.id), rating: 4, comment: "Retained")
+        let migrated = await migration.value
+        XCTAssertTrue(migrated)
+        XCTAssertNil(library.song(id: "old-0"))
+        XCTAssertEqual(library.song(id: "new-0")?.title, "Edited during migration")
+        XCTAssertTrue(library.isLiked(songID: "new-0"))
+        XCTAssertFalse(library.isLiked(songID: "old-0"))
+        XCTAssertEqual(library.recentlyPlayedSongs(limit: 1).first?.id, "new-0")
+        XCTAssertEqual(library.libraryReview(for: .song("new-0"))?.rating, 4)
+        XCTAssertEqual(library.visibleSongs.count, 1_000)
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Migration persistence failed") }
+        let reloaded = MusicLibrary(storageDirectory: directory)
+        XCTAssertNil(reloaded.song(id: "old-0"))
+        XCTAssertEqual(reloaded.song(id: "new-0")?.title, "Edited during migration")
+        XCTAssertTrue(reloaded.isLiked(songID: "new-0"))
+    }
+
+    func testTVStartupMigrationRestoresCanonicalPausedSession() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        let source = MusicSource(id: UUID().uuidString, name: "Migration", type: .fnMusic)
+        try sources.addDurably(source)
+        let legacyID = String(repeating: "a", count: 64)
+        let canonicalID = String(legacyID.prefix(32))
+        let original = Song(id: legacyID, title: "Retained", duration: 30, fileFormat: .mp3,
+                            filePath: "/track.mp3", sourceID: source.id)
+        var duplicate = original
+        duplicate.id = canonicalID
+        library.addSongs([original, duplicate])
+        await library.waitForPendingIndex()
+        library.setLiked(songID: legacyID, isLiked: true, propagatesServerMutation: false)
+        let session = PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        try session.save(.init(queueSongIDs: [legacyID], currentSongID: legacyID, currentIndex: 0,
+                               currentTime: 7, duration: 30, wasPlaying: false, shuffleEnabled: false,
+                               shuffledIndices: [], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false))
+        let store = TVStore(sourcesStore: sources, library: library, sessionStore: session)
+        await store.prepareLocalLibrary()
+        XCTAssertEqual(library.songs.map(\.id), [canonicalID])
+        XCTAssertTrue(library.isLiked(songID: canonicalID))
+        XCTAssertEqual(store.songIDs, [canonicalID])
+        XCTAssertEqual(store.currentSongID, canonicalID)
+        XCTAssertEqual(store.currentTime, 7, accuracy: 0.01)
+        XCTAssertEqual(store.engine.status, .paused)
+        XCTAssertFalse(store.engine.hasPreparedAudio)
+        XCTAssertNil(store.playbackIssue)
+        XCTAssertEqual(try session.load()?.currentSongID, canonicalID)
+        _ = await library.persistNowAndWait()
+    }
+
+    func testRecentlyAddedAlbumsRefreshAfterEditsAndSourceVisibilityChanges() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        let source = MusicSource(id: UUID().uuidString, name: "Recent", type: .fnMusic)
+        try sources.addDurably(source)
+        var older = Song(id: "older", title: "Older", albumTitle: "Older album", fileFormat: .mp3,
+                         filePath: "/older/track.mp3", sourceID: source.id)
+        older.dateAdded = Date(timeIntervalSince1970: 100)
+        var newer = Song(id: "newer", title: "Newer", albumTitle: "Newer album", fileFormat: .mp3,
+                         filePath: "/newer/track.mp3", sourceID: source.id)
+        newer.dateAdded = Date(timeIntervalSince1970: 200)
+        library.addSongs([older, newer])
+        await library.waitForPendingIndex()
+        let store = TVStore(sourcesStore: sources, library: library,
+                            sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        store.reload(reloadLibrary: false)
+        XCTAssertEqual(store.recentlyAddedAlbums.map(\.title), ["Newer album", "Older album"])
+        var edited = try XCTUnwrap(library.song(id: older.id))
+        edited.dateAdded = Date(timeIntervalSince1970: 300)
+        library.replaceSong(edited)
+        await library.waitForPendingIndex()
+        store.reload(reloadLibrary: false)
+        XCTAssertEqual(store.recentlyAddedAlbums.map(\.title), ["Older album", "Newer album"])
+        store.setSourceEnabled(source.id, false)
+        XCTAssertTrue(store.recentlyAddedAlbums.isEmpty)
+        store.setSourceEnabled(source.id, true)
+        XCTAssertEqual(store.recentlyAddedAlbums.map(\.title), ["Older album", "Newer album"])
+        _ = await library.persistNowAndWait()
+    }
+
+    func testSearchSongPathRetainsSanitizationWhenPresentedOnDemand() {
+        func song(path: String, sourceType: MusicSourceType = .navidrome) -> TVSong {
+            TVSong(id: "path", albumID: "album", coverRef: nil, title: "Song", artist: "Artist",
+                   duration: 30, format: "MP3", bitrate: 320, sampleRate: 44.1,
+                   sourceID: "source", filePath: path, sourceType: sourceType, plays: 0, liked: false)
+        }
+        let remote = song(path: "https://user:password@example.com/Music/Hello%20World.mp3?token=secret#fragment")
+        XCTAssertEqual(remote.displayPath, "/Music/Hello World.mp3")
+        XCTAssertEqual(song(path: "/Music/token=secret/Song.mp3").displayPath, nil)
+        XCTAssertNil(song(path: "opaque-item-id").displayPath)
+        XCTAssertNil(song(path: "/Music/Song.mp3", sourceType: .appleMusic).displayPath)
+    }
+
+    func testListeningHistoryRefreshesSongCountsAndSmartPlaylistsWithoutRebuildingLibrary() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        let source = MusicSource(id: "history-source", name: "History", type: .navidrome)
+        try sources.addDurably(source)
+        let song = Song(id: UUID().uuidString, title: "History", fileFormat: .mp3,
+                        filePath: "/history.mp3", sourceID: source.id)
+        library.addSongs([song])
+        await library.waitForPendingIndex()
+        library.applyRemoteSmartPlaylist(SmartPlaylist(id: "played", name: "Played",
+            rules: [.init(field: .playCount, op: .greaterThan, value: "0")]))
+        let store = TVStore(sourcesStore: sources, library: library,
+                            sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        store.reload(reloadLibrary: false)
+        try await Task.sleep(for: .milliseconds(100))
+        let revision = store.recommendationRevision
+        XCTAssertEqual(store.smartPlaylists.first?.count, 0)
+        PlayHistoryStore.shared.record(song: song, startedAt: Date(), listenedSec: 35)
+        for _ in 0..<1_000 {
+            if store.song(song.id)?.plays == 1 { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(store.song(song.id)?.plays, 1)
+        XCTAssertEqual(store.songs.first?.plays, 1)
+        XCTAssertEqual(store.smartPlaylists.first?.count, 1)
+        XCTAssertEqual(store.recommendationRevision, revision)
+        _ = await library.persistNowAndWait()
+    }
+
+    func testDecodedPlaybackResumesAfterAudioSessionDeactivation() async throws {
+        let file = TVDecodedTemporaryFilePolicy.makeURL(
+            in: FileManager.default.temporaryDirectory, fileExtension: "caf"
+        )
+        defer { try? FileManager.default.removeItem(at: file) }
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        do {
+            let audio = try AVAudioFile(forWriting: file, settings: format.settings)
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 441_000))
+            buffer.frameLength = buffer.frameCapacity
+            for channel in 0..<2 {
+                buffer.floatChannelData![channel].initialize(repeating: 0, count: Int(buffer.frameLength))
+            }
+            try audio.write(from: buffer)
+        }
+        let engine = TVAudioEngine()
+        defer { engine.stop() }
+        try engine.loadDecoded(fileURL: file, decoder: .ffmpeg, title: "Resume", artist: "", album: "", duration: 10)
+        try await Task.sleep(for: .seconds(1))
+        engine.pause()
+        try await Task.sleep(for: .seconds(1))
+        let paused = engine.currentTime
+        XCTAssertTrue(engine.hasPreparedAudio)
+        XCTAssertTrue(engine.play())
+        try await Task.sleep(for: .seconds(1))
+        XCTAssertGreaterThan(engine.currentTime, paused + 0.4)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testAlbumLookupReflectsOrderAndSourceVisibility() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        let source = MusicSource(id: "album-source", name: "Albums", type: .fnMusic)
+        try sources.addDurably(source)
+        var second = Song(id: "second", title: "Second", albumTitle: "Album", fileFormat: .mp3,
+                          filePath: "/second.mp3", sourceID: source.id)
+        second.trackNumber = 2
+        var first = second
+        first.id = "first"; first.title = "First"; first.trackNumber = 1
+        library.addSongs([second, first])
+        await library.waitForPendingIndex()
+        let store = TVStore(sourcesStore: sources, library: library,
+                            sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        store.reload(reloadLibrary: false)
+        let albumID = try XCTUnwrap(library.song(id: first.id)?.albumID)
+        XCTAssertEqual(store.songs(forAlbum: albumID).map(\.id), ["first", "second"])
+        let unchangedRevision = store.recommendationRevision
+        store.reload(reloadLibrary: false)
+        XCTAssertEqual(store.recommendationRevision, unchangedRevision,
+                       "Unchanged source reloads must not rebuild the catalogue")
+        store.setSourceEnabled(source.id, false)
+        XCTAssertTrue(store.songs(forAlbum: albumID).isEmpty)
+        store.setSourceEnabled(source.id, true)
+        XCTAssertEqual(store.songs(forAlbum: albumID).map(\.id), ["first", "second"])
+        var reordered = try XCTUnwrap(library.song(id: first.id))
+        reordered.trackNumber = 3
+        library.replaceSong(reordered)
+        await library.waitForPendingIndex()
+        store.reload(reloadLibrary: false)
+        XCTAssertEqual(store.songs(forAlbum: albumID).map(\.id), ["second", "first"])
+        _ = await library.persistNowAndWait()
+    }
+
+    func testBackgroundReloadReplaysEditsAndPublishesOnceReady() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs((0..<500).map {
+            Song(id: "reload-\($0)", title: "Song \($0)", fileFormat: .mp3,
+                 filePath: "/\($0).mp3", sourceID: "source")
+        })
+        await library.waitForPendingIndex()
+        guard case .success = await library.persistNowAndWait() else { return XCTFail("Fixture persistence failed") }
+        let reload = Task { await library.reloadFromDiskInBackground(preferExternalSnapshot: false) }
+        for _ in 0..<1_000 {
+            if !library.isReady { break }
+            await Task.yield()
+        }
+        XCTAssertFalse(library.isReady)
+        library.setLiked(songID: "reload-0", isLiked: true, propagatesServerMutation: false)
+        await reload.value
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(library.songs.count, 500)
+        XCTAssertTrue(library.isLiked(songID: "reload-0"))
+        _ = await library.persistNowAndWait()
+    }
+
+    func testMissingCredentialEndsLoadingAndAllowsRetry() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        let source = MusicSource(id: UUID().uuidString, name: "No credential", type: .fnMusic)
+        try sources.addDurably(source)
+        let song = Song(id: UUID().uuidString, title: "DTS", duration: 20, fileFormat: .dts,
+                        filePath: "/tracks/test.dts", sourceID: source.id)
+        library.addSongs([song])
+        await library.waitForPendingIndex()
+        let store = TVStore(sourcesStore: sources, library: library,
+                            sessionStore: PlaybackSessionStore(url: directory.appendingPathComponent("session.json")))
+        store.reload(reloadLibrary: false)
+        XCTAssertTrue(store.playResolvedQueue(songIDs: [song.id], shuffled: false, startingAt: song.id))
+        for _ in 0..<100 {
+            if store.playbackIssue != nil && !store.isLoading { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertNotNil(store.playbackIssue)
+        XCTAssertFalse(store.isLoading)
+        guard case .failed = store.engine.status else { return XCTFail("Resolution failure must be terminal") }
+        store.togglePlayPause()
+        XCTAssertTrue(store.isLoading, "One press retries a failed resolution")
+        store.togglePlayPause()
+        XCTAssertFalse(store.isLoading, "A second press cancels the pending request")
+        _ = await library.persistNowAndWait()
+    }
+
+    func testRestoringPausedSelectionDoesNotResolveOrDownload() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: directory)
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        let source = MusicSource(id: UUID().uuidString, name: "Deferred", type: .fnMusic)
+        try sources.addDurably(source)
+        let song = Song(id: UUID().uuidString, title: "Saved track", duration: 30, fileFormat: .dts,
+                        filePath: "/tracks/deferred.dts", sourceID: source.id)
+        library.addSongs([song])
+        await library.waitForPendingIndex()
+        let session = PlaybackSessionStore(url: directory.appendingPathComponent("session.json"))
+        try session.save(.init(queueSongIDs: [song.id], currentSongID: song.id, currentIndex: 0,
+                               currentTime: 7, duration: 30, wasPlaying: false, shuffleEnabled: false,
+                               shuffledIndices: [], shufflePosition: 0, repeatMode: .off, isAtTrackEnd: false))
+        let store = TVStore(sourcesStore: sources, library: library, sessionStore: session)
+        store.reload(reloadLibrary: false)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(store.currentSongID, song.id)
+        XCTAssertEqual(store.currentTime, 7, accuracy: 0.01)
+        XCTAssertEqual(store.engine.status, .paused)
+        XCTAssertNil(store.playbackIssue, "Restoring must not attempt credential resolution")
+        XCTAssertFalse(store.engine.hasPreparedAudio)
+        _ = await library.persistNowAndWait()
+    }
+
+    func testPreparedTVStartupFiltersOrphansWithoutRemovingCanonicalSongs() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let original = MusicLibrary(storageDirectory: directory)
+        original.addSongs([Song(id: "orphan", title: "Retained", fileFormat: .mp3,
+                                filePath: "/song.mp3", sourceID: "missing-source")])
+        await original.waitForPendingIndex()
+        guard case .success = await original.persistNowAndWait() else { return XCTFail("Fixture persistence failed") }
+        let prepared = await MusicLibrary.prepareStartup(knownSourceIDs: [], storageDirectory: directory)
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        library.publish(prepared)
+        XCTAssertTrue(library.visibleSongs.isEmpty)
+        XCTAssertEqual(library.songs.map(\.id), ["orphan"])
+        XCTAssertEqual(library.disabledSourceIDs, ["missing-source"])
+    }
+
+    private final class ExistingRecord: CKRecord, @unchecked Sendable {
+        override var recordChangeTag: String? { "server-tag" }
+    }
+
+    func testDuplicateConstraintRequiresSameServerIdentityAndChangeTag() {
+        let id = CKRecord.ID(recordName: "RadioStation/station", zoneID: .init(zoneName: "test"))
+        let local = CKRecord(recordType: "RadioStation", recordID: id)
+        let server = ExistingRecord(recordType: "RadioStation", recordID: id)
+        let error = CKError(.constraintViolation, userInfo: [CKRecordChangedErrorServerRecordKey: server])
+        XCTAssertNotNil(CloudKitSyncService.existingRecordConflict(error, local: local))
+        XCTAssertNil(CloudKitSyncService.existingRecordConflict(CKError(.constraintViolation), local: local))
+        let wrongType = CKRecord(recordType: "Playlist", recordID: id)
+        XCTAssertNil(CloudKitSyncService.existingRecordConflict(error, local: wrongType))
+        let wrongZone = CKRecord(recordType: "RadioStation", recordID: .init(recordName: id.recordName))
+        XCTAssertNil(CloudKitSyncService.existingRecordConflict(error, local: wrongZone))
+        let unversioned = CKError(.constraintViolation, userInfo: [CKRecordChangedErrorServerRecordKey: local])
+        XCTAssertNil(CloudKitSyncService.existingRecordConflict(unversioned, local: local))
+    }
+}
 #endif

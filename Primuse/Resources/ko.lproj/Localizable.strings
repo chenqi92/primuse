@@ -4574,6 +4574,7 @@
 "karaoke_remote_rejected" = "Apple TV가 이 코드를 받지 않았습니다. TV의 코드를 다시 스캔하세요.";
 "karaoke_remote_failed" = "Apple TV에 연결할 수 없습니다. 같은 네트워크인지 확인하세요.";
 "karaoke_remote_hint" = "iPhone을 입 가까이 드세요. 노랫소리는 평소처럼 방에 들리고 iPhone은 채점만 합니다.";
+"karaoke_tv_ai_local" = "Apple TV에서 AI 음성 분리";
 "karaoke_tv_ai_active" = "iPhone의 AI 보컬 분리를 사용 중입니다.";
 "karaoke_tv_ai_preparing_format" = "iPhone에서 보컬 분리 중… %d%%";
 "karaoke_remote_ai_preparing" = "TV용 AI 보컬 준비 중";

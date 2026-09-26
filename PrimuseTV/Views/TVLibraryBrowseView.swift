@@ -35,6 +35,7 @@ struct TVSongCollectionView: View {
                     TVPillButton(title: PMString("ext.tv.home.shuffle"), systemImage: "shuffle") {
                         play(shuffled: true)
                     }
+                    TVMedleyButton(songIDs: destination.songIDs, onStarted: finishPlayback)
                     Spacer(minLength: 0)
                 }
                 .frame(width: 410, alignment: .leading)
@@ -116,6 +117,7 @@ struct TVFolderBrowser: View {
     @State private var index: LibraryFolderIndex?
     @State private var path: [LibraryFolderNodeID] = []
     var openPlayer: () -> Void = {}
+    var onNavigation: () -> Void = {}
 
     private var current: LibraryFolderNode? {
         path.last.flatMap { index?.node(withID: $0) }
@@ -175,6 +177,7 @@ struct TVFolderBrowser: View {
             index = built
             if path.contains(where: { built.node(withID: $0) == nil }) { path = [] }
         }
+        .onChange(of: path) { _, _ in onNavigation() }
         .onExitCommand(perform: path.isEmpty ? nil : { path.removeLast() })
     }
 

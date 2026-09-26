@@ -104,7 +104,7 @@ struct TVQueueView: View {
                         .foregroundStyle(TVColor.textFaint).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Text(TVFmt.time(song.duration)).tvFont(.meta, design: .monospaced)
+                Text(TVFmt.time(store.queueDuration(for: song))).tvFont(.meta, design: .monospaced)
                     .foregroundStyle(TVColor.textFaint)
             }
             .padding(.horizontal, 20).padding(.vertical, 14)

@@ -340,11 +340,12 @@ struct ImmersiveEffectPreview: View {
     var palette: ImmersiveArtworkPalette = .fallback
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var isRenderingVisible = false
 
     private let canvasSize = CGSize(width: 960, height: 540)
 
     private var animates: Bool {
-        isActive && !accessibilityReduceMotion
+        isActive && isRenderingVisible && !accessibilityReduceMotion
     }
 
     var body: some View {
@@ -362,6 +363,7 @@ struct ImmersiveEffectPreview: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .background(ImmersiveStagePalette.obsidian)
+        .onRenderingVisibilityChange { isRenderingVisible = $0 }
         .clipped()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -1043,7 +1045,6 @@ struct ImmersiveHairlineProgress: View {
         }
         .frame(height: height)
         .allowsHitTesting(false)
-        .animation(.linear(duration: 0.4), value: clamped)
     }
 
     private var clamped: Double {

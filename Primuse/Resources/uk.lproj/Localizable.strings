@@ -4480,6 +4480,7 @@
 "karaoke_remote_rejected" = "Apple TV не прийняв цей код. Відскануйте код на ТБ ще раз.";
 "karaoke_remote_failed" = "Не вдається зв’язатися з Apple TV. Переконайтеся, що пристрої в одній мережі.";
 "karaoke_remote_hint" = "Тримайте iPhone біля рота. Голос чути в кімнаті як зазвичай; iPhone лише оцінює.";
+"karaoke_tv_ai_local" = "ШІ-розділення на Apple TV";
 "karaoke_tv_ai_active" = "Використовується ШІ-відокремлення вокалу з iPhone.";
 "karaoke_tv_ai_preparing_format" = "iPhone відокремлює вокал… %d%%";
 "karaoke_remote_ai_preparing" = "Готуємо ШІ-вокал для ТБ";

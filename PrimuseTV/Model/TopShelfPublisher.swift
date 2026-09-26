@@ -131,8 +131,8 @@ enum TopShelfPublisher {
     }
 
     /// 占位图只由种子和图标决定,同样按输入命名、画过一次就复用。
-    private static func placeholderCoverFile(seed: String, symbolName: String? = nil) -> String? {
-        let name = inputCoverName(key: seed, variant: "placeholder-v1", input: symbolName ?? "brand")
+    private static func placeholderCoverFile(seed: String, symbolName: String) -> String? {
+        let name = inputCoverName(key: seed, variant: "placeholder-v1", input: symbolName)
         return existingOrRendered(name) { placeholderCover(seed: seed, symbolName: symbolName) }
     }
 
@@ -181,8 +181,7 @@ enum TopShelfPublisher {
     }
 
     /// 取封面写入 App Group 封面目录,返回文件名。优先准确的本地专辑/歌曲封面,
-    /// 最后才尝试在线专辑搜索；全部取不到时画一张与 app 内卡片一致的品牌音乐占位,
-    /// 保证 Top Shelf 不出现空白方块。
+    /// 最后才尝试在线专辑搜索；没有真实封面时不生成或写入占位图片。
     private static func cover(
         key: String,
         coverKey: String,
@@ -216,7 +215,7 @@ enum TopShelfPublisher {
         }
         guard !Task.isCancelled else { return nil }
         guard let output = data.flatMap({ $0.isEmpty ? nil : $0 }) else {
-            return placeholderCoverFile(seed: key)
+            return nil
         }
         return writeCover(output, key: key)
     }
@@ -250,7 +249,7 @@ enum TopShelfPublisher {
         }
     }
 
-    // MARK: 品牌音乐占位(与 PrimuseTV/Views 的 TVMusicPlaceholder 视觉一致)
+    // MARK: 电台占位
 
     /// 由字符串确定性派生封面两端色(与 TVStore.tint 同算法,保证同一专辑色一致)。
     private static func tintColors(_ seed: String) -> (UIColor, UIColor) {
@@ -263,7 +262,7 @@ enum TopShelfPublisher {
                 UIColor(hue: hue, saturation: 0.30, brightness: 0.22, alpha: 1))
     }
 
-    private static func placeholderCover(seed: String, symbolName: String? = nil) -> Data? {
+    private static func placeholderCover(seed: String, symbolName: String) -> Data? {
         // 1216px 可同时覆盖 Top Shelf 方形内容的 1x/2x 聚焦放大需求。
         let side: CGFloat = 1216
         let size = CGSize(width: side, height: side)
@@ -307,9 +306,7 @@ enum TopShelfPublisher {
             ctx.strokeEllipse(in: discRect.insetBy(dx: side * 0.002, dy: side * 0.002))
 
             let symbolConfig = UIImage.SymbolConfiguration(pointSize: side * 0.23, weight: .semibold)
-            let icon = symbolName.flatMap { UIImage(systemName: $0, withConfiguration: symbolConfig) }
-                ?? UIImage(named: "BrandGlyph")
-                ?? UIImage(systemName: "music.note", withConfiguration: symbolConfig)
+            let icon = UIImage(systemName: symbolName, withConfiguration: symbolConfig)
             if let icon {
                 let rendered = icon.withTintColor(
                     UIColor.white.withAlphaComponent(0.88),

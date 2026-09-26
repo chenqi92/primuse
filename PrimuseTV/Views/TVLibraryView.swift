@@ -67,19 +67,24 @@ struct TVLibraryView: View {
             let cell = max(140, (contentW - gap * CGFloat(cols - 1)) / CGFloat(cols))
             VStack(alignment: .leading, spacing: 24) {
                 filterStrip
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 30) {
-                        Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        grid(cell: cell)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 30) {
+                            Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("tv.library.contentTop")
+                            grid(cell: cell, onFolderNavigation: {
+                                proxy.scrollTo("tv.library.contentTop", anchor: .top)
+                            })
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                        .padding(.bottom, TVSpace.pageBottom)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 8)
-                    .padding(.bottom, TVSpace.pageBottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .focusSection()
+                    .id(filter)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .focusSection()
-                .id(filter)
             }
             .padding(.horizontal, TVSpace.pageH)
             .padding(.top, TVSpace.pageTop)
@@ -175,7 +180,7 @@ struct TVLibraryView: View {
     }
 
     @ViewBuilder
-    private func grid(cell: CGFloat) -> some View {
+    private func grid(cell: CGFloat, onFolderNavigation: @escaping () -> Void) -> some View {
         let columns = Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols)
         switch filter {
         case .albums:
@@ -271,7 +276,7 @@ struct TVLibraryView: View {
         case .genres:
             TVGenreBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         case .folders:
-            TVFolderBrowser(openPlayer: openPlayer)
+            TVFolderBrowser(openPlayer: openPlayer, onNavigation: onFolderNavigation)
         case .ranking:
             TVRankingBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         }
@@ -496,6 +501,7 @@ struct TVArtistDetailView: View {
                             action: { play(shuffled: true) }
                         )
                     }
+                    TVMedleyButton(songIDs: artistSongIDs) { openPlayer(); dismiss() }
                     Spacer(minLength: 0)
                 }
                 .frame(width: 440, alignment: .leading)

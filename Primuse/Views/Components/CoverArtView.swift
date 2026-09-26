@@ -40,28 +40,10 @@ struct CoverArtView: View {
 }
 
 #if os(macOS)
-/// Mac 上没有封面（或还在读）时的占位：和 iPhone 一样的浅灰底 + 音符。
-/// 以前这里用 App 图标，加载时会先闪一下图标再换成真封面，也和手机不一致。
 struct MacDefaultArtwork: View {
-    /// 调用方仍会传加载状态；占位本身不再区分，读完前后都是同一张。
-    var isLoading = false
-
     var body: some View {
-        GeometryReader { geometry in
-            let side = min(geometry.size.width, geometry.size.height)
-            ZStack {
-                LinearGradient(
-                    colors: [Color.gray.opacity(0.2), Color.gray.opacity(0.3)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                Image(systemName: "music.note")
-                    .font(.system(size: max(side * 0.25, 8)))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-        }
-        .accessibilityHidden(true)
+        Color.clear
+            .accessibilityHidden(true)
     }
 }
 #endif

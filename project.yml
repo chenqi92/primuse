@@ -16,7 +16,7 @@ settings:
     SWIFT_VERSION: "6.0"
     # 全平台唯一版本号来源:iOS / macOS / tvOS / watchOS 及各扩展统一继承这里,
     # 各 target 不再单独覆盖,发版只改这一处,避免漏改导致版本不一致。
-    MARKETING_VERSION: "1.9.8"
+    MARKETING_VERSION: "1.10.1"
     CURRENT_PROJECT_VERSION: "82"
     DEVELOPMENT_TEAM: "2U97K3U27A"
     CODE_SIGN_STYLE: Automatic
@@ -105,6 +105,10 @@ schemes:
     profile:
       config: Release
       executable: PrimuseMac
+    test:
+      config: Debug
+      targets:
+        - PrimuseMacTests
     archive:
       config: Release
 
@@ -338,6 +342,18 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  PrimuseMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: PrimuseMacTests
+    dependencies:
+      - target: PrimuseMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.welape.yuanyin.mactests
+        GENERATE_INFOPLIST_FILE: YES
+
   CarPlayEditorUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -394,9 +410,9 @@ targets:
 
   PrimuseKaraokeModelDownloader:
     # 卡拉OK AI 人声模型的下载扩展: App Store 托管的按需资源包由系统经它下载。
-    # 与小组件一样同一个 target 覆盖 iOS 与 macOS; 系统要求 26.0 起。
+    # 同一个 target 覆盖 iOS、macOS 与 tvOS; 系统要求 26.0 起。
     type: extensionkit-extension
-    supportedDestinations: [iOS, macOS]
+    supportedDestinations: [iOS, macOS, tvOS]
     sources:
       - path: PrimuseKaraokeModelDownloader
     info:
@@ -413,6 +429,7 @@ targets:
         SKIP_INSTALL: YES
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         MACOSX_DEPLOYMENT_TARGET: "26.0"
+        TVOS_DEPLOYMENT_TARGET: "26.0"
         CODE_SIGN_ENTITLEMENTS: Config/PrimuseKaraokeModelDownloader.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Config/PrimuseKaraokeModelDownloader-macOS.entitlements
         "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
@@ -725,6 +742,9 @@ targets:
       # MV 兼容改写(MKV/AVI/FLV… → MP4):与 iOS / macOS 同一份
       - path: Primuse/Services/Audio/FFmpegMusicVideoConverter.m
       - path: Primuse/Services/Audio/MusicVideoCompatibilityConverter.swift
+      - path: Primuse/Services/Audio/KaraokeSeparationService.swift
+      - path: Primuse/Services/Audio/KaraokeVocalSeparator.swift
+      - path: Primuse/Utilities/Extensions/Bundle+AppVersion.swift
       # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
       - path: Primuse/Services/Sources/NetworkDiscoveryService.swift
       - path: Primuse/Utilities/FileLogger.swift
@@ -732,7 +752,9 @@ targets:
       # 沉浸播放:风格枚举与共享工艺层,与 iOS / macOS 同一份实现
       - path: Primuse/Services/FullscreenPlayerEffectSettings.swift
       - path: Primuse/Views/Components/AnimatedArtworkDataView.swift
+      - path: Primuse/Views/NowPlaying/KaraokeLineView.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageScenery.swift
+      - path: Primuse/Views/Components/RenderingVisibility.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageRenderers.swift
       - path: Primuse/Views/NowPlaying/ImmersiveStageView.swift
       - path: SiriVocabulary
@@ -753,6 +775,8 @@ targets:
       - sdk: MusicKit.framework
       - target: PrimuseKit
       - target: PrimuseTopShelf
+      - target: PrimuseKaraokeModelDownloader
+        embed: true
       - package: GRDB
         product: GRDB-dynamic
         embed: true
@@ -790,6 +814,9 @@ targets:
     info:
       path: PrimuseTV/Info.plist
       properties:
+        BAAppGroupID: group.com.welape.yuanyin
+        BAHasManagedAssetPacks: true
+        BAUsesAppleHosting: true
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleDisplayName: "Primuse"

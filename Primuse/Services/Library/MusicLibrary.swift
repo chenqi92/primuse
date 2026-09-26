@@ -3206,12 +3206,14 @@ final class MusicLibrary {
         }
     }
     private var spokenWordSongsReference = LibraryArrayReference<Song>()
+    private(set) var spokenWordContentRevision: UInt64 = 0
     /// The spoken-word items, in the same order they hold in `visibleSongs`.
     private(set) var spokenWordSongs: [Song] {
         get { spokenWordSongsReference.value }
         set {
             let previous = spokenWordSongsReference
             spokenWordSongsReference = LibraryArrayReference(newValue)
+            spokenWordContentRevision &+= 1
             LibraryArrayReclaimer.release(previous)
         }
     }
@@ -8276,32 +8278,34 @@ final class MusicLibrary {
         let requestedTitles = Set(identities.lazy.compactMap { identity in
             identity.title.isEmpty ? nil : identity.title
         })
-        let needsCloudPathLookup = identities.contains {
-            $0.cloudAccountID != nil && !$0.filePath.isEmpty
-        }
+        let requestedCloudPaths = Set(identities.compactMap { identity -> IdentityCloudPathKey? in
+            guard let accountID = identity.cloudAccountID, !identity.filePath.isEmpty else { return nil }
+            return IdentityCloudPathKey(accountID: accountID, filePath: identity.filePath)
+        })
+        let requestedFilePaths = Set(requestedCloudPaths.map(\.filePath))
 
         var songIDByCloudPath: [IdentityCloudPathKey: String] = [:]
         var songIndicesByTitle: [String: [Int]] = [:]
-        if needsCloudPathLookup { songIDByCloudPath.reserveCapacity(min(songs.count, identities.count)) }
+        songIDByCloudPath.reserveCapacity(requestedCloudPaths.count)
         songIndicesByTitle.reserveCapacity(requestedTitles.count)
 
-        // resolver 在源表里线性查找, 逐首调用会把这一遍扫描变成 O(歌 × 源)。
+        // 单张封面只需要它引用的路径；不要为无关歌曲生成云端路径索引。
+        // 同一来源的账号解析（包括失败）在本批只做一次。
         var accountIDBySourceID: [String: String] = [:]
-        if needsCloudPathLookup {
-            for sourceID in Set(songs.map(\.sourceID)) {
-                accountIDBySourceID[sourceID] = sourceIdentityResolver?(sourceID)
-            }
-        }
+        var resolvedSourceIDs = Set<String>()
 
         for (songIndex, song) in songs.enumerated() {
             if requestedTitles.contains(song.title) {
                 songIndicesByTitle[song.title, default: []].append(songIndex)
             }
-            if needsCloudPathLookup,
-               !song.filePath.isEmpty,
-               let accountID = accountIDBySourceID[song.sourceID] {
-                let key = IdentityCloudPathKey(accountID: accountID, filePath: song.filePath)
-                if songIDByCloudPath[key] == nil { songIDByCloudPath[key] = song.id }
+            guard requestedFilePaths.contains(song.filePath) else { continue }
+            if resolvedSourceIDs.insert(song.sourceID).inserted {
+                accountIDBySourceID[song.sourceID] = sourceIdentityResolver?(song.sourceID)
+            }
+            guard let accountID = accountIDBySourceID[song.sourceID] else { continue }
+            let key = IdentityCloudPathKey(accountID: accountID, filePath: song.filePath)
+            if requestedCloudPaths.contains(key), songIDByCloudPath[key] == nil {
+                songIDByCloudPath[key] = song.id
             }
         }
 
@@ -9607,6 +9611,66 @@ final class MusicLibrary {
         // S2: 换 ID 要作用在发布后的 songs / 歌单成员 / 播放历史上, 空库上做
         // 等于什么都没做, 而随后的拷回还会把旧 ID 原样带回来。
         if deferringUntilReady({ [weak self] in self?.remapSongIDs(replacements) }) { return }
+        applySongIDRemapping(replacements)
+    }
+
+    @discardableResult
+    func remapSongIDsInBackground(_ replacements: [String: String]) async -> Bool {
+        guard !replacements.isEmpty else { return true }
+        while !Task.isCancelled {
+            await whenReady()
+            await waitForPendingIndex()
+            let generation = songMutationGeneration
+            let visibilityGeneration = visibleCacheGeneration
+            let snapshot = songs
+            let configuration = artistNameConfiguration
+            let hidden = disabledSourceIDs
+            let classification = SpokenWordStore.shared.classificationSnapshot
+            let previousVisible = visibleSongs
+            let prepared = await Task.detached(priority: .userInitiated) {
+                var remapped = Self.songsByRemappingIDs(snapshot, replacements: replacements)
+                let result = Self.computeAlbumsAndArtists(songs: remapped, configuration: configuration)
+                for index in remapped.indices {
+                    if let corrected = result.albumIDCorrections[remapped[index].id] {
+                        remapped[index].albumID = corrected
+                    }
+                }
+                return DerivedIndexComputation(
+                    signature: Self.derivedIndexSignature(for: remapped, configuration: configuration),
+                    albums: result.albums,
+                    artists: result.artists,
+                    albumIDCorrections: result.albumIDCorrections,
+                    visibleCache: Self.prepareVisibleCache(
+                        songs: remapped, albums: result.albums, artists: result.artists,
+                        artistNameConfiguration: configuration, disabledSourceIDs: hidden,
+                        spokenWordClassification: classification, previousVisibleSongs: previousVisible
+                    )
+                )
+            }.value
+            guard !Task.isCancelled else { return false }
+            guard isReady, generation == songMutationGeneration,
+                  visibilityGeneration == visibleCacheGeneration,
+                  configuration == artistNameConfiguration, hidden == disabledSourceIDs else { continue }
+            applySongIDRemapping(replacements, preparedIndex: prepared)
+            return true
+        }
+        return false
+    }
+
+    private nonisolated static func songsByRemappingIDs(
+        _ songs: [Song], replacements: [String: String]
+    ) -> [Song] {
+        var seen = Set<String>()
+        return songs.compactMap { original in
+            var song = original
+            song.id = replacements[song.id] ?? song.id
+            return seen.insert(song.id).inserted ? song : nil
+        }
+    }
+
+    private func applySongIDRemapping(
+        _ replacements: [String: String], preparedIndex: DerivedIndexComputation? = nil
+    ) {
         var remappedReviews: [String: LibraryReview] = [:]
         for review in libraryReviewsBySubject.values {
             let subject = review.subject.kind == .song
@@ -9624,12 +9688,7 @@ final class MusicLibrary {
         }
         libraryReviewsBySubject = remappedReviews
         libraryReviewRevision &+= 1
-        var seen = Set<String>()
-        songs = songs.compactMap { original in
-            var song = original
-            song.id = replacements[song.id] ?? song.id
-            return seen.insert(song.id).inserted ? song : nil
-        }
+        songs = Self.songsByRemappingIDs(songs, replacements: replacements)
         for playlistID in playlistSongIDs.keys {
             var included = Set<String>()
             playlistSongIDs[playlistID] = playlistSongIDs[playlistID]?.compactMap { old in
@@ -9642,7 +9701,16 @@ final class MusicLibrary {
             let id = replacements[old] ?? old
             return recent.insert(id).inserted ? id : nil
         }
-        rebuildIndexSync()
+        if let preparedIndex {
+            albums = preparedIndex.albums
+            artists = preparedIndex.artists
+            derivedIndexSignature = preparedIndex.signature
+            applyPreparedVisibleCache(preparedIndex.visibleCache)
+            applyAlbumIDCorrections(preparedIndex.albumIDCorrections)
+            migrateLegacyArtistIdentities(artists: preparedIndex.artists)
+        } else {
+            rebuildIndexSync()
+        }
         persistSongChanges(upserts: songs, deletingIDs: Set(replacements.keys))
         persistPlaylistDurabilityLedger()
         persistNow()
@@ -9667,7 +9735,8 @@ final class MusicLibrary {
     fileprivate struct StartupStorage: Sendable {
         let directory: URL
         let artistNameConfiguration: ArtistNameConfiguration
-        let disabledSourceIDs: Set<String>
+        var disabledSourceIDs: Set<String>
+        var knownSourceIDs: Set<String>?
         let playlistSyncWriterID: String
         let songStore: IncrementalSongStore?
         var sourceIdentityPrefixes: [String: String] = [:]
@@ -10064,6 +10133,9 @@ final class MusicLibrary {
             // previous launch (e.g. user added the right cloud source between
             // sessions). Try resolving them once on load.
 
+            if let knownSourceIDs {
+                disabledSourceIDs.formUnion(Set(songs.map(\.sourceID)).subtracting(knownSourceIDs))
+            }
             let cleanupFinishedAt = ProcessInfo.processInfo.systemUptime
             let currentDerivedSignature = MusicLibrary.derivedIndexSignature(
                 for: loadedSongs,
@@ -10227,6 +10299,70 @@ final class MusicLibrary {
         // 由主线程的发布步骤调用 MusicLibrary 上同名的持久化实现。
     }
 
+    private func storageForReload(sourceIdentityPrefixes: [String: String]? = nil) -> StartupStorage {
+        var storage = StartupStorage(
+            directory: snapshotURL.deletingLastPathComponent(),
+            artistNameConfiguration: artistNameConfiguration,
+            disabledSourceIDs: disabledSourceIDs,
+            playlistSyncWriterID: playlistSyncWriterID,
+            songStore: songStore,
+            songStoreSnapshotWriter: songStoreSnapshotWriter
+        )
+        storage.songs = songs
+        storage.albums = albums
+        storage.artists = artists
+        storage.allPlaylists = allPlaylists
+        storage.allSmartPlaylists = allSmartPlaylists
+        storage.playlistSongIDs = playlistSongIDs
+        storage.playlistSyncBaseSongIDs = playlistSyncBaseSongIDs
+        storage.recentPlaybackSongIDs = recentPlaybackSongIDs
+        storage.deletedSongIdentities = deletedSongIdentities
+        storage.deletedSongIdentityDetails = deletedSongIdentityDetails
+        storage.pendingPlaylistIdentities = pendingPlaylistIdentities
+        storage.pendingHistoryIdentities = pendingHistoryIdentities
+        storage.playlistPendingEntries = playlistPendingEntries
+        storage.automaticArtistArtworkCatalogsBySource = automaticArtistArtworkCatalogsBySource
+        storage.artworkOverridesByOwner = artworkOverridesByOwner
+        storage.libraryReviewsBySubject = libraryReviewsBySubject
+        storage.mirrorPlaylistSuppressions = mirrorPlaylistSuppressions
+        storage.deviceLocalExcludedSongIdentities = deviceLocalExcludedSongIdentities
+        storage.deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID
+        storage.deviceLocalRemovalMetadataByID = deviceLocalRemovalMetadataByID
+        storage.persistenceBlockedByCorruption = persistenceBlockedByCorruption
+        storage.songStoreRequiresReplacement = songStoreRequiresReplacement
+        storage.pendingSnapshotImportID = pendingSnapshotImportID
+        storage.derivedIndexSignature = derivedIndexSignature
+        storage.songIndexByID = songIndexByID
+        storage.previousVisibleSongs = visibleSongs
+        // G3: 调用方(AppServices)在库构造前就能从 SourcesStore 算出身份前缀;
+        // 没有传入时沿用旧行为, 回落到构造后才安装的 resolver。
+        if let sourceIdentityPrefixes {
+            storage.sourceIdentityPrefixes = sourceIdentityPrefixes
+        } else {
+            let sourceIDs = Set(songCountBySourceID.keys)
+                .union(deviceLocalExcludedSongsByID.values.map(\.sourceID))
+            for sourceID in sourceIDs {
+                storage.sourceIdentityPrefixes[sourceID] = sourceIdentityResolver?(sourceID)
+            }
+        }
+        return storage
+    }
+
+    /// Queue mutations while preparing a replacement, so edits arriving during
+    /// the disk read are replayed against the published library.
+    func reloadFromDiskInBackground(preferExternalSnapshot: Bool = true) async {
+        await whenReady()
+        await waitForPendingIndex()
+        let baseline = storageForReload()
+        readiness = .preparing
+        let prepared = await Task.detached(priority: .userInitiated) {
+            var storage = baseline
+            storage.loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
+            return PreparedStartup(storage: storage)
+        }.value
+        publish(prepared)
+    }
+
     private func loadSnapshot(
         preferExternalSnapshot: Bool = false,
         preparedStartup: PreparedStartup? = nil,
@@ -10246,51 +10382,7 @@ final class MusicLibrary {
             // `.preparing` 构造的库此时才拿到准备阶段打开的存储句柄。
             songStore = storage.songStore
         } else {
-            storage = StartupStorage(
-                directory: snapshotURL.deletingLastPathComponent(),
-                artistNameConfiguration: artistNameConfiguration,
-                disabledSourceIDs: disabledSourceIDs,
-                playlistSyncWriterID: playlistSyncWriterID,
-                songStore: songStore,
-                songStoreSnapshotWriter: songStoreSnapshotWriter
-            )
-            storage.songs = songs
-            storage.albums = albums
-            storage.artists = artists
-            storage.allPlaylists = allPlaylists
-            storage.allSmartPlaylists = allSmartPlaylists
-            storage.playlistSongIDs = playlistSongIDs
-            storage.playlistSyncBaseSongIDs = playlistSyncBaseSongIDs
-            storage.recentPlaybackSongIDs = recentPlaybackSongIDs
-            storage.deletedSongIdentities = deletedSongIdentities
-            storage.deletedSongIdentityDetails = deletedSongIdentityDetails
-            storage.pendingPlaylistIdentities = pendingPlaylistIdentities
-            storage.pendingHistoryIdentities = pendingHistoryIdentities
-            storage.playlistPendingEntries = playlistPendingEntries
-            storage.automaticArtistArtworkCatalogsBySource = automaticArtistArtworkCatalogsBySource
-            storage.artworkOverridesByOwner = artworkOverridesByOwner
-            storage.libraryReviewsBySubject = libraryReviewsBySubject
-            storage.mirrorPlaylistSuppressions = mirrorPlaylistSuppressions
-            storage.deviceLocalExcludedSongIdentities = deviceLocalExcludedSongIdentities
-            storage.deviceLocalExcludedSongsByID = deviceLocalExcludedSongsByID
-            storage.deviceLocalRemovalMetadataByID = deviceLocalRemovalMetadataByID
-            storage.persistenceBlockedByCorruption = persistenceBlockedByCorruption
-            storage.songStoreRequiresReplacement = songStoreRequiresReplacement
-            storage.pendingSnapshotImportID = pendingSnapshotImportID
-            storage.derivedIndexSignature = derivedIndexSignature
-            storage.songIndexByID = songIndexByID
-            storage.previousVisibleSongs = visibleSongs
-            // G3: 调用方(AppServices)在库构造前就能从 SourcesStore 算出身份前缀;
-            // 没有传入时沿用旧行为, 回落到构造后才安装的 resolver。
-            if let sourceIdentityPrefixes {
-                storage.sourceIdentityPrefixes = sourceIdentityPrefixes
-            } else {
-                let sourceIDs = Set(songCountBySourceID.keys)
-                    .union(deviceLocalExcludedSongsByID.values.map(\.sourceID))
-                for sourceID in sourceIDs {
-                    storage.sourceIdentityPrefixes[sourceID] = sourceIdentityResolver?(sourceID)
-                }
-            }
+            storage = storageForReload(sourceIdentityPrefixes: sourceIdentityPrefixes)
             storage.loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
         }
         // C2: 历史版本的三条提前返回路径(快照不可读 / 损坏且无有效备份 /
@@ -10422,7 +10514,9 @@ final class MusicLibrary {
     /// `Task.detached` —— 也就是要等整个服务图谱构造完, 装载与构造根本没有
     /// 重叠。前导部分只读 UserDefaults 与 FileManager, 两者都是线程安全的。
     nonisolated static func prepareStartup(
+        preferExternalSnapshot: Bool = false,
         disabledSourceIDs: Set<String> = [],
+        knownSourceIDs: Set<String>? = nil,
         storageDirectory: URL? = nil,
         artistNameConfiguration: ArtistNameConfiguration? = nil,
         /// G3: sourceID → cloudAccountID。resolver 直到库构造之后才安装,
@@ -10450,8 +10544,9 @@ final class MusicLibrary {
                 songStoreSnapshotWriter: { try $0.replaceAll(with: $1, snapshotImportID: $2) }
             )
             storage.sourceIdentityPrefixes = sourceIdentityPrefixes
+            storage.knownSourceIDs = knownSourceIDs
             storage.loadDeviceLocalExclusions()
-            storage.loadSnapshot()
+            storage.loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)
             return PreparedStartup(storage: storage)
         }.value
     }

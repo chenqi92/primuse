@@ -21,6 +21,7 @@ struct TVKaraokeStageView: View {
                 TVKaraokeStageContent(session: session)
             }
         }
+        .preferredColorScheme(.dark)
         .onAppear {
             guard session == nil else { return }
             let created = TVKaraokeSession(store: store)
@@ -32,28 +33,46 @@ struct TVKaraokeStageView: View {
     }
 }
 
-private struct TVKaraokeStageContent: View {
+struct TVKaraokeStageContent: View {
     @Bindable var session: TVKaraokeSession
+    @Environment(\.dismiss) private var dismiss
+    @State private var showsMicrophone = false
     private var store: TVStore { session.store }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 28) {
             header
-                .padding(.horizontal, 90)
-                .padding(.top, 60)
-            Spacer(minLength: 20)
-            lyrics
-                .padding(.horizontal, 140)
-            Spacer(minLength: 20)
-            if session.isMicConnected {
-                TVKaraokePitchLane(points: session.pitchHistory)
-                    .frame(height: 110)
-                    .padding(.horizontal, 140)
-                    .padding(.bottom, 24)
+            HStack(spacing: 64) {
+                VStack(spacing: 28) {
+                    Spacer(minLength: 0)
+                    lyrics
+                    Spacer(minLength: 0)
+                    if session.isMicConnected {
+                        TVKaraokePitchLane(points: session.pitchHistory)
+                            .frame(height: 84)
+                    }
+                    progress
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ScrollView {
+                    controls.padding(12)
+                }
+                .frame(width: 520)
+                .focusSection()
             }
-            controls
-                .padding(.horizontal, 90)
-                .padding(.bottom, 60)
+        }
+        .padding(.horizontal, 80)
+        .padding(.vertical, 54)
+        .background(.black.opacity(0.35))
+        .foregroundStyle(.white)
+        .sheet(isPresented: $showsMicrophone) {
+            VStack(spacing: 40) {
+                micPanel
+                actionButton("done", symbol: "checkmark") { showsMicrophone = false }
+            }
+            .padding(70)
+            .frame(maxWidth: 850)
+            .onExitCommand { showsMicrophone = false }
         }
         .overlay {
             if let summary = session.completedSummary {
@@ -63,38 +82,43 @@ private struct TVKaraokeStageContent: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 24) {
+        HStack(spacing: 24) {
+            stepButton(systemImage: "chevron.down", label: "close", enabled: true) { dismiss() }
+            TVArtworkView(coverKey: store.nowPlaying.albumID, artist: store.nowPlaying.artist,
+                          album: store.nowPlaying.album, songID: store.nowPlaying.songID,
+                          coverRef: store.nowPlaying.coverRef, tint: store.nowPlaying.tint,
+                          tint2: store.nowPlaying.tint2, glyph: store.nowPlaying.glyph, size: 76, radius: 14)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
-                Text(String(localized: "karaoke_title"))
-                    .tvFont(.eyebrow)
-                    .foregroundStyle(TVColor.textFaint)
                 Text(store.nowPlaying.title)
-                    .tvFont(.pageTitle)
-                    .foregroundStyle(TVColor.text)
+                    .tvFont(size: 36, weight: .bold, relativeTo: .title)
                     .lineLimit(1)
-                Text(store.nowPlaying.artist)
-                    .tvFont(.body)
-                    .foregroundStyle(TVColor.textMuted)
+                Text(subtitle)
+                    .tvFont(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
             }
             Spacer()
-            if let score = session.runningScore {
-                VStack(spacing: 2) {
+            if let score = session.runningScore, !session.isPracticing {
+                VStack(spacing: 0) {
                     Text("\(score)")
-                        .tvFont(size: 72, weight: .heavy, design: .rounded, relativeTo: .largeTitle)
+                        .tvFont(size: 52, weight: .bold, design: .rounded, relativeTo: .largeTitle)
                         .monospacedDigit()
-                        .foregroundStyle(TVColor.text)
-                        .contentTransition(.numericText(value: Double(score)))
                     Text(String(localized: "karaoke_score"))
-                        .tvFont(.caption)
-                        .foregroundStyle(TVColor.textFaint)
+                        .tvFont(.caption).foregroundStyle(.white.opacity(0.6))
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 12)
-                .tvPanel(radius: 20)
-                .animation(.spring(duration: 0.3), value: score)
             }
         }
+    }
+
+    private var subtitle: String {
+        var parts = [store.nowPlaying.artist]
+        if let title = session.lyricsBorrowedFromTitle {
+            parts.append(String(format: String(localized: "karaoke_lyrics_from_format"), title))
+        } else if session.usesInferredWordTiming {
+            parts.append(String(localized: "karaoke_ai_word_timing"))
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -102,7 +126,7 @@ private struct TVKaraokeStageContent: View {
         if session.windows.isEmpty {
             Text(String(localized: "karaoke_no_lyrics"))
                 .tvFont(.sectionTitle)
-                .foregroundStyle(TVColor.textMuted)
+                .foregroundStyle(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
         } else {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !store.isPlaying)) { context in
@@ -111,67 +135,187 @@ private struct TVKaraokeStageContent: View {
         }
     }
 
+    private var progress: some View {
+        VStack(spacing: 12) {
+            ProgressView(value: min(store.currentTime, max(1, store.duration)), total: max(1, store.duration))
+                .tint(.white)
+            HStack {
+                Text(store.currentTime.formattedDuration)
+                Spacer()
+                Text(store.duration.formattedDuration)
+            }
+            .tvFont(.caption).monospacedDigit().foregroundStyle(.white.opacity(0.5))
+        }
+    }
+
     private var controls: some View {
-        HStack(alignment: .bottom, spacing: 28) {
-            VStack(alignment: .leading, spacing: 14) {
-                if let notice {
-                    Text(notice)
-                        .tvFont(.caption)
-                        .foregroundStyle(TVColor.textMuted)
-                        .lineLimit(2)
-                }
-                HStack(spacing: 20) {
-                    stepButton(systemImage: "minus", enabled: session.isVocalReductionAvailable) {
-                        session.vocalLevel = max(0, session.vocalLevel - 0.1)
-                    }
-                    VStack(spacing: 2) {
-                        Text(String(localized: "karaoke_vocals"))
-                            .tvFont(.caption)
-                            .foregroundStyle(TVColor.textFaint)
-                        Text(session.vocalLevel, format: .percent.precision(.fractionLength(0)))
-                            .tvFont(.sectionTitle)
-                            .monospacedDigit()
-                            .foregroundStyle(TVColor.text)
-                    }
-                    .frame(minWidth: 140)
-                    stepButton(systemImage: "plus", enabled: session.isVocalReductionAvailable) {
-                        session.vocalLevel = min(1, session.vocalLevel + 0.1)
-                    }
-                    stepButton(systemImage: "minus", enabled: session.isVocalReductionAvailable
-                               && session.keyShift > KaraokeKeyShiftPolicy.range.lowerBound) {
-                        session.keyShift -= 1
-                    }
-                    VStack(spacing: 2) {
-                        Text(String(localized: "karaoke_key"))
-                            .tvFont(.caption)
-                            .foregroundStyle(TVColor.textFaint)
-                        Text(session.keyShift == 0 ? String(localized: "karaoke_key_original") : String(format: "%+d", session.keyShift))
-                            .tvFont(.sectionTitle)
-                            .monospacedDigit()
-                            .foregroundStyle(TVColor.text)
-                    }
-                    .frame(minWidth: 140)
-                    stepButton(systemImage: "plus", enabled: session.isVocalReductionAvailable
-                               && session.keyShift < KaraokeKeyShiftPolicy.range.upperBound) {
-                        session.keyShift += 1
-                    }
-                    if session.hasDuetParts {
-                        partButton(.all, "karaoke_part_all")
-                        partButton(.primary, "karaoke_part_primary")
-                        partButton(.secondary, "karaoke_part_secondary")
-                    }
-                    if session.runningScore != nil {
-                        TVFocusButton(radius: 18, scale: 1.05, lift: 4, action: session.finishPerformance) { _ in
-                            Label(String(localized: "karaoke_finish"), systemImage: "flag.checkered")
-                                .tvFont(.button)
-                                .padding(.horizontal, 28)
-                                .frame(height: 72)
-                        }
-                    }
+        VStack(spacing: 22) {
+            HStack(spacing: 26) {
+                stepButton(systemImage: "backward.end.fill", label: "a11y_previous_track", enabled: true) { store.previous() }
+                stepButton(systemImage: store.isPlaying ? "pause.fill" : "play.fill",
+                           label: store.isPlaying ? "pause" : "play", enabled: true) { store.togglePlayPause() }
+                stepButton(systemImage: "forward.end.fill", label: "a11y_next_track", enabled: true) { store.next() }
+            }
+            .frame(maxWidth: .infinity)
+            VStack(spacing: 22) {
+                adjustment("karaoke_vocals", value: session.vocalLevel.formatted(.percent.precision(.fractionLength(0))),
+                           downLabel: "karaoke_vocals", upLabel: "karaoke_vocals",
+                           canDown: session.isVocalReductionAvailable && !session.isPlayingInstrumental && session.vocalLevel > 0,
+                           canUp: session.isVocalReductionAvailable && !session.isPlayingInstrumental && session.vocalLevel < 1,
+                           down: { session.vocalLevel -= 0.1 }, up: { session.vocalLevel += 0.1 })
+                adjustment("karaoke_key", value: session.keyShift == 0 ? String(localized: "karaoke_key_original") : String(format: "%+d", session.keyShift),
+                           downLabel: "karaoke_key_down", upLabel: "karaoke_key_up",
+                           canDown: session.isVocalReductionAvailable && session.keyShift > KaraokeKeyShiftPolicy.range.lowerBound,
+                           canUp: session.isVocalReductionAvailable && session.keyShift < KaraokeKeyShiftPolicy.range.upperBound,
+                           down: { session.keyShift -= 1 }, up: { session.keyShift += 1 })
+                adjustment("karaoke_speed", value: session.practiceRate == 1 ? String(localized: "karaoke_speed_normal") : String(format: "%.1f×", session.practiceRate),
+                           downLabel: "karaoke_speed_down", upLabel: "karaoke_speed_up",
+                           canDown: session.canPractice && session.practiceRate > 0.5,
+                           canUp: session.canPractice && session.practiceRate < 1,
+                           down: { session.practiceRate = KaraokePracticePolicy.stepped(session.practiceRate, up: false) },
+                           up: { session.practiceRate = KaraokePracticePolicy.stepped(session.practiceRate, up: true) })
+            }
+            .padding(24)
+            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 30))
+            actionButton(session.loop == nil ? "karaoke_loop" : "karaoke_loop_stop", symbol: "repeat", selected: session.loop != nil,
+                         enabled: session.canPractice && !session.windows.isEmpty, action: session.toggleLoop)
+            if let loop = session.loop {
+                Text(String(format: String(localized: "karaoke_loop_lines_format"), loop.lineCount))
+                    .tvFont(.caption).foregroundStyle(.white.opacity(0.6))
+                actionButton("karaoke_loop_extend", symbol: "plus", enabled: session.canExtendLoop, action: session.extendLoop)
+            }
+            if session.canToggleBackingTrack || session.isSwitchingTrack && session.instrumentalCompanion != nil {
+                actionButton("karaoke_backing_track", symbol: "music.note", selected: session.isPlayingInstrumental,
+                             enabled: session.canToggleBackingTrack, action: session.toggleBackingTrack)
+            }
+            actionButton("karaoke_vocal_assist", symbol: "person.wave.2", selected: session.vocalAssistEnabled,
+                         enabled: session.isMicConnected && session.isVocalReductionAvailable && !session.isPlayingInstrumental) {
+                session.vocalAssistEnabled.toggle()
+            }
+            if session.hasDuetParts {
+                HStack(spacing: 12) {
+                    partButton(.all, "karaoke_part_all")
+                    partButton(.primary, "karaoke_part_primary")
+                    partButton(.secondary, "karaoke_part_secondary")
                 }
             }
-            Spacer()
-            micPanel
+            localAIControls
+            if let notice {
+                Text(notice).tvFont(.caption).foregroundStyle(.white.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            actionButton("karaoke_microphone", symbol: "mic.fill", selected: session.isMicConnected) { showsMicrophone = true }
+            if session.runningScore != nil, !session.isPracticing {
+                actionButton("karaoke_finish", symbol: "flag.checkered", action: session.finishPerformance)
+            }
+        }
+    }
+
+    private func adjustment(_ title: String.LocalizationValue, value: String,
+                            downLabel: String.LocalizationValue, upLabel: String.LocalizationValue,
+                            canDown: Bool, canUp: Bool,
+                            down: @escaping () -> Void, up: @escaping () -> Void) -> some View {
+        HStack(spacing: 18) {
+            stepButton(systemImage: "minus", label: downLabel, enabled: canDown, action: down)
+            VStack(spacing: 4) {
+                Text(String(localized: title)).tvFont(.caption).foregroundStyle(.white.opacity(0.55))
+                Text(value).tvFont(.cardTitle).monospacedDigit()
+            }
+            .frame(maxWidth: .infinity)
+            stepButton(systemImage: "plus", label: upLabel, enabled: canUp, action: up)
+        }
+    }
+
+    private func actionButton(_ title: String.LocalizationValue, symbol: String, selected: Bool = false,
+                              enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        TVFocusButton(radius: 28, scale: 1.03, lift: 2, action: action) { _ in
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                Text(String(localized: title))
+                Spacer(minLength: 0)
+                if selected { Image(systemName: "checkmark") }
+            }
+            .tvFont(.button)
+            .padding(.horizontal, 24)
+            .frame(maxWidth: .infinity, minHeight: 64)
+            .background(selected ? .white.opacity(0.12) : .black.opacity(0.3), in: RoundedRectangle(cornerRadius: 28))
+            .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(.white.opacity(0.08)))
+        }
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    @ViewBuilder
+    private var localAIControls: some View {
+        if session.separation.modelState != .unsupportedSystem {
+            VStack(alignment: .leading, spacing: 16) {
+                actionButton("karaoke_tv_ai_local", symbol: "waveform", selected: session.localAIEnabled,
+                             enabled: session.isVocalReductionAvailable && session.currentSong != nil && !session.isPlayingInstrumental) {
+                    session.localAIEnabled.toggle()
+                }
+                if session.localAIEnabled {
+                    localAIStatus
+                } else if session.separation.modelState == .notDownloaded {
+                    Text(String(format: String(localized: "karaoke_ai_download_on_enable_format"), modelSize))
+                        .tvFont(.caption)
+                        .foregroundStyle(TVColor.textMuted)
+                }
+            }
+        }
+    }
+
+    private var modelSize: String {
+        ByteCountFormatter.string(fromByteCount: KaraokeVocalModel.approximateDownloadBytes, countStyle: .file)
+    }
+
+    @ViewBuilder
+    private var localAIStatus: some View {
+        switch session.separation.modelState {
+        case .downloading(let fraction):
+            aiProgress(String(localized: "karaoke_ai_downloading"), fraction: fraction)
+        case .failed:
+            aiRetry
+            if let reason = session.separation.modelFailureReason {
+                Text(reason).tvFont(.caption).foregroundStyle(TVColor.textMuted).lineLimit(3)
+            }
+        case .ready:
+            if session.localStemLoadFailed {
+                aiRetry
+            } else if let song = session.currentSong, !session.usesPhoneStem {
+                switch session.separation.state(for: song) {
+                case .separating(let fraction):
+                    aiProgress(String(localized: session.separation.coolingSongIDs.contains(song.id)
+                                      ? "karaoke_ai_cooling" : "karaoke_ai_separating"), fraction: fraction)
+                case .failed:
+                    aiRetry
+                case .unsupported:
+                    Text(String(localized: "karaoke_ai_unsupported_song")).tvFont(.caption)
+                case .ready:
+                    Text(String(localized: session.usesLocalStem ? "karaoke_ai_active" : "karaoke_ai_preparing"))
+                        .tvFont(.caption)
+                case .idle:
+                    Text(String(localized: "karaoke_ai_preparing")).tvFont(.caption)
+                }
+            }
+        case .notDownloaded, .unsupportedSystem:
+            EmptyView()
+        }
+    }
+
+    private func aiProgress(_ title: String, fraction: Double) -> some View {
+        HStack(spacing: 12) {
+            ProgressView(value: fraction).frame(width: 140)
+            Text(title).tvFont(.caption)
+            Text(fraction, format: .percent.precision(.fractionLength(0)))
+                .tvFont(.caption).monospacedDigit()
+        }
+    }
+
+    private var aiRetry: some View {
+        TVFocusButton(radius: 18, scale: 1.05, lift: 4, action: session.retryLocalSeparation) { _ in
+            Text(String(localized: "karaoke_ai_retry"))
+                .tvFont(.button).padding(.horizontal, 24).frame(height: 64)
         }
     }
 
@@ -188,12 +332,17 @@ private struct TVKaraokeStageContent: View {
     }
 
     private var notice: String? {
+        if session.isPracticing { return String(localized: "karaoke_practice_not_scored") }
+        if session.isPlayingInstrumental { return String(localized: "karaoke_backing_track_playing") }
+        if session.isVocalAssistSuppressed { return String(localized: "karaoke_vocal_assist_paused") }
+        if session.isVocalAssisting { return String(localized: "karaoke_vocal_assist_active") }
         if !session.isVocalReductionAvailable {
             return String(localized: "karaoke_tv_unsupported")
         }
         if session.usesPhoneStem {
             return String(localized: "karaoke_tv_ai_active")
         }
+        if session.usesLocalStem { return nil }
         if let progress = session.phoneSeparationProgress {
             return String(format: String(localized: "karaoke_tv_ai_preparing_format"), Int((progress * 100).rounded()))
         }
@@ -203,13 +352,16 @@ private struct TVKaraokeStageContent: View {
         return nil
     }
 
-    private func stepButton(systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+    private func stepButton(systemImage: String, label: String.LocalizationValue, enabled: Bool, action: @escaping () -> Void) -> some View {
         TVFocusButton(radius: 36, scale: 1.08, lift: 4, action: action) { _ in
             Image(systemName: systemImage)
                 .font(.system(size: 30, weight: .bold))
                 .frame(width: 72, height: 72)
+                .background(.black.opacity(0.3), in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.1)))
         }
         .disabled(!enabled)
+        .accessibilityLabel(Text(String(localized: label)))
         .opacity(enabled ? 1 : 0.4)
     }
 
@@ -291,20 +443,8 @@ private struct TVKaraokeLyrics: View {
     /// the rest dim; one Text so long rows wrap naturally.
     private func sweptLine(_ window: KaraokeLineWindow) -> some View {
         let line = session.stageLines[window.lineIndex]
-        let syllables = line.syllables ?? [LyricSyllable(text: line.text, start: window.start, end: window.end)]
-        // Duets: the two singers in different colours, as on the phone.
         let sung = window.voice == .secondary
-            ? Color(red: 1.0, green: 0.55, blue: 0.78)
-            : Color(red: 0.42, green: 0.86, blue: 1.0)
-        let pending = TVColor.text.opacity(0.55)
-        var text = Text("")
-        for syllable in syllables {
-            let progress = syllable.end > syllable.start
-                ? min(1, max(0, (time - syllable.start) / (syllable.end - syllable.start)))
-                : (time >= syllable.start ? 1 : 0)
-            let piece = Text(syllable.text).foregroundStyle(progress >= 1 ? sung : (progress > 0 ? sung.opacity(0.55 + 0.45 * progress) : pending))
-            text = Text("\(text)\(piece)")
-        }
+            ? Color(red: 1.0, green: 0.62, blue: 0.80) : .white
         let mine = !session.hasDuetParts || session.part == .all
             || (session.part == .primary) == (window.voice == .primary)
         return VStack(spacing: 10) {
@@ -313,10 +453,12 @@ private struct TVKaraokeLyrics: View {
                     .tvFont(.eyebrow)
                     .foregroundStyle(sung)
             }
-            text
-                .tvFont(size: 64, weight: .bold, relativeTo: .largeTitle)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
+            KaraokeLineView(line: line, fontSize: 58, weight: .bold,
+                            activeStyle: AnyShapeStyle(sung), inactiveColor: .white.opacity(0.42),
+                            textAlignment: session.hasDuetParts ? (window.voice == .secondary ? .trailing : .leading) : .center,
+                            timeAt: { _ in time }, fixedTime: time,
+                            isPlaybackActive: session.store.isPlaying,
+                            animatesSyllableBounce: session.store.isPlaying)
                 .opacity(mine ? 1 : 0.7)
         }
         .id(window.lineID)

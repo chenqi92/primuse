@@ -22,8 +22,8 @@ public struct MedleySegment: Equatable, Sendable {
 /// used instead so the slice begins on a musical boundary rather than
 /// mid-phrase. A song too short to cut is played whole.
 public enum MedleySegmentPolicy {
-    public static let allowedSegmentLengths = [20, 30, 45, 60, 90]
-    public static let defaultSegmentLength = 45
+    public static let allowedSegmentLengths = [10, 20, 30, 45, 60, 90]
+    public static let defaultSegmentLength = 10
 
     /// Where in the song the slice aims to start, as a fraction of its length.
     static let targetFraction = 0.33

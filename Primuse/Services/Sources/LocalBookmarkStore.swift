@@ -36,6 +36,29 @@ enum LocalBookmarkStore {
         let isDirectory: Bool
     }
 
+    private static let mutationLock = NSLock()
+
+    private static func store(_ data: Data, forKey key: String) {
+        mutationLock.withLock { UserDefaults.standard.set(data, forKey: key) }
+    }
+
+    private static func refresh(_ data: Data, replacing original: Data, forKey key: String) {
+        mutationLock.withLock {
+            guard UserDefaults.standard.data(forKey: key) == original else { return }
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    static func hasReferences(sourceID: String) -> Bool {
+        UserDefaults.standard.data(forKey: referencesKey(for: sourceID)) != nil
+            || UserDefaults.standard.data(forKey: legacyKey(for: sourceID)) != nil
+    }
+
+    static func supportsSidecarWriting(sourceID: String) -> Bool {
+        guard let data = UserDefaults.standard.data(forKey: referencesKey(for: sourceID)) else { return true }
+        return (try? JSONDecoder().decode([StoredReference].self, from: data))?.allSatisfy(\.isDirectory) == true
+    }
+
     private static let legacyKeyPrefix = "primuse.localBookmark."
     private static let referencesKeyPrefix = "primuse.localBookmarks.v1."
 
@@ -50,7 +73,7 @@ enum LocalBookmarkStore {
     /// Retains the existing one-folder representation used by macOS sources.
     static func save(sourceID: String, url: URL) throws {
         let data = try makeBookmark(for: url)
-        UserDefaults.standard.set(data, forKey: legacyKey(for: sourceID))
+        store(data, forKey: legacyKey(for: sourceID))
     }
 
     /// Regrant access without changing a source's identity or the virtual paths
@@ -75,7 +98,7 @@ enum LocalBookmarkStore {
                     isDirectory: original.isDirectory
                 )
             }
-            UserDefaults.standard.set(try JSONEncoder().encode(stored), forKey: referencesKey(for: source.id))
+            store(try JSONEncoder().encode(stored), forKey: referencesKey(for: source.id))
         } else {
             let originalPath = UserDefaults.standard.data(forKey: legacyKey(for: source.id))
                 .flatMap { resolve($0)?.url.standardizedFileURL.path } ?? source.basePath ?? ""
@@ -138,15 +161,17 @@ enum LocalBookmarkStore {
         }
 
         let encoded = try JSONEncoder().encode(references)
-        UserDefaults.standard.set(encoded, forKey: referencesKey(for: sourceID))
-        UserDefaults.standard.removeObject(forKey: legacyKey(for: sourceID))
+        mutationLock.withLock {
+            UserDefaults.standard.set(encoded, forKey: referencesKey(for: sourceID))
+            UserDefaults.standard.removeObject(forKey: legacyKey(for: sourceID))
+        }
     }
 
     /// `nil` means this source has no bookmark record. An empty array means a
     /// record exists but at least one reference could not be resolved; callers
     /// must fail the whole source rather than scanning a partial root set and
     /// pruning songs that are merely temporarily inaccessible.
-    static func resolveReferences(sourceID: String) -> [ResolvedReference]? {
+    static func resolveReferences(sourceID: String, refreshStaleBookmarks: Bool = true) -> [ResolvedReference]? {
         if let encoded = UserDefaults.standard.data(forKey: referencesKey(for: sourceID)) {
             guard let stored = try? JSONDecoder().decode([StoredReference].self, from: encoded),
                   !stored.isEmpty else { return [] }
@@ -162,7 +187,7 @@ enum LocalBookmarkStore {
                     url: result.url,
                     isDirectory: reference.isDirectory
                 ))
-                if result.isStale, let bookmark = try? makeBookmark(for: result.url) {
+                if refreshStaleBookmarks, result.isStale, let bookmark = try? makeBookmark(for: result.url) {
                     refreshed[index] = StoredReference(
                         virtualPathComponent: reference.virtualPathComponent,
                         bookmarkData: bookmark,
@@ -172,7 +197,7 @@ enum LocalBookmarkStore {
                 }
             }
             if didRefresh, let data = try? JSONEncoder().encode(refreshed) {
-                UserDefaults.standard.set(data, forKey: referencesKey(for: sourceID))
+                refresh(data, replacing: encoded, forKey: referencesKey(for: sourceID))
             }
             return resolved
         }
@@ -181,8 +206,8 @@ enum LocalBookmarkStore {
             return nil
         }
         guard let result = resolve(data) else { return [] }
-        if result.isStale, let refreshed = try? makeBookmark(for: result.url) {
-            UserDefaults.standard.set(refreshed, forKey: legacyKey(for: sourceID))
+        if refreshStaleBookmarks, result.isStale, let refreshed = try? makeBookmark(for: result.url) {
+            refresh(refreshed, replacing: data, forKey: legacyKey(for: sourceID))
         }
         return [ResolvedReference(
             virtualPathComponent: nil,
@@ -206,8 +231,10 @@ enum LocalBookmarkStore {
     }
 
     static func remove(sourceID: String) {
-        UserDefaults.standard.removeObject(forKey: referencesKey(for: sourceID))
-        UserDefaults.standard.removeObject(forKey: legacyKey(for: sourceID))
+        mutationLock.withLock {
+            UserDefaults.standard.removeObject(forKey: referencesKey(for: sourceID))
+            UserDefaults.standard.removeObject(forKey: legacyKey(for: sourceID))
+        }
     }
 
     private static func makeBookmark(for url: URL) throws -> Data {
@@ -274,12 +301,25 @@ enum LocalBookmarkStore {
         #endif
     }
 
-    private static var bookmarkResolutionOptions: URL.BookmarkResolutionOptions {
+    static var bookmarkResolutionOptions: URL.BookmarkResolutionOptions {
         #if os(macOS)
-        [.withSecurityScope]
+        [.withSecurityScope, .withoutUI, .withoutMounting]
         #else
-        [.withoutImplicitStartAccessing]
+        [.withoutImplicitStartAccessing, .withoutUI, .withoutMounting]
         #endif
+    }
+}
+
+private actor LocalReferenceResolutionWorker {
+    func resolve(_ sourceIDs: Set<String>) -> [String: [LocalBookmarkStore.ResolvedReference]] {
+        var result: [String: [LocalBookmarkStore.ResolvedReference]] = [:]
+        for sourceID in sourceIDs.sorted() {
+            if let references = LocalBookmarkStore.resolveReferences(sourceID: sourceID, refreshStaleBookmarks: false),
+               !references.isEmpty {
+                result[sourceID] = references
+            }
+        }
+        return result
     }
 }
 
@@ -298,6 +338,11 @@ final class LocalReferenceRefreshService {
     private var presentersBySourceID: [String: [LocalReferenceFilePresenter]] = [:]
     private var refreshTasks: [String: Task<Void, Never>] = [:]
     private var observerTokens: [NSObjectProtocol] = []
+    private let resolutionWorker = LocalReferenceResolutionWorker()
+    private var presenterReconciliationTask: Task<Void, Never>?
+    private var presenterRevision: UInt64 = 0
+    private var pendingPresenterSourceIDs: Set<String> = []
+    private var needsForegroundReconciliation = false
     private var isPresenting = false
     private var hasStarted = false
 
@@ -363,15 +408,14 @@ final class LocalReferenceRefreshService {
             return
         }
         isPresenting = true
+        needsForegroundReconciliation = reconcileAfterInactiveInterval
         reconcilePresenters()
-        if reconcileAfterInactiveInterval {
-            scheduleForegroundReconciliation()
-        }
     }
 
     private func deactivate() {
         guard isPresenting else { return }
         isPresenting = false
+        presenterRevision &+= 1
         for task in refreshTasks.values {
             task.cancel()
         }
@@ -393,18 +437,39 @@ final class LocalReferenceRefreshService {
             refreshTasks.removeValue(forKey: sourceID)?.cancel()
         }
 
-        unregisterAllPresenters()
-        for sourceID in monitoredSourceIDs.sorted() {
-            guard let references = LocalBookmarkStore.resolveReferences(sourceID: sourceID),
-                  !references.isEmpty else { continue }
-            presentersBySourceID[sourceID] = references.map { reference in
-                let presenter = LocalReferenceFilePresenter(url: reference.url) { [weak self] in
-                    Task { @MainActor in
-                        self?.scheduleRefresh(sourceID: sourceID)
+        presenterRevision &+= 1
+        pendingPresenterSourceIDs = monitoredSourceIDs
+        for sourceID in Set(presentersBySourceID.keys).subtracting(monitoredSourceIDs) {
+            for presenter in presentersBySourceID.removeValue(forKey: sourceID) ?? [] {
+                NSFileCoordinator.removeFilePresenter(presenter)
+            }
+        }
+        guard presenterReconciliationTask == nil else { return }
+        presenterReconciliationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { presenterReconciliationTask = nil }
+            // Coalesce changes while a single off-main resolution is in flight.
+            // A removed source or an inactive scene must never regain presenters.
+            while isPresenting {
+                let revision = presenterRevision
+                let referencesBySource = await resolutionWorker.resolve(pendingPresenterSourceIDs)
+                guard isPresenting else { return }
+                guard revision == presenterRevision else { continue }
+                unregisterAllPresenters()
+                for (sourceID, references) in referencesBySource {
+                    presentersBySourceID[sourceID] = references.map { reference in
+                        let presenter = LocalReferenceFilePresenter(url: reference.url) { [weak self] in
+                            Task { @MainActor in self?.scheduleRefresh(sourceID: sourceID) }
+                        }
+                        NSFileCoordinator.addFilePresenter(presenter)
+                        return presenter
                     }
                 }
-                NSFileCoordinator.addFilePresenter(presenter)
-                return presenter
+                if needsForegroundReconciliation {
+                    needsForegroundReconciliation = false
+                    scheduleForegroundReconciliation()
+                }
+                return
             }
         }
     }

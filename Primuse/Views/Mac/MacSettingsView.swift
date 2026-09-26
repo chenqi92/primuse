@@ -6094,7 +6094,7 @@ private struct MacFullscreenEffectPreviewCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 ImmersiveEffectPreview(
                     effect: effect,
-                    isActive: selected || hovering,
+                    isActive: false,
                     palette: palette
                 )
                 .aspectRatio(16 / 9, contentMode: .fit)

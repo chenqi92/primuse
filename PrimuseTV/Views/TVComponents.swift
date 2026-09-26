@@ -268,6 +268,7 @@ struct TVRow<Content: View>: View {
 // MARK: - 专辑卡片
 
 struct TVAlbumCard: View {
+    @State private var pendingMedleyIDs: [String]?
     let album: TVAlbum
     var width: CGFloat = 240
     var titleOverride: String? = nil
@@ -294,6 +295,13 @@ struct TVAlbumCard: View {
             }
             .frame(width: width, alignment: .leading)
         }
+        .contextMenu {
+            Button("medley_play_selection", systemImage: "shuffle") {
+                pendingMedleyIDs = store.songs(forAlbum: album.id).map(\.id)
+            }
+            .disabled(!store.canPlayMedley(songIDs: store.songs(forAlbum: album.id).map(\.id)))
+        }
+        .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs, onStarted: action))
         .accessibilityLabel(Text(titleOverride ?? album.title))
         .accessibilityValue(Text(subtitleOverride ?? album.artist))
     }
