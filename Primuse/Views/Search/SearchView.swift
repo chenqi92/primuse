@@ -3015,6 +3015,7 @@ struct SearchView: View {
                 Text(scope?.title ?? String(localized: "library"))
             }
         }
+        .pmExtendsUnderVerticalBar()
     }
 
     private var searchResultsView: some View {
@@ -3045,6 +3046,8 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
+        // iPhone Duo 竖栏：结果行铺到屏幕边缘；上面的范围与分类选择不在列表里，照旧让开竖栏。
+        .pmExtendsUnderVerticalBar()
         // 结果表够宽时, 歌曲行把专辑与时长排成对齐列。
         .songRowColumnsContainer()
     }

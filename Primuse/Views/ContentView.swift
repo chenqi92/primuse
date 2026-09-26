@@ -693,6 +693,9 @@ struct ContentView: View {
     @Environment(SourcesStore.self) private var sourcesStore
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(MetadataBackfillService.self) private var backfill
+    #if DEBUG
+    @Environment(RadioStationsStore.self) private var debugRadioStore
+    #endif
 
     /// Mini player 是否应该显示 — Primuse 自家在播 或 Apple Music 在系统侧播。
     /// 这两路是独立 player, 任一非空都显示 accessory。
@@ -2669,6 +2672,7 @@ struct NowPlayingAccessory: View {
 /// 另有 `PRIMUSE_ORIENTATION=landscape|portrait`：打开页面前先请求转屏。
 /// `section:<分类 rawValue>`（如 `section:folders`）。
 /// 详情页取证用：`genre:<名字片段>` / `smart:<名字片段>`（智能歌单）。
+/// `PRIMUSE_DEBUG_SEED_RADIO=1` 建几个取证用的电台（看电台页版式）。
 /// `PRIMUSE_DEBUG_SEED_PLAYLISTS=1` 先建两张取证歌单：整库一张（封面墙）、Evidence 专辑一张（单封面）；
 /// 另建两张同样形态的取证智能歌单（Evidence Smart Wall / Evidence Smart Single），用 `smart:<名字片段>` 打开。
 extension ContentView {
@@ -2689,6 +2693,7 @@ extension ContentView {
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled else { return }
         debugSeedPlaylistsIfRequested()
+        debugSeedRadioIfRequested()
         if let orientation = ProcessInfo.processInfo.environment["PRIMUSE_ORIENTATION"]?.lowercased(),
            orientation == "landscape" || orientation == "portrait" {
             InterfaceOrientationLock.debugRequest(landscape: orientation == "landscape")
@@ -2825,6 +2830,18 @@ extension ContentView {
             library.saveSmartPlaylist(SmartPlaylist(
                 name: "Evidence Smart Single",
                 rules: [SmartPlaylistRule(field: .albumTitle, op: .contains, value: "Evidence")]
+            ))
+        }
+    }
+
+    /// `PRIMUSE_DEBUG_SEED_RADIO=1`：没有电台时建几个取证用的（地址不通，只看版式），名字固定，重复启动不会重复建。
+    private func debugSeedRadioIfRequested() {
+        guard ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_SEED_RADIO"] == "1" else { return }
+        let existing = Set(debugRadioStore.stations.map(\.name))
+        for index in 1...8 where !existing.contains("Evidence FM \(index)") {
+            debugRadioStore.add(RadioStation(
+                name: "Evidence FM \(index)",
+                streamURL: "https://radio.example.com/evidence\(index).mp3"
             ))
         }
     }

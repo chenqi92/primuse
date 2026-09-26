@@ -56,6 +56,7 @@ struct AlbumGridView: View {
                 }
                 .padding()
             }
+            .pmExtendsUnderVerticalBar()
             .searchable(
                 text: $albumFilter,
                 placement: .navigationBarDrawer(displayMode: .always),

@@ -286,6 +286,8 @@ struct PlaylistDetailView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     playlistHeader
+                        // iPhone Duo 竖栏：曲目铺到屏幕边缘，头部的按钮照旧让开竖栏里的返回键与工具栏。
+                        .pmClearOfVerticalBar()
                         .libraryDetailMatchedHeader()
 
                     playlistReviewSection
@@ -295,6 +297,7 @@ struct PlaylistDetailView: View {
                         .pmLayoutSwitchFade()
                 }
             }
+            .pmExtendsUnderVerticalBar()
         } header: {
             VStack(spacing: 20) {
                 playlistHeader

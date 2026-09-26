@@ -16,6 +16,7 @@ import SwiftUI
 /// - `PRIMUSE_EVIDENCE_MORPH=<页面>`：只画这一页的一个框，每隔 `PRIMUSE_EVIDENCE_MORPH_INTERVAL` 秒（默认 3）在
 ///   `PRIMUSE_EVIDENCE_MORPH_VIEWPORTS`（默认 `outer,inner`；可选 `outer` `inner` `innerSmall` `innerPortrait`
 ///   `phone` `phoneLandscape`）之间换一次尺寸，模拟开合、转屏，录屏看换构图的过渡。
+/// 有竖栏的视口（内屏横握、外屏竖握）框里按有竖栏排：内容铺到竖栏底下。
 struct LibraryDetailEvidenceHost: View {
     @Environment(MusicLibrary.self) private var library
     @State private var homeModel = HomeView.Model()
@@ -36,6 +37,9 @@ struct LibraryDetailEvidenceHost: View {
         let bottom: CGFloat
         var isCompactHeight = false
         var isRegularWidth = false
+        /// 这个视口有系统竖栏（在尾侧那条安全区里）：框里按有竖栏排，内容铺到竖栏底下。
+        var hasVerticalBar = false
+
     }
 
     private struct Frame: Identifiable {
@@ -50,13 +54,16 @@ struct LibraryDetailEvidenceHost: View {
     /// 内屏：官方像素推算的 890×626 与模拟器画面缓冲推算的 951×669 两种都摆上。
     /// 横握时系统竖栏在尾侧（与外屏竖握同侧），顶部没有状态栏那一条；安全区是按实拍截图估的。
     fileprivate static let inner = Viewport(name: "Duo inner sim", size: CGSize(width: 951, height: 669),
-                                            top: 0, leading: 0, trailing: 84, bottom: 20, isRegularWidth: true)
+                                            top: 0, leading: 0, trailing: 84, bottom: 20, isRegularWidth: true,
+                                            hasVerticalBar: true)
     fileprivate static let innerSmall = Viewport(name: "Duo inner", size: CGSize(width: 890, height: 626),
-                                                 top: 0, leading: 0, trailing: 84, bottom: 20, isRegularWidth: true)
+                                                 top: 0, leading: 0, trailing: 84, bottom: 20, isRegularWidth: true,
+                                                 hasVerticalBar: true)
     fileprivate static let innerPortrait = Viewport(name: "Duo inner port", size: CGSize(width: 669, height: 951),
                                                     top: 24, leading: 0, trailing: 0, bottom: 20, isRegularWidth: true)
     fileprivate static let outerPortrait = Viewport(name: "Duo outer", size: CGSize(width: 466, height: 678),
-                                                    top: 0, leading: 0, trailing: 84, bottom: 34)
+                                                    top: 0, leading: 0, trailing: 84, bottom: 34,
+                                                    hasVerticalBar: true)
     fileprivate static let phonePortrait = Viewport(name: "phone", size: CGSize(width: 393, height: 852),
                                                     top: 59, leading: 0, trailing: 0, bottom: 34)
     fileprivate static let phoneLandscape = Viewport(name: "landscape", size: CGSize(width: 852, height: 393),
@@ -199,8 +206,10 @@ struct LibraryDetailEvidenceHost: View {
                 .frame(width: size.width * scale, alignment: .leading)
             page(frame, album: album, artist: artist)
                 .environment(\.pmIsPhoneIdiom, true)
-                // 取证页跑在 Duo 外屏上：框里模拟的是别的视口，不带外屏自己的系统竖栏。
+                // 取证页跑在 Duo 外屏上：框里模拟的是别的视口，不带外屏自己的系统竖栏；
+                // 视口本身有竖栏（内屏横握）时按它自己的那一条排。
                 .environment(\.pmDebugSuppressesVerticalBar, true)
+                .environment(\.pmDebugSimulatedVerticalBarEdge, viewport.hasVerticalBar ? .trailing : nil)
                 .environment(\.verticalSizeClass, viewport.isCompactHeight ? .compact : .regular)
                 .environment(\.horizontalSizeClass, viewport.isRegularWidth ? .regular : .compact)
                 .safeAreaPadding(EdgeInsets(

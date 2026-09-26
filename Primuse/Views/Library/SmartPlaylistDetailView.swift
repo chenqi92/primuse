@@ -80,6 +80,8 @@ struct SmartPlaylistDetailView: View {
                     ScrollView {
                         VStack(spacing: 20) {
                             legacyHeader(smart, matched: matched)
+                                // iPhone Duo 竖栏：曲目铺到屏幕边缘，头部的按钮照旧让开竖栏里的返回键与工具栏。
+                                .pmClearOfVerticalBar()
                                 .libraryDetailMatchedHeader()
 
                             smartReviewSection(smart)
@@ -89,6 +91,7 @@ struct SmartPlaylistDetailView: View {
                                 .pmLayoutSwitchFade()
                         }
                     }
+                    .pmExtendsUnderVerticalBar()
                 } header: {
                     VStack(spacing: 20) {
                         legacyHeader(smart, matched: matched)

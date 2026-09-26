@@ -101,6 +101,8 @@ struct SettingsView: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            // iPhone Duo 竖栏：分组卡片铺到屏幕右缘，系统的玻璃胶囊浮在上面。
+            .pmExtendsUnderVerticalBar()
         }
         .id(rootFocusRevision)
     }
