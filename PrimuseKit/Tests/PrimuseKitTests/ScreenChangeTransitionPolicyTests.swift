@@ -113,3 +113,139 @@ struct ScreenChangeTransitionPolicyTests {
         #expect(!Policy.isFoldableScreen(nativeWidth: 0, nativeHeight: 2622))
     }
 }
+
+/// 有铰链读数时整屏归位什么时候开始（`ScreenChangeTransitionPolicy.HingeSequencer`）。
+@Suite("折叠屏开合时按铰链安排整屏归位")
+struct ScreenChangeHingeSequencerTests {
+    private typealias Policy = ScreenChangeTransitionPolicy
+    private typealias Sequencer = ScreenChangeTransitionPolicy.HingeSequencer
+
+    private let outer = Policy.Canvas(
+        screenID: 1, width: 466, height: 678, screenWidth: 466, screenHeight: 678,
+        isRegularWidth: false, isRegularHeight: true, isPhone: true
+    )
+    private let outerLandscape = Policy.Canvas(
+        screenID: 1, width: 678, height: 466, screenWidth: 466, screenHeight: 678,
+        isRegularWidth: false, isRegularHeight: false, isPhone: true
+    )
+    private let inner = Policy.Canvas(
+        screenID: 2, width: 951, height: 669, screenWidth: 951, screenHeight: 669,
+        isRegularWidth: true, isRegularHeight: true, isPhone: true
+    )
+    /// 换屏途中的一步：窗口已到内屏、尺寸还是外屏的（不铺满整屏，尺寸判定不认）。
+    private let innerIntermediate = Policy.Canvas(
+        screenID: 2, width: 466, height: 669, screenWidth: 951, screenHeight: 669,
+        isRegularWidth: false, isRegularHeight: true, isPhone: true
+    )
+
+    private func isFire(_ decision: Sequencer.Decision) -> Bool {
+        if case .fire = decision { return true }
+        return false
+    }
+
+    private func recheckDelay(_ decision: Sequencer.Decision) -> Double? {
+        if case .recheck(let after, _) = decision { return after }
+        return nil
+    }
+
+    @Test("没有铰链读数时照旧按尺寸判定，换屏那一刻就开始")
+    func withoutHingeFallsBackToSize() {
+        var sequencer = Sequencer()
+        let unfold = sequencer.canvasChanged(from: outer, to: inner, at: 0)
+        #expect(isFire(unfold))
+        let rotate = sequencer.canvasChanged(from: outer, to: outerLandscape, at: 1)
+        #expect(!isFire(rotate))
+        #expect(recheckDelay(rotate) == nil)
+    }
+
+    @Test("拖着铰链慢慢打开：窗口中途换屏也等铰链停稳后才开始")
+    func slowUnfoldWaitsForTheHinge() {
+        var sequencer = Sequencer()
+        _ = sequencer.hingeChanged(to: .closed, at: 0)
+        #expect(!isFire(sequencer.hingeChanged(to: .partiallyOpen, at: 1)))
+        #expect(!isFire(sequencer.canvasChanged(from: outer, to: innerIntermediate, at: 1.4)))
+        #expect(!isFire(sequencer.canvasChanged(from: innerIntermediate, to: inner, at: 1.5)))
+        let arrived = sequencer.hingeChanged(to: .fullyOpen, at: 2)
+        let wait = recheckDelay(arrived)
+        #expect(wait == Sequencer.settleDelay)
+        #expect(!isFire(sequencer.tick(at: 2.1)))
+        let settled = sequencer.tick(at: 2 + Sequencer.settleDelay)
+        #expect(settled == .fire(axis: .horizontal, reason: "hinge settled at fullyOpen, window already moved"))
+        #expect(!isFire(sequencer.tick(at: 5)))
+    }
+
+    @Test("直接切姿态、窗口先换屏：等到铰链读数再开始，只开始一次")
+    func instantSwitchWindowFirst() {
+        var sequencer = Sequencer()
+        _ = sequencer.hingeChanged(to: .closed, at: 0)
+        let moved = sequencer.canvasChanged(from: outer, to: inner, at: 10)
+        #expect(recheckDelay(moved) == Sequencer.hingeGrace)
+        #expect(recheckDelay(sequencer.hingeChanged(to: .fullyOpen, at: 10.05)) == Sequencer.settleDelay)
+        #expect(isFire(sequencer.tick(at: 10.05 + Sequencer.settleDelay)))
+        #expect(!isFire(sequencer.tick(at: 10 + Sequencer.hingeGrace)))
+    }
+
+    @Test("直接切姿态、铰链先到：停稳后等窗口换屏，一换就开始")
+    func instantSwitchHingeFirst() {
+        var sequencer = Sequencer()
+        _ = sequencer.hingeChanged(to: .fullyOpen, at: 0)
+        _ = sequencer.hingeChanged(to: .closed, at: 5)
+        let settled = sequencer.tick(at: 5 + Sequencer.settleDelay)
+        #expect(recheckDelay(settled) == Sequencer.windowWait)
+        let moved = sequencer.canvasChanged(from: inner, to: outer, at: 5.4)
+        #expect(moved == .fire(axis: .horizontal, reason: "window moved after hinge settled at closed"))
+        #expect(!isFire(sequencer.tick(at: 5 + Sequencer.settleDelay + Sequencer.windowWait)))
+    }
+
+    @Test("打开一半又合回去不算开合")
+    func halfOpenAndBack() {
+        var sequencer = Sequencer()
+        _ = sequencer.hingeChanged(to: .closed, at: 0)
+        _ = sequencer.hingeChanged(to: .partiallyOpen, at: 1)
+        #expect(!isFire(sequencer.hingeChanged(to: .closed, at: 2)))
+        #expect(!isFire(sequencer.tick(at: 3)))
+    }
+
+    @Test("铰链停着时转屏、分屏拖动不算换屏")
+    func rotationWithHingeAtRest() {
+        var sequencer = Sequencer()
+        _ = sequencer.hingeChanged(to: .closed, at: 0)
+        let rotate = sequencer.canvasChanged(from: outer, to: outerLandscape, at: 1)
+        #expect(recheckDelay(rotate) == Sequencer.hingeGrace)
+        #expect(sequencer.tick(at: 1 + Sequencer.hingeGrace) == .skip(reason: "window resized without hinge motion"))
+    }
+
+    @Test("有铰链读数但铰链没动时，尺寸判定认的换屏过一会儿照样开始")
+    func screenChangeWithoutHingeMotion() {
+        var sequencer = Sequencer()
+        _ = sequencer.hingeChanged(to: .fullyOpen, at: 0)
+        _ = sequencer.canvasChanged(from: inner, to: outer, at: 3)
+        #expect(!isFire(sequencer.tick(at: 3.1)))
+        #expect(isFire(sequencer.tick(at: 3 + Sequencer.hingeGrace)))
+    }
+
+    @Test("铰链停稳了窗口却一直没换屏：不做，之后的转屏也不会补上")
+    func hingeSettledWindowNeverMoved() {
+        var sequencer = Sequencer()
+        _ = sequencer.hingeChanged(to: .closed, at: 0)
+        _ = sequencer.hingeChanged(to: .fullyOpen, at: 1)
+        _ = sequencer.tick(at: 1 + Sequencer.settleDelay)
+        let gaveUp = sequencer.tick(at: 1 + Sequencer.settleDelay + Sequencer.windowWait)
+        #expect(gaveUp == .skip(reason: "hinge settled at fullyOpen but the window never moved"))
+        _ = sequencer.canvasChanged(from: inner, to: Policy.Canvas(
+            screenID: 2, width: 669, height: 951, screenWidth: 951, screenHeight: 669,
+            isRegularWidth: true, isRegularHeight: true, isPhone: true
+        ), at: 10)
+        #expect(!isFire(sequencer.tick(at: 10 + Sequencer.hingeGrace)))
+    }
+
+    @Test("铰链读数没了就退回尺寸判定")
+    func hingeBecomesUnavailable() {
+        var sequencer = Sequencer()
+        _ = sequencer.hingeChanged(to: .closed, at: 0)
+        #expect(sequencer.hasHinge)
+        _ = sequencer.hingeChanged(to: nil, at: 1)
+        #expect(!sequencer.hasHinge)
+        #expect(isFire(sequencer.canvasChanged(from: outer, to: inner, at: 2)))
+    }
+}

@@ -188,20 +188,28 @@ extension View {
     /// 换屏过渡的样子：`trigger` 每变一次，内容从轻微模糊、沿开合方向略微拉伸、略微变淡的样子
     /// 平滑回到原样（`ScreenChangeTransitionPolicy`）；开了减弱动态效果时只做一次很短的淡入。
     /// 页面里的元素照旧在下面各自滑到新位置。平时（没在过渡里）原样不动。
-    func pmScreenChangeSettle(trigger: Int, axis: ScreenChangeTransitionPolicy.Axis) -> some View {
-        modifier(PMScreenChangeSettleEffect(trigger: trigger, axis: axis))
+    /// `rampsIn`：接在系统自己的开合过渡之后开始（内容已经清楚了）时，先很快地淡进起点，不硬切到模糊。
+    func pmScreenChangeSettle(
+        trigger: Int,
+        axis: ScreenChangeTransitionPolicy.Axis,
+        rampsIn: Bool = false
+    ) -> some View {
+        modifier(PMScreenChangeSettleEffect(trigger: trigger, axis: axis, rampsIn: rampsIn))
     }
 }
 
 private struct PMScreenChangeSettleEffect: ViewModifier {
     let trigger: Int
     let axis: ScreenChangeTransitionPolicy.Axis
+    let rampsIn: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         let reduceMotion = reduceMotion
         let axis = axis
+        let rampsIn = rampsIn
+        let rampDuration = rampsIn ? ScreenChangeTransitionPolicy.rampInDuration : 0.001
         content.keyframeAnimator(initialValue: 0.0, trigger: trigger) { view, progress in
             let frame = ScreenChangeTransitionPolicy.frame(progress: progress, axis: axis, reduceMotion: reduceMotion)
             view
@@ -209,8 +217,9 @@ private struct PMScreenChangeSettleEffect: ViewModifier {
                 .blur(radius: frame.blurRadius, opaque: true)
                 .opacity(frame.opacity)
         } keyframes: { _ in
-            // 换屏那一刻直接到起点，再按面板那样的缓出回到原样。
-            MoveKeyframe(1.0)
+            // 换屏那一刻直接到起点（接在系统过渡之后时很快地淡进起点），再按面板那样的缓出回到原样。
+            MoveKeyframe(rampsIn ? 0.0 : 1.0)
+            LinearKeyframe(1.0, duration: rampDuration * PMLayoutSwitchTiming.slowFactor)
             CubicKeyframe(
                 0.0,
                 duration: (reduceMotion
@@ -268,12 +277,13 @@ private struct PMScreenChangeTransition: ViewModifier {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var tracker = PMScreenChangeTracker()
-    /// 窗口的尺寸或所在屏幕变了（探针回报），让下面重新比一次。
+    /// 窗口的尺寸或所在屏幕变了（探针回报）、铰链或复查定下了一次归位，让下面重新比一次。
     @State private var windowRevision = 0
 
     func body(content: Content) -> some View {
         if PMFoldableDevice.isFoldable {
-            // 在这次更新里就比：新尺寸的第一帧已经是过渡的起点，不会先清楚地闪一下再糊上去。
+            // 在这次更新里就比：没有铰链读数时新尺寸的第一帧已经是过渡的起点，不会先清楚地闪一下再糊上去。
+            let _ = tracker.setRefresh { windowRevision &+= 1 }
             let _ = tracker.observe(
                 isRegularWidth: horizontalSizeClass == .regular,
                 isRegularHeight: verticalSizeClass == .regular,
@@ -281,20 +291,65 @@ private struct PMScreenChangeTransition: ViewModifier {
             )
             content
                 .environment(\.pmWindowCanvasSize, tracker.windowSize)
-                .pmScreenChangeSettle(trigger: tracker.generation, axis: tracker.axis)
+                .pmScreenChangeSettle(trigger: tracker.generation, axis: tracker.axis, rampsIn: tracker.rampsIn)
                 .background {
                     PMScreenChangeWindowProbe(tracker: tracker) { windowRevision &+= 1 }
                         .frame(width: 0, height: 0)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
+                .modifier(PMHingeObservation(tracker: tracker))
         } else {
             content
         }
     }
 }
 
-/// 记着上一次看到的画布，比出「换了一块屏幕」就把代数加一。不是可观察对象：只在根视图求值时读写。
+/// iOS 27.1 起读铰链（`onHingeChange`）：开合按铰链停稳的时刻安排整屏归位，见
+/// `ScreenChangeTransitionPolicy.HingeSequencer`。Xcode 27.0 构建与 iOS 27.1 以前原样返回，只按尺寸判定。
+private struct PMHingeObservation: ViewModifier {
+    let tracker: PMScreenChangeTracker
+
+    func body(content: Content) -> some View {
+        #if canImport(SwiftUI, _version: 8.0.85)
+        if #available(iOS 27.1, *) {
+            content.onHingeChange { _, context in
+                tracker.hingeChanged(context.hinge.map { PMHingeReading($0) })
+            }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+/// 一次铰链读数：状态与角度（度）。
+struct PMHingeReading {
+    var status: ScreenChangeTransitionPolicy.HingeSequencer.HingeStatus
+    var degrees: Double
+
+    #if canImport(SwiftUI, _version: 8.0.85)
+    @available(iOS 27.1, *)
+    init(_ hinge: DeviceHinge) {
+        if hinge.status == .closed {
+            status = .closed
+        } else if hinge.status == .fullyOpen {
+            status = .fullyOpen
+        } else {
+            status = .partiallyOpen
+        }
+        degrees = hinge.angle.degrees
+    }
+    #endif
+}
+
+/// 记着上一次看到的画布，比出「换了一块屏幕」就把代数加一。不是可观察对象：只在根视图求值、
+/// 铰链回报与到点复查时读写（都在主线程）。
+///
+/// 有铰链读数时换屏交给 `HingeSequencer` 排时间：铰链停稳、窗口也换了屏才开始归位，接在系统自己的
+/// 开合过渡后面；没有铰链读数时换屏那一刻就开始。调试构建把每一步写进日志（🪟 开头）。
 @MainActor
 final class PMScreenChangeTracker {
     weak var window: UIWindow?
@@ -302,7 +357,21 @@ final class PMScreenChangeTracker {
     /// 这次求值时窗口的尺寸（还没拿到窗口时为 nil）。
     var windowSize: CGSize? { window?.bounds.size }
     private(set) var axis: ScreenChangeTransitionPolicy.Axis = .horizontal
+    /// 这一次归位接在系统的开合过渡之后（按铰链定的时间），先淡进起点。
+    private(set) var rampsIn = false
+    /// 求值之外定下了归位（铰链回报、到点复查）时请根视图重新求值；根视图每次求值时交进来。
+    private var requestRefresh: (() -> Void)?
+
+    func setRefresh(_ refresh: @escaping () -> Void) {
+        requestRefresh = refresh
+    }
     private var last: ScreenChangeTransitionPolicy.Canvas?
+    private var sequencer = ScreenChangeTransitionPolicy.HingeSequencer()
+    #if DEBUG
+    private var lastLoggedHinge: (status: ScreenChangeTransitionPolicy.HingeSequencer.HingeStatus, degrees: Double, at: Double)?
+    #endif
+
+    private static var now: Double { ProcessInfo.processInfo.systemUptime }
 
     @discardableResult
     func observe(isRegularWidth: Bool, isRegularHeight: Bool, revision: Int) -> Int {
@@ -322,18 +391,139 @@ final class PMScreenChangeTracker {
             isPhone: traits.userInterfaceIdiom == .phone
         )
         guard canvas != last else { return generation }
-        if let change = ScreenChangeTransitionPolicy.change(from: last, to: canvas) {
-            generation &+= 1
-            axis = change.axis
-            if let last {
-                plog("📱 Screen change \(change.isUnfolding ? "unfold" : "fold") "
-                    + "\(Int(last.width))×\(Int(last.height)) → \(Int(canvas.width))×\(Int(canvas.height)) "
-                    + "regular=\(canvas.isRegularWidth)/\(canvas.isRegularHeight) screenChanged=\(last.screenID != canvas.screenID)")
-            }
+        #if DEBUG
+        plog("🪟 canvas \(Self.describe(canvas)) scene=\(Self.describe(scene.activationState)) \(Self.orientationSummary(window))")
+        #endif
+        if let last {
+            // 求值当中不改状态：定下来就直接加代数（这次求值接着就读到），要复查就排到之后。
+            handle(sequencer.canvasChanged(from: last, to: canvas, at: Self.now), inRootEvaluation: true)
         }
         last = canvas
         return generation
     }
+
+    /// 铰链回报（`nil` 是这里拿不到铰链读数）。只有状态变化交给排程，角度只进日志。
+    func hingeChanged(_ reading: PMHingeReading?) {
+        let time = Self.now
+        #if DEBUG
+        logHinge(reading, at: time)
+        #endif
+        let changed = reading.map { $0.status != sequencer.status } ?? sequencer.hasHinge
+        guard changed else { return }
+        handle(sequencer.hingeChanged(to: reading?.status, at: time), inRootEvaluation: false)
+    }
+
+    /// `inRootEvaluation`：正在根视图求值里（代数改了这次求值就读到）；不在的话定下归位后请根视图重新求值。
+    private func handle(
+        _ decision: ScreenChangeTransitionPolicy.HingeSequencer.Decision,
+        inRootEvaluation: Bool
+    ) {
+        switch decision {
+        case .fire(let axis, let reason):
+            generation &+= 1
+            self.axis = axis
+            rampsIn = sequencer.hasHinge
+            plog("🪟 settle FIRE #\(generation) axis=\(axis) rampIn=\(rampsIn) — \(reason)")
+            if !inRootEvaluation { requestRefresh?() }
+        case .recheck(let delay, let reason):
+            #if DEBUG
+            plog("🪟 settle wait \(Int(delay * 1000))ms — \(reason)")
+            #endif
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self else { return }
+                self.handle(self.sequencer.tick(at: Self.now), inRootEvaluation: false)
+            }
+        case .skip(let reason):
+            #if DEBUG
+            plog("🪟 settle skip — \(reason)")
+            #endif
+        }
+    }
+
+    #if DEBUG
+    /// 状态变化都记；只有角度在变时最多每 100ms、变化超过 2° 才记一行。
+    private func logHinge(_ reading: PMHingeReading?, at time: Double) {
+        guard let reading else {
+            plog("🪟 hinge unavailable")
+            lastLoggedHinge = nil
+            return
+        }
+        if let lastLoggedHinge, lastLoggedHinge.status == reading.status,
+           time - lastLoggedHinge.at < 0.1 || abs(reading.degrees - lastLoggedHinge.degrees) < 2 {
+            return
+        }
+        let first = lastLoggedHinge == nil
+        let statusChanged = lastLoggedHinge?.status != reading.status
+        lastLoggedHinge = (reading.status, reading.degrees, time)
+        plog("🪟 hinge \(first ? "initial " : "")\(reading.status.rawValue) \(String(format: "%.1f", reading.degrees))°"
+            + (statusChanged ? " \(Self.orientationSummary(window))" : ""))
+    }
+
+    /// 界面朝向、设备朝向、所在屏幕与生效的朝向掩码(只记录,判断开合后界面倒置是谁的问题)。
+    static func orientationSummary(_ window: UIWindow?) -> String {
+        guard let window, let scene = window.windowScene else { return "iface=- (no window)" }
+        let screen = scene.screen
+        let native = screen.nativeBounds.size
+        let appMask = UIApplication.shared.supportedInterfaceOrientations(for: window)
+        let rootMask = window.rootViewController?.supportedInterfaceOrientations
+        return "iface=\(describe(scene.effectiveGeometry.interfaceOrientation)) "
+            + "device=\(describe(UIDevice.current.orientation)) "
+            + "screen=\(String(UInt(bitPattern: ObjectIdentifier(screen).hashValue), radix: 16)) "
+            + "native=\(Int(native.width))×\(Int(native.height)) "
+            + "mask=\(describe(appMask)) root=\(rootMask.map { describe($0) } ?? "-")"
+    }
+
+    static func describe(_ orientation: UIInterfaceOrientation) -> String {
+        switch orientation {
+        case .portrait: "portrait"
+        case .portraitUpsideDown: "portraitUpsideDown"
+        case .landscapeLeft: "landscapeLeft"
+        case .landscapeRight: "landscapeRight"
+        case .unknown: "unknown"
+        @unknown default: "?\(orientation.rawValue)"
+        }
+    }
+
+    static func describe(_ orientation: UIDeviceOrientation) -> String {
+        switch orientation {
+        case .portrait: "portrait"
+        case .portraitUpsideDown: "portraitUpsideDown"
+        case .landscapeLeft: "landscapeLeft"
+        case .landscapeRight: "landscapeRight"
+        case .faceUp: "faceUp"
+        case .faceDown: "faceDown"
+        case .unknown: "unknown"
+        @unknown default: "?\(orientation.rawValue)"
+        }
+    }
+
+    static func describe(_ mask: UIInterfaceOrientationMask) -> String {
+        var parts: [String] = []
+        if mask.contains(.portrait) { parts.append("portrait") }
+        if mask.contains(.portraitUpsideDown) { parts.append("upsideDown") }
+        if mask.contains(.landscapeLeft) { parts.append("landscapeLeft") }
+        if mask.contains(.landscapeRight) { parts.append("landscapeRight") }
+        return parts.isEmpty ? "none" : parts.joined(separator: "|")
+    }
+
+    static func describe(_ canvas: ScreenChangeTransitionPolicy.Canvas) -> String {
+        "screen=\(canvas.screenID.map { String(UInt(bitPattern: $0), radix: 16) } ?? "-") "
+            + "\(Int(canvas.width))×\(Int(canvas.height)) of \(Int(canvas.screenWidth))×\(Int(canvas.screenHeight)) "
+            + "size=\(canvas.isRegularWidth ? "R" : "C")/\(canvas.isRegularHeight ? "R" : "C") "
+            + "fills=\(canvas.fillsScreen)"
+    }
+
+    static func describe(_ state: UIScene.ActivationState) -> String {
+        switch state {
+        case .foregroundActive: "active"
+        case .foregroundInactive: "inactive"
+        case .background: "background"
+        case .unattached: "unattached"
+        @unknown default: "unknown"
+        }
+    }
+    #endif
 }
 
 /// 零尺寸探针：拿到承载界面的那扇窗，窗口尺寸、所在屏幕或尺寸等级变了就回报一次。
@@ -373,8 +563,43 @@ private struct PMScreenChangeWindowProbe: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             tracker?.window = window
+            #if DEBUG
+            observeSceneActivation()
+            #endif
             publishIfNeeded()
         }
+
+        #if DEBUG
+        private var sceneObservers: [NSObjectProtocol] = []
+        private weak var observedScene: UIScene?
+
+        /// 调试构建：场景激活状态的变化也记一行（🪟），和铰链、窗口的日志排在一起看开合时的先后。
+        private func observeSceneActivation() {
+            guard let scene = window?.windowScene, scene !== observedScene else { return }
+            sceneObservers.forEach(NotificationCenter.default.removeObserver)
+            observedScene = scene
+            let events: [(Notification.Name, String)] = [
+                (UIScene.willDeactivateNotification, "willDeactivate"),
+                (UIScene.didActivateNotification, "didActivate"),
+                (UIScene.didEnterBackgroundNotification, "didEnterBackground"),
+                (UIScene.willEnterForegroundNotification, "willEnterForeground"),
+            ]
+            sceneObservers = events.map { name, label in
+                NotificationCenter.default.addObserver(forName: name, object: scene, queue: .main) { _ in
+                    plog("🪟 scene \(label)")
+                }
+            }
+            // 设备朝向每变一次也记(连同界面朝向、所在屏幕与朝向掩码)。
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+            sceneObservers.append(NotificationCenter.default.addObserver(
+                forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    plog("🪟 device orientation changed \(PMScreenChangeTracker.orientationSummary(self?.window))")
+                }
+            })
+        }
+        #endif
 
         override func layoutSubviews() {
             super.layoutSubviews()
