@@ -158,11 +158,11 @@
 "theme_color_hex" = "色值";
 "app_icon" = "应用图标";
 "app_icon_dock_hint" = "macOS 只能在 Primuse 运行时替换 Dock 图标，退出后 Dock 会显示应用包自带的图标。";
-"icon_default" = "Chris’s Muse";
+"icon_default" = "清新音符";
 "icon_appearance_gray" = "灰色";
 "icon_appearance_hint" = "图标会跟随主屏幕外观切换。请长按主屏幕空白处，然后选择“编辑”→“自定义”→“自动”。";
 "icon_theme_12" = "皮卡丘";
-"icon_theme_18" = "清新音符";
+"icon_theme_19" = "Chris’s Muse";
 "icon_theme_14" = "字母 P";
 "icon_theme_15" = "折页音符";
 "icon_theme_16" = "NonoEnd";

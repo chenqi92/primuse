@@ -1006,7 +1006,7 @@
 "no_trusted_domains" = "Güvenilir alan adı yok";
 "new" = "Yeni";
 "icon_theme_12" = "pikaqiu";
-"icon_theme_18" = "Yumuşak nota";
+"icon_theme_19" = "Chris’s Muse";
 "icon_theme_14" = "P Harfi";
 "icon_theme_15" = "Katlanmış Nota";
 "icon_theme_16" = "NonoEnd";
@@ -3599,7 +3599,7 @@
 "share_song_information_action" = "Şarkı Bilgilerini Paylaş";
 "source_remove_confirm_title" = "Bu Müzik Kaynağı Kaldırılsın mı?";
 "dup_keep_newest" = "En Yeniyi Tut";
-"icon_default" = "Chris’s Muse";
+"icon_default" = "Yumuşak nota";
 "relay_share_action" = "Özel Aktarma ile Bağlantı Oluşturun";
 "dup_mac_cleanup_action" = "Kopyaları Temizle (Son Silinenlere Taşı)";
 "save_then_scan_library_hint" = "Önce kaydedin, ardından bağlanmak ve sunucu kataloğunun tamamını taramak için kaynağa dokunun";

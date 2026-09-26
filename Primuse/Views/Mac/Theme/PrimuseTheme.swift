@@ -1774,8 +1774,8 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
 
     /// 可选图标与 iOS 顺序一致，跟资源目录里的预览资源一一对应。
     static let all: [MacAppIcon] = [
-        MacAppIcon(id: "",         previewAsset: "AppIconPreview",  nameKey: "icon_default", tint: Color(red: 1, green: 0.059, blue: 0.267)),
-        MacAppIcon(id: "AppIcon18", previewAsset: "AppIcon18Preview", nameKey: "icon_theme_18", tint: Color(red: 0.251, green: 0.835, blue: 0.784)),
+        MacAppIcon(id: "",         previewAsset: "AppIconPreview",  nameKey: "icon_default", tint: Color(red: 0.251, green: 0.835, blue: 0.784)),
+        MacAppIcon(id: "AppIcon19", previewAsset: "AppIcon19Preview", nameKey: "icon_theme_19", tint: Color(red: 1, green: 0.059, blue: 0.267)),
         MacAppIcon(id: "AppIcon16", previewAsset: "AppIcon16Preview", nameKey: "icon_theme_16", tint: Color(red: 0.784, green: 0.431, blue: 0.843)),
         MacAppIcon(id: "AppIcon17", previewAsset: "AppIcon17Preview", nameKey: "icon_theme_17", tint: Color(red: 0.812, green: 0.137, blue: 0.455)),
         MacAppIcon(id: "AppIcon14", previewAsset: "AppIcon14Preview", nameKey: "icon_theme_14", tint: Color(red: 0.122, green: 0.310, blue: 0.847)),

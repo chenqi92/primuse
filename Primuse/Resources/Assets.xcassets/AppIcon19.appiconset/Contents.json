@@ -1,21 +1,21 @@
 {
   "images" : [
     {
-      "filename" : "AppIcon18.png",
+      "filename" : "AppIcon19.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
     },
     {
       "appearances" : [ { "appearance" : "luminosity", "value" : "dark" } ],
-      "filename" : "AppIcon18-dark.png",
+      "filename" : "AppIcon19-dark.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
     },
     {
       "appearances" : [ { "appearance" : "luminosity", "value" : "tinted" } ],
-      "filename" : "AppIcon18-tinted.png",
+      "filename" : "AppIcon19-tinted.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"

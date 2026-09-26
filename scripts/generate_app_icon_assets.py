@@ -17,20 +17,20 @@ WATCH_ICONSET = ROOT / "PrimuseWatch" / "Resources" / "Assets.xcassets" / "AppIc
 
 EXACT_ICONS = [
     (
-        "00-chris-muse",
+        "00-soft-note",
         "AppIcon",
         "AppIconPreview",
-        "00-chris-muse.png",
-        "00-chris-muse-dark.png",
-        "00-chris-muse-tinted.png",
+        "00-soft-note.png",
+        "00-soft-note-dark.png",
+        "00-soft-note-tinted.png",
     ),
     (
-        "18-soft-note",
-        "AppIcon18",
-        "AppIcon18Preview",
-        "18-soft-note.png",
-        "18-soft-note-dark.png",
-        "18-soft-note-tinted.png",
+        "19-chris-muse",
+        "AppIcon19",
+        "AppIcon19Preview",
+        "19-chris-muse.png",
+        "19-chris-muse-dark.png",
+        "19-chris-muse-tinted.png",
     ),
     (
         "16-nonoend",
@@ -74,7 +74,7 @@ EXACT_ICONS = [
     ),
 ]
 
-CATALOG_ORDER = ["AppIcon", "AppIcon18", "AppIcon16", "AppIcon17", "AppIcon14", "AppIcon15", "AppIcon12"]
+CATALOG_ORDER = ["AppIcon", "AppIcon19", "AppIcon16", "AppIcon17", "AppIcon14", "AppIcon15", "AppIcon12"]
 
 # In-app previews render at 60–100 pt (and 512 pt@2x for the macOS Dock icon).
 PREVIEW_SIDE = 512
