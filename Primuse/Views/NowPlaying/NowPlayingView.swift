@@ -602,6 +602,7 @@ struct NowPlayingView: View {
     var onLeadingMinimizeDragEnded: ((Bool) -> Void)? = nil
     /// The overlay mounts off-screen first. Expensive, nonessential work stays
     /// suspended until its entrance animation has actually completed.
+    /// 封面取色不在此列：ThemeService 早已算好，推迟它只会让播放页先以灰底滑上来、停稳后再变色。
     var isPresentationSettled = true
     var isPresentationActive = true
     @State private var showChapterList = false
@@ -4737,8 +4738,8 @@ struct NowPlayingView: View {
             selection: fullscreenPlayerEffectBinding,
             effects: ImmersiveEffectDrawer.fullscreenCases,
             palette: ImmersiveArtworkPalette(
-                primary: presentationAccentColor,
-                secondary: presentationSecondaryDarkAccent
+                primary: theme.accentColor,
+                secondary: theme.secondaryDarkAccent
             ),
             // 播放页这边转轮只是浏览，点卡片才写回并自动收起。
             appliesOnSettle: false,
@@ -4905,7 +4906,7 @@ struct NowPlayingView: View {
     // MARK: - Ambient background from cover dominant color
 
     private var backgroundGradient: some View {
-        let hasArtworkTheme = presentationHasArtworkTheme
+        let hasArtworkTheme = theme.hasArtworkAmbient
         let strength = AppThemePreferences.normalizedAmbientStrength(ambientStrength)
         let accentOpacity = (hasArtworkTheme
             ? appearance.artworkAccentOpacity
@@ -4919,7 +4920,7 @@ struct NowPlayingView: View {
             strength: strength
         )
         let darkOverlay = NowPlayingAmbientLegibilityPolicy.darkOverlay(
-            paletteLuminance: presentationArtworkLuminance,
+            paletteLuminance: theme.artworkLuminance,
             primaryOpacity: accentOpacity,
             secondaryOpacity: lowerAccentOpacity,
             usesIncreasedContrast: colorSchemeContrast == .increased
@@ -4928,17 +4929,17 @@ struct NowPlayingView: View {
         return ZStack {
             AdaptiveNowPlayingBackdrop(
                 baseColor: appearance.backgroundBase,
-                primaryAccent: presentationAccentColor,
-                secondaryAccent: presentationSecondaryAccent,
-                darkAccent: presentationDarkAccent,
+                primaryAccent: theme.accentColor,
+                secondaryAccent: theme.secondaryAccent,
+                darkAccent: theme.darkAccent,
                 primaryOpacity: accentOpacity,
                 secondaryOpacity: lowerAccentOpacity,
                 hasArtworkPalette: hasArtworkTheme,
                 isVisible: isNowPlayingSurfaceExposed,
                 isSceneActive: isVisualSceneActive,
                 isPlaying: player.isPlaying,
-                paletteVibrancy: presentationArtworkVibrancy,
-                paletteLuminance: presentationArtworkLuminance
+                paletteVibrancy: theme.artworkVibrancy,
+                paletteLuminance: theme.artworkLuminance
             )
 
             if appearance.isLight {
@@ -4977,7 +4978,7 @@ struct NowPlayingView: View {
         }
         .animation(
             .easeInOut(duration: AmbientBackdropTuning.transitionDuration),
-            value: presentationThemeColorID
+            value: theme.colorID
         )
         .allowsHitTesting(false)
     }
@@ -5356,41 +5357,8 @@ struct NowPlayingView: View {
     }
 
     private var themedControlAccent: Color {
-        guard isPresentationSettled,
-              theme.colorID != "default" else { return appearance.primary }
-        return appearance.isLight ? presentationDarkAccent : presentationAccentColor
-    }
-
-    private var presentationHasArtworkTheme: Bool {
-        isPresentationSettled && theme.hasArtworkAmbient
-    }
-
-    private var presentationAccentColor: Color {
-        isPresentationSettled ? theme.accentColor : theme.baseAccent
-    }
-
-    private var presentationSecondaryAccent: Color {
-        isPresentationSettled ? theme.secondaryAccent : theme.baseDarkAccent
-    }
-
-    private var presentationSecondaryDarkAccent: Color {
-        isPresentationSettled ? theme.secondaryDarkAccent : theme.baseDarkAccent
-    }
-
-    private var presentationDarkAccent: Color {
-        isPresentationSettled ? theme.darkAccent : theme.baseDarkAccent
-    }
-
-    private var presentationArtworkVibrancy: Double {
-        isPresentationSettled ? theme.artworkVibrancy : 0
-    }
-
-    private var presentationArtworkLuminance: Double {
-        isPresentationSettled ? theme.artworkLuminance : 0.18
-    }
-
-    private var presentationThemeColorID: String {
-        isPresentationSettled ? theme.colorID : "presentation-staging"
+        guard theme.colorID != "default" else { return appearance.primary }
+        return appearance.isLight ? theme.darkAccent : theme.accentColor
     }
 
     /// SF Symbol -> VoiceOver 标签的映射, 用在 transport 控件上。
