@@ -6,7 +6,7 @@ import SwiftUI
 /// feel alive. Reduce Motion keeps the same layout without animation.
 struct LoadingSkeletonGroup<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isDimmed = false
+    @State private var isRenderingVisible = false
 
     private let content: Content
 
@@ -15,22 +15,14 @@ struct LoadingSkeletonGroup<Content: View>: View {
     }
 
     var body: some View {
-        content
-            .opacity(reduceMotion ? 0.82 : (isDimmed ? 0.58 : 0.92))
-            .animation(
-                reduceMotion
-                    ? nil
-                    : .easeInOut(duration: 1.08).repeatForever(autoreverses: true),
-                value: isDimmed
-            )
-            .onAppear {
-                isDimmed = !reduceMotion
-            }
-            .onChange(of: reduceMotion) { _, newValue in
-                isDimmed = !newValue
-            }
-            .accessibilityHidden(true)
-            .allowsHitTesting(false)
+        let animates = isRenderingVisible && !reduceMotion
+        TimelineView(.animation(minimumInterval: 1.0 / 12, paused: !animates)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate / 2.16 * 2 * .pi
+            content.opacity(animates ? 0.75 + 0.17 * cos(phase) : 0.82)
+        }
+        .onRenderingVisibilityChange { isRenderingVisible = $0 }
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
 }
 

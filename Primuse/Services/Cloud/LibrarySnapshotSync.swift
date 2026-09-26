@@ -92,6 +92,11 @@ private actor SnapshotMutationLock {
 /// 复用与 CloudKitSyncService 相同的容器 `iCloud.com.welape.yuanyin`(私有库默认 zone)。
 final class LibrarySnapshotSync: Sendable {
     static let shared = LibrarySnapshotSync()
+    private let storageDirectoryURL: URL?
+
+    init(storageDirectoryURL: URL? = nil) {
+        self.storageDirectoryURL = storageDirectoryURL
+    }
 
     private let recordType = "LibrarySnapshot"
     private let recordName = "library-snapshot"
@@ -169,6 +174,7 @@ final class LibrarySnapshotSync: Sendable {
     }
 
     private var directory: URL {
+        if let storageDirectoryURL { return storageDirectoryURL }
         // tvOS 只允许写 Caches / tmp,Application Support 不可创建/写入,会导致
         // 快照写盘失败("No such file or directory")。tvOS 改用 Caches。
         #if os(tvOS)
@@ -731,8 +737,9 @@ final class LibrarySnapshotSync: Sendable {
             return nil
         }
         return Self.mergeSourcesJSON(
-            localData: tombstoneData,
-            incomingData: local ?? emptyData
+            // 本机行必须留在 local 一侧；incoming 会移除其他设备的信任令牌。
+            localData: local ?? emptyData,
+            incomingData: tombstoneData
         )?.data
     }
 
@@ -763,7 +770,8 @@ final class LibrarySnapshotSync: Sendable {
         let filteredLocal = preserveLocalDeviceSources
             ? augmentedLocal
             : augmentedLocal.flatMap {
-                Self.sanitizedSourcesData($0, includeDeviceLocalSources: false)
+                Self.sanitizedSourcesData($0, includeDeviceLocalSources: false,
+                                          removingDeviceTokens: false)
             }
         return Self.mergeSourcesJSON(
             localData: filteredLocal,
@@ -1190,7 +1198,8 @@ final class LibrarySnapshotSync: Sendable {
 
     private static func sanitizedSourcesData(
         _ data: Data,
-        includeDeviceLocalSources: Bool
+        includeDeviceLocalSources: Bool,
+        removingDeviceTokens: Bool = true
     ) -> Data? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -1198,8 +1207,10 @@ final class LibrarySnapshotSync: Sendable {
         if !includeDeviceLocalSources {
             sources = MusicSourceCloudSyncPolicy.eligibleSources(sources)
         }
-        for index in sources.indices {
-            sources[index].deviceId = nil
+        if removingDeviceTokens {
+            for index in sources.indices {
+                sources[index].deviceId = nil
+            }
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -1265,7 +1276,7 @@ final class LibrarySnapshotSync: Sendable {
 
     /// Sources are mutable user configuration, so snapshot restore must merge
     /// per source instead of overwriting the whole file.
-    private func extractSourcesSnapshot(_ record: CKRecord, to dest: URL, fm: FileManager) -> Bool {
+    func extractSourcesSnapshot(_ record: CKRecord, to dest: URL, fm: FileManager) -> Bool {
         guard let incoming = sourcesSnapshotData(from: record, fm: fm) else { return false }
         let local = try? Data(contentsOf: dest)
         guard let merged = mergeCloudSourcesJSON(

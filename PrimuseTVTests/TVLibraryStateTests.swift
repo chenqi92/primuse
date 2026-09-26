@@ -1,5 +1,6 @@
 #if os(tvOS)
 import CryptoKit
+import CloudKit
 import Foundation
 import PrimuseKit
 import XCTest
@@ -14,6 +15,19 @@ final class TVLibraryStateTests: XCTestCase {
     }
     private struct EmptyDirectoryLister: TVDirectoryLister {
         func list(_ path: String) async throws -> [TVDirEntry] { [] }
+    }
+
+    private struct TwoFactorResolver: StreamResolver {
+        let token: String?
+
+        func loginForDeviceToken(source: MusicSource, credential: SourceCredential?, otp: String) async throws -> String? {
+            token
+        }
+
+        func streamURL(for song: Song, source: MusicSource, credential: SourceCredential?) async throws -> URL {
+            guard let token, source.deviceId == token else { throw StreamResolveError.needs2FA }
+            return URL(string: "https://nas.example/" + song.id)!
+        }
     }
 
     private actor CommitGate {
@@ -600,6 +614,143 @@ final class TVLibraryStateTests: XCTestCase {
         let restarted = MusicLibrary(storageDirectory: fixture.directory)
         XCTAssertNotNil(restarted.song(id: "old-liked"))
         XCTAssertTrue(restarted.isLiked(songID: "old-liked"))
+    }
+
+    func testTwoFactorTokenPersistsAcrossReloadAndIncomingSnapshot() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.defaults.set(false, forKey: CloudSyncChannel.masterDefaultsKey)
+        try fixture.sources.updateLocalDurably(fixture.source.id) {
+            $0.type = .synology
+            $0.host = "nas.example"
+        }
+        let registry = StreamResolverRegistry(endpointProbe: { _ in })
+        await registry.register(TwoFactorResolver(token: "fixture-tv-trust"), for: [.synology])
+        let store = fixture.store()
+        store.reload()
+        let error = await store.login2FA(sourceID: fixture.source.id, otp: "123456", registry: registry)
+        XCTAssertNil(error)
+
+        let reloaded = SourcesStore(storageDirectoryURL: fixture.directory)
+        let trusted = try XCTUnwrap(reloaded.source(id: fixture.source.id))
+        XCTAssertEqual(trusted.deviceId, "fixture-tv-trust")
+        _ = try await registry.streamURL(for: fixture.song("music"), source: trusted, credential: nil)
+
+        var incoming = trusted
+        incoming.name = "Updated from phone"
+        incoming.modifiedAt = Date().addingTimeInterval(60)
+        incoming.deviceId = "another-device-token"
+        let payload = try fixture.payload(songs: [fixture.song("book")], sources: [incoming])
+        XCTAssertTrue(LibrarySnapshotSync.shared.installTVPayload(
+            payload, credentialReference: nil, destinationDirectory: fixture.directory
+        ))
+        reloaded.reloadFromDisk()
+        let afterSync = try XCTUnwrap(reloaded.source(id: fixture.source.id))
+        XCTAssertEqual(afterSync.name, incoming.name)
+        XCTAssertEqual(afterSync.deviceId, "fixture-tv-trust")
+        _ = try await registry.streamURL(for: fixture.song("book"), source: afterSync, credential: nil)
+    }
+
+    func testTwoFactorWithoutDeviceTokenDoesNotReportSavedAuthorization() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.defaults.set(false, forKey: CloudSyncChannel.masterDefaultsKey)
+        let registry = StreamResolverRegistry()
+        await registry.register(TwoFactorResolver(token: nil), for: [.local])
+        let store = fixture.store()
+        store.reload()
+        let error = await store.login2FA(sourceID: fixture.source.id, otp: "123456", registry: registry)
+        XCTAssertEqual(error, PMString("ext.tv.otp.failed"))
+        XCTAssertNil(SourcesStore(storageDirectoryURL: fixture.directory).source(id: fixture.source.id)?.deviceId)
+    }
+
+    func testSynologyTrustSurvivesSnapshotWithUnrelatedDeletionHistory() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        var trusted = fixture.source
+        trusted.type = .synology
+        trusted.deviceId = "fixture-tv-trust"
+        var deleted = trusted
+        deleted.id = "unrelated-deleted-source"
+        deleted.isDeleted = true
+        deleted.deletedAt = Date()
+        deleted.deviceId = nil
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode([MusicSourceDeletionRecord(tombstone: deleted)])
+            .write(to: fixture.directory.appendingPathComponent(MusicSourceDeletionRecord.fileName))
+        try encoder.encode([trusted]).write(to: fixture.directory.appendingPathComponent("sources.json"))
+        var incoming = trusted
+        incoming.name = "Updated from phone"
+        incoming.modifiedAt = Date().addingTimeInterval(60)
+        incoming.deviceId = "foreign-device-token"
+        let sync = LibrarySnapshotSync(storageDirectoryURL: fixture.directory)
+        let payload = try fixture.payload(songs: [fixture.song("book")], sources: [incoming])
+        XCTAssertTrue(sync.installTVPayload(payload, credentialReference: nil,
+                                            destinationDirectory: fixture.directory))
+        let restored = SourcesStore(storageDirectoryURL: fixture.directory)
+        XCTAssertEqual(restored.source(id: trusted.id)?.deviceId, "fixture-tv-trust")
+        XCTAssertEqual(restored.source(id: trusted.id)?.name, incoming.name)
+        XCTAssertTrue(restored.source(id: deleted.id)?.isDeleted == true)
+    }
+
+    func testCloudSourceRestoreKeepsLocalTrustAndRejectsForeignTrust() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        var trusted = fixture.source
+        trusted.type = .synology
+        trusted.deviceId = "fixture-tv-trust"
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let target = fixture.directory.appendingPathComponent("sources.json")
+        try encoder.encode([trusted]).write(to: target)
+        var incoming = trusted
+        incoming.modifiedAt = Date().addingTimeInterval(60)
+        incoming.deviceId = "foreign-device-token"
+        var newSource = incoming
+        newSource.id = "new-source"
+        let record = CKRecord(recordType: "LibrarySnapshot")
+        record["sourcesGz"] = (try (encoder.encode([incoming, newSource]) as NSData)
+            .compressed(using: .zlib)) as CKRecordValue
+        let sync = LibrarySnapshotSync(storageDirectoryURL: fixture.directory)
+        XCTAssertTrue(sync.extractSourcesSnapshot(record, to: target, fm: .default))
+        let restored = SourcesStore(storageDirectoryURL: fixture.directory)
+        XCTAssertEqual(restored.source(id: trusted.id)?.deviceId, "fixture-tv-trust")
+        XCTAssertNil(restored.source(id: newSource.id)?.deviceId)
+    }
+
+    func testPlaybackRequestsTwoFactorOnceAndIgnoresVerificationForPreviousSelection() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        try fixture.sources.updateLocalDurably(fixture.source.id) { $0.type = .synology }
+        let first = fixture.song("chapter-1")
+        let second = fixture.song("chapter-2")
+        fixture.library.addSongs([first, second])
+        await fixture.library.waitForPendingIndex()
+        let store = fixture.store()
+        store.reload(reloadLibrary: false)
+        XCTAssertTrue(store.playResolvedQueue(songIDs: [first.id, second.id], shuffled: false, startingAt: first.id))
+        store.engine.failPreparation(PMString("ext.tv.source.error.needs2FA"))
+        store.playbackIssue = .needsTwoFactor(fixture.source.id)
+        let firstRequest = try XCTUnwrap(store.playbackAuthentication)
+        XCTAssertEqual(firstRequest.songID, first.id)
+        XCTAssertEqual(firstRequest.source.id, fixture.source.id)
+        store.playbackAuthentication = nil
+        store.playbackIssue = .needsTwoFactor(fixture.source.id)
+        XCTAssertNil(store.playbackAuthentication, "取消后同一次播放失败不能反复弹窗")
+
+        XCTAssertTrue(store.playResolvedQueue(songIDs: [first.id, second.id], shuffled: false, startingAt: second.id))
+        store.engine.failPreparation(PMString("ext.tv.source.error.needs2FA"))
+        store.resumeAfterAuthentication(firstRequest)
+        XCTAssertFalse(store.isLoading, "旧曲目的验证回调不能启动新曲目")
+        store.playbackIssue = .needsTwoFactor(fixture.source.id)
+        let secondRequest = try XCTUnwrap(store.playbackAuthentication)
+        XCTAssertEqual(secondRequest.songID, second.id)
+        store.resumeAfterAuthentication(secondRequest)
+        XCTAssertTrue(store.isLoading)
+        XCTAssertNil(store.playbackAuthentication)
+        XCTAssertEqual(store.currentSongID, second.id)
+        store.togglePlayPause()
     }
 
     func testRecoveryFailureBlocksMutationsUntilRecoverySucceeds() async throws {

@@ -237,7 +237,9 @@ final class KaraokeVocalReducerUnit: AUAudioUnit {
         componentType: kAudioUnitType_Effect,
         componentSubType: fourCharacterCode("kvrd"),
         componentManufacturer: fourCharacterCode("Prms"),
-        componentFlags: 0,
+        // This in-process DSP only uses its supplied audio buffers. Without
+        // this flag, macOS rejects it when the playback host is sandboxed.
+        componentFlags: AudioComponentFlags.sandboxSafe.rawValue,
         componentFlagsMask: 0
     )
 

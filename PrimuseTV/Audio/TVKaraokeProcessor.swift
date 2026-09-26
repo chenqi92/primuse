@@ -20,6 +20,7 @@ final class TVKaraokeProcessor: @unchecked Sendable {
         /// 0 keeps the vocal, 1 removes it.
         var reduction: Float = 1
         var capturesVocal = false
+        var bypassesVocalReduction = false
         /// An AI-separated vocal to subtract instead of the spectral
         /// remover: address and length of a `TVKaraokeStemTrack`'s samples,
         /// kept alive by the session.
@@ -123,6 +124,7 @@ final class TVKaraokeTapRenderer: @unchecked Sendable {
             shifter?.reset()
         }
         let settings = cachedSettings
+        let reducesVocal = settings.isActive && !settings.bypassesVocalReduction
         defer { shiftKey(left: left, right: right, frameCount: frameCount, settings: settings) }
 
         // AI stem: the tap knows exactly which samples of the item this
@@ -131,7 +133,7 @@ final class TVKaraokeTapRenderer: @unchecked Sendable {
            let stem = UnsafePointer<Int16>(bitPattern: settings.stemAddress),
            let sourceTime, sourceTime.isFinite, frameCount <= vocalCapacity, let vocal {
             let start = Int(((sourceTime - settings.stemTimeOffset) * sampleRate).rounded())
-            let target: Float = settings.isActive ? settings.reduction : 0
+            let target: Float = reducesVocal ? settings.reduction : 0
             let from = stemGain
             stemGain = target
             let step = (target - from) / Float(frameCount)
@@ -162,7 +164,7 @@ final class TVKaraokeTapRenderer: @unchecked Sendable {
             return
         }
         stemGain = 0
-        if !settings.isActive, reducer.phase == .bypassed { return }
+        if !reducesVocal, reducer.phase == .bypassed { return }
 
         // Very large pulls (rare) are processed in slices the scratch fits.
         var offset = 0
@@ -173,7 +175,7 @@ final class TVKaraokeTapRenderer: @unchecked Sendable {
                 left: left + offset,
                 right: right + offset,
                 frameCount: count,
-                isActive: settings.isActive,
+                isActive: reducesVocal,
                 reduction: settings.reduction,
                 vocal: vocalOut
             )
@@ -232,6 +234,11 @@ final class TVKaraokeStemTrack: @unchecked Sendable {
             samples[2 * i] = Int16(max(-32_768, min(32_767, (left[i] * 32_767).rounded())))
             samples[2 * i + 1] = Int16(max(-32_768, min(32_767, (right[i] * 32_767).rounded())))
         }
+    }
+
+    func onsets() -> [KaraokeOnset] {
+        let mono = (0..<frames).map { (Float(samples[2 * $0]) + Float(samples[2 * $0 + 1])) / 65_534 }
+        return KaraokeOnsetDetector.onsets(in: mono, sampleRate: sampleRate)
     }
 
     deinit {

@@ -61,9 +61,8 @@ public enum LyricTranslationTerminalPolicy {
         return .preparationRequired
     }
 
-    /// Badge state after every currently runnable group finishes. This keeps a
-    /// mixed document honest: supported rows may complete first, while any
-    /// remaining explicitly unsupported pair is still surfaced afterwards.
+    /// Availability after every currently runnable group finishes. Presentation
+    /// separately considers how much of the lyric body remains unsupported.
     public static func remainingStateAfterAvailableWork(
         preparationRequiredCandidateCount: Int,
         unsupportedCandidateCount: Int,
@@ -77,6 +76,39 @@ public enum LyricTranslationTerminalPolicy {
         }
         if unsupportedCandidateCount > 0 { return .unavailable }
         return .notNeeded
+    }
+}
+
+public enum LyricTranslationNoticePolicy {
+    /// A few untranslated rows must not present the entire song as unavailable.
+    /// Keep translation attempts independent of this whole-document notice.
+    public static func shouldShowUnavailable(
+        lyrics: [LyricLine],
+        unsupportedGroups: [LyricTranslationGroup],
+        targetLanguageCode: String
+    ) -> Bool {
+        let targetLanguage = Locale.Language(
+            identifier: LyricTranslationGroupingPolicy.languageIdentity(targetLanguageCode)
+        ).languageCode
+        let unsupportedLineIDs = Set(unsupportedGroups.filter { group in
+            guard let source = group.sourceLanguageCode else { return true }
+            let sourceLanguage = Locale.Language(
+                identifier: LyricTranslationGroupingPolicy.languageIdentity(source)
+            ).languageCode
+            // Unsupported script conversion within the same language is not a
+            // failure to translate foreign lyrics (for example zh-Hant → zh-Hans).
+            return sourceLanguage == nil || targetLanguage == nil || sourceLanguage != targetLanguage
+        }.flatMap(\.candidates).map(\.id))
+        guard !unsupportedLineIDs.isEmpty else { return false }
+        let contentLines = LyricVoiceTimelinePolicy.flattenedLines(lyrics).filter {
+            !LyricsTextTools.isCreditLine($0.text)
+                && $0.text.unicodeScalars.contains(where: CharacterSet.letters.contains)
+        }
+        guard !contentLines.isEmpty else { return false }
+        let unsupportedCount = contentLines.filter {
+            unsupportedLineIDs.contains($0.id)
+        }.count
+        return Double(unsupportedCount) / Double(contentLines.count) > 0.2
     }
 }
 

@@ -13,6 +13,7 @@
 	],
 	"platforms": [
 		"iOS",
-		"macOS"
+		"macOS",
+		"tvOS"
 	]
 }

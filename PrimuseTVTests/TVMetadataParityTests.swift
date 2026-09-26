@@ -7,6 +7,26 @@ import UIKit
 
 @MainActor
 final class TVMetadataParityTests: XCTestCase {
+    func testSynologySidecarArtworkUsesTrustedSourceAndBoundsDownload() async throws {
+        let registry = StreamResolverRegistry(endpointProbe: { _ in })
+        await registry.register(SynologyArtworkResolver(), for: [.synology])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SynologyArtworkURLProtocol.self]
+        let reader = TVSourceAssetReader(registry: registry, session: URLSession(configuration: configuration))
+        var source = MusicSource(id: "book-nas", name: "Books", type: .synology, host: "nas.example")
+        source.deviceId = "fixture-trust"
+        let credential = SourceCredential(username: "reader", password: "fixture-password")
+        let data = await reader.artworkData(reference: "/books/cover.jpg", source: source, credential: credential, maximumBytes: 32)
+        XCTAssertEqual(data, Data([0xFF, 0xD8, 0xFF, 0xD9]))
+        let oversized = await reader.artworkData(reference: "/books/cover.jpg", source: source, credential: credential, maximumBytes: 2)
+        XCTAssertNil(oversized)
+        source.deviceId = nil
+        let unauthorized = await reader.artworkData(reference: "/books/cover.jpg", source: source, credential: credential, maximumBytes: 32)
+        XCTAssertNil(unauthorized)
+        let foreignURL = await reader.artworkData(reference: "https://foreign.example/cover.jpg", source: source, credential: credential, maximumBytes: 32)
+        XCTAssertNil(foreignURL)
+    }
+
     func testDeviceResizeAndThermalRecoveryDoNotWaitForSlowSibling() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -544,6 +564,27 @@ final class TVMetadataParityTests: XCTestCase {
         XCTAssertNotEqual(first, TVSourceAssetReader.cacheIdentity(source: source, credential: .init(password: "first")))
     }
 }
+private struct SynologyArtworkResolver: StreamResolver {
+    func streamURL(for song: Song, source: MusicSource, credential: SourceCredential?) async throws -> URL {
+        guard source.deviceId == "fixture-trust", credential?.password == "fixture-password",
+              song.filePath == "/books/cover.jpg" else { throw StreamResolveError.needs2FA }
+        return URL(string: "https://nas.example/artwork?session=fixture-session")!
+    }
+}
+
+private final class SynologyArtworkURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "image/jpeg", "Content-Length": "4"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data([0xFF, 0xD8, 0xFF, 0xD9]))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
 private actor RouteHealthByteReader: ByteRangeReader {
     let failReads: Bool
     var reads = 0

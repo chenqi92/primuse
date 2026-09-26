@@ -188,7 +188,7 @@ struct PrimuseTVApp: App {
                     if autoSync {
                         await store.bootstrap()
                     } else {
-                        store.reload()
+                        await store.prepareLocalLibrary()
                         // 这次启动不同步,本地电台列表就是全部了。
                         store.finishPendingRadioDeepLink()
                     }

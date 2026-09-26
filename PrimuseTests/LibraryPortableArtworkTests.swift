@@ -316,3 +316,57 @@ private actor UploadedArtworkReadGate {
         releaseWaiter = nil
     }
 }
+
+
+extension LibraryPortableArtworkTests {
+    func testArtworkIdentityLookupSkipsUnrelatedCloudPathsAndRevalidatesMatches() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        var resolvedSources: [String] = []
+        library.sourceIdentityResolver = { source in
+            resolvedSources.append(source)
+            return source == "wrong-account" ? "other" : "account"
+        }
+        let owner = LibraryArtworkOwner(kind: .artist, id: "owner")
+        let original = Song(id: "old", title: "Original", duration: 240, fileFormat: .flac, filePath: "target.flac", sourceID: "original")
+        XCTAssertTrue(library.setArtwork(for: owner, to: original))
+        let unrelated = (0..<2_000).map { index in
+            Song(id: "unrelated-\(index)", title: "Other \(index)", duration: 240, fileFormat: .flac, filePath: "other-\(index).flac", sourceID: "source-\(index % 20)")
+        }
+        let wrong = Song(id: "wrong", title: "Different", duration: 200, fileFormat: .flac, filePath: original.filePath, sourceID: "wrong-account")
+        let remounted = Song(id: "new", title: "Renamed", duration: 260, fileFormat: .flac, filePath: original.filePath, sourceID: "new-mount")
+        library.addSongs(unrelated + [wrong, remounted])
+        resolvedSources = []
+        XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [remounted]), .selectedSong(remounted.id))
+        XCTAssertEqual(Set(resolvedSources), ["wrong-account", "new-mount"])
+        XCTAssertEqual(resolvedSources.count, 2)
+        resolvedSources = []
+        XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [remounted]), .selectedSong(remounted.id))
+        XCTAssertTrue(resolvedSources.isEmpty)
+
+        library.addSongs([wrong], affectedSourceIDs: [remounted.sourceID, wrong.sourceID])
+        XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [wrong]), .automatic)
+        library.addSongs([remounted], pruneMissingSongs: false)
+        XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [remounted]), .selectedSong(remounted.id))
+        library.sourceIdentityResolver = { _ in nil }
+        XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [remounted]), .automatic)
+    }
+
+    func testArtworkIdentityLookupKeepsTitleFallbackAndFirstMatchingSong() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        let owner = LibraryArtworkOwner(kind: .album, id: "album")
+        let original = Song(id: "old", title: "Title", artistName: "Singer", duration: 240, fileFormat: .flac, filePath: "old.flac", sourceID: "source")
+        XCTAssertTrue(library.setArtwork(for: owner, to: original))
+        var first = original
+        first.id = "first"
+        first.filePath = "new.flac"
+        var second = first
+        second.id = "second"
+        library.addSongs([first, second])
+        XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [first, second]), .selectedSong(first.id))
+        XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [second]), .automatic)
+    }
+}

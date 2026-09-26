@@ -60,6 +60,7 @@ final class TVAudioEngine {
     private(set) var status: Status = .idle
     private(set) var isPlaying = false {
         didSet {
+            if isPlaying && !oldValue { currentTimeAnchor = Date() }
             guard oldValue != isPlaying, spectrumAnalysisEnabled else { return }
             if isPlaying {
                 startSpectrumPolling()
@@ -108,13 +109,15 @@ final class TVAudioEngine {
     }
 
     @ObservationIgnored private var externalTransport: ExternalTransport?
+    @ObservationIgnored private var externalOwnsAudioSession = false
 
     /// 交出音频会话并进入外部驱动模式。调用方随后用 `updateExternalPlayback`
     /// 把系统播放器的状态回灌进来。
-    func beginExternalPlayback(duration: Double, transport: ExternalTransport) {
+    func beginExternalPlayback(duration: Double, transport: ExternalTransport, ownsAudioSession: Bool = false) {
         stop()
         isExternallyDriven = true
         externalTransport = transport
+        externalOwnsAudioSession = ownsAudioSession
         isLiveStream = false
         isVideoMode = false
         self.duration = duration.isFinite && duration > 0 ? duration : 0
@@ -122,12 +125,16 @@ final class TVAudioEngine {
         isPlaying = false
         status = .loading
         resetSpectrumLevels()
+        if ownsAudioSession { activateAudioSession() }
     }
 
     /// 回灌系统播放器的状态。`currentTime` 的 `didSet` 会顺带刷新外推锚点,
     /// 所以逐字歌词在外部驱动下同样按帧推进。
-    func updateExternalPlayback(currentTime: Double, duration: Double?, isPlaying: Bool) {
+    func updateExternalPlayback(currentTime: Double, duration: Double?, isPlaying: Bool,
+                                status externalStatus: Status? = nil, spectrum: [Float]? = nil) {
         guard isExternallyDriven else { return }
+        let previousSecond = Int(self.currentTime)
+        let previousStatus = status
         if let duration, duration.isFinite, duration > 0, duration != self.duration {
             self.duration = duration
         }
@@ -135,8 +142,12 @@ final class TVAudioEngine {
             self.currentTime = currentTime
         }
         if self.isPlaying != isPlaying { self.isPlaying = isPlaying }
-        let resolved: Status = isPlaying ? .playing : .paused
+        let resolved: Status = externalStatus ?? (isPlaying ? .playing : .paused)
         if status != resolved { status = resolved }
+        if spectrumAnalysisEnabled, let spectrum { spectrumLevels = spectrum }
+        if externalStatus != nil, previousSecond != Int(self.currentTime) || previousStatus != status {
+            updateNowPlayingInfo()
+        }
     }
 
     /// 外部播放器把整条队列放完了。走引擎自己的结束回调,队列推进逻辑与本机播放同一条。
@@ -163,13 +174,41 @@ final class TVAudioEngine {
     /// 绘制使用。外推量由 `PlaybackClockFreezePolicy` 限幅(最多 1 秒),暂停、
     /// 缓冲或播放结束时自动停在最后一个真实时间上,不会越跑越远。
     func interpolatedTime(at date: Date = Date()) -> TimeInterval {
-        PlaybackClockFreezePolicy.frozenTime(
+        let advanced = PlaybackClockFreezePolicy.frozenTime(
             cachedCurrentTime: currentTime,
             currentTimeAnchor: currentTimeAnchor,
             eventTime: date,
             isAdvancing: isPlaying && status != .loading,
-            duration: isLiveStream ? 0 : duration
+            duration: 0
         )
+        let time = currentTime + (advanced - currentTime) * effectivePlaybackRate
+        return !isLiveStream && duration > 0 ? min(time, duration) : time
+    }
+
+    private(set) var karaokePracticeRate: Double = 1
+    var supportsKaraokePractice: Bool {
+        !isExternallyDriven && !isLiveStream && !usingSFB && !usingLivePCM
+    }
+    private var effectivePlaybackRate: Double { supportsKaraokePractice ? karaokePracticeRate : 1 }
+
+    func setKaraokePracticeRate(_ rate: Double) {
+        let clamped = rate.isFinite ? min(1, max(0.5, rate)) : 1
+        guard clamped != karaokePracticeRate else { return }
+        currentTime = interpolatedTime()
+        karaokePracticeRate = clamped
+        player.defaultRate = Float(effectivePlaybackRate)
+        player.currentItem?.audioTimePitchAlgorithm = .timeDomain
+        if isPlaying, supportsKaraokePractice { player.rate = Float(effectivePlaybackRate) }
+        updateNowPlayingInfo()
+    }
+
+    /// A practice loop can consume the natural end before queue advancement.
+    @ObservationIgnored var karaokeLoopStartAtEnd: (() -> TimeInterval?)?
+
+    private func restartKaraokeLoopAtEnd() -> Bool {
+        guard supportsKaraokePractice, let start = karaokeLoopStartAtEnd?() else { return false }
+        startPlayback(at: start, autoPlay: true, forceSeek: true)
+        return true
     }
 
     /// 一曲播完回调(队列推进用;Phase 1 可空)。
@@ -280,11 +319,36 @@ final class TVAudioEngine {
     private var npArtist = ""
     private var npAlbum = ""
 
-    init() {
+    @ObservationIgnored private let managesSystemPlayback: Bool
+
+    init(managesSystemPlayback: Bool = true) {
+        self.managesSystemPlayback = managesSystemPlayback
         player.automaticallyWaitsToMinimizeStalling = true
         addPeriodicObserver()
-        setupAudioSessionObservers()
-        setupRemoteCommands()
+        if managesSystemPlayback {
+            setupAudioSessionObservers()
+            setupRemoteCommands()
+        }
+    }
+
+    var isReadyForPreparedPlayback: Bool {
+        pendingStartID == nil && (usingSFB || player.currentItem?.status == .readyToPlay)
+            && status == .paused
+    }
+
+    var wantsSpectrumAnalysis: Bool { spectrumAnalysisEnabled }
+
+    func setMixVolume(_ volume: Float) {
+        player.volume = min(1, max(0, volume))
+        sfb.setMixVolume(volume)
+    }
+
+    /// The two medley decks are reused and never own system controls or the audio session.
+    func releaseAuxiliaryPlayback() {
+        stop()
+        if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
+        itemStatusObs?.invalidate()
+        playerTimeControlObs?.invalidate()
     }
 
     // 注:引擎随 app 生命周期存在(TVStore 持有,单例式),观察者用 [weak self]
@@ -293,6 +357,7 @@ final class TVAudioEngine {
     // MARK: 音频会话(真正播放时才激活)
 
     private func activateAudioSession() {
+        guard managesSystemPlayback else { return }
         do {
             let s = AVAudioSession.sharedInstance()
             if !sessionCategoryConfigured {
@@ -308,6 +373,7 @@ final class TVAudioEngine {
     }
 
     private func deactivateAudioSession() {
+        guard managesSystemPlayback else { return }
         guard sessionIsActive else { return }
         do {
             try AVAudioSession.sharedInstance().setActive(
@@ -322,10 +388,21 @@ final class TVAudioEngine {
 
     // MARK: 载入 / 传输
 
+    var downloadProgress: Double?
+
+    func failPreparation(_ message: String) {
+        guard status == .loading, !hasPreparedAudio else { return }
+        downloadProgress = nil
+        isPlaying = false
+        status = .failed(message)
+        updateNowPlayingInfo()
+    }
+
     /// Synchronously detaches the previous track before an asynchronous resolver
     /// starts. Keeping the audio session active avoids an avoidable route handoff
     /// between adjacent queue items, while all track-specific state is cleared.
     func prepareForSelection(startAt seconds: Double) {
+        downloadProgress = nil
         clearLiveState()
         resetSFBIfNeeded()
         itemStatusObs?.invalidate()
@@ -353,8 +430,10 @@ final class TVAudioEngine {
         segmentEndHandled = false
         failureReportedForSelection = false
         status = .loading
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        disableRemoteTransportCommands()
+        if managesSystemPlayback {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            disableRemoteTransportCommands()
+        }
     }
 
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
@@ -831,9 +910,11 @@ final class TVAudioEngine {
     @discardableResult
     func play() -> Bool {
         if let externalTransport {
+            if externalOwnsAudioSession { activateAudioSession() }
             externalTransport.resume()
             isPlaying = true
             status = .playing
+            if externalOwnsAudioSession { updateNowPlayingInfo() }
             return true
         }
         activateAudioSession()
@@ -863,6 +944,8 @@ final class TVAudioEngine {
                 updateNowPlayingInfo()
                 return false
             }
+            player.defaultRate = Float(effectivePlaybackRate)
+            player.currentItem?.audioTimePitchAlgorithm = .timeDomain
             player.play()
         }
         if isLiveStream, !usingLivePCM {
@@ -884,7 +967,7 @@ final class TVAudioEngine {
     /// initial physical seek even when their visible time is zero; defer
     /// AVPlayer playback until that seek has completed to avoid leaking audio
     /// from the first track in the shared image.
-    func startPlayback(at logicalTime: Double, autoPlay: Bool) {
+    func startPlayback(at logicalTime: Double, autoPlay: Bool, forceSeek: Bool = false) {
         guard !isLiveStream else {
             if autoPlay { _ = play() } else { pause() }
             return
@@ -911,7 +994,7 @@ final class TVAudioEngine {
             reportFailure(PMString("ext.tv.playback.failed"))
             return
         }
-        guard target > 0 else {
+        guard target > 0 || forceSeek else {
             if autoPlay { _ = play() } else { pause() }
             return
         }
@@ -947,6 +1030,10 @@ final class TVAudioEngine {
             externalTransport.pause()
             isPlaying = false
             status = .paused
+            if externalOwnsAudioSession {
+                deactivateAudioSession()
+                updateNowPlayingInfo()
+            }
             return
         }
         pendingStartID = nil
@@ -1007,6 +1094,7 @@ final class TVAudioEngine {
             self.externalTransport = nil
             isExternallyDriven = false
             externalTransport.stop()
+            externalOwnsAudioSession = false
         }
         resetSFBIfNeeded()
         removeEndObserver()
@@ -1027,8 +1115,10 @@ final class TVAudioEngine {
         )
         segmentEndHandled = false
         status = .idle
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        disableRemoteTransportCommands()
+        if managesSystemPlayback {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            disableRemoteTransportCommands()
+        }
         deactivateAudioSession()
     }
 
@@ -1170,7 +1260,7 @@ final class TVAudioEngine {
     }
 
     private func startSpectrumPolling() {
-        guard spectrumAnalysisEnabled, isPlaying, spectrumTask == nil else { return }
+        guard !isExternallyDriven, spectrumAnalysisEnabled, isPlaying, spectrumTask == nil else { return }
         let pipeline = spectrumPipeline
         spectrumTask = Task.detached(priority: .userInitiated) { [weak self, pipeline] in
             while !Task.isCancelled {
@@ -1450,6 +1540,7 @@ final class TVAudioEngine {
         guard !segmentEndHandled,
               activeItemID == expectedItemID,
               player.currentItem.map(ObjectIdentifier.init) == expectedItemID else { return }
+        if restartKaraokeLoopAtEnd() { return }
         segmentEndHandled = true
         player.pause()
         removeSegmentBoundaryObserver()
@@ -1467,6 +1558,7 @@ final class TVAudioEngine {
             plog("📺 TV engine: ignored stale didPlayToEnd notification")
             return
         }
+        if restartKaraokeLoopAtEnd() { return }
         // Make the accepted end transition single-shot before advancing the
         // queue. A repeat/new selection installs a fresh item-bound observer.
         removeEndObserver()
@@ -1617,6 +1709,7 @@ final class TVAudioEngine {
         switch type {
         case .began:
             shouldResumeAfterInterruption = isPlaying || (isLiveStream && status == .loading)
+            if externalOwnsAudioSession { externalTransport?.pause() }
             liveStallTask?.cancel()
             liveStallTask = nil
             isPlaying = false
@@ -1665,12 +1758,13 @@ final class TVAudioEngine {
     // MARK: Now Playing Info / 遥控
 
     private func updateNowPlayingInfo() {
-        let hasCurrentItem = isLiveStream ? liveRequest != nil : hasPreparedAudio
+        guard managesSystemPlayback else { return }
+        let hasCurrentItem = isExternallyDriven || (isLiveStream ? liveRequest != nil : hasPreparedAudio)
         let projection = NowPlayingPlaybackProjectionPolicy.projection(
             hasCurrentItem: hasCurrentItem,
             isPlaying: isPlaying,
             isLoading: status == .loading,
-            preferredPlaybackRate: 1
+            preferredPlaybackRate: effectivePlaybackRate
         )
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: npTitle,

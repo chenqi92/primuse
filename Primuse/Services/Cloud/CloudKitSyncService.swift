@@ -863,6 +863,13 @@ final class CloudKitSyncService {
             return true
         }
 
+        if error.code == .constraintViolation,
+           let local = makeRecord(for: recordID),
+           Self.existingRecordConflict(error, local: local) != nil {
+            resolveServerRecordChanged(local: local, error: error, syncEngine: syncEngine)
+            return true
+        }
+
         switch error.code {
         case .serverRecordChanged:
             guard let local = makeRecord(for: recordID) else {
@@ -1804,6 +1811,11 @@ final class CloudKitSyncService {
         // 还没到点就存游标, 进程这时被杀, 越过游标的那批记录就再也拉不回来。
         library.flushArmedSnapshotWriteNow()
         PlayHistoryStore.shared.flushPendingSave()
+    }
+
+    private func withReadyLibrary(_ apply: @MainActor () -> Void) async {
+        await library.whenReady()
+        apply()
     }
 
     private func engineIsCurrent(_ syncEngine: CKSyncEngine) -> Bool {
@@ -2811,7 +2823,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         switch event {
         case .stateUpdate(let event):
             guard isCurrentEngine else { return }
-            await MainActor.run {
+            await self.withReadyLibrary {
                 // 进入 handleEvent 时判过一次, 但跳回主 actor 之前引擎可能已被摘掉。
                 guard self.engineIsCurrent(syncEngine) else { return }
                 // 游标落盘前先把已拉到的记录落盘: 游标一旦越过就不会再拉。
@@ -2826,36 +2838,27 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             }
         case .fetchedRecordZoneChanges(let event):
             guard isCurrentEngine else { return }
-            for modification in event.modifications {
+            let prepared = event.modifications.map { modification in
                 let record = modification.record
-                // 听歌统计整表解压 + 解码放在跳回主 actor 之前做完, 主 actor 只做
-                // 合并。这多出一个挂起点, 所以身份栅栏必须在真正落地的那次
-                // `MainActor.run` 里重新判一遍, 不能只靠进入 handleEvent 时那次。
-                if record.recordType == RecordType.listeningStats {
-                    let entries = Self.decodeListeningStatsEntries(record)
-                    await MainActor.run {
-                        guard syncEngine === self.engine || syncEngine === self.sharedEngine else { return }
-                        self.applyFetchedRecord(record, decodedListeningStats: entries, syncEngine: syncEngine)
-                    }
-                    continue
-                }
-                await MainActor.run {
-                    guard self.engineIsCurrent(syncEngine) else { return }
-                    self.applyFetchedRecord(record, syncEngine: syncEngine)
-                }
+                return (record, record.recordType == RecordType.listeningStats
+                    ? Self.decodeListeningStatsEntries(record) : nil)
             }
-            for deletion in event.deletions {
-                await MainActor.run {
-                    guard self.engineIsCurrent(syncEngine) else { return }
+            // Apply the batch in one actor turn. Yielding once per record let
+            // observers rebuild the entire TV catalogue between every row.
+            await self.withReadyLibrary {
+                guard self.engineIsCurrent(syncEngine) else { return }
+                for (record, entries) in prepared {
+                    self.applyFetchedRecord(record, decodedListeningStats: entries, syncEngine: syncEngine)
+                }
+                for deletion in event.deletions {
                     self.applyRemoteDeletion(
                         recordID: deletion.recordID,
                         recordType: deletion.recordType,
                         allowLocalRestore: false
                     )
                 }
+                self.flushCoalescedRemoteWrites()
             }
-            // 整批一次写盘, 不按记录逐条整份写。
-            await MainActor.run { self.flushCoalescedRemoteWrites() }
             if !event.modifications.isEmpty || !event.deletions.isEmpty {
                 plog(
                     "☁️ CloudKitSync: fetched \(Self.recordTypeSummary(event.modifications.map(\.record.recordType))) "
@@ -2889,42 +2892,24 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 }
             }
         case .sentRecordZoneChanges(let event):
-            if acceptsSystemFieldUpdates {
-                // 每一跳都再判一次: 退役引擎报回来的 etag 在缓存整份清空之后不能再写进去。
-                let stillAccepts: @MainActor () -> Bool = {
-                    self.engineIsCurrent(syncEngine)
-                        || self.systemFieldsCacheGeneration == self.engineCacheGeneration
+            await self.withReadyLibrary {
+                let current = self.engineIsCurrent(syncEngine)
+                let accepts = current || self.systemFieldsCacheGeneration == self.engineCacheGeneration
+                if acceptsSystemFieldUpdates, accepts {
+                    for saved in event.savedRecords { self.storeSystemFields(saved) }
+                    for deletedID in event.deletedRecordIDs { self.removeSystemFields(for: deletedID) }
+                    self.flushSystemFieldsCache()
                 }
+                guard current else { return }
                 for saved in event.savedRecords {
-                    await MainActor.run {
-                        guard stillAccepts() else { return }
-                        self.storeSystemFields(saved)
-                    }
-                }
-                for deletedID in event.deletedRecordIDs {
-                    await MainActor.run {
-                        guard stillAccepts() else { return }
-                        self.removeSystemFields(for: deletedID)
-                    }
-                }
-                await MainActor.run { self.flushSystemFieldsCache() }
-            }
-            // 重新入队、墓碑回执这些会改本地状态 / 再次上传的动作,仍然只允许
-            // 当前 engine 触发。
-            guard isCurrentEngine else { return }
-            for saved in event.savedRecords {
-                await MainActor.run {
                     self.acknowledgeSavedSourceTombstone(saved)
                     self.acknowledgeSavedPlaylist(saved)
                 }
-            }
-            for failed in event.failedRecordSaves {
-                await MainActor.run {
+                for failed in event.failedRecordSaves {
                     self.handleFailedSave(failed, syncEngine: syncEngine)
                 }
+                self.flushCoalescedRemoteWrites()
             }
-            // 冲突处理会把服务器那份并回本地。
-            await MainActor.run { self.flushCoalescedRemoteWrites() }
             if !event.savedRecords.isEmpty || !event.failedRecordSaves.isEmpty || !event.deletedRecordIDs.isEmpty {
                 plog(
                     "☁️ CloudKitSync: sent saved=\(Self.recordTypeSummary(event.savedRecords.map(\.recordType))) "
@@ -3052,6 +3037,14 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             return
         }
 
+        if ckError.code == .constraintViolation {
+            let current = makeRecord(for: recordID) ?? failed.record
+            if Self.existingRecordConflict(ckError, local: current) != nil {
+                resolveServerRecordChanged(local: current, error: ckError, syncEngine: syncEngine)
+                return
+            }
+        }
+
         switch ckError.code {
         case .serverRecordChanged:
             // `failed.record` is the snapshot `makeRecord` built when the batch
@@ -3144,6 +3137,16 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         plog("☁️ CloudKitSync: retrying \(changes.count) save(s) that failed permanently last time")
     }
 
+    nonisolated static func existingRecordConflict(_ error: CKError, local: CKRecord) -> CKRecord? {
+        guard error.code == .serverRecordChanged || error.code == .constraintViolation,
+              let server = error.serverRecord
+                ?? error.userInfo[CKRecordChangedErrorServerRecordKey] as? CKRecord,
+              server.recordID == local.recordID,
+              server.recordType == local.recordType,
+              server.recordChangeTag != nil else { return nil }
+        return server
+    }
+
     /// Resolve a `serverRecordChanged` conflict with type-aware merging.
     ///
     /// - **Playlists**: union both sides' `songIDs` so neither device's recent
@@ -3162,7 +3165,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         error: CKError,
         syncEngine: CKSyncEngine
     ) {
-        guard let server = error.serverRecord else {
+        guard let server = Self.existingRecordConflict(error, local: local) else {
             // No server record provided — naive re-queue.
             addCoalescedRecordZoneChanges([.saveRecord(local.recordID)], to: syncEngine)
             return

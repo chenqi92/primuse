@@ -225,6 +225,10 @@ struct TVSourceFormView: View {
     @State private var cloudClientSecret = ""
     @State private var cloudAPIToken = ""
     @State private var cloudAuthRequest: CloudAuthRequest?
+    @State private var newSourceID = UUID().uuidString
+    @State private var otpDraft: MusicSource?
+    @State private var verifiedDraftIdentity: String?
+    @State private var verifiedDraftDeviceID: String?
     @State private var testResult: String?
     @State private var testing = false
     @State private var saveFailed = false
@@ -449,6 +453,11 @@ struct TVSourceFormView: View {
                     commitCloudDrive(request.source)
                 }
             )
+        }
+        .fullScreenCover(item: $otpDraft) { source in
+            TVOTPEntryView(source: store.map(source), verify: { code in
+                await verifyDraft(source, code: code)
+            }).environment(store)
         }
         .alert(PMString("ext.tv.sources.saveFailed"), isPresented: $saveFailed) {
             Button(PMString("ext.tv.sources.ok"), role: .cancel) {}
@@ -1126,6 +1135,40 @@ struct TVSourceFormView: View {
                 fnConnectAccessCode: draftAccessCode
             )
             testing = false
+            if source.type.supports2FA,
+               testResult == PMString("ext.tv.test.needs2FA")
+                || testResult == PMString("ext.tv.source.error.needs2FA") {
+                otpDraft = source
+            }
+        }
+    }
+
+    private func draftAuthenticationIdentity(_ source: MusicSource) -> String {
+        var source = source
+        source.deviceId = nil
+        return MusicSourceSecurityScopeFingerprint.make(for: source, revisionIdentity: password)
+    }
+
+    private func verifyDraft(_ source: MusicSource, code: String) async -> String? {
+        let identity = draftAuthenticationIdentity(source)
+        var credential = TVCredentialStore.credential(
+            for: source, bundle: store.credentialBundle, password: password.isEmpty ? nil : password
+        )
+        credential.username = source.username ?? credential.username
+        do {
+            let registry = StreamResolverRegistry()
+            guard let token = try await registry.loginForDeviceToken(source: source, credential: credential, otp: code),
+                  !token.isEmpty else { return PMString("ext.tv.otp.failed") }
+            guard let current = draftSource(), draftAuthenticationIdentity(current) == identity,
+                  !Task.isCancelled else { return PMString("ext.tv.otp.failed") }
+            verifiedDraftIdentity = identity
+            verifiedDraftDeviceID = token
+            testResult = PMString("ext.tv.test.connectedPrefix") + (source.host ?? source.name)
+            return nil
+        } catch StreamResolveError.needs2FA {
+            return PMString("ext.tv.otp.invalid")
+        } catch {
+            return TVSourceErrorText.message(error: error)
         }
     }
 
@@ -1136,7 +1179,7 @@ struct TVSourceFormView: View {
         let trimmedUser = username.trimmingCharacters(in: .whitespaces)
         let trimmedPath = pathText.trimmingCharacters(in: .whitespaces)
 
-        var src = editing ?? MusicSource(name: trimmedName, type: type)
+        var src = editing ?? MusicSource(id: newSourceID, name: trimmedName, type: type)
         src.name = trimmedName
         if type.requiresHost && supportsAdaptiveConnections {
             src.connectionConfiguration = adaptiveConnectionConfiguration()
@@ -1188,6 +1231,9 @@ struct TVSourceFormView: View {
                     ? nil
                     : (trimmedPath.isEmpty ? nil : trimmedPath)
             }
+        }
+        if verifiedDraftIdentity == draftAuthenticationIdentity(src) {
+            src.deviceId = verifiedDraftDeviceID
         }
         src.modifiedAt = Date()
         return src
@@ -1909,6 +1955,7 @@ struct TVOTPEntryView: View {
     let source: TVSource
     /// 验证通过后回调,给调用方接着做下一步(继续浏览目录、重试扫描)。
     var onVerified: () -> Void = {}
+    var verify: ((String) async -> String?)?
 
     @State private var code = ""
     @State private var error: String?
@@ -2034,7 +2081,9 @@ struct TVOTPEntryView: View {
         guard TVOneTimeCodePolicy.isSubmittable(code), !busy else { return }
         busy = true; error = nil
         Task {
-            let err = await store.login2FA(sourceID: source.id, otp: code)
+            let err: String?
+            if let verify { err = await verify(code) }
+            else { err = await store.login2FA(sourceID: source.id, otp: code) }
             busy = false
             if let err {
                 keepsErrorOnNextChange = !code.isEmpty

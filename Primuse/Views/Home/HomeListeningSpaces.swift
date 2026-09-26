@@ -7,10 +7,10 @@ import SwiftUI
 /// space playing right now gets no card: the player bar already is its
 /// "continue".
 struct HomeContinueSpacesRow: View {
+    let books: [(SpokenWordBook, [Song])]
     var openSpace: (ListeningSpace) -> Void
 
     @Environment(AudioPlayerService.self) private var player
-    @Environment(MusicLibrary.self) private var library
     @Environment(RadioStationsStore.self) private var radioStore
 
     private struct Card: Identifiable {
@@ -45,7 +45,6 @@ struct HomeContinueSpacesRow: View {
     }
 
     private func makeCards() -> [Card] {
-        _ = SpokenWordStore.shared.revision
         var candidates: [ListeningResumeCandidate] = []
         var contents: [ListeningSpace: Card.Content] = [:]
 
@@ -60,7 +59,7 @@ struct HomeContinueSpacesRow: View {
             candidates.append(.init(space: .radio, lastListenedAt: playedAt))
             contents[.radio] = .radio(station)
         }
-        if let (book, songs) = HomeSpokenWordBooks.inProgress(in: library).first,
+        if let (book, songs) = books.first,
            let listenedAt = book.lastListenedAt {
             candidates.append(.init(space: .spokenWord, lastListenedAt: listenedAt))
             contents[.spokenWord] = .book(book, songs)
@@ -184,16 +183,15 @@ struct HomeContinueSpacesRow: View {
 
 /// "在听的书" on the home page: covers of the books in progress.
 struct HomeBooksInProgressStrip: View {
+    let books: [(SpokenWordBook, [Song])]
     /// With one book the "continue" row already offers it; the strip earns
     /// its place from the second book on.
     var minimumCount = 1
     var openSpace: (ListeningSpace) -> Void
 
     @Environment(AudioPlayerService.self) private var player
-    @Environment(MusicLibrary.self) private var library
 
     var body: some View {
-        let books = HomeSpokenWordBooks.inProgress(in: library)
         if books.count >= max(1, minimumCount) {
             VStack(alignment: .leading, spacing: 10) {
                 HomeSpaceSectionHeader(
@@ -285,24 +283,5 @@ struct HomeSpaceSectionHeader: View {
             .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 20)
-    }
-}
-
-enum HomeSpokenWordBooks {
-    /// Books with listening in progress, most recently listened first, with
-    /// their songs in reading order.
-    @MainActor
-    static func inProgress(in library: MusicLibrary) -> [(SpokenWordBook, [Song])] {
-        let store = SpokenWordStore.shared
-        _ = store.revision
-        let spoken = library.spokenWordSongs
-        guard !spoken.isEmpty else { return [] }
-        let songsByID = Dictionary(spoken.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let books = SpokenWordBookGrouping.books(
-            from: spoken.map { SpokenWordBookSupport.item(for: $0, store: store) }
-        )
-        return books
-            .filter(\.isInProgress)
-            .map { book in (book, book.items.compactMap { songsByID[$0.id] }) }
     }
 }

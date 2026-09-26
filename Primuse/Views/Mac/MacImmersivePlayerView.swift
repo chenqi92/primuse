@@ -48,6 +48,9 @@ struct MacImmersivePlayerView: View {
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
     @State private var isPresentationActive = false
+    @State private var isWindowVisible = false
+
+    private var isRenderingActive: Bool { isPresentationActive && isWindowVisible }
     @State private var visualizerOwnerID = UUID()
     @FocusState private var acceptsKeyInput: Bool
 
@@ -69,7 +72,7 @@ struct MacImmersivePlayerView: View {
 
     private var visualActivityPolicy: NowPlayingVisualActivityPolicy {
         NowPlayingVisualActivityPolicy(
-            isSceneActive: isPresentationActive,
+            isSceneActive: isRenderingActive,
             isPlaying: player.isPlaying,
             usesRealtimeSpectrum: presentationEffect.usesRealtimeSpectrum,
             reduceMotion: reduceMotion
@@ -87,13 +90,13 @@ struct MacImmersivePlayerView: View {
             let metrics = ImmersiveStageMetrics(size: geometry.size, safeArea: geometry.safeAreaInsets, prefersWide: true)
 
             ZStack {
-                if isStageReady {
+                if isStageReady && isRenderingActive {
                     stage(metrics: metrics)
                 } else {
                     entrySurface(metrics: metrics)
                 }
 
-                if showsChrome {
+                if showsChrome && isRenderingActive {
                     chrome(metrics: metrics)
                         .transition(.opacity)
                 }
@@ -154,15 +157,20 @@ struct MacImmersivePlayerView: View {
             FullscreenPlayerEffectSync.shared.install()
             refreshArtworkInputs()
         }
-        .task(id: isPresentationActive) { @MainActor in
-            guard isPresentationActive else { return }
+        .onRenderingVisibilityChange { visible in
+            isWindowVisible = visible
+            updateVisualizer(for: presentationEffect)
+            if visible { scheduleChromeHide() } else { chromeTask?.cancel() }
+        }
+        .task(id: isRenderingActive) { @MainActor in
+            guard isRenderingActive else { return }
             // 先让系统全屏切换完成首轮布局，再挂载包含大图、Canvas 和模糊的
             // 沉浸场景；避免同一帧里同时争用主线程与 GPU。
             await Task.yield()
             if !reduceMotion {
                 try? await Task.sleep(for: .milliseconds(120))
             }
-            guard !Task.isCancelled, isPresentationActive else { return }
+            guard !Task.isCancelled, isRenderingActive else { return }
             var transaction = Transaction()
             transaction.animation = nil
             withTransaction(transaction) { isStageReady = true }
@@ -234,18 +242,19 @@ struct MacImmersivePlayerView: View {
                     CachedArtworkView(
                         coverRef: song.coverArtFileName,
                         songID: song.id,
-                        size: nil,
+                        size: min(side, 320),
                         cornerRadius: 0,
                         sourceID: song.sourceID,
                         filePath: song.filePath,
                         fileFormat: song.fileFormat,
-                        showsPlaceholder: false
+                        showsPlaceholder: false,
+                        fillsProposedSize: true
                     )
                     .frame(width: side, height: side)
                 )
             },
             typographyFieldLines: typographyFieldLines,
-            isRenderingActive: isPresentationActive,
+            isRenderingActive: isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
             lyricInterlude: lyricInterlude,
@@ -266,8 +275,8 @@ struct MacImmersivePlayerView: View {
                         fileFormat: song.fileFormat,
                         presentationRole: .animatedHero,
                         animationRequiresPlayback: true,
-                        isPlaying: player.isPlaying && isPresentationActive,
-                        isAnimationVisible: isPresentationActive && !showsEffectPicker,
+                        isPlaying: player.isPlaying && isRenderingActive,
+                        isAnimationVisible: isRenderingActive && !showsEffectPicker,
                         onResolutionChange: { hasResolvedArtwork = $0 }
                     )
                     .frame(width: side, height: side)
@@ -924,7 +933,7 @@ struct MacImmersivePlayerView: View {
     }
 
     private var lyricObservationIdentity: String {
-        "\(player.currentSong?.id ?? "")|\(lyrics.hashValue)|\(isPresentationActive)|\(player.isPlaying)"
+        "\(player.currentSong?.id ?? "")|\(lyrics.hashValue)|\(isRenderingActive)|\(player.isPlaying)"
     }
 
     private var lyricPlaybackTime: TimeInterval {
@@ -936,7 +945,7 @@ struct MacImmersivePlayerView: View {
 
     @MainActor
     private func observeLyricPlayback() async {
-        guard isPresentationActive else { return }
+        guard isRenderingActive else { return }
         activeLyricIndex = nil
         lyricInterlude = false
         guard hasSynchronizedLyrics else { return }
@@ -945,7 +954,7 @@ struct MacImmersivePlayerView: View {
             ? Self.wordLevelLineLookahead
             : Self.lineLevelLookahead
         while !Task.isCancelled {
-            guard isPresentationActive else { return }
+            guard isRenderingActive else { return }
             let playbackTime = lyricPlaybackTime
             let index = LyricPlaybackPositionPolicy.activeLineIndex(
                 in: lyrics,
@@ -1091,7 +1100,7 @@ struct MacImmersivePlayerView: View {
     }
 
     private func updateVisualizer(for value: FullscreenPlayerEffect) {
-        guard isPresentationActive,
+        guard isRenderingActive,
               player.isPlaying,
               value.usesRealtimeSpectrum,
               let audioEngine = player.audioEngine.engineForVisualizer,
@@ -1138,7 +1147,7 @@ struct MacImmersivePlayerView: View {
 
     private func scheduleChromeHide() {
         chromeTask?.cancel()
-        guard isPresentationActive,
+        guard isRenderingActive,
               isStageReady,
               player.isPlaying,
               !voiceOverEnabled,
@@ -1151,7 +1160,7 @@ struct MacImmersivePlayerView: View {
                 return
             }
             guard !Task.isCancelled,
-                  isPresentationActive,
+                  isRenderingActive,
                   player.isPlaying,
                   !voiceOverEnabled,
                   scrubPreview == nil,

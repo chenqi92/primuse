@@ -50,6 +50,7 @@ struct TVSettingsView: View {
     @State private var showsThemePicker = tvDebugShowsThemePicker
     @State private var showsAISettings = false
     @State private var showsMetadata = false
+    @State private var showsMedleySettings = false
     @State private var isSyncing = false
     @State private var syncMsg: String?
     @State private var artistNameSettings = ArtistNameSettingsStore.shared
@@ -127,6 +128,10 @@ struct TVSettingsView: View {
                             ambientIntensityRow()
                         }
                         settingsSection(String(localized: "playback")) {
+                            navRow("shuffle", String(localized: "medley_title"),
+                                   String(format: String(localized: "seconds_value_format"), store.medleySegmentSeconds),
+                                   action: { showsMedleySettings = true })
+                            settingDivider
                             navRow("sparkles.tv", PMString("ext.tv.settings.immersive"),
                                    immersiveEffect.localizedTitle,
                                    action: { showsEffectPicker = true })
@@ -229,6 +234,7 @@ struct TVSettingsView: View {
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsEffectPicker)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsThemePicker)
+        .fullScreenCover(isPresented: $showsMedleySettings) { TVMedleySettingsView() }
         .fullScreenCover(isPresented: $showsAISettings) {
             TVAISettingsView()
                 .environment(intelligence)

@@ -7,6 +7,18 @@ import PrimuseKit
 /// references retain their authentication and server-specific meaning.
 actor TVSourceAssetReader {
     static let shared = TVSourceAssetReader()
+    private let registry: StreamResolverRegistry
+    private let session: URLSession
+
+    init(registry: StreamResolverRegistry = .shared, session: URLSession? = nil) {
+        self.registry = registry
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 12
+        configuration.timeoutIntervalForResource = 20
+        self.session = session ?? URLSession(configuration: configuration, delegate: TVInsecureTLSDelegate(), delegateQueue: nil)
+    }
+
+    deinit { session.invalidateAndCancel() }
 
     private struct CachedConnector {
         let identity: String
@@ -23,10 +35,26 @@ actor TVSourceAssetReader {
     private var audioStationClients: [String: CachedAudioStationClient] = [:]
 
     nonisolated static func supports(_ type: MusicSourceType) -> Bool {
-        type.isSubsonicFamily || [.jellyfin, .emby, .plex, .songloft, .synologyAudioStation].contains(type)
+        type.isSubsonicFamily || [.jellyfin, .emby, .plex, .songloft, .synology, .synologyAudioStation].contains(type)
     }
 
     func artworkData(reference: String, source: MusicSource, credential: SourceCredential?, maximumBytes: Int) async -> Data? {
+        if source.type == .synology {
+            // 文件源保存的是 NAS 上的图片路径,须和音频一样通过 File Station 鉴权读取。
+            guard reference.hasPrefix("/"), !reference.hasPrefix("//"), maximumBytes > 0 else { return nil }
+            let artwork = Song(id: "artwork:\(source.id):\(reference)", title: "", fileFormat: .mp3,
+                               filePath: reference, sourceID: source.id)
+            do {
+                let resolved = try await registry.resolve(for: artwork, source: source, credential: credential)
+                var request = URLRequest(url: resolved.url)
+                for (name, value) in resolved.headers { request.setValue(value, forHTTPHeaderField: name) }
+                let (data, response) = try await StreamResolverHTTPTransport.data(
+                    for: request, session: session, maximumBytes: maximumBytes
+                )
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+                return data
+            } catch { return nil }
+        }
         let candidates = await SourceConnectionRuntime.shared.orderedCandidates(for: source)
         let routes = candidates.isEmpty
             ? [source]
@@ -136,7 +164,10 @@ actor TVSourceAssetReader {
         if let stale = audioStationClients.removeValue(forKey: source.id) {
             Task { await stale.client.invalidateSession() }
         }
-        let client = SynologyAudioStationClient(source: source, credential: credential)
+        let client = SynologyAudioStationClient(
+            source: source, credential: credential,
+            deviceName: source.deviceId?.isEmpty == false ? SynologyAudioStationStreamResolver.trustedDeviceName : nil
+        )
         audioStationClients[source.id] = CachedAudioStationClient(identity: identity, client: client)
         return client
     }

@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import PrimuseKit
+import SwiftUI
 import XCTest
 @testable import Primuse
 
@@ -97,7 +98,7 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertTrue(player.isMedleyActive)
         XCTAssertEqual(player.medleySongIDs, ["a", "b", "c"])
         XCTAssertEqual(player.queue.map(\.id), ["a", "b", "c"])
-        XCTAssertEqual(player.queue.first?.duration, 45)
+        XCTAssertEqual(player.queue.first?.duration, 10)
         XCTAssertEqual(player.repeatMode, .off, "repeat-one would never crossfade")
         XCTAssertTrue(player.shouldUseCrossfade(player.playbackSettings.snapshot()))
         XCTAssertTrue(PlayHistoryStore.shared.isRecordingSuspended)
@@ -126,10 +127,10 @@ final class ListeningFeaturesTests: XCTestCase {
         XCTAssertEqual(entry.title, "Renamed")
         XCTAssertEqual(entry.cueStartTime, slices[1].cueStartTime)
         XCTAssertEqual(entry.cueEndTime, slices[1].cueEndTime)
-        XCTAssertEqual(entry.duration, 45)
+        XCTAssertEqual(entry.duration, 10)
 
         // The hand-off refresh must not reintroduce the library's length.
-        XCTAssertEqual(player.songRefreshingLatestDuration(entry).duration, 45)
+        XCTAssertEqual(player.songRefreshingLatestDuration(entry).duration, 10)
     }
 
     func testMedleyCandidatesComeFromTheCurrentRoundOfTheQueue() throws {
@@ -403,5 +404,335 @@ final class ListeningFeaturesTests: XCTestCase {
         let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
         XCTAssertEqual(properties[kCGImagePropertyPixelWidth] as? Int, 1024)
         XCTAssertEqual(properties[kCGImagePropertyPixelHeight] as? Int, 512)
+    }
+}
+
+
+extension ListeningFeaturesTests {
+    func testShelfOrderMovesBothWaysAndSurvivesNewAndTemporarilyMissingBooks() throws {
+        let defaults = try makeDefaults()
+        let first = try XCTUnwrap(SpokenWordShelfOrder.moving("c", onto: "a", visible: ["a", "b", "c"],
+                                                            preferred: [], allIDs: ["a", "b", "c"]))
+        XCTAssertEqual(first, ["c", "a", "b"])
+        defaults.set(SpokenWordShelfOrder.encode(first), forKey: "spokenWord.shelf.order")
+        let restored = SpokenWordShelfOrder.decode(try XCTUnwrap(defaults.string(forKey: "spokenWord.shelf.order")))
+        XCTAssertEqual(SpokenWordShelfOrder.orderedIDs(["a", "b", "c", "new"], preferred: restored), ["c", "a", "b", "new"])
+        XCTAssertEqual(SpokenWordShelfOrder.orderedIDs(["a", "b"], preferred: restored), ["a", "b"])
+        XCTAssertEqual(SpokenWordShelfOrder.orderedIDs(["a", "b", "c"], preferred: restored), first)
+        XCTAssertEqual(SpokenWordShelfOrder.moving("c", onto: "b", visible: first, preferred: restored,
+                                                  allIDs: ["a", "b", "c"]), ["a", "b", "c"])
+    }
+
+    func testShelfOrderPreservesOtherSectionsAndRejectsForeignDrops() {
+        let order = ["a", "current", "finished", "b", "unavailable", "c"]
+        XCTAssertEqual(SpokenWordShelfOrder.moving("c", onto: "a", visible: ["a", "b", "c"],
+                                                  preferred: order, allIDs: ["a", "b", "c", "finished", "current"]),
+                       ["c", "current", "finished", "a", "unavailable", "b"])
+        XCTAssertNil(SpokenWordShelfOrder.moving("foreign", onto: "a", visible: ["a", "b"], preferred: [], allIDs: ["a", "b"]))
+        XCTAssertNil(SpokenWordShelfOrder.moving("a", onto: "a", visible: ["a", "b"], preferred: [], allIDs: ["a", "b"]))
+        XCTAssertEqual(SpokenWordShelfOrder.decode("invalid"), [])
+        XCTAssertEqual(SpokenWordShelfOrder.decode("[\"a\",\"a\",\"b\"]"), ["a", "b"])
+    }
+
+    func testSpokenWordSnapshotKeepsShelfSectionsAndChapterQueuesConsistent() async throws {
+        let model = SpokenWordBooksModel()
+        XCTAssertFalse(model.snapshot.isPrepared)
+        var a = song("a", genre: "Audiobook")
+        a.albumTitle = "Book A"
+        var b = song("b", genre: "Audiobook")
+        b.albumTitle = "Book B"
+        var c = song("c", genre: "Audiobook")
+        c.albumTitle = "Book C"
+        var untouched = song("untouched", genre: "Audiobook")
+        untouched.albumTitle = "Book D"
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let later = earlier.addingTimeInterval(100)
+        await model.refresh(
+            songs: [untouched, c, b, a],
+            positions: [a.id: .init(position: 60, duration: 240, updatedAt: later),
+                        b.id: .init(position: 30, duration: 240, updatedAt: earlier)],
+            finishedAt: [c.id: later]
+        )
+        let snapshot = model.snapshot
+        XCTAssertTrue(snapshot.isPrepared)
+        XCTAssertEqual(snapshot.entriesByID.count, 4)
+        XCTAssertEqual(snapshot.nowListening?.songs.map(\.id), [a.id])
+        XCTAssertEqual(snapshot.shelf.flatMap(\.songs).map(\.id), [b.id, untouched.id])
+        XCTAssertEqual(snapshot.finished.flatMap(\.songs).map(\.id), [c.id])
+        XCTAssertEqual(snapshot.inProgress.flatMap { $0.1 }.map(\.id), [a.id, b.id])
+        let current = try XCTUnwrap(snapshot.nowListening)
+        XCTAssertEqual(snapshot.entriesByID[current.id]?.songs, current.songs)
+
+        await model.refresh(songs: [untouched, c, b, a], positions: [b.id: .init(position: 30, duration: 240, updatedAt: earlier)], finishedAt: [c.id: later])
+        XCTAssertEqual(model.snapshot.nowListening?.songs.map(\.id), [b.id])
+        XCTAssertEqual(model.snapshot.shelf.flatMap(\.songs).map(\.id), [a.id, untouched.id])
+    }
+
+    func testSpokenWordSnapshotUpdatesDetailMetadataAndDropsRemovedBooks() async throws {
+        let model = SpokenWordBooksModel()
+        var chapter = song("chapter", genre: "Audiobook")
+        await model.refresh(songs: [chapter], positions: [:], finishedAt: [:])
+        let original = try XCTUnwrap(model.snapshot.shelf.first)
+        chapter.title = "Updated chapter"
+        chapter.duration = 480
+        await model.refresh(songs: [chapter], positions: [:], finishedAt: [:])
+        let updated = try XCTUnwrap(model.snapshot.entriesByID[original.id])
+        XCTAssertEqual(updated.songs.first?.title, chapter.title)
+        XCTAssertEqual(updated.book.items.first?.title, chapter.title)
+        XCTAssertEqual(updated.book.totalDuration, 480)
+        await model.refresh(songs: [], positions: [:], finishedAt: [:])
+        XCTAssertTrue(model.snapshot.isPrepared)
+        XCTAssertTrue(model.snapshot.entriesByID.isEmpty)
+        XCTAssertTrue(model.snapshot.shelf.isEmpty)
+        XCTAssertTrue(model.snapshot.finished.isEmpty)
+        XCTAssertNil(model.snapshot.nowListening)
+    }
+
+    #if os(iOS)
+    func testLargeSpokenWordShelfOnlyBuildsVisibleCells() async throws {
+        let defaults = try makeDefaults()
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        let player = try makePlayer(library: library)
+        let started = ContinuousClock.now
+        let snapshot = await Task.detached {
+            let items = (0..<2_000).flatMap { book in
+                (0..<10).map { chapter in
+                    SpokenWordBookItem(id: "shelf-\(book)-\(chapter)", title: "Chapter \(chapter)",
+                                      albumTitle: String(format: "Book %04d Novel", book), trackNumber: chapter,
+                                      duration: 300)
+                }
+            }
+            return SpokenWordLibrarySnapshot(books: SpokenWordBookGrouping.books(from: items))
+        }.value
+        print("Shelf preparation (2000 books / 20000 chapters): \(started.duration(to: .now))")
+        XCTAssertEqual(snapshot.shelf.count, 2_000)
+        var built = Set<String>()
+        SpokenWordShelfDiagnostics.didBuildCell = { built.insert($0) }
+        defer { SpokenWordShelfDiagnostics.didBuildCell = nil }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let host = UIHostingController(rootView: NavigationStack {
+            ScrollView {
+                SpokenWordShelfContent(snapshot: snapshot).padding(.horizontal, 16)
+            }
+        }
+            .environment(library)
+            .environment(player)
+            .environment(AppServices.shared.sourceManager)
+            .environment(ThemeService())
+            .defaultAppStorage(defaults))
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        let mounted = ContinuousClock.now
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(400))
+        print("Shelf mounted: \(mounted.duration(to: .now)); built cells: \(built.count)")
+        XCTAssertGreaterThan(built.count, 0)
+        XCTAssertLessThan(built.count, 100, "Offscreen books must not render artwork or initialize cells")
+        built = []
+        defaults.set(SpokenWordShelfOrder.encode(Array(snapshot.shelf.map(\.id).reversed())), forKey: "spokenWord.shelf.order")
+        try await Task.sleep(for: .milliseconds(200))
+        print("Shelf reordered built cells: \(built.count)")
+        XCTAssertGreaterThan(built.count, 0)
+        XCTAssertLessThan(built.count, 100, "A saved order must not defeat lazy artwork loading")
+        func descendants(_ view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap(descendants)
+        }
+        let scroll = try XCTUnwrap(descendants(host.view).first { $0.contentSize.height > $0.bounds.height })
+        let initial = built
+        scroll.setContentOffset(CGPoint(x: 0, y: 2_000), animated: false)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertFalse(built.subtracting(initial).isEmpty)
+        XCTAssertLessThan(built.count, 200)
+        defaults.set("list", forKey: "spokenWord.shelf.layout")
+        built = []
+        try await Task.sleep(for: .milliseconds(300))
+        print("Shelf list built cells: \(built.count)")
+        XCTAssertGreaterThan(built.count, 0)
+        XCTAssertLessThan(built.count, 100)
+    }
+
+    func testSpokenWordShelfRendersScrollableListAndRemembersLayout() async throws {
+        let defaults = try makeDefaults()
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        let player = try makePlayer(library: library)
+        let songs = (0..<24).map { index in
+            var item = song("shelf-layout-\(index)", genre: "Audiobook")
+            item.albumTitle = String(format: "长篇有声书 %02d：远方的故事", index / 2 + 1)
+            item.artistName = "测试作者"
+            item.trackNumber = index % 2 + 1
+            return item
+        }
+        library.addSongs(songs)
+        for _ in 0..<200 where library.spokenWordSongs.count != songs.count {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.spokenWordSongs.count, songs.count)
+        XCTAssertEqual(library.spokenWordBookCount, 12)
+        func root(_ identity: Int) -> some View {
+            NavigationStack { SpokenWordLibraryView() }
+                .environment(library)
+                .environment(player)
+                .environment(AppServices.shared.sourceManager)
+                .environment(ThemeService())
+                .environment(\.locale, Locale(identifier: "zh-Hans"))
+                .defaultAppStorage(defaults)
+                .id(identity)
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let host = UIHostingController(rootView: root(0))
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func descendants<T: UIView>(_ view: UIView, _: T.Type) -> [T] {
+            (view as? T).map { [$0] } ?? view.subviews.flatMap { descendants($0, T.self) }
+        }
+        func capture(_ name: String) {
+            host.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+                host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        try await Task.sleep(for: .milliseconds(450))
+        host.view.layoutIfNeeded()
+        XCTAssertTrue(descendants(host.view, UISegmentedControl.self).isEmpty)
+        capture("spoken-word-bookshelf")
+        defaults.set("list", forKey: "spokenWord.shelf.layout")
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(defaults.string(forKey: "spokenWord.shelf.layout"), "list")
+        host.view.layoutIfNeeded()
+        let scroll = try XCTUnwrap(descendants(host.view, UIScrollView.self).first { $0.contentSize.height > $0.bounds.height })
+        XCTAssertGreaterThan(scroll.contentSize.height, scroll.bounds.height)
+        let listHeight = scroll.contentSize.height
+        capture("spoken-word-list")
+        scroll.setContentOffset(CGPoint(x: 0, y: scroll.contentSize.height - scroll.bounds.height), animated: false)
+        try await Task.sleep(for: .milliseconds(150))
+        capture("spoken-word-list-scrolled")
+        host.rootView = root(1)
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertEqual(defaults.string(forKey: "spokenWord.shelf.layout"), "list")
+        host.view.layoutIfNeeded()
+        let restoredScroll = try XCTUnwrap(descendants(host.view, UIScrollView.self).first { $0.contentSize.height > $0.bounds.height })
+        XCTAssertEqual(restoredScroll.contentSize.height, listHeight, accuracy: 1)
+        capture("spoken-word-list-restored")
+        defaults.set("bookshelf", forKey: "spokenWord.shelf.layout")
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(defaults.string(forKey: "spokenWord.shelf.layout"), "bookshelf")
+        capture("spoken-word-bookshelf-restored")
+    }
+    #endif
+
+    func testHomeBookRevisionFollowsPublishedClassificationChanges() async throws {
+        let library = MusicLibrary(storageDirectory: makeDirectory())
+        let before = library.spokenWordContentRevision
+        var book = song("book", genre: "Audiobook")
+        library.addSongs([book])
+        for _ in 0..<200 where library.spokenWordSongs.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(library.spokenWordSongs.map(\.id), [book.id])
+        XCTAssertGreaterThan(library.spokenWordContentRevision, before)
+        let classified = library.spokenWordContentRevision
+        book.genre = "Rock"
+        library.replaceSongs([book], maintenance: .immediate)
+        for _ in 0..<200 where !library.spokenWordSongs.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(library.spokenWordSongs.isEmpty)
+        XCTAssertGreaterThan(library.spokenWordContentRevision, classified)
+    }
+
+    func testHomeBookProjectionKeepsChapterOrderAndTracksProgressAndRemoval() async {
+        let model = SpokenWordBooksModel()
+        var first = song("chapter-1", genre: "Audiobook")
+        first.trackNumber = 1
+        var second = song("chapter-2", genre: "Audiobook")
+        second.trackNumber = 2
+        let position = SpokenWordStore.StoredPosition(position: 60, duration: 240, updatedAt: Date())
+        await model.refresh(songs: [second, first], positions: [first.id: position], finishedAt: [:])
+        XCTAssertEqual(model.inProgress.count, 1)
+        XCTAssertEqual(model.inProgress.first?.1.map(\.id), [first.id, second.id])
+        let before = model.inProgress.first?.0.fractionComplete ?? 0
+
+        await model.refresh(songs: [second, first], positions: [second.id: position], finishedAt: [first.id: Date()])
+        XCTAssertGreaterThan(model.inProgress.first?.0.fractionComplete ?? 0, before)
+        await model.refresh(songs: [second, first], positions: [:], finishedAt: [first.id: Date(), second.id: Date()])
+        XCTAssertTrue(model.inProgress.isEmpty)
+        await model.refresh(songs: [first], positions: [first.id: position], finishedAt: [:])
+        XCTAssertEqual(model.inProgress.count, 1)
+        await model.refresh(songs: [], positions: [first.id: position], finishedAt: [:])
+        XCTAssertTrue(model.inProgress.isEmpty)
+    }
+
+    func testHomeBookProjectionRejectsOlderComputationAfterLibraryClears() async {
+        let model = SpokenWordBooksModel()
+        let songs = (0..<10_000).map { song("chapter-\($0)", genre: "Audiobook") }
+        let position = SpokenWordStore.StoredPosition(position: 60, duration: 240, updatedAt: Date())
+        let older = Task {
+            await model.refresh(songs: songs, positions: [songs[0].id: position], finishedAt: [:])
+        }
+        while model.requestRevision == 0 { await Task.yield() }
+        await model.refresh(songs: [], positions: [:], finishedAt: [:])
+        await older.value
+        XCTAssertTrue(model.inProgress.isEmpty)
+    }
+
+    func testCancelledHomeBookRefreshPreservesCurrentProjection() async {
+        let model = SpokenWordBooksModel()
+        let book = song("chapter", genre: "Audiobook")
+        await model.refresh(songs: [book], positions: [book.id: .init(position: 60, duration: 240, updatedAt: Date())], finishedAt: [:])
+        let cancelled = Task { await model.refresh(songs: [], positions: [:], finishedAt: [:]) }
+        cancelled.cancel()
+        await cancelled.value
+        XCTAssertEqual(model.inProgress.first?.1.map(\.id), [book.id])
+    }
+
+    func testLyricsPreparationKeepsManualTranslationsWhenDisabledAndAfterEdits() async throws {
+        let service = LyricsTranslationPreparer()
+        var line = LyricLine(id: "line", timestamp: 1, text: "I am walking home tonight.", manualTranslation: .init(text: "今晚我走路回家", languageCode: "zh-Hans", source: .localEditor))
+        let disabled = try await service.prepare(lyrics: [line], targetLanguageCode: "zh-Hans", enabled: false)
+        XCTAssertEqual(disabled.manualTranslations[line.id], "今晚我走路回家")
+        XCTAssertTrue(disabled.groups.isEmpty)
+        let enabled = try await service.prepare(lyrics: [line], targetLanguageCode: "zh-Hans", enabled: true)
+        XCTAssertEqual(enabled, disabled)
+        line.manualTranslation?.text = "更新后的译文"
+        let edited = try await service.prepare(lyrics: [line], targetLanguageCode: "zh-Hans", enabled: false)
+        XCTAssertEqual(edited.manualTranslations[line.id], "更新后的译文")
+    }
+
+    func testLyricsPreparationCacheSeparatesTargetsAndContentWithSameLineIDs() async throws {
+        let service = LyricsTranslationPreparer()
+        let english = LyricLine(id: "line", timestamp: 1, text: "The sun is shining brightly in the beautiful blue sky.", metadataLines: ["[language:en]"])
+        let toChinese = try await service.prepare(lyrics: [english], targetLanguageCode: "zh-Hans", enabled: true)
+        XCTAssertEqual(toChinese.groups.flatMap(\.candidates).map(\.text), [english.text])
+        let toEnglish = try await service.prepare(lyrics: [english], targetLanguageCode: "en", enabled: true)
+        XCTAssertTrue(toEnglish.groups.isEmpty)
+        var edited = english
+        edited.text = "The moon is rising over the quiet mountains tonight."
+        let changed = try await service.prepare(lyrics: [edited], targetLanguageCode: "zh-Hans", enabled: true)
+        XCTAssertEqual(changed.groups.flatMap(\.candidates).map(\.text), [edited.text])
+        let reused = try await service.prepare(lyrics: [english], targetLanguageCode: "zh-Hans", enabled: true)
+        XCTAssertEqual(reused, toChinese)
+    }
+
+    func testCancelledLyricsPreparationDoesNotReturnCachedResult() async throws {
+        let service = LyricsTranslationPreparer()
+        _ = try await service.prepare(lyrics: [], targetLanguageCode: "en", enabled: false)
+        let cancelled = Task { try await service.prepare(lyrics: [], targetLanguageCode: "en", enabled: false) }
+        cancelled.cancel()
+        do {
+            _ = try await cancelled.value
+            XCTFail("Cancelled preparation must not publish even a cached result")
+        } catch is CancellationError {
+        }
     }
 }

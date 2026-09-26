@@ -1048,23 +1048,26 @@ struct HomeView: View {
     private var contentView: some View {
         // Section contents are bounded. Stable vertical sizes avoid lazy
         // placement loops when a ranking card changes height near the viewport.
-        VStack(alignment: .leading, spacing: editorMode ? 12 : 24) {
-            if editorMode {
-                Text("home_editor_hint")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 20)
-                homeEditorRadioToggle
-            } else if model.snapshot.hasContent {
-                libraryHeroSection
-            }
-            // 这两排横跨三类,只在「全部」里出现;筛到音乐时只留音乐自己的区块。
-            if !editorMode, activeHomeFilter == nil {
-                HomeContinueSpacesRow(openSpace: openSpace)
-                HomeBooksInProgressStrip(minimumCount: 2, openSpace: openSpace)
-            }
+        SpokenWordLibraryContent { snapshot in
+            let books = snapshot.inProgress
+            VStack(alignment: .leading, spacing: editorMode ? 12 : 24) {
+                if editorMode {
+                    Text("home_editor_hint")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 20)
+                    homeEditorRadioToggle
+                } else if model.snapshot.hasContent {
+                    libraryHeroSection
+                }
+                // 这两排横跨三类,只在「全部」里出现;筛到音乐时只留音乐自己的区块。
+                if !editorMode, activeHomeFilter == nil {
+                    HomeContinueSpacesRow(books: books, openSpace: openSpace)
+                    HomeBooksInProgressStrip(books: books, minimumCount: 2, openSpace: openSpace)
+                }
 
-            homeSections
+                homeSections
+            }
         }
     }
 

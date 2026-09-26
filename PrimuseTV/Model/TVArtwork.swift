@@ -1176,6 +1176,7 @@ struct TVArtworkView: View {
     private var artworkTaskIdentity: String {
         var components = [
             artworkIdentity,
+            String(store.sourcesRevision),
             String(retryRevision),
             presentationRole.rawValue,
             songSourceAnimationDiskKey,

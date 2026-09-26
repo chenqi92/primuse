@@ -119,7 +119,7 @@ struct PlaybackSettings: Codable, Sendable {
     var spokenWordSkipBackwardSeconds: Int = 15
     var spokenWordSkipForwardSeconds: Int = 30
     /// 串烧每首截取的秒数。
-    var medleySegmentSeconds: Int = 45
+    var medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength
     /// Uses the current synchronized lyric as the system Now Playing title.
     /// Users can still opt out because the remapped metadata is also visible
     /// to Control Center, Bluetooth receivers and in-car Now Playing surfaces.
@@ -174,7 +174,8 @@ struct PlaybackSettings: Codable, Sendable {
         spokenWordPlaybackRate = try c.decodeIfPresent(Float.self, forKey: .spokenWordPlaybackRate) ?? 1.0
         spokenWordSkipBackwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipBackwardSeconds) ?? 15
         spokenWordSkipForwardSeconds = try c.decodeIfPresent(Int.self, forKey: .spokenWordSkipForwardSeconds) ?? 30
-        medleySegmentSeconds = try c.decodeIfPresent(Int.self, forKey: .medleySegmentSeconds) ?? 45
+        medleySegmentSeconds = try c.decodeIfPresent(Int.self, forKey: .medleySegmentSeconds)
+            ?? MedleySegmentPolicy.defaultSegmentLength
         lockScreenLyricsEnabled = try c.decodeIfPresent(Bool.self, forKey: .lockScreenLyricsEnabled) ?? true
         matchOutputSampleRate = try c.decodeIfPresent(Bool.self, forKey: .matchOutputSampleRate) ?? false
         effectChainEnabled = try c.decodeIfPresent(Bool.self, forKey: .effectChainEnabled) ?? true
@@ -213,7 +214,7 @@ struct PlaybackSettings: Codable, Sendable {
         spokenWordPlaybackRate: Float = 1.0,
         spokenWordSkipBackwardSeconds: Int = 15,
         spokenWordSkipForwardSeconds: Int = 30,
-        medleySegmentSeconds: Int = 45,
+        medleySegmentSeconds: Int = MedleySegmentPolicy.defaultSegmentLength,
         lockScreenLyricsEnabled: Bool = true,
         matchOutputSampleRate: Bool = false,
         effectChainEnabled: Bool = true,

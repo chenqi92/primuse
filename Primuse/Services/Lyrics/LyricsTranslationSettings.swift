@@ -86,12 +86,12 @@ final class LyricsTranslationSettingsStore {
 
     /// 把带 region 的 BCP-47 标识简化为 Translation 使用的语言身份，同时
     /// 保留会影响转换结果的 script（例如简体/繁体）。
-    static func normalizedLanguageCode(_ raw: String) -> String {
+    nonisolated static func normalizedLanguageCode(_ raw: String) -> String {
         let identity = LyricTranslationGroupingPolicy.languageIdentity(raw)
         return identity.isEmpty ? "zh-Hans" : identity
     }
 
-    static func detectedLanguageCode(
+    nonisolated static func detectedLanguageCode(
         for text: String,
         minimumConfidence: Double = 0.55,
         fallbackLanguageCode: String? = nil,
@@ -132,7 +132,7 @@ final class LyricsTranslationSettingsStore {
         return reconciled
     }
 
-    static func detectedLyricsLanguageCode(
+    nonisolated static func detectedLyricsLanguageCode(
         for texts: [String],
         metadataLines: [String] = []
     ) -> String? {
@@ -152,7 +152,7 @@ final class LyricsTranslationSettingsStore {
         )
     }
 
-    static func declaredLyricsLanguageCode(from metadataLines: [String]) -> String? {
+    nonisolated static func declaredLyricsLanguageCode(from metadataLines: [String]) -> String? {
         LyricTranslationGroupingPolicy.declaredLanguageCode(in: metadataLines)
     }
 
@@ -268,4 +268,94 @@ final class LyricsTranslationLanguageCatalog {
 
 extension Notification.Name {
     static let lyricsTranslationSettingsChanged = Notification.Name("primuse.lyrics.translation.settingsChanged")
+}
+
+/// Pure preparation is shared across player presentations and stays off the UI executor.
+actor LyricsTranslationPreparer {
+    static let shared = LyricsTranslationPreparer()
+
+    struct Prepared: Equatable, Sendable {
+        let manualTranslations: [String: String]
+        let groups: [LyricTranslationGroup]
+        var requiresPreparation = false
+    }
+
+    private struct Key: Hashable {
+        let lyrics: [LyricLine]
+        let targetLanguageCode: String
+        let enabled: Bool
+    }
+
+    private var cached: [(Key, Prepared)] = []
+
+    func prepare(lyrics: [LyricLine], targetLanguageCode: String, enabled: Bool) throws -> Prepared {
+        try Task.checkCancellation()
+        let key = Key(lyrics: lyrics, targetLanguageCode: targetLanguageCode, enabled: enabled)
+        if let index = cached.firstIndex(where: { $0.0 == key }) {
+            let hit = cached.remove(at: index)
+            cached.append(hit)
+            return hit.1
+        }
+        let result = try makePreparation(lyrics: lyrics, targetLanguageCode: targetLanguageCode, enabled: enabled)
+        try Task.checkCancellation()
+        cached.append((key, result))
+        if cached.count > 4 { cached.removeFirst() }
+        return result
+    }
+
+    private func makePreparation(lyrics: [LyricLine], targetLanguageCode: String, enabled: Bool) throws -> Prepared {
+        let translationLines = LyricVoiceTimelinePolicy.flattenedLines(lyrics)
+        // 罗马音 / 拼音这类读音行按整篇判一次，逐行选译文时把它们排除掉。
+        let readingIDs = LyricRomanizedReadingPolicy.readingIDs(in: translationLines)
+        let manualTranslations = translationLines.reduce(into: [String: String]()) { result, line in
+            guard let manualTranslation = LyricManualTranslationPolicy.preferredTranslation(
+                for: line,
+                targetLanguageCode: targetLanguageCode,
+                readingIDs: readingIDs
+            ) else { return }
+            let text = manualTranslation.text
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            result[line.id] = text
+        }
+
+        guard enabled, !lyrics.isEmpty else {
+            return Prepared(manualTranslations: manualTranslations, groups: [])
+        }
+        if LyricManualTranslationPolicy.hasCompleteCoverage(
+            in: translationLines,
+            targetLanguageCode: targetLanguageCode,
+            readingIDs: readingIDs
+        ) {
+            return Prepared(manualTranslations: manualTranslations, groups: [])
+        }
+
+        let lyricTexts = translationLines.map(\.text)
+        let metadataLines = lyrics.lazy.compactMap(\.metadataLines).first ?? []
+        let declaredSourceLanguageCode = LyricsTranslationSettingsStore
+            .declaredLyricsLanguageCode(from: metadataLines)
+        let fallbackSourceLanguageCode = LyricsTranslationSettingsStore.detectedLyricsLanguageCode(
+            for: lyricTexts,
+            metadataLines: metadataLines
+        )
+        let candidates = try translationLines.compactMap { line -> LyricTranslationCandidate? in
+            try Task.checkCancellation()
+            guard manualTranslations[line.id] == nil else { return nil }
+            let lineDeclaredLanguageCode = line.languageCode ?? declaredSourceLanguageCode
+            return LyricTranslationCandidate(
+                id: line.id,
+                text: line.text,
+                sourceLanguageCode: LyricsTranslationSettingsStore.detectedLanguageCode(
+                    for: line.text,
+                    fallbackLanguageCode: fallbackSourceLanguageCode,
+                    declaredLanguageCode: lineDeclaredLanguageCode
+                )
+            )
+        }
+        let groups = LyricTranslationGroupingPolicy.groups(
+            candidates: candidates,
+            targetLanguageCode: targetLanguageCode,
+            fallbackSourceLanguageCode: fallbackSourceLanguageCode
+        )
+        return Prepared(manualTranslations: manualTranslations, groups: groups, requiresPreparation: true)
+    }
 }

@@ -67,19 +67,24 @@ struct TVLibraryView: View {
             let cell = max(140, (contentW - gap * CGFloat(cols - 1)) / CGFloat(cols))
             VStack(alignment: .leading, spacing: 24) {
                 filterStrip
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 30) {
-                        Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        grid(cell: cell)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 30) {
+                            Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("tv.library.contentTop")
+                            grid(cell: cell, onFolderNavigation: {
+                                proxy.scrollTo("tv.library.contentTop", anchor: .top)
+                            })
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.top, 8)
+                        .padding(.bottom, TVSpace.pageBottom)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 8)
-                    .padding(.bottom, TVSpace.pageBottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .focusSection()
+                    .id(filter)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .focusSection()
-                .id(filter)
             }
             .padding(.horizontal, TVSpace.pageH)
             .padding(.top, TVSpace.pageTop)
@@ -175,15 +180,15 @@ struct TVLibraryView: View {
     }
 
     @ViewBuilder
-    private func grid(cell: CGFloat) -> some View {
+    private func grid(cell: CGFloat, onFolderNavigation: @escaping () -> Void) -> some View {
         let columns = Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols)
         switch filter {
         case .albums:
-            LazyVGrid(columns: columns, alignment: .leading, spacing: gap) {
-                ForEach(store.albums) { a in
-                    TVAlbumCard(album: a, width: cell,
-                                subtitleOverride: a.year > 0 ? "\(a.artist) · \(a.year)" : a.artist, action: openPlayer)
-                }
+            TVPagedGrid(items: store.albums, columns: columns, spacing: gap) { index, album, focusChanged in
+                TVAlbumCard(album: album, width: cell,
+                            subtitleOverride: album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist,
+                            action: openPlayer, onFocusChanged: focusChanged)
+                    .accessibilityIdentifier("tv.library.album.\(index)")
             }
         case .recommendations:
             VStack(alignment: .leading, spacing: 22) {
@@ -256,22 +261,22 @@ struct TVLibraryView: View {
                 }
             }
         case .artists:
-            LazyVGrid(columns: columns, alignment: .leading, spacing: gap) {
-                ForEach(store.artists) { artist in
-                    TVArtistCard(
-                        artist: artist,
-                        size: cell * 0.82,
-                        action: { selectedArtist = artist }
-                    )
-                        .frame(width: cell)
-                }
+            TVPagedGrid(items: store.artists, columns: columns, spacing: gap) { index, artist, focusChanged in
+                TVArtistCard(
+                    artist: artist,
+                    size: cell * 0.82,
+                    action: { selectedArtist = artist },
+                    onFocusChanged: focusChanged
+                )
+                    .frame(width: cell)
+                    .accessibilityIdentifier("tv.library.artist.\(index)")
             }
         case .songs:
             TVPagedSongIDList(songIDs: store.songIDs, alignment: .leading, action: openPlayer)
         case .genres:
             TVGenreBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         case .folders:
-            TVFolderBrowser(openPlayer: openPlayer)
+            TVFolderBrowser(openPlayer: openPlayer, onNavigation: onFolderNavigation)
         case .ranking:
             TVRankingBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         }
@@ -496,6 +501,7 @@ struct TVArtistDetailView: View {
                             action: { play(shuffled: true) }
                         )
                     }
+                    TVMedleyButton(songIDs: artistSongIDs) { openPlayer(); dismiss() }
                     Spacer(minLength: 0)
                 }
                 .frame(width: 440, alignment: .leading)

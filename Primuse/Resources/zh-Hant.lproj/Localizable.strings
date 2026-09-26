@@ -4583,6 +4583,7 @@
 "karaoke_remote_rejected" = "Apple TV 沒有接受這個 QR 碼，請重新掃描電視上的碼。";
 "karaoke_remote_failed" = "連不上 Apple TV，請確認兩台裝置在同一個網路。";
 "karaoke_remote_hint" = "把 iPhone 拿在嘴邊。歌聲照常唱給房間裡的人聽，手機只負責評分。";
+"karaoke_tv_ai_local" = "Apple TV 本機 AI 分離";
 "karaoke_tv_ai_active" = "已使用 iPhone 提供的 AI 人聲分離。";
 "karaoke_tv_ai_preparing_format" = "iPhone 正在分離人聲… %d%%";
 "karaoke_remote_ai_preparing" = "正在為電視準備 AI 人聲";

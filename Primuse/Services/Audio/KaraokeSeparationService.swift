@@ -8,7 +8,7 @@ import System
 #endif
 
 /// Where the AI vocal model comes from. It is an Apple-hosted, on-demand
-/// Background Assets pack (iOS / macOS 26.4 and later), so the app binary
+/// Background Assets pack (iOS / macOS / tvOS 26.4 and later), so the app binary
 /// does not carry it. Debug builds can point at a local copy instead.
 enum KaraokeVocalModel {
     static let assetPackID = "KaraokeVocalModel"
@@ -34,7 +34,7 @@ enum KaraokeVocalModel {
         #if DEBUG
         if debugOverrideURL != nil { return true }
         #endif
-        if #available(iOS 26.4, macOS 26.4, *) { return true }
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) { return true }
         return false
     }
 
@@ -44,7 +44,7 @@ enum KaraokeVocalModel {
         if let url = debugOverrideURL { return url }
         #endif
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, *),
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *),
            AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID),
            let anchor = try? AssetPackManager.shared.url(for: FilePath(anchorFile)) {
             return anchor.deletingLastPathComponent()
@@ -57,7 +57,7 @@ enum KaraokeVocalModel {
     static func download(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         if let url = localModelURL() { return url }
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, *) {
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) {
             let manager = AssetPackManager.shared
             let pack = try await manager.assetPack(withID: assetPackID)
             let watcher = Task {
@@ -77,7 +77,7 @@ enum KaraokeVocalModel {
 
     static func remove() async {
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, *) {
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) {
             try? await AssetPackManager.shared.remove(assetPackWithID: assetPackID)
         }
         #endif
@@ -88,6 +88,12 @@ enum KaraokeSeparationError: Error {
     case modelUnavailable
     case unreadableAudio
     case tooLong
+}
+
+/// A borrowed source file or a download owned solely by this separation job.
+struct KaraokeAudioFile: Sendable {
+    let url: URL
+    var removeAfterDecoding = false
 }
 
 /// Separates songs' vocals with the AI model and keeps the results.
@@ -185,7 +191,16 @@ final class KaraokeSeparationService {
     }
 
     /// Starts separating `song` unless it is cached or already running.
+    #if !os(tvOS)
     func prepare(_ song: Song, sourceManager: SourceManager) {
+        prepare(song) {
+            let url = try await sourceManager.auxiliaryConnector(for: song).localURL(for: song.filePath)
+            return KaraokeAudioFile(url: url)
+        }
+    }
+    #endif
+
+    func prepare(_ song: Song, audioFile: @escaping @MainActor () async throws -> KaraokeAudioFile) {
         guard modelState == .ready, jobs[song.id] == nil else { return }
         switch state(for: song) {
         case .ready, .separating, .unsupported: return
@@ -203,12 +218,14 @@ final class KaraokeSeparationService {
             guard let self else { return }
             do {
                 let separator = try await self.loadSeparator()
-                let localURL = try await sourceManager.auxiliaryConnector(for: song).localURL(for: song.filePath)
+                try Task.checkCancellation()
+                let file = try await audioFile()
                 let audio = try await Self.decodeForModel(
-                    url: localURL,
+                    file: file,
                     start: song.cueStartTime,
                     end: song.cueEndTime
                 )
+                try Task.checkCancellation()
                 let songID = song.id
                 let stem = try await separator.separateVocals(
                     left: audio.left,
@@ -231,6 +248,7 @@ final class KaraokeSeparationService {
                         }
                     }
                 )
+                try Task.checkCancellation()
                 try await Self.write(stem: stem, to: destination)
                 self.songStates[song.id] = .ready
                 plog("🎤 Karaoke: separated \(song.id.prefix(8))… in \(String(format: "%.1f", Date().timeIntervalSince(startedAt)))s")
@@ -253,14 +271,30 @@ final class KaraokeSeparationService {
         jobs[songID]?.cancel()
     }
 
+    func discardStem(for song: Song) {
+        guard jobs[song.id] == nil else { return }
+        try? FileManager.default.removeItem(at: Self.stemURL(for: song))
+        songStates[song.id] = nil
+        onsetCache[song.id] = nil
+    }
+
     /// The cached stem resampled to the playback graph's rate.
+    #if !os(tvOS)
     func loadStem(for song: Song, graphSampleRate: Double) async -> KaraokeStemTrack? {
+        guard let samples = await loadStemSamples(for: song, graphSampleRate: graphSampleRate) else { return nil }
+        return await Task.detached(priority: .userInitiated) {
+            KaraokeStemTrack(left: samples.left, right: samples.right, sampleRate: graphSampleRate)
+        }.value
+    }
+    #endif
+
+    func loadStemSamples(for song: Song, graphSampleRate: Double) async -> (left: [Float], right: [Float])? {
         let url = Self.stemURL(for: song)
-        return await Task.detached(priority: .userInitiated) { () -> KaraokeStemTrack? in
+        return await Task.detached(priority: .userInitiated) { () -> (left: [Float], right: [Float])? in
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
                   let stem = KaraokeStemFile.decode(data) else { return nil }
             if abs(stem.header.sampleRate - graphSampleRate) < 0.5 {
-                return KaraokeStemTrack(left: stem.left, right: stem.right, sampleRate: graphSampleRate)
+                return (stem.left, stem.right)
             }
             guard let resampled = Self.resample(
                 left: stem.left,
@@ -268,7 +302,7 @@ final class KaraokeSeparationService {
                 from: stem.header.sampleRate,
                 to: graphSampleRate
             ) else { return nil }
-            return KaraokeStemTrack(left: resampled.left, right: resampled.right, sampleRate: graphSampleRate)
+            return resampled
         }.value
     }
 
@@ -348,13 +382,17 @@ final class KaraokeSeparationService {
     }
 
     /// Decodes the song (or its CUE slice) to 44.1 kHz stereo.
-    private nonisolated static func decodeForModel(
-        url: URL,
+    nonisolated static func decodeForModel(
+        file: KaraokeAudioFile,
         start: TimeInterval?,
         end: TimeInterval?
     ) async throws -> (left: [Float], right: [Float]) {
-        try await Task.detached(priority: .utility) {
-            guard let file = try? AVAudioFile(forReading: url) else { throw KaraokeSeparationError.unreadableAudio }
+        defer {
+            if file.removeAfterDecoding { try? FileManager.default.removeItem(at: file.url) }
+        }
+        try Task.checkCancellation()
+        return try await Task.detached(priority: .utility) {
+            guard let file = try? AVAudioFile(forReading: file.url) else { throw KaraokeSeparationError.unreadableAudio }
             let format = file.processingFormat
             let rate = format.sampleRate
             let firstFrame = AVAudioFramePosition(((start ?? 0) * rate).rounded())

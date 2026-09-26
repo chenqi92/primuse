@@ -299,6 +299,20 @@ struct TVNowPlayingView: View {
         store.engine.status == .loading || store.engine.status == .playing
     }
 
+    private var loadingStatus: some View {
+        HStack(spacing: 14) {
+            ProgressView()
+            if let progress = store.engine.downloadProgress {
+                Text(String(localized: "offline_downloading") + " " + progress.formatted(.percent.precision(.fractionLength(0))))
+                    .monospacedDigit()
+            } else {
+                Text(String(localized: "radio_buffering"))
+            }
+        }
+        .tvFont(.caption)
+        .accessibilityIdentifier("tv.playback.loading")
+    }
+
     private var focusMode: TVNowPlayingFocusMode {
         guard store.hasNowPlaying else { return .empty }
         return store.isLiveRadio ? .liveRadio : .song
@@ -406,6 +420,8 @@ struct TVNowPlayingView: View {
                         .foregroundStyle(.white.opacity(0.74))
                         .monospacedDigit()
                         .padding(.bottom, 18)
+                } else if store.isLoading {
+                    loadingStatus.padding(.bottom, 18)
                 }
 
                 scrubber(immersiveDark: true)
@@ -463,6 +479,13 @@ struct TVNowPlayingView: View {
             Text(np.title).tvFont(.pageTitle).tracking(-0.8)
                 .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)
             Text(np.artist).tvFont(.rowTitle, weight: .regular).foregroundStyle(TVColor.textMuted).padding(.top, 8)
+            if store.isMedleyActive {
+                TVPillButton(title: String(format: String(localized: "medley_badge_format"), store.activeMedleySegmentSeconds),
+                             systemImage: "shuffle") { store.continueCurrentMedleySongInFull() }
+                    .accessibilityLabel(Text("medley_continue_full"))
+                    .accessibilityIdentifier("tv.medley.continueFull")
+                    .padding(.top, 12)
+            }
             Text(metadataLine(np))
                 .tvFont(.caption).foregroundStyle(TVColor.textFaint).padding(.top, 4)
 
@@ -477,6 +500,8 @@ struct TVNowPlayingView: View {
                 Label(preparing, systemImage: "film")
                     .tvFont(.meta, weight: .medium).foregroundStyle(TVColor.textMuted)
                     .monospacedDigit().padding(.top, 14)
+            } else if store.isLoading {
+                loadingStatus.padding(.top, 12)
             }
 
             Spacer(minLength: 24)

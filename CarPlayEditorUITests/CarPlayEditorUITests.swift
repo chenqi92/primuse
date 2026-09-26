@@ -2,6 +2,125 @@ import XCTest
 
 @MainActor
 final class CarPlayEditorUITests: XCTestCase {
+    func testBookshelfLongPressDragPersistsAcrossLayoutsAndRelaunch() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "spokenWordShelf"
+        app.launchEnvironment["PRIMUSE_SHELF_RESET"] = "1"
+        app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        func book(_ title: String) -> XCUIElement {
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'spokenWord.book.' AND label CONTAINS %@", title)).firstMatch
+        }
+        let first = book("书籍 0000")
+        let second = book("书籍 0001")
+        let third = book("书籍 0002")
+        XCTAssertTrue(third.waitForExistence(timeout: 20))
+        third.press(forDuration: 0.8, thenDragTo: first)
+        let moved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in third.frame.minX < first.frame.minX }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [moved], timeout: 5), .completed)
+        attach(app, "bookshelf-reordered-grid")
+        app.buttons["spokenWord.shelf.layout.list"].tap()
+        XCTAssertLessThan(third.frame.minY, first.frame.minY)
+        first.press(forDuration: 0.8, thenDragTo: second)
+        let movedDown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in first.frame.minY > second.frame.minY }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [movedDown], timeout: 5), .completed)
+        attach(app, "bookshelf-reordered-list")
+        app.terminate()
+        app.launchEnvironment["PRIMUSE_SHELF_RESET"] = nil
+        app.launch()
+        XCTAssertTrue(third.waitForExistence(timeout: 20))
+        XCTAssertLessThan(third.frame.minY, second.frame.minY)
+        XCTAssertLessThan(second.frame.minY, first.frame.minY)
+        let menuID = "spokenWord.bookMenu." + String(first.identifier.dropFirst("spokenWord.book.".count))
+        app.buttons[menuID].tap()
+        XCTAssertTrue(app.buttons["上移"].waitForExistence(timeout: 3))
+        app.buttons["上移"].tap()
+        XCTAssertLessThan(first.frame.minY, second.frame.minY)
+        let scroll = app.scrollViews.firstMatch
+        for _ in 0..<4 { scroll.swipeUp(velocity: .fast) }
+        XCTAssertFalse(first.isHittable)
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'spokenWord.book.'")).allElementsBoundByIndex.contains(where: \.isHittable))
+        attach(app, "bookshelf-large-list-scrolled")
+    }
+
+    func testSpokenWordChapterThumbDragsToMiddleEndAndBack() {
+        continueAfterFailure = false
+        let app = chapterApp()
+        app.launch()
+        let thumb = app.descendants(matching: .any)["spokenWord.chapterScrubber"].firstMatch
+        XCTAssertTrue(thumb.waitForExistence(timeout: 20))
+        let list = app.scrollViews["spokenWord.chapters"].firstMatch
+        XCTAssertTrue(list.exists)
+        XCTAssertGreaterThanOrEqual(thumb.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(thumb.frame.height, 56)
+        let initialThumbCenter = thumb.frame.midY
+        attach(app, "chapters-compact-top")
+
+        func drag(to fraction: CGFloat) {
+            let target = app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: thumb.frame.midX, dy: initialThumbCenter + (list.frame.maxY - 40 - initialThumbCenter) * fraction))
+            thumb.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.05, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
+        func visibleChapters() -> [XCUIElement] {
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'spokenWord.chapter.'"))
+                .allElementsBoundByIndex.filter { $0.isHittable && $0.frame.intersects(list.frame) }
+        }
+
+        drag(to: 0.5)
+        let middle = visibleChapters()
+        XCTAssertTrue(middle.contains { Int($0.identifier.split(separator: ".").last ?? "0").map { (450...550).contains($0) } ?? false })
+        XCTAssertGreaterThan(thumb.frame.midY, list.frame.minY + list.frame.height * 0.4)
+        XCTAssertLessThan(thumb.frame.midY, list.frame.minY + list.frame.height * 0.6)
+        attach(app, "chapters-drag-middle")
+
+        drag(to: 1)
+        XCTAssertTrue(app.buttons["spokenWord.chapter.1000"].isHittable)
+        attach(app, "chapters-drag-end")
+        drag(to: 0)
+        XCTAssertTrue(app.buttons["spokenWord.chapter.1"].isHittable)
+        XCTAssertEqual(thumb.frame.midY, initialThumbCenter, accuracy: 1)
+
+        // A tap on the handle must not unexpectedly jump away from the current rows.
+        thumb.tap()
+        XCTAssertTrue(app.buttons["spokenWord.chapter.1"].isHittable)
+        let chapter = app.buttons["spokenWord.chapter.3"]
+        XCTAssertLessThanOrEqual(chapter.frame.height, 49)
+        chapter.tap()
+        XCTAssertEqual(app.staticTexts["spokenWord.selectedChapter"].label, "chapter-3")
+        let before = thumb.frame.minY
+        list.swipeUp(velocity: .slow)
+        XCTAssertGreaterThan(thumb.frame.minY, before)
+        XCTAssertFalse(app.buttons["spokenWord.chapter.1"].isHittable)
+        attach(app, "chapters-native-scroll")
+    }
+
+    func testSpokenWordShortChaptersAndLargeTypeRemainUsable() {
+        continueAfterFailure = false
+        let app = chapterApp()
+        app.launchEnvironment["PRIMUSE_CHAPTER_COUNT"] = "8"
+        app.launchEnvironment["PRIMUSE_CHAPTER_LARGE_TEXT"] = "1"
+        app.launch()
+        let chapter = app.buttons["spokenWord.chapter.3"]
+        XCTAssertTrue(chapter.waitForExistence(timeout: 20))
+        XCTAssertFalse(app.descendants(matching: .any)["spokenWord.chapterScrubber"].firstMatch.exists)
+        XCTAssertTrue(chapter.label.contains("远方的故事"))
+        XCTAssertTrue(chapter.label.contains("22:05"))
+        attach(app, "chapters-large-type")
+        chapter.tap()
+        XCTAssertEqual(app.staticTexts["spokenWord.selectedChapter"].label, "chapter-3")
+    }
+
+    private func chapterApp() -> XCUIApplication {
+        let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")
+        app.launchEnvironment["PRIMUSE_VISUAL_EVIDENCE"] = "spokenWordChapters"
+        app.launchEnvironment["PRIMUSE_DIAGNOSTIC_LOGGING"] = "off"
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        return app
+    }
+
     func testMainMenuAndCompactActionsPreview() {
         continueAfterFailure = false
         let app = XCUIApplication(bundleIdentifier: "com.welape.yuanyin")

@@ -14,6 +14,13 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
     private var player = AudioPlayer()
     private var delegateProxy: DelegateProxy?
     private var nextGeneration: Generation = 0
+    private var mixVolume: Float = 1
+
+    func setMixVolume(_ volume: Float) {
+        mixVolume = min(1, max(0, volume))
+        let gain = mixVolume
+        player.modifyProcessingGraph { $0.mainMixerNode.outputVolume = gain }
+    }
 
     var onEnded: (@MainActor (Generation) -> Void)?
     var onStateChange: (@MainActor (Generation) -> Void)?
@@ -33,6 +40,8 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
         player.delegate = proxy
         self.player = player
         delegateProxy = proxy
+        let gain = mixVolume
+        player.modifyProcessingGraph { $0.mainMixerNode.outputVolume = gain }
         do {
             switch decoder {
             case .ffmpeg:
@@ -60,7 +69,17 @@ final class TVSFBEngine: NSObject, @unchecked Sendable {
         }
     }
     @discardableResult
-    func resume() -> Bool { player.resume() }
+    func resume() -> Bool {
+        // Deactivating AVAudioSession can stop the graph while preserving its
+        // decoder. resume() requires a running graph; play() also restarts it.
+        do {
+            try player.play()
+            return true
+        } catch {
+            plog("TV decoded playback resume failed: \(error.localizedDescription)")
+            return false
+        }
+    }
     func pause() { _ = player.pause() }
     func stop() { invalidateCurrentPlayer() }
     func seek(_ time: Double) { _ = player.seek(time: time) }

@@ -5,9 +5,10 @@ import PrimuseKit
 actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWritebackAdapter {
     let sourceID: String
     nonisolated let supportsSidecarWriting: Bool
-    private let basePath: URL
-    private let referenceRoots: [LocalReferenceRoot]
-    private let referenceBookmarksUnavailable: Bool
+    private var basePath: URL
+    private var referenceRoots: [LocalReferenceRoot] = []
+    private var referenceBookmarksUnavailable = false
+    private var hasResolvedReferenceRoots = false
     private let metadataService = MetadataService()
     private let ffmpegDecoder = FFmpegAudioDecoder()
     /// Native metadata readers are fast and remain the default for large
@@ -33,31 +34,13 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     init(sourceID: String, basePath: URL) {
         self.sourceID = sourceID
         var resolvedBasePath = basePath
-        var resolvedRoots: [LocalReferenceRoot] = []
-        var bookmarksUnavailable = false
-
         #if os(iOS) || os(macOS)
-        if let references = LocalBookmarkStore.resolveReferences(sourceID: sourceID) {
-            if references.isEmpty {
-                bookmarksUnavailable = true
-            } else {
-                resolvedRoots = references.map { reference in
-                    LocalReferenceRoot(
-                        virtualPathComponent: reference.virtualPathComponent,
-                        url: reference.url,
-                        isDirectory: reference.isDirectory,
-                        usesSecurityScope: reference.url.startAccessingSecurityScopedResource()
-                    )
-                }
-                if resolvedRoots.count == 1,
-                   resolvedRoots[0].virtualPathComponent == nil {
-                    resolvedBasePath = resolvedRoots[0].url
-                }
-            }
-        }
+        self.supportsSidecarWriting = LocalBookmarkStore.supportsSidecarWriting(sourceID: sourceID)
+        #else
+        self.supportsSidecarWriting = true
         #endif
-
         #if os(iOS)
+        let hasBookmarks = LocalBookmarkStore.hasReferences(sourceID: sourceID)
         // 本地导入源的文件固定在 <当前沙箱>/Documents/LocalMusic。app 数据容器 UUID
         // 会随重装变化, 而持久化到源记录(旧版本还可能经 CloudKit 同步)的绝对 basePath
         // 可能指向已不存在的旧容器, 导致 connect()/路径解析 pathNotFound、歌曲无法播放。
@@ -69,20 +52,39 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let isManagedLocalImport = sourceID == LocalImportService.existingSourceID
             && (basePath.lastPathComponent == "LocalMusic"
                 || basePath.path.contains("/Documents/LocalMusic"))
-        if resolvedRoots.isEmpty, !bookmarksUnavailable, isManagedLocalImport {
+        if !hasBookmarks, isManagedLocalImport {
             resolvedBasePath = LocalImportService.musicDirectory
         } else if let rebased = PrimuseSandboxPathResolver.existingURL(
             forStoredAbsolutePath: basePath.path
-        ), resolvedRoots.isEmpty, !bookmarksUnavailable {
+        ), !hasBookmarks {
             resolvedBasePath = rebased
         }
         #endif
 
         self.basePath = resolvedBasePath
-        self.referenceRoots = resolvedRoots
-        self.referenceBookmarksUnavailable = bookmarksUnavailable
-        self.supportsSidecarWriting = resolvedRoots.isEmpty
-            || resolvedRoots.allSatisfy(\.isDirectory)
+    }
+
+    private func resolveReferenceRootsIfNeeded() {
+        guard !hasResolvedReferenceRoots else { return }
+        hasResolvedReferenceRoots = true
+        #if os(iOS) || os(macOS)
+        // Actor-isolated I/O: constructing a connector on the UI thread never
+        // waits for ScopedBookmarkAgent or an unavailable network volume.
+        if let references = LocalBookmarkStore.resolveReferences(sourceID: sourceID) {
+            referenceBookmarksUnavailable = references.isEmpty
+            referenceRoots = references.map { reference in
+                LocalReferenceRoot(
+                    virtualPathComponent: reference.virtualPathComponent,
+                    url: reference.url,
+                    isDirectory: reference.isDirectory,
+                    usesSecurityScope: reference.url.startAccessingSecurityScopedResource()
+                )
+            }
+            if referenceRoots.count == 1, referenceRoots[0].virtualPathComponent == nil {
+                basePath = referenceRoots[0].url
+            }
+        }
+        #endif
     }
 
     deinit {
@@ -92,6 +94,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     func connect() async throws {
+        resolveReferenceRootsIfNeeded()
         if referenceBookmarksUnavailable {
             throw SourceError.credentialUnavailable(
                 String(localized: "local_reference_permission_missing")
@@ -857,6 +860,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     private func isVirtualReferenceRoot(_ path: String) -> Bool {
+        resolveReferenceRootsIfNeeded()
         guard !referenceRoots.isEmpty,
               path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty else {
             return false
@@ -869,6 +873,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     private func resolvedURL(for path: String, allowRoot: Bool) throws -> URL {
+        resolveReferenceRootsIfNeeded()
+        guard !referenceBookmarksUnavailable else {
+            throw SourceError.credentialUnavailable(String(localized: "local_reference_permission_missing"))
+        }
         if !referenceRoots.isEmpty {
             return try resolvedReferenceURL(for: path, allowRoot: allowRoot)
         }

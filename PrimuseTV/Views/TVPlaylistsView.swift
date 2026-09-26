@@ -105,6 +105,7 @@ struct TVPlaylistsView: View {
 struct TVPlaylistCard: View {
     @Environment(TVStore.self) private var store
     let playlist: TVPlaylist
+    @State private var pendingMedleyIDs: [String]?
     var width: CGFloat = 300
     var action: () -> Void = {}
 
@@ -151,6 +152,13 @@ struct TVPlaylistCard: View {
             }
             .frame(width: width, alignment: .leading)
         }
+        .contextMenu {
+            Button("medley_play_selection", systemImage: "shuffle") {
+                pendingMedleyIDs = store.medleyPlaylistSongIDs(playlist)
+            }
+            .disabled(!store.canPlayMedley(songIDs: store.medleyPlaylistSongIDs(playlist)))
+        }
+        .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs, onStarted: action))
         .accessibilityLabel(Text(playlist.name))
         .accessibilityValue(Text(PMString("ext.tv.songsCount", playlist.count)))
     }

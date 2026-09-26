@@ -1877,39 +1877,42 @@ private struct ImmersiveGalleryBackdrop: View {
     let artwork: (Int, CGFloat) -> AnyView
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 12, paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-            GeometryReader { geometry in
-                let columns = geometry.size.width > geometry.size.height ? 5 : 3
-                let gap = max(geometry.size.width * 0.022, 10)
-                let side = max((geometry.size.width - gap * CGFloat(columns + 1)) / CGFloat(columns), 72)
-                // 封面墙只需要足以覆盖视口并完成循环的卡片。库里可能有数万首歌，
-                // 绝不能把 count 直接变成同时驻留的 SwiftUI 图片视图。
-                let visualCount = count > 0 ? min(max(count, columns * 3), columns * 4) : 0
-                let rows = max(1, Int(ceil(Double(max(visualCount, 1)) / Double(columns))))
-                let contentHeight = CGFloat(rows) * (side * 1.22 + gap)
+        GeometryReader { geometry in
+            let columns = geometry.size.width > geometry.size.height ? 5 : 3
+            let gap = max(geometry.size.width * 0.022, 10)
+            let side = max((geometry.size.width - gap * CGFloat(columns + 1)) / CGFloat(columns), 72)
+            let visualCount = count > 0 ? min(max(count, columns * 3), columns * 4) : 0
+            let rows = max(1, Int(ceil(Double(max(visualCount, 1)) / Double(columns))))
+            let loopHeight = max(CGFloat(rows) * (side * 1.22 + gap), geometry.size.height + side + gap)
 
-                let isWide = geometry.size.width > geometry.size.height
-                ZStack {
-                    LinearGradient(
-                        colors: [palette.secondary.opacity(0.82), ImmersiveStagePalette.obsidian],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-
-                    // 封面墙带透视倾斜：近端放大、远端收缩，画面有纵深而不是一张平铺贴图。
-                    ZStack {
-                        ForEach(0..<visualCount, id: \.self) { index in
+            ZStack {
+                LinearGradient(
+                    colors: [palette.secondary.opacity(0.82), ImmersiveStagePalette.obsidian],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                // Resolve the artwork as reusable symbols. Animation only moves
+                // rasterized tiles instead of laying out twenty image view trees.
+                TimelineView(.animation(minimumInterval: 1.0 / 12, paused: !isAnimating)) { context in
+                    Canvas(rendersAsynchronously: true) { canvas, _ in
+                        let time = context.date.timeIntervalSinceReferenceDate
+                        canvas.opacity = 0.50
+                        for index in 0..<visualCount {
+                            guard let tile = canvas.resolveSymbol(id: index) else { continue }
                             let column = index % columns
                             let row = index / columns
                             let phase = isAnimating
                                 ? CGFloat((time / (72 + Double(column) * 9)).truncatingRemainder(dividingBy: 1))
                                 : 0.28
                             let direction: CGFloat = column.isMultiple(of: 2) ? 1 : -1
-                            let loopHeight = max(contentHeight, geometry.size.height + side + gap)
                             let baseY = CGFloat(row) * (side * 1.22 + gap) + side / 2
-                            let y = wrapped(baseY + phase * loopHeight * direction, modulus: loopHeight) - side / 2
-
+                            canvas.draw(tile, at: CGPoint(
+                                x: gap + side / 2 + CGFloat(column) * (side + gap),
+                                y: wrapped(baseY + phase * loopHeight * direction, modulus: loopHeight) - side / 2
+                            ))
+                        }
+                    } symbols: {
+                        ForEach(0..<visualCount, id: \.self) { index in
                             artwork(index % count, side)
                                 .frame(width: side, height: side * 1.17)
                                 .clipShape(RoundedRectangle(cornerRadius: side * 0.07, style: .continuous))
@@ -1917,24 +1920,18 @@ private struct ImmersiveGalleryBackdrop: View {
                                     RoundedRectangle(cornerRadius: side * 0.07, style: .continuous)
                                         .strokeBorder(.white.opacity(0.12), lineWidth: 0.7)
                                 }
-                                .position(
-                                    x: gap + side / 2 + CGFloat(column) * (side + gap),
-                                    y: y
-                                )
-                                .opacity(0.50)
+                                .tag(index)
                         }
                     }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .rotation3DEffect(
-                        .degrees(isWide ? -12 : -7),
-                        axis: (x: 0, y: 1, z: 0),
-                        perspective: 0.5
-                    )
-                    .scaleEffect(1.34)
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
+                .rotation3DEffect(
+                    .degrees(geometry.size.width > geometry.size.height ? -12 : -7),
+                    axis: (x: 0, y: 1, z: 0), perspective: 0.5
+                )
+                .scaleEffect(1.34)
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
         }
         .allowsHitTesting(false)
     }
