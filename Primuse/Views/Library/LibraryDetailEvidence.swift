@@ -9,15 +9,16 @@ import SwiftUI
 /// 安全区与「是不是 iPhone」渲染，看宽画布上的版式。
 ///
 /// - `PRIMUSE_EVIDENCE_SET`：`inner`（默认，Duo 内屏两种推算尺寸下的各页，含分栏的「接下来播放」与桌面半折）/
-///   `phone`（手机横屏的沉浸歌词与播放页）/ `details`（五种详情页在内屏两种尺寸下的两栏）。
+///   `phone`（手机横屏的沉浸歌词与播放页）/ `details`（五种详情页在内屏两种尺寸下的两栏）/
+///   `player`（播放页在 Duo 上的各种情况：分栏展开与收起、竖握、两种半折、分屏半幅、外屏）。
 /// - `PRIMUSE_EVIDENCE_ONLY=<n>`：只画这一组里的第 n 个框（从 0 数），放到整屏那么大。
 /// - `PRIMUSE_EVIDENCE_ALBUM` / `PRIMUSE_EVIDENCE_ARTIST` / `PRIMUSE_EVIDENCE_PLAYLIST`：标题片段，默认取第一张 / 第一位 / 第一张。
 /// 播放页的几个框配合 `PRIMUSE_AUTOPLAY_SONG`（`PRIMUSE_AUTOPLAY_PAUSE=1` 定住进度）。
 /// - `PRIMUSE_EVIDENCE_MORPH=<页面>`：只画这一页的一个框，每隔 `PRIMUSE_EVIDENCE_MORPH_INTERVAL` 秒（默认 3）在
 ///   `PRIMUSE_EVIDENCE_MORPH_VIEWPORTS`（默认 `outer,inner`；可选 `outer` `inner` `innerSmall` `innerPortrait`
-///   `phone` `phoneLandscape`）之间换一次尺寸，模拟开合、转屏，录屏看换构图的过渡；框在外屏与内屏
+///   `phone` `phoneLandscape` `innerHalf`）之间换一次尺寸，模拟开合、转屏，录屏看换构图的过渡；框在外屏与内屏
 ///   之间换（常规宽高翻转）时按根上同一个判定做整屏归位（`ScreenChangeTransitionPolicy`）。
-/// 有竖栏的视口（内屏横握、外屏竖握）框里按有竖栏排：内容铺到竖栏底下。
+/// 有竖栏的视口（内屏横握、外屏竖握）框里按有竖栏排：内容铺到竖栏底下，播放页的次要操作排进竖栏那一列。
 struct LibraryDetailEvidenceHost: View {
     @Environment(MusicLibrary.self) private var library
     @State private var homeModel = HomeView.Model()
@@ -27,6 +28,8 @@ struct LibraryDetailEvidenceHost: View {
 
     private enum Page: String {
         case player, lyrics, immersive, queue, tabletop, home, album, artist, genre, playlist, smart
+        /// 分栏收起右栏之后 / 书本半折(折痕竖在中间)。
+        case collapsed, bookfold
     }
 
     fileprivate struct Viewport {
@@ -63,6 +66,11 @@ struct LibraryDetailEvidenceHost: View {
         var label: String {
             "\(page.rawValue) · \(viewport.name) \(Int(viewport.size.width))×\(Int(viewport.size.height))"
         }
+
+        /// 交给播放页的调试模式(见 `pmDebugPlayerMode`)。
+        var debugPlayerMode: String {
+            page == .bookfold ? "player" : page.rawValue
+        }
     }
 
     /// 内屏：官方像素推算的 890×626 与模拟器画面缓冲推算的 951×669 两种都摆上。
@@ -82,6 +90,9 @@ struct LibraryDetailEvidenceHost: View {
                                                     top: 59, leading: 0, trailing: 0, bottom: 34)
     fileprivate static let phoneLandscape = Viewport(name: "landscape", size: CGSize(width: 852, height: 393),
                                                      top: 0, leading: 59, trailing: 59, bottom: 21, isCompactHeight: true)
+    /// 内屏分屏多任务的半幅窗口:紧凑宽度,不带竖栏(竖栏在另一个 App 那一侧)。
+    fileprivate static let innerHalf = Viewport(name: "Duo inner half", size: CGSize(width: 470, height: 669),
+                                                top: 0, leading: 0, trailing: 0, bottom: 20)
     fileprivate static let seLandscape = Viewport(name: "SE land", size: CGSize(width: 667, height: 375),
                                                   top: 0, leading: 0, trailing: 0, bottom: 0, isCompactHeight: true)
     fileprivate static let proMaxLandscape = Viewport(name: "Pro Max land", size: CGSize(width: 956, height: 440),
@@ -121,6 +132,20 @@ struct LibraryDetailEvidenceHost: View {
             result = [Page.album, .artist, .genre, .playlist, .smart].flatMap { page in
                 [Frame(page: page, viewport: Self.inner), Frame(page: page, viewport: Self.innerSmall)]
             }
+        case "player":
+            // 播放页在 Duo 上的各种情况(功能 C):分栏展开 / 收起、歌词 / 接下来播放、竖握、两种半折、分屏半幅、外屏。
+            result = [
+                Frame(page: .player, viewport: Self.inner),
+                Frame(page: .queue, viewport: Self.inner),
+                Frame(page: .collapsed, viewport: Self.inner),
+                Frame(page: .collapsed, viewport: Self.innerSmall),
+                Frame(page: .player, viewport: Self.innerPortrait),
+                Frame(page: .tabletop, viewport: Self.innerPortrait),
+                Frame(page: .bookfold, viewport: Self.inner),
+                Frame(page: .player, viewport: Self.innerHalf),
+                Frame(page: .player, viewport: Self.outerPortrait),
+                Frame(page: .lyrics, viewport: Self.outerPortrait),
+            ]
         case "phone":
             result = [
                 Frame(page: .immersive, viewport: Self.phoneLandscape),
@@ -162,6 +187,7 @@ struct LibraryDetailEvidenceHost: View {
         case "innerPortrait": return innerPortrait
         case "phone": return phonePortrait
         case "phoneLandscape": return phoneLandscape
+        case "innerHalf": return innerHalf
         default: return nil
         }
     }
@@ -286,12 +312,21 @@ struct LibraryDetailEvidenceHost: View {
             } else {
                 Text(verbatim: "no smart playlist")
             }
-        case .player, .lyrics, .immersive, .queue, .tabletop:
+        case .player, .lyrics, .immersive, .queue, .tabletop, .collapsed, .bookfold:
             // 播放页在外壳里是整屏铺开、自己读窗口安全区的一层，这里照样不吃框的安全区。
             // 桌面半折那一框模拟一道横在屏幕中间的折痕。
             NowPlayingView()
-                .environment(\.pmDebugPlayerMode, frame.page.rawValue)
-                .environment(\.pmDebugFoldAxis, frame.page == .tabletop ? .horizontal : nil)
+                .environment(\.pmDebugPlayerMode, frame.debugPlayerMode)
+                .environment(\.pmDebugViewportSafeArea, UIEdgeInsets(
+                    top: frame.viewport.top,
+                    left: frame.viewport.leading,
+                    bottom: frame.viewport.bottom,
+                    right: frame.viewport.trailing
+                ))
+                .environment(
+                    \.pmDebugFoldAxis,
+                    frame.page == .tabletop ? .horizontal : (frame.page == .bookfold ? .vertical : nil)
+                )
                 .ignoresSafeArea()
         case .home:
             if mountsHome {
@@ -364,11 +399,21 @@ private struct PMDebugPlayerModeKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
 
+private struct PMDebugViewportSafeAreaKey: EnvironmentKey {
+    static let defaultValue: UIEdgeInsets? = nil
+}
+
 extension EnvironmentValues {
     /// 取证页让播放页一出现就进入某种模式：`lyrics`（歌词）/ `immersive`（全屏歌词）。
     var pmDebugPlayerMode: String? {
         get { self[PMDebugPlayerModeKey.self] }
         set { self[PMDebugPlayerModeKey.self] = newValue }
+    }
+
+    /// 取证框模拟的视口的安全区:播放页按它当作窗口安全区(框里读到的窗口是外屏自己的)。
+    var pmDebugViewportSafeArea: UIEdgeInsets? {
+        get { self[PMDebugViewportSafeAreaKey.self] }
+        set { self[PMDebugViewportSafeAreaKey.self] = newValue }
     }
 }
 #endif
