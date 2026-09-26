@@ -4549,3 +4549,12 @@
 "home_filter_clear_hint" = "اضغط مرة أخرى لعرض الكل";
 "notifications_section" = "الإشعارات";
 "notify_long_tasks_footer" = "تلقَّ إشعارًا عند انتهاء فحص أو قراءة وسوم أو جلب بيانات وصفية بدأته أنت في الخلفية. المشكلات التي تحتاج إلى تدخلك، مثل فشل الفحص أو امتلاء مساحة iCloud، يُبلَّغ عنها في كل الأحوال. لا يُرسل شيء أثناء فتح التطبيق.";
+
+/* Spoken word widget intents */
+"Skip Back" = "رجوع";
+"Go back a few seconds in the book playing in Primuse." = "الرجوع بضع ثوانٍ في الكتاب قيد التشغيل في Primuse.";
+"Skip Forward" = "تقدّم";
+"Go forward a few seconds in the book playing in Primuse." = "التقدّم بضع ثوانٍ في الكتاب قيد التشغيل في Primuse.";
+"Continue Listening" = "متابعة الاستماع";
+"Continue a book in Primuse from where you left off." = "متابعة كتاب في Primuse من حيث توقفت.";
+"Book" = "كتاب";

@@ -1488,6 +1488,7 @@ public enum PrimuseConstants {
     public static let listeningStatsKey = "widget.listeningStats"
     public static let sourcesSnapshotKey = "widget.sourcesSnapshot"
     public static let wrappedSnapshotKey = "widget.wrappedSnapshot"
+    public static let spokenWordShelfSnapshotKey = "widget.spokenWordShelf"
     public static let widgetSyncEnabledKey = "widget.syncEnabled"
     public static let widgetRefreshModeKey = "widget.refreshMode"
     public static let widgetSharedDataScopeKey = "widget.sharedDataScope"

@@ -75,6 +75,52 @@ struct PrimusePreviousIntent: AudioPlaybackIntent {
     }
 }
 
+/// 有声内容播放时小组件上替换「上一首 / 下一首」的两个键: 按用户设置的秒数后退 / 前进。
+struct PrimuseSkipBackwardIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Skip Back"
+    static let description = IntentDescription("Go back a few seconds in the book playing in Primuse.")
+    /// 只给小组件按键用, 不出现在快捷指令里。
+    static let isDiscoverable = false
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        PrimuseIntentBridge.shared.skipBackward()
+        return .result()
+    }
+}
+
+struct PrimuseSkipForwardIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Skip Forward"
+    static let description = IntentDescription("Go forward a few seconds in the book playing in Primuse.")
+    static let isDiscoverable = false
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        PrimuseIntentBridge.shared.skipForward()
+        return .result()
+    }
+}
+
+/// 「继续收听」小组件点一本书: 从上次停下的地方接着播, 与书架上点「继续」同一条路。
+struct PrimuseResumeSpokenWordBookIntent: AudioPlaybackIntent {
+    static let title: LocalizedStringResource = "Continue Listening"
+    static let description = IntentDescription("Continue a book in Primuse from where you left off.")
+    static let isDiscoverable = false
+
+    /// `SpokenWordBook.id`。
+    @Parameter(title: "Book")
+    var bookID: String
+
+    init() {}
+    init(bookID: String) { self.bookID = bookID }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        _ = await PrimuseIntentBridge.shared.resumeSpokenWordBook(bookID)
+        return .result()
+    }
+}
+
 enum PrimuseSkipDirection: String, AppEnum {
     case next, previous
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: LocalizedStringResource("Direction", table: "SettingsSearch"))

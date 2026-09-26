@@ -883,3 +883,16 @@
 "apple_music_pick_adding" = "Добавление в медиатеку…";
 "apple_music_pick_added" = "Добавлено: %d, синхронизация";
 "apple_music_pick_failed" = "Не удалось добавить в медиатеку";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "Слушаю";
+"ext.widget.spokenWord.partFormat" = "Часть %1$ld из %2$ld";
+"ext.widget.spokenWord.remainingFormat" = "Осталось %@";
+"ext.widget.spokenWord.bookProgress" = "Прогресс книги";
+"ext.widget.spokenWord.skipBackFormat" = "Назад на %ld с";
+"ext.widget.spokenWord.skipForwardFormat" = "Вперёд на %ld с";
+"ext.widget.spokenWordShelf.displayName" = "Продолжить";
+"ext.widget.spokenWordShelf.description" = "Вернитесь к аудиокниге, которую слушали.";
+"ext.widget.spokenWordShelf.eyebrow" = "Продолжить";
+"ext.widget.spokenWordShelf.empty.title" = "Нет начатых книг";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Начните аудиокнигу в Primuse, чтобы продолжать её отсюда.";

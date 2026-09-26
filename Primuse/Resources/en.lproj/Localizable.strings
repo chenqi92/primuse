@@ -4406,3 +4406,12 @@
 "home_filter_clear_hint" = "Tap again to show everything";
 "notifications_section" = "Notifications";
 "notify_long_tasks_footer" = "Get notified when a scan, tag reading or metadata scrape you started finishes in the background. Problems that need you, like a failed scan or full iCloud storage, are reported either way. Nothing is sent while the app is open.";
+
+/* Spoken word widget intents */
+"Skip Back" = "Skip Back";
+"Go back a few seconds in the book playing in Primuse." = "Go back a few seconds in the book playing in Primuse.";
+"Skip Forward" = "Skip Forward";
+"Go forward a few seconds in the book playing in Primuse." = "Go forward a few seconds in the book playing in Primuse.";
+"Continue Listening" = "Continue Listening";
+"Continue a book in Primuse from where you left off." = "Continue a book in Primuse from where you left off.";
+"Book" = "Book";

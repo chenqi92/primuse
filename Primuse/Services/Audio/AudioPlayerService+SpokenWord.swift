@@ -205,6 +205,52 @@ extension AudioPlayerService {
         }
     }
 
+    // MARK: - Widgets
+
+    /// What the now-playing widget draws for the item playing: the skip
+    /// intervals, the book and where the listener is in it. Nil for music and
+    /// radio, which the widget keeps drawing as songs.
+    func widgetSpokenWordInfo() -> SpokenWordPlaybackInfo? {
+        guard currentItemIsSpokenWord, !isLiveRadio, let song = currentSong else { return nil }
+        var info = SpokenWordPlaybackInfo(
+            skipBackwardSeconds: spokenWordSkipBackwardSeconds,
+            skipForwardSeconds: spokenWordSkipForwardSeconds
+        )
+        if let book = currentBookForWidgets(song) {
+            info.bookTitle = book.title
+            info.bookAuthor = book.author
+            if let part = SpokenWordWidgetPolicy.partPosition(of: song.id, in: book) {
+                info.partIndex = part.index
+                info.partCount = part.count
+            }
+            info.bookFraction = book.fractionComplete
+            info.bookRemaining = book.remainingDuration
+        } else {
+            info.bookTitle = song.albumTitle
+            info.bookAuthor = song.albumArtistName ?? song.artistName
+        }
+        // A single-file book is divided by its chapter marks instead.
+        if info.partIndex == nil, spokenWordChapters.count > 1, let chapter = currentChapterIndex {
+            info.partIndex = chapter + 1
+            info.partCount = spokenWordChapters.count
+        }
+        return info
+    }
+
+    /// The book the playing item belongs to, grouped only from its own items
+    /// so a publish does not regroup the whole shelf.
+    private func currentBookForWidgets(_ song: Song) -> SpokenWordBook? {
+        guard let library else { return nil }
+        let bookID = spokenWordBookID(for: song)
+        let members = library.spokenWordSongs.filter { library.spokenWordBookIDs[$0.id] == bookID }
+        guard !members.isEmpty else { return nil }
+        let store = SpokenWordStore.shared
+        let books = SpokenWordBookGrouping.books(
+            from: members.map { SpokenWordBookSupport.item(for: $0, store: store) }
+        )
+        return books.first { book in book.items.contains { $0.id == song.id } }
+    }
+
     // MARK: - Per-book speed
 
     /// The speed a book plays at: its own when the listener picked one for

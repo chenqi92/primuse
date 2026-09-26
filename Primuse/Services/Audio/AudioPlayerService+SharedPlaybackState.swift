@@ -308,7 +308,8 @@ extension AudioPlayerService {
             playbackKind: playbackKind,
             radioStationID: currentRadioStation?.id,
             repeatMode: repeatMode,
-            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false }
+            isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false },
+            spokenWord: widgetSpokenWordInfo()
         )
         Task {
             await MacWidgetPlaybackPublisher.shared.enqueue(request)
@@ -415,7 +416,8 @@ extension AudioPlayerService {
             // 锁屏 widget / Live Activity 只能渲染这颗心, 解析不了 —— 曲库在
             // 主 app 沙盒里, 必须由这里发布出去。
             isLiked: currentSong.map { library?.isLiked(songID: $0.id) ?? false },
-            updatedAt: sampledAt
+            updatedAt: sampledAt,
+            spokenWord: publishedSpokenWordInfo(scope: scope)
         )
         state.save()
         #if os(iOS)
@@ -640,7 +642,35 @@ extension AudioPlayerService {
             state.repeatMode?.rawValue ?? RepeatMode.off.rawValue,
             state.isLiked == true ? "1" : "0",
             String(state.currentTime.rounded().finiteInt()),
-            String(state.duration.rounded().finiteInt())
+            String(state.duration.rounded().finiteInt()),
+            Self.spokenWordSignature(state.spokenWord)
         ].joined(separator: "|")
+    }
+
+    /// The now-playing widget's view of the book, gated like the rest of the
+    /// payload: book progress is progress, so it goes when the listener
+    /// narrowed what the widgets may show.
+    private func publishedSpokenWordInfo(scope: WidgetSharedDataScope) -> SpokenWordPlaybackInfo? {
+        guard var info = widgetSpokenWordInfo() else { return nil }
+        if !scope.includesProgress {
+            info.bookFraction = nil
+            info.bookRemaining = nil
+        }
+        return info
+    }
+
+    /// The parts of the book the widget draws, coarse enough that position
+    /// saves inside a chapter do not each reload the timelines.
+    nonisolated static func spokenWordSignature(_ info: SpokenWordPlaybackInfo?) -> String {
+        guard let info else { return "" }
+        return [
+            String(info.skipBackwardSeconds),
+            String(info.skipForwardSeconds),
+            info.bookTitle ?? "",
+            info.bookAuthor ?? "",
+            info.partIndex.map(String.init) ?? "",
+            info.partCount.map(String.init) ?? "",
+            info.bookFraction.map { String(Int(($0 * 100).rounded())) } ?? "",
+        ].joined(separator: ",")
     }
 }

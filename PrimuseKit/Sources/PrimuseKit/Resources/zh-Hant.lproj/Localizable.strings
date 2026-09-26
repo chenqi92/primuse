@@ -933,3 +933,16 @@
 "apple_music_pick_adding" = "正在加入資料庫…";
 "apple_music_pick_added" = "已加入 %d 首，正在同步";
 "apple_music_pick_failed" = "加入資料庫失敗";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "正在收聽";
+"ext.widget.spokenWord.partFormat" = "第 %1$ld/%2$ld 章";
+"ext.widget.spokenWord.remainingFormat" = "剩 %@";
+"ext.widget.spokenWord.bookProgress" = "本書進度";
+"ext.widget.spokenWord.skipBackFormat" = "倒退 %ld 秒";
+"ext.widget.spokenWord.skipForwardFormat" = "快轉 %ld 秒";
+"ext.widget.spokenWordShelf.displayName" = "繼續收聽";
+"ext.widget.spokenWordShelf.description" = "一點就接著聽最近在聽的有聲書。";
+"ext.widget.spokenWordShelf.eyebrow" = "繼續收聽";
+"ext.widget.spokenWordShelf.empty.title" = "沒有在聽的書";
+"ext.widget.spokenWordShelf.empty.subtitle" = "在 Primuse 裡開始聽一本有聲書，就能從這裡接著聽。";

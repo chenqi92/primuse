@@ -4643,3 +4643,12 @@
 "home_filter_clear_hint" = "Touchez à nouveau pour tout afficher";
 "notifications_section" = "Notifications";
 "notify_long_tasks_footer" = "Recevez une notification quand une analyse, une lecture des tags ou une récupération de métadonnées que vous avez lancée se termine en arrière-plan. Les problèmes qui demandent votre intervention, comme une analyse échouée ou un stockage iCloud plein, sont signalés dans tous les cas. Rien n’est envoyé tant que l’app est ouverte.";
+
+/* Spoken word widget intents */
+"Skip Back" = "Reculer";
+"Go back a few seconds in the book playing in Primuse." = "Recule de quelques secondes dans le livre lu par Primuse.";
+"Skip Forward" = "Avancer";
+"Go forward a few seconds in the book playing in Primuse." = "Avance de quelques secondes dans le livre lu par Primuse.";
+"Continue Listening" = "Reprendre l’écoute";
+"Continue a book in Primuse from where you left off." = "Reprend un livre dans Primuse là où vous vous étiez arrêté.";
+"Book" = "Livre";

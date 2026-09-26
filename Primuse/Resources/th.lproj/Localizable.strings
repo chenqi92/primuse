@@ -4549,3 +4549,12 @@
 "home_filter_clear_hint" = "แตะอีกครั้งเพื่อแสดงทั้งหมด";
 "notifications_section" = "การแจ้งเตือน";
 "notify_long_tasks_footer" = "รับการแจ้งเตือนเมื่อการสแกน การอ่านแท็ก หรือการดึงข้อมูลเมตาที่คุณเริ่มไว้เสร็จในเบื้องหลัง ปัญหาที่ต้องให้คุณจัดการ เช่น การสแกนล้มเหลวหรือพื้นที่ iCloud เต็ม จะแจ้งเตือนเสมอ จะไม่มีการแจ้งเตือนขณะเปิดแอปอยู่";
+
+/* Spoken word widget intents */
+"Skip Back" = "ย้อนกลับ";
+"Go back a few seconds in the book playing in Primuse." = "ย้อนหนังสือที่กำลังเล่นใน Primuse กลับไปไม่กี่วินาที";
+"Skip Forward" = "ข้ามไปข้างหน้า";
+"Go forward a few seconds in the book playing in Primuse." = "ข้ามหนังสือที่กำลังเล่นใน Primuse ไปข้างหน้าไม่กี่วินาที";
+"Continue Listening" = "ฟังต่อ";
+"Continue a book in Primuse from where you left off." = "ฟังหนังสือใน Primuse ต่อจากจุดที่หยุดไว้";
+"Book" = "หนังสือ";

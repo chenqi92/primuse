@@ -883,3 +883,16 @@
 "apple_music_pick_adding" = "Kitaplığa ekleniyor…";
 "apple_music_pick_added" = "%d eklendi, eşitleniyor";
 "apple_music_pick_failed" = "Kitaplığa eklenemedi";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "Dinleniyor";
+"ext.widget.spokenWord.partFormat" = "Bölüm %1$ld / %2$ld";
+"ext.widget.spokenWord.remainingFormat" = "%@ kaldı";
+"ext.widget.spokenWord.bookProgress" = "Kitap ilerlemesi";
+"ext.widget.spokenWord.skipBackFormat" = "%ld saniye geri";
+"ext.widget.spokenWord.skipForwardFormat" = "%ld saniye ileri";
+"ext.widget.spokenWordShelf.displayName" = "Dinlemeye devam et";
+"ext.widget.spokenWordShelf.description" = "Dinlediğin sesli kitaba kaldığın yerden devam et.";
+"ext.widget.spokenWordShelf.eyebrow" = "Dinlemeye devam et";
+"ext.widget.spokenWordShelf.empty.title" = "Devam eden kitap yok";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Buradan devam etmek için Primuse'da bir sesli kitap başlat.";

@@ -4736,3 +4736,12 @@
 "home_filter_clear_hint" = "再点一次回到全部";
 "notifications_section" = "通知";
 "notify_long_tasks_footer" = "你发起的扫描、标签读取和刮削在后台完成时提醒你。扫描失败、iCloud 空间已满这类需要你处理的问题不受此开关影响；App 在前台时不会发通知。";
+
+/* Spoken word widget intents */
+"Skip Back" = "后退";
+"Go back a few seconds in the book playing in Primuse." = "在 Primuse 正在播放的书里往回退几秒。";
+"Skip Forward" = "前进";
+"Go forward a few seconds in the book playing in Primuse." = "在 Primuse 正在播放的书里往前跳几秒。";
+"Continue Listening" = "继续收听";
+"Continue a book in Primuse from where you left off." = "从上次停下的地方接着听 Primuse 里的一本书。";
+"Book" = "书";

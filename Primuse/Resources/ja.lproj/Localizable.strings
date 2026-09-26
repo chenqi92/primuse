@@ -4644,3 +4644,12 @@
 "home_filter_clear_hint" = "もう一度タップするとすべて表示します";
 "notifications_section" = "通知";
 "notify_long_tasks_footer" = "自分で開始したスキャン、タグの読み込み、メタデータ取得がバックグラウンドで終わったときに通知します。スキャンの失敗や iCloud の容量不足など対応が必要な問題は、この設定に関係なく通知されます。アプリを開いている間は通知しません。";
+
+/* Spoken word widget intents */
+"Skip Back" = "戻る";
+"Go back a few seconds in the book playing in Primuse." = "Primuse で再生中の本を数秒戻します。";
+"Skip Forward" = "進む";
+"Go forward a few seconds in the book playing in Primuse." = "Primuse で再生中の本を数秒進めます。";
+"Continue Listening" = "続きを聴く";
+"Continue a book in Primuse from where you left off." = "Primuse の本を前回の続きから再生します。";
+"Book" = "本";

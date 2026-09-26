@@ -4549,3 +4549,12 @@
 "home_filter_clear_hint" = "Tümünü göstermek için tekrar dokunun";
 "notifications_section" = "Bildirimler";
 "notify_long_tasks_footer" = "Başlattığınız tarama, etiket okuma veya meta veri getirme arka planda bittiğinde bildirim alırsınız. Başarısız tarama ya da dolu iCloud depolama alanı gibi müdahale gerektiren sorunlar her durumda bildirilir. Uygulama açıkken bildirim gönderilmez.";
+
+/* Spoken word widget intents */
+"Skip Back" = "Geri sar";
+"Go back a few seconds in the book playing in Primuse." = "Primuse'da çalan kitapta birkaç saniye geri git.";
+"Skip Forward" = "İleri sar";
+"Go forward a few seconds in the book playing in Primuse." = "Primuse'da çalan kitapta birkaç saniye ileri git.";
+"Continue Listening" = "Dinlemeye devam et";
+"Continue a book in Primuse from where you left off." = "Primuse'daki bir kitaba kaldığın yerden devam et.";
+"Book" = "Kitap";

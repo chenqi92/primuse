@@ -4620,3 +4620,12 @@
 "home_filter_clear_hint" = "再點一次回到全部";
 "notifications_section" = "通知";
 "notify_long_tasks_footer" = "你發起的掃描、標籤讀取和刮削在背景完成時提醒你。掃描失敗、iCloud 空間已滿這類需要你處理的問題不受此開關影響；App 在前景時不會發通知。";
+
+/* Spoken word widget intents */
+"Skip Back" = "倒退";
+"Go back a few seconds in the book playing in Primuse." = "在 Primuse 正在播放的書裡往回退幾秒。";
+"Skip Forward" = "快轉";
+"Go forward a few seconds in the book playing in Primuse." = "在 Primuse 正在播放的書裡往前跳幾秒。";
+"Continue Listening" = "繼續收聽";
+"Continue a book in Primuse from where you left off." = "從上次停下的地方接著聽 Primuse 裡的一本書。";
+"Book" = "書";

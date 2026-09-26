@@ -4549,3 +4549,12 @@
 "home_filter_clear_hint" = "Нажмите ещё раз, чтобы показать всё";
 "notifications_section" = "Уведомления";
 "notify_long_tasks_footer" = "Уведомление придёт, когда запущенные вами сканирование, чтение тегов или загрузка метаданных завершатся в фоне. О проблемах, которые требуют вашего участия, например о неудачном сканировании или заполненном хранилище iCloud, уведомление придёт в любом случае. Пока приложение открыто, уведомления не отправляются.";
+
+/* Spoken word widget intents */
+"Skip Back" = "Назад";
+"Go back a few seconds in the book playing in Primuse." = "Перемотать книгу в Primuse на несколько секунд назад.";
+"Skip Forward" = "Вперёд";
+"Go forward a few seconds in the book playing in Primuse." = "Перемотать книгу в Primuse на несколько секунд вперёд.";
+"Continue Listening" = "Продолжить";
+"Continue a book in Primuse from where you left off." = "Продолжить книгу в Primuse с места остановки.";
+"Book" = "Книга";

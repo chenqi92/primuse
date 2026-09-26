@@ -936,3 +936,16 @@
 "apple_music_pick_adding" = "ライブラリに追加中…";
 "apple_music_pick_added" = "%d 曲を追加、同期中";
 "apple_music_pick_failed" = "ライブラリに追加できませんでした";
+
+/* Spoken word in widgets */
+"ext.widget.spokenWord.listening" = "再生中";
+"ext.widget.spokenWord.partFormat" = "パート %1$ld/%2$ld";
+"ext.widget.spokenWord.remainingFormat" = "残り %@";
+"ext.widget.spokenWord.bookProgress" = "本の進捗";
+"ext.widget.spokenWord.skipBackFormat" = "%ld 秒戻る";
+"ext.widget.spokenWord.skipForwardFormat" = "%ld 秒進む";
+"ext.widget.spokenWordShelf.displayName" = "続きを聴く";
+"ext.widget.spokenWordShelf.description" = "聴いている途中のオーディオブックをすぐ再開します。";
+"ext.widget.spokenWordShelf.eyebrow" = "続きを聴く";
+"ext.widget.spokenWordShelf.empty.title" = "聴いている本はありません";
+"ext.widget.spokenWordShelf.empty.subtitle" = "Primuse でオーディオブックを聴き始めると、ここから続きを再生できます。";

@@ -34,6 +34,10 @@ public struct PlaybackState: Codable, Sendable {
     /// Time at which `currentTime` was sampled. Optional so snapshots from
     /// older app versions continue to decode.
     public var updatedAt: Date?
+    /// Set while a spoken-word item plays: the widget draws skips instead of
+    /// track buttons and the book instead of the album. Optional, so older
+    /// snapshots decode as music.
+    public var spokenWord: SpokenWordPlaybackInfo?
 
     public init(
         currentSongID: String? = nil,
@@ -51,7 +55,8 @@ public struct PlaybackState: Codable, Sendable {
         radioStationID: String? = nil,
         repeatMode: RepeatMode? = nil,
         isLiked: Bool? = nil,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        spokenWord: SpokenWordPlaybackInfo? = nil
     ) {
         self.currentSongID = currentSongID
         self.songTitle = songTitle
@@ -69,9 +74,12 @@ public struct PlaybackState: Codable, Sendable {
         self.repeatMode = repeatMode
         self.isLiked = isLiked
         self.updatedAt = updatedAt
+        self.spokenWord = spokenWord
     }
 
     public var isLiveStream: Bool { playbackKind == .liveRadio }
+
+    public var isSpokenWord: Bool { spokenWord != nil && !isLiveStream }
 
     public static func load() -> PlaybackState? {
         guard let defaults = UserDefaults(suiteName: PrimuseConstants.appGroupIdentifier),
