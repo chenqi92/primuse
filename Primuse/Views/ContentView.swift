@@ -2550,6 +2550,58 @@ struct LegacyNowPlayingAccessory: View {
     }
 }
 
+/// 自绘迷你播放条的底板。iPad 侧栏与极简导航挂不了系统的 tabViewBottomAccessory,
+/// iOS 26 起用 Liquid Glass 与系统附件保持一致(降低透明度由系统自己处理);
+/// 更早的系统退回磨砂 + 细描边 + 投影,降低透明度时换实色底。
+private struct NowPlayingAccessorySurface<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let legacyMaterial: Material
+    let legacyStrokeOpacity: Double
+    let legacyShadow: (opacity: Double, radius: CGFloat, y: CGFloat)
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: shape)
+        } else {
+            content
+                .background {
+                    if reduceTransparency {
+                        shape.fill(Color(uiColor: .secondarySystemBackground))
+                    } else {
+                        shape.fill(legacyMaterial)
+                    }
+                }
+                .overlay {
+                    shape
+                        .strokeBorder(.primary.opacity(legacyStrokeOpacity), lineWidth: 0.5)
+                        .allowsHitTesting(false)
+                }
+                .shadow(
+                    color: .black.opacity(legacyShadow.opacity),
+                    radius: legacyShadow.radius,
+                    y: legacyShadow.y
+                )
+        }
+    }
+}
+
+private extension View {
+    func nowPlayingAccessorySurface<S: InsettableShape>(
+        _ shape: S,
+        legacyMaterial: Material,
+        legacyStrokeOpacity: Double,
+        legacyShadow: (opacity: Double, radius: CGFloat, y: CGFloat)
+    ) -> some View {
+        modifier(NowPlayingAccessorySurface(
+            shape: shape,
+            legacyMaterial: legacyMaterial,
+            legacyStrokeOpacity: legacyStrokeOpacity,
+            legacyShadow: legacyShadow
+        ))
+    }
+}
+
 struct MinimalNowPlayingAccessory: View {
     var onTap: () -> Void
     @Environment(\.pmHeightClass) private var heightClass
@@ -2561,13 +2613,13 @@ struct MinimalNowPlayingAccessory: View {
         let capsuleAlignment = heightClass.pick(Alignment.center, compact: .trailing)
         return MiniPlayerView(onTap: onTap)
             .frame(maxWidth: capsuleWidth)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay {
-                Capsule()
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-            }
+            .nowPlayingAccessorySurface(
+                Capsule(),
+                legacyMaterial: .ultraThinMaterial,
+                legacyStrokeOpacity: 0.08,
+                legacyShadow: (opacity: 0.16, radius: 12, y: 6)
+            )
             .contentShape(Capsule())
-            .shadow(color: Color.black.opacity(0.16), radius: 12, y: 6)
             .frame(maxWidth: .infinity, alignment: capsuleAlignment)
             .padding(.horizontal, 16)
             .padding(.top, heightClass.value(6, compact: 4))
@@ -2577,7 +2629,6 @@ struct MinimalNowPlayingAccessory: View {
 
 struct PadNowPlayingAccessory: View {
     var onTap: () -> Void
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .subheadline) private var contentHeight: CGFloat = 44
 
@@ -2599,20 +2650,12 @@ struct PadNowPlayingAccessory: View {
         .padding(.vertical, 4)
         .frame(maxWidth: 560)
         .fixedSize(horizontal: false, vertical: true)
-        .background {
-            let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
-            if reduceTransparency {
-                shape.fill(Color(uiColor: .secondarySystemBackground))
-            } else {
-                shape.fill(.regularMaterial)
-            }
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(.primary.opacity(0.06), lineWidth: 0.5)
-                .allowsHitTesting(false)
-        }
-        .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+        .nowPlayingAccessorySurface(
+            RoundedRectangle(cornerRadius: 24, style: .continuous),
+            legacyMaterial: .regularMaterial,
+            legacyStrokeOpacity: 0.06,
+            legacyShadow: (opacity: 0.08, radius: 10, y: 3)
+        )
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
         .padding(.top, 4)
