@@ -2369,6 +2369,10 @@ struct PlayerOverlay: View {
                 // image-backed descendants can commit at their final position
                 // while the background is still entering from the bottom.
                 .compositingGroup()
+                // 合成组只管绘制，入场位移仍会逐个传到子视图：进度时间、播放键这类挂着
+                // 自己动画的零件，在第一首歌刚起播、秒数正变的那次展开里会换用自己的弹簧抢先到位。
+                // 几何组让位移只作用在整页上，子视图的动画只管它们自己的变化。
+                .geometryGroup()
                 .modifier(PlayerOverlayOffsetModifier(
                     drag: interactiveDrag,
                     phaseOffset: phaseOffset(travel: travel)
