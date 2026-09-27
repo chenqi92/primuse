@@ -56,13 +56,15 @@ struct TVSourcesView: View {
             TVColor.bg.ignoresSafeArea()
             HStack(alignment: .top, spacing: 60) {
                 ScrollView(.vertical, showsIndicators: false) {
+                    // 一次重绘只映射一遍源列表(每个源要判定凭据、取歌曲数)。
+                    let sources = store.sources
                     VStack(alignment: .leading, spacing: 6) {
                         Text(PMString("ext.tv.sources.eyebrow"))
                             .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.textMuted)
-                        Text(PMString("ext.tv.sources.title", store.sources.count))
+                        Text(PMString("ext.tv.sources.title", sources.count))
                             .tvFont(.pageTitle).foregroundStyle(TVColor.text)
                             .padding(.bottom, 22)
-                        if store.sources.isEmpty {
+                        if sources.isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
                                 Image(systemName: "server.rack").font(.system(size: 54))
                                     .foregroundStyle(TVColor.textGhost)
@@ -74,7 +76,7 @@ struct TVSourcesView: View {
                             .padding(.top, 24)
                         } else {
                             VStack(spacing: 12) {
-                                ForEach(store.sources) { s in
+                                ForEach(sources) { s in
                                     TVSourceRow(source: s,
                                                 testing: testingSourceIDs.contains(s.id),
                                                 canEdit: store.source(id: s.id).map(
@@ -125,28 +127,8 @@ struct TVSourcesView: View {
                         .tvFont(.caption, weight: .medium).foregroundStyle(TVColor.textMuted)
                     TVSourcesInfoCard()
                     // 直接对全部可扫描的源重读,不再先让用户挑源;单个源重读在该源的长按菜单里。
-                    TVFocusButton(radius: 16, scale: 1.02, lift: 0, action: toggleRereadAllTags) { focused in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Label(
-                                PMString(store.rereadAllTagsProgress == nil
-                                    ? "tv_metadata_reread"
-                                    : "ext.tv.scan.cancelScan"),
-                                systemImage: store.rereadAllTagsProgress == nil
-                                    ? "arrow.clockwise"
-                                    : "stop.circle"
-                            )
-                            .tvFont(.meta, weight: .semibold).foregroundStyle(TVColor.text)
-                            if let progress = store.rereadAllTagsProgress {
-                                Text(verbatim: "\(progress.sourceName) · \(progress.index)/\(progress.total)")
-                                    .tvFont(.caption).foregroundStyle(TVColor.textMuted)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .padding(.horizontal, 24).padding(.vertical, 16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(focused ? TVColor.surfaceStrong : TVColor.surface,
-                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    }
+                    // 重读进度每首都在变,放进独立子视图,不让它带着整页(连同源列表)重绘。
+                    TVSourcesRereadAllButton(action: toggleRereadAllTags)
                     .focused($focusedPrimaryAction, equals: .metadata)
                     .accessibilityIdentifier("tv.sources.metadata")
                     Button { showTransfer = true } label: {
@@ -392,6 +374,37 @@ struct TVSourcesView: View {
         }
     }
     #endif
+}
+
+/// 源页右栏的「全部重读标签」按钮。只有它读重读进度,进度变化时只重绘它自己。
+private struct TVSourcesRereadAllButton: View {
+    @Environment(TVStore.self) private var store
+    let action: () -> Void
+
+    var body: some View {
+        TVFocusButton(radius: 16, scale: 1.02, lift: 0, action: action) { focused in
+            VStack(alignment: .leading, spacing: 6) {
+                Label(
+                    PMString(store.rereadAllTagsProgress == nil
+                        ? "tv_metadata_reread"
+                        : "ext.tv.scan.cancelScan"),
+                    systemImage: store.rereadAllTagsProgress == nil
+                        ? "arrow.clockwise"
+                        : "stop.circle"
+                )
+                .tvFont(.meta, weight: .semibold).foregroundStyle(TVColor.text)
+                if let progress = store.rereadAllTagsProgress {
+                    Text(verbatim: "\(progress.sourceName) · \(progress.index)/\(progress.total)")
+                        .tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 24).padding(.vertical, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(focused ? TVColor.surfaceStrong : TVColor.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
 }
 
 enum TVSourcePostSaveDestination: Equatable, Sendable {

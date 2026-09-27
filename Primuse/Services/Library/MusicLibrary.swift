@@ -3471,6 +3471,8 @@ final class MusicLibrary {
             || deviceLocalExcludedSongIdentities.contains("\(song.sourceID):\(song.filePath)")
     }
     private(set) var disabledSourceIDs: Set<String> = []
+    /// 每次设置禁用源集合都前进; 后台准备的可见缓存据此判断自己是否已被更新的请求取代。
+    @ObservationIgnored private var disabledSourceIDsRequestGeneration: UInt64 = 0
     /// Mirrors the Apple Music library-sync preference as observable state.
     /// Reading UserDefaults directly from `playlists` would not invalidate
     /// SwiftUI views when the macOS settings toggle changes.
@@ -3934,6 +3936,8 @@ final class MusicLibrary {
     }
 
     func updateDisabledSourceIDs(_ ids: Set<String>) {
+        // 任何一次同步设置都让还在后台算的那一次作废, 最后一次调用说了算。
+        disabledSourceIDsRequestGeneration &+= 1
         // S2 例外 1: 配置不排队。准备结果的可见缓存是用存储里的禁用集合算的,
         // 这里只记下最新值, 发布拷回之后再对账。
         if isPreparing {
@@ -3946,6 +3950,57 @@ final class MusicLibrary {
         spotlightIndexRevision &+= 1
         // 重新启用一个源可能让置灰的歌有了着落。
         schedulePlaylistPendingResolution()
+    }
+
+    /// `updateDisabledSourceIDs` 的离主线程版本。整库可见缓存 (过滤、艺术家解析、
+    /// 分类、流派) 在后台算好, 主 actor 上只做装载 —— 6.6 万首时同步重算要一两秒。
+    /// 期间 songs / 专辑 / 歌手 / 可见缓存 / 命名配置 / 分类输入任何一样变了就重算
+    /// 一次, 仍对不上才退回同步路径, 所以最终状态与同步版本相同。之后到来的任何
+    /// 一次设置 (同步或异步) 都会让这一次作废。
+    func updateDisabledSourceIDsInBackground(_ ids: Set<String>) async {
+        disabledSourceIDsRequestGeneration &+= 1
+        let request = disabledSourceIDsRequestGeneration
+        for _ in 0..<2 {
+            guard !isPreparing, disabledSourceIDs != ids else {
+                updateDisabledSourceIDs(ids)
+                return
+            }
+            let songsSnapshot = songsReference
+            let albumsSnapshot = albumsReference
+            let artistsSnapshot = artistsReference
+            let visibilityGeneration = visibleCacheGeneration
+            let configuration = artistNameConfiguration
+            let classification = SpokenWordStore.shared.classificationSnapshot
+            let previousVisible = visibleSongs
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            let prepared = await Task.detached(priority: .userInitiated) {
+                Self.prepareVisibleCache(
+                    songs: songsSnapshot.value,
+                    albums: albumsSnapshot.value,
+                    artists: artistsSnapshot.value,
+                    artistNameConfiguration: configuration,
+                    disabledSourceIDs: ids,
+                    spokenWordClassification: classification,
+                    previousVisibleSongs: previousVisible
+                )
+            }.value
+            guard request == disabledSourceIDsRequestGeneration else { return }
+            guard !isPreparing,
+                  songsSnapshot === songsReference,
+                  albumsSnapshot === albumsReference,
+                  artistsSnapshot === artistsReference,
+                  visibilityGeneration == visibleCacheGeneration,
+                  configuration == artistNameConfiguration,
+                  classification == SpokenWordStore.shared.classificationSnapshot else { continue }
+            guard disabledSourceIDs != ids else { return }
+            disabledSourceIDs = ids
+            applyPreparedVisibleCache(prepared)
+            spotlightIndexRevision &+= 1
+            schedulePlaylistPendingResolution()
+            plog("📚 disabled sources applied off-main prepareMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songs=\(songsSnapshot.value.count) hidden=\(ids.count)")
+            return
+        }
+        updateDisabledSourceIDs(ids)
     }
 
     /// Re-splits only when corrections or folder rules differ from the

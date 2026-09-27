@@ -196,9 +196,9 @@ struct TVSettingsView: View {
                                 artistRulesValue + " · " + PMString("artist_name_settings_tv_read_only")
                             )
                             settingDivider
-                            navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlists.count)) { go(.playlists) }
+                            navRow("music.note.list", PMString("ext.tv.settings.playlists"), PMString("ext.tv.countOnly", store.playlistCount)) { go(.playlists) }
                             settingDivider
-                            navRow("server.rack", PMString("ext.tv.settings.sources"), PMString("ext.tv.countOnly", store.sources.count)) { go(.sources) }
+                            navRow("server.rack", PMString("ext.tv.settings.sources"), PMString("ext.tv.countOnly", store.sourceCount)) { go(.sources) }
                             if intelligence.shouldExposeRemoteConfiguration {
                                 settingDivider
                                 navRow(

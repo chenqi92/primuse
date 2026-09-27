@@ -647,13 +647,26 @@ final class TVStore {
         didSet { syncTrackNavigationCommands() }
     }
     var radioMetadataTitle = ""
-    var credentialBundle: CredentialBundle?   // 经 iCloud(CloudKit 加密)同步下来 / 局域网直传来的源凭据
+    var credentialBundle: CredentialBundle? {   // 经 iCloud(CloudKit 加密)同步下来 / 局域网直传来的源凭据
+        didSet { credentialUsabilityMemo.removeAll(keepingCapacity: true) }
+    }
     @ObservationIgnored private var cloudCredentialSourceIDs: Set<String> = []
     var sourcesRevision = 0 {   // 源启用/删除后 bump,强制 sources 视图重渲染(嵌套 store 观察传导不稳)
         didSet {
+            credentialUsabilityMemo.removeAll(keepingCapacity: true)
             NotificationCenter.default.post(name: .primuseTVSiriRadioCatalogDidChange, object: nil)
         }
     }
+    /// 「这个源有没有可用凭据」的短时记忆。判定要查钥匙串(飞牛 / 群晖 Audio Station
+    /// 每个源三次 `SecItemCopyMatching`,其中一次带同步项),源页和设置页每次重绘都要
+    /// 对每个源问一遍,曲库合并期间重绘又很密。凭据包、源修订一变就清空;另有 2 秒
+    /// 有效期,iCloud 钥匙串后到的密码最迟 2 秒后的下一次重绘就能反映出来。
+    @ObservationIgnored private var credentialUsabilityMemo: [String: Bool] = [:]
+    @ObservationIgnored private var credentialUsabilityMemoExpiry: TimeInterval = 0
+    /// `refreshVisibilityOffMain()` 正在后台算的隐藏集合。
+    @ObservationIgnored private var pendingOffMainHiddenSourceIDs: Set<String>?
+    /// 全库(含停用源)每个源的歌曲数,按 `songs` 的变更代际缓存。
+    @ObservationIgnored private var songCountsBySourceCache: (generation: UInt64, total: Int, counts: [String: Int])?
 
     // 局域网「扫码直传」接收端(绕开 iCloud)。二维码内容随端点就绪更新。
     @ObservationIgnored let configServer = TVConfigServer()
@@ -787,7 +800,6 @@ final class TVStore {
     @ObservationIgnored private var smartPlaylistHistoryRevision = -1
     @ObservationIgnored private var normalPlaylistCollectionRevision = -1
     @ObservationIgnored private var smartPlaylistCollectionRevision = -1
-    @ObservationIgnored private var visibleSongCountsBySource: [String: Int] = [:]
     @ObservationIgnored private var artworkPalettes: [String: TVArtworkPalette] = [:]
     private enum ArtworkPaletteInvalidationScope: Hashable {
         case album
@@ -909,9 +921,19 @@ final class TVStore {
         return cachedSmartPlaylists
     }
     var playlists: [TVPlaylist] { normalPlaylists + smartPlaylists }
+    /// 与 `playlists.count` 相同(两份缓存都是逐条映射),但不触发智能歌单的整库匹配:
+    /// 设置页只显示个数,却会随每次播放记录变化重绘。
+    var playlistCount: Int { library.playlists.count + library.smartPlaylists.count }
     var sources: [TVSource] {
         _ = sourcesRevision   // 建立观察依赖:bump 即触发本视图刷新
-        return sourcesStore.sources.filter { !locallyRemovedSourceIDs.contains($0.id) }.map { self.map($0) }
+        let counts = allSongCountsBySource()
+        return sourcesStore.sources.filter { !locallyRemovedSourceIDs.contains($0.id) }
+            .map { self.map($0, songCounts: counts) }
+    }
+    /// 只要个数时用它:不必为每个源查钥匙串、数歌。
+    var sourceCount: Int {
+        _ = sourcesRevision
+        return sourcesStore.sources.lazy.filter { !self.locallyRemovedSourceIDs.contains($0.id) }.count
     }
 
     // MARK: 查询
@@ -1338,18 +1360,25 @@ final class TVStore {
         smartPlaylistCollectionRevision = playlistRevision
     }
     func map(_ s: MusicSource) -> TVSource {
-        let cnt = library.songs.lazy.filter { $0.sourceID == s.id }.count
+        map(s, songCounts: allSongCountsBySource())
+    }
+
+    /// 源页每次重绘都对每个源映射一遍:歌曲数取按代际缓存的整库计数(以前每个源各把
+    /// 6.6 万首扫一遍),可播放性只判定一次(以前状态和字段各算一次,各查一轮钥匙串)。
+    private func map(_ s: MusicSource, songCounts: [String: Int]) -> TVSource {
+        let cnt = songCounts[s.id] ?? 0
         let (c, _) = Self.tint(s.id)
         let canScan = canScanOnTV(s)
+        let playability = self.playability(for: s)
         return TVSource(id: s.id, name: s.name, type: s.type.rawValue,
                          iconName: s.type.iconName,
                          host: s.connectionSummary ?? s.basePath ?? s.type.displayName,
                          status: !s.isEnabled ? .disabled : (activeScanSourceID == s.id ? .scanning
-                            : (sourceAuthenticationFailures.contains(s.id) || playability(for: s) == .missingCredential
+                            : (sourceAuthenticationFailures.contains(s.id) || playability == .missingCredential
                                ? .authFailed : .connected)),
                          songs: cnt, color: c,
                          availabilityNote: s.type.isAwaitingPublicAPI ? s.type.subtitle : nil,
-                         playability: playability(for: s),
+                         playability: playability,
                          canEnterCredential: !s.type.isAwaitingPublicAPI && Self.manualCredentialTypes.contains(s.type),
                          supports2FA: !s.type.isAwaitingPublicAPI && s.type.supports2FA
                             && StreamResolverRegistry.tvSupportedTypes.contains(s.type),
@@ -1457,6 +1486,32 @@ final class TVStore {
     /// 是否有可用凭据:TV 本地输入 > 同步凭据包条目 > 同步 iCloud 钥匙串密码。
     private func hasUsableCredential(for s: MusicSource) -> Bool {
         if s.authType == .none { return true }
+        let now = ProcessInfo.processInfo.systemUptime
+        if now >= credentialUsabilityMemoExpiry {
+            credentialUsabilityMemo.removeAll(keepingCapacity: true)
+            credentialUsabilityMemoExpiry = now + 2
+        }
+        if let memo = credentialUsabilityMemo[s.id] { return memo }
+        let usable = lookUpUsableCredential(for: s)
+        credentialUsabilityMemo[s.id] = usable
+        return usable
+    }
+
+    /// 整库计数:一趟走完 `songs`,之后直到 `songs` 再变都直接复用。读 `library.songs`
+    /// 同时登记观察依赖,依赖它的视图在歌曲增删后照旧刷新。
+    private func allSongCountsBySource() -> [String: Int] {
+        let songs = library.songs
+        let generation = library.songMutationGenerationForMaintenance
+        if let cache = songCountsBySourceCache, cache.generation == generation, cache.total == songs.count {
+            return cache.counts
+        }
+        var counts: [String: Int] = [:]
+        for song in songs { counts[song.sourceID, default: 0] += 1 }
+        songCountsBySourceCache = (generation, songs.count, counts)
+        return counts
+    }
+
+    private func lookUpUsableCredential(for s: MusicSource) -> Bool {
         if s.type.isCloudDrive {
             let credential = TVCredentialStore.credential(for: s, bundle: credentialBundle)
             if credential.token?.isEmpty == false { return true }
@@ -2266,6 +2321,14 @@ final class TVStore {
     private func reloadMerging(before: [Song], installed plan: LibrarySnapshotSync.TVPayloadInstallPlan) async {
         scanner.invalidateFnMusicClients()
         await library.reloadFromDiskInBackground()
+        // 快照里服务端源的歌带着手机端的 64 位 ID, 而本机扫的同一首是 32 位。按 ID 合并
+        // 会让两份并存(飞牛/群晖 Audio Station 整源翻倍), 先换成电视端 ID 再比对。
+        // 认源类型要用快照带来的音乐源, 所以先重读音乐源。
+        sourcesStore.reloadFromDisk()
+        let beforeCanonicalCount = library.songs.count
+        if await canonicalizeLegacySongIDs(), library.songs.count < beforeCanonicalCount {
+            plog("TVStore: collapsed \(beforeCanonicalCount - library.songs.count) phone-ID duplicates after sync")
+        }
         let incomingIDs = Set(library.songs.map(\.id))
         let tvOnly = before.filter {
             locallyScannedSourceIDs.contains($0.sourceID) && !incomingIDs.contains($0.id)
@@ -2275,7 +2338,6 @@ final class TVStore {
             library.persistNow()
             plog("TVStore: merged \(tvOnly.count) TV-scanned songs back after sync")
         }
-        sourcesStore.reloadFromDisk()
         installRadioStations(from: plan)
         refreshVisibility()
         publishTopShelf()
@@ -2488,6 +2550,13 @@ final class TVStore {
     /// 仅从本地磁盘重载(不联网),用于关闭自动同步时的启动。
     func prepareLocalLibrary() async {
         await library.whenReady()
+        guard await canonicalizeLegacySongIDs() else { return }
+        reload(reloadLibrary: false, migrateLegacyIDs: false)
+    }
+
+    /// 手机端飞牛/群晖 Audio Station 等服务端源的歌曲 ID 是完整 64 位摘要, 电视端只取前 32 位。
+    /// 换成电视端的 ID; 同一首歌两种 ID 并存时换完只留一行。
+    private func canonicalizeLegacySongIDs() async -> Bool {
         while !Task.isCancelled {
             let generation = library.songMutationGenerationForMaintenance
             let songs = library.songs
@@ -2495,15 +2564,15 @@ final class TVStore {
             let plan = await Task.detached(priority: .userInitiated) {
                 Self.legacySongIDMigration(songs: songs, sourceTypes: types)
             }.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             guard generation == library.songMutationGenerationForMaintenance else { continue }
-            guard await library.remapSongIDsInBackground(plan.replacements) else { return }
+            guard await library.remapSongIDsInBackground(plan.replacements) else { return false }
             locallyScannedSourceIDs.formUnion(plan.sourceIDs)
             applySongIDReplacements(plan.replacements, remapLibrary: false)
             defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
-            reload(reloadLibrary: false, migrateLegacyIDs: false)
-            return
+            return true
         }
+        return false
     }
 
     func reload(reloadLibrary: Bool = true, migrateLegacyIDs: Bool = true) {
@@ -3108,17 +3177,56 @@ final class TVStore {
     /// 隐藏「停用 / 已删除」音乐源的歌曲——资料库只显示有效源的内容。
     private func refreshVisibility() {
         let startedAt = ProcessInfo.processInfo.systemUptime
-        defer { plog("TV visibility ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))") }
+        let signpost = PrimuseSignposts.hitch.beginInterval("tv.refreshVisibility")
+        defer {
+            PrimuseSignposts.hitch.endInterval("tv.refreshVisibility", signpost)
+            plog("TV visibility ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+        }
+        library.updateDisabledSourceIDs(hiddenSourceIDs())
+        rebuildLookupCaches()
+        publishTopShelf()
+    }
+
+    /// 资料库里不显示的源:停用 / 删除 / 电视端解析不了的类型(如 Mac 本机资料库)/
+    /// 本机移除的,以及曲库里有歌、音乐源列表里却没有的孤儿源。
+    private func hiddenSourceIDs() -> Set<String> {
         let known = Set(sourcesStore.allSources.map(\.id))
-        let orphaned = Set(library.songs.map(\.sourceID)).subtracting(known)
-        // 电视端还解析不了的类型(如 Mac 本机资料库),它的歌同样不显示。
-        let hidden = Set(sourcesStore.allSources.filter {
+        // 孤儿源取自按代际缓存的整库计数的键,不再每次把整库的 sourceID 抄一遍。
+        let orphaned = Set(allSongCountsBySource().keys).subtracting(known)
+        return Set(sourcesStore.allSources.filter {
             $0.isDeleted || !$0.isEnabled || !StreamResolverRegistry.tvSupportedTypes.contains($0.type)
         }.map(\.id))
             .union(locallyRemovedSourceIDs).union(orphaned)
-        library.updateDisabledSourceIDs(hidden)
+    }
+
+    /// 与 `refreshVisibility()` 相同,只是隐藏集合真的变了时,整库可见缓存的重算放到主
+    /// actor 之外(6.6 万首时同步重算要一两秒,源页开关源、iCloud 合并改了音乐源都会走到)。
+    /// 算完落地会前进可见集修订,`observeLibraryChanges` 随后照常补查找表;这里等到落地
+    /// 再补一次,不依赖那条观察。落地之前资料库仍按旧的隐藏集合显示。
+    private func refreshVisibilityOffMain() {
+        let hidden = hiddenSourceIDs()
+        guard library.isReady, hidden != library.disabledSourceIDs else {
+            refreshVisibility()
+            return
+        }
+        // 源的类型等可能也变了,查找表先按现状补一次(可见集没变时这一步几乎是空操作)。
         rebuildLookupCaches()
-        publishTopShelf()
+        // 同一个目标已经在算了(开关源时直接调用一次、音乐源观察回调又来一次),不重复算。
+        guard hidden != pendingOffMainHiddenSourceIDs else { return }
+        pendingOffMainHiddenSourceIDs = hidden
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.library.updateDisabledSourceIDsInBackground(hidden)
+            if self.pendingOffMainHiddenSourceIDs == hidden { self.pendingOffMainHiddenSourceIDs = nil }
+            // 算的途中音乐源又变了、这次结果被更新的请求取代:按现状再对一次,保证收敛。
+            if self.library.isReady, self.pendingOffMainHiddenSourceIDs == nil,
+               self.hiddenSourceIDs() != self.library.disabledSourceIDs {
+                self.refreshVisibilityOffMain()
+                return
+            }
+            self.rebuildLookupCaches()
+            self.publishTopShelf()
+        }
     }
 
     private func observeLibraryChanges() {
@@ -3137,7 +3245,7 @@ final class TVStore {
                     await Task.yield()
                     guard let self else { return }
                     self.libraryRefreshTask = nil
-                    self.refreshVisibility()
+                    self.refreshVisibilityOffMain()
                     // 电台的可见性跟着音乐源的启用 / 删除走,源一变电台列表也要重算。
                     self.reloadRadioStations(fromDisk: false)
                 }
@@ -3162,8 +3270,11 @@ final class TVStore {
                         self.songByID[id] = self.map(raw)
                     }
                 }
-                for index in self.cachedSongs.indices where changed.contains(self.cachedSongs[index].id) {
-                    if let updated = self.songByID[self.cachedSongs[index].id] { self.cachedSongs[index] = updated }
+                // 播放次数没变(CloudKit 合并只动了时间戳等)时不必把整库列表扫一遍。
+                if !changed.isEmpty {
+                    for index in self.cachedSongs.indices where changed.contains(self.cachedSongs[index].id) {
+                        if let updated = self.songByID[self.cachedSongs[index].id] { self.cachedSongs[index] = updated }
+                    }
                 }
                 self.playHistoryRevision &+= 1
                 self.publishTopShelf()
@@ -3205,6 +3316,19 @@ final class TVStore {
             sourceTypes: sourceTypes
         )
         guard revision != lookupRevision else { return }
+        // 记下这次整库重映射是被哪几样变化触发的(可见集 / 换 ID / 封面 / 歌单 / 源类型),
+        // 真机日志据此判断 iCloud 合并期间有多少次只是歌单变了。
+        let trigger = lookupRevision.map { previous in
+            [
+                previous.visibleSongs != revision.visibleSongs ? "visible" : nil,
+                previous.replacements != revision.replacements ? "ids" : nil,
+                previous.artwork != revision.artwork ? "artwork" : nil,
+                previous.playlists != revision.playlists ? "playlists" : nil,
+                previous.sourceTypes != revision.sourceTypes ? "sourceTypes" : nil,
+            ].compactMap { $0 }.joined(separator: "+")
+        } ?? "initial"
+        let signpost = PrimuseSignposts.hitch.beginInterval("tv.rebuildLookupCaches")
+        defer { PrimuseSignposts.hitch.endInterval("tv.rebuildLookupCaches", signpost) }
         sourceTypeByID = sourceTypes
         playCountsBySongID = Dictionary(grouping: PlayHistoryStore.shared.entries, by: \.songID).mapValues(\.count)
         let visibleSongs = library.visibleSongs
@@ -3218,16 +3342,16 @@ final class TVStore {
             ? allMapped
             : allMapped.filter { !spokenWordIDs.contains($0.id) }
         cachedSongIDs = cachedSongs.map(\.id)
-        cachedAlbumSongIDs = Dictionary(grouping: visibleSongs, by: { $0.albumID ?? "" })
-            .mapValues { $0.map(\.id) }
+        // 直接按专辑收 id,不再先把整库 Song 按专辑分组复制一遍再取 id(顺序相同)。
+        var albumSongIDs: [String: [String]] = [:]
+        for song in visibleSongs { albumSongIDs[song.albumID ?? "", default: []].append(song.id) }
+        cachedAlbumSongIDs = albumSongIDs
         sortedAlbumSongIDs.removeAll(keepingCapacity: true)
         let albumsStartedAt = ProcessInfo.processInfo.systemUptime
         cachedAlbums = library.visibleAlbums.map { self.map($0) }
         recentlyAddedAlbumIDs = library.recentlyAddedAlbums(limit: 12).map(\.id)
         cachedArtists = library.visibleArtists.map { self.map($0) }
         let albumsMappedAt = ProcessInfo.processInfo.systemUptime
-        visibleSongCountsBySource = Dictionary(grouping: visibleSongs, by: \.sourceID)
-            .mapValues(\.count)
         songByID = Dictionary(allMapped.map { ($0.id, $0) },
                               uniquingKeysWith: { first, _ in first })
         albumByID = Dictionary(cachedAlbums.map { ($0.id, $0) },
@@ -3236,7 +3360,7 @@ final class TVStore {
             cachedAlbums.indices.map { (cachedAlbums[$0].id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        plog("TV lookup ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songMap=\(Int((songsMappedAt - mapStartedAt) * 1000)) albumTracks=\(Int((albumsStartedAt - songsMappedAt) * 1000)) albumArtist=\(Int((albumsMappedAt - albumsStartedAt) * 1000)) songs=\(visibleSongs.count)")
+        plog("TV lookup ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songMap=\(Int((songsMappedAt - mapStartedAt) * 1000)) albumTracks=\(Int((albumsStartedAt - songsMappedAt) * 1000)) albumArtist=\(Int((albumsMappedAt - albumsStartedAt) * 1000)) songs=\(visibleSongs.count) trigger=\(trigger)")
         lookupRevision = revision
         libraryContentRevision &+= 1
         syncTrackNavigationCommands()
@@ -3262,6 +3386,8 @@ final class TVStore {
         if currentSongID.flatMap({ library.song(id: $0)?.sourceID }) == id {
             pausePlayback()
         }
+        // 用户亲手删 / 停用的源要立刻从资料库消失(测试钉住了这一点),这里保持同步;
+        // 后台重算只用于 iCloud 合并等观察回调。
         refreshVisibility()
         sourcesRevision += 1
     }
@@ -3283,8 +3409,8 @@ final class TVStore {
         }
         refreshVisibility()
         sourcesRevision += 1
-        let fromThis = library.songs.filter { $0.sourceID == id }.count
-        let visibleFromThis = library.visibleSongs.filter { $0.sourceID == id }.count
+        let fromThis = allSongCountsBySource()[id] ?? 0
+        let visibleFromThis = library.visibleSongCount(forSourceID: id)
         plog("🔀 TV setSourceEnabled \(id)→\(enabled); 该源歌曲 全量=\(fromThis) 可见=\(visibleFromThis); 总可见=\(library.visibleSongs.count)")
         enqueueSnapshotUpload()
     }
@@ -5437,19 +5563,14 @@ final class TVStore {
         playbackRestoreAttempted = true
         do {
             guard var snapshot = try sessionStore.load() else { return }
-            let continuationStore = QueueContinuationStore(sessionStore: sessionStore)
-            var continuation: QueueContinuation?
-            var reshapedLegacyQueue = false
-            if let token = snapshot.queueContinuationToken,
-               let saved = continuationStore.load(), saved.token == token {
-                continuation = saved
-            }
-            // 旧版本把整个曲库存成队列; 恢复成一段窗口加后续。
-            if let windowed = QueueWindowPolicy.windowed(snapshot) {
-                snapshot = windowed.snapshot
-                continuation = windowed.continuation
-                reshapedLegacyQueue = true
-            }
+            // 有匹配的续接记录就原样沿用(补过的窗口本来就会超过千首);
+            // 只有旧版本整库存成的队列才重切成窗口加后续。
+            let restored = QueueWindowPolicy.restoring(
+                snapshot, savedContinuation: QueueContinuationStore(sessionStore: sessionStore).load()
+            )
+            snapshot = restored.snapshot
+            let continuation = restored.continuation
+            let reshapedLegacyQueue = restored.reshapedLegacyQueue
             guard let plan = PlaybackSessionRestorationPolicy.plan(
                 snapshot: snapshot,
                 availableSongIDs: Set(snapshot.queueSongIDs.filter { songByID[$0] != nil })

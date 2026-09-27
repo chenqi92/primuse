@@ -695,7 +695,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
 
 /// 歌词等非播放请求的 TLS delegate。与播放流同策略(见 TVServerTrust):系统证书正常
 /// 通过；私网延续原有自签兼容；公网异常证书必须经用户确认并固定指纹。
-final class TVInsecureTLSDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+/// 任务级回调也要接：`StreamResolverHTTPTransport` 走 `bytes(for:)`，证书质询只到任务级，
+/// 只实现会话级时按系统默认处理，自签 NAS 会报 -1202（与 `PrivateNetworkTLSDelegate` 同理）。
+final class TVInsecureTLSDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge
@@ -703,6 +705,13 @@ final class TVInsecureTLSDelegate: NSObject, URLSessionDelegate, @unchecked Send
         await TVServerTrust.disposition(for: challenge)
     }
 
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await TVServerTrust.disposition(for: challenge)
+    }
 }
 
 #endif

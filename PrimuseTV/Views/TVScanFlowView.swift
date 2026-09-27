@@ -213,6 +213,9 @@ struct TVScanFlowView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 16)
+                            // 列目录失败时给一个能按的「重试」,不必退回上一级再进来。
+                            folderRow(name: PMString("ext.tv.scan.retry"), isUp: false, selectable: false,
+                                      icon: "arrow.clockwise", onOpen: { load(path) })
                         } else {
                             // 每一层最上面都能勾「整个文件夹」/「整个音乐源」:勾它等于
                             // 扫描下面的一切,包括以后新建的目录;已存的根选择也在这里取消。
@@ -228,6 +231,9 @@ struct TVScanFlowView: View {
                                       onSelect: { toggle(e.path) }, onOpen: { openFolder(e) },
                                       onFocusChanged: onFocusChanged)
                         }
+                        // 每一层目录一份新的懒加载列表:换目录时不在原地替换整批行
+                        // (焦点所在的那一行会被移走),续页进度也从第一页重新算。
+                        .id(path)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
@@ -244,6 +250,7 @@ struct TVScanFlowView: View {
     }
 
     private func folderRow(name: String, isUp: Bool, selectable: Bool,
+                           icon: String? = nil,
                            state: SourceDirectorySelectionPolicy.SelectionState = .unselected,
                            onSelect: @escaping () -> Void = {}, onOpen: @escaping () -> Void = {},
                            onFocusChanged: @escaping (Bool) -> Void = { _ in }) -> some View {
@@ -257,7 +264,7 @@ struct TVScanFlowView: View {
             TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: onOpen,
                           onFocusChanged: onFocusChanged) { focused in
                 HStack(spacing: 16) {
-                    Image(systemName: isUp ? "arrow.up.left" : "folder.fill")
+                    Image(systemName: icon ?? (isUp ? "arrow.up.left" : "folder.fill"))
                         .font(.system(size: 22))
                         .foregroundStyle(checked ? TVColor.brand : TVColor.textFaint)
                         .frame(width: 26)
@@ -440,6 +447,8 @@ struct TVScanFlowView: View {
     }
 
     private func openFolder(_ entry: TVDirEntry) {
+        // 加载中列表已清空;万一按到了,别把正在进入的目录当成上一级压栈。
+        guard !loading else { return }
         parentPaths.append(path)
         breadcrumbNames.append(entry.name)
         load(entry.path)
@@ -457,14 +466,28 @@ struct TVScanFlowView: View {
         path = p
         loading = true
         browseError = nil
+        // 上一层的行不能留在新目录下面:它们的勾选状态按新目录算,按下去还会
+        // 把正在进入的目录压进返回栈。
+        entries = []
         loadTask = Task {
             do {
                 let loaded = try await store.scanner.browse(lister: activeLister, path: p)
                 guard !Task.isCancelled, path == p else { return }
                 entries = loaded
+                plog("📂 TV scan picker listed depth=\(parentPaths.count) entries=\(loaded.count) dirs=\(loaded.filter(\.isDir).count)")
             } catch {
-                guard !TVSourceErrorText.isSilent(error) else { return }
                 guard path == p else { return }
+                if TVSourceErrorText.isSilent(error) {
+                    // 被新的一次加载或离开页面取消时什么也不做;请求自己被中止
+                    // (比如证书确认没通过)则不能一直转圈,给出错误和重试。
+                    guard !Task.isCancelled else { return }
+                    plog("📂 TV scan picker list aborted depth=\(parentPaths.count)")
+                    entries = []
+                    browseError = PMString("ext.tv.scan.connectFailed")
+                    loading = false
+                    return
+                }
+                plog("📂 TV scan picker list failed depth=\(parentPaths.count) error=\(type(of: error))")
                 entries = []
                 // 服务端要验证码时直接把用户送进输入页 —— 先报一条错、再让他退出去
                 // 长按菜单里找「两步验证登录」,是上一版最让人困惑的地方。

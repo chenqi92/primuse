@@ -39,19 +39,12 @@ extension AudioPlayerService {
                 plog("⚠️ Playback session load failed: \(error.localizedDescription)")
                 return nil
             }
-            var continuation: QueueContinuation?
-            var reshapedLegacyQueue = false
-            if let token = snapshot.queueContinuationToken,
-               let saved = continuationStore.load(),
-               saved.token == token {
-                continuation = saved
-            }
-            // 旧版本会把整个曲库存成队列; 恢复成一段窗口加后续, 不再整份装回来。
-            if let windowed = QueueWindowPolicy.windowed(snapshot) {
-                snapshot = windowed.snapshot
-                continuation = windowed.continuation
-                reshapedLegacyQueue = true
-            }
+            // 有匹配的续接记录就原样沿用(补过的窗口本来就会超过千首);
+            // 只有旧版本整库存成的队列才重切成窗口加后续。
+            let restored = QueueWindowPolicy.restoring(snapshot, savedContinuation: continuationStore.load())
+            snapshot = restored.snapshot
+            let continuation = restored.continuation
+            let reshapedLegacyQueue = restored.reshapedLegacyQueue
             let loadFinishedAt = ProcessInfo.processInfo.systemUptime
 
             // 只为队列里的歌建表, 不把整个可见曲库拷进字典。

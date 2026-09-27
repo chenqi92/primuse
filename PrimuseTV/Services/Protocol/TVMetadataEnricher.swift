@@ -142,8 +142,11 @@ actor TVMetadataReaderPool {
         configuration.timeoutIntervalForResource = 20
         configuration.httpMaximumConnectionsPerHost = MetadataReadingDeviceProfile.current
             .maximumWorkers(offlineSource: false)
-        session = URLSession(configuration: configuration)
+        // 与播放/歌词同一套证书策略(TVServerTrust);没有 delegate 时自签 WebDAV 读标签会报 -1202。
+        session = URLSession(configuration: configuration, delegate: TVInsecureTLSDelegate(), delegateQueue: nil)
     }
+
+    deinit { session.invalidateAndCancel() }
 
     func refreshesAlbumArtwork(_ albumID: String) -> Bool {
         rereadMetadata && refreshedAlbumIDs.insert(albumID).inserted

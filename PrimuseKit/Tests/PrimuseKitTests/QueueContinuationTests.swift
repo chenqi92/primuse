@@ -145,4 +145,34 @@ struct QueueContinuationTests {
         ))
         #expect(plan.shuffledIndices == Array(0..<QueueWindowPolicy.windowLimit))
     }
+
+    @Test("A topped-up window keeps its continuation across a second restart")
+    func toppedUpWindowKeepsContinuation() throws {
+        // 62,413-song play-all, first restart restores the window, playback reaches
+        // song 995 and the window is topped up to 1,500 songs.
+        let first = try #require(QueueWindowPolicy.windowed(legacySnapshot(count: 62_413, current: 0)))
+        var continuation = first.continuation
+        var snapshot = first.snapshot
+        snapshot.queueSongIDs += continuation.takeNext(maxCount: QueueWindowPolicy.refillBatch, repeatsAll: false)
+        snapshot.currentIndex = 995
+        snapshot.currentSongID = snapshot.queueSongIDs[995]
+        #expect(snapshot.queueSongIDs.count == 1_500)
+
+        let restored = QueueWindowPolicy.restoring(snapshot, savedContinuation: continuation)
+        #expect(!restored.reshapedLegacyQueue)
+        #expect(restored.snapshot == snapshot)
+        let kept = try #require(restored.continuation)
+        #expect(kept == continuation)
+        #expect(kept.requestedIDs.count == 62_413)
+        #expect(kept.nextOffset == 1_500)
+
+        // Without a matching continuation the oversized queue is still reshaped.
+        let stale = QueueWindowPolicy.restoring(snapshot, savedContinuation: nil)
+        #expect(stale.reshapedLegacyQueue)
+        #expect(stale.snapshot.queueSongIDs.count == QueueWindowPolicy.windowLimit)
+        #expect(stale.continuation?.requestedIDs.count == 1_500)
+        // A small snapshot without continuation stays as it is.
+        let small = QueueWindowPolicy.restoring(legacySnapshot(count: 10, current: 3), savedContinuation: nil)
+        #expect(!small.reshapedLegacyQueue && small.continuation == nil)
+    }
 }

@@ -525,13 +525,24 @@ final class TVPlaybackCoordinator {
             ?? playbackSong.fileFormat
         let wavProbeOutcome: RemoteWAVPlaybackPolicy.ProbeOutcome?
         if !asset.isVideo, format == .wav {
-            wavProbeOutcome = await probeWAVPayload(
+            let probe = await probeWAVPayload(
                 asset: asset,
                 source: source,
                 credential: credential,
                 requestID: requestID
             )
             guard isCurrent(requestID, store: store) else { return }
+            wavProbeOutcome = probe.outcome
+            if let header = probe.header {
+                applyPlaybackTechnicalInfo(
+                    sampleRate: header.sampleRate,
+                    bitRate: header.bitRateKbps,
+                    bitDepth: header.bitDepth,
+                    songID: song.id,
+                    requestID: requestID,
+                    store: store
+                )
+            }
         } else {
             wavProbeOutcome = nil
         }
@@ -811,7 +822,7 @@ final class TVPlaybackCoordinator {
         source: MusicSource,
         credential: SourceCredential?,
         requestID: UUID
-    ) async -> RemoteWAVPlaybackPolicy.ProbeOutcome {
+    ) async -> (outcome: RemoteWAVPlaybackPolicy.ProbeOutcome, header: WAVEHeaderParser.AudioInfo?) {
         let maximum = Int64(256 * 1_024)
         do {
             let prefix: Data
@@ -851,21 +862,21 @@ final class TVPlaybackCoordinator {
                     redirectMode: source.type == .fnMusic ? .fnMusic : .safe
                 )
             }
-            guard let store else { return .unavailable }
+            guard let store else { return (.unavailable, nil) }
             try ensureCurrent(requestID, store: store)
             switch AudioFileSignaturePolicy.inspect(prefix) {
             case .dtsInWave, .dts:
-                return .dts
+                return (.dts, nil)
             case .riffWave:
-                return .pcm
+                return (.pcm, WAVEHeaderParser.parse(prefix))
             default:
-                return .unavailable
+                return (.unavailable, nil)
             }
         } catch is CancellationError {
-            return .unavailable
+            return (.unavailable, nil)
         } catch {
             plog("🎬 TV WAV probe unavailable — \(error.localizedDescription)")
-            return .unavailable
+            return (.unavailable, nil)
         }
     }
 
@@ -1329,6 +1340,11 @@ final class TVPlaybackCoordinator {
                 decoder = try await decoderAfterWAVInspection(tempURL)
             }
             try ensureCurrent(requestID, store: store)
+            var technical: (sampleRate: Int?, bitRate: Int?, bitDepth: Int?)?
+            if (song.sampleRate ?? 0) <= 0 || (song.bitRate ?? 0) <= 0 {
+                technical = await Self.technicalInfo(ofDownloadedFile: tempURL)
+                try ensureCurrent(requestID, store: store)
+            }
             guard isCurrent(requestID, store: store) else { return }
             let displayArtistName = store.library.artistDisplayName(for: song) ?? ""
             try engine.loadDecoded(
@@ -1350,6 +1366,16 @@ final class TVPlaybackCoordinator {
                 startAt: startAt,
                 autoPlay: autoPlay
             )
+            if let technical {
+                applyPlaybackTechnicalInfo(
+                    sampleRate: technical.sampleRate,
+                    bitRate: technical.bitRate,
+                    bitDepth: technical.bitDepth,
+                    songID: song.id,
+                    requestID: requestID,
+                    store: store
+                )
+            }
         } catch is CancellationError {
             return
         } catch let e as StreamResolveError {
@@ -1656,6 +1682,57 @@ final class TVPlaybackCoordinator {
         let expected = response.expectedContentLength
         if expected > 0, expected != actual {
             throw TVDecodedDownloadError.incomplete(expected: expected, actual: actual)
+        }
+    }
+
+    /// 整曲下载下来的本地文件读采样率/位深/码率。码率读不出时按文件大小与时长折算。
+    private nonisolated static func technicalInfo(
+        ofDownloadedFile fileURL: URL
+    ) async -> (sampleRate: Int?, bitRate: Int?, bitDepth: Int?) {
+        let metadata = await FileMetadataReader.read(from: fileURL)
+        var bitRate = metadata.bitRate
+        if (bitRate ?? 0) <= 0,
+           let duration = metadata.duration, duration.isFinite, duration > 0,
+           let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > 0 {
+            let kbps = (Double(size) * 8 / duration / 1_000).rounded()
+            if kbps.isFinite, kbps > 0, kbps < Double(Int.max) { bitRate = Int(kbps) }
+        }
+        return (metadata.sampleRate, bitRate, metadata.bitDepth)
+    }
+
+    /// 曲库记录缺采样率/码率时(旧记录、扫描时不读标签的源),用播放时已经拿到的字节补上:
+    /// WAV 探测读到的文件头,或整曲下载后的本地文件。只补缺的技术字段,标签一概不动。
+    private func applyPlaybackTechnicalInfo(
+        sampleRate: Int?,
+        bitRate: Int?,
+        bitDepth: Int?,
+        songID: String,
+        requestID: UUID,
+        store: TVStore
+    ) {
+        guard isCurrent(requestID, store: store),
+              let live = store.library.song(id: songID) else { return }
+        var updated = live
+        if (updated.sampleRate ?? 0) <= 0, let sampleRate, sampleRate > 0 {
+            updated.sampleRate = sampleRate
+        }
+        if (updated.bitRate ?? 0) <= 0, let bitRate, bitRate > 0 {
+            updated.bitRate = bitRate
+        }
+        if (updated.bitDepth ?? 0) <= 0, let bitDepth, bitDepth > 0 {
+            updated.bitDepth = bitDepth
+        }
+        if updated.sampleRate != live.sampleRate
+            || updated.bitRate != live.bitRate
+            || updated.bitDepth != live.bitDepth {
+            store.library.replaceSongs([updated])
+        }
+        guard store.nowPlaying.songID == songID else { return }
+        if store.nowPlaying.bitrate <= 0, let rate = updated.bitRate, rate > 0 {
+            store.nowPlaying.bitrate = rate
+        }
+        if store.nowPlaying.sampleRate <= 0, let rate = updated.sampleRate, rate > 0 {
+            store.nowPlaying.sampleRate = Double(rate) / 1_000
         }
     }
 

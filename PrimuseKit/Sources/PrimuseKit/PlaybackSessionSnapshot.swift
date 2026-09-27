@@ -452,6 +452,25 @@ public enum QueueWindowPolicy {
         upcomingCount < refillThreshold
     }
 
+    /// Pairs a loaded snapshot with its saved continuation. A snapshot whose
+    /// continuation token matches is already windowed — a window that has been
+    /// topped up is legitimately larger than `windowLimit` — and must keep that
+    /// continuation. Only a snapshot without a usable continuation is treated
+    /// as a legacy whole-library queue and reshaped.
+    public static func restoring(
+        _ snapshot: PlaybackSessionSnapshot,
+        savedContinuation: QueueContinuation?
+    ) -> (snapshot: PlaybackSessionSnapshot, continuation: QueueContinuation?, reshapedLegacyQueue: Bool) {
+        if let token = snapshot.queueContinuationToken,
+           let savedContinuation, savedContinuation.token == token {
+            return (snapshot, savedContinuation, false)
+        }
+        if let windowed = windowed(snapshot) {
+            return (windowed.snapshot, windowed.continuation, true)
+        }
+        return (snapshot, nil, false)
+    }
+
     /// Session files written before the window existed can hold the whole
     /// library. Restore them as a window plus continuation: in order around
     /// the current song, or — under shuffle — the rest of the current round in
