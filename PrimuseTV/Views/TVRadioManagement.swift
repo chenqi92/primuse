@@ -1148,14 +1148,13 @@ struct TVRadioPageView: View {
     var onModalActivityChanged: (Bool) -> Void = { _ in }
     var onModalPresentationChanged: (Bool) -> Void = { _ in }
 
-    private let cols = 4
-    private let gap: CGFloat = 28
+    /// 与有声书架同一行高、同一间距(见 `TVBrowseGridMetrics`)。
+    private let gridMetrics = TVBrowseGridMetrics.radio
 
     var body: some View {
         GeometryReader { geo in
-            let contentW = geo.size.width - TVSpace.pageH * 2 - 28
-            let cell = max(140, (contentW - gap * CGFloat(cols - 1)) / CGFloat(cols))
-            let columns = Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols)
+            let cell = gridMetrics.cellWidth(pageWidth: geo.size.width)
+            let columns = gridMetrics.gridItems(cell: cell)
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 24) {
                     HStack(alignment: .firstTextBaseline, spacing: 18) {
@@ -1171,13 +1170,13 @@ struct TVRadioPageView: View {
                     TVRadioLibrarySection(
                         columns: columns,
                         cell: cell,
-                        spacing: gap,
+                        spacing: gridMetrics.gap,
                         openPlayer: openPlayer,
                         onModalActivityChanged: onModalActivityChanged,
                         onModalPresentationChanged: onModalPresentationChanged
                     )
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, TVBrowseGridMetrics.edgeInset)
                 .padding(.top, 8)
                 .padding(.bottom, TVSpace.pageBottom)
             }
@@ -1319,31 +1318,38 @@ struct TVRadioLibrarySection: View {
                         current: current
                     )
                 }
-                TVPillButton(
-                    title: PMString("ext.tv.radio.add"),
-                    systemImage: "plus",
+                // 与资料库筛选行同一种胶囊(`TVFilterChipLabel`),不再用大一号的按钮胶囊。
+                TVFocusButton(
+                    ring: false,
+                    action: { showsAdd = true },
                     focusBinding: $focusedRadioID,
                     focusID: TVRadioFocusID.add
-                ) {
-                    showsAdd = true
+                ) { focused in
+                    TVFilterChipLabel(
+                        title: PMString("ext.tv.radio.add"),
+                        systemImage: "plus",
+                        isFocused: focused
+                    )
                 }
                 .padding(.leading, 18)
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 12)
+            .padding(.vertical, 8)
         }
+        .frame(height: 80)
         .focusSection()
     }
 
     private func chip(_ title: String, icon: String, target: Selection, current: Selection) -> some View {
-        TVPillButton(
-            title: title,
-            systemImage: icon,
-            style: current == target ? .solid : .glass,
-            isSelected: current == target
-        ) {
-            selection = target
+        TVFocusButton(ring: false, action: { selection = target }) { focused in
+            TVFilterChipLabel(
+                title: title,
+                systemImage: icon,
+                isSelected: current == target,
+                isFocused: focused
+            )
         }
+        .accessibilityAddTraits(current == target ? [.isButton, .isSelected] : .isButton)
     }
 }
 #endif

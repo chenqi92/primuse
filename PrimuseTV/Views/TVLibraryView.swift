@@ -74,15 +74,13 @@ struct TVLibraryView: View {
     @MainActor private static var didOpenDebugAlbumDetail = false
     #endif
 
-    private let cols = 4
-    private let gap: CGFloat = 28
+    private let gridMetrics = TVBrowseGridMetrics.music
     var focusRequest = 0
     var browseMemory = TVLibraryBrowseMemory()
 
     var body: some View {
         GeometryReader { geo in
-            let contentW = geo.size.width - TVSpace.pageH * 2 - 28
-            let cell = max(140, (contentW - gap * CGFloat(cols - 1)) / CGFloat(cols))
+            let cell = gridMetrics.cellWidth(pageWidth: geo.size.width)
             VStack(alignment: .leading, spacing: 24) {
                 filterStrip
                 ScrollViewReader { proxy in
@@ -95,7 +93,7 @@ struct TVLibraryView: View {
                                 proxy.scrollTo("tv.library.contentTop", anchor: .top)
                             })
                         }
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, TVBrowseGridMetrics.edgeInset)
                         .padding(.top, 8)
                         .padding(.bottom, TVSpace.pageBottom)
                     }
@@ -242,15 +240,12 @@ struct TVLibraryView: View {
                 HStack(spacing: 14) {
                     ForEach(Filter.allCases) { item in
                         Button { filter = item } label: {
-                            Label(item.display, systemImage: item.icon)
-                                .tvFont(.caption, weight: item == filter ? .semibold : .regular)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .frame(minHeight: 64)
-                                .padding(.horizontal, 18)
-                                .foregroundStyle(item == filter ? TVColor.onBrand : TVColor.text)
-                                .background(item == filter ? TVColor.brand : TVColor.card, in: .rect(cornerRadius: 14))
-                                .tvFocusRing(focusedFilter == item, radius: 14, scale: 1.02, lift: 0)
+                            TVFilterChipLabel(
+                                title: item.display,
+                                systemImage: item.icon,
+                                isSelected: item == filter,
+                                isFocused: focusedFilter == item
+                            )
                         }
                         .buttonStyle(TVBareButtonStyle())
                         .focused($focusedFilter, equals: item)
@@ -269,7 +264,8 @@ struct TVLibraryView: View {
 
     @ViewBuilder
     private func grid(cell: CGFloat, onFolderNavigation: @escaping () -> Void) -> some View {
-        let columns = Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: cols)
+        let columns = gridMetrics.gridItems(cell: cell)
+        let gap = gridMetrics.gap
         switch filter {
         case .albums:
             TVPagedGrid(

@@ -68,9 +68,8 @@ struct TVSpokenWordView: View {
     @State private var showsFinished = false
     @State private var opensPlayerAfterDetailDismissal = false
 
-    // 书的封面是竖长的:一行六本,行高才和方形封面时的五本相当。
-    private let columns = 6
-    private let gap: CGFloat = 36
+    // 书的封面是竖长的:一行六本,行高才和方形封面时的五本相当(见 `TVBrowseGridMetrics`)。
+    private let gridMetrics = TVBrowseGridMetrics.spokenWord
 
     var body: some View {
         let spokenStore = SpokenWordStore.shared
@@ -80,8 +79,7 @@ struct TVSpokenWordView: View {
         let finished = books.filter(\.isFinished)
 
         GeometryReader { geo in
-            let contentW = geo.size.width - TVSpace.pageH * 2 - 28
-            let cell = max(160, (contentW - gap * CGFloat(columns - 1)) / CGFloat(columns))
+            let cell = gridMetrics.cellWidth(pageWidth: geo.size.width)
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 34) {
                     HStack(alignment: .firstTextBaseline, spacing: 18) {
@@ -171,8 +169,7 @@ struct TVSpokenWordView: View {
     }
 
     private func grid(_ books: [SpokenWordBook], cell: CGFloat) -> some View {
-        let items = Array(repeating: GridItem(.fixed(cell), spacing: gap, alignment: .top), count: columns)
-        return LazyVGrid(columns: items, alignment: .leading, spacing: gap) {
+        LazyVGrid(columns: gridMetrics.gridItems(cell: cell), alignment: .leading, spacing: gridMetrics.gap) {
             ForEach(books) { book in
                 TVSpokenWordBookCard(book: book, width: cell) { play(book) }
                     .contextMenu { bookMenu(book) }

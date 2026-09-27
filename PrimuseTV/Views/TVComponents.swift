@@ -648,6 +648,28 @@ struct TVEmptyState: View {
 
 // MARK: - 胶囊按钮(播放 / 随机 / 喜欢)
 
+/// 页面顶部筛选行的一颗胶囊(资料库的专辑 / 歌曲 / 艺人…、电台的全部 / 文件夹…)。
+/// 只管外观,焦点由外面的按钮决定:资料库用自己的 `@FocusState` 路由筛选行,
+/// 电台用 `TVFocusButton`(删台后要把焦点交给「添加」)。两页的筛选行因此一样大。
+struct TVFilterChipLabel: View {
+    let title: String
+    let systemImage: String
+    var isSelected = false
+    var isFocused = false
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .tvFont(.caption, weight: isSelected ? .semibold : .regular)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(minHeight: 64)
+            .padding(.horizontal, 18)
+            .foregroundStyle(isSelected ? TVColor.onBrand : TVColor.text)
+            .background(isSelected ? TVColor.brand : TVColor.card, in: .rect(cornerRadius: 14))
+            .tvFocusRing(isFocused, radius: 14, scale: 1.02, lift: 0)
+    }
+}
+
 struct TVPillButton: View {
     enum Style { case solid, glass }
     let title: String
