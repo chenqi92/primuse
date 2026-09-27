@@ -2264,6 +2264,7 @@
 "player_lyrics_section" = "Tekst utworu";
 "player_tap_lyrics_to_seek" = "Dotknij tekstu, aby przewinąć";
 "player_tap_lyrics_to_seek_description" = "Dotknij zsynchronizowanego wersu, aby przejść do tego momentu. Przewijanie tekstu nie zmienia pozycji odtwarzania.";
+"lyrics_play_from_line" = "Odtwarzaj od tego wiersza";
 "player_volume_bar" = "Suwak głośności";
 "player_volume_bar_description" = "Pokaż suwak głośności w odtwarzaczu. Inne elementy sterujące w naturalny sposób wypełniają dostępną przestrzeń, gdy jest ona ukryta.";
 "playlist_always_download" = "Zawsze pobieraj";

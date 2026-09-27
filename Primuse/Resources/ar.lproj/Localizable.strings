@@ -2264,6 +2264,7 @@
 "player_lyrics_section" = "كلمات الأغاني";
 "player_tap_lyrics_to_seek" = "اضغط على الكلمات لتغيير موضع التشغيل";
 "player_tap_lyrics_to_seek_description" = "اضغط على سطر كلمات متزامن للانتقال إلى توقيته. تمرير الكلمات لا يغيّر موضع التشغيل.";
+"lyrics_play_from_line" = "التشغيل من هذا السطر";
 "player_volume_bar" = "منزلق الصوت";
 "player_volume_bar_description" = "إظهار شريط تمرير مستوى الصوت في المشغل. عناصر التحكم الأخرى تملأ المساحة المتوفرة بشكل طبيعي عندما تكون مخفية.";
 "playlist_always_download" = "التنزيل دائمًا";

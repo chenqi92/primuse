@@ -2264,6 +2264,7 @@
 "player_lyrics_section" = "गीत के बोल";
 "player_tap_lyrics_to_seek" = "बोल पर टैप करके उस समय पर जाएँ";
 "player_tap_lyrics_to_seek_description" = "सिंक की गई पंक्ति पर टैप करके उसके समय पर जाएँ। बोल स्क्रॉल करने से प्लेबैक का समय नहीं बदलता।";
+"lyrics_play_from_line" = "इस पंक्ति से चलाएं";
 "player_volume_bar" = "वॉल्यूम स्लाइडर";
 "player_volume_bar_description" = "प्लेयर में वॉल्यूम स्लाइडर दिखाएँ। जब यह छिपा होता है तो अन्य नियंत्रण स्वाभाविक रूप से उपलब्ध स्थान को भर देते हैं।";
 "playlist_always_download" = "हमेशा डाउनलोड करें";

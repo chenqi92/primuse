@@ -1228,6 +1228,7 @@
 "ok" = "ОК";
 "player_lyrics_color_default" = "По умолчанию";
 "player_tap_lyrics_to_seek_description" = "Коснитесь синхронизированной строки текста, чтобы перейти к этому моменту. Пролистывание текстов никогда не ищет.";
+"lyrics_play_from_line" = "Воспроизвести с этой строки";
 "artist_name_settings_display_separator_placeholder" = "Например, /";
 "tag_editor_lyrics_placeholder" = "Введите обычный текст, LRC или ELRC…";
 "library_quick_access_selected_empty" = "Ярлыки не выбраны.";

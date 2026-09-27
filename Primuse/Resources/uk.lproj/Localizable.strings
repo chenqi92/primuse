@@ -1228,6 +1228,7 @@
 "ok" = "Добре";
 "player_lyrics_color_default" = "За замовчуванням";
 "player_tap_lyrics_to_seek_description" = "Торкніться синхронізованого текстового рядка, щоб перейти до цього місця. Прокрутка тексту ніколи не шукає.";
+"lyrics_play_from_line" = "Відтворити з цього рядка";
 "artist_name_settings_display_separator_placeholder" = "Наприклад, /";
 "tag_editor_lyrics_placeholder" = "Введіть простий текст, LRC або ELRC…";
 "library_quick_access_selected_empty" = "Ярлики не вибрано";

@@ -1228,6 +1228,7 @@
 "ok" = "Tamam";
 "player_lyrics_color_default" = "Varsayılan";
 "player_tap_lyrics_to_seek_description" = "O noktaya atlamak için senkronize edilmiş bir şarkı sözü satırına dokunun. Şarkı sözlerini kaydırmak asla aramaz.";
+"lyrics_play_from_line" = "Bu satırdan çal";
 "artist_name_settings_display_separator_placeholder" = "Örneğin, /";
 "tag_editor_lyrics_placeholder" = "Sade şarkı sözlerini girin, LRC veya ELRC…";
 "library_quick_access_selected_empty" = "Hiçbir kısayol seçilmedi";

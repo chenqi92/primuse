@@ -5377,17 +5377,23 @@ public enum LyricsBackgroundTapPolicy {
     public static let rowSuppressionInterval: TimeInterval = 0.08
     /// 按住让惯性滚动停下、或刚松手就点的那一下是在操作滚动，不是在点空白。
     public static let scrollSuppressionInterval: TimeInterval = 0.5
+    /// 按住超过这么久就算长按：用户是想按住拖歌词，松手不回封面。
+    public static let longPressDuration: TimeInterval = 0.35
+    /// 长按识别之后这段时间内松手的那一下都不算点空白（按得再久也少有超过这个）。
+    public static let longPressSuppressionInterval: TimeInterval = 8
 
     public static func shouldHandle(
         hasLyrics: Bool,
         isPinching: Bool,
         rowTapTimeDistance: TimeInterval,
-        timeSinceUserScroll: TimeInterval = .infinity
+        timeSinceUserScroll: TimeInterval = .infinity,
+        timeSinceLongPress: TimeInterval = .infinity
     ) -> Bool {
         hasLyrics
             && !isPinching
             && abs(rowTapTimeDistance) > rowSuppressionInterval
             && abs(timeSinceUserScroll) > scrollSuppressionInterval
+            && !(timeSinceLongPress >= 0 && timeSinceLongPress < longPressSuppressionInterval)
     }
 }
 

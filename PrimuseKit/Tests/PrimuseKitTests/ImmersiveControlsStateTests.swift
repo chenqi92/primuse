@@ -451,4 +451,20 @@ struct LyricsBackgroundTapPolicyTests {
             timeSinceUserScroll: 2
         ))
     }
+
+    @Test("Releasing a long press is not a background tap")
+    func longPressReleaseIsSuppressed() {
+        #expect(!LyricsBackgroundTapPolicy.shouldHandle(
+            hasLyrics: true,
+            isPinching: false,
+            rowTapTimeDistance: 1,
+            timeSinceLongPress: 1.5
+        ))
+        #expect(LyricsBackgroundTapPolicy.shouldHandle(
+            hasLyrics: true,
+            isPinching: false,
+            rowTapTimeDistance: 1,
+            timeSinceLongPress: 30
+        ))
+    }
 }

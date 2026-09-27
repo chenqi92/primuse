@@ -657,8 +657,6 @@ struct NowPlayingView: View {
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
     @State private var activeMinimizeDragStartLocation: CGPoint?
     @State private var isLyricsImmersive = false
-    /// 这次的全屏歌词是点歌词空白收起控件得来的(而不是「全屏」按钮)：再点一下就回到普通歌词。
-    @State private var isLyricsChromeHiddenByTap = false
     #if DEBUG && os(iOS)
     @Environment(\.pmDebugPlayerMode) private var debugPlayerMode
     /// 取证框里模拟别的视口:遮挡区与窗口安全区都按框的来,不读外屏自己的。
@@ -1031,7 +1029,6 @@ struct NowPlayingView: View {
     }
 
     private func presentImmersiveLyrics() {
-        isLyricsChromeHiddenByTap = false
         if fullscreenPlayerEffect == .native {
             withAnimation(.easeInOut(duration: 0.3)) {
                 showLyrics = true
@@ -1124,7 +1121,6 @@ struct NowPlayingView: View {
 
     private func dismissImmersiveLyrics() {
         immersiveControlsAutoHideTask?.cancel()
-        isLyricsChromeHiddenByTap = false
         withAnimation(.easeInOut(duration: 0.3)) {
             isLyricsImmersive = false
             immersiveControlsState = immersiveControlsState.applying(.dismiss)
@@ -1138,7 +1134,6 @@ struct NowPlayingView: View {
             return
         }
         immersiveControlsAutoHideTask?.cancel()
-        isLyricsChromeHiddenByTap = false
         withAnimation(standardLyricsAnimation) {
             showLyrics = isVisible
             isLyricsImmersive = false
@@ -1150,25 +1145,7 @@ struct NowPlayingView: View {
         setStandardLyricsVisible(!showLyrics)
     }
 
-    /// 点歌词空白处只收起控件、让歌词占满（参照 Apple Music），不再切回封面 ——
-    /// 滑歌词、点行跳转时的误触很容易被当成点空白，回封面有顶部小封面和歌词键。
-    /// 分栏右栏与有声文字稿不是在播放页里替换封面的歌词，点空白不做事。
-    private func hideLyricsChromeFromTap() {
-        guard showLyrics, !isPlayerSplit, !usesSpokenWordTransport else { return }
-        immersiveControlsAutoHideTask?.cancel()
-        withAnimation(.easeInOut(duration: 0.3)) {
-            isLyricsImmersive = true
-            immersiveControlsState = .inactive
-            isLyricsChromeHiddenByTap = true
-        }
-    }
-
     private func handleImmersiveContentTap() {
-        // 点空白收起的控件，再点一下原样回来，而不是只叫出全屏歌词那套浮层。
-        if isLyricsChromeHiddenByTap, !immersiveControlsState.isLocked {
-            dismissImmersiveLyrics()
-            return
-        }
         withAnimation(.easeInOut(duration: 0.2)) {
             immersiveControlsState = immersiveControlsState.applying(.contentTap)
         }
@@ -2565,9 +2542,6 @@ struct NowPlayingView: View {
                 dismissImmersiveLyrics()
             }
         }
-        .onChange(of: isLyricsImmersive) { _, isImmersive in
-            if !isImmersive { isLyricsChromeHiddenByTap = false }
-        }
         .onDisappear {
             immersiveControlsAutoHideTask?.cancel()
         }
@@ -3112,7 +3086,7 @@ struct NowPlayingView: View {
             .frame(width: CGFloat(metrics.artworkColumnWidth))
     }
 
-    /// 歌词栏。滚动、淡出遮罩、点空白处收起控件都是 `LyricsScrollView` 自己的，
+    /// 歌词栏。滚动、淡出遮罩、点空白处回封面都是 `LyricsScrollView` 自己的，
     /// 这里只给它一块不会被任何控件压住的地方。
     private func compactLandscapeLyricsPane(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
@@ -5031,7 +5005,7 @@ struct NowPlayingView: View {
                     // swallowing the outer ZStack tap after chrome auto-hides.
                     handleImmersiveContentTap()
                 } else {
-                    hideLyricsChromeFromTap()
+                    setStandardLyricsVisible(false)
                 }
             },
             onShareLyricLine: { lineID in
@@ -8063,6 +8037,11 @@ private struct CompactLandscapeLyricLine: View {
     }
 }
 
+/// 见 `LyricsScrollView.rowAnchorYs`。
+final class LyricRowAnchorYs {
+    var values: [Int: CGFloat] = [:]
+}
+
 struct LyricsScrollView: View {
     let lyrics: [LyricLine]
     let lyricsWritingDirection: LyricWritingDirection
@@ -8117,6 +8096,13 @@ struct LyricsScrollView: View {
     /// row event briefly so tapping lyrics seeks only, while tapping unused
     /// space can switch the normal Now Playing surface back to artwork.
     @State private var lastLyricRowTapAt: Date = .distantPast
+    /// 按住不放是在准备拖歌词，松手时不能当成点空白回封面。
+    @State private var lastSurfaceLongPressAt: Date = .distantPast
+    /// 手动浏览时停在定位线上的那一句（网易云式的时间线标识）。
+    @State private var browsedLineIndex: Int?
+    /// 各行定位点在滚动内容里的纵坐标。只随排版变化，放在引用盒子里，
+    /// 写入不触发重绘；滚动时按它找出定位线上的那一句。
+    @State private var rowAnchorYs = LyricRowAnchorYs()
 
     // 用户手动拖动歌词时, 暂时冻结自动滚动 ── 否则刚拖到想看的位置, 下一帧
     // auto follow 又把视图拽回当前行, 等于不能浏览。lastUserScrollTime 静止
@@ -8293,23 +8279,37 @@ struct LyricsScrollView: View {
             currentLineIndex = -1
             activeInterludeAfterLineIndex = nil
             lastLyricRowTapAt = .distantPast
+            lastSurfaceLongPressAt = .distantPast
             lastUserScrollTime = .distantPast
+            browsedLineIndex = nil
+            rowAnchorYs.values.removeAll()
             lyricsPinchScale = 1
             isPinchingLyrics = false
             lineAutoFollowResumeTask?.cancel()
         }
         .contentShape(Rectangle())
         .simultaneousGesture(
+            LongPressGesture(
+                minimumDuration: LyricsBackgroundTapPolicy.longPressDuration,
+                maximumDistance: 12
+            )
+            .onEnded { _ in lastSurfaceLongPressAt = Date() }
+        )
+        .simultaneousGesture(
             SpatialTapGesture()
                 .onEnded { _ in
                     let eventTime = Date()
                     Task { @MainActor in
                         await Task.yield()
+                        // 一次长按只挡紧跟着的这一下松手，不留到之后正常的点按。
+                        let longPressAt = lastSurfaceLongPressAt
+                        lastSurfaceLongPressAt = .distantPast
                         guard LyricsBackgroundTapPolicy.shouldHandle(
                             hasLyrics: !lyrics.isEmpty,
                             isPinching: isPinchingLyrics,
                             rowTapTimeDistance: lastLyricRowTapAt.timeIntervalSince(eventTime),
-                            timeSinceUserScroll: eventTime.timeIntervalSince(lastUserScrollTime)
+                            timeSinceUserScroll: eventTime.timeIntervalSince(lastUserScrollTime),
+                            timeSinceLongPress: eventTime.timeIntervalSince(longPressAt)
                         ) else { return }
                         onBackgroundTap()
                     }
@@ -8450,7 +8450,7 @@ struct LyricsScrollView: View {
                                 )
                             }
                                 .id(LyricsScrollTarget.line(id: line.id))
-                                .opacity(activity.opacity)
+                                .opacity(browsedOpacity(index: index, base: activity.opacity))
                                 .blur(radius: inactiveLyricBlurRadius(for: index))
                                 // Match the word-level path: highlight, scale,
                                 // and scroll all travel on one curve instead of
@@ -8460,6 +8460,11 @@ struct LyricsScrollView: View {
                                     value: currentLineIndex
                                 )
                                 .padding(.vertical, 5)
+                                .onGeometryChange(for: CGFloat.self) { proxy in
+                                    Self.rowAnchorY(proxy.frame(in: .named(Self.lyricsContentSpace)))
+                                } action: { y in
+                                    rowAnchorYs.values[index] = y
+                                }
 
                             if LyricPlaybackPositionPolicy.hasLongInterlude(
                                 afterLine: index,
@@ -8473,6 +8478,7 @@ struct LyricsScrollView: View {
                         Spacer().frame(height: geo.size.height * (1 - Self.lyricsVisualAnchor))
                     }
                     .frame(width: layoutWidth, alignment: .topLeading)
+                    .coordinateSpace(.named(Self.lyricsContentSpace))
                     .padding(.horizontal, Self.lyricsHorizontalPadding)
                 }
                 .simultaneousGesture(
@@ -8505,6 +8511,14 @@ struct LyricsScrollView: View {
                 // interrupted gesture may never deliver onEnded. Observe the
                 // native scroll phase so auto-follow always resumes from the
                 // latest lyric after scrolling really becomes idle.
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.y + geometry.containerSize.height * Self.lyricsVisualAnchor
+                } action: { _, anchorY in
+                    updateBrowsedLine(anchorY: anchorY)
+                }
+                .overlay(alignment: .top) {
+                    browseTimelineIndicator(viewportHeight: geo.size.height)
+                }
                 .onScrollPhaseChange { oldPhase, newPhase in
                     switch newPhase {
                     case .tracking, .interacting, .decelerating:
@@ -8582,13 +8596,18 @@ struct LyricsScrollView: View {
                                 )
                             }
                             .id(LyricsScrollTarget.line(id: line.id))
-                            .opacity(activity.opacity)
+                            .opacity(browsedOpacity(index: index, base: activity.opacity))
                             .blur(radius: inactiveLyricBlurRadius(for: index))
                             .animation(
                                 .smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0),
                                 value: currentLineIndex
                             )
                             .padding(.vertical, 5)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                Self.rowAnchorY(proxy.frame(in: .named(Self.lyricsContentSpace)))
+                            } action: { y in
+                                rowAnchorYs.values[index] = y
+                            }
 
                             if LyricPlaybackPositionPolicy.hasLongInterlude(
                                 afterLine: index,
@@ -8602,6 +8621,7 @@ struct LyricsScrollView: View {
                         Spacer().frame(height: geo.size.height * (1 - Self.lyricsVisualAnchor))
                     }
                     .frame(width: layoutWidth, alignment: .topLeading)
+                    .coordinateSpace(.named(Self.lyricsContentSpace))
                     .padding(.horizontal, Self.lyricsHorizontalPadding)
                 }
                 .simultaneousGesture(
@@ -8609,6 +8629,14 @@ struct LyricsScrollView: View {
                         .onChanged { _ in beginLineManualBrowsing() }
                         .onEnded { _ in endLineManualBrowsing(proxy: proxy) }
                 )
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentOffset.y + geometry.containerSize.height * Self.lyricsVisualAnchor
+                } action: { _, anchorY in
+                    updateBrowsedLine(anchorY: anchorY)
+                }
+                .overlay(alignment: .top) {
+                    browseTimelineIndicator(viewportHeight: geo.size.height)
+                }
                 .onScrollPhaseChange { oldPhase, newPhase in
                     switch newPhase {
                     case .tracking, .interacting, .decelerating:
@@ -8710,10 +8738,93 @@ struct LyricsScrollView: View {
     private func beginLineManualBrowsing() {
         lineAutoFollowResumeTask?.cancel()
         lastUserScrollTime = Date()
+        // 按住后拖动了就是滚动，滚动自己有保护期；长按记录不再留着挡后面的点按。
+        lastSurfaceLongPressAt = .distantPast
         guard !isManuallyBrowsingLyrics else { return }
         withAnimation(.easeOut(duration: 0.18)) {
             isManuallyBrowsingLyrics = true
         }
+    }
+
+    /// 歌词内容自己的坐标系：行的位置只随排版变，不随滚动变。
+    private static let lyricsContentSpace = "lyricsContent"
+
+    private static func rowAnchorY(_ frame: CGRect) -> CGFloat {
+        // 自动跟随用 anchor(y: lyricsVisualAnchor) 对齐，定位点取行内同一比例的位置。
+        frame.minY + frame.height * lyricsVisualAnchor
+    }
+
+    private func updateBrowsedLine(anchorY: CGFloat) {
+        guard isManuallyBrowsingLyrics, hasSynchronizedLyrics else { return }
+        var nearest: Int?
+        var nearestDistance = CGFloat.infinity
+        for (index, y) in rowAnchorYs.values where lyrics.indices.contains(index) {
+            let distance = abs(y - anchorY)
+            if distance < nearestDistance {
+                nearest = index
+                nearestDistance = distance
+            }
+        }
+        if nearest != browsedLineIndex { browsedLineIndex = nearest }
+    }
+
+    private func browsedOpacity(index: Int, base: Double) -> Double {
+        isManuallyBrowsingLyrics && browsedLineIndex == index ? 1 : base
+    }
+
+    /// 拖动歌词时横在定位线上的标识：左边从这句播放，右边是这句的时间。
+    @ViewBuilder
+    private func browseTimelineIndicator(viewportHeight: CGFloat) -> some View {
+        if isManuallyBrowsingLyrics,
+           let index = browsedLineIndex,
+           lyrics.indices.contains(index),
+           lyrics[index].isSynchronized {
+            let line = lyrics[index]
+            HStack(spacing: 6) {
+                Button {
+                    lastLyricRowTapAt = Date()
+                    player.seek(to: line.timestamp)
+                    // 跳过去之后立刻回到跟随，定位线随之收起。
+                    lineAutoFollowResumeTask?.cancel()
+                    lastUserScrollTime = .distantPast
+                    withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0)) {
+                        isManuallyBrowsingLyrics = false
+                        browsedLineIndex = nil
+                    }
+                } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(appearance.primary)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(appearance.primary.opacity(0.14)))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("lyrics_play_from_line"))
+
+                Rectangle()
+                    .fill(appearance.primary.opacity(0.28))
+                    .frame(height: 0.5)
+
+                Text(verbatim: Self.browseTimeText(line.timestamp))
+                    .font(.caption2.monospacedDigit().weight(.medium))
+                    .foregroundStyle(appearance.secondary)
+                    .fixedSize()
+            }
+            .padding(.leading, max(0, Self.lyricsHorizontalPadding - 22))
+            .padding(.trailing, 8)
+            .frame(height: 44)
+            .offset(y: viewportHeight * Self.lyricsVisualAnchor - 22)
+            .environment(\.layoutDirection, .leftToRight)
+            .transition(.opacity)
+            .animation(.easeOut(duration: 0.15), value: index)
+        }
+    }
+
+    private static func browseTimeText(_ time: TimeInterval) -> String {
+        let seconds = max(0, Int(time.rounded(.down)))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
     private func endLineManualBrowsing(proxy: ScrollViewProxy) {
@@ -8739,6 +8850,7 @@ struct LyricsScrollView: View {
                   Date().timeIntervalSince(lastUserScrollTime) >= delay else { return }
             withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0)) {
                 isManuallyBrowsingLyrics = false
+                browsedLineIndex = nil
             }
             guard let target = playbackScrollTarget else { return }
             scroll(to: target, proxy: proxy, animated: true)

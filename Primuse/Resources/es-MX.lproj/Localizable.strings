@@ -2264,6 +2264,7 @@
 "player_lyrics_section" = "Letras";
 "player_tap_lyrics_to_seek" = "Tocar letras para cambiar de posición";
 "player_tap_lyrics_to_seek_description" = "Toca una línea sincronizada para ir a ese momento. Desplazarte por las letras no cambia la posición de reproducción.";
+"lyrics_play_from_line" = "Reproducir desde esta línea";
 "player_volume_bar" = "Control deslizante de volumen";
 "player_volume_bar_description" = "Muestra el control deslizante de volumen en el reproductor. Otros controles llenan naturalmente el espacio disponible cuando está oculto.";
 "playlist_always_download" = "Descargar siempre";
