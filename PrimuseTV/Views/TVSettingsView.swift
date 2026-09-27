@@ -54,6 +54,9 @@ struct TVSettingsView: View {
     @State private var isSyncing = false
     @State private var syncMsg: String?
     @State private var artistNameSettings = ArtistNameSettingsStore.shared
+    @State private var translationSettings = LyricsTranslationSettingsStore.shared
+    @State private var showsTranslationModelRemoval = false
+    private var localTranslation: LocalLyricsTranslationService { .shared }
     @State private var appleMusic = TVAppleMusicCatalog()
 
     private var immersiveEffect: FullscreenPlayerEffect {
@@ -144,6 +147,7 @@ struct TVSettingsView: View {
                             settingDivider
                             appleMusicRow
                         }
+                        lyricsTranslationSection
                         settingsSection(PMString("ext.tv.settings.library")) {
                             toggleRow(
                                 "star.bubble",
@@ -209,8 +213,8 @@ struct TVSettingsView: View {
                 .padding(.vertical, 48)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .disabled(showsEffectPicker || showsThemePicker)
-            .accessibilityHidden(showsEffectPicker || showsThemePicker)
+            .disabled(showsEffectPicker || showsThemePicker || showsTranslationModelRemoval)
+            .accessibilityHidden(showsEffectPicker || showsThemePicker || showsTranslationModelRemoval)
 
             if showsEffectPicker {
                 TVFullscreenEffectPicker(
@@ -220,6 +224,12 @@ struct TVSettingsView: View {
                 )
                 .transition(.opacity)
                 .zIndex(10)
+            }
+
+            if showsTranslationModelRemoval {
+                translationModelRemovalConfirmation
+                    .transition(.opacity)
+                    .zIndex(12)
             }
 
             if showsThemePicker {
@@ -234,6 +244,7 @@ struct TVSettingsView: View {
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsEffectPicker)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsThemePicker)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: showsTranslationModelRemoval)
         .fullScreenCover(isPresented: $showsMedleySettings) { TVMedleySettingsView() }
         .fullScreenCover(isPresented: $showsAISettings) {
             TVAISettingsView()
@@ -246,6 +257,8 @@ struct TVSettingsView: View {
         .onExitCommand {
             if showsMetadata {
                 showsMetadata = false
+            } else if showsTranslationModelRemoval {
+                showsTranslationModelRemoval = false
             } else if showsAISettings {
                 showsAISettings = false
             } else if showsThemePicker {
@@ -260,6 +273,129 @@ struct TVSettingsView: View {
             FullscreenPlayerEffectSync.shared.install()
             // 用户可能刚在搜索页或 tvOS 设置里改过授权,回来要显示最新状态。
             appleMusic.refreshAuthorization()
+        }
+    }
+
+    // MARK: Lyrics translation
+
+    /// Apple TV has no system translator: lyrics are translated only by the
+    /// downloadable offline model, so the targets are the languages it covers.
+    private static let translationTargets = [
+        LocalLyricTranslationPolicy.persianIdentity,
+        LocalLyricTranslationPolicy.englishIdentity,
+    ]
+
+    private var translationTarget: String {
+        let current = LyricsTranslationSettingsStore.normalizedLanguageCode(translationSettings.targetLanguageCode)
+        return Self.translationTargets.first {
+            LyricTranslationGroupingPolicy.representsSameTranslationLanguage($0, current)
+        } ?? Self.translationTargets[0]
+    }
+
+    @ViewBuilder
+    private var lyricsTranslationSection: some View {
+        settingsSection(String(localized: "lyrics_translation_section")) {
+            toggleRow(
+                "character.bubble",
+                String(localized: "lyrics_translation_enabled"),
+                isOn: Binding(
+                    get: { translationSettings.isEnabled },
+                    set: { enabled in
+                        if enabled {
+                            translationSettings.targetLanguageCode = translationTarget
+                        }
+                        translationSettings.isEnabled = enabled
+                    }
+                )
+            )
+            if translationSettings.isEnabled {
+                settingDivider
+                navRow(
+                    "globe",
+                    String(localized: "lyrics_translation_target"),
+                    Locale.current.localizedString(forIdentifier: translationTarget) ?? translationTarget,
+                    trailing: "arrow.left.arrow.right"
+                ) {
+                    let index = Self.translationTargets.firstIndex(of: translationTarget) ?? 0
+                    translationSettings.targetLanguageCode =
+                        Self.translationTargets[(index + 1) % Self.translationTargets.count]
+                }
+                if localTranslation.modelState != .unsupportedSystem {
+                    settingDivider
+                    navRow(
+                        "arrow.down.circle",
+                        String(localized: "lyrics_translation_local_pairs"),
+                        translationModelStatus,
+                        trailing: translationModelTrailingIcon,
+                        action: translationModelAction
+                    )
+                }
+            }
+        }
+        .task { localTranslation.refreshAvailability() }
+    }
+
+    private var translationModelStatus: String {
+        switch localTranslation.modelState {
+        case .ready:
+            return String(localized: "lyrics_translation_local_ready")
+        case .downloading(let fraction):
+            return fraction.formatted(.percent.precision(.fractionLength(0)))
+        case .failed:
+            return localTranslation.modelFailureReason ?? String(localized: "lyrics_translation_local_retry")
+        case .notDownloaded, .unsupportedSystem:
+            return String(
+                format: String(localized: "lyrics_translation_local_download_size_format"),
+                ByteCountFormatter.string(
+                    fromByteCount: LocalLyricsTranslationModel.approximateDownloadBytes,
+                    countStyle: .file
+                )
+            )
+        }
+    }
+
+    private var translationModelTrailingIcon: String {
+        switch localTranslation.modelState {
+        case .ready: return "trash"
+        case .failed: return "arrow.clockwise"
+        case .downloading: return "hourglass"
+        case .notDownloaded, .unsupportedSystem: return "arrow.down.circle"
+        }
+    }
+
+    private func translationModelAction() {
+        switch localTranslation.modelState {
+        case .notDownloaded, .failed:
+            localTranslation.downloadModel()
+        case .ready:
+            showsTranslationModelRemoval = true
+        case .downloading, .unsupportedSystem:
+            break
+        }
+    }
+
+    private var translationModelRemovalConfirmation: some View {
+        ZStack {
+            TVColor.bg.opacity(0.62).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                Text("lyrics_translation_local_remove_confirm").tvFont(.sectionTitle)
+                HStack(spacing: 18) {
+                    TVPillButton(
+                        title: String(localized: "lyrics_translation_local_remove"),
+                        systemImage: "trash",
+                        style: .solid
+                    ) {
+                        showsTranslationModelRemoval = false
+                        Task { await localTranslation.removeModel() }
+                    }
+                    TVPillButton(title: String(localized: "cancel"), systemImage: "xmark") {
+                        showsTranslationModelRemoval = false
+                    }
+                }
+            }
+            .padding(36)
+            .frame(width: 780, alignment: .leading)
+            .tvPanel(radius: 22)
         }
     }
 

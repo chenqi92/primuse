@@ -48,6 +48,8 @@ struct LyricsSettingsView: View {
                     }
                 }
 
+                LocalTranslationModelSection()
+
                 Section {
                     HStack {
                         Label("lyrics_translation_cached", systemImage: "internaldrive")

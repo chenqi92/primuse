@@ -789,7 +789,7 @@ struct TVImmersivePlayerView: View {
                 companions: [
                     store.lyrics[position].romanization,
                     store.lyrics[position].translation,
-                ]
+                ].map(LyricCompanionTextPolicy.displayText)
             )
         }
     }

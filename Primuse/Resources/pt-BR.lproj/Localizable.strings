@@ -4598,3 +4598,16 @@
 "home_spotlight_all_books" = "Todos os audiolivros";
 "menu_bar_lyrics" = "Letra na barra de menus";
 "menu_bar_lyrics_description" = "Mostra o verso que está sendo cantado ao lado do ícone do Primuse na barra de menus. Sem letra sincronizada, mostra o título da música.";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "Traduzindo neste dispositivo";
+"lyrics_translation_local_download" = "Baixar modelo de tradução";
+"lyrics_translation_local_downloading_format" = "Baixando modelo de tradução %@";
+"lyrics_translation_local_retry" = "Tentar baixar novamente";
+"lyrics_translation_local_section" = "Modelo de tradução offline";
+"lyrics_translation_local_pairs" = "Inglês ↔ Persa";
+"lyrics_translation_local_footer" = "Traduz letras entre inglês e persa neste dispositivo, sem conexão com a internet.";
+"lyrics_translation_local_ready" = "Baixado";
+"lyrics_translation_local_remove" = "Remover modelo";
+"lyrics_translation_local_remove_confirm" = "Remover o modelo de tradução offline? Você pode baixá-lo novamente depois.";
+"lyrics_translation_local_download_size_format" = "Baixar (%@)";

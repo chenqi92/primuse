@@ -4785,3 +4785,16 @@
 "home_spotlight_all_books" = "全部有声书";
 "menu_bar_lyrics" = "菜单栏歌词";
 "menu_bar_lyrics_description" = "在菜单栏 Primuse 图标旁显示正在唱的那一行；没有同步歌词时显示歌名。";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "正在本机翻译";
+"lyrics_translation_local_download" = "下载翻译模型";
+"lyrics_translation_local_downloading_format" = "正在下载翻译模型 %@";
+"lyrics_translation_local_retry" = "重新下载";
+"lyrics_translation_local_section" = "离线翻译模型";
+"lyrics_translation_local_pairs" = "英语 ↔ 波斯语";
+"lyrics_translation_local_footer" = "在本机完成英语与波斯语歌词互译，无需联网。";
+"lyrics_translation_local_ready" = "已下载";
+"lyrics_translation_local_remove" = "移除模型";
+"lyrics_translation_local_remove_confirm" = "移除离线翻译模型？之后可以重新下载。";
+"lyrics_translation_local_download_size_format" = "下载（%@）";

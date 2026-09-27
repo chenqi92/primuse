@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "version": "firefox-h1-2025-tiny-int8-1",
+  "directions": [
+    { "source": "en", "target": "fa", "model": "en-fa.mlmodelc", "vocabulary": "vocab.enfa.spm" },
+    { "source": "fa", "target": "en", "model": "fa-en.mlmodelc", "vocabulary": "vocab.faen.spm" }
+  ]
+}

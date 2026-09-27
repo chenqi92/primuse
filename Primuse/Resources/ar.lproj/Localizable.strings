@@ -4598,3 +4598,16 @@
 "home_spotlight_all_books" = "كل الكتب الصوتية";
 "menu_bar_lyrics" = "كلمات الأغنية في شريط القائمة";
 "menu_bar_lyrics_description" = "يعرض السطر الذي يُغنّى الآن بجانب أيقونة Primuse في شريط القائمة. إذا لم تتوفر كلمات متزامنة يُعرض اسم الأغنية.";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "جارٍ الترجمة على هذا الجهاز";
+"lyrics_translation_local_download" = "تنزيل نموذج الترجمة";
+"lyrics_translation_local_downloading_format" = "جارٍ تنزيل نموذج الترجمة %@";
+"lyrics_translation_local_retry" = "إعادة محاولة التنزيل";
+"lyrics_translation_local_section" = "نموذج الترجمة دون اتصال";
+"lyrics_translation_local_pairs" = "الإنجليزية ↔ الفارسية";
+"lyrics_translation_local_footer" = "يترجم كلمات الأغاني بين الإنجليزية والفارسية على هذا الجهاز دون الحاجة إلى اتصال بالشبكة.";
+"lyrics_translation_local_ready" = "تم التنزيل";
+"lyrics_translation_local_remove" = "إزالة النموذج";
+"lyrics_translation_local_remove_confirm" = "هل تريد إزالة نموذج الترجمة دون اتصال؟ يمكنك تنزيله مرة أخرى لاحقًا.";
+"lyrics_translation_local_download_size_format" = "تنزيل (%@)";

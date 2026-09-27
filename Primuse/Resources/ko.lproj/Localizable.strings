@@ -4692,3 +4692,16 @@
 "home_spotlight_all_books" = "모든 오디오북";
 "menu_bar_lyrics" = "메뉴 막대 가사";
 "menu_bar_lyrics_description" = "메뉴 막대의 Primuse 아이콘 옆에 지금 부르는 가사 줄을 표시합니다. 동기화된 가사가 없으면 곡 제목을 표시합니다.";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "이 기기에서 번역 중";
+"lyrics_translation_local_download" = "번역 모델 다운로드";
+"lyrics_translation_local_downloading_format" = "번역 모델 다운로드 중 %@";
+"lyrics_translation_local_retry" = "다운로드 재시도";
+"lyrics_translation_local_section" = "오프라인 번역 모델";
+"lyrics_translation_local_pairs" = "영어 ↔ 페르시아어";
+"lyrics_translation_local_footer" = "영어와 페르시아어 가사를 이 기기에서 번역하며 네트워크 연결이 필요 없습니다.";
+"lyrics_translation_local_ready" = "다운로드됨";
+"lyrics_translation_local_remove" = "모델 제거";
+"lyrics_translation_local_remove_confirm" = "오프라인 번역 모델을 제거하시겠습니까? 나중에 다시 다운로드할 수 있습니다.";
+"lyrics_translation_local_download_size_format" = "다운로드(%@)";

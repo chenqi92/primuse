@@ -7,6 +7,8 @@ import PrimuseKit
 struct MacImmersivePlayerView: View {
     /// 已经由常规播放页加载好的带时间戳歌词，沉浸态继续沿用同一份数据。
     let lyrics: [LyricLine]
+    /// 翻译任务给出的译文（按行 id），和常规播放页同一份。
+    var translatedTextByLineID: [String: String] = [:]
     /// 是否由这层自己忽略窗口安全区。
     ///
     /// 作为播放页里的一层时必须交给宿主（传 false）：在这里再忽略一次，扩出来的
@@ -900,10 +902,11 @@ struct MacImmersivePlayerView: View {
                     for: lyrics[position],
                     documentFallback: documentDirection
                 ),
-                companions: [
-                    lyrics[position].romanization,
-                    lyrics[position].manualTranslation?.text,
-                ].compactMap { $0 }
+                companions: LyricCompanionTextPolicy.texts(
+                    for: lyrics[position],
+                    translatedText: translatedTextByLineID[lyrics[position].id]
+                        ?? lyrics[position].manualTranslation?.text
+                ).map(LyricCompanionTextPolicy.displayText)
             )
         }
     }

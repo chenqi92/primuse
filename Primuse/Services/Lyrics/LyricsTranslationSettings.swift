@@ -1,7 +1,9 @@
 import Foundation
 import NaturalLanguage
 import PrimuseKit
+#if !os(tvOS)
 import Translation
+#endif
 
 enum LyricsTranslationMode: String, Codable, CaseIterable, Sendable {
     case system
@@ -70,18 +72,31 @@ final class LyricsTranslationSettingsStore {
     ]
 
     private init() {
+        var isEnabled = false
+        var targetLanguageCode: String
+        var mode = LyricsTranslationMode.system
         if let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey),
            let decoded = try? JSONDecoder().decode(Persisted.self, from: data) {
-            self.isEnabled = decoded.isEnabled
-            self.targetLanguageCode = decoded.targetLanguageCode
-            self.mode = decoded.mode ?? .system
+            isEnabled = decoded.isEnabled
+            targetLanguageCode = decoded.targetLanguageCode
+            mode = decoded.mode ?? .system
         } else {
-            self.isEnabled = false
             // 取 user 系统首选语言, 跟 region 无关用 base code 简化匹配
             let preferred = Locale.preferredLanguages.first ?? "zh-Hans"
-            self.targetLanguageCode = Self.normalizedLanguageCode(preferred)
-            self.mode = .system
+            targetLanguageCode = Self.normalizedLanguageCode(preferred)
         }
+        #if DEBUG
+        // Build-host runs turn translation on with a target language. Applied
+        // before the properties are initialized, so nothing is persisted and
+        // no change notification fires while `shared` is still being created.
+        if let target = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_LYRICS_TRANSLATION_TARGET"] {
+            isEnabled = true
+            targetLanguageCode = Self.normalizedLanguageCode(target)
+        }
+        #endif
+        self.isEnabled = isEnabled
+        self.targetLanguageCode = targetLanguageCode
+        self.mode = mode
     }
 
     /// 把带 region 的 BCP-47 标识简化为 Translation 使用的语言身份，同时
@@ -214,6 +229,7 @@ final class LyricsTranslationSettingsStore {
     }
 }
 
+#if !os(tvOS)
 @MainActor
 @Observable
 final class LyricsTranslationLanguageCatalog {
@@ -265,6 +281,7 @@ final class LyricsTranslationLanguageCatalog {
         Locale.autoupdatingCurrent.localizedString(forIdentifier: code) ?? code
     }
 }
+#endif
 
 extension Notification.Name {
     static let lyricsTranslationSettingsChanged = Notification.Name("primuse.lyrics.translation.settingsChanged")

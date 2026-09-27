@@ -4455,3 +4455,16 @@
 "home_spotlight_all_books" = "All Audiobooks";
 "menu_bar_lyrics" = "Menu Bar Lyrics";
 "menu_bar_lyrics_description" = "Shows the line being sung next to the Primuse icon in the menu bar. Falls back to the song title when there are no synced lyrics.";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "Translating on this device";
+"lyrics_translation_local_download" = "Download Translation Model";
+"lyrics_translation_local_downloading_format" = "Downloading translation model %@";
+"lyrics_translation_local_retry" = "Retry Download";
+"lyrics_translation_local_section" = "Offline Translation Model";
+"lyrics_translation_local_pairs" = "English ↔ Persian";
+"lyrics_translation_local_footer" = "Translates lyrics between English and Persian on this device, without a network connection.";
+"lyrics_translation_local_ready" = "Downloaded";
+"lyrics_translation_local_remove" = "Remove Model";
+"lyrics_translation_local_remove_confirm" = "Remove the offline translation model? You can download it again later.";
+"lyrics_translation_local_download_size_format" = "Download (%@)";

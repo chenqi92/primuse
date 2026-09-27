@@ -4598,3 +4598,16 @@
 "home_spotlight_all_books" = "Все аудиокниги";
 "menu_bar_lyrics" = "Текст песни в строке меню";
 "menu_bar_lyrics_description" = "Показывает текущую строку рядом со значком Primuse в строке меню. Если синхронизированного текста нет, показывается название песни.";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "Перевод на этом устройстве";
+"lyrics_translation_local_download" = "Загрузить модель перевода";
+"lyrics_translation_local_downloading_format" = "Загрузка модели перевода %@";
+"lyrics_translation_local_retry" = "Повторить загрузку";
+"lyrics_translation_local_section" = "Офлайн-модель перевода";
+"lyrics_translation_local_pairs" = "Английский ↔ Персидский";
+"lyrics_translation_local_footer" = "Переводит тексты песен с английского на персидский и обратно на этом устройстве без подключения к сети.";
+"lyrics_translation_local_ready" = "Загружено";
+"lyrics_translation_local_remove" = "Удалить модель";
+"lyrics_translation_local_remove_confirm" = "Удалить офлайн-модель перевода? Её можно будет загрузить снова.";
+"lyrics_translation_local_download_size_format" = "Загрузить (%@)";

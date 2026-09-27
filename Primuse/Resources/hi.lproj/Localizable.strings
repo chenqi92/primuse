@@ -4598,3 +4598,16 @@
 "home_spotlight_all_books" = "सभी ऑडियोबुक";
 "menu_bar_lyrics" = "मेनू बार में बोल";
 "menu_bar_lyrics_description" = "मेनू बार में Primuse आइकन के पास अभी गाई जा रही पंक्ति दिखाता है। सिंक किए गए बोल न हों तो गाने का नाम दिखता है।";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "इस डिवाइस पर अनुवाद हो रहा है";
+"lyrics_translation_local_download" = "अनुवाद मॉडल डाउनलोड करें";
+"lyrics_translation_local_downloading_format" = "अनुवाद मॉडल डाउनलोड हो रहा है %@";
+"lyrics_translation_local_retry" = "फिर से डाउनलोड करें";
+"lyrics_translation_local_section" = "ऑफ़लाइन अनुवाद मॉडल";
+"lyrics_translation_local_pairs" = "अंग्रेज़ी ↔ फ़ारसी";
+"lyrics_translation_local_footer" = "इस डिवाइस पर, बिना नेटवर्क कनेक्शन के, बोलों का अंग्रेज़ी और फ़ारसी के बीच अनुवाद करता है।";
+"lyrics_translation_local_ready" = "डाउनलोड हो गया";
+"lyrics_translation_local_remove" = "मॉडल हटाएँ";
+"lyrics_translation_local_remove_confirm" = "ऑफ़लाइन अनुवाद मॉडल हटाएँ? आप इसे बाद में फिर से डाउनलोड कर सकते हैं।";
+"lyrics_translation_local_download_size_format" = "डाउनलोड करें (%@)";

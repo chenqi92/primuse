@@ -1133,6 +1133,15 @@ public enum LyricCompanionTextPolicy {
         return companions
     }
 
+    /// 附属文本上屏前包一层 Unicode 首强方向隔离（FSI … PDI）。英文歌词的波斯语
+    /// 译文排在从左到右的段落里时，句末的标点会被段落方向拉到错误的一侧；隔离后
+    /// 这一行按自己的首个强方向字符排版，对齐仍跟随整列歌词。
+    /// 空白文本原样返回：隔离符不算空白，包上之后会让下游的空行过滤失效。
+    public static func displayText(_ text: String) -> String {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return text }
+        return "\u{2068}\(text)\u{2069}"
+    }
+
     private static func normalized(_ text: String?) -> String? {
         guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return nil }

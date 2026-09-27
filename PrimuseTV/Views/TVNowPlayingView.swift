@@ -967,7 +967,7 @@ struct TVNowPlayingView: View {
                     .foregroundStyle(TVColor.textFaint)
             }
             if !ln.translation.isEmpty {
-                Text(ln.translation).tvFont(.caption).italic()
+                Text(LyricCompanionTextPolicy.displayText(ln.translation)).tvFont(.caption).italic()
                     .foregroundStyle(TVColor.textFaint)
             }
         }

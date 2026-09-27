@@ -1,0 +1,17 @@
+Offline lyric translation model
+
+The English→Persian and Persian→English models in this pack are the
+Firefox Translations "tiny" students released by Mozilla
+(https://github.com/mozilla/translations), distributed under the
+Mozilla Public License 2.0 (LICENSE-MPL-2.0.txt).
+
+Source Code Form of the model files:
+  English→Persian  models/en-fa/h1-2025_c_TYU1BOTByxOnnkAunO7g/student-finetuned/
+  Persian→English  models/fa-en/h1-2025_dyvKzoMQToKWHx7bbP-TtQ/student-finetuned/
+  in https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/
+
+Modifications: the float32 checkpoints (final.model.npz.best-chrf.npz) were
+converted to Core ML with per-channel int8 weights. The conversion script is
+scripts/lyrics-translation-model/convert_firefox_translations.py in the
+Primuse repository. The SentencePiece vocabularies (vocab.*.spm) are
+unmodified copies of the released vocab.en.spm files.

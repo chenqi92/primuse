@@ -356,6 +356,11 @@ struct TVRoot: View {
                 await waitForDemoContent()
                 await store.loadDemoNowPlaying()
                 tab = .nowPlaying
+            case "lyricsTranslationDemo":
+                await waitForDemoContent()
+                if await store.loadLyricsTranslationDemo() {
+                    tab = .nowPlaying
+                }
             case "nowPlayingSongArtwork":
                 await waitForDemoContent()
                 if await store.loadDemoNowPlaying(preferSongArtwork: true) {

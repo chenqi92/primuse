@@ -11,9 +11,12 @@ import PrimuseKit
 final class LyricsTranslationCache {
     static let shared = LyricsTranslationCache()
 
-    enum ProviderNamespace: String, Sendable {
+    enum ProviderNamespace: Hashable, Sendable {
         case system
         case intelligent
+        /// The downloadable offline model; each model build is its own
+        /// namespace, so an update never serves the previous build's lines.
+        case local(modelVersion: String)
     }
 
     private struct Persisted: Codable {
@@ -199,8 +202,15 @@ final class LyricsTranslationCache {
         targetLang: String,
         provider: ProviderNamespace
     ) -> String {
-        let providerVersion = provider == .system
-            ? systemProviderVersion : intelligentProviderVersion
+        let providerVersion: String
+        switch provider {
+        case .system:
+            providerVersion = systemProviderVersion
+        case .intelligent:
+            providerVersion = intelligentProviderVersion
+        case .local(let modelVersion):
+            providerVersion = LocalLyricTranslationPolicy.cacheProviderVersion(modelVersion: modelVersion)
+        }
         let source = sourceLang.map(cacheLanguageIdentity) ?? "auto"
         let target = cacheLanguageIdentity(targetLang)
         let raw = "\(providerVersion)|\(source)|\(target)|\(text)"

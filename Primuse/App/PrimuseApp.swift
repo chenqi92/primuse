@@ -2331,7 +2331,7 @@ private struct DebugLaunchAutomation: ViewModifier {
 /// - `PRIMUSE_DEBUG_IMPORT_LOCAL=1`：建好「本地音乐」源并扫描 Documents/LocalMusic（无人值守建库用）。
 /// - `PRIMUSE_DEBUG_MEDLEY=<n>`：曲库装好后把前 n 首音乐串烧播放。
 /// - `PRIMUSE_DEBUG_NUDGE=<kind>`：有歌在播时强制弹出该种提示（`SmartNudgeKind` 原始值）。
-/// - `PRIMUSE_DEBUG_SHOW_PLAYER=<秒>`：有歌在播后再等该秒数，打开播放页（iOS）。
+/// - `PRIMUSE_DEBUG_SHOW_PLAYER=<秒>`：有歌在播后再等该秒数，打开播放页（iOS 推出播放页，Mac 展开播放页）。
 /// - `PRIMUSE_DEBUG_BOOKMARK_AFTER=<秒>`：播放该秒数后在当前位置加一个书签。
 /// - `PRIMUSE_DEBUG_CHAPTER_SLEEP=1`：章节读出后设「本章结束后停止」。
 /// - `PRIMUSE_DEBUG_PRESENT=spokenWord|chapters|batchEdit|tidy|batchReview|tidyReview|karaoke`：弹出对应页面
@@ -2426,7 +2426,11 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
                     guard services.playerService.currentSong != nil else { continue }
                     try? await Task.sleep(for: .seconds(delay))
                     plog("🧪 Debug: show player")
+                    #if os(macOS)
+                    NotificationCenter.default.post(name: .primuseRequestExpandNowPlaying, object: nil)
+                    #else
                     NotificationCenter.default.post(name: .primuseRequestShowNowPlaying, object: nil)
+                    #endif
                     return
                 }
             }

@@ -4598,3 +4598,16 @@
 "home_spotlight_all_books" = "Tüm sesli kitaplar";
 "menu_bar_lyrics" = "Menü Çubuğunda Şarkı Sözleri";
 "menu_bar_lyrics_description" = "Menü çubuğunda Primuse simgesinin yanında o an söylenen satırı gösterir. Senkronize söz yoksa şarkı adını gösterir.";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "Bu cihazda çevriliyor";
+"lyrics_translation_local_download" = "Çeviri Modelini İndir";
+"lyrics_translation_local_downloading_format" = "Çeviri modeli indiriliyor %@";
+"lyrics_translation_local_retry" = "İndirmeyi Yeniden Dene";
+"lyrics_translation_local_section" = "Çevrimdışı Çeviri Modeli";
+"lyrics_translation_local_pairs" = "İngilizce ↔ Farsça";
+"lyrics_translation_local_footer" = "Şarkı sözlerini bu cihazda, ağ bağlantısı olmadan İngilizce ile Farsça arasında çevirir.";
+"lyrics_translation_local_ready" = "İndirildi";
+"lyrics_translation_local_remove" = "Modeli Kaldır";
+"lyrics_translation_local_remove_confirm" = "Çevrimdışı çeviri modeli kaldırılsın mı? Daha sonra yeniden indirebilirsiniz.";
+"lyrics_translation_local_download_size_format" = "İndir (%@)";

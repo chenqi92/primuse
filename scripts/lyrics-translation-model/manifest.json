@@ -1,0 +1,34 @@
+{
+	"assetPackID": "LyricsTranslationModel",
+	"downloadPolicy": {
+		"onDemand": {}
+	},
+	"fileSelectors": [
+		{
+			"file": "translation-model.json"
+		},
+		{
+			"directory": "en-fa.mlmodelc"
+		},
+		{
+			"directory": "fa-en.mlmodelc"
+		},
+		{
+			"file": "vocab.enfa.spm"
+		},
+		{
+			"file": "vocab.faen.spm"
+		},
+		{
+			"file": "LICENSE-MPL-2.0.txt"
+		},
+		{
+			"file": "NOTICE.txt"
+		}
+	],
+	"platforms": [
+		"iOS",
+		"macOS",
+		"tvOS"
+	]
+}

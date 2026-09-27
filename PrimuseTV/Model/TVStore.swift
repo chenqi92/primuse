@@ -2376,6 +2376,31 @@ final class TVStore {
         return true
     }
 
+    /// 截图用:演示播放态 + 英语演示歌词,歌词按真实加载路径交给离线翻译,
+    /// 用来在模拟器里看电视端的译文刷新(目标语言由 `PRIMUSE_DEBUG_LYRICS_TRANSLATION_TARGET` 指定)。
+    func loadLyricsTranslationDemo() async -> Bool {
+        guard await loadDemoNowPlaying() else { return false }
+        let songID = nowPlaying.songID
+        queue = [songID]
+        queueIndex = 0
+        let texts = [
+            "I've been walking in the rain all night",
+            "Baby, don't you let me go",
+            "We were young and wild and free",
+            "Every time I close my eyes, I see your face",
+            "My heart is breaking, can't you see?",
+            "We'll be dancing in the streets tonight, yeah!",
+            "She said \"I love you\" and then she walked away...",
+            "I got a feeling that tonight's gonna be a good night",
+        ]
+        let lines = texts.enumerated().map { index, text in
+            LyricLine(id: "translation-demo-\(index)", timestamp: Double(index) * 4, text: text)
+        }
+        applyLyrics(TVPlaybackCoordinator.toTVLyrics(lines, duration: 0), forSongID: songID)
+        TVLyricsTranslationController.shared.lyricsDidLoad(lines, forSongID: songID, store: self)
+        return true
+    }
+
     private func demoStandaloneArtworkSong() async -> Song? {
         let candidates = library.visibleSongs.filter {
             $0.albumID?.isEmpty != false && $0.coverArtFileName?.isEmpty == false
@@ -5556,6 +5581,14 @@ final class TVStore {
         )
     }
 
+    /// 离线模型译出的一行。只填进还没有译文的行,歌词文件自带的译文优先。
+    func applyLyricTranslation(_ translation: String, lineID: String, forSongID songID: String) {
+        guard currentSongID == songID,
+              let index = lyrics.firstIndex(where: { $0.id == lineID }),
+              lyrics[index].translation.isEmpty else { return }
+        lyrics[index] = lyrics[index].withTranslation(translation)
+    }
+
     /// 协调器加载完歌词后回填(本地缓存 / 从源读 .lrc)。仅当仍是这首歌时生效。
     func applyLyrics(_ lines: [TVLyricLine], forSongID songID: String) {
         guard currentSongID == songID else { return }
@@ -5734,6 +5767,12 @@ extension TVStore {
 }
 
 private extension TVLyricLine {
+    func withTranslation(_ translation: String) -> TVLyricLine {
+        TVLyricLine(id: id, time: time, text: text, isSynchronized: isSynchronized,
+                    syllables: syllables, translation: translation, romanization: romanization,
+                    writingDirection: writingDirection, voice: voice, background: background)
+    }
+
     func shiftedForMedley(by offset: Double) -> TVLyricLine {
         TVLyricLine(id: id, time: time - offset, text: text, isSynchronized: isSynchronized,
                     syllables: syllables.map { TVSyllable(w: $0.w, start: $0.start - offset, end: $0.end - offset, endTiming: $0.endTiming) },

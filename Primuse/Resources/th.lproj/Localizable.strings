@@ -4598,3 +4598,16 @@
 "home_spotlight_all_books" = "หนังสือเสียงทั้งหมด";
 "menu_bar_lyrics" = "เนื้อเพลงในแถบเมนู";
 "menu_bar_lyrics_description" = "แสดงบรรทัดที่กำลังร้องข้างไอคอน Primuse ในแถบเมนู หากไม่มีเนื้อเพลงแบบซิงค์จะแสดงชื่อเพลงแทน";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "กำลังแปลบนอุปกรณ์นี้";
+"lyrics_translation_local_download" = "ดาวน์โหลดโมเดลการแปล";
+"lyrics_translation_local_downloading_format" = "กำลังดาวน์โหลดโมเดลการแปล %@";
+"lyrics_translation_local_retry" = "ลองดาวน์โหลดอีกครั้ง";
+"lyrics_translation_local_section" = "โมเดลแปลแบบออฟไลน์";
+"lyrics_translation_local_pairs" = "อังกฤษ ↔ เปอร์เซีย";
+"lyrics_translation_local_footer" = "แปลเนื้อเพลงระหว่างภาษาอังกฤษและเปอร์เซียบนอุปกรณ์นี้ โดยไม่ต้องเชื่อมต่อเครือข่าย";
+"lyrics_translation_local_ready" = "ดาวน์โหลดแล้ว";
+"lyrics_translation_local_remove" = "ลบโมเดล";
+"lyrics_translation_local_remove_confirm" = "ลบโมเดลแปลแบบออฟไลน์หรือไม่ คุณสามารถดาวน์โหลดใหม่ได้ภายหลัง";
+"lyrics_translation_local_download_size_format" = "ดาวน์โหลด (%@)";

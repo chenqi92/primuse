@@ -750,6 +750,12 @@ targets:
       - path: Primuse/Services/Audio/MusicVideoCompatibilityConverter.swift
       - path: Primuse/Services/Audio/KaraokeSeparationService.swift
       - path: Primuse/Services/Audio/KaraokeVocalSeparator.swift
+      # 离线歌词翻译(英语 ↔ 波斯语):电视没有系统翻译,只用可下载的本地模型;
+      # 翻译设置、缓存与译前准备与 iOS / macOS 同一份实现。
+      - path: Primuse/Services/Lyrics/LocalLyricsTranslationEngine.swift
+      - path: Primuse/Services/Lyrics/LocalLyricsTranslationService.swift
+      - path: Primuse/Services/Lyrics/LyricsTranslationCache.swift
+      - path: Primuse/Services/Lyrics/LyricsTranslationSettings.swift
       - path: Primuse/Utilities/Extensions/Bundle+AppVersion.swift
       # 内网自动发现(Bonjour/NWBrowser 找 NAS),与 iOS/macOS 同一份实现
       - path: Primuse/Services/Sources/NetworkDiscoveryService.swift

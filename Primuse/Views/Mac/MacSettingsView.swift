@@ -3961,6 +3961,7 @@ private struct MacSTLyricsView: View {
     @AppStorage(MacMenuBarController.lyricsEnabledKey)
     private var menuBarLyricsEnabled = false
     @State private var showTranscriptionSettings = false
+    private var localTranslation: LocalLyricsTranslationService { .shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -3997,6 +3998,24 @@ private struct MacSTLyricsView: View {
                                     ($0, languageCatalog.displayName(for: $0))
                                 }
                         )
+                    }
+                }
+            }
+
+            if settings.isEnabled, localTranslation.modelState != .unsupportedSystem {
+                MacSTSection(
+                    String(localized: "lyrics_translation_local_section"),
+                    hint: String(localized: "lyrics_translation_local_footer")
+                ) {
+                    MacSTGroup {
+                        MacSTRow(
+                            String(localized: "lyrics_translation_local_pairs"),
+                            hint: localTranslation.modelState == .failed
+                                ? localTranslation.modelFailureReason : nil,
+                            divider: false
+                        ) {
+                            localTranslationModelControl
+                        }
                     }
                 }
             }
@@ -4060,11 +4079,53 @@ private struct MacSTLyricsView: View {
                 }
             }
         }
-        .task { await languageCatalog.refresh() }
+        .task {
+            localTranslation.refreshAvailability()
+            await languageCatalog.refresh()
+        }
         .sheet(isPresented: $showTranscriptionSettings) {
             NavigationStack {
                 GoogleLyricsTranscriptionSettingsView()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var localTranslationModelControl: some View {
+        switch localTranslation.modelState {
+        case .notDownloaded:
+            MacSTButton(
+                title: String(
+                    format: String(localized: "lyrics_translation_local_download_size_format"),
+                    ByteCountFormatter.string(
+                        fromByteCount: LocalLyricsTranslationModel.approximateDownloadBytes,
+                        countStyle: .file
+                    )
+                ),
+                systemImage: "arrow.down.circle"
+            ) {
+                localTranslation.downloadModel()
+            }
+        case .downloading(let fraction):
+            ProgressView(value: fraction)
+                .frame(width: 140)
+        case .failed:
+            MacSTButton(
+                title: String(localized: "lyrics_translation_local_retry"),
+                systemImage: "arrow.clockwise"
+            ) {
+                localTranslation.downloadModel()
+            }
+        case .ready:
+            MacSTButton(
+                title: String(localized: "lyrics_translation_local_remove"),
+                systemImage: "trash",
+                destructive: true
+            ) {
+                Task { await localTranslation.removeModel() }
+            }
+        case .unsupportedSystem:
+            EmptyView()
         }
     }
 

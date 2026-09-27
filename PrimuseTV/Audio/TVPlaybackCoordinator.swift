@@ -1232,7 +1232,7 @@ final class TVPlaybackCoordinator {
                     forSongID: updated.id
                 ), !cached.isEmpty,
                    isCurrent(requestID, store: store) {
-                    store.applyLyrics(Self.toTVLyrics(cached, duration: updated.duration), forSongID: updated.id)
+                    applyLoadedLyrics(cached, duration: updated.duration, forSongID: updated.id, store: store)
                 }
                 return
             case .cancelled:
@@ -1810,10 +1810,7 @@ final class TVPlaybackCoordinator {
             let songID = song.id
             if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID), !cached.isEmpty {
                 guard self.isCurrent(requestID, store: store) else { return }
-                store.applyLyrics(
-                    Self.toTVLyrics(cached, duration: song.duration),
-                    forSongID: destinationID
-                )
+                applyLoadedLyrics(cached, duration: song.duration, forSongID: destinationID, store: store)
                 return
             }
             guard self.isCurrent(requestID, store: store) else { return }
@@ -1916,10 +1913,7 @@ final class TVPlaybackCoordinator {
                 guard !lines.isEmpty else { return }
                 _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID, force: false)
                 try self.ensureCurrent(requestID, store: store)
-                store.applyLyrics(
-                    Self.toTVLyrics(lines, duration: song.duration),
-                    forSongID: destinationID
-                )
+                applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
                 plog("🎬 TV source-lyrics loaded \(lines.count) lines for '\(song.title)'")
             } catch is CancellationError {
                 return
@@ -1947,18 +1941,12 @@ final class TVPlaybackCoordinator {
         )
         try ensureCurrent(requestID, store: store)
         if wrote {
-            store.applyLyrics(
-                Self.toTVLyrics(lines, duration: song.duration),
-                forSongID: destinationID
-            )
+            applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
             plog("🎬 TV \(logSource) lyrics loaded \(lines.count) lines for '\(song.title)'")
         } else if let preserved = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
                   !preserved.isEmpty {
             try ensureCurrent(requestID, store: store)
-            store.applyLyrics(
-                Self.toTVLyrics(preserved, duration: song.duration),
-                forSongID: destinationID
-            )
+            applyLoadedLyrics(preserved, duration: song.duration, forSongID: destinationID, store: store)
         }
     }
 
@@ -2030,6 +2018,17 @@ final class TVPlaybackCoordinator {
         )
         try ensureCurrent(requestID, store: store)
         return String(data: data, encoding: .utf8)
+    }
+
+    /// Shows loaded lyrics and starts the offline translation for them.
+    private func applyLoadedLyrics(
+        _ lines: [LyricLine],
+        duration: TimeInterval,
+        forSongID songID: String,
+        store: TVStore
+    ) {
+        store.applyLyrics(Self.toTVLyrics(lines, duration: duration), forSongID: songID)
+        TVLyricsTranslationController.shared.lyricsDidLoad(lines, forSongID: songID, store: store)
     }
 
     nonisolated static func toTVLyrics(

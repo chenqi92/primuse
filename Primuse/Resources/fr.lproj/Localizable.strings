@@ -4692,3 +4692,16 @@
 "home_spotlight_all_books" = "Tous les livres audio";
 "menu_bar_lyrics" = "Paroles dans la barre des menus";
 "menu_bar_lyrics_description" = "Affiche la ligne chantée à côté de l’icône Primuse dans la barre des menus. Sans paroles synchronisées, le titre du morceau s’affiche.";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "Traduction sur cet appareil";
+"lyrics_translation_local_download" = "Télécharger le modèle de traduction";
+"lyrics_translation_local_downloading_format" = "Téléchargement du modèle de traduction %@";
+"lyrics_translation_local_retry" = "Réessayer le téléchargement";
+"lyrics_translation_local_section" = "Modèle de traduction hors ligne";
+"lyrics_translation_local_pairs" = "Anglais ↔ Persan";
+"lyrics_translation_local_footer" = "Traduit les paroles entre l’anglais et le persan sur cet appareil, sans connexion réseau.";
+"lyrics_translation_local_ready" = "Téléchargé";
+"lyrics_translation_local_remove" = "Supprimer le modèle";
+"lyrics_translation_local_remove_confirm" = "Supprimer le modèle de traduction hors ligne ? Vous pourrez le télécharger à nouveau plus tard.";
+"lyrics_translation_local_download_size_format" = "Télécharger (%@)";

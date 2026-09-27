@@ -4598,3 +4598,16 @@
 "home_spotlight_all_books" = "Wszystkie audiobooki";
 "menu_bar_lyrics" = "Tekst na pasku menu";
 "menu_bar_lyrics_description" = "Pokazuje śpiewany wers obok ikony Primuse na pasku menu. Bez zsynchronizowanego tekstu wyświetla tytuł utworu.";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "Tłumaczenie na tym urządzeniu";
+"lyrics_translation_local_download" = "Pobierz model tłumaczenia";
+"lyrics_translation_local_downloading_format" = "Pobieranie modelu tłumaczenia %@";
+"lyrics_translation_local_retry" = "Pobierz ponownie";
+"lyrics_translation_local_section" = "Model tłumaczenia offline";
+"lyrics_translation_local_pairs" = "Angielski ↔ Perski";
+"lyrics_translation_local_footer" = "Tłumaczy teksty między angielskim a perskim na tym urządzeniu, bez połączenia z siecią.";
+"lyrics_translation_local_ready" = "Pobrano";
+"lyrics_translation_local_remove" = "Usuń model";
+"lyrics_translation_local_remove_confirm" = "Usunąć model tłumaczenia offline? Możesz pobrać go ponownie później.";
+"lyrics_translation_local_download_size_format" = "Pobierz (%@)";

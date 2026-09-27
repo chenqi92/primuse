@@ -40,6 +40,11 @@ struct MacNowPlayingView: View {
     @State private var currentIndex: Int = -1
     @State private var activeBackgroundLineIDs: Set<String> = []
     @State private var lyricsLoadRevision: UInt = 0
+    /// Bumped whenever the installed lyric lines change, so translation
+    /// restarts for new lyrics even within the same song.
+    @State private var lyricsTranslationRevision: UInt = 0
+    @State private var lyricTranslationsByLineID: [String: String] = [:]
+    @State private var lyricsTranslationActivity: LyricsTranslationActivity = .idle
     /// 最近一次真正跑完的歌词加载对应的世代。跟当前世代不一致就说明还在加载。
     /// 用世代号而不是手工置一个 Bool: `reloadLyrics` 有多条退出路径, 漏掉任何
     /// 一条都会把歌词区永久钉在加载态。
@@ -164,6 +169,16 @@ struct MacNowPlayingView: View {
                 .overlay(alignment: .topLeading) { fullscreenEffectPanel }
                 .pmLogFrame("nowPlaying")
         }
+        // Translation lives here rather than on the lyrics pane, which is
+        // removed while the immersive stage is showing.
+        .lyricsTranslationTaskIfAvailable(
+            songID: player.currentSong?.id,
+            lyricsRevision: lyricsTranslationRevision,
+            lyrics: lyrics,
+            settings: LyricsTranslationSettingsStore.shared,
+            translatedTextByLineID: $lyricTranslationsByLineID,
+            activity: $lyricsTranslationActivity
+        )
     }
 
     /// 播放页本体。尺寸由 `body` 钉死,这里不再自己伸展。
@@ -172,6 +187,7 @@ struct MacNowPlayingView: View {
             if isImmersiveStageActive {
                 MacImmersivePlayerView(
                     lyrics: lyrics,
+                    translatedTextByLineID: lyricTranslationsByLineID,
                     // 安全区由这棵树的宿主决定,沉浸层不能自己再忽略一次。
                     ignoresWindowSafeArea: false,
                     onExitFullScreen: { exitFullScreen() },
@@ -959,6 +975,53 @@ struct MacNowPlayingView: View {
                 lyricsAutoFollowTask?.cancel()
             }
         }
+        .overlay(alignment: .top) {
+            lyricsTranslationStatus
+                .padding(.top, 12)
+        }
+    }
+
+    /// Only the states that need the listener: a model download, the
+    /// explicit system-translation step, or a pair nothing here can translate.
+    @ViewBuilder
+    private var lyricsTranslationStatus: some View {
+        Group {
+            switch lyricsTranslationActivity {
+            case .localModelRequired:
+                LocalTranslationModelBadge()
+            case .systemPreparationRequired:
+                Button {
+                    LyricsTranslationSettingsStore.shared.requestSystemTranslationPreparation()
+                } label: {
+                    Label(String(localized: "Translate Lyrics"), systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.plain)
+            case .systemUnavailable:
+                Label("lyrics_translation_unavailable", systemImage: "exclamationmark.triangle")
+            default:
+                EmptyView()
+            }
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(playerPrimaryColor)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(playerGlassFill, in: Capsule())
+        .overlay { Capsule().strokeBorder(playerGlassBorder, lineWidth: 0.5) }
+        .opacity(showsLyricsTranslationStatus ? 1 : 0)
+        .allowsHitTesting(showsLyricsTranslationStatus)
+    }
+
+    private var showsLyricsTranslationStatus: Bool {
+        switch lyricsTranslationActivity {
+        case .localModelRequired:
+            if case .downloading = LocalLyricsTranslationService.shared.modelState { return true }
+            return LocalLyricsTranslationService.shared.modelState != .ready
+        case .systemPreparationRequired, .systemUnavailable:
+            return true
+        default:
+            return false
+        }
     }
 
     private var lyricsScrollIdentity: String {
@@ -1055,6 +1118,7 @@ struct MacNowPlayingView: View {
                 weight: weight,
                 tint: tint
             )
+            macLyricCompanions(for: line, fontSize: scaledSize)
             if let backgrounds = line.background {
                 ForEach(backgrounds) { background in
                     macSingleLyricLine(
@@ -1078,6 +1142,24 @@ struct MacNowPlayingView: View {
         )
         .frame(maxWidth: .infinity, alignment: .leading)
         .environment(\.layoutDirection, lyricLayoutDirection)
+    }
+
+    /// Romanization, translations written in the lyrics, and the translation
+    /// task's result, smaller and dimmer under the sung line.
+    @ViewBuilder
+    private func macLyricCompanions(for line: LyricLine, fontSize: CGFloat) -> some View {
+        let companions = LyricCompanionTextPolicy.texts(
+            for: line,
+            translatedText: lyricTranslationsByLineID[line.id]
+        )
+        ForEach(companions.indices, id: \.self) { slot in
+            Text(LyricCompanionTextPolicy.displayText(companions[slot]))
+                .font(.system(size: fontSize * 0.62, weight: .medium))
+                .foregroundStyle(playerSecondaryColor)
+                .lineSpacing(1)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder
@@ -1451,6 +1533,9 @@ struct MacNowPlayingView: View {
     }
 
     private func installLyrics(_ newLyrics: [LyricLine]) {
+        if lyrics != newLyrics {
+            lyricsTranslationRevision &+= 1
+        }
         lyrics = newLyrics
         let resolvedDirection = LyricWritingDirectionPolicy.resolve(in: newLyrics)
         if lyricsWritingDirection != resolvedDirection {

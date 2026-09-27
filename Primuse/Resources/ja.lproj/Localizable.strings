@@ -4693,3 +4693,16 @@
 "home_spotlight_all_books" = "すべてのオーディオブック";
 "menu_bar_lyrics" = "メニューバーの歌詞";
 "menu_bar_lyrics_description" = "メニューバーの Primuse アイコンの横に、今歌われている行を表示します。同期歌詞がない場合は曲名を表示します。";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "このデバイスで翻訳中";
+"lyrics_translation_local_download" = "翻訳モデルをダウンロード";
+"lyrics_translation_local_downloading_format" = "翻訳モデルをダウンロード中 %@";
+"lyrics_translation_local_retry" = "ダウンロードを再試行";
+"lyrics_translation_local_section" = "オフライン翻訳モデル";
+"lyrics_translation_local_pairs" = "英語 ↔ ペルシア語";
+"lyrics_translation_local_footer" = "英語とペルシア語の歌詞をこのデバイス上で翻訳します。ネットワーク接続は不要です。";
+"lyrics_translation_local_ready" = "ダウンロード済み";
+"lyrics_translation_local_remove" = "モデルを削除";
+"lyrics_translation_local_remove_confirm" = "オフライン翻訳モデルを削除しますか？後で再ダウンロードできます。";
+"lyrics_translation_local_download_size_format" = "ダウンロード（%@）";

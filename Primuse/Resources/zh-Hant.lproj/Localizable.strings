@@ -4669,3 +4669,16 @@
 "home_spotlight_all_books" = "全部有聲書";
 "menu_bar_lyrics" = "選單列歌詞";
 "menu_bar_lyrics_description" = "在選單列 Primuse 圖像旁顯示正在唱的那一行；沒有同步歌詞時顯示歌名。";
+
+/* Offline lyric translation model */
+"lyrics_translation_local_translating" = "正在本機翻譯";
+"lyrics_translation_local_download" = "下載翻譯模型";
+"lyrics_translation_local_downloading_format" = "正在下載翻譯模型 %@";
+"lyrics_translation_local_retry" = "重新下載";
+"lyrics_translation_local_section" = "離線翻譯模型";
+"lyrics_translation_local_pairs" = "英語 ↔ 波斯語";
+"lyrics_translation_local_footer" = "在本機完成英語與波斯語歌詞互譯，無需連網。";
+"lyrics_translation_local_ready" = "已下載";
+"lyrics_translation_local_remove" = "移除模型";
+"lyrics_translation_local_remove_confirm" = "移除離線翻譯模型？之後可以重新下載。";
+"lyrics_translation_local_download_size_format" = "下載（%@）";
