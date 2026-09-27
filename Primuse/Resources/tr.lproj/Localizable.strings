@@ -4596,3 +4596,5 @@
 "home_spotlight_clear" = "Temizle";
 "home_spotlight_all_radio" = "Tüm istasyonlar";
 "home_spotlight_all_books" = "Tüm sesli kitaplar";
+"menu_bar_lyrics" = "Menü Çubuğunda Şarkı Sözleri";
+"menu_bar_lyrics_description" = "Menü çubuğunda Primuse simgesinin yanında o an söylenen satırı gösterir. Senkronize söz yoksa şarkı adını gösterir.";

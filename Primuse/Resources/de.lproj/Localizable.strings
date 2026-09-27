@@ -4690,3 +4690,5 @@
 "home_spotlight_clear" = "Leeren";
 "home_spotlight_all_radio" = "Alle Sender";
 "home_spotlight_all_books" = "Alle Hörbücher";
+"menu_bar_lyrics" = "Liedtext in der Menüleiste";
+"menu_bar_lyrics_description" = "Zeigt die gerade gesungene Zeile neben dem Primuse-Symbol in der Menüleiste. Ohne synchronisierten Liedtext wird der Titel angezeigt.";

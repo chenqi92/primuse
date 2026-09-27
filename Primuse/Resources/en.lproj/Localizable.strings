@@ -4453,3 +4453,5 @@
 "home_spotlight_clear" = "Clear";
 "home_spotlight_all_radio" = "All Stations";
 "home_spotlight_all_books" = "All Audiobooks";
+"menu_bar_lyrics" = "Menu Bar Lyrics";
+"menu_bar_lyrics_description" = "Shows the line being sung next to the Primuse icon in the menu bar. Falls back to the song title when there are no synced lyrics.";

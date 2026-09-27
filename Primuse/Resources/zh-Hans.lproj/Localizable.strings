@@ -4783,3 +4783,5 @@
 "home_spotlight_clear" = "清空";
 "home_spotlight_all_radio" = "全部电台";
 "home_spotlight_all_books" = "全部有声书";
+"menu_bar_lyrics" = "菜单栏歌词";
+"menu_bar_lyrics_description" = "在菜单栏 Primuse 图标旁显示正在唱的那一行；没有同步歌词时显示歌名。";

@@ -4596,3 +4596,5 @@
 "home_spotlight_clear" = "Wyczyść";
 "home_spotlight_all_radio" = "Wszystkie stacje";
 "home_spotlight_all_books" = "Wszystkie audiobooki";
+"menu_bar_lyrics" = "Tekst na pasku menu";
+"menu_bar_lyrics_description" = "Pokazuje śpiewany wers obok ikony Primuse na pasku menu. Bez zsynchronizowanego tekstu wyświetla tytuł utworu.";

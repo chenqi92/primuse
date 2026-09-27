@@ -4690,3 +4690,5 @@
 "home_spotlight_clear" = "Vider";
 "home_spotlight_all_radio" = "Toutes les stations";
 "home_spotlight_all_books" = "Tous les livres audio";
+"menu_bar_lyrics" = "Paroles dans la barre des menus";
+"menu_bar_lyrics_description" = "Affiche la ligne chantée à côté de l’icône Primuse dans la barre des menus. Sans paroles synchronisées, le titre du morceau s’affiche.";

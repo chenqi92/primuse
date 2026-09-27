@@ -4596,3 +4596,5 @@
 "home_spotlight_clear" = "ล้าง";
 "home_spotlight_all_radio" = "สถานีทั้งหมด";
 "home_spotlight_all_books" = "หนังสือเสียงทั้งหมด";
+"menu_bar_lyrics" = "เนื้อเพลงในแถบเมนู";
+"menu_bar_lyrics_description" = "แสดงบรรทัดที่กำลังร้องข้างไอคอน Primuse ในแถบเมนู หากไม่มีเนื้อเพลงแบบซิงค์จะแสดงชื่อเพลงแทน";

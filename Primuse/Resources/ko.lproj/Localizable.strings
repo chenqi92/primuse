@@ -4690,3 +4690,5 @@
 "home_spotlight_clear" = "비우기";
 "home_spotlight_all_radio" = "모든 방송국";
 "home_spotlight_all_books" = "모든 오디오북";
+"menu_bar_lyrics" = "메뉴 막대 가사";
+"menu_bar_lyrics_description" = "메뉴 막대의 Primuse 아이콘 옆에 지금 부르는 가사 줄을 표시합니다. 동기화된 가사가 없으면 곡 제목을 표시합니다.";

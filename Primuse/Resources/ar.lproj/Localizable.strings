@@ -4596,3 +4596,5 @@
 "home_spotlight_clear" = "مسح";
 "home_spotlight_all_radio" = "كل المحطات";
 "home_spotlight_all_books" = "كل الكتب الصوتية";
+"menu_bar_lyrics" = "كلمات الأغنية في شريط القائمة";
+"menu_bar_lyrics_description" = "يعرض السطر الذي يُغنّى الآن بجانب أيقونة Primuse في شريط القائمة. إذا لم تتوفر كلمات متزامنة يُعرض اسم الأغنية.";

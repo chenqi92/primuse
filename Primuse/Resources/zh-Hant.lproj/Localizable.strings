@@ -4667,3 +4667,5 @@
 "home_spotlight_clear" = "清空";
 "home_spotlight_all_radio" = "全部電台";
 "home_spotlight_all_books" = "全部有聲書";
+"menu_bar_lyrics" = "選單列歌詞";
+"menu_bar_lyrics_description" = "在選單列 Primuse 圖像旁顯示正在唱的那一行；沒有同步歌詞時顯示歌名。";

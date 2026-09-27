@@ -18,6 +18,20 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
     /// Max characters of song title shown in the status bar — Apple's
     /// system bar caps text width and squeezes other items if too long.
     private let titleLimit = 28
+    /// 菜单栏歌词比歌名长，给宽一点，但仍然不能把其他菜单栏图标挤走。
+    private let lyricLimit = 40
+
+    /// 设置里的「菜单栏歌词」开关。默认关：菜单栏宽度随歌词逐行变化，
+    /// 不是每个人都想要。
+    static let lyricsEnabledKey = "menuBarLyricsEnabled"
+    private var lyricsEnabled = UserDefaults.standard.bool(forKey: MacMenuBarController.lyricsEnabledKey)
+    /// 只保留带时间戳的行：纯文本歌词没有可跟的播放位置。
+    private var lyrics: [LyricLine] = []
+    private var lyricsSongID: String?
+    private var lyricsTask: Task<Void, Never>?
+    private var activeLyricIndex: Int?
+    private var isTrackingLyricTime = false
+    private var notificationTokens: [NSObjectProtocol] = []
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -44,6 +58,7 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         self.popover = pop
 
         observePlayerState()
+        observeLyricsNotifications()
         refreshStatusItem()
     }
 
@@ -68,6 +83,40 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
                 self?.observePlayerState()
             }
         }
+    }
+
+    private func observeLyricsNotifications() {
+        let center = NotificationCenter.default
+        notificationTokens.append(center.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let enabled = UserDefaults.standard.bool(forKey: Self.lyricsEnabledKey)
+                guard enabled != self.lyricsEnabled else { return }
+                self.lyricsEnabled = enabled
+                self.resetLyrics()
+                self.reloadLyricsIfNeeded(for: AppServices.shared.playerService.currentSong)
+                self.refreshStatusTitle()
+            }
+        })
+        // 用户在编辑器里改了歌词或手动刮削后，菜单栏跟着换成新歌词。
+        notificationTokens.append(center.addObserver(
+            forName: .primuseLyricsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let songID = note.object as? String
+            MainActor.assumeIsolated {
+                guard let self,
+                      songID == AppServices.shared.playerService.currentSong?.id else { return }
+                self.resetLyrics()
+                self.reloadLyricsIfNeeded(for: AppServices.shared.playerService.currentSong)
+                self.refreshStatusTitle()
+            }
+        })
     }
 
     /// 没有封面时使用 template image, 交给系统按菜单栏状态自动着色。
@@ -99,22 +148,114 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
     private func refreshStatusItem() {
         guard let button = statusItem?.button else { return }
         let player = AppServices.shared.playerService
-        let library = AppServices.shared.musicLibrary
 
         button.image = statusBarArtworkImage(for: player.currentSong) ?? statusBarImage()
         button.imagePosition = .imageLeading
 
-        if showTitle, let title = player.currentSong?.title, !title.isEmpty {
+        reloadLyricsIfNeeded(for: player.currentSong)
+        refreshStatusTitle()
+    }
+
+    /// 歌词换行只走这里，不重读封面。
+    private func refreshStatusTitle() {
+        guard let button = statusItem?.button else { return }
+        let player = AppServices.shared.playerService
+        let library = AppServices.shared.musicLibrary
+        let songToolTip = [
+            player.currentSong?.title,
+            player.currentSong.flatMap { library.artistDisplayName(for: $0) },
+        ].compactMap { $0 }.joined(separator: " — ")
+
+        if let line = currentLyricText() {
+            // 歌词前也留一个空格，理由同下。
+            button.title = " " + truncate(line, max: lyricLimit)
+            button.toolTip = songToolTip
+        } else if showTitle, let title = player.currentSong?.title, !title.isEmpty {
             // Title 旁边一个空格,避免和图标贴在一起。
             button.title = " " + truncate(title, max: titleLimit)
-            button.toolTip = [
-                title,
-                player.currentSong.flatMap { library.artistDisplayName(for: $0) },
-            ].compactMap { $0 }.joined(separator: " — ")
+            button.toolTip = songToolTip
         } else {
             button.title = ""
             button.toolTip = "Primuse"
         }
+    }
+
+    // MARK: - Menu bar lyrics
+
+    private func resetLyrics() {
+        lyricsTask?.cancel()
+        lyricsTask = nil
+        lyrics = []
+        lyricsSongID = nil
+        activeLyricIndex = nil
+    }
+
+    private func reloadLyricsIfNeeded(for song: Song?) {
+        let player = AppServices.shared.playerService
+        guard lyricsEnabled, let song, !player.isLiveRadio else {
+            if lyricsSongID != nil || lyricsTask != nil { resetLyrics() }
+            return
+        }
+        guard lyricsSongID != song.id else { return }
+        resetLyrics()
+        lyricsSongID = song.id
+        let services = AppServices.shared
+        lyricsTask = Task { @MainActor [weak self] in
+            let loaded = await LyricsLoader.load(
+                for: song,
+                sourceManager: services.sourceManager,
+                sourceType: services.sourcesStore.source(id: song.sourceID)?.type
+            )
+            guard !Task.isCancelled,
+                  let self,
+                  self.lyricsSongID == song.id else { return }
+            self.lyricsTask = nil
+            self.lyrics = loaded.filter { $0.isSynchronized }
+            self.updateLyricLine()
+            self.observeLyricTime()
+        }
+    }
+
+    /// 只在开着菜单栏歌词、并且真有同步歌词时才跟播放进度；
+    /// 每次进度变化只算当前行，行没变就不碰菜单栏。
+    private func observeLyricTime() {
+        guard !isTrackingLyricTime, lyricsEnabled, !lyrics.isEmpty else { return }
+        isTrackingLyricTime = true
+        let player = AppServices.shared.playerService
+        withObservationTracking {
+            _ = player.currentTime
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isTrackingLyricTime = false
+                self.updateLyricLine()
+                self.observeLyricTime()
+            }
+        }
+    }
+
+    private func updateLyricLine() {
+        let player = AppServices.shared.playerService
+        guard lyricsEnabled,
+              !lyrics.isEmpty,
+              lyricsSongID == player.currentSong?.id else { return }
+        let index = LyricPlaybackPositionPolicy.activeLineIndex(
+            in: lyrics,
+            at: player.currentTime
+        )
+        guard index != activeLyricIndex else { return }
+        activeLyricIndex = index
+        refreshStatusTitle()
+    }
+
+    /// 当前该显示的歌词行；前奏、间奏的空行和没有歌词时返回 nil，回落到歌名。
+    private func currentLyricText() -> String? {
+        guard lyricsEnabled,
+              let index = activeLyricIndex,
+              lyrics.indices.contains(index),
+              lyricsSongID == AppServices.shared.playerService.currentSong?.id else { return nil }
+        let text = lyrics[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     private func truncate(_ s: String, max: Int) -> String {

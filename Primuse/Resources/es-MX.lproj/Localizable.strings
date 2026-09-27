@@ -4596,3 +4596,5 @@
 "home_spotlight_clear" = "Vaciar";
 "home_spotlight_all_radio" = "Todas las estaciones";
 "home_spotlight_all_books" = "Todos los audiolibros";
+"menu_bar_lyrics" = "Letra en la barra de menús";
+"menu_bar_lyrics_description" = "Muestra la línea que se está cantando junto al ícono de Primuse en la barra de menús. Si no hay letra sincronizada, muestra el título de la canción.";

@@ -4596,3 +4596,5 @@
 "home_spotlight_clear" = "खाली करें";
 "home_spotlight_all_radio" = "सभी स्टेशन";
 "home_spotlight_all_books" = "सभी ऑडियोबुक";
+"menu_bar_lyrics" = "मेनू बार में बोल";
+"menu_bar_lyrics_description" = "मेनू बार में Primuse आइकन के पास अभी गाई जा रही पंक्ति दिखाता है। सिंक किए गए बोल न हों तो गाने का नाम दिखता है।";

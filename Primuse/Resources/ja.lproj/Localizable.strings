@@ -4691,3 +4691,5 @@
 "home_spotlight_clear" = "クリア";
 "home_spotlight_all_radio" = "すべてのステーション";
 "home_spotlight_all_books" = "すべてのオーディオブック";
+"menu_bar_lyrics" = "メニューバーの歌詞";
+"menu_bar_lyrics_description" = "メニューバーの Primuse アイコンの横に、今歌われている行を表示します。同期歌詞がない場合は曲名を表示します。";

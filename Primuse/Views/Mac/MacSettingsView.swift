@@ -3958,6 +3958,8 @@ private struct MacSTLyricsView: View {
     @AppStorage("lyricsFontScale") private var lyricsFontScale = 1.0
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
+    @AppStorage(MacMenuBarController.lyricsEnabledKey)
+    private var menuBarLyricsEnabled = false
     @State private var showTranscriptionSettings = false
 
     var body: some View {
@@ -4034,10 +4036,7 @@ private struct MacSTLyricsView: View {
                         )
                     }
                     .settingsAnchor("lyrics.fontSize")
-                    MacSTRow(
-                        String(localized: "player_tap_lyrics_to_seek"),
-                        divider: false
-                    ) {
+                    MacSTRow(String(localized: "player_tap_lyrics_to_seek")) {
                         MacSTToggle(isOn: $tapLyricsToSeek)
                             .accessibilityLabel(Text("player_tap_lyrics_to_seek"))
                             .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
@@ -4048,6 +4047,16 @@ private struct MacSTLyricsView: View {
                             ))
                     }
                     .settingsAnchor("lyrics.tapToSeek")
+                    MacSTRow(
+                        String(localized: "menu_bar_lyrics"),
+                        hint: String(localized: "menu_bar_lyrics_description"),
+                        divider: false
+                    ) {
+                        MacSTToggle(isOn: $menuBarLyricsEnabled)
+                            .accessibilityLabel(Text("menu_bar_lyrics"))
+                            .accessibilityHint(Text("menu_bar_lyrics_description"))
+                    }
+                    .settingsAnchor("lyrics.menuBar")
                 }
             }
         }

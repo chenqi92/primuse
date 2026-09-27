@@ -4596,3 +4596,5 @@
 "home_spotlight_clear" = "Очистить";
 "home_spotlight_all_radio" = "Все станции";
 "home_spotlight_all_books" = "Все аудиокниги";
+"menu_bar_lyrics" = "Текст песни в строке меню";
+"menu_bar_lyrics_description" = "Показывает текущую строку рядом со значком Primuse в строке меню. Если синхронизированного текста нет, показывается название песни.";
