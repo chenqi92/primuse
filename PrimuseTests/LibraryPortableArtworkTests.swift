@@ -2,6 +2,7 @@ import Foundation
 import ImageIO
 import PrimuseKit
 import UIKit
+import SwiftUI
 import XCTest
 @testable import Primuse
 
@@ -33,6 +34,53 @@ final class LibraryPortableArtworkTests: XCTestCase {
             "songs": JSONSerialization.jsonObject(with: encoder.encode(songs)),
             "playlists": []
         ])
+    }
+
+    func testFirstPlayerFrameUsesThumbnailBeforeHighResolutionTaskStarts() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        let manager = SourceManager(sourcesProvider: { [] })
+        let songID = UUID().uuidString
+        let data = try image(color: .red, width: 768)
+        await MetadataAssetStore.shared.cacheCover(data, forSongID: songID)
+        let resolved = expectation(description: "Mini player thumbnail decoded")
+        resolved.assertForOverFulfill = false
+        let thumbnail = CachedArtworkView(
+            coverRef: nil, songID: songID, size: 44, cornerRadius: 0,
+            onResolutionChange: { if $0 { resolved.fulfill() } }
+        ).environment(library).environment(manager)
+        let host = UIHostingController(rootView: thumbnail)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        await fulfillment(of: [resolved], timeout: 5)
+
+        // ImageRenderer renders synchronously without mounting a .task.
+        // Both the entering player and an already-settled new surface must
+        // show the cached cover on that very first frame.
+        for settled in [false, true] {
+            let hero = CachedArtworkView(
+                coverRef: nil, songID: songID, size: 360, cornerRadius: 0,
+                loadsHighResolution: settled
+            ).artworkCrossfade().environment(library).environment(manager)
+            let renderer = ImageRenderer(content: hero)
+            renderer.scale = 1
+            let rendered = try XCTUnwrap(renderer.uiImage?.cgImage)
+            var pixel = [UInt8](repeating: 0, count: 4)
+            let context = try XCTUnwrap(CGContext(
+                data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(rendered, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            XCTAssertGreaterThan(pixel[0], 230, "First frame must show the red artwork")
+            XCTAssertLessThan(pixel[1], 25)
+            XCTAssertLessThan(pixel[2], 25)
+            XCTAssertGreaterThan(pixel[3], 240)
+        }
+        await MetadataAssetStore.shared.invalidateCoverCache(forSongID: songID)
     }
 
     func testCancelledUploadedArtworkReadDoesNotClearReplacementImage() async throws {

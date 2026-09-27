@@ -3622,6 +3622,7 @@ final class MusicLibrary {
     }
 
     fileprivate struct PreparedVisibleCache: Sendable {
+        let spokenWordClassification: SpokenWordClassificationInputs
         let songs: [Song]
         /// `songs` without the spoken-word items, which is what the music
         /// surfaces (songs list, albums, artists, genres) are built from. It
@@ -3724,6 +3725,8 @@ final class MusicLibrary {
     @ObservationIgnored private var preparingDisabledSourceIDs: Set<String>?
     @ObservationIgnored private var preparingArtistNameConfiguration: ArtistNameConfiguration?
     @ObservationIgnored private var preparingAlbumArtistFolders: AlbumArtistFolderIndex?
+    @ObservationIgnored private var preparingContentClassificationRefresh = false
+    @ObservationIgnored private var visibleContentClassification: SpokenWordClassificationInputs = .empty
     /// S1: `.preparing` 期间被拦截的持久化请求, 发布后各补一次。
     @ObservationIgnored private var deferredPortableSnapshotPersistRequested = false
     @ObservationIgnored private var deferredStartupCacheWriteRequested = false
@@ -3861,6 +3864,10 @@ final class MusicLibrary {
             preparingAlbumArtistFolders = nil
             updateAlbumArtistFolders(folders)
         }
+        if preparingContentClassificationRefresh {
+            preparingContentClassificationRefresh = false
+            refreshContentClassification()
+        }
     }
 
     /// 发布步骤第 5/6 步: 先跑 `onReady` 回调, 再唤醒 `whenReady()` 等待者。
@@ -3941,11 +3948,14 @@ final class MusicLibrary {
         schedulePlaylistPendingResolution()
     }
 
-    /// Re-splits music from spoken word. Called when the listener corrects an
-    /// item's kind, and once after launch so the startup snapshot — which is
-    /// built before the corrections are loaded — picks them up.
+    /// Re-splits only when corrections or folder rules differ from the
+    /// inputs already used by the published cache.
     func refreshContentClassification() {
-        guard !isPreparing else { return }
+        guard !isPreparing else {
+            preparingContentClassificationRefresh = true
+            return
+        }
+        guard visibleContentClassification != SpokenWordStore.shared.classificationSnapshot else { return }
         rebuildVisibleCache()
     }
 
@@ -3985,6 +3995,7 @@ final class MusicLibrary {
     }
 
     private func applyPreparedVisibleCache(_ prepared: PreparedVisibleCache) {
+        visibleContentClassification = prepared.spokenWordClassification
         let signpost = PrimuseSignposts.hitch.beginInterval("library.applyVisibleCache")
         defer { PrimuseSignposts.hitch.endInterval("library.applyVisibleCache", signpost) }
         // 先把上一代查找表整体 retain 到一个持有者里, 再做下面的赋值:
@@ -4138,6 +4149,7 @@ final class MusicLibrary {
             : makeSongCountsBySourceID(songs)
         let genreIndex = LibraryGenreIndexBuilder.build(from: musicSongs)
         return PreparedVisibleCache(
+            spokenWordClassification: spokenWordClassification,
             songs: nextVisibleSongs,
             musicSongs: musicSongs,
             spokenWordSongs: spokenWordSongs,
@@ -10085,9 +10097,6 @@ final class MusicLibrary {
         let songStore: IncrementalSongStore?
         var sourceIdentityPrefixes: [String: String] = [:]
         var previousVisibleSongs: [Song] = []
-        /// Empty during the startup snapshot: the corrections live in a
-        /// main-actor store that is not up yet. Inference still classifies
-        /// every row, and the first main-actor rebuild applies them.
         var spokenWordClassification: SpokenWordClassificationInputs = .empty
         let songStoreSnapshotWriter: @Sendable (IncrementalSongStore, [Song], String?) throws -> Int64
         var songs: [Song] = []
@@ -10686,6 +10695,7 @@ final class MusicLibrary {
         storage.derivedIndexSignature = derivedIndexSignature
         storage.songIndexByID = songIndexByID
         storage.previousVisibleSongs = visibleSongs
+        storage.spokenWordClassification = SpokenWordStore.shared.classificationSnapshot
         // G3: 调用方(AppServices)在库构造前就能从 SourcesStore 算出身份前缀;
         // 没有传入时沿用旧行为, 回落到构造后才安装的 resolver。
         if let sourceIdentityPrefixes {
@@ -10873,7 +10883,8 @@ final class MusicLibrary {
         artistNameConfiguration: ArtistNameConfiguration? = nil,
         /// G3: sourceID → cloudAccountID。resolver 直到库构造之后才安装,
         /// 因此账号型源的身份键必须由调用方在准备阶段直接提供。
-        sourceIdentityPrefixes: [String: String] = [:]
+        sourceIdentityPrefixes: [String: String] = [:],
+        spokenWordClassification: SpokenWordClassificationInputs = .empty
     ) async -> PreparedStartup {
         let configuration = (artistNameConfiguration ?? ArtistNameConfiguration.load(from: .standard)).normalized()
         let writerID = startupPlaylistWriterID()
@@ -10896,6 +10907,7 @@ final class MusicLibrary {
                 songStoreSnapshotWriter: { try $0.replaceAll(with: $1, snapshotImportID: $2) }
             )
             storage.sourceIdentityPrefixes = sourceIdentityPrefixes
+            storage.spokenWordClassification = spokenWordClassification
             storage.knownSourceIDs = knownSourceIDs
             storage.loadDeviceLocalExclusions()
             storage.loadSnapshot(preferExternalSnapshot: preferExternalSnapshot)

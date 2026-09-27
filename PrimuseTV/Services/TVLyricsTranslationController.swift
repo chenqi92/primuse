@@ -63,6 +63,8 @@ final class TVLyricsTranslationController {
         guard settings.isEnabled, let store, let loaded = lastLoaded, !loaded.lines.isEmpty else { return }
         let songID = loaded.songID
         let lines = loaded.lines
+        let song = store.song(songID)
+        let songContext = LyricTranslationSongContext(title: song?.title, artist: song?.artist)
         let target = LyricsTranslationSettingsStore.normalizedLanguageCode(settings.targetLanguageCode)
         task = Task { @MainActor [weak self] in
             let prepared: LyricsTranslationPreparer.Prepared
@@ -70,7 +72,8 @@ final class TVLyricsTranslationController {
                 prepared = try await LyricsTranslationPreparer.shared.prepare(
                     lyrics: lines,
                     targetLanguageCode: target,
-                    enabled: true
+                    enabled: true,
+                    songContext: songContext
                 )
             } catch {
                 return

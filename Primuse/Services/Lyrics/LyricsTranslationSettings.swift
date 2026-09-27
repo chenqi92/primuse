@@ -301,27 +301,35 @@ actor LyricsTranslationPreparer {
         let lyrics: [LyricLine]
         let targetLanguageCode: String
         let enabled: Bool
+        let songContext: LyricTranslationSongContext
     }
 
     private var cached: [(Key, Prepared)] = []
 
-    func prepare(lyrics: [LyricLine], targetLanguageCode: String, enabled: Bool) throws -> Prepared {
+    func prepare(
+        lyrics: [LyricLine], targetLanguageCode: String, enabled: Bool,
+        songContext: LyricTranslationSongContext = .init()
+    ) throws -> Prepared {
         try Task.checkCancellation()
-        let key = Key(lyrics: lyrics, targetLanguageCode: targetLanguageCode, enabled: enabled)
+        let key = Key(lyrics: lyrics, targetLanguageCode: targetLanguageCode, enabled: enabled, songContext: songContext)
         if let index = cached.firstIndex(where: { $0.0 == key }) {
             let hit = cached.remove(at: index)
             cached.append(hit)
             return hit.1
         }
-        let result = try makePreparation(lyrics: lyrics, targetLanguageCode: targetLanguageCode, enabled: enabled)
+        let result = try makePreparation(lyrics: lyrics, targetLanguageCode: targetLanguageCode, enabled: enabled, songContext: songContext)
         try Task.checkCancellation()
         cached.append((key, result))
         if cached.count > 4 { cached.removeFirst() }
         return result
     }
 
-    private func makePreparation(lyrics: [LyricLine], targetLanguageCode: String, enabled: Bool) throws -> Prepared {
+    private func makePreparation(
+        lyrics: [LyricLine], targetLanguageCode: String, enabled: Bool,
+        songContext: LyricTranslationSongContext
+    ) throws -> Prepared {
         let translationLines = LyricVoiceTimelinePolicy.flattenedLines(lyrics)
+        let contentLines = LyricTranslationContentPolicy.contentLines(in: translationLines, song: songContext)
         // 罗马音 / 拼音这类读音行按整篇判一次，逐行选译文时把它们排除掉。
         let readingIDs = LyricRomanizedReadingPolicy.readingIDs(in: translationLines)
         let manualTranslations = translationLines.reduce(into: [String: String]()) { result, line in
@@ -335,18 +343,18 @@ actor LyricsTranslationPreparer {
             result[line.id] = text
         }
 
-        guard enabled, !lyrics.isEmpty else {
+        guard enabled, !contentLines.isEmpty else {
             return Prepared(manualTranslations: manualTranslations, groups: [])
         }
         if LyricManualTranslationPolicy.hasCompleteCoverage(
-            in: translationLines,
+            in: contentLines,
             targetLanguageCode: targetLanguageCode,
             readingIDs: readingIDs
         ) {
             return Prepared(manualTranslations: manualTranslations, groups: [])
         }
 
-        let lyricTexts = translationLines.map(\.text)
+        let lyricTexts = contentLines.map(\.text)
         let metadataLines = lyrics.lazy.compactMap(\.metadataLines).first ?? []
         let declaredSourceLanguageCode = LyricsTranslationSettingsStore
             .declaredLyricsLanguageCode(from: metadataLines)
@@ -354,7 +362,7 @@ actor LyricsTranslationPreparer {
             for: lyricTexts,
             metadataLines: metadataLines
         )
-        let candidates = try translationLines.compactMap { line -> LyricTranslationCandidate? in
+        let candidates = try contentLines.compactMap { line -> LyricTranslationCandidate? in
             try Task.checkCancellation()
             guard manualTranslations[line.id] == nil else { return nil }
             let lineDeclaredLanguageCode = line.languageCode ?? declaredSourceLanguageCode
@@ -373,6 +381,6 @@ actor LyricsTranslationPreparer {
             targetLanguageCode: targetLanguageCode,
             fallbackSourceLanguageCode: fallbackSourceLanguageCode
         )
-        return Prepared(manualTranslations: manualTranslations, groups: groups, requiresPreparation: true)
+        return Prepared(manualTranslations: manualTranslations, groups: groups, requiresPreparation: !groups.isEmpty)
     }
 }

@@ -424,7 +424,7 @@ struct CachedArtworkView: View {
             } else {
                 appleMusicArtworkView(artwork)
             }
-        } else if let image {
+        } else if let image = displayedImage {
             decodedArtwork(image)
                 .id(artworkGeneration)
                 .pmFadeTransition()
@@ -509,7 +509,17 @@ struct CachedArtworkView: View {
     }
 
     private var hasResolvedArtwork: Bool {
-        appleMusicArtwork != nil || image != nil
+        appleMusicArtwork != nil || displayedImage != nil
+    }
+
+    /// A new player surface must reuse the mini player's decoded cover on
+    /// its first frame, before SwiftUI starts the loading task.
+    private var displayedImage: PlatformImage? {
+        if let image, displayedArtworkIdentity == artworkContentIdentity || crossfadesArtwork {
+            return image
+        }
+        return Self.memoryCache.object(forKey: cacheKey as NSString)
+            ?? cachedLowerResolutionImage()
     }
 
     private var appleMusicArtworkIdentity: String {
@@ -1325,17 +1335,14 @@ struct CachedArtworkView: View {
             return
         }
 
-        // During a container transition, never start a larger decode. Reuse
-        // the best smaller memory entry (normally the mini player's thumb)
-        // and keep it displayed while the requested bucket loads afterward.
-        guard loadsHighResolution else {
-            if image == nil || holdsPreviousArtwork,
-               let cached = cachedLowerResolutionImage() {
-                showArtwork(cached, decodedAsynchronously: false)
-                onResolutionChange(true)
-            }
-            return
+        // Retain the thumbnail through both the entrance and the larger
+        // decode, including a first mount whose entrance already settled.
+        if image == nil || holdsPreviousArtwork,
+           let cached = cachedLowerResolutionImage() {
+            showArtwork(cached, decodedAsynchronously: false)
+            onResolutionChange(true)
         }
+        guard loadsHighResolution else { return }
 
         if Self.hasRecentFailure(for: failureNSKey) {
             // 命中失败缓存说明这一首这次就是取不到封面，留着上一首的图会张冠李戴。
@@ -1397,7 +1404,7 @@ struct CachedArtworkView: View {
     /// 封面落地的统一入口。
     ///
     /// 内存命中与低分辨率复用保持瞬间显示 —— 几万首歌的列表快速滚动时，缓存好的图
-    /// 每复用一次就重播一次淡入既错又掉帧。只有真正走完异步解码的那次才淡入；常驻位
+    /// 每复用一次就重播一次淡入既错又掉帧。只有从占位首次取得封面才淡入；常驻位
     /// 换歌后的第一次替换走换歌档，与上一首的封面交叉淡入。
     private func showArtwork(_ decoded: PlatformImage, decodedAsynchronously: Bool) {
         if holdsPreviousArtwork {
@@ -1408,11 +1415,14 @@ struct CachedArtworkView: View {
                 image = decoded
                 artworkGeneration &+= 1
             }
-        } else if decodedAsynchronously {
-            // 低分辨率升级到高分辨率也走这里，但不换身份，动态封面播放器不会重建。
+        } else if decodedAsynchronously && image == nil && cachedLowerResolutionImage() == nil {
             withAnimation(PMMotion.contentAppear.animation) { image = decoded }
         } else {
-            image = decoded
+            // Resolution changes keep the same layer and must not inherit
+            // the container's entrance animation or replay a content fade.
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { image = decoded }
         }
     }
 

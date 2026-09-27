@@ -141,6 +141,52 @@ struct LyricTranslationGroupingPolicyTests {
         #expect(source == "zh-Hans")
     }
 
+    @Test func mixedScriptSongHeaderDoesNotRequestTranslationForChineseLyrics() {
+        let title = "全世界谁倾听你(Live)-林宥嘉(Yoga Lin)"
+        let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: title,
+            detectedLanguageCode: "it",
+            confidence: 0.5189,
+            alternativeConfidence: 0.2017,
+            fallbackSourceLanguageCode: "zh-Hans"
+        )
+        let groups = LyricTranslationGroupingPolicy.groups(
+            candidates: [
+                .init(id: "title", text: title, sourceLanguageCode: source),
+                .init(id: "lyric", text: "多希望有一个像你的人", sourceLanguageCode: "zh-Hans"),
+            ],
+            targetLanguageCode: "zh-Hans",
+            fallbackSourceLanguageCode: "zh-Hans"
+        )
+
+        #expect(source == "zh-Hans")
+        #expect(groups.isEmpty)
+    }
+
+    @Test func uncertainLongSameScriptLineUsesDocumentLanguage() {
+        let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "Somewhere along the road",
+            detectedLanguageCode: "nl",
+            confidence: 0.52,
+            alternativeConfidence: 0.44,
+            fallbackSourceLanguageCode: "en"
+        )
+
+        #expect(source == "en")
+    }
+
+    @Test func confidentSameScriptForeignLineKeepsItsLanguage() {
+        let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(
+            text: "Je voudrais te revoir ce soir",
+            detectedLanguageCode: "fr",
+            confidence: 0.97,
+            alternativeConfidence: 0.02,
+            fallbackSourceLanguageCode: "en"
+        )
+
+        #expect(source == "fr")
+    }
+
     @Test func shortSameScriptMisclassificationFallsBackRegardlessOfConfidence() {
         for (text, detectedLanguage) in [("Stay", "nb"), ("Again", "da")] {
             let source = LyricTranslationGroupingPolicy.reconciledLineLanguageCode(

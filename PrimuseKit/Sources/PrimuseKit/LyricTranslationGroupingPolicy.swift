@@ -85,7 +85,8 @@ public enum LyricTranslationNoticePolicy {
     public static func shouldShowUnavailable(
         lyrics: [LyricLine],
         unsupportedGroups: [LyricTranslationGroup],
-        targetLanguageCode: String
+        targetLanguageCode: String,
+        song: LyricTranslationSongContext = .init()
     ) -> Bool {
         let targetLanguage = Locale.Language(
             identifier: LyricTranslationGroupingPolicy.languageIdentity(targetLanguageCode)
@@ -100,10 +101,9 @@ public enum LyricTranslationNoticePolicy {
             return sourceLanguage == nil || targetLanguage == nil || sourceLanguage != targetLanguage
         }.flatMap(\.candidates).map(\.id))
         guard !unsupportedLineIDs.isEmpty else { return false }
-        let contentLines = LyricVoiceTimelinePolicy.flattenedLines(lyrics).filter {
-            !LyricsTextTools.isCreditLine($0.text)
-                && $0.text.unicodeScalars.contains(where: CharacterSet.letters.contains)
-        }
+        let contentLines = LyricTranslationContentPolicy.contentLines(
+            in: LyricVoiceTimelinePolicy.flattenedLines(lyrics), song: song
+        )
         guard !contentLines.isEmpty else { return false }
         let unsupportedCount = contentLines.filter {
             unsupportedLineIDs.contains($0.id)
@@ -2027,6 +2027,10 @@ public enum LyricTranslationGroupingPolicy {
         ) {
             return fallbackIdentity
         }
+
+        // Without distinct script evidence, a weak guess from a mixed title
+        // or credit must not override the document language just due to length.
+        guard confidence >= 0.55 else { return fallbackIdentity }
 
         let letterCount = text.unicodeScalars.reduce(into: 0) { count, scalar in
             if CharacterSet.letters.contains(scalar) { count += 1 }

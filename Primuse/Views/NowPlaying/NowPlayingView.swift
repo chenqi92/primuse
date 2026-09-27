@@ -2071,6 +2071,7 @@ struct NowPlayingView: View {
                         .accessibilityHidden(true)
                         .lyricsTranslationTaskIfAvailable(
                             songID: player.currentSong?.id,
+                            songContext: .init(title: player.currentSong?.title, artist: player.currentSong?.artistName),
                             lyricsRevision: lyricsRevision,
                             lyrics: lyrics,
                             settings: LyricsTranslationSettingsStore.shared,

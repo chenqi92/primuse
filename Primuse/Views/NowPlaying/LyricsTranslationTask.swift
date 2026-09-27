@@ -6,6 +6,7 @@ extension View {
     @ViewBuilder
     func lyricsTranslationTaskIfAvailable(
         songID: String?,
+        songContext: LyricTranslationSongContext,
         lyricsRevision: UInt,
         lyrics: [LyricLine],
         settings: LyricsTranslationSettingsStore,
@@ -16,6 +17,7 @@ extension View {
             modifier(
                 LyricsTranslationTaskModifier(
                     songID: songID,
+                    songContext: songContext,
                     lyricsRevision: lyricsRevision,
                     lyrics: lyrics,
                     settings: settings,
@@ -34,6 +36,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
     @Environment(MusicIntelligenceService.self) private var intelligence
     private var localTranslation: LocalLyricsTranslationService { .shared }
     let songID: String?
+    let songContext: LyricTranslationSongContext
     let lyricsRevision: UInt
     let lyrics: [LyricLine]
     let settings: LyricsTranslationSettingsStore
@@ -48,6 +51,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
 
     private struct TranslationTaskIdentity: Hashable {
         let songID: String?
+        let songContext: LyricTranslationSongContext
         let lyricsRevision: UInt
         let isEnabled: Bool
         let targetLanguageCode: String
@@ -66,6 +70,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
     private var translationTaskIdentity: TranslationTaskIdentity {
         TranslationTaskIdentity(
             songID: songID,
+            songContext: songContext,
             lyricsRevision: lyricsRevision,
             isEnabled: settings.isEnabled,
             targetLanguageCode: LyricsTranslationSettingsStore.normalizedLanguageCode(
@@ -107,7 +112,8 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             prepared = try await LyricsTranslationPreparer.shared.prepare(
                 lyrics: lyrics,
                 targetLanguageCode: identity.targetLanguageCode,
-                enabled: identity.isEnabled
+                enabled: identity.isEnabled,
+                songContext: identity.songContext
             )
         } catch {
             return
@@ -325,7 +331,8 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                 activity = LyricTranslationNoticePolicy.shouldShowUnavailable(
                     lyrics: lyrics,
                     unsupportedGroups: localUnsupportedGroups,
-                    targetLanguageCode: identity.targetLanguageCode
+                    targetLanguageCode: identity.targetLanguageCode,
+                    song: identity.songContext
                 ) ? .systemUnavailable : .idle
             }
             return
@@ -422,7 +429,8 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             LyricTranslationNoticePolicy.shouldShowUnavailable(
                 lyrics: lyrics,
                 unsupportedGroups: unsupportedSystemGroups,
-                targetLanguageCode: identity.targetLanguageCode
+                targetLanguageCode: identity.targetLanguageCode,
+                song: identity.songContext
             ) ? .systemUnavailable : .idle
         let remainingState = LyricTranslationTerminalPolicy.remainingStateAfterAvailableWork(
             preparationRequiredCandidateCount: preparationRequiredGroups.reduce(0) {

@@ -689,6 +689,8 @@ final class AppServices {
         let initiallyDisabledSourceIDs = Set(
             store.sources.filter { !$0.isEnabled }.map(\.id)
         )
+        SpokenWordStore.shared.updateFolderTagSources(store.allSources)
+        let initialClassification = SpokenWordStore.shared.classificationSnapshot
         // `sourceIdentityResolver` 直到库构造之后才安装, 但快照装载期间的
         // 墓碑比较已经需要账号身份键。SourcesStore 先于库解码完成, 所以直接
         // 把 sourceID → cloudAccountID 的映射作为装载输入传进去。
@@ -720,7 +722,8 @@ final class AppServices {
             preparation = Task.detached(priority: .userInitiated) {
                 await MusicLibrary.prepareStartup(
                     disabledSourceIDs: initiallyDisabledSourceIDs,
-                    sourceIdentityPrefixes: sourceIdentityPrefixes
+                    sourceIdentityPrefixes: sourceIdentityPrefixes,
+                    spokenWordClassification: initialClassification
                 )
             }
             library = MusicLibrary.makePreparing(disabledSourceIDs: initiallyDisabledSourceIDs)
@@ -1072,9 +1075,6 @@ final class AppServices {
 
         loadPendingSourceCloudCleanups()
         observeSourceLifecycle()
-        // Folder tags need to know how each source spells its paths before
-        // the first classification that uses them.
-        SpokenWordStore.shared.updateFolderTagSources(sourcesStore.allSources)
         observeApplicationActivity()
 
         wireIntentBridge()
@@ -1103,6 +1103,8 @@ final class AppServices {
         if let preparation {
             startupPublication = Task { @MainActor [library] in
                 library.publish(await preparation.value)
+                // Cloud corrections can arrive while the disk snapshot is loading.
+                library.refreshContentClassification()
                 plog(String(
                     format: "🚀 library published %.0fms after launch services",
                     (ProcessInfo.processInfo.systemUptime - startupFinishedAt) * 1_000

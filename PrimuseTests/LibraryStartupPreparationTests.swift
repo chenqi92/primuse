@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import os
 import PrimuseKit
 import XCTest
 @testable import Primuse
@@ -87,6 +89,97 @@ final class LibraryStartupPreparationTests: XCTestCase {
         try FileManager.default.removeItem(at: destination)
         try FileManager.default.copyItem(at: source, to: destination)
         return destination
+    }
+
+    func testPreparedStartupIncludesManualAndFolderClassificationOnFirstPublication() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let songs = [
+            Self.makeSong(id: "explicit-book", sourceID: "nas"),
+            Self.makeSong(id: "explicit-music", sourceID: "nas", filePath: "/Books/music.m4b"),
+            Self.makeSong(id: "folder-book", sourceID: "nas", filePath: "/Books/chapter.mp3"),
+            Self.makeSong(id: "music", sourceID: "nas"),
+            Self.makeSong(id: "hidden-book", sourceID: "hidden", filePath: "/Books/hidden.m4b")
+        ]
+        let seed = MusicLibrary(storageDirectory: directory)
+        seed.addSongs(songs, affectedSourceIDs: ["nas", "hidden"])
+        guard case .success = await seed.persistNowAndWait() else {
+            return XCTFail("Fixture did not persist")
+        }
+        let classification = SpokenWordClassificationInputs(
+            overrides: ["explicit-book": .spokenWord, "explicit-music": .music],
+            folderRules: SpokenWordFolderRules(
+                folders: ["nas": ["/Books"]],
+                sources: [.init(source: MusicSource(id: "nas", name: "NAS", type: .webdav))]
+            )
+        )
+        let prepared = await MusicLibrary.prepareStartup(
+            disabledSourceIDs: ["hidden"], storageDirectory: directory,
+            spokenWordClassification: classification
+        )
+        let library = MusicLibrary.makePreparing(storageDirectory: directory, disabledSourceIDs: ["hidden"])
+        library.onReady {
+            XCTAssertEqual(Set(library.spokenWordSongs.map(\.id)), ["explicit-book", "folder-book"])
+            XCTAssertEqual(Set(library.musicSongs.map(\.id)), ["explicit-music", "music"])
+        }
+        library.publish(prepared)
+        XCTAssertTrue(library.isReady)
+        XCTAssertEqual(library.visibleSongs.count, 4)
+    }
+
+    func testUnchangedStartupClassificationDoesNotRepublishVisibleLibrary() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let song = Self.makeSong(id: UUID().uuidString, sourceID: "classification-fixture")
+        let store = SpokenWordStore.shared
+        store.setKind(.spokenWord, forSongIDs: [song.id])
+        defer { store.setKind(nil, forSongIDs: [song.id]) }
+        let seed = MusicLibrary(storageDirectory: directory)
+        seed.addSongs([song], affectedSourceIDs: [song.sourceID])
+        guard case .success = await seed.persistNowAndWait() else { return XCTFail("Fixture did not persist") }
+        let prepared = await MusicLibrary.prepareStartup(
+            storageDirectory: directory, spokenWordClassification: store.classificationSnapshot
+        )
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        // A delayed folder notification can arrive before publication.
+        library.refreshContentClassification()
+        library.publish(prepared)
+        XCTAssertEqual(library.spokenWordSongs.map(\.id), [song.id])
+        let changes = OSAllocatedUnfairLock(initialState: 0)
+        withObservationTracking {
+            _ = library.musicSongs
+            _ = library.visibleSongs
+        } onChange: {
+            changes.withLock { $0 += 1 }
+        }
+        library.refreshContentClassification()
+        library.refreshContentClassification()
+        XCTAssertEqual(changes.withLock { $0 }, 0)
+        store.setKind(.music, forSongIDs: [song.id])
+        library.refreshContentClassification()
+        XCTAssertEqual(library.musicSongs.map(\.id), [song.id])
+        XCTAssertTrue(library.spokenWordSongs.isEmpty)
+        XCTAssertEqual(changes.withLock { $0 }, 1)
+    }
+
+    func testClassificationChangeWhilePreparingSurvivesPublication() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let song = Self.makeSong(id: UUID().uuidString, sourceID: "classification-fixture")
+        let store = SpokenWordStore.shared
+        defer { store.setKind(nil, forSongIDs: [song.id]) }
+        let seed = MusicLibrary(storageDirectory: directory)
+        seed.addSongs([song], affectedSourceIDs: [song.sourceID])
+        guard case .success = await seed.persistNowAndWait() else { return XCTFail("Fixture did not persist") }
+        let prepared = await MusicLibrary.prepareStartup(
+            storageDirectory: directory, spokenWordClassification: store.classificationSnapshot
+        )
+        let library = MusicLibrary.makePreparing(storageDirectory: directory)
+        store.setKind(.spokenWord, forSongIDs: [song.id])
+        library.refreshContentClassification()
+        library.publish(prepared)
+        XCTAssertEqual(library.spokenWordSongs.map(\.id), [song.id])
+        XCTAssertTrue(library.musicSongs.isEmpty)
     }
 
     // MARK: - Parity assertions

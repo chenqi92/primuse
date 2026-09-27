@@ -51,7 +51,7 @@ public enum SpokenWordFolderTag {
 
 /// Answers "is this song inside a folder tagged spoken word?" for the
 /// library's classification pass, off the main actor.
-public struct SpokenWordFolderRules: Sendable {
+public struct SpokenWordFolderRules: Equatable, Sendable {
     public static let empty = SpokenWordFolderRules(policies: [:])
 
     private let policies: [String: LibraryFolderPathPolicy]
@@ -91,7 +91,7 @@ public struct SpokenWordFolderRules: Sendable {
 }
 
 /// Everything the classification pass needs besides the song itself.
-public struct SpokenWordClassificationInputs: Sendable {
+public struct SpokenWordClassificationInputs: Equatable, Sendable {
     public var overrides: [String: ListeningContentKind]
     public var folderRules: SpokenWordFolderRules
 

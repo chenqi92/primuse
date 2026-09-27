@@ -740,4 +740,66 @@ extension ListeningFeaturesTests {
         } catch is CancellationError {
         }
     }
+
+    func testLyricsPreparationExcludesHeadersAndCreditsButPreservesAuthoredTranslations() async throws {
+        let service = LyricsTranslationPreparer()
+        let header = LyricLine(id: "title", timestamp: 0, text: "English Nights (Live) - The Travelers",
+                              manualTranslation: .init(text: "用户写下的标题译文", languageCode: "zh-Hans", source: .localEditor))
+        let lyrics = [header,
+                      LyricLine(id: "credit1", timestamp: 1, text: "Lyrics by: Christopher Alexander"),
+                      LyricLine(id: "credit2", timestamp: 2, text: "Produced by William Anderson"),
+                      LyricLine(id: "credit3", timestamp: 3, text: "Guitar solo: Michael Thompson"),
+                      LyricLine(id: "body", timestamp: 20, text: "今天我们一起走在回家的路上")]
+        let result = try await service.prepare(
+            lyrics: lyrics, targetLanguageCode: "zh-Hans", enabled: true,
+            songContext: .init(title: "English Nights", artist: "The Travelers")
+        )
+        XCTAssertTrue(result.groups.isEmpty)
+        XCTAssertFalse(result.requiresPreparation)
+        XCTAssertEqual(result.manualTranslations, [header.id: "用户写下的标题译文"])
+        XCTAssertEqual(lyrics[0], header)
+    }
+
+    func testLyricsPreparationKeepsForeignSungLinesAfterExcludingMetadata() async throws {
+        let service = LyricsTranslationPreparer()
+        let lyrics = [LyricLine(id: "title", timestamp: 0, text: "全世界谁倾听你(Live)-林宥嘉(Yoga Lin)"),
+                      LyricLine(id: "credit", timestamp: 1, text: "作曲：ASKA"),
+                      LyricLine(id: "chinese", timestamp: 10, text: "今天我们一起走在回家的路上"),
+                      LyricLine(id: "english", timestamp: 20, text: "I will always love you")]
+        let result = try await service.prepare(
+            lyrics: lyrics, targetLanguageCode: "zh-Hans", enabled: true,
+            songContext: .init(title: "全世界谁倾听你", artist: "林宥嘉")
+        )
+        XCTAssertEqual(result.groups.map(\.sourceLanguageCode), ["en"])
+        XCTAssertEqual(result.groups.flatMap(\.candidates).map(\.id), ["english"])
+    }
+
+    func testLyricsPreparationExcludesProductionRolesWithEnglishNames() async throws {
+        let service = LyricsTranslationPreparer()
+        let credits = ["配唱制作人：kent王健", "录音室：1803 Studio", "混音室：Hot Music Studio",
+                       "制作团队：KingStar音乐社团", "企划营销：梦童娱乐"]
+        let lyrics = credits.enumerated().map {
+            LyricLine(id: "credit\($0.offset)", timestamp: 10 + Double($0.offset), text: $0.element)
+        } + [LyricLine(id: "body", timestamp: 20, text: "今天我们一起走在回家的路上")]
+        let chinese = try await service.prepare(lyrics: lyrics, targetLanguageCode: "zh-Hans", enabled: true)
+        XCTAssertTrue(chinese.groups.isEmpty)
+        XCTAssertFalse(chinese.requiresPreparation)
+        let english = try await service.prepare(lyrics: lyrics, targetLanguageCode: "en", enabled: true)
+        XCTAssertEqual(english.groups.flatMap(\.candidates).map(\.id), ["body"])
+    }
+
+    func testLyricsPreparationCacheIncludesSongMetadata() async throws {
+        let service = LyricsTranslationPreparer()
+        let lyrics = [LyricLine(id: "title", timestamp: 0, text: "English Nights - The Travelers"),
+                      LyricLine(id: "body", timestamp: 20, text: "今天我们一起走在回家的路上")]
+        let unknown = try await service.prepare(lyrics: lyrics, targetLanguageCode: "fr", enabled: true)
+        XCTAssertTrue(unknown.groups.flatMap(\.candidates).contains { $0.id == "title" })
+        let known = try await service.prepare(
+            lyrics: lyrics, targetLanguageCode: "fr", enabled: true,
+            songContext: .init(title: "English Nights", artist: "The Travelers")
+        )
+        XCTAssertEqual(known.groups.flatMap(\.candidates).map(\.id), ["body"])
+        let reused = try await service.prepare(lyrics: lyrics, targetLanguageCode: "fr", enabled: true)
+        XCTAssertEqual(reused, unknown)
+    }
 }
