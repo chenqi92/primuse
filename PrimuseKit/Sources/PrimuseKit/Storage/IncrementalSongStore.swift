@@ -81,13 +81,20 @@ public final class IncrementalSongStore: @unchecked Sendable {
     }
 
     public func loadSongs() throws -> [Song] {
-        let payloads: [Data] = try database.read { db in
-            try Data.fetchAll(
+        // 边读边解码: 先把全部负载读成 [Data] 再解码, 二十多万首时要多占近 200MB。
+        try database.read { db in
+            var songs: [Song] = []
+            let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM librarySongRecords") ?? 0
+            songs.reserveCapacity(count)
+            let payloads = try Data.fetchCursor(
                 db,
                 sql: "SELECT payload FROM librarySongRecords ORDER BY orderKey ASC, id ASC"
             )
+            while let payload = try payloads.next() {
+                songs.append(try decoder.decode(Song.self, from: payload))
+            }
+            return songs
         }
-        return try payloads.map { try decoder.decode(Song.self, from: $0) }
     }
 
     /// Seeds or replaces the canonical table in one transaction. Used only for

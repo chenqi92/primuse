@@ -693,7 +693,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         let startIndex = player.currentSong.flatMap { current in
             filtered.firstIndex { $0.id == current.id }
         } ?? 0
-        player.setQueue(filtered, startAt: startIndex)
+        player.setQueue(filtered, startAt: startIndex, keepsContinuation: true)
     }
 
     private var goToAlbumTitle: String {

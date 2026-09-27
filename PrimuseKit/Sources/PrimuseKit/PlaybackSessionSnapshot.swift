@@ -21,6 +21,9 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
     public var repeatMode: RepeatMode
     public var isAtTrackEnd: Bool
     public var updatedAt: Date
+    /// Token of the `QueueContinuation` that tops up this queue, if any.
+    /// Optional so older session files decode unchanged.
+    public var queueContinuationToken: String?
 
     public init(
         version: Int = PlaybackSessionSnapshot.currentVersion,
@@ -36,7 +39,8 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         pendingNextShuffleIndices: [Int]? = nil,
         repeatMode: RepeatMode,
         isAtTrackEnd: Bool,
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        queueContinuationToken: String? = nil
     ) {
         self.version = version
         self.queueSongIDs = queueSongIDs
@@ -52,6 +56,7 @@ public struct PlaybackSessionSnapshot: Codable, Equatable, Sendable {
         self.repeatMode = repeatMode
         self.isAtTrackEnd = isAtTrackEnd
         self.updatedAt = updatedAt
+        self.queueContinuationToken = queueContinuationToken
     }
 }
 
@@ -415,5 +420,152 @@ public final class PlaybackSessionPersistenceCoordinator: Sendable {
             state.pending = nil
             return next
         }
+    }
+}
+
+// MARK: - Queue window
+
+/// A very large play request (a 200K-song "play all") is not installed as one
+/// live queue: every queue-sized structure — entries, shuffle order, the next
+/// repeat round, the session file — would scale with the whole library. The
+/// player keeps a window of at most `windowLimit` songs and tops it up from a
+/// `QueueContinuation` (the remaining song IDs, in order) as playback nears
+/// the end of the window.
+public enum QueueWindowPolicy {
+    public static let windowLimit = 1_000
+    /// Songs kept before the selected one so "previous" still works.
+    public static let leadingHistory = 50
+    /// Top up once fewer than this many songs remain ahead of the current one.
+    public static let refillThreshold = 200
+    public static let refillBatch = 500
+
+    /// The slice of a `count`-song request to install, or nil when the whole
+    /// request fits.
+    public static func window(count: Int, selectedIndex: Int) -> Range<Int>? {
+        guard count > windowLimit else { return nil }
+        let selected = max(0, min(selectedIndex, count - 1))
+        let lower = max(0, min(selected - leadingHistory, count - windowLimit))
+        return lower..<(lower + windowLimit)
+    }
+
+    public static func shouldRefill(upcomingCount: Int) -> Bool {
+        upcomingCount < refillThreshold
+    }
+
+    /// Session files written before the window existed can hold the whole
+    /// library. Restore them as a window plus continuation: in order around
+    /// the current song, or — under shuffle — the rest of the current round in
+    /// its saved random order, starting with the current song. Nil when the
+    /// saved queue already fits.
+    public static func windowed(
+        _ snapshot: PlaybackSessionSnapshot
+    ) -> (snapshot: PlaybackSessionSnapshot, continuation: QueueContinuation)? {
+        let ids = snapshot.queueSongIDs
+        guard ids.count > windowLimit, ids.indices.contains(snapshot.currentIndex) else { return nil }
+        var windowed = snapshot
+        let continuation: QueueContinuation
+        if snapshot.shuffleEnabled {
+            let order = snapshot.shuffledIndices
+            var sequence: [String]
+            if order.indices.contains(snapshot.shufflePosition),
+               order[snapshot.shufflePosition] == snapshot.currentIndex,
+               order.allSatisfy({ ids.indices.contains($0) }) {
+                sequence = order[snapshot.shufflePosition...].map { ids[$0] }
+            } else {
+                sequence = [ids[snapshot.currentIndex]]
+                    + ids.indices.filter { $0 != snapshot.currentIndex }.map { ids[$0] }
+            }
+            let count = min(windowLimit, sequence.count)
+            continuation = QueueContinuation(requestedIDs: sequence, window: 0..<count)
+            windowed.queueSongIDs = Array(sequence.prefix(count))
+            windowed.currentIndex = 0
+            windowed.shuffledIndices = Array(0..<count)
+            windowed.shufflePosition = 0
+            sequence = []
+        } else {
+            guard let window = window(count: ids.count, selectedIndex: snapshot.currentIndex) else { return nil }
+            continuation = QueueContinuation(requestedIDs: ids, window: window)
+            windowed.queueSongIDs = Array(ids[window])
+            windowed.currentIndex = snapshot.currentIndex - window.lowerBound
+            windowed.shuffledIndices = []
+            windowed.shufflePosition = 0
+        }
+        windowed.pendingNextShuffleIndices = nil
+        windowed.queueContinuationToken = continuation.token
+        return (windowed, continuation)
+    }
+}
+
+/// Songs of the original request that are not in the live queue yet. The
+/// window covers `requestedIDs[lower..<nextOffset]`; songs after it are handed
+/// out first. Under repeat-all the songs before the window follow once, so a
+/// full cycle still plays every requested song before the queue wraps.
+public struct QueueContinuation: Codable, Equatable, Sendable {
+    public let token: String
+    public let requestedIDs: [String]
+    public private(set) var nextOffset: Int
+    /// Songs before the window (`requestedIDs[0..<leadingEnd]`).
+    public let leadingEnd: Int
+    public private(set) var leadingOffset: Int
+
+    public init(token: String = UUID().uuidString, requestedIDs: [String], window: Range<Int>) {
+        self.token = token
+        self.requestedIDs = requestedIDs
+        nextOffset = min(window.upperBound, requestedIDs.count)
+        leadingEnd = max(0, min(window.lowerBound, requestedIDs.count))
+        leadingOffset = 0
+    }
+
+    /// Nothing more can ever be handed out, whatever the repeat mode.
+    public var isExhausted: Bool {
+        nextOffset >= requestedIDs.count && leadingOffset >= leadingEnd
+    }
+
+    /// Up to `maxCount` IDs in playback order. The leading part is only used
+    /// under repeat-all, after the trailing part has run out.
+    public mutating func takeNext(maxCount: Int, repeatsAll: Bool) -> [String] {
+        guard maxCount > 0 else { return [] }
+        if nextOffset < requestedIDs.count {
+            let end = min(requestedIDs.count, nextOffset + maxCount)
+            defer { nextOffset = end }
+            return Array(requestedIDs[nextOffset..<end])
+        }
+        guard repeatsAll, leadingOffset < leadingEnd else { return [] }
+        let end = min(leadingEnd, leadingOffset + maxCount)
+        defer { leadingOffset = end }
+        return Array(requestedIDs[leadingOffset..<end])
+    }
+}
+
+/// Stored next to the session file. Written only when a continuation starts
+/// or advances (every few hundred songs), never on each playback update.
+public struct QueueContinuationStore: Sendable {
+    public let url: URL
+
+    public init(sessionStore: PlaybackSessionStore) {
+        url = sessionStore.url.deletingLastPathComponent()
+            .appendingPathComponent("playback-queue-continuation.json")
+    }
+
+    public init(url: URL) {
+        self.url = url
+    }
+
+    public func load() -> QueueContinuation? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(QueueContinuation.self, from: data)
+    }
+
+    public func save(_ continuation: QueueContinuation?) {
+        guard let continuation else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(continuation) else { return }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: .atomic)
     }
 }

@@ -4605,7 +4605,7 @@ struct NowPlayingView: View {
                 await player.next()
                 let newSongID = player.currentSong?.id
                 let anchorIndex = remainingQueue.firstIndex { $0.id == newSongID } ?? 0
-                player.setQueue(remainingQueue, startAt: anchorIndex)
+                player.setQueue(remainingQueue, startAt: anchorIndex, keepsContinuation: true)
             }
             let retainedSongs = library.songs.filter { $0.id != song.id }
             let deleteSidecars = sourceManager.shouldDeleteSidecars(for: song, retaining: retainedSongs)

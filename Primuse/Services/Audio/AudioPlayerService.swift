@@ -144,6 +144,8 @@ struct WatchQueueDigestSnapshot: Sendable {
 struct PreparedPlaybackSessionRestore: Sendable {
     let plan: PlaybackSessionRestorationPlan
     let entries: [QueueEntry]
+    let continuation: QueueContinuation?
+    let reshapedLegacyQueue: Bool
     let loadFinishedAt: TimeInterval
     let planFinishedAt: TimeInterval
     let lookupFinishedAt: TimeInterval
@@ -675,6 +677,11 @@ final class AudioPlayerService {
     var queueEntries: [QueueEntry] = [] {
         didSet { queueSnapshotRevision &+= 1 }
     }
+    /// The rest of a request too large to install at once (see
+    /// `QueueWindowPolicy`); topped up into `queueEntries` as playback nears
+    /// the end of the window.
+    @ObservationIgnored var queueContinuation: QueueContinuation?
+    @ObservationIgnored var queueContinuationWriteTask: Task<Void, Never>?
     /// Backward-compatible read-only view over the queue's songs.
     /// Internal callers and observers keep using `player.queue` —
     /// the @Observable macro tracks reads through `queueEntries`,
@@ -6221,6 +6228,7 @@ final class AudioPlayerService {
     }
 
     func prefetchNextSong() {
+        refillQueueFromContinuationIfNeeded()
         synchronizeAppleMusicQueue()
         prefetchTask?.cancel()
         plannedSuccessorEntryID = nextQueueEntryInQueue()?.id

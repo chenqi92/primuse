@@ -2,6 +2,7 @@ import Foundation
 import PrimuseKit
 import CryptoKit
 import GRDB
+import os
 #if os(iOS)
 import UIKit
 #endif
@@ -2128,10 +2129,11 @@ enum MusicDiscoveryEngine {
         let recentSongs: [Song]
         let historyEntries: [PlayHistoryStore.Entry]
         let now: Date
+        /// `MusicLibrary.musicSongsRevision` when `songs` came from the library;
+        /// lets the feature index be reused until the song list changes.
+        var libraryRevision: UInt64? = nil
 
         func makeInput() -> RecommendationInput {
-            let playableSongs = songs.filteredPlayable()
-            let songIDs = Set(playableSongs.map(\.id))
             func entries(in range: PlayHistoryStore.Range) -> [PlayHistoryStore.Entry] {
                 let cutoff = range.startDate(now: now)
                 return historyEntries.filter { $0.playedAt >= cutoff && $0.playedAt <= now }
@@ -2139,28 +2141,41 @@ enum MusicDiscoveryEngine {
             let monthEntries = entries(in: .month)
             let topSongs = PlayHistoryStore.rankedItems(from: entries(in: .year), category: .songs, limit: 12)
             let topArtists = PlayHistoryStore.rankedItems(from: monthEntries, category: .artists, limit: 6)
+            // 种子只能是库里可播放的歌。候选最多二十几首, 只为它们查一遍,
+            // 不为整库建 id 集合、也不复制一份只含可播放歌曲的数组。
+            let candidateSeedIDs = topSongs.map(\.id) + recentSongs.map(\.id)
+            let wanted = Set(candidateSeedIDs)
+            var playableSeedIDs = Set<String>()
+            for song in songs where wanted.contains(song.id) && song.isPlayable {
+                playableSeedIDs.insert(song.id)
+                if playableSeedIDs.count == wanted.count { break }
+            }
             var seenSeedIDs = Set<String>()
-            let seedIDs = (topSongs.map(\.id) + recentSongs.map(\.id)).filter {
-                songIDs.contains($0) && seenSeedIDs.insert($0).inserted
+            let seedIDs = candidateSeedIDs.filter {
+                playableSeedIDs.contains($0) && seenSeedIDs.insert($0).inserted
             }
             return RecommendationInput(
-                songs: playableSongs,
+                songs: songs,
                 recentWeekIDs: Set(entries(in: .week).map(\.songID)),
                 recentMonthIDs: Set(monthEntries.map(\.songID)),
                 topArtists: Set(topArtists.map { normalized($0.title) }),
                 seedIDs: seedIDs,
-                now: now
+                now: now,
+                libraryRevision: libraryRevision
             )
         }
     }
 
     struct RecommendationInput: Sendable {
+        /// Candidate songs. Songs that are not playable are skipped by the
+        /// engine, so the library's list can be passed without filtering.
         let songs: [Song]
         let recentWeekIDs: Set<String>
         let recentMonthIDs: Set<String>
         let topArtists: Set<String>
         let seedIDs: [String]
         let now: Date
+        var libraryRevision: UInt64? = nil
     }
 
     @MainActor
@@ -2172,30 +2187,51 @@ enum MusicDiscoveryEngine {
     ) -> [MusicDiscoveryResult] {
         let recentIDs = Set(history.entries(in: .month).map(\.songID))
         // Music only: spoken word is never suggested as "similar".
-        return library.musicSongs
-            .filteredPlayable()
-            .compactMap { candidate -> MusicDiscoveryResult? in
-                guard candidate.id != seed.id else { return nil }
-                var match = similarity(between: seed, and: candidate)
-                guard match.score > 0 else { return nil }
+        let songs = library.musicSongs
+        let index = featureIndex(for: songs, revision: library.musicSongsRevision)
+        return similarSongs(to: seed, songs: songs, index: index, recentIDs: recentIDs, limit: limit)
+    }
 
-                if !recentIDs.contains(candidate.id) {
-                    match.score += 4
-                    append(.notRecentlyPlayed, to: &match.reasons)
-                }
+    static func similarSongs(
+        to seed: Song,
+        songs: [Song],
+        recentIDs: Set<String>,
+        limit: Int
+    ) -> [MusicDiscoveryResult] {
+        similarSongs(
+            to: seed,
+            songs: songs,
+            index: featureIndex(for: songs, revision: nil),
+            recentIDs: recentIDs,
+            limit: limit
+        )
+    }
 
-                return MusicDiscoveryResult(
-                    song: candidate,
-                    score: match.score,
-                    reasons: match.reasons
-                )
+    private static func similarSongs(
+        to seed: Song,
+        songs: [Song],
+        index: FeatureIndex?,
+        recentIDs: Set<String>,
+        limit: Int
+    ) -> [MusicDiscoveryResult] {
+        guard let index else { return [] }
+        let seedFeature = index.feature(for: seed)
+        var results: [Candidate] = []
+        for position in index.ids.indices where index.playable[position] {
+            guard index.ids[position] != seed.id else { continue }
+            var match = similarity(between: seedFeature, and: position, in: index)
+            guard match.score > 0 else { continue }
+            if !recentIDs.contains(index.ids[position]) {
+                match.score += 4
+                match.reasons.insert(.notRecentlyPlayed)
             }
-            .sorted { lhs, rhs in
-                if lhs.score != rhs.score { return lhs.score > rhs.score }
-                return lhs.song.title.localizedCompare(rhs.song.title) == .orderedAscending
-            }
-            .prefix(limit)
-            .map { $0 }
+            results.append(Candidate(position: position, score: match.score, reasons: match.reasons))
+        }
+        results.sort { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return index.titles[lhs.position].localizedCompare(index.titles[rhs.position]) == .orderedAscending
+        }
+        return results.prefix(limit).map { $0.result(in: songs) }
     }
 
     @MainActor
@@ -2218,7 +2254,8 @@ enum MusicDiscoveryEngine {
             songs: library.musicSongs,
             recentSongs: library.recentlyPlayedSongs(limit: 12),
             historyEntries: history.musicEntries,
-            now: now
+            now: now,
+            libraryRevision: library.musicSongsRevision
         )
     }
 
@@ -2242,96 +2279,91 @@ enum MusicDiscoveryEngine {
     ) -> [MusicDiscoveryResult] {
         let songs = input.songs
         guard !songs.isEmpty, !isCancelled() else { return [] }
+        // 整库打分只在紧凑的特征索引上做: 每首歌几十字节的整数键, 不复制歌曲本身;
+        // 只有最后选中的那十几首才取出完整的 Song。
+        guard let index = featureIndex(for: songs, revision: input.libraryRevision, isCancelled: isCancelled),
+              !isCancelled() else { return [] }
 
-        // 10K+ 曲库里，推荐算法的热点不是打分本身，而是内层循环反复做
-        // String.folding / 路径拆分。先把每首歌的比较特征归一化一次，
-        // 后续 candidate × seed 只做普通值比较。
-        var normalizedSongs: [NormalizedSong] = []
-        normalizedSongs.reserveCapacity(songs.count)
-        for (index, song) in songs.enumerated() {
-            if index.isMultiple(of: 128), isCancelled() { return [] }
-            normalizedSongs.append(NormalizedSong(song: song))
-        }
-        guard !isCancelled() else { return [] }
-        // 种子最多二十几首; 只为它们建索引, 别把整库(连同每首歌的整份拷贝)
-        // 再装进一个字典 —— 二十多万首时这一步就是几百 MB 的瞬时占用。
         let seedIDSet = Set(input.seedIDs)
-        var seedsByID: [String: NormalizedSong] = [:]
-        for normalizedSong in normalizedSongs where seedIDSet.contains(normalizedSong.song.id) {
-            if seedsByID[normalizedSong.song.id] == nil { seedsByID[normalizedSong.song.id] = normalizedSong }
+        var seedPositionByID: [String: Int] = [:]
+        for position in index.ids.indices
+        where index.playable[position] && seedIDSet.contains(index.ids[position]) {
+            if seedPositionByID[index.ids[position]] == nil { seedPositionByID[index.ids[position]] = position }
         }
-        let seeds = input.seedIDs.compactMap { seedsByID[$0] }
+        let seeds = input.seedIDs.compactMap { seedPositionByID[$0] }.map { index.feature(at: $0) }
 
         guard !seeds.isEmpty else {
-            return coldStartRecommendations(
-                from: songs,
+            return coldStartCandidates(
+                in: index,
                 excluding: [],
                 limit: limit,
                 now: input.now,
                 isCancelled: isCancelled
-            )
+            ).map { $0.result(in: songs) }
         }
 
-        var results: [MusicDiscoveryResult] = []
-        for (index, candidate) in normalizedSongs.enumerated() {
-            if index.isMultiple(of: 128), isCancelled() { return [] }
-            let song = candidate.song
-            guard !input.recentWeekIDs.contains(song.id) else { continue }
+        let topArtistKeys = Set(input.topArtists.compactMap { index.textKeys[$0] })
+        var results: [Candidate] = []
+        for position in index.ids.indices where index.playable[position] {
+            if position.isMultiple(of: 128), isCancelled() { return [] }
+            let id = index.ids[position]
+            guard !input.recentWeekIDs.contains(id) else { continue }
 
             var best = Match(score: 0, reasons: [])
-            for seed in seeds where seed.song.id != song.id {
-                let match = similarity(between: seed, and: candidate)
+            for seed in seeds where seed.id != id {
+                let match = similarity(between: seed, and: position, in: index)
                 if match.score > best.score { best = match }
             }
 
             var score = best.score
             var reasons = best.reasons
 
-            if let artist = candidate.artistName, input.topArtists.contains(artist) {
+            let artistName = index.artistName[position]
+            if artistName != FeatureIndex.noKey, topArtistKeys.contains(artistName) {
                 score += 18
-                append(.recentFavorite, to: &reasons)
+                reasons.insert(.recentFavorite)
             }
 
-            if !input.recentMonthIDs.contains(song.id) {
+            if !input.recentMonthIDs.contains(id) {
                 score += 12
-                append(.notRecentlyPlayed, to: &reasons)
+                reasons.insert(.notRecentlyPlayed)
             }
 
-            if input.now.timeIntervalSince(song.dateAdded) <= 30 * 24 * 60 * 60 {
+            if input.now.timeIntervalSince(index.dateAdded[position]) <= 30 * 24 * 60 * 60 {
                 score += 8
-                append(.newToLibrary, to: &reasons)
+                reasons.insert(.newToLibrary)
             }
 
-            if song.coverArtFileName?.isEmpty == false {
+            if index.hasCoverArt[position] {
                 score += 3
             }
 
             guard score >= 16 else { continue }
-            if reasons.isEmpty { reasons = [.libraryPick] }
-            results.append(MusicDiscoveryResult(song: song, score: score, reasons: reasons))
+            if reasons.isEmpty { reasons = ReasonSet([.libraryPick]) }
+            results.append(Candidate(position: position, score: score, reasons: reasons))
         }
 
         guard !isCancelled() else { return [] }
         results.sort { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
-            return lhs.song.dateAdded > rhs.song.dateAdded
+            return index.dateAdded[lhs.position] > index.dateAdded[rhs.position]
         }
         guard !isCancelled() else { return [] }
 
-        var ranked = uniqued(results)
-        // 目标最多 4 位艺人, 数够就停; 也不必先把整库过滤复制一遍。
+        var ranked = uniqued(results, in: index)
+        // 目标最多 4 位艺人, 数够就停。
         let artistCountCap = min(4, max(0, limit))
-        var availableArtists = Set<String>()
-        for song in songs where availableArtists.count < artistCountCap {
-            guard !input.recentWeekIDs.contains(song.id) else { continue }
-            availableArtists.insert(artistIdentity(song))
+        var availableArtists = Set<Int64>()
+        for position in index.ids.indices where availableArtists.count < artistCountCap {
+            guard index.playable[position], !input.recentWeekIDs.contains(index.ids[position]) else { continue }
+            availableArtists.insert(index.artistIdentity[position])
         }
         let targetArtistCount = min(artistCountCap, availableArtists.count)
-        let rankedArtistCount = Set(ranked.map { artistIdentity($0.song) }).count
+        let rankedArtistCount = Set(ranked.map { index.artistIdentity[$0.position] }).count
         if ranked.count < limit || rankedArtistCount < targetArtistCount {
-            let excluded = Set(ranked.map(\.song.id)).union(input.recentWeekIDs)
-            ranked.append(contentsOf: coldStartRecommendations(
-                from: songs,
+            let excluded = Set(ranked.map { index.ids[$0.position] }).union(input.recentWeekIDs)
+            ranked.append(contentsOf: coldStartCandidates(
+                in: index,
                 excluding: excluded,
                 limit: max(limit * 2, limit - ranked.count),
                 now: input.now,
@@ -2339,7 +2371,7 @@ enum MusicDiscoveryEngine {
             ))
         }
         guard !isCancelled() else { return [] }
-        return diversifiedRecommendations(ranked, limit: limit)
+        return diversified(ranked, limit: limit, in: index).map { $0.result(in: songs) }
     }
 
     @MainActor
@@ -2385,66 +2417,102 @@ enum MusicDiscoveryEngine {
         now: Date = Date()
     ) -> [MusicDiscoveryResult] {
         guard seed.isPlayable else { return [] }
-
-        // Precompute everything that doesn't change across the up-to-`limit`
-        // greedy iterations: the candidate pool, a normalized feature index
-        // (so each song's artist/album/genre/folder strings are folded once
-        // instead of O(limit×N) times), the recent-month set, and the
-        // fallback list. The original re-ran `similarSongs` (full O(N) scan +
-        // per-candidate String.folding + a fresh `history.entries` Set) and
-        // `dailyRecommendations` (a 3×limit full-library scoring pass) on every
-        // iteration — multiple seconds on a 10k-song library, all on the main
-        // actor. Now the per-iteration work is a single O(N) pass over cached
-        // numbers/strings.
-        let candidates = library.musicSongs.filteredPlayable()
+        let songs = library.musicSongs
+        let index = featureIndex(for: songs, revision: library.musicSongsRevision)
         let recentMonthIDs = Set(history.entries(in: .month, now: now).map(\.songID))
-        let features = candidates.map { NormalizedSong(song: $0) }
-        let seedFeature = NormalizedSong(song: seed)
-
-        var output = [
-            MusicDiscoveryResult(song: seed, score: .greatestFiniteMagnitude, reasons: [.libraryPick])
-        ]
-        var usedIDs: Set<String> = [seed.id]
-        var cursor = seedFeature
-
         // Fallback recommendations don't depend on the moving cursor, so build
         // them once and just skip already-used songs as the queue grows.
         let fallbacks = dailyRecommendations(in: library, history: history, limit: 24, now: now)
+        return songRadio(
+            from: seed,
+            songs: songs,
+            index: index,
+            recentMonthIDs: recentMonthIDs,
+            fallbacks: fallbacks,
+            limit: limit,
+            now: now
+        )
+    }
+
+    static func songRadio(
+        from seed: Song,
+        songs: [Song],
+        recentMonthIDs: Set<String>,
+        fallbacks: [MusicDiscoveryResult],
+        limit: Int,
+        now: Date
+    ) -> [MusicDiscoveryResult] {
+        guard seed.isPlayable else { return [] }
+        return songRadio(
+            from: seed,
+            songs: songs,
+            index: featureIndex(for: songs, revision: nil),
+            recentMonthIDs: recentMonthIDs,
+            fallbacks: fallbacks,
+            limit: limit,
+            now: now
+        )
+    }
+
+    /// Greedy walk: each step picks the candidate most similar to the previous
+    /// pick. Everything that does not depend on the moving cursor — the
+    /// normalized features and the per-song daily noise — is computed once,
+    /// so each step is a single pass over integers.
+    private static func songRadio(
+        from seed: Song,
+        songs: [Song],
+        index: FeatureIndex?,
+        recentMonthIDs: Set<String>,
+        fallbacks: [MusicDiscoveryResult],
+        limit: Int,
+        now: Date
+    ) -> [MusicDiscoveryResult] {
+        var output = [
+            MusicDiscoveryResult(song: seed, score: .greatestFiniteMagnitude, reasons: [.libraryPick])
+        ]
+        guard let index else { return output }
+        var usedIDs: Set<String> = [seed.id]
+        var cursor = index.feature(for: seed)
+        var dailyNoise: [Double] = []
 
         while output.count < limit {
-            var best: (result: MusicDiscoveryResult, sortScore: Double, title: String)?
-            for candidate in features {
-                guard !usedIDs.contains(candidate.song.id), candidate.song.id != cursor.song.id else { continue }
-                var match = similarity(between: cursor, and: candidate)
+            if dailyNoise.isEmpty {
+                let day = dailyNoiseDay(now)
+                dailyNoise = index.ids.map { stableDailyNoise($0, day: day) }
+            }
+            var best: (position: Int, match: Match, sortScore: Double)?
+            for position in index.ids.indices where index.playable[position] {
+                let id = index.ids[position]
+                guard !usedIDs.contains(id), id != cursor.id else { continue }
+                var match = similarity(between: cursor, and: position, in: index)
                 guard match.score > 0 else { continue }
-                if !recentMonthIDs.contains(candidate.song.id) {
+                if !recentMonthIDs.contains(id) {
                     match.score += 4
-                    append(.notRecentlyPlayed, to: &match.reasons)
+                    match.reasons.insert(.notRecentlyPlayed)
                 }
-                let sortScore = match.score + stableDailyNoise(candidate.song.id, now: now) * 3
+                let sortScore = match.score + dailyNoise[position] * 3
                 let isBetter: Bool
                 if let current = best {
                     if sortScore != current.sortScore {
                         isBetter = sortScore > current.sortScore
                     } else {
-                        isBetter = candidate.song.title.localizedCompare(current.title) == .orderedAscending
+                        isBetter = index.titles[position]
+                            .localizedCompare(index.titles[current.position]) == .orderedAscending
                     }
                 } else {
                     isBetter = true
                 }
-                if isBetter {
-                    best = (
-                        MusicDiscoveryResult(song: candidate.song, score: match.score, reasons: match.reasons),
-                        sortScore,
-                        candidate.song.title
-                    )
-                }
+                if isBetter { best = (position, match, sortScore) }
             }
 
             if let next = best {
-                output.append(next.result)
-                usedIDs.insert(next.result.song.id)
-                cursor = NormalizedSong(song: next.result.song)
+                output.append(Candidate(
+                    position: next.position,
+                    score: next.match.score,
+                    reasons: next.match.reasons
+                ).result(in: songs))
+                usedIDs.insert(index.ids[next.position])
+                cursor = index.feature(at: next.position)
                 continue
             }
 
@@ -2453,199 +2521,425 @@ enum MusicDiscoveryEngine {
             }
             output.append(fallback)
             usedIDs.insert(fallback.song.id)
-            cursor = NormalizedSong(song: fallback.song)
+            cursor = index.feature(for: fallback.song)
         }
 
         return output
     }
 
-    /// Per-song feature cache for `songRadio`'s inner loop: all the normalized
-    /// (case/diacritic-folded) strings `similarity` needs, computed once so the
-    /// greedy radio walk never re-folds the same song. Mirrors exactly the
-    /// fields and normalization used by `similarity(between:and:)`.
-    private struct NormalizedSong {
-        let song: Song
-        let albumID: String?
-        let albumTitle: String?
-        let artistID: String?
-        let artistName: String?
-        let genre: String?
-        let year: Int?
-        let duration: TimeInterval
-        let sourceID: String
-        let folder: String
+    // MARK: - Feature index
 
-        init(song: Song) {
-            self.song = song
-            albumID = Self.normEmptyable(song.albumID)
-            albumTitle = Self.normEmptyable(song.albumTitle)
-            artistID = Self.normEmptyable(song.artistID)
-            artistName = Self.normEmptyable(song.artistName)
-            genre = Self.normEmptyable(song.genre)
-            year = song.year
-            duration = song.duration
-            sourceID = song.sourceID
-            folder = MusicDiscoveryEngine.parentFolder(song.filePath)
+    /// Reasons in the order the scoring steps add them. Every step adds a
+    /// reason at most once and always in this order, so a set reproduces the
+    /// list exactly.
+    private struct ReasonSet: Equatable {
+        private static let order: [MusicDiscoveryReason] = [
+            .sameAlbum, .sameArtist, .sameGenre, .sameEra, .similarDuration, .sameFolder,
+            .recentFavorite, .notRecentlyPlayed, .newToLibrary, .libraryPick,
+        ]
+        private var bits: UInt16 = 0
+
+        init(_ reasons: [MusicDiscoveryReason]) {
+            for reason in reasons { insert(reason) }
         }
 
-        /// Pre-normalize for `nonEmptyEqual`, which treats empty results as
-        /// non-matching. nil here means "won't ever match" — keeps the equality
-        /// checks branch-free in the hot loop.
-        private static func normEmptyable(_ text: String?) -> String? {
-            guard let text else { return nil }
-            let value = MusicDiscoveryEngine.normalized(text)
-            return value.isEmpty ? nil : value
-        }
-    }
+        var isEmpty: Bool { bits == 0 }
 
-    /// Same scoring as `similarity(between:and:)` but over pre-normalized
-    /// features so no `String.folding` runs in `songRadio`'s inner loop.
-    private static func similarity(between seed: NormalizedSong, and candidate: NormalizedSong) -> Match {
-        var score: Double = 0
-        var reasons: [MusicDiscoveryReason] = []
-
-        if normEqual(seed.albumID, candidate.albumID) || normEqual(seed.albumTitle, candidate.albumTitle) {
-            score += 46
-            append(.sameAlbum, to: &reasons)
+        mutating func insert(_ reason: MusicDiscoveryReason) {
+            guard let offset = Self.order.firstIndex(of: reason) else { return }
+            bits |= 1 << UInt16(offset)
         }
 
-        if normEqual(seed.artistID, candidate.artistID) || normEqual(seed.artistName, candidate.artistName) {
-            score += 40
-            append(.sameArtist, to: &reasons)
-        }
-
-        if normEqual(seed.genre, candidate.genre) {
-            score += 30
-            append(.sameGenre, to: &reasons)
-        }
-
-        if let seedYear = seed.year, let candidateYear = candidate.year {
-            let delta = abs(seedYear - candidateYear)
-            if delta <= 2 {
-                score += 10
-                append(.sameEra, to: &reasons)
-            } else if delta <= 6 {
-                score += 5
-                append(.sameEra, to: &reasons)
+        var reasons: [MusicDiscoveryReason] {
+            Self.order.enumerated().compactMap { offset, reason in
+                bits & (1 << UInt16(offset)) != 0 ? reason : nil
             }
         }
-
-        if seed.duration > 30, candidate.duration > 30 {
-            let delta = abs(seed.duration - candidate.duration)
-            let ratio = delta / max(seed.duration, candidate.duration)
-            if ratio <= 0.12 {
-                score += 7
-                append(.similarDuration, to: &reasons)
-            } else if ratio <= 0.22 {
-                score += 3
-            }
-        }
-
-        if seed.sourceID == candidate.sourceID,
-           !seed.folder.isEmpty,
-           seed.folder == candidate.folder {
-            score += 12
-            append(.sameFolder, to: &reasons)
-        }
-
-        return Match(score: score, reasons: reasons)
-    }
-
-    /// Pre-normalized variant of `nonEmptyEqual` — both sides are already
-    /// folded (and nil when empty), so this is a plain comparison.
-    private static func normEqual(_ lhs: String?, _ rhs: String?) -> Bool {
-        guard let lhs, let rhs else { return false }
-        return lhs == rhs
     }
 
     private struct Match {
         var score: Double
-        var reasons: [MusicDiscoveryReason]
+        var reasons: ReasonSet
+
+        init(score: Double, reasons: [MusicDiscoveryReason]) {
+            self.score = score
+            self.reasons = ReasonSet(reasons)
+        }
     }
 
-    private static func similarity(between seed: Song, and candidate: Song) -> Match {
-        var score: Double = 0
-        var reasons: [MusicDiscoveryReason] = []
+    private struct Candidate {
+        let position: Int
+        let score: Double
+        let reasons: ReasonSet
 
-        if nonEmptyEqual(seed.albumID, candidate.albumID)
-            || nonEmptyEqual(seed.albumTitle, candidate.albumTitle) {
-            score += 46
-            append(.sameAlbum, to: &reasons)
+        func result(in songs: [Song]) -> MusicDiscoveryResult {
+            MusicDiscoveryResult(song: songs[position], score: score, reasons: reasons.reasons)
         }
+    }
 
-        if nonEmptyEqual(seed.artistID, candidate.artistID)
-            || nonEmptyEqual(seed.artistName, candidate.artistName) {
-            score += 40
-            append(.sameArtist, to: &reasons)
-        }
+    /// The comparison features of one song, as keys into a `FeatureIndex`.
+    private struct Feature {
+        let id: String
+        let albumID: Int32
+        let albumTitle: Int32
+        let artistID: Int32
+        let artistName: Int32
+        let genre: Int32
+        let folder: Int32
+        let source: Int32
+        let year: Int?
+        let duration: TimeInterval
+    }
 
-        if nonEmptyEqual(seed.genre, candidate.genre) {
-            score += 30
-            append(.sameGenre, to: &reasons)
-        }
+    /// Struct-of-arrays feature table over one song list. Every text field is
+    /// case/diacritic-folded once and interned to an integer key, so scoring a
+    /// 200K-song library compares integers instead of copying and re-folding
+    /// strings — the previous per-call `NormalizedSong` array kept a full `Song`
+    /// copy per entry and cost hundreds of MB on large libraries.
+    private struct FeatureIndex: Sendable {
+        /// Nil or empty after normalization: never equal to anything.
+        static let noKey: Int32 = -1
 
-        if let seedYear = seed.year, let candidateYear = candidate.year {
-            let delta = abs(seedYear - candidateYear)
-            if delta <= 2 {
-                score += 10
-                append(.sameEra, to: &reasons)
-            } else if delta <= 6 {
-                score += 5
-                append(.sameEra, to: &reasons)
+        var ids: [String] = []
+        var titles: [String] = []
+        var dateAdded: [Date] = []
+        var playable: [Bool] = []
+        var hasCoverArt: [Bool] = []
+        var hasArtistName: [Bool] = []
+        var hasAlbumTitle: [Bool] = []
+        var hasGenre: [Bool] = []
+        var albumID: [Int32] = []
+        var albumTitle: [Int32] = []
+        var artistID: [Int32] = []
+        var artistName: [Int32] = []
+        var genre: [Int32] = []
+        var folder: [Int32] = []
+        var source: [Int32] = []
+        var year: [Int?] = []
+        var duration: [TimeInterval] = []
+        var artistIdentity: [Int64] = []
+        var albumIdentity: [Int64] = []
+        var coldStartNoise: [Double] = []
+        /// Normalized text → key. Shared by every folded field; keys are only
+        /// ever compared within the same field.
+        var textKeys: [String: Int32] = [:]
+        var sourceKeys: [String: Int32] = [:]
+
+        init?(songs: [Song], isCancelled: () -> Bool) {
+            let count = songs.count
+            ids.reserveCapacity(count)
+            titles.reserveCapacity(count)
+            dateAdded.reserveCapacity(count)
+            playable.reserveCapacity(count)
+            hasCoverArt.reserveCapacity(count)
+            hasArtistName.reserveCapacity(count)
+            hasAlbumTitle.reserveCapacity(count)
+            hasGenre.reserveCapacity(count)
+            albumID.reserveCapacity(count)
+            albumTitle.reserveCapacity(count)
+            artistID.reserveCapacity(count)
+            artistName.reserveCapacity(count)
+            genre.reserveCapacity(count)
+            folder.reserveCapacity(count)
+            source.reserveCapacity(count)
+            year.reserveCapacity(count)
+            duration.reserveCapacity(count)
+            artistIdentity.reserveCapacity(count)
+            albumIdentity.reserveCapacity(count)
+            coldStartNoise.reserveCapacity(count)
+            var albumTitleIdentityKeys: [AlbumTitleIdentity: Int64] = [:]
+
+            for (position, song) in songs.enumerated() {
+                if position.isMultiple(of: 512), isCancelled() { return nil }
+                ids.append(song.id)
+                titles.append(song.title)
+                dateAdded.append(song.dateAdded)
+                playable.append(song.isPlayable)
+                hasCoverArt.append(song.coverArtFileName?.isEmpty == false)
+                hasArtistName.append(song.artistName?.isEmpty == false)
+                hasAlbumTitle.append(song.albumTitle?.isEmpty == false)
+                hasGenre.append(song.genre?.isEmpty == false)
+                let albumIDKey = intern(song.albumID)
+                let albumTitleKey = intern(song.albumTitle)
+                let artistIDKey = intern(song.artistID)
+                let artistNameKey = intern(song.artistName)
+                albumID.append(albumIDKey)
+                albumTitle.append(albumTitleKey)
+                artistID.append(artistIDKey)
+                artistName.append(artistNameKey)
+                genre.append(intern(song.genre))
+                folder.append(internFolder(of: song.filePath))
+                source.append(internSource(song.sourceID))
+                year.append(song.year)
+                duration.append(song.duration)
+                coldStartNoise.append(MusicDiscoveryEngine.stableNoise(song.id))
+
+                // Same precedence as `artistIdentity(_:)` / `albumIdentity(_:artistKey:)`:
+                // id, then name/title, then the song itself.
+                let artistKey: Int64
+                if artistIDKey != Self.noKey {
+                    artistKey = Int64(artistIDKey)
+                } else if artistNameKey != Self.noKey {
+                    artistKey = (1 << 32) | Int64(artistNameKey)
+                } else {
+                    artistKey = (2 << 32) | Int64(position)
+                }
+                artistIdentity.append(artistKey)
+                if albumIDKey != Self.noKey {
+                    albumIdentity.append(Int64(albumIDKey))
+                } else if albumTitleKey != Self.noKey {
+                    let pair = AlbumTitleIdentity(artist: artistKey, title: albumTitleKey)
+                    let next = (1 << 40) | Int64(albumTitleIdentityKeys.count)
+                    albumIdentity.append(albumTitleIdentityKeys[pair, default: next])
+                    if albumTitleIdentityKeys[pair] == nil { albumTitleIdentityKeys[pair] = next }
+                } else {
+                    albumIdentity.append((2 << 40) | Int64(position))
+                }
             }
         }
 
-        if seed.duration > 30, candidate.duration > 30 {
-            let delta = abs(seed.duration - candidate.duration)
-            let ratio = delta / max(seed.duration, candidate.duration)
+        private struct AlbumTitleIdentity: Hashable {
+            let artist: Int64
+            let title: Int32
+        }
+
+        private mutating func intern(_ text: String?) -> Int32 {
+            guard let text else { return Self.noKey }
+            return internNormalized(MusicDiscoveryEngine.normalized(text))
+        }
+
+        private mutating func internFolder(of path: String) -> Int32 {
+            internNormalized(MusicDiscoveryEngine.parentFolder(path))
+        }
+
+        private mutating func internNormalized(_ value: String) -> Int32 {
+            guard !value.isEmpty else { return Self.noKey }
+            if let key = textKeys[value] { return key }
+            let key = Int32(textKeys.count)
+            textKeys[value] = key
+            return key
+        }
+
+        private mutating func internSource(_ sourceID: String) -> Int32 {
+            if let key = sourceKeys[sourceID] { return key }
+            let key = Int32(sourceKeys.count)
+            sourceKeys[sourceID] = key
+            return key
+        }
+
+        func feature(at position: Int) -> Feature {
+            Feature(
+                id: ids[position],
+                albumID: albumID[position],
+                albumTitle: albumTitle[position],
+                artistID: artistID[position],
+                artistName: artistName[position],
+                genre: genre[position],
+                folder: folder[position],
+                source: source[position],
+                year: year[position],
+                duration: duration[position]
+            )
+        }
+
+        /// Features of a song that may not be in the list (a radio seed). Text
+        /// absent from the index cannot equal any indexed song's text.
+        func feature(for song: Song) -> Feature {
+            func key(_ text: String?) -> Int32 {
+                guard let text else { return Self.noKey }
+                let value = MusicDiscoveryEngine.normalized(text)
+                guard !value.isEmpty else { return Self.noKey }
+                return textKeys[value] ?? -2
+            }
+            let folderText = MusicDiscoveryEngine.parentFolder(song.filePath)
+            return Feature(
+                id: song.id,
+                albumID: key(song.albumID),
+                albumTitle: key(song.albumTitle),
+                artistID: key(song.artistID),
+                artistName: key(song.artistName),
+                genre: key(song.genre),
+                folder: folderText.isEmpty ? Self.noKey : (textKeys[folderText] ?? -2),
+                source: sourceKeys[song.sourceID] ?? -2,
+                year: song.year,
+                duration: song.duration
+            )
+        }
+    }
+
+    private struct CachedFeatureIndex: Sendable {
+        let revision: UInt64
+        let count: Int
+        let index: FeatureIndex
+    }
+
+    private static let featureIndexCache = OSAllocatedUnfairLock<CachedFeatureIndex?>(initialState: nil)
+
+    /// The feature index for `songs`, reused while the library's music list
+    /// keeps the same revision. Nil only when cancelled mid-build.
+    private static func featureIndex(
+        for songs: [Song],
+        revision: UInt64?,
+        isCancelled: () -> Bool = { false }
+    ) -> FeatureIndex? {
+        if let revision,
+           let cached = featureIndexCache.withLock({ $0 }),
+           cached.revision == revision,
+           cached.count == songs.count {
+            return cached.index
+        }
+        guard let index = FeatureIndex(songs: songs, isCancelled: isCancelled) else { return nil }
+        if let revision {
+            featureIndexCache.withLock { cache in
+                if cache == nil || cache!.revision <= revision {
+                    cache = CachedFeatureIndex(revision: revision, count: songs.count, index: index)
+                }
+            }
+        }
+        return index
+    }
+
+    private static func keysMatch(_ lhs: Int32, _ rhs: Int32) -> Bool {
+        lhs >= 0 && lhs == rhs
+    }
+
+    /// Scoring over interned features; identical rules and weights to the
+    /// string comparison it replaces (folded, non-empty equality).
+    private static func similarity(
+        between seed: Feature,
+        and position: Int,
+        in index: FeatureIndex
+    ) -> Match {
+        var score: Double = 0
+        var reasons = ReasonSet([])
+
+        if keysMatch(seed.albumID, index.albumID[position])
+            || keysMatch(seed.albumTitle, index.albumTitle[position]) {
+            score += 46
+            reasons.insert(.sameAlbum)
+        }
+
+        if keysMatch(seed.artistID, index.artistID[position])
+            || keysMatch(seed.artistName, index.artistName[position]) {
+            score += 40
+            reasons.insert(.sameArtist)
+        }
+
+        if keysMatch(seed.genre, index.genre[position]) {
+            score += 30
+            reasons.insert(.sameGenre)
+        }
+
+        if let seedYear = seed.year, let candidateYear = index.year[position] {
+            let delta = abs(seedYear - candidateYear)
+            if delta <= 2 {
+                score += 10
+                reasons.insert(.sameEra)
+            } else if delta <= 6 {
+                score += 5
+                reasons.insert(.sameEra)
+            }
+        }
+
+        let candidateDuration = index.duration[position]
+        if seed.duration > 30, candidateDuration > 30 {
+            let delta = abs(seed.duration - candidateDuration)
+            let ratio = delta / max(seed.duration, candidateDuration)
             if ratio <= 0.12 {
                 score += 7
-                append(.similarDuration, to: &reasons)
+                reasons.insert(.similarDuration)
             } else if ratio <= 0.22 {
                 score += 3
             }
         }
 
-        if seed.sourceID == candidate.sourceID,
-           !parentFolder(seed.filePath).isEmpty,
-           parentFolder(seed.filePath) == parentFolder(candidate.filePath) {
+        if seed.source == index.source[position],
+           keysMatch(seed.folder, index.folder[position]) {
             score += 12
-            append(.sameFolder, to: &reasons)
+            reasons.insert(.sameFolder)
         }
 
-        return Match(score: score, reasons: reasons)
+        var match = Match(score: score, reasons: [])
+        match.reasons = reasons
+        return match
     }
 
-    private static func coldStartRecommendations(
-        from songs: [Song],
+    private static func coldStartCandidates(
+        in index: FeatureIndex,
         excluding excludedIDs: Set<String>,
         limit: Int,
         now: Date,
         isCancelled: @Sendable () -> Bool = { false }
-    ) -> [MusicDiscoveryResult] {
-        var ranked: [MusicDiscoveryResult] = []
-        ranked.reserveCapacity(songs.count)
-        for (index, song) in songs.enumerated() where !excludedIDs.contains(song.id) {
-            if index.isMultiple(of: 128), isCancelled() { return [] }
-            var score = song.coverArtFileName?.isEmpty == false ? 12.0 : 0.0
-            score += max(0, 10 - now.timeIntervalSince(song.dateAdded) / (7 * 24 * 60 * 60))
-            if song.artistName?.isEmpty == false { score += 3 }
-            if song.albumTitle?.isEmpty == false { score += 3 }
-            if song.genre?.isEmpty == false { score += 2 }
-            score += stableNoise(song.id)
+    ) -> [Candidate] {
+        var ranked: [Candidate] = []
+        for position in index.ids.indices where index.playable[position] {
+            if position.isMultiple(of: 128), isCancelled() { return [] }
+            guard !excludedIDs.contains(index.ids[position]) else { continue }
+            let dateAdded = index.dateAdded[position]
+            var score = index.hasCoverArt[position] ? 12.0 : 0.0
+            score += max(0, 10 - now.timeIntervalSince(dateAdded) / (7 * 24 * 60 * 60))
+            if index.hasArtistName[position] { score += 3 }
+            if index.hasAlbumTitle[position] { score += 3 }
+            if index.hasGenre[position] { score += 2 }
+            score += index.coldStartNoise[position]
 
-            let reason: MusicDiscoveryReason = now.timeIntervalSince(song.dateAdded) <= 30 * 24 * 60 * 60
+            let reason: MusicDiscoveryReason = now.timeIntervalSince(dateAdded) <= 30 * 24 * 60 * 60
                 ? .newToLibrary
                 : .libraryPick
-            ranked.append(MusicDiscoveryResult(song: song, score: score, reasons: [reason]))
+            ranked.append(Candidate(position: position, score: score, reasons: ReasonSet([reason])))
         }
         guard !isCancelled() else { return [] }
         ranked.sort { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
-            return lhs.song.dateAdded > rhs.song.dateAdded
+            return index.dateAdded[lhs.position] > index.dateAdded[rhs.position]
         }
         guard !isCancelled() else { return [] }
-        return diversifiedRecommendations(ranked, limit: limit)
+        return diversified(ranked, limit: limit, in: index)
+    }
+
+    private static func uniqued(_ candidates: [Candidate], in index: FeatureIndex) -> [Candidate] {
+        var seen = Set<String>()
+        return candidates.filter { seen.insert(index.ids[$0.position]).inserted }
+    }
+
+    /// `diversifiedRecommendations` over index positions.
+    private static func diversified(
+        _ rankedCandidates: [Candidate],
+        limit: Int,
+        in index: FeatureIndex
+    ) -> [Candidate] {
+        guard limit > 0 else { return [] }
+        let ranked = uniqued(rankedCandidates, in: index)
+        var output: [Candidate] = []
+        var selectedIDs = Set<String>()
+        var artistCounts: [Int64: Int] = [:]
+        var albumCounts: [Int64: Int] = [:]
+
+        func appendPass(maxPerArtist: Int?, maxPerAlbum: Int?) {
+            guard output.count < limit else { return }
+            for candidate in ranked where output.count < limit {
+                let id = index.ids[candidate.position]
+                guard !selectedIDs.contains(id) else { continue }
+                let artistKey = index.artistIdentity[candidate.position]
+                let albumKey = index.albumIdentity[candidate.position]
+                if let maxPerArtist, artistCounts[artistKey, default: 0] >= maxPerArtist {
+                    continue
+                }
+                if let maxPerAlbum, albumCounts[albumKey, default: 0] >= maxPerAlbum {
+                    continue
+                }
+                selectedIDs.insert(id)
+                artistCounts[artistKey, default: 0] += 1
+                albumCounts[albumKey, default: 0] += 1
+                output.append(candidate)
+            }
+        }
+
+        appendPass(maxPerArtist: 1, maxPerAlbum: 1)
+        appendPass(maxPerArtist: 2, maxPerAlbum: 1)
+        appendPass(maxPerArtist: 2, maxPerAlbum: 2)
+        appendPass(maxPerArtist: nil, maxPerAlbum: nil)
+        return output
     }
 
     /// Keeps the strongest tracks first while preventing one artist or album
@@ -2717,15 +3011,6 @@ enum MusicDiscoveryEngine {
         return "song:\(song.id)"
     }
 
-    private static func nonEmptyEqual(_ lhs: String?, _ rhs: String?) -> Bool {
-        guard let lhs, let rhs else { return false }
-        let left = normalized(lhs)
-        return !left.isEmpty && left == normalized(rhs)
-    }
-
-    // `nonisolated` — pure string helpers with no actor state. Lets the
-    // `NormalizedSong` feature cache pre-fold strings without hopping the
-    // main actor (and keeps the door open for a future detached radio build).
     private static func parentFolder(_ path: String) -> String {
         let folder = (path as NSString).deletingLastPathComponent
         guard folder != "." else { return "" }
@@ -2739,17 +3024,20 @@ enum MusicDiscoveryEngine {
             .lowercased()
     }
 
-    private static func append(_ reason: MusicDiscoveryReason, to reasons: inout [MusicDiscoveryReason]) {
-        if !reasons.contains(reason) { reasons.append(reason) }
-    }
-
     private static func stableNoise(_ id: String) -> Double {
         let sum = id.unicodeScalars.reduce(0) { ($0 &+ Int($1.value)) % 997 }
         return Double(sum) / 997.0
     }
 
     private static func stableDailyNoise(_ id: String, now: Date) -> Double {
-        let day = Calendar.current.ordinality(of: .day, in: .era, for: now) ?? 0
+        stableDailyNoise(id, day: dailyNoiseDay(now))
+    }
+
+    private static func dailyNoiseDay(_ now: Date) -> Int {
+        Calendar.current.ordinality(of: .day, in: .era, for: now) ?? 0
+    }
+
+    private static func stableDailyNoise(_ id: String, day: Int) -> Double {
         let mixed = "\(id):\(day)"
         let sum = mixed.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) % 997 }
         return Double(sum) / 997.0
@@ -3219,9 +3507,12 @@ final class MusicLibrary {
         set {
             let previous = musicSongsReference
             musicSongsReference = LibraryArrayReference(newValue)
+            musicSongsRevision &+= 1
             LibraryArrayReclaimer.release(previous)
         }
     }
+    /// 每次换 `musicSongs` 都前进; 推荐引擎按它复用整库特征索引。
+    @ObservationIgnored private(set) var musicSongsRevision: UInt64 = 0
     private var spokenWordSongsReference = LibraryArrayReference<Song>()
     private(set) var spokenWordContentRevision: UInt64 = 0
     /// The spoken-word items, in the same order they hold in `visibleSongs`.
@@ -3394,7 +3685,10 @@ final class MusicLibrary {
     private let decoder = JSONDecoder()
     @ObservationIgnored private var persistenceBlockedByCorruption = false
     @ObservationIgnored private var derivedIndexSignature: String?
-    private nonisolated static let startupCacheFormatVersion = 1
+    /// 2: 启动缓存不再带歌曲数组, 歌曲总是从 SQLite 读。1 是带整库歌曲的旧格式,
+    /// 仍然读得懂, 读到后按 2 重写一次。
+    private nonisolated static let startupCacheFormatVersion = 2
+    private nonisolated static let legacyStartupCacheFormatVersion = 1
     private nonisolated static let loadedSongMigrationVersion = 7
 
     // MARK: - Readiness
@@ -9961,8 +10255,10 @@ final class MusicLibrary {
                     snapshotFingerprint: compatibilityFingerprint
                 )
                 : nil
+            // 只有旧格式带歌曲; 修订号对得上才能直接用里面的歌。
             let startupCache = portableStartupCache.flatMap { cache in
-                cache.songStoreRevision == initialStoreState?.contentRevision ? cache : nil
+                cache.formatVersion == MusicLibrary.legacyStartupCacheFormatVersion
+                    && cache.songStoreRevision == initialStoreState?.contentRevision ? cache : nil
             }
 
             var canonicalSongs: [Song]?
@@ -10193,11 +10489,14 @@ final class MusicLibrary {
                 configuration: artistNameConfiguration
             )
             let usedDerivedIndexCache: Bool
-            if let startupCache,
+            let usedCurrentStartupCache = usedPortableStartupCache
+                && portableStartupCache?.formatVersion == MusicLibrary.startupCacheFormatVersion
+            let derivedStartupCache = startupCache ?? (usedCurrentStartupCache ? portableStartupCache : nil)
+            if let derivedStartupCache,
                migration.changedSongs.isEmpty,
-               startupCache.derivedIndexSignature == currentDerivedSignature {
-                albums = startupCache.albums
-                artists = startupCache.artists
+               derivedStartupCache.derivedIndexSignature == currentDerivedSignature {
+                albums = derivedStartupCache.albums
+                artists = derivedStartupCache.artists
                 derivedIndexSignature = currentDerivedSignature
                 rebuildVisibleCache()
                 usedDerivedIndexCache = true
@@ -10221,7 +10520,7 @@ final class MusicLibrary {
 
             // `songStoreRequiresReplacement` 只有在发布步骤执行完推迟的存储写入后
             // 才是最终值, 所以那一项条件留到发布步骤再判断。
-            if startupCache == nil, canRefreshStartupCache {
+            if !usedCurrentStartupCache, canRefreshStartupCache {
                 shouldWriteStartupCache = true
             }
             plog(String(
@@ -10232,7 +10531,8 @@ final class MusicLibrary {
                 (migrationFinishedAt - decodeFinishedAt) * 1_000,
                 (cleanupFinishedAt - migrationFinishedAt) * 1_000,
                 (indexFinishedAt - cleanupFinishedAt) * 1_000,
-                startupCache != nil ? "hit" : (usedPortableStartupCache ? "partial" : "miss"),
+                usedCurrentStartupCache ? "hit"
+                    : (startupCache != nil ? "legacy" : (usedPortableStartupCache ? "partial" : "miss")),
                 usedDerivedIndexCache ? "hit" : "miss",
                 snapshotByteCount,
                 loadedSongs.count
@@ -10318,7 +10618,8 @@ final class MusicLibrary {
         ) -> StartupCache? {
             guard let data = try? Data(contentsOf: startupCacheURL),
                   let cache = try? PropertyListDecoder().decode(StartupCache.self, from: data),
-                  cache.formatVersion == MusicLibrary.startupCacheFormatVersion,
+                  cache.formatVersion == MusicLibrary.startupCacheFormatVersion
+                    || cache.formatVersion == MusicLibrary.legacyStartupCacheFormatVersion,
                   cache.snapshotFingerprint == snapshotFingerprint else {
                 return nil
             }
@@ -12398,9 +12699,13 @@ final class MusicLibrary {
 
     /// Disposable binary mirror used only for local launch. The portable JSON
     /// remains the interchange and recovery format. A matching JSON identity
-    /// makes the non-song snapshot reusable; a matching SQLite revision also
-    /// makes the cached song/derived arrays reusable. Otherwise authoritative
-    /// songs are reloaded from SQLite and replace only the stale cached array.
+    /// makes the non-song snapshot reusable; songs always come from the
+    /// authoritative SQLite store, and a matching derived signature makes the
+    /// cached album/artist arrays reusable.
+    ///
+    /// 格式 1 还带着整库歌曲: 每次落盘都要把二十多万首歌编进 plist(瞬时多占
+    /// 三百多 MB、多写近 100MB), SQLite 修订号一变又整份解码后丢掉。格式 2
+    /// 写入时总是清空 `snapshot.songs`。
     private struct StartupCache: Codable, Sendable {
         let formatVersion: Int
         let songStoreRevision: Int64?
@@ -12409,6 +12714,26 @@ final class MusicLibrary {
         let albums: [Album]
         let artists: [Artist]
         let derivedIndexSignature: String?
+
+        init(
+            formatVersion: Int,
+            songStoreRevision: Int64?,
+            snapshotFingerprint: SnapshotFileFingerprint?,
+            snapshot: Snapshot,
+            albums: [Album],
+            artists: [Artist],
+            derivedIndexSignature: String?
+        ) {
+            var songlessSnapshot = snapshot
+            songlessSnapshot.songs = []
+            self.formatVersion = formatVersion
+            self.songStoreRevision = songStoreRevision
+            self.snapshotFingerprint = snapshotFingerprint
+            self.snapshot = songlessSnapshot
+            self.albums = albums
+            self.artists = artists
+            self.derivedIndexSignature = derivedIndexSignature
+        }
     }
 
     private struct Snapshot: Codable, Sendable {

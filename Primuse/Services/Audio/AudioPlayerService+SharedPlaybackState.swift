@@ -29,8 +29,9 @@ extension AudioPlayerService {
         let initialAdvanceGeneration = playbackAdvancePolicy.generation
         let visibleSongs = library.visibleSongs
         let store = playbackSessionStore
+        let continuationStore = QueueContinuationStore(sessionStore: store)
         let preparationTask = Task<PreparedPlaybackSessionRestore?, Never>.detached(priority: .userInitiated) {
-            let snapshot: PlaybackSessionSnapshot
+            var snapshot: PlaybackSessionSnapshot
             do {
                 guard let loaded = try store.load() else { return nil }
                 snapshot = loaded
@@ -38,12 +39,29 @@ extension AudioPlayerService {
                 plog("⚠️ Playback session load failed: \(error.localizedDescription)")
                 return nil
             }
+            var continuation: QueueContinuation?
+            var reshapedLegacyQueue = false
+            if let token = snapshot.queueContinuationToken,
+               let saved = continuationStore.load(),
+               saved.token == token {
+                continuation = saved
+            }
+            // 旧版本会把整个曲库存成队列; 恢复成一段窗口加后续, 不再整份装回来。
+            if let windowed = QueueWindowPolicy.windowed(snapshot) {
+                snapshot = windowed.snapshot
+                continuation = windowed.continuation
+                reshapedLegacyQueue = true
+            }
             let loadFinishedAt = ProcessInfo.processInfo.systemUptime
 
+            // 只为队列里的歌建表, 不把整个可见曲库拷进字典。
+            let queuedIDs = Set(snapshot.queueSongIDs)
             var playableSongsByID: [String: Song] = [:]
-            playableSongsByID.reserveCapacity(visibleSongs.count)
-            for song in visibleSongs where song.isPlayable && playableSongsByID[song.id] == nil {
+            playableSongsByID.reserveCapacity(queuedIDs.count)
+            for song in visibleSongs
+            where queuedIDs.contains(song.id) && song.isPlayable && playableSongsByID[song.id] == nil {
                 playableSongsByID[song.id] = song
+                if playableSongsByID.count == queuedIDs.count { break }
             }
             guard let plan = PlaybackSessionRestorationPolicy.plan(
                 snapshot: snapshot,
@@ -62,6 +80,8 @@ extension AudioPlayerService {
             return PreparedPlaybackSessionRestore(
                 plan: plan,
                 entries: entries,
+                continuation: continuation,
+                reshapedLegacyQueue: reshapedLegacyQueue,
                 loadFinishedAt: loadFinishedAt,
                 planFinishedAt: planFinishedAt,
                 lookupFinishedAt: ProcessInfo.processInfo.systemUptime
@@ -90,6 +110,14 @@ extension AudioPlayerService {
         shuffledIndices = plan.shuffledIndices
         shufflePosition = plan.shufflePosition
         pendingNextShuffleIndices = plan.pendingNextShuffleIndices
+        queueContinuation = prepared.continuation
+        if prepared.reshapedLegacyQueue {
+            // Shrink the stored session now instead of on the next update.
+            Task { @MainActor [weak self] in
+                self?.persistQueueContinuation()
+                self?.persistPlaybackSession()
+            }
+        }
 
         let song = prepared.entries[plan.currentIndex].song
         currentSong = song
@@ -215,7 +243,8 @@ extension AudioPlayerService {
             shufflePosition: snapshotShufflePosition,
             pendingNextShuffleIndices: snapshotPendingOrder,
             repeatMode: repeatMode,
-            isAtTrackEnd: isAtTrackEnd
+            isAtTrackEnd: isAtTrackEnd,
+            queueContinuationToken: queueContinuation?.token
         )
         // 只有在协调器确认这一代(或更顶掉它的更新一代)真的落盘之后, 才允许
         // 后续的空状态清空旧快照: 写失败时上一次启动留下的有效快照必须保留。

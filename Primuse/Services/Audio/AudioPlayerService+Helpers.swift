@@ -203,19 +203,20 @@ extension AudioPlayerService {
               let library,
               queueEntries.indices.contains(currentIndex) else { return false }
 
-        let playable = library.musicSongs.filteredPlayable()
+        var playableIDs: [String] = []
+        for song in library.musicSongs where song.isPlayable { playableIDs.append(song.id) }
         let candidateIDs = ShuffleContinuationPolicy.candidateIDs(
             queueIDs: queueEntries.map(\.song.id),
-            libraryIDs: playable.map(\.id),
+            libraryIDs: playableIDs,
             currentID: currentSong?.id
         )
         guard !candidateIDs.isEmpty else { return false }
 
-        let songsByID = Dictionary(
-            playable.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let additions = candidateIDs.compactMap { songsByID[$0] }
+        // 一次只续一段随机抽出的歌; 这段播完还会再续下一段, 整库仍然都轮得到,
+        // 但队列不会一下子涨成整个曲库。
+        let additions = candidateIDs.shuffled()
+            .prefix(QueueWindowPolicy.windowLimit)
+            .compactMap { library.unobservedVisibleSong(id: $0) }
         guard !additions.isEmpty else { return false }
 
         let firstNewIndex = queueEntries.count
@@ -227,6 +228,75 @@ extension AudioPlayerService {
         shufflePosition = 0
         plog("🔀 Extended exhausted shuffle queue by \(additions.count) library songs")
         return true
+    }
+
+    /// Replace the pending remainder of a large request and persist it off
+    /// the main actor. Writes are chained so an older state never lands last.
+    func setQueueContinuation(_ continuation: QueueContinuation?) {
+        guard continuation != nil || queueContinuation != nil else { return }
+        queueContinuation = continuation
+        persistQueueContinuation()
+    }
+
+    func persistQueueContinuation() {
+        let store = QueueContinuationStore(sessionStore: playbackSessionStore)
+        let continuation = queueContinuation
+        let previous = queueContinuationWriteTask
+        queueContinuationWriteTask = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            store.save(continuation)
+        }
+    }
+
+    /// Top up the window from the rest of a large request once fewer than
+    /// `QueueWindowPolicy.refillThreshold` songs remain ahead. New songs go
+    /// after everything already queued; under shuffle they are appended to the
+    /// end of the current order, so nothing already heard comes round again.
+    /// Songs that left the library since the request are skipped.
+    func refillQueueFromContinuationIfNeeded() {
+        guard var continuation = queueContinuation,
+              !isInstallingMedleyQueue,
+              let library,
+              queueEntries.indices.contains(currentIndex) else { return }
+        let upcoming: Int
+        if shuffleEnabled, let anchor = shuffleAnchorPosition {
+            upcoming = max(0, shuffledIndices.count - 1 - anchor)
+        } else {
+            upcoming = max(0, queueEntries.count - 1 - currentIndex)
+        }
+        guard QueueWindowPolicy.shouldRefill(upcomingCount: upcoming) else { return }
+
+        var additions: [Song] = []
+        while additions.count < QueueWindowPolicy.refillBatch {
+            let ids = continuation.takeNext(
+                maxCount: QueueWindowPolicy.refillBatch - additions.count,
+                repeatsAll: repeatMode == .all
+            )
+            guard !ids.isEmpty else { break }
+            for id in ids {
+                guard let song = library.unobservedVisibleSong(id: id), song.isPlayable else { continue }
+                additions.append(song)
+            }
+        }
+        queueContinuation = continuation.isExhausted ? nil : continuation
+        persistQueueContinuation()
+        guard !additions.isEmpty else { return }
+
+        // The prepared successor only changes when the current song was the
+        // last one (its successor was "none" or the wrap to the start).
+        if upcoming == 0 { invalidatePreparedQueueSuccessor() }
+        let firstNewIndex = queueEntries.count
+        queueEntries.append(contentsOf: additions.map { QueueEntry(song: $0) })
+        if shuffleEnabled {
+            shuffledIndices.append(contentsOf: Array(firstNewIndex..<queueEntries.count).shuffled())
+        }
+        pendingNextShuffleIndices = nil
+        if isAppleMusicMode {
+            isPrimuseManagingAppleMusicQueue = true
+            AppServices.shared.appleMusic.prepareForPrimuseManagedQueue()
+        }
+        plog("🎶 Queue continuation appended \(additions.count) songs (queue=\(queueEntries.count) remaining=\(queueContinuation.map { $0.requestedIDs.count - $0.nextOffset } ?? 0))")
+        persistPlaybackSession()
     }
 
     struct QueueTraversalTarget {

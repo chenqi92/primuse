@@ -1844,7 +1844,10 @@ extension AudioPlayerService {
         if let skippedSourceID { await announceSkippedUnreachableSource(skippedSourceID) }
     }
 
-    func setQueue(_ songs: [Song], startAt index: Int = 0) {
+    /// `keepsContinuation` is for callers that rebuild the current queue (for
+    /// example without one removed song): the songs still owed from a large
+    /// request keep flowing in after it.
+    func setQueue(_ songs: [Song], startAt index: Int = 0, keepsContinuation: Bool = false) {
         guard !songs.isEmpty else {
             clearQueue()
             return
@@ -1863,17 +1866,37 @@ extension AudioPlayerService {
             startAt: selectedIndex,
             transition: decision == .preserveCurrentTransport
                 ? .preserveCurrentTransport
-                : .prepareNewSelection
+                : .prepareNewSelection,
+            keepsContinuation: keepsContinuation
         )
     }
 
     private func installQueue(
-        _ songs: [Song],
-        startAt index: Int,
-        transition: QueueReplacementTransition
+        _ requestedSongs: [Song],
+        startAt requestedIndex: Int,
+        transition: QueueReplacementTransition,
+        keepsContinuation: Bool = false
     ) {
         // Any other queue replaces the medley.
         if !isInstallingMedleyQueue { endMedleyIfNeeded() }
+        // 二十多万首的「全部播放」不整份装进队列: 只装选中那首附近的一段,
+        // 其余按顺序记下, 快播完时再接上 (见 refillQueueFromContinuationIfNeeded)。
+        var songs = requestedSongs
+        var index = requestedIndex
+        if !keepsContinuation {
+            if !isInstallingMedleyQueue,
+               let window = QueueWindowPolicy.window(count: requestedSongs.count, selectedIndex: requestedIndex) {
+                setQueueContinuation(QueueContinuation(
+                    requestedIDs: requestedSongs.map(\.id),
+                    window: window
+                ))
+                songs = Array(requestedSongs[window])
+                index = requestedIndex - window.lowerBound
+                plog("🎶 Large queue request \(requestedSongs.count) installed as window \(window.lowerBound)..<\(window.upperBound)")
+            } else {
+                setQueueContinuation(nil)
+            }
+        }
         // Music, radio and books each keep their own "where was I": a book
         // replacing a music queue leaves that queue remembered, and a new
         // music queue makes the remembered one moot.
@@ -2009,7 +2032,7 @@ extension AudioPlayerService {
             if retainedSongs.isEmpty {
                 clearQueue()
             } else {
-                setQueue(retainedSongs, startAt: startAt)
+                setQueue(retainedSongs, startAt: startAt, keepsContinuation: true)
             }
         case let .playReplacement(startAt):
             guard retainedSongs.indices.contains(startAt) else {
@@ -2018,11 +2041,11 @@ extension AudioPlayerService {
                 return
             }
             if isPlaybackActive {
-                setQueue(retainedSongs, startAt: startAt)
+                setQueue(retainedSongs, startAt: startAt, keepsContinuation: true)
                 await play(song: retainedSongs[startAt])
             } else {
                 stop()
-                setQueue(retainedSongs, startAt: startAt)
+                setQueue(retainedSongs, startAt: startAt, keepsContinuation: true)
                 stagePausedHandoff(song: retainedSongs[startAt], at: 0)
                 persistPlaybackSession()
             }
@@ -2057,6 +2080,7 @@ extension AudioPlayerService {
         appleMusicQueueUpdateTask = nil
         if retainedAppleMusicTransport { AppServices.shared.appleMusic.retainCurrentManagedQueueEntry() }
         invalidateQueueTransitions()
+        setQueueContinuation(nil)
         queueEntries = []
         currentIndex = 0
         pendingNextShuffleIndices = nil
