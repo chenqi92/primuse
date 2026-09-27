@@ -492,6 +492,9 @@ struct MacRadioStationsView: View {
                     .padding(.horizontal, 28)
                     .padding(.bottom, PMSpace.m)
                 }
+                // 横向 ScrollView 在竖直方向是可伸缩的, 跟下面的网格 ScrollView
+                // 同在一个 VStack 里会平分高度, 标签条下面空出大半屏。钉成内容高度。
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             if visibleStations.isEmpty {

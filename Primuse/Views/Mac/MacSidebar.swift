@@ -28,20 +28,11 @@ struct MacSidebar: View {
         )
     }
 
-    /// 「音乐」分组里的分类: 用户排好的顺序与显隐, 但电台和有声不在里面 ——
-    /// 它们是跟音乐并列的收听空间, 单独占一行 (见 `listeningSpaceItems`)。
-    private var musicLibrarySections: [LibrarySection] {
-        visibleLibrarySections.filter {
-            $0 != .radio && $0 != .spokenWord && $0 != .playlists && $0 != .statistics
-        }
-    }
-
-    /// 电台 / 有声两行只在里面有东西时出现, 规则与 iPhone 标签栏同源。
-    private var visibleSpaces: [ListeningSpace] {
-        ListeningSpaceVisibilityPolicy.visibleSpaces(
-            hasRadioStations: !radioStationsStore.stations.isEmpty,
-            hasSpokenWord: !library.spokenWordSongs.isEmpty
-        )
+    /// 「资料库」分组里的行: 完全照设置 › 外观里排好的顺序与显隐, 电台、有声、
+    /// 统计也在其中 —— 设置页那张列表就是侧栏的样子。歌单不在这里, 它有自己的
+    /// 分区, 开关只管那个分区显不显示。
+    private var sidebarLibrarySections: [LibrarySection] {
+        MacSidebarLibraryLayout.rows(from: visibleLibrarySections)
     }
 
     /// 有声内容按「书」计数: 一部 200 集的评书是一本, 不是 200 条。分组在曲库
@@ -59,7 +50,6 @@ struct MacSidebar: View {
 
                 homeItem
                 librarySection
-                listeningSpaceItems
                 primaryItems
                 if showsPlaylistsSection {
                     playlistsSection
@@ -75,7 +65,7 @@ struct MacSidebar: View {
             // 只盯「歌单分区可见性」这一个开关 —— 它一变整列都要重新排, 所以
             // 动画挂在这层; 其余分区各自用自己的 id 列表(见下)。
             .pmAnimation(.list, value: showsPlaylistsSection)
-            .pmAnimation(.list, value: visibleSpaces)
+            .pmAnimation(.list, value: sidebarLibrarySections)
         }
         .frame(maxHeight: .infinity)
         .background(sidebarBackground.ignoresSafeArea())
@@ -105,44 +95,11 @@ struct MacSidebar: View {
         .padding(.bottom, 8)
     }
 
-    // MARK: - Radio / spoken word (peer listening spaces)
-
-    @ViewBuilder
-    private var listeningSpaceItems: some View {
-        let spaces = visibleSpaces
-        if spaces.contains(.radio) || spaces.contains(.spokenWord) {
-            VStack(alignment: .leading, spacing: 1) {
-                if spaces.contains(.radio) {
-                    item(
-                        route: .section(.radio),
-                        icon: LibrarySection.radio.icon,
-                        title: ListeningSpace.radio.titleKey,
-                        trailing: countLabel(radioStationsStore.stations.count)
-                    )
-                }
-                if spaces.contains(.spokenWord) {
-                    item(
-                        route: .section(.spokenWord),
-                        icon: LibrarySection.spokenWord.icon,
-                        title: ListeningSpace.spokenWord.titleKey,
-                        trailing: countLabel(spokenWordBookCount)
-                    )
-                }
-            }
-            .padding(.horizontal, 6)
-            .padding(.bottom, 8)
-            .pmFadeTransition()
-        }
-    }
-
-    // MARK: - Search / Stats / Sources
+    // MARK: - Search / Sources
 
     private var primaryItems: some View {
         VStack(alignment: .leading, spacing: 1) {
             item(route: .search,  icon: "magnifyingglass",                  title: "search_title")
-            if visibleLibrarySections.contains(.statistics) {
-                item(route: .stats, icon: "chart.bar.xaxis", title: "stats_title")
-            }
             item(route: .sources, icon: "externaldrive.connected.to.line.below", title: "sources_title")
         }
         .padding(.horizontal, 6)
@@ -153,9 +110,9 @@ struct MacSidebar: View {
 
     private var librarySection: some View {
         VStack(alignment: .leading, spacing: 1) {
-            sectionHeader(ListeningSpace.music.titleKey)
+            sectionHeader("library_title")
 
-            ForEach(musicLibrarySections) { section in
+            ForEach(sidebarLibrarySections) { section in
                 libraryNavigationItems(for: section)
             }
 
@@ -173,8 +130,11 @@ struct MacSidebar: View {
     @ViewBuilder
     private func libraryNavigationItems(for section: LibrarySection) -> some View {
         switch section {
-        case .favorites, .folders, .statistics:
+        case .favorites, .folders:
             item(route: .section(section), icon: section.icon, title: section.title)
+        case .statistics:
+            // 统计页走独立路由 (不是 `.section`), 保持原来的选中态与图标。
+            item(route: .stats, icon: "chart.bar.xaxis", title: "stats_title")
         case .recommendations:
             item(
                 route: .section(.recommendations),
@@ -189,8 +149,24 @@ struct MacSidebar: View {
                 // 「歌曲」只数音乐, 有声内容按书计在自己那一行。
                 trailing: countLabel(library.musicSongs.count)
             )
-        case .spokenWord, .radio, .playlists:
-            // 电台与有声在 `listeningSpaceItems` 里单独成行; 歌单有自己的分区。
+        case .radio:
+            item(
+                route: .section(.radio),
+                icon: section.icon,
+                title: ListeningSpace.radio.titleKey,
+                trailing: countLabel(radioStationsStore.stations.count)
+            )
+        case .spokenWord:
+            // 没有内容时也留着入口 (设置里能关): 有声页自己会说明哪些内容
+            // 会出现在这里, 比整行消失、让人以为功能没了要好。
+            item(
+                route: .section(.spokenWord),
+                icon: section.icon,
+                title: ListeningSpace.spokenWord.titleKey,
+                trailing: countLabel(spokenWordBookCount)
+            )
+        case .playlists:
+            // 歌单有自己的分区 (见 `playlistsSection`)。
             EmptyView()
         case .albums:
             item(
@@ -727,6 +703,37 @@ struct MacSidebar: View {
             }
         } else {
             Rectangle().fill(PMColor.sidebarClassic)
+        }
+    }
+}
+
+/// 侧栏「资料库」分组的行 = 设置里可见的分类按原顺序, 只去掉单独成区的歌单。
+/// Mac 设置页的排序列表用同一条规则, 两边顺序必然一致。
+enum MacSidebarLibraryLayout {
+    static func rows(from visibleSections: [LibrarySection]) -> [LibrarySection] {
+        visibleSections.filter(isSidebarRow)
+    }
+
+    static func isSidebarRow(_ section: LibrarySection) -> Bool {
+        section != .playlists
+    }
+
+    /// 侧栏上这一行叫什么; 设置页的排序列表用同一个名字。
+    static func localizedTitle(for section: LibrarySection) -> String {
+        switch section {
+        case .songs: return String(localized: "sidebar_all_songs")
+        case .radio: return String(localized: "listening_space_radio")
+        case .spokenWord: return String(localized: "listening_space_spoken_word")
+        default: return section.localizedTitle
+        }
+    }
+
+    /// 把重新排好的侧栏行写回完整顺序: 不在侧栏里的分类留在原来的下标上。
+    static func merging(_ rows: [LibrarySection], into fullOrder: [LibrarySection]) -> [LibrarySection] {
+        var remaining = rows[...]
+        return fullOrder.map { section in
+            guard isSidebarRow(section), let next = remaining.popFirst() else { return section }
+            return next
         }
     }
 }

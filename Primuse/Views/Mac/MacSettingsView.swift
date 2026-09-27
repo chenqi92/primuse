@@ -3862,12 +3862,15 @@ private struct MacScraperReorderHandle: NSViewRepresentable {
     let index: Int
     let sourceCount: Int
     let move: (IndexSet, Int) -> Void
+    /// 相邻两行的间距; 拖过这么多点就换一位。
+    var rowStep: CGFloat = 34
 
     func makeNSView(context: Context) -> ScraperReorderHandleNSView {
         let view = ScraperReorderHandleNSView()
         view.index = index
         view.sourceCount = sourceCount
         view.onMove = move
+        view.rowStep = rowStep
         return view
     }
 
@@ -3875,6 +3878,7 @@ private struct MacScraperReorderHandle: NSViewRepresentable {
         nsView.index = index
         nsView.sourceCount = sourceCount
         nsView.onMove = move
+        nsView.rowStep = rowStep
         nsView.needsDisplay = true
     }
 }
@@ -3886,7 +3890,7 @@ private final class ScraperReorderHandleNSView: NSView {
 
     private var dragAnchorY: CGFloat = 0
     private var dragIndex = 0
-    private let rowStep: CGFloat = 34
+    var rowStep: CGFloat = 34
 
     override var mouseDownCanMoveWindow: Bool { false }
 
@@ -5463,6 +5467,8 @@ private struct MacSTThemeView: View {
     private var librarySectionOrderRawValue = ""
     @AppStorage(LibraryDisplayConfiguration.hiddenSectionsKey)
     private var hiddenLibrarySectionsRawValue = ""
+    /// 排序列表一行的实际高度, 拖动手柄按它换算「挪了几行」。
+    @State private var sidebarSectionRowHeight: CGFloat = 40
     @AppStorage(AIRecommendationIntentStoragePolicy.storageKey)
     private var customRecommendationIntentsRawValue = ""
     @AppStorage(AIRecommendationIntentPresetVisibilityPolicy.storageKey)
@@ -5552,6 +5558,11 @@ private struct MacSTThemeView: View {
 
     private var librarySectionOrder: [LibrarySection] {
         LibraryDisplayConfiguration.decodeSectionOrder(librarySectionOrderRawValue)
+    }
+
+    /// 侧栏「资料库」分组可能出现的行, 按用户的顺序 (含已关掉的)。
+    private var sidebarSectionOrder: [LibrarySection] {
+        librarySectionOrder.filter(MacSidebarLibraryLayout.isSidebarRow)
     }
 
     private var customRecommendationIntents: [AICustomRecommendationIntent] {
@@ -5833,33 +5844,41 @@ private struct MacSTThemeView: View {
             }
 
             MacSTGroup {
-                ForEach(Array(librarySectionOrder.enumerated()), id: \.element.id) { index, section in
-                    MacSTRow(section.localizedTitle, divider: index != 0) {
-                        HStack(spacing: 8) {
-                            Button {
-                                moveLibrarySection(at: index, offset: -1)
-                            } label: {
-                                Image(systemName: "chevron.up")
-                                    .frame(width: 18, height: 18)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(index == librarySectionOrder.startIndex)
-
-                            Button {
-                                moveLibrarySection(at: index, offset: 1)
-                            } label: {
-                                Image(systemName: "chevron.down")
-                                    .frame(width: 18, height: 18)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(index == librarySectionOrder.index(before: librarySectionOrder.endIndex))
-
-                            MacSTToggle(isOn: librarySectionVisibilityBinding(for: section))
-                        }
-                        .foregroundStyle(PMColor.textMuted)
+                // 这张列表就是侧栏「资料库」分组的样子: 同一条规则取行、同一个顺序,
+                // 拖左侧手柄排序, 右侧开关管显不显示。歌单单独成区, 放在列表下面。
+                let rows = sidebarSectionOrder
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, section in
+                    MacSTRow(MacSidebarLibraryLayout.localizedTitle(for: section), divider: index != 0) {
+                        MacSTToggle(isOn: librarySectionVisibilityBinding(for: section))
+                    }
+                    .padding(.leading, 26)
+                    .overlay(alignment: .leading) {
+                        MacScraperReorderHandle(
+                            index: index,
+                            sourceCount: rows.count,
+                            move: moveSidebarSections,
+                            rowStep: max(sidebarSectionRowHeight, 24)
+                        )
+                        .frame(width: 18, height: 22)
+                        .padding(.leading, 12)
+                        .help(Lz("Drag to Reorder"))
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        if index == 1 { sidebarSectionRowHeight = height }
+                    }
+                    .accessibilityAction(named: Text("home_edit_move_up")) {
+                        moveSidebarSection(at: index, offset: -1)
+                    }
+                    .accessibilityAction(named: Text("home_edit_move_down")) {
+                        moveSidebarSection(at: index, offset: 1)
                     }
                     .settingsAnchor("library.show." + section.rawValue)
                 }
+
+                MacSTRow(LibrarySection.playlists.localizedTitle) {
+                    MacSTToggle(isOn: librarySectionVisibilityBinding(for: .playlists))
+                }
+                .settingsAnchor("library.show." + LibrarySection.playlists.rawValue)
 
                 MacSTRow(
                     String(localized: "library_sections_settings_label")
@@ -6012,13 +6031,20 @@ private struct MacSTThemeView: View {
         )
     }
 
-    private func moveLibrarySection(at index: Int, offset: Int) {
+    private func moveSidebarSection(at index: Int, offset: Int) {
+        let rows = sidebarSectionOrder
         let destination = index + offset
-        guard librarySectionOrder.indices.contains(index),
-              librarySectionOrder.indices.contains(destination) else { return }
-        var updated = librarySectionOrder
-        let section = updated.remove(at: index)
-        updated.insert(section, at: destination)
+        guard rows.indices.contains(index), rows.indices.contains(destination) else { return }
+        moveSidebarSections(IndexSet(integer: index), destination > index ? destination + 1 : destination)
+    }
+
+    /// 在侧栏那张列表里挪, 再按原位置把不在列表里的 (歌单) 放回去写进共享的
+    /// 顺序 —— iPhone 的资料库也读这份顺序, 歌单在那边的位置不受影响。
+    private func moveSidebarSections(_ source: IndexSet, _ destination: Int) {
+        var rows = sidebarSectionOrder
+        rows.move(fromOffsets: source, toOffset: destination)
+        let updated = MacSidebarLibraryLayout.merging(rows, into: librarySectionOrder)
+        guard updated != librarySectionOrder else { return }
         pmWithAnimation(.list) {
             librarySectionOrderRawValue = LibraryDisplayConfiguration.encodeSectionOrder(updated)
         }
