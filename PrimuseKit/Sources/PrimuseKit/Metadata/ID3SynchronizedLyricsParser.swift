@@ -72,40 +72,57 @@ public enum ID3SynchronizedLyricsParser {
             ), textEnd + 4 <= bytes.count else { break }
 
             let rawBytes = bytes[cursor..<(textEnd - terminatorLength)]
-            let raw = decodeText(Data(rawBytes), encoding) ?? ""
+            let decoded = decodeText(Data(rawBytes), encoding) ?? ""
             let milliseconds = bytes[textEnd..<(textEnd + 4)].reduce(0) { total, byte in
                 total << 8 | Int(byte)
             }
             cursor = textEnd + 4
 
+            // The shared ID3 text decoder trims surrounding whitespace, but in
+            // SYLT it is meaningful: a leading newline starts a new line and a
+            // leading space separates a word from the one before it.
+            let edges = edgeWhitespace(rawBytes, encoding: encoding)
+            var raw = decoded
+            if raw.first?.isWhitespace != true { raw = edges.leading + raw }
+            if raw.last?.isWhitespace != true { raw += edges.trailing }
+
             // The spec starts every new lyric line with a newline inside the
             // cue text, which is how word cues and line cues are told apart.
-            // Read it from the bytes: the shared ID3 text decoder trims
-            // surrounding newlines, which would merge every line into one.
-            let startsLine = cues.isEmpty
-                || raw.first?.isNewline == true
-                || beginsWithNewline(rawBytes, encoding: encoding)
-            let text = raw.trimmingCharacters(in: .newlines)
-            guard !text.isEmpty else { continue }
-            cues.append(Cue(text: text, milliseconds: milliseconds, startsLine: startsLine))
+            let startsLine = cues.isEmpty || raw.first?.isNewline == true
+            // Some writers put a line and its translation in one cue,
+            // separated by a newline: each becomes its own line at that time,
+            // where the lyric parser pairs them like bilingual LRC.
+            let parts = raw
+                .drop(while: \.isNewline)
+                .split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
+                .map(String.init)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            for (index, part) in parts.enumerated() {
+                cues.append(Cue(
+                    text: index == 0 ? part : part.trimmingCharacters(in: .whitespaces),
+                    milliseconds: milliseconds,
+                    startsLine: index == 0 ? startsLine : true
+                ))
+            }
         }
 
         guard !cues.isEmpty else { return nil }
         return Frame(
-            text: render(cues.enumerated().sorted {
-                $0.element.milliseconds == $1.element.milliseconds
-                    ? $0.offset < $1.offset
-                    : $0.element.milliseconds < $1.element.milliseconds
-            }.map(\.element)),
+            text: render(cues),
             languageCode: languageCode(in: bytes),
             descriptor: descriptor.trimmingCharacters(in: .whitespacesAndNewlines)
         )
     }
 
-    private static func beginsWithNewline(_ bytes: ArraySlice<UInt8>, encoding: UInt8) -> Bool {
-        var bytes = bytes
+    /// Whitespace at either end of a cue, read from its bytes.
+    private static func edgeWhitespace(
+        _ bytes: ArraySlice<UInt8>,
+        encoding: UInt8
+    ) -> (leading: String, trailing: String) {
+        let units: [UInt16]
         switch encoding {
         case 1, 2:
+            var bytes = bytes
             var bigEndian = encoding == 2
             if bytes.starts(with: [0xFF, 0xFE]) {
                 bigEndian = false
@@ -114,41 +131,73 @@ public enum ID3SynchronizedLyricsParser {
                 bigEndian = true
                 bytes = bytes.dropFirst(2)
             }
-            guard bytes.count >= 2 else { return false }
-            let first = bytes[bytes.startIndex]
-            let second = bytes[bytes.startIndex + 1]
-            let unit = bigEndian ? UInt16(first) << 8 | UInt16(second) : UInt16(second) << 8 | UInt16(first)
-            return unit == 0x0A || unit == 0x0D
+            let pairs = Array(bytes)
+            units = stride(from: 0, to: pairs.count - 1, by: 2).map { index in
+                bigEndian
+                    ? UInt16(pairs[index]) << 8 | UInt16(pairs[index + 1])
+                    : UInt16(pairs[index + 1]) << 8 | UInt16(pairs[index])
+            }
         default:
-            guard let first = bytes.first else { return false }
-            return first == 0x0A || first == 0x0D
+            units = bytes.map(UInt16.init)
         }
+        func whitespace(_ unit: UInt16) -> Character? {
+            switch unit {
+            case 0x20: return " "
+            case 0x09: return "\t"
+            case 0x0A, 0x0D: return "\n"
+            default: return nil
+            }
+        }
+        let leading = String(units.prefix { whitespace($0) != nil }.compactMap(whitespace))
+        guard leading.count < units.count else { return (leading, "") }
+        let trailing = String(
+            units.reversed().prefix { whitespace($0) != nil }.compactMap(whitespace).reversed()
+        )
+        return (leading, trailing)
     }
 
+    /// Lines are formed in file order (the newline markers decide them), then
+    /// placed on the timeline: words inside a line, and lines by their first
+    /// cue. Sorting cues globally instead would move a later word of one line
+    /// behind a translation line that shares its start time.
     private static func render(_ cues: [Cue]) -> String {
-        var lines: [String] = []
-        var current: [Cue] = []
-
-        func flush() {
-            guard let first = current.first else { return }
-            if current.count == 1 {
-                lines.append("[\(timestamp(first.milliseconds))]\(first.text)")
-            } else {
-                // More than one cue inside a line times individual words.
-                let body = current
-                    .map { "<\(timestamp($0.milliseconds))>\($0.text)" }
-                    .joined()
-                lines.append("[\(timestamp(first.milliseconds))]\(body)")
-            }
-            current = []
-        }
-
+        var groups: [[Cue]] = []
         for cue in cues {
-            if cue.startsLine { flush() }
-            current.append(cue)
+            if cue.startsLine || groups.isEmpty {
+                groups.append([cue])
+            } else {
+                groups[groups.count - 1].append(cue)
+            }
         }
-        flush()
-        return lines.joined(separator: "\n")
+        let ordered = groups
+            .map(sortedByTime)
+            .enumerated()
+            .sorted {
+                let lhs = $0.element[0].milliseconds
+                let rhs = $1.element[0].milliseconds
+                return lhs == rhs ? $0.offset < $1.offset : lhs < rhs
+            }
+            .map(\.element)
+
+        return ordered.map { line in
+            let first = line[0]
+            guard line.count > 1 else {
+                return "[\(timestamp(first.milliseconds))]\(first.text)"
+            }
+            // More than one cue inside a line times individual words.
+            let body = line
+                .map { "<\(timestamp($0.milliseconds))>\($0.text)" }
+                .joined()
+            return "[\(timestamp(first.milliseconds))]\(body)"
+        }.joined(separator: "\n")
+    }
+
+    private static func sortedByTime(_ cues: [Cue]) -> [Cue] {
+        cues.enumerated().sorted {
+            $0.element.milliseconds == $1.element.milliseconds
+                ? $0.offset < $1.offset
+                : $0.element.milliseconds < $1.element.milliseconds
+        }.map(\.element)
     }
 
     private static func timestamp(_ milliseconds: Int) -> String {

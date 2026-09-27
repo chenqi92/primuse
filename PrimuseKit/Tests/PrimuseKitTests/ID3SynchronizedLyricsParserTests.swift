@@ -69,6 +69,67 @@ struct ID3SynchronizedLyricsParserTests {
         #expect(parsed.text == "[00:01.000]First line\n[00:03.000]Second line\n[00:05.000]Third line")
     }
 
+    @Test("Word cues keep their spaces through the production text decoder", arguments: [0, 1, 3] as [UInt8])
+    func keepsWordSpacesWithProductionDecoder(encoding: UInt8) throws {
+        let payload = frame(encoding: encoding, cues: [
+            ("Hold", 1_000),
+            (" on", 1_400),
+            (" tight", 1_900),
+            ("\nLet go", 3_000),
+        ])
+
+        let parsed = try #require(ID3SynchronizedLyricsParser.parse(payload))
+        #expect(parsed.text == "[00:01.000]<00:01.000>Hold<00:01.400> on<00:01.900> tight\n[00:03.000]Let go")
+    }
+
+    @Test("A translation line sharing a start time pairs with its original")
+    func pairsTranslationLines() throws {
+        let payload = frame(encoding: 3, language: "jpn", cues: [
+            ("君と", 1_000),
+            ("\n和你一起", 1_000),
+            ("\n歩く", 3_000),
+            ("\n行走", 3_000),
+        ])
+
+        let parsed = try #require(ID3SynchronizedLyricsParser.parse(payload))
+        let lines = LyricsContentParser.parseText(parsed.text)
+        #expect(lines.map(\.text) == ["君と", "歩く"])
+        #expect(lines.map { $0.manualTranslation?.text } == ["和你一起", "行走"])
+    }
+
+    @Test("Later words stay on their own line when a translation shares its start")
+    func keepsWordsWithTheirLine() throws {
+        let payload = frame(encoding: 3, cues: [
+            ("Hello", 1_000),
+            (" world", 1_500),
+            ("\n你好世界", 1_000),
+            ("\nGood", 3_000),
+            (" night", 3_500),
+            ("\n晚安", 3_000),
+        ])
+
+        let parsed = try #require(ID3SynchronizedLyricsParser.parse(payload))
+        #expect(parsed.text == """
+        [00:01.000]<00:01.000>Hello<00:01.500> world
+        [00:01.000]你好世界
+        [00:03.000]<00:03.000>Good<00:03.500> night
+        [00:03.000]晚安
+        """)
+    }
+
+    @Test("A line and its translation inside one cue become two lines at that time")
+    func splitsTranslationInsideACue() throws {
+        let payload = frame(encoding: 3, cues: [
+            ("Hello\n你好", 1_000),
+            ("\nWorld\r\n世界", 3_000),
+        ])
+
+        let parsed = try #require(ID3SynchronizedLyricsParser.parse(payload))
+        #expect(parsed.text == "[00:01.000]Hello\n[00:01.000]你好\n[00:03.000]World\n[00:03.000]世界")
+        let lines = LyricsContentParser.parseText(parsed.text)
+        #expect(lines.map { $0.manualTranslation?.text } == ["你好", "世界"])
+    }
+
     @Test("Line cues become LRC lines that the lyric parser can read back")
     func parsesLineCues() throws {
         let payload = frame(cues: [
