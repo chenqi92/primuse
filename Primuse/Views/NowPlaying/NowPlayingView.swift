@@ -6287,25 +6287,27 @@ private struct PlatformMusicVideoSurface: NSViewRepresentable {
     }
 }
 
+/// 播放图层直接当视图的背板层:尺寸由 AppKit 跟着视图走,并裁在视图边界内。
+/// 以前是挂在背板层下的子层、只在 layout() 里对齐,SwiftUI 改视图尺寸时不一定触发
+/// layout(),子层停在旧的大尺寸上,画面就溢出播放页左栏、盖住歌词;SwiftUI 的
+/// clipShape 也裁不到 AppKit 视图里的子层。
 private final class MusicVideoLayerView: NSView {
     let playerLayer = AVPlayerLayer()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
-        layer = CALayer()
         playerLayer.videoGravity = .resizeAspect
         playerLayer.backgroundColor = NSColor.black.cgColor
-        layer?.addSublayer(playerLayer)
+        playerLayer.masksToBounds = true
+        wantsLayer = true
     }
 
     required init?(coder: NSCoder) {
         return nil
     }
 
-    override func layout() {
-        super.layout()
-        playerLayer.frame = bounds
+    override func makeBackingLayer() -> CALayer {
+        playerLayer
     }
 }
 #endif
