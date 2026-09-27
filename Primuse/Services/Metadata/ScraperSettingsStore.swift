@@ -259,7 +259,10 @@ final class ScraperSettingsStore {
         }
     }
 
-    private func reloadFromDefaults() {
+    /// 从 UserDefaults 重读一遍。iCloud 键值同步到达时由 `CloudKVSSync` 调用；
+    /// 别的通道(如 Apple TV 的扫码直传)直接写了同一个键之后也调它，界面随即刷新。
+    /// 重读不算编辑：不写回、不推 iCloud。
+    func reloadFromDefaults() {
         let settings = ScraperSettings.loadPersistingReconciliation(defaults: defaults)
         suppressPersist = true
         defer { suppressPersist = false }

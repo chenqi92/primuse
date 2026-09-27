@@ -666,9 +666,11 @@ struct TVAIProviderDetailView: View {
 }
 
 // MARK: - 面板行
+//
+// 下面几种面板行也给「刮削」设置页用(TVScraperSettingsView),两页保持同一套样式。
 
 /// 分组标题 + 一块面板,与 `TVSettingsView` 的分组视觉保持一致。
-private struct TVAISection<Content: View>: View {
+struct TVAISection<Content: View>: View {
     let title: String
     @ViewBuilder var content: () -> Content
 
@@ -682,7 +684,7 @@ private struct TVAISection<Content: View>: View {
     }
 }
 
-private struct TVAIDivider: View {
+struct TVAIDivider: View {
     var body: some View {
         Rectangle()
             .fill(TVColor.divider)
@@ -701,7 +703,7 @@ private func tvAIIcon(_ icon: String, focused: Bool, tint: Color) -> some View {
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 }
 
-private struct TVAIToggleRow: View {
+struct TVAIToggleRow: View {
     let icon: String
     let title: String
     @Binding var isOn: Bool
@@ -731,7 +733,7 @@ private struct TVAIToggleRow: View {
     }
 }
 
-private struct TVAIActionRow: View {
+struct TVAIActionRow: View {
     let icon: String
     let title: String
     var subtitle: String? = nil
@@ -774,7 +776,7 @@ private struct TVAIActionRow: View {
 }
 
 /// 不可聚焦的说明行(状态、提示)。
-private struct TVAINoteRow: View {
+struct TVAINoteRow: View {
     let icon: String
     let tint: Color
     let text: String

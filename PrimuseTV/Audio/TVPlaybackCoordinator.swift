@@ -1807,7 +1807,7 @@ final class TVPlaybackCoordinator {
             $0.song.id == song.id && $0.playingID == store?.currentSongID ? $0.playingID : nil
         } ?? song.id
         lyricsTask?.cancel()
-        lyricsTask = Task { [weak self, weak store, song, source, credential] in
+        let sourceLyricsTask = Task { [weak self, weak store, song, source, credential] in
             guard let self, let store,
                   self.isCurrent(requestID, store: store) else { return }
             let songID = song.id
@@ -1947,6 +1947,43 @@ final class TVPlaybackCoordinator {
                 plog("🎬 TV source-lyrics fetch failed '\(song.title)': \(error)")
             }
         }
+        // 在线歌词兜底:独立的一步,接在上面缓存 / 服务端 / 源内歌词文件的读取之后,
+        // 不改那几条分支。那一段跑完、这首仍在播、屏幕上还没有歌词,才按刮削设置去
+        // 在线歌词源问一次。
+        lyricsTask = Task { [weak self, weak store, song, source] in
+            await withTaskCancellationHandler {
+                await sourceLyricsTask.value
+            } onCancel: {
+                sourceLyricsTask.cancel()
+            }
+            guard let self, let store else { return }
+            await self.loadOnlineLyricsFallback(
+                song: song,
+                source: source,
+                requestID: requestID,
+                destinationID: destinationID,
+                store: store
+            )
+        }
+    }
+
+    /// 源里、服务端都没有歌词时的在线兜底(与 iOS 的 Tier4 同一道闸门,见
+    /// `TVMetadataScrapeService.automaticOnlineLyrics`)。取到的歌词写进缓存,下次直接命中。
+    private func loadOnlineLyricsFallback(
+        song: Song,
+        source: MusicSource,
+        requestID: UUID,
+        destinationID: String,
+        store: TVStore
+    ) async {
+        guard isCurrent(requestID, store: store),
+              store.currentSongID == destinationID,
+              store.lyrics.isEmpty else { return }
+        guard let lines = await store.metadataScraper.automaticOnlineLyrics(for: song, source: source),
+              isCurrent(requestID, store: store),
+              store.lyrics.isEmpty else { return }
+        applyLoadedLyrics(lines, duration: song.duration, forSongID: destinationID, store: store)
+        plog("🎬 TV online-lyrics fallback loaded \(lines.count) lines for '\(song.title)'")
     }
 
     private struct CueTrackLyricsDirectory {

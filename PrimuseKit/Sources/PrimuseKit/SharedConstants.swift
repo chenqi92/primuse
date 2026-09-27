@@ -4795,6 +4795,344 @@ public enum ScrapeMetadataApplicationPolicy {
     }
 }
 
+/// 把一条在线刮削结果并进一首歌已有的标签。iOS / macOS 的自动刮削与 Apple TV
+/// 的补全、手动匹配共用这一份规则:`overwrite` 为 false 时只补空缺,为 true 时
+/// 用候选覆盖;候选里的空值在两种模式下都不会抹掉本地已有的值。
+public enum ScrapedMetadataMergePolicy {
+    /// 一首歌参与合并的标签字段。
+    public struct Fields: Codable, Sendable, Equatable {
+        public var title: String
+        public var artist: String?
+        public var sourceArtistNames: [String]?
+        public var albumTitle: String?
+        public var albumArtist: String?
+        public var year: Int?
+        public var genre: String?
+        public var trackNumber: Int?
+        public var discNumber: Int?
+
+        public init(
+            title: String,
+            artist: String? = nil,
+            sourceArtistNames: [String]? = nil,
+            albumTitle: String? = nil,
+            albumArtist: String? = nil,
+            year: Int? = nil,
+            genre: String? = nil,
+            trackNumber: Int? = nil,
+            discNumber: Int? = nil
+        ) {
+            self.title = title
+            self.artist = artist
+            self.sourceArtistNames = sourceArtistNames
+            self.albumTitle = albumTitle
+            self.albumArtist = albumArtist
+            self.year = year
+            self.genre = genre
+            self.trackNumber = trackNumber
+            self.discNumber = discNumber
+        }
+    }
+
+    /// 刮削源给出的候选详情(只取合并用得到的字段)。
+    public struct Candidate: Sendable, Equatable {
+        public var title: String
+        public var artist: String?
+        public var albumArtist: String?
+        public var album: String?
+        public var year: Int?
+        public var genres: [String]?
+        public var trackNumber: Int?
+        public var discNumber: Int?
+
+        public init(
+            title: String,
+            artist: String? = nil,
+            albumArtist: String? = nil,
+            album: String? = nil,
+            year: Int? = nil,
+            genres: [String]? = nil,
+            trackNumber: Int? = nil,
+            discNumber: Int? = nil
+        ) {
+            self.title = title
+            self.artist = artist
+            self.albumArtist = albumArtist
+            self.album = album
+            self.year = year
+            self.genres = genres
+            self.trackNumber = trackNumber
+            self.discNumber = discNumber
+        }
+    }
+
+    public static func merged(
+        _ fields: Fields,
+        with candidate: Candidate,
+        overwrite: Bool
+    ) -> Fields {
+        var result = fields
+        let previousArtist = result.artist
+        let previousAlbumArtist = result.albumArtist
+        result.title = ScrapeMetadataApplicationPolicy.resolvedText(
+            original: result.title,
+            scraped: candidate.title,
+            overwrite: overwrite
+        ) ?? result.title
+        result.artist = ScrapeMetadataApplicationPolicy.resolvedText(
+            original: result.artist,
+            scraped: candidate.artist,
+            overwrite: overwrite
+        )
+        // 歌手换了,源里原先的多值歌手就不再对应这个名字。
+        if result.artist != previousArtist {
+            result.sourceArtistNames = nil
+        }
+        result.albumTitle = ScrapeMetadataApplicationPolicy.resolvedText(
+            original: result.albumTitle,
+            scraped: candidate.album,
+            overwrite: overwrite
+        )
+        let scrapedAlbumArtist = ScrapeMetadataApplicationPolicy.resolvedText(
+            original: result.albumArtist,
+            scraped: candidate.albumArtist,
+            overwrite: overwrite
+        )
+        if candidate.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            result.albumArtist = scrapedAlbumArtist
+        } else {
+            // 候选没给专辑艺术家:原本就是「跟着曲目歌手」的回退值时跟着新歌手走,
+            // 明确写过的专辑艺术家保持不动。
+            result.albumArtist = AlbumGroupingPolicy.updatedAlbumArtistName(
+                existingAlbumArtistName: previousAlbumArtist,
+                previousTrackArtistName: previousArtist,
+                updatedTrackArtistName: result.artist
+            )
+        }
+        result.year = ScrapeMetadataApplicationPolicy.resolvedValue(
+            original: result.year,
+            scraped: candidate.year,
+            overwrite: overwrite
+        )
+        result.genre = ScrapeMetadataApplicationPolicy.resolvedText(
+            original: result.genre,
+            scraped: candidate.genres?.prefix(3).joined(separator: ", "),
+            overwrite: overwrite
+        )
+        result.trackNumber = ScrapeMetadataApplicationPolicy.resolvedValue(
+            original: result.trackNumber,
+            scraped: candidate.trackNumber,
+            overwrite: overwrite
+        )
+        result.discNumber = ScrapeMetadataApplicationPolicy.resolvedValue(
+            original: result.discNumber,
+            scraped: candidate.discNumber,
+            overwrite: overwrite
+        )
+        return result
+    }
+}
+
+/// 只存在本机、不写回音乐源的刮削改动(Apple TV 上的手动匹配与整张专辑补全),
+/// 在别处来的曲库快照整份覆盖之后怎么补回来。
+public enum LocalMetadataOverridePolicy {
+    public enum Kind: String, Codable, Sendable {
+        /// 用户在候选里挑的:本机的值盖回快照。
+        case chosen
+        /// 批量「只补空缺」补上的:只补快照里仍然空着的字段。
+        case filledMissing
+    }
+
+    /// 快照里这一行的来源设备上有人在本机改动之后又手动编辑过:那边的更新,
+    /// 本机这条改动作废。
+    public static func isSuperseded(
+        localEditedAt: Date,
+        incomingUserEditedAt: Date?
+    ) -> Bool {
+        guard let incomingUserEditedAt else { return false }
+        return incomingUserEditedAt > localEditedAt
+    }
+
+    /// 把本机改过的标签叠回快照里的这一行。本机某个字段为空时保留快照的值。
+    public static func replayedFields(
+        incoming: ScrapedMetadataMergePolicy.Fields,
+        local: ScrapedMetadataMergePolicy.Fields,
+        kind: Kind
+    ) -> ScrapedMetadataMergePolicy.Fields {
+        ScrapedMetadataMergePolicy.merged(
+            incoming,
+            with: ScrapedMetadataMergePolicy.Candidate(
+                title: local.title,
+                artist: local.artist,
+                albumArtist: local.albumArtist,
+                album: local.albumTitle,
+                year: local.year,
+                genres: local.genre.map { [$0] },
+                trackNumber: local.trackNumber,
+                discNumber: local.discNumber
+            ),
+            overwrite: kind == .chosen
+        )
+    }
+
+    /// 本机缓存里这首歌眼下的封面 / 歌词,和本机改动留的那份副本比。
+    public enum AssetState: Sendable, Equatable {
+        case missing
+        case matchesLocalCopy
+        case differs
+    }
+
+    public enum AssetAction: Sendable, Equatable {
+        /// 已经是本机那份,不用动。
+        case keep
+        /// 写回本机那份。
+        case restore
+        /// 快照带来了自己的一份,「只补空缺」让给它,这份副本不再需要。
+        case yieldToIncoming
+    }
+
+    public static func assetAction(kind: Kind, current: AssetState) -> AssetAction {
+        switch (kind, current) {
+        case (_, .matchesLocalCopy): return .keep
+        case (_, .missing): return .restore
+        case (.chosen, .differs): return .restore
+        case (.filledMissing, .differs): return .yieldToIncoming
+        }
+    }
+}
+
+/// 按「专辑名 + 歌手」在线搜到的专辑封面候选可不可信。在线目录按相关度排序,
+/// 第一条常常是完全无关的热门专辑(搜不到时尤其如此),所以候选必须先过这道
+/// 身份检查才能当作这张专辑的封面;一条都过不了就宁可没有封面。
+public enum AlbumArtworkMatchPolicy {
+    public enum MatchStrength: Int, Sendable, Comparable {
+        /// 专辑名一侧是另一侧加上版本后缀(「Thriller」对「Thriller 25」)。
+        case prefix = 1
+        /// 去掉版本标注后专辑名完全相同。
+        case exact = 2
+
+        public static func < (lhs: MatchStrength, rhs: MatchStrength) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+    }
+
+    /// 拿去搜索的名字:空白、以及「未知专辑」「Unknown Artist」这类占位值都当作没有。
+    /// `placeholders` 补上界面里本地化的占位文案(各语言的「未知艺术家」)。
+    public static func searchableName(
+        _ value: String?,
+        placeholders: Set<String> = []
+    ) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !TagCleanupPolicy.isPlaceholder(trimmed) else { return nil }
+        let key = TagCleanupPolicy.normalizedKey(trimmed)
+        if placeholders.contains(where: { TagCleanupPolicy.normalizedKey($0) == key }) {
+            return nil
+        }
+        return trimmed
+    }
+
+    /// 候选与要找的专辑对得上多少;对不上返回 nil。
+    /// - 不知道歌手时不认:只凭「Album 01」「Greatest Hits」这类专辑名,目录里同名的
+    ///   专辑多得是(扫描刚开始、标签还没读出来时专辑名常常就是目录名);
+    /// - 专辑名去掉括号里的版本标注与「 - Single」「 - Deluxe Edition」这类后缀后比较;
+    /// - 两边都有歌手时歌手必须对上(允许「A」对「A & B」这种包含关系);
+    /// - 只靠前缀对上的专辑名更容易撞车,要求两边都有歌手且完全相同。
+    public static func matchStrength(
+        requestedAlbum: String,
+        requestedArtist: String?,
+        candidateAlbum: String?,
+        candidateArtist: String?
+    ) -> MatchStrength? {
+        let requested = albumKey(requestedAlbum)
+        let candidate = albumKey(candidateAlbum ?? "")
+        let requestedArtistKey = artistKey(requestedArtist)
+        guard !requested.isEmpty, !candidate.isEmpty, !requestedArtistKey.isEmpty else { return nil }
+        let strength: MatchStrength
+        if requested == candidate {
+            strength = .exact
+        } else {
+            let (shorter, longer) = requested.count <= candidate.count
+                ? (requested, candidate)
+                : (candidate, requested)
+            guard shorter.count >= minimumPrefixKeyLength, longer.hasPrefix(shorter) else { return nil }
+            strength = .prefix
+        }
+
+        let candidateArtistKey = artistKey(candidateArtist)
+        guard !candidateArtistKey.isEmpty else {
+            return strength == .exact ? strength : nil
+        }
+        if requestedArtistKey == candidateArtistKey { return strength }
+        guard strength == .exact,
+              requestedArtistKey.contains(candidateArtistKey)
+                || candidateArtistKey.contains(requestedArtistKey) else { return nil }
+        return strength
+    }
+
+    /// 在候选里挑最可信的一条:完全对上的优先,同等可信时按目录给的顺序。
+    public static func bestMatchIndex(
+        requestedAlbum: String,
+        requestedArtist: String?,
+        candidates: [(album: String?, artist: String?)]
+    ) -> Int? {
+        var best: (index: Int, strength: MatchStrength)?
+        for (index, candidate) in candidates.enumerated() {
+            guard let strength = matchStrength(
+                requestedAlbum: requestedAlbum,
+                requestedArtist: requestedArtist,
+                candidateAlbum: candidate.album,
+                candidateArtist: candidate.artist
+            ) else { continue }
+            if strength == .exact { return index }
+            if best == nil { best = (index, strength) }
+        }
+        return best?.index
+    }
+
+    private static let minimumPrefixKeyLength = 4
+
+    /// 「 - 」后面是这些词之一时,整段当作版本后缀去掉。
+    private static let editionSuffixWords: Set<String> = [
+        "single", "ep", "deluxe", "remastered", "remaster", "edition", "version",
+        "anniversary", "expanded", "bonus", "live",
+    ]
+
+    static func albumKey(_ value: String) -> String {
+        var text = strippingBracketedSegments(value)
+        if let range = text.range(of: " - ", options: .backwards) {
+            let tailWords = text[range.upperBound...]
+                .lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }
+            if !tailWords.isEmpty, tailWords.contains(where: editionSuffixWords.contains) {
+                text = String(text[..<range.lowerBound])
+            }
+        }
+        return comparableKey(text)
+    }
+
+    static func artistKey(_ value: String?) -> String {
+        comparableKey(value ?? "")
+    }
+
+    private static func strippingBracketedSegments(_ value: String) -> String {
+        var result = value
+        for pattern in ["\\([^)]*\\)", "\\[[^\\]]*\\]", "（[^）]*）", "【[^】]*】"] {
+            result = result.replacingOccurrences(of: pattern, with: " ", options: .regularExpression)
+        }
+        return result
+    }
+
+    private static func comparableKey(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .joined()
+    }
+}
+
 /// A deterministic rank for scrape candidates. Title compatibility remains
 /// the identity gate. Within that gate, every usable duration ranks ahead of a
 /// missing duration, then exact duration distance, title, and artist decide the

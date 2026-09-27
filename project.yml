@@ -682,6 +682,10 @@ targets:
       # 电视端添加电台:按名称搜 radio-browser 目录,纯 Foundation,与 iOS / macOS 同一份。
       - path: Primuse/Services/Radio/RadioDirectoryClient.swift
       - path: Primuse/Services/Metadata/ScraperSettingsStore.swift
+      # 刮削引擎与在线歌词兜底的台账:电视端的手动匹配、整张专辑补全与播放时
+      # 的在线歌词都走与 iOS / macOS 同一份实现(纯 Foundation + PrimuseKit)。
+      - path: Primuse/Services/Metadata/ScraperManager.swift
+      - path: Primuse/Services/Metadata/AutomaticOnlineLyricsLedger.swift
       - path: Primuse/Services/Metadata/Scrapers
       - path: Primuse/Services/Metadata/ArtworkFetchService.swift
       # 矢量台标(SVG)栅格化成位图,与 iOS / macOS 同一份实现。

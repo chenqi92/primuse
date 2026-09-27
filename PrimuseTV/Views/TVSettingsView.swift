@@ -18,6 +18,15 @@ private var tvDebugShowsThemePicker: Bool {
     #endif
 }
 
+/// 截图 / 取证:TV_SCREEN=settings 配 TV_SCRAPE_DEBUG=settings 直接打开刮削设置。
+private var tvDebugShowsScraperSettings: Bool {
+    #if DEBUG
+    ProcessInfo.processInfo.environment["TV_SCRAPE_DEBUG"] == "settings"
+    #else
+    false
+    #endif
+}
+
 struct TVSettingsView: View {
     @Environment(TVStore.self) private var store
     @Environment(TVAppearanceState.self) private var appearanceState
@@ -50,6 +59,7 @@ struct TVSettingsView: View {
     @State private var showsThemePicker = tvDebugShowsThemePicker
     @State private var showsAISettings = false
     @State private var showsMetadata = false
+    @State private var showsScraperSettings = tvDebugShowsScraperSettings
     @State private var showsMedleySettings = false
     @State private var isSyncing = false
     @State private var syncMsg: String?
@@ -159,6 +169,16 @@ struct TVSettingsView: View {
                                 showsMetadata = true
                             }
                             settingDivider
+                            navRow(
+                                "wand.and.stars",
+                                String(localized: "metadata_scraping"),
+                                TVScraperSettingsView.summary(
+                                    enabledCount: store.scraperSettings.enabledSources.count
+                                )
+                            ) {
+                                showsScraperSettings = true
+                            }
+                            settingDivider
                             navRow("music.note", PMString("ext.tv.settings.library"), libraryStat) { go(.library) }
                             settingDivider
                             infoRow(
@@ -253,10 +273,15 @@ struct TVSettingsView: View {
         .fullScreenCover(isPresented: $showsMetadata) {
             TVMetadataMaintenanceView().environment(store)
         }
+        .fullScreenCover(isPresented: $showsScraperSettings) {
+            TVScraperSettingsView().environment(store)
+        }
         .preferredColorScheme(appearance.colorScheme)
         .onExitCommand {
             if showsMetadata {
                 showsMetadata = false
+            } else if showsScraperSettings {
+                showsScraperSettings = false
             } else if showsTranslationModelRemoval {
                 showsTranslationModelRemoval = false
             } else if showsAISettings {

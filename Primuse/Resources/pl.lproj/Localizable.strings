@@ -4628,3 +4628,23 @@
 "server_playlist_append_read_only" = "To inteligentna playlista lub playlista innego użytkownika, więc serwer nie pozwala dodawać do niej utworów.";
 "server_playlist_append_not_confirmed" = "Serwer nie potwierdził dodanych utworów. Spróbuj ponownie później.";
 "server_playlist_append_footer" = "Utwory są dodawane do playlisty na serwerze. Aby je usunąć, edytuj playlistę na serwerze.";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "Dopasuj informacje";
+"tv_scrape_apply_tags" = "Tagi";
+"tv_scrape_no_cover" = "Nie znaleziono okładki";
+"tv_scrape_no_lyrics" = "Nie znaleziono tekstu";
+"tv_scrape_lyrics_lines_format" = "Wiersze: %d";
+"tv_scrape_local_only_note" = "Informacje dopasowane na telewizorze są zapisywane tylko na tym Apple TV i nie trafiają z powrotem do źródła muzyki.";
+"tv_scrape_enabled_count_format" = "Włączone źródła: %d";
+"tv_scrape_lyrics_server_unset" = "Brak adresu serwera — dodaj go na iPhonie";
+"tv_scrape_order_hint" = "Źródła są odpytywane w kolejności listy, od góry. Zmień kolejność strzałkami w górę i w dół.";
+"tv_scrape_import_on_phone" = "Własne źródła, serwery API tekstów i pliki cookie skonfiguruj na iPhonie, a potem zsynchronizuj z Apple TV, skanując kod lub przez iCloud.";
+"tv_scrape_album_title" = "Uzupełnij informacje o albumie";
+"tv_scrape_album_body_fill_format" = "Uzupełnia brakujące tagi, okładki i teksty dla utworów z tego albumu (%d).";
+"tv_scrape_album_body_overwrite_format" = "Aktualizuje tagi, okładki i teksty utworów z tego albumu (%d) na podstawie pewnych dopasowań online.";
+"tv_scrape_album_start" = "Rozpocznij";
+"tv_scrape_album_stop" = "Zatrzymaj";
+"tv_scrape_album_progress_format" = "%1$d z %2$d · %3$@";
+"tv_scrape_album_result_format" = "Zaktualizowano: %1$d · Bez zmian: %2$d";
+"tv_scrape_album_stopped" = "Zatrzymano";

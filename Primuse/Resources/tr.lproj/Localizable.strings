@@ -4628,3 +4628,23 @@
 "server_playlist_append_read_only" = "Bu akıllı bir çalma listesi veya başka bir kullanıcıya ait, bu yüzden sunucu şarkı eklenmesine izin vermiyor.";
 "server_playlist_append_not_confirmed" = "Sunucu eklenen şarkıları onaylamadı. Daha sonra tekrar deneyin.";
 "server_playlist_append_footer" = "Şarkılar sunucudaki çalma listesine eklenir. Kaldırmak için listeyi sunucuda düzenleyin.";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "Bilgileri eşleştir";
+"tv_scrape_apply_tags" = "Etiketler";
+"tv_scrape_no_cover" = "Kapak bulunamadı";
+"tv_scrape_no_lyrics" = "Şarkı sözü bulunamadı";
+"tv_scrape_lyrics_lines_format" = "%d satır";
+"tv_scrape_local_only_note" = "TV'de eşleştirilen bilgiler yalnızca bu Apple TV'ye kaydedilir, müzik kaynağına geri yazılmaz.";
+"tv_scrape_enabled_count_format" = "Açık kaynak: %d";
+"tv_scrape_lyrics_server_unset" = "Henüz sunucu adresi yok; iPhone'da ekleyin";
+"tv_scrape_order_hint" = "Kaynaklar listedeki sırayla, en üstten başlayarak sorgulanır. Sırayı yukarı ve aşağı oklarla değiştirin.";
+"tv_scrape_import_on_phone" = "Özel kaynakları, şarkı sözü API sunucularını ve çerezleri iPhone'da ayarlayın, ardından kodu tarayarak veya iCloud ile Apple TV'ye eşzamanlayın.";
+"tv_scrape_album_title" = "Albüm bilgilerini tamamla";
+"tv_scrape_album_body_fill_format" = "Bu albümdeki %d şarkının eksik etiketlerini, kapaklarını ve şarkı sözlerini tamamlar.";
+"tv_scrape_album_body_overwrite_format" = "Bu albümdeki %d şarkının etiketlerini, kapaklarını ve şarkı sözlerini güvenilir çevrimiçi eşleşmelerle günceller.";
+"tv_scrape_album_start" = "Başlat";
+"tv_scrape_album_stop" = "Durdur";
+"tv_scrape_album_progress_format" = "%1$d / %2$d · %3$@";
+"tv_scrape_album_result_format" = "Güncellenen: %1$d · Yeni bilgi yok: %2$d";
+"tv_scrape_album_stopped" = "Durduruldu";

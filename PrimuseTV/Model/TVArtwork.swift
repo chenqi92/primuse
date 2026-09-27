@@ -400,11 +400,17 @@ actor TVArtworkLoader {
     }
 
     /// 按 (artist, album) 取专辑封面 Data;key 用于缓存去重(一般传 albumID)。
+    ///
+    /// 这是按文本搜索的最后一档,搜到的候选必须对得上专辑名(两边都有歌手时还要
+    /// 对上歌手)才会被采用;专辑名为空或是「未知专辑」这类占位值时根本不搜。
     func cover(key: String, artist: String, album: String) async -> Data? {
         guard !Task.isCancelled,
               !key.isEmpty,
               !(artist.isEmpty && album.isEmpty) else { return nil }
-        let disk = diskURL(key)
+        // 旧版本不核对候选、直接收下目录第一条,缓存里可能是别人的专辑封面。
+        // 换一个缓存名,旧文件顺手删掉,这些专辑按新规则重新搜一次。
+        try? FileManager.default.removeItem(at: diskURL(key))
+        let disk = diskURL("validated-album:\(key)")
         if let data = try? Data(contentsOf: disk) {
             let displayData = await preparedStaticArtwork(data)
             guard !Task.isCancelled else { return nil }
@@ -419,11 +425,24 @@ actor TVArtworkLoader {
             try? FileManager.default.removeItem(at: disk)
         }
         if isTemporarilyNegative(key) { return nil }
+        // 专辑名或歌手不明(空的、「未知」这类占位值)就不按文本搜:只凭一个专辑名,
+        // 目录里同名的别人的专辑多得是。
+        let placeholders = Self.placeholderNames
+        guard let albumName = AlbumArtworkMatchPolicy.searchableName(album, placeholders: placeholders),
+              let artistName = AlbumArtworkMatchPolicy.searchableName(artist, placeholders: placeholders) else {
+            return nil
+        }
         let requestKey = "static-album-search:\(key)"
         let fetched = await deduplicatedFetch(key: requestKey) {
-            await Self.fetchITunes(
-                term: "\(artist) \(album)".trimmingCharacters(in: .whitespaces)
-            )
+            // 先按刮削设置里启用的封面源搜(与 iPhone 同一份设置和匹配规则),
+            // 都没搜到再退回 iTunes 专辑搜索。
+            if let scraped = await ArtworkFetchService.shared.searchAlbumCover(
+                albumTitle: albumName,
+                artistName: artistName
+            ) {
+                return scraped
+            }
+            return await Self.fetchITunes(album: albumName, artist: artistName)
         }
         guard !Task.isCancelled else { return nil }
         guard let fetched else {
@@ -895,20 +914,37 @@ actor TVArtworkLoader {
         negativeUntil[key] = Date().addingTimeInterval(Self.negativeCacheTTL)
     }
 
-    private static func fetchITunes(term: String) async -> Data? {
+    /// 界面里显示成「未知艺术家」之类的占位名,拿去搜索前当作没有。
+    private static let placeholderNames: Set<String> = [
+        PMString("ext.tv.unknownArtist"),
+        String(localized: "unknown_artist"),
+    ]
+
+    /// iTunes 专辑搜索兜底。目录按相关度排序,搜不到时第一条往往是毫不相干的热门
+    /// 专辑,所以多取几条,逐条核对专辑名与歌手,挑最可信的一条;一条都对不上就不要。
+    private static func fetchITunes(album: String, artist: String) async -> Data? {
+        let term = "\(artist) \(album)"
         guard !term.isEmpty,
               var comps = URLComponents(string: "https://itunes.apple.com/search") else { return nil }
         comps.queryItems = [
             URLQueryItem(name: "term", value: term),
             URLQueryItem(name: "entity", value: "album"),
-            URLQueryItem(name: "limit", value: "1"),
+            URLQueryItem(name: "limit", value: "10"),
         ]
         guard let url = comps.url else { return nil }
         do {
             let data = try await fetchSearchResponse(from: url)
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             let results = json?["results"] as? [[String: Any]] ?? []
-            guard let art = results.first?["artworkUrl100"] as? String else { return nil }
+            guard let index = AlbumArtworkMatchPolicy.bestMatchIndex(
+                requestedAlbum: album,
+                requestedArtist: artist,
+                candidates: results.map { result -> (album: String?, artist: String?) in
+                    (result["collectionName"] as? String, result["artistName"] as? String)
+                }
+            ),
+                  let art = results[index]["artworkUrl100"] as? String else { return nil }
+            plog("🖼️ TV album cover matched '\(album)' / '\(artist)' → '\(results[index]["collectionName"] as? String ?? "-")' / '\(results[index]["artistName"] as? String ?? "-")'")
             let hi = art.replacingOccurrences(of: "100x100bb", with: "600x600bb")
             guard let imgURL = URL(string: hi),
                   let scheme = imgURL.scheme?.lowercased(),

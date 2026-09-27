@@ -40,6 +40,21 @@ struct ScraperDetail: Sendable {
     var coverUrl: String?
 }
 
+extension ScrapedMetadataMergePolicy.Candidate {
+    init(_ detail: ScraperDetail) {
+        self.init(
+            title: detail.title,
+            artist: detail.artist,
+            albumArtist: detail.albumArtist,
+            album: detail.album,
+            year: detail.year,
+            genres: detail.genres,
+            trackNumber: detail.trackNumber,
+            discNumber: detail.discNumber
+        )
+    }
+}
+
 struct ScraperLyricsResult: Sendable {
     let source: MusicScraperType
     var lrcContent: String?

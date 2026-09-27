@@ -4815,3 +4815,23 @@
 "server_playlist_append_read_only" = "这是智能歌单或其他用户的歌单，服务器不允许往里加歌。";
 "server_playlist_append_not_confirmed" = "服务器没有确认刚加入的歌曲，请稍后再试。";
 "server_playlist_append_footer" = "歌曲会加进服务器上的这个歌单；要移出请到服务器上编辑。";
+
+// MARK: - Apple TV 刮削
+"tv_scrape_match_title" = "匹配信息";
+"tv_scrape_apply_tags" = "标签";
+"tv_scrape_no_cover" = "没有找到封面";
+"tv_scrape_no_lyrics" = "没有找到歌词";
+"tv_scrape_lyrics_lines_format" = "%d 行";
+"tv_scrape_local_only_note" = "在电视上匹配到的信息只保存在这台 Apple TV 上，不会写回音乐源。";
+"tv_scrape_enabled_count_format" = "已启用 %d 个来源";
+"tv_scrape_lyrics_server_unset" = "还没有服务地址，请在 iPhone 上填写";
+"tv_scrape_order_hint" = "按列表顺序查询，排在前面的先查，用上下箭头调整顺序。";
+"tv_scrape_import_on_phone" = "自定义刮削源、歌词 API 服务地址和 Cookie 请在 iPhone 上设置，再通过扫码或 iCloud 同步到电视。";
+"tv_scrape_album_title" = "补全专辑信息";
+"tv_scrape_album_body_fill_format" = "为这张专辑的 %d 首歌补全缺失的标签、封面和歌词。";
+"tv_scrape_album_body_overwrite_format" = "用在线找到的可信结果更新这张专辑 %d 首歌的标签、封面和歌词。";
+"tv_scrape_album_start" = "开始补全";
+"tv_scrape_album_stop" = "停止";
+"tv_scrape_album_progress_format" = "第 %1$d / %2$d 首 · %3$@";
+"tv_scrape_album_result_format" = "更新了 %1$d 首，%2$d 首没有新信息";
+"tv_scrape_album_stopped" = "已停止";

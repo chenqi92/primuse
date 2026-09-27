@@ -4628,3 +4628,23 @@
 "server_playlist_append_read_only" = "Esta playlist es inteligente o pertenece a otro usuario, así que el servidor no permite agregarle canciones.";
 "server_playlist_append_not_confirmed" = "El servidor no confirmó las canciones agregadas. Inténtalo más tarde.";
 "server_playlist_append_footer" = "Las canciones se agregan a la playlist en el servidor. Para quitarlas, edita la playlist en el servidor.";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "Buscar coincidencias";
+"tv_scrape_apply_tags" = "Etiquetas";
+"tv_scrape_no_cover" = "No se encontró portada";
+"tv_scrape_no_lyrics" = "No se encontró letra";
+"tv_scrape_lyrics_lines_format" = "%d líneas";
+"tv_scrape_local_only_note" = "La información que coincidas en la TV se guarda solo en este Apple TV y no se escribe en la fuente de música.";
+"tv_scrape_enabled_count_format" = "Fuentes activadas: %d";
+"tv_scrape_lyrics_server_unset" = "Aún no hay dirección de servidor; agrégala en el iPhone";
+"tv_scrape_order_hint" = "Las fuentes se consultan en el orden de la lista, empezando por arriba. Usa las flechas arriba y abajo para reordenarlas.";
+"tv_scrape_import_on_phone" = "Configura las fuentes personalizadas, los servidores de API de letras y las cookies en el iPhone y luego sincronízalos con el Apple TV escaneando el código o con iCloud.";
+"tv_scrape_album_title" = "Completar información del álbum";
+"tv_scrape_album_body_fill_format" = "Completa las etiquetas, portadas y letras que faltan en todas las canciones de este álbum (%d).";
+"tv_scrape_album_body_overwrite_format" = "Actualiza las etiquetas, portadas y letras de todas las canciones de este álbum (%d) con coincidencias confiables en línea.";
+"tv_scrape_album_start" = "Iniciar";
+"tv_scrape_album_stop" = "Detener";
+"tv_scrape_album_progress_format" = "%1$d de %2$d · %3$@";
+"tv_scrape_album_result_format" = "Actualizadas: %1$d · Sin cambios: %2$d";
+"tv_scrape_album_stopped" = "Detenido";

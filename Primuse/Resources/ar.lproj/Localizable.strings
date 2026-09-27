@@ -4628,3 +4628,23 @@
 "server_playlist_append_read_only" = "قائمة التشغيل هذه ذكية أو تخص مستخدمًا آخر، لذا لا يسمح الخادم بإضافة أغانٍ إليها.";
 "server_playlist_append_not_confirmed" = "لم يؤكد الخادم الأغاني المضافة. حاول مرة أخرى لاحقًا.";
 "server_playlist_append_footer" = "تُضاف الأغاني إلى قائمة التشغيل على الخادم. لإزالتها، عدّل القائمة على الخادم.";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "مطابقة المعلومات";
+"tv_scrape_apply_tags" = "الوسوم";
+"tv_scrape_no_cover" = "لم يتم العثور على غلاف";
+"tv_scrape_no_lyrics" = "لم يتم العثور على كلمات";
+"tv_scrape_lyrics_lines_format" = "عدد الأسطر: %d";
+"tv_scrape_local_only_note" = "تُحفَظ المعلومات التي تمت مطابقتها على التلفاز على جهاز Apple TV هذا فقط، ولا تُكتب في مصدر الموسيقى.";
+"tv_scrape_enabled_count_format" = "المصادر المفعّلة: %d";
+"tv_scrape_lyrics_server_unset" = "لا يوجد عنوان خادم بعد، أضِفه على iPhone";
+"tv_scrape_order_hint" = "يُستعلَم عن المصادر بترتيب القائمة من الأعلى. استخدم سهمي الأعلى والأسفل لإعادة ترتيبها.";
+"tv_scrape_import_on_phone" = "اضبط المصادر المخصصة وخوادم واجهة الكلمات وملفات تعريف الارتباط على iPhone، ثم زامنها مع Apple TV بمسح الرمز أو عبر iCloud.";
+"tv_scrape_album_title" = "إكمال معلومات الألبوم";
+"tv_scrape_album_body_fill_format" = "إكمال الوسوم والأغلفة والكلمات الناقصة لأغاني هذا الألبوم (%d).";
+"tv_scrape_album_body_overwrite_format" = "تحديث الوسوم والأغلفة والكلمات لأغاني هذا الألبوم (%d) بنتائج موثوقة من الإنترنت.";
+"tv_scrape_album_start" = "ابدأ";
+"tv_scrape_album_stop" = "إيقاف";
+"tv_scrape_album_progress_format" = "%1$d من %2$d · %3$@";
+"tv_scrape_album_result_format" = "تم التحديث: %1$d · بلا جديد: %2$d";
+"tv_scrape_album_stopped" = "تم الإيقاف";

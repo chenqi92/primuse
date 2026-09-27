@@ -52,6 +52,13 @@ actor ArtworkFetchService {
         return result
     }
 
+    /// 只按已启用的刮削源在线搜一张专辑封面，不读也不写本机的专辑封面缓存。
+    /// Apple TV 把它当作按文本搜索的最后一档：结果放进电视自己的模糊搜索缓存，
+    /// 不能升格成「准确的专辑封面」而盖过歌曲自己的封面。
+    func searchAlbumCover(albumTitle: String, artistName: String?) async -> Data? {
+        await searchAlbumCoverOnline(albumTitle: albumTitle, artistName: artistName)
+    }
+
     // MARK: - Artist Image
 
     /// Fetch artist image: check cache → search online → store
@@ -87,20 +94,34 @@ actor ArtworkFetchService {
     // MARK: - Online Search
 
     private func searchAlbumCoverOnline(albumTitle: String, artistName: String?) async -> Data? {
+        // 专辑名或歌手不明(空的、「未知专辑」这类占位值)就不搜：只凭一个专辑名，
+        // 搜出来的多半是别人的同名专辑。
+        let placeholders: Set<String> = [String(localized: "unknown_artist")]
+        guard let albumTitle = AlbumArtworkMatchPolicy.searchableName(albumTitle, placeholders: placeholders),
+              let artistName = AlbumArtworkMatchPolicy.searchableName(artistName, placeholders: placeholders) else {
+            return nil
+        }
         let settings = ScraperSettings.load()
-        let query = [artistName, albumTitle].compactMap { $0 }.joined(separator: " ")
+        let query = "\(artistName) \(albumTitle)"
 
         for config in settings.enabledSources where config.type.supportsCover {
             guard !isBackedOff(config.id) else { continue }
             do {
                 let scraper = scraper(for: config)
                 let searchResult = try await scraper.search(query: query, artist: artistName, album: albumTitle, limit: 5)
-                guard let best = searchResult.items.first(where: {
-                    Self.isConfidentAlbumMatch($0, albumTitle: albumTitle, artistName: artistName)
-                }) else {
+                // 目录按相关度排序，第一条常常是无关的热门专辑：候选必须先对上专辑名
+                // (两边都有歌手时还要对上歌手)，再在对得上的里面挑最可信的一条。
+                guard let bestIndex = AlbumArtworkMatchPolicy.bestMatchIndex(
+                    requestedAlbum: albumTitle,
+                    requestedArtist: artistName,
+                    candidates: searchResult.items.map { item -> (album: String?, artist: String?) in
+                        (item.album ?? item.title, item.artist)
+                    }
+                ) else {
                     clearFailure(config.id)
                     continue
                 }
+                let best = searchResult.items[bestIndex]
                 if
                    let coverUrl = try await resolveCoverURL(for: best, with: scraper) {
                     guard let data = try await downloadImage(url: coverUrl, sourceConfig: config) else {
@@ -111,6 +132,8 @@ actor ArtworkFetchService {
                 }
                 clearFailure(config.id)
             } catch {
+                // 调用方不要了(封面位滚出屏幕、页面关掉)不是源出了问题，不能让它进退避。
+                if Self.isCancellation(error) { return nil }
                 registerFailure(config.id, error: error)
                 plog("⚠️ ArtworkFetch: album cover search failed for '\(query)' via \(config.type.displayName): \(error.localizedDescription)")
                 continue
@@ -153,6 +176,7 @@ actor ArtworkFetchService {
                 }
                 clearFailure(config.id)
             } catch {
+                if Self.isCancellation(error) { return nil }
                 registerFailure(config.id, error: error)
                 plog("⚠️ ArtworkFetch: artist image search failed for '\(artistName)' via \(config.type.displayName): \(error.localizedDescription)")
                 continue
@@ -174,6 +198,17 @@ actor ArtworkFetchService {
         let scraper = MusicScraperFactory.create(for: config)
         scraperCache[config.id] = scraper
         return scraper
+    }
+
+    private nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if Task.isCancelled || error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        // 刮削源把底层错误包成文字的写法,与 ScraperManager 的判断一致。
+        if case ScraperError.networkError(let message) = error,
+           message.localizedCaseInsensitiveContains("cancel") {
+            return true
+        }
+        return false
     }
 
     private func isBackedOff(_ configID: String) -> Bool {
@@ -200,20 +235,6 @@ actor ArtworkFetchService {
         }
         state.retryAfter = ContinuousClock.now + .seconds(delaySeconds)
         sourceFailures[configID] = state
-    }
-
-    private nonisolated static func isConfidentAlbumMatch(
-        _ item: ScraperSearchItem,
-        albumTitle: String,
-        artistName: String?
-    ) -> Bool {
-        let requestedAlbum = normalized(albumTitle)
-        let candidateAlbum = normalized(item.album ?? item.title)
-        guard textMatches(requestedAlbum, candidateAlbum) else { return false }
-
-        let requestedArtist = normalized(artistName)
-        guard !requestedArtist.isEmpty else { return true }
-        return textMatches(requestedArtist, normalized(item.artist))
     }
 
     private nonisolated static func isConfidentArtistMatch(

@@ -4628,3 +4628,23 @@
 "server_playlist_append_read_only" = "यह स्मार्ट प्लेलिस्ट है या किसी अन्य उपयोगकर्ता की है, इसलिए सर्वर इसमें गाने जोड़ने की अनुमति नहीं देता।";
 "server_playlist_append_not_confirmed" = "सर्वर ने जोड़े गए गानों की पुष्टि नहीं की। बाद में फिर से कोशिश करें।";
 "server_playlist_append_footer" = "गाने सर्वर पर मौजूद प्लेलिस्ट में जोड़े जाते हैं। हटाने के लिए सर्वर पर प्लेलिस्ट संपादित करें।";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "जानकारी मिलाएँ";
+"tv_scrape_apply_tags" = "टैग";
+"tv_scrape_no_cover" = "कोई कवर नहीं मिला";
+"tv_scrape_no_lyrics" = "कोई बोल नहीं मिले";
+"tv_scrape_lyrics_lines_format" = "%d पंक्तियाँ";
+"tv_scrape_local_only_note" = "टीवी पर मिलाई गई जानकारी केवल इसी Apple TV पर सहेजी जाती है और संगीत स्रोत में वापस नहीं लिखी जाती।";
+"tv_scrape_enabled_count_format" = "चालू स्रोत: %d";
+"tv_scrape_lyrics_server_unset" = "अभी कोई सर्वर पता नहीं है — iPhone पर जोड़ें";
+"tv_scrape_order_hint" = "स्रोतों से सूची के क्रम में, ऊपर से शुरू करके पूछा जाता है। क्रम बदलने के लिए ऊपर और नीचे वाले तीरों का उपयोग करें।";
+"tv_scrape_import_on_phone" = "कस्टम स्रोत, बोल API सर्वर और कुकी iPhone पर सेट करें, फिर कोड स्कैन करके या iCloud से Apple TV पर सिंक करें।";
+"tv_scrape_album_title" = "एल्बम की जानकारी पूरी करें";
+"tv_scrape_album_body_fill_format" = "इस एल्बम के सभी गानों (%d) के छूटे हुए टैग, कवर और बोल पूरे करें।";
+"tv_scrape_album_body_overwrite_format" = "भरोसेमंद ऑनलाइन मिलानों से इस एल्बम के सभी गानों (%d) के टैग, कवर और बोल अपडेट करें।";
+"tv_scrape_album_start" = "शुरू करें";
+"tv_scrape_album_stop" = "रोकें";
+"tv_scrape_album_progress_format" = "%2$d में से %1$d · %3$@";
+"tv_scrape_album_result_format" = "अपडेट हुए: %1$d · कुछ नया नहीं: %2$d";
+"tv_scrape_album_stopped" = "रोका गया";

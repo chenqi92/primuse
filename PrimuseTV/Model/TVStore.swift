@@ -465,8 +465,13 @@ final class TVStore {
     )
     @ObservationIgnored private lazy var cloudSync = CloudKitSyncService(
         library: library, sourcesStore: sourcesStore,
-        radioStationsStore: radioStore, scraperSettingsStore: ScraperSettingsStore()
+        radioStationsStore: radioStore, scraperSettingsStore: scraperSettings
     )
+    /// 刮削设置:与 iPhone 同一个 UserDefaults 键,iCloud 键值同步到达时自己重读;
+    /// 其它通道(扫码直传)写了同一个键之后调 `scraperSettings.reloadFromDefaults()`。
+    @ObservationIgnored let scraperSettings: ScraperSettingsStore
+    /// 电视端刮削:播放时的在线歌词兜底、匹配信息、整张专辑补全,以及本机改动台账。
+    @ObservationIgnored private(set) lazy var metadataScraper = TVMetadataScrapeService(store: self)
 
     init(sourcesStore: SourcesStore? = nil, library: MusicLibrary? = nil,
          defaults: UserDefaults = .standard,
@@ -492,6 +497,7 @@ final class TVStore {
         self.sourcesStore = initialSources
         self.library = library ?? MusicLibrary.makePreparing(disabledSourceIDs: initiallyHidden)
         self.defaults = defaults
+        self.scraperSettings = ScraperSettingsStore(defaults: defaults)
         medleySegmentSeconds = MedleySegmentPolicy.clampedSegmentLength(
             (defaults.object(forKey: "tv.medley.segmentSeconds") as? Int)
                 ?? MedleySegmentPolicy.defaultSegmentLength
@@ -536,6 +542,7 @@ final class TVStore {
         observePlaybackHistoryChanges()
         observeRadioStoreChanges()
         observePlaybackChanges()
+        metadataScraper.startObservingArtworkRestores()
         if library == nil {
             let target = self.library
             let knownSourceIDs = Set(initialSources.allSources.map(\.id))
@@ -2226,6 +2233,7 @@ final class TVStore {
                     // 完成或回滚的那次事务里可能带着电台文件(首次引导整份写入的那种)。
                     self.reloadRadioStations(fromDisk: true)
                     self.refreshVisibility()
+                    await self.metadataScraper.replayOverrides()
                 } catch {
                     self.playbackIssue = .failed(PMString("ext.tv.persistence.failed"))
                     return false
@@ -2273,6 +2281,9 @@ final class TVStore {
         publishTopShelf()
         flushPendingDeepLink()
         pruneCredentialBundlesToActiveSources()
+        // 电视上匹配 / 补全过的信息只存在本机,快照整份覆盖之后按台账补回来。放在
+        // 音乐源重载之后:这里会让出主 actor,不能夹在事务写盘与重载音乐源之间。
+        await metadataScraper.replayOverrides()
     }
 
     /// 快照里的电台进本机。本机已有清单时逐条按修改时间合并:电视上的增删改名排序、

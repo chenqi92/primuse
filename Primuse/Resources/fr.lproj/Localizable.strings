@@ -4722,3 +4722,23 @@
 "server_playlist_append_read_only" = "Cette playlist est une playlist intelligente ou appartient à un autre utilisateur ; le serveur n'autorise pas l'ajout de morceaux.";
 "server_playlist_append_not_confirmed" = "Le serveur n'a pas confirmé les morceaux ajoutés. Réessayez plus tard.";
 "server_playlist_append_footer" = "Les morceaux sont ajoutés à la playlist sur le serveur. Pour les retirer, modifiez la playlist sur le serveur.";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "Associer les infos";
+"tv_scrape_apply_tags" = "Tags";
+"tv_scrape_no_cover" = "Aucune pochette trouvée";
+"tv_scrape_no_lyrics" = "Aucunes paroles trouvées";
+"tv_scrape_lyrics_lines_format" = "%d lignes";
+"tv_scrape_local_only_note" = "Les infos associées sur la TV sont enregistrées uniquement sur cette Apple TV et ne sont pas réécrites dans la source musicale.";
+"tv_scrape_enabled_count_format" = "Sources activées : %d";
+"tv_scrape_lyrics_server_unset" = "Aucune adresse de serveur – ajoutez-en une sur l'iPhone";
+"tv_scrape_order_hint" = "Les sources sont interrogées dans l'ordre de la liste, en commençant par le haut. Utilisez les flèches haut et bas pour les réorganiser.";
+"tv_scrape_import_on_phone" = "Configurez les sources personnalisées, les serveurs d'API de paroles et les cookies sur l'iPhone, puis synchronisez-les avec l'Apple TV en scannant le code ou via iCloud.";
+"tv_scrape_album_title" = "Compléter les infos de l'album";
+"tv_scrape_album_body_fill_format" = "Complète les tags, pochettes et paroles manquants de tous les morceaux de cet album (%d).";
+"tv_scrape_album_body_overwrite_format" = "Met à jour les tags, pochettes et paroles de tous les morceaux de cet album (%d) avec des correspondances en ligne fiables.";
+"tv_scrape_album_start" = "Démarrer";
+"tv_scrape_album_stop" = "Arrêter";
+"tv_scrape_album_progress_format" = "%1$d sur %2$d · %3$@";
+"tv_scrape_album_result_format" = "Mis à jour : %1$d · Rien de nouveau : %2$d";
+"tv_scrape_album_stopped" = "Arrêté";

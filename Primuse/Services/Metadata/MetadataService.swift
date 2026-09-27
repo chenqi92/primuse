@@ -412,62 +412,33 @@ actor MetadataService {
             settings: settings
         )
 
-        // Apply metadata from detail
+        // Apply metadata from detail. 合并规则与 Apple TV 共用
+        // (`ScrapedMetadataMergePolicy`)。
         if let detail = scrapeResult.detail {
-            let previousArtist = result.artist
-            let previousAlbumArtist = result.albumArtist
-            result.title = ScrapeMetadataApplicationPolicy.resolvedText(
-                original: result.title,
-                scraped: detail.title,
-                overwrite: overwriteMetadata
-            ) ?? result.title
-            result.artist = ScrapeMetadataApplicationPolicy.resolvedText(
-                original: result.artist,
-                scraped: detail.artist,
-                overwrite: overwriteMetadata
-            )
-            if result.artist != previousArtist {
-                result.sourceArtistNames = nil
-            }
-            result.albumTitle = ScrapeMetadataApplicationPolicy.resolvedText(
-                original: result.albumTitle,
-                scraped: detail.album,
+            let merged = ScrapedMetadataMergePolicy.merged(
+                ScrapedMetadataMergePolicy.Fields(
+                    title: result.title,
+                    artist: result.artist,
+                    sourceArtistNames: result.sourceArtistNames,
+                    albumTitle: result.albumTitle,
+                    albumArtist: result.albumArtist,
+                    year: result.year,
+                    genre: result.genre,
+                    trackNumber: result.trackNumber,
+                    discNumber: result.discNumber
+                ),
+                with: ScrapedMetadataMergePolicy.Candidate(detail),
                 overwrite: overwriteMetadata
             )
-            let scrapedAlbumArtist = ScrapeMetadataApplicationPolicy.resolvedText(
-                original: result.albumArtist,
-                scraped: detail.albumArtist,
-                overwrite: overwriteMetadata
-            )
-            if detail.albumArtist?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                result.albumArtist = scrapedAlbumArtist
-            } else {
-                result.albumArtist = AlbumGroupingPolicy.updatedAlbumArtistName(
-                    existingAlbumArtistName: previousAlbumArtist,
-                    previousTrackArtistName: previousArtist,
-                    updatedTrackArtistName: result.artist
-                )
-            }
-            result.year = ScrapeMetadataApplicationPolicy.resolvedValue(
-                original: result.year,
-                scraped: detail.year,
-                overwrite: overwriteMetadata
-            )
-            result.genre = ScrapeMetadataApplicationPolicy.resolvedText(
-                original: result.genre,
-                scraped: detail.genres?.prefix(3).joined(separator: ", "),
-                overwrite: overwriteMetadata
-            )
-            result.trackNumber = ScrapeMetadataApplicationPolicy.resolvedValue(
-                original: result.trackNumber,
-                scraped: detail.trackNumber,
-                overwrite: overwriteMetadata
-            )
-            result.discNumber = ScrapeMetadataApplicationPolicy.resolvedValue(
-                original: result.discNumber,
-                scraped: detail.discNumber,
-                overwrite: overwriteMetadata
-            )
+            result.title = merged.title
+            result.artist = merged.artist
+            result.sourceArtistNames = merged.sourceArtistNames
+            result.albumTitle = merged.albumTitle
+            result.albumArtist = merged.albumArtist
+            result.year = merged.year
+            result.genre = merged.genre
+            result.trackNumber = merged.trackNumber
+            result.discNumber = merged.discNumber
         }
 
         // Apply cover data

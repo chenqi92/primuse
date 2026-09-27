@@ -4485,3 +4485,23 @@
 "server_playlist_append_read_only" = "This playlist is a smart playlist or belongs to another user, so the server doesn't allow adding songs to it.";
 "server_playlist_append_not_confirmed" = "The server didn't confirm the added songs. Try again later.";
 "server_playlist_append_footer" = "Songs are added to the playlist on the server. To remove them, edit the playlist on the server.";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "Match Info";
+"tv_scrape_apply_tags" = "Tags";
+"tv_scrape_no_cover" = "No cover found";
+"tv_scrape_no_lyrics" = "No lyrics found";
+"tv_scrape_lyrics_lines_format" = "%d lines";
+"tv_scrape_local_only_note" = "Info matched on TV is saved on this Apple TV only and isn't written back to the music source.";
+"tv_scrape_enabled_count_format" = "Sources on: %d";
+"tv_scrape_lyrics_server_unset" = "No server address yet — add one on iPhone";
+"tv_scrape_order_hint" = "Sources are queried in list order, top first. Use the up and down arrows to reorder them.";
+"tv_scrape_import_on_phone" = "Set up custom scraper sources, lyrics API servers and cookies on iPhone, then sync them to Apple TV by scanning the code or through iCloud.";
+"tv_scrape_album_title" = "Complete Album Info";
+"tv_scrape_album_body_fill_format" = "Fill in missing tags, covers and lyrics for every song on this album (%d).";
+"tv_scrape_album_body_overwrite_format" = "Update tags, covers and lyrics for every song on this album (%d) with confident online matches.";
+"tv_scrape_album_start" = "Start";
+"tv_scrape_album_stop" = "Stop";
+"tv_scrape_album_progress_format" = "%1$d of %2$d · %3$@";
+"tv_scrape_album_result_format" = "Updated: %1$d · Nothing new: %2$d";
+"tv_scrape_album_stopped" = "Stopped";

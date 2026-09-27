@@ -694,11 +694,20 @@ struct TVAlbumDetailPresenter: ViewModifier {
 struct TVAlbumDetailView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    let albumID: String
     /// 打开时的那份;封面取色、曲库刷新后按 id 重新取。
     let fallback: TVAlbum
     var openPlayer: () -> Void = {}
+    /// 当前显示的专辑。补全专辑信息改了专辑名时专辑会换 id,跟着它的歌走过去。
+    @State private var albumID: String
+    @State private var showsAlbumScrape = false
+    @State private var songIDsBeforeScrape: [String] = []
     @Namespace private var detailFocus
+
+    init(albumID: String, fallback: TVAlbum, openPlayer: @escaping () -> Void = {}) {
+        self.fallback = fallback
+        self.openPlayer = openPlayer
+        _albumID = State(initialValue: albumID)
+    }
 
     private struct Track: Identifiable {
         let id: String
@@ -747,6 +756,15 @@ struct TVAlbumDetailView: View {
                     }
                     .disabled(songIDs.isEmpty)
                     TVMedleyButton(songIDs: songIDs) { finishPlayback() }
+                    TVPillButton(
+                        title: String(localized: "tv_scrape_album_title"),
+                        systemImage: "wand.and.stars",
+                        action: {
+                            songIDsBeforeScrape = songIDs
+                            showsAlbumScrape = true
+                        }
+                    )
+                    .disabled(songIDs.isEmpty)
                     Spacer(minLength: 0)
                 }
                 .frame(width: 440, alignment: .leading)
@@ -791,7 +809,18 @@ struct TVAlbumDetailView: View {
         }
         .focusScope(detailFocus)
         .onExitCommand { dismiss() }
+        .fullScreenCover(isPresented: $showsAlbumScrape, onDismiss: followAlbumAfterScrape) {
+            TVAlbumScrapeView(albumID: albumID).environment(store)
+        }
         .accessibilityIdentifier("tv.album.detail")
+    }
+
+    /// 补全改了专辑名(或专辑艺人)时,这张专辑的歌归到了新的专辑 id 下。
+    private func followAlbumAfterScrape() {
+        defer { songIDsBeforeScrape = [] }
+        guard store.songs(forAlbum: albumID).isEmpty,
+              let moved = songIDsBeforeScrape.lazy.compactMap({ store.song($0)?.albumID }).first else { return }
+        albumID = moved
     }
 
     private func trackRow(

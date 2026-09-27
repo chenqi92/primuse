@@ -4628,3 +4628,23 @@
 "server_playlist_append_read_only" = "เพลย์ลิสต์นี้เป็นเพลย์ลิสต์อัจฉริยะหรือเป็นของผู้ใช้อื่น เซิร์ฟเวอร์จึงไม่อนุญาตให้เพิ่มเพลง";
 "server_playlist_append_not_confirmed" = "เซิร์ฟเวอร์ไม่ได้ยืนยันเพลงที่เพิ่ม โปรดลองอีกครั้งภายหลัง";
 "server_playlist_append_footer" = "เพลงจะถูกเพิ่มลงในเพลย์ลิสต์บนเซิร์ฟเวอร์ หากต้องการนำออก ให้แก้ไขเพลย์ลิสต์บนเซิร์ฟเวอร์";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "จับคู่ข้อมูล";
+"tv_scrape_apply_tags" = "แท็ก";
+"tv_scrape_no_cover" = "ไม่พบปก";
+"tv_scrape_no_lyrics" = "ไม่พบเนื้อเพลง";
+"tv_scrape_lyrics_lines_format" = "%d บรรทัด";
+"tv_scrape_local_only_note" = "ข้อมูลที่จับคู่บนทีวีจะบันทึกไว้ใน Apple TV เครื่องนี้เท่านั้น และจะไม่เขียนกลับไปยังแหล่งเพลง";
+"tv_scrape_enabled_count_format" = "เปิดใช้ %d แหล่ง";
+"tv_scrape_lyrics_server_unset" = "ยังไม่มีที่อยู่เซิร์ฟเวอร์ โปรดเพิ่มใน iPhone";
+"tv_scrape_order_hint" = "ระบบจะค้นหาตามลำดับในรายการโดยเริ่มจากด้านบน ใช้ลูกศรขึ้นและลงเพื่อจัดลำดับใหม่";
+"tv_scrape_import_on_phone" = "ตั้งค่าแหล่งข้อมูลแบบกำหนดเอง เซิร์ฟเวอร์ API เนื้อเพลง และคุกกี้บน iPhone แล้วซิงค์ไปยัง Apple TV ด้วยการสแกนโค้ดหรือผ่าน iCloud";
+"tv_scrape_album_title" = "เติมข้อมูลอัลบั้ม";
+"tv_scrape_album_body_fill_format" = "เติมแท็ก ปก และเนื้อเพลงที่ขาดหายไปให้เพลง %d เพลงในอัลบั้มนี้";
+"tv_scrape_album_body_overwrite_format" = "อัปเดตแท็ก ปก และเนื้อเพลงของเพลง %d เพลงในอัลบั้มนี้ด้วยผลลัพธ์ออนไลน์ที่เชื่อถือได้";
+"tv_scrape_album_start" = "เริ่ม";
+"tv_scrape_album_stop" = "หยุด";
+"tv_scrape_album_progress_format" = "%1$d จาก %2$d · %3$@";
+"tv_scrape_album_result_format" = "อัปเดตแล้ว %1$d · ไม่มีข้อมูลใหม่ %2$d";
+"tv_scrape_album_stopped" = "หยุดแล้ว";

@@ -10,6 +10,8 @@ struct TVOptionsView: View {
     @State private var showKaraoke = false
     @State private var showMedleySettings = false
     @State private var pendingMedleyIDs: [String]?
+    @State private var matchTarget: TVSongMatchTarget?
+    @State private var albumScrapeTarget: TVSongMatchTarget?
 
     private struct Action: Identifiable {
         let id = UUID()
@@ -47,7 +49,13 @@ struct TVOptionsView: View {
         let medleySettings: [Action] = isSpokenWord || store.isLiveRadio ? [] : [
             .init(icon: "timer", label: String(localized: "medley_segment_length"), run: { showMedleySettings = true }),
         ]
-        return medley + medleySettings + karaoke + love + [
+        // 用刮削源手动匹配这首歌的标签、封面和歌词(只改这台 Apple TV 上的曲库)。
+        let match: [Action] = store.canMatchMetadata(songID: store.currentSongID) ? [
+            .init(icon: "wand.and.stars", label: String(localized: "tv_scrape_match_title"), run: {
+                if let id = store.currentSongID { matchTarget = TVSongMatchTarget(id: id) }
+            }),
+        ] : []
+        return medley + medleySettings + karaoke + love + match + [
             .init(icon: "moon.zzz.fill",
                   label: sleepOn ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes) : PMString("ext.tv.options.sleepTimer"), on: sleepOn,
                   run: { store.cycleSleepTimer() }),
@@ -96,11 +104,33 @@ struct TVOptionsView: View {
         }
         .modifier(TVMedleyConfirmation(pendingIDs: $pendingMedleyIDs))
         .onExitCommand { dismiss() }
-        .onAppear { FullscreenPlayerEffectSync.shared.install() }
+        .onAppear {
+            FullscreenPlayerEffectSync.shared.install()
+            #if DEBUG
+            // 截图 / 取证:TV_SCREEN=options 配 TV_SCRAPE_DEBUG=match|album 直接打开刮削面板。
+            switch ProcessInfo.processInfo.environment["TV_SCRAPE_DEBUG"] {
+            case "match":
+                // 演示播放态(TV_SCREEN=options)不建队列,取「正在播放」那首。
+                let id = store.currentSongID ?? store.nowPlaying.songID
+                if !id.isEmpty { matchTarget = TVSongMatchTarget(id: id) }
+            case "album":
+                if !store.nowPlaying.albumID.isEmpty {
+                    albumScrapeTarget = TVSongMatchTarget(id: store.nowPlaying.albumID)
+                }
+            default: break
+            }
+            #endif
+        }
         .fullScreenCover(isPresented: $showKaraoke) {
             TVKaraokeStageView()
         }
         .fullScreenCover(isPresented: $showMedleySettings) { TVMedleySettingsView() }
+        .fullScreenCover(item: $matchTarget) { target in
+            TVSongMatchView(songID: target.id).environment(store)
+        }
+        .fullScreenCover(item: $albumScrapeTarget) { target in
+            TVAlbumScrapeView(albumID: target.id).environment(store)
+        }
     }
 
     private func actionTile(_ a: Action) -> some View {

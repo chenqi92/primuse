@@ -4723,3 +4723,23 @@
 "server_playlist_append_read_only" = "スマートプレイリストまたは他のユーザーのプレイリストのため、サーバーが曲の追加を許可していません。";
 "server_playlist_append_not_confirmed" = "追加した曲をサーバーが確認できませんでした。しばらくしてからもう一度お試しください。";
 "server_playlist_append_footer" = "曲はサーバー上のプレイリストに追加されます。削除するにはサーバー側で編集してください。";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "情報を照合";
+"tv_scrape_apply_tags" = "タグ";
+"tv_scrape_no_cover" = "カバーが見つかりません";
+"tv_scrape_no_lyrics" = "歌詞が見つかりません";
+"tv_scrape_lyrics_lines_format" = "%d 行";
+"tv_scrape_local_only_note" = "テレビで照合した情報はこの Apple TV にのみ保存され、音楽ソースには書き戻されません。";
+"tv_scrape_enabled_count_format" = "%d 件のソースが有効";
+"tv_scrape_lyrics_server_unset" = "サーバーアドレスが未設定です。iPhone で入力してください";
+"tv_scrape_order_hint" = "リストの順に上から照会します。上下の矢印で並べ替えできます。";
+"tv_scrape_import_on_phone" = "カスタムのスクレイピングソース、歌詞 API サーバー、Cookie は iPhone で設定し、コードのスキャンまたは iCloud で Apple TV に同期してください。";
+"tv_scrape_album_title" = "アルバム情報を補完";
+"tv_scrape_album_body_fill_format" = "このアルバムの %d 曲について、不足しているタグ、カバー、歌詞を補完します。";
+"tv_scrape_album_body_overwrite_format" = "信頼できるオンラインの結果で、このアルバムの %d 曲のタグ、カバー、歌詞を更新します。";
+"tv_scrape_album_start" = "補完を開始";
+"tv_scrape_album_stop" = "停止";
+"tv_scrape_album_progress_format" = "%1$d / %2$d 曲目 · %3$@";
+"tv_scrape_album_result_format" = "更新 %1$d 曲、新しい情報なし %2$d 曲";
+"tv_scrape_album_stopped" = "停止しました";

@@ -4722,3 +4722,23 @@
 "server_playlist_append_read_only" = "Diese Playlist ist eine intelligente Playlist oder gehört einem anderen Benutzer, daher erlaubt der Server keine neuen Titel.";
 "server_playlist_append_not_confirmed" = "Der Server hat die hinzugefügten Titel nicht bestätigt. Versuche es später erneut.";
 "server_playlist_append_footer" = "Titel werden der Playlist auf dem Server hinzugefügt. Zum Entfernen die Playlist auf dem Server bearbeiten.";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "Infos abgleichen";
+"tv_scrape_apply_tags" = "Tags";
+"tv_scrape_no_cover" = "Kein Cover gefunden";
+"tv_scrape_no_lyrics" = "Kein Songtext gefunden";
+"tv_scrape_lyrics_lines_format" = "%d Zeilen";
+"tv_scrape_local_only_note" = "Auf dem Fernseher abgeglichene Infos werden nur auf diesem Apple TV gespeichert und nicht in die Musikquelle zurückgeschrieben.";
+"tv_scrape_enabled_count_format" = "Aktive Quellen: %d";
+"tv_scrape_lyrics_server_unset" = "Noch keine Serveradresse – auf dem iPhone eintragen";
+"tv_scrape_order_hint" = "Die Quellen werden in Listenreihenfolge von oben abgefragt. Mit den Pfeilen nach oben und unten änderst du die Reihenfolge.";
+"tv_scrape_import_on_phone" = "Eigene Abrufquellen, Songtext-API-Server und Cookies richtest du auf dem iPhone ein und synchronisierst sie per Code-Scan oder iCloud auf das Apple TV.";
+"tv_scrape_album_title" = "Albuminfos ergänzen";
+"tv_scrape_album_body_fill_format" = "Ergänzt fehlende Tags, Cover und Songtexte für alle Songs dieses Albums (%d).";
+"tv_scrape_album_body_overwrite_format" = "Aktualisiert Tags, Cover und Songtexte aller Songs dieses Albums (%d) mit zuverlässigen Online-Treffern.";
+"tv_scrape_album_start" = "Starten";
+"tv_scrape_album_stop" = "Stoppen";
+"tv_scrape_album_progress_format" = "%1$d von %2$d · %3$@";
+"tv_scrape_album_result_format" = "Aktualisiert: %1$d · Nichts Neues: %2$d";
+"tv_scrape_album_stopped" = "Gestoppt";

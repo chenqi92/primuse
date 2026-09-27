@@ -4628,3 +4628,23 @@
 "server_playlist_append_read_only" = "Это умный плейлист или плейлист другого пользователя, поэтому сервер не разрешает добавлять в него треки.";
 "server_playlist_append_not_confirmed" = "Сервер не подтвердил добавленные треки. Повторите попытку позже.";
 "server_playlist_append_footer" = "Треки добавляются в плейлист на сервере. Чтобы удалить их, отредактируйте плейлист на сервере.";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "Подобрать сведения";
+"tv_scrape_apply_tags" = "Теги";
+"tv_scrape_no_cover" = "Обложка не найдена";
+"tv_scrape_no_lyrics" = "Текст не найден";
+"tv_scrape_lyrics_lines_format" = "Строк: %d";
+"tv_scrape_local_only_note" = "Сведения, подобранные на телевизоре, сохраняются только на этом Apple TV и не записываются обратно в источник музыки.";
+"tv_scrape_enabled_count_format" = "Включено источников: %d";
+"tv_scrape_lyrics_server_unset" = "Адрес сервера не задан — добавьте его на iPhone";
+"tv_scrape_order_hint" = "Источники опрашиваются по порядку списка, сверху вниз. Меняйте порядок стрелками вверх и вниз.";
+"tv_scrape_import_on_phone" = "Свои источники метаданных, серверы API текстов и cookie настраиваются на iPhone, а затем синхронизируются с Apple TV через сканирование кода или iCloud.";
+"tv_scrape_album_title" = "Дополнить сведения об альбоме";
+"tv_scrape_album_body_fill_format" = "Дополнить недостающие теги, обложки и тексты для песен альбома (%d).";
+"tv_scrape_album_body_overwrite_format" = "Обновить теги, обложки и тексты песен альбома (%d) надёжными совпадениями из сети.";
+"tv_scrape_album_start" = "Начать";
+"tv_scrape_album_stop" = "Остановить";
+"tv_scrape_album_progress_format" = "%1$d из %2$d · %3$@";
+"tv_scrape_album_result_format" = "Обновлено: %1$d · Без изменений: %2$d";
+"tv_scrape_album_stopped" = "Остановлено";

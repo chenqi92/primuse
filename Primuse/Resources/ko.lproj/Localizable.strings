@@ -4722,3 +4722,23 @@
 "server_playlist_append_read_only" = "스마트 플레이리스트이거나 다른 사용자의 플레이리스트이므로 서버에서 곡 추가를 허용하지 않습니다.";
 "server_playlist_append_not_confirmed" = "서버가 추가한 곡을 확인하지 못했습니다. 나중에 다시 시도하세요.";
 "server_playlist_append_footer" = "곡은 서버의 플레이리스트에 추가됩니다. 제거하려면 서버에서 플레이리스트를 편집하세요.";
+
+// MARK: - Apple TV scraping
+"tv_scrape_match_title" = "정보 매칭";
+"tv_scrape_apply_tags" = "태그";
+"tv_scrape_no_cover" = "커버를 찾지 못했습니다";
+"tv_scrape_no_lyrics" = "가사를 찾지 못했습니다";
+"tv_scrape_lyrics_lines_format" = "%d줄";
+"tv_scrape_local_only_note" = "TV에서 매칭한 정보는 이 Apple TV에만 저장되며 음악 소스에는 기록되지 않습니다.";
+"tv_scrape_enabled_count_format" = "소스 %d개 사용 중";
+"tv_scrape_lyrics_server_unset" = "서버 주소가 없습니다. iPhone에서 입력하세요";
+"tv_scrape_order_hint" = "목록 순서대로 위에서부터 조회합니다. 위아래 화살표로 순서를 바꿀 수 있습니다.";
+"tv_scrape_import_on_phone" = "사용자 지정 스크래퍼 소스, 가사 API 서버, 쿠키는 iPhone에서 설정한 뒤 코드 스캔이나 iCloud로 Apple TV에 동기화하세요.";
+"tv_scrape_album_title" = "앨범 정보 채우기";
+"tv_scrape_album_body_fill_format" = "이 앨범의 노래 %d곡에 빠진 태그, 커버, 가사를 채웁니다.";
+"tv_scrape_album_body_overwrite_format" = "신뢰할 수 있는 온라인 결과로 이 앨범 노래 %d곡의 태그, 커버, 가사를 업데이트합니다.";
+"tv_scrape_album_start" = "시작";
+"tv_scrape_album_stop" = "중지";
+"tv_scrape_album_progress_format" = "%2$d곡 중 %1$d번째 · %3$@";
+"tv_scrape_album_result_format" = "%1$d곡 업데이트, %2$d곡은 새 정보 없음";
+"tv_scrape_album_stopped" = "중지됨";
