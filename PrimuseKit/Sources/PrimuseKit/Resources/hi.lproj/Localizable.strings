@@ -905,3 +905,14 @@
 "ext.lanSettings.received" = "सेटिंग्स सिंक हुईं: %@";
 "ext.lanSettings.category.scraping" = "मेटाडेटा खोज";
 "ext.lanSettings.category.lyricsServers" = "लिरिक्स API सर्वर";
+
+/* Apple TV 顶栏菜单设置 */
+"ext.tv.settings.tabBar" = "ऊपरी मेन्यू";
+"ext.tv.settings.tabBar.footer" = "ऊपरी मेन्यू के पेजों का क्रम बदलें और जिन्हें इस्तेमाल नहीं करते उन्हें छिपाएँ। सेटिंग्स हमेशा ऊपर दाएँ कोने में रहती है और छिपाई नहीं जा सकती।";
+"ext.tv.settings.tabBar.default" = "डिफ़ॉल्ट";
+"ext.tv.settings.tabBar.shownCount" = "%d दिख रहे हैं";
+"ext.tv.settings.tabBar.contentHint" = "सामग्री होने पर ही दिखता है";
+"ext.tv.settings.tabBar.keepOne" = "कम से कम एक ऐसा पेज रखें जो हमेशा दिखे (रेडियो और ऑडियोबुक सामग्री न होने पर नहीं दिखते)।";
+"ext.tv.settings.tabBar.moveUp" = "ऊपर ले जाएँ";
+"ext.tv.settings.tabBar.moveDown" = "नीचे ले जाएँ";
+"ext.tv.settings.tabBar.reset" = "डिफ़ॉल्ट पर लौटाएँ";

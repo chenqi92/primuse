@@ -905,3 +905,14 @@
 "ext.lanSettings.received" = "تمت مزامنة الإعدادات: %@";
 "ext.lanSettings.category.scraping" = "جلب البيانات الوصفية";
 "ext.lanSettings.category.lyricsServers" = "خوادم API للكلمات";
+
+/* Apple TV 顶栏菜单设置 */
+"ext.tv.settings.tabBar" = "القائمة العلوية";
+"ext.tv.settings.tabBar.footer" = "أعد ترتيب صفحات القائمة العلوية وأخفِ الصفحات التي لا تستخدمها. تبقى الإعدادات دائمًا في الزاوية العلوية اليمنى ولا يمكن إخفاؤها.";
+"ext.tv.settings.tabBar.default" = "الافتراضي";
+"ext.tv.settings.tabBar.shownCount" = "%d معروضة";
+"ext.tv.settings.tabBar.contentHint" = "تظهر فقط عند وجود محتوى";
+"ext.tv.settings.tabBar.keepOne" = "أبقِ صفحة واحدة على الأقل تظهر دائمًا (يختفي الراديو والكتب الصوتية عندما لا يكون فيهما محتوى).";
+"ext.tv.settings.tabBar.moveUp" = "نقل لأعلى";
+"ext.tv.settings.tabBar.moveDown" = "نقل لأسفل";
+"ext.tv.settings.tabBar.reset" = "استعادة الافتراضي";

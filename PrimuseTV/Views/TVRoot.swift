@@ -170,12 +170,20 @@ enum TVDebugLaunch {
 /// tvOS 根布局 — 顶部自定义 tab bar(Apple TV / Apple Music for tvOS 风) + 全屏内容。
 /// 正在播放作为一级 tab，队列 / 选项 / 设置仍以全屏覆盖呈现。
 struct TVRoot: View {
-    /// 顺序与 iPhone / iPad / Mac 一致:首页、音乐、电台、有声,再是电视端自己的几页。
-    /// 电台没有台、有声没有内容时这两页不出现(`ListeningSpaceVisibilityPolicy`)。
-    enum Tab: Hashable { case home, library, radio, spokenWord, nowPlaying, playlists, sources, search }
+    /// 默认顺序与 iPhone / iPad / Mac 一致:首页、音乐、电台、有声,再是电视端自己的几页。
+    /// 电台没有台、有声没有内容时这两页不出现(`ListeningSpaceVisibilityPolicy`);
+    /// 用户还能在设置里调顺序、关掉某几页(`TVTabBarConfiguration`)。
+    typealias Tab = TVTabBarItem
 
     @Environment(TVStore.self) private var store
     @State private var tab: Tab
+    @AppStorage(TVTabBarConfiguration.storageKey) private var tabBarConfigurationRawValue = ""
+    /// 被用户关掉的页也可能被带过去:设置里的「资料库 / 歌单 / 音乐源」、开始播放后切到
+    /// 正在播放。停在那一页期间顶栏临时把它放回原位,离开就收起。
+    @State private var transientTab: Tab?
+    /// 用户把电台 / 有声排在最前面:冷启动时它们要等内容载入才出现,先停在第一个
+    /// 不看内容的页,内容一到、用户还没动过就切过去。
+    @State private var pendingLaunchTab: Tab?
     @State private var libraryFilter: TVLibraryView.Filter = .albums
     /// 资料库网格上次停在哪张卡片;播放后回到资料库时由它恢复位置和焦点。
     @State private var libraryBrowseMemory = TVLibraryBrowseMemory()
@@ -203,6 +211,13 @@ struct TVRoot: View {
     @State private var certificateTrustStore = TVServerCertificateTrustStore.shared
 
     init() {
+        let configuration = TVTabBarConfiguration.decode(
+            UserDefaults.standard.string(forKey: TVTabBarConfiguration.storageKey) ?? ""
+        )
+        let landingTab = configuration.order.first { configuration.isShown($0) && !$0.dependsOnContent } ?? .home
+        if let first = configuration.order.first(where: configuration.isShown), first.dependsOnContent {
+            _pendingLaunchTab = State(initialValue: first)
+        }
         let initialTab: Tab
         #if DEBUG
         // 截图预览用:SIMCTL_CHILD_TV_SCREEN=<tab> 直接进入指定页。
@@ -220,10 +235,10 @@ struct TVRoot: View {
         case "sources", "sourcePicker", "sourceForm", "credentials", "otp", "scan", "recycleBin":
             initialTab = .sources
         case "search": initialTab = .search
-        default: initialTab = .home
+        default: initialTab = landingTab
         }
         #else
-        initialTab = .home
+        initialTab = landingTab
         #endif
         _tab = State(initialValue: initialTab)
     }
@@ -324,7 +339,8 @@ struct TVRoot: View {
         .onChange(of: rootModalPresentationCount) { _, count in
             modalActivityChanged(count > 0 || hasChildModalPresentation)
         }
-        // 电台删空 / 有声内容没了:那一页从顶栏消失,停在上面就回首页。
+        // 电台删空 / 有声内容没了 / 在设置里关掉了:那一页从顶栏消失,停在上面就回到
+        // 顶栏的第一页。
         .onChange(of: visibleTabs) { _, tabs in
             #if DEBUG
             if let pending = debugPendingSpaceTab, tabs.contains(pending) {
@@ -333,7 +349,21 @@ struct TVRoot: View {
                 return
             }
             #endif
-            if !tabs.contains(tab) { tab = .home }
+            if let pending = pendingLaunchTab, tabs.contains(pending) {
+                pendingLaunchTab = nil
+                tab = pending
+                // 焦点还停在顶栏原来那一项上:跟着挪过去,免得横移时又把页切回去。
+                if isTabBarFocused { tabFocusRequest &+= 1 }
+                return
+            }
+            if !tabs.contains(tab) { tab = tabs.first ?? .library }
+        }
+        .onChange(of: tab) { _, newTab in
+            pendingLaunchTab = nil
+            transientTab = tabBarConfiguration.isShown(newTab) ? nil : newTab
+        }
+        .onAppear {
+            if !tabBarConfiguration.isShown(tab) { transientTab = tab }
         }
         .fullScreenCover(isPresented: $showSettings) {
             TVSettingsView(onNavigate: { tab = $0 }).environment(store)
@@ -484,16 +514,31 @@ struct TVRoot: View {
         }
     }
 
-    /// 顶栏上出现哪些页:电台、有声只在有内容时出现。
+    private var tabBarConfiguration: TVTabBarConfiguration {
+        TVTabBarConfiguration.decode(tabBarConfigurationRawValue)
+    }
+
+    /// 顶栏上出现哪些页、什么顺序:按用户在设置里的排法,电台、有声只在有内容时出现;
+    /// 被带到一个关掉的页时,临时把它插回用户顺序里的位置。
     private var visibleTabs: [Tab] {
         let spaces = ListeningSpaceVisibilityPolicy.visibleSpaces(
             hasRadioStations: !store.radioStations.isEmpty,
             hasSpokenWord: !store.library.spokenWordSongs.isEmpty
         )
-        var tabs: [Tab] = [.home, .library]
-        if spaces.contains(.radio) { tabs.append(.radio) }
-        if spaces.contains(.spokenWord) { tabs.append(.spokenWord) }
-        tabs += [.nowPlaying, .playlists, .sources, .search]
+        let isAvailable: (Tab) -> Bool = { item in
+            switch item {
+            case .radio: return spaces.contains(.radio)
+            case .spokenWord: return spaces.contains(.spokenWord)
+            default: return true
+            }
+        }
+        let configuration = tabBarConfiguration
+        var tabs = configuration.visibleItems(isAvailable: isAvailable)
+        if let transientTab, !tabs.contains(transientTab), isAvailable(transientTab) {
+            let rank = { (item: Tab) in configuration.order.firstIndex(of: item) ?? 0 }
+            let insertAt = tabs.firstIndex { rank($0) > rank(transientTab) } ?? tabs.endIndex
+            tabs.insert(transientTab, at: insertAt)
+        }
         return tabs
     }
 
@@ -671,6 +716,35 @@ enum TVTabBarEntryFocusPolicy {
 
 // MARK: - 顶部 tab bar
 
+extension TVTabBarItem {
+    /// 顶栏和设置里「顶栏菜单」共用的名字。
+    var tvTitle: String {
+        switch self {
+        case .home: return PMString("ext.tv.nav.home")
+        case .library: return String(localized: "listening_space_music")
+        case .radio: return PMString("ext.tv.radio.title")
+        case .spokenWord: return String(localized: "listening_space_spoken_word")
+        case .nowPlaying: return PMString("ext.tv.nav.nowPlaying")
+        case .playlists: return PMString("ext.tv.nav.playlists")
+        case .sources: return PMString("ext.tv.nav.sources")
+        case .search: return PMString("ext.tv.nav.search")
+        }
+    }
+
+    var tvIcon: String {
+        switch self {
+        case .home: return "house.fill"
+        case .library: return "music.note"
+        case .radio: return "radio.fill"
+        case .spokenWord: return "books.vertical.fill"
+        case .nowPlaying: return "play.circle.fill"
+        case .playlists: return "music.note.list"
+        case .sources: return "server.rack"
+        case .search: return "magnifyingglass"
+        }
+    }
+}
+
 struct TVTabBar: View {
     let active: TVRoot.Tab
     /// 当前该出现的页(电台 / 有声按有无内容增减),顺序即显示顺序。
@@ -684,32 +758,10 @@ struct TVTabBar: View {
     @FocusState private var focusedTarget: TVTabBarFocusTarget?
     @State private var pendingProgrammaticFocusTarget: TVTabBarFocusTarget?
 
-    private func label(for tab: TVRoot.Tab) -> String {
-        switch tab {
-        case .home: return PMString("ext.tv.nav.home")
-        case .library: return String(localized: "listening_space_music")
-        case .radio: return PMString("ext.tv.radio.title")
-        case .spokenWord: return String(localized: "listening_space_spoken_word")
-        case .nowPlaying: return PMString("ext.tv.nav.nowPlaying")
-        case .playlists: return PMString("ext.tv.nav.playlists")
-        case .sources: return PMString("ext.tv.nav.sources")
-        case .search: return PMString("ext.tv.nav.search")
-        }
-    }
-
     private var debugFocusTab: TVRoot.Tab? {
         #if DEBUG
-        switch ProcessInfo.processInfo.environment["TV_FOCUS_TAB"] {
-        case "home": return .home
-        case "library": return .library
-        case "radio": return .radio
-        case "spokenWord": return .spokenWord
-        case "nowPlaying": return .nowPlaying
-        case "playlists": return .playlists
-        case "sources": return .sources
-        case "search": return .search
-        default: return nil
-        }
+        // rawValue 与原来的截图参数一一对应:home / library / radio / spokenWord / ...
+        ProcessInfo.processInfo.environment["TV_FOCUS_TAB"].flatMap(TVRoot.Tab.init(rawValue:))
         #else
         return nil
         #endif
@@ -745,7 +797,7 @@ struct TVTabBar: View {
             HStack(spacing: 8) {
                 ForEach(tabs, id: \.self) { item in
                     TVTabItem(
-                        label: label(for: item),
+                        label: item.tvTitle,
                         isActive: item == active,
                         isFocused: focusedTarget == .tab(item)
                     ) {

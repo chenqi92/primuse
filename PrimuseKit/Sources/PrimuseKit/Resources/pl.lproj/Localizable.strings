@@ -905,3 +905,14 @@
 "ext.lanSettings.received" = "Zsynchronizowano ustawienia: %@";
 "ext.lanSettings.category.scraping" = "Pobieranie metadanych";
 "ext.lanSettings.category.lyricsServers" = "Serwery API tekstów";
+
+/* Apple TV 顶栏菜单设置 */
+"ext.tv.settings.tabBar" = "Górne menu";
+"ext.tv.settings.tabBar.footer" = "Zmieniaj kolejność stron w górnym menu i ukrywaj nieużywane. Ustawienia są zawsze w prawym górnym rogu i nie można ich ukryć.";
+"ext.tv.settings.tabBar.default" = "Domyślne";
+"ext.tv.settings.tabBar.shownCount" = "Widoczne: %d";
+"ext.tv.settings.tabBar.contentHint" = "Pojawia się tylko, gdy jest zawartość";
+"ext.tv.settings.tabBar.keepOne" = "Zostaw co najmniej jedną stronę, która jest zawsze widoczna (Radio i Audiobooki znikają, gdy są puste).";
+"ext.tv.settings.tabBar.moveUp" = "Przesuń w górę";
+"ext.tv.settings.tabBar.moveDown" = "Przesuń w dół";
+"ext.tv.settings.tabBar.reset" = "Przywróć domyślne";

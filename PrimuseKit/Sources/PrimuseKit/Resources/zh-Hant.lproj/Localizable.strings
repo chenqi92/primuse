@@ -955,3 +955,14 @@
 "ext.lanSettings.received" = "已同步設定：%@";
 "ext.lanSettings.category.scraping" = "刮削";
 "ext.lanSettings.category.lyricsServers" = "歌詞 API 服務";
+
+/* Apple TV 顶栏菜单设置 */
+"ext.tv.settings.tabBar" = "頂欄選單";
+"ext.tv.settings.tabBar.footer" = "調整頂欄各頁的順序，關掉不常用的頁面。設定按鈕始終在右上角，無法隱藏。";
+"ext.tv.settings.tabBar.default" = "預設";
+"ext.tv.settings.tabBar.shownCount" = "顯示 %d 項";
+"ext.tv.settings.tabBar.contentHint" = "有內容時才出現";
+"ext.tv.settings.tabBar.keepOne" = "至少要保留一個始終會出現的頁面（電台和有聲在沒有內容時不會出現）。";
+"ext.tv.settings.tabBar.moveUp" = "上移";
+"ext.tv.settings.tabBar.moveDown" = "下移";
+"ext.tv.settings.tabBar.reset" = "恢復預設";

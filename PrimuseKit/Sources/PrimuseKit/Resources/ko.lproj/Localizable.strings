@@ -958,3 +958,14 @@
 "ext.lanSettings.received" = "동기화된 설정: %@";
 "ext.lanSettings.category.scraping" = "메타데이터 스크래핑";
 "ext.lanSettings.category.lyricsServers" = "가사 API 서버";
+
+/* Apple TV 顶栏菜单设置 */
+"ext.tv.settings.tabBar" = "상단 메뉴";
+"ext.tv.settings.tabBar.footer" = "상단 메뉴의 페이지 순서를 바꾸고 사용하지 않는 페이지를 숨길 수 있습니다. 설정은 항상 오른쪽 위에 있으며 숨길 수 없습니다.";
+"ext.tv.settings.tabBar.default" = "기본값";
+"ext.tv.settings.tabBar.shownCount" = "%d개 표시";
+"ext.tv.settings.tabBar.contentHint" = "콘텐츠가 있을 때만 표시";
+"ext.tv.settings.tabBar.keepOne" = "항상 표시되는 페이지를 하나 이상 남겨 두세요(라디오와 오디오북은 콘텐츠가 없으면 표시되지 않습니다).";
+"ext.tv.settings.tabBar.moveUp" = "위로 이동";
+"ext.tv.settings.tabBar.moveDown" = "아래로 이동";
+"ext.tv.settings.tabBar.reset" = "기본값으로 복원";

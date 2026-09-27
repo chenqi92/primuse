@@ -905,3 +905,14 @@
 "ext.lanSettings.received" = "Eşitlenen ayarlar: %@";
 "ext.lanSettings.category.scraping" = "Üst veri alma";
 "ext.lanSettings.category.lyricsServers" = "Şarkı sözü API sunucuları";
+
+/* Apple TV 顶栏菜单设置 */
+"ext.tv.settings.tabBar" = "Üst Menü";
+"ext.tv.settings.tabBar.footer" = "Üst menüdeki sayfaları yeniden sıralayın ve kullanmadıklarınızı gizleyin. Ayarlar her zaman sağ üst köşededir ve gizlenemez.";
+"ext.tv.settings.tabBar.default" = "Varsayılan";
+"ext.tv.settings.tabBar.shownCount" = "%d gösteriliyor";
+"ext.tv.settings.tabBar.contentHint" = "Yalnızca içerik olduğunda görünür";
+"ext.tv.settings.tabBar.keepOne" = "Her zaman görünen en az bir sayfa bırakın (Radyo ve Sesli Kitaplar içerik yokken görünmez).";
+"ext.tv.settings.tabBar.moveUp" = "Yukarı Taşı";
+"ext.tv.settings.tabBar.moveDown" = "Aşağı Taşı";
+"ext.tv.settings.tabBar.reset" = "Varsayılanlara Dön";

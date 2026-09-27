@@ -905,3 +905,14 @@
 "ext.lanSettings.received" = "Настройки синхронизированы: %@";
 "ext.lanSettings.category.scraping" = "Поиск метаданных";
 "ext.lanSettings.category.lyricsServers" = "Серверы API текстов песен";
+
+/* Apple TV 顶栏菜单设置 */
+"ext.tv.settings.tabBar" = "Верхнее меню";
+"ext.tv.settings.tabBar.footer" = "Меняйте порядок страниц в верхнем меню и скрывайте ненужные. Настройки всегда находятся в правом верхнем углу и не скрываются.";
+"ext.tv.settings.tabBar.default" = "По умолчанию";
+"ext.tv.settings.tabBar.shownCount" = "Показано: %d";
+"ext.tv.settings.tabBar.contentHint" = "Появляется, только когда есть контент";
+"ext.tv.settings.tabBar.keepOne" = "Оставьте хотя бы одну страницу, которая видна всегда (Радио и Аудиокниги пропадают, когда в них нет контента).";
+"ext.tv.settings.tabBar.moveUp" = "Вверх";
+"ext.tv.settings.tabBar.moveDown" = "Вниз";
+"ext.tv.settings.tabBar.reset" = "Восстановить по умолчанию";

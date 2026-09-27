@@ -905,3 +905,14 @@
 "ext.lanSettings.received" = "ซิงค์การตั้งค่าแล้ว: %@";
 "ext.lanSettings.category.scraping" = "การดึงเมทาดาทา";
 "ext.lanSettings.category.lyricsServers" = "เซิร์ฟเวอร์ API เนื้อเพลง";
+
+/* Apple TV 顶栏菜单设置 */
+"ext.tv.settings.tabBar" = "เมนูด้านบน";
+"ext.tv.settings.tabBar.footer" = "จัดลำดับหน้าในเมนูด้านบนใหม่และซ่อนหน้าที่ไม่ได้ใช้ การตั้งค่าจะอยู่มุมขวาบนเสมอและซ่อนไม่ได้";
+"ext.tv.settings.tabBar.default" = "ค่าเริ่มต้น";
+"ext.tv.settings.tabBar.shownCount" = "แสดง %d รายการ";
+"ext.tv.settings.tabBar.contentHint" = "แสดงเฉพาะเมื่อมีเนื้อหา";
+"ext.tv.settings.tabBar.keepOne" = "ต้องเหลืออย่างน้อยหนึ่งหน้าที่แสดงเสมอ (วิทยุและหนังสือเสียงจะไม่แสดงเมื่อไม่มีเนื้อหา)";
+"ext.tv.settings.tabBar.moveUp" = "เลื่อนขึ้น";
+"ext.tv.settings.tabBar.moveDown" = "เลื่อนลง";
+"ext.tv.settings.tabBar.reset" = "คืนค่าเริ่มต้น";

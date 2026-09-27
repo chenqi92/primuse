@@ -956,3 +956,14 @@
 "ext.lanSettings.received" = "Settings synced: %@";
 "ext.lanSettings.category.scraping" = "Metadata scraping";
 "ext.lanSettings.category.lyricsServers" = "Lyrics API servers";
+
+/* Apple TV 顶栏菜单设置 */
+"ext.tv.settings.tabBar" = "Top Menu";
+"ext.tv.settings.tabBar.footer" = "Reorder the pages in the top menu and turn off the ones you don’t use. Settings always stays in the top-right corner and can’t be hidden.";
+"ext.tv.settings.tabBar.default" = "Default";
+"ext.tv.settings.tabBar.shownCount" = "%d shown";
+"ext.tv.settings.tabBar.contentHint" = "Appears only when there is content";
+"ext.tv.settings.tabBar.keepOne" = "Keep at least one page that always appears (Radio and Spoken Word disappear when they have no content).";
+"ext.tv.settings.tabBar.moveUp" = "Move Up";
+"ext.tv.settings.tabBar.moveDown" = "Move Down";
+"ext.tv.settings.tabBar.reset" = "Restore Defaults";
