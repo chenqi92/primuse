@@ -5,6 +5,60 @@ import XCTest
 
 @MainActor
 final class ServerListeningStatsConnectorTests: XCTestCase {
+    func testPlaylistSnapshotReadsAllTracksWithoutRequestingSummaryChildCounts() async throws {
+        for kind in [MediaServerSource.Kind.emby, .jellyfin] {
+            let source = makeMediaSource(kind: kind) { request in
+                let url = try XCTUnwrap(request.url)
+                let query = Dictionary(uniqueKeysWithValues:
+                    (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                        .map { ($0.name, $0.value ?? "") }
+                )
+                switch url.path {
+                case "/Users/Me":
+                    return try Self.response(request, json: #"{"Id":"user-1"}"#)
+                case "/Users/user-1/Items":
+                    if query["Fields"]?.split(separator: ",").contains("ChildCount") == true {
+                        throw URLError(.timedOut)
+                    }
+                    guard query["IncludeItemTypes"] == "Playlist",
+                          query["Recursive"] == "true" else {
+                        throw FixtureError.invalidRequest
+                    }
+                    return try Self.response(request, json: #"""
+                    {"Items":[{"Id":"playlist-1","Name":"Playlist","ImageTags":{"Primary":"cover-tag"}}],"TotalRecordCount":1}
+                    """#)
+                case "/Playlists/playlist-1/Items":
+                    guard query["UserId"] == "user-1",
+                          query["Limit"] == "200",
+                          let start = query["StartIndex"].flatMap(Int.init),
+                          start == 0 || start == 200 else {
+                        throw FixtureError.invalidRequest
+                    }
+                    let items = (start..<min(start + 200, 251)).map {
+                        ["Id": "track-\($0)", "Name": "Track \($0)"]
+                    }
+                    let data = try JSONSerialization.data(withJSONObject: [
+                        "Items": items,
+                        "TotalRecordCount": 251
+                    ])
+                    return try Self.response(request, json: String(decoding: data, as: UTF8.self))
+                default:
+                    throw FixtureError.invalidRequest
+                }
+            }
+
+            let snapshot = try await source.fetchServerPlaylists()
+            XCTAssertTrue(snapshot.failedPlaylistIDs.isEmpty)
+            XCTAssertEqual(snapshot.playlists.count, 1)
+            let playlist = try XCTUnwrap(snapshot.playlists.first)
+            XCTAssertEqual(playlist.name, "Playlist")
+            XCTAssertEqual(playlist.trackIDs, (0..<251).map { "track-\($0)" })
+            XCTAssertEqual(playlist.reportedTrackCount, 251)
+            XCTAssertTrue(playlist.coverArtReference?.contains("cover-tag") == true)
+            await source.disconnect()
+        }
+    }
+
     func testCredentialFailureIsNotMisreportedAsUnsupportedCapability() async {
         let connector = CredentialUnavailableSourceConnector(
             sourceID: "stats-credential-failure",

@@ -2104,7 +2104,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             baseQueryItems: [
                 URLQueryItem(name: "IncludeItemTypes", value: "Playlist"),
                 URLQueryItem(name: "Recursive", value: "true"),
-                URLQueryItem(name: "Fields", value: "ChildCount,ImageTags")
+                URLQueryItem(name: "Fields", value: "ImageTags")
             ],
             maximumCount: Self.maximumPlaylistCount,
             deduplicatesItems: true
