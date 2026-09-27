@@ -14,7 +14,6 @@ public final class IncrementalSongStore: @unchecked Sendable {
 
     private let database: DatabaseQueue
     private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
 
     public init(path: String) throws {
         var configuration = Configuration()
@@ -23,8 +22,6 @@ public final class IncrementalSongStore: @unchecked Sendable {
 
         encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
 
         try migrate()
     }
@@ -82,6 +79,8 @@ public final class IncrementalSongStore: @unchecked Sendable {
 
     public func loadSongs() throws -> [Song] {
         // 边读边解码: 先把全部负载读成 [Data] 再解码, 二十多万首时要多占近 200MB。
+        // 读游标只能串行, 解码是纯 CPU 活: 每攒一小批就分到多个核上解码,
+        // 同时在手的负载只有一批(几 MB)。
         try database.read { db in
             var songs: [Song] = []
             let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM librarySongRecords") ?? 0
@@ -90,10 +89,81 @@ public final class IncrementalSongStore: @unchecked Sendable {
                 db,
                 sql: "SELECT payload FROM librarySongRecords ORDER BY orderKey ASC, id ASC"
             )
+            var batch: [Data] = []
+            batch.reserveCapacity(Self.decodeBatchSize)
             while let payload = try payloads.next() {
-                songs.append(try decoder.decode(Song.self, from: payload))
+                batch.append(payload)
+                if batch.count == Self.decodeBatchSize {
+                    songs.append(contentsOf: try Self.decodeSongs(batch))
+                    batch.removeAll(keepingCapacity: true)
+                }
+            }
+            if !batch.isEmpty {
+                songs.append(contentsOf: try Self.decodeSongs(batch))
             }
             return songs
+        }
+    }
+
+    static let decodeBatchSize = 4_096
+    private static let minimumSliceSize = 256
+
+    /// 按原顺序返回; 出错时抛的是顺序上第一条坏行的错误, 与逐条解码一致。
+    static func decodeSongs(_ payloads: [Data]) throws -> [Song] {
+        let sliceCount = min(
+            max(1, ProcessInfo.processInfo.activeProcessorCount),
+            max(1, payloads.count / minimumSliceSize)
+        )
+        let sliceSize = (payloads.count + sliceCount - 1) / sliceCount
+        let results = DecodedSlices(count: sliceCount)
+        DispatchQueue.concurrentPerform(iterations: sliceCount) { slice in
+            let start = slice * sliceSize
+            let end = min(payloads.count, start + sliceSize)
+            // JSONDecoder 是引用类型, 每片各用一个, 不跨线程共享。
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            var songs: [Song] = []
+            songs.reserveCapacity(max(0, end - start))
+            do {
+                for index in start..<max(start, end) {
+                    songs.append(try decoder.decode(Song.self, from: payloads[index]))
+                }
+                results.store(.success(songs), at: slice)
+            } catch {
+                results.store(.failure(error), at: slice)
+            }
+        }
+        var songs: [Song] = []
+        songs.reserveCapacity(payloads.count)
+        for result in results.take() {
+            songs.append(contentsOf: try result.get())
+        }
+        return songs
+    }
+
+    /// 每个下标只由一个解码片写一次, `concurrentPerform` 返回后才读。
+    /// 槽位是一次性分配的裸内存: 并发写同一个数组属性会触发独占访问检查。
+    private final class DecodedSlices: @unchecked Sendable {
+        private let count: Int
+        private let slots: UnsafeMutablePointer<Result<[Song], Error>?>
+
+        init(count: Int) {
+            self.count = count
+            slots = .allocate(capacity: count)
+            slots.initialize(repeating: nil, count: count)
+        }
+
+        deinit {
+            slots.deinitialize(count: count)
+            slots.deallocate()
+        }
+
+        func store(_ result: Result<[Song], Error>, at index: Int) {
+            slots[index] = result
+        }
+
+        func take() -> [Result<[Song], Error>] {
+            (0..<count).map { slots[$0] ?? .success([]) }
         }
     }
 

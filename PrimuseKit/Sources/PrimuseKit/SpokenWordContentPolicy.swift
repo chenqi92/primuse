@@ -51,6 +51,26 @@ public enum SpokenWordContentPolicy {
         )
     }
 
+    /// 与 `classify(filePath:)` 的扩展名判定相同。路径里连 "m4b" 这三个字符
+    /// (不分大小写)都没有时扩展名不可能是它, 省掉逐首的 NSString 桥接。
+    public static func pathHasAudiobookExtension(_ filePath: String) -> Bool {
+        var previous2: UInt8 = 0
+        var previous1: UInt8 = 0
+        var mayContainMarker = false
+        for byte in filePath.utf8 {
+            if previous2 | 0x20 == UInt8(ascii: "m"),
+               previous1 == UInt8(ascii: "4"),
+               byte | 0x20 == UInt8(ascii: "b") {
+                mayContainMarker = true
+                break
+            }
+            previous2 = previous1
+            previous1 = byte
+        }
+        guard mayContainMarker else { return false }
+        return (filePath as NSString).pathExtension.lowercased() == audiobookFileExtension
+    }
+
     public static func genreNamesSpokenWord(_ genre: String?) -> Bool {
         guard let genre else { return false }
         let normalized = genre.lowercased()

@@ -117,6 +117,37 @@ struct IncrementalSongStoreTests {
         }
     }
 
+    @Test("Batched concurrent decoding keeps the stored order across batch boundaries")
+    func concurrentDecodingKeepsOrder() throws {
+        try withStore { store in
+            // 跨两批多一点, 最后一批不满, 每批都会切成多片并行解码。
+            let count = IncrementalSongStore.decodeBatchSize * 2 + 37
+            let songs = (0..<count).map { index in
+                makeSong(id: "song-\(index)", path: "/Music/\(index).flac", title: "第 \(index) 首")
+            }
+            try store.replaceAll(with: songs)
+
+            let loaded = try store.loadSongs()
+            #expect(loaded.map(\.id) == songs.map(\.id))
+            #expect(loaded.map(\.title) == songs.map(\.title))
+        }
+    }
+
+    @Test("A corrupt row still fails the load instead of being skipped")
+    func concurrentDecodingReportsCorruptRows() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var payloads = try (0..<1_000).map { index in
+            try encoder.encode(makeSong(id: "song-\(index)", path: "/\(index).mp3", title: "\(index)"))
+        }
+        payloads[700] = Data("{ not a song".utf8)
+        #expect(throws: (any Error).self) {
+            try IncrementalSongStore.decodeSongs(payloads)
+        }
+        payloads[700] = payloads[699]
+        #expect(try IncrementalSongStore.decodeSongs(payloads).count == 1_000)
+    }
+
     private func withStore(_ body: (IncrementalSongStore) throws -> Void) throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse-song-store-\(UUID().uuidString).sqlite")

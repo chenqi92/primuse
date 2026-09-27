@@ -111,4 +111,22 @@ public struct SpokenWordClassificationInputs: Equatable, Sendable {
         if folderRules.containsSong(sourceID: sourceID, filePath: filePath) { return .spokenWord }
         return SpokenWordContentPolicy.classify(filePath: filePath, genre: genre)
     }
+
+    /// 整库遍历用: 结果与上面一致, 流派判定按原始字符串记在 `genreVerdicts` 里。
+    public func kind(
+        songID: String,
+        sourceID: String,
+        filePath: String,
+        genre: String?,
+        genreVerdicts: inout [String: Bool]
+    ) -> ListeningContentKind {
+        if let override = overrides[songID] { return override }
+        if folderRules.containsSong(sourceID: sourceID, filePath: filePath) { return .spokenWord }
+        if SpokenWordContentPolicy.pathHasAudiobookExtension(filePath) { return .spokenWord }
+        guard let genre else { return .music }
+        if let verdict = genreVerdicts[genre] { return verdict ? .spokenWord : .music }
+        let verdict = SpokenWordContentPolicy.genreNamesSpokenWord(genre)
+        genreVerdicts[genre] = verdict
+        return verdict ? .spokenWord : .music
+    }
 }

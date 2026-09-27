@@ -4220,6 +4220,10 @@ final class MusicLibrary {
         // filter over the library would walk every row a second time.
         var spokenWordSongIDs: Set<String> = []
         var musicArtistIDs: Set<String> = []
+        // 同一组艺术家字段在整库里反复出现(6.6 万首通常只有几千种), 而每次
+        // 解析都要做带区域设置的分隔符检索、折叠和哈希, 这一趟按字段记一次。
+        var artistIDsByFields: [ArtistResolutionFields: [String]] = [:]
+        var spokenWordGenreVerdicts: [String: Bool] = [:]
         for (index, song) in songs.enumerated() {
             indexByID[song.id] = index
             if songByID[song.id] == nil { songByID[song.id] = song }
@@ -4227,13 +4231,21 @@ final class MusicLibrary {
                 songID: song.id,
                 sourceID: song.sourceID,
                 filePath: song.filePath,
-                genre: song.genre
+                genre: song.genre,
+                genreVerdicts: &spokenWordGenreVerdicts
             ) == .spokenWord
             if isSpokenWord { spokenWordSongIDs.insert(song.id) }
-            let artistIDs = resolvedArtistIDs(
-                for: song,
-                configuration: artistNameConfiguration
-            )
+            let artistFields = ArtistResolutionFields(song)
+            let artistIDs: [String]
+            if let memoized = artistIDsByFields[artistFields] {
+                artistIDs = memoized
+            } else {
+                artistIDs = resolvedArtistIDs(
+                    for: song,
+                    configuration: artistNameConfiguration
+                )
+                artistIDsByFields[artistFields] = artistIDs
+            }
             if !isSpokenWord { musicArtistIDs.formUnion(artistIDs) }
             for artistID in artistIDs {
                 songIDsByArtistID[artistID, default: []].append(song.id)
@@ -10073,6 +10085,26 @@ final class MusicLibrary {
         playlistCollectionRevision &+= 1
     }
 
+    /// 启动装载里与当前线程并行的一段纯计算。`wait()` 只调一次。
+    private final class LaunchBackgroundComputation<Value: Sendable>: @unchecked Sendable {
+        private let group = DispatchGroup()
+        private var value: Value?
+
+        init(_ work: @escaping @Sendable () -> Value) {
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                self.value = work()
+                self.group.leave()
+            }
+        }
+
+        func wait() -> Value {
+            group.wait()
+            guard let value else { preconditionFailure("background computation finished without a value") }
+            return value
+        }
+    }
+
     /// A complete, unpublished library. No observable model exists while disk
     /// reads, migrations and whole-library indexes are being prepared.
     struct PreparedStartup: Sendable {
@@ -10264,6 +10296,7 @@ final class MusicLibrary {
                     snapshotFingerprint: compatibilityFingerprint
                 )
                 : nil
+            let startupCacheReadFinishedAt = ProcessInfo.processInfo.systemUptime
             // 只有旧格式带歌曲; 修订号对得上才能直接用里面的歌。
             let startupCache = portableStartupCache.flatMap { cache in
                 cache.formatVersion == MusicLibrary.legacyStartupCacheFormatVersion
@@ -10493,21 +10526,39 @@ final class MusicLibrary {
                 disabledSourceIDs.formUnion(Set(songs.map(\.sourceID)).subtracting(knownSourceIDs))
             }
             let cleanupFinishedAt = ProcessInfo.processInfo.systemUptime
-            let currentDerivedSignature = MusicLibrary.derivedIndexSignature(
-                for: loadedSongs,
-                configuration: artistNameConfiguration
-            )
             let usedDerivedIndexCache: Bool
             let usedCurrentStartupCache = usedPortableStartupCache
                 && portableStartupCache?.formatVersion == MusicLibrary.startupCacheFormatVersion
             let derivedStartupCache = startupCache ?? (usedCurrentStartupCache ? portableStartupCache : nil)
-            if let derivedStartupCache,
-               migration.changedSongs.isEmpty,
-               derivedStartupCache.derivedIndexSignature == currentDerivedSignature {
-                albums = derivedStartupCache.albums
-                artists = derivedStartupCache.artists
-                derivedIndexSignature = currentDerivedSignature
+            // 签名只用来确认启动缓存里的专辑/艺术家还能用, 而命中是常态: 签名放到
+            // 另一个核上算, 这边同时按命中建可见缓存; 对不上时下面照原路重建。
+            let signatureSongs = loadedSongs
+            let signatureConfiguration = artistNameConfiguration
+            let signatureComputation = LaunchBackgroundComputation {
+                let startedAt = ProcessInfo.processInfo.systemUptime
+                let signature = MusicLibrary.derivedIndexSignature(
+                    for: signatureSongs,
+                    configuration: signatureConfiguration
+                )
+                return (signature, ProcessInfo.processInfo.systemUptime - startedAt)
+            }
+            let speculativeStartupCache = migration.changedSongs.isEmpty ? derivedStartupCache : nil
+            if let speculativeStartupCache {
+                albums = speculativeStartupCache.albums
+                artists = speculativeStartupCache.artists
                 rebuildVisibleCache()
+            }
+            let (currentDerivedSignature, signatureSeconds) = signatureComputation.wait()
+            let speculationOutcome: String
+            if let speculativeStartupCache {
+                speculationOutcome = speculativeStartupCache.derivedIndexSignature == currentDerivedSignature
+                    ? "used" : "discarded"
+            } else {
+                speculationOutcome = "none"
+            }
+            if let speculativeStartupCache,
+               speculativeStartupCache.derivedIndexSignature == currentDerivedSignature {
+                derivedIndexSignature = currentDerivedSignature
                 usedDerivedIndexCache = true
             } else {
                 if let cachedIndex = loadDerivedIndexCache(matching: currentDerivedSignature) {
@@ -10532,19 +10583,28 @@ final class MusicLibrary {
             if !usedCurrentStartupCache, canRefreshStartupCache {
                 shouldWriteStartupCache = true
             }
+            // 启动缓存命中后不会再重写, 里面的专辑/艺术家一旦过期(索引重建发生在
+            // 快照落盘之后), 以后每次启动都要白建一遍可见缓存再读另一份派生索引。
+            // 这次已经拿到了对得上的索引, 顺手刷新, 下次就直接命中。
+            if speculationOutcome == "discarded", usedDerivedIndexCache, usedCurrentStartupCache {
+                shouldWriteStartupCache = true
+            }
             plog(String(
-                format: "🚀 library load total=%.0fms read=%.0f decode=%.0f migrate=%.0f cleanup=%.0f derived=%.0f startupCache=%@ derivedCache=%@ bytes=%d songs=%d",
+                format: "🚀 library load total=%.0fms read=%.0f (cache=%.0f) decode=%.0f migrate=%.0f cleanup=%.0f derived=%.0f (signature=%.0f) startupCache=%@ derivedCache=%@ bytes=%d songs=%d speculativeIndex=%@",
                 (indexFinishedAt - loadStartedAt) * 1_000,
                 (readFinishedAt - loadStartedAt) * 1_000,
+                (startupCacheReadFinishedAt - loadStartedAt) * 1_000,
                 (decodeFinishedAt - readFinishedAt) * 1_000,
                 (migrationFinishedAt - decodeFinishedAt) * 1_000,
                 (cleanupFinishedAt - migrationFinishedAt) * 1_000,
                 (indexFinishedAt - cleanupFinishedAt) * 1_000,
+                signatureSeconds * 1_000,
                 usedCurrentStartupCache ? "hit"
                     : (startupCache != nil ? "legacy" : (usedPortableStartupCache ? "partial" : "miss")),
                 usedDerivedIndexCache ? "hit" : "miss",
                 snapshotByteCount,
-                loadedSongs.count
+                loadedSongs.count,
+                speculationOutcome
             ))
             if migration.repairedTextCount > 0 {
                 plog("📚 repaired legacy Chinese metadata text for \(migration.repairedTextCount) song(s)")
@@ -12324,6 +12384,19 @@ final class MusicLibrary {
     ) -> [String] {
         let names = song.effectiveArtistNames(configuration: configuration)
         return names.isEmpty ? [String(localized: "unknown_artist")] : names
+    }
+
+    /// `resolvedArtistIDs` 读到的全部歌曲字段; 配置在一趟遍历里不变。
+    private struct ArtistResolutionFields: Hashable {
+        let artistID: String?
+        let artistName: String?
+        let sourceArtistNames: [String]?
+
+        init(_ song: Song) {
+            artistID = song.artistID
+            artistName = song.artistName
+            sourceArtistNames = song.sourceArtistNames
+        }
     }
 
     private nonisolated static func resolvedArtistIDs(

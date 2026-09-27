@@ -62,4 +62,42 @@ struct SpokenWordFolderRulesTests {
         #expect(inputs.kind(songID: "y", sourceID: "nas", filePath: "/Music/a.mp3", genre: "Rock") == .music)
         #expect(SpokenWordClassificationInputs.empty.kind(songID: "z", sourceID: "nas", filePath: "/Books/a.mp3", genre: nil) == .music)
     }
+
+    @Test("The memoized whole-library pass classifies exactly like the per-song call")
+    func memoizedPassMatches() {
+        let rules = SpokenWordFolderRules(folders: ["nas": ["/Books"]], sources: [descriptor("nas", .smb)])
+        let inputs = SpokenWordClassificationInputs(overrides: ["forced-music": .music, "forced-book": .spokenWord], folderRules: rules)
+        let paths = [
+            "/Books/a.mp3", "/Music/a.m4b", "/Music/a.M4B", "/Music/a.m4b/", "/Music/m4b/a.mp3",
+            "/Music/a.m4bx", "/Music/a.xm4b", "/Music/M4B", "/Music/a.m4a", "/Music/有声.mp3", "",
+        ]
+        let genres: [String?] = [nil, "", "Pop", "Audio Book", "audio-book", "有声书", "Rock", "Pop", "相声 集锦"]
+        var verdicts: [String: Bool] = [:]
+        for songID in ["plain", "forced-music", "forced-book"] {
+            for sourceID in ["nas", "cloud"] {
+                for path in paths {
+                    for genre in genres {
+                        let expected = inputs.kind(songID: songID, sourceID: sourceID, filePath: path, genre: genre)
+                        let actual = inputs.kind(
+                            songID: songID, sourceID: sourceID, filePath: path, genre: genre,
+                            genreVerdicts: &verdicts
+                        )
+                        #expect(actual == expected, "\(songID) \(sourceID) \(path) \(genre ?? "nil")")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test("The byte prefilter agrees with the path-extension check")
+    func audiobookExtensionPrefilter() {
+        let paths = [
+            "a.m4b", "a.M4b", "a.m4B", "/x/y.m4b", "/x/y.m4b/", "/x/y.m4b//", "m4b", ".m4b", "a.m4b.mp3",
+            "/m4b/a.mp3", "a.m4", "a.4b", "a.mb", "/书/第一章.m4b", "/书/第一章.ｍ4b", "a.m4b ", "",
+        ]
+        for path in paths {
+            let expected = (path as NSString).pathExtension.lowercased() == SpokenWordContentPolicy.audiobookFileExtension
+            #expect(SpokenWordContentPolicy.pathHasAudiobookExtension(path) == expected, "\(path)")
+        }
+    }
 }

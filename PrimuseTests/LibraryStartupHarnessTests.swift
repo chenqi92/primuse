@@ -60,20 +60,44 @@ final class LibraryStartupHarnessTests: XCTestCase {
         let albumCount = max(1, songCount / 12)
         let artistCount = max(1, songCount / 40)
 
+        // 真实曲库以中文名为主, 还夹着「、」「/」连写的合唱: 艺术家解析会对
+        // 每首歌做分隔符检索, 纯 ASCII 的单一名字量不出这段代价。
+        let familyNames = ["周", "林", "陈", "王", "张", "李", "刘", "杨", "黄", "吴"]
+        let givenNames = ["杰伦", "俊杰", "奕迅", "菲", "学友", "宇春", "绮贞", "楚生", "鹏", "若昀"]
+        func artistName(_ artistIndex: Int) -> String {
+            guard artistIndex % 3 != 0 else { return "Artist \(artistIndex)" }
+            return familyNames[artistIndex % familyNames.count]
+                + givenNames[(artistIndex / familyNames.count) % givenNames.count]
+                + "\(artistIndex)"
+        }
+        let genres = ["流行", "Rock", "Jazz", "古典", "民谣", "Electronic", "R&B", "说唱"]
+
         var songsBySource: [String: [Song]] = [:]
         for index in 0..<songCount {
             let sourceID = sourceIDs[index % sourceIDs.count]
             let albumIndex = index % albumCount
             let artistIndex = index % artistCount
+            let performer: String
+            switch index % 10 {
+            case 0: performer = artistName(artistIndex) + "、" + artistName((artistIndex + 7) % artistCount)
+            case 1: performer = artistName(artistIndex) + "/" + artistName((artistIndex + 3) % artistCount)
+            default: performer = artistName(artistIndex)
+            }
             let song = Song(
                 id: "harness-\(index)",
                 title: "Track \(index)",
                 albumTitle: "Album \(albumIndex)",
-                artistName: "Artist \(artistIndex)",
+                artistName: performer,
+                albumArtistName: artistName(albumIndex % artistCount),
+                trackNumber: index % 12 + 1,
+                discNumber: 1,
                 duration: 180 + Double(index % 120),
                 fileFormat: .flac,
                 filePath: "/Music/\(sourceID)/\(albumIndex)/\(index).flac",
-                sourceID: sourceID
+                sourceID: sourceID,
+                genre: genres[albumIndex % genres.count],
+                year: 1990 + albumIndex % 35,
+                coverArtFileName: index % 12 == 0 ? "cover-\(albumIndex).jpg" : nil
             )
             songsBySource[sourceID, default: []].append(song)
         }
@@ -232,6 +256,48 @@ final class LibraryStartupHarnessTests: XCTestCase {
             songCount: songCount
         )
         assertPublishStaysOffTheCriticalPath(measurement, songCount: songCount, variant: "warm")
+    }
+
+    // MARK: - 真机常见状态: 两份缓存都命中的重复冷启动
+
+    /// 上面的「热启动」夹具只是刚写完库, 装载日志是 `startupCache=miss
+    /// derivedCache=miss`, 还会重跑一次装载迁移。真机上反复启动时的状态是
+    /// 两份缓存都命中, 这里先完整走一遍准备→发布→落盘把缓存补齐, 再连测几轮。
+    func testRepeatedStartupWithBothCachesHit() async throws {
+        let songCount = Self.songCount
+        let fixture = try await Self.makeFixture(songCount: songCount)
+        defer { try? FileManager.default.removeItem(at: fixture) }
+
+        let settle = MusicLibrary.makePreparing(storageDirectory: fixture)
+        settle.publish(await MusicLibrary.prepareStartup(storageDirectory: fixture))
+        guard case .success = await settle.persistNowAndWait() else {
+            throw XCTSkip("The harness fixture did not settle its launch caches")
+        }
+        await Self.drainLaunchCacheWrites(settle)
+
+        // 原地连测: 启动缓存的指纹带文件编号, 复制出来的目录一定对不上。
+        // 两份缓存都命中时装载不写盘, 每一轮读到的是同一份状态。
+        var rounds: [Double] = []
+        for round in 1...3 {
+            let directory = fixture
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            let prepared = await MusicLibrary.prepareStartup(storageDirectory: directory)
+            let preparedAt = ProcessInfo.processInfo.systemUptime
+            let library = MusicLibrary.makePreparing(storageDirectory: directory)
+            library.publish(prepared)
+            XCTAssertEqual(library.songs.count, songCount)
+            // 发布可能顺手刷新过期的启动缓存, 等它落盘, 下一轮才是真机上的稳态。
+            await Self.drainLaunchCacheWrites(library)
+            rounds.append((preparedAt - startedAt) * 1_000)
+            plog(String(format: "🚀 library harness repeated round=%d songs=%d prepare=%.0fms", round, songCount, rounds.last ?? 0))
+        }
+        plog(String(format: "🚀 library harness repeated songs=%d average=%.0fms", songCount, rounds.reduce(0, +) / Double(rounds.count)))
+    }
+
+    /// 等在途的快照与启动缓存写入落完(外部写入栅栏会等这两条链)。
+    private static func drainLaunchCacheWrites(_ library: MusicLibrary) async {
+        await library.beginExternalSnapshotWrite()
+        library.endExternalSnapshotWrite()
     }
 
     // MARK: - XCTClockMetric 基线
