@@ -8042,6 +8042,61 @@ final class LyricRowAnchorYs {
     var values: [Int: CGFloat] = [:]
 }
 
+struct LyricsBrowseTimeline: View {
+    let timeText: String
+    let onSeek: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        let appearance = NowPlayingAppearance(colorScheme: colorScheme, contrast: contrast)
+        GeometryReader { geometry in
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: 0.5))
+                path.addLine(to: CGPoint(x: geometry.size.width, y: 0.5))
+            }
+            .stroke(
+                appearance.primary.opacity(contrast == .increased ? 0.5 : 0.22),
+                style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [2, 5])
+            )
+        }
+        .frame(height: 1)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .overlay {
+            HStack(spacing: 12) {
+                Text(verbatim: timeText)
+                    .font(.system(.caption, design: .rounded, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(appearance.secondary)
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                    .fixedSize()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                Spacer(minLength: 12)
+
+                Button(action: onSeek) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .offset(x: 1)
+                        .foregroundStyle(appearance.backgroundBase)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(appearance.primary))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("lyrics_play_from_line"))
+                .accessibilityValue(Text(verbatim: timeText))
+            }
+            .offset(y: -32)
+        }
+        .frame(height: 44)
+        .environment(\.layoutDirection, .leftToRight)
+    }
+}
+
 struct LyricsScrollView: View {
     let lyrics: [LyricLine]
     let lyricsWritingDirection: LyricWritingDirection
@@ -8772,7 +8827,6 @@ struct LyricsScrollView: View {
         isManuallyBrowsingLyrics && browsedLineIndex == index ? 1 : base
     }
 
-    /// 拖动歌词时横在定位线上的标识：左边从这句播放，右边是这句的时间。
     @ViewBuilder
     private func browseTimelineIndicator(viewportHeight: CGFloat) -> some View {
         if isManuallyBrowsingLyrics,
@@ -8780,43 +8834,21 @@ struct LyricsScrollView: View {
            lyrics.indices.contains(index),
            lyrics[index].isSynchronized {
             let line = lyrics[index]
-            HStack(spacing: 6) {
-                Button {
-                    lastLyricRowTapAt = Date()
-                    player.seek(to: line.timestamp)
-                    // 跳过去之后立刻回到跟随，定位线随之收起。
-                    lineAutoFollowResumeTask?.cancel()
-                    lastUserScrollTime = .distantPast
-                    withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0)) {
-                        isManuallyBrowsingLyrics = false
-                        browsedLineIndex = nil
-                    }
-                } label: {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(appearance.primary)
-                        .frame(width: 24, height: 24)
-                        .background(Circle().fill(appearance.primary.opacity(0.14)))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+            LyricsBrowseTimeline(timeText: Self.browseTimeText(line.timestamp)) {
+                lastLyricRowTapAt = Date()
+                player.seek(to: line.timestamp)
+                // 跳过去之后立刻回到跟随，定位线随之收起。
+                lineAutoFollowResumeTask?.cancel()
+                lastUserScrollTime = .distantPast
+                withAnimation(.smooth(duration: Self.lyricsTransitionDuration, extraBounce: 0)) {
+                    isManuallyBrowsingLyrics = false
+                    browsedLineIndex = nil
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("lyrics_play_from_line"))
-
-                Rectangle()
-                    .fill(appearance.primary.opacity(0.28))
-                    .frame(height: 0.5)
-
-                Text(verbatim: Self.browseTimeText(line.timestamp))
-                    .font(.caption2.monospacedDigit().weight(.medium))
-                    .foregroundStyle(appearance.secondary)
-                    .fixedSize()
             }
-            .padding(.leading, max(0, Self.lyricsHorizontalPadding - 22))
-            .padding(.trailing, 8)
+            .padding(.leading, Self.lyricsHorizontalPadding)
+            .padding(.trailing, Self.lyricsHorizontalPadding - 6)
             .frame(height: 44)
             .offset(y: viewportHeight * Self.lyricsVisualAnchor - 22)
-            .environment(\.layoutDirection, .leftToRight)
             .transition(.opacity)
             .animation(.easeOut(duration: 0.15), value: index)
         }
