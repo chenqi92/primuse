@@ -171,13 +171,13 @@ jobs:
       - name: 提交更新日志
         if: ${{ !inputs.dry-run }}
         run: |
-          if git diff --quiet -- CHANGELOG.md CHANGELOG.en.md; then
+          if git diff --quiet -- Docs/CHANGELOG.md Docs/CHANGELOG.en.md; then
             echo "更新日志没有变化，跳过提交"
             exit 0
           fi
           git config user.name "chenqi"
           git config user.email "chenqi92104@icloud.com"
-          git add CHANGELOG.md CHANGELOG.en.md
+          git add -f Docs/CHANGELOG.md Docs/CHANGELOG.en.md
           git commit -m "补全 $VERSION 更新日志"
           git pull --rebase origin main
           git push

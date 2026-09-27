@@ -20,7 +20,7 @@ Primuse 是面向 Apple 生态的原生多源音乐播放器。它把本地文�
 ## 文档索引
 
 - [中文说明](README.md) · [English README](README.en.md)
-- [中文更新日志](CHANGELOG.md) · [English Changelog](CHANGELOG.en.md)
+- [中文更新日志](Docs/CHANGELOG.md) · [English Changelog](Docs/CHANGELOG.en.md)
 - [应用截图](#应用截图) · [macOS 桌面版](#macos-桌面版) · [Apple TV 版](#apple-tv-版) · [Apple Watch 与系统集成](#apple-watch-与系统集成)
 - [音乐源](#音乐源) · [电台发现与个性化](#电台发现与个性化) · [播放与格式](#播放与格式) · [歌词与元数据](#歌词与元数据) · [资料库与同步](#资料库与同步)
 - [快速开始](#快速开始) · [自定义刮削源](#自定义刮削源) · [项目结构](#项目结构) · [架构](#架构)

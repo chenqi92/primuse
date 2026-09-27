@@ -20,7 +20,7 @@ The stable release is available on the App Store. Search for “Primuse” or us
 ## Documentation
 
 - [中文说明](README.md) · [English README](README.en.md)
-- [中文更新日志](CHANGELOG.md) · [English Changelog](CHANGELOG.en.md)
+- [中文更新日志](Docs/CHANGELOG.md) · [English Changelog](Docs/CHANGELOG.en.md)
 - [Screenshots](#screenshots) · [macOS Desktop App](#macos-desktop-app) · [Apple TV App](#apple-tv-app) · [Apple Watch and System Integration](#apple-watch-and-system-integration)
 - [Music Sources](#music-sources) · [Radio, Discovery, and Personalization](#radio-discovery-and-personalization) · [Playback and Formats](#playback-and-formats) · [Lyrics and Metadata](#lyrics-and-metadata) · [Library and Sync](#library-and-sync)
 - [Getting Started](#getting-started) · [Custom Scraping Sources](#custom-scraping-sources) · [Project Structure](#project-structure) · [Architecture](#architecture)

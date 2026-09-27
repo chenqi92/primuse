@@ -22,8 +22,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PROJECT_YML = ROOT / "project.yml"
-CHANGELOG_ZH = ROOT / "CHANGELOG.md"
-CHANGELOG_EN = ROOT / "CHANGELOG.en.md"
+CHANGELOG_ZH = ROOT / "Docs" / "CHANGELOG.md"
+CHANGELOG_EN = ROOT / "Docs" / "CHANGELOG.en.md"
 
 # 纯版本提交的前缀，例如「发布 1.9.7（74）」「更新 1.9.6 构建 72 并保留 Siri 名称识别」
 VERSION_PREFIX = re.compile(
