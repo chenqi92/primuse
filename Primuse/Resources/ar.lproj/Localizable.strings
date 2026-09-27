@@ -4624,3 +4624,7 @@
 "folder_pick_includes_future" = "يشمل المجلدات الفرعية المضافة لاحقًا";
 "folder_pick_none" = "لا شيء";
 "folder_pick_select_hint" = "حدد أولًا المجلدات المراد فحصها، أو اختر «المصدر بأكمله» في المستوى الأعلى.";
+"server_playlist_append_failed_title" = "تعذّرت الإضافة إلى قائمة تشغيل الخادم";
+"server_playlist_append_read_only" = "قائمة التشغيل هذه ذكية أو تخص مستخدمًا آخر، لذا لا يسمح الخادم بإضافة أغانٍ إليها.";
+"server_playlist_append_not_confirmed" = "لم يؤكد الخادم الأغاني المضافة. حاول مرة أخرى لاحقًا.";
+"server_playlist_append_footer" = "تُضاف الأغاني إلى قائمة التشغيل على الخادم. لإزالتها، عدّل القائمة على الخادم.";

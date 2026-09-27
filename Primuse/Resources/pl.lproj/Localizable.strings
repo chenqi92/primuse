@@ -4624,3 +4624,7 @@
 "folder_pick_includes_future" = "Obejmuje podfoldery dodane później";
 "folder_pick_none" = "Brak";
 "folder_pick_select_hint" = "Najpierw zaznacz foldery do skanowania albo na najwyższym poziomie wybierz „Całe źródło”.";
+"server_playlist_append_failed_title" = "Nie udało się dodać do playlisty serwera";
+"server_playlist_append_read_only" = "To inteligentna playlista lub playlista innego użytkownika, więc serwer nie pozwala dodawać do niej utworów.";
+"server_playlist_append_not_confirmed" = "Serwer nie potwierdził dodanych utworów. Spróbuj ponownie później.";
+"server_playlist_append_footer" = "Utwory są dodawane do playlisty na serwerze. Aby je usunąć, edytuj playlistę na serwerze.";

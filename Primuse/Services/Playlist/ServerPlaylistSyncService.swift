@@ -49,6 +49,57 @@ enum ServerPlaylistSyncService {
     }
 }
 
+/// 「添加到歌单」里能选的服务端歌单(#162)。镜像歌单本身仍是只读快照, 只是
+/// 支持追加的源(Subsonic 系)允许把自己源里的歌加进去: 先写服务端, 再用服务端
+/// 回读的明细刷新镜像, 不做乐观更新 —— 服务端拒绝时本地什么都没变。
+@MainActor
+enum ServerPlaylistAppendService {
+    /// 这批歌可以加进去的服务端镜像歌单。歌必须全部来自同一个支持追加的源。
+    static func targets(
+        for songs: [Song],
+        library: MusicLibrary,
+        sourcesStore: SourcesStore
+    ) -> [Playlist] {
+        guard let source = source(for: songs, sourcesStore: sourcesStore) else { return [] }
+        return library.playlists.filter {
+            ServerPlaylistWritebackPolicy.serverPlaylistID(
+                fromMirrorPlaylistID: $0.id,
+                sourceID: source.id
+            ) != nil && !ServerPlaylistMirror.readOnlyPlaylistIDs.contains($0.id)
+        }
+    }
+
+    static func source(for songs: [Song], sourcesStore: SourcesStore) -> MusicSource? {
+        guard let sourceID = songs.first?.sourceID,
+              songs.allSatisfy({ $0.sourceID == sourceID }),
+              let source = sourcesStore.source(id: sourceID),
+              source.isEnabled, !source.isDeleted,
+              ServerPlaylistWritebackPolicy.supports(source.type) else { return nil }
+        return source
+    }
+
+    static func append(
+        _ songs: [Song],
+        toMirrorPlaylist playlistID: String,
+        library: MusicLibrary,
+        sourcesStore: SourcesStore,
+        sourceManager: SourceManager
+    ) async throws {
+        guard let source = source(for: songs, sourcesStore: sourcesStore),
+              let serverPlaylistID = ServerPlaylistWritebackPolicy.serverPlaylistID(
+                  fromMirrorPlaylistID: playlistID,
+                  sourceID: source.id
+              ) else { throw CancellationError() }
+        let refreshed = try await sourceManager.appendSongs(
+            songs,
+            toServerPlaylist: serverPlaylistID,
+            source: source
+        )
+        ServerPlaylistMirror.applyAppended(refreshed, source: source, library: library)
+        plog("🎵 Server playlist '\(refreshed.name)' ← \(songs.count) song(s) appended on '\(source.name)'")
+    }
+}
+
 @MainActor
 protocol ServerFavoriteManaging: AnyObject {
     func fetchServerFavorites(for source: MusicSource) async throws -> ServerFavoriteSnapshot?

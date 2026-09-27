@@ -4718,3 +4718,7 @@
 "folder_pick_includes_future" = "Inclut les sous-dossiers ajoutés plus tard";
 "folder_pick_none" = "Aucun";
 "folder_pick_select_hint" = "Sélectionnez d’abord les dossiers à analyser, ou choisissez « Source entière » au premier niveau.";
+"server_playlist_append_failed_title" = "Impossible d'ajouter à la playlist du serveur";
+"server_playlist_append_read_only" = "Cette playlist est une playlist intelligente ou appartient à un autre utilisateur ; le serveur n'autorise pas l'ajout de morceaux.";
+"server_playlist_append_not_confirmed" = "Le serveur n'a pas confirmé les morceaux ajoutés. Réessayez plus tard.";
+"server_playlist_append_footer" = "Les morceaux sont ajoutés à la playlist sur le serveur. Pour les retirer, modifiez la playlist sur le serveur.";

@@ -4718,3 +4718,7 @@
 "folder_pick_includes_future" = "Inklusive später hinzugefügter Unterordner";
 "folder_pick_none" = "Keine";
 "folder_pick_select_hint" = "Wähle zuerst die zu scannenden Ordner aus oder auf der obersten Ebene „Gesamte Quelle“.";
+"server_playlist_append_failed_title" = "Hinzufügen zur Server-Playlist fehlgeschlagen";
+"server_playlist_append_read_only" = "Diese Playlist ist eine intelligente Playlist oder gehört einem anderen Benutzer, daher erlaubt der Server keine neuen Titel.";
+"server_playlist_append_not_confirmed" = "Der Server hat die hinzugefügten Titel nicht bestätigt. Versuche es später erneut.";
+"server_playlist_append_footer" = "Titel werden der Playlist auf dem Server hinzugefügt. Zum Entfernen die Playlist auf dem Server bearbeiten.";

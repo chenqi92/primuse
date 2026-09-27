@@ -4624,3 +4624,7 @@
 "folder_pick_includes_future" = "Sonradan eklenen alt klasörler de dahil";
 "folder_pick_none" = "Seçilmedi";
 "folder_pick_select_hint" = "Önce taranacak klasörleri seçin veya en üst düzeyde “Kaynağın Tamamı” seçeneğini işaretleyin.";
+"server_playlist_append_failed_title" = "Sunucu çalma listesine eklenemedi";
+"server_playlist_append_read_only" = "Bu akıllı bir çalma listesi veya başka bir kullanıcıya ait, bu yüzden sunucu şarkı eklenmesine izin vermiyor.";
+"server_playlist_append_not_confirmed" = "Sunucu eklenen şarkıları onaylamadı. Daha sonra tekrar deneyin.";
+"server_playlist_append_footer" = "Şarkılar sunucudaki çalma listesine eklenir. Kaldırmak için listeyi sunucuda düzenleyin.";

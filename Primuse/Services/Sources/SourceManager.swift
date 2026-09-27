@@ -2013,7 +2013,7 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
-    ServerMediaSharingConnector, ServerFavoriteConnector,
+    ServerPlaylistAppendingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
@@ -2071,6 +2071,15 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
             return try await provider.fetchServerPlaylists()
+        }
+    }
+
+    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
+        try await routing.withMutation { connector in
+            guard let provider = connector as? any ServerPlaylistAppendingConnector else {
+                throw SourceError.connectionFailed("Server playlist connector unavailable")
+            }
+            return try await provider.appendToServerPlaylist(id: id, itemIDs: itemIDs)
         }
     }
 
@@ -11939,6 +11948,34 @@ final class SourceManager {
     func fetchServerPlaylists(for source: MusicSource) async throws -> ServerPlaylistSnapshot? {
         guard let conn = connector(for: source) as? any ServerPlaylistConnector else { return nil }
         return try await conn.fetchServerPlaylists()
+    }
+
+    /// 往服务端歌单里追加这些歌。歌必须都来自 `source`; 源在请求途中被停用、
+    /// 删除或换了账户时按取消处理, 回来的明细不再落地。
+    func appendSongs(
+        _ songs: [Song],
+        toServerPlaylist serverPlaylistID: String,
+        source: MusicSource
+    ) async throws -> ServerPlaylist {
+        guard ServerPlaylistWritebackPolicy.supports(source.type),
+              songs.allSatisfy({ $0.sourceID == source.id }) else { throw CancellationError() }
+        let itemIDs = try songs.map { song -> String in
+            guard let itemID = ServerPlaylistWritebackPolicy.songID(
+                fromConnectorPath: song.filePath,
+                sourceType: source.type
+            ) else { throw SourceError.fileNotFound(song.filePath) }
+            return itemID
+        }
+        let expectedScope = Self.audioCacheScopeSignature(for: source)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope),
+              let conn = connector(for: source) as? any ServerPlaylistAppendingConnector else {
+            throw CancellationError()
+        }
+        let playlist = try await conn.appendToServerPlaylist(id: serverPlaylistID, itemIDs: itemIDs)
+        guard await sourceScopeIsCurrent(sourceID: source.id, expectedScope: expectedScope) else {
+            throw CancellationError()
+        }
+        return playlist
     }
 
     func serverMediaSharingAvailability(

@@ -4695,3 +4695,7 @@
 "folder_pick_includes_future" = "包括日後新增的子資料夾";
 "folder_pick_none" = "未選擇";
 "folder_pick_select_hint" = "請先勾選要掃描的資料夾，或在最上層勾選「整個音樂來源」。";
+"server_playlist_append_failed_title" = "未能加入伺服器播放列表";
+"server_playlist_append_read_only" = "這是智慧型播放列表或其他使用者的播放列表，伺服器不允許加入歌曲。";
+"server_playlist_append_not_confirmed" = "伺服器沒有確認剛加入的歌曲，請稍後再試。";
+"server_playlist_append_footer" = "歌曲會加入伺服器上的這個播放列表；若要移除，請到伺服器上編輯。";

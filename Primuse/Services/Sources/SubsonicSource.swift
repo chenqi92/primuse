@@ -18,7 +18,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     NetworkAdaptiveTranscodingConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
     ResumablePagedSongCatalogConnector,
-    ServerPlaylistConnector, ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
+    ServerPlaylistConnector, ServerPlaylistAppendingConnector,
+    ServerMediaSharingConnector, ServerFavoriteConnector, ServerRadioConnector,
     ServerListeningStatsConnector, ServerRatingConnector, MediaServerWritebackConnector {
     let sourceID: String
 
@@ -1052,14 +1053,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         var result: [ServerPlaylist] = []
         var failedPlaylistIDs = Set<String>()
         result.reserveCapacity(summaries.count + 1)
+        // 别人的公开歌单也会列出来; 只有管理员能往里加歌。只在真的碰到别人的歌单时
+        // 才问一次自己是不是管理员。
+        var isAdmin: Bool?
         for summary in summaries {
             try Task.checkCancellation()
-            let detail: PlaylistContainer
+            let playlist: ServerPlaylist
             do {
-                detail = try await requestJSON(
-                    "getPlaylist",
-                    query: [URLQueryItem(name: "id", value: summary.id.value)]
-                )
+                playlist = try await serverPlaylistDetail(id: summary.id.value, summary: summary)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -1068,23 +1069,14 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 failedPlaylistIDs.insert(summary.id.value)
                 continue
             }
-            guard let playlist = detail.playlist else {
-                failedPlaylistIDs.insert(summary.id.value)
-                plog("⚠️ Subsonic getPlaylist '\(summary.name ?? summary.id.value)' returned no playlist detail")
-                continue
+            if playlist.isReadOnly, !playlist.isSmartPlaylist {
+                if isAdmin == nil { isAdmin = await currentUserIsAdmin() }
+                if isAdmin == true {
+                    result.append(playlist.withReadOnly(false))
+                    continue
+                }
             }
-            let trackIDs = (playlist.entry ?? []).map(\.id)
-            // 名字缺失时退回服务端 ID, 保证镜像歌单不会出现空标题。
-            let name = Self.cleaned(playlist.name ?? summary.name, unknown: "")
-                ?? summary.id.value
-            result.append(ServerPlaylist(
-                id: summary.id.value,
-                name: name,
-                coverArtReference: (playlist.coverArt ?? summary.coverArt)
-                    .flatMap { coverArtURLString(for: $0) },
-                trackIDs: trackIDs,
-                reportedTrackCount: playlist.songCount ?? summary.songCount
-            ))
+            result.append(playlist)
         }
 
         // Airsonic/gonic retain the legacy read-only mirror. Navidrome and the
@@ -1117,7 +1109,81 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         )
     }
 
-    private static let starredPlaylistID = "primuse.subsonic.starred-songs"
+    private static let starredPlaylistID = ServerPlaylistWritebackPolicy.starredPseudoPlaylistID
+
+    /// `updatePlaylist` 的 `songIdToAdd` 会原样追加, 重复的也照加, 所以先读一次
+    /// 明细只追加还不在里面的; 追加完再读一次, 每首都在才算成功。
+    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist {
+        try await connect()
+        guard !id.isEmpty, id != Self.starredPlaylistID else {
+            throw ServerPlaylistAppendError.readOnly
+        }
+        let current = try await serverPlaylistDetail(id: id, summary: nil)
+        if current.isSmartPlaylist {
+            throw ServerPlaylistAppendError.readOnly
+        }
+        if current.isReadOnly, await !currentUserIsAdmin() {
+            throw ServerPlaylistAppendError.readOnly
+        }
+        let present = Set(current.trackIDs)
+        var seen = present
+        let missing = itemIDs.filter { seen.insert($0).inserted }
+        guard !missing.isEmpty else { return current }
+
+        // 全走 GET 查询串, 一次一百首, 免得 URL 超出服务器 / 反代的长度上限。
+        var offset = 0
+        while offset < missing.count {
+            try Task.checkCancellation()
+            let chunk = missing[offset..<min(offset + 100, missing.count)]
+            var query = [URLQueryItem(name: "playlistId", value: id)]
+            query.append(contentsOf: chunk.map { URLQueryItem(name: "songIdToAdd", value: $0) })
+            let _: EmptyContainer = try await requestJSON("updatePlaylist", query: query)
+            offset += chunk.count
+        }
+
+        let refreshed = try await serverPlaylistDetail(id: id, summary: nil)
+        let refreshedIDs = Set(refreshed.trackIDs)
+        guard missing.allSatisfy(refreshedIDs.contains) else {
+            throw ServerPlaylistAppendError.notConfirmed
+        }
+        return refreshed
+    }
+
+    private func serverPlaylistDetail(id: String, summary: PlaylistSummary?) async throws -> ServerPlaylist {
+        let detail: PlaylistContainer = try await requestJSON(
+            "getPlaylist",
+            query: [URLQueryItem(name: "id", value: id)]
+        )
+        guard let playlist = detail.playlist else {
+            throw SourceError.connectionFailed("Subsonic getPlaylist returned no playlist detail")
+        }
+        let trackIDs = (playlist.entry ?? []).map(\.id)
+        // 名字缺失时退回服务端 ID, 保证镜像歌单不会出现空标题。
+        let name = Self.cleaned(playlist.name ?? summary?.name, unknown: "") ?? id
+        // OpenSubsonic 的 `readonly` 标的是 Navidrome 智能歌单; 属主不是自己的
+        // 歌单先按只读算, 管理员身份由调用方再核一次。
+        let isSmart = playlist.readonly ?? summary?.readonly ?? false
+        let owner = playlist.owner ?? summary?.owner
+        let ownedByOther = owner.map { $0.caseInsensitiveCompare(username) != .orderedSame } ?? false
+        return ServerPlaylist(
+            id: id,
+            name: name,
+            coverArtReference: (playlist.coverArt ?? summary?.coverArt)
+                .flatMap { coverArtURLString(for: $0) },
+            trackIDs: trackIDs,
+            reportedTrackCount: playlist.songCount ?? summary?.songCount,
+            isReadOnly: isSmart || ownedByOther,
+            isSmartPlaylist: isSmart
+        )
+    }
+
+    private func currentUserIsAdmin() async -> Bool {
+        let user: TagEditorUserContainer? = try? await requestJSON(
+            "getUser",
+            query: [URLQueryItem(name: "username", value: username)]
+        )
+        return user?.user?.adminRole == true
+    }
 
     // MARK: - Server favorites
 
@@ -1955,6 +2021,8 @@ private struct PlaylistSummary: Decodable {
     let name: String?
     let songCount: Int?
     let coverArt: String?
+    let owner: String?
+    let readonly: Bool?
 }
 
 private struct PlaylistContainer: SubsonicResponseContainer {
@@ -1978,6 +2046,8 @@ private struct PlaylistWithEntries: Decodable {
     let name: String?
     let songCount: Int?
     let coverArt: String?
+    let owner: String?
+    let readonly: Bool?
     let entry: [SubsonicChild]?
 }
 
@@ -2301,6 +2371,7 @@ private struct TagEditorUserContainer: SubsonicResponseContainer {
 
 private struct TagEditorUser: Decodable {
     let coverArtRole: Bool?
+    let adminRole: Bool?
 }
 
 extension SubsonicSource: CatalogDriftReportingConnector {

@@ -241,3 +241,44 @@ struct MirrorPlaylistIdentityTests {
         #expect(!MirrorPlaylistIdentity.isMirrorPlaylist("primuse.system.liked"))
     }
 }
+
+@Suite("Server playlist writeback")
+struct ServerPlaylistWritebackPolicyTests {
+    @Test("Only the Subsonic family can append to server playlists")
+    func supportsSubsonicFamilyOnly() {
+        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic] {
+            #expect(ServerPlaylistWritebackPolicy.supports(type))
+        }
+        for type in [MusicSourceType.jellyfin, .emby, .plex, .fnMusic, .smb, .webdav] {
+            #expect(!ServerPlaylistWritebackPolicy.supports(type))
+        }
+    }
+
+    @Test("Server playlist ID is recovered only from the song's own source")
+    func recoversServerPlaylistIDForOwnSource() {
+        let mine = ServerPlaylistIdentity.playlistID(sourceID: "src-a", serverPlaylistID: "pl.7")
+        let sibling = ServerPlaylistIdentity.playlistID(sourceID: "src-a2", serverPlaylistID: "9")
+
+        #expect(ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: mine, sourceID: "src-a") == "pl.7")
+        #expect(ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: mine, sourceID: "src-b") == nil)
+        #expect(ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: sibling, sourceID: "src-a") == nil)
+        #expect(ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: "A1B2C3", sourceID: "src-a") == nil)
+    }
+
+    @Test("The starred pseudo playlist is never an append target")
+    func rejectsStarredPseudoPlaylist() {
+        let starred = ServerPlaylistIdentity.playlistID(
+            sourceID: "src-a",
+            serverPlaylistID: ServerPlaylistWritebackPolicy.starredPseudoPlaylistID
+        )
+        #expect(ServerPlaylistWritebackPolicy.serverPlaylistID(fromMirrorPlaylistID: starred, sourceID: "src-a") == nil)
+    }
+
+    @Test("Song IDs come from Subsonic connector paths for every family member")
+    func extractsSongIDs() {
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songs/abc123.flac", sourceType: .gonic) == "abc123")
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songs/abc123.flac", sourceType: .navidrome) == "abc123")
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/items/abc123.flac", sourceType: .navidrome) == nil)
+        #expect(ServerPlaylistWritebackPolicy.songID(fromConnectorPath: "/songs/abc123.flac", sourceType: .emby) == nil)
+    }
+}

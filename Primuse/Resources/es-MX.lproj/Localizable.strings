@@ -4624,3 +4624,7 @@
 "folder_pick_includes_future" = "Incluye las subcarpetas que se agreguen después";
 "folder_pick_none" = "Ninguna";
 "folder_pick_select_hint" = "Primero selecciona las carpetas que quieres escanear o elige “Todo el origen” en el nivel superior.";
+"server_playlist_append_failed_title" = "No se pudo agregar a la playlist del servidor";
+"server_playlist_append_read_only" = "Esta playlist es inteligente o pertenece a otro usuario, así que el servidor no permite agregarle canciones.";
+"server_playlist_append_not_confirmed" = "El servidor no confirmó las canciones agregadas. Inténtalo más tarde.";
+"server_playlist_append_footer" = "Las canciones se agregan a la playlist en el servidor. Para quitarlas, edita la playlist en el servidor.";

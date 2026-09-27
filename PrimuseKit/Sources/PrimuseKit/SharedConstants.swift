@@ -1603,6 +1603,52 @@ public enum ServerPlaylistIdentity {
     }
 }
 
+/// Which mirrored server playlists accept songs added from Primuse.
+///
+/// Only the Subsonic family implements an append call (`updatePlaylist` with
+/// `songIdToAdd`). The rest of a mirror stays read-only: removals and reorders
+/// would be overwritten by the next sync. Song IDs are only meaningful on the
+/// server they came from, so a song can go into a mirror of its own source only.
+public enum ServerPlaylistWritebackPolicy {
+    /// Airsonic/gonic mirror getStarred2 as a pseudo playlist; it is not a
+    /// server playlist and cannot be appended to.
+    public static let starredPseudoPlaylistID = "primuse.subsonic.starred-songs"
+
+    public static func supports(_ sourceType: MusicSourceType) -> Bool {
+        switch sourceType {
+        case .subsonic, .navidrome, .airsonic, .gonic:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Server playlist ID behind a local mirror of `sourceID`, or nil when the
+    /// mirror belongs to another source or is the starred pseudo playlist.
+    public static func serverPlaylistID(
+        fromMirrorPlaylistID playlistID: String,
+        sourceID: String
+    ) -> String? {
+        let prefix = ServerPlaylistIdentity.playlistIDPrefix(sourceID: sourceID)
+        guard playlistID.hasPrefix(prefix) else { return nil }
+        let serverID = String(playlistID.dropFirst(prefix.count))
+        guard !serverID.isEmpty, serverID != starredPseudoPlaylistID else { return nil }
+        return serverID
+    }
+
+    public static func songID(
+        fromConnectorPath filePath: String,
+        sourceType: MusicSourceType
+    ) -> String? {
+        guard supports(sourceType) else { return nil }
+        // All four share SubsonicSource and its `/songs/<id>.<suffix>` paths.
+        return ServerFavoriteWritebackPolicy.songID(
+            fromConnectorPath: filePath,
+            sourceType: .subsonic
+        )
+    }
+}
+
 /// Fail-closed capability and identity rules for favorite mutations.
 ///
 /// Playlist reconciliation can tolerate a best-effort item ID because it is a

@@ -10,6 +10,10 @@ enum ServerPlaylistMirror {
         var unresolvedPlaylistCount = 0
     }
 
+    /// 最近一次同步判定为当前账户不能加歌的镜像歌单。只放内存: 冷启动后几秒
+    /// 就会重新同步一次, 在那之前宁可让用户试一次、由服务端拒绝。
+    private(set) static var readOnlyPlaylistIDs: Set<String> = []
+
     static func apply(
         snapshot: ServerPlaylistSnapshot,
         source: MusicSource,
@@ -29,6 +33,11 @@ enum ServerPlaylistMirror {
                 serverPlaylistID: serverPlaylist.id
             )
             let songIDs = uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
+            if serverPlaylist.isReadOnly {
+                readOnlyPlaylistIDs.insert(localID)
+            } else {
+                readOnlyPlaylistIDs.remove(localID)
+            }
 
             // 自报数量大于实际明细数量，说明响应仍被服务器截断或分页中途缺页。
             // 这份明细不是权威快照，不能用它覆盖现有镜像的后半段。
@@ -93,6 +102,28 @@ enum ServerPlaylistMirror {
             keepingIDs: keepIDs
         )
         return result
+    }
+
+    /// 往服务端歌单加完歌后, 用服务端回读的明细刷新这一个镜像, 不必等下一轮
+    /// 整源同步。
+    static func applyAppended(
+        _ serverPlaylist: ServerPlaylist,
+        source: MusicSource,
+        library: MusicLibrary
+    ) {
+        let localID = ServerPlaylistIdentity.playlistID(
+            sourceID: source.id,
+            serverPlaylistID: serverPlaylist.id
+        )
+        let index = serverItemIndex(sourceID: source.id, library: library)
+        let songIDs = uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
+        guard !songIDs.isEmpty else { return }
+        library.ensurePlaylist(id: localID, name: serverPlaylist.name)
+        library.replaceMirrorPlaylistSongs(
+            playlistID: localID,
+            songIDs: songIDs,
+            coverArtPath: serverPlaylist.coverArtReference
+        )
     }
 
     /// 服务端原生 item ID → 本地 `Song.id`。

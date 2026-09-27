@@ -4811,3 +4811,7 @@
 "folder_pick_includes_future" = "包括以后新增的子文件夹";
 "folder_pick_none" = "未选择";
 "folder_pick_select_hint" = "请先勾选要扫描的文件夹，或在最上层勾选「整个音乐源」。";
+"server_playlist_append_failed_title" = "未能加入服务器歌单";
+"server_playlist_append_read_only" = "这是智能歌单或其他用户的歌单，服务器不允许往里加歌。";
+"server_playlist_append_not_confirmed" = "服务器没有确认刚加入的歌曲，请稍后再试。";
+"server_playlist_append_footer" = "歌曲会加进服务器上的这个歌单；要移出请到服务器上编辑。";

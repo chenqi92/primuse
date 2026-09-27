@@ -11,10 +11,15 @@ struct BatchAddToPlaylistSheet: View {
     var onFinish: () -> Void = {}
 
     @Environment(MusicLibrary.self) private var library
+    // 可选: 与 AddToPlaylistSheet 一样, 独立宿主里未必注入。
+    @Environment(SourcesStore.self) private var sourcesStore: SourcesStore?
+    @Environment(SourceManager.self) private var sourceManager: SourceManager?
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedPlaylistID: String?
     @State private var newPlaylistName = ""
+    @State private var isAppending = false
+    @State private var appendErrorMessage: String?
 
     /// 镜像歌单 (Apple Music / 服务端曲库) 会在下次同步时覆盖，不能作为写入
     /// 目标。「我喜欢」仍是本地可编辑歌单，批量加入与逐曲点心形使用同一份成员关系。
@@ -24,12 +29,30 @@ struct BatchAddToPlaylistSheet: View {
         }
     }
 
+    /// 这批歌都来自同一台 Subsonic 系服务器时, 也能加进它上面的歌单(#162)。
+    private var serverPlaylists: [Playlist] {
+        guard let sourcesStore, sourceManager != nil else { return [] }
+        return ServerPlaylistAppendService.targets(for: songs, library: library, sourcesStore: sourcesStore)
+    }
+
+    private var serverSectionTitle: String {
+        sourcesStore.flatMap { ServerPlaylistAppendService.source(for: songs, sourcesStore: $0)?.name }
+            ?? String(localized: "playlist_kind_server_mirror")
+    }
+
+    private var appendErrorBinding: Binding<Bool> {
+        Binding(
+            get: { appendErrorMessage != nil },
+            set: { if !$0 { appendErrorMessage = nil } }
+        )
+    }
+
     private var trimmedNewName: String {
         newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var canCommit: Bool {
-        selectedPlaylistID != nil || !trimmedNewName.isEmpty
+        !isAppending && (selectedPlaylistID != nil || !trimmedNewName.isEmpty)
     }
 
     private var songCountText: String {
@@ -45,6 +68,10 @@ struct BatchAddToPlaylistSheet: View {
     }
 
     private func commit() {
+        if let selectedPlaylistID, ServerPlaylistIdentity.isMirrorPlaylist(selectedPlaylistID) {
+            commitToServerPlaylist(selectedPlaylistID)
+            return
+        }
         let targetID: String
         if let selectedPlaylistID {
             targetID = selectedPlaylistID
@@ -55,6 +82,29 @@ struct BatchAddToPlaylistSheet: View {
         library.add(songIDs: songs.map(\.id), toPlaylist: targetID)
         onFinish()
         dismiss()
+    }
+
+    /// 服务端歌单要等服务器确认才算加上, 失败就留在这张表上说明原因。
+    private func commitToServerPlaylist(_ playlistID: String) {
+        guard !isAppending, let sourcesStore, let sourceManager else { return }
+        isAppending = true
+        Task { @MainActor in
+            defer { isAppending = false }
+            do {
+                try await ServerPlaylistAppendService.append(
+                    songs,
+                    toMirrorPlaylist: playlistID,
+                    library: library,
+                    sourcesStore: sourcesStore,
+                    sourceManager: sourceManager
+                )
+                onFinish()
+                dismiss()
+            } catch is CancellationError {
+            } catch {
+                appendErrorMessage = error.localizedDescription
+            }
+        }
     }
 
     // MARK: - iOS
@@ -96,6 +146,24 @@ struct BatchAddToPlaylistSheet: View {
                 } header: {
                     Text("playlists_title")
                 }
+
+                if !serverPlaylists.isEmpty {
+                    Section {
+                        ForEach(serverPlaylists) { playlist in
+                            Button {
+                                selectedPlaylistID = playlist.id
+                                newPlaylistName = ""
+                            } label: {
+                                iosPlaylistRow(playlist)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } header: {
+                        Text(verbatim: serverSectionTitle)
+                    } footer: {
+                        Text("server_playlist_append_footer")
+                    }
+                }
             }
             .floatingInputPanelClearance()
             .navigationTitle(Text("add_to_playlist"))
@@ -114,10 +182,19 @@ struct BatchAddToPlaylistSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("add", action: commit)
-                        .fontWeight(.semibold)
-                        .disabled(!canCommit)
+                    if isAppending {
+                        ProgressView()
+                    } else {
+                        Button("add", action: commit)
+                            .fontWeight(.semibold)
+                            .disabled(!canCommit)
+                    }
                 }
+            }
+            .alert(String(localized: "server_playlist_append_failed_title"), isPresented: appendErrorBinding) {
+                Button(String(localized: "ok"), role: .cancel) {}
+            } message: {
+                Text(verbatim: appendErrorMessage ?? "")
             }
         }
     }
@@ -196,6 +273,16 @@ struct BatchAddToPlaylistSheet: View {
                         }
                     }
 
+                    if !serverPlaylists.isEmpty {
+                        Text(verbatim: serverSectionTitle)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(PMColor.textFaint)
+                            .padding(.top, 4)
+                        ForEach(serverPlaylists) { playlist in
+                            macPlaylistRow(playlist)
+                        }
+                    }
+
                     VStack(alignment: .leading, spacing: 6) {
                         Text("new_playlist")
                             .font(.system(size: 11, weight: .semibold))
@@ -242,6 +329,11 @@ struct BatchAddToPlaylistSheet: View {
         }
         .frame(width: 420, height: 520)
         .background(PMColor.bg)
+        .alert(String(localized: "server_playlist_append_failed_title"), isPresented: appendErrorBinding) {
+            Button(String(localized: "ok"), role: .cancel) {}
+        } message: {
+            Text(verbatim: appendErrorMessage ?? "")
+        }
     }
 
     private func macPlaylistRow(_ playlist: Playlist) -> some View {

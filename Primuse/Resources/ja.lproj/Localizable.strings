@@ -4719,3 +4719,7 @@
 "folder_pick_includes_future" = "今後追加されるサブフォルダも含みます";
 "folder_pick_none" = "未選択";
 "folder_pick_select_hint" = "スキャンするフォルダを先に選択するか、最上位で「ソース全体」を選択してください。";
+"server_playlist_append_failed_title" = "サーバーのプレイリストに追加できませんでした";
+"server_playlist_append_read_only" = "スマートプレイリストまたは他のユーザーのプレイリストのため、サーバーが曲の追加を許可していません。";
+"server_playlist_append_not_confirmed" = "追加した曲をサーバーが確認できませんでした。しばらくしてからもう一度お試しください。";
+"server_playlist_append_footer" = "曲はサーバー上のプレイリストに追加されます。削除するにはサーバー側で編集してください。";

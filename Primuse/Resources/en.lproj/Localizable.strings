@@ -4481,3 +4481,7 @@
 "folder_pick_includes_future" = "Includes subfolders added later";
 "folder_pick_none" = "None";
 "folder_pick_select_hint" = "Select the folders to scan first, or choose “Entire Source” at the top level.";
+"server_playlist_append_failed_title" = "Couldn't Add to Server Playlist";
+"server_playlist_append_read_only" = "This playlist is a smart playlist or belongs to another user, so the server doesn't allow adding songs to it.";
+"server_playlist_append_not_confirmed" = "The server didn't confirm the added songs. Try again later.";
+"server_playlist_append_footer" = "Songs are added to the playlist on the server. To remove them, edit the playlist on the server.";

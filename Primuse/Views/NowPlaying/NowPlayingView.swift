@@ -7028,12 +7028,57 @@ struct SongInfoSheet: View {
 struct AddToPlaylistSheet: View {
     let song: Song
     @Environment(MusicLibrary.self) private var library
+    // 可选: 这张表也会从独立宿主(外接屏、菜单栏)里弹出, 那边未必注入了这两个。
+    @Environment(SourcesStore.self) private var sourcesStore: SourcesStore?
+    @Environment(SourceManager.self) private var sourceManager: SourceManager?
     @Environment(\.dismiss) private var dismiss
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
+    @State private var appendingPlaylistID: String?
+    @State private var appendErrorMessage: String?
 
     private var editablePlaylists: [Playlist] {
         library.playlists.filter { isEditablePlaylist($0.id) }
+    }
+
+    /// 这首歌所在服务器上的歌单(#162)。只能往里加, 移出要在服务器上操作。
+    private var serverPlaylists: [Playlist] {
+        guard let sourcesStore, sourceManager != nil else { return [] }
+        return ServerPlaylistAppendService.targets(for: [song], library: library, sourcesStore: sourcesStore)
+    }
+
+    private var serverSectionTitle: String {
+        sourcesStore.flatMap { ServerPlaylistAppendService.source(for: [song], sourcesStore: $0)?.name }
+            ?? String(localized: "playlist_kind_server_mirror")
+    }
+
+    private var appendErrorBinding: Binding<Bool> {
+        Binding(
+            get: { appendErrorMessage != nil },
+            set: { if !$0 { appendErrorMessage = nil } }
+        )
+    }
+
+    private func appendToServerPlaylist(_ playlist: Playlist) {
+        guard appendingPlaylistID == nil,
+              let sourcesStore, let sourceManager,
+              !library.contains(songID: song.id, inPlaylist: playlist.id) else { return }
+        appendingPlaylistID = playlist.id
+        Task { @MainActor in
+            defer { appendingPlaylistID = nil }
+            do {
+                try await ServerPlaylistAppendService.append(
+                    [song],
+                    toMirrorPlaylist: playlist.id,
+                    library: library,
+                    sourcesStore: sourcesStore,
+                    sourceManager: sourceManager
+                )
+            } catch is CancellationError {
+            } catch {
+                appendErrorMessage = error.localizedDescription
+            }
+        }
     }
 
     var body: some View {
@@ -7066,6 +7111,18 @@ struct AddToPlaylistSheet: View {
                         }
                     }
                 }
+
+                if !serverPlaylists.isEmpty {
+                    Section {
+                        ForEach(serverPlaylists) { playlist in
+                            serverPlaylistRow(playlist: playlist)
+                        }
+                    } header: {
+                        Text(verbatim: serverSectionTitle)
+                    } footer: {
+                        Text("server_playlist_append_footer")
+                    }
+                }
             }
             .navigationTitle(String(localized: "add_to_playlist"))
             .navigationBarTitleDisplayMode(.inline)
@@ -7083,6 +7140,11 @@ struct AddToPlaylistSheet: View {
                     library.add(songID: song.id, toPlaylist: pl.id)
                     newPlaylistName = ""
                 }
+            }
+            .alert(String(localized: "server_playlist_append_failed_title"), isPresented: appendErrorBinding) {
+                Button(String(localized: "ok"), role: .cancel) {}
+            } message: {
+                Text(verbatim: appendErrorMessage ?? "")
             }
         }
     }
@@ -7126,7 +7188,7 @@ struct AddToPlaylistSheet: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 2) {
-                    if editablePlaylists.isEmpty {
+                    if editablePlaylists.isEmpty && serverPlaylists.isEmpty {
                         ContentUnavailableView {
                             Label(String(localized: "no_playlists"), systemImage: "music.note.list")
                         }
@@ -7134,6 +7196,18 @@ struct AddToPlaylistSheet: View {
                     } else {
                         ForEach(editablePlaylists) { playlist in
                             macPlaylistRow(playlist)
+                        }
+                        if !serverPlaylists.isEmpty {
+                            Text(verbatim: serverSectionTitle)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(PMColor.textFaint)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 8)
+                                .padding(.top, editablePlaylists.isEmpty ? 0 : 10)
+                                .padding(.bottom, 2)
+                            ForEach(serverPlaylists) { playlist in
+                                macPlaylistRow(playlist)
+                            }
                         }
                     }
                 }
@@ -7183,6 +7257,11 @@ struct AddToPlaylistSheet: View {
                 newPlaylistName = ""
             }
         }
+        .alert(String(localized: "server_playlist_append_failed_title"), isPresented: appendErrorBinding) {
+            Button(String(localized: "ok"), role: .cancel) {}
+        } message: {
+            Text(verbatim: appendErrorMessage ?? "")
+        }
     }
 
     private func macPlaylistRow(_ playlist: Playlist) -> some View {
@@ -7190,7 +7269,10 @@ struct AddToPlaylistSheet: View {
         let count = library.songs(forPlaylist: playlist.id).count
 
         return Button {
-            guard isEditablePlaylist(playlist.id) else { return }
+            guard isEditablePlaylist(playlist.id) else {
+                appendToServerPlaylist(playlist)
+                return
+            }
             if isAdded {
                 library.remove(songID: song.id, fromPlaylist: playlist.id)
             } else {
@@ -7212,7 +7294,9 @@ struct AddToPlaylistSheet: View {
 
                 Spacer()
 
-                if isAdded {
+                if appendingPlaylistID == playlist.id {
+                    ProgressView().controlSize(.small)
+                } else if isAdded {
                     Image(systemName: "checkmark")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(PMColor.brand)
@@ -7254,6 +7338,34 @@ struct AddToPlaylistSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func serverPlaylistRow(playlist: Playlist) -> some View {
+        let isAdded = library.contains(songID: song.id, inPlaylist: playlist.id)
+        Button {
+            appendToServerPlaylist(playlist)
+        } label: {
+            HStack {
+                PlaylistArtworkView(playlist: playlist, size: 40, cornerRadius: 6)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(playlist.name).font(.body)
+                    Text("\(library.songCount(forPlaylist: playlist.id)) \(String(localized: "songs_count"))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if appendingPlaylistID == playlist.id {
+                    ProgressView()
+                } else {
+                    Image(systemName: isAdded ? "checkmark.circle.fill" : "plus.circle")
+                        .font(.title3)
+                        .foregroundStyle(isAdded ? Color.accentColor : .secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isAdded || appendingPlaylistID != nil)
     }
 
     private func isEditablePlaylist(_ playlistID: String) -> Bool {

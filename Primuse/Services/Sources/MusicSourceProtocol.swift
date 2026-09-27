@@ -2048,19 +2048,39 @@ struct ServerPlaylist: Sendable {
     /// 说明响应被截断; 用来区分"服务端歌单真的空了"和"这次没取到曲目",
     /// 后者不能清空已有镜像。
     let reportedTrackCount: Int?
+    /// 当前账户不能往里加歌(别人的歌单、智能歌单)。只对支持追加的源有意义。
+    let isReadOnly: Bool
+    /// 服务端按规则生成的歌单(Navidrome `.nsp`), 谁都不能手动加歌。
+    let isSmartPlaylist: Bool
 
     init(
         id: String,
         name: String,
         coverArtReference: String? = nil,
         trackIDs: [String],
-        reportedTrackCount: Int? = nil
+        reportedTrackCount: Int? = nil,
+        isReadOnly: Bool = false,
+        isSmartPlaylist: Bool = false
     ) {
         self.id = id
         self.name = name
         self.coverArtReference = coverArtReference
         self.trackIDs = trackIDs
         self.reportedTrackCount = reportedTrackCount
+        self.isReadOnly = isReadOnly || isSmartPlaylist
+        self.isSmartPlaylist = isSmartPlaylist
+    }
+
+    func withReadOnly(_ isReadOnly: Bool) -> ServerPlaylist {
+        ServerPlaylist(
+            id: id,
+            name: name,
+            coverArtReference: coverArtReference,
+            trackIDs: trackIDs,
+            reportedTrackCount: reportedTrackCount,
+            isReadOnly: isReadOnly,
+            isSmartPlaylist: isSmartPlaylist
+        )
     }
 }
 
@@ -2096,6 +2116,27 @@ struct ServerPlaylistSnapshot: Sendable {
 /// 只读: Primuse 侧的编辑不回写服务端, 镜像歌单在下次扫描时被服务端内容覆盖。
 protocol ServerPlaylistConnector: MusicSourceConnector {
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot
+}
+
+/// 往服务端已有歌单里追加歌曲(Subsonic `updatePlaylist`)。只追加, 不删不排序 ——
+/// 镜像歌单其余的编辑仍以服务端为准。返回追加后服务端的完整明细, 调用方用它
+/// 直接刷新本地镜像。
+protocol ServerPlaylistAppendingConnector: MusicSourceConnector {
+    func appendToServerPlaylist(id: String, itemIDs: [String]) async throws -> ServerPlaylist
+}
+
+enum ServerPlaylistAppendError: LocalizedError, Equatable {
+    /// 智能歌单或别人的歌单, 服务端不让当前账户改。
+    case readOnly
+    /// 请求成功了, 但回读的歌单里没有刚加的歌。
+    case notConfirmed
+
+    var errorDescription: String? {
+        switch self {
+        case .readOnly: String(localized: "server_playlist_append_read_only")
+        case .notConfirmed: String(localized: "server_playlist_append_not_confirmed")
+        }
+    }
 }
 
 /// Public-link creation exposed by a media server. Capability probing is a
