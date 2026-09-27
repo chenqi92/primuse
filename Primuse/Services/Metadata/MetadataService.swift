@@ -57,7 +57,8 @@ actor MetadataService {
         trustedSource: Bool = true,
         fallbackTitle: String? = nil,
         forceOnlineRefresh: Bool = false,
-        discoverSidecars: Bool = true
+        discoverSidecars: Bool = true,
+        storesLyrics: Bool = true
     ) async -> SongMetadata {
         // 1. Read embedded metadata
         let embedded = await FileMetadataReader.read(from: url)
@@ -197,7 +198,7 @@ actor MetadataService {
                     result.coverArtFileName = assetStore.expectedCoverFileName(for: cacheKey)
                 }
             }
-            if let lyrics = result.lyrics {
+            if storesLyrics, let lyrics = result.lyrics {
                 if trustedSource {
                     result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
                 } else {
@@ -298,12 +299,19 @@ actor MetadataService {
         return result
     }
 
-    func storingEmbeddedAssets(in metadata: SongMetadata, cacheKey: String) async -> SongMetadata {
+    /// - Parameter storesLyrics: false keeps the file's lyrics out of this
+    ///   key's cache — a CUE virtual track with its own lyric file must not
+    ///   inherit the whole image's embedded lyrics.
+    func storingEmbeddedAssets(
+        in metadata: SongMetadata,
+        cacheKey: String,
+        storesLyrics: Bool = true
+    ) async -> SongMetadata {
         var result = metadata
         if result.coverArtFileName == nil, let coverArtData = result.coverArtData {
             result.coverArtFileName = await assetStore.storeCover(coverArtData, for: cacheKey)
         }
-        if result.lyricsFileName == nil, let lyrics = result.lyrics {
+        if storesLyrics, result.lyricsFileName == nil, let lyrics = result.lyrics {
             result.lyricsFileName = await assetStore.storeLyrics(lyrics, for: cacheKey)
         }
         return result

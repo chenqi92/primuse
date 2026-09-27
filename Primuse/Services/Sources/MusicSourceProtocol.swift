@@ -640,6 +640,34 @@ enum SidecarHintResolver {
         )
     }
 
+    /// A CUE image's sync fingerprint also covers the per-track lyric files
+    /// beside it: they never share its name, so the ordinary same-name
+    /// fingerprint would not notice one being added, edited or removed.
+    static func cueImageItem(_ item: RemoteFileItem, index: DirectoryIndex) -> RemoteFileItem {
+        guard index.cueTrackLyricsFingerprint != nil else { return item }
+        let hints = item.sidecarHints
+        return RemoteFileItem(
+            name: item.name,
+            path: item.path,
+            isDirectory: item.isDirectory,
+            size: item.size,
+            modifiedDate: item.modifiedDate,
+            sidecarHints: SidecarHints(
+                coverPath: hints?.coverPath,
+                lyricsPath: hints?.lyricsPath,
+                mvPath: hints?.mvPath,
+                snapshotFingerprint: index.snapshotFingerprint(
+                    selectedPaths: [hints?.coverPath, hints?.lyricsPath, hints?.mvPath],
+                    includingCueTrackLyrics: true
+                ),
+                isAuthoritative: hints?.isAuthoritative ?? true
+            ),
+            revision: item.revision,
+            providerID: item.providerID,
+            parentPath: item.parentPath
+        )
+    }
+
     private static func decoratedAudioItem(
         _ item: RemoteFileItem,
         index: DirectoryIndex
@@ -962,6 +990,12 @@ struct LyricsSidecarTarget: Sendable, Equatable {
     /// opaque identifier, and the language tag only exists in the name.
     let translationFileName: String?
     let translationSize: Int64?
+    /// Where a save goes when the document read here is shared by several
+    /// songs: a CUE virtual track that only has the image's album-wide
+    /// `<image>.lrc` gets its own per-track file instead of rewriting the
+    /// lyrics of every other track.
+    let separateWritePath: String?
+    let separateWriteFileName: String?
 
     init(
         targetPath: String,
@@ -974,7 +1008,9 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         songBaseName: String? = nil,
         translationPath: String? = nil,
         translationFileName: String? = nil,
-        translationSize: Int64? = nil
+        translationSize: Int64? = nil,
+        separateWritePath: String? = nil,
+        separateWriteFileName: String? = nil
     ) {
         self.targetPath = targetPath
         self.fileName = fileName
@@ -990,6 +1026,8 @@ struct LyricsSidecarTarget: Sendable, Equatable {
         self.translationPath = translationPath
         self.translationFileName = translationFileName
         self.translationSize = translationSize
+        self.separateWritePath = separateWritePath
+        self.separateWriteFileName = separateWriteFileName
     }
 }
 
@@ -1015,6 +1053,16 @@ enum LyricsSidecarTargetPolicy {
         let songBase = (((song.filePath as NSString).lastPathComponent) as NSString)
             .deletingPathExtension
         let items = try await connector.listFiles(at: containerPath)
+        if song.isCueTrack,
+           let cueTarget = try await cueTrackTarget(
+            for: song,
+            songBase: songBase,
+            containerPath: containerPath,
+            items: items,
+            using: connector
+           ) {
+            return cueTarget
+        }
         let existing = try uniqueExistingItem(baseName: songBase, in: items)
         let companion = translationTrackItem(forPrimary: existing, baseName: songBase, in: items)
         let fileName = existing?.name ?? (preferredTargetPath as NSString).lastPathComponent
@@ -1089,6 +1137,17 @@ enum LyricsSidecarTargetPolicy {
     /// it and leaves it untouched. The translated companion is not part of a
     /// save either, so the write view does not carry it.
     static func writeTarget(for target: LyricsSidecarTarget) throws -> LyricsSidecarTarget {
+        if let path = target.separateWritePath, let fileName = target.separateWriteFileName {
+            return LyricsSidecarTarget(
+                targetPath: path,
+                fileName: fileName,
+                containerPath: target.containerPath,
+                exists: false,
+                existingPath: nil,
+                existingSize: nil,
+                songBaseName: CueTrackLyricsSidecarPolicy.documentBaseName(ofFileName: fileName)
+            )
+        }
         guard !LyricsSidecarSelectionPolicy.isWritableDocument(fileName: target.fileName) else {
             return target
         }
@@ -1120,6 +1179,167 @@ enum LyricsSidecarTargetPolicy {
             existingPath: nil,
             existingSize: nil,
             songBaseName: target.songBaseName
+        )
+    }
+
+    /// A CUE virtual track's own lyric document, chosen by the same
+    /// `CueTrackLyricsSidecarPolicy` rules the scanners use, so the editor
+    /// reads and writes the file the library plays. Without one, the read view
+    /// stays on the image's album-wide `<image>.lrc` (if any) but a save gets
+    /// a new per-track file. Nil when the sheet cannot be read: the caller
+    /// then keeps the historical whole-image behaviour instead of guessing.
+    private static func cueTrackTarget(
+        for song: Song,
+        songBase: String,
+        containerPath: String,
+        items: [RemoteFileItem],
+        using connector: any MusicSourceConnector
+    ) async throws -> LyricsSidecarTarget? {
+        guard let trackNumber = song.trackNumber,
+              let cuePath = song.cueSheetPath,
+              let sheet = items.first(where: { !$0.isDirectory && $0.path == cuePath }) else {
+            return storedCueTrackDocument(for: song, containerPath: containerPath, items: items)
+        }
+        let data: Data
+        do {
+            data = try await connector.fetchMetadataRange(
+                path: sheet.path,
+                offset: 0,
+                length: min(max(sheet.size, 64 * 1024), Int64(1024 * 1024))
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return storedCueTrackDocument(for: song, containerPath: containerPath, items: items)
+        }
+        let audioName = (song.filePath as NSString).lastPathComponent
+        guard let cue = CueSheetParser.parse(data: data),
+              let cueFile = cue.files.first(where: {
+                  (($0.name.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent)
+                      .caseInsensitiveCompare(audioName) == .orderedSame
+              }) ?? (cue.files.count == 1 ? cue.files.first : nil) else {
+            return storedCueTrackDocument(for: song, containerPath: containerPath, items: items)
+        }
+        let tracks = cueFile.tracks
+            .filter { $0.type == "AUDIO" && $0.startTime != nil }
+            .map { track in
+                CueTrackLyricsSidecarPolicy.Track(
+                    number: track.number,
+                    title: track.title,
+                    performer: track.performer ?? cue.performer
+                )
+            }
+        guard let track = tracks.first(where: { $0.number == trackNumber }) else {
+            return storedCueTrackDocument(for: song, containerPath: containerPath, items: items)
+        }
+
+        var uniqueByPath: [String: RemoteFileItem] = [:]
+        for item in items where !item.isDirectory {
+            uniqueByPath[item.path] = item
+        }
+        let files = uniqueByPath.values.sorted { $0.path < $1.path }
+        let candidates = CueTrackLyricsSidecarPolicy.candidateIndices(in: files.map(\.name))
+            .map { files[$0] }
+        let cueSheetCount = files.filter {
+            PrimuseConstants.supportedCueSheetExtensions.contains(
+                ($0.name as NSString).pathExtension.lowercased()
+            )
+        }.count
+        let assigned = CueTrackLyricsSidecarPolicy.assignments(
+            tracks: tracks,
+            audioBaseName: songBase,
+            cueBaseName: (sheet.name as NSString).deletingPathExtension,
+            candidateNames: candidates.map(\.name),
+            cueImageCount: max(cueSheetCount, 1)
+        )
+        if let index = assigned[trackNumber] {
+            let document = candidates[index]
+            let baseName = CueTrackLyricsSidecarPolicy.documentBaseName(ofFileName: document.name)
+            let companion = translationTrackItem(forPrimary: document, baseName: baseName, in: items)
+            return LyricsSidecarTarget(
+                targetPath: document.path,
+                fileName: document.name,
+                containerPath: containerPath,
+                exists: true,
+                existingPath: document.path,
+                existingSize: document.size,
+                songBaseName: baseName,
+                translationPath: companion?.path,
+                translationFileName: companion?.name,
+                translationSize: companion?.size
+            )
+        }
+
+        let newFileName = CueTrackLyricsSidecarPolicy.newDocumentFileName(
+            for: track,
+            audioBaseName: songBase
+        )
+        // The policy did not give this name to the track, so a file already
+        // carrying it belongs to someone else; overwriting it is never right.
+        guard !files.contains(where: {
+            $0.name.caseInsensitiveCompare(newFileName) == .orderedSame
+        }) else {
+            throw EmbeddedMetadataWritebackSourceError.conflict
+        }
+        let newPath = (containerPath as NSString).appendingPathComponent(newFileName)
+        if let album = try uniqueExistingItem(baseName: songBase, in: items) {
+            let companion = translationTrackItem(forPrimary: album, baseName: songBase, in: items)
+            return LyricsSidecarTarget(
+                targetPath: album.path,
+                fileName: album.name,
+                containerPath: containerPath,
+                exists: true,
+                existingPath: album.path,
+                existingSize: album.size,
+                songBaseName: songBase,
+                translationPath: companion?.path,
+                translationFileName: companion?.name,
+                translationSize: companion?.size,
+                separateWritePath: newPath,
+                separateWriteFileName: newFileName
+            )
+        }
+        return LyricsSidecarTarget(
+            targetPath: newPath,
+            fileName: newFileName,
+            containerPath: containerPath,
+            exists: false,
+            songBaseName: CueTrackLyricsSidecarPolicy.documentBaseName(ofFileName: newFileName)
+        )
+    }
+
+    /// The per-track file the scanner recorded, for when the sheet itself
+    /// cannot be read right now. It still has to be in the listing.
+    private static func storedCueTrackDocument(
+        for song: Song,
+        containerPath: String,
+        items: [RemoteFileItem]
+    ) -> LyricsSidecarTarget? {
+        guard let reference = song.lyricsFileName,
+              CueTrackLyricsSidecarPolicy.referencesTrackDocument(reference, audioPath: song.filePath) else {
+            return nil
+        }
+        let referenceName = (reference as NSString).lastPathComponent
+        let matches = items.filter { item in
+            !item.isDirectory
+                && (item.path == reference
+                    || (!reference.contains("/")
+                        && item.name.caseInsensitiveCompare(referenceName) == .orderedSame))
+        }
+        guard matches.count == 1, let document = matches.first else { return nil }
+        let baseName = CueTrackLyricsSidecarPolicy.documentBaseName(ofFileName: document.name)
+        let companion = translationTrackItem(forPrimary: document, baseName: baseName, in: items)
+        return LyricsSidecarTarget(
+            targetPath: document.path,
+            fileName: document.name,
+            containerPath: containerPath,
+            exists: true,
+            existingPath: document.path,
+            existingSize: document.size,
+            songBaseName: baseName,
+            translationPath: companion?.path,
+            translationFileName: companion?.name,
+            translationSize: companion?.size
         )
     }
 

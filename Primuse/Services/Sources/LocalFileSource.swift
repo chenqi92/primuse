@@ -328,6 +328,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     ) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
         let inventory = try buildScanInventory(from: path)
         let cueTracksByAudioPath = try await loadCueTracks(from: inventory.cueURLs)
+        var cueImageCountByDirectory: [String: Int] = [:]
+        for audioPath in cueTracksByAudioPath.keys {
+            cueImageCountByDirectory[(audioPath as NSString).deletingLastPathComponent, default: 0] += 1
+        }
         let existingByID = Dictionary(
             existingSongs.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -380,9 +384,19 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                         }
 
                         if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
+                            let directory = (item.path as NSString).deletingLastPathComponent
+                            let trackLyrics = Self.cueTrackLyrics(
+                                for: item,
+                                descriptors: descriptors,
+                                index: inventory.cueDirectoryIndexes[directory],
+                                cueImageCount: cueImageCountByDirectory[directory] ?? 1
+                            )
+                            // 分轨歌词的版本也算进来:后来补进目录的分轨歌词要让这张
+                            // 整轨重建;没有分轨歌词时和以前的版本完全一样。
                             let expectedRevision = Self.cueRevision(
                                 audioRevision: item.revision,
                                 cueRevisions: descriptors.map(\.cueRevision)
+                                    + trackLyrics.values.flatMap(\.values).compactMap(\.revision)
                             )
                             let existingTracks = existingSongs.filter {
                                 $0.filePath == item.path && $0.isCueTrack
@@ -400,7 +414,12 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                                 }
                                 continue
                             }
-                            let tracks = try await self.buildCueSongs(from: item, descriptors: descriptors)
+                            let tracks = try await self.buildCueSongs(
+                                from: item,
+                                descriptors: descriptors,
+                                trackLyrics: trackLyrics,
+                                combinedRevision: expectedRevision
+                            )
                             for track in tracks { continuation.yield(track) }
                             continue
                         }
@@ -452,6 +471,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     private struct LocalScanInventory: Sendable {
         var items: [RemoteFileItem]
         var cueURLs: [URL]
+        /// Sibling indexes of the directories that hold a CUE sheet, keyed by
+        /// the source-relative directory, for per-track lyric lookup.
+        var cueDirectoryIndexes: [String: SidecarHintResolver.DirectoryIndex] = [:]
     }
 
     /// One filesystem enumeration gathers audio, STRM, CUE, covers, lyrics and
@@ -519,9 +541,18 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         }
 
         var scannable: [RemoteFileItem] = []
+        var cueDirectoryIndexes: [String: SidecarHintResolver.DirectoryIndex] = [:]
         for siblings in filesByParent.values {
             let byPath = Dictionary(siblings.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
             let sidecarIndex = SidecarHintResolver.DirectoryIndex(siblings)
+            if let first = siblings.first,
+               siblings.contains(where: {
+                   PrimuseConstants.supportedCueSheetExtensions.contains(
+                       ($0.name as NSString).pathExtension.lowercased()
+                   )
+               }) {
+                cueDirectoryIndexes[(first.path as NSString).deletingLastPathComponent] = sidecarIndex
+            }
             for item in siblings {
                 guard let decorated = SidecarHintResolver.scannableItem(
                     item,
@@ -547,7 +578,8 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         scannable.sort { $0.path.localizedCompare($1.path) == .orderedAscending }
         return LocalScanInventory(
             items: scannable,
-            cueURLs: cueURLsByPath.values.sorted { $0.path < $1.path }
+            cueURLs: cueURLsByPath.values.sorted { $0.path < $1.path },
+            cueDirectoryIndexes: cueDirectoryIndexes
         )
     }
 
@@ -669,6 +701,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
 
     private struct CueTrackDescriptor: Sendable {
         let cuePath: String
+        let cueName: String
         let cueRevision: String
         let albumTitle: String?
         let albumPerformer: String?
@@ -723,6 +756,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                     result[audioPath, default: []].append(
                         CueTrackDescriptor(
                             cuePath: relativePath(for: cueURL),
+                            cueName: cueURL.lastPathComponent,
                             cueRevision: cueRevision,
                             albumTitle: cue.title,
                             albumPerformer: cue.performer,
@@ -738,9 +772,40 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         return result
     }
 
+    /// Each CUE sheet's per-track lyric files beside `item`, keyed by the
+    /// sheet's relative path and then by track number.
+    private nonisolated static func cueTrackLyrics(
+        for item: RemoteFileItem,
+        descriptors: [CueTrackDescriptor],
+        index: SidecarHintResolver.DirectoryIndex?,
+        cueImageCount: Int
+    ) -> [String: [Int: RemoteFileItem]] {
+        guard let index else { return [:] }
+        let audioBasename = (item.name as NSString).deletingPathExtension
+        var result: [String: [Int: RemoteFileItem]] = [:]
+        for (cuePath, sheetDescriptors) in Dictionary(grouping: descriptors, by: \.cuePath) {
+            let lyrics = index.cueTrackLyrics(
+                tracks: sheetDescriptors.map { descriptor in
+                    CueTrackLyricsSidecarPolicy.Track(
+                        number: descriptor.track.number,
+                        title: descriptor.track.title,
+                        performer: descriptor.track.performer ?? descriptor.albumPerformer
+                    )
+                },
+                audioBasename: audioBasename,
+                cueBasename: (sheetDescriptors[0].cueName as NSString).deletingPathExtension,
+                cueImageCount: cueImageCount
+            )
+            if !lyrics.isEmpty { result[cuePath] = lyrics }
+        }
+        return result
+    }
+
     private func buildCueSongs(
         from item: RemoteFileItem,
-        descriptors: [CueTrackDescriptor]
+        descriptors: [CueTrackDescriptor],
+        trackLyrics: [String: [Int: RemoteFileItem]],
+        combinedRevision: String
     ) async throws -> [ConnectorScannedSong] {
         let fileURL = try await localURL(for: item.path)
         let physicalID = Self.generateID(sourceID: sourceID, path: item.path)
@@ -758,10 +823,6 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         }
         let ffmpegInfo = needsFFmpegProbe ? try? await ffmpegDecoder.fileInfo(for: fileURL) : nil
         let physicalDuration = Self.preferredPositive(ffmpegInfo?.duration, fallback: metadata.duration)
-        let combinedRevision = Self.cueRevision(
-            audioRevision: item.revision,
-            cueRevisions: descriptors.map(\.cueRevision)
-        )
 
         return descriptors.compactMap { descriptor in
             guard let start = descriptor.track.startTime else { return nil }
@@ -812,7 +873,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 year: descriptor.year ?? metadata.year,
                 lastModified: item.modifiedDate,
                 coverArtFileName: item.sidecarHints?.coverPath ?? metadata.coverArtFileName,
-                lyricsFileName: item.sidecarHints?.lyricsPath ?? metadata.lyricsFileName,
+                // 分轨自己的歌词优先;整轨同名歌词和整轨内嵌歌词都是整张专辑的,
+                // 只在这一轨没有自己的歌词文件时兜底。
+                lyricsFileName: trackLyrics[descriptor.cuePath]?[descriptor.track.number]?.path
+                    ?? item.sidecarHints?.lyricsPath
+                    ?? metadata.lyricsFileName,
                 mvPath: item.sidecarHints?.mvPath ?? sidecarPath(nextTo: item.path, named: metadata.mvPath),
                 cueSheetPath: descriptor.cuePath,
                 cueStartTime: start,

@@ -5457,7 +5457,8 @@ struct NowPlayingView: View {
         }
 
         // Tier 2: Check local audio cache for a lyrics sidecar (filesystem only, zero network)
-        if let cachedAudioURL = sourceManager.cachedURL(for: song),
+        if LyricsLoader.usesAudioCacheSidecar(for: song),
+           let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
             guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }

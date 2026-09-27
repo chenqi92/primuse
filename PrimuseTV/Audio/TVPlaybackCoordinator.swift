@@ -305,6 +305,9 @@ final class TVPlaybackCoordinator {
     private lazy var appleMusicPlayer = TVAppleMusicPlayer()
     private let registry = StreamResolverRegistry.shared
     private var lyricsTask: Task<Void, Never>?
+    /// 最近一次为 CUE 分轨找歌词列过的目录。一张专辑接着往下放,每一轨都
+    /// 复用这一次列目录和整理出的曲目表,不再重复访问源。
+    private var cueTrackLyricsDirectory: CueTrackLyricsDirectory?
     private var karaokeLyricsSource: (song: Song, playingID: String)?
     private var playbackMetadataTask: Task<Void, Never>?
     private var playbackMetadataTaskIdentity: PlaybackMetadataIdentity?
@@ -1889,13 +1892,35 @@ final class TVPlaybackCoordinator {
             // 歌词文件路径:① song.lyricsFileName 指向的源内 .lrc(.json 是本机缓存名,已查过);
             // ② 协议直连源(SMB/NFS/FTP)按音频路径推同名 .lrc —— 即便扫描时没记录歌词,播放时
             //    也能就地从 NAS 同目录读到。
+            // CUE 分轨另算:旧扫描、手机快照里的分轨行没记下自己的歌词文件(或记的是整轨
+            // 同名那份),这时列一次目录按曲目找;列得出目录就不再盲猜 `<整轨>.lrc`。
             let isDirect = Self.makeDirectReader(source: source, song: song, credential: credential) != nil
-            var lrcPath: String?
-            if let lf = song.lyricsFileName, !lf.isEmpty, !lf.hasSuffix(".json") {
-                lrcPath = lf
-            } else if isDirect {
+            let storedReference = song.lyricsFileName.flatMap { reference in
+                !reference.isEmpty && !reference.hasSuffix(".json") ? reference : nil
+            }
+            let guessedPath: String? = {
+                guard isDirect else { return nil }
                 let ns = song.filePath as NSString
-                if !ns.pathExtension.isEmpty { lrcPath = ns.deletingPathExtension + ".lrc" }
+                return ns.pathExtension.isEmpty ? nil : ns.deletingPathExtension + ".lrc"
+            }()
+            var lrcPath: String?
+            if song.isCueTrack,
+               !CueTrackLyricsSidecarPolicy.referencesTrackDocument(
+                storedReference,
+                audioPath: song.filePath
+               ) {
+                let lookup = await self.locateCueTrackLyrics(for: song, source: source, store: store)
+                guard self.isCurrent(requestID, store: store) else { return }
+                switch lookup {
+                case .found(let path):
+                    lrcPath = path
+                case .notFound:
+                    lrcPath = nil
+                case .unavailable:
+                    lrcPath = storedReference ?? guessedPath
+                }
+            } else {
+                lrcPath = storedReference ?? guessedPath
             }
             guard let lrcPath else { return }
             var lrcSong = song
@@ -1921,6 +1946,107 @@ final class TVPlaybackCoordinator {
                 guard self.isCurrent(requestID, store: store) else { return }
                 plog("🎬 TV source-lyrics fetch failed '\(song.title)': \(error)")
             }
+        }
+    }
+
+    private struct CueTrackLyricsDirectory {
+        let key: String
+        let index: SidecarDirectoryIndex<TVDirEntry>
+        let cueSheetCount: Int
+        let tracks: [CueTrackLyricsSidecarPolicy.Track]
+        let listedAt: Date
+    }
+
+    private enum CueTrackLyricsLookup {
+        case found(String)
+        /// 目录列出来了,这一轨既没有分轨歌词,整轨也没有同名歌词。
+        case notFound
+        /// 列不了目录(ID 寻址的网盘、源不支持或连不上),调用方照旧处理。
+        case unavailable
+    }
+
+    /// 在分轨所在目录里按 `CueTrackLyricsSidecarPolicy` 找这一轨的歌词;没有分轨
+    /// 歌词时退回整轨同名的那份。曲目表取自资料库里同一整轨、同一张 CUE 的各轨。
+    private func locateCueTrackLyrics(
+        for song: Song,
+        source: MusicSource,
+        store: TVStore
+    ) async -> CueTrackLyricsLookup {
+        guard !source.type.usesOpaqueDirectoryIdentifiers,
+              let trackNumber = song.trackNumber else { return .unavailable }
+        let directory = TVScanPipelinePolicy.normalizedPath(
+            (song.filePath as NSString).deletingLastPathComponent
+        )
+        let key = [source.id, song.filePath, song.cueSheetPath ?? ""].joined(separator: "\u{1F}")
+        let listing: CueTrackLyricsDirectory
+        if let cached = cueTrackLyricsDirectory,
+           cached.key == key,
+           Date().timeIntervalSince(cached.listedAt) < 300 {
+            listing = cached
+        } else {
+            guard let lister = store.makeLister(for: source) else { return .unavailable }
+            let entries: [TVDirEntry]
+            do {
+                entries = try await lister.list(directory)
+            } catch {
+                plog("🎬 TV CUE lyrics directory listing failed '\(song.title)': \(error)")
+                return .unavailable
+            }
+            let cueSheetCount = entries.filter { entry in
+                !entry.isDir && PrimuseConstants.supportedCueSheetExtensions.contains(
+                    (entry.name as NSString).pathExtension.lowercased()
+                )
+            }.count
+            listing = CueTrackLyricsDirectory(
+                key: key,
+                index: SidecarDirectoryIndex(entries),
+                cueSheetCount: cueSheetCount,
+                tracks: Self.cueSiblingTracks(of: song, in: store.library.songs),
+                listedAt: Date()
+            )
+            cueTrackLyricsDirectory = listing
+        }
+
+        let audioBasename = ((song.filePath as NSString).lastPathComponent as NSString)
+            .deletingPathExtension
+        let cueBasename = song.cueSheetPath.map {
+            (($0 as NSString).lastPathComponent as NSString).deletingPathExtension
+        }
+        let assigned = listing.index.cueTrackLyrics(
+            tracks: listing.tracks,
+            audioBasename: audioBasename,
+            cueBasename: cueBasename,
+            cueImageCount: max(listing.cueSheetCount, 1)
+        )
+        if let document = assigned[trackNumber] {
+            plog("🎬 TV CUE track lyrics '\(song.title)' → \(document.name)")
+            return .found(document.path)
+        }
+        if let album = listing.index.sameNameLyrics(basename: audioBasename) {
+            return .found(album.path)
+        }
+        return .notFound
+    }
+
+    /// 与这一轨同一整轨、同一张 CUE 的所有分轨(含它自己),给文件名匹配用。
+    nonisolated private static func cueSiblingTracks(
+        of song: Song,
+        in songs: [Song]
+    ) -> [CueTrackLyricsSidecarPolicy.Track] {
+        var siblings = songs.filter { candidate in
+            candidate.isCueTrack
+                && candidate.sourceID == song.sourceID
+                && candidate.filePath == song.filePath
+                && candidate.cueSheetPath == song.cueSheetPath
+        }
+        if !siblings.contains(where: { $0.id == song.id }) { siblings.append(song) }
+        return siblings.compactMap { sibling in
+            guard let number = sibling.trackNumber else { return nil }
+            return CueTrackLyricsSidecarPolicy.Track(
+                number: number,
+                title: sibling.title,
+                performer: sibling.artistName
+            )
         }
     }
 

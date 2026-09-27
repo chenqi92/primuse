@@ -78,11 +78,17 @@ actor TVMetadataInspectionStore {
 
     private static func sidecarSignature(_ song: Song, sidecars: SidecarDirectoryIndex<TVDirEntry>) -> String {
         let basename = ((song.filePath as NSString).lastPathComponent as NSString).deletingPathExtension
-        return sidecars.snapshotFingerprint(selectedPaths: [
-            sidecars.sameNameCover(basename: basename)?.path ?? sidecars.folderCover()?.path,
-            sidecars.sameNameLyrics(basename: basename)?.path,
-            sidecars.sameNameMusicVideo(basename: basename)?.path,
-        ]) ?? ""
+        // CUE 虚拟分轨的歌词可能是按曲目分开的文件,名字和整轨不同名;把它们也
+        // 算进来,后来补进目录的分轨歌词下次扫描才会被读到。没有这类文件的目录
+        // 签名和以前完全一样,不会因为升级把所有 CUE 分轨重读一遍。
+        return sidecars.snapshotFingerprint(
+            selectedPaths: [
+                sidecars.sameNameCover(basename: basename)?.path ?? sidecars.folderCover()?.path,
+                sidecars.sameNameLyrics(basename: basename)?.path,
+                sidecars.sameNameMusicVideo(basename: basename)?.path,
+            ],
+            includingCueTrackLyrics: song.isCueTrack
+        ) ?? ""
     }
 }
 

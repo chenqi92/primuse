@@ -1217,6 +1217,9 @@ final class TVSourceScanner {
 
     private struct CueTrackDescriptor: Sendable {
         let cuePath: String
+        /// Listed name of the sheet. On ID-addressed providers `cuePath` is an
+        /// opaque identifier, and per-track lyric names can be keyed off this.
+        let cueName: String
         let albumTitle: String?
         let albumPerformer: String?
         let genre: String?
@@ -1744,7 +1747,8 @@ final class TVSourceScanner {
                                 source: source,
                                 usesStableProviderIdentity:
                                     lister.usesStableProviderSongIdentity,
-                                sidecars: sidecars
+                                sidecars: sidecars,
+                                cueImageCount: cueLoad.tracksByAudioPath.count
                             )
                         } else if cueLoad.failureMessage != nil {
                             let priorCueSongs = existingCueSongsByPath[entry.path] ?? []
@@ -1857,7 +1861,10 @@ final class TVSourceScanner {
                                     ?? sidecars.folderCover()?.path,
                                 sidecars.sameNameLyrics(basename: basename)?.path,
                                 sidecars.sameNameMusicVideo(basename: basename)?.path,
-                            ]
+                            ],
+                            // 整轨镜像的分轨歌词不和它同名,增删改都要让它重读。
+                            includingCueTrackLyrics:
+                                cueLoad.tracksByAudioPath[entry.path]?.isEmpty == false
                         ),
                         seenEpoch: 1,
                         in: &state.index
@@ -2615,13 +2622,30 @@ final class TVSourceScanner {
         descriptors: [CueTrackDescriptor],
         source: MusicSource,
         usesStableProviderIdentity: Bool,
-        sidecars: SidecarDirectoryIndex<TVDirEntry>
+        sidecars: SidecarDirectoryIndex<TVDirEntry>,
+        cueImageCount: Int
     ) -> [Song] {
         let basename = (entry.name as NSString).deletingPathExtension
         let cover = sidecars.sameNameCover(basename: basename)?.path
             ?? sidecars.folderCover()?.path
-        let lyrics = sidecars.sameNameLyrics(basename: basename)?.path
+        // 整轨同名的歌词是整张专辑的,只在某一轨没有自己的歌词文件时兜底。
+        let albumLyrics = sidecars.sameNameLyrics(basename: basename)?.path
         let video = sidecars.sameNameMusicVideo(basename: basename)?.path
+        var trackLyricsBySheet: [String: [Int: TVDirEntry]] = [:]
+        for (cuePath, sheetDescriptors) in Dictionary(grouping: descriptors, by: \.cuePath) {
+            trackLyricsBySheet[cuePath] = sidecars.cueTrackLyrics(
+                tracks: sheetDescriptors.map { descriptor in
+                    CueTrackLyricsSidecarPolicy.Track(
+                        number: descriptor.track.number,
+                        title: descriptor.track.title,
+                        performer: descriptor.track.performer ?? descriptor.albumPerformer
+                    )
+                },
+                audioBasename: basename,
+                cueBasename: (sheetDescriptors[0].cueName as NSString).deletingPathExtension,
+                cueImageCount: cueImageCount
+            )
+        }
         return descriptors.compactMap { descriptor in
             guard let start = descriptor.track.startTime else { return nil }
             let end = descriptor.track.endTime
@@ -2667,7 +2691,8 @@ final class TVSourceScanner {
                 year: descriptor.year,
                 lastModified: entry.modifiedDate,
                 coverArtFileName: cover,
-                lyricsFileName: lyrics,
+                lyricsFileName: trackLyricsBySheet[descriptor.cuePath]?[descriptor.track.number]?.path
+                    ?? albumLyrics,
                 mvPath: video,
                 cueSheetPath: descriptor.cuePath,
                 cueStartTime: start,
@@ -2729,6 +2754,7 @@ final class TVSourceScanner {
                         result[audioItem.path, default: []].append(
                             CueTrackDescriptor(
                                 cuePath: cueItem.path,
+                                cueName: cueItem.name,
                                 albumTitle: cue.title,
                                 albumPerformer: cue.performer,
                                 genre: cue.genre,

@@ -271,7 +271,8 @@ enum LyricsLoader {
             guard !Task.isCancelled else { return [] }
         }
 
-        if let cachedAudioURL = sourceManager.cachedURL(for: song),
+        if usesAudioCacheSidecar(for: song),
+           let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {
             guard !Task.isCancelled else { return [] }
@@ -466,11 +467,24 @@ enum LyricsLoader {
         plog("📜 LyricsLoader '\(song.title)' \(tier) lines=\(lines.count) wordLevelLines=\(wordLevelCount) firstSyllables=\(lines.first?.syllables?.count ?? -1)")
     }
 
+    /// The audio cache holds one file per image, named after it, so a lyrics
+    /// file beside it can only be the image's album-wide document. A CUE
+    /// virtual track the scanner matched to its own lyric file must read
+    /// that file from the source instead.
+    nonisolated static func usesAudioCacheSidecar(for song: Song) -> Bool {
+        !(song.isCueTrack
+            && CueTrackLyricsSidecarPolicy.referencesTrackDocument(
+                song.lyricsFileName,
+                audioPath: song.filePath
+            ))
+    }
+
     static func locallyMaterializedSourceText(
         for song: Song,
         sourceManager: SourceManager
     ) -> String? {
-        guard let cachedAudioURL = sourceManager.cachedURL(for: song),
+        guard usesAudioCacheSidecar(for: song),
+              let cachedAudioURL = sourceManager.cachedURL(for: song),
               let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
               let text = try? String(contentsOf: lrcURL, encoding: .utf8),
               !text.isEmpty else {

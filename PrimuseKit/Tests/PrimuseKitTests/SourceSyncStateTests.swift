@@ -1412,6 +1412,69 @@ struct SidecarDirectoryIndexTests {
         #expect(firstFingerprint?.contains("cue-sha256-v2") == true)
     }
 
+    @Test("CUE virtual tracks resolve their own lyric files through the index")
+    func cueTrackLyricsLookup() {
+        let index = SidecarDirectoryIndex([
+            sidecarItem("CDImage.flac"),
+            sidecarItem("CDImage.cue"),
+            sidecarItem("CDImage.lrc"),
+            sidecarItem("01 First.lrc"),
+            sidecarItem("Second.lrc"),
+        ])
+        let tracks = [
+            CueTrackLyricsSidecarPolicy.Track(number: 1, title: "First", performer: nil),
+            CueTrackLyricsSidecarPolicy.Track(number: 2, title: "Second", performer: nil),
+            CueTrackLyricsSidecarPolicy.Track(number: 3, title: "Third", performer: nil),
+        ]
+        let lyrics = index.cueTrackLyrics(
+            tracks: tracks,
+            audioBasename: "CDImage",
+            cueBasename: "CDImage",
+            cueImageCount: 1
+        )
+
+        #expect(lyrics.mapValues(\.sidecarName) == [1: "01 First.lrc", 2: "Second.lrc"])
+        // The album document stays reachable as every track's fallback.
+        #expect(index.sameNameLyrics(basename: "CDImage")?.sidecarName == "CDImage.lrc")
+        #expect(index.item(atPath: "/Music/Second.lrc")?.sidecarName == "Second.lrc")
+        #expect(index.item(atPath: "/Music/Missing.lrc") == nil)
+    }
+
+    @Test("Per-track lyric files only change fingerprints that ask for them")
+    func cueTrackLyricsFingerprint() {
+        let base = [
+            sidecarItem("CDImage.flac"),
+            sidecarItem("CDImage.cue", revision: "cue-v1"),
+            sidecarItem("CDImage.lrc", revision: "album-v1"),
+        ]
+        let before = SidecarDirectoryIndex(base)
+        let added = SidecarDirectoryIndex(base + [sidecarItem("01 First.lrc", revision: "t1-v1")])
+        let edited = SidecarDirectoryIndex(base + [sidecarItem("01 First.lrc", revision: "t1-v2")])
+        let album: [String?] = ["/Music/CDImage.lrc"]
+
+        #expect(before.cueTrackLyricsFingerprint == nil)
+        #expect(before.snapshotFingerprint(selectedPaths: album, includingCueTrackLyrics: true)
+            == before.snapshotFingerprint(selectedPaths: album))
+        #expect(added.snapshotFingerprint(selectedPaths: album)
+            == before.snapshotFingerprint(selectedPaths: album))
+        #expect(added.snapshotFingerprint(selectedPaths: album, includingCueTrackLyrics: true)
+            != before.snapshotFingerprint(selectedPaths: album, includingCueTrackLyrics: true))
+        #expect(edited.snapshotFingerprint(selectedPaths: album, includingCueTrackLyrics: true)
+            != added.snapshotFingerprint(selectedPaths: album, includingCueTrackLyrics: true))
+        #expect(added.snapshotFingerprint(selectedPaths: album, includingCueTrackLyrics: true)?
+            .contains("cue-lyrics-sha256-v1") == true)
+
+        // Without a CUE sheet nothing is analyzed at all.
+        let plain = SidecarDirectoryIndex([sidecarItem("Song.flac"), sidecarItem("01 Other.lrc")])
+        #expect(plain.cueTrackLyricsFingerprint == nil)
+        #expect(plain.cueTrackLyrics(
+            tracks: [CueTrackLyricsSidecarPolicy.Track(number: 1, title: "Other", performer: nil)],
+            audioBasename: "Song",
+            cueBasename: nil,
+            cueImageCount: 1
+        ).isEmpty)
+    }
+
     @Test("A large directory resolves all songs through one reusable index")
     func largeDirectoryLookup() {
         let songCount = 5_000

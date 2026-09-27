@@ -301,7 +301,13 @@ actor ConnectorScanner {
                 }
 
                 if let descriptors = cueTracks[item.path], !descriptors.isEmpty {
-                    var cueSongs = buildCueSongs(from: item, descriptors: descriptors)
+                    let cueImage = SidecarHintResolver.cueImageItem(item, index: sidecarIndex)
+                    var cueSongs = buildCueSongs(
+                        from: cueImage,
+                        descriptors: descriptors,
+                        sidecarIndex: sidecarIndex,
+                        cueImageCount: cueTracks.count
+                    )
                     if let oldEntry {
                         reuseCueSongIdentities(
                             in: &cueSongs,
@@ -323,7 +329,7 @@ actor ConnectorScanner {
                         }
                     }
                     recordSyncItem(
-                        item,
+                        cueImage,
                         songIDs: cueSongs.map(\.id),
                         seenEpoch: scanEpoch,
                         in: &index
@@ -903,7 +909,13 @@ actor ConnectorScanner {
                                 }
 
                                 if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
-                                    var cueSongs = buildCueSongs(from: item, descriptors: descriptors)
+                                    let cueImage = SidecarHintResolver.cueImageItem(item, index: sidecarIndex)
+                                    var cueSongs = buildCueSongs(
+                                        from: cueImage,
+                                        descriptors: descriptors,
+                                        sidecarIndex: sidecarIndex,
+                                        cueImageCount: cueTracksByAudioPath.count
+                                    )
                                     if let priorEntry {
                                         reuseCueSongIdentities(
                                             in: &cueSongs,
@@ -912,7 +924,7 @@ actor ConnectorScanner {
                                         )
                                     }
                                     recordSyncItem(
-                                        item,
+                                        cueImage,
                                         songIDs: cueSongs.map(\.id),
                                         seenEpoch: scanEpoch,
                                         in: &syncIndex
@@ -936,7 +948,17 @@ actor ConnectorScanner {
                                                 refreshed.fileSize = cueSong.fileSize
                                                 refreshed.lastModified = cueSong.lastModified ?? existing.lastModified
                                                 refreshed.revision = cueSong.revision ?? existing.revision
-                                                applySidecarHints(from: item, to: &refreshed)
+                                                applySidecarHints(from: cueImage, to: &refreshed)
+                                                // 整轨的提示只带整张专辑的同名歌词;每一轨按自己
+                                                // 挑出的分轨歌词对账。
+                                                refreshed.lyricsFileName = SourceSidecarReferencePolicy
+                                                    .reconciledReference(
+                                                        existing: existing.lyricsFileName,
+                                                        incoming: cueSong.lyricsFileName,
+                                                        currentParentPath: cueImage.parentPath
+                                                            ?? (cueImage.path as NSString).deletingLastPathComponent,
+                                                        authoritative: cueImage.sidecarHints?.isAuthoritative == true
+                                                    )
                                                 refreshed.cueSheetPath = cueSong.cueSheetPath
                                                 refreshed.cueStartTime = cueSong.cueStartTime
                                                 refreshed.cueEndTime = cueSong.cueEndTime
@@ -1273,6 +1295,8 @@ actor ConnectorScanner {
 
     private struct CueTrackDescriptor: Sendable {
         let cuePath: String
+        /// Listed name of the sheet; `cuePath` is an opaque ID on some providers.
+        let cueName: String
         let albumTitle: String?
         let albumPerformer: String?
         let genre: String?
@@ -1316,6 +1340,7 @@ actor ConnectorScanner {
                 for track in cueFile.tracks where track.type == "AUDIO" && track.startTime != nil {
                     result[audioItem.path, default: []].append(CueTrackDescriptor(
                         cuePath: cueItem.path,
+                        cueName: cueItem.name,
                         albumTitle: cue.title,
                         albumPerformer: cue.performer,
                         genre: cue.genre,
@@ -1331,9 +1356,28 @@ actor ConnectorScanner {
 
     private func buildCueSongs(
         from item: RemoteFileItem,
-        descriptors: [CueTrackDescriptor]
+        descriptors: [CueTrackDescriptor],
+        sidecarIndex: SidecarHintResolver.DirectoryIndex,
+        cueImageCount: Int
     ) -> [Song] {
-        descriptors.compactMap { descriptor in
+        // 每一轨先认自己的分轨歌词,整轨同名的那份(提示里带的)只在没有时兜底。
+        let audioBasename = (item.name as NSString).deletingPathExtension
+        var trackLyricsBySheet: [String: [Int: RemoteFileItem]] = [:]
+        for (cuePath, sheetDescriptors) in Dictionary(grouping: descriptors, by: \.cuePath) {
+            trackLyricsBySheet[cuePath] = sidecarIndex.cueTrackLyrics(
+                tracks: sheetDescriptors.map { descriptor in
+                    CueTrackLyricsSidecarPolicy.Track(
+                        number: descriptor.track.number,
+                        title: descriptor.track.title,
+                        performer: descriptor.track.performer ?? descriptor.albumPerformer
+                    )
+                },
+                audioBasename: audioBasename,
+                cueBasename: (sheetDescriptors[0].cueName as NSString).deletingPathExtension,
+                cueImageCount: cueImageCount
+            )
+        }
+        return descriptors.compactMap { descriptor in
             guard let start = descriptor.track.startTime else { return nil }
             let inferredContainerDuration = descriptor.format == .dts
                 ? AudioDurationPolicy.provisionalStandaloneDTSDuration(
@@ -1385,7 +1429,8 @@ actor ConnectorScanner {
                 year: descriptor.year,
                 lastModified: item.modifiedDate,
                 coverArtFileName: item.sidecarHints?.coverPath,
-                lyricsFileName: item.sidecarHints?.lyricsPath,
+                lyricsFileName: trackLyricsBySheet[descriptor.cuePath]?[descriptor.track.number]?.path
+                    ?? item.sidecarHints?.lyricsPath,
                 mvPath: item.sidecarHints?.mvPath,
                 cueSheetPath: descriptor.cuePath,
                 cueStartTime: start,

@@ -4943,7 +4943,11 @@ final class MetadataBackfillService {
         }
 
         try Task.checkCancellation()
-        metadata = await metadataService.storingEmbeddedAssets(in: metadata, cacheKey: song.id)
+        metadata = await metadataService.storingEmbeddedAssets(
+            in: metadata,
+            cacheKey: song.id,
+            storesLyrics: Self.cachesImageLyrics(for: song)
+        )
 
         // Duration can fail independently from the ID3 text frames. Preserve
         // any title/artist/album/cover we did recover, then mark the row failed
@@ -5110,7 +5114,8 @@ final class MetadataBackfillService {
             for: url,
             cacheKey: song.id,
             allowOnlineFetch: false,
-            fallbackTitle: fallbackTitle
+            fallbackTitle: fallbackTitle,
+            storesLyrics: Self.cachesImageLyrics(for: song)
         )
         if song.fileFormat.requiresFFmpeg || metadata.duration <= 0,
            let info = try? await FFmpegAudioDecoder().fileInfo(for: url) {
@@ -5247,6 +5252,19 @@ final class MetadataBackfillService {
             sourceUsesBareInventory: (sourceIDs ?? bareOnlySourceIDs()).contains(song.sourceID),
             isStreamDescriptor: song.isStreamDescriptor
         )
+    }
+
+    /// A CUE virtual track whose scanner found its own lyric file reads that
+    /// file. The image's embedded (or same-name) lyrics cover the whole album,
+    /// and caching them under this track's ID would shadow the track's own
+    /// document — every track would start singing from the first song. Only
+    /// a track without its own file keeps the old album-wide fallback.
+    private nonisolated static func cachesImageLyrics(for song: Song) -> Bool {
+        !(song.isCueTrack
+            && CueTrackLyricsSidecarPolicy.referencesTrackDocument(
+                song.lyricsFileName,
+                audioPath: song.filePath
+            ))
     }
 
     private func mergeSong(bare: Song, metadata: MetadataService.SongMetadata) -> Song {

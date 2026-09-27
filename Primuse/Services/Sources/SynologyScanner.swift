@@ -224,6 +224,16 @@ actor SynologyScanner {
             fileNames: items.filter { !$0.isDirectory }.map(\.name)
         )
         let cueTracksByAudioPath = await loadCueTracks(from: items)
+        // CUE 分轨按曲目分开放的歌词:只有这个目录真有 CUE 镜像时才分析文件名。
+        let cueTrackLyricCandidates: [SynologyAPI.FileItem]
+        if cueTracksByAudioPath.isEmpty {
+            cueTrackLyricCandidates = []
+        } else {
+            let files = items.filter { !$0.isDirectory }
+            cueTrackLyricCandidates = CueTrackLyricsSidecarPolicy
+                .candidateIndices(in: files.map(\.name))
+                .map { files[$0] }
+        }
         let coverNames = PrimuseConstants.folderCoverNames  // cover.jpg, folder.jpg, etc.
 
         // Detect folder-level cover sidecar (e.g., cover.jpg in this directory).
@@ -283,7 +293,12 @@ actor SynologyScanner {
                 let isSTRM = PrimuseConstants.supportedStreamDescriptorExtensions.contains(ext)
                 guard PrimuseConstants.supportedAudioExtensions.contains(ext) || isSTRM else { continue }
                 if let descriptors = cueTracksByAudioPath[item.path], !descriptors.isEmpty {
-                    let cueSongs = await buildCueSongs(from: item, descriptors: descriptors)
+                    let cueSongs = await buildCueSongs(
+                        from: item,
+                        descriptors: descriptors,
+                        lyricCandidates: cueTrackLyricCandidates,
+                        cueImageCount: cueTracksByAudioPath.count
+                    )
                     recordSyncItem(
                         item,
                         parentPath: path,
@@ -551,6 +566,7 @@ actor SynologyScanner {
 
     private struct CueTrackDescriptor: Sendable {
         let cuePath: String
+        let cueName: String
         let albumTitle: String?
         let albumPerformer: String?
         let genre: String?
@@ -601,6 +617,7 @@ actor SynologyScanner {
                     result[audioItem.path, default: []].append(
                         CueTrackDescriptor(
                             cuePath: cueItem.path,
+                            cueName: cueItem.name,
                             albumTitle: cue.title,
                             albumPerformer: cue.performer,
                             genre: cue.genre,
@@ -617,12 +634,35 @@ actor SynologyScanner {
 
     private func buildCueSongs(
         from item: SynologyAPI.FileItem,
-        descriptors: [CueTrackDescriptor]
+        descriptors: [CueTrackDescriptor],
+        lyricCandidates: [SynologyAPI.FileItem],
+        cueImageCount: Int
     ) async -> [Song] {
         var physical = await extractSongMetadata(
             item: item,
             ext: (item.name as NSString).pathExtension.lowercased()
         )
+        // 每一轨先认自己的分轨歌词;没有时才沿用整轨读出来的(内嵌)歌词。
+        let audioBasename = (item.name as NSString).deletingPathExtension
+        var trackLyricsBySheet: [String: [Int: String]] = [:]
+        if !lyricCandidates.isEmpty {
+            for (cuePath, sheetDescriptors) in Dictionary(grouping: descriptors, by: \.cuePath) {
+                let assignments = CueTrackLyricsSidecarPolicy.assignments(
+                    tracks: sheetDescriptors.map { descriptor in
+                        CueTrackLyricsSidecarPolicy.Track(
+                            number: descriptor.track.number,
+                            title: descriptor.track.title,
+                            performer: descriptor.track.performer ?? descriptor.albumPerformer
+                        )
+                    },
+                    audioBaseName: audioBasename,
+                    cueBaseName: (sheetDescriptors[0].cueName as NSString).deletingPathExtension,
+                    candidateNames: lyricCandidates.map(\.name),
+                    cueImageCount: cueImageCount
+                )
+                trackLyricsBySheet[cuePath] = assignments.mapValues { lyricCandidates[$0].path }
+            }
+        }
         physical.lastModified = item.modifiedTime
         physical.revision = SynologyFileRevisionPolicy.revision(
             size: item.size,
@@ -669,6 +709,9 @@ actor SynologyScanner {
             song.cueSheetPath = descriptor.cuePath
             song.cueStartTime = start
             song.cueEndTime = end
+            if let trackLyrics = trackLyricsBySheet[descriptor.cuePath]?[descriptor.track.number] {
+                song.lyricsFileName = trackLyrics
+            }
             return song
         }
     }

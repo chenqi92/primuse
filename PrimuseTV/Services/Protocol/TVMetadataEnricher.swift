@@ -736,7 +736,6 @@ enum TVMetadataEnricher {
             }
         }
 
-        var lyricLines = embeddedLyrics ?? []
         let cachedLyricsName = MetadataAssetStore.shared
             .expectedLyricsFileName(for: output.id)
         let hintedLyrics = output.lyricsFileName.flatMap { reference in
@@ -744,23 +743,32 @@ enum TVMetadataEnricher {
                 ? nil
                 : hintedSidecar(reference)
         }
-        if lyricLines.isEmpty,
-           let lyrics = sidecars.sameNameLyrics(basename: basename)
-            ?? hintedLyrics {
-            let size = try await boundedLength(
-                for: lyrics,
-                maximum: maximumSidecarLyricsBytes,
-                readerPool: readerPool
-            )
-            if size > 0,
-               let data = try? await readerPool.read(
-                path: lyrics.path,
-                size: lyrics.size,
-                offset: 0,
-                length: size
-               ), let text = decodeText(data) {
-                lyricLines = LyricsContentParser.parse(text)
+        let albumLyrics = sidecars.sameNameLyrics(basename: basename)
+        // CUE 分轨:扫描时按曲目挑出的那份歌词优先。整轨内嵌歌词和整轨同名歌词
+        // 都是整张专辑的,给每一轨各缓存一份只会让每首都从第一首唱起;只有这一轨
+        // 没有自己的歌词文件时才照旧用它们。
+        let trackLyrics = song.isCueTrack
+            ? hintedLyrics.flatMap {
+                cueTrackLyricsDocument($0, song: song, albumLyrics: albumLyrics, sidecars: sidecars)
             }
+            : nil
+        var lyricLines: [LyricLine] = []
+        if let trackLyrics {
+            do {
+                lyricLines = try await readLyricsSidecar(trackLyrics, readerPool: readerPool)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // 分轨歌词读不到时按原来的顺序继续,不让整首的富集失败。
+                lyricLines = []
+            }
+        }
+        if lyricLines.isEmpty {
+            lyricLines = embeddedLyrics ?? []
+        }
+        if lyricLines.isEmpty,
+           let lyrics = albumLyrics ?? (trackLyrics == nil ? hintedLyrics : nil) {
+            lyricLines = try await readLyricsSidecar(lyrics, readerPool: readerPool)
         }
         try Task.checkCancellation()
         if !lyricLines.isEmpty {
@@ -782,6 +790,46 @@ enum TVMetadataEnricher {
                 .nilIfEmpty
         }
         return output
+    }
+
+    private static func readLyricsSidecar(
+        _ lyrics: TVDirEntry,
+        readerPool: TVMetadataReaderPool
+    ) async throws -> [LyricLine] {
+        let size = try await boundedLength(
+            for: lyrics,
+            maximum: maximumSidecarLyricsBytes,
+            readerPool: readerPool
+        )
+        guard size > 0,
+              let data = try? await readerPool.read(
+                path: lyrics.path,
+                size: lyrics.size,
+                offset: 0,
+                length: size
+              ),
+              let text = decodeText(data) else { return [] }
+        return LyricsContentParser.parse(text)
+    }
+
+    /// 这一轨记下的歌词引用是不是它自己的分轨歌词。有目录清单时以清单为准:
+    /// 必须还在目录里,而且不是整轨同名的那份;没有清单(续扫恢复出来的行)
+    /// 时只能按名字判断。
+    private static func cueTrackLyricsDocument(
+        _ hinted: TVDirEntry,
+        song: Song,
+        albumLyrics: TVDirEntry?,
+        sidecars: SidecarDirectoryIndex<TVDirEntry>
+    ) -> TVDirEntry? {
+        if sidecars.itemCount > 0 {
+            guard let listed = sidecars.item(atPath: hinted.path),
+                  listed.path != albumLyrics?.path else { return nil }
+            return listed
+        }
+        return CueTrackLyricsSidecarPolicy.referencesTrackDocument(
+            hinted.path,
+            audioPath: song.filePath
+        ) ? hinted : nil
     }
 
     private static func boundedLength(

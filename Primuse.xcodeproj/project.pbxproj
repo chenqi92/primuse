@@ -300,6 +300,7 @@
 		3019EBD9771AABB8DA917F66 /* YearlyReportCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12A2BC6296FF8B06F4EA887E /* YearlyReportCards.swift */; };
 		3043FF24779407E29FC86609 /* PMPlaybackVolumeControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10CFE1EAE8AD179E6A7CF5A0 /* PMPlaybackVolumeControl.swift */; };
 		306A3943055A9E1E83264D2D /* LyricsSidecarSelectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F19E25DEFBA6AFD7958D89B /* LyricsSidecarSelectionPolicy.swift */; };
+		E0F4FFCC244A85579C89ACD0 /* CueTrackLyricsSidecarPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223A0C4903643883606D0BAC /* CueTrackLyricsSidecarPolicy.swift */; };
 		30DCC677201F0029F43C75DF /* RadioDirectoryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87CDB114A51764BEBD90ED3 /* RadioDirectoryClient.swift */; };
 		31131FE9D0603FCAC89CE76C /* SMBBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF0DF0592D356324C4E9A4C /* SMBBrowserView.swift */; };
 		3142477D6F0EE2B5E99F7CF5 /* PrimuseWatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 94091D358D024862C22DA30C /* PrimuseWatchWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -1906,6 +1907,7 @@
 		0EA999555F455617E1DF9281 /* EqualizerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EqualizerService.swift; sourceTree = "<group>"; };
 		0EB9BD8B836299C30B3A1296 /* OpenAICompatibleProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleProviderTests.swift; sourceTree = "<group>"; };
 		0F19E25DEFBA6AFD7958D89B /* LyricsSidecarSelectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsSidecarSelectionPolicy.swift; sourceTree = "<group>"; };
+		223A0C4903643883606D0BAC /* CueTrackLyricsSidecarPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueTrackLyricsSidecarPolicy.swift; sourceTree = "<group>"; };
 		0F410BC196789520834DE698 /* es-MX */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "es-MX"; path = "es-MX.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		0F8FB229B285DCA5BF46F542 /* MusicLibrarySourceRemovalFenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicLibrarySourceRemovalFenceTests.swift; sourceTree = "<group>"; };
 		0F99AA6FC13E79A7AE9255BE /* SongRowColumnsPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongRowColumnsPolicy.swift; sourceTree = "<group>"; };
@@ -3505,6 +3507,7 @@
 				848ACCE749B5A71B78A6D9FC /* LyricsAPIServerPolicy.swift */,
 				44849CCD8EA5C644E0EBDE13 /* LyricsEditorDocument.swift */,
 				0F19E25DEFBA6AFD7958D89B /* LyricsSidecarSelectionPolicy.swift */,
+				223A0C4903643883606D0BAC /* CueTrackLyricsSidecarPolicy.swift */,
 				3381F1A37A98DB25B41EEF83 /* LyricsSnapshotEncoder.swift */,
 				B427A8FFB610413C99EE452B /* LyricsTextTools.swift */,
 				2616803228DADAD5A45FEE6E /* LyricsTimingSession.swift */,
@@ -5526,6 +5529,7 @@
 				321DFF8FCAA3C62172458517 /* LyricsActivityAttributes.swift in Sources */,
 				F13FA1ED98941A7F6E83590C /* LyricsEditorDocument.swift in Sources */,
 				306A3943055A9E1E83264D2D /* LyricsSidecarSelectionPolicy.swift in Sources */,
+				E0F4FFCC244A85579C89ACD0 /* CueTrackLyricsSidecarPolicy.swift in Sources */,
 				50F83FD9163EC60473813FF9 /* LyricsSnapshotEncoder.swift in Sources */,
 				7B9FA70A8C0354C361A52F05 /* LyricsTextTools.swift in Sources */,
 				251FAA32EC8F9F173D06855F /* LyricsTimingSession.swift in Sources */,

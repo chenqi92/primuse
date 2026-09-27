@@ -531,8 +531,15 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
     private let languageTaggedLyricsByBasename: [String: [TaggedItem]]
     private let preferredLanguages: [String]
     private let cueFingerprint: String?
+    /// Lyric documents that are nobody's same-name sidecar: the only files a
+    /// CUE virtual track can claim as its own (`CueTrackLyricsSidecarPolicy`).
+    private let cueTrackLyricsCandidates: [Item]
 
     public let itemCount: Int
+    /// One digest over every CUE per-track lyric candidate in the directory.
+    /// Nil when there are none, so a directory without such files keeps the
+    /// exact fingerprint it had before per-track lyrics were recognized.
+    public let cueTrackLyricsFingerprint: String?
 
     public init(_ items: [Item], preferredLanguages: [String] = Locale.preferredLanguages) {
         var firstItemByLowercasedName: [String: IndexedItem] = [:]
@@ -540,6 +547,7 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
         var audioBasenames: Set<String> = []
         var languageTaggedLyricsByBasename: [String: [TaggedItem]] = [:]
         var cuePaths: Set<String> = []
+        var fileItems: [Item] = []
 
         firstItemByLowercasedName.reserveCapacity(items.count)
         firstItemByPath.reserveCapacity(items.count)
@@ -549,6 +557,7 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
                 firstItemByPath[item.sidecarPath] = item
             }
             guard !item.sidecarIsDirectory else { continue }
+            fileItems.append(item)
 
             let lowercasedName = item.sidecarName.lowercased()
             if firstItemByLowercasedName[lowercasedName] == nil {
@@ -604,6 +613,51 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
             )
             cueFingerprint = digest.map { String(format: "%02x", $0) }.joined()
         }
+
+        // Only directories that hold a CUE sheet can have per-track lyrics;
+        // every other directory skips the name analysis entirely.
+        let trackLyricsCandidates = cuePaths.isEmpty
+            ? []
+            : CueTrackLyricsSidecarPolicy
+                .candidateIndices(in: fileItems.map(\.sidecarName))
+                .map { fileItems[$0] }
+        cueTrackLyricsCandidates = trackLyricsCandidates
+        if trackLyricsCandidates.isEmpty {
+            cueTrackLyricsFingerprint = nil
+        } else {
+            let components = trackLyricsCandidates
+                .map { Self.fingerprintComponent(for: $0.sidecarPath, item: $0) }
+                .sorted()
+            let digest = SHA256.hash(
+                data: Data(components.joined(separator: "\u{1E}").utf8)
+            )
+            cueTrackLyricsFingerprint = digest.map { String(format: "%02x", $0) }.joined()
+        }
+    }
+
+    public func item(atPath path: String) -> Item? {
+        firstItemByPath[path]
+    }
+
+    /// Each CUE virtual track's own lyric document in this directory, keyed by
+    /// track number. Tracks without one are absent; the caller falls back to
+    /// the album-level `sameNameLyrics(basename:)` of the audio image.
+    public func cueTrackLyrics(
+        tracks: [CueTrackLyricsSidecarPolicy.Track],
+        audioBasename: String,
+        cueBasename: String?,
+        cueImageCount: Int
+    ) -> [Int: Item] {
+        guard !cueTrackLyricsCandidates.isEmpty, !tracks.isEmpty else { return [:] }
+        let assignments = CueTrackLyricsSidecarPolicy.assignments(
+            tracks: tracks,
+            audioBaseName: audioBasename,
+            cueBaseName: cueBasename,
+            candidateNames: cueTrackLyricsCandidates.map(\.sidecarName),
+            cueImageCount: cueImageCount,
+            preferredLanguages: preferredLanguages
+        )
+        return assignments.mapValues { cueTrackLyricsCandidates[$0] }
     }
 
     public func containsAudioOrStream(basename: String) -> Bool {
@@ -677,7 +731,13 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
     /// represented by one fixed-size digest shared by every song in the
     /// directory, so a CUE edit still invalidates all virtual tracks without
     /// re-concatenating every CUE component for every audio file.
-    public func snapshotFingerprint(selectedPaths: [String?]) -> String? {
+    /// `includingCueTrackLyrics` is for CUE images and their virtual tracks:
+    /// adding, editing or removing a per-track lyric file then invalidates
+    /// them, while every other song keeps its previous fingerprint.
+    public func snapshotFingerprint(
+        selectedPaths: [String?],
+        includingCueTrackLyrics: Bool = false
+    ) -> String? {
         let paths = Set(selectedPaths.compactMap { $0 })
         var components = paths.sorted().map { path in
             Self.fingerprintComponent(
@@ -687,6 +747,9 @@ public struct SidecarDirectoryIndex<Item: SidecarDirectoryItem>: Sendable {
         }
         if let cueFingerprint {
             components.append("cue-sha256-v2\u{1F}\(cueFingerprint)")
+        }
+        if includingCueTrackLyrics, let cueTrackLyricsFingerprint {
+            components.append("cue-lyrics-sha256-v1\u{1F}\(cueTrackLyricsFingerprint)")
         }
         guard !components.isEmpty else { return nil }
         return components.joined(separator: "\u{1E}")

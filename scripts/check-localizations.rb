@@ -277,6 +277,13 @@ HAN_LITERAL_ALLOWLIST = {
     /title: "第\\\(chapter \+ 1\)章"/,
     /"书籍 %04d · 故事"/
   ],
+  # Placeholder track titles that CUE sheets and scanners write ("第3轨",
+  # "曲目 01"); matched against sheet data and file names, never shown.
+  "PrimuseKit/Sources/PrimuseKit/CueTrackLyricsSidecarPolicy.swift" => [
+    /hasPrefix\("第"\)/,
+    /\["轨", "軌", "首", "曲"\]/,
+    /"曲目", "音轨", "音軌"/
+  ],
   # Version markers matched against song titles and file names to pair a
   # song with its backing track; never shown as UI copy.
   "PrimuseKit/Sources/PrimuseKit/KaraokeCompanionPolicy.swift" => [
