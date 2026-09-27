@@ -3139,6 +3139,8 @@
 "player_keep_screen_awake_charging_only_subtitle" = "Im Akkubetrieb sperrt sich der Bildschirm weiterhin nach den Systemeinstellungen.";
 "player_tap_lyrics_to_seek" = "Zum Spulen auf Liedtext tippen";
 "player_tap_lyrics_to_seek_description" = "Tippe auf eine synchronisierte Zeile, um zu dieser Stelle zu springen. Scrollen spult nicht.";
+"player_lyrics_browse_timeline" = "Lineal beim Ziehen des Liedtexts";
+"player_lyrics_browse_timeline_description" = "Zeigt beim Ziehen des Liedtexts eine Hilfslinie mit der Zeit der Zeile und spielt auf Wunsch ab dieser Zeile ab.";
 "lyrics_play_from_line" = "Ab dieser Zeile abspielen";
 "server_favorite_unsupported" = "Diese Quelle unterstützt keine Serverfavoriten.";
 "server_favorite_refresh_mismatch" = "Der vom Server gemeldete Favoritenstatus entspricht nicht der Anfrage.";

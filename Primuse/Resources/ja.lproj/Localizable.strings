@@ -3140,6 +3140,8 @@
 "player_keep_screen_awake_charging_only_subtitle" = "バッテリー駆動時はシステム設定どおりに自動ロックされます。";
 "player_tap_lyrics_to_seek" = "歌詞をタップしてシーク";
 "player_tap_lyrics_to_seek_description" = "同期歌詞の行をタップすると、その位置へ移動します。スクロールではシークしません。";
+"player_lyrics_browse_timeline" = "歌詞ドラッグ時にルーラーを表示";
+"player_lyrics_browse_timeline_description" = "歌詞をドラッグ中にガイド線とその行の時間を表示し、その行から再生できます。";
 "lyrics_play_from_line" = "この行から再生";
 "server_favorite_unsupported" = "このソースはサーバー側のお気に入りに対応していません。";
 "server_favorite_refresh_mismatch" = "サーバーから返されたお気に入り状態がリクエストと一致しませんでした。";

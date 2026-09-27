@@ -372,6 +372,8 @@ struct LyricsAppearanceSections: View {
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
+    private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
 
     private var lyricsAlignment: Binding<PlayerLyricsAlignment> {
         Binding(
@@ -498,6 +500,11 @@ struct LyricsAppearanceSections: View {
             .settingsAnchor("lyrics.tapToSeek")
                 .accessibilityHint(Text("player_tap_lyrics_to_seek_description"))
                 .accessibilityIdentifier("playerTapLyricsToSeekToggle")
+
+            Toggle("player_lyrics_browse_timeline", isOn: $showsLyricsBrowseTimeline)
+            .settingsAnchor("lyrics.browseTimeline")
+                .accessibilityHint(Text("player_lyrics_browse_timeline_description"))
+                .accessibilityIdentifier("playerLyricsBrowseTimelineToggle")
         } header: {
             Text("player_lyrics_section")
         }

@@ -8042,58 +8042,94 @@ final class LyricRowAnchorYs {
     var values: [Int: CGFloat] = [:]
 }
 
+/// 拖动歌词时横在定位线上的标尺：一根两端淡出的细线，时间和播放键收在歌词
+/// 对齐方向的另一侧，尽量不压住正在看的那句。
 struct LyricsBrowseTimeline: View {
     let timeText: String
+    /// 时间和播放键放在左侧（歌词靠右对齐时）。
+    let placesControlsOnLeft: Bool
     let onSeek: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         let appearance = NowPlayingAppearance(colorScheme: colorScheme, contrast: contrast)
-        GeometryReader { geometry in
-            Path { path in
-                path.move(to: CGPoint(x: 0, y: 0.5))
-                path.addLine(to: CGPoint(x: geometry.size.width, y: 0.5))
+        let increasedContrast = contrast == .increased
+        HStack(spacing: 10) {
+            if placesControlsOnLeft {
+                controls(appearance: appearance, increasedContrast: increasedContrast)
             }
-            .stroke(
-                appearance.primary.opacity(contrast == .increased ? 0.5 : 0.22),
-                style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [2, 5])
-            )
-        }
-        .frame(height: 1)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-        .overlay {
-            HStack(spacing: 12) {
-                Text(verbatim: timeText)
-                    .font(.system(.caption, design: .rounded, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(appearance.secondary)
-                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                    .fixedSize()
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-
-                Spacer(minLength: 12)
-
-                Button(action: onSeek) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .offset(x: 1)
-                        .foregroundStyle(appearance.backgroundBase)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(appearance.primary))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("lyrics_play_from_line"))
-                .accessibilityValue(Text(verbatim: timeText))
+            hairline(appearance: appearance, increasedContrast: increasedContrast)
+            if !placesControlsOnLeft {
+                controls(appearance: appearance, increasedContrast: increasedContrast)
             }
-            .offset(y: -32)
         }
         .frame(height: 44)
         .environment(\.layoutDirection, .leftToRight)
+        .sensoryFeedback(.selection, trigger: timeText)
+    }
+
+    private func hairline(appearance: NowPlayingAppearance, increasedContrast: Bool) -> some View {
+        let strong = appearance.primary.opacity(increasedContrast ? 0.6 : 0.3)
+        let stops: [Gradient.Stop] = [
+            .init(color: strong.opacity(0), location: 0),
+            .init(color: strong, location: 0.45),
+            .init(color: strong, location: 1),
+        ]
+        return Rectangle()
+            .fill(LinearGradient(
+                stops: stops,
+                startPoint: placesControlsOnLeft ? .trailing : .leading,
+                endPoint: placesControlsOnLeft ? .leading : .trailing
+            ))
+            .frame(height: max(1 / max(displayScale, 1), 0.5))
+            .frame(maxWidth: .infinity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func controls(appearance: NowPlayingAppearance, increasedContrast: Bool) -> some View {
+        HStack(spacing: 2) {
+            if placesControlsOnLeft { playButton(appearance: appearance, increasedContrast: increasedContrast) }
+            Text(verbatim: timeText)
+                .font(.system(.caption2, design: .rounded, weight: .medium).monospacedDigit())
+                .foregroundStyle(appearance.secondary)
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.2), value: timeText)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .fixedSize()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            if !placesControlsOnLeft { playButton(appearance: appearance, increasedContrast: increasedContrast) }
+        }
+    }
+
+    private func playButton(appearance: NowPlayingAppearance, increasedContrast: Bool) -> some View {
+        Button(action: onSeek) {
+            Image(systemName: "play.fill")
+                .font(.system(size: 9, weight: .bold))
+                .offset(x: 0.5)
+                .foregroundStyle(appearance.primary)
+                .frame(width: 24, height: 24)
+                .background {
+                    Circle()
+                        .fill(appearance.primary.opacity(increasedContrast ? 0.2 : 0.1))
+                        .overlay {
+                            Circle().strokeBorder(
+                                appearance.primary.opacity(increasedContrast ? 0.45 : 0.16),
+                                lineWidth: max(1 / max(displayScale, 1), 0.5)
+                            )
+                        }
+                }
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("lyrics_play_from_line"))
+        .accessibilityValue(Text(verbatim: timeText))
     }
 }
 
@@ -8140,6 +8176,8 @@ struct LyricsScrollView: View {
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
+    @AppStorage(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
+    private var showsLyricsBrowseTimeline = PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault
     @State private var lyricsPinchScale: CGFloat = 1.0
     @State private var isPinchingLyrics = false
     @State private var currentLineIndex = -1
@@ -8810,7 +8848,7 @@ struct LyricsScrollView: View {
     }
 
     private func updateBrowsedLine(anchorY: CGFloat) {
-        guard isManuallyBrowsingLyrics, hasSynchronizedLyrics else { return }
+        guard showsLyricsBrowseTimeline, isManuallyBrowsingLyrics, hasSynchronizedLyrics else { return }
         var nearest: Int?
         var nearestDistance = CGFloat.infinity
         for (index, y) in rowAnchorYs.values where lyrics.indices.contains(index) {
@@ -8824,17 +8862,21 @@ struct LyricsScrollView: View {
     }
 
     private func browsedOpacity(index: Int, base: Double) -> Double {
-        isManuallyBrowsingLyrics && browsedLineIndex == index ? 1 : base
+        showsLyricsBrowseTimeline && isManuallyBrowsingLyrics && browsedLineIndex == index ? 1 : base
     }
 
     @ViewBuilder
     private func browseTimelineIndicator(viewportHeight: CGFloat) -> some View {
-        if isManuallyBrowsingLyrics,
+        if showsLyricsBrowseTimeline,
+           isManuallyBrowsingLyrics,
            let index = browsedLineIndex,
            lyrics.indices.contains(index),
            lyrics[index].isSynchronized {
             let line = lyrics[index]
-            LyricsBrowseTimeline(timeText: Self.browseTimeText(line.timestamp)) {
+            LyricsBrowseTimeline(
+                timeText: Self.browseTimeText(line.timestamp),
+                placesControlsOnLeft: lyricsScaleAnchor.x > 0.5
+            ) {
                 lastLyricRowTapAt = Date()
                 player.seek(to: line.timestamp)
                 // 跳过去之后立刻回到跟随，定位线随之收起。
@@ -8845,12 +8887,10 @@ struct LyricsScrollView: View {
                     browsedLineIndex = nil
                 }
             }
-            .padding(.leading, Self.lyricsHorizontalPadding)
-            .padding(.trailing, Self.lyricsHorizontalPadding - 6)
+            .padding(.horizontal, Self.lyricsHorizontalPadding - 12)
             .frame(height: 44)
             .offset(y: viewportHeight * Self.lyricsVisualAnchor - 22)
-            .transition(.opacity)
-            .animation(.easeOut(duration: 0.15), value: index)
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
         }
     }
 

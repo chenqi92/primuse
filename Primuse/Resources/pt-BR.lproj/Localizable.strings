@@ -2264,6 +2264,8 @@
 "player_lyrics_section" = "Letras";
 "player_tap_lyrics_to_seek" = "Toque na letra para avançar";
 "player_tap_lyrics_to_seek_description" = "Toque em uma linha sincronizada para ir até aquele ponto. Rolar as letras nunca muda a posição da reprodução.";
+"player_lyrics_browse_timeline" = "Régua ao arrastar a letra";
+"player_lyrics_browse_timeline_description" = "Mostra uma linha-guia com o tempo da linha enquanto você arrasta a letra e permite tocar a partir dela.";
 "lyrics_play_from_line" = "Reproduzir a partir desta linha";
 "player_volume_bar" = "Controle deslizante de volume";
 "player_volume_bar_description" = "Mostrar o controle deslizante de volume no player. Outros controles preenchem naturalmente o espaço disponível quando estão ocultos.";

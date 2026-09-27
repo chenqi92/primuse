@@ -3124,6 +3124,8 @@
 "player_keep_screen_awake_charging_only_subtitle" = "未接電源時仍依系統設定自動鎖定。";
 "player_tap_lyrics_to_seek" = "輕點歌詞跳轉";
 "player_tap_lyrics_to_seek_description" = "輕點同步歌詞可跳至對應位置；捲動歌詞不會跳轉。";
+"player_lyrics_browse_timeline" = "拖動歌詞時顯示標尺";
+"player_lyrics_browse_timeline_description" = "拖動歌詞時顯示定位線與該句時間，可從該句開始播放。";
 "lyrics_play_from_line" = "從這句開始播放";
 "server_favorite_unsupported" = "此來源不支援伺服器收藏。";
 "server_favorite_refresh_mismatch" = "伺服器傳回的收藏狀態與要求不一致。";

@@ -27,6 +27,9 @@ enum PlayerAppearancePreferences {
     static let playerScreenWakeRequiresChargingByDefault = false
     static let tapLyricsToSeekKey = "primuse.player.tapLyricsToSeek"
     static let tapLyricsToSeekByDefault = true
+    /// 拖动歌词时显示定位标尺（时间与从该句播放）。
+    static let showsLyricsBrowseTimelineKey = "primuse.player.showsLyricsBrowseTimeline"
+    static let showsLyricsBrowseTimelineByDefault = false
 
     static let defaultCustomLyricsColorHex = "0A84FF"
     static let defaultGradientLyricsStartColorHex = "FF375F"

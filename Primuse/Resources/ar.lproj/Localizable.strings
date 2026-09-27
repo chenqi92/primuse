@@ -2264,6 +2264,8 @@
 "player_lyrics_section" = "كلمات الأغاني";
 "player_tap_lyrics_to_seek" = "اضغط على الكلمات لتغيير موضع التشغيل";
 "player_tap_lyrics_to_seek_description" = "اضغط على سطر كلمات متزامن للانتقال إلى توقيته. تمرير الكلمات لا يغيّر موضع التشغيل.";
+"player_lyrics_browse_timeline" = "مسطرة عند سحب الكلمات";
+"player_lyrics_browse_timeline_description" = "يعرض خطًا إرشاديًا مع توقيت السطر أثناء سحب الكلمات، ويتيح التشغيل من ذلك السطر.";
 "lyrics_play_from_line" = "التشغيل من هذا السطر";
 "player_volume_bar" = "منزلق الصوت";
 "player_volume_bar_description" = "إظهار شريط تمرير مستوى الصوت في المشغل. عناصر التحكم الأخرى تملأ المساحة المتوفرة بشكل طبيعي عندما تكون مخفية.";

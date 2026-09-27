@@ -1228,6 +1228,8 @@
 "ok" = "Добре";
 "player_lyrics_color_default" = "За замовчуванням";
 "player_tap_lyrics_to_seek_description" = "Торкніться синхронізованого текстового рядка, щоб перейти до цього місця. Прокрутка тексту ніколи не шукає.";
+"player_lyrics_browse_timeline" = "Лінійка під час прокручування тексту";
+"player_lyrics_browse_timeline_description" = "Під час перетягування тексту показує напрямну лінію з часом рядка й дає змогу відтворити з нього.";
 "lyrics_play_from_line" = "Відтворити з цього рядка";
 "artist_name_settings_display_separator_placeholder" = "Наприклад, /";
 "tag_editor_lyrics_placeholder" = "Введіть простий текст, LRC або ELRC…";

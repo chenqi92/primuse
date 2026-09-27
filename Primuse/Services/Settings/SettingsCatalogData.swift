@@ -62,6 +62,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.alignment", titleKey: "player_lyrics_alignment", iosPage: .lyrics, macPage: nil),
         SettingDefinition(id: "lyrics.blurInactive", titleKey: "player_blur_inactive_lyrics", iosPage: .lyrics, macPage: nil),
         SettingDefinition(id: "lyrics.tapToSeek", titleKey: "player_tap_lyrics_to_seek", iosPage: .lyrics, macPage: .lyrics),
+        SettingDefinition(id: "lyrics.browseTimeline", titleKey: "player_lyrics_browse_timeline", iosPage: .lyrics, macPage: nil, keywords: ["lyrics ruler", "timeline", "歌词标尺", "定位线", "拖动歌词"]),
         SettingDefinition(id: "lyrics.fontSize", titleKey: "lyrics_font_size", iosPage: nil, macPage: .lyrics),
         SettingDefinition(id: "lyrics.menuBar", titleKey: "menu_bar_lyrics", iosPage: nil, macPage: .lyrics, keywords: ["menu bar lyrics", "status bar lyrics", "菜单栏歌词", "状态栏歌词", "顶部歌词"]),
         SettingDefinition(id: "storage.audioCacheEnabled", titleKey: "audio_cache_enabled", iosPage: .storage, macPage: .storage, keywords: ["offline download", "缓存", "离线", "自动下载"]),

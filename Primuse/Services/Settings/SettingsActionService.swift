@@ -26,7 +26,7 @@ struct SettingsActionService {
         "playback.skipLeadingSilence", "playback.skipTrailingSilence", "playback.replayGain",
         "playback.spatialAudio", "playback.headTracking", "lyrics.lockScreen",
         "storage.audioCacheEnabled", "effects.chain", "effects.reverb", "effects.compressor",
-        "lyrics.translationEnabled", "lyrics.tapToSeek", "lyrics.blurInactive",
+        "lyrics.translationEnabled", "lyrics.tapToSeek", "lyrics.browseTimeline", "lyrics.blurInactive",
         "appearance.volumeBar", "player.keepScreenAwake", "player.keepScreenAwakeChargingOnly"
     ]
     nonisolated static let readableIDs = toggleIDs.union([
@@ -125,6 +125,7 @@ struct SettingsActionService {
         case "effects.compressor": playback.compressorEnabled
         case "lyrics.translationEnabled": LyricsTranslationSettingsStore.shared.isEnabled
         case "lyrics.tapToSeek": preference(PlayerAppearancePreferences.tapLyricsToSeekKey, fallback: PlayerAppearancePreferences.tapLyricsToSeekByDefault)
+        case "lyrics.browseTimeline": preference(PlayerAppearancePreferences.showsLyricsBrowseTimelineKey, fallback: PlayerAppearancePreferences.showsLyricsBrowseTimelineByDefault)
         case "lyrics.blurInactive": preference(PlayerAppearancePreferences.blursInactiveLyricsKey, fallback: PlayerAppearancePreferences.blursInactiveLyricsByDefault)
         case "appearance.volumeBar": preference(PlayerAppearancePreferences.showsVolumeBarKey, fallback: PlayerAppearancePreferences.showsVolumeBarByDefault)
         case "player.keepScreenAwake": preference(PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey, fallback: PlayerAppearancePreferences.keepsScreenAwakeInPlayerByDefault)
@@ -156,6 +157,7 @@ struct SettingsActionService {
             try setAudioEffect(enabled, for: id)
         case "lyrics.translationEnabled": LyricsTranslationSettingsStore.shared.isEnabled = enabled
         case "lyrics.tapToSeek": defaults.set(enabled, forKey: PlayerAppearancePreferences.tapLyricsToSeekKey)
+        case "lyrics.browseTimeline": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsLyricsBrowseTimelineKey)
         case "lyrics.blurInactive": defaults.set(enabled, forKey: PlayerAppearancePreferences.blursInactiveLyricsKey)
         case "appearance.volumeBar": defaults.set(enabled, forKey: PlayerAppearancePreferences.showsVolumeBarKey)
         case "player.keepScreenAwake": defaults.set(enabled, forKey: PlayerAppearancePreferences.keepsScreenAwakeInPlayerKey)
