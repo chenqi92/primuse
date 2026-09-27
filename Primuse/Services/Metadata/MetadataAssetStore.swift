@@ -375,8 +375,15 @@ actor MetadataAssetStore {
         guard lyricsMutationReservations[songID] == nil else { return false }
         let fileName = hashedFileName(for: songID, pathExtension: "json")
         let fileURL = lyricsDirectory.appendingPathComponent(fileName)
+        let stored = force ? nil : cachedLyrics(forSongID: songID)
+        // A SYLT document the old reader collapsed into one word-timed line is
+        // not a stronger version worth keeping; let the re-read replace it.
+        let replacesMergedDocument = stored.map(
+            MergedSynchronizedLyricsRepairPolicy.isMergedDocument
+        ) ?? false
         if !force,
-           let stored = cachedLyrics(forSongID: songID),
+           !replacesMergedDocument,
+           let stored,
            !stored.isEmpty {
             if stored.first?.documentIsLocalOverride == true {
                 plog("📝 cacheLyrics keep local override songID=\(songID.prefix(8))")
@@ -397,7 +404,7 @@ actor MetadataAssetStore {
                 return false
             }
         }
-        if !force && wouldDowngrade(at: fileURL, against: lines) {
+        if !force && !replacesMergedDocument && wouldDowngrade(at: fileURL, against: lines) {
             plog("📝 cacheLyrics skip downgrade songID=\(songID.prefix(8))")
             return false
         }

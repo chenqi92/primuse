@@ -1715,6 +1715,7 @@ final class MetadataBackfillService {
             plog("📥 Backfill: skip (tag reading paused by the user)")
             return
         }
+        repairMergedSynchronizedLyricsIfNeeded()
         guard worker == nil else {
             // Worker still in flight — common during initial scan when
             // multiple onChange events fire. Logging was added because
@@ -3157,6 +3158,69 @@ final class MetadataBackfillService {
         guard reopenInspection(for: songID) else { return }
         refreshRemainingCounts(force: true)
         start()
+    }
+
+    // MARK: - Merged SYLT lyrics repair
+
+    private static let mergedLyricsRepairDoneKey = "primuse.lyrics.mergedSYLTRepair.v1"
+    private static let mergedLyricsRepairAttemptsKey = "primuse.lyrics.mergedSYLTRepair.attempts"
+    @ObservationIgnored private var mergedLyricsRepairTask: Task<Void, Never>?
+    @ObservationIgnored private var didAttemptMergedLyricsRepair = false
+
+    /// Builds 1.9.8 through 1.10.1 cached every embedded SYLT document as one
+    /// word-timed line, and automatic writers never replace word-level lyrics
+    /// with line-level ones. Re-read just those songs once, the same way the
+    /// "re-read tags" action does. A source that cannot be reached right now
+    /// gets another try on a later launch (three at most).
+    private func repairMergedSynchronizedLyricsIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !didAttemptMergedLyricsRepair,
+              mergedLyricsRepairTask == nil,
+              !defaults.bool(forKey: Self.mergedLyricsRepairDoneKey) else { return }
+        didAttemptMergedLyricsRepair = true
+        let attempts = defaults.integer(forKey: Self.mergedLyricsRepairAttemptsKey)
+        guard attempts < 3 else { return }
+        defaults.set(attempts + 1, forKey: Self.mergedLyricsRepairAttemptsKey)
+
+        let readableSourceIDs = manuallyReadableSourceIDs()
+        let disabledSourceIDs = library.disabledSourceIDs
+        let candidateIDs = library.songs.compactMap { song -> String? in
+            guard MergedSynchronizedLyricsRepairPolicy.canCarrySYLT(song.fileFormat),
+                  !song.isCueTrack,
+                  !song.isStreamDescriptor,
+                  readableSourceIDs.contains(song.sourceID),
+                  !disabledSourceIDs.contains(song.sourceID) else { return nil }
+            return song.id
+        }
+        guard !candidateIDs.isEmpty else {
+            defaults.set(true, forKey: Self.mergedLyricsRepairDoneKey)
+            return
+        }
+        mergedLyricsRepairTask = Task(priority: .utility) { [weak self] in
+            var mergedIDs: [String] = []
+            for songID in candidateIDs {
+                guard !Task.isCancelled else { return }
+                if let lines = await MetadataAssetStore.shared.cachedLyrics(forSongID: songID),
+                   MergedSynchronizedLyricsRepairPolicy.isMergedDocument(lines) {
+                    mergedIDs.append(songID)
+                }
+            }
+            var repaired = 0
+            var unresolved = 0
+            for songID in mergedIDs {
+                guard !Task.isCancelled, let self else { return }
+                if case .completed(_) = await self.rereadTags(songID: songID) {
+                    repaired += 1
+                } else {
+                    unresolved += 1
+                }
+            }
+            plog("📜 Merged SYLT lyrics repair: checked \(candidateIDs.count), merged \(mergedIDs.count), re-read \(repaired), unresolved \(unresolved)")
+            if unresolved == 0 {
+                UserDefaults.standard.set(true, forKey: Self.mergedLyricsRepairDoneKey)
+            }
+            self?.mergedLyricsRepairTask = nil
+        }
     }
 
     func canRereadTags(for song: Song) -> Bool {

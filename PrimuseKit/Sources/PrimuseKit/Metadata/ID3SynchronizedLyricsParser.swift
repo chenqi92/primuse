@@ -240,3 +240,35 @@ public enum ID3SynchronizedLyricsParser {
         return nil
     }
 }
+
+/// Before 2026-09-26 every SYLT frame was rendered as one word-timed line: the
+/// shared ID3 decoder had trimmed the newlines that start each line. Those
+/// documents sit in the lyrics cache, and the automatic writers refuse to
+/// replace word-level lyrics with line-level ones, so a rescan alone could not
+/// correct them. This recognizes that shape so it can be read again.
+public enum MergedSynchronizedLyricsRepairPolicy {
+    /// Containers that carry ID3 tags, the only place SYLT exists.
+    public static func canCarrySYLT(_ format: AudioFormat) -> Bool {
+        [.mp3, .mp2, .aac, .aiff, .aif, .wav, .dff].contains(format)
+    }
+
+    /// A whole song on one word-timed line. Real word-timed lyrics break into
+    /// lines well before this many words or seconds; a document the user
+    /// saved by hand is never touched.
+    public static func isMergedDocument(_ lines: [LyricLine]) -> Bool {
+        let sung = lines.filter {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard sung.count == 1,
+              let line = sung.first,
+              !line.documentIsLocalOverride,
+              let syllables = line.syllables,
+              syllables.count >= minimumWordCount,
+              let first = syllables.first?.start,
+              let last = syllables.last?.start else { return false }
+        return last - first >= minimumSpan
+    }
+
+    static let minimumWordCount = 8
+    static let minimumSpan: TimeInterval = 20
+}

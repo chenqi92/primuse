@@ -130,6 +130,34 @@ struct ID3SynchronizedLyricsParserTests {
         #expect(lines.map { $0.manualTranslation?.text } == ["你好", "世界"])
     }
 
+    @Test("The one-line document the old reader cached is recognized for repair")
+    func recognizesMergedDocuments() {
+        // What 1.9.8–1.10.1 cached: every cue joined into one word-timed line.
+        let words = (0..<12).map { "<00:\(String(format: "%02d", 5 + $0 * 4)).000>word\($0)" }.joined()
+        let merged = LyricsContentParser.parseText("[00:05.000]" + words)
+        #expect(MergedSynchronizedLyricsRepairPolicy.isMergedDocument(merged))
+
+        var edited = merged
+        edited[0].documentIsLocalOverride = true
+        #expect(!MergedSynchronizedLyricsRepairPolicy.isMergedDocument(edited))
+
+        // Genuine word-timed lyrics break into lines.
+        let normal = LyricsContentParser.parseText("""
+        [00:01.000]<00:01.000>Hold<00:01.400> on<00:01.900> tight
+        [00:03.000]<00:03.000>Let<00:03.400> go
+        """)
+        #expect(!MergedSynchronizedLyricsRepairPolicy.isMergedDocument(normal))
+        // A short single line is not the artifact either.
+        let short = LyricsContentParser.parseText("[00:01.000]<00:01.000>Hold<00:01.400> on<00:01.900> tight")
+        #expect(!MergedSynchronizedLyricsRepairPolicy.isMergedDocument(short))
+        #expect(!MergedSynchronizedLyricsRepairPolicy.isMergedDocument([]))
+
+        #expect(MergedSynchronizedLyricsRepairPolicy.canCarrySYLT(.mp3))
+        #expect(MergedSynchronizedLyricsRepairPolicy.canCarrySYLT(.wav))
+        #expect(!MergedSynchronizedLyricsRepairPolicy.canCarrySYLT(.flac))
+        #expect(!MergedSynchronizedLyricsRepairPolicy.canCarrySYLT(.m4a))
+    }
+
     @Test("Line cues become LRC lines that the lyric parser can read back")
     func parsesLineCues() throws {
         let payload = frame(cues: [
