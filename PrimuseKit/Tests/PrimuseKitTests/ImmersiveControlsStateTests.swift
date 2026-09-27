@@ -435,4 +435,20 @@ struct LyricsBackgroundTapPolicyTests {
             rowTapTimeDistance: 1
         ))
     }
+
+    @Test("A tap that stops or just follows a scroll is not a background tap")
+    func scrollTapIsSuppressed() {
+        #expect(!LyricsBackgroundTapPolicy.shouldHandle(
+            hasLyrics: true,
+            isPinching: false,
+            rowTapTimeDistance: 1,
+            timeSinceUserScroll: 0.1
+        ))
+        #expect(LyricsBackgroundTapPolicy.shouldHandle(
+            hasLyrics: true,
+            isPinching: false,
+            rowTapTimeDistance: 1,
+            timeSinceUserScroll: 2
+        ))
+    }
 }

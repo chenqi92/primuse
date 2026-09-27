@@ -657,6 +657,8 @@ struct NowPlayingView: View {
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
     @State private var activeMinimizeDragStartLocation: CGPoint?
     @State private var isLyricsImmersive = false
+    /// 这次的全屏歌词是点歌词空白收起控件得来的(而不是「全屏」按钮)：再点一下就回到普通歌词。
+    @State private var isLyricsChromeHiddenByTap = false
     #if DEBUG && os(iOS)
     @Environment(\.pmDebugPlayerMode) private var debugPlayerMode
     /// 取证框里模拟别的视口:遮挡区与窗口安全区都按框的来,不读外屏自己的。
@@ -1029,6 +1031,7 @@ struct NowPlayingView: View {
     }
 
     private func presentImmersiveLyrics() {
+        isLyricsChromeHiddenByTap = false
         if fullscreenPlayerEffect == .native {
             withAnimation(.easeInOut(duration: 0.3)) {
                 showLyrics = true
@@ -1121,6 +1124,7 @@ struct NowPlayingView: View {
 
     private func dismissImmersiveLyrics() {
         immersiveControlsAutoHideTask?.cancel()
+        isLyricsChromeHiddenByTap = false
         withAnimation(.easeInOut(duration: 0.3)) {
             isLyricsImmersive = false
             immersiveControlsState = immersiveControlsState.applying(.dismiss)
@@ -1134,6 +1138,7 @@ struct NowPlayingView: View {
             return
         }
         immersiveControlsAutoHideTask?.cancel()
+        isLyricsChromeHiddenByTap = false
         withAnimation(standardLyricsAnimation) {
             showLyrics = isVisible
             isLyricsImmersive = false
@@ -1145,7 +1150,25 @@ struct NowPlayingView: View {
         setStandardLyricsVisible(!showLyrics)
     }
 
+    /// 点歌词空白处只收起控件、让歌词占满（参照 Apple Music），不再切回封面 ——
+    /// 滑歌词、点行跳转时的误触很容易被当成点空白，回封面有顶部小封面和歌词键。
+    /// 分栏右栏与有声文字稿不是在播放页里替换封面的歌词，点空白不做事。
+    private func hideLyricsChromeFromTap() {
+        guard showLyrics, !isPlayerSplit, !usesSpokenWordTransport else { return }
+        immersiveControlsAutoHideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isLyricsImmersive = true
+            immersiveControlsState = .inactive
+            isLyricsChromeHiddenByTap = true
+        }
+    }
+
     private func handleImmersiveContentTap() {
+        // 点空白收起的控件，再点一下原样回来，而不是只叫出全屏歌词那套浮层。
+        if isLyricsChromeHiddenByTap, !immersiveControlsState.isLocked {
+            dismissImmersiveLyrics()
+            return
+        }
         withAnimation(.easeInOut(duration: 0.2)) {
             immersiveControlsState = immersiveControlsState.applying(.contentTap)
         }
@@ -2542,6 +2565,9 @@ struct NowPlayingView: View {
                 dismissImmersiveLyrics()
             }
         }
+        .onChange(of: isLyricsImmersive) { _, isImmersive in
+            if !isImmersive { isLyricsChromeHiddenByTap = false }
+        }
         .onDisappear {
             immersiveControlsAutoHideTask?.cancel()
         }
@@ -3086,7 +3112,7 @@ struct NowPlayingView: View {
             .frame(width: CGFloat(metrics.artworkColumnWidth))
     }
 
-    /// 歌词栏。滚动、淡出遮罩、点空白处回封面都是 `LyricsScrollView` 自己的，
+    /// 歌词栏。滚动、淡出遮罩、点空白处收起控件都是 `LyricsScrollView` 自己的，
     /// 这里只给它一块不会被任何控件压住的地方。
     private func compactLandscapeLyricsPane(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
@@ -5005,7 +5031,7 @@ struct NowPlayingView: View {
                     // swallowing the outer ZStack tap after chrome auto-hides.
                     handleImmersiveContentTap()
                 } else {
-                    setStandardLyricsVisible(false)
+                    hideLyricsChromeFromTap()
                 }
             },
             onShareLyricLine: { lineID in
@@ -8282,7 +8308,8 @@ struct LyricsScrollView: View {
                         guard LyricsBackgroundTapPolicy.shouldHandle(
                             hasLyrics: !lyrics.isEmpty,
                             isPinching: isPinchingLyrics,
-                            rowTapTimeDistance: lastLyricRowTapAt.timeIntervalSince(eventTime)
+                            rowTapTimeDistance: lastLyricRowTapAt.timeIntervalSince(eventTime),
+                            timeSinceUserScroll: eventTime.timeIntervalSince(lastUserScrollTime)
                         ) else { return }
                         onBackgroundTap()
                     }
