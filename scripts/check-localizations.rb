@@ -269,6 +269,10 @@ PMSTRING_SOURCE_ROOTS = %w[
 ].freeze
 
 HAN_LITERAL_ALLOWLIST = {
+  # Credit and role labels are matching vocabulary, not interface text.
+  "PrimuseKit/Sources/PrimuseKit/LyricTranslationContentPolicy.swift" => [
+    /\A\s*(?:private static let (?:titleLabels|artistLabels|creditLabels|productionRoles|productionPrefixes|productionSuffixes)\b|")/
+  ],
   # DEBUG-only chapter/bookshelf evidence hosts: fabricated book data for
   # screenshots and touch regression, never compiled into release builds.
   "Primuse/Views/Library/SpokenWordLibraryView.swift" => [
