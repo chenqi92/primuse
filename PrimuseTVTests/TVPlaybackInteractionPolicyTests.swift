@@ -1461,6 +1461,57 @@ private struct TVSeededRandomNumberGenerator: RandomNumberGenerator {
 }
 
 final class TVPlaybackQueuePolicyTests: XCTestCase {
+    private func ids(_ count: Int) -> [String] { (0..<count).map { "s\($0)" } }
+
+    func testSmallRequestsInstallWhole() {
+        let songIDs = ids(12)
+        var generator = TVSeededRandomNumberGenerator(seed: 3)
+        let plan = TVPlaybackQueuePolicy.plan(count: 12, selectedIndex: 4, shuffled: true, using: &generator)
+        let installation = TVQueueInstallation.make(songIDs: songIDs, plan: plan)
+
+        XCTAssertEqual(installation.queue, plan.canonicalIndices.map { songIDs[$0] })
+        XCTAssertEqual(installation.canonicalQueue, songIDs)
+        XCTAssertEqual(installation.queueCanonicalIndices, plan.canonicalIndices)
+        XCTAssertEqual(installation.queueIndex, plan.queueIndex)
+        XCTAssertNil(installation.continuation)
+    }
+
+    func testLargeOrderedRequestInstallsAWindowAroundTheSelection() {
+        let songIDs = ids(219_474)
+        var generator = TVSeededRandomNumberGenerator(seed: 5)
+        let plan = TVPlaybackQueuePolicy.plan(count: songIDs.count, selectedIndex: 90_000, shuffled: false, using: &generator)
+        let installation = TVQueueInstallation.make(songIDs: songIDs, plan: plan)
+
+        XCTAssertEqual(installation.queue.count, QueueWindowPolicy.windowLimit)
+        XCTAssertEqual(installation.queue[installation.queueIndex], "s90000")
+        XCTAssertEqual(installation.canonicalQueue, installation.queue)
+        XCTAssertEqual(installation.queueCanonicalIndices, Array(0..<QueueWindowPolicy.windowLimit))
+        var continuation = try? XCTUnwrap(installation.continuation)
+        XCTAssertEqual(continuation?.takeNext(maxCount: 2, repeatsAll: false), ["s90950", "s90951"])
+    }
+
+    func testLargeShuffledRequestKeepsPlaybackOrderAndOriginalOrderForUnshuffling() throws {
+        let songIDs = ids(5_000)
+        var generator = TVSeededRandomNumberGenerator(seed: 0xBEEF)
+        let plan = TVPlaybackQueuePolicy.plan(count: songIDs.count, selectedIndex: 1_234, shuffled: true, using: &generator)
+        let installation = TVQueueInstallation.make(songIDs: songIDs, plan: plan)
+        let playbackOrder = plan.canonicalIndices.map { songIDs[$0] }
+
+        XCTAssertEqual(installation.queueIndex, 0)
+        XCTAssertEqual(installation.queue.first, "s1234")
+        XCTAssertEqual(installation.queue, Array(playbackOrder.prefix(QueueWindowPolicy.windowLimit)))
+        XCTAssertEqual(installation.queueCanonicalIndices.map { installation.canonicalQueue[$0] }, installation.queue)
+        let originalPositions = installation.canonicalQueue.map { Int($0.dropFirst())! }
+        XCTAssertEqual(originalPositions, originalPositions.sorted())
+
+        var continuation = try XCTUnwrap(installation.continuation)
+        var rest: [String] = []
+        while case let batch = continuation.takeNext(maxCount: 900, repeatsAll: true), !batch.isEmpty {
+            rest += batch
+        }
+        XCTAssertEqual(rest, Array(playbackOrder.dropFirst(QueueWindowPolicy.windowLimit)))
+    }
+
     func testShuffledSelectionPlaysSelectedSongFirstAndKeepsEveryOtherIndexOnce() {
         var generator = TVSeededRandomNumberGenerator(seed: 0xC0FFEE)
         let plan = TVPlaybackQueuePolicy.plan(

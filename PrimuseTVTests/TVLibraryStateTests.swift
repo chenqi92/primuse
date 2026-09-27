@@ -279,7 +279,8 @@ final class TVLibraryStateTests: XCTestCase {
         store.reload()
         let first = try XCTUnwrap(store.song("first"))
         let second = try XCTUnwrap(store.song("second"))
-        store.play(second)
+        // 显式给出列表顺序: 两首歌的加入时间几乎相同, 整库可见顺序时先时后。
+        XCTAssertTrue(store.play(second, in: [first.id, second.id]))
         store.engine.prepareForSelection(startAt: 20)
         XCTAssertEqual(store.currentTime, 20)
         store.previous(restartCurrentIfNeeded: false)

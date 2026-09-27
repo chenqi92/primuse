@@ -50,6 +50,13 @@ struct QueueContinuationTests {
         #expect(Set(handedOut + ids[200..<1_200]) == Set(ids))
     }
 
+    @Test("Remapped IDs are handed out under their new identity")
+    func remapFollowsMigrations() {
+        var continuation = QueueContinuation(requestedIDs: (0..<1_200).map { "s\($0)" }, window: 0..<1_000)
+        continuation.remapIDs(["s1000": "n1000", "s5": "n5"])
+        #expect(continuation.takeNext(maxCount: 2, repeatsAll: false) == ["n1000", "s1001"])
+    }
+
     @Test("A continuation survives the store round trip")
     func storeRoundTrip() throws {
         let directory = FileManager.default.temporaryDirectory

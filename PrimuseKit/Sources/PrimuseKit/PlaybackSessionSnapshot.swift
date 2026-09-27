@@ -502,7 +502,7 @@ public enum QueueWindowPolicy {
 /// full cycle still plays every requested song before the queue wraps.
 public struct QueueContinuation: Codable, Equatable, Sendable {
     public let token: String
-    public let requestedIDs: [String]
+    public private(set) var requestedIDs: [String]
     public private(set) var nextOffset: Int
     /// Songs before the window (`requestedIDs[0..<leadingEnd]`).
     public let leadingEnd: Int
@@ -519,6 +519,12 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
     /// Nothing more can ever be handed out, whatever the repeat mode.
     public var isExhausted: Bool {
         nextOffset >= requestedIDs.count && leadingOffset >= leadingEnd
+    }
+
+    /// Follows song ID migrations so owed songs still resolve afterwards.
+    public mutating func remapIDs(_ replacements: [String: String]) {
+        guard !replacements.isEmpty else { return }
+        requestedIDs = requestedIDs.map { replacements[$0] ?? $0 }
     }
 
     /// Up to `maxCount` IDs in playback order. The leading part is only used

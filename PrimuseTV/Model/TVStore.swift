@@ -110,6 +110,42 @@ enum TVPlaybackQueuePolicy {
     }
 }
 
+/// 整库「全部播放」这类超大请求只装一段窗口(见 `QueueWindowPolicy`),其余按播放顺序
+/// 记成 `QueueContinuation`, 快播完时再接上。随机时窗口按播放顺序截取, 关掉随机后
+/// 窗口内的歌回到它们在原列表里的相对顺序。
+struct TVQueueInstallation: Equatable, Sendable {
+    var queue: [String]
+    var canonicalQueue: [String]
+    var queueCanonicalIndices: [Int]
+    var queueIndex: Int
+    var continuation: QueueContinuation?
+
+    static func make(songIDs: [String], plan: TVPlaybackQueuePolicy.Plan) -> TVQueueInstallation {
+        let order = plan.canonicalIndices
+        guard let window = QueueWindowPolicy.window(count: order.count, selectedIndex: plan.queueIndex) else {
+            return TVQueueInstallation(
+                queue: order.map { songIDs[$0] },
+                canonicalQueue: songIDs,
+                queueCanonicalIndices: order,
+                queueIndex: plan.queueIndex,
+                continuation: nil
+            )
+        }
+        let slice = Array(order[window])
+        let canonicalSlice = slice.sorted()
+        var rankByCanonicalIndex: [Int: Int] = [:]
+        rankByCanonicalIndex.reserveCapacity(canonicalSlice.count)
+        for (rank, index) in canonicalSlice.enumerated() { rankByCanonicalIndex[index] = rank }
+        return TVQueueInstallation(
+            queue: slice.map { songIDs[$0] },
+            canonicalQueue: canonicalSlice.map { songIDs[$0] },
+            queueCanonicalIndices: slice.map { rankByCanonicalIndex[$0] ?? 0 },
+            queueIndex: plan.queueIndex - window.lowerBound,
+            continuation: QueueContinuation(requestedIDs: order.map { songIDs[$0] }, window: window)
+        )
+    }
+}
+
 enum TVSourceLocalLibraryCapability: Equatable, Sendable {
     /// Apple TV can authenticate, enumerate the source, and build its own catalogue.
     case directScan
@@ -694,6 +730,9 @@ final class TVStore {
     }
     private var canonicalQueue: [String] = []
     private var queueCanonicalIndices: [Int] = []
+    /// 超大请求里还没装进队列的部分(见 `TVQueueInstallation`)。
+    @ObservationIgnored private var queueContinuation: QueueContinuation?
+    @ObservationIgnored private var queueContinuationWriteTask: Task<Void, Never>?
     @ObservationIgnored private var topShelfTask: Task<Void, Never>?
     @ObservationIgnored private var playbackSessionTask: Task<Void, Never>?
     @ObservationIgnored private var playbackMonitorTask: Task<Void, Never>?
@@ -4527,6 +4566,7 @@ final class TVStore {
         canonicalQueue = []
         queueCanonicalIndices = []
         queueIndex = 0
+        setQueueContinuation(nil)
         queueUpNextIDs = []
         lyrics = []
         isMusicVideoModeEnabled = false
@@ -4658,10 +4698,7 @@ final class TVStore {
             selectedIndex: songID.flatMap { resolved.firstIndex(of: $0) },
             shuffled: shuffled
         )
-        canonicalQueue = resolved
-        queueCanonicalIndices = plan.canonicalIndices
-        queue = plan.canonicalIndices.map { resolved[$0] }
-        queueIndex = plan.queueIndex
+        install(TVQueueInstallation.make(songIDs: resolved, plan: plan))
         guard let first = song(queue[queueIndex]) else { return false }
         shuffleEnabled = shuffled
         startPlaying(first)
@@ -4908,10 +4945,63 @@ final class TVStore {
             selectedIndex: selected,
             shuffled: shuffleEnabled
         )
-        canonicalQueue = scope
-        queueCanonicalIndices = plan.canonicalIndices
-        queue = plan.canonicalIndices.map { scope[$0] }
-        queueIndex = plan.queueIndex
+        install(TVQueueInstallation.make(songIDs: scope, plan: plan))
+    }
+
+    private func install(_ installation: TVQueueInstallation) {
+        canonicalQueue = installation.canonicalQueue
+        queueCanonicalIndices = installation.queueCanonicalIndices
+        queue = installation.queue
+        queueIndex = installation.queueIndex
+        setQueueContinuation(installation.continuation)
+        if let continuation = installation.continuation {
+            plog("🎬 TV large queue request \(continuation.requestedIDs.count) installed as window of \(queue.count)")
+        }
+    }
+
+    private func setQueueContinuation(_ continuation: QueueContinuation?) {
+        guard continuation != nil || queueContinuation != nil else { return }
+        queueContinuation = continuation
+        persistQueueContinuation()
+    }
+
+    private func persistQueueContinuation() {
+        let store = QueueContinuationStore(sessionStore: sessionStore)
+        let continuation = queueContinuation
+        let previous = queueContinuationWriteTask
+        queueContinuationWriteTask = Task.detached(priority: .utility) {
+            _ = await previous?.value
+            store.save(continuation)
+        }
+    }
+
+    /// 前面剩不到 `QueueWindowPolicy.refillThreshold` 首时, 从超大请求的剩余部分接上一批。
+    /// 新歌排在队尾; 随机开着时这一批自己打乱后再接, 已经播过的不会再轮到。
+    private func refillQueueFromContinuationIfNeeded() {
+        guard var continuation = queueContinuation, !isMedleyActive, !isLiveRadio,
+              queue.indices.contains(queueIndex),
+              queueCanonicalIndices.count == queue.count,
+              QueueWindowPolicy.shouldRefill(upcomingCount: queue.count - 1 - queueIndex) else { return }
+        var additions: [String] = []
+        while additions.count < QueueWindowPolicy.refillBatch {
+            let ids = continuation.takeNext(
+                maxCount: QueueWindowPolicy.refillBatch - additions.count,
+                repeatsAll: repeatMode == .all
+            )
+            guard !ids.isEmpty else { break }
+            additions += ids.filter { song($0) != nil }
+        }
+        queueContinuation = continuation.isExhausted ? nil : continuation
+        persistQueueContinuation()
+        guard !additions.isEmpty else { return }
+        let base = canonicalQueue.count
+        let order = shuffleEnabled ? Array(additions.indices).shuffled() : Array(additions.indices)
+        canonicalQueue.append(contentsOf: additions)
+        queueCanonicalIndices.append(contentsOf: order.map { base + $0 })
+        queue.append(contentsOf: order.map { additions[$0] })
+        refreshUpNext()
+        plog("🎬 TV queue continuation appended \(additions.count) songs (queue=\(queue.count))")
+        persistPlaybackSession()
     }
 
     /// Replace only the current queue slot when choosing its paired recording.
@@ -4941,6 +5031,7 @@ final class TVStore {
             startMedleySelection(slice, at: resumeTime, autoPlay: autoPlay)
             return
         }
+        refillQueueFromContinuationIfNeeded()
         // 换条之前先记下上一条有声内容听到哪了,时钟马上就要归零。
         rememberSpokenWordPosition(force: true)
         let startTime = spokenWordStartTime(for: song, requested: resumeTime, isRecovery: isRecovery)
@@ -5022,6 +5113,7 @@ final class TVStore {
         queue = []
         queueIndex = 0
         queueUpNextIDs = []
+        setQueueContinuation(nil)
         lyrics = []
         isMusicVideoModeEnabled = false
         engine.prepareForSelection(startAt: 0)
@@ -5127,6 +5219,7 @@ final class TVStore {
         queue = []
         queueIndex = 0
         queueUpNextIDs = []
+        setQueueContinuation(nil)
         lyrics = []
         isMusicVideoModeEnabled = false
         engine.prepareForSelection(startAt: 0)
@@ -5275,7 +5368,8 @@ final class TVStore {
             duration: duration, wasPlaying: isPlaying, shuffleEnabled: shuffleEnabled,
             shuffledIndices: shuffleEnabled ? queueCanonicalIndices : [],
             shufflePosition: shuffleEnabled ? queueIndex : 0, repeatMode: mode,
-            isAtTrackEnd: duration > 0 && currentTime >= duration - 0.5
+            isAtTrackEnd: duration > 0 && currentTime >= duration - 0.5,
+            queueContinuationToken: queueContinuation?.token
         )
         let previous = playbackSessionTask
         let storage = sessionStore
@@ -5290,10 +5384,26 @@ final class TVStore {
         guard !playbackRestoreAttempted, !hasNowPlaying, !songByID.isEmpty else { return }
         playbackRestoreAttempted = true
         do {
-            guard let snapshot = try sessionStore.load(),
-                  let plan = PlaybackSessionRestorationPolicy.plan(
-                    snapshot: snapshot, availableSongIDs: Set(songByID.keys)
-                  ) else { return }
+            guard var snapshot = try sessionStore.load() else { return }
+            let continuationStore = QueueContinuationStore(sessionStore: sessionStore)
+            var continuation: QueueContinuation?
+            var reshapedLegacyQueue = false
+            if let token = snapshot.queueContinuationToken,
+               let saved = continuationStore.load(), saved.token == token {
+                continuation = saved
+            }
+            // 旧版本把整个曲库存成队列; 恢复成一段窗口加后续。
+            if let windowed = QueueWindowPolicy.windowed(snapshot) {
+                snapshot = windowed.snapshot
+                continuation = windowed.continuation
+                reshapedLegacyQueue = true
+            }
+            guard let plan = PlaybackSessionRestorationPolicy.plan(
+                snapshot: snapshot,
+                availableSongIDs: Set(snapshot.queueSongIDs.filter { songByID[$0] != nil })
+            ) else { return }
+            queueContinuation = continuation
+            if reshapedLegacyQueue { persistQueueContinuation() }
             canonicalQueue = plan.queueSongIDs
             shuffleEnabled = plan.shuffleEnabled
             queueCanonicalIndices = plan.shuffleEnabled ? plan.shuffledIndices : Array(canonicalQueue.indices)
@@ -5346,6 +5456,10 @@ final class TVStore {
         PlayHistoryStore.shared.remapSongIDs(replacements)
         queue = queue.map { replacements[$0] ?? $0 }
         canonicalQueue = canonicalQueue.map { replacements[$0] ?? $0 }
+        if queueContinuation != nil {
+            queueContinuation?.remapIDs(replacements)
+            persistQueueContinuation()
+        }
         nowPlaying.songID = replacements[nowPlaying.songID] ?? nowPlaying.songID
         refreshUpNext()
         Task {
@@ -5543,6 +5657,7 @@ extension TVStore {
         queueCanonicalIndices = Array(ids.indices)
         queue = ids
         queueIndex = 0
+        setQueueContinuation(nil)
         shuffleEnabled = false
         if repeatMode == .one { repeatMode = .off }
         startMedleySelection(slice)
