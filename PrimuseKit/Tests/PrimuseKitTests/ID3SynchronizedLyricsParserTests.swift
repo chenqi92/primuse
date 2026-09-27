@@ -55,6 +55,20 @@ struct ID3SynchronizedLyricsParserTests {
         return Data(bytes)
     }
 
+    @Test("The production text decoder keeps line cues apart", arguments: [0, 1, 2, 3] as [UInt8])
+    func keepsLinesWithProductionDecoder(encoding: UInt8) throws {
+        // The shared ID3 decoder trims the newline that marks a new line, so
+        // line starts must be read from the bytes.
+        let payload = frame(encoding: encoding, cues: [
+            ("First line", 1_000),
+            ("\nSecond line", 3_000),
+            ("\nThird line", 5_000),
+        ])
+
+        let parsed = try #require(ID3SynchronizedLyricsParser.parse(payload))
+        #expect(parsed.text == "[00:01.000]First line\n[00:03.000]Second line\n[00:05.000]Third line")
+    }
+
     @Test("Line cues become LRC lines that the lyric parser can read back")
     func parsesLineCues() throws {
         let payload = frame(cues: [

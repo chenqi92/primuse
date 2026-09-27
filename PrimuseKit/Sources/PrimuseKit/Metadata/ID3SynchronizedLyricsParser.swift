@@ -71,7 +71,8 @@ public enum ID3SynchronizedLyricsParser {
                 terminatorLength: terminatorLength
             ), textEnd + 4 <= bytes.count else { break }
 
-            let raw = decodeText(Data(bytes[cursor..<(textEnd - terminatorLength)]), encoding) ?? ""
+            let rawBytes = bytes[cursor..<(textEnd - terminatorLength)]
+            let raw = decodeText(Data(rawBytes), encoding) ?? ""
             let milliseconds = bytes[textEnd..<(textEnd + 4)].reduce(0) { total, byte in
                 total << 8 | Int(byte)
             }
@@ -79,7 +80,11 @@ public enum ID3SynchronizedLyricsParser {
 
             // The spec starts every new lyric line with a newline inside the
             // cue text, which is how word cues and line cues are told apart.
-            let startsLine = cues.isEmpty || raw.first?.isNewline == true
+            // Read it from the bytes: the shared ID3 text decoder trims
+            // surrounding newlines, which would merge every line into one.
+            let startsLine = cues.isEmpty
+                || raw.first?.isNewline == true
+                || beginsWithNewline(rawBytes, encoding: encoding)
             let text = raw.trimmingCharacters(in: .newlines)
             guard !text.isEmpty else { continue }
             cues.append(Cue(text: text, milliseconds: milliseconds, startsLine: startsLine))
@@ -95,6 +100,29 @@ public enum ID3SynchronizedLyricsParser {
             languageCode: languageCode(in: bytes),
             descriptor: descriptor.trimmingCharacters(in: .whitespacesAndNewlines)
         )
+    }
+
+    private static func beginsWithNewline(_ bytes: ArraySlice<UInt8>, encoding: UInt8) -> Bool {
+        var bytes = bytes
+        switch encoding {
+        case 1, 2:
+            var bigEndian = encoding == 2
+            if bytes.starts(with: [0xFF, 0xFE]) {
+                bigEndian = false
+                bytes = bytes.dropFirst(2)
+            } else if bytes.starts(with: [0xFE, 0xFF]) {
+                bigEndian = true
+                bytes = bytes.dropFirst(2)
+            }
+            guard bytes.count >= 2 else { return false }
+            let first = bytes[bytes.startIndex]
+            let second = bytes[bytes.startIndex + 1]
+            let unit = bigEndian ? UInt16(first) << 8 | UInt16(second) : UInt16(second) << 8 | UInt16(first)
+            return unit == 0x0A || unit == 0x0D
+        default:
+            guard let first = bytes.first else { return false }
+            return first == 0x0A || first == 0x0D
+        }
     }
 
     private static func render(_ cues: [Cue]) -> String {

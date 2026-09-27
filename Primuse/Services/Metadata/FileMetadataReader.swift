@@ -550,6 +550,7 @@ enum FileMetadataReader {
             }
 
             // Try format-specific metadata for more detail
+            var synchronizedLyrics: ID3SynchronizedLyricsParser.Frame?
             for item in items {
                 guard let identifier = item.identifier else { continue }
                 let value = try? await item.load(.value)
@@ -645,6 +646,15 @@ enum FileMetadataReader {
                     if let text = decodedText(value), !text.isEmpty, metadata.lyricsText == nil {
                         metadata.lyricsText = text
                     }
+                case .id3MetadataSynchronizedLyric:
+                    // AVFoundation hands SYLT over as the raw frame payload only;
+                    // this is the one reader that sees it for an iOS
+                    // media-library asset, which has no bytes to fall back to.
+                    if synchronizedLyrics == nil,
+                       let payload = try? await item.load(.dataValue),
+                       let frame = ID3SynchronizedLyricsParser.parse(payload) {
+                        synchronizedLyrics = frame
+                    }
                 case .id3MetadataUserText:
                     // TXXX frames: ReplayGain tags stored in extraAttributes[.info]
                     if let extras = try? await item.load(.extraAttributes),
@@ -701,6 +711,17 @@ enum FileMetadataReader {
             metadata.title = MetadataTitleResolutionPolicy.preferredEmbeddedTitle(
                 from: titleCandidates
             )
+            // Same rule as the byte-level ID3 reader: timed lyrics outrank an
+            // unsynchronized frame, which may be plain text.
+            if let synchronizedLyrics,
+               metadata.lyricsText.map({ LyricsFormat.detect($0) == .plain }) ?? true {
+                metadata.lyricsText = synchronizedLyrics.text
+                metadata.lyricsLanguageCode = synchronizedLyrics.languageCode
+                    ?? metadata.lyricsLanguageCode
+                if let languageCode = synchronizedLyrics.languageCode {
+                    metadata.languageTaggedLyrics[languageCode] = synchronizedLyrics.text
+                }
+            }
         }
 
         // Get audio format details
