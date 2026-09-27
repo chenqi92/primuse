@@ -4593,6 +4593,10 @@ final class AudioPlayerService {
             /// Where in the file the decoder starts; nonzero only for a
             /// medley slice, whose stream is then trimmed relative to it.
             var decoderSourceStartTime: TimeInterval = 0
+            // A medley slice starts mid-file. Let the decoder seek there, as a
+            // seek does, instead of decoding and discarding everything before
+            // the slice — over a Range stream that is tens of MiB fetched first.
+            let medleySliceStart = medleyDecoderStartTime(for: song)
             if isRemoteURL {
                 if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
                     || remoteWAVRequiresCompleteFile
@@ -4647,7 +4651,13 @@ final class AudioPlayerService {
                 ) {
                     plog("▶️ Decoder: HTTPRangePlaybackSource (reason: scheme=\(url.scheme ?? "?"), range-based HTTP streaming) cache=\(playbackSettings.audioCacheEnabled) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                     activeDecoderKind = .httpStream
-                    stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: makeResolveLengthCallback(for: song))
+                    decoderSourceStartTime = medleySliceStart
+                    stream = nativeDecoder.decode(
+                        from: inputSource,
+                        outputFormat: outputFormat,
+                        startingAt: medleySliceStart > 0 ? medleySliceStart : nil,
+                        onResolveSourceLength: makeResolveLengthCallback(for: song)
+                    )
                 } else if song.fileSize > 0 {
                     guard playID == id else { return }
                     plog("⚠️ HTTP range cache admission denied for known-size media; refusing unreserved full download")
@@ -4764,15 +4774,16 @@ final class AudioPlayerService {
                 // 一个稳定的 HTTPS URL。
                 plog("▶️ Decoder: CloudPlaybackSource (reason: scheme=primuse-stream, range-based streaming) cache=\(playbackSettings.audioCacheEnabled) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
                 activeDecoderKind = .cloudStream
-                stream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: makeResolveLengthCallback(for: song))
+                decoderSourceStartTime = medleySliceStart
+                stream = nativeDecoder.decode(
+                    from: inputSource,
+                    outputFormat: outputFormat,
+                    startingAt: medleySliceStart > 0 ? medleySliceStart : nil,
+                    onResolveSourceLength: makeResolveLengthCallback(for: song)
+                )
             } else {
                 let reason = "local file path (file:// scheme)"
-                // A medley slice starts mid-file. Let the decoder seek there,
-                // as a seek does, instead of decoding and discarding
-                // everything before the slice.
-                if let start = song.cueStartTime, start > 0, medleySongIDs.contains(song.id) {
-                    decoderSourceStartTime = start
-                }
+                decoderSourceStartTime = medleySliceStart
                 if await usesFFmpegDecoder(for: song, url: url) {
                     activeDecoderKind = .ffmpeg
                     plog("▶️ Decoder: FFmpeg (reason: \(reason)) outputFormat: sr=\(outputFormat.sampleRate) ch=\(outputFormat.channelCount)")
@@ -5830,6 +5841,9 @@ final class AudioPlayerService {
             ) else { return nil }
         }
         let onResolveLength = makeResolveLengthCallback(for: song)
+        // The next medley slice opens at its slice start, not the file top.
+        let sliceStart = medleyDecoderStartTime(for: song)
+        let startingAt: TimeInterval? = sliceStart > 0 ? sliceStart : nil
 
         let rawStream: AudioBufferStream?
         if url.scheme == SourceManager.cloudStreamingScheme {
@@ -5839,17 +5853,19 @@ final class AudioPlayerService {
                     rawStream = ffmpegDecoder.decode(
                         from: cached,
                         outputFormat: outputFormat,
+                        startingAt: startingAt,
                         onResolveSourceLength: onResolveLength
                     )
                 } else {
                     rawStream = nativeDecoder.decode(
                         from: cached,
                         outputFormat: outputFormat,
+                        startingAt: startingAt,
                         onResolveSourceLength: onResolveLength
                     )
                 }
                 return rawStream.map {
-                    transitionPreparedStream($0, for: song, completeFileURL: cached)
+                    transitionPreparedStream($0, for: song, sourceStartTime: sliceStart, completeFileURL: cached)
                 }
             }
             if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return nil }
@@ -5861,8 +5877,8 @@ final class AudioPlayerService {
                   ) else {
                 return nil
             }
-            rawStream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
-            return rawStream.map { transitionPreparedStream($0, for: song) }
+            rawStream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, startingAt: startingAt, onResolveSourceLength: onResolveLength)
+            return rawStream.map { transitionPreparedStream($0, for: song, sourceStartTime: sliceStart) }
         }
         if url.scheme == "http" || url.scheme == "https" {
             if let cached = sourceManager?.cachedURL(for: song) {
@@ -5870,23 +5886,26 @@ final class AudioPlayerService {
                     rawStream = ffmpegDecoder.decode(
                         from: cached,
                         outputFormat: outputFormat,
+                        startingAt: startingAt,
                         onResolveSourceLength: onResolveLength
                     )
                 } else {
                     rawStream = nativeDecoder.decode(
                         from: cached,
                         outputFormat: outputFormat,
+                        startingAt: startingAt,
                         onResolveSourceLength: onResolveLength
                     )
                 }
                 return rawStream.map {
-                    transitionPreparedStream($0, for: song, completeFileURL: cached)
+                    transitionPreparedStream($0, for: song, sourceStartTime: sliceStart, completeFileURL: cached)
                 }
             }
             if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) { return nil }
             if SourceManager.isTranscodedStreamURL(url), assetReaderDecoder.canDecode(url: url) {
                 // 服务端转码流: 渐进 AVAssetReader, 不走已知大小的 Range / 缓存。
                 rawStream = assetReaderDecoder.decode(from: url, outputFormat: outputFormat)
+                // No seek here: the stream still starts at the top of the file.
                 return rawStream.map { transitionPreparedStream($0, for: song) }
             }
             if let inputSource = await makeHTTPStreamingInputSource(
@@ -5894,8 +5913,8 @@ final class AudioPlayerService {
                 url: url,
                 sourceStreamEpoch: sourceStreamEpoch
             ) {
-                rawStream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, onResolveSourceLength: onResolveLength)
-                return rawStream.map { transitionPreparedStream($0, for: song) }
+                rawStream = nativeDecoder.decode(from: inputSource, outputFormat: outputFormat, startingAt: startingAt, onResolveSourceLength: onResolveLength)
+                return rawStream.map { transitionPreparedStream($0, for: song, sourceStartTime: sliceStart) }
             }
             return nil
         }
@@ -5903,12 +5922,14 @@ final class AudioPlayerService {
             rawStream = ffmpegDecoder.decode(
                 from: url,
                 outputFormat: outputFormat,
+                startingAt: startingAt,
                 onResolveSourceLength: onResolveLength
             )
         } else {
             rawStream = nativeDecoder.decode(
                 from: url,
                 outputFormat: outputFormat,
+                startingAt: startingAt,
                 onResolveSourceLength: onResolveLength
             )
         }
@@ -5916,6 +5937,7 @@ final class AudioPlayerService {
             transitionPreparedStream(
                 $0,
                 for: song,
+                sourceStartTime: sliceStart,
                 completeFileURL: url.isFileURL ? url : nil
             )
         }
@@ -5924,9 +5946,10 @@ final class AudioPlayerService {
     private func transitionPreparedStream(
         _ stream: AudioBufferStream,
         for song: Song,
+        sourceStartTime: TimeInterval = 0,
         completeFileURL: URL? = nil
     ) -> AudioBufferStream {
-        let segmentedStream = segmented(stream, for: song)
+        let segmentedStream = segmented(stream, for: song, sourceStartTime: sourceStartTime)
         let settings = playbackSettings.snapshot()
         let effectsEnabled = settings.outputMode == .effects
         let smartCrossfade = effectsEnabled
@@ -6076,6 +6099,15 @@ final class AudioPlayerService {
             )
         }
         #endif
+    }
+
+    /// Where the decoder should open `song`: the slice start for a medley
+    /// slice, otherwise the top of the file (CUE tracks keep decoding from
+    /// the image start and trimming, as before).
+    func medleyDecoderStartTime(for song: Song) -> TimeInterval {
+        guard let start = song.cueStartTime, start > 0,
+              medleySongIDs.contains(song.id) else { return 0 }
+        return start
     }
 
     func segmented(

@@ -191,6 +191,11 @@ extension AudioPlayerService {
             if nextSongInQueue() != nil {
                 await next(isAutomaticAdvance: true, caller: "auto:\(trigger)", callerLine: 0)
             } else {
+                if isMedleyActive {
+                    // 串烧停在这里只可能是队列里没有下一段了；记下还剩多少段，
+                    // 好和「准备失败被跳过」的日志对上。
+                    plog("🎛️ Medley: no slice after \(currentIndex + 1)/\(queueEntries.count); stopping")
+                }
                 // 没下一首 —— 进 "已播完" 状态而不是 stop() 全清。
                 // 否则 currentSong 一旦为 nil, 上层各种 sheet (刮削 /
                 // SongInfo / AddToPlaylist) 内容是空的就白屏, mini
