@@ -40,6 +40,49 @@ struct AppleMusicLocalFilesTests {
         #expect(policy.bitDepth(codecID: fourCC(".mp3"), bitsPerChannel: 16, formatFlags: 0) == nil)
     }
 
+    @Test("Bit rate falls back when AVFoundation reports no data rate")
+    func fallsBackForBitRate() {
+        let policy = AppleMusicLocalFileDetailsPolicy.self
+        #expect(policy.bitRate(
+            estimatedDataRate: 256_000, codecID: fourCC("aac "), sampleRate: 44_100,
+            channels: 2, bitsPerChannel: 0, sampleDataLength: nil, duration: nil
+        ) == 256)
+        // AVFoundation reports 0 for every PCM file (measured on WAV and AIFF).
+        #expect(policy.bitRate(
+            estimatedDataRate: 0, codecID: fourCC("lpcm"), sampleRate: 44_100,
+            channels: 2, bitsPerChannel: 16, sampleDataLength: nil, duration: nil
+        ) == 1_411)
+        #expect(policy.bitRate(
+            estimatedDataRate: 0, codecID: fourCC("lpcm"), sampleRate: 96_000,
+            channels: 2, bitsPerChannel: 24, sampleDataLength: nil, duration: nil
+        ) == 4_608)
+        #expect(policy.bitRate(
+            estimatedDataRate: 0, codecID: fourCC(".mp3"), sampleRate: 44_100,
+            channels: 2, bitsPerChannel: 0, sampleDataLength: 4_000_000, duration: 250
+        ) == 128)
+        #expect(policy.bitRate(
+            estimatedDataRate: nil, codecID: fourCC(".mp3"), sampleRate: 44_100,
+            channels: 2, bitsPerChannel: 0, sampleDataLength: nil, duration: 250
+        ) == nil)
+    }
+
+    @Test("The SYLT payload AVFoundation returns parses as timed lyrics")
+    func parsesAVFoundationSYLTPayload() {
+        // `AVMetadataItem.dataValue` for id3/SYLT, as returned on macOS 27.
+        var payload = Data([3]) + Data("chi".utf8) + Data([2, 1, 0])
+        for (text, milliseconds) in [("Line one", 1_000), ("\nLine two", 3_000), ("\nLine three", 5_000)] {
+            payload += Data(text.utf8) + Data([0])
+            payload += Data([0, 0, UInt8(milliseconds >> 8), UInt8(milliseconds & 0xFF)])
+        }
+        #expect(payload.count == 50)
+        let frame = ID3SynchronizedLyricsParser.parse(payload)
+        let lines = LyricsContentParser.parseText(frame?.text ?? "")
+        #expect(lines.map(\.text) == ["Line one", "Line two", "Line three"])
+        #expect(lines.map(\.timestamp) == [1, 3, 5])
+        let allSynchronized = lines.allSatisfy { $0.isSynchronized }
+        #expect(allSynchronized)
+    }
+
     @Test("File details replace MusicKit's placeholder and keep what is unknown")
     func appliesDetails() {
         let song = Song(

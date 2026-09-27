@@ -20,32 +20,45 @@ struct AppleMusicLocalFile: Sendable {
 /// Reads what MusicKit does not expose for imported files: their embedded
 /// lyrics and their real audio properties.
 enum AppleMusicLocalFileReader {
+    /// A file that cannot be opened right now (an unmounted volume, a file
+    /// Music.app is still copying) stays unprobed, so the next sync retries it.
     @concurrent
     static func probeDetails(of file: AppleMusicLocalFile) async -> AppleMusicLocalFileDetails {
-        var probed = AppleMusicLocalFileDetails(isProbed: true)
         let fileExtension = file.assetURL.pathExtension
         let asset = AVURLAsset(url: file.assetURL)
-        if let track = try? await asset.loadTracks(withMediaType: .audio).first {
-            if let description = try? await track.load(.formatDescriptions).first,
-               let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee {
-                probed.fileFormat = AppleMusicLocalFileDetailsPolicy.format(
-                    codecID: basic.mFormatID,
-                    fileExtension: fileExtension
-                )
-                if basic.mSampleRate.isFinite, basic.mSampleRate > 0 {
-                    probed.sampleRate = Int(basic.mSampleRate.rounded())
-                }
-                probed.bitDepth = AppleMusicLocalFileDetailsPolicy.bitDepth(
-                    codecID: basic.mFormatID,
-                    bitsPerChannel: basic.mBitsPerChannel,
-                    formatFlags: basic.mFormatFlags
-                )
-            }
-            if let dataRate = try? await track.load(.estimatedDataRate),
-               dataRate.isFinite, dataRate > 0 {
-                probed.bitRate = Int((Double(dataRate) / 1000).rounded())
-            }
+        guard let track = try? await asset.loadTracks(withMediaType: .audio).first,
+              let description = try? await track.load(.formatDescriptions).first,
+              let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee
+        else { return file.libraryDetails }
+
+        var probed = AppleMusicLocalFileDetails(isProbed: true)
+        probed.fileFormat = AppleMusicLocalFileDetailsPolicy.format(
+            codecID: basic.mFormatID,
+            fileExtension: fileExtension
+        )
+        if basic.mSampleRate.isFinite, basic.mSampleRate > 0 {
+            probed.sampleRate = Int(basic.mSampleRate.rounded())
         }
+        probed.bitDepth = AppleMusicLocalFileDetailsPolicy.bitDepth(
+            codecID: basic.mFormatID,
+            bitsPerChannel: basic.mBitsPerChannel,
+            formatFlags: basic.mFormatFlags
+        )
+        let dataRate = try? await track.load(.estimatedDataRate)
+        let needsSampleBytes = !(dataRate.map { $0.isFinite && $0 > 0 } ?? false)
+        let sampleDataLength = needsSampleBytes ? try? await track.load(.totalSampleDataLength) : nil
+        let duration = needsSampleBytes
+            ? (try? await asset.load(.duration)).map(CMTimeGetSeconds)
+            : nil
+        probed.bitRate = AppleMusicLocalFileDetailsPolicy.bitRate(
+            estimatedDataRate: dataRate,
+            codecID: basic.mFormatID,
+            sampleRate: basic.mSampleRate,
+            channels: basic.mChannelsPerFrame,
+            bitsPerChannel: basic.mBitsPerChannel,
+            sampleDataLength: sampleDataLength,
+            duration: duration
+        )
         return file.libraryDetails.overlaying(probed)
     }
 

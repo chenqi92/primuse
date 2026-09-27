@@ -98,6 +98,31 @@ public enum AppleMusicLocalFileDetailsPolicy {
         }
     }
 
+    /// AVFoundation reports no data rate for PCM, and none for some compressed
+    /// files either. PCM follows from its layout; anything else from the
+    /// encoded sample bytes over the duration.
+    public static func bitRate(
+        estimatedDataRate: Float?,
+        codecID: UInt32,
+        sampleRate: Double,
+        channels: UInt32,
+        bitsPerChannel: UInt32,
+        sampleDataLength: Int64?,
+        duration: Double?
+    ) -> Int? {
+        if let estimatedDataRate, estimatedDataRate.isFinite, estimatedDataRate > 0 {
+            return Int((Double(estimatedDataRate) / 1000).rounded())
+        }
+        if codecID == fourCC("lpcm"), sampleRate > 0, channels > 0, bitsPerChannel > 0 {
+            return Int((sampleRate * Double(channels) * Double(bitsPerChannel) / 1000).rounded())
+        }
+        if let sampleDataLength, sampleDataLength > 0,
+           let duration, duration.isFinite, duration > 0 {
+            return Int((Double(sampleDataLength) * 8 / duration / 1000).rounded())
+        }
+        return nil
+    }
+
     /// Replaces MusicKit's placeholder audio properties with the file's own.
     /// Values the file did not report keep whatever the row already had.
     public static func applying(_ details: AppleMusicLocalFileDetails, to song: Song) -> Song {
