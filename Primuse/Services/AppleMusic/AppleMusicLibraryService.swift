@@ -22,7 +22,8 @@ import iTunesLibrary
 /// 不做 (Phase 2+):
 /// - CloudKit 同步 (Apple Music 库每个设备独立拉, 避免 sync 冲突)
 /// - 跨类型 Playlist (本地 + Apple Music 混入一个 Playlist)
-/// - Apple Music 官方歌词读取（MusicKit 目前只公开 `hasLyrics`, 不公开正文）
+/// - Apple Music 官方歌词读取（MusicKit 目前只公开 `hasLyrics`, 不公开正文）;
+///   用户自己导入 Music.app 的文件例外, 读文件里内嵌的歌词
 @MainActor
 @Observable
 final class AppleMusicLibraryService {
@@ -144,6 +145,17 @@ final class AppleMusicLibraryService {
     /// full sync. Load device provenance separately so that cold playback does
     /// not classify an imported item with an empty trust set.
     private var hasLoadedLocalFileProvenance = false
+    /// Imported files by persistent ID, refreshed together with provenance.
+    /// MusicKit knows nothing about their lyrics or audio properties.
+    @ObservationIgnored private var localFiles: [UInt64: AppleMusicLocalFile] = [:]
+    @ObservationIgnored private var localFileMatchIndex = AppleMusicLocalFileMatchIndex()
+    /// Library rows matched to an imported file during the last sync.
+    @ObservationIgnored private var localFileIDsBySongID: [String: UInt64] = [:]
+    @ObservationIgnored private let localFileDetailsStore = AppleMusicLocalFileDetailsStore()
+    /// Probed details, loaded from disk with the first provenance refresh.
+    @ObservationIgnored private var localFileDetails: [UInt64: AppleMusicLocalFileDetails] = [:]
+    @ObservationIgnored private var hasLoadedLocalFileDetails = false
+    @ObservationIgnored private var localFileProbeTask: Task<Void, Never>?
 
     @ObservationIgnored private var subscriptionUpdatesTask: Task<Void, Never>?
     @ObservationIgnored private var isRefreshingAccess = false
@@ -202,10 +214,15 @@ final class AppleMusicLibraryService {
         subscriptionIndependentLocalFileIDs.removeAll()
         hasLoadedLocalFileProvenance = false
         hasCompletedLibrarySnapshot = false
+        localFileProbeTask?.cancel()
+        localFileProbeTask = nil
+        localFileIDsBySongID.removeAll()
+        replaceLocalFiles([])
     }
 
     deinit {
         subscriptionUpdatesTask?.cancel()
+        localFileProbeTask?.cancel()
     }
 
     init(library: MusicLibrary, appleMusic: AppleMusicService) {
@@ -741,23 +758,16 @@ final class AppleMusicLibraryService {
         return URL(string: "music://music.apple.com/search?term=\(encoded)")
     }
 
-    /// 拉这首 Apple Music 歌的官方歌词 ── **当前永远返回 nil**。
-    ///
-    /// 不是没写实现, 是 Apple 在 MusicKit Swift API 里**没有把 lyrics 暴露给
-    /// 第三方 app**: Song 的 PartialMusicAsyncProperty 只支持
-    /// .albums / .artists / .composers / .genres / .musicVideos / .station /
-    /// .audioVariants, 编译期就拿不到 .lyrics keypath (MusicKit JS web 端才有
-    /// lyrics endpoint)。
-    ///
-    /// 留这个入口 + 文件末尾的 TTMLLyricsParser 是基础设施 ── 等 Apple 之后开放
-    /// (或我们能拿到私有 entitlement), 把这函数的实现填回去就 work, NowPlayingView
-    /// 不用动。
-    ///
-    /// 当前 UI 走的路径: 这里 return nil → NowPlayingView setLyrics([]) → 显示
-    /// emptyLyricsView 的"在 Apple Music 中查看歌词"按钮跳转 Apple Music app。
-    func fetchLyrics(forAmID amID: String) async throws -> [LyricLine]? {
-        _ = amID   // 抑制 unused warning
-        return nil
+    /// 这首歌的歌词。Apple 在 MusicKit Swift API 里没有公开官方歌词正文
+    /// (`Song.hasLyrics` 只是 Bool), 所以只有用户自己导入 Music.app 的本机文件
+    /// 能拿到 ── 读文件里内嵌的歌词 (含同步时间戳与内嵌翻译)。流媒体曲目返回
+    /// nil, NowPlayingView 显示空歌词页, 用户仍可走在线歌词刮削。
+    func fetchLyrics(for song: PrimuseKit.Song) async -> [LyricLine]? {
+        await ensureLocalFileProvenanceLoaded()
+        guard let file = localFile(for: song) else { return nil }
+        let lines = await AppleMusicLocalFileReader.lyrics(of: file)
+        plog("📜 Apple Music imported-file lyrics '\(song.title)': \(lines?.count ?? 0) lines")
+        return lines
     }
 
     /// 把 ApplicationMusicPlayer 返回的 Song 规范化到 user library 版本。
@@ -1070,7 +1080,8 @@ final class AppleMusicLibraryService {
                 canonicalLibraryTrackIdentityIndex.merge(fetchedTrackIdentities)
             }
             hasCompletedLibrarySnapshot = true
-            let songs = allMusicKitSongs.map { Self.toPrimuseSong($0) }
+            let songs = await applyingLocalFileDetails(to: allMusicKitSongs)
+            guard syncGeneration == generation, !Task.isCancelled else { return }
             // 把这些歌加进 library, sourceIDs 限定 Apple Music, 让 addSongs
             // 自己处理删除 (Apple Music 删歌的 case 会被检测到)。
             library.addSongs(
@@ -1102,6 +1113,8 @@ final class AppleMusicLibraryService {
                     coverArtPath: nil
                 )
             }
+
+            probeLocalFileDetails()
 
             // 临时诊断 ── 摸清同步过来的 cover URL 实际形态, 帮排查"歌没封面"。
             let withCover = songs.filter { $0.coverArtFileName != nil }.count
@@ -1151,10 +1164,170 @@ final class AppleMusicLibraryService {
         await refreshSubscriptionIndependentLocalFileIDs()
     }
 
+    // MARK: - Imported files
+
+    private func replaceLocalFiles(_ files: [AppleMusicLocalFile]) {
+        if !files.isEmpty, !hasLoadedLocalFileDetails {
+            hasLoadedLocalFileDetails = true
+            localFileDetails = localFileDetailsStore.load()
+        }
+        localFiles = Dictionary(files.map { ($0.persistentID, $0) }, uniquingKeysWith: { first, _ in first })
+        localFileMatchIndex = AppleMusicLocalFileMatchIndex(files.map(\.identity))
+    }
+
+    private nonisolated struct LocalFileMatchSnapshot: Sendable {
+        let index: AppleMusicLocalFileMatchIndex
+        let files: [UInt64: AppleMusicLocalFile]
+        let details: [UInt64: AppleMusicLocalFileDetails]
+        let previousMatches: [String: UInt64]
+    }
+
+    private var localFileMatchSnapshot: LocalFileMatchSnapshot {
+        LocalFileMatchSnapshot(
+            index: localFileMatchIndex,
+            files: localFiles,
+            details: localFileDetails,
+            previousMatches: localFileIDsBySongID
+        )
+    }
+
+    /// The imported file behind a library row, if any (used for lyrics).
+    private func localFile(for song: PrimuseKit.Song) -> AppleMusicLocalFile? {
+        Self.matchLocalFile(
+            for: song,
+            musicKitSong: songCache[song.filePath],
+            in: localFileMatchSnapshot
+        ).flatMap { localFiles[$0] }
+    }
+
+    /// A shared persistent ID decides first (iOS device-library rows carry it
+    /// as their ID or inside PlayParameters). Rows the cloud API returns with
+    /// only an `i.*` ID fall back to a strict metadata match, which a
+    /// catalog-backed row never takes: its audio is Apple's stream, not the
+    /// user's file.
+    private nonisolated static func matchLocalFile(
+        for song: PrimuseKit.Song,
+        musicKitSong: MusicKit.Song?,
+        in snapshot: LocalFileMatchSnapshot
+    ) -> UInt64? {
+        let index = snapshot.index
+        guard !index.isEmpty else { return nil }
+        if let persistentID = snapshot.previousMatches[song.id], snapshot.files[persistentID] != nil {
+            return persistentID
+        }
+        if let persistentID = index.persistentID(forIdentifiers: [song.filePath]) {
+            return persistentID
+        }
+        let identifiers = musicKitSong.map { Self.musicItemIdentifiers(for: $0) }
+        if let identifiers,
+           let persistentID = index.persistentID(forIdentifiers: identifiers.all) {
+            return persistentID
+        }
+        if let identifiers, !identifiers.explicitCatalogIDs.isEmpty { return nil }
+        return index.persistentID(
+            title: song.title,
+            artist: song.artistName,
+            album: song.albumTitle,
+            duration: song.duration
+        )
+    }
+
+    /// Maps a MusicKit snapshot to library rows, giving imported files their
+    /// real format, bit rate and sample rate instead of MusicKit's AAC guess.
+    /// Matching decodes PlayParameters per row, so it runs off the main actor.
+    @concurrent
+    private nonisolated static func mapSongs(
+        _ musicKitSongs: [MusicKit.Song],
+        matching snapshot: LocalFileMatchSnapshot
+    ) async -> (songs: [PrimuseKit.Song], matches: [String: UInt64]) {
+        var matches: [String: UInt64] = [:]
+        let songs = musicKitSongs.map { musicKitSong -> PrimuseKit.Song in
+            let song = toPrimuseSong(musicKitSong)
+            guard let persistentID = matchLocalFile(
+                for: song,
+                musicKitSong: musicKitSong,
+                in: snapshot
+            ), let file = snapshot.files[persistentID] else { return song }
+            matches[song.id] = persistentID
+            let details = snapshot.details[persistentID] ?? file.libraryDetails
+            return AppleMusicLocalFileDetailsPolicy.applying(details, to: song)
+        }
+        return (songs, matches)
+    }
+
+    private func applyingLocalFileDetails(to musicKitSongs: [MusicKit.Song]) async -> [PrimuseKit.Song] {
+        guard !localFileMatchIndex.isEmpty else {
+            localFileIDsBySongID.removeAll()
+            return musicKitSongs.map { Self.toPrimuseSong($0) }
+        }
+        let result = await Self.mapSongs(musicKitSongs, matching: localFileMatchSnapshot)
+        localFileIDsBySongID = result.matches
+        plog("🎵 Apple Music imported files: \(localFiles.count) on device, \(result.matches.count) matched library rows")
+        return result.songs
+    }
+
+    /// Opens each matched imported file once to read its codec and audio
+    /// properties, then updates the affected rows in batches. Results are kept
+    /// on disk, so later syncs apply them without reopening the files.
+    private func probeLocalFileDetails() {
+        localFileProbeTask?.cancel()
+        let pending = Set(localFileIDsBySongID.values).compactMap { persistentID -> AppleMusicLocalFile? in
+            guard localFileDetails[persistentID]?.isProbed != true else { return nil }
+            return localFiles[persistentID]
+        }
+        guard !pending.isEmpty else {
+            localFileProbeTask = nil
+            return
+        }
+        plog("🎵 Apple Music imported files: probing \(pending.count)")
+        localFileProbeTask = Task { [weak self] in
+            var probed: [UInt64: AppleMusicLocalFileDetails] = [:]
+            for (index, file) in pending.enumerated() {
+                guard !Task.isCancelled else { return }
+                probed[file.persistentID] = await AppleMusicLocalFileReader.probeDetails(of: file)
+                if probed.count >= 200 || index == pending.count - 1 {
+                    guard !Task.isCancelled, let self else { return }
+                    self.commitProbedLocalFileDetails(probed)
+                    probed.removeAll(keepingCapacity: true)
+                }
+            }
+            self?.localFileProbeTask = nil
+        }
+    }
+
+    private func commitProbedLocalFileDetails(_ probed: [UInt64: AppleMusicLocalFileDetails]) {
+        localFileDetails.merge(probed) { _, new in new }
+        // Only files still on the device are worth remembering.
+        let retained = localFiles.isEmpty
+            ? localFileDetails
+            : localFileDetails.filter { localFiles[$0.key] != nil }
+        let store = localFileDetailsStore
+        Task.detached(priority: .utility) { store.save(retained) }
+
+        var changed: [PrimuseKit.Song] = []
+        for (songID, persistentID) in localFileIDsBySongID {
+            guard let details = probed[persistentID],
+                  let current = library.song(id: songID),
+                  current.sourceID == Self.systemSourceID else { continue }
+            let updated = AppleMusicLocalFileDetailsPolicy.applying(details, to: current)
+            if updated.fileFormat != current.fileFormat
+                || updated.bitRate != current.bitRate
+                || updated.sampleRate != current.sampleRate
+                || updated.bitDepth != current.bitDepth
+                || updated.fileSize != current.fileSize {
+                changed.append(updated)
+            }
+        }
+        guard !changed.isEmpty else { return }
+        library.replaceSongs(changed)
+        plog("🎵 Apple Music imported files: updated audio details for \(changed.count) songs")
+    }
+
     private func refreshSubscriptionIndependentLocalFileIDs() async {
         #if os(iOS)
         let result = Self.loadSubscriptionIndependentLocalFileIDs()
         subscriptionIndependentLocalFileIDs = result.ids
+        replaceLocalFiles(result.files)
         hasLoadedLocalFileProvenance = result.isAuthorized
         plog(
             "🎵 Apple Music local-file provenance: total=\(result.totalCount) "
@@ -1168,9 +1341,11 @@ final class AppleMusicLibraryService {
         }.value
         if let error = result.error {
             subscriptionIndependentLocalFileIDs.removeAll()
+            replaceLocalFiles([])
             plog("⚠️Apple Music local-file provenance unavailable: \(error)")
         } else {
             subscriptionIndependentLocalFileIDs = result.ids
+            replaceLocalFiles(result.files)
             plog("🎵 Apple Music local-file provenance: \(result.itemCount) readable non-DRM songs")
         }
         hasLoadedLocalFileProvenance = true
@@ -1183,6 +1358,7 @@ final class AppleMusicLibraryService {
     #if os(iOS)
     private nonisolated static func loadSubscriptionIndependentLocalFileIDs() -> (
         ids: Set<String>,
+        files: [AppleMusicLocalFile],
         totalCount: Int,
         eligibleCount: Int,
         cloudCount: Int,
@@ -1193,11 +1369,12 @@ final class AppleMusicLibraryService {
     ) {
         let authorizationStatus = MPMediaLibrary.authorizationStatus()
         guard authorizationStatus == .authorized else {
-            return ([], 0, 0, 0, 0, 0, String(describing: authorizationStatus), false)
+            return ([], [], 0, 0, 0, 0, 0, String(describing: authorizationStatus), false)
         }
 
         let items = MPMediaQuery.songs().items ?? []
         var confirmedIDs = Set<String>()
+        var files: [AppleMusicLocalFile] = []
         var eligibleCount = 0
         var cloudCount = 0
         var protectedCount = 0
@@ -1216,6 +1393,23 @@ final class AppleMusicLibraryService {
                 continue
             }
             eligibleCount += 1
+            if let assetURL = item.assetURL {
+                files.append(AppleMusicLocalFile(
+                    identity: AppleMusicImportedFile(
+                        persistentID: item.persistentID,
+                        title: item.title ?? "",
+                        artist: item.artist,
+                        album: item.albumTitle,
+                        duration: item.playbackDuration
+                    ),
+                    assetURL: assetURL,
+                    libraryDetails: AppleMusicLocalFileDetails(
+                        fileFormat: AppleMusicLocalFileDetailsPolicy.seedFormat(
+                            fileExtension: assetURL.pathExtension
+                        )
+                    )
+                ))
+            }
             confirmedIDs.formUnion(
                 AppleMusicLocalFileIdentity.playbackIdentifiers(
                     forPersistentID: item.persistentID
@@ -1224,6 +1418,7 @@ final class AppleMusicLibraryService {
         }
         return (
             confirmedIDs,
+            files,
             items.count,
             eligibleCount,
             cloudCount,
@@ -1238,27 +1433,47 @@ final class AppleMusicLibraryService {
     #if os(macOS)
     private nonisolated static func loadSubscriptionIndependentLocalFileIDs() -> (
         ids: Set<String>,
+        files: [AppleMusicLocalFile],
         itemCount: Int,
         error: String?
     ) {
         do {
             let localLibrary = try ITLibrary(apiVersion: "1.1", options: .lazyLoadData)
             var confirmedIDs = Set<String>()
+            var files: [AppleMusicLocalFile] = []
             var confirmedItemCount = 0
             for item in localLibrary.allMediaItems {
-                guard (try? AppleMusicLibrarySource.localAsset(for: item).validatedURL()) != nil else {
+                guard let url = try? AppleMusicLibrarySource.localAsset(for: item).validatedURL() else {
                     continue
                 }
                 confirmedItemCount += 1
+                files.append(AppleMusicLocalFile(
+                    identity: AppleMusicImportedFile(
+                        persistentID: item.persistentID.uint64Value,
+                        title: item.title,
+                        artist: item.artist?.name,
+                        album: item.album.title,
+                        duration: item.totalTime > 0 ? TimeInterval(item.totalTime) / 1000 : nil
+                    ),
+                    assetURL: url,
+                    libraryDetails: AppleMusicLocalFileDetails(
+                        fileFormat: AppleMusicLocalFileDetailsPolicy.seedFormat(
+                            fileExtension: url.pathExtension
+                        ),
+                        bitRate: item.bitrate > 0 ? item.bitrate : nil,
+                        sampleRate: item.sampleRate > 0 ? item.sampleRate : nil,
+                        fileSize: item.fileSize > 0 ? Int64(item.fileSize) : nil
+                    )
+                ))
                 confirmedIDs.formUnion(
                     AppleMusicLocalFileIdentity.playbackIdentifiers(
                         forPersistentID: item.persistentID.uint64Value
                     )
                 )
             }
-            return (confirmedIDs, confirmedItemCount, nil)
+            return (confirmedIDs, files, confirmedItemCount, nil)
         } catch {
-            return ([], 0, error.localizedDescription)
+            return ([], [], 0, error.localizedDescription)
         }
     }
     #endif

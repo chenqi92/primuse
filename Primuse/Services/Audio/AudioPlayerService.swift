@@ -7167,8 +7167,8 @@ final class AudioPlayerService {
             if song.sourceID == AppleMusicLibraryService.systemSourceID {
                 if let cached = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) {
                     lyrics = cached
-                } else if let fetched = try? await AppServices.shared.appleMusicLibrary
-                    .fetchLyrics(forAmID: song.filePath), !fetched.isEmpty {
+                } else if let fetched = await AppServices.shared.appleMusicLibrary
+                    .fetchLyrics(for: song), !fetched.isEmpty {
                     _ = await MetadataAssetStore.shared.cacheLyrics(
                         fetched,
                         forSongID: song.id,

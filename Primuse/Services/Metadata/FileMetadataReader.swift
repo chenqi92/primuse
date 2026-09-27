@@ -310,6 +310,12 @@ enum FileMetadataReader {
         return metadata
     }
 
+    /// For URLs only AVFoundation can open, such as the iOS media library's
+    /// `ipod-library://` assets: the byte-level fallbacks need a real file.
+    static func readAssetMetadata(at url: URL) async -> Metadata {
+        await read(from: AVURLAsset(url: url))
+    }
+
     /// Reads a bounded remote-file prefix directly from memory. The previous
     /// implementation wrote every prefix to a temporary file solely because
     /// `AVURLAsset` needs a URL. A custom resource loader gives AVFoundation

@@ -250,6 +250,27 @@ enum LyricsLoader {
             return resolved
         }
 
+        // Apple Music: 只有用户导入 Music.app 的本机文件读得到歌词 (内嵌标签)。
+        if song.sourceID == AppleMusicLibraryIdentity.sourceID {
+            if let embedded = await AppServices.shared.appleMusicLibrary.fetchLyrics(for: song),
+               !embedded.isEmpty {
+                guard !Task.isCancelled else { return [] }
+                let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                    embedded,
+                    forSongID: song.id,
+                    expectedFingerprint: nil,
+                    force: false
+                )
+                guard !Task.isCancelled else { return [] }
+                let resolved = wrote
+                    ? embedded
+                    : await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id) ?? embedded
+                logLoaded(resolved, song: song, tier: "AppleMusic-embedded")
+                return resolved
+            }
+            guard !Task.isCancelled else { return [] }
+        }
+
         if let cachedAudioURL = sourceManager.cachedURL(for: song),
            let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
            let parsed = try? LyricsParser.parse(from: lrcURL), !parsed.isEmpty {

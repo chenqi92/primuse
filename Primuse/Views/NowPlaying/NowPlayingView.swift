@@ -5377,9 +5377,9 @@ struct NowPlayingView: View {
         guard let song = player.currentSong else { setLyrics([]); return }
         let loadStart = Date()
 
-        // Apple Music 优先走 MusicKit 原生 catalog 歌词。先查
-        // MetadataAssetStore songID cache 命中直接显示 (cache 一份避免每次切
-        // 歌都走 catalog 网络); miss 再问 MusicKit, 拿到 TTML 解析后写回 cache。
+        // Apple Music 先查 MetadataAssetStore songID cache (在线刮削或上次读到
+        // 的歌词); miss 再读用户导入 Music.app 的本机文件里内嵌的歌词, 读到后
+        // 写回 cache。流媒体曲目 Apple 不公开歌词正文。
         // 全失败 → setLyrics([])，emptyLyricsView 仍允许用户走和 macOS 相同的
         // 在线歌词刮削链路，而不是只能跳转 Apple Music。
         if song.sourceID == AppleMusicLibraryService.systemSourceID {
@@ -5391,37 +5391,31 @@ struct NowPlayingView: View {
                 setLyricsIfCurrent(cached, for: song, loadRevision: loadRevision)
                 return
             }
-            do {
-                if let lyrics = try await AppServices.shared.appleMusicLibrary
-                    .fetchLyrics(forAmID: song.filePath),
-                   !lyrics.isEmpty {
-                    guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
-                    let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
-                        lyrics,
-                        forSongID: song.id,
-                        expectedFingerprint: cacheSnapshot.map(LyricsDocumentFingerprint.init(lines:)),
-                        force: false
-                    )
-                    guard wrote else {
-                        if let latest = await MetadataAssetStore.shared
-                            .cachedLyrics(forSongID: song.id),
-                           !latest.isEmpty {
-                            setLyricsIfCurrent(latest, for: song, loadRevision: loadRevision)
-                        }
-                        // 这条分支可能一行歌词都没写出去, 但这次查询已经结束。
-                        endLyricsResolution(loadRevision)
-                        return
+            if let lyrics = await AppServices.shared.appleMusicLibrary.fetchLyrics(for: song),
+               !lyrics.isEmpty {
+                guard isCurrentLyricsLoad(loadRevision, songID: song.id) else { return }
+                let wrote = await MetadataAssetStore.shared.replaceLyricsIfUnchanged(
+                    lyrics,
+                    forSongID: song.id,
+                    expectedFingerprint: cacheSnapshot.map(LyricsDocumentFingerprint.init(lines:)),
+                    force: false
+                )
+                guard wrote else {
+                    if let latest = await MetadataAssetStore.shared
+                        .cachedLyrics(forSongID: song.id),
+                       !latest.isEmpty {
+                        setLyricsIfCurrent(latest, for: song, loadRevision: loadRevision)
                     }
-                    plog(String(format: "📜 Apple Music lyrics fetched '%@' in %.0fms (%d lines)",
-                                song.title, Date().timeIntervalSince(loadStart) * 1000, lyrics.count))
-                    setLyricsIfCurrent(lyrics, for: song, loadRevision: loadRevision)
+                    // 这条分支可能一行歌词都没写出去, 但这次查询已经结束。
+                    endLyricsResolution(loadRevision)
                     return
-                } else {
-                    plog("📜 Apple Music lyrics: no official lyrics for '\(song.title)'")
                 }
-            } catch {
-                plog("⚠️Apple Music lyrics fetch failed for '\(song.title)': \(error.localizedDescription)")
+                plog(String(format: "📜 Apple Music embedded lyrics '%@' in %.0fms (%d lines)",
+                            song.title, Date().timeIntervalSince(loadStart) * 1000, lyrics.count))
+                setLyricsIfCurrent(lyrics, for: song, loadRevision: loadRevision)
+                return
             }
+            plog("📜 Apple Music lyrics: none readable for '\(song.title)'")
             setLyricsIfCurrent([], for: song, loadRevision: loadRevision)
             return
         }
