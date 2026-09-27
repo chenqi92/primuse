@@ -4614,3 +4614,13 @@
 "lyrics_translation_local_remove" = "ลบโมเดล";
 "lyrics_translation_local_remove_confirm" = "ลบโมเดลแปลแบบออฟไลน์หรือไม่ คุณสามารถดาวน์โหลดใหม่ได้ภายหลัง";
 "lyrics_translation_local_download_size_format" = "ดาวน์โหลด (%@)";
+
+/* 选择目录:上级已勾选时下级显示「已包含」、电视端「整个文件夹」行 */
+"folder_pick_included_whole_source" = "รวมอยู่ในแหล่งที่มาทั้งหมดแล้ว";
+"folder_pick_included_in_format" = "รวมอยู่ใน “%@” แล้ว";
+"folder_pick_included_generic" = "รวมอยู่ในโฟลเดอร์หลักที่เลือกไว้แล้ว";
+"folder_pick_whole_source" = "แหล่งที่มาทั้งหมด";
+"folder_pick_whole_folder_format" = "เลือกทั้งหมดใน “%@”";
+"folder_pick_includes_future" = "รวมโฟลเดอร์ย่อยที่เพิ่มภายหลังด้วย";
+"folder_pick_none" = "ยังไม่ได้เลือก";
+"folder_pick_select_hint" = "เลือกโฟลเดอร์ที่จะสแกนก่อน หรือเลือก “แหล่งที่มาทั้งหมด” ที่ระดับบนสุด";

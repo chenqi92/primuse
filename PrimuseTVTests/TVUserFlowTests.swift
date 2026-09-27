@@ -5,23 +5,40 @@ import XCTest
 @testable import PrimuseTV
 
 final class TVUserFlowPolicyTests: XCTestCase {
+    // 电视端选目录与手机、Mac 共用 PrimuseKit 的 SourceDirectorySelectionPolicy。
     func testScanSelectionDropsNestedRootsBeforeNetworkTraversal() {
         XCTAssertEqual(
-            TVScanDirectorySelectionPolicy.normalized([
+            SourceDirectorySelectionPolicy.normalizedSelections([
                 "/Music/Albums/Live",
                 "/Music",
                 "/Music/Albums",
                 "/Podcasts",
                 "/Podcasts/2026/",
-            ]),
+            ], for: .smb),
             ["/Music", "/Podcasts"]
         )
     }
 
     func testRootScanSelectionDominatesEveryChild() {
         XCTAssertEqual(
-            TVScanDirectorySelectionPolicy.normalized(["/Music", "/", "Radio"]),
+            SourceDirectorySelectionPolicy.normalizedSelections(["/Music", "/", "Radio"], for: .smb),
             ["/"]
+        )
+    }
+
+    func testFolderAddedUnderSelectedParentReadsAsIncluded() {
+        XCTAssertEqual(
+            SourceDirectorySelectionPolicy.selectionState(
+                of: "/Music/New",
+                in: ["/Music"],
+                ancestors: ["/", "/Music"],
+                for: .smb
+            ),
+            .included(by: "/Music")
+        )
+        XCTAssertEqual(
+            SourceDirectorySelectionPolicy.selectionState(of: "/New", in: ["/"], for: .synology),
+            .included(by: "/")
         )
     }
 

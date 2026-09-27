@@ -167,7 +167,11 @@ private extension MusicSourceType {
             return .legacyNormalized
         }
     }
+}
 
+/// 模块内共用:选目录页判断上下级(`SourceDirectorySelectionPolicy`)也要知道
+/// 一个源的路径能不能按层级前缀比较。
+extension MusicSourceType {
     var libraryFolderPathSemantics: LibraryFolderPathSemantics {
         switch self {
         case .upnp,

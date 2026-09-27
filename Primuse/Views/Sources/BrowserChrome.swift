@@ -199,6 +199,22 @@ struct DirectoryBreadcrumb: View {
     }
 }
 
+// MARK: - 已包含在上级里的目录
+
+/// 被已勾选的上级目录覆盖的那一行下面的说明:这一行会跟着上级一起扫描
+/// (源上以后新建的目录也一样),要单独勾它得先取消上级。
+enum DirectorySelectionInclusionText {
+    static func caption(ancestor: String, title: String?) -> String {
+        if SourceDirectorySelectionPolicy.isRootPath(ancestor) {
+            return String(localized: "folder_pick_included_whole_source")
+        }
+        guard let title, !title.isEmpty else {
+            return String(localized: "folder_pick_included_generic")
+        }
+        return String(format: String(localized: "folder_pick_included_in_format"), title)
+    }
+}
+
 // MARK: - Folder tags
 
 /// A selected scan folder's content tag: music (no tag, the usual
@@ -790,16 +806,17 @@ struct MacDirTreeBrowser: View {
             if rootLoading {
                 status(icon: nil, text: String(localized: "loading_directories"))
                     .pmAppearFade(.contentAppear)
-            } else if rows.isEmpty, selectableRootPath == nil {
+            } else if rows.isEmpty, effectiveRootSelectionPath == nil {
                 status(icon: "folder", text: String(localized: "no_subdirectories"))
                     .pmAppearFade(.contentAppear)
             } else {
+                let states = rowSelectionStates()
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    if let selectableRootPath {
-                        rootSelectionRow(selectableRootPath)
+                    if let effectiveRootSelectionPath {
+                        rootSelectionRow(effectiveRootSelectionPath)
                     }
                     ForEach(rows) { row in
-                        rowView(row)
+                        rowView(row, state: states[row.path] ?? .unselected)
                     }
                 }
                 .padding(.horizontal, 6)
@@ -824,9 +841,14 @@ struct MacDirTreeBrowser: View {
         .frame(maxWidth: .infinity, minHeight: 260)
     }
 
-    private func rowView(_ row: MacDirTreeRow) -> some View {
+    private func rowView(
+        _ row: MacDirTreeRow,
+        state: SourceDirectorySelectionPolicy.SelectionState
+    ) -> some View {
         let focused = focusedPath == row.path
-        let checked = selectedDirectories.contains(row.path)
+        let checked = state == .selected
+        let includedCaption = inclusionCaption(for: state)
+        let included = includedCaption != nil
         return HStack(spacing: 6) {
             Button { Task { await toggleExpand(row) } } label: {
                 Group {
@@ -845,13 +867,19 @@ struct MacDirTreeBrowser: View {
             .buttonStyle(.plain)
 
             Button { toggleChecked(row.path) } label: {
-                Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                Image(systemName: checked || included ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 14))
                     .foregroundStyle(checked ? PMColor.brand : PMColor.textFaint)
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // 上级已勾选:这一行本来就会被扫描,不能再单独勾。展开、聚焦照常。
+            .disabled(included)
+            .help(includedCaption ?? "")
+            .accessibilityLabel(Text(verbatim: row.name))
+            .accessibilityValue(includedCaption ?? "")
+            .accessibilityAddTraits(checked || included ? .isSelected : [])
 
             Image(systemName: row.isExpanded ? "folder.fill" : "folder")
                 .font(.system(size: 13))
@@ -864,9 +892,18 @@ struct MacDirTreeBrowser: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
+            if let includedCaption {
+                Text(verbatim: includedCaption)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
             Spacer(minLength: 4)
 
-            if checked, let tag = folderTag(for: row.path) {
+            // 「已包含」的子目录也能单独标成有声:标签按目录匹配歌曲,不要求它自己是扫描根。
+            if checked || included, let tag = folderTag(for: row.path) {
                 DirectoryFolderTagMenu(tag: tag)
             }
         }
@@ -888,7 +925,11 @@ struct MacDirTreeBrowser: View {
     }
 
     private func rootSelectionRow(_ path: String) -> some View {
-        let checked = selectedDirectories.contains(path)
+        let checked = SourceDirectorySelectionPolicy.selectionState(
+            of: path,
+            in: selectedDirectories,
+            for: sourceType
+        ) == .selected
         return HStack(spacing: 0) {
             rootSelectionButton(path, checked: checked)
             if checked, let tag = folderTag(for: path) {
@@ -979,6 +1020,51 @@ struct MacDirTreeBrowser: View {
 
     // MARK: 计算属性
 
+    /// 可勾选的整源行。本来不提供根目录勾选的源,如果已存的选择里有根
+    /// (比如电视端存的「整个音乐源」),也把它显示出来,这样才能取消。
+    private var effectiveRootSelectionPath: String? {
+        selectableRootPath
+            ?? SourceDirectorySelectionPolicy.storedRootSelection(in: selectedDirectories)
+    }
+
+    /// 每一行的勾选状态。树是按深度拍平的前序列表,沿途维护一条祖先链,
+    /// 一趟算完;按 ID 寻址的源只能靠这条链认出上下级。
+    private func rowSelectionStates() -> [String: SourceDirectorySelectionPolicy.SelectionState] {
+        let rootAncestors = [rootPath] + (effectiveRootSelectionPath.map { [$0] } ?? [])
+        var chain: [String] = []
+        var states: [String: SourceDirectorySelectionPolicy.SelectionState] = [:]
+        states.reserveCapacity(rows.count)
+        for row in rows {
+            if chain.count > row.depth {
+                chain.removeLast(chain.count - row.depth)
+            }
+            states[row.path] = SourceDirectorySelectionPolicy.selectionState(
+                of: row.path,
+                in: selectedDirectories,
+                ancestors: rootAncestors + chain,
+                for: sourceType
+            )
+            chain.append(row.path)
+        }
+        return states
+    }
+
+    private func inclusionCaption(
+        for state: SourceDirectorySelectionPolicy.SelectionState
+    ) -> String? {
+        guard case .included(let ancestor) = state else { return nil }
+        let title: String?
+        if SourceDirectorySelectionPolicy.isSamePath(ancestor, rootPath) {
+            title = rootTitle
+        } else {
+            // 覆盖这一行的上级一定是树里它上方已展开的某一行。
+            title = rows.first(where: {
+                SourceDirectorySelectionPolicy.isSamePath($0.path, ancestor)
+            })?.name
+        }
+        return DirectorySelectionInclusionText.caption(ancestor: ancestor, title: title)
+    }
+
     private var focusedTitle: String {
         if let path = focusedPath, let row = rows.first(where: { $0.path == path }) {
             return row.name
@@ -990,11 +1076,10 @@ struct MacDirTreeBrowser: View {
 
     private func toggleChecked(_ path: String) {
         pmWithAnimation(.list) {
-            if let idx = selectedDirectories.firstIndex(of: path) {
-                selectedDirectories.remove(at: idx)
-            } else {
-                selectedDirectories.append(path)
-            }
+            selectedDirectories = SourceDirectorySelectionPolicy.toggledSelection(
+                selectedDirectories,
+                path: path
+            )
         }
     }
 

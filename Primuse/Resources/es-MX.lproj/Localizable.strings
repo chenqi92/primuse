@@ -4614,3 +4614,13 @@
 "lyrics_translation_local_remove" = "Eliminar modelo";
 "lyrics_translation_local_remove_confirm" = "¿Eliminar el modelo de traducción sin conexión? Puedes volver a descargarlo después.";
 "lyrics_translation_local_download_size_format" = "Descargar (%@)";
+
+/* 选择目录:上级已勾选时下级显示「已包含」、电视端「整个文件夹」行 */
+"folder_pick_included_whole_source" = "Incluido en todo el origen";
+"folder_pick_included_in_format" = "Incluido en “%@”";
+"folder_pick_included_generic" = "Incluido en una carpeta superior seleccionada";
+"folder_pick_whole_source" = "Todo el origen";
+"folder_pick_whole_folder_format" = "Seleccionar todo “%@”";
+"folder_pick_includes_future" = "Incluye las subcarpetas que se agreguen después";
+"folder_pick_none" = "Ninguna";
+"folder_pick_select_hint" = "Primero selecciona las carpetas que quieres escanear o elige “Todo el origen” en el nivel superior.";

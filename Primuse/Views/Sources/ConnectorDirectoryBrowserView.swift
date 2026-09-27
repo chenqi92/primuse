@@ -173,8 +173,12 @@ struct ConnectorDirectoryBrowserView: View {
             itemDirectoryFlags: items.map(\.isDirectory)
         )
 
+        // 当前目录之上的各级(外层在前)。勾了其中一级,下面的行都显示「已包含」。
+        let enclosingPaths = navigation.segments.dropLast().map(\.path)
+        let currentChain = navigation.segments.map(\.path)
+
         return List {
-            if let selectableCurrentPath = presentation.selectableCurrentPath {
+            if let selectableCurrentPath = currentDirectorySelectionPath(presentation) {
                 DirectoryCheckRow(
                     name: String(localized: "current_directory"),
                     subtitle: navigation.currentPath == "/" ? source.basePath : currentDirectorySubtitle,
@@ -183,7 +187,10 @@ struct ConnectorDirectoryBrowserView: View {
                     iconColor: .orange,
                     isNavigable: false,
                     selectedDirectories: policySelectedDirectories,
-                    folderTag: DirectoryFolderTag.forFolder(path: selectableCurrentPath, of: source)
+                    folderTag: DirectoryFolderTag.forFolder(path: selectableCurrentPath, of: source),
+                    ancestorPaths: enclosingPaths,
+                    sourceType: source.type,
+                    ancestorTitle: selectionTitle(for:)
                 )
             }
 
@@ -204,7 +211,10 @@ struct ConnectorDirectoryBrowserView: View {
                         isNavigable: true,
                         selectedDirectories: policySelectedDirectories,
                         onNavigate: { enterDirectory(item) },
-                        folderTag: DirectoryFolderTag.forFolder(path: item.path, of: source)
+                        folderTag: DirectoryFolderTag.forFolder(path: item.path, of: source),
+                        ancestorPaths: currentChain,
+                        sourceType: source.type,
+                        ancestorTitle: selectionTitle(for:)
                     )
                 }
             }
@@ -249,11 +259,41 @@ struct ConnectorDirectoryBrowserView: View {
                 ?? path
             return BrowserSelectionChip(
                 id: path,
-                title: path == "/" ? (source.basePath ?? source.name) : title,
+                // S3 的桶根存成 "",同样显示成源本身的名字。
+                title: SourceDirectorySelectionPolicy.isRootPath(path) ? (source.basePath ?? source.name) : title,
                 isSpokenWord: tagsSupported
                     && SpokenWordStore.shared.isSpokenWordFolder(sourceID: source.id, path: path)
             )
         }
+    }
+
+    /// 「当前目录」行勾的是哪条路径。根目录本来不能勾的源,如果已存的选择里
+    /// 有根(比如电视端存的「整个音乐源」),也在根目录显示出来,好让它能被取消。
+    private func currentDirectorySelectionPath(
+        _ presentation: SourceDirectorySelectionPolicy.BrowserPresentation
+    ) -> String? {
+        if let selectable = presentation.selectableCurrentPath { return selectable }
+        guard navigation.currentPath == "/" else { return nil }
+        return SourceDirectorySelectionPolicy.storedRootSelection(in: selectedDirectories)
+    }
+
+    /// 「已包含在「…」中」里上级目录的名字。浏览经过的那几级面包屑一定叫得出名字;
+    /// ID 寻址的网盘退到已存的目录名,再给不出就用通用说法,不把 ID 露出来。
+    private func selectionTitle(for path: String) -> String? {
+        if let segment = navigation.segments.last(where: {
+            SourceDirectorySelectionPolicy.isSamePath($0.path, path)
+        }), segment.path != "/" {
+            return segment.title
+        }
+        if let name = source.scannedDirectoryDisplayNames[path], !name.isEmpty {
+            return name
+        }
+        if source.type.isCloudDrive,
+           let name = CloudDirectoryNameStore.displayName(for: path, sourceID: source.id),
+           !name.isEmpty {
+            return name
+        }
+        return SourceDirectoryLabelPolicy.readableFallback(path: path, sourceType: source.type)
     }
 
     /// Explains the tag capsule once something is selected on a source that

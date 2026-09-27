@@ -148,7 +148,10 @@ private struct UPnPDirectoryBrowserView: View {
                         icon: "music.note.house.fill",
                         iconColor: .orange,
                         isNavigable: false,
-                        selectedDirectories: $selectedDirectories
+                        selectedDirectories: $selectedDirectories,
+                        ancestorPaths: Array(pathStack.dropLast()),
+                        sourceType: source.type,
+                        ancestorTitle: displayName(for:)
                     )
                 }
 
@@ -161,7 +164,10 @@ private struct UPnPDirectoryBrowserView: View {
                         iconColor: currentPath == "/" ? .accentColor : .blue,
                         isNavigable: true,
                         selectedDirectories: $selectedDirectories,
-                        onNavigate: { enterDirectory(item) }
+                        onNavigate: { enterDirectory(item) },
+                        ancestorPaths: pathStack,
+                        sourceType: source.type,
+                        ancestorTitle: displayName(for:)
                     )
                 }
             }

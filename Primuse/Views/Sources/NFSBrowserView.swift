@@ -211,7 +211,10 @@ private struct NFSDirectoryBrowserView: View {
                         iconColor: .orange,
                         isNavigable: false,
                         selectedDirectories: $selectedDirectories,
-                        folderTag: DirectoryFolderTag.forFolder(path: currentPath, of: source)
+                        folderTag: DirectoryFolderTag.forFolder(path: currentPath, of: source),
+                        ancestorPaths: Array(pathStack.dropLast()),
+                        sourceType: source.type,
+                        ancestorTitle: displayName(for:)
                     )
                 }
 
@@ -225,7 +228,10 @@ private struct NFSDirectoryBrowserView: View {
                         isNavigable: true,
                         selectedDirectories: $selectedDirectories,
                         onNavigate: { enterDirectory(item) },
-                        folderTag: DirectoryFolderTag.forFolder(path: item.path, of: source)
+                        folderTag: DirectoryFolderTag.forFolder(path: item.path, of: source),
+                        ancestorPaths: pathStack,
+                        sourceType: source.type,
+                        ancestorTitle: displayName(for:)
                     )
                 }
             }

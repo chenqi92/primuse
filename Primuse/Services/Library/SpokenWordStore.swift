@@ -182,16 +182,20 @@ final class SpokenWordStore {
     func updateFolderTagSources(_ sources: [MusicSource]) {
         let descriptors = sources.filter { !$0.isDeleted }.map(LibraryFolderSourceDescriptor.init(source:))
         let scanned = Dictionary(
-            sources.map { ($0.id, Set($0.scannedDirectories)) },
+            sources.map { ($0.id, (type: $0.type, directories: $0.scannedDirectories)) },
             uniquingKeysWith: { first, _ in first }
         )
         var removed = false
         let now = Date()
         for key in overrides.keys where SpokenWordFolderTag.isFolderKey(key) {
+            // 标签所在目录仍在某个扫描目录之下(勾了它的上级,它显示为「已包含」)就留着;
+            // 只有整棵都不再扫描才清掉。
             guard let tag = SpokenWordFolderTag.parse(overrideKey: key),
-                  let directories = scanned[tag.sourceID],
-                  !directories.isEmpty,
-                  !directories.contains(tag.path) else { continue }
+                  let entry = scanned[tag.sourceID],
+                  !entry.directories.isEmpty,
+                  !entry.directories.contains(where: {
+                      SourceDirectorySelectionPolicy.covers($0, tag.path, for: entry.type)
+                  }) else { continue }
             overrides.removeValue(forKey: key)
             ledger.overrideChangedAt[key] = now
             removed = true

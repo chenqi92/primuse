@@ -4614,3 +4614,13 @@
 "lyrics_translation_local_remove" = "Видалити модель";
 "lyrics_translation_local_remove_confirm" = "Видалити офлайн-модель перекладу? Її можна буде завантажити знову.";
 "lyrics_translation_local_download_size_format" = "Завантажити (%@)";
+
+/* 选择目录:上级已勾选时下级显示「已包含」、电视端「整个文件夹」行 */
+"folder_pick_included_whole_source" = "Входить до всього джерела";
+"folder_pick_included_in_format" = "Входить до «%@»";
+"folder_pick_included_generic" = "Входить до вибраної батьківської папки";
+"folder_pick_whole_source" = "Усе джерело";
+"folder_pick_whole_folder_format" = "Вибрати всю папку «%@»";
+"folder_pick_includes_future" = "Разом із підпапками, доданими пізніше";
+"folder_pick_none" = "Не вибрано";
+"folder_pick_select_hint" = "Спершу позначте папки для сканування або виберіть «Усе джерело» на верхньому рівні.";

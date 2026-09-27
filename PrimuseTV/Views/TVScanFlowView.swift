@@ -21,41 +21,6 @@ enum TVScanProgressPresentationPolicy {
     }
 }
 
-enum TVScanDirectorySelectionPolicy {
-    /// Keep the shallowest selected roots. A selected parent already includes
-    /// every descendant, so sending both to a network scanner only repeats SMB
-    /// directory listings.
-    static func normalized(_ paths: [String]) -> [String] {
-        let canonical = Set(paths.map(normalize))
-            .sorted { lhs, rhs in
-                let lhsDepth = depth(lhs)
-                let rhsDepth = depth(rhs)
-                return lhsDepth == rhsDepth ? lhs < rhs : lhsDepth < rhsDepth
-            }
-        var roots: [String] = []
-        for candidate in canonical where !roots.contains(where: { contains($0, candidate) }) {
-            roots.append(candidate)
-        }
-        return roots
-    }
-
-    private static func normalize(_ path: String) -> String {
-        var value = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.isEmpty { return "/" }
-        if !value.hasPrefix("/") { value = "/" + value }
-        while value.count > 1, value.hasSuffix("/") { value.removeLast() }
-        return value
-    }
-
-    private static func depth(_ path: String) -> Int {
-        path.split(separator: "/", omittingEmptySubsequences: true).count
-    }
-
-    private static func contains(_ parent: String, _ child: String) -> Bool {
-        parent == "/" || parent == child || child.hasPrefix(parent + "/")
-    }
-}
-
 /// 添加新源后(或长按源菜单)的扫描流程。目录型源选择目录，飞牛音乐直接扫描服务端曲库。
 struct TVScanFlowView: View {
     @Environment(TVStore.self) private var store
@@ -68,7 +33,9 @@ struct TVScanFlowView: View {
     @State private var parentPaths: [String] = []
     @State private var breadcrumbNames: [String] = []
     @State private var entries: [TVDirEntry] = []
-    @State private var selected: Set<String> = []
+    /// 已勾选的目录,原样保存(顺序即勾选顺序)。上下级覆盖、同一目录的不同写法
+    /// 都交给 `SourceDirectorySelectionPolicy`,与手机、Mac 的选择页同一套规则。
+    @State private var selected: [String] = []
     @State private var loading = false
     @State private var started = false
     @State private var browseError: String?
@@ -158,7 +125,16 @@ struct TVScanFlowView: View {
             }
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft, lister == nil {
                 lister = store.makeLister(for: source)
-                selected = Set(source.scannedDirectories)   // 回填上次扫描勾选的目录
+                selected = source.scannedDirectories   // 回填上次扫描勾选的目录
+                #if DEBUG
+                if let preset = TVDebugLaunch.scanPreset { selected = preset }
+                if !rereadMetadata, let debugPath = TVDebugLaunch.scanOpenPath {
+                    parentPaths = ["/"]
+                    breadcrumbNames = [(debugPath as NSString).lastPathComponent]
+                    load(debugPath)
+                    return
+                }
+                #endif
                 if !rereadMetadata || selected.isEmpty { load("/") }
             }
         }
@@ -221,9 +197,10 @@ struct TVScanFlowView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
                         if !parentPaths.isEmpty {
-                            folderRow(name: PMString("ext.tv.scan.up"), isUp: true, selectable: false, checked: false) {
-                                goUp()
-                            }
+                            // 显式标 onOpen:尾随闭包会按顺序落到 onSelect 上,而「上一级」
+                            // 不可勾选、只有打开按钮,那样按下去什么也不做。
+                            folderRow(name: PMString("ext.tv.scan.up"), isUp: true, selectable: false,
+                                      onOpen: { goUp() })
                         }
                         if loading {
                             HStack { ProgressView().tint(TVColor.brand); Text(PMString("ext.tv.scan.loading")).foregroundStyle(TVColor.textFaint) }
@@ -236,12 +213,18 @@ struct TVScanFlowView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 16)
-                        } else if directories.isEmpty {
-                            Text(PMString("ext.tv.scan.noSubfolders"))
-                                .tvFont(.caption).foregroundStyle(TVColor.textGhost).padding(.vertical, 16)
+                        } else {
+                            // 每一层最上面都能勾「整个文件夹」/「整个音乐源」:勾它等于
+                            // 扫描下面的一切,包括以后新建的目录;已存的根选择也在这里取消。
+                            wholeFolderRow
+                            if directories.isEmpty {
+                                Text(PMString("ext.tv.scan.noSubfolders"))
+                                    .tvFont(.caption).foregroundStyle(TVColor.textGhost).padding(.vertical, 16)
+                            }
                         }
                         TVPagedList(directories, spacing: 8) { _, e, onFocusChanged in
-                            folderRow(name: e.name, isUp: false, selectable: true, checked: selected.contains(e.path),
+                            folderRow(name: e.name, isUp: false, selectable: true,
+                                      state: selectionState(of: e.path, ancestors: parentPaths + [path]),
                                       onSelect: { toggle(e.path) }, onOpen: { openFolder(e) },
                                       onFocusChanged: onFocusChanged)
                         }
@@ -260,12 +243,17 @@ struct TVScanFlowView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func folderRow(name: String, isUp: Bool, selectable: Bool, checked: Bool,
+    private func folderRow(name: String, isUp: Bool, selectable: Bool,
+                           state: SourceDirectorySelectionPolicy.SelectionState = .unselected,
                            onSelect: @escaping () -> Void = {}, onOpen: @escaping () -> Void = {},
                            onFocusChanged: @escaping (Bool) -> Void = { _ in }) -> some View {
+        let checked = state == .selected
+        // 上级已勾选:这一行本来就会被扫描,勾选框显示淡色的勾并禁用,只能打开。
+        let includedCaption = inclusionCaption(for: state)
+        let included = includedCaption != nil
         // Opening and selecting are separate remote targets. Select now follows
         // the visible “Open” affordance; the trailing checkbox controls scan scope.
-        HStack(spacing: 10) {
+        return HStack(spacing: 10) {
             TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: onOpen,
                           onFocusChanged: onFocusChanged) { focused in
                 HStack(spacing: 16) {
@@ -273,10 +261,18 @@ struct TVScanFlowView: View {
                         .font(.system(size: 22))
                         .foregroundStyle(checked ? TVColor.brand : TVColor.textFaint)
                         .frame(width: 26)
-                    Text(name)
-                        .tvFont(.body, weight: checked ? .semibold : .regular)
-                        .foregroundStyle(TVColor.text)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(name)
+                            .tvFont(.body, weight: checked ? .semibold : .regular)
+                            .foregroundStyle(TVColor.text)
+                            .lineLimit(1)
+                        if let includedCaption {
+                            Text(includedCaption)
+                                .tvFont(.meta)
+                                .foregroundStyle(TVColor.textFaint)
+                                .lineLimit(1)
+                        }
+                    }
                     Spacer(minLength: 0)
                     if selectable {
                         Label(PMString("ext.tv.scan.open"), systemImage: "chevron.right")
@@ -290,36 +286,95 @@ struct TVScanFlowView: View {
                 .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
             }
             .accessibilityLabel(Text(name))
+            .accessibilityValue(Text(includedCaption ?? ""))
             .accessibilityHint(Text(selectable ? PMString("ext.tv.scan.openFolder") : name))
 
             if selectable {
                 TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: onSelect,
                               onFocusChanged: onFocusChanged) { focused in
-                    Image(systemName: checked ? "checkmark.square.fill" : "square")
+                    Image(systemName: checked || included ? "checkmark.square.fill" : "square")
                         .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(checked ? TVColor.brand : TVColor.text)
+                        .foregroundStyle(checkboxColor(checked: checked, included: included))
                         .frame(width: 62, height: 58)
                         .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
                 }
+                .disabled(included)
                 .accessibilityLabel(Text(
-                    checked ? PMString("ext.tv.scan.uncheck") : PMString("ext.tv.scan.check")
+                    includedCaption
+                        ?? (checked ? PMString("ext.tv.scan.uncheck") : PMString("ext.tv.scan.check"))
                 ))
-                .accessibilityAddTraits(checked ? [.isButton, .isSelected] : .isButton)
+                .accessibilityAddTraits(checked || included ? [.isButton, .isSelected] : .isButton)
             }
         }
         .contextMenu {
             if selectable {
                 Button { onOpen() } label: { Label(PMString("ext.tv.scan.openFolder"), systemImage: "folder") }
-                Button { onSelect() } label: { Label(checked ? PMString("ext.tv.scan.uncheck") : PMString("ext.tv.scan.check"), systemImage: checked ? "square" : "checkmark.square") }
+                if !included {
+                    Button { onSelect() } label: { Label(checked ? PMString("ext.tv.scan.uncheck") : PMString("ext.tv.scan.check"), systemImage: checked ? "square" : "checkmark.square") }
+                }
             }
         }
+    }
+
+    /// 这一层最上面的「整个文件夹 / 整个音乐源」行:勾的是当前目录本身。
+    /// 上级已勾选时同样显示淡色的勾并禁用,说明文字指出是哪一级。
+    private var wholeFolderRow: some View {
+        let target = currentSelectionPath
+        let state = selectionState(of: target, ancestors: parentPaths)
+        let checked = state == .selected
+        let includedCaption = inclusionCaption(for: state)
+        let included = includedCaption != nil
+        let atRoot = parentPaths.isEmpty
+        let title = atRoot
+            ? String(localized: "folder_pick_whole_source")
+            : String(format: String(localized: "folder_pick_whole_folder_format"), breadcrumbNames.last ?? path)
+        let caption = includedCaption ?? String(localized: "folder_pick_includes_future")
+        return TVFocusButton(radius: 12, scale: 1.0, lift: 0, action: { toggle(target) }) { focused in
+            HStack(spacing: 16) {
+                Image(systemName: atRoot ? "shippingbox.fill" : "folder.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(checked ? TVColor.brand : TVColor.textFaint)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .tvFont(.body, weight: .semibold)
+                        .foregroundStyle(TVColor.text)
+                        .lineLimit(1)
+                    Text(caption)
+                        .tvFont(.meta)
+                        .foregroundStyle(TVColor.textFaint)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: checked || included ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(checkboxColor(checked: checked, included: included))
+                    .frame(width: 62)
+            }
+            .padding(.leading, 20)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity)
+            .background(focused ? TVColor.surfaceStrong : TVColor.surfaceSubtle)
+        }
+        .disabled(included)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(caption))
+        .accessibilityHint(Text(
+            included ? "" : (checked ? PMString("ext.tv.scan.uncheck") : PMString("ext.tv.scan.check"))
+        ))
+        .accessibilityAddTraits(checked || included ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private func checkboxColor(checked: Bool, included: Bool) -> Color {
+        if checked { return TVColor.brand }
+        return included ? TVColor.textFaint : TVColor.text
     }
 
     private var summaryPanel: some View {
         VStack(spacing: 24) {
             VStack(alignment: .leading, spacing: 0) {
                 TVEyebrow(text: PMString("ext.tv.scan.summary")).padding(.bottom, 14)
-                summaryRow(PMString("ext.tv.scan.selected"), selected.isEmpty ? PMString("ext.tv.scan.currentFolder") : PMString("ext.tv.scan.folderCount", selected.count))
+                summaryRow(PMString("ext.tv.scan.selected"), scanSelection.isEmpty ? String(localized: "folder_pick_none") : PMString("ext.tv.scan.folderCount", scanSelection.count))
                 summaryRow(PMString("ext.tv.scan.metadata"), PMString(
                     rereadMetadata ? "tv_metadata_reread" : "ext.tv.scan.metadataValue"
                 ))
@@ -328,6 +383,18 @@ struct TVScanFlowView: View {
             .padding(26).frame(maxWidth: .infinity)
             .background(TVColor.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(TVColor.cardBorder, lineWidth: 1) }
+
+            // 什么都没勾时不再悄悄扫描当前目录(在根目录就是整个音乐源):
+            // 「开始扫描」变灰,这里说明要先勾什么。只随勾选变化,不随焦点增删。
+            if scanSelection.isEmpty {
+                Text(String(localized: "folder_pick_select_hint"))
+                    .tvFont(.caption)
+                    .foregroundStyle(TVColor.textFaint)
+                    .multilineTextAlignment(.leading)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             if let browseError {
                 // 右栏只有 380pt 宽,错误文案必须按整行换行并左对齐,
@@ -344,8 +411,9 @@ struct TVScanFlowView: View {
                 Label(PMString(rereadMetadata ? "tv_metadata_reread" : "ext.tv.scan.start"), systemImage: "arrow.triangle.2.circlepath")
                     .tvFont(.eyebrow, weight: .bold).foregroundStyle(TVColor.onBrand)
                     .frame(maxWidth: .infinity).padding(.vertical, 20)
-                    .background(TVColor.brand.opacity(f ? 1 : 0.88), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(TVColor.brand.opacity(scanSelection.isEmpty ? 0.35 : (f ? 1 : 0.88)), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
+            .disabled(scanSelection.isEmpty)
             TVFocusButton(radius: 16, scale: 1.04, lift: 0, action: { dismiss() }) { f in
                 Text(PMString("ext.tv.sources.cancel")).tvFont(.meta, weight: .medium).foregroundStyle(TVColor.text)
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
@@ -413,8 +481,60 @@ struct TVScanFlowView: View {
         }
     }
 
+    /// 这一层「整个文件夹」行勾的路径。根目录就是整个音乐源:S3 的桶根存 "",
+    /// 与手机端一致;其余源存 "/"。
+    private var currentSelectionPath: String {
+        guard parentPaths.isEmpty else { return path }
+        return SourceDirectorySelectionPolicy.selectableRootPath(for: source.type, browserPath: "/") ?? "/"
+    }
+
+    /// 真正要扫描、要保存的目录:去掉重复写法和上级已勾选的下级。
+    private var scanSelection: [String] {
+        SourceDirectorySelectionPolicy.normalizedSelections(selected, for: source.type)
+    }
+
+    private func selectionState(
+        of p: String,
+        ancestors: [String]
+    ) -> SourceDirectorySelectionPolicy.SelectionState {
+        SourceDirectorySelectionPolicy.selectionState(
+            of: p,
+            in: selected,
+            ancestors: ancestors,
+            for: source.type
+        )
+    }
+
+    /// 「已包含在…中」的说明;这一行没被上级覆盖时为 nil。
+    private func inclusionCaption(for state: SourceDirectorySelectionPolicy.SelectionState) -> String? {
+        guard case .included(let ancestor) = state else { return nil }
+        if SourceDirectorySelectionPolicy.isRootPath(ancestor) {
+            return String(localized: "folder_pick_included_whole_source")
+        }
+        guard let title = folderTitle(for: ancestor) else {
+            return String(localized: "folder_pick_included_generic")
+        }
+        return String(format: String(localized: "folder_pick_included_in_format"), title)
+    }
+
+    /// 浏览经过的某一级目录的名字:parentPaths[0] 是根,第 i 级(含当前目录)
+    /// 对应 breadcrumbNames[i - 1]。按 ID 寻址的源不把 ID 当名字露出来。
+    private func folderTitle(for ancestor: String) -> String? {
+        let chain = parentPaths + [path]
+        if let index = chain.lastIndex(where: { SourceDirectorySelectionPolicy.isSamePath($0, ancestor) }),
+           index > 0, index <= breadcrumbNames.count {
+            return breadcrumbNames[index - 1]
+        }
+        return SourceDirectoryLabelPolicy.readableFallback(path: ancestor, sourceType: source.type)
+    }
+
     private func toggle(_ p: String) {
-        if selected.contains(p) { selected.remove(p) } else { selected.insert(p) }
+        // 勾了上级就把它下面单独勾过的目录收起来(扫描本来就会整棵走下去),
+        // 与手机、Mac 的选择页一致;被上级覆盖的行勾选框是禁用的。
+        selected = SourceDirectorySelectionPolicy.normalizedSelections(
+            SourceDirectorySelectionPolicy.toggledSelection(selected, path: p),
+            for: source.type
+        )
     }
 
     private func startScan() {
@@ -422,10 +542,10 @@ struct TVScanFlowView: View {
             browseError = PMString("ext.tv.scan.connectFailed")
             return
         }
+        let dirs = scanSelection
+        // 没勾任何目录时按钮是禁用的;这里再挡一次,不再悄悄把当前目录当成扫描范围。
+        guard !dirs.isEmpty else { return }
         let currentSource = store.source(id: source.id) ?? source
-        let dirs = TVScanDirectorySelectionPolicy.normalized(
-            selected.isEmpty ? [path] : Array(selected)
-        )
         loadTask?.cancel()
         started = true
         Task {

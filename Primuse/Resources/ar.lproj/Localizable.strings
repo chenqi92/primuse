@@ -4614,3 +4614,13 @@
 "lyrics_translation_local_remove" = "إزالة النموذج";
 "lyrics_translation_local_remove_confirm" = "هل تريد إزالة نموذج الترجمة دون اتصال؟ يمكنك تنزيله مرة أخرى لاحقًا.";
 "lyrics_translation_local_download_size_format" = "تنزيل (%@)";
+
+/* 选择目录:上级已勾选时下级显示「已包含」、电视端「整个文件夹」行 */
+"folder_pick_included_whole_source" = "مُضمَّن في المصدر بأكمله";
+"folder_pick_included_in_format" = "مُضمَّن في «%@»";
+"folder_pick_included_generic" = "مُضمَّن في مجلد رئيسي محدد";
+"folder_pick_whole_source" = "المصدر بأكمله";
+"folder_pick_whole_folder_format" = "تحديد «%@» بالكامل";
+"folder_pick_includes_future" = "يشمل المجلدات الفرعية المضافة لاحقًا";
+"folder_pick_none" = "لا شيء";
+"folder_pick_select_hint" = "حدد أولًا المجلدات المراد فحصها، أو اختر «المصدر بأكمله» في المستوى الأعلى.";

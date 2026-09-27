@@ -4801,3 +4801,13 @@
 "lyrics_translation_local_remove" = "移除模型";
 "lyrics_translation_local_remove_confirm" = "移除离线翻译模型？之后可以重新下载。";
 "lyrics_translation_local_download_size_format" = "下载（%@）";
+
+/* 选择目录:上级已勾选时下级显示「已包含」、电视端「整个文件夹」行 */
+"folder_pick_included_whole_source" = "已包含在整个音乐源中";
+"folder_pick_included_in_format" = "已包含在「%@」中";
+"folder_pick_included_generic" = "已包含在已勾选的上级文件夹中";
+"folder_pick_whole_source" = "整个音乐源";
+"folder_pick_whole_folder_format" = "选择整个「%@」";
+"folder_pick_includes_future" = "包括以后新增的子文件夹";
+"folder_pick_none" = "未选择";
+"folder_pick_select_hint" = "请先勾选要扫描的文件夹，或在最上层勾选「整个音乐源」。";

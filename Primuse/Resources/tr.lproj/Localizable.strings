@@ -4614,3 +4614,13 @@
 "lyrics_translation_local_remove" = "Modeli Kaldır";
 "lyrics_translation_local_remove_confirm" = "Çevrimdışı çeviri modeli kaldırılsın mı? Daha sonra yeniden indirebilirsiniz.";
 "lyrics_translation_local_download_size_format" = "İndir (%@)";
+
+/* 选择目录:上级已勾选时下级显示「已包含」、电视端「整个文件夹」行 */
+"folder_pick_included_whole_source" = "Kaynağın tamamına dahil";
+"folder_pick_included_in_format" = "“%@” içine dahil";
+"folder_pick_included_generic" = "Seçili bir üst klasöre dahil";
+"folder_pick_whole_source" = "Kaynağın Tamamı";
+"folder_pick_whole_folder_format" = "“%@” klasörünün tamamını seç";
+"folder_pick_includes_future" = "Sonradan eklenen alt klasörler de dahil";
+"folder_pick_none" = "Seçilmedi";
+"folder_pick_select_hint" = "Önce taranacak klasörleri seçin veya en üst düzeyde “Kaynağın Tamamı” seçeneğini işaretleyin.";

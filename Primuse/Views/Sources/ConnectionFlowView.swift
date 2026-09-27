@@ -1415,8 +1415,17 @@ struct RealDirectoryBrowserView: View {
             isNavigable: true,
             selectedDirectories: $selectedDirectories,
             onNavigate: { enterDirectory(item) },
-            folderTag: folderTag(for: item.path)
+            folderTag: folderTag(for: item.path),
+            ancestorPaths: pathStack,
+            sourceType: .synology,
+            ancestorTitle: Self.folderTitle(for:)
         )
+    }
+
+    /// 「已包含在「…」中」里上级目录的名字:群晖路径的最后一段。
+    private static func folderTitle(for path: String) -> String? {
+        let name = (path as NSString).lastPathComponent
+        return name.isEmpty || name == "/" ? nil : name
     }
 
     private func folderTag(for path: String) -> DirectoryFolderTag? {
@@ -1430,7 +1439,10 @@ struct RealDirectoryBrowserView: View {
             icon: "folder.fill", iconColor: .orange,
             isNavigable: false,
             selectedDirectories: $selectedDirectories,
-            folderTag: folderTag(for: currentPath)
+            folderTag: folderTag(for: currentPath),
+            ancestorPaths: Array(pathStack.dropLast()),
+            sourceType: .synology,
+            ancestorTitle: Self.folderTitle(for:)
         )
     }
 
@@ -1496,18 +1508,42 @@ struct DirectoryCheckRow: View {
     var onNavigate: (() -> Void)?
     /// Offered on selected rows of sources whose songs sit in real folders.
     var folderTag: DirectoryFolderTag?
+    /// 浏览到这一行经过的各级目录(外层在前)。勾了其中任何一级,这一行
+    /// 就显示「已包含」—— ID 寻址的源只能靠它认出上下级。
+    var ancestorPaths: [String] = []
+    /// 决定是否也按路径前缀认上下级;nil 按层级路径处理。
+    var sourceType: MusicSourceType? = nil
+    /// 「已包含在「…」中」里那个上级目录的名字;给不出时用通用说法。
+    var ancestorTitle: (@MainActor (String) -> String?)? = nil
 
-    private var isSelected: Bool { selectedDirectories.contains(path) }
+    private var selectionState: SourceDirectorySelectionPolicy.SelectionState {
+        SourceDirectorySelectionPolicy.selectionState(
+            of: path,
+            in: selectedDirectories,
+            ancestors: ancestorPaths,
+            for: sourceType
+        )
+    }
+
+    private var isSelected: Bool { selectionState == .selected }
+
+    /// 上级已勾选时的说明文字;这一行没被上级覆盖时为 nil。
+    private var includedCaption: String? {
+        guard case .included(let ancestor) = selectionState else { return nil }
+        return DirectorySelectionInclusionText.caption(
+            ancestor: ancestor,
+            title: ancestorTitle?(ancestor)
+        )
+    }
+
+    private var isIncluded: Bool { includedCaption != nil }
 
     private var selectionBinding: Binding<Bool> {
         Binding(
-            get: { selectedDirectories.contains(path) },
+            get: { isSelected || isIncluded },
             set: { newValue in
-                if newValue != selectedDirectories.contains(path) {
-                    selectedDirectories = SourceDirectorySelectionPolicy.toggledSelection(
-                        selectedDirectories,
-                        path: path
-                    )
+                if newValue != isSelected {
+                    toggle()
                 }
             }
         )
@@ -1529,6 +1565,8 @@ struct DirectoryCheckRow: View {
             Toggle("", isOn: selectionBinding)
                 .toggleStyle(.checkbox)
                 .labelsHidden()
+                .disabled(isIncluded)
+                .help(includedCaption ?? "")
 
             Image(systemName: icon).foregroundStyle(iconColor)
 
@@ -1536,6 +1574,12 @@ struct DirectoryCheckRow: View {
                 Text(name).fontWeight(isNavigable ? .regular : .medium)
                 if let subtitle {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if let includedCaption {
+                    Text(verbatim: includedCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
 
@@ -1591,16 +1635,19 @@ struct DirectoryCheckRow: View {
     private var iOSBody: some View {
         HStack(spacing: 12) {
             Button { toggle() } label: {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                Image(systemName: isSelected || isIncluded ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.45))
+                    .foregroundStyle(checkmarkStyle)
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 28, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // 被上级覆盖的行不能单独勾选;进入目录的点击区域不受影响。
+            .disabled(isIncluded)
             .accessibilityLabel(Text(name))
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityValue(includedCaption ?? "")
+            .accessibilityAddTraits(isSelected || isIncluded ? .isSelected : [])
 
             if isNavigable {
                 Button { onNavigate?() } label: { rowLabel }
@@ -1611,7 +1658,8 @@ struct DirectoryCheckRow: View {
                     .onTapGesture { toggle() }
             }
 
-            if isSelected, let folderTag {
+            // 「已包含」的子目录也能单独标成有声:标签按目录匹配歌曲,不要求它自己是扫描根。
+            if isSelected || isIncluded, let folderTag {
                 DirectoryFolderTagMenu(tag: folderTag)
                     .transition(.scale(scale: 0.85).combined(with: .opacity))
             }
@@ -1629,7 +1677,15 @@ struct DirectoryCheckRow: View {
             }
         }
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
-        .pmAnimation(.hover, value: isSelected)
+        .pmAnimation(.hover, value: selectionState)
+    }
+
+    /// 已勾选用强调色;被上级覆盖的用次要色的勾,看得出「在扫描范围里」,
+    /// 又和能点的勾区分开。
+    private var checkmarkStyle: Color {
+        if isSelected { return .accentColor }
+        if isIncluded { return .secondary }
+        return Color.secondary.opacity(0.45)
     }
 
     /// Folder tile, name and subtitle. A folder tagged spoken word shows it
@@ -1652,6 +1708,13 @@ struct DirectoryCheckRow: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+                if let includedCaption {
+                    Text(verbatim: includedCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             Spacer(minLength: 4)
         }
@@ -1660,11 +1723,13 @@ struct DirectoryCheckRow: View {
     }
 
     private var showsSpokenWordTile: Bool {
-        isSelected && folderTag?.isSpokenWord == true
+        (isSelected || isIncluded) && folderTag?.isSpokenWord == true
     }
     #endif
 
     private func toggle() {
+        // 上级已勾选时这一行本来就在扫描范围里,单独勾它只会被去重吞掉。
+        guard !isIncluded else { return }
         selectedDirectories = SourceDirectorySelectionPolicy.toggledSelection(
             selectedDirectories,
             path: path

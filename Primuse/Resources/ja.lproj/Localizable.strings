@@ -4709,3 +4709,13 @@
 "lyrics_translation_local_remove" = "モデルを削除";
 "lyrics_translation_local_remove_confirm" = "オフライン翻訳モデルを削除しますか？後で再ダウンロードできます。";
 "lyrics_translation_local_download_size_format" = "ダウンロード（%@）";
+
+/* 选择目录:上级已勾选时下级显示「已包含」、电视端「整个文件夹」行 */
+"folder_pick_included_whole_source" = "ソース全体に含まれています";
+"folder_pick_included_in_format" = "「%@」に含まれています";
+"folder_pick_included_generic" = "選択済みの上位フォルダに含まれています";
+"folder_pick_whole_source" = "ソース全体";
+"folder_pick_whole_folder_format" = "「%@」全体を選択";
+"folder_pick_includes_future" = "今後追加されるサブフォルダも含みます";
+"folder_pick_none" = "未選択";
+"folder_pick_select_hint" = "スキャンするフォルダを先に選択するか、最上位で「ソース全体」を選択してください。";

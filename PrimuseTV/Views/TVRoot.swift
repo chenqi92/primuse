@@ -149,6 +149,21 @@ enum TVDebugLaunch {
         ProcessInfo.processInfo.environment["TV_SCREEN"]
             ?? UserDefaults.standard.string(forKey: "TVScreen")
     }
+
+    /// 选目录页(TV_SCREEN=scan)截图用的预置勾选,多条用 | 分隔;空串表示
+    /// 什么都没勾。不设时照常回填源里已存的目录。
+    static var scanPreset: [String]? {
+        ProcessInfo.processInfo.environment["TV_SCAN_PRESET"].map {
+            $0.split(separator: "|").map(String.init)
+        }
+    }
+
+    /// 选目录页截图用:打开后直接进入这个子目录(看「整个文件夹」行)。
+    static var scanOpenPath: String? {
+        guard let path = ProcessInfo.processInfo.environment["TV_SCAN_OPEN"],
+              !path.isEmpty, path != "/" else { return nil }
+        return path
+    }
 }
 #endif
 
