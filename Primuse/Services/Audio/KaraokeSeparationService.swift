@@ -34,7 +34,9 @@ enum KaraokeVocalModel {
         #if DEBUG
         if debugOverrideURL != nil { return true }
         #endif
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) { return true }
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) {
+            return BackgroundAssetsPrerequisites.isSatisfied
+        }
         return false
     }
 
@@ -45,6 +47,7 @@ enum KaraokeVocalModel {
         #endif
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *),
+           BackgroundAssetsPrerequisites.isSatisfied,
            AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID),
            let anchor = try? AssetPackManager.shared.url(for: FilePath(anchorFile)) {
             return anchor.deletingLastPathComponent()
@@ -57,7 +60,7 @@ enum KaraokeVocalModel {
     static func download(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         if let url = localModelURL() { return url }
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) {
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
             let manager = AssetPackManager.shared
             let pack = try await manager.assetPack(withID: assetPackID)
             let watcher = Task {
@@ -77,7 +80,7 @@ enum KaraokeVocalModel {
 
     static func remove() async {
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) {
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
             try? await AssetPackManager.shared.remove(assetPackWithID: assetPackID)
         }
         #endif

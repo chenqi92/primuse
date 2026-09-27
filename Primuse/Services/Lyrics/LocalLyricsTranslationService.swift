@@ -6,6 +6,9 @@ import PrimuseKit
 import BackgroundAssets
 import System
 #endif
+#if os(macOS)
+import Security
+#endif
 
 /// Where the offline lyric translation model comes from. It is an
 /// Apple-hosted, on-demand Background Assets pack (26.4 and later) holding a
@@ -30,7 +33,9 @@ enum LocalLyricsTranslationModel {
         #if DEBUG
         if debugOverrideDirectory != nil { return true }
         #endif
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) { return true }
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) {
+            return BackgroundAssetsPrerequisites.isSatisfied
+        }
         return false
     }
 
@@ -79,6 +84,7 @@ enum LocalLyricsTranslationModel {
         #endif
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *),
+           BackgroundAssetsPrerequisites.isSatisfied,
            AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID) {
             return try? AssetPackManager.shared.url(for: FilePath(path))
         }
@@ -90,7 +96,7 @@ enum LocalLyricsTranslationModel {
     static func download(progress: @escaping @Sendable (Double) -> Void) async throws -> Located {
         if let located = locate() { return located }
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) {
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
             let manager = AssetPackManager.shared
             let pack = try await manager.assetPack(withID: assetPackID)
             let watcher = Task {
@@ -110,11 +116,55 @@ enum LocalLyricsTranslationModel {
 
     static func remove() async {
         #if canImport(BackgroundAssets)
-        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *) {
+        if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
             try? await AssetPackManager.shared.remove(assetPackWithID: assetPackID)
         }
         #endif
     }
+}
+
+/// `AssetPackManager.shared` 在前提不满足时直接 fatalError 而不是抛错: 进程没有
+/// team ID (未签名、「Sign to Run Locally」的 Mac 构建)、Info.plist 缺
+/// `BAAppGroupID`、主 bundle 没有 ID。Mac 上打开歌词设置就因此闪退。碰它之前
+/// 先自查, 不满足就当作这台设备用不了 Apple 托管的模型包。
+enum BackgroundAssetsPrerequisites {
+    static let isSatisfied: Bool = evaluate()
+
+    private static func evaluate() -> Bool {
+        #if os(macOS)
+        // 先看签名: 没有 team ID 时连 App Group 都不去碰, 免得非沙盒构建弹授权框。
+        guard let teamID = signingTeamIdentifier(), !teamID.isEmpty else {
+            plog("⚠️ BackgroundAssets: process has no team ID, asset packs disabled")
+            return false
+        }
+        #endif
+        let bundle = Bundle.main
+        guard bundle.bundleIdentifier?.isEmpty == false,
+              let groupID = bundle.object(forInfoDictionaryKey: "BAAppGroupID") as? String,
+              !groupID.isEmpty,
+              UserDefaults(suiteName: groupID) != nil else {
+            plog("⚠️ BackgroundAssets: bundle ID or BAAppGroupID unavailable, asset packs disabled")
+            return false
+        }
+        return true
+    }
+
+    #if os(macOS)
+    private static func signingTeamIdentifier() -> String? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &information
+        ) == errSecSuccess,
+            let information = information as? [String: Any] else { return nil }
+        return information[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+    #endif
 }
 
 enum LocalLyricsTranslationError: Error {
