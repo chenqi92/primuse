@@ -162,6 +162,8 @@ struct TVRoot: View {
     @Environment(TVStore.self) private var store
     @State private var tab: Tab
     @State private var libraryFilter: TVLibraryView.Filter = .albums
+    /// 资料库网格上次停在哪张卡片;播放后回到资料库时由它恢复位置和焦点。
+    @State private var libraryBrowseMemory = TVLibraryBrowseMemory()
     #if DEBUG
     /// 截图路由指定的是电台 / 有声页,但曲库和电台还在载入:等内容出现后再切过去,
     /// 否则会因为「这一页暂时不该显示」被送回首页。
@@ -191,7 +193,7 @@ struct TVRoot: View {
         // 截图预览用:SIMCTL_CHILD_TV_SCREEN=<tab> 直接进入指定页。
         // 电台三页(radioHome / radioAdd / radioLibrary)配合 TV_DEMO_RADIO=1 注入演示电台。
         switch TVDebugLaunch.screen {
-        case "library": initialTab = .library
+        case "library", "albumDetail": initialTab = .library
         case "radio", "radioLibrary":
             initialTab = .home
             _debugPendingSpaceTab = State(initialValue: .radio)
@@ -379,6 +381,14 @@ struct TVRoot: View {
                 await store.loadDemoNowPlaying()
                 tab = .nowPlaying
             case "settings", "effectPicker", "themePicker": showSettings = true
+            case "libraryAnchor":
+                // 模拟「播放专辑 → 回到资料库 → 按下键」:资料库在记住第 42 张专辑之后才建出来。
+                await waitForDemoContent(requireAlbum: true)
+                guard !store.albums.isEmpty else { break }
+                libraryBrowseMemory.albumID = store.albums[min(41, store.albums.count - 1)].id
+                tab = .library
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                requestContentFocus(from: .library)
             case "radio", "radioLibrary", "spokenWord":
                 if let pending = debugPendingSpaceTab, visibleTabs.contains(pending) {
                     debugPendingSpaceTab = nil
@@ -419,7 +429,8 @@ struct TVRoot: View {
                 onReturnToTabs: returnFocusToTabs,
                 onModalActivityChanged: childModalActivityChanged,
                 filter: $libraryFilter,
-                focusRequest: libraryFocusRequest
+                focusRequest: libraryFocusRequest,
+                browseMemory: libraryBrowseMemory
             )
         case .radio:
             TVRadioPageView(

@@ -30,6 +30,7 @@ struct TVSearchView: View {
     @State private var results: TVStore.TVSearchResults?
     @State private var selectedArtist: TVArtist?
     @State private var opensPlayerAfterArtistDismissal = false
+    @State private var selectedAlbum: TVAlbum?
     @State private var isSearching = false
     @State private var isSemanticSearching = false
     @State private var appleMusic = TVAppleMusicCatalog()
@@ -163,6 +164,11 @@ struct TVSearchView: View {
                 onModalActivityChanged(false)
             }
         }
+        .modifier(TVAlbumDetailPresenter(
+            album: $selectedAlbum,
+            openPlayer: openPlayer,
+            onPresentationChanged: onModalActivityChanged
+        ))
     }
 
     // MARK: 左列 — 搜索框(单层玻璃盒) + 实时结果
@@ -306,7 +312,8 @@ struct TVSearchView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 18) {
                     ForEach(albumResults) { album in
-                        TVAlbumCard(album: album, width: 200, action: openPlayer)
+                        TVAlbumCard(album: album, width: 200, action: openPlayer,
+                                    onOpen: { selectedAlbum = album })
                             .focused($focusedResultID, equals: Self.albumFocusID(album))
                     }
                 }

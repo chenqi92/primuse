@@ -22,6 +22,7 @@ struct TVHomeView: View {
     /// 原来的按钮不在了,关闭时由这里把焦点放到第一张电台卡片上。
     @State private var radioAddFromEmptyState = false
     @State private var radioDeleteRequest: TVRadioDeleteRequest?
+    @State private var selectedAlbum: TVAlbum?
     @FocusState private var focusedRadioID: String?
     var openPlayer: () -> Void = {}
     /// 「全部电台」卡片:切到「电台」一级页。
@@ -192,7 +193,8 @@ struct TVHomeView: View {
                     if !store.recentlyAddedAlbums.isEmpty {
                         TVRow(label: PMString("ext.tv.home.recentlyAdded")) {
                             ForEach(store.recentlyAddedAlbums) { album in
-                                TVAlbumCard(album: album, action: openPlayer)
+                                TVAlbumCard(album: album, action: openPlayer,
+                                            onOpen: { selectedAlbum = album })
                             }
                         }
                     }
@@ -202,7 +204,8 @@ struct TVHomeView: View {
                     } else if !store.recommended.isEmpty {
                         TVRow(label: PMString("ext.tv.home.madeForYou")) {
                             ForEach(Array(store.recommended.enumerated()), id: \.offset) { _, album in
-                                TVAlbumCard(album: album, action: openPlayer)
+                                TVAlbumCard(album: album, action: openPlayer,
+                                            onOpen: { selectedAlbum = album })
                             }
                         }
                     }
@@ -215,6 +218,11 @@ struct TVHomeView: View {
             TVRadioAddView().environment(store)
         }
         .onChange(of: showsRadioAdd) { _, shows in onModalPresentationChanged(shows) }
+        .modifier(TVAlbumDetailPresenter(
+            album: $selectedAlbum,
+            openPlayer: openPlayer,
+            onPresentationChanged: onModalPresentationChanged
+        ))
         .onDisappear {
             if showsRadioAdd { onModalPresentationChanged(false) }
         }

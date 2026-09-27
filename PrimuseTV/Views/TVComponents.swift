@@ -273,14 +273,30 @@ struct TVAlbumCard: View {
     var width: CGFloat = 240
     var titleOverride: String? = nil
     var subtitleOverride: String? = nil
+    /// 开始播放之后调用(一般是切到播放页)。
     var action: () -> Void = {}
     var onFocusChanged: (Bool) -> Void = { _ in }
+    /// 给了就由按下封面打开专辑页(先看曲目再点歌),直接播放挪进长按菜单;
+    /// 不给则保持按下即播放整张专辑。
+    var onOpen: (() -> Void)? = nil
+    /// 父视图的焦点绑定(见 `TVFocusButton`):回到资料库时把焦点放回上次那张卡片。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
     @Environment(TVStore.self) private var store
 
     var body: some View {
         TVFocusButton(ring: false,
-                      action: { store.play(album: album); action() },
-                      onFocusChanged: onFocusChanged) { focused in
+                      action: {
+                          if let onOpen {
+                              onOpen()
+                          } else {
+                              store.play(album: album)
+                              action()
+                          }
+                      },
+                      onFocusChanged: onFocusChanged,
+                      focusBinding: focusBinding,
+                      focusID: focusID) { focused in
             VStack(alignment: .leading, spacing: 0) {
                 TVArtworkView(album: album, size: width)
                     .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
@@ -298,6 +314,19 @@ struct TVAlbumCard: View {
             .frame(width: width, alignment: .leading)
         }
         .contextMenu {
+            if onOpen != nil {
+                Button("play_all", systemImage: "play.fill") {
+                    store.play(album: album)
+                    action()
+                }
+                Button("shuffle", systemImage: "shuffle") {
+                    guard store.playResolvedQueue(
+                        songIDs: store.songs(forAlbum: album.id).map(\.id),
+                        shuffled: true
+                    ) else { return }
+                    action()
+                }
+            }
             Button("medley_play_selection", systemImage: "shuffle") {
                 pendingMedleyIDs = store.songs(forAlbum: album.id).map(\.id)
             }
@@ -559,9 +588,13 @@ struct TVArtistCard: View {
     var size: CGFloat = 180
     var action: () -> Void = {}
     var onFocusChanged: (Bool) -> Void = { _ in }
+    /// 父视图的焦点绑定(见 `TVFocusButton`):回到资料库时把焦点放回上次那张卡片。
+    var focusBinding: FocusState<String?>.Binding? = nil
+    var focusID: String? = nil
 
     var body: some View {
-        TVFocusButton(ring: false, action: action, onFocusChanged: onFocusChanged) { focused in
+        TVFocusButton(ring: false, action: action, onFocusChanged: onFocusChanged,
+                      focusBinding: focusBinding, focusID: focusID) { focused in
             VStack(spacing: 12) {
                 TVArtistArtworkView(artist: artist, size: size)
                     .tvFocusRing(focused, radius: size / 2, scale: 1.04, lift: 0)
@@ -900,9 +933,29 @@ struct TVPagedGrid<Item: Identifiable, Cell: View>: View {
 
     let items: [Item]
     let columns: [GridItem]
-    var spacing: CGFloat = 28
-    @ViewBuilder var cell: (Int, Item, @escaping (Bool) -> Void) -> Cell
-    @State private var renderedItemCount = TVLongListPagingPolicy.pageSize
+    var spacing: CGFloat
+    private let cell: (Int, Item, @escaping (Bool) -> Void) -> Cell
+    @State private var renderedItemCount: Int
+
+    /// `revealing`:网格重建时要能直接落到的那一项(比如回到资料库时上次聚焦的专辑)。
+    /// 初次渲染就覆盖到它,否则它排在第一页之外时根本没有视图可滚动、可聚焦。
+    init(
+        items: [Item],
+        columns: [GridItem],
+        spacing: CGFloat = 28,
+        revealing anchorID: Item.ID? = nil,
+        @ViewBuilder cell: @escaping (Int, Item, @escaping (Bool) -> Void) -> Cell
+    ) {
+        self.items = items
+        self.columns = columns
+        self.spacing = spacing
+        self.cell = cell
+        let pageSize = TVLongListPagingPolicy.pageSize
+        let anchorIndex = anchorID.flatMap { id in items.firstIndex { $0.id == id } }
+        _renderedItemCount = State(initialValue: anchorIndex.map {
+            TVLongListPagingPolicy.limit(after: pageSize, focusedRow: $0, totalCount: items.count)
+        } ?? pageSize)
+    }
 
     var body: some View {
         let shown = TVLongListPagingPolicy.clamped(limit: renderedItemCount, totalCount: items.count)
