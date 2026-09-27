@@ -5375,15 +5375,19 @@ public enum NowPlayingPlayerLayoutPolicy {
 /// cycle, so a short window prevents a row seek from also switching surfaces.
 public enum LyricsBackgroundTapPolicy {
     public static let rowSuppressionInterval: TimeInterval = 0.08
+    /// 按住让惯性滚动停下、或刚松手就点的那一下是在操作滚动，不是在点空白。
+    public static let scrollSuppressionInterval: TimeInterval = 0.5
 
     public static func shouldHandle(
         hasLyrics: Bool,
         isPinching: Bool,
-        rowTapTimeDistance: TimeInterval
+        rowTapTimeDistance: TimeInterval,
+        timeSinceUserScroll: TimeInterval = .infinity
     ) -> Bool {
         hasLyrics
             && !isPinching
             && abs(rowTapTimeDistance) > rowSuppressionInterval
+            && abs(timeSinceUserScroll) > scrollSuppressionInterval
     }
 }
 
