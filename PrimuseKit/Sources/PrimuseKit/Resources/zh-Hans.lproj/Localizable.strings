@@ -946,3 +946,12 @@
 "ext.widget.spokenWordShelf.eyebrow" = "继续收听";
 "ext.widget.spokenWordShelf.empty.title" = "没有在听的书";
 "ext.widget.spokenWordShelf.empty.subtitle" = "在 Primuse 里开始听一本有声书，就能从这里接着听。";
+
+// 扫码直传的设置
+"ext.lanSettings.toggle" = "同时发送设置";
+"ext.lanSettings.toggleFooter" = "包括刮削、歌词 API 服务、智能功能、艺术家名称和沉浸风格，以及它们用到的密钥和 Cookie。";
+"ext.lanSettings.tvTooOld" = "这台 Apple TV 上的 Primuse 版本较旧，收不了设置，这次只发送曲库和音乐源。更新后重新扫码即可一起发送。";
+"ext.lanSettings.stepSourcesAndSettings" = "音乐源、登录信息和设置";
+"ext.lanSettings.received" = "已同步设置：%@";
+"ext.lanSettings.category.scraping" = "刮削";
+"ext.lanSettings.category.lyricsServers" = "歌词 API 服务";

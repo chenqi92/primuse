@@ -473,6 +473,61 @@ final class ScraperConfigStore: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// 本机旁路文件里的 secrets(不含 `AppSecrets` 的内置兜底,那份两端都编进了包里)。
+    /// 扫码直传把它们随配置一起带给 Apple TV。
+    func sideFileSecrets(for id: String) -> [String: String]? {
+        guard let url = try? secretsFileURL(for: id),
+              let data = try? Data(contentsOf: url),
+              let secrets = try? JSONDecoder().decode([String: String].self, from: data),
+              !secrets.isEmpty else { return nil }
+        return secrets
+    }
+
+    /// 局域网扫码直传来的配置。与 `applyRemoteConfig` 同一套语义:校验、按 `modifiedAt`
+    /// 后写者胜、不发变更通知 —— 发了会被 CloudKit 同步当成本机导入,推进这台 Apple TV
+    /// 登录的(可能是另一个)iCloud 账号。带来的 secrets 写进旁路文件,本机那份配置更新时
+    /// 也照样补上 secrets。
+    @discardableResult
+    func applyTransferredConfig(_ config: ScraperConfig, secrets: [String: String]?) -> Bool {
+        do {
+            try validate(config)
+        } catch {
+            plog("📦 ScraperConfigStore applyTransferredConfig skipped invalid id=\(config.id): \(error.localizedDescription)")
+            return false
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        if let secrets, !secrets.isEmpty {
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                try encoder.encode(secrets).write(to: secretsFileURL(for: config.id), options: .atomic)
+            } catch {
+                plog("ScraperConfigStore transferred secrets write failed id=\(config.id): \(error.localizedDescription)")
+            }
+        }
+        var resolved = config
+        injectSecrets(into: &resolved, context: "applyTransferredConfig")
+        if var existing = cache[resolved.id],
+           let localTS = existing.modifiedAt,
+           let remoteTS = resolved.modifiedAt,
+           localTS > remoteTS {
+            if let injected = resolved.secrets {
+                existing.secrets = injected
+                cache[resolved.id] = existing
+            }
+            return true
+        }
+        do {
+            try writeToDiskUnlocked(resolved)
+            cache[resolved.id] = resolved
+            return true
+        } catch {
+            plog("ScraperConfigStore transferred apply failed id=\(resolved.id): \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Delete a config in response to a remote deletion. Skips notification.
     func deleteFromRemote(id: String) {
         lock.lock()

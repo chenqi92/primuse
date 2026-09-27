@@ -434,7 +434,7 @@ private struct TVSourcesInfoCard: View {
                     Text(PMString("ext.tv.sources.scanBody2"))
                         .tvFont(.meta).foregroundStyle(TVColor.textGhost).lineSpacing(4)
                     if let transfer = store.pairingTransfer {
-                        TVPairingTransferStatusView(status: transfer)
+                        TVPairingTransferStatusView(status: transfer, settings: store.pairingSettingsCategories)
                             .padding(.top, 8)
                     } else if !store.pairingCode.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
@@ -461,8 +461,10 @@ private struct TVSourcesInfoCard: View {
 }
 
 /// 扫码直传在 TV 上的进度:收请求体时有百分比,导入曲库时转圈,完成后显示歌曲数。
+/// 手机一起发来的设置装好后,下面多一行「已同步设置」。
 private struct TVPairingTransferStatusView: View {
     let status: LANReceiveStatus
+    var settings: [LANSettingsCategory] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -480,6 +482,16 @@ private struct TVPairingTransferStatusView: View {
             }
             if let fraction = barFraction {
                 ProgressView(value: fraction).tint(TVColor.brand)
+            }
+            if !settings.isEmpty {
+                Label(
+                    PMString("ext.lanSettings.received",
+                             settings.map(\.displayName).formatted(.list(type: .and))),
+                    systemImage: "gearshape"
+                )
+                .tvFont(.meta)
+                .foregroundStyle(TVColor.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .accessibilityElement(children: .combine)
@@ -534,6 +546,18 @@ private struct TVPairingTransferStatusView: View {
         case .finished, .saved: return .green
         case .failed: return .orange
         case .receiving, .saving: return TVColor.brand
+        }
+    }
+}
+
+private extension LANSettingsCategory {
+    var displayName: String {
+        switch self {
+        case .scraping: return PMString("ext.lanSettings.category.scraping")
+        case .lyricsServers: return PMString("ext.lanSettings.category.lyricsServers")
+        case .intelligence: return PMString("ext.tv.settings.intelligence")
+        case .artistNames: return PMString("artist_name_settings_title")
+        case .playerEffect: return PMString("ext.tv.settings.immersive")
         }
     }
 }

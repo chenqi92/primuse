@@ -896,3 +896,12 @@
 "ext.widget.spokenWordShelf.eyebrow" = "Słuchaj dalej";
 "ext.widget.spokenWordShelf.empty.title" = "Brak rozpoczętych książek";
 "ext.widget.spokenWordShelf.empty.subtitle" = "Zacznij słuchać audiobooka w Primuse, aby kontynuować go stąd.";
+
+// 扫码直传的设置
+"ext.lanSettings.toggle" = "Wyślij też ustawienia";
+"ext.lanSettings.toggleFooter" = "Obejmuje pobieranie metadanych, serwery API tekstów, inteligentne funkcje, nazwiska wykonawców i wciągający styl wraz z używanymi przez nie kluczami i plikami cookie.";
+"ext.lanSettings.tvTooOld" = "Primuse na tym Apple TV jest zbyt stary, by odebrać ustawienia, więc zostaną wysłane tylko biblioteka i źródła. Zaktualizuj aplikację i zeskanuj kod ponownie, aby wysłać też ustawienia.";
+"ext.lanSettings.stepSourcesAndSettings" = "Źródła, dane logowania i ustawienia";
+"ext.lanSettings.received" = "Zsynchronizowano ustawienia: %@";
+"ext.lanSettings.category.scraping" = "Pobieranie metadanych";
+"ext.lanSettings.category.lyricsServers" = "Serwery API tekstów";

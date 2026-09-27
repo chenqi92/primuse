@@ -148,16 +148,20 @@ public struct LANSyncPayload: Codable, Sendable {
     /// 用它们判断快照有没有变、比本机上一次局域网直传是不是更新, 不必每次启动都重装。
     public var cloudChangeTag: String?
     public var cloudModifiedAt: Date?
+    /// 扫码直传随音乐源一起带的设置,只发给二维码声明能收设置的 Apple TV
+    /// (`LANPairLink.supportsSettingsTransfer`);CloudKit 快照不带。旧版 TV 解码时忽略这个键。
+    public var settings: LANSettingsBundle?
 
     public init(version: Int = 2, libraryGz: Data? = nil, sourcesGz: Data? = nil,
                 radioStationsGz: Data? = nil, lyricsGz: Data? = nil,
-                credentials: CredentialBundle? = nil) {
+                credentials: CredentialBundle? = nil, settings: LANSettingsBundle? = nil) {
         self.version = version
         self.libraryGz = libraryGz
         self.sourcesGz = sourcesGz
         self.radioStationsGz = radioStationsGz
         self.lyricsGz = lyricsGz
         self.credentials = credentials
+        self.settings = settings
     }
 
     public func jsonData() throws -> Data { try JSONEncoder().encode(self) }
@@ -187,7 +191,7 @@ public struct LANSyncPayload: Codable, Sendable {
     }
 }
 
-/// 分段直传的各段,按声明顺序发送。二维码带 `v=2` 的 Apple TV 才认这些路径;
+/// 分段直传的各段,按声明顺序发送。二维码带 `v` 且不小于 2 的 Apple TV 才认这些路径;
 /// 旧版 TV 只有整包的 `/config`。
 public enum LANTransferStage: String, Sendable, CaseIterable, Comparable {
     case sources
@@ -415,10 +419,15 @@ public struct LANPairLink: Sendable, Equatable {
     public var port: Int
     public var key: Data        // 32 bytes
     public var pairCode: String // 6 digits shown on both devices
-    /// 1 = 只收整包 `/config`;2 = 还收分段的 `LANTransferStage` 路径。旧二维码不带 `v`,按 1 处理。
+    /// 1 = 只收整包 `/config`;2 = 还收分段的 `LANTransferStage` 路径;3 = 第一段还认
+    /// `LANSyncPayload.settings`。旧二维码不带 `v`,按 1 处理。已发布的 iPhone 一直按 `>= 2`
+    /// 判断分段,所以升到 3 不影响它们照常分段发送(只是不带设置)。
     public var protocolVersion: Int
 
     public static let stagedProtocolVersion = 2
+    public static let settingsProtocolVersion = 3
+    /// Apple TV 二维码当前声明的版本。
+    public static let currentProtocolVersion = settingsProtocolVersion
 
     public init(host: String, port: Int, key: Data, pairCode: String = LANPairLink.randomPairCode(),
                 protocolVersion: Int = 1) {
@@ -430,6 +439,9 @@ public struct LANPairLink: Sendable, Equatable {
     }
 
     public var supportsStagedTransfer: Bool { protocolVersion >= Self.stagedProtocolVersion }
+
+    /// 这台 Apple TV 能不能收设置。不能的(旧版 TV)照常收音乐源、曲库与封面。
+    public var supportsSettingsTransfer: Bool { protocolVersion >= Self.settingsProtocolVersion }
 
     /// 从扫码得到的 `primuse://pair?...` 解析。
     public init?(url: URL) {

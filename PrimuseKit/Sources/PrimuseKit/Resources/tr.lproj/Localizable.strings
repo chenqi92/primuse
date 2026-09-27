@@ -896,3 +896,12 @@
 "ext.widget.spokenWordShelf.eyebrow" = "Dinlemeye devam et";
 "ext.widget.spokenWordShelf.empty.title" = "Devam eden kitap yok";
 "ext.widget.spokenWordShelf.empty.subtitle" = "Buradan devam etmek için Primuse'da bir sesli kitap başlat.";
+
+// 扫码直传的设置
+"ext.lanSettings.toggle" = "Ayarları da gönder";
+"ext.lanSettings.toggleFooter" = "Üst veri alma, şarkı sözü API sunucuları, akıllı özellikler, sanatçı adları ve sürükleyici stil ayarlarını, kullandıkları anahtar ve çerezlerle birlikte içerir.";
+"ext.lanSettings.tvTooOld" = "Bu Apple TV'deki Primuse ayarları alamayacak kadar eski; bu yüzden yalnızca arşiv ve kaynaklar gönderilecek. Ayarları da göndermek için güncelleyip kodu yeniden tarayın.";
+"ext.lanSettings.stepSourcesAndSettings" = "Kaynaklar, oturum açma bilgileri ve ayarlar";
+"ext.lanSettings.received" = "Eşitlenen ayarlar: %@";
+"ext.lanSettings.category.scraping" = "Üst veri alma";
+"ext.lanSettings.category.lyricsServers" = "Şarkı sözü API sunucuları";

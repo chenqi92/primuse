@@ -896,3 +896,12 @@
 "ext.widget.spokenWordShelf.eyebrow" = "सुनना जारी रखें";
 "ext.widget.spokenWordShelf.empty.title" = "कोई किताब चालू नहीं";
 "ext.widget.spokenWordShelf.empty.subtitle" = "Primuse में कोई ऑडियोबुक सुनना शुरू करें, फिर यहीं से जारी रखें।";
+
+// 扫码直传的设置
+"ext.lanSettings.toggle" = "सेटिंग्स भी भेजें";
+"ext.lanSettings.toggleFooter" = "इसमें मेटाडेटा खोज, लिरिक्स API सर्वर, बुद्धिमान विशेषताएं, कलाकार के नाम और भावपूर्ण शैली की सेटिंग्स, और उनके द्वारा उपयोग की जाने वाली कुंजियां व कुकी शामिल हैं।";
+"ext.lanSettings.tvTooOld" = "इस Apple TV पर Primuse का संस्करण पुराना है और सेटिंग्स नहीं ले सकता, इसलिए इस बार केवल लाइब्रेरी और स्रोत भेजे जाएंगे। अपडेट करके फिर से स्कैन करें ताकि सेटिंग्स भी भेजी जा सकें।";
+"ext.lanSettings.stepSourcesAndSettings" = "स्रोत, साइन-इन जानकारी और सेटिंग्स";
+"ext.lanSettings.received" = "सेटिंग्स सिंक हुईं: %@";
+"ext.lanSettings.category.scraping" = "मेटाडेटा खोज";
+"ext.lanSettings.category.lyricsServers" = "लिरिक्स API सर्वर";

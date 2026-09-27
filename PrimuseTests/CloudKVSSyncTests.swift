@@ -157,6 +157,58 @@ final class CloudKVSSyncTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: key), "newer")
     }
 
+    /// 扫码直传来的值: 比这台设备上的云端旧值新、盖不回来, 但不推上这台设备的 iCloud
+    /// (Apple TV 登录的可能是另一个 Apple ID); 云端之后真正改了照常拉下来。
+    func testTransferredValueBeatsStaleCloudCopyWithoutBeingPushed() {
+        var reloads = 0
+        sync.register(key: key) { reloads += 1 }
+        store.set("other-account", forKey: key)
+        store.set(1_000.0, forKey: revisionKey)
+        store.set("family-phone", forKey: writerKey)
+        XCTAssertEqual(sync.catchUp().pulled, 1)
+        let reloadsBefore = reloads
+
+        sync.applyTransferred(key: key, value: "from-phone")
+        XCTAssertEqual(defaults.string(forKey: key), "from-phone")
+        XCTAssertEqual(reloads, reloadsBefore + 1)
+        XCTAssertGreaterThan(defaults.double(forKey: revisionKey), 1_000)
+        XCTAssertEqual(sync.catchUp().pushed, 0)
+        XCTAssertEqual(store.object(forKey: key) as? String, "other-account",
+                       "a transferred value never reaches this device's iCloud")
+
+        sync.handleExternalChange(changedKeys: [key], reason: .serverChange)
+        XCTAssertEqual(defaults.string(forKey: key), "from-phone", "the older cloud copy cannot win it back")
+
+        store.set("edited-later", forKey: key)
+        store.set(defaults.double(forKey: revisionKey) + 100, forKey: revisionKey)
+        sync.handleExternalChange(changedKeys: [key], reason: .serverChange)
+        XCTAssertEqual(defaults.string(forKey: key), "edited-later")
+    }
+
+    func testEditingATransferredValueOnThisDeviceIsPushed() {
+        sync.register(key: key) { }
+        sync.applyTransferred(key: key, value: "from-phone")
+        XCTAssertNil(store.object(forKey: key))
+
+        defaults.set("edited-on-tv", forKey: key)
+        sync.markChanged(key: key)
+        XCTAssertEqual(store.object(forKey: key) as? String, "edited-on-tv")
+    }
+
+    func testTransferMatchingTheCloudCopyAdoptsItsRevision() {
+        sync.register(key: key) { }
+        store.set("same", forKey: key)
+        store.set(1_000.0, forKey: revisionKey)
+        store.set("phone", forKey: writerKey)
+
+        sync.applyTransferred(key: key, value: "same")
+        XCTAssertEqual(defaults.double(forKey: revisionKey), 1_000)
+        XCTAssertEqual(defaults.string(forKey: writerKey), "phone")
+        let result = sync.catchUp()
+        XCTAssertEqual(result.pulled, 0)
+        XCTAssertEqual(result.pushed, 0)
+    }
+
     func testWritingBackAJustPulledValueDoesNotEcho() {
         sync.register(key: key) { }
         store.set("cloud", forKey: key)

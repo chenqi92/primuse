@@ -27,9 +27,16 @@ struct SendToTVSheet: View {
     @State private var transferProgress: LANTransferProgress?
     /// 局域网直传停下的那一步。分段直传时之前的步骤已在 Apple TV 上落盘,从这里接着发。
     @State private var failedStage: LANTransferStage?
+    /// 扫码直传时连同刮削、歌词 API 服务、智能功能等设置一起发,随第一步到达。
+    @State private var includeSettings = true
 
     /// 局域网直传不依赖 iCloud;仅旧的 iCloud 上传模式才需要开关开启。
     private var blocked: Bool { lanTarget == nil && !iCloudSyncEnabled }
+
+    /// 这次发送会不会带设置:旧版 Apple TV 的二维码不声明能收设置,只发音乐源、曲库与封面。
+    private var sendsSettings: Bool {
+        includeSettings && lanTarget?.supportsSettingsTransfer == true
+    }
 
     @ViewBuilder
     var body: some View {
@@ -75,7 +82,9 @@ struct SendToTVSheet: View {
             return [SendToTVStep(stage: .library, title: PMString("send_to_tv_step_everything"))]
         }
         return [
-            SendToTVStep(stage: .sources, title: PMString("send_to_tv_step_sources")),
+            SendToTVStep(stage: .sources, title: PMString(
+                sendsSettings ? "ext.lanSettings.stepSourcesAndSettings" : "send_to_tv_step_sources"
+            )),
             SendToTVStep(stage: .library, title: PMString("send_to_tv_step_library")),
             SendToTVStep(stage: .artwork, title: PMString("send_to_tv_step_artwork")),
         ]
@@ -142,6 +151,10 @@ struct SendToTVSheet: View {
                                 .multilineTextAlignment(.center)
                         }
                     }
+                }
+
+                if let lanTarget {
+                    settingsOption(for: lanTarget)
                 }
 
                 if showsTransferSteps {
@@ -242,6 +255,27 @@ struct SendToTVSheet: View {
             }
     }
 
+    /// 能收设置的 Apple TV 给一个开关;旧版 TV 只说明这次不含设置。
+    @ViewBuilder
+    private func settingsOption(for target: LANPairLink) -> some View {
+        if target.supportsSettingsTransfer {
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(PMString("ext.lanSettings.toggle"), isOn: $includeSettings)
+                    .disabled(sending)
+                Text(PMString("ext.lanSettings.toggleFooter"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Label(PMString("ext.lanSettings.tvTooOld"), systemImage: "info.circle")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+
     #if os(macOS)
     private var macHeader: some View {
         HStack(spacing: 12) {
@@ -265,6 +299,7 @@ struct SendToTVSheet: View {
         failure = nil
         let previousFailedStage = failedStage
         let resumeStage: LANTransferStage = canResume ? (previousFailedStage ?? .sources) : .sources
+        let withSettings = sendsSettings
         failedStage = nil
         transferProgress = nil
         Task {
@@ -293,7 +328,8 @@ struct SendToTVSheet: View {
             if target.supportsStagedTransfer {
                 let outcome = await LibrarySnapshotSync.shared.sendToTVOverLANStaged(
                     target,
-                    startingAt: resumeStage
+                    startingAt: resumeStage,
+                    includeSettings: withSettings
                 ) { continuation.yield($0) }
                 continuation.finish()
                 await observer.value
@@ -304,7 +340,10 @@ struct SendToTVSheet: View {
                     finish(.failure(staged.failure), failedAt: staged.stage)
                 }
             } else {
-                let outcome = await LibrarySnapshotSync.shared.sendToTVOverLANResult(target) {
+                let outcome = await LibrarySnapshotSync.shared.sendToTVOverLANResult(
+                    target,
+                    includeSettings: withSettings
+                ) {
                     continuation.yield($0)
                 }
                 continuation.finish()

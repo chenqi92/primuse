@@ -896,3 +896,12 @@
 "ext.widget.spokenWordShelf.eyebrow" = "Продовжити";
 "ext.widget.spokenWordShelf.empty.title" = "Немає розпочатих книг";
 "ext.widget.spokenWordShelf.empty.subtitle" = "Почніть аудіокнигу в Primuse, щоб продовжувати її звідси.";
+
+// 扫码直传的设置
+"ext.lanSettings.toggle" = "Надіслати й налаштування";
+"ext.lanSettings.toggleFooter" = "Пошук метаданих, сервери API текстів пісень, інтелектуальні функції, імена виконавців та імерсивний стиль, а також ключі й cookie, які вони використовують.";
+"ext.lanSettings.tvTooOld" = "Primuse на цьому Apple TV застарілий і не може прийняти налаштування, тому буде надіслано лише медіатеку та джерела. Оновіть застосунок і відскануйте код знову, щоб надіслати й налаштування.";
+"ext.lanSettings.stepSourcesAndSettings" = "Джерела, дані для входу та налаштування";
+"ext.lanSettings.received" = "Налаштування синхронізовано: %@";
+"ext.lanSettings.category.scraping" = "Пошук метаданих";
+"ext.lanSettings.category.lyricsServers" = "Сервери API текстів пісень";

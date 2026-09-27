@@ -175,6 +175,9 @@ struct PrimuseTVApp: App {
                     ) { }
                     CloudKVSSync.shared.register(key: CloudKVSKey.aiRecommendationSelectedIntent) { }
                     _ = ArtistNameSettingsStore.shared
+                    // 歌词 API 服务的地址列表要有 store 登记才会跟 iCloud 键值同步,扫码直传来的
+                    // 也靠它重新载入;电视上以前从没建过它,地址列表一直到不了。
+                    _ = LyricsAPIServerStore.shared
                     musicIntelligence.start()
                     FullscreenPlayerEffectSync.shared.install()
                     #if DEBUG

@@ -947,3 +947,12 @@
 "ext.widget.spokenWordShelf.eyebrow" = "Continue Listening";
 "ext.widget.spokenWordShelf.empty.title" = "No book in progress";
 "ext.widget.spokenWordShelf.empty.subtitle" = "Start an audiobook in Primuse to pick it up from here.";
+
+// 扫码直传的设置
+"ext.lanSettings.toggle" = "Also Send Settings";
+"ext.lanSettings.toggleFooter" = "Includes metadata scraping, lyrics API servers, intelligent features, artist names and immersive style, along with the keys and cookies they use.";
+"ext.lanSettings.tvTooOld" = "The Primuse app on this Apple TV is too old to receive settings, so only the library and sources will be sent. Update it and scan again to include settings.";
+"ext.lanSettings.stepSourcesAndSettings" = "Sources, sign-in info and settings";
+"ext.lanSettings.received" = "Settings synced: %@";
+"ext.lanSettings.category.scraping" = "Metadata scraping";
+"ext.lanSettings.category.lyricsServers" = "Lyrics API servers";

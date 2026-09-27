@@ -896,3 +896,12 @@
 "ext.widget.spokenWordShelf.eyebrow" = "متابعة الاستماع";
 "ext.widget.spokenWordShelf.empty.title" = "لا يوجد كتاب قيد الاستماع";
 "ext.widget.spokenWordShelf.empty.subtitle" = "ابدأ كتابًا صوتيًا في Primuse لمتابعته من هنا.";
+
+// 扫码直传的设置
+"ext.lanSettings.toggle" = "إرسال الإعدادات أيضًا";
+"ext.lanSettings.toggleFooter" = "تشمل جلب البيانات الوصفية وخوادم API للكلمات والميزات الذكية وأسماء الفنانين والأسلوب الغامر، مع المفاتيح وملفات تعريف الارتباط التي تستخدمها.";
+"ext.lanSettings.tvTooOld" = "إصدار Primuse على جهاز Apple TV هذا قديم ولا يمكنه استلام الإعدادات، لذا سيتم إرسال المكتبة والمصادر فقط. حدّثه ثم امسح الرمز مرة أخرى لإرسال الإعدادات أيضًا.";
+"ext.lanSettings.stepSourcesAndSettings" = "المصادر وبيانات تسجيل الدخول والإعدادات";
+"ext.lanSettings.received" = "تمت مزامنة الإعدادات: %@";
+"ext.lanSettings.category.scraping" = "جلب البيانات الوصفية";
+"ext.lanSettings.category.lyricsServers" = "خوادم API للكلمات";

@@ -106,6 +106,8 @@ final class CloudKVSSync {
     /// 期间改过, 该推上去而不是被云端的旧值盖掉。
     func markChanged(key: String) {
         guard let kvs else { return }
+        // 这台设备上的一次编辑: 之前扫码直传写进来的那一笔从此不再特殊, 照常推送。
+        defaults.removeObject(forKey: transferredRevisionKey(for: key))
         let enabled = isEnabled
         let local = localVersion(for: key)
         let remote = enabled ? remoteVersion(for: key) : .unset
@@ -154,6 +156,37 @@ final class CloudKVSSync {
         return (pulled, pushed)
     }
 
+    /// 局域网扫码直传来的设置值(`LANSettingsTransferPolicy` 放行的键)。写进本机后,
+    /// 按一次外部变更通知这个键的登记方重新载入。
+    ///
+    /// Apple TV 登录的常常是另一个 Apple ID, 所以这一笔不当成这台设备上的编辑:
+    /// - 这台设备的 iCloud 里已经是同一份值(同一个账号), 直接认云端的修订号, 两边一致;
+    /// - 否则按本机编辑记修订号 —— 比这台设备上现有的云端旧值新, 不会被它盖回去; 之后
+    ///   别的设备真正改了又比它新, 照常拉下来 —— 同时记下这是直传来的修订号, 补推时不推
+    ///   (`CloudKVSReconciliationPolicy.catchUpAction(...transferredRevision:)`), 免得
+    ///   手机主人的设置灌进另一个账号的其他设备。在这台设备上再改一次就是普通编辑。
+    func applyTransferred(key: String, value: Any) {
+        defaults.set(value, forKey: key)
+        let remote = remoteVersion(for: key)
+        if let kvs, remote.revision > 0, valuesMatch(key: key, in: kvs) {
+            storeLocalVersion(remote, for: key)
+            defaults.removeObject(forKey: transferredRevisionKey(for: key))
+        } else {
+            let version = Policy.Version(
+                revision: Policy.nextRevision(
+                    now: Date().timeIntervalSince1970,
+                    local: localVersion(for: key).revision,
+                    remote: remote.revision
+                ),
+                writer: localWriterID
+            )
+            storeLocalVersion(version, for: key)
+            defaults.set(version.revision, forKey: transferredRevisionKey(for: key))
+        }
+        registrations[key]?()
+        postExternalChange(for: key)
+    }
+
     // MARK: - Internal
 
     private var isEnabled: Bool {
@@ -162,6 +195,12 @@ final class CloudKVSSync {
 
     private func timestampKey(for key: String) -> String { "\(key)__updatedAt" }
     private func writerKey(for key: String) -> String { "\(key)__writerID" }
+    /// 只在本机 UserDefaults 里: 扫码直传写进来的那一笔修订号。
+    private func transferredRevisionKey(for key: String) -> String { "\(key)__transferredRevision" }
+
+    private func transferredRevision(for key: String) -> Double? {
+        defaults.object(forKey: transferredRevisionKey(for: key)) as? Double
+    }
 
     private var localWriterID: String {
         let key = "primuse_cloud_kvs_writer_id"
@@ -194,6 +233,7 @@ final class CloudKVSSync {
     private func clearLocalVersion(for key: String) {
         defaults.removeObject(forKey: timestampKey(for: key))
         defaults.removeObject(forKey: writerKey(for: key))
+        defaults.removeObject(forKey: transferredRevisionKey(for: key))
     }
 
     private func valuesMatch(key: String, in kvs: any CloudKeyValueStore) -> Bool {
@@ -215,7 +255,8 @@ final class CloudKVSSync {
         let action = Policy.catchUpAction(
             local: local,
             hasLocalValue: defaults.object(forKey: key) != nil,
-            remote: remote
+            remote: remote,
+            transferredRevision: transferredRevision(for: key)
         )
         switch action {
         case .pull:
@@ -264,6 +305,8 @@ final class CloudKVSSync {
         remoteVersion: Policy.Version,
         from kvs: any CloudKeyValueStore
     ) {
+        // 云端值盖过来了, 直传的那一笔已经不在本机。
+        defaults.removeObject(forKey: transferredRevisionKey(for: key))
         guard let value = kvs.object(forKey: key) else {
             defaults.removeObject(forKey: key)
             storeLocalVersion(remoteVersion, for: key)

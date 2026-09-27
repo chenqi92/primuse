@@ -658,6 +658,8 @@ final class TVStore {
     var pairingCode: String = ""
     /// 扫码直传的进度;nil 表示没有进行中的传输。
     private(set) var pairingTransfer: LANReceiveStatus?
+    /// 这次扫码直传装上的设置分类,跟着进度一起显示、一起收起。
+    private(set) var pairingSettingsCategories: [LANSettingsCategory] = []
     @ObservationIgnored private var pairingTransferClearTask: Task<Void, Never>?
     /// 本次分段会话里可安装封面的缓存名;曲库一变就作废。
     @ObservationIgnored private var lanArtworkEligibleNames: Set<String>?
@@ -1849,6 +1851,7 @@ final class TVStore {
         pairingCode = ""
         pairingTransferClearTask?.cancel()
         pairingTransfer = nil
+        pairingSettingsCategories = []
         lanArtworkEligibleNames = nil
     }
 
@@ -1860,10 +1863,12 @@ final class TVStore {
             return false
         }
         let generation = pairingGeneration
+        pairingSettingsCategories = []
         setPairingTransfer(LANReceiveStatus(phase: .saving, stage: .library, requestSerial: requestSerial),
                            generation: generation)
         let installed = await installSnapshot(payload, fromCloud: false)
         if installed {
+            installLANSettings(payload.settings, generation: generation)
             finishPairingTransfer(requestSerial: requestSerial, generation: generation)
         } else {
             setPairingTransfer(LANReceiveStatus(phase: .failed, stage: .library, requestSerial: requestSerial),
@@ -1884,8 +1889,10 @@ final class TVStore {
         }
         switch request {
         case .sources(let payload):
+            pairingSettingsCategories = []
             show(.saving, .sources)
             let installed = await installSourcesStage(payload)
+            if installed { installLANSettings(payload.settings, generation: generation) }
             show(installed ? .saved : .failed, .sources)
             return installed
         case .library(let payload):
@@ -1962,7 +1969,16 @@ final class TVStore {
         pairingTransferClearTask?.cancel()
         pairingTransferClearTask = nil
         pairingTransfer = nil
+        pairingSettingsCategories = []
         if !pairingPageVisible { stopPairingServer() }
+    }
+
+    /// 扫码直传带来的设置,在音乐源落盘之后装。设置装不上只记日志,不改变这一段的结果。
+    private func installLANSettings(_ settings: LANSettingsBundle?, generation: Int) {
+        guard let settings, !settings.isEmpty else { return }
+        let categories = LANSettingsInstaller.install(settings)
+        guard pairingStarted, generation == pairingGeneration else { return }
+        pairingSettingsCategories = categories
     }
 
     /// 完成提示停留一会儿再收起,露出换新的二维码。

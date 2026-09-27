@@ -188,6 +188,32 @@ enum KeychainService {
         return true
     }
 
+    /// 局域网扫码直传来的秘密(刮削 Cookie、歌词服务器凭据、AI 服务商密钥)。
+    ///
+    /// Apple TV 登录的常常是另一个 Apple ID:既不能把手机主人的秘密写成 iCloud 钥匙串项
+    /// 同步进那个账号,也不能像 `setLocalOnlyPassword` 那样顺手删掉同名的同步项 —— 删同步项
+    /// 会在那个账号的所有设备上一起删。所以只写一条本机项,同名同步项原样留着;读取先查本机
+    /// 项,写下即生效。本机已经读得到同一个值(同一个账号、钥匙串已同步)就什么都不写,
+    /// 免得本机项挡住之后经 iCloud 钥匙串过来的更新。
+    @discardableResult
+    static func storeTransferredSecret(_ secret: String, for account: String) -> Bool {
+        if case .found(let existing) = passwordLookup(for: account), existing == secret {
+            return true
+        }
+        let status = persistPasswordItem(
+            Data(secret.utf8),
+            account: account,
+            synchronizable: false,
+            deviceOnly: true
+        )
+        guard status == errSecSuccess else {
+            plog("⚠️ Transferred secret Keychain write failed item=\(account.prefix(12))… status=\(status)")
+            return false
+        }
+        cacheWrite(secret, for: account)
+        return true
+    }
+
     static func localOnlyPasswordLookup(for account: String) -> PasswordLookupResult {
         if let cached = cacheRead(account) {
             return .found(cached)

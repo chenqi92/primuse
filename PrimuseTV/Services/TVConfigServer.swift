@@ -97,11 +97,12 @@ final class TVConfigServer: @unchecked Sendable {
         }
     }
 
-    /// 当前配对端点(host+port+key)。未运行 / 无可用网络时 nil。
+    /// 当前配对端点(host+port+key)。未运行 / 无可用网络时 nil。二维码声明的版本表示
+    /// 收分段直传、第一段还认设置(`LANSyncPayload.settings`)。
     func endpoint() -> LANPairLink? {
         guard let port = boundPort, let ip = Self.localIPv4() else { return nil }
         return LANPairLink(host: ip, port: Int(port), key: key, pairCode: pairCode,
-                           protocolVersion: LANPairLink.stagedProtocolVersion)
+                           protocolVersion: LANPairLink.currentProtocolVersion)
     }
 
     // MARK: - Listener

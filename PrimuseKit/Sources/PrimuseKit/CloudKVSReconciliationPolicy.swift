@@ -84,6 +84,28 @@ public enum CloudKVSReconciliationPolicy {
         return .keep
     }
 
+    /// 同上, 但本机值可能是局域网扫码直传写进来的。直传那一笔按一次本机编辑记修订号 ——
+    /// 比这台设备上已有的云端旧值新, 之后别的设备真正改了又比它新、照常拉下来 —— 可它
+    /// 不是这台设备上的编辑: Apple TV 登录的常常是另一个 Apple ID, 推上去会把手机主人的
+    /// 设置灌进那个账号的其他设备。所以本机修订号还停在直传那一笔(`transferredRevision`)
+    /// 时不推; 这台设备上再改一次, 修订号变了, 就是普通编辑。
+    public static func catchUpAction(
+        local: Version,
+        hasLocalValue: Bool,
+        remote: Version,
+        transferredRevision: Double?
+    ) -> Action {
+        let action = catchUpAction(local: local, hasLocalValue: hasLocalValue, remote: remote)
+        switch action {
+        case .pushValue, .pushDeletion:
+            guard let transferredRevision, transferredRevision > 0,
+                  local.revision == transferredRevision else { return action }
+            return .keep
+        case .pull, .keep:
+            return action
+        }
+    }
+
     /// 这个原因下, 云端来的值是否不比修订号、直接以云端为准。
     public static func appliesRemoteUnconditionally(_ reason: ExternalChangeReason) -> Bool {
         switch reason {

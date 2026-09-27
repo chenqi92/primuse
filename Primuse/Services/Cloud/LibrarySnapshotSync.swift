@@ -1954,7 +1954,8 @@ final class LibrarySnapshotSync: Sendable {
     }
 
     private func buildLANPayloadResult(
-        maximumArtworkBytes: Int = MusicLibrary.portableArtworkBudgetBytes
+        maximumArtworkBytes: Int = MusicLibrary.portableArtworkBudgetBytes,
+        settings: LANSettingsBundle? = nil
     ) async -> Result<(payload: LANSyncPayload, artworkBytes: Int), AppleTVTransferFailure> {
         let rawLibraryData: Data
         switch validatedLibrarySnapshotData() {
@@ -1985,7 +1986,7 @@ final class LibrarySnapshotSync: Sendable {
         }
 
         var payload = LANSyncPayload(libraryGz: libraryGz, sourcesGz: lanSourcesGz(),
-                                     radioStationsGz: lanRadioStationsGz())
+                                     radioStationsGz: lanRadioStationsGz(), settings: settings)
         if let lyrics = Self.gatherLyricsBlob() { payload.lyricsGz = Self.gzip(lyrics.data) }
         payload.credentials = credentials
         guard payload.isCompleteForTransfer else {
@@ -2007,6 +2008,14 @@ final class LibrarySnapshotSync: Sendable {
         validRadioStationsData(at: radioStationsURL).flatMap { Self.gzip($0) }
     }
 
+    /// 扫码直传带给 Apple TV 的设置;只发给二维码声明能收设置的 TV,一项都没有就不带。
+    private func lanSettings(for link: LANPairLink, included: Bool) async -> LANSettingsBundle? {
+        guard included, link.supportsSettingsTransfer else { return nil }
+        let bundle = await LANSettingsExporter.makeBundle()
+        plog("LibrarySnapshotSync: LAN settings values=\(bundle.values.count) configs=\(bundle.scraperConfigs.count) secrets=\(bundle.secrets.count)")
+        return bundle.isEmpty ? nil : bundle
+    }
+
     /// 把整库 + 源 + 凭据 AES-GCM 加密后直接 POST 给 Apple TV(`primuse://pair` 扫码端点)。
     /// 调用前应先 `MusicLibrary.persistNow()`,否则 library-cache.json 可能不是最新。
     func sendToTVOverLAN(_ link: LANPairLink) async -> Bool {
@@ -2016,10 +2025,13 @@ final class LibrarySnapshotSync: Sendable {
 
     /// Apple TV 拒收超过上限的请求体;封面是载荷里唯一可省的部分,超了就按超出量
     /// 缩减封面预算重建,直到装得下或已经不带封面。
-    private func sealedLANPayloadResult(key: Data) async -> Result<Data, AppleTVTransferFailure> {
+    private func sealedLANPayloadResult(
+        key: Data,
+        settings: LANSettingsBundle?
+    ) async -> Result<Data, AppleTVTransferFailure> {
         var artworkBudget = MusicLibrary.portableArtworkBudgetBytes
         while true {
-            let prepared = await buildLANPayloadResult(maximumArtworkBytes: artworkBudget)
+            let prepared = await buildLANPayloadResult(maximumArtworkBytes: artworkBudget, settings: settings)
             let payload: LANSyncPayload
             let artworkBytes: Int
             switch prepared {
@@ -2058,12 +2070,14 @@ final class LibrarySnapshotSync: Sendable {
     /// 旧版 Apple TV(二维码不带 `v=2`)只收整包。进度按一整段报告:准备、发送、等 TV 落盘。
     func sendToTVOverLANResult(
         _ link: LANPairLink,
+        includeSettings: Bool = true,
         progress: (@Sendable (LANTransferProgress) -> Void)? = nil
     ) async -> Result<Void, AppleTVTransferFailure> {
         guard let url = link.configURL else { return .failure(.invalidPairingLink) }
         progress?(LANTransferProgress(stage: .library, activity: .preparing))
+        let settings = await lanSettings(for: link, included: includeSettings)
         let box: Data
-        switch await sealedLANPayloadResult(key: link.key) {
+        switch await sealedLANPayloadResult(key: link.key, settings: settings) {
         case .success(let sealed):
             box = sealed
         case .failure(let failure):
@@ -2087,6 +2101,7 @@ final class LibrarySnapshotSync: Sendable {
     func sendToTVOverLANStaged(
         _ link: LANPairLink,
         startingAt firstStage: LANTransferStage = .sources,
+        includeSettings: Bool = true,
         progress: @escaping @Sendable (LANTransferProgress) -> Void
     ) async -> Result<Void, LANStagedTransferFailure> {
         for stage in LANTransferStage.allCases where stage >= firstStage {
@@ -2096,7 +2111,7 @@ final class LibrarySnapshotSync: Sendable {
             let result: Result<Void, AppleTVTransferFailure>
             switch stage {
             case .sources:
-                result = await sendLANSourcesStage(link, progress: progress)
+                result = await sendLANSourcesStage(link, includeSettings: includeSettings, progress: progress)
             case .library:
                 result = await sendLANLibraryStage(link, progress: progress)
             case .artwork:
@@ -2113,8 +2128,10 @@ final class LibrarySnapshotSync: Sendable {
         return .success(())
     }
 
+    /// 设置随这一段一起到:能收设置的 TV 在音乐源落盘之后装设置,设置装不上也不拒这一段。
     private func sendLANSourcesStage(
         _ link: LANPairLink,
+        includeSettings: Bool,
         progress: @escaping @Sendable (LANTransferProgress) -> Void
     ) async -> Result<Void, AppleTVTransferFailure> {
         progress(LANTransferProgress(stage: .sources, activity: .preparing))
@@ -2126,8 +2143,9 @@ final class LibrarySnapshotSync: Sendable {
             plog("LibrarySnapshotSync: LAN sources stage aborted — \(failure.diagnosticCode)")
             return .failure(failure)
         }
+        let settings = await lanSettings(for: link, included: includeSettings)
         let payload = LANSyncPayload(sourcesGz: lanSourcesGz(), radioStationsGz: lanRadioStationsGz(),
-                                     credentials: credentials)
+                                     credentials: credentials, settings: settings)
         guard payload.isCompleteSourcesStage else {
             plog("LibrarySnapshotSync: LAN sources stage is incomplete after preparation")
             return .failure(.snapshotPreparationFailed)
