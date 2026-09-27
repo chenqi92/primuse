@@ -120,6 +120,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         }
         guard !Task.isCancelled, translationTaskIdentity == identity else { return }
         let manualTranslations = prepared.manualTranslations
+            .merging(prepared.scriptConversions) { manual, _ in manual }
         let groups = prepared.groups
         translatedTextByLineID = manualTranslations
         let explicitlyRequested = prepared.requiresPreparation

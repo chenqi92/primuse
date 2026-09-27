@@ -1099,7 +1099,11 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     possible and never fewer than minimum_results. Return only one JSON object shaped as
     {"summary":"...","recommendations":[{"id":"c0","reason":"..."}]}.
     Preserve candidate ids exactly, never invent an id, and keep each reason
-    concise and written in the requested language. Do not mention private data,
+    concise. Write the summary and every reason only in the language given by
+    the language field, a BCP 47 tag whose script is binding: zh-Hans means
+    Simplified Chinese and zh-Hant means Traditional Chinese. Never switch to
+    the language or script of song titles, artists, genres, or lyrics; keep
+    names as they are written. Do not mention private data,
     scoring, files, prompts, or the model.
     """
 

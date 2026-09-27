@@ -2511,3 +2511,62 @@ public enum LyricTranslationGroupingPolicy {
             == detectedDirection
     }
 }
+
+/// 繁体 ↔ 简体只是换字形，不是翻译：系统翻译不提供这种语言对，交给 AI 又
+/// 白花一次请求。这里用 ICU 的字形转换在本机直接生成「译文」，转完与原文
+/// 相同的行（两种字形写法一致）不需要译文。
+public enum LyricChineseScriptConversionPolicy {
+    public struct Result: Equatable, Sendable {
+        public var conversions: [String: String]
+        public var remainingGroups: [LyricTranslationGroup]
+    }
+
+    /// 目标是简体或繁体中文、源是另一种中文字形（或没标字形的中文）时返回
+    /// 对应的 ICU 转换 ID；其余情况返回 nil。
+    public static func transformID(
+        sourceLanguageCode: String?,
+        targetLanguageCode: String
+    ) -> String? {
+        guard let sourceLanguageCode else { return nil }
+        let source = LyricTranslationGroupingPolicy.languageIdentity(sourceLanguageCode)
+        let target = LyricTranslationGroupingPolicy.languageIdentity(targetLanguageCode)
+        guard source != target, isChinese(source) else { return nil }
+        switch target {
+        case "zh-Hans": return "Hant-Hans"
+        case "zh-Hant": return "Hans-Hant"
+        default: return nil
+        }
+    }
+
+    public static func convert(_ text: String, transformID: String) -> String? {
+        text.applyingTransform(StringTransform(rawValue: transformID), reverse: false)
+    }
+
+    public static func apply(
+        to groups: [LyricTranslationGroup],
+        targetLanguageCode: String
+    ) -> Result {
+        var conversions: [String: String] = [:]
+        var remaining: [LyricTranslationGroup] = []
+        for group in groups {
+            guard let transformID = transformID(
+                sourceLanguageCode: group.sourceLanguageCode,
+                targetLanguageCode: targetLanguageCode
+            ) else {
+                remaining.append(group)
+                continue
+            }
+            for candidate in group.candidates {
+                guard let converted = convert(candidate.text, transformID: transformID),
+                      converted != candidate.text else { continue }
+                conversions[candidate.id] = converted
+            }
+        }
+        return Result(conversions: conversions, remainingGroups: remaining)
+    }
+
+    private static func isChinese(_ identity: String) -> Bool {
+        let primary = identity.split(separator: "-").first.map { $0.lowercased() }
+        return primary == "zh" || primary == "yue"
+    }
+}

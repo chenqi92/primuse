@@ -1733,6 +1733,15 @@ enum AIRecommendationFeedback: Equatable {
 }
 
 enum AIRecommendationContextBuilder {
+
+    /// 推荐语跟界面语言走，并且带上字形：只给 `zh` 时模型会跟着候选歌曲的
+    /// 语言写，粤语歌一多整段推荐语就变成繁体（#161）。
+    static var recommendationLanguageCode: String {
+        LyricTranslationGroupingPolicy.languageIdentity(
+            Bundle.main.preferredLocalizations.first ?? Locale.current.identifier
+        )
+    }
+
     @MainActor
     static func request(
         scene: AIRecommendationScene,
@@ -1788,7 +1797,7 @@ enum AIRecommendationContextBuilder {
         return AIRecommendationRequest(
             scene: AIRecommendationSceneResolver.resolved(scene, at: now),
             intent: intent,
-            languageCode: Locale.current.language.languageCode?.identifier,
+            languageCode: Self.recommendationLanguageCode,
             preferences: preferences,
             candidates: recommendationCandidates,
             maximumResults: maximumResults,

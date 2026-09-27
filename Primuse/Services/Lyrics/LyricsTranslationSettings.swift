@@ -295,6 +295,8 @@ actor LyricsTranslationPreparer {
         let manualTranslations: [String: String]
         let groups: [LyricTranslationGroup]
         var requiresPreparation = false
+        /// 繁简字形互转在本机直接得出的「译文」，不走任何翻译服务。
+        var scriptConversions: [String: String] = [:]
     }
 
     private struct Key: Hashable {
@@ -376,11 +378,20 @@ actor LyricsTranslationPreparer {
                 )
             )
         }
-        let groups = LyricTranslationGroupingPolicy.groups(
-            candidates: candidates,
-            targetLanguageCode: targetLanguageCode,
-            fallbackSourceLanguageCode: fallbackSourceLanguageCode
+        let converted = LyricChineseScriptConversionPolicy.apply(
+            to: LyricTranslationGroupingPolicy.groups(
+                candidates: candidates,
+                targetLanguageCode: targetLanguageCode,
+                fallbackSourceLanguageCode: fallbackSourceLanguageCode
+            ),
+            targetLanguageCode: targetLanguageCode
         )
-        return Prepared(manualTranslations: manualTranslations, groups: groups, requiresPreparation: !groups.isEmpty)
+        let groups = converted.remainingGroups
+        return Prepared(
+            manualTranslations: manualTranslations,
+            groups: groups,
+            requiresPreparation: !groups.isEmpty,
+            scriptConversions: converted.conversions
+        )
     }
 }

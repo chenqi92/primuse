@@ -2088,3 +2088,42 @@ struct LyricMixedScriptSourcePairingTests {
         #expect(duet.allSatisfy { $0.manualTranslation == nil })
     }
 }
+
+struct LyricChineseScriptConversionPolicyTests {
+    @Test func traditionalLyricsConvertLocallyForSimplifiedTarget() {
+        let groups = LyricTranslationGroupingPolicy.groups(
+            candidates: [
+                LyricTranslationCandidate(id: "1", text: "並不簡單如呼吸", sourceLanguageCode: "zh-Hant"),
+                LyricTranslationCandidate(id: "2", text: "你真的希望你", sourceLanguageCode: "zh-Hant"),
+                LyricTranslationCandidate(id: "3", text: "I love you", sourceLanguageCode: "en"),
+            ],
+            targetLanguageCode: "zh-Hans"
+        )
+        let result = LyricChineseScriptConversionPolicy.apply(to: groups, targetLanguageCode: "zh-Hans")
+        #expect(result.conversions == ["1": "并不简单如呼吸"])
+        #expect(result.remainingGroups.map(\.sourceLanguageCode) == ["en"])
+    }
+
+    @Test func simplifiedLyricsConvertForTraditionalTarget() {
+        let groups = [LyricTranslationGroup(
+            id: "zh",
+            sourceLanguageCode: "zh",
+            candidates: [LyricTranslationCandidate(id: "1", text: "简单的爱", sourceLanguageCode: "zh")]
+        )]
+        let result = LyricChineseScriptConversionPolicy.apply(to: groups, targetLanguageCode: "zh-TW")
+        #expect(result.conversions == ["1": "簡單的愛"])
+        #expect(result.remainingGroups.isEmpty)
+    }
+
+    @Test func nonChineseTargetsAndUnknownSourcesStayWithTranslators() {
+        #expect(LyricChineseScriptConversionPolicy.transformID(
+            sourceLanguageCode: "zh-Hant", targetLanguageCode: "en"
+        ) == nil)
+        #expect(LyricChineseScriptConversionPolicy.transformID(
+            sourceLanguageCode: nil, targetLanguageCode: "zh-Hans"
+        ) == nil)
+        #expect(LyricChineseScriptConversionPolicy.transformID(
+            sourceLanguageCode: "ja", targetLanguageCode: "zh-Hans"
+        ) == nil)
+    }
+}

@@ -81,6 +81,9 @@ final class TVLyricsTranslationController {
             guard let self, self.isCurrent(generation, songID: songID, store: store) else { return }
             // Lines that already show a translation from the file keep it.
             let shown = Set(store.lyrics.filter { !$0.translation.isEmpty }.map(\.id))
+            for (id, text) in prepared.scriptConversions where !shown.contains(id) {
+                store.applyLyricTranslation(text, lineID: id, forSongID: songID)
+            }
             let groups = prepared.groups.compactMap { group -> LyricTranslationGroup? in
                 let pending = group.candidates.filter { !shown.contains($0.id) }
                 guard !pending.isEmpty else { return nil }
