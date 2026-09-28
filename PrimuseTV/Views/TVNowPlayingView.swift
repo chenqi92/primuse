@@ -13,8 +13,19 @@ private var tvDebugImmersiveLaunch: (show: Bool, picker: Bool) {
     #endif
 }
 
+/// 截图用:TV_SCREEN=playerShelf 打开播放页时直接升起货架,TV_SHELF_TAB 指定停在哪一栏。
+private var tvDebugShelfLaunch: (show: Bool, tab: TVPlayerShelfTab) {
+    #if DEBUG
+    let tab = ProcessInfo.processInfo.environment["TV_SHELF_TAB"].flatMap(TVPlayerShelfTab.init(rawValue:))
+    return (TVDebugLaunch.screen == "playerShelf", tab ?? .thisAlbum)
+    #else
+    return (false, .thisAlbum)
+    #endif
+}
+
 /// tvOS 正在播放 — 左列封面+元数据+进度+传输键,右列巨幅逐字歌词(对应 TVNowPlayingArtboard)。
-/// Menu 键返回;右上角可打开队列 / 选项。
+/// 按封面或往下走到底升起快切货架(`TVPlayerShelf`),在播放页里直接换专辑 / 艺术家 / 流派;
+/// 长按封面是喜欢与前往专辑 / 艺术家。Menu 键先收起货架,再离开播放页。
 struct TVNowPlayingView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -37,8 +48,11 @@ struct TVNowPlayingView: View {
     var onModalActivityChanged: (Bool) -> Void = { _ in }
 
     @State private var artworkDirectionalCommands = TVImmersiveDirectionalCommandState()
-    @State private var showQueue = false
     @State private var showOptions = false
+    @State private var showShelf = tvDebugShelfLaunch.show
+    @State private var shelfTab = tvDebugShelfLaunch.tab
+    /// 「更多」里点了前往专辑 / 艺术家:等选项层收起后再升起货架。
+    @State private var pendingShelfTab: TVPlayerShelfTab?
     @State private var showSpokenWordRate = false
     @State private var showSpokenWordSleep = false
     @State private var spokenWordBookmarkFeedback = 0
@@ -56,7 +70,7 @@ struct TVNowPlayingView: View {
     private let immersiveIdleThreshold: TimeInterval = 20
 
     private var activePresentationCount: Int {
-        [showQueue, showOptions, showImmersive, showSpokenWordRate, showSpokenWordSleep].filter { $0 }.count
+        [showOptions, showImmersive, showSpokenWordRate, showSpokenWordSleep].filter { $0 }.count
     }
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
@@ -89,7 +103,9 @@ struct TVNowPlayingView: View {
             if store.hasNowPlaying { player } else { emptyState }
         }
         .onExitCommand {
-            if isTabContent {
+            if showShelf {
+                closeShelf(startedPlayback: false)
+            } else if isTabContent {
                 onReturnToTabs()
             } else {
                 dismiss()
@@ -108,8 +124,13 @@ struct TVNowPlayingView: View {
         .onChange(of: focusMode) { _, mode in
             onContentModeChanged(mode)
         }
-        .fullScreenCover(isPresented: $showQueue) { TVQueueView().environment(store) }
-        .fullScreenCover(isPresented: $showOptions) { TVOptionsView().environment(store) }
+        .fullScreenCover(isPresented: $showOptions, onDismiss: {
+            guard let tab = pendingShelfTab else { return }
+            pendingShelfTab = nil
+            openShelf(tab)
+        }) {
+            TVOptionsView(onGoTo: { pendingShelfTab = $0 }).environment(store)
+        }
         .fullScreenCover(isPresented: $showSpokenWordRate) { TVSpokenWordRatePicker().environment(store) }
         .fullScreenCover(isPresented: $showSpokenWordSleep) { TVSpokenWordSleepPicker().environment(store) }
         .fullScreenCover(isPresented: $showImmersive) {
@@ -151,7 +172,7 @@ struct TVNowPlayingView: View {
                       !store.isLiveRadio, !store.isMusicVideoPlaybackActive,
                       !store.currentItemIsSpokenWord,
                       fullscreenPlayerEffect != .native,
-                      !showImmersive, !showQueue, !showOptions, !scrubberFocused else { continue }
+                      !showImmersive, !showShelf, !showOptions, !scrubberFocused else { continue }
                 if Date().timeIntervalSince(lastInteraction) >= immersiveIdleThreshold {
                     presentImmersivePlayer(isUserInitiated: false)
                 }
@@ -176,6 +197,46 @@ struct TVNowPlayingView: View {
         let colors = store.nowPlayingPresentationColors
         return ZStack {
             TVAmbientBackdrop(tint: colors.primary, tint2: colors.secondary, strength: 1)
+            playerContent
+                // 货架升起时后面的控件不参与焦点,上键不会把焦点带回传输键。
+                .disabled(showShelf)
+            if showShelf, supportsShelf {
+                TVPlayerShelf(tab: $shelfTab, onClose: closeShelf, onInteraction: registerInteraction)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(2)
+            }
+        }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.35, extraBounce: 0), value: showShelf)
+    }
+
+    /// 货架只给音乐:电台换台在电台页,听书的目录已经在右栏。
+    private var supportsShelf: Bool {
+        !store.isLiveRadio && !store.currentItemIsSpokenWord
+    }
+
+    private func openShelf(_ tab: TVPlayerShelfTab) {
+        guard supportsShelf else { return }
+        registerInteraction()
+        shelfTab = tab
+        showShelf = true
+    }
+
+    private func closeShelf(startedPlayback: Bool) {
+        registerInteraction()
+        showShelf = false
+        // 焦点回到封面:刚换的歌就在眼前,再按一下又能打开货架接着挑。
+        Task { @MainActor in
+            await Task.yield()
+            scrubberFocused = false
+            // MV 画面上 `.songPrimary` 是播放键,普通播放页上是封面。
+            focusedTransport = .songPrimary
+        }
+    }
+
+    @ViewBuilder
+    private var playerContent: some View {
+        ZStack {
             if store.isLiveRadio {
                 liveRadioPlayer
             } else if store.isMusicVideoPlaybackActive {
@@ -336,6 +397,12 @@ struct TVNowPlayingView: View {
 
     private func applyFocusRequest(_ request: TVContentFocusRequest?) {
         guard let request, case let .nowPlaying(target) = request.target else { return }
+        // 货架开着时焦点归货架:弹层收起后的焦点恢复不能把它关掉;只有长按播放键
+        // 跳进度才收起货架(它挡在进度条前面)。
+        if showShelf {
+            guard target == .scrubber else { return }
+            showShelf = false
+        }
         if target == .scrubber, focusMode == .song, store.duration > 0 {
             registerInteraction()
             focusedTransport = nil
@@ -457,9 +524,9 @@ struct TVNowPlayingView: View {
         let np = store.nowPlaying
         return VStack(alignment: .leading, spacing: 0) {
             TVEyebrow(text: PMString("ext.tv.nowPlaying.eyebrow")).padding(.bottom, 16)
+            // 按封面 = 浏览这张专辑(货架);暂停交给遥控器的播放键,确认键不再重复它。
             Button {
-                registerInteraction()
-                store.togglePlayPause()
+                openShelf(.thisAlbum)
             } label: {
                 TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
                               songID: np.songID, coverRef: np.coverRef,
@@ -474,7 +541,7 @@ struct TVNowPlayingView: View {
                                  accent: TVColor.focusRing, scale: 1.025, lift: 0)
                     .overlay(alignment: .bottomLeading) {
                         if focusedTransport == .songPrimary {
-                            Text(PMString("ext.tv.nowPlaying.artworkControls"))
+                            Text(PMString("ext.tv.nowPlaying.artworkHint"))
                                 .tvFont(.caption, weight: .medium)
                                 .foregroundStyle(.white)
                                 .multilineTextAlignment(.leading)
@@ -489,8 +556,9 @@ struct TVNowPlayingView: View {
             .focused($focusedTransport, equals: .songPrimary)
             .focusEffectDisabled()
             .onMoveCommand(perform: handleArtworkMove)
-            .accessibilityLabel(Text(PMString(store.isPlaying ? "ext.control.pause" : "ext.control.play")))
-            .accessibilityHint(Text(PMString("ext.tv.nowPlaying.artworkControls")))
+            .contextMenu { artworkContextMenu }
+            .accessibilityLabel(Text(PMString("ext.tv.player.browse")))
+            .accessibilityHint(Text(PMString("ext.tv.nowPlaying.artworkHint")))
             .accessibilityIdentifier("tv.nowPlaying.artworkControls")
             Text(np.title).tvFont(.pageTitle).tracking(-0.8)
                 .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)
@@ -523,7 +591,53 @@ struct TVNowPlayingView: View {
             Spacer(minLength: 24)
             scrubber(immersiveDark: false).padding(.bottom, 18)
             transport(immersiveDark: false)
+            shelfHandle.padding(.top, 14)
         }
+    }
+
+    /// 长按封面:喜欢,以及直接跳到货架的「本专辑」/「同艺术家」。
+    @ViewBuilder
+    private var artworkContextMenu: some View {
+        if let songID = store.currentSongID {
+            let liked = store.isLiked(songID)
+            Button(
+                PMString(liked ? "ext.tv.options.loved" : "ext.tv.options.love"),
+                systemImage: liked ? "heart.fill" : "heart"
+            ) {
+                store.toggleLiked(songID)
+            }
+        }
+        Button(String(localized: "go_to_album"), systemImage: "square.stack") {
+            openShelf(.thisAlbum)
+        }
+        Button(String(localized: "go_to_artist"), systemImage: "music.mic") {
+            openShelf(.artistAlbums)
+        }
+    }
+
+    /// 传输键下面的把手:焦点往下走到它就升起货架,和系统视频播放器下滑出面板一个手势。
+    private var shelfHandle: some View {
+        TVFocusButton(radius: 14, scale: 1.02, lift: 0, ring: false, action: {
+            openShelf(defaultShelfTab)
+        }, onFocusChanged: { focused in
+            if focused { openShelf(defaultShelfTab) }
+        }) { focused in
+            HStack(spacing: 12) {
+                Image(systemName: "chevron.compact.down")
+                    .font(.system(size: 26, weight: .semibold))
+                Text(PMString("ext.tv.player.shelf.hint"))
+                    .tvFont(.caption, weight: .medium)
+            }
+            .foregroundStyle(focused ? TVColor.text : TVColor.textFaint)
+            .padding(.horizontal, 20).padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+        }
+        .accessibilityLabel(Text(PMString("ext.tv.player.shelf.hint")))
+    }
+
+    /// 从传输键进货架:有队列先看「接下来」,单曲播放时看本专辑。
+    private var defaultShelfTab: TVPlayerShelfTab {
+        store.queueUpNextIDs.isEmpty ? .thisAlbum : .upNext
     }
 
     // MARK: 左列 — 有声内容
@@ -758,14 +872,23 @@ struct TVNowPlayingView: View {
         let availability = store.trackNavigationAvailability
         // 有声内容:上一首 / 下一首换成后退 15 秒 / 前进 30 秒(与 iPhone、Mac 一致)。
         let isSpokenWord = store.currentItemIsSpokenWord
-        return HStack(spacing: 20) {
+        let likedSongID = isSpokenWord ? nil : store.currentSongID
+        let liked = likedSongID.map(store.isLiked) ?? false
+        return HStack(spacing: 16) {
             Spacer()
-            TVRoundBtn(icon: "shuffle", size: 64, active: store.shuffleEnabled,
+            // 喜欢是最常按的一颗,放在传输键这一行,不再藏在「更多」里。
+            if let likedSongID {
+                TVRoundBtn(icon: liked ? "heart.fill" : "heart", size: 56, active: liked,
+                           immersiveDark: immersiveDark,
+                           accessibilityLabel: PMString(liked ? "ext.tv.options.loved" : "ext.tv.options.love"),
+                           onInteraction: registerInteraction) { store.toggleLiked(likedSongID) }
+            }
+            TVRoundBtn(icon: "shuffle", size: 56, active: store.shuffleEnabled,
                        immersiveDark: immersiveDark,
                        onInteraction: registerInteraction) { store.toggleShuffle() }
             if store.canPlayMusicVideo {
                 TVRoundBtn(icon: store.isMusicVideoModeEnabled ? "play.rectangle.fill" : "play.rectangle",
-                           size: 64,
+                           size: 56,
                            active: store.isMusicVideoModeEnabled,
                            immersiveDark: immersiveDark,
                            accessibilityLabel: PMString("playback"),
@@ -783,10 +906,11 @@ struct TVNowPlayingView: View {
                 .disabled(!isSpokenWord && !availability.canGoPrevious)
             focusedRoundButton(
                 icon: store.isPlaying ? "pause.fill" : "play.fill",
-                size: 64,
+                size: 76,
                 accessibilityLabel: PMString(
                     store.isPlaying ? "ext.control.pause" : "ext.control.play"
                 ),
+                primary: true,
                 immersiveDark: immersiveDark,
                 target: immersiveDark ? .songPrimary : .playPause
             ) { store.togglePlayPause() }
@@ -800,18 +924,22 @@ struct TVNowPlayingView: View {
                 target: .next
             ) { store.transportForward() }
                 .disabled(!isSpokenWord && !availability.canGoNext)
-            TVRoundBtn(icon: store.repeatMode == .one ? "repeat.1" : "repeat", size: 64,
+            TVRoundBtn(icon: store.repeatMode == .one ? "repeat.1" : "repeat", size: 56,
                        active: store.repeatMode != .off,
                        immersiveDark: immersiveDark,
                        onInteraction: registerInteraction) { store.cycleRepeatMode() }
-            // 队列 / 更多移到同一行——和左侧传输键焦点左右线性可达,不再困在右上角。
-            TVRoundBtn(icon: "sparkles.tv", size: 64, immersiveDark: immersiveDark,
+            // 浏览 / 沉浸 / 更多在同一行——和传输键焦点左右线性可达,不再困在右上角。
+            // 浏览替代原来的队列按钮:「接下来」就是货架的第一栏。
+            if supportsShelf {
+                TVRoundBtn(icon: "rectangle.stack", size: 56, immersiveDark: immersiveDark,
+                           accessibilityLabel: PMString("ext.tv.player.browse"),
+                           onInteraction: registerInteraction) { openShelf(defaultShelfTab) }
+            }
+            TVRoundBtn(icon: "sparkles.tv", size: 56, immersiveDark: immersiveDark,
                        onInteraction: registerInteraction) {
                 presentImmersivePlayer(isUserInitiated: true)
             }
-            TVRoundBtn(icon: "list.bullet", size: 64, immersiveDark: immersiveDark,
-                       onInteraction: registerInteraction) { showQueue = true }
-            TVRoundBtn(icon: "ellipsis", size: 64, immersiveDark: immersiveDark,
+            TVRoundBtn(icon: "ellipsis", size: 56, immersiveDark: immersiveDark,
                        onInteraction: registerInteraction) { showOptions = true }
             Spacer()
         }

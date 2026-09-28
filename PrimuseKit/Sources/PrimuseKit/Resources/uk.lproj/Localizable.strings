@@ -916,3 +916,12 @@
 "ext.tv.settings.tabBar.moveUp" = "Угору";
 "ext.tv.settings.tabBar.moveDown" = "Униз";
 "ext.tv.settings.tabBar.reset" = "Відновити стандартні";
+"ext.tv.player.browse" = "Огляд";
+"ext.tv.player.shelf.thisAlbum" = "Цей альбом";
+"ext.tv.player.shelf.moreByArtist" = "Цього виконавця";
+"ext.tv.player.shelf.hint" = "Огляд альбомів, виконавців і жанрів";
+"ext.tv.player.shelf.empty" = "Тут поки нічого немає";
+"ext.tv.nowPlaying.artworkHint" = "Ліворуч / праворуч: змінити трек · Натиснути: огляд · Утримувати: ще";
+"ext.tv.options.section.song" = "Ця пісня";
+"ext.tv.options.section.playback" = "Відтворення";
+"ext.tv.options.section.goTo" = "Перейти";

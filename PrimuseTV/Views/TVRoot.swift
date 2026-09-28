@@ -168,7 +168,8 @@ enum TVDebugLaunch {
 #endif
 
 /// tvOS 根布局 — 顶部自定义 tab bar(Apple TV / Apple Music for tvOS 风) + 全屏内容。
-/// 正在播放作为一级 tab，队列 / 选项 / 设置仍以全屏覆盖呈现。
+/// 正在播放仍挂在顶栏上,但它是全屏页:只有按下才进,进去后顶栏收起,Menu 回到进来前
+/// 的那一页。队列 / 选项 / 设置仍以全屏覆盖呈现。
 struct TVRoot: View {
     /// 默认顺序与 iPhone / iPad / Mac 一致:首页、音乐、电台、有声,再是电视端自己的几页。
     /// 电台没有台、有声没有内容时这两页不出现(`ListeningSpaceVisibilityPolicy`);
@@ -184,6 +185,8 @@ struct TVRoot: View {
     /// 用户把电台 / 有声排在最前面:冷启动时它们要等内容载入才出现,先停在第一个
     /// 不看内容的页,内容一到、用户还没动过就切过去。
     @State private var pendingLaunchTab: Tab?
+    /// 进播放页之前停在哪一页:Menu 离开播放页时回到这里。
+    @State private var tabBeforePlayer: Tab?
     @State private var libraryFilter: TVLibraryView.Filter = .albums
     /// 资料库网格上次停在哪张卡片;播放后回到资料库时由它恢复位置和焦点。
     @State private var libraryBrowseMemory = TVLibraryBrowseMemory()
@@ -214,7 +217,10 @@ struct TVRoot: View {
         let configuration = TVTabBarConfiguration.decode(
             UserDefaults.standard.string(forKey: TVTabBarConfiguration.storageKey) ?? ""
         )
-        let landingTab = configuration.order.first { configuration.isShown($0) && !$0.dependsOnContent } ?? .home
+        // 播放页是全屏页,冷启动不停在它上面。
+        let landingTab = configuration.order.first {
+            configuration.isShown($0) && !$0.dependsOnContent && $0 != .nowPlaying
+        } ?? .home
         if let first = configuration.order.first(where: configuration.isShown), first.dependsOnContent {
             _pendingLaunchTab = State(initialValue: first)
         }
@@ -322,18 +328,26 @@ struct TVRoot: View {
                     TVTabBar(
                         active: tab,
                         tabs: visibleTabs,
-                        onSelect: { tab = $0 },
-                        onContentDown: requestContentFocus,
+                        onSelect: selectTab,
+                        // 焦点停在「正在播放」上往下走时,下面仍是当前那一页。
+                        onContentDown: { _ in requestContentFocus(from: tab) },
                         focusRequest: tabFocusRequest,
                         allowsFocusDrivenSelection: !suppressesFocusDrivenTabSelection && !isRoutingToScrubber,
                         onFocusChanged: tabBarFocusChanged,
                         onSettings: { showSettings = true }
                     )
+                    // 播放页全屏:顶栏让出高度并退出焦点,上键不会再误切到别的页。
+                    // 不从层级里拿掉,离开播放页时它的焦点回调还要接得住。
+                    .frame(height: hidesTabBar ? 0 : nil, alignment: .top)
+                    .opacity(hidesTabBar ? 0 : 1)
+                    .disabled(hidesTabBar)
+                    .accessibilityHidden(hidesTabBar)
                     .zIndex(1)
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity)
                 }
+                .animation(.easeInOut(duration: 0.25), value: hidesTabBar)
             }
         }
         .onChange(of: rootModalPresentationCount) { _, count in
@@ -358,7 +372,8 @@ struct TVRoot: View {
             }
             if !tabs.contains(tab) { tab = tabs.first ?? .library }
         }
-        .onChange(of: tab) { _, newTab in
+        .onChange(of: tab) { oldTab, newTab in
+            if newTab == .nowPlaying, oldTab != .nowPlaying { tabBeforePlayer = oldTab }
             pendingLaunchTab = nil
             transientTab = tabBarConfiguration.isShown(newTab) ? nil : newTab
         }
@@ -395,7 +410,7 @@ struct TVRoot: View {
         .task {
             #if DEBUG
             switch TVDebugLaunch.screen {
-            case "nowPlaying":
+            case "nowPlaying", "playerShelf":
                 await waitForDemoContent(requireAlbum: true)
                 if let album = store.albums.first { store.play(album: album) }
                 tab = .nowPlaying
@@ -496,7 +511,7 @@ struct TVRoot: View {
                 onContentAppeared: restoreNowPlayingFocus,
                 onContentModeChanged: retargetNowPlayingFocus,
                 onProgressFocused: { isRoutingToScrubber = false },
-                onReturnToTabs: returnFocusToTabs,
+                onReturnToTabs: leavePlayer,
                 onModalActivityChanged: childModalActivityChanged
             )
         case .playlists: TVPlaylistsView(openPlayer: { tab = .nowPlaying })
@@ -540,6 +555,49 @@ struct TVRoot: View {
             tabs.insert(transientTab, at: insertAt)
         }
         return tabs
+    }
+
+    /// 正在播放时播放页占满全屏;没在播放时还是普通一页(空状态),顶栏照常。
+    private var hidesTabBar: Bool {
+        tab == .nowPlaying && store.hasNowPlaying
+    }
+
+    private func selectTab(_ item: Tab) {
+        tab = item
+        guard item == .nowPlaying, store.hasNowPlaying else { return }
+        // 顶栏随即收起,焦点要明确送进播放页(封面)。
+        Task { @MainActor in
+            await Task.yield()
+            requestContentFocus(from: .nowPlaying)
+        }
+    }
+
+    /// 播放页上的 Menu:回到进来之前那一页。资料库把焦点放回上次那张卡片,
+    /// 其余页面落在顶栏的当前项上(和在那一页按 Menu 的落点一致)。
+    private func leavePlayer() {
+        guard hidesTabBar else {
+            returnFocusToTabs()
+            return
+        }
+        let tabs = visibleTabs.filter { $0 != .nowPlaying }
+        let destination = tabBeforePlayer.flatMap { tabs.contains($0) ? $0 : nil }
+            ?? tabs.first ?? .home
+        isRoutingToScrubber = false
+        contentFocusRouting.returnToTabs()
+        nowPlayingFocusRequest = nil
+        // 顶栏重新可用的那一刻焦点可能先落在它的某一项上,别让这一下把页面切走。
+        suppressesFocusDrivenTabSelection = true
+        tab = destination
+        Task { @MainActor in
+            await Task.yield()
+            if destination == .library {
+                requestContentFocus(from: .library)
+            } else {
+                tabFocusRequest &+= 1
+            }
+            await Task.yield()
+            suppressesFocusDrivenTabSelection = false
+        }
     }
 
     private var nowPlayingFocusMode: TVNowPlayingFocusMode {
@@ -679,7 +737,9 @@ enum TVTabFocusSelectionPolicy {
     ) -> TVRoot.Tab? {
         guard allowsFocusDrivenSelection,
               let focused,
-              focused != active else {
+              focused != active,
+              // 正在播放是全屏页:焦点横扫顶栏时不能把人拽进去,只有按下才进。
+              focused != .nowPlaying else {
             return nil
         }
         return focused

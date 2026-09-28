@@ -916,3 +916,12 @@
 "ext.tv.settings.tabBar.moveUp" = "ऊपर ले जाएँ";
 "ext.tv.settings.tabBar.moveDown" = "नीचे ले जाएँ";
 "ext.tv.settings.tabBar.reset" = "डिफ़ॉल्ट पर लौटाएँ";
+"ext.tv.player.browse" = "ब्राउज़ करें";
+"ext.tv.player.shelf.thisAlbum" = "यह एल्बम";
+"ext.tv.player.shelf.moreByArtist" = "इसी कलाकार के";
+"ext.tv.player.shelf.hint" = "एल्बम, कलाकार और शैलियाँ ब्राउज़ करें";
+"ext.tv.player.shelf.empty" = "यहाँ अभी कुछ नहीं है";
+"ext.tv.nowPlaying.artworkHint" = "बाएँ / दाएँ: ट्रैक बदलें · दबाएँ: ब्राउज़ करें · दबाए रखें: और";
+"ext.tv.options.section.song" = "यह गाना";
+"ext.tv.options.section.playback" = "प्लेबैक";
+"ext.tv.options.section.goTo" = "यहाँ जाएँ";

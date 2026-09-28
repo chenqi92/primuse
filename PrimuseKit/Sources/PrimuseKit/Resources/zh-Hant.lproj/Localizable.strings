@@ -966,3 +966,12 @@
 "ext.tv.settings.tabBar.moveUp" = "上移";
 "ext.tv.settings.tabBar.moveDown" = "下移";
 "ext.tv.settings.tabBar.reset" = "恢復預設";
+"ext.tv.player.browse" = "瀏覽";
+"ext.tv.player.shelf.thisAlbum" = "本專輯";
+"ext.tv.player.shelf.moreByArtist" = "同演出者";
+"ext.tv.player.shelf.hint" = "瀏覽專輯、演出者與曲風";
+"ext.tv.player.shelf.empty" = "這裡暫時沒有內容";
+"ext.tv.nowPlaying.artworkHint" = "左 / 右鍵切歌 · 按下瀏覽 · 長按更多";
+"ext.tv.options.section.song" = "這首歌";
+"ext.tv.options.section.playback" = "播放";
+"ext.tv.options.section.goTo" = "前往";

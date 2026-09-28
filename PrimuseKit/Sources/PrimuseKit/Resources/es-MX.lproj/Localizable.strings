@@ -916,3 +916,12 @@
 "ext.tv.settings.tabBar.moveUp" = "Subir";
 "ext.tv.settings.tabBar.moveDown" = "Bajar";
 "ext.tv.settings.tabBar.reset" = "Restaurar valores predeterminados";
+"ext.tv.player.browse" = "Explorar";
+"ext.tv.player.shelf.thisAlbum" = "Este álbum";
+"ext.tv.player.shelf.moreByArtist" = "Del mismo artista";
+"ext.tv.player.shelf.hint" = "Explorar álbumes, artistas y géneros";
+"ext.tv.player.shelf.empty" = "Aún no hay nada aquí";
+"ext.tv.nowPlaying.artworkHint" = "Izquierda / derecha: cambiar canción · Presionar: explorar · Mantener: más";
+"ext.tv.options.section.song" = "Esta canción";
+"ext.tv.options.section.playback" = "Reproducción";
+"ext.tv.options.section.goTo" = "Ir a";
