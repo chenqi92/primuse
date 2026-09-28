@@ -8838,8 +8838,10 @@ final class MusicLibrary {
     /// applies a batch). Identities that now resolve are appended to
     /// their playlist / promoted into history; identities that have aged
     /// past `pendingIdentityTTL` are dropped.
-    private func flushPendingIdentities() {
-        guard !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty else { return }
+    private func flushPendingIdentities() -> Bool {
+        guard !pendingPlaylistIdentities.isEmpty || !pendingHistoryIdentities.isEmpty else { return false }
+
+        var changed = false
 
         let now = Date()
         let cutoff = now.addingTimeInterval(-Self.pendingIdentityTTL)
@@ -8872,8 +8874,12 @@ final class MusicLibrary {
             if !newlyResolved.isEmpty {
                 var seen = Set(playlistSongIDs[playlistID] ?? [])
                 let toAppend = newlyResolved.filter { seen.insert($0).inserted }
-                playlistSongIDs[playlistID, default: []].append(contentsOf: toAppend)
+                if !toAppend.isEmpty {
+                    changed = true
+                    playlistSongIDs[playlistID, default: []].append(contentsOf: toAppend)
+                }
             }
+            if stillPending != pending { changed = true }
             pendingPlaylistIdentities[playlistID] = stillPending.isEmpty ? nil : stillPending
         }
 
@@ -8892,10 +8898,15 @@ final class MusicLibrary {
         if !resolvedHistory.isEmpty {
             var seen = Set(recentPlaybackSongIDs)
             let toAdd = resolvedHistory.filter { seen.insert($0).inserted }
-            recentPlaybackSongIDs.insert(contentsOf: toAdd, at: 0)
-            recentPlaybackSongIDs = Array(recentPlaybackSongIDs.prefix(100))
+            if !toAdd.isEmpty {
+                changed = true
+                recentPlaybackSongIDs.insert(contentsOf: toAdd, at: 0)
+                recentPlaybackSongIDs = Array(recentPlaybackSongIDs.prefix(100))
+            }
         }
+        if stillPendingHistory != pendingHistoryIdentities { changed = true }
         pendingHistoryIdentities = stillPendingHistory
+        return changed
     }
 
     /// Scan/backfill can publish several library snapshots a second. Resolving
@@ -8916,8 +8927,9 @@ final class MusicLibrary {
             }
             guard let self, !Task.isCancelled else { return }
             self.pendingIdentityFlushTask = nil
-            self.flushPendingIdentities()
-            self.persistSnapshot()
+            if self.flushPendingIdentities() {
+                self.persistSnapshot()
+            }
         }
     }
 

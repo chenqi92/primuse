@@ -623,7 +623,14 @@ enum TVMetadataEnricher {
         output.replayGainAlbumPeak = metadata.replayGainAlbumPeak
             ?? output.replayGainAlbumPeak
 
-        if !song.isCueTrack, duration > 0 { output.duration = duration }
+        if song.isCueTrack {
+            if song.cueEndTime == nil, let start = song.cueStartTime,
+               duration.isFinite, duration > start {
+                output.duration = duration - start
+            }
+        } else if duration > 0 {
+            output.duration = duration
+        }
         MusicLibrary.fillDerivedIDs(&output)
         output = SongUserMetadataPolicy.preservingUserEdits(
             from: song,

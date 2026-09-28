@@ -41,18 +41,19 @@ actor TVMetadataInspectionStore {
     func record(_ song: Song, sidecars: SidecarDirectoryIndex<TVDirEntry>? = nil, complete: Bool) {
         guard complete else { return }
         entries[key(song)] = Entry(metadata: signature(song), sidecars: sidecars.map { Self.sidecarSignature(song, sidecars: $0) })
-        flushTask?.cancel()
+        guard flushTask == nil else { return }
         flushTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            do { try await Task.sleep(for: .seconds(10)) } catch { return }
             await self?.flush()
         }
     }
 
     func flush() {
+        flushTask?.cancel()
+        defer { flushTask = nil }
         guard let data = try? JSONEncoder().encode(entries) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
-        flushTask = nil
     }
 
     private func key(_ song: Song) -> String {

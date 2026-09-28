@@ -182,6 +182,23 @@ final class TVMetadataParityTests: XCTestCase {
         XCTAssertEqual(updated.duration, 180)
     }
 
+    func testCueLastTrackDurationUsesRemainingAudioLength() {
+        var last = song()
+        last.cueSheetPath = "/Music/Album.cue"
+        last.cueStartTime = 2336.786
+        last.cueEndTime = nil
+        last.duration = 0
+        let metadata = FileMetadataReader.Metadata()
+        let updated = TVMetadataEnricher.applying(metadata, to: last, duration: 2500.587)
+        XCTAssertEqual(updated.duration, 163.801, accuracy: 0.001)
+
+        var earlier = last
+        earlier.cueStartTime = 100
+        earlier.cueEndTime = 240
+        earlier.duration = 140
+        XCTAssertEqual(TVMetadataEnricher.applying(metadata, to: earlier, duration: 2500.587).duration, 140)
+    }
+
     func testEmbeddedAuthoredTranslationsReachTVPlayback() throws {
         var metadata = FileMetadataReader.Metadata()
         metadata.lyricsText = "[00:01.00]First line\n[00:03.00]Second line"
