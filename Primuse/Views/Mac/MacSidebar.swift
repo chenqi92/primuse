@@ -124,7 +124,8 @@ struct MacSidebar: View {
                  trailing: countLabel(library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID).count))
         }
         .padding(.horizontal, 6)
-        .padding(.bottom, 8)
+        // 下面紧跟没有分区标题的「搜索 / 音乐源」, 这里再留底距会在两组之间
+        // 空出一截, 分区间距交给 primaryItems 的底距。
     }
 
     @ViewBuilder
