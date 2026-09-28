@@ -585,6 +585,40 @@ final class FnMusicSourceTests: XCTestCase {
                            manager: SourceManager(sourcesProvider: { [] }))
     }
 
+    /// 同一个源的播放、写回、诊断等实例共用一次登录（飞牛同一设备号只认最后一次登录）；
+    /// 退役其中一个不会把别人还在用的会话注销掉，最后一个断开时才注销。
+    func testFNConnectorsForOneSourceShareOneSessionAndOnlyTheLastLogsOut() async throws {
+        let playback = makeSource()
+        let sourceID = await playback.sourceID
+        let writeback = makeSource(sharingSourceID: sourceID)
+        try await playback.connect()
+        try await writeback.connect()
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 1)
+
+        await writeback.disconnect()
+        XCTAssertEqual(FnMusicSourceURLProtocol.logoutCount(host: sourceID), 0)
+        let snapshot = try await playback.fetchServerPlaylists()
+        XCTAssertEqual(snapshot.playlists.map(\.id), ["playlist"])
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 1)
+
+        await playback.disconnect()
+        XCTAssertEqual(FnMusicSourceURLProtocol.logoutCount(host: sourceID), 1)
+    }
+
+    /// 被服务端拒绝后只重新登录一次，另一个实例随后改用新的 token，不再各自登录互相挤掉。
+    func testRejectedSharedFNSessionIsRenewedOnceForAllConnectors() async throws {
+        let playback = makeSource()
+        let sourceID = await playback.sourceID
+        let library = makeSource(sharingSourceID: sourceID)
+        try await library.connect()
+        let data = try await playback.fetchRange(path: "/fnmusic/tracks/song.flac", offset: 0, length: 2)
+        XCTAssertEqual(data, Data([1, 2]))
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 2)
+        let range = try await library.fetchRange(path: "/fnmusic/tracks/song.flac", offset: 0, length: 2)
+        XCTAssertEqual(range, Data([1, 2]))
+        XCTAssertEqual(FnMusicSourceURLProtocol.loginCount(host: sourceID), 2)
+    }
+
     func testRangeRefreshesBusinessAuthenticationFailure() async throws {
         let source = makeSource()
         let data = try await source.fetchRange(path: "/fnmusic/tracks/song.flac", offset: 0, length: 2)
@@ -688,10 +722,13 @@ final class FnMusicSourceTests: XCTestCase {
         connectionMode: FnMusicConnectionMode = .address,
         loginDelay: TimeInterval = 0,
         discoveryDelay: TimeInterval = 0,
-        loginTimeout: TimeInterval = FnMusicSource.connectionTimeout
+        loginTimeout: TimeInterval = FnMusicSource.connectionTimeout,
+        sharingSourceID existingHost: String? = nil
     ) -> FnMusicSource {
-        let host = UUID().uuidString.lowercased() + (connectionMode == .address ? ".invalid" : "")
-        FnMusicSourceURLProtocol.register(host: host, loginDelay: loginDelay, discoveryDelay: discoveryDelay)
+        let host = existingHost ?? UUID().uuidString.lowercased() + (connectionMode == .address ? ".invalid" : "")
+        if existingHost == nil {
+            FnMusicSourceURLProtocol.register(host: host, loginDelay: loginDelay, discoveryDelay: discoveryDelay)
+        }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [FnMusicSourceURLProtocol.self]
         return FnMusicSource(sourceID: host, host: host, port: 5667, useSSL: true,
@@ -758,6 +795,7 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     private struct State {
         var logins = 0
+        var logouts = 0
         var favorite = false
         var loginDelay: TimeInterval
         var discoveryDelay: TimeInterval
@@ -775,6 +813,7 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
         lock.withLock { states[host]?.discoveryDelay = delay }
     }
     static func loginCount(host: String) -> Int { lock.withLock { states[host]?.logins ?? 0 } }
+    static func logoutCount(host: String) -> Int { lock.withLock { states[host]?.logouts ?? 0 } }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -824,8 +863,16 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
             case "password-login":
                 state.logins += 1
                 return (200, jsonHeaders, json(["code": 200, "data": ["userToken": "token-\(state.logins)"]]))
+            case "logout":
+                state.logouts += 1
+                return (200, jsonHeaders, json(["code": 0, "data": NSNull()]))
             case "stream":
                 if state.logins == 1 { return (200, jsonHeaders, json(["code": 120001, "msg": "INVALID TOKEN"])) }
+                // 飞牛同一设备号只认最后一次登录发出的 token。
+                let cookie = request.value(forHTTPHeaderField: "Cookie") ?? ""
+                if !cookie.components(separatedBy: "; ").contains("music-token=token-\(state.logins)") {
+                    return (200, jsonHeaders, json(["code": 120001, "msg": "INVALID TOKEN"]))
+                }
                 return (206, ["Content-Type": "audio/flac", "Content-Range": "bytes 0-1/8", "Content-Length": "2"], Data([1, 2]))
             case "list" where url.path.contains("/playlist/list"):
                 return (200, jsonHeaders, page([["guid": "playlist", "name": "Playlist", "trackCount": 1]]))

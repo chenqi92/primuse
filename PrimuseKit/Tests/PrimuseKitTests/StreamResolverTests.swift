@@ -1033,10 +1033,10 @@ private final class FnMusicRateLimitOnceURLProtocol: URLProtocol, @unchecked Sen
     defaults.removePersistentDomain(forName: suiteName)
     defer { defaults.removePersistentDomain(forName: suiteName) }
 
-    let first = FnMusicAPIProtocol.deviceID(sourceID: "source-1", defaults: defaults)
-    let second = FnMusicAPIProtocol.deviceID(sourceID: "source-2", defaults: defaults)
+    let first = FnMusicAPIProtocol.deviceID(defaults: defaults)
+    let second = FnMusicAPIProtocol.deviceID(defaults: defaults)
     let reopenedDefaults = try #require(UserDefaults(suiteName: suiteName))
-    let reopened = FnMusicAPIProtocol.deviceID(sourceID: "source-3", defaults: reopenedDefaults)
+    let reopened = FnMusicAPIProtocol.deviceID(defaults: reopenedDefaults)
 
     #expect(first.count == 32)
     #expect(first == first.lowercased())

@@ -258,12 +258,6 @@ public actor FnMusicServiceClient {
     private static let maximumAnimatedArtworkBytes =
         ArtworkAnimationLimits.default.maximumCompressedBytes
 
-    private struct LoginOperation {
-        let id: UUID
-        let generation: UInt64
-        let task: Task<String, Error>
-    }
-
     private let sourceID: String
     private let endpointProvider: FnMusicEndpointProvider
     private let username: String
@@ -273,7 +267,13 @@ public actor FnMusicServiceClient {
     private let session: URLSession
     private var token: String?
     private var sessionGeneration: UInt64 = 0
-    private var loginOperation: LoginOperation?
+    /// 播放解析器、封面歌词等都和这里共用同一个登录会话，见 `FnMusicSessionStore`。
+    private let sessionStore: FnMusicSessionStore
+    private let sessionAccount: FnMusicSessionStore.Account?
+    private let sessionRoute: FnMusicSessionStore.Route
+    private let sessionHolder = UUID()
+    /// 被服务端拒绝过的 token：下次取 token 前先让会话仓库作废它。
+    private var rejectedToken: String?
 
     public init(source: MusicSource, credential: SourceCredential?) {
         let credential = credential ?? SourceCredential()
@@ -282,6 +282,11 @@ public actor FnMusicServiceClient {
         self.password = credential.password
         self.accessCode = credential.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey]
         self.usesFNConnect = source.effectiveFnMusicConnectionMode == .fnConnect
+        self.sessionStore = .shared
+        self.sessionAccount = Self.sessionAccount(
+            sourceID: source.id, username: username, password: password, accessCode: accessCode
+        )
+        self.sessionRoute = FnMusicSessionStore.Route(source: source)
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
@@ -302,13 +307,23 @@ public actor FnMusicServiceClient {
     }
 
     /// Module-internal injection point for deterministic URLProtocol tests.
-    init(source: MusicSource, credential: SourceCredential?, session: URLSession) {
+    init(
+        source: MusicSource,
+        credential: SourceCredential?,
+        session: URLSession,
+        sessionStore: FnMusicSessionStore = FnMusicSessionStore()
+    ) {
         let credential = credential ?? SourceCredential()
         self.sourceID = source.id
         self.username = credential.username ?? source.username ?? ""
         self.password = credential.password
         self.accessCode = credential.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey]
         self.usesFNConnect = source.effectiveFnMusicConnectionMode == .fnConnect
+        self.sessionStore = sessionStore
+        self.sessionAccount = Self.sessionAccount(
+            sourceID: source.id, username: username, password: password, accessCode: accessCode
+        )
+        self.sessionRoute = FnMusicSessionStore.Route(source: source)
         self.session = session
         self.endpointProvider = FnMusicEndpointProvider(
             source: source,
@@ -317,13 +332,35 @@ public actor FnMusicServiceClient {
         )
     }
 
-    deinit { session.invalidateAndCancel() }
+    deinit {
+        session.invalidateAndCancel()
+        if let sessionAccount {
+            Task { [sessionStore, sessionHolder] in
+                await sessionStore.release(sessionAccount, holder: sessionHolder, token: nil)
+            }
+        }
+    }
 
+    private static func sessionAccount(
+        sourceID: String,
+        username: String,
+        password: String?,
+        accessCode: String?
+    ) -> FnMusicSessionStore.Account? {
+        guard !username.isEmpty, let password, !password.isEmpty else { return nil }
+        return FnMusicSessionStore.Account(
+            sourceID: sourceID, username: username, password: password, accessCode: accessCode
+        )
+    }
+
+    /// 配置变了、这个实例要被替换：只放下自己手里的，共用的会话别的实例还在用。
     public func invalidateSession() async {
         sessionGeneration &+= 1
         token = nil
-        loginOperation?.task.cancel()
-        loginOperation = nil
+        rejectedToken = nil
+        if let sessionAccount {
+            await sessionStore.release(sessionAccount, holder: sessionHolder, token: nil)
+        }
         await endpointProvider.invalidate()
     }
 
@@ -499,34 +536,26 @@ public actor FnMusicServiceClient {
 
     private func ensureLoggedIn() async throws {
         if token?.isEmpty == false { return }
-        if let operation = loginOperation {
-            let userToken = try await operation.task.value
-            try installLoginToken(userToken, from: operation)
-            return
-        }
-        guard !username.isEmpty, let password, !password.isEmpty else {
+        guard let password, let sessionAccount else {
             throw FnMusicServiceError.missingCredential
         }
-
+        if let rejected = rejectedToken {
+            rejectedToken = nil
+            await sessionStore.invalidate(sessionAccount, ifCurrent: rejected)
+        }
         let generation = sessionGeneration
-        let operationID = UUID()
-        let task = Task<String, Error> { [self] in
-            try await performLogin(password: password, generation: generation)
+        let userToken = try await sessionStore.token(
+            for: sessionAccount,
+            route: sessionRoute,
+            holder: sessionHolder
+        ) { [self] in
+            try await performLogin(password: password)
         }
-        let operation = LoginOperation(id: operationID, generation: generation, task: task)
-        loginOperation = operation
-        do {
-            let userToken = try await task.value
-            try installLoginToken(userToken, from: operation)
-        } catch {
-            if loginOperation?.id == operationID {
-                loginOperation = nil
-            }
-            throw error
-        }
+        guard sessionGeneration == generation else { throw CancellationError() }
+        token = userToken
     }
 
-    private func performLogin(password: String, generation: UInt64) async throws -> String {
+    private func performLogin(password: String) async throws -> String {
         try Task.checkCancellation()
         let payload = try await requestJSON(
             method: "POST",
@@ -534,25 +563,16 @@ public actor FnMusicServiceClient {
             body: [
                 "username": username,
                 "password": FnMusicAPIProtocol.passwordHash(password),
-                "deviceId": FnMusicAPIProtocol.deviceID(sourceID: sourceID),
+                "deviceId": FnMusicAPIProtocol.deviceID(),
             ],
             includeCookie: false
         )
         try Task.checkCancellation()
-        guard sessionGeneration == generation else { throw CancellationError() }
         guard let dictionary = payload as? [String: Any],
               let userToken = fnMusicNonemptyString(dictionary["userToken"]) else {
             throw FnMusicServiceError.invalidResponse(PMString("error.catalog.loginMissingUserToken"))
         }
         return userToken
-    }
-
-    private func installLoginToken(_ userToken: String, from operation: LoginOperation) throws {
-        guard sessionGeneration == operation.generation else { throw CancellationError() }
-        if token == userToken { return }
-        guard loginOperation?.id == operation.id else { throw CancellationError() }
-        token = userToken
-        loginOperation = nil
     }
 
     private func requestJSON(
@@ -726,6 +746,7 @@ public actor FnMusicServiceClient {
     private func invalidateToken(ifMatching requestToken: String?) {
         guard let requestToken, token == requestToken else { return }
         token = nil
+        rejectedToken = requestToken
     }
 }
 

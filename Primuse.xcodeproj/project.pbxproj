@@ -1383,6 +1383,7 @@
 		DD8A9952CD2D01AC1AF8EE1E /* ImmersiveStageRenderers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183552F57FE08FA9E466F722 /* ImmersiveStageRenderers.swift */; };
 		DDB06ADDF4431E958BF177F7 /* NFSSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A86E05F2143FF7A15E29948C /* NFSSource.swift */; };
 		DDEC75167B3AB1CA7A01E44B /* ExternalPlaylistFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7406E61804E7503B1E5D4475 /* ExternalPlaylistFetcher.swift */; };
+		DDFC7DCF85AB0AE70CBCABE8 /* FnMusicSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE3BE434EF401BACC77FA31 /* FnMusicSessionStore.swift */; };
 		DE0561DB9A15B686C84CEE8C /* CloudAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8C714C150FC7495AF3988FB /* CloudAccount.swift */; };
 		DE11C57F089049A71AFC9E45 /* WiFiTransfer.strings in Resources */ = {isa = PBXBuildFile; fileRef = A4124C42E899AF4EF9EEE92D /* WiFiTransfer.strings */; };
 		DE124BF8F7E0731A1266A557 /* HomeDiscoveryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09162255A250ACB54D607FA4 /* HomeDiscoveryModel.swift */; };
@@ -2517,6 +2518,7 @@
 		8C63C384948C23C9211655CF /* SourceChangeScanInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceChangeScanInvalidationTests.swift; sourceTree = "<group>"; };
 		8CBB2FFF8359202218FA16DB /* TVLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVLibraryView.swift; sourceTree = "<group>"; };
 		8CC059C2CB9CE5328D923210 /* MenuBarPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPlayerView.swift; sourceTree = "<group>"; };
+		8CE3BE434EF401BACC77FA31 /* FnMusicSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnMusicSessionStore.swift; sourceTree = "<group>"; };
 		8D173D8CC7D37EB5E31E5B8D /* CloudInputSourceObjC.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CloudInputSourceObjC.h; sourceTree = "<group>"; };
 		8D6C666CF15C82AE6B8454A0 /* SmartNudgeCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartNudgeCenter.swift; sourceTree = "<group>"; };
 		8DFB5AEB2960B8723D2E4E8E /* LANSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANSync.swift; sourceTree = "<group>"; };
@@ -4724,6 +4726,7 @@
 				A13E6D6C650C45976A4F3108 /* FnMusicLibraryClient.swift */,
 				1752AC46DEDF73266BBAA581 /* FnMusicLyricSelection.swift */,
 				8321DC84502AE307E1C3B466 /* FnMusicServiceClient.swift */,
+				8CE3BE434EF401BACC77FA31 /* FnMusicSessionStore.swift */,
 				52E544642E7DCB96C625600B /* FnMusicStreamResolver.swift */,
 				7960CAAB384CA738FC501CEB /* GuangYaAPIProtocol.swift */,
 				A6F6EF272DE4FC33E0D41998 /* LANSettingsTransfer.swift */,
@@ -5478,6 +5481,7 @@
 				06CB44F745B4CEFFE99F02A3 /* FnMusicLibraryClient.swift in Sources */,
 				3CA5E754E7EC6D2280E46C2C /* FnMusicLyricSelection.swift in Sources */,
 				8397D1889EFA82D7EFAB5329 /* FnMusicServiceClient.swift in Sources */,
+				DDFC7DCF85AB0AE70CBCABE8 /* FnMusicSessionStore.swift in Sources */,
 				2E037012923883AA81D72003 /* FnMusicStreamResolver.swift in Sources */,
 				94870D01586827AD77F5E785 /* FolderPlaylistMembership.swift in Sources */,
 				71726DEB394584E142DCB0A4 /* FormSafeQueryURLBuilder.swift in Sources */,

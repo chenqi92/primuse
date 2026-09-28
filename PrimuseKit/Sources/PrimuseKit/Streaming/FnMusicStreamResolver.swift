@@ -4,14 +4,6 @@ import Foundation
 /// the music service's `music-token` cookie; no generic fnOS filesystem
 /// endpoint is used here.
 public actor FnMusicStreamResolver: StreamResolver {
-    private struct SessionIdentity: Hashable, Sendable {
-        let server: String
-        let username: String
-        let passwordHash: String
-        let accessCodeHash: String
-        let usesRelay: Bool
-    }
-
     private struct EndpointIdentity: Hashable, Sendable {
         let host: String?
         let port: Int?
@@ -27,18 +19,16 @@ public actor FnMusicStreamResolver: StreamResolver {
     }
 
     private struct CachedSession: Sendable {
-        let identity: SessionIdentity
+        let account: FnMusicSessionStore.Account
         let token: String
     }
 
-    private struct LoginOperation {
-        let id: UUID
-        let identity: SessionIdentity
-        let task: Task<String, Error>
-    }
-
+    /// 播放和曲库、封面歌词共用同一个登录会话（见 `FnMusicSessionStore`）：交给播放器的
+    /// Cookie 不会因为曲库那边重新登录而失效。
+    private let sessionStore: FnMusicSessionStore
     private var sessions: [String: CachedSession] = [:]
-    private var sessionTasks: [String: LoginOperation] = [:]
+    private var sessionHolders: [String: UUID] = [:]
+    private var sessionGenerations: [String: UInt64] = [:]
     private var endpointProviders: [String: EndpointCacheEntry] = [:]
     private let session: URLSession
 
@@ -49,18 +39,24 @@ public actor FnMusicStreamResolver: StreamResolver {
             configuration: cfg,
             fnMusicRedirects: true
         )
+        self.sessionStore = .shared
     }
 
-    init(session: URLSession) {
+    init(session: URLSession, sessionStore: FnMusicSessionStore = FnMusicSessionStore()) {
         self.session = session
+        self.sessionStore = sessionStore
     }
 
     deinit { session.invalidateAndCancel() }
 
-    public func invalidateSession(sourceID: String) {
-        sessions[sourceID] = nil
-        sessionTasks.removeValue(forKey: sourceID)?.task.cancel()
+    public func invalidateSession(sourceID: String) async {
+        sessionGenerations[sourceID, default: 0] &+= 1
         endpointProviders[sourceID] = nil
+        // 只放下这里拿着的，共用的会话别的实例还在用。
+        if let cached = sessions.removeValue(forKey: sourceID),
+           let holder = sessionHolders.removeValue(forKey: sourceID) {
+            await sessionStore.release(cached.account, holder: holder, token: nil)
+        }
     }
 
     public func streamURL(for song: Song,
@@ -102,8 +98,6 @@ public actor FnMusicStreamResolver: StreamResolver {
         } catch {
             guard source.effectiveFnMusicConnectionMode == .fnConnect,
                   FnMusicAPIProtocol.isRouteFailure(error) else { throw error }
-            sessions[source.id] = nil
-            sessionTasks.removeValue(forKey: source.id)?.task.cancel()
             let accessCode = credential?.extra[FnMusicAPIProtocol.fnConnectAccessCodeCredentialKey]
             let provider = endpointProvider(for: source, accessCode: accessCode)
             await provider.invalidate()
@@ -128,8 +122,12 @@ public actor FnMusicStreamResolver: StreamResolver {
         let provider = endpointProvider(for: source, accessCode: accessCode)
         let endpoint = try await provider.endpoint()
         let base = endpoint.baseURL
+        let account = FnMusicSessionStore.Account(
+            sourceID: source.id, username: username, password: password, accessCode: accessCode
+        )
         var token = try await currentSession(
             source: source,
+            account: account,
             base: base,
             username: username,
             password: password,
@@ -149,13 +147,15 @@ public actor FnMusicStreamResolver: StreamResolver {
                 usesRelay: endpoint.usesRelay
             )
         } catch StreamResolveError.authFailed {
-            // Only evict the token that actually failed. Another resolve may
-            // already have replaced it while this probe was suspended.
+            // Only evict the token that actually failed. Another resolve (or
+            // the catalogue client) may already have replaced it.
             if sessions[source.id]?.token == token {
                 sessions[source.id] = nil
             }
+            await sessionStore.invalidate(account, ifCurrent: token)
             token = try await currentSession(
                 source: source,
+                account: account,
                 base: base,
                 username: username,
                 password: password,
@@ -172,70 +172,37 @@ public actor FnMusicStreamResolver: StreamResolver {
         return (url, token, endpoint, accessCode)
     }
 
-    private func currentSession(source: MusicSource, base: URL, username: String,
-                                password: String, accessCode: String?,
-                                usesRelay: Bool) async throws -> String {
-        let identity = SessionIdentity(
-            server: base.absoluteString,
-            username: username,
-            passwordHash: FnMusicAPIProtocol.passwordHash(password),
-            accessCodeHash: FnMusicAPIProtocol.passwordHash(accessCode ?? ""),
-            usesRelay: usesRelay
-        )
-        if let cached = sessions[source.id], cached.identity == identity {
+    private func currentSession(source: MusicSource, account: FnMusicSessionStore.Account,
+                                base: URL, username: String, password: String,
+                                accessCode: String?, usesRelay: Bool) async throws -> String {
+        if let cached = sessions[source.id], cached.account == account {
             return cached.token
         }
-        sessions[source.id] = nil
-
-        if let existingOperation = sessionTasks[source.id],
-           existingOperation.identity != identity {
-            existingOperation.task.cancel()
-            sessionTasks[source.id] = nil
+        if let stale = sessions.removeValue(forKey: source.id),
+           let holder = sessionHolders[source.id] {
+            // 凭据换了：旧凭据的会话由它自己的持有者决定去留。
+            await sessionStore.release(stale.account, holder: holder, token: nil)
         }
-        if let inFlight = sessionTasks[source.id] {
-            let token = try await inFlight.task.value
-            if let cached = sessions[source.id],
-               cached.identity == identity,
-               cached.token == token {
-                return token
-            }
-            guard sessionTasks[source.id]?.id == inFlight.id else {
-                throw CancellationError()
-            }
-            sessions[source.id] = CachedSession(identity: identity, token: token)
-            sessionTasks[source.id] = nil
-            return token
-        }
-        let taskID = UUID()
-        let task = Task<String, Error> { [self] in
+        let holder = sessionHolders[source.id] ?? UUID()
+        sessionHolders[source.id] = holder
+        let generation = sessionGenerations[source.id, default: 0]
+        let token = try await sessionStore.token(
+            for: account,
+            route: FnMusicSessionStore.Route(source: source),
+            holder: holder
+        ) { [self] in
             try await fnMusicLogin(
                 base: base,
-                sourceID: source.id,
                 username: username,
                 password: password,
                 accessCode: accessCode,
                 usesRelay: usesRelay
             )
         }
-        let operation = LoginOperation(id: taskID, identity: identity, task: task)
-        sessionTasks[source.id] = operation
-        let token: String
-        do {
-            token = try await task.value
-        } catch {
-            if sessionTasks[source.id]?.id == taskID { sessionTasks[source.id] = nil }
-            throw error
-        }
-        if let cached = sessions[source.id],
-           cached.identity == identity,
-           cached.token == token {
-            return token
-        }
-        guard sessionTasks[source.id]?.id == taskID else {
+        guard sessionGenerations[source.id, default: 0] == generation else {
             throw CancellationError()
         }
-        sessions[source.id] = CachedSession(identity: identity, token: token)
-        sessionTasks[source.id] = nil
+        sessions[source.id] = CachedSession(account: account, token: token)
         return token
     }
 
@@ -267,7 +234,6 @@ public actor FnMusicStreamResolver: StreamResolver {
 
     private func fnMusicLogin(
         base: URL,
-        sourceID: String,
         username: String,
         password: String,
         accessCode: String?,
@@ -281,7 +247,7 @@ public actor FnMusicStreamResolver: StreamResolver {
             withJSONObject: [
                 "username": username,
                 "password": FnMusicAPIProtocol.passwordHash(password),
-                "deviceId": FnMusicAPIProtocol.deviceID(sourceID: sourceID),
+                "deviceId": FnMusicAPIProtocol.deviceID(),
             ],
             options: [.sortedKeys]
         )
@@ -314,7 +280,7 @@ public actor FnMusicStreamResolver: StreamResolver {
             ?? Int(envelope["code"] as? String ?? "")
             ?? -1
         guard code == 0 || code == 200 else {
-            if code == 120001 || code == 401 || code == 403 {
+            if code == 99999 || code == 120001 || code == 401 || code == 403 {
                 throw StreamResolveError.authFailed
             }
             throw StreamResolveError.badServerResponse(code)
@@ -365,7 +331,7 @@ public actor FnMusicStreamResolver: StreamResolver {
            let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let code = (envelope["code"] as? NSNumber)?.intValue
                 ?? Int(envelope["code"] as? String ?? ""),
-           [120001, 401, 403].contains(code) {
+           [99999, 120001, 401, 403].contains(code) {
             throw StreamResolveError.authFailed
         }
         guard http.statusCode == 206 else {

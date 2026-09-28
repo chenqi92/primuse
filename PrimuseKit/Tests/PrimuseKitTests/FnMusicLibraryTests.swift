@@ -32,7 +32,83 @@ struct FnMusicLibraryTests {
         let indexRequests = fixture.requests.filter { $0.url?.path.hasSuffix("/playlist/list") == true }
         #expect(indexRequests.count == 1)
         #expect((indexRequests.first?.url?.query ?? "").isEmpty, "索引请求不带 page/size")
-        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 52)
+        // p1 每次都读不全：第一轮失败后补读一次，仍失败才记进 failedPlaylistIDs。
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }.count == 53)
+    }
+
+    /// 明细翻到一半失败的歌单在同一次同步里补读一次，不再整份漏掉；顺序仍按服务端清单。
+    @Test func playlistDetailsThatFailOnceAreReadAgainInTheSameSync() async throws {
+        let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": 1])
+        fixture.setPage("/playlist/list", page: 1,
+                        list: (0..<3).map { ["guid": "p\($0)", "name": "List \($0)"] }, total: 3)
+        for i in 0..<3 {
+            fixture.setPage("/track/playlist-detail/list", playlist: "p\(i)", page: 1,
+                            list: [["guid": "s\(i)"]], total: 1)
+        }
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.playlists.map(\.id) == ["p0", "p1", "p2"])
+        #expect(snapshot.playlists.map(\.trackIDs) == [["s0"], ["s1"], ["s2"]])
+        let details = fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }
+        #expect(details.count == 4)
+    }
+
+    /// 飞牛同一个 deviceId 只认最后一次登录。曲库客户端与播放解析器以前各存各的 token，
+    /// 谁登录都会让对方 401、再重新登录把对方挤掉；现在两边共用一次登录。
+    @Test func libraryClientAndStreamResolverShareOneLogin() async throws {
+        let fixture = FnMusicLibraryFixture(enforcesDeviceSessions: true, favorites: ["s0"])
+        let (client, resolver, source) = fixture.clients()
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "/fnmusic/tracks/song.flac", sourceID: source.id)
+        let credential = SourceCredential(username: "qa", password: "test")
+
+        #expect(try await client.library.favorites() == ["s0"])
+        let resolved = try await resolver.resolve(for: song, source: source, credential: credential)
+        #expect(resolved.headers["Cookie"] == "music-token=token-1")
+        #expect(try await client.library.favorites() == ["s0"])
+        _ = try await resolver.resolve(for: song, source: source, credential: credential)
+
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("password-login") == true }.count == 1)
+        #expect(fixture.unauthorizedCount == 0)
+    }
+
+    /// 两边同时第一次用到时也只登录一次。
+    @Test func concurrentFirstUseByLibraryAndPlaybackLogsInOnce() async throws {
+        let fixture = FnMusicLibraryFixture(enforcesDeviceSessions: true, favorites: ["s0"])
+        let (client, resolver, source) = fixture.clients()
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "/fnmusic/tracks/song.flac", sourceID: source.id)
+        async let favorites = client.library.favorites()
+        async let resolved = resolver.resolve(for: song, source: source, credential: .init(username: "qa", password: "test"))
+        _ = try await (favorites, resolved)
+        #expect(fixture.requests.filter { $0.url?.path.hasSuffix("password-login") == true }.count == 1)
+        #expect(fixture.unauthorizedCount == 0)
+    }
+
+    /// 会话在服务端过期后，先发现的一方重新登录一次，另一方被拒后直接改用新的 token，
+    /// 不会再各自登录、来回挤掉对方。登录始终用同一个设备号。
+    @Test func expiredSharedSessionIsRenewedOnceAndAdoptedByTheOtherClient() async throws {
+        let fixture = FnMusicLibraryFixture(enforcesDeviceSessions: true, favorites: ["s0"])
+        let (client, resolver, source) = fixture.clients()
+        let song = Song(id: "song", title: "Song", fileFormat: .flac, filePath: "/fnmusic/tracks/song.flac", sourceID: source.id)
+        let credential = SourceCredential(username: "qa", password: "test")
+
+        #expect(try await client.library.favorites() == ["s0"])
+        _ = try await resolver.resolve(for: song, source: source, credential: credential)
+        fixture.expireSessions()
+
+        let renewed = try await resolver.resolve(for: song, source: source, credential: credential)
+        #expect(renewed.headers["Cookie"] == "music-token=token-2")
+        #expect(try await client.library.favorites() == ["s0"])
+        _ = try await resolver.resolve(for: song, source: source, credential: credential)
+
+        let logins = fixture.requests.filter { $0.url?.path.hasSuffix("password-login") == true }
+        #expect(logins.count == 2)
+        #expect(fixture.unauthorizedCount == 2)
+        let deviceIDs = try logins.map { request -> String in
+            let body = try JSONSerialization.jsonObject(with: FnMusicLibraryFixture.body(request)) as? [String: Any]
+            return try #require(body?["deviceId"] as? String)
+        }
+        #expect(Set(deviceIDs).count == 1)
     }
 
     /// 服务端照单全给、条数正好是 50 的整数倍时，以前会再翻一页拿到同一批歌单而报「重复项」。
@@ -167,7 +243,7 @@ struct FnMusicLibraryTests {
         #expect(looping.requests.filter { $0.url?.path.hasSuffix("/favorite-track/list") == true }.count == 2)
     }
 
-    @Test(arguments: [120001, 401, 403])
+    @Test(arguments: [99999, 120001, 401, 403])
     func streamBusinessAuthenticationErrorsRefreshExactlyOnce(code: Int) async throws {
         let fixture = FnMusicLibraryFixture(streamError: code)
         let (_, resolver, source) = fixture.clients()
@@ -196,11 +272,27 @@ private final class FnMusicLibraryFixture: @unchecked Sendable {
     private var favorites: [String]
     private let ignoresFavoriteWrites: Bool
     private let streamError: Int?
+    /// 照真服务端的行为：同一个 deviceId 再登录一次，之前发出去的 token 就 401。
+    private let enforcesDeviceSessions: Bool
+    private var tokenByDevice: [String: String] = [:]
+    private var unauthorized = 0
+    private var transientDetailFailures: [String: Int]
     private var loginCount = 0
     private var recorded: [URLRequest] = []
     var requests: [URLRequest] { lock.withLock { recorded } }
+    var unauthorizedCount: Int { lock.withLock { unauthorized } }
+    /// 模拟服务端会话过期：之前发出的 token 全部作废。
+    func expireSessions() { lock.withLock { tokenByDevice.removeAll() } }
 
-    init(favorites: [String] = [], ignoresFavoriteWrites: Bool = false, streamError: Int? = nil) {
+    init(
+        enforcesDeviceSessions: Bool = false,
+        transientDetailFailures: [String: Int] = [:],
+        favorites: [String] = [],
+        ignoresFavoriteWrites: Bool = false,
+        streamError: Int? = nil
+    ) {
+        self.enforcesDeviceSessions = enforcesDeviceSessions
+        self.transientDetailFailures = transientDetailFailures
         self.favorites = favorites
         self.ignoresFavoriteWrites = ignoresFavoriteWrites
         self.streamError = streamError
@@ -221,8 +313,11 @@ private final class FnMusicLibraryFixture: @unchecked Sendable {
         config.protocolClasses = [FnMusicLibraryURLProtocol.self]
         let session = URLSession(configuration: config)
         let source = MusicSource(id: host, name: "Feiniu", type: .fnMusic, host: host, port: 5666, useSsl: false, username: "qa")
-        return (FnMusicServiceClient(source: source, credential: .init(username: "qa", password: "test"), session: session),
-                FnMusicStreamResolver(session: URLSession(configuration: config)), source)
+        // 和真机一样，曲库客户端与播放解析器共用同一个会话仓库。
+        let sessions = FnMusicSessionStore()
+        return (FnMusicServiceClient(source: source, credential: .init(username: "qa", password: "test"),
+                                     session: session, sessionStore: sessions),
+                FnMusicStreamResolver(session: URLSession(configuration: config), sessionStore: sessions), source)
     }
 
     func response(_ request: URLRequest) -> (Int, [String: String], Data) {
@@ -235,7 +330,26 @@ private final class FnMusicLibraryFixture: @unchecked Sendable {
             let headers = ["Content-Type": "application/json"]
             if path == "/user/password-login" {
                 loginCount += 1
-                return (200, headers, Self.json(["code": 200, "data": ["userToken": "token-\(loginCount)"]]))
+                let token = "token-\(loginCount)"
+                if let body = try? JSONSerialization.jsonObject(with: saved.httpBody ?? Data()) as? [String: Any],
+                   let device = body["deviceId"] as? String {
+                    tokenByDevice[device] = token
+                }
+                return (200, headers, Self.json(["code": 200, "data": ["userToken": token]]))
+            }
+            if enforcesDeviceSessions {
+                let cookie = request.value(forHTTPHeaderField: "Cookie") ?? ""
+                let token = cookie.components(separatedBy: "; ").first { $0.hasPrefix("music-token=") }
+                    .map { String($0.dropFirst("music-token=".count)) }
+                guard let token, tokenByDevice.values.contains(token) else {
+                    unauthorized += 1
+                    return (401, headers, Data())
+                }
+            }
+            if path == "/track/playlist-detail/list", let playlist = query["playlistGUID"],
+               let remaining = transientDetailFailures[playlist], remaining > 0 {
+                transientDetailFailures[playlist] = remaining - 1
+                return (500, headers, Data())
             }
             if path == "/track/stream" {
                 if let streamError, loginCount == 1 {

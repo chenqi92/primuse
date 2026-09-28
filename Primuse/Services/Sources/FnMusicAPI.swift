@@ -12,6 +12,14 @@ actor FnMusicAPI {
     private let session: URLSession
     private(set) var token: String?
     private var sessionGeneration: UInt64 = 0
+    /// 同一个源的播放、写回、诊断、各条线路各有一个实例，都和这里共用同一个登录会话，
+    /// 见 `FnMusicSessionStore`。
+    private let sessionStore: FnMusicSessionStore
+    private let sessionRoute: FnMusicSessionStore.Route
+    private let sessionHolder = UUID()
+    private var sessionAccount: FnMusicSessionStore.Account?
+    /// 被服务端拒绝过的 token：下次取 token 前先让会话仓库作废它。
+    private var rejectedToken: String?
 
     var isLoggedIn: Bool { token?.isEmpty == false }
 
@@ -24,11 +32,20 @@ actor FnMusicAPI {
         connectionMode: FnMusicConnectionMode,
         accessCode: String?,
         alternateTLSValidationHostname: String? = nil,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        sessionStore: FnMusicSessionStore = .shared
     ) {
         self.sourceID = sourceID
         self.accessCode = accessCode
         self.usesFNConnect = connectionMode == .fnConnect
+        self.sessionStore = sessionStore
+        self.sessionRoute = FnMusicSessionStore.Route(
+            host: host,
+            port: port,
+            useSSL: useSSL,
+            basePath: basePath,
+            connectionMode: connectionMode
+        )
 
         let configuration = URLSessionConfiguration.default
         // Catalogue pages over the public internet outrun a LAN-sized
@@ -74,12 +91,20 @@ actor FnMusicAPI {
         )
     }
 
-    deinit { session.invalidateAndCancel() }
+    deinit {
+        session.invalidateAndCancel()
+        if let sessionAccount {
+            Task { [sessionStore, sessionHolder] in
+                await sessionStore.release(sessionAccount, holder: sessionHolder, token: nil)
+            }
+        }
+    }
 
     func prepareConnection() async throws {
         _ = try await endpointProvider.endpoint()
     }
 
+    /// 取这个源共用的登录会话：别的实例已经登录过就直接用，同时要登录的只登录一次。
     func login(username: String, password: String) async throws {
         guard !username.isEmpty, !password.isEmpty else {
             throw SourceError.authenticationFailed
@@ -87,10 +112,34 @@ actor FnMusicAPI {
         sessionGeneration &+= 1
         let generation = sessionGeneration
         token = nil
+        let account = FnMusicSessionStore.Account(
+            sourceID: sourceID, username: username, password: password, accessCode: accessCode
+        )
+        if let previous = sessionAccount, previous != account {
+            await sessionStore.release(previous, holder: sessionHolder, token: nil)
+        }
+        sessionAccount = account
+        if let rejected = rejectedToken {
+            rejectedToken = nil
+            await sessionStore.invalidate(account, ifCurrent: rejected)
+        }
+        let userToken = try await sessionStore.token(
+            for: account,
+            route: sessionRoute,
+            holder: sessionHolder
+        ) { [self] in
+            try await passwordLogin(username: username, password: password)
+        }
+        try Task.checkCancellation()
+        guard sessionGeneration == generation else { throw CancellationError() }
+        token = userToken
+    }
+
+    private func passwordLogin(username: String, password: String) async throws -> String {
         let body: [String: Any] = [
             "username": username,
             "password": FnMusicAPIProtocol.passwordHash(password),
-            "deviceId": FnMusicAPIProtocol.deviceID(sourceID: sourceID),
+            "deviceId": FnMusicAPIProtocol.deviceID(),
         ]
         let data = try await requestJSON(
             method: "POST",
@@ -99,14 +148,13 @@ actor FnMusicAPI {
             includeCookie: false
         )
         try Task.checkCancellation()
-        guard sessionGeneration == generation else { throw CancellationError() }
         guard let object = data as? [String: Any],
               let userToken = stringValue(object["userToken"])?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !userToken.isEmpty else {
             throw SourceError.connectionFailed(PMString("error.catalog.loginMissingUserToken"))
         }
-        token = userToken
+        return userToken
     }
 
     func cancelPendingLogin() async {
@@ -117,12 +165,19 @@ actor FnMusicAPI {
         await endpointProvider.releaseSession()
     }
 
+    /// 断开这个实例。只有没有别的实例还用着同一个 token 时才去服务端注销：写回、诊断、
+    /// 某条线路的实例退役时，不能把正在播放的那个会话一起注销掉。
     func logout() async {
         let requestToken = token
         sessionGeneration &+= 1
         let generation = sessionGeneration
         token = nil
-        if let requestToken {
+        rejectedToken = nil
+        var isLastHolder = requestToken != nil
+        if let sessionAccount {
+            isLastHolder = await sessionStore.release(sessionAccount, holder: sessionHolder, token: requestToken)
+        }
+        if let requestToken, isLastHolder {
             _ = try? await requestJSON(
                 method: "POST",
                 path: "/user/logout",
@@ -136,6 +191,7 @@ actor FnMusicAPI {
 
     func invalidateSession() {
         sessionGeneration &+= 1
+        if let token { rejectedToken = token }
         token = nil
         Task { await endpointProvider.invalidate() }
     }
@@ -664,7 +720,7 @@ actor FnMusicAPI {
         if let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let code = intValue(envelope["code"]) {
             plog("FN Music media response source=\(sourceID.prefix(8)) status=\(response.statusCode) code=\(code)")
-            if code == 120001 || code == 401 || code == 403 {
+            if code == 99999 || code == 120001 || code == 401 || code == 403 {
                 invalidateToken(ifMatching: requestToken)
                 throw SourceError.authenticationFailed
             }
@@ -680,6 +736,7 @@ actor FnMusicAPI {
         guard let requestToken, token == requestToken else { return }
         sessionGeneration &+= 1
         token = nil
+        rejectedToken = requestToken
     }
 }
 

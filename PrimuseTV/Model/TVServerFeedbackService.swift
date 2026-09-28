@@ -860,7 +860,7 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
             throw TVServerFeedbackError.invalidResponse
         }
         guard code == 0 || code == 200 else {
-            if code == 120001 || code == 401 || code == 403 {
+            if code == 99999 || code == 120001 || code == 401 || code == 403 {
                 throw TVServerFeedbackError.authenticationFailed
             }
             throw TVServerFeedbackError.server(
@@ -890,7 +890,7 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
         guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let code = Self.int(envelope["code"]) else { throw TVServerFeedbackError.invalidResponse }
         guard code == 0 || code == 200 else {
-            if [120001, 401, 403].contains(code) { throw TVServerFeedbackError.authenticationFailed }
+            if [99999, 120001, 401, 403].contains(code) { throw TVServerFeedbackError.authenticationFailed }
             throw TVServerFeedbackError.server(
                 Self.nonemptyString(envelope["msg"] ?? envelope["message"])
                     ?? PMString("ext.tv.playback.failed")

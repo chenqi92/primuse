@@ -36,28 +36,38 @@ public struct FnMusicLibraryClient: Sendable {
 
     public func playlists() async throws -> FnMusicPlaylistSnapshot {
         let summaries: [Summary] = try await index(path: "/playlist/list", parse: Summary.init)
-        var playlists: [FnMusicPlaylist] = []
-        var failed: Set<String> = []
-        for summary in summaries {
-            try Task.checkCancellation()
-            do {
-                let tracks: [Track] = try await pages(
-                    path: "/track/playlist-detail/list",
-                    query: [URLQueryItem(name: "playlistGUID", value: summary.id)],
-                    expectedTotal: summary.trackCount,
-                    allowsDuplicates: true,
-                    parse: Track.init
-                )
-                playlists.append(FnMusicPlaylist(
-                    id: summary.id, name: summary.name,
-                    coverReference: summary.coverReference, trackIDs: tracks.map(\.id)
-                ))
-            } catch {
-                if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
-                failed.insert(summary.id)
+        var trackIDs: [String: [String]] = [:]
+        // 明细翻到一半失败（会话被顶掉、网络抖一下、歌单正被改）整份歌单就不会出现。
+        // 一轮读完再把失败的补读一次，这时别的请求多半已经结束；两轮都没读全的才算失败。
+        for _ in 0..<2 {
+            for summary in summaries where trackIDs[summary.id] == nil {
+                try Task.checkCancellation()
+                do {
+                    trackIDs[summary.id] = try await playlistTrackIDs(summary)
+                } catch {
+                    if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+                }
             }
         }
+        let playlists = summaries.compactMap { summary in
+            trackIDs[summary.id].map {
+                FnMusicPlaylist(id: summary.id, name: summary.name,
+                                coverReference: summary.coverReference, trackIDs: $0)
+            }
+        }
+        let failed = Set(summaries.map(\.id).filter { trackIDs[$0] == nil })
         return FnMusicPlaylistSnapshot(playlists: playlists, failedPlaylistIDs: failed)
+    }
+
+    private func playlistTrackIDs(_ summary: Summary) async throws -> [String] {
+        let tracks: [Track] = try await pages(
+            path: "/track/playlist-detail/list",
+            query: [URLQueryItem(name: "playlistGUID", value: summary.id)],
+            expectedTotal: summary.trackCount,
+            allowsDuplicates: true,
+            parse: Track.init
+        )
+        return tracks.map(\.id)
     }
 
     public func favorites() async throws -> [String] {
