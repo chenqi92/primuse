@@ -340,8 +340,8 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                 }
             } else if !isSpokenWord, !player.isLiveRadio, !player.isAppleMusicMode,
                       player.canPlayMedleyFromQueue {
-                menuRow(title: "medley_play_selection", subtitle: String(
-                    format: String(localized: "medley_queue_detail_format"),
+                menuRow(titleText: String(
+                    format: String(localized: "medley_play_queue_format"),
                     player.playbackSettings.medleySegmentSeconds
                 ), symbol: "rectangle.stack.badge.play") {
                     let songs = player.medleyCandidatesFromQueue
@@ -426,7 +426,7 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         .padding(.vertical, 8)
     }
 
-    private func menuRow(title: LocalizedStringKey, subtitle: String? = nil, symbol: String,
+    private func menuRow(title: LocalizedStringKey, symbol: String,
                          role: ButtonRole? = nil, disabled: Bool = false,
                          action: @escaping () -> Void) -> some View {
         Button(role: role) {
@@ -438,18 +438,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
                     .frame(width: 18)
                     .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.textMuted)
                     .contentTransition(.symbolEffect(.replace))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(.callout)
-                        .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.text)
-                    if let subtitle {
-                        // 跟 iOS 菜单的副标题一样：标题说动作，小字说范围和参数。
-                        Text(verbatim: subtitle)
-                            .font(.caption)
-                            .foregroundStyle(PMColor.textMuted)
-                            .lineLimit(1)
-                    }
-                }
+                Text(title)
+                    .font(.callout)
+                    .foregroundStyle(role == .destructive ? PMColor.bad : PMColor.text)
                 Spacer()
             }
             .padding(.horizontal, 12).padding(.vertical, 6)

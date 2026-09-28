@@ -4277,7 +4277,7 @@
 "seconds_value_format" = "%lld с";
 "medley_title" = "Попурри";
 "medley_start_queue" = "Играть очередь попурри";
-"medley_queue_detail_format" = "Текущая очередь · по %lld с";
+"medley_play_queue_format" = "Играть попурри (%lld с)";
 "medley_play_selection" = "Играть попурри";
 "medley_segment_length" = "Длина фрагмента";
 "medley_settings_footer" = "Попурри играет самую узнаваемую часть каждой песни и соединяет их короткими переходами. Оно не попадает в историю прослушивания и скробблинг.";
