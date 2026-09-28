@@ -102,29 +102,29 @@ final class ThemeService {
         }
 
         // Try the song-ID cache first, then a legacy filename. All reads go
-        // through the redirect-aware MetadataAssetStore entry point.
-        let cachedData = Self.cachedCoverData(
-            fileName: normalizedFileName,
-            songID: songID
-        )
+        // through the redirect-aware MetadataAssetStore entry point. 读盘放到
+        // 后台: 冷启动时回填/缓存通知会连着触发取色, 每次在主线程同步读一整张
+        // 封面文件就是一次掉帧。
         let remoteURL = Self.safeRemoteArtworkURL(from: normalizedFileName)
-        guard cachedData != nil
-                || remoteURL != nil
-                || normalizedAppleMusicID?.isEmpty == false else {
-            applyFallbackTheme()
-            return
-        }
-
-        // Do not leave the previous song's color on screen while a remote
-        // Apple Music cover is downloading. A disk-cache hit stays seamless.
-        if cachedData == nil {
-            applyFallbackTheme()
-        }
-
         let capturedSongID = songID
         let capturedFileName = normalizedFileName
         artworkUpdateTask = Task.detached(priority: .userInitiated) {
-            var data = cachedData
+            var data = Self.cachedCoverData(
+                fileName: capturedFileName,
+                songID: capturedSongID
+            )
+            guard !Task.isCancelled else { return }
+            if data == nil {
+                // 没有可用来源就回默认色; 远端封面下载期间也不能把上一首的颜色
+                // 留在屏幕上。盘上命中则保持无缝。
+                let hasOtherSource = remoteURL != nil
+                    || normalizedAppleMusicID?.isEmpty == false
+                await MainActor.run { [weak self] in
+                    guard let self, self.updateGeneration == generation else { return }
+                    self.applyFallbackTheme()
+                }
+                guard hasOtherSource else { return }
+            }
             var fetchedRemoteData = false
             // A concrete HTTP(S) cover has a bounded request timeout and gives
             // the most faithful palette, so process it before any MusicKit

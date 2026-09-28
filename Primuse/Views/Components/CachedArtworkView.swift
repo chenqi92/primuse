@@ -99,6 +99,10 @@ struct CachedArtworkView: View {
     /// 只有新旧两个视图并存才能真正交叉淡入。没开交叉淡入时它恒为 0。
     @State private var artworkGeneration = 0
     @State private var cacheInvalidationRevision = 0
+    /// 灰色占位要等加载超过宽限期、或确认没有封面才露出来。冷启动内存缓存是空的，
+    /// 满屏封面都要从盘上读，几十毫秒就回来；先闪一下占位再换成封面，整页看起来
+    /// 就是在一块块地闪。
+    @State private var placeholderRevealed = false
     @State private var animationPolicyRevision = 0
     @State private var animationCacheMaintenanceGeneration = 0
     @State private var animationCacheMaintenancePending = false
@@ -325,6 +329,13 @@ struct CachedArtworkView: View {
                 taskIdentity: loadTaskIdentity
             )
         }
+        .task(id: loadTaskIdentity) {
+            // 不在这里先看 placeholderRevealed：两个 task 谁先跑不确定，读到的
+            // 可能是换身份前的旧值。revealPlaceholder 自己会去重。
+            try? await Task.sleep(for: Self.placeholderGracePeriod)
+            guard !Task.isCancelled, !hasResolvedArtwork else { return }
+            revealPlaceholder()
+        }
         .task(id: animationLoadIdentity) {
             await loadAnimatedArtwork(for: animationLoadIdentity)
         }
@@ -428,7 +439,7 @@ struct CachedArtworkView: View {
             decodedArtwork(image)
                 .id(artworkGeneration)
                 .pmFadeTransition()
-        } else if showsPlaceholder {
+        } else if showsPlaceholder && placeholderRevealed {
             placeholderView
                 .pmFadeTransition()
         } else {
@@ -1309,6 +1320,7 @@ struct CachedArtworkView: View {
             } else if image != nil {
                 image = nil
             }
+            placeholderRevealed = false
         }
 
         guard !key.isEmpty else {
@@ -1317,6 +1329,7 @@ struct CachedArtworkView: View {
             } else if image != nil {
                 image = nil
             }
+            revealPlaceholder()
             loadedIdentity = identity
             onResolutionChange(hasResolvedArtwork)
             return
@@ -1342,11 +1355,16 @@ struct CachedArtworkView: View {
             showArtwork(cached, decodedAsynchronously: false)
             onResolutionChange(true)
         }
-        guard loadsHighResolution else { return }
+        guard loadsHighResolution else {
+            // 大封面位入场期间不读盘，此时没有图就照旧先放占位。
+            revealPlaceholder()
+            return
+        }
 
         if Self.hasRecentFailure(for: failureNSKey) {
             // 命中失败缓存说明这一首这次就是取不到封面，留着上一首的图会张冠李戴。
             dropHeldArtwork()
+            revealPlaceholder()
             loadedIdentity = identity
             onResolutionChange(hasResolvedArtwork)
             return
@@ -1392,6 +1410,7 @@ struct CachedArtworkView: View {
         } else {
             // 解码结果为空同样要把上一首的图换掉。
             dropHeldArtwork()
+            revealPlaceholder()
         }
         if sourceID != AppleMusicLibraryService.systemSourceID || appleMusicArtworkIdentity.isEmpty {
             onResolutionChange(hasResolvedArtwork)
@@ -1415,7 +1434,10 @@ struct CachedArtworkView: View {
                 image = decoded
                 artworkGeneration &+= 1
             }
-        } else if decodedAsynchronously && image == nil && cachedLowerResolutionImage() == nil {
+        } else if decodedAsynchronously && image == nil && cachedLowerResolutionImage() == nil
+                    && placeholderRevealed {
+            // 占位已经露出来了（加载慢），从占位淡入；宽限期内就到手的图直接出现，
+            // 和内存命中一样看不出加载过。
             withAnimation(PMMotion.contentAppear.animation) { image = decoded }
         } else {
             // Resolution changes keep the same layer and must not inherit
@@ -1424,6 +1446,13 @@ struct CachedArtworkView: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) { image = decoded }
         }
+    }
+
+    private static let placeholderGracePeriod: Duration = .milliseconds(180)
+
+    private func revealPlaceholder() {
+        guard !placeholderRevealed else { return }
+        withAnimation(PMMotion.contentAppear.animation) { placeholderRevealed = true }
     }
 
     /// 新歌确实没有封面时，把留着的上一首封面淡出到占位。只有常驻位会留图，所以这里
