@@ -1984,7 +1984,7 @@ struct CachedArtworkView: View {
 
     /// 一批歌同时失效时发一条点名的通知，不清空整个内存缓存。在屏封面按
     /// songIDs/tokens 自己比对后只丢掉自己那份；没点到的封面继续用解码好的图。
-    static func invalidateCache(forSongs songs: [Song]) {
+    static func invalidateCache(forSongs songs: [PrimuseKit.Song]) {
         guard !songs.isEmpty else { return }
         let songIDs = songs.map(\.id)
         let refs = songs.compactMap(\.coverArtFileName).filter { !$0.isEmpty }
