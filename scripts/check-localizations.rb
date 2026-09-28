@@ -331,6 +331,10 @@ HAN_LITERAL_ALLOWLIST = {
   "PrimuseKit/Sources/PrimuseKit/SharedConstants.swift" => [
     /未知|未知标题|未知標題|未知歌曲|无标题|無標題/
   ],
+  # Collector signatures matched in imported artist tags, not interface text.
+  "PrimuseKit/Sources/PrimuseKit/Models/Song.swift" => [
+    /value\.range\(of:.*收藏.*\[Qq\]/
+  ],
   "PrimuseKit/Sources/PrimuseKit/SiriRadioStationCatalog.swift" => [
     /网络电台|網路電台|电台|電台|广播|廣播/
   ],
