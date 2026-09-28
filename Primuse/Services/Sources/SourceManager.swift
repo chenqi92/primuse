@@ -7415,6 +7415,19 @@ final class SourceManager {
         return true
     }
 
+    /// 「始终保持离线」接手已有缓存之前调用：逐个源跑一遍缓存作用域校验，账号或
+    /// 内容根变过的源会在这里先把旧目录隔离掉。返回校验通过、目录里现存文件都
+    /// 属于当前账号的源。
+    func automaticOfflineAdoptableSourceIDs(_ sourceIDs: Set<String>) async -> Set<String> {
+        var adoptable = Set<String>()
+        for sourceID in sourceIDs {
+            if await ensureAudioCacheScopeValidated(for: sourceID) {
+                adoptable.insert(sourceID)
+            }
+        }
+        return adoptable
+    }
+
     func reconcileAutomaticOfflineProvenance(
         _ dispositionsByArtifactPath: [String: AutomaticOfflineRefreshDisposition],
         generation: Int

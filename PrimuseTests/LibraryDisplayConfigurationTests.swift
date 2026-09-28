@@ -925,7 +925,7 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         XCTAssertEqual(
             AutomaticOfflineArtifactPolicy.refreshDisposition(
                 fileExists: true,
-                recordedArtifactSignature: nil,
+                recordedArtifactSignature: "old-revision",
                 desiredArtifactSignature: "new-revision",
                 recordedSourceIdentitySignature: nil,
                 desiredSourceIdentitySignature: "new-account"
@@ -1041,22 +1041,57 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         )
     }
 
-    func testFirstEnableExistingUnknownFilePlansDiscardBeforeDownload() {
-        let requiredSongIDs = AutomaticOfflineDownloadPolicy.requiredSongIDs(
-            desiredSignatures: ["song": "desired-content"],
-            completedSignatures: [:],
-            missingSongIDs: []
-        )
-        XCTAssertTrue(requiredSongIDs.contains("song"))
-
-        let disposition = AutomaticOfflineArtifactPolicy.refreshDisposition(
-            fileExists: true,
+    func testFirstEnableKeepsExistingUntrackedFileAndQueuesOnlyMissingSongs() {
+        XCTAssertTrue(AutomaticOfflineArtifactPolicy.isUntracked(
             recordedArtifactSignature: nil,
-            desiredArtifactSignature: "desired-artifact",
-            recordedSourceIdentitySignature: nil,
-            desiredSourceIdentitySignature: "current-account"
+            recordedSourceIdentitySignature: nil
+        ))
+        XCTAssertEqual(
+            AutomaticOfflineArtifactPolicy.refreshDisposition(
+                fileExists: true,
+                recordedArtifactSignature: nil,
+                desiredArtifactSignature: "desired-artifact",
+                recordedSourceIdentitySignature: nil,
+                desiredSourceIdentitySignature: "current-account"
+            ),
+            .none
         )
-        XCTAssertEqual(disposition, .discardUntrusted)
+        XCTAssertTrue(AutomaticOfflineDownloadPolicy.canAdoptExistingFile(
+            desiredSignature: "cached-content",
+            completedSignature: nil,
+            lastKnownSignature: nil,
+            provenanceIsTrusted: true
+        ))
+
+        let requiredSongIDs = AutomaticOfflineDownloadPolicy.requiredSongIDs(
+            desiredSignatures: [
+                "cached": "cached-content",
+                "missing": "missing-content",
+            ],
+            completedSignatures: ["cached": "cached-content"],
+            missingSongIDs: ["missing"]
+        )
+        XCTAssertEqual(requiredSongIDs, ["missing"])
+    }
+
+    func testUntrackedFileWhoseKnownContentChangedRefreshesWithoutDeletingFirst() {
+        XCTAssertEqual(
+            AutomaticOfflineArtifactPolicy.refreshDisposition(
+                fileExists: true,
+                recordedArtifactSignature: nil,
+                desiredArtifactSignature: "desired-artifact",
+                recordedSourceIdentitySignature: nil,
+                desiredSourceIdentitySignature: "current-account",
+                knownContentIsCurrent: false
+            ),
+            .preserveExisting
+        )
+        XCTAssertFalse(AutomaticOfflineDownloadPolicy.canAdoptExistingFile(
+            desiredSignature: "new-content",
+            completedSignature: nil,
+            lastKnownSignature: "old-content",
+            provenanceIsTrusted: true
+        ))
     }
 
     func testOfflineTransferSizePolicyCapsSmallAndUnknownArtifacts() throws {

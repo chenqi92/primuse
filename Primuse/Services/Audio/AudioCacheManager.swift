@@ -85,9 +85,20 @@ enum AutomaticOfflineArtifactPolicy {
         recordedArtifactSignature: String?,
         desiredArtifactSignature: String,
         recordedSourceIdentitySignature: String?,
-        desiredSourceIdentitySignature: String
+        desiredSourceIdentitySignature: String,
+        knownContentIsCurrent: Bool = true
     ) -> AutomaticOfflineRefreshDisposition {
         guard fileExists else { return .none }
+        if isUntracked(
+            recordedArtifactSignature: recordedArtifactSignature,
+            recordedSourceIdentitySignature: recordedSourceIdentitySignature
+        ) {
+            // 这条队列从没经手过的文件：播放缓存、手动离线、设备间同步来的。
+            // 源的账号或内容根一变，SourceManager 会先把整个源的缓存目录隔离掉，
+            // 还留在目录里的就属于当前账号，打开「始终保持离线」时直接接手。
+            // 只有队列记得这首歌换过内容时才重下，而且下完前旧文件照常能播。
+            return knownContentIsCurrent ? .none : .preserveExisting
+        }
         if provenanceIsTrusted(
             recordedArtifactSignature: recordedArtifactSignature,
             desiredArtifactSignature: desiredArtifactSignature
@@ -98,6 +109,13 @@ enum AutomaticOfflineArtifactPolicy {
             return .preserveExisting
         }
         return .discardUntrusted
+    }
+
+    static func isUntracked(
+        recordedArtifactSignature: String?,
+        recordedSourceIdentitySignature: String?
+    ) -> Bool {
+        recordedArtifactSignature == nil && recordedSourceIdentitySignature == nil
     }
 }
 
@@ -1432,6 +1450,29 @@ private actor AlwaysDownloadWorker {
         let knownSourceIdentities = journal.sourceIdentitySignatures ?? [:]
         let knownArtifactProvenance = journal.artifactProvenanceSignatures ?? [:]
         let knownArtifactSourceIdentities = journal.artifactSourceIdentitySignatures ?? [:]
+        let untrackedArtifactPaths = Set(desiredValues.compactMap { desired -> String? in
+            AutomaticOfflineArtifactPolicy.isUntracked(
+                recordedArtifactSignature: knownArtifactProvenance[desired.artifactPath],
+                recordedSourceIdentitySignature: knownArtifactSourceIdentities[desired.artifactPath]
+            ) ? desired.artifactPath : nil
+        })
+        // 接手已有文件前先让源把缓存作用域校验完：账号变过的源会在这一步整目录
+        // 隔离，后面按文件是否存在来判断时就不会把旧账号的字节算进来。没校验
+        // 下来的源这一轮只排队，由下载前的同一道校验决定复用还是重下。
+        let adoptableSourceIDs = await sourceManager.automaticOfflineAdoptableSourceIDs(
+            Set(desiredValues.compactMap { desired in
+                untrackedArtifactPaths.contains(desired.artifactPath)
+                    ? desired.song.sourceID
+                    : nil
+            })
+        )
+        guard !Task.isCancelled,
+              desiredReplacementGeneration == replacementGeneration else { return }
+        func knownContentIsCurrent(_ desired: AlwaysDownloadDesiredSong) -> Bool {
+            guard let known = journal.completedSignatures[desired.song.id]
+                ?? journal.lastKnownSignatures?[desired.song.id] else { return true }
+            return known == desired.contentSignature
+        }
         var preflightDispositions: [String: AutomaticOfflineRefreshDisposition] = [:]
         preflightDispositions.reserveCapacity(desiredValues.count)
         for desired in desiredValues {
@@ -1440,7 +1481,8 @@ private actor AlwaysDownloadWorker {
                 recordedArtifactSignature: knownArtifactProvenance[desired.artifactPath],
                 desiredArtifactSignature: desired.artifactSignature,
                 recordedSourceIdentitySignature: knownArtifactSourceIdentities[desired.artifactPath],
-                desiredSourceIdentitySignature: desired.sourceIdentitySignature
+                desiredSourceIdentitySignature: desired.sourceIdentitySignature,
+                knownContentIsCurrent: knownContentIsCurrent(desired)
             )
             preflightDispositions[desired.artifactPath] = AutomaticOfflineRefreshDisposition.strongest(
                 preflightDispositions[desired.artifactPath] ?? .none,
@@ -1474,25 +1516,42 @@ private actor AlwaysDownloadWorker {
             sourceRetryAfter.removeValue(forKey: desired.song.sourceID)
         }
         // Trust is earned per physical artifact, never by another successful
-        // file from the same source/account namespace.
-        for desired in desiredValues
-        where !missingSongIDs.contains(desired.song.id)
-            && journal.completedSignatures[desired.song.id] == nil
-            && (journal.jobs[desired.song.id].map {
-                $0.refreshDisposition ?? ($0.forceRedownload ? .discardUntrusted : .none)
-            } ?? .none) == .none
-            && AutomaticOfflineDownloadPolicy.canAdoptExistingFile(
-                desiredSignature: desired.contentSignature,
-                completedSignature: nil,
-                lastKnownSignature: knownSignatures[desired.song.id],
-                provenanceIsTrusted: AutomaticOfflineArtifactPolicy.provenanceIsTrusted(
-                    recordedArtifactSignature: knownArtifactProvenance[desired.artifactPath],
-                    desiredArtifactSignature: desired.artifactSignature
-                )
-            ) {
+        // file from the same source/account namespace. A file this queue never
+        // tracked is vouched for by the source-wide cache scope check above.
+        var artifactProvenance = knownArtifactProvenance
+        var artifactSourceIdentities = knownArtifactSourceIdentities
+        for desired in desiredValues {
+            let existingJob = journal.jobs[desired.song.id]
+            let adoptsUntrackedFile = untrackedArtifactPaths.contains(desired.artifactPath)
+                && adoptableSourceIDs.contains(desired.song.sourceID)
+                && existingJob?.refreshPrepared != true
+            guard !missingSongIDs.contains(desired.song.id),
+                  journal.completedSignatures[desired.song.id] == nil,
+                  adoptsUntrackedFile
+                    || (existingJob.map {
+                        $0.refreshDisposition ?? ($0.forceRedownload ? .discardUntrusted : .none)
+                    } ?? .none) == .none,
+                  AutomaticOfflineDownloadPolicy.canAdoptExistingFile(
+                    desiredSignature: desired.contentSignature,
+                    completedSignature: nil,
+                    lastKnownSignature: knownSignatures[desired.song.id],
+                    provenanceIsTrusted: adoptsUntrackedFile
+                        || AutomaticOfflineArtifactPolicy.provenanceIsTrusted(
+                            recordedArtifactSignature: knownArtifactProvenance[desired.artifactPath],
+                            desiredArtifactSignature: desired.artifactSignature
+                        )
+                  ) else { continue }
             journal.completedSignatures[desired.song.id] = desired.contentSignature
             knownSignatures[desired.song.id] = desired.contentSignature
+            if adoptsUntrackedFile {
+                // 接手后和队列自己下完的文件一样记下来历：以后这首歌换了内容，
+                // 走「保留旧文件、下完再替换」，而不是被当成来历不明先删掉。
+                artifactProvenance[desired.artifactPath] = desired.artifactSignature
+                artifactSourceIdentities[desired.artifactPath] = desired.sourceIdentitySignature
+            }
         }
+        journal.artifactProvenanceSignatures = artifactProvenance
+        journal.artifactSourceIdentitySignatures = artifactSourceIdentities
 
         let requiredSongIDs = AutomaticOfflineDownloadPolicy.requiredSongIDs(
             desiredSignatures: desiredSignatures,
@@ -1510,7 +1569,8 @@ private actor AlwaysDownloadWorker {
                     recordedArtifactSignature: knownArtifactProvenance[desired.artifactPath],
                     desiredArtifactSignature: desired.artifactSignature,
                     recordedSourceIdentitySignature: knownArtifactSourceIdentities[desired.artifactPath],
-                    desiredSourceIdentitySignature: desired.sourceIdentitySignature
+                    desiredSourceIdentitySignature: desired.sourceIdentitySignature,
+                    knownContentIsCurrent: knownContentIsCurrent(desired)
                 )
             if var existing = journal.jobs[songID],
                existing.contentSignature == desired.contentSignature {
@@ -1520,10 +1580,17 @@ private actor AlwaysDownloadWorker {
                 existing.artifactSignature = desired.artifactSignature
                 let existingDisposition = existing.refreshDisposition
                     ?? (existing.forceRedownload ? .discardUntrusted : .none)
-                let disposition = AutomaticOfflineRefreshDisposition.strongest(
-                    existingDisposition,
-                    requestedDisposition
-                )
+                // 旧版本把没经手过的已有文件一律排成「先删再下」；还没开删的
+                // 这类任务按现在的判定重排，已有文件就不会在下载前被删。
+                let reconsidersUntrackedFile = untrackedArtifactPaths.contains(desired.artifactPath)
+                    && existing.refreshDisposition == .discardUntrusted
+                    && existing.refreshPrepared != true
+                let disposition = reconsidersUntrackedFile
+                    ? requestedDisposition
+                    : AutomaticOfflineRefreshDisposition.strongest(
+                        existingDisposition,
+                        requestedDisposition
+                    )
                 if disposition != existingDisposition {
                     existing.refreshPrepared = false
                 }
