@@ -2921,7 +2921,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 plog("CloudKitSync: failed to save zone \(failed.zone.zoneID): \(failed.error.localizedDescription)")
             }
         case .accountChange(let change):
-            await MainActor.run { self.handleAccountChange(change) }
+            await self.handleAccountChange(change)
         case .willFetchChanges, .willFetchRecordZoneChanges,
              .willSendChanges, .didFetchRecordZoneChanges,
              .didFetchChanges, .didSendChanges:
@@ -3346,9 +3346,23 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
     }
 
     @MainActor
-    private func handleAccountChange(_ change: CKSyncEngine.Event.AccountChange) {
+    private func handleAccountChange(_ change: CKSyncEngine.Event.AccountChange) async {
         switch change.changeType {
         case .signOut, .switchAccounts:
+            // 换账号一定关总开关;「退出登录」要复查一次账号状态,确认真的没账号了才关。
+            // 引擎偶尔报出一闪而过的 signOut(电视上长扫描/被回收前后见过开关无故被关),
+            // 那时账号其实还在:只拆引擎和游标,总开关留着,由账号观察者或下次启动再拉起来
+            // (这里不当场重启,免得引擎反复报假 signOut 时拆了又起、起了又拆)。
+            var disarmsMasterSwitch = true
+            var confirmedStatus = "n/a"
+            var kind = "switchAccounts"
+            if case .signOut = change.changeType {
+                kind = "signOut"
+                let accountStatus = try? await configuredContainer()?.accountStatus()
+                confirmedStatus = accountStatus.map { String(describing: $0.rawValue) } ?? "error"
+                disarmsMasterSwitch = accountStatus == .noAccount
+            }
+            plog("☁️ accountChange \(kind) status=\(confirmedStatus) disarm=\(disarmsMasterSwitch)")
             // Drop the engine state and disarm sync. We deliberately do NOT
             // wipe the local stores (playlists, sources, scraper configs) —
             // that would be data loss the user didn't ask for. We also force
@@ -3363,7 +3377,9 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             isParticipantOfShare = false
             Self.familySharingEnabled = false
             Self.participantSharedZoneID = nil
-            UserDefaults.standard.set(false, forKey: CloudSyncChannel.masterDefaultsKey)
+            if disarmsMasterSwitch {
+                UserDefaults.standard.set(false, forKey: CloudSyncChannel.masterDefaultsKey)
+            }
             stop(updateStatus: true)
             status = .accountUnavailable(.unknown)
         case .signIn:
