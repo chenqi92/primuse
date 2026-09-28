@@ -168,6 +168,25 @@ final class TVTabFocusSelectionPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testSweepingFocusAcrossNowPlayingDoesNotOpenFullScreenPlayer() {
+        XCTAssertNil(
+            TVTabFocusSelectionPolicy.selection(
+                focused: .nowPlaying,
+                active: .library,
+                allowsFocusDrivenSelection: true
+            )
+        )
+        // 越过它继续横移,别的页照常跟着焦点切换。
+        XCTAssertEqual(
+            TVTabFocusSelectionPolicy.selection(
+                focused: .playlists,
+                active: .library,
+                allowsFocusDrivenSelection: true
+            ),
+            .playlists
+        )
+    }
 }
 
 final class TVPlaybackCommandRoutingPolicyTests: XCTestCase {

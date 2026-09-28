@@ -966,3 +966,12 @@
 "ext.tv.settings.tabBar.moveUp" = "上移";
 "ext.tv.settings.tabBar.moveDown" = "下移";
 "ext.tv.settings.tabBar.reset" = "恢复默认";
+"ext.tv.player.browse" = "浏览";
+"ext.tv.player.shelf.thisAlbum" = "本专辑";
+"ext.tv.player.shelf.moreByArtist" = "同艺术家";
+"ext.tv.player.shelf.hint" = "浏览专辑、艺术家与流派";
+"ext.tv.player.shelf.empty" = "这里暂时没有内容";
+"ext.tv.nowPlaying.artworkHint" = "左 / 右键切歌 · 按下浏览 · 长按更多";
+"ext.tv.options.section.song" = "这首歌";
+"ext.tv.options.section.playback" = "播放";
+"ext.tv.options.section.goTo" = "前往";

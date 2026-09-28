@@ -916,3 +916,12 @@
 "ext.tv.settings.tabBar.moveUp" = "Yukarı Taşı";
 "ext.tv.settings.tabBar.moveDown" = "Aşağı Taşı";
 "ext.tv.settings.tabBar.reset" = "Varsayılanlara Dön";
+"ext.tv.player.browse" = "Göz at";
+"ext.tv.player.shelf.thisAlbum" = "Bu albüm";
+"ext.tv.player.shelf.moreByArtist" = "Aynı sanatçıdan";
+"ext.tv.player.shelf.hint" = "Albümlere, sanatçılara ve türlere göz at";
+"ext.tv.player.shelf.empty" = "Burada henüz bir şey yok";
+"ext.tv.nowPlaying.artworkHint" = "Sol / sağ: parça değiştir · Bas: göz at · Basılı tut: daha fazla";
+"ext.tv.options.section.song" = "Bu şarkı";
+"ext.tv.options.section.playback" = "Oynatma";
+"ext.tv.options.section.goTo" = "Git";

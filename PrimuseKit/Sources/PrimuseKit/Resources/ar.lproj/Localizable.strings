@@ -916,3 +916,12 @@
 "ext.tv.settings.tabBar.moveUp" = "نقل لأعلى";
 "ext.tv.settings.tabBar.moveDown" = "نقل لأسفل";
 "ext.tv.settings.tabBar.reset" = "استعادة الافتراضي";
+"ext.tv.player.browse" = "تصفّح";
+"ext.tv.player.shelf.thisAlbum" = "هذا الألبوم";
+"ext.tv.player.shelf.moreByArtist" = "للفنان نفسه";
+"ext.tv.player.shelf.hint" = "تصفّح الألبومات والفنانين والأنواع";
+"ext.tv.player.shelf.empty" = "لا يوجد شيء هنا بعد";
+"ext.tv.nowPlaying.artworkHint" = "يسار / يمين: تبديل المقطع · اضغط: تصفّح · اضغط مطولًا: المزيد";
+"ext.tv.options.section.song" = "هذه الأغنية";
+"ext.tv.options.section.playback" = "التشغيل";
+"ext.tv.options.section.goTo" = "انتقال إلى";

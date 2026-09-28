@@ -916,3 +916,12 @@
 "ext.tv.settings.tabBar.moveUp" = "Вверх";
 "ext.tv.settings.tabBar.moveDown" = "Вниз";
 "ext.tv.settings.tabBar.reset" = "Восстановить по умолчанию";
+"ext.tv.player.browse" = "Обзор";
+"ext.tv.player.shelf.thisAlbum" = "Этот альбом";
+"ext.tv.player.shelf.moreByArtist" = "Этого исполнителя";
+"ext.tv.player.shelf.hint" = "Обзор альбомов, исполнителей и жанров";
+"ext.tv.player.shelf.empty" = "Здесь пока ничего нет";
+"ext.tv.nowPlaying.artworkHint" = "Влево / вправо: сменить трек · Нажать: обзор · Удерживать: ещё";
+"ext.tv.options.section.song" = "Эта песня";
+"ext.tv.options.section.playback" = "Воспроизведение";
+"ext.tv.options.section.goTo" = "Перейти";

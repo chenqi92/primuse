@@ -969,3 +969,12 @@
 "ext.tv.settings.tabBar.moveUp" = "Nach oben";
 "ext.tv.settings.tabBar.moveDown" = "Nach unten";
 "ext.tv.settings.tabBar.reset" = "Standard wiederherstellen";
+"ext.tv.player.browse" = "Durchsuchen";
+"ext.tv.player.shelf.thisAlbum" = "Dieses Album";
+"ext.tv.player.shelf.moreByArtist" = "Vom selben Künstler";
+"ext.tv.player.shelf.hint" = "Alben, Künstler und Genres durchsuchen";
+"ext.tv.player.shelf.empty" = "Hier ist noch nichts";
+"ext.tv.nowPlaying.artworkHint" = "Links / rechts: Titel wechseln · Drücken: durchsuchen · Halten: mehr";
+"ext.tv.options.section.song" = "Dieser Titel";
+"ext.tv.options.section.playback" = "Wiedergabe";
+"ext.tv.options.section.goTo" = "Gehe zu";

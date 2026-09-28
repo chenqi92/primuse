@@ -916,3 +916,12 @@
 "ext.tv.settings.tabBar.moveUp" = "เลื่อนขึ้น";
 "ext.tv.settings.tabBar.moveDown" = "เลื่อนลง";
 "ext.tv.settings.tabBar.reset" = "คืนค่าเริ่มต้น";
+"ext.tv.player.browse" = "เรียกดู";
+"ext.tv.player.shelf.thisAlbum" = "อัลบั้มนี้";
+"ext.tv.player.shelf.moreByArtist" = "ศิลปินเดียวกัน";
+"ext.tv.player.shelf.hint" = "เรียกดูอัลบั้ม ศิลปิน และแนวเพลง";
+"ext.tv.player.shelf.empty" = "ยังไม่มีอะไรที่นี่";
+"ext.tv.nowPlaying.artworkHint" = "ซ้าย / ขวา: เปลี่ยนเพลง · กด: เรียกดู · กดค้าง: เพิ่มเติม";
+"ext.tv.options.section.song" = "เพลงนี้";
+"ext.tv.options.section.playback" = "การเล่น";
+"ext.tv.options.section.goTo" = "ไปที่";
