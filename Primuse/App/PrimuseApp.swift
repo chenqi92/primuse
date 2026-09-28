@@ -500,6 +500,7 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         MacTaskExceptionGuard.install()
+        MacLazyStackAccessibilityGuard.install()
         // 紧跟在防护后面：上次启动要是没活下来，先把原因摆出来再继续，
         // 免得这次也崩在同一个地方、用户永远看不到。
         MacLaunchDiagnostics.begin()
@@ -527,6 +528,10 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
             // 图标跳变压到最短，但那个时机 Dock tile 还没建好，系统未必认账；
             // 这里补一次兜底。重复设同一张图没有副作用。
             MacUIPreferences.shared.applyAppIcon()
+
+            #if DEBUG
+            DebugAccessibilityScript.runIfRequested()
+            #endif
 
             let bar = MacMenuBarController()
             bar.install()
