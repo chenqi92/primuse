@@ -249,6 +249,99 @@ public enum LibraryArtworkOverridePolicy {
     }
 }
 
+/// 自选封面指向的歌在本机换了 id（跨设备挂载、服务端改 id）时，要按身份在整库里找；
+/// 这里决定上一次找的结果还能不能接着用。
+///
+/// `songs` 每重新赋值一次就换一代。冷启动的回填、复查每替换一批歌就换一代，以前代次一变
+/// 缓存整个作废，首页每张艺人卡在 body 里各扫一遍整库（5.8 万首时一帧几百毫秒），滑动一直卡。
+/// - 同一代：直接用。
+/// - 换了代、上次找到过：先核对那首歌是否还在、还对得上，对得上就续用，不用整库找。
+/// - 换了代、上次没找到：只在有歌进出（数量变了）或离上次整库找已超过
+///   `unresolvedRecheckInterval` 时重找。回填只改元数据时不必每批都扫，
+///   靠间隔兜住「补全标题后才对得上」的情况。
+public enum LibraryArtworkSongResolutionCachePolicy {
+    public struct Entry: Equatable, Sendable {
+        public let identity: SongIdentity
+        public let songID: String?
+        public let generation: UInt64
+        public let songCount: Int
+        public let checkedAt: Date
+
+        public init(
+            identity: SongIdentity,
+            songID: String?,
+            generation: UInt64,
+            songCount: Int,
+            checkedAt: Date
+        ) {
+            self.identity = identity
+            self.songID = songID
+            self.generation = generation
+            self.songCount = songCount
+            self.checkedAt = checkedAt
+        }
+
+        /// 核对通过后续用：答案不变，只把代次跟上。
+        public func carried(to generation: UInt64, songCount: Int) -> Entry {
+            Entry(
+                identity: identity,
+                songID: songID,
+                generation: generation,
+                songCount: songCount,
+                checkedAt: checkedAt
+            )
+        }
+    }
+
+    public enum Decision: Equatable, Sendable {
+        case reuse
+        /// 上次找到的这首还得核对一下；核对不过就整库重找。
+        case verify(songID: String)
+        case resolve
+    }
+
+    public static let unresolvedRecheckInterval: TimeInterval = 10
+
+    public static func decision(
+        cached: Entry?,
+        identity: SongIdentity,
+        generation: UInt64,
+        songCount: Int,
+        now: Date
+    ) -> Decision {
+        guard let cached, cached.identity == identity else { return .resolve }
+        guard cached.generation != generation else { return .reuse }
+        if let songID = cached.songID { return .verify(songID: songID) }
+        guard cached.songCount == songCount,
+              now.timeIntervalSince(cached.checkedAt) < unresolvedRecheckInterval else {
+            return .resolve
+        }
+        return .reuse
+    }
+
+    /// 与整库匹配同一套条件：同一云账号下的同一路径，或标题相同、时长差一秒以内、
+    /// 身份带了艺术家时艺术家也相同。
+    public static func song(
+        title: String,
+        artistName: String?,
+        duration: Double,
+        filePath: String,
+        cloudAccountID: () -> String?,
+        matches identity: SongIdentity
+    ) -> Bool {
+        if let accountID = identity.cloudAccountID,
+           !identity.filePath.isEmpty,
+           filePath == identity.filePath,
+           cloudAccountID() == accountID {
+            return true
+        }
+        return !identity.title.isEmpty
+            && title == identity.title
+            && abs(duration - identity.duration) < 1.0
+            && (identity.artistName == nil || artistName == identity.artistName)
+    }
+}
+
 public enum LibraryArtworkOverrideConflictWinner: Equatable, Sendable {
     case local
     case remote

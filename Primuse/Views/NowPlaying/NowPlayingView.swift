@@ -575,14 +575,19 @@ private struct NowPlayingAlbumTransitionSourceModifier: ViewModifier {
 /// 竖屏布局 → 歌名栏 → 「更多」菜单这一串，iPhone 主线程 1MB 的栈会被吃满，
 /// 打开播放页就撞上栈保护页崩溃。包进这一层后，外层闭包只持有一个闭包大小的值，
 /// 布局本身等到这一层更新时才构造，那时外层那几帧已经返回。
-private struct NowPlayingDeferredContent<Content: View>: View {
-    private let content: () -> Content
+///
+/// 这一层不带泛型参数、内容擦成 AnyView：带着布局类型时，播放页 `body` 的静态类型
+/// 是「所有布局拼成的条件类型」，第一次展开播放页 SwiftUI 就要把横屏骨架、平板分栏、
+/// 电台、MV 等每一套布局的类型元数据都实例化一遍（采样里首次展开那一卡的大头），
+/// 而竖屏 iPhone 只会用到其中一套。擦掉之后只有真正走到的那一支才实例化。
+private struct NowPlayingDeferredContent: View {
+    private let content: () -> AnyView
 
-    init(@ViewBuilder content: @escaping () -> Content) {
-        self.content = content
+    init<Content: View>(@ViewBuilder content: @escaping () -> Content) {
+        self.content = { AnyView(content()) }
     }
 
-    var body: some View {
+    var body: AnyView {
         content()
     }
 }
@@ -2559,7 +2564,9 @@ struct NowPlayingView: View {
         // 首靠 setQueue 自然推进继续 ── 主接力点是当前歌 + 接下来几首。
         .userActivity(
             "com.welape.yuanyin.nowplaying",
-            isActive: player.currentSong != nil && !player.isLiveRadio
+            // 进场动画结束后再挂 Handoff：激活时要拼一份队列窗口与显示名，
+            // 不必挤进首次展开那几帧。
+            isActive: isPresentationSettled && player.currentSong != nil && !player.isLiveRadio
         ) { activity in
             guard let song = player.currentSong, !player.isLiveRadio else { return }
             let by = library.artistDisplayName(for: song).map { " — \($0)" } ?? ""

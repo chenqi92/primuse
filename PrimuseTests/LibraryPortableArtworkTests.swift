@@ -402,6 +402,47 @@ extension LibraryPortableArtworkTests {
         XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [remounted]), .automatic)
     }
 
+    /// 首页一屏有多张自选封面卡时，第一张触发的整库查找要顺带把其它卡也解析掉，
+    /// 后面的卡直接命中缓存，不再各扫一遍。
+    func testArtworkIdentityLookupResolvesAllPendingOwnersInOneScan() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = MusicLibrary(storageDirectory: root)
+        var resolverCalls = 0
+        library.sourceIdentityResolver = { _ in
+            resolverCalls += 1
+            return "account"
+        }
+        let first = Song(id: "old-1", title: "One", duration: 200, fileFormat: .flac, filePath: "shared/one.flac", sourceID: "original")
+        let second = Song(id: "old-2", title: "Two", duration: 200, fileFormat: .flac, filePath: "shared/two.flac", sourceID: "original")
+        let ownerA = LibraryArtworkOwner(kind: .artist, id: "artist-a")
+        let ownerB = LibraryArtworkOwner(kind: .artist, id: "artist-b")
+        XCTAssertTrue(library.setArtwork(for: ownerA, to: first))
+        XCTAssertTrue(library.setArtwork(for: ownerB, to: second))
+        var remountedFirst = first
+        remountedFirst.id = "new-1"
+        remountedFirst.sourceID = "mount"
+        var remountedSecond = second
+        remountedSecond.id = "new-2"
+        remountedSecond.sourceID = "mount"
+        let unrelated = (0..<500).map { index in
+            Song(id: "unrelated-\(index)", title: "Other \(index)", duration: 200, fileFormat: .flac, filePath: "other-\(index).flac", sourceID: "mount")
+        }
+        library.addSongs(unrelated + [remountedFirst, remountedSecond])
+
+        resolverCalls = 0
+        XCTAssertEqual(
+            library.artworkOverrideResolution(for: ownerA, eligibleSongs: [remountedFirst]),
+            .selectedSong(remountedFirst.id)
+        )
+        XCTAssertEqual(resolverCalls, 1)
+        XCTAssertEqual(
+            library.artworkOverrideResolution(for: ownerB, eligibleSongs: [remountedSecond]),
+            .selectedSong(remountedSecond.id)
+        )
+        XCTAssertEqual(resolverCalls, 1)
+    }
+
     func testArtworkIdentityLookupKeepsTitleFallbackAndFirstMatchingSong() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

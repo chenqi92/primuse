@@ -3398,13 +3398,11 @@ final class MusicLibrary {
     var deviceLocalFilePresenceProbe: ((_ candidates: [Song]) -> Set<String>)?
 
     /// 封面覆盖解析的记忆化结果, 按 owner 存一条。解析 `.selectedSong` 覆盖时
-    /// 的慢路径 (跨设备挂载导致 songID 不同, 且模糊匹配也落空) 要整库扫一遍,
-    /// 而它的答案在 `songs` 不变之前不可能改变 —— 卡片 body 却会随
-    /// `songReplacementToken` 在整轮回填里反复求值。失败结果同样缓存, 慢的
-    /// 正是失败那一支。
+    /// 的慢路径 (跨设备挂载导致 songID 不同) 要整库扫一遍, 卡片 body 却会随
+    /// `songReplacementToken` 在整轮回填里反复求值。换代后怎么续用见
+    /// `LibraryArtworkSongResolutionCachePolicy`; 失败结果同样缓存, 慢的正是失败那一支。
     @ObservationIgnored
-    private var artworkSongIDResolutions:
-        [String: (generation: UInt64, identity: SongIdentity, songID: String?)] = [:]
+    private var artworkSongIDResolutions: [String: LibraryArtworkSongResolutionCachePolicy.Entry] = [:]
 
     /// AppServices wires supported server-favorite persistence here. Local
     /// liked state is updated synchronously for responsive UI; the handler
@@ -7081,7 +7079,15 @@ final class MusicLibrary {
     }
 
     func songCount(forPlaylist playlistID: String) -> Int {
-        songSummary(forPlaylist: playlistID).count
+        _ = visibleSongsReference
+        // 只数个数时不取出 Song: 字典取值要把整首歌拷一份, 几十个上千首的歌单
+        // 加起来就是几万次拷贝 (Spotlight 快照、歌单列表都走这里)。
+        var count = 0
+        for songID in playlistSongIDs[playlistID] ?? []
+        where visibleSongByID.index(forKey: songID) != nil {
+            count += 1
+        }
+        return count
     }
 
     /// Recently played music. Spoken word is left out — a book is resumed
@@ -8746,18 +8752,32 @@ final class MusicLibrary {
         var accountIDBySourceID: [String: String] = [:]
         var resolvedSourceIDs = Set<String>()
 
-        for (songIndex, song) in songs.enumerated() {
-            if requestedTitles.contains(song.title) {
-                songIndicesByTitle[song.title, default: []].append(songIndex)
+        // 按下标只取要比对的字段: `for song in songs` 每一首都要整份拷贝 Song
+        // (几十个字符串字段逐个 retain/release), 整库五六万首时这才是大头。
+        let allSongs = songs
+        let matchesTitles = !requestedTitles.isEmpty
+        let matchesPaths = !requestedFilePaths.isEmpty
+        guard matchesTitles || matchesPaths else {
+            return IdentityResolutionIndex(songIDByCloudPath: [:], songIndicesByTitle: [:])
+        }
+        for songIndex in allSongs.indices {
+            if matchesTitles {
+                let title = allSongs[songIndex].title
+                if requestedTitles.contains(title) {
+                    songIndicesByTitle[title, default: []].append(songIndex)
+                }
             }
-            guard requestedFilePaths.contains(song.filePath) else { continue }
-            if resolvedSourceIDs.insert(song.sourceID).inserted {
-                accountIDBySourceID[song.sourceID] = sourceIdentityResolver?(song.sourceID)
+            guard matchesPaths else { continue }
+            let filePath = allSongs[songIndex].filePath
+            guard requestedFilePaths.contains(filePath) else { continue }
+            let sourceID = allSongs[songIndex].sourceID
+            if resolvedSourceIDs.insert(sourceID).inserted {
+                accountIDBySourceID[sourceID] = sourceIdentityResolver?(sourceID)
             }
-            guard let accountID = accountIDBySourceID[song.sourceID] else { continue }
-            let key = IdentityCloudPathKey(accountID: accountID, filePath: song.filePath)
+            guard let accountID = accountIDBySourceID[sourceID] else { continue }
+            let key = IdentityCloudPathKey(accountID: accountID, filePath: filePath)
             if requestedCloudPaths.contains(key), songIDByCloudPath[key] == nil {
-                songIDByCloudPath[key] = song.id
+                songIDByCloudPath[key] = allSongs[songIndex].id
             }
         }
 
@@ -8822,19 +8842,74 @@ final class MusicLibrary {
             return identity.songID
         }
         let key = owner.storageKey
-        if let cached = artworkSongIDResolutions[key],
-           cached.generation == songMutationGeneration,
-           cached.identity == identity {
-            return cached.songID
-        }
-        let index = makeIdentityResolutionIndex(for: [identity])
-        let resolved = resolveIdentity(identity, using: index)
-        artworkSongIDResolutions[key] = (
-            generation: songMutationGeneration,
+        let cached = artworkSongIDResolutions[key]
+        let songCount = songs.count
+        switch LibraryArtworkSongResolutionCachePolicy.decision(
+            cached: cached,
             identity: identity,
-            songID: resolved
+            generation: songMutationGeneration,
+            songCount: songCount,
+            now: Date()
+        ) {
+        case .reuse:
+            return cached?.songID
+        case .verify(let songID):
+            if let cached, artworkSong(songID, stillMatches: identity) {
+                artworkSongIDResolutions[key] = cached.carried(
+                    to: songMutationGeneration,
+                    songCount: songCount
+                )
+                return songID
+            }
+        case .resolve:
+            break
+        }
+        resolveArtworkSongIDsInOneScan(including: (key, identity))
+        return artworkSongIDResolutions[key]?.songID
+    }
+
+    private func artworkSong(_ songID: String, stillMatches identity: SongIdentity) -> Bool {
+        guard let song = songForSynchronization(id: songID) else { return false }
+        return LibraryArtworkSongResolutionCachePolicy.song(
+            title: song.title,
+            artistName: song.artistName,
+            duration: song.duration,
+            filePath: song.filePath,
+            cloudAccountID: { sourceIdentityResolver?(song.sourceID) },
+            matches: identity
         )
-        return resolved
+    }
+
+    /// 首页一屏常有十几张自选封面的卡片, 一张要整库找时顺手把其它同样要找的一并找了:
+    /// 一次遍历建好所有待找身份的索引, 而不是每张卡各扫一遍。
+    private func resolveArtworkSongIDsInOneScan(including requested: (key: String, identity: SongIdentity)) {
+        let generation = songMutationGeneration
+        let songCount = songs.count
+        let now = Date()
+        var pending = [requested]
+        for (key, override) in artworkOverridesByOwner where key != requested.key {
+            guard override.mode == .selectedSong,
+                  let identity = override.selectedSongIdentity,
+                  songIndexByID[identity.songID] == nil,
+                  LibraryArtworkSongResolutionCachePolicy.decision(
+                      cached: artworkSongIDResolutions[key],
+                      identity: identity,
+                      generation: generation,
+                      songCount: songCount,
+                      now: now
+                  ) == .resolve else { continue }
+            pending.append((key, identity))
+        }
+        let index = makeIdentityResolutionIndex(for: pending.map(\.identity))
+        for item in pending {
+            artworkSongIDResolutions[item.key] = LibraryArtworkSongResolutionCachePolicy.Entry(
+                identity: item.identity,
+                songID: resolveIdentity(item.identity, using: index),
+                generation: generation,
+                songCount: songCount,
+                checkedAt: now
+            )
+        }
     }
 
     /// Merge a fresh batch of unresolved identities into the existing

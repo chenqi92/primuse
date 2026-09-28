@@ -331,10 +331,13 @@ struct CachedArtworkView: View {
         }
         .task(id: loadTaskIdentity) {
             // 不在这里先看 placeholderRevealed：两个 task 谁先跑不确定，读到的
-            // 可能是换身份前的旧值。revealPlaceholder 自己会去重。
+            // 可能是换身份前的旧值。revealPlaceholder 自己会去重。首帧就有图（内存
+            // 命中）或根本没有封面来源时不用等：列表滚动时每个格子都会挂一次，
+            // 白挂一个睡 180ms 的任务不值得。
+            guard !hasNoArtworkSource, !hasResolvedArtwork else { return }
             try? await Task.sleep(for: Self.placeholderGracePeriod)
             guard !Task.isCancelled, !hasResolvedArtwork else { return }
-            revealPlaceholder()
+            revealPlaceholder(animated: true)
         }
         .task(id: animationLoadIdentity) {
             await loadAnimatedArtwork(for: animationLoadIdentity)
@@ -439,7 +442,9 @@ struct CachedArtworkView: View {
             decodedArtwork(image)
                 .id(artworkGeneration)
                 .pmFadeTransition()
-        } else if showsPlaceholder && placeholderRevealed {
+        } else if showsPlaceholder && (placeholderRevealed || hasNoArtworkSource) {
+            // 没有任何封面来源（艺人卡垫底那层、空歌曲）第一帧就画占位：它不会
+            // 变成封面，等宽限期或淡入都只是在每次挂载时白白多一段动画。
             placeholderView
                 .pmFadeTransition()
         } else {
@@ -521,6 +526,17 @@ struct CachedArtworkView: View {
 
     private var hasResolvedArtwork: Bool {
         appleMusicArtwork != nil || displayedImage != nil
+    }
+
+    /// 与 `ArtworkSourceRequestIdentity.key` 为 nil、且不走专辑/艺人路径同义：
+    /// 这种视图读盘、取源都拿不到任何东西。只比较字段是否为空，不拼缓存键。
+    private var hasNoArtworkSource: Bool {
+        albumID == nil && artistID == nil
+            && (songID ?? "").isEmpty
+            && (coverRef ?? "").isEmpty
+            && (sourceID ?? "").isEmpty
+            && (filePath ?? "").isEmpty
+            && (fileFormat?.rawValue ?? "").isEmpty
     }
 
     /// A new player surface must reuse the mini player's decoded cover on
@@ -1323,13 +1339,13 @@ struct CachedArtworkView: View {
             placeholderRevealed = false
         }
 
-        guard !key.isEmpty else {
+        guard !key.isEmpty, !hasNoArtworkSource else {
+            revealPlaceholder(animated: false)
             if holdsPreviousArtwork {
                 dropHeldArtwork()
             } else if image != nil {
                 image = nil
             }
-            revealPlaceholder()
             loadedIdentity = identity
             onResolutionChange(hasResolvedArtwork)
             return
@@ -1357,14 +1373,15 @@ struct CachedArtworkView: View {
         }
         guard loadsHighResolution else {
             // 大封面位入场期间不读盘，此时没有图就照旧先放占位。
-            revealPlaceholder()
+            revealPlaceholder(animated: false)
             return
         }
 
         if Self.hasRecentFailure(for: failureNSKey) {
             // 命中失败缓存说明这一首这次就是取不到封面，留着上一首的图会张冠李戴。
+            // 先无动画地放出占位，留着的图再淡出时就是和占位对着淡。
+            revealPlaceholder(animated: false)
             dropHeldArtwork()
-            revealPlaceholder()
             loadedIdentity = identity
             onResolutionChange(hasResolvedArtwork)
             return
@@ -1409,8 +1426,8 @@ struct CachedArtworkView: View {
             showArtwork(decoded, decodedAsynchronously: true)
         } else {
             // 解码结果为空同样要把上一首的图换掉。
+            revealPlaceholder(animated: false)
             dropHeldArtwork()
-            revealPlaceholder()
         }
         if sourceID != AppleMusicLibraryService.systemSourceID || appleMusicArtworkIdentity.isEmpty {
             onResolutionChange(hasResolvedArtwork)
@@ -1450,9 +1467,18 @@ struct CachedArtworkView: View {
 
     private static let placeholderGracePeriod: Duration = .milliseconds(180)
 
-    private func revealPlaceholder() {
+    /// 只有「加载超过宽限期还没回来」才淡入占位；确认没有封面的几种情况像加宽限期
+    /// 之前一样直接出现 —— 列表滚动里每个新挂上的格子都淡入一次占位，冷启动时再
+    /// 叠上封面的淡入，就是一格两段动画。
+    private func revealPlaceholder(animated: Bool) {
         guard !placeholderRevealed else { return }
-        withAnimation(PMMotion.contentAppear.animation) { placeholderRevealed = true }
+        if animated {
+            withAnimation(PMMotion.contentAppear.animation) { placeholderRevealed = true }
+        } else {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { placeholderRevealed = true }
+        }
     }
 
     /// 新歌确实没有封面时，把留着的上一首封面淡出到占位。只有常驻位会留图，所以这里

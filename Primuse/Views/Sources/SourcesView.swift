@@ -773,7 +773,7 @@ struct SourcesContentView: View {
             // Source cards read cached, disjoint metadata counts. Refresh once
             // when the source topology changes; worker updates publish later
             // revisions without rescanning the library from every card body.
-            backfill.refreshStatusSnapshot()
+            await backfill.refreshStatusSnapshotOffMain()
         }
     }
 

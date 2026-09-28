@@ -131,7 +131,7 @@ struct MacSourcesView: View {
             cloudDirectoryNameRefreshID = UUID()
         }
         .task(id: "metadata-status-\(sources.map(\.id).joined(separator: ","))") {
-            backfill.refreshStatusSnapshot()
+            await backfill.refreshStatusSnapshotOffMain()
         }
         .confirmationDialog(
             Text("source_remove_confirm_title"),

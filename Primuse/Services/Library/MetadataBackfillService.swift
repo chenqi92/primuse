@@ -2618,6 +2618,12 @@ final class MetadataBackfillService {
         refreshRemainingCounts(force: true)
     }
 
+    /// 音乐源页出现时对一次账。整库折一遍（五六万首时主线程上要几百毫秒）放到
+    /// 后台执行器上，卡片先显示上一次的数，算完再换。
+    func refreshStatusSnapshotOffMain() async {
+        await refreshRemainingCountsOffMain(force: true)
+    }
+
     func sourceStatusSummary(forSource sourceID: String) -> MetadataBackfillSourceSummary {
         sourceStatusSummaries[sourceID] ?? MetadataBackfillSourceSummary()
     }

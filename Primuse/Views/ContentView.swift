@@ -1190,13 +1190,22 @@ struct ContentView: View {
 
     private var mainContent: some View {
         ZStack(alignment: .bottom) {
-            switch rootLayout {
-            case .standardSidebar:
-                padRoot
-            case .standardTabs:
-                playerAwareTabRoot
-            case .minimal:
-                minimalRoot
+            Group {
+                switch rootLayout {
+                case .standardSidebar:
+                    padRoot
+                case .standardTabs:
+                    playerAwareTabRoot
+                case .minimal:
+                    minimalRoot
+                }
+            }
+            // 这两个开关只由页面里的批量选择与 CarPlay 编辑器上报。挂在整个 ZStack
+            // 上时，按需挂载的播放页也落在请求范围里：第一次展开播放页，SwiftUI 要
+            // 顺着整棵播放页视图树建这两个 Preference 的汇总，采样里这就是展开那一卡。
+            .onPreferenceChange(CarPlayEditorActivePreferenceKey.self) { carPlayEditorActive = $0 }
+            .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { isActive in
+                batchSelectionActive = isActive
             }
 
             if miniPlayerVisible && rootLayout == .standardTabs {
@@ -1237,14 +1246,10 @@ struct ContentView: View {
         .environment(\.librarySearchNavigation, searchNavigation)
         .environment(\.appNavigationMode, navigationMode)
         .environment(\.legacyBottomChromeOverlayActive, legacyBottomChromeOverlayActive)
-        .onPreferenceChange(CarPlayEditorActivePreferenceKey.self) { carPlayEditorActive = $0 }
         .songBatchRemovalFeedback()
         .serverCatalogRefreshFeedback()
         .smartNudges()
         .appleMusicSubscriptionOffer()
-        .onPreferenceChange(SongBatchSelectionActivePreferenceKey.self) { isActive in
-            batchSelectionActive = isActive
-        }
         // Visibility and search revisions are presentation signals, not proof
         // that a song was durably removed. Only the library's authoritative
         // removal event is allowed to mutate active playback.
