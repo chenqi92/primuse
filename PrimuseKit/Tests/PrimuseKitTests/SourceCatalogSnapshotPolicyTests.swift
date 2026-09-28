@@ -154,6 +154,32 @@ struct ServerSongCatalogMergePolicyTests {
         #expect(merged.userMetadataEditedAt == existing.userMetadataEditedAt)
     }
 
+    @Test func subSecondModifiedDateLostOnDiskIsNotAContentChange() throws {
+        // 服务端带小数秒，资料库存盘（.iso8601）后读回来只剩整秒。
+        var incoming = song(revision: "r1")
+        incoming.revision = nil
+        incoming.lastModified = Date(timeIntervalSince1970: 1_714_566_896.789)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let existing = try decoder.decode(Song.self, from: encoder.encode(incoming))
+        #expect(existing.lastModified != incoming.lastModified)
+
+        #expect(!ServerSongCatalogMergePolicy.contentChanged(existing: existing, incoming: incoming))
+        #expect(ServerSongCatalogMergePolicy.merged(existing: existing, incoming: incoming)
+            .lastModified == existing.lastModified)
+    }
+
+    @Test func modifiedDateMovingBySecondsIsStillAContentChange() {
+        var existing = song(revision: "r1")
+        existing.revision = nil
+        existing.lastModified = Date(timeIntervalSince1970: 1_714_566_896)
+        var incoming = existing
+        incoming.lastModified = Date(timeIntervalSince1970: 1_714_566_898)
+        #expect(ServerSongCatalogMergePolicy.contentChanged(existing: existing, incoming: incoming))
+    }
+
     @Test func newlyAvailableFingerprintsDoNotEraseDeviceEnrichment() {
         var existing = song(revision: "placeholder")
         existing.revision = nil

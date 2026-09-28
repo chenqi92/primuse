@@ -264,6 +264,12 @@ public enum ServerSongCatalogMergePolicy {
         return incoming
     }
 
+    /// 资料库存盘用 `.iso8601` 日期格式，不带小数秒；Navidrome 等服务端的
+    /// `created` 带小数秒。精确比较时，每次冷启动读回来的歌都和服务端差不到一秒，
+    /// 整个服务端源被判成「内容变了」：离线缓存被删、整行被服务端版本覆盖，
+    /// 主线程还要逐首清缓存。真正换过的文件时间差远大于这个值。
+    public static let modificationTimeTolerance: TimeInterval = 1
+
     public static func contentChanged(existing: Song, incoming: Song) -> Bool {
         let sizeChanged = incoming.fileSize > 0
             && existing.fileSize > 0
@@ -271,7 +277,8 @@ public enum ServerSongCatalogMergePolicy {
         let modifiedChanged: Bool = {
             guard let incomingDate = incoming.lastModified,
                   let existingDate = existing.lastModified else { return false }
-            return incomingDate != existingDate
+            return abs(incomingDate.timeIntervalSince(existingDate))
+                >= modificationTimeTolerance
         }()
         let revisionChanged: Bool = {
             guard let incomingRevision = incoming.revision,
