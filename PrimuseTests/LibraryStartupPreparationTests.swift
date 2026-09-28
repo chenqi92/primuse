@@ -449,7 +449,7 @@ final class LibraryStartupPreparationTests: XCTestCase {
         XCTAssertFalse(library.songs.isEmpty)
         XCTAssertEqual(
             try IncrementalSongStore(path: storePath).startupState().completedMigrationVersion,
-            7,
+            10,
             "publication must run the deferred store migration"
         )
     }
