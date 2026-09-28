@@ -1549,7 +1549,10 @@ struct StoredCoverArtView: View {
     @State private var data: Data?
 
     var body: some View {
-        CoverArtView(data: data, size: size, cornerRadius: cornerRadius)
+        CoverArtView(
+            data: data, size: size, cornerRadius: cornerRadius,
+            showsMissingArtworkIcon: fileName == nil
+        )
             .task(id: fileName) {
                 data = await loadData(for: fileName)
             }

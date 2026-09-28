@@ -4,6 +4,10 @@ struct CoverArtView: View {
     let data: Data?
     var size: CGFloat = 48
     var cornerRadius: CGFloat = 8
+    /// Mac 上没有数据时是否画音符。默认不画：没数据多半是「还没有当前歌曲」
+    /// 或「封面还在读」，冷启动续播恢复前画音符会先闪一下再变成封面。
+    /// 只有确认这首歌没有封面时才传 true。
+    var showsMissingArtworkIcon = false
 
     var body: some View {
         Group {
@@ -13,7 +17,12 @@ struct CoverArtView: View {
                     .aspectRatio(contentMode: .fill)
             } else {
                 #if os(macOS)
-                MacDefaultArtwork()
+                if showsMissingArtworkIcon {
+                    MacDefaultArtwork()
+                } else {
+                    Color.clear
+                        .accessibilityHidden(true)
+                }
                 #else
                 ZStack {
                     RoundedRectangle(cornerRadius: cornerRadius)
