@@ -25,7 +25,7 @@ private var tvDebugShelfLaunch: (show: Bool, tab: TVPlayerShelfTab) {
 
 /// tvOS 正在播放 — 左列封面+元数据+进度+传输键,右列巨幅逐字歌词(对应 TVNowPlayingArtboard)。
 /// 按封面或往下走到底升起快切货架(`TVPlayerShelf`),在播放页里直接换专辑 / 艺术家 / 流派;
-/// 长按封面是喜欢与前往专辑 / 艺术家。Menu 键先收起货架,再离开播放页。
+/// 长按封面是喜欢、前往、随机、睡眠定时与更多。Menu 键先收起货架,再离开播放页。
 struct TVNowPlayingView: View {
     @Environment(TVStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -527,38 +527,20 @@ struct TVNowPlayingView: View {
         return VStack(alignment: .leading, spacing: 0) {
             TVEyebrow(text: PMString("ext.tv.nowPlaying.eyebrow")).padding(.bottom, 16)
             // 按封面 = 浏览这张专辑(货架);暂停交给遥控器的播放键,确认键不再重复它。
-            Button {
-                openShelf(.thisAlbum)
-            } label: {
-                TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
-                              songID: np.songID, coverRef: np.coverRef,
-                              tint: np.tint, tint2: np.tint2, glyph: np.glyph,
-                              size: 420, radius: 20,
-                              presentationRole: .animatedHero,
-                              animationRequiresPlayback: true,
-                              isPlaying: store.isPlaying,
-                              isAnimationVisible: activePresentationCount == 0)
-                    .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
-                    .tvFocusRing(focusedTransport == .songPrimary, radius: 20,
-                                 accent: TVColor.focusRing, scale: 1.025, lift: 0)
-                    .overlay(alignment: .bottomLeading) {
-                        if focusedTransport == .songPrimary {
-                            Text(PMString("ext.tv.nowPlaying.artworkHint"))
-                                .tvFont(.caption, weight: .medium)
-                                .foregroundStyle(.white)
-                                .multilineTextAlignment(.leading)
-                                .padding(12)
-                                .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
-                                .padding(14)
-                                .accessibilityHidden(true)
-                        }
-                    }
-            }
-            .buttonStyle(TVBareButtonStyle())
+            // 封面和长按菜单是单独的视图:这里每拍都随进度、歌词重算,菜单若跟着
+            // 重建,打开期间整块会一直闪。
+            TVNowPlayingArtworkButton(
+                np: np,
+                isPlaying: store.isPlaying,
+                isAnimationVisible: activePresentationCount == 0,
+                isFocused: focusedTransport == .songPrimary,
+                onOpenShelf: openShelf,
+                onShowMore: { showOptions = true }
+            )
+            .equatable()
             .focused($focusedTransport, equals: .songPrimary)
             .focusEffectDisabled()
             .onMoveCommand(perform: handleArtworkMove)
-            .contextMenu { artworkContextMenu }
             .accessibilityLabel(Text(PMString("ext.tv.player.browse")))
             .accessibilityHint(Text(PMString("ext.tv.nowPlaying.artworkHint")))
             .accessibilityIdentifier("tv.nowPlaying.artworkControls")
@@ -595,54 +577,6 @@ struct TVNowPlayingView: View {
             transport(immersiveDark: false)
             shelfHandle.padding(.top, 14)
         }
-    }
-
-    /// 长按封面:喜欢;「前往」与货架、「更多」同一套名字和图标;随机、睡眠定时;
-    /// 其余(匹配信息、卡拉OK、串烧)在「更多」里。
-    @ViewBuilder
-    private var artworkContextMenu: some View {
-        if let songID = store.currentSongID {
-            let liked = store.isLiked(songID)
-            Button(
-                PMString(liked ? "ext.tv.options.loved" : "ext.tv.options.love"),
-                systemImage: liked ? "heart.fill" : "heart"
-            ) {
-                store.toggleLiked(songID)
-            }
-        }
-        Section(PMString("ext.tv.options.section.goTo")) {
-            ForEach(TVPlayerShelfTab.goToDestinations.filter { $0 != .upNext || !store.queueUpNextIDs.isEmpty }) { tab in
-                Button(tab.title, systemImage: tab.systemImage) { openShelf(tab) }
-            }
-        }
-        Section(PMString("ext.tv.options.section.playback")) {
-            Toggle(isOn: Binding(get: { store.shuffleEnabled }, set: { _ in store.toggleShuffle() })) {
-                Label(PMString("shuffle"), systemImage: "shuffle")
-            }
-            Menu {
-                ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
-                    Toggle(isOn: Binding(
-                        get: { store.sleepTimerMinutes == minutes },
-                        set: { _ in store.setSleepTimer(minutes: minutes) }
-                    )) {
-                        Text(verbatim: "\(minutes) " + String(localized: "minutes"))
-                    }
-                }
-                if store.sleepTimerMinutes > 0 {
-                    Button(String(localized: "cancel_timer"), systemImage: "moon.zzz") {
-                        store.cancelSleepTimer()
-                    }
-                }
-            } label: {
-                Label(
-                    store.sleepTimerMinutes > 0
-                        ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes)
-                        : PMString("ext.tv.options.sleepTimer"),
-                    systemImage: store.sleepTimerMinutes > 0 ? "moon.zzz.fill" : "moon.zzz"
-                )
-            }
-        }
-        Button(PMString("more"), systemImage: "ellipsis.circle") { showOptions = true }
     }
 
     /// 传输键下面的把手:焦点往下走到它就升起货架,和系统视频播放器下滑出面板一个手势。
@@ -1490,6 +1424,112 @@ struct TVRoundBtn: View {
         }
     }
 }
+/// 播放页左列的封面按钮与长按菜单。
+///
+/// 播放页主体读着进度和歌词,每秒要重算好几次;长按菜单挂在主体里时,菜单内容也跟着
+/// 每拍重建,系统菜单打开期间就一直闪。这里只比较封面展示需要的值,菜单读的几样状态
+/// (喜欢、接下来、随机、睡眠定时)由本视图自己观察,变了才重建。
+///
+/// 菜单只放五行:喜欢、前往(子菜单)、随机、睡眠定时(子菜单)、更多。原来把「前往」
+/// 的四个去处和两个分段标题平铺出来,十行超出封面旁的可用高度,系统菜单只能滚动显示。
+private struct TVNowPlayingArtworkButton: View, @MainActor Equatable {
+    @Environment(TVStore.self) private var store
+    let np: TVNowPlaying
+    let isPlaying: Bool
+    let isAnimationVisible: Bool
+    let isFocused: Bool
+    let onOpenShelf: (TVPlayerShelfTab) -> Void
+    let onShowMore: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.np.songID == rhs.np.songID && lhs.np.albumID == rhs.np.albumID
+            && lhs.np.artist == rhs.np.artist && lhs.np.album == rhs.np.album
+            && lhs.np.coverRef == rhs.np.coverRef && lhs.np.glyph == rhs.np.glyph
+            && lhs.np.tint == rhs.np.tint && lhs.np.tint2 == rhs.np.tint2
+            && lhs.isPlaying == rhs.isPlaying && lhs.isAnimationVisible == rhs.isAnimationVisible
+            && lhs.isFocused == rhs.isFocused
+    }
+
+    var body: some View {
+        Button {
+            onOpenShelf(.thisAlbum)
+        } label: {
+            TVArtworkView(coverKey: np.albumID, artist: np.artist, album: np.album,
+                          songID: np.songID, coverRef: np.coverRef,
+                          tint: np.tint, tint2: np.tint2, glyph: np.glyph,
+                          size: 420, radius: 20,
+                          presentationRole: .animatedHero,
+                          animationRequiresPlayback: true,
+                          isPlaying: isPlaying,
+                          isAnimationVisible: isAnimationVisible)
+                .shadow(color: .black.opacity(0.5), radius: 36, y: 18)
+                .tvFocusRing(isFocused, radius: 20,
+                             accent: TVColor.focusRing, scale: 1.025, lift: 0)
+                .overlay(alignment: .bottomLeading) {
+                    if isFocused {
+                        Text(PMString("ext.tv.nowPlaying.artworkHint"))
+                            .tvFont(.caption, weight: .medium)
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.leading)
+                            .padding(12)
+                            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
+                            .padding(14)
+                            .accessibilityHidden(true)
+                    }
+                }
+        }
+        .buttonStyle(TVBareButtonStyle())
+        .contextMenu { menu }
+    }
+
+    /// 「前往」与货架、「更多」同一套名字和图标;其余(匹配信息、卡拉OK、串烧)在「更多」里。
+    @ViewBuilder
+    private var menu: some View {
+        if let songID = store.currentSongID {
+            let liked = store.isLiked(songID)
+            Button(
+                PMString(liked ? "ext.tv.options.loved" : "ext.tv.options.love"),
+                systemImage: liked ? "heart.fill" : "heart"
+            ) {
+                store.toggleLiked(songID)
+            }
+        }
+        Menu {
+            ForEach(TVPlayerShelfTab.goToDestinations.filter { $0 != .upNext || !store.queueUpNextIDs.isEmpty }) { tab in
+                Button(tab.title, systemImage: tab.systemImage) { onOpenShelf(tab) }
+            }
+        } label: {
+            Label(PMString("ext.tv.options.section.goTo"), systemImage: "arrow.forward.circle")
+        }
+        Toggle(isOn: Binding(get: { store.shuffleEnabled }, set: { _ in store.toggleShuffle() })) {
+            Label(PMString("shuffle"), systemImage: "shuffle")
+        }
+        Menu {
+            ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
+                Toggle(isOn: Binding(
+                    get: { store.sleepTimerMinutes == minutes },
+                    set: { _ in store.setSleepTimer(minutes: minutes) }
+                )) {
+                    Text(verbatim: "\(minutes) " + String(localized: "minutes"))
+                }
+            }
+            if store.sleepTimerMinutes > 0 {
+                Button(String(localized: "cancel_timer"), systemImage: "moon.zzz") {
+                    store.cancelSleepTimer()
+                }
+            }
+        } label: {
+            Label(
+                store.sleepTimerMinutes > 0
+                    ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes)
+                    : PMString("ext.tv.options.sleepTimer"),
+                systemImage: store.sleepTimerMinutes > 0 ? "moon.zzz.fill" : "moon.zzz"
+            )
+        }
+        Button(PMString("more"), systemImage: "ellipsis.circle", action: onShowMore)
+    }
+}
+
 /// 播放页「最近一次遥控操作」的时刻。普通引用类型、不参与观察:写它不会让视图重算。
 final class TVInteractionClock {
     private var lastInteraction = ProcessInfo.processInfo.systemUptime
