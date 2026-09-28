@@ -1251,6 +1251,20 @@ actor SourceConnectionRouter {
         }
     }
 
+    /// A walk records drift on whichever candidate served it, and the route
+    /// may have moved since. Ask every candidate: each one clears its own flag,
+    /// and a flag left behind would only cost the next scan its removals.
+    func takeCatalogDriftObservation() async -> Bool {
+        var observed = false
+        for candidate in candidates {
+            guard let reporter = candidate.connector as? any CatalogDriftReportingConnector else {
+                continue
+            }
+            if await reporter.takeCatalogDriftObservation() { observed = true }
+        }
+        return observed
+    }
+
     func withMutation<T: Sendable>(
         _ operation: @Sendable (any MusicSourceConnector) async throws -> T
     ) async throws -> T {
@@ -1761,6 +1775,10 @@ private extension RoutedConnectorProxy {
     var supportsSidecarWriting: Bool { routedSupportsSidecarWriting }
     var preferredDeleteBatchSize: Int { routedPreferredDeleteBatchSize }
 
+    func takeCatalogDriftObservation() async -> Bool {
+        await routing.takeCatalogDriftObservation()
+    }
+
     func connect() async throws { try await routing.connect() }
     func disconnect() async { await routing.disconnect() }
 
@@ -1941,7 +1959,7 @@ private extension RoutedConnectorProxy {
 }
 
 private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMResolvingConnector,
-    LyricsSidecarTargetResolving {
+    LyricsSidecarTargetResolving, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2011,7 +2029,7 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
-    ResumablePagedSongCatalogConnector,
+    ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerPlaylistAppendingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector {
@@ -2196,7 +2214,8 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
 }
 
 private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector {
+    ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
+    CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2264,7 +2283,7 @@ private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataS
 }
 
 private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector {
+    ServerLyricsConnector, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2300,7 +2319,8 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
 
 private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
-    ServerScrobblingConnector, ServerRadioConnector, ServerRadioStreamResolvingConnector {
+    ServerScrobblingConnector, ServerRadioConnector, ServerRadioStreamResolvingConnector,
+    CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2380,7 +2400,8 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 /// 那项功能就会在「内网 + QuickConnect」这种配置下静默失效 —— 与
 /// `SynologyAudioStationSource` 遵循的协议逐一对应。
 private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector {
+    ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector,
+    CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2450,7 +2471,8 @@ private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, Refres
 private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
-    ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector {
+    ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
+    CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
