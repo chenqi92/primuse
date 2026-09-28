@@ -127,15 +127,35 @@ enum LocalLyricsTranslationModel {
 /// team ID (未签名、「Sign to Run Locally」的 Mac 构建)、Info.plist 缺
 /// `BAAppGroupID`、主 bundle 没有 ID。Mac 上打开歌词设置就因此闪退。碰它之前
 /// 先自查, 不满足就当作这台设备用不了 Apple 托管的模型包。
+///
+/// 还有一条查不了: 系统守护进程对 app 的校验 ("The app couldn’t be validated")。
+/// macOS 27.0 上同样的开发签名构建在编译机通过、在另一台 Mac 上失败, 条件由
+/// 守护进程决定, app 这边预判不了。开发签名的构建本来也拿不到 Apple 托管的包 (开发期只能走 ba-serve 或
+/// `PRIMUSE_LYRICS_TRANSLATION_MODEL`), 所以 Mac 上开发签名一律不碰;
+/// Debug 下设 `PRIMUSE_ASSET_PACKS=1` 可放开来联调。
 enum BackgroundAssetsPrerequisites {
     static let isSatisfied: Bool = evaluate()
 
     private static func evaluate() -> Bool {
         #if os(macOS)
         // 先看签名: 没有 team ID 时连 App Group 都不去碰, 免得非沙盒构建弹授权框。
-        guard let teamID = signingTeamIdentifier(), !teamID.isEmpty else {
+        guard let signing = signingInformation(),
+              let teamID = signing[kSecCodeInfoTeamIdentifier as String] as? String,
+              !teamID.isEmpty else {
             plog("⚠️ BackgroundAssets: process has no team ID, asset packs disabled")
             return false
+        }
+        let entitlements = signing[kSecCodeInfoEntitlementsDict as String] as? [String: Any]
+        if entitlements?["com.apple.security.get-task-allow"] as? Bool == true {
+            #if DEBUG
+            let optedIn = ProcessInfo.processInfo.environment["PRIMUSE_ASSET_PACKS"] == "1"
+            #else
+            let optedIn = false
+            #endif
+            guard optedIn else {
+                plog("⚠️ BackgroundAssets: development-signed build, asset packs disabled")
+                return false
+            }
         }
         #endif
         let bundle = Bundle.main
@@ -150,7 +170,7 @@ enum BackgroundAssetsPrerequisites {
     }
 
     #if os(macOS)
-    private static func signingTeamIdentifier() -> String? {
+    private static func signingInformation() -> [String: Any]? {
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
         var staticCode: SecStaticCode?
@@ -158,11 +178,10 @@ enum BackgroundAssetsPrerequisites {
         var information: CFDictionary?
         guard SecCodeCopySigningInformation(
             staticCode,
-            SecCSFlags(rawValue: kSecCSSigningInformation),
+            SecCSFlags(rawValue: kSecCSSigningInformation | kSecCSRequirementInformation),
             &information
-        ) == errSecSuccess,
-            let information = information as? [String: Any] else { return nil }
-        return information[kSecCodeInfoTeamIdentifier as String] as? String
+        ) == errSecSuccess else { return nil }
+        return information as? [String: Any]
     }
     #endif
 }
