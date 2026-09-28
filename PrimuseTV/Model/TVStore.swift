@@ -580,6 +580,14 @@ final class TVStore {
         }
     }
 
+    /// 曲库已发布、查找表还没建好的那一小段。手机和 Mac 直接读曲库的可见集合,
+    /// 电视要先整库映射成 TVSong;这段时间首页继续显示「加载中」,不先画一个
+    /// 只有电台排(或「没有音乐」空态)的首页再跳出内容。
+    var isPreparingLibraryContent: Bool {
+        _ = libraryContentRevision
+        return library.isReady && !hasBuiltLookupSinceLibraryReady
+    }
+
     var hasRealLibrary: Bool {
         _ = libraryContentRevision
         return VisibleLibraryPresencePolicy.hasContent(
@@ -824,6 +832,9 @@ final class TVStore {
         let sourceTypes: [String: MusicSourceType]
     }
     @ObservationIgnored private var lookupRevision: LookupRevision?
+    /// 曲库发布后首页要用的查找表是否已按就绪的曲库建过一次。只在启动时起作用,
+    /// 之后扫描、同步引起的重建不会让首页退回「加载中」。
+    @ObservationIgnored private var hasBuiltLookupSinceLibraryReady = false
     @ObservationIgnored private var spokenWordClassificationObserver: NSObjectProtocol?
     @ObservationIgnored private var normalPlaylistCacheRevision = -1
     @ObservationIgnored private var smartPlaylistCacheRevision = -1
@@ -3350,7 +3361,11 @@ final class TVStore {
             spokenWord: library.spokenWordClassificationRevision,
             sourceTypes: sourceTypes
         )
-        guard revision != lookupRevision else { return }
+        guard revision != lookupRevision else {
+            // 空曲库发布前后修订号可能完全相同,不重建也要告诉首页内容已就绪。
+            markLookupBuiltIfLibraryReady()
+            return
+        }
         // 记下这次整库重映射是被哪几样变化触发的(可见集 / 换 ID / 封面 / 歌单 / 源类型),
         // 真机日志据此判断 iCloud 合并期间有多少次只是歌单变了。
         let trigger = lookupRevision.map { previous in
@@ -3398,8 +3413,15 @@ final class TVStore {
         )
         plog("TV lookup ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songMap=\(Int((songsMappedAt - mapStartedAt) * 1000)) albumTracks=\(Int((albumsStartedAt - songsMappedAt) * 1000)) albumArtist=\(Int((albumsMappedAt - albumsStartedAt) * 1000)) songs=\(visibleSongs.count) trigger=\(trigger)")
         lookupRevision = revision
+        if library.isReady { hasBuiltLookupSinceLibraryReady = true }
         libraryContentRevision &+= 1
         syncTrackNavigationCommands()
+    }
+
+    private func markLookupBuiltIfLibraryReady() {
+        guard library.isReady, !hasBuiltLookupSinceLibraryReady else { return }
+        hasBuiltLookupSinceLibraryReady = true
+        libraryContentRevision &+= 1
     }
 
     private func syncTrackNavigationCommands() {

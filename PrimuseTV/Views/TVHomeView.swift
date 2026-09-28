@@ -127,7 +127,7 @@ struct TVHomeView: View {
             }
             .ignoresSafeArea()
 
-            if !store.library.isReady && !store.hasRealLibrary {
+            if !store.hasRealLibrary && (!store.library.isReady || store.isPreparingLibraryContent) {
                 ProgressView(String(localized: "library_quick_access_loading"))
                     .tvFont(.caption)
             } else if !store.hasRealLibrary && store.radioStations.isEmpty {
