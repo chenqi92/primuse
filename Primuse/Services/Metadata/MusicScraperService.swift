@@ -2247,6 +2247,10 @@ final class MusicScraperService {
                     expectedLyricsTarget: expectedLyricsTarget,
                     createsLyricsFile: createsLyricsFile
                 )
+                await sourceManager.invalidateReadCachesAfterSidecarWrite(
+                    for: song,
+                    paths: writeResult.touchedRemotePaths
+                )
                 if writeResult.coverWritten || writeResult.lyricsWritten {
                     await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)
                 }
@@ -2294,6 +2298,10 @@ final class MusicScraperService {
                     for: song,
                     using: connector,
                     expectedLyricsTarget: expectedLyricsTarget
+                )
+                await sourceManager.invalidateReadCachesAfterSidecarWrite(
+                    for: song,
+                    paths: result.touchedRemotePaths
                 )
                 if result.lyricsRemoved {
                     await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)

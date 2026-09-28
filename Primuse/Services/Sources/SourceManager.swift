@@ -11934,6 +11934,24 @@ final class SourceManager {
         await oneDrive.invalidateCachedDownloadURL(path: song.filePath)
     }
 
+    /// The sidecar connector already dropped its own caches for the paths it
+    /// wrote, but the cached read connector (playback, lyrics loading, the
+    /// lyrics editor) still holds links resolved before the write. Baidu keeps
+    /// those links for 30 minutes and they keep serving the replaced file, so
+    /// the next lyrics read fails its size check or returns the old text.
+    func invalidateReadCachesAfterSidecarWrite(
+        for song: Song,
+        paths: [String]
+    ) async {
+        guard !paths.isEmpty,
+              let adapter = connectors[song.sourceID] as? any EmbeddedMetadataWritebackAdapter else {
+            return
+        }
+        for path in Set(paths) {
+            await adapter.invalidateMetadataWritebackCache(for: path)
+        }
+    }
+
     /// 把一次播放回报给"服务端曲库源"(Subsonic/Navidrome 等)。
     /// submission=false → nowPlaying, true → 计入播放次数/历史。
     /// 非服务端源(NAS/云盘/本地)直接 no-op。尽力而为, 不抛错。

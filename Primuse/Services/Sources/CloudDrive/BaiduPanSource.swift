@@ -832,12 +832,17 @@ actor BaiduPanSource: MusicSourceConnector, OAuthCloudSource,
         return data
     }
 
+    /// 作废前先把磁盘上的持久化缓存读进来。否则一个还没读过盘的实例
+    /// （sidecar 写回用的就是独立实例）清的只是空的内存表，随后第一次取直链
+    /// 才懒加载，刚作废的旧直链又被读回来，覆盖后回读拿到的仍是旧文件。
     private func invalidateDlink(for path: String) {
+        loadPersistedDlinksIfNeeded()
         dlinkCache.removeValue(forKey: path)
         scheduleDlinkPersist()
     }
 
     private func invalidateCdnURL(for path: String) {
+        loadPersistedDlinksIfNeeded()
         cdnURLCache.removeValue(forKey: path)
         cdnURLResolveTasks[path]?.task.cancel()
         cdnURLResolveTasks[path] = nil

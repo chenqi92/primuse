@@ -32,6 +32,10 @@ actor SidecarWriteService {
         var verifiedLyricsWrite: VerifiedLyricsWrite?
         var coverError: String?
         var lyricsError: String?
+        /// Every remote path a write or delete was sent to, verified or not:
+        /// an upload can commit before its readback fails. The caller hands
+        /// these to the source's read connector, which caches links of its own.
+        var touchedRemotePaths: [String] = []
         /// A credential/permission failure applies to the whole source, not
         /// only this asset. Batch scraping uses this to stop the remaining
         /// queued writes while keeping the locally cached metadata.
@@ -110,6 +114,7 @@ actor SidecarWriteService {
             let coverFileName = "\(baseNameNoExt)-cover.jpg"
             let coverPath = (songDir as NSString).appendingPathComponent(coverFileName)
             do {
+                result.touchedRemotePaths.append(coverPath)
                 try await connector.writeFile(
                     data: jpegData,
                     to: coverPath,
@@ -165,11 +170,15 @@ actor SidecarWriteService {
                     result.lyricsTargetChanged = true
                     return result
                 }
+                result.touchedRemotePaths.append(target.targetPath)
                 let receipt = try await connector.writeLyricsSidecar(
                     data: sidecarData,
                     target: target,
                     priority: .background
                 )
+                if receipt.writtenPath != target.targetPath {
+                    result.touchedRemotePaths.append(receipt.writtenPath)
+                }
                 let verifiedContent = try verifyLyricsSidecarWrite(
                     data: sidecarData,
                     content: sidecarContent,
@@ -223,6 +232,7 @@ actor SidecarWriteService {
             guard let existingPath = target.existingPath else {
                 throw SourceError.fileNotFound(target.fileName)
             }
+            result.touchedRemotePaths.append(existingPath)
             try await connector.deleteFile(at: existingPath)
             result.lyricsRemoved = true
             plog("📁 Sidecar: \(target.fileName) removed")

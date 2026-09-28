@@ -1901,6 +1901,10 @@ struct ScrapeOptionsView: View {
                     coverData: coverData,
                     lyricsLines: lyricsLines
                 )
+                await sourceManager.invalidateReadCachesAfterSidecarWrite(
+                    for: song,
+                    paths: writeResult.touchedRemotePaths
+                )
                 if writeResult.coverWritten || writeResult.lyricsWritten {
                     await sourceManager.invalidateDownloadCacheAfterSidecarWrite(for: song)
                 }
