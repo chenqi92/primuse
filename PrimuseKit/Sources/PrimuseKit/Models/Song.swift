@@ -342,6 +342,107 @@ public enum AlbumGroupingPolicy {
 /// type adds the library-specific policy on top of it — which fields are worth
 /// re-deriving from a filename once the original bytes are unrecoverable.
 public enum MediaMetadataTextRepair {
+    /// Use the file's independent identity for ambiguous encodings and lost
+    /// tag bytes. IDs and playback paths remain unchanged; grouping is rebuilt
+    /// by the library after this correction.
+    @discardableResult
+    public static func repairFileBackedMetadata(in song: inout Song) -> Bool {
+        guard song.userMetadataEditedAt == nil, !song.isCueTrack,
+              AudioFormat.from(fileExtension: (song.filePath as NSString).pathExtension) != nil else { return false }
+        let originalTitle = song.title
+        let originalArtist = song.artistName
+        let originalAlbum = song.albumTitle
+        let originalAlbumArtist = song.albumArtistName
+        let originalSourceArtists = song.sourceArtistNames
+        var titleReference = fileNameTitle(from: song.filePath)
+        var artistReference = fileNameArtist(from: song.filePath)?.replacingOccurrences(
+            of: #"^(?:\d{1,3}[.、-]\s*|\d{1,3}\s+)(?=\D)"#, with: "", options: .regularExpression
+        )
+        if let artist = artistReference, let title = titleReference,
+           ArtistIdentityPolicy.groupingKey(repairedTagValue(song.title)) == ArtistIdentityPolicy.groupingKey(artist),
+           ArtistIdentityPolicy.groupingKey(artist) != ArtistIdentityPolicy.groupingKey(title) {
+            // Some libraries use Title - Artist instead of Artist - Title.
+            // An intact title tag identifies the ordering independently.
+            titleReference = artist
+            artistReference = title
+        }
+        let folder = ((song.filePath as NSString).deletingLastPathComponent as NSString).lastPathComponent
+
+        song.title = repairedField(song.title, reference: titleReference) ?? song.title
+        song.artistName = repairedArtistField(song.artistName, reference: artistReference)
+        song.albumArtistName = repairedArtistField(song.albumArtistName, reference: artistReference)
+        song.albumTitle = repairedField(song.albumTitle, reference: folder, allowsFallback: false)
+        if let names = song.sourceArtistNames {
+            let references = ArtistNameParser.names(rawName: artistReference)
+            song.sourceArtistNames = names.compactMap { name in
+                if name == originalArtist { return song.artistName }
+                for reference in references {
+                    if let corrected = TextEncodingRepair.repaired(name, corroboratedBy: reference) {
+                        return corrected
+                    }
+                }
+                return repairedField(name, reference: nil)
+            }
+        }
+        if song.title != originalTitle { song.titlePinyin = nil }
+        if song.artistName != originalArtist { song.artistPinyin = nil }
+        if song.albumTitle != originalAlbum { song.albumPinyin = nil }
+        return song.title != originalTitle || song.artistName != originalArtist
+            || song.albumTitle != originalAlbum || song.albumArtistName != originalAlbumArtist
+            || song.sourceArtistNames != originalSourceArtists
+    }
+
+    private static func repairedArtistField(_ value: String?, reference: String?) -> String? {
+        if let value {
+            let isPromotion = value.range(of: #"www\.[a-z0-9-]+\.[a-z]{2,}"#,
+                                          options: [.regularExpression, .caseInsensitive]) != nil
+                || value.range(of: #"^(?:[\[【].*收藏[\]】]|※.*收藏|.*收藏\s*[Qq][Qq]\s*[:：]\s*\d+)$"#,
+                               options: .regularExpression) != nil
+            if isPromotion {
+                guard let reference = repaired(reference), !isSuspicious(reference) else { return nil }
+                return reference
+            }
+            for name in ArtistNameParser.names(rawName: reference) {
+                let unnumbered = value.replacingOccurrences(
+                    of: #"^\d{1,3}[.、]\s*(?=\D)"#, with: "", options: .regularExpression
+                )
+                if unnumbered != value,
+                   ArtistIdentityPolicy.groupingKey(unnumbered) == ArtistIdentityPolicy.groupingKey(name) {
+                    return name
+                }
+                if let confirmed = TextEncodingRepair.repaired(repairedTagValue(value), corroboratedBy: name) {
+                    return confirmed
+                }
+            }
+        }
+        return repairedField(value, reference: reference)
+    }
+
+    private static func repairedField(_ value: String?, reference: String?, allowsFallback: Bool = true) -> String? {
+        guard let value else { return nil }
+        let cleaned = repairedTagValue(value).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let confirmed = TextEncodingRepair.repaired(cleaned, corroboratedBy: reference) { return confirmed }
+        let hasBinaryData = cleaned.unicodeScalars.contains {
+            ($0.value < 0x20 && ![9, 10, 13].contains($0.value)) || (0x7F...0x9F).contains($0.value)
+        }
+        let onlyQuestionMarks = cleaned.filter { $0 == "?" }.count >= 2
+            && cleaned.allSatisfy { "?&/;、；".contains($0) || $0.isWhitespace }
+        let lostBytes = TextEncodingRepair.hasUnrecoverableReplacement(in: cleaned)
+        let truncated = TextEncodingRepair.looksCorrupted(cleaned)
+            && TextEncodingRepair.hasTruncatedUTF8RewritePrefix(cleaned)
+        if hasBinaryData || onlyQuestionMarks || lostBytes || truncated {
+            if allowsFallback, let reference = repaired(reference), !isSuspicious(reference),
+               reference.range(of: #"^(?=.{16,}$)(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])[A-Za-z0-9_-]+$"#,
+                               options: .regularExpression) == nil {
+                return reference
+            }
+            // A truncated prefix can still be a valid name; only discard tags
+            // whose bytes are demonstrably missing or contain binary controls.
+            if hasBinaryData || onlyQuestionMarks || lostBytes { return nil }
+        }
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
     public struct FileNameIdentity: Sendable, Equatable {
         public let artist: String
         public let title: String

@@ -42,8 +42,16 @@ struct CoverArtView: View {
 #if os(macOS)
 struct MacDefaultArtwork: View {
     var body: some View {
-        Color.clear
-            .accessibilityHidden(true)
+        GeometryReader { geometry in
+            Rectangle()
+                .fill(Color.primary.opacity(0.06))
+                .overlay {
+                    Image(systemName: "music.note")
+                        .font(.system(size: min(geometry.size.width, geometry.size.height) * 0.32))
+                        .foregroundStyle(.secondary)
+                }
+        }
+        .accessibilityHidden(true)
     }
 }
 #endif

@@ -9,6 +9,50 @@ import UIKit
 
 @MainActor
 final class TVLibraryStateTests: XCTestCase {
+    func testCorruptMetadataMergesArtistsAndRefreshesSearchOnImportAndReload() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        var good = fixture.song("good")
+        good.title = "翅膀"
+        good.artistName = "林俊杰"
+        good.albumArtistName = "林俊杰"
+        good.albumTitle = "乐行者"
+        good.filePath = "/音乐/林俊杰 - 翅膀.mp3"
+        var damaged = good
+        damaged.id = "damaged"
+        damaged.title = "曹操"
+        damaged.filePath = "/音乐/林俊杰 - 曹操.mp3"
+        damaged.artistName = "주에쌤"
+        damaged.albumArtistName = "주에쌤"
+        damaged.sourceArtistNames = ["주에쌤"]
+        damaged.artistPinyin = "obsolete"
+        fixture.library.addSongs([good, damaged])
+        await fixture.library.waitForPendingIndex()
+        XCTAssertEqual(fixture.library.song(id: damaged.id)?.artistName, "林俊杰")
+        XCTAssertEqual(fixture.library.visibleArtists.map(\.name), ["林俊杰"])
+        let store = fixture.store()
+        store.reload(reloadLibrary: false, migrateLegacyIDs: false)
+        let results = await store.searchResults("林俊杰")
+        XCTAssertEqual(Set(results.songs.map { $0.song.id }), [good.id, damaged.id])
+        XCTAssertEqual(results.artists.map(\.name), ["林俊杰"])
+        fixture.library.toggleLiked(songID: damaged.id)
+        _ = await fixture.library.persistNowAndWait()
+        XCTAssertTrue(LibrarySnapshotSync.shared.installTVPayload(
+            try fixture.payload(songs: [good, damaged]), credentialReference: nil,
+            destinationDirectory: fixture.directory
+        ))
+        let imported = MusicLibrary(storageDirectory: fixture.directory, preferExternalSnapshot: true)
+        XCTAssertEqual(imported.song(id: damaged.id)?.artistName, "林俊杰")
+        XCTAssertEqual(imported.visibleArtists.map(\.name), ["林俊杰"])
+        XCTAssertEqual(imported.visibleAlbums.count, 1)
+        XCTAssertTrue(imported.isLiked(songID: damaged.id))
+        XCTAssertNil(imported.song(id: damaged.id)?.artistPinyin)
+        _ = await imported.persistNowAndWait()
+        let restarted = MusicLibrary(storageDirectory: fixture.directory)
+        XCTAssertEqual(restarted.song(id: damaged.id)?.artistName, "林俊杰")
+        XCTAssertTrue(restarted.isLiked(songID: damaged.id))
+    }
+
     @MainActor
     private final class RecoveryProbe {
         var unavailable = true

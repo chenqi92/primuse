@@ -103,6 +103,30 @@ public enum TextEncodingRepair {
         return best?.text
     }
 
+    /// Cross-script rewrites are ambiguous without an independent name. In
+    /// particular, valid Korean must never become Chinese based on a score.
+    public static func repaired(_ text: String, corroboratedBy reference: String?) -> String? {
+        guard let reference, !reference.isEmpty,
+              text != reference,
+              looksCorrupted(text) || text.unicodeScalars.contains(where: {
+                  isHangul($0.value) || isHalfwidthKana($0.value)
+              }) else { return nil }
+        let key = ArtistIdentityPolicy.groupingKey(reference)
+        let candidates = rewrites + [
+            Rewrite(source: eucKR, target: gb18030, selfValidating: false, requiresRareHanReduction: false),
+            Rewrite(source: .shiftJIS, target: gb18030, selfValidating: false, requiresRareHanReduction: false),
+        ]
+        for rewrite in candidates {
+            guard let candidate = rewrite.apply(to: text), candidate != text,
+                  ArtistIdentityPolicy.groupingKey(candidate) == key,
+                  let originalBytes = losslessEncodedData(text, using: rewrite.source),
+                  String(data: originalBytes, encoding: rewrite.source) == text,
+                  losslessEncodedData(candidate, using: rewrite.target) == originalBytes else { continue }
+            return candidate
+        }
+        return nil
+    }
+
     /// 文本是否值得进入修复流程。这是个便宜的粗筛, 真正的把关在分差上。
     public static func looksCorrupted(_ text: String) -> Bool {
         var artifactRunLatin1Count = 0

@@ -3699,7 +3699,7 @@ final class MusicLibrary {
     /// 仍然读得懂, 读到后按 2 重写一次。
     private nonisolated static let startupCacheFormatVersion = 2
     private nonisolated static let legacyStartupCacheFormatVersion = 1
-    private nonisolated static let loadedSongMigrationVersion = 7
+    private nonisolated static let loadedSongMigrationVersion = 10
 
     // MARK: - Readiness
 
@@ -11116,6 +11116,12 @@ final class MusicLibrary {
         var filledDerivedIDCount = 0
         var repairedDTSDurationCount = 0
         var changedSongs: [Song] = []
+        var repairedSongIDs = Set<String>()
+        for index in songs.indices {
+            if repairLegacyChineseMetadataText(in: &songs[index]) {
+                repairedSongIDs.insert(songs[index].id)
+            }
+        }
         // 同一目录同名专辑的 album artist 归属只有整库口径才算得出来,
         // 装载时算一次, 逐首复用。网盘的父目录在扫描同步索引里, 装载时还
         // 拿不到; 发布后 `updateAlbumArtistFolders` 会按目录再整库重建一次。
@@ -11123,7 +11129,7 @@ final class MusicLibrary {
 
         for index in songs.indices {
             var song = songs[index]
-            let repairedText = repairLegacyChineseMetadataText(in: &song)
+            let repairedText = repairedSongIDs.contains(song.id)
             let repairedDTSDuration = Self.repairedDTSDuration(for: song)
             var songWithExpectedDerivedIDs = song
             fillDerivedIDs(
@@ -11203,7 +11209,7 @@ final class MusicLibrary {
         let originalTitle = song.title
         let originalArtist = song.artistName
         let originalAlbum = song.albumTitle
-        var changed = false
+        var changed = MediaMetadataTextRepair.repairFileBackedMetadata(in: &song)
         changed = repairLegacyChineseText(&song.title) || changed
         changed = repairLegacyChineseText(&song.artistName) || changed
         if var sourceArtistNames = song.sourceArtistNames {
@@ -12543,6 +12549,10 @@ final class MusicLibrary {
         configuration: ArtistNameConfiguration = .defaultValue,
         inferredAlbumArtist: String? = nil
     ) {
+        let previousAlbumArtist = song.albumArtistName
+        MediaMetadataTextRepair.repairFileBackedMetadata(in: &song)
+        let correctedInference = inferredAlbumArtist == previousAlbumArtist
+            ? song.albumArtistName : inferredAlbumArtist
         let unknownArtist = String(localized: "unknown_artist")
         let artist = resolvedArtistNames(
             for: song,
@@ -12551,7 +12561,7 @@ final class MusicLibrary {
         song.artistID = hashID(ArtistIdentityPolicy.groupingKey(artist))
         if let identity = AlbumGroupingPolicy.identity(
             albumTitle: song.albumTitle,
-            albumArtistName: inferredAlbumArtist ?? song.albumArtistName,
+            albumArtistName: correctedInference ?? song.albumArtistName,
             trackArtistName: song.artistName,
             unknownArtistName: unknownArtist
         ) {

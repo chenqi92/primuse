@@ -555,23 +555,28 @@ enum TVArtworkPlaceholderKind: Equatable {
     case book
 }
 
-/// 仍是空白占位(不放图标),但铺一层很浅的底:深色背景下完全透明的话,
-/// 没封面的专辑在网格里只剩标题,整屏看着像没加载出来。
 struct TVMusicPlaceholder: View {
     private let width: CGFloat
     private let height: CGFloat
     private let radius: CGFloat
+    private let kind: TVArtworkPlaceholderKind
 
-    init(tint _: Color, tint2 _: Color, kind _: TVArtworkPlaceholderKind = .music,
+    init(tint _: Color, tint2 _: Color, kind: TVArtworkPlaceholderKind = .music,
          size: CGFloat, height: CGFloat? = nil, radius: CGFloat = 0) {
         self.width = size
         self.height = height ?? size
         self.radius = radius
+        self.kind = kind
     }
 
     var body: some View {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
             .fill(TVColor.surfaceSubtle)
+            .overlay {
+                Image(systemName: kind == .book ? "book.closed" : kind == .playlist ? "music.note.list" : "music.note")
+                    .font(.system(size: min(width, height) * 0.32, weight: .regular))
+                    .foregroundStyle(TVColor.textMuted)
+            }
             .frame(width: width, height: height)
             .accessibilityHidden(true)
     }
