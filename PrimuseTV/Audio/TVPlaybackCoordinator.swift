@@ -1008,11 +1008,14 @@ final class TVPlaybackCoordinator {
                 _ = self
                 switch collection {
                 case .album(let id):
-                    return try await player.playAlbum(id: id, autoPlay: autoPlay)
+                    return try await player.playAlbum(id: id, autoPlay: autoPlay,
+                                                      canContinue: { self.isCurrent(requestID, store: store) })
                 case .artistTopSongs(let id):
-                    return try await player.playArtistTopSongs(id: id, autoPlay: autoPlay)
+                    return try await player.playArtistTopSongs(id: id, autoPlay: autoPlay,
+                                                               canContinue: { self.isCurrent(requestID, store: store) })
                 case .libraryPlaylist(let id):
-                    return try await player.playLibraryPlaylist(id: id, autoPlay: autoPlay)
+                    return try await player.playLibraryPlaylist(id: id, autoPlay: autoPlay,
+                                                                canContinue: { self.isCurrent(requestID, store: store) })
                 }
             },
             startAt: 0,
@@ -1032,8 +1035,10 @@ final class TVPlaybackCoordinator {
         await runAppleMusicStart(
             fallbackDuration: fallbackDuration,
             requestID: requestID,
-            start: { player in
-                try await player.play(itemID: itemID, startAt: startAt, autoPlay: autoPlay)
+            start: { [weak self] player in
+                guard let self, let store = self.store else { throw CancellationError() }
+                return try await player.play(itemID: itemID, startAt: startAt, autoPlay: autoPlay,
+                                             canContinue: { self.isCurrent(requestID, store: store) })
             },
             startAt: startAt,
             autoPlay: autoPlay
@@ -1075,7 +1080,7 @@ final class TVPlaybackCoordinator {
             startAppleMusicMirror(requestID: requestID)
             return true
         } catch is CancellationError {
-            engine.endExternalPlayback()
+            if isCurrent(requestID, store: store) { engine.endExternalPlayback() }
             return false
         } catch {
             guard isCurrent(requestID, store: store) else { return false }
@@ -1100,6 +1105,21 @@ final class TVPlaybackCoordinator {
                 duration: tick.duration,
                 isPlaying: tick.isPlaying
             )
+            if let song = tick.song,
+               store.nowPlaying.sourcePath != song.id
+                || store.nowPlaying.title != song.title
+                || store.nowPlaying.artist != song.artist
+                || store.nowPlaying.album != song.album
+                || store.nowPlaying.coverRef != song.artworkURL {
+                store.nowPlaying.title = song.title
+                store.nowPlaying.artist = song.artist
+                store.nowPlaying.album = song.album
+                store.nowPlaying.coverRef = song.artworkURL
+                store.nowPlaying.sourcePath = song.id
+                if let duration = song.duration, duration > 0 {
+                    store.nowPlaying.duration = duration
+                }
+            }
             if tick.didFinish {
                 self.appleMusicPlayer.stopMirroring()
                 self.engine.externalPlaybackDidEnd()

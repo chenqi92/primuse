@@ -594,8 +594,9 @@ enum TVMetadataEnricher {
         // CUE identity fields come from the sheet. Container tags are often
         // album-level and must not overwrite every virtual track's title.
         if !song.isCueTrack {
-            if let title = MediaMetadataTextRepair.preferred(
-                embedded: metadata.title,
+            if let embeddedTitle = metadata.title?.trimmedNonEmpty,
+               let title = MediaMetadataTextRepair.preferred(
+                embedded: embeddedTitle,
                 fromFileName: MediaMetadataTextRepair.fileNameTitle(from: song.filePath)
             ) { output.title = title }
             if let album = metadata.albumTitle?.trimmedNonEmpty { output.albumTitle = album }

@@ -66,6 +66,25 @@ struct MetadataReadSchedulerTests {
         #expect(failed == [2])
     }
 
+    @Test @MainActor func cachedItemsBypassRemoteThermalDelay() async {
+        let scheduler = MetadataReadScheduler<Int, Int>()
+        var remoteReads = 0
+        var completed: [Int] = []
+        let started = ProcessInfo.processInfo.systemUptime
+        let cancelled = await scheduler.run(
+            items: [1, 2, 3],
+            limits: { .init(workerCount: 1, snapshotLimit: 3, interRequestDelay: 2, flushInterval: 1) },
+            fastPath: { $0 },
+            read: { item in remoteReads += 1; return item },
+            completed: { item, _ in completed.append(item) }
+        )
+
+        #expect(!cancelled)
+        #expect(completed == [1, 2, 3])
+        #expect(remoteReads == 0)
+        #expect(ProcessInfo.processInfo.systemUptime - started < 1)
+    }
+
     @Test func deviceBudgetsAccountForCoresMemoryAndPlatform() {
         let gib: UInt64 = 1_024 * 1_024 * 1_024
         let profiles: [(MetadataReadingDeviceProfile.Platform, Int, UInt64, Int)] = [

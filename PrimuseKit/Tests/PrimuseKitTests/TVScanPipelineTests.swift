@@ -116,6 +116,23 @@ struct TVScanPipelineTests {
         ))
     }
 
+    @Test func unchangedSkeletonKeepsInspectedAssetReferences() {
+        var existing = song(id: "same", duration: 120, revision: "r1")
+        existing.coverArtFileName = "cached-cover.jpg"
+        existing.lyricsFileName = "cached-lyrics.json"
+        var candidate = song(id: "same", duration: 0)
+        candidate.coverArtFileName = "/Music/cover.jpg"
+        candidate.lyricsFileName = "/Music/Track.lrc"
+
+        let merged = TVScanPipelinePolicy.reconciledSkeleton(
+            existing: existing, candidate: candidate
+        )
+
+        #expect(merged.revision == "r1")
+        #expect(merged.coverArtFileName == "cached-cover.jpg")
+        #expect(merged.lyricsFileName == "cached-lyrics.json")
+    }
+
     @Test func replacementPreservesExplicitUserMetadataButRefreshesBytes() {
         var existing = song(
             id: "old",
@@ -241,4 +258,3 @@ struct TVScanReadStatisticsTests {
         #expect(TVScanReadStatistics().requestPercentile(0.9) == 0)
     }
 }
-

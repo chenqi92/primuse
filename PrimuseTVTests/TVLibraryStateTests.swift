@@ -1059,6 +1059,41 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertNil(linked)
     }
 
+    func testResumedScanRevisitsPendingCueDirectoryWithoutRetainingWholeFile() {
+        let completed = SourceSyncIndexedItem(
+            stableKey: "path:/music/other", path: "/music/other", parentPath: "/music",
+            isDirectory: true, size: 0, modifiedDate: nil, revision: nil, seenEpoch: 1
+        )
+        let pending = SourceSyncIndexedItem(
+            stableKey: "path:/music/cue", path: "/music/cue", parentPath: "/music",
+            isDirectory: true, size: 0, modifiedDate: nil, revision: nil, seenEpoch: 0
+        )
+        let wholeFile = SourceSyncIndexedItem(
+            stableKey: "path:/music/cue/album.wav", path: "/music/cue/album.wav",
+            parentPath: "/music/cue", isDirectory: false, songIDs: ["whole-file"],
+            size: 100, modifiedDate: nil, revision: nil, seenEpoch: 1
+        )
+        let otherFile = SourceSyncIndexedItem(
+            stableKey: "path:/music/other/song.wav", path: "/music/other/song.wav",
+            parentPath: "/music/other", isDirectory: false, songIDs: ["finished-song"],
+            size: 100, modifiedDate: nil, revision: nil, seenEpoch: 1
+        )
+        let checkpoint = SourceScanResumeState(
+            pendingDirectories: ["/music/cue"],
+            encounteredSongIDs: ["whole-file", "finished-song"],
+            index: Dictionary(uniqueKeysWithValues: [completed, pending, wholeFile, otherFile].map {
+                ($0.stableKey, $0)
+            })
+        )
+
+        let resumed = TVSourceScanner.reconciledResumeState(checkpoint)
+
+        XCTAssertEqual(resumed.encounteredSongIDs, ["finished-song"])
+        XCTAssertNil(resumed.index[wholeFile.stableKey])
+        XCTAssertNotNil(resumed.index[otherFile.stableKey])
+        XCTAssertNotNil(resumed.index[pending.stableKey])
+    }
+
     func testReceivedMusicAdaptersListAndReadOnlyInsideManagedRoot() async throws {
         let folderName = "TV Transfer QA \(UUID().uuidString)"
         let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)

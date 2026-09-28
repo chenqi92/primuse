@@ -1690,7 +1690,7 @@ final class TVSourceScanner {
         let isResuming = suppliedResumeState?.isUsable == true
             && suppliedResumeState?.pendingDirectories.isEmpty == false
         if isResuming, let suppliedResumeState {
-            state = suppliedResumeState
+            state = Self.reconciledResumeState(suppliedResumeState)
         } else {
             state = SourceScanResumeState(
                 pendingDirectories: TVScanPipelinePolicy.normalizedScanRoots(dirs)
@@ -1813,7 +1813,7 @@ final class TVSourceScanner {
                                     retained.id = TVScanPipelinePolicy.canonicalSongID(prior.id)
                                     retained.fileSize = entry.size
                                     retained.lastModified = entry.modifiedDate
-                                    retained.revision = entry.revision
+                                    retained.revision = Self.revision(for: entry, source: source)
                                     return retained
                                 }
                         } else {
@@ -2052,20 +2052,24 @@ final class TVSourceScanner {
                 items: Array(metadataItems.indices),
                 limits: metadataLimits,
                 shouldContinue: { deliveryError == nil },
+                fastPath: { [self] position in
+                    let item = metadataItems[position]
+                    guard !rereadMetadata, TVScanPipelinePolicy.canReuseMetadata(
+                        existing: item.existing, candidate: item.candidate
+                    ), let existing = item.existing,
+                       await metadataInspections.isCurrent(
+                        existing, or: item.song, sidecars: item.sidecars
+                       ) else { return nil }
+                    var reused = item.song
+                    reused.coverArtFileName = existing.coverArtFileName
+                    reused.lyricsFileName = existing.lyricsFileName
+                    scanReadWindow.recordSong(seconds: 0, reused: true)
+                    return TVMetadataEnrichmentResult(song: reused, status: .enriched,
+                                                      errorDescription: nil, inspectionComplete: true)
+                },
                 read: { [self] position in
                     let item = metadataItems[position]
                     let startedAt = ProcessInfo.processInfo.systemUptime
-                    if !rereadMetadata, TVScanPipelinePolicy.canReuseMetadata(
-                        existing: item.existing, candidate: item.candidate
-                    ), let existing = item.existing,
-                       await metadataInspections.isCurrent(existing, sidecars: item.sidecars) {
-                        var reused = item.song
-                        reused.coverArtFileName = existing.coverArtFileName
-                        reused.lyricsFileName = existing.lyricsFileName
-                        scanReadWindow.recordSong(seconds: 0, reused: true)
-                        return TVMetadataEnrichmentResult(song: reused, status: .enriched,
-                                                          errorDescription: nil, inspectionComplete: true)
-                    }
                     let result = await readMetadata(item.song, item.sidecars, readerPool)
                     scanReadWindow.recordSong(seconds: ProcessInfo.processInfo.systemUptime - startedAt,
                                               reused: false)
@@ -2677,7 +2681,7 @@ final class TVSourceScanner {
             coverArtFileName: cover,
             lyricsFileName: lyrics,
             mvPath: video,
-            revision: e.revision
+            revision: Self.revision(for: e, source: source)
         )
     }
 
@@ -2761,9 +2765,15 @@ final class TVSourceScanner {
                 cueSheetPath: descriptor.cuePath,
                 cueStartTime: start,
                 cueEndTime: end,
-                revision: entry.revision
+                revision: Self.revision(for: entry, source: source)
             )
         }
+    }
+
+    private static func revision(for entry: TVDirEntry, source: MusicSource) -> String? {
+        entry.revision ?? (source.type == .synology
+            ? SynologyFileRevisionPolicy.revision(size: entry.size, modifiedDate: entry.modifiedDate)
+            : nil)
     }
 
     private func loadCueTracks(
@@ -2909,6 +2919,23 @@ final class TVSourceScanner {
             songs.map { (TVScanPipelinePolicy.canonicalSongID($0.id), $0) },
             uniquingKeysWith: { first, _ in first }
         )
+    }
+
+    static func reconciledResumeState(_ checkpoint: SourceScanResumeState) -> SourceScanResumeState {
+        var state = checkpoint
+        let completed = Set(state.index.values.compactMap {
+            $0.isDirectory && $0.seenEpoch > 0 ? $0.path : nil
+        })
+        let pending = Set(state.pendingDirectories)
+        state.index = state.index.filter { _, item in
+            if item.isDirectory {
+                return item.seenEpoch > 0 || pending.contains(item.path)
+                    || item.parentPath.map(completed.contains) == true
+            }
+            return item.parentPath.map(completed.contains) == true
+        }
+        state.encounteredSongIDs = Set(state.index.values.flatMap { $0.songIDs })
+        return state
     }
 
     private static func existingSongsByLocation(

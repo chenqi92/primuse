@@ -40,6 +40,15 @@ actor TVMetadataInspectionStore {
         return entry.sidecars == Self.sidecarSignature(song, sidecars: sidecars)
     }
 
+    func isCurrent(
+        _ existing: Song,
+        or reconciled: Song,
+        sidecars: SidecarDirectoryIndex<TVDirEntry>? = nil
+    ) async -> Bool {
+        if await isCurrent(existing, sidecars: sidecars) { return true }
+        return await isCurrent(reconciled, sidecars: sidecars)
+    }
+
     func record(_ song: Song, sidecars: SidecarDirectoryIndex<TVDirEntry>? = nil, complete: Bool) {
         guard complete else { return }
         entries[key(song)] = Entry(metadata: signature(song), sidecars: sidecars.map { Self.sidecarSignature(song, sidecars: $0) })

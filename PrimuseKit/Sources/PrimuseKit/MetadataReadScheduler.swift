@@ -26,6 +26,7 @@ public final class MetadataReadScheduler<Item: Sendable, Outcome: Sendable> {
         shouldRead: @escaping @MainActor (Item) -> Bool = { _ in true },
         shouldContinue: @escaping @MainActor () -> Bool = { true },
         priority: TaskPriority = .utility,
+        fastPath: @escaping @MainActor @Sendable (Item) async -> Outcome? = { _ in nil },
         read: @escaping @MainActor @Sendable (Item) async -> Outcome,
         completed: @escaping @MainActor (Item, Outcome) async -> Void
     ) async -> Bool {
@@ -78,6 +79,14 @@ public final class MetadataReadScheduler<Item: Sendable, Outcome: Sendable> {
                         return Task.isCancelled ? .cancelled : .completed(item, outcome)
                     }
                     group.addTask(priority: priority) {
+                        guard await shouldRead(item) else {
+                            continuation.yield(.skipped)
+                            return
+                        }
+                        if let outcome = await fastPath(item) {
+                            continuation.yield(Task.isCancelled ? .cancelled : .completed(item, outcome))
+                            return
+                        }
                         if budget.interRequestDelay > 0 {
                             do {
                                 try await Task.sleep(for: .seconds(budget.interRequestDelay))

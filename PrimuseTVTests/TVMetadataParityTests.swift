@@ -166,6 +166,16 @@ final class TVMetadataParityTests: XCTestCase {
                        "Compilation Artist")
     }
 
+    func testMissingEmbeddedTitleKeepsExistingLibraryTitle() {
+        var existing = song()
+        existing.title = "Correct library title"
+        let metadata = FileMetadataReader.Metadata()
+
+        let updated = TVMetadataEnricher.applying(metadata, to: existing, duration: 120)
+
+        XCTAssertEqual(updated.title, "Correct library title")
+    }
+
     func testMetadataRefreshPreservesUserIdentityAndUpdatesTechnicalFields() {
         var original = song()
         original.userMetadataEditedAt = Date()
@@ -419,6 +429,53 @@ final class TVMetadataParityTests: XCTestCase {
             songs = result.songs
         }
         await inspections.flush()
+    }
+
+    func testSynologyRescanReusesInspectionAfterInterruptedSkeletonWrite() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let inspections = TVMetadataInspectionStore(url: url)
+        let source = MusicSource(id: UUID().uuidString, name: "Synology", type: .synology)
+        let entry = TVDirEntry(
+            name: "Track.mp3", isDir: false, size: 4096, path: "/Music/Track.mp3",
+            modifiedDate: Date(timeIntervalSince1970: 100)
+        )
+        let entries = [
+            entry,
+            TVDirEntry(name: "Track.jpg", isDir: false, size: 100, path: "/Music/Track.jpg"),
+            TVDirEntry(name: "Track.lrc", isDir: false, size: 100, path: "/Music/Track.lrc"),
+        ]
+        var inspected = song()
+        inspected.sourceID = source.id
+        inspected.id = TVScanPipelinePolicy.songID(sourceID: source.id, path: entry.path)
+        inspected.coverArtFileName = "cached-cover.jpg"
+        inspected.lyricsFileName = "cached-lyrics.json"
+        inspected.revision = SynologyFileRevisionPolicy.revision(
+            size: entry.size, modifiedDate: entry.modifiedDate
+        )
+        await inspections.record(inspected, sidecars: .init(entries), complete: true)
+        var interrupted = inspected
+        interrupted.revision = nil
+
+        let scanner = TVSourceScanner(
+            metadataInspections: inspections,
+            readMetadata: { song, _, _ in
+                TVMetadataEnrichmentResult(
+                    song: song, status: .failed,
+                    errorDescription: "Unexpected remote read", inspectionComplete: false
+                )
+            }
+        )
+        let result = await scanner.scan(
+            source: source, lister: ListedFiles(entries: entries), dirs: ["/Music"],
+            credential: nil, existingSongs: [interrupted],
+            onSkeletonBatch: { _ in }, onMetadataBatch: { _ in }
+        )
+        XCTAssertTrue(result.enumerationCompleted)
+        XCTAssertEqual(result.metadataFailureCount, 0)
+        XCTAssertEqual(result.songs.first?.revision, inspected.revision)
+        XCTAssertEqual(result.songs.first?.coverArtFileName, inspected.coverArtFileName)
+        XCTAssertEqual(result.songs.first?.lyricsFileName, inspected.lyricsFileName)
     }
 
     func testUnchangedCloudFileKeepsItsNewPathWhenInspectionIsReused() async throws {

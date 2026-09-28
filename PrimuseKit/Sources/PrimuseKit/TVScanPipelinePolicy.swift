@@ -129,12 +129,12 @@ public enum TVScanPipelinePolicy {
                 result.fileSize = candidate.fileSize
             }
             result.lastModified = candidate.lastModified
-            if !candidate.isStreamDescriptor { result.revision = candidate.revision }
+            if !candidate.isStreamDescriptor {
+                result.revision = candidate.revision ?? existing.revision
+            }
             result.cueSheetPath = candidate.cueSheetPath
             result.cueStartTime = candidate.cueStartTime
             result.cueEndTime = candidate.cueEndTime
-            if let cover = candidate.coverArtFileName { result.coverArtFileName = cover }
-            if let lyrics = candidate.lyricsFileName { result.lyricsFileName = lyrics }
             if let video = candidate.mvPath { result.mvPath = video }
         }
         result.dateAdded = existing.dateAdded

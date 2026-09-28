@@ -20,8 +20,18 @@ final class TVAppleMusicPlayer {
 
     /// 回灌给引擎的一拍状态。
     struct Tick: Equatable {
+        struct SongInfo: Equatable {
+            let id: String
+            let title: String
+            let artist: String
+            let album: String
+            let duration: TimeInterval?
+            let artworkURL: String?
+        }
+
         let currentTime: TimeInterval
         let duration: TimeInterval?
+        let song: SongInfo?
         let isPlaying: Bool
         /// 系统播放器已经放完了整个队列 —— 调用方据此推进自己的播放队列。
         let didFinish: Bool
@@ -44,28 +54,18 @@ final class TVAppleMusicPlayer {
     func play(
         itemID: String,
         startAt: TimeInterval,
-        autoPlay: Bool
+        autoPlay: Bool,
+        canContinue: () -> Bool
     ) async throws -> TimeInterval {
         let song = try await resolveSong(itemID: itemID)
+        try checkCurrent(canContinue)
         try await ensureReady(for: song)
-
-        let player = ApplicationMusicPlayer.shared
-        player.queue = ApplicationMusicPlayer.Queue(for: [song], startingAt: song)
-        do {
-            try await player.prepareToPlay()
-            if startAt > 0 { player.playbackTime = startAt }
-            if autoPlay { try await player.play() }
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw StartFailure.playbackFailed(error.localizedDescription)
-        }
-        activeItemID = itemID
-        return song.duration ?? 0
+        return try await startQueue([song], startAt: startAt, autoPlay: autoPlay,
+                                    canContinue: canContinue)
     }
 
     /// 整张专辑入队播放。
-    func playAlbum(id: String, autoPlay: Bool) async throws -> TimeInterval {
+    func playAlbum(id: String, autoPlay: Bool, canContinue: () -> Bool) async throws -> TimeInterval {
         let request = MusicCatalogResourceRequest<MusicKit.Album>(
             matching: \.id, equalTo: MusicItemID(rawValue: id)
         )
@@ -73,11 +73,12 @@ final class TVAppleMusicPlayer {
             throw StartFailure.itemNotFound
         }
         let tracks = try await Self.songs(in: album.with([.tracks]).tracks)
-        return try await playSongs(tracks, autoPlay: autoPlay)
+        try checkCurrent(canContinue)
+        return try await playSongs(tracks, autoPlay: autoPlay, canContinue: canContinue)
     }
 
     /// 播放某位艺术家的热门曲目。
-    func playArtistTopSongs(id: String, autoPlay: Bool) async throws -> TimeInterval {
+    func playArtistTopSongs(id: String, autoPlay: Bool, canContinue: () -> Bool) async throws -> TimeInterval {
         let request = MusicCatalogResourceRequest<MusicKit.Artist>(
             matching: \.id, equalTo: MusicItemID(rawValue: id)
         )
@@ -85,11 +86,12 @@ final class TVAppleMusicPlayer {
             throw StartFailure.itemNotFound
         }
         let songs = try await artist.with([.topSongs]).topSongs ?? []
-        return try await playSongs(Array(songs), autoPlay: autoPlay)
+        try checkCurrent(canContinue)
+        return try await playSongs(Array(songs), autoPlay: autoPlay, canContinue: canContinue)
     }
 
     /// 播放用户自己的 Apple Music 歌单。
-    func playLibraryPlaylist(id: String, autoPlay: Bool) async throws -> TimeInterval {
+    func playLibraryPlaylist(id: String, autoPlay: Bool, canContinue: () -> Bool) async throws -> TimeInterval {
         var request = MusicLibraryRequest<MusicKit.Playlist>()
         request.filter(matching: \.id, equalTo: MusicItemID(rawValue: id))
         request.limit = 1
@@ -97,25 +99,110 @@ final class TVAppleMusicPlayer {
             throw StartFailure.itemNotFound
         }
         let tracks = try await Self.songs(in: playlist.with([.tracks]).tracks)
-        return try await playSongs(tracks, autoPlay: autoPlay)
+        try checkCurrent(canContinue)
+        return try await playSongs(tracks, autoPlay: autoPlay, canContinue: canContinue)
     }
 
     /// 把一串曲目交给系统播放器。返回首曲时长,供引擎先把进度条画对。
-    private func playSongs(_ songs: [MusicKit.Song], autoPlay: Bool) async throws -> TimeInterval {
+    private func playSongs(_ songs: [MusicKit.Song], autoPlay: Bool,
+                           canContinue: () -> Bool) async throws -> TimeInterval {
         guard let first = songs.first else { throw StartFailure.itemNotFound }
         try await ensureReady(for: first)
+        return try await startQueue(songs, startAt: 0, autoPlay: autoPlay,
+                                    canContinue: canContinue)
+    }
+
+    private func checkCurrent(_ canContinue: () -> Bool) throws {
+        try Task.checkCancellation()
+        guard canContinue() else { throw CancellationError() }
+    }
+
+    private struct QueueStartError: Error {
+        let underlying: Error
+        let failedWhilePlaying: Bool
+        let stage: String
+    }
+
+    private func startQueue(_ songs: [MusicKit.Song], startAt: TimeInterval,
+                            autoPlay: Bool, canContinue: () -> Bool) async throws -> TimeInterval {
+        guard let first = songs.first else { throw StartFailure.itemNotFound }
+        try checkCurrent(canContinue)
         let player = ApplicationMusicPlayer.shared
-        player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: first)
+        do {
+            try await prepareAndPlay(songs, startAt: startAt, autoPlay: autoPlay,
+                                     canContinue: canContinue)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let failure as QueueStartError {
+            let nsError = failure.underlying as NSError
+            if AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
+                errorDomain: nsError.domain, errorCode: nsError.code,
+                failedWhilePlaying: failure.failedWhilePlaying
+            ) {
+                plog("Apple Music TV play reported system error after playback started")
+            } else {
+                guard AppleMusicQueueRecoveryPolicy.shouldRetryWithStartingItemOnly(
+                    errorDomain: nsError.domain, queueItemCount: songs.count
+                ) else { throw Self.playbackFailure(failure.underlying) }
+                try checkCurrent(canContinue)
+                plog("Apple Music TV \(failure.stage) failed for \(songs.count)-item queue "
+                     + "(domain=\(nsError.domain), code=\(nsError.code)); retrying selected item")
+                player.stop()
+                try await Task.sleep(for: AppleMusicQueueRecoveryPolicy.retryDelay)
+                try checkCurrent(canContinue)
+                do {
+                    try await prepareAndPlay([first], startAt: startAt, autoPlay: autoPlay,
+                                             canContinue: canContinue)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let retryFailure as QueueStartError {
+                    let retryError = retryFailure.underlying as NSError
+                    if !AppleMusicQueueRecoveryPolicy.shouldTreatAsStarted(
+                        errorDomain: retryError.domain, errorCode: retryError.code,
+                        failedWhilePlaying: retryFailure.failedWhilePlaying
+                    ) {
+                        plog("Apple Music TV retry failed at \(retryFailure.stage) "
+                             + "(domain=\(retryError.domain), code=\(retryError.code))")
+                        throw Self.playbackFailure(retryFailure.underlying)
+                    }
+                }
+            }
+        }
+        try checkCurrent(canContinue)
+        activeItemID = first.id.rawValue
+        return first.duration ?? 0
+    }
+
+    private func prepareAndPlay(_ songs: [MusicKit.Song], startAt: TimeInterval,
+                                autoPlay: Bool, canContinue: () -> Bool) async throws {
+        try checkCurrent(canContinue)
+        let player = ApplicationMusicPlayer.shared
+        player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: songs[0])
         do {
             try await player.prepareToPlay()
-            if autoPlay { try await player.play() }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw StartFailure.playbackFailed(error.localizedDescription)
+            throw QueueStartError(underlying: error, failedWhilePlaying: false, stage: "prepare")
         }
-        activeItemID = first.id.rawValue
-        return first.duration ?? 0
+        try checkCurrent(canContinue)
+        if startAt > 0 { player.playbackTime = startAt }
+        guard autoPlay else { return }
+        do {
+            try await player.play()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw QueueStartError(underlying: error, failedWhilePlaying: true, stage: "play")
+        }
+    }
+
+    private static func playbackFailure(_ error: Error) -> StartFailure {
+        let nsError = error as NSError
+        if nsError.domain == AppleMusicQueueRecoveryPolicy.musicPlayerErrorDomain {
+            return .playbackFailed(PMString("ext.tv.appleMusic.failed"))
+        }
+        return .playbackFailed(error.localizedDescription)
     }
 
     /// 关系集合可能分页,要全部取完再入队,否则只播到第一页就结束。
@@ -214,6 +301,19 @@ final class TVAppleMusicPlayer {
                 let player = ApplicationMusicPlayer.shared
                 let isPlaying = player.state.playbackStatus == .playing
                 let time = player.playbackTime
+                let song: Tick.SongInfo?
+                if let entry = player.queue.currentEntry, case .song(let current) = entry.item {
+                    song = Tick.SongInfo(
+                        id: current.id.rawValue,
+                        title: current.title,
+                        artist: current.artistName,
+                        album: current.albumTitle ?? "",
+                        duration: current.duration,
+                        artworkURL: current.artwork?.url(width: 800, height: 800)?.absoluteString
+                    )
+                } else {
+                    song = nil
+                }
                 if isPlaying || time > 0 { sawPlayback = true }
                 // 只有确实播过之后停下、且时间归零,才算整条队列放完。
                 // 起播前的 stopped + time==0 是初始状态,不能当成结束。
@@ -226,7 +326,8 @@ final class TVAppleMusicPlayer {
                 onTick(
                     Tick(
                         currentTime: time,
-                        duration: nil,
+                        duration: song?.duration,
+                        song: song,
                         isPlaying: isPlaying,
                         didFinish: didFinish
                     )

@@ -615,6 +615,12 @@ final class TVStore {
             }
         }
     }
+    private enum AppleMusicSelection {
+        case catalog(AppleMusicCatalogHit)
+        case collection(TVPlaybackCoordinator.AppleMusicCollection, songID: String,
+                        title: String, artist: String, album: String, glyph: String)
+    }
+    @ObservationIgnored private var appleMusicSelection: AppleMusicSelection?
 
     func resumeAfterAuthentication(_ request: PlaybackAuthentication) {
         guard request.id == activePlaybackRequestID, request.songID == currentSongID,
@@ -4352,6 +4358,16 @@ final class TVStore {
         }
 
         guard engine.status != .loading else { return }
+        if case .failed = engine.status, let selection = appleMusicSelection {
+            switch selection {
+            case .catalog(let hit):
+                playAppleMusicCatalogHit(hit)
+            case .collection(let collection, let songID, let title, let artist, let album, let glyph):
+                startAppleMusicCollection(collection, songID: songID, title: title,
+                                          artist: artist, album: album, glyph: glyph)
+            }
+            return
+        }
         guard let id = currentSongID, let currentSong = song(id) else {
             engine.play()
             return
@@ -5271,6 +5287,7 @@ final class TVStore {
     /// 设置展示元数据 + 触发真实解析播放。
     private func startPlaying(_ song: TVSong, resumeTime: Double = 0, autoPlay: Bool = true,
                               isRecovery: Bool = false, prepareWhenPaused: Bool = true) {
+        appleMusicSelection = nil
         if isMedleyActive, let slice = medleySlices[song.id] {
             startMedleySelection(slice, at: resumeTime, autoPlay: autoPlay)
             return
@@ -5342,6 +5359,7 @@ final class TVStore {
     /// 播放一条 Apple Music 目录搜索结果。这首歌不在本机曲库里,所以像电台那样
     /// 直接构造「正在播放」:`songID` 带前缀,避免与曲库歌曲的 ID 撞上。
     func playAppleMusicCatalogHit(_ hit: AppleMusicCatalogHit) {
+        appleMusicSelection = .catalog(hit)
         endMedley()
         leaveSpokenWordItem()
         finishListeningSession()
@@ -5449,6 +5467,8 @@ final class TVStore {
         album: String,
         glyph: String
     ) {
+        appleMusicSelection = .collection(collection, songID: songID, title: title,
+                                          artist: artist, album: album, glyph: glyph)
         endMedley()
         finishListeningSession()
         radioReconnectTask?.cancel()
