@@ -52,6 +52,9 @@ final class PrimuseTVAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // 冷启动停在启动画面时区分「后台拉起(推送等)」与「前台启动后被冻结」。
+        let launchKeys = (launchOptions?.keys.map(\.rawValue) ?? []).sorted()
+        plog("🎬 TV launch state=\(application.applicationState.rawValue) options=\(launchKeys)")
         // CKSyncEngine 靠 CloudKit 的静默推送才知道该去拉取。不注册就只剩启动时
         // 那一次和设置页的手动同步 —— 与 iOS / macOS 端注册的理由完全相同。
         application.registerForRemoteNotifications()
@@ -204,6 +207,8 @@ struct PrimuseTVApp: App {
                 // 手动刷新;手机端发送即是「主动触发」,下次启动 TV app 会拉到。
         }
         .onChange(of: scenePhase, initial: true) { previousPhase, phase in
+            plog("🎬 TV scenePhase \(String(describing: previousPhase))→\(String(describing: phase))"
+                 + " appState=\(UIApplication.shared.applicationState.rawValue)")
             switch phase {
             case .active: appDelegate.sceneDidBecomeActive()
             case .background:
