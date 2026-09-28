@@ -74,14 +74,14 @@ struct TVOptionsView: View {
 
         var goTo: [Action] = []
         if let onGoTo, !isSpokenWord, !store.isLiveRadio {
-            goTo.append(.init(id: "album", icon: "square.stack", label: String(localized: "go_to_album"), run: {
-                onGoTo(.thisAlbum)
-                dismiss()
-            }))
-            goTo.append(.init(id: "artist", icon: "music.mic", label: String(localized: "go_to_artist"), run: {
-                onGoTo(.artistAlbums)
-                dismiss()
-            }))
+            // 与长按封面、播放页货架同一套名字和图标。
+            for tab in TVPlayerShelfTab.goToDestinations
+            where tab != .upNext || !store.queueUpNextIDs.isEmpty {
+                goTo.append(.init(id: "goTo.\(tab.rawValue)", icon: tab.systemImage, label: tab.title, run: {
+                    onGoTo(tab)
+                    dismiss()
+                }))
+            }
         }
 
         return [

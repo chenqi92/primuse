@@ -3,15 +3,16 @@ import SwiftUI
 import PrimuseKit
 
 /// 播放页底部的快切货架:不离开播放页就能换一张专辑、一位艺术家、一个流派。
-/// 顺序按「离正在播放的这首有多近」排:接下来、本专辑、同艺术家,再是整库的
-/// 专辑 / 艺术家 / 流派,最后是最近播放和我喜欢。
+/// 顺序按「离正在播放的这首有多近」排:接下来、本专辑、同艺术家、同流派,再是整库的
+/// 专辑 / 艺术家,最后是最近播放和我喜欢。长按封面的菜单、「更多」里的「前往」
+/// 与这里用同一套名字和图标(`title` / `systemImage`)。
 enum TVPlayerShelfTab: String, CaseIterable, Identifiable, Hashable {
     case upNext
     case thisAlbum
     case artistAlbums
+    case genres
     case albums
     case artists
-    case genres
     case recent
     case liked
 
@@ -22,13 +23,29 @@ enum TVPlayerShelfTab: String, CaseIterable, Identifiable, Hashable {
         case .upNext: return String(localized: "up_next")
         case .thisAlbum: return PMString("ext.tv.player.shelf.thisAlbum")
         case .artistAlbums: return PMString("ext.tv.player.shelf.moreByArtist")
+        case .genres: return String(localized: "tab_genres")
         case .albums: return String(localized: "tab_albums")
         case .artists: return String(localized: "tab_artists")
-        case .genres: return String(localized: "tab_genres")
         case .recent: return String(localized: "recently_played")
         case .liked: return String(localized: "sidebar_liked_songs")
         }
     }
+
+    var systemImage: String {
+        switch self {
+        case .upNext: return "text.line.first.and.arrowtriangle.forward"
+        case .thisAlbum: return "square.stack"
+        case .artistAlbums: return "music.mic"
+        case .genres: return "guitars"
+        case .albums: return "square.grid.2x2"
+        case .artists: return "person.2"
+        case .recent: return "clock.arrow.circlepath"
+        case .liked: return "heart"
+        }
+    }
+
+    /// 长按封面与「更多」里「前往」列出的几栏:都围绕正在播放的这一首。
+    static let goToDestinations: [TVPlayerShelfTab] = [.upNext, .thisAlbum, .artistAlbums, .genres]
 }
 
 /// 货架上的一张卡片。`queueSong` 带着它在「接下来」里的位置:同一首歌可能在队列里
@@ -51,102 +68,114 @@ enum TVPlayerShelfItem: Identifiable {
     }
 }
 
-/// 货架内容。打开货架和换歌时算一次,不放进 body:播放进度每跳一下播放页都会重算,
-/// 整库专辑 / 艺术家列表不该跟着一遍遍过。
-struct TVPlayerShelfContent {
-    var items: [TVPlayerShelfTab: [TVPlayerShelfItem]] = [:]
-    /// 本专辑 / 最近播放 / 我喜欢:点一首歌时整条列表就是新队列。
-    var songIDs: [TVPlayerShelfTab: [String]] = [:]
-    /// 每一栏里「正在播放的那一项」,打开时焦点先落在它上面。
-    var currentItemIDs: [TVPlayerShelfTab: String] = [:]
+/// 正在播放的这首在曲库里的位置:专辑、艺术家、流派。换歌时算一次。
+struct TVPlayerShelfContext: Equatable {
+    var songID = ""
+    var albumID = ""
     var artistIDs: Set<String> = []
     var genreID: String?
 
-    var availableTabs: [TVPlayerShelfTab] {
-        TVPlayerShelfTab.allCases.filter { !(items[$0] ?? []).isEmpty }
+    @MainActor
+    static func current(store: TVStore) -> TVPlayerShelfContext {
+        var context = TVPlayerShelfContext()
+        context.songID = store.currentSongID ?? store.nowPlaying.songID
+        context.albumID = store.nowPlaying.albumID
+        if !context.songID.isEmpty, let raw = store.library.song(id: context.songID) {
+            context.artistIDs = Set(store.library.artistIDs(for: raw))
+            if let genre = raw.genre?.trimmingCharacters(in: .whitespacesAndNewlines), !genre.isEmpty {
+                context.genreID = LibraryGenreIndexBuilder.normalizedID(for: genre)
+            }
+        }
+        return context
     }
 
+    /// 哪几栏有内容。只做 O(1) 的判断,整库列表等真的切到那一栏再建。
     @MainActor
-    static func build(store: TVStore) -> TVPlayerShelfContent {
-        var content = TVPlayerShelfContent()
-        let np = store.nowPlaying
-        let currentSongID = store.currentSongID ?? np.songID
-        let raw = currentSongID.isEmpty ? nil : store.library.song(id: currentSongID)
-
-        content.items[.upNext] = store.queueUpNextIDs.enumerated().compactMap { offset, id in
-            store.song(id).map { TVPlayerShelfItem.queueSong(offset: offset, song: $0) }
-        }
-
-        if !np.albumID.isEmpty {
-            let songs = store.songs(forAlbum: np.albumID)
-            content.items[.thisAlbum] = songs.map(TVPlayerShelfItem.song)
-            content.songIDs[.thisAlbum] = songs.map(\.id)
-            if let current = songs.first(where: { $0.id == currentSongID }) {
-                content.currentItemIDs[.thisAlbum] = TVPlayerShelfItem.song(current).id
+    func availableTabs(store: TVStore) -> [TVPlayerShelfTab] {
+        TVPlayerShelfTab.allCases.filter { tab in
+            switch tab {
+            case .upNext: return !store.queueUpNextIDs.isEmpty
+            case .thisAlbum: return !albumID.isEmpty
+            case .artistAlbums: return !artistIDs.isEmpty
+            case .genres: return !store.library.visibleGenres.isEmpty
+            case .albums: return !store.albums.isEmpty
+            case .artists: return !store.artists.isEmpty
+            case .recent: return !store.recentlyPlayed.isEmpty
+            case .liked: return !store.library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID).isEmpty
             }
         }
+    }
 
-        if let raw {
-            content.artistIDs = Set(store.library.artistIDs(for: raw))
-            if let genre = raw.genre?.trimmingCharacters(in: .whitespacesAndNewlines), !genre.isEmpty {
-                content.genreID = LibraryGenreIndexBuilder.normalizedID(for: genre)
+    /// 一栏的卡片。整库的专辑 / 艺术家 / 流派把正在播放的那一项挪到最前面:打开就
+    /// 看得到、焦点直接落上去,不用为了找到它把前面几千张卡片都建出来。
+    @MainActor
+    func items(for tab: TVPlayerShelfTab, store: TVStore) -> [TVPlayerShelfItem] {
+        switch tab {
+        case .upNext:
+            return store.queueUpNextIDs.enumerated().compactMap { offset, id in
+                store.song(id).map { TVPlayerShelfItem.queueSong(offset: offset, song: $0) }
             }
-        }
-        // 同艺术家:这位艺术家的全部专辑(含正在放的这张),新的在前。
-        var seenAlbumIDs = Set<String>()
-        var artistAlbums: [TVAlbum] = []
-        for artistID in content.artistIDs.sorted() {
-            for song in store.songs(forArtistID: artistID) {
-                guard seenAlbumIDs.insert(song.albumID).inserted,
-                      let album = store.album(song.albumID) else { continue }
-                artistAlbums.append(album)
+        case .thisAlbum:
+            return albumID.isEmpty ? [] : store.songs(forAlbum: albumID).map(TVPlayerShelfItem.song)
+        case .artistAlbums:
+            // 这位艺术家的全部专辑(含正在放的这张),正在放的在前,其余新的在前。
+            var seen = Set<String>()
+            var albums: [TVAlbum] = []
+            for artistID in artistIDs.sorted() {
+                for song in store.songs(forArtistID: artistID) {
+                    guard seen.insert(song.albumID).inserted,
+                          let album = store.album(song.albumID) else { continue }
+                    albums.append(album)
+                }
             }
+            albums.sort { lhs, rhs in
+                if (lhs.id == albumID) != (rhs.id == albumID) { return lhs.id == albumID }
+                return lhs.year != rhs.year ? lhs.year > rhs.year
+                    : lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+            }
+            return albums.map(TVPlayerShelfItem.album)
+        case .genres:
+            return Self.pinned(store.library.visibleGenres, first: { $0.id == genreID })
+                .map(TVPlayerShelfItem.genre)
+        case .albums:
+            return Self.pinned(store.albums, first: { $0.id == albumID }).map(TVPlayerShelfItem.album)
+        case .artists:
+            return Self.pinned(store.artists, first: { artistIDs.contains($0.id) })
+                .map(TVPlayerShelfItem.artist)
+        case .recent:
+            return store.recentlyPlayed.map(TVPlayerShelfItem.song)
+        case .liked:
+            return store.library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
+                .compactMap { store.song($0.id) }
+                .map(TVPlayerShelfItem.song)
         }
-        artistAlbums.sort { lhs, rhs in
-            lhs.year != rhs.year ? lhs.year > rhs.year
-                : lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
-        }
-        content.items[.artistAlbums] = artistAlbums.map(TVPlayerShelfItem.album)
+    }
 
-        let albums = store.albums
-        content.items[.albums] = albums.map(TVPlayerShelfItem.album)
-        if !np.albumID.isEmpty, albums.contains(where: { $0.id == np.albumID }) {
-            content.currentItemIDs[.albums] = "a#\(np.albumID)"
-            content.currentItemIDs[.artistAlbums] = "a#\(np.albumID)"
-        }
-
-        let artists = store.artists
-        content.items[.artists] = artists.map(TVPlayerShelfItem.artist)
-        if let current = artists.first(where: { content.artistIDs.contains($0.id) }) {
-            content.currentItemIDs[.artists] = TVPlayerShelfItem.artist(current).id
-        }
-
-        let genres = store.library.visibleGenres
-        content.items[.genres] = genres.map(TVPlayerShelfItem.genre)
-        if let genreID = content.genreID, genres.contains(where: { $0.id == genreID }) {
-            content.currentItemIDs[.genres] = "g#\(genreID)"
-        }
-
-        let recent = store.recentlyPlayed
-        content.items[.recent] = recent.map(TVPlayerShelfItem.song)
-        content.songIDs[.recent] = recent.map(\.id)
-
-        let liked = store.library.songs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
-            .compactMap { store.song($0.id) }
-        content.items[.liked] = liked.map(TVPlayerShelfItem.song)
-        content.songIDs[.liked] = liked.map(\.id)
-        return content
+    private static func pinned<Element>(_ elements: [Element], first isCurrent: (Element) -> Bool) -> [Element] {
+        guard let index = elements.firstIndex(where: isCurrent), index > 0 else { return elements }
+        var reordered = elements
+        let current = reordered.remove(at: index)
+        reordered.insert(current, at: 0)
+        return reordered
     }
 }
 
-struct TVPlayerShelf: View {
+/// 货架本身不看父视图的任何变化:播放页每 0.25 秒随进度重算一次,若货架跟着重算,
+/// 成百上千张卡片的 ForEach 每秒要对比四遍,遥控器就会迟钝。它只跟着自己的状态
+/// (当前栏、焦点、渲染范围)和正在播放的那首歌变。
+struct TVPlayerShelf: View, @MainActor Equatable {
     @Environment(TVStore.self) private var store
-    @Binding var tab: TVPlayerShelfTab
+
+    /// 打开时停在哪一栏;之后的切换是货架自己的状态。
+    let initialTab: TVPlayerShelfTab
     /// 开始播放后收起货架(`true`),或者按 Menu 直接收起(`false`)。
     var onClose: (_ startedPlayback: Bool) -> Void
     var onInteraction: () -> Void = {}
 
-    @State private var content = TVPlayerShelfContent()
+    @State private var tab: TVPlayerShelfTab
+    @State private var context = TVPlayerShelfContext()
+    @State private var availableTabs: [TVPlayerShelfTab] = []
+    @State private var itemsByTab: [TVPlayerShelfTab: [TVPlayerShelfItem]] = [:]
     @State private var hasLoaded = false
     @State private var renderedCount = TVLongListPagingPolicy.pageSize
     @FocusState private var focusedItemID: String?
@@ -156,6 +185,21 @@ struct TVPlayerShelf: View {
     /// 横向 ScrollView 竖直方向会吃满剩余高度,得给定行高,货架才贴在屏幕底部。
     /// 封面 + 两行标题 + 一行副标题,再加焦点放大留的上下边。
     private var rowHeight: CGFloat { cardWidth + 160 }
+
+    init(
+        initialTab: TVPlayerShelfTab,
+        onClose: @escaping (_ startedPlayback: Bool) -> Void,
+        onInteraction: @escaping () -> Void = {}
+    ) {
+        self.initialTab = initialTab
+        self.onClose = onClose
+        self.onInteraction = onInteraction
+        _tab = State(initialValue: initialTab)
+    }
+
+    static func == (lhs: TVPlayerShelf, rhs: TVPlayerShelf) -> Bool {
+        lhs.initialTab == rhs.initialTab
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -182,17 +226,19 @@ struct TVPlayerShelf: View {
         .onExitCommand { onClose(false) }
         // 换歌(自然播完或在货架里点了别的)后内容跟着换;焦点不动,免得正在挑的时候被拽走。
         .task(id: store.currentSongID ?? store.nowPlaying.songID) {
-            content = TVPlayerShelfContent.build(store: store)
-            let available = content.availableTabs
-            if !available.contains(tab), let first = available.first { tab = first }
+            context = TVPlayerShelfContext.current(store: store)
+            availableTabs = context.availableTabs(store: store)
+            itemsByTab = [:]
+            if !availableTabs.contains(tab), let first = availableTabs.first { tab = first }
+            loadItems(for: tab)
             guard !hasLoaded else { return }
             hasLoaded = true
-            renderedCount = initialRenderedCount(for: tab)
             await Task.yield()
-            focusedItemID = content.currentItemIDs[tab] ?? content.items[tab]?.first?.id
+            focusedItemID = itemsByTab[tab]?.first?.id
         }
         .onChange(of: tab) { _, newTab in
-            renderedCount = initialRenderedCount(for: newTab)
+            renderedCount = TVLongListPagingPolicy.pageSize
+            loadItems(for: newTab)
         }
         .onChange(of: focusedItemID) { _, _ in onInteraction() }
         .onChange(of: focusedTabID) { previous, focused in
@@ -208,16 +254,22 @@ struct TVPlayerShelf: View {
         }
     }
 
+    private func loadItems(for tab: TVPlayerShelfTab) {
+        guard itemsByTab[tab] == nil else { return }
+        itemsByTab[tab] = context.items(for: tab, store: store)
+    }
+
     // MARK: 分栏
 
     private var tabRow: some View {
         HStack(spacing: 10) {
-            ForEach(content.availableTabs) { item in
+            ForEach(availableTabs) { item in
                 // 和顶栏一样:焦点横移到哪一栏就显示哪一栏,不必再按确认(见 focusedTabID)。
                 TVFocusButton(radius: 16, scale: 1.04, lift: 0, ring: false, action: {
                     tab = item
                 }, focusBinding: $focusedTabID, focusID: item.rawValue) { focused in
-                    Text(item.title)
+                    Label(item.title, systemImage: item.systemImage)
+                        .labelStyle(.titleAndIcon)
                         .tvFont(.rowTitle, weight: item == tab ? .bold : .medium)
                         .lineLimit(1)
                         .foregroundStyle(focused ? TVColor.bg : (item == tab ? TVColor.text : TVColor.textMuted))
@@ -236,7 +288,7 @@ struct TVPlayerShelf: View {
 
     @ViewBuilder
     private var itemsRow: some View {
-        let items = content.items[tab] ?? []
+        let items = itemsByTab[tab] ?? []
         let shown = TVLongListPagingPolicy.clamped(limit: renderedCount, totalCount: items.count)
         if !hasLoaded {
             Color.clear.frame(height: rowHeight)
@@ -246,44 +298,28 @@ struct TVPlayerShelf: View {
                 .foregroundStyle(TVColor.textFaint)
                 .frame(maxWidth: .infinity, minHeight: rowHeight, alignment: .leading)
         } else {
-            ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 34) {
-                        ForEach(Array(items.prefix(shown).enumerated()), id: \.element.id) { index, item in
-                            card(item) { focused in
-                                guard focused else { return }
-                                renderedCount = TVLongListPagingPolicy.limit(
-                                    after: shown, focusedRow: index, totalCount: items.count
-                                )
-                            }
-                            .id(item.id)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 34) {
+                    ForEach(0..<shown, id: \.self) { index in
+                        card(items[index]) { focused in
+                            guard focused else { return }
+                            let next = TVLongListPagingPolicy.limit(
+                                after: shown, focusedRow: index, totalCount: items.count
+                            )
+                            if next != renderedCount { renderedCount = next }
                         }
+                        .id(items[index].id)
                     }
-                    // 焦点放大和描边要有地方画,不然会被横向 ScrollView 裁掉。
-                    .padding(.vertical, 22)
-                    .padding(.horizontal, 14)
                 }
-                .scrollClipDisabled()
-                .frame(height: rowHeight)
-                .onAppear {
-                    if let id = content.currentItemIDs[tab] { proxy.scrollTo(id, anchor: .leading) }
-                }
+                // 焦点放大和描边要有地方画,不然会被横向 ScrollView 裁掉。
+                .padding(.vertical, 22)
+                .padding(.horizontal, 14)
             }
+            .scrollClipDisabled()
+            .frame(height: rowHeight)
             .focusSection()
             .id(tab)
-            .transition(.opacity)
         }
-    }
-
-    private func initialRenderedCount(for tab: TVPlayerShelfTab) -> Int {
-        let items = content.items[tab] ?? []
-        guard let currentID = content.currentItemIDs[tab],
-              let index = items.firstIndex(where: { $0.id == currentID }) else {
-            return TVLongListPagingPolicy.pageSize
-        }
-        return TVLongListPagingPolicy.limit(
-            after: TVLongListPagingPolicy.pageSize, focusedRow: index, totalCount: items.count
-        )
     }
 
     // MARK: 卡片
@@ -297,11 +333,11 @@ struct TVPlayerShelf: View {
                 onClose(true)
             }
         case let .song(song):
-            songCard(song, id: item.id, isCurrent: song.id == store.currentSongID,
+            songCard(song, id: item.id, isCurrent: song.id == context.songID,
                      onFocusChanged: onFocusChanged) {
-                if song.id == store.currentSongID {
+                if song.id == context.songID {
                     onClose(false)
-                } else if store.play(song, in: content.songIDs[tab] ?? [song.id]) {
+                } else if store.play(song, in: songIDs(in: tab, fallback: song.id)) {
                     onClose(true)
                 }
             }
@@ -309,7 +345,7 @@ struct TVPlayerShelf: View {
             TVAlbumCard(
                 album: album,
                 width: cardWidth,
-                subtitleOverride: album.id == store.nowPlaying.albumID
+                subtitleOverride: album.id == context.albumID
                     ? PMString("ext.tv.nowPlaying.eyebrow") : nil,
                 action: { onClose(true) },
                 onFocusChanged: onFocusChanged,
@@ -321,6 +357,15 @@ struct TVPlayerShelf: View {
         case let .genre(genre):
             genreCard(genre, id: item.id, onFocusChanged: onFocusChanged)
         }
+    }
+
+    /// 本专辑 / 最近播放 / 我喜欢:点一首歌时整条列表就是新队列。
+    private func songIDs(in tab: TVPlayerShelfTab, fallback: String) -> [String] {
+        let ids = (itemsByTab[tab] ?? []).compactMap { item -> String? in
+            if case let .song(song) = item { return song.id }
+            return nil
+        }
+        return ids.isEmpty ? [fallback] : ids
     }
 
     private func songCard(
@@ -355,84 +400,107 @@ struct TVPlayerShelf: View {
         id: String,
         onFocusChanged: @escaping (Bool) -> Void
     ) -> some View {
-        let isCurrent = content.artistIDs.contains(artist.id)
+        let isCurrent = context.artistIDs.contains(artist.id)
         return TVFocusButton(ring: false, action: {
             let ids = store.songs(forArtistID: artist.id).map(\.id)
             if store.playResolvedQueue(songIDs: ids, shuffled: store.shuffleEnabled) { onClose(true) }
         }, onFocusChanged: onFocusChanged, focusBinding: $focusedItemID, focusID: id) { focused in
-            VStack(spacing: 0) {
-                TVArtistArtworkView(artist: artist, size: cardWidth - 20)
-                    .tvFocusRing(focused, radius: (cardWidth - 20) / 2, scale: 1.05, lift: 0)
-                    .padding(.horizontal, 10)
+            VStack(alignment: .leading, spacing: 0) {
+                TVArtistArtworkView(artist: artist, size: cardWidth)
+                    .tvFocusRing(focused, radius: cardWidth / 2, scale: 1.04, lift: 0)
                 cardText(
                     title: artist.name,
                     subtitle: isCurrent ? PMString("ext.tv.nowPlaying.eyebrow")
                         : PMString("ext.tv.songsCount", artist.songCount),
-                    highlighted: isCurrent,
-                    alignment: .center
+                    highlighted: isCurrent
                 )
             }
-            .frame(width: cardWidth)
+            .frame(width: cardWidth, alignment: .leading)
         }
         .accessibilityLabel(Text(artist.name))
     }
 
+    /// 与专辑卡同一个版式:方形封面位(流派里三张代表封面拼成)、名字、首数。
     private func genreCard(
         _ genre: LibraryGenre,
         id: String,
         onFocusChanged: @escaping (Bool) -> Void
     ) -> some View {
-        let isCurrent = genre.id == content.genreID
-        let width = cardWidth * 1.4
-        return TVFocusButton(radius: 18, scale: 1.04, lift: 0, action: {
+        let isCurrent = genre.id == context.genreID
+        return TVFocusButton(ring: false, action: {
             let ids = store.library.songs(forGenre: genre.id).map(\.id)
             if store.playResolvedQueue(songIDs: ids, shuffled: store.shuffleEnabled) { onClose(true) }
         }, onFocusChanged: onFocusChanged, focusBinding: $focusedItemID, focusID: id) { focused in
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 8) {
-                    ForEach(genre.representativeSongIDs.prefix(3), id: \.self) { songID in
-                        if let song = store.song(songID) {
-                            TVBrowseSongArtwork(song: song, size: 82)
-                        }
-                    }
-                }
-                .frame(height: 82, alignment: .leading)
-                Text(genre.name)
-                    .tvFont(.cardTitle)
-                    .foregroundStyle(TVColor.text)
-                    .lineLimit(2, reservesSpace: true)
-                Text(isCurrent ? PMString("ext.tv.nowPlaying.eyebrow")
-                     : PMString("ext.tv.songsCount", genre.songCount))
-                    .tvFont(.caption, weight: isCurrent ? .semibold : .regular)
-                    .foregroundStyle(isCurrent ? TVColor.brand : TVColor.textMuted)
-                    .lineLimit(1)
+            VStack(alignment: .leading, spacing: 0) {
+                genreMosaic(genre)
+                    .tvFocusRing(focused, radius: TVRadius.cover, scale: 1.04, lift: 0)
+                cardText(
+                    title: genre.name,
+                    subtitle: isCurrent ? PMString("ext.tv.nowPlaying.eyebrow")
+                        : PMString("ext.tv.songsCount", genre.songCount),
+                    highlighted: isCurrent
+                )
             }
-            .padding(24)
-            .frame(width: width, height: cardWidth + 60, alignment: .topLeading)
-            .background(focused ? TVColor.surfaceStrong : TVColor.card)
+            .frame(width: cardWidth, alignment: .leading)
         }
         .accessibilityLabel(Text(genre.name))
+    }
+
+    /// 左边一张大封面,右边上下两张小的;不够三张就用流派名的首字补位。
+    private func genreMosaic(_ genre: LibraryGenre) -> some View {
+        let songs = genre.representativeSongIDs.prefix(3).compactMap { store.song($0) }
+        let gap: CGFloat = 4
+        let large = (cardWidth - gap) * 0.62
+        let small = (cardWidth - gap) - large
+        let half = (cardWidth - gap) / 2
+        return HStack(spacing: gap) {
+            mosaicTile(songs.first, width: large, height: cardWidth, glyph: String(genre.name.prefix(1)))
+            VStack(spacing: gap) {
+                mosaicTile(songs.dropFirst().first, width: small, height: half, glyph: nil)
+                mosaicTile(songs.dropFirst(2).first, width: small, height: half, glyph: nil)
+            }
+        }
+        .frame(width: cardWidth, height: cardWidth)
+        // 占位封面是半透明的,垫一层不透明底,后面播放页的字不会透出来。
+        .background(TVColor.bg)
+        .clipShape(RoundedRectangle(cornerRadius: TVRadius.cover, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func mosaicTile(_ song: TVSong?, width: CGFloat, height: CGFloat, glyph: String?) -> some View {
+        if let song {
+            TVBrowseSongArtwork(song: song, size: max(width, height))
+                .frame(width: width, height: height)
+                .clipped()
+        } else {
+            ZStack {
+                TVColor.surfaceStrong
+                if let glyph {
+                    Text(glyph).tvFont(size: 64, weight: .bold, relativeTo: .largeTitle)
+                        .foregroundStyle(TVColor.textFaint)
+                }
+            }
+            .frame(width: width, height: height)
+        }
     }
 
     private func cardText(
         title: String,
         subtitle: String,
-        highlighted: Bool,
-        alignment: HorizontalAlignment = .leading
+        highlighted: Bool
     ) -> some View {
-        VStack(alignment: alignment, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .tvFont(.cardTitle)
                 .foregroundStyle(TVColor.text)
                 .lineLimit(2, reservesSpace: true)
-                .multilineTextAlignment(alignment == .center ? .center : .leading)
             Text(subtitle)
                 .tvFont(.caption, weight: highlighted ? .semibold : .regular)
                 .foregroundStyle(highlighted ? TVColor.brand : TVColor.textFaint)
                 .lineLimit(1)
         }
         .padding(.top, 12).padding(.horizontal, 2)
-        .frame(width: cardWidth, alignment: alignment == .center ? .center : .leading)
+        .frame(width: cardWidth, alignment: .leading)
     }
 
     private var nowPlayingBadge: some View {

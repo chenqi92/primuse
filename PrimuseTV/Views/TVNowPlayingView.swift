@@ -61,7 +61,8 @@ struct TVNowPlayingView: View {
     @AppStorage(FullscreenPlayerEffect.storageKey)
     private var fullscreenPlayerEffectRawValue = FullscreenPlayerEffect.defaultValue.rawValue
     /// 最近一次遥控操作的时间戳。播放中静置一段时间自动进入沉浸展示。
-    @State private var lastInteraction = Date()
+    /// 不用 @State 的 Date:每次移动焦点都会写它,写一次就让整个播放页(连同货架)重算一遍。
+    @State private var interactionClock = TVInteractionClock()
     @Namespace private var playerFocus
     @FocusState private var focusedTransport: TVNowPlayingFocusTarget?
     @FocusState private var scrubberFocused: Bool
@@ -155,7 +156,7 @@ struct TVNowPlayingView: View {
         .onChange(of: showImmersive) { _, presented in
             if !presented {
                 immersiveStartsWithEffectPicker = false
-                lastInteraction = Date()
+                interactionClock.touch()
             }
         }
         .onDisappear {
@@ -173,7 +174,7 @@ struct TVNowPlayingView: View {
                       !store.currentItemIsSpokenWord,
                       fullscreenPlayerEffect != .native,
                       !showImmersive, !showShelf, !showOptions, !scrubberFocused else { continue }
-                if Date().timeIntervalSince(lastInteraction) >= immersiveIdleThreshold {
+                if interactionClock.secondsSinceLastInteraction >= immersiveIdleThreshold {
                     presentImmersivePlayer(isUserInitiated: false)
                 }
             }
@@ -201,7 +202,8 @@ struct TVNowPlayingView: View {
                 // 货架升起时后面的控件不参与焦点,上键不会把焦点带回传输键。
                 .disabled(showShelf)
             if showShelf, supportsShelf {
-                TVPlayerShelf(tab: $shelfTab, onClose: closeShelf, onInteraction: registerInteraction)
+                TVPlayerShelf(initialTab: shelfTab, onClose: closeShelf, onInteraction: registerInteraction)
+                    .equatable()
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(2)
@@ -427,7 +429,7 @@ struct TVNowPlayingView: View {
     ) -> some View {
         let focused = focusedTransport == target
         return Button {
-            lastInteraction = Date()
+            interactionClock.touch()
             action()
         } label: {
             Image(systemName: icon)
@@ -595,7 +597,8 @@ struct TVNowPlayingView: View {
         }
     }
 
-    /// 长按封面:喜欢,以及直接跳到货架的「本专辑」/「同艺术家」。
+    /// 长按封面:喜欢;「前往」与货架、「更多」同一套名字和图标;随机、睡眠定时;
+    /// 其余(匹配信息、卡拉OK、串烧)在「更多」里。
     @ViewBuilder
     private var artworkContextMenu: some View {
         if let songID = store.currentSongID {
@@ -607,12 +610,39 @@ struct TVNowPlayingView: View {
                 store.toggleLiked(songID)
             }
         }
-        Button(String(localized: "go_to_album"), systemImage: "square.stack") {
-            openShelf(.thisAlbum)
+        Section(PMString("ext.tv.options.section.goTo")) {
+            ForEach(TVPlayerShelfTab.goToDestinations.filter { $0 != .upNext || !store.queueUpNextIDs.isEmpty }) { tab in
+                Button(tab.title, systemImage: tab.systemImage) { openShelf(tab) }
+            }
         }
-        Button(String(localized: "go_to_artist"), systemImage: "music.mic") {
-            openShelf(.artistAlbums)
+        Section(PMString("ext.tv.options.section.playback")) {
+            Toggle(isOn: Binding(get: { store.shuffleEnabled }, set: { _ in store.toggleShuffle() })) {
+                Label(PMString("shuffle"), systemImage: "shuffle")
+            }
+            Menu {
+                ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
+                    Toggle(isOn: Binding(
+                        get: { store.sleepTimerMinutes == minutes },
+                        set: { _ in store.setSleepTimer(minutes: minutes) }
+                    )) {
+                        Text(verbatim: "\(minutes) " + String(localized: "minutes"))
+                    }
+                }
+                if store.sleepTimerMinutes > 0 {
+                    Button(String(localized: "cancel_timer"), systemImage: "moon.zzz") {
+                        store.cancelSleepTimer()
+                    }
+                }
+            } label: {
+                Label(
+                    store.sleepTimerMinutes > 0
+                        ? PMString("ext.tv.options.sleepActive", store.sleepTimerMinutes)
+                        : PMString("ext.tv.options.sleepTimer"),
+                    systemImage: store.sleepTimerMinutes > 0 ? "moon.zzz.fill" : "moon.zzz"
+                )
+            }
         }
+        Button(PMString("more"), systemImage: "ellipsis.circle") { showOptions = true }
     }
 
     /// 传输键下面的把手:焦点往下走到它就升起货架,和系统视频播放器下滑出面板一个手势。
@@ -971,7 +1001,7 @@ struct TVNowPlayingView: View {
     }
 
     private func registerInteraction() {
-        lastInteraction = Date()
+        interactionClock.touch()
     }
 
     // MARK: 右列 — 歌词
@@ -1458,6 +1488,16 @@ struct TVRoundBtn: View {
         case "play.rectangle", "play.rectangle.fill": return PMString("playback")
         default: return icon
         }
+    }
+}
+/// 播放页「最近一次遥控操作」的时刻。普通引用类型、不参与观察:写它不会让视图重算。
+final class TVInteractionClock {
+    private var lastInteraction = ProcessInfo.processInfo.systemUptime
+
+    func touch() { lastInteraction = ProcessInfo.processInfo.systemUptime }
+
+    var secondsSinceLastInteraction: TimeInterval {
+        ProcessInfo.processInfo.systemUptime - lastInteraction
     }
 }
 #endif
