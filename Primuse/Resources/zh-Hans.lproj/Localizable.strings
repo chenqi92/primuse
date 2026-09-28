@@ -4096,9 +4096,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "自动刷新";
-"server_auto_refresh_description" = "App 打开后检查服务端的资料库状态，仅在服务端内容变化时刷新本地目录，不会发起服务端扫描。";
+"server_auto_refresh_description" = "打开 App、回到前台或手动刷新时检查服务端的资料库状态，仅在服务端内容变化时同步本地目录，不会发起服务端扫描。";
 "server_scan_on_launch" = "启动时请求完整服务端扫描";
 "server_scan_on_launch_description" = "Primuse 启动时请求服务端完整扫描资料库。需要管理员账号；不支持或无权限时会自动回退为仅检查状态。";
+"server_refresh_menu_item" = "检查音乐源更新";
+"server_refresh_found_changes_format" = "%@ 有新内容，正在同步";
+"server_refresh_already_scanning" = "音乐源正在同步中";
+"server_refresh_up_to_date" = "音乐源已是最新";
+"server_refresh_partly_unreachable_format" = "其余音乐源已是最新，%@ 暂时连不上";
+"server_refresh_unreachable_format" = "暂时连不上 %@";
+"server_refresh_still_checking" = "仍在检查音乐源，有新内容会自动同步";
+"server_refresh_postponed" = "音乐源暂时没法检查，稍后会自动再试";
+"server_refresh_nothing_to_check" = "没有可检查的服务器音乐源";
+"server_refresh_done_added_format" = "%1$@ 新增 %2$d 首";
+"server_refresh_done_removed_format" = "%1$@ 移除 %2$d 首";
+"server_refresh_done_synced_format" = "%@ 已同步";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "歌词海报";

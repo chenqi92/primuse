@@ -700,6 +700,14 @@ final class TVStore {
     @ObservationIgnored private var pendingScanSongs: [Song] = []
     @ObservationIgnored private var scanExistingIDsByFile: [String: String] = [:]
     @ObservationIgnored private var lastScanFlush = Date.distantPast
+    /// 服务器曲库变化检查(启动后一次、回到前台一次)。见文件末尾的扩展。
+    @ObservationIgnored private var serverCatalogMarkers: [String: TVServerCatalogMarker]?
+    @ObservationIgnored private var serverCatalogLastProbeAt: [String: Date] = [:]
+    @ObservationIgnored private var pendingServerCatalogRefreshes: [String: TVServerCatalogMarker] = [:]
+    @ObservationIgnored private var serverCatalogCheckTask: Task<Void, Never>?
+    @ObservationIgnored private var serverCatalogRetryTask: Task<Void, Never>?
+    @ObservationIgnored private var didStartServerCatalogChecks = false
+    @ObservationIgnored private var serverCatalogSceneIsActive = false
     private struct ScanCheckpoint: Codable {
         let connectionIdentity: String
         let roots: [String]
@@ -5652,9 +5660,15 @@ final class TVStore {
         resumePendingSourceUpload()
         ScrobbleService.shared.retryPendingNow()
         recoverReceivedMusicIfNeeded()
+        serverCatalogSceneIsActive = true
+        // 启动那一轮还没开始前不抢;之后每次回到前台都问一遍,冷却按源计。
+        if didStartServerCatalogChecks {
+            scheduleServerCatalogCheck(after: .seconds(2))
+        }
     }
 
     func persistForLifecycle() async {
+        serverCatalogSceneIsActive = false
         guard !hasPendingSnapshotRecovery else { return }
         // 切台时攒着没写的最近收听时间（和批末才写的远端电台）现在写掉。
         radioStore.flushPendingPersist()
@@ -5941,3 +5955,228 @@ extension TVNowPlaying {
     }
 }
 #endif
+
+// MARK: - 服务器曲库变化检查
+
+/// 电视自己扫过的整库型服务器源(媒体服务器、Subsonic 系、飞牛、刀里鱼、Songloft、
+/// 群晖 Audio Station)有没有变:和手机同一套一两个小请求,变了才整源重扫。
+/// 手机同步来的源不在此列 —— 它们的曲库跟着手机的快照走。
+private struct TVServerCatalogMarker: Codable, Sendable {
+    var identityFingerprint: String
+    var lastAppliedServerScanAt: Date?
+    var itemCount: Int64?
+    var contentRevision: String?
+    var changeWindowStart: Date?
+    var lastCheckedAt: Date
+}
+
+extension TVStore {
+    private static let serverCatalogMarkersKey = "tv.serverCatalogAutoRefresh.v1"
+    /// 启动后先让同步、首页和续播跑完,再占网络。
+    private static let serverCatalogLaunchDelay: Duration = .seconds(8)
+    /// 发现有变化但正在播放或已有扫描时,隔这么久再看一次。
+    private static let serverCatalogBusyRetryDelay: Duration = .seconds(180)
+
+    /// 启动(同步或本地装载)完成后调用一次。
+    func startServerCatalogAutoRefresh() {
+        guard !didStartServerCatalogChecks else { return }
+        didStartServerCatalogChecks = true
+        serverCatalogSceneIsActive = true
+        scheduleServerCatalogCheck(after: Self.serverCatalogLaunchDelay)
+    }
+
+    private func scheduleServerCatalogCheck(after delay: Duration) {
+        guard serverCatalogCheckTask == nil else { return }
+        serverCatalogCheckTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self else { return }
+            defer { self.serverCatalogCheckTask = nil }
+            guard !Task.isCancelled else { return }
+            await self.checkServerCatalogs()
+        }
+    }
+
+    private func isServerCatalogCheckable(_ source: MusicSource) -> Bool {
+        TVSourceScanner.serverCatalogTypes.contains(source.type)
+            && ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type)
+            && source.isEnabled
+            && !source.isDeleted
+            && source.lastScannedAt != nil
+            && locallyScannedSourceIDs.contains(source.id)
+            && !locallyRemovedSourceIDs.contains(source.id)
+    }
+
+    private func checkServerCatalogs() async {
+        var markers = serverCatalogMarkers ?? loadServerCatalogMarkers()
+        defer {
+            if !pendingServerCatalogRefreshes.isEmpty { scheduleServerCatalogRetry() }
+        }
+        for source in sourcesStore.sources where isServerCatalogCheckable(source) {
+            guard !Task.isCancelled, serverCatalogSceneIsActive else { return }
+            if let pending = pendingServerCatalogRefreshes[source.id] {
+                await refreshServerCatalogIfIdle(source, pending: pending)
+                continue
+            }
+            let identity = MusicSourceScopeFingerprint.make(for: source)
+            let marker = markers[source.id].flatMap { $0.identityFingerprint == identity ? $0 : nil }
+            let lastAsked = [marker?.lastCheckedAt, serverCatalogLastProbeAt[source.id]]
+                .compactMap { $0 }
+                .max()
+            if let lastAsked,
+               Date().timeIntervalSince(lastAsked) < ServerCatalogAutoRefreshPolicy.checkCooldown {
+                continue
+            }
+            serverCatalogLastProbeAt[source.id] = Date()
+            let status: ServerCatalogScanStatus
+            do {
+                status = try await serverCatalogChangeStatus(
+                    for: source,
+                    changedSince: marker?.changeWindowStart
+                )
+            } catch {
+                plog("⚠️ TV server catalogue check failed for \(source.name): \(error.localizedDescription)")
+                continue
+            }
+            let checkedAt = Date()
+            guard let current = sourcesStore.source(id: source.id),
+                  isServerCatalogCheckable(current),
+                  MusicSourceScopeFingerprint.make(for: current) == identity else { continue }
+            let decision = ServerCatalogRefreshPolicy.decision(
+                serverIsScanning: status.isScanning,
+                lastAppliedServerScanAt: marker?.lastAppliedServerScanAt,
+                lastAppliedItemCount: marker?.itemCount,
+                serverLastScanAt: status.lastCompletedScanAt,
+                serverItemCount: status.itemCount,
+                localLastScannedAt: current.lastScannedAt,
+                localSongCount: current.songCount,
+                lastAppliedContentRevision: marker?.contentRevision,
+                serverContentRevision: status.contentRevision,
+                serverChangedItemCount: status.changedItemCount
+            )
+            // 服务端正在扫:它扫完之后下一次回到前台再问。
+            guard decision != .deferWhileScanning else { continue }
+            let next = TVServerCatalogMarker(
+                identityFingerprint: identity,
+                lastAppliedServerScanAt: status.lastCompletedScanAt,
+                itemCount: status.itemCount,
+                contentRevision: status.contentRevision,
+                changeWindowStart: ServerCatalogChangeWindowPolicy.nextWindowStart(
+                    serverObservedAt: status.serverObservedAt,
+                    deviceCheckedAt: checkedAt
+                ),
+                lastCheckedAt: checkedAt
+            )
+            let identityChanged = markers[source.id].map { $0.identityFingerprint != identity } ?? false
+            guard identityChanged || decision == .refresh else {
+                markers[source.id] = next
+                serverCatalogMarkers = markers
+                persistServerCatalogMarkers(markers)
+                continue
+            }
+            plog("🔄 TV \(current.name): server catalogue changed; refreshing")
+            pendingServerCatalogRefreshes[current.id] = next
+            await refreshServerCatalogIfIdle(current, pending: next)
+            markers = serverCatalogMarkers ?? markers
+        }
+    }
+
+    /// 播放中或已有扫描时先记着,三分钟后再看;扫完成功才记下这次看到的状态,
+    /// 失败就丢掉,下一次检查会再次发现同一个变化。
+    private func refreshServerCatalogIfIdle(
+        _ source: MusicSource,
+        pending: TVServerCatalogMarker
+    ) async {
+        guard !isPlaying, activeScanSourceID == nil, canMutateLibrary else { return }
+        let scannedBefore = source.lastScannedAt
+        _ = await runServerCatalogScan(source: source)
+        pendingServerCatalogRefreshes.removeValue(forKey: source.id)
+        guard let after = sourcesStore.source(id: source.id),
+              let scannedAfter = after.lastScannedAt,
+              scannedAfter != scannedBefore,
+              MusicSourceScopeFingerprint.make(for: after) == pending.identityFingerprint else { return }
+        var markers = serverCatalogMarkers ?? loadServerCatalogMarkers()
+        markers[source.id] = pending
+        serverCatalogMarkers = markers
+        persistServerCatalogMarkers(markers)
+    }
+
+    private func scheduleServerCatalogRetry() {
+        guard serverCatalogRetryTask == nil else { return }
+        serverCatalogRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.serverCatalogBusyRetryDelay)
+            guard let self else { return }
+            self.serverCatalogRetryTask = nil
+            guard !Task.isCancelled, self.serverCatalogSceneIsActive else { return }
+            self.scheduleServerCatalogCheck(after: .zero)
+        }
+    }
+
+    /// 和手机端同样的一两个小请求,不走查目录。
+    private func serverCatalogChangeStatus(
+        for source: MusicSource,
+        changedSince: Date?
+    ) async throws -> ServerCatalogScanStatus {
+        let credential = TVCredentialStore.credential(for: source, bundle: credentialBundle)
+        func totalOnly(_ total: Int) -> ServerCatalogScanStatus {
+            ServerCatalogScanStatus(isScanning: false, itemCount: Int64(total), lastCompletedScanAt: nil)
+        }
+        switch source.type {
+        case .fnMusic:
+            // 复用播放和封面在用的那个会话;另建客户端重新登录会顶掉它。
+            guard let client = fnMusicClient(for: source.id),
+                  let total = try await client.trackPage(page: 1, size: 1).total else {
+                throw TVScanError.unsupported
+            }
+            return totalOnly(total)
+        case .daoliyu:
+            let client = DaoLiYuServiceClient(source: source, credential: credential)
+            return totalOnly(try await client.trackPage(skip: 0, take: 1).total)
+        case .songloft:
+            let client = SongloftServiceClient(source: source, credential: credential)
+            return totalOnly(try await client.trackPage(offset: 0, limit: 1).total)
+        case .synologyAudioStation:
+            let client = SynologyAudioStationClient(
+                source: source,
+                credential: credential,
+                deviceName: source.deviceId?.isEmpty == false
+                    ? SynologyAudioStationStreamResolver.trustedDeviceName
+                    : nil
+            )
+            return totalOnly(try await client.songPage(offset: 0, limit: 1).total)
+        default:
+            guard let connector = TVServerCatalogConnectorFactory.make(
+                source: source,
+                credential: credential
+            ),
+                let detector = connector as? any ServerCatalogChangeDetectingConnector else {
+                throw TVScanError.unsupported
+            }
+            try await connector.connect()
+            do {
+                let status = try await detector.fetchServerCatalogScanStatus(changedSince: changedSince)
+                await connector.disconnect()
+                return status
+            } catch {
+                await connector.disconnect()
+                throw error
+            }
+        }
+    }
+
+    private func loadServerCatalogMarkers() -> [String: TVServerCatalogMarker] {
+        guard let data = defaults.data(forKey: Self.serverCatalogMarkersKey) else { return [:] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let markers = (try? decoder.decode([String: TVServerCatalogMarker].self, from: data)) ?? [:]
+        serverCatalogMarkers = markers
+        return markers
+    }
+
+    private func persistServerCatalogMarkers(_ markers: [String: TVServerCatalogMarker]) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(markers) {
+            defaults.set(data, forKey: Self.serverCatalogMarkersKey)
+        }
+    }
+}

@@ -1775,6 +1775,15 @@ private extension RoutedConnectorProxy {
     var supportsSidecarWriting: Bool { routedSupportsSidecarWriting }
     var preferredDeleteBatchSize: Int { routedPreferredDeleteBatchSize }
 
+    func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
+        try await routing.withRead { connector in
+            guard let provider = connector as? any ServerCatalogChangeDetectingConnector else {
+                throw SourceError.connectionFailed("Server catalogue status unavailable")
+            }
+            return try await provider.fetchServerCatalogScanStatus(changedSince: changedSince)
+        }
+    }
+
     func takeCatalogDriftObservation() async -> Bool {
         await routing.takeCatalogDriftObservation()
     }
@@ -2038,15 +2047,6 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     let routedSupportsSidecarWriting: Bool
     let routedPreferredDeleteBatchSize: Int
 
-    func fetchServerCatalogScanStatus() async throws -> ServerCatalogScanStatus {
-        try await routing.withRead { connector in
-            guard let provider = connector as? any ServerCatalogChangeDetectingConnector else {
-                throw SourceError.connectionFailed("Server catalogue status unavailable")
-            }
-            return try await provider.fetchServerCatalogScanStatus()
-        }
-    }
-
     func requestServerCatalogScan() async throws -> ServerCatalogScanRequestResult {
         try await routing.withMutation { connector in
             guard let provider = connector as? any ServerCatalogScanRequestingConnector else {
@@ -2215,7 +2215,7 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
 
 private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
-    CatalogDriftReportingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2283,7 +2283,7 @@ private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataS
 }
 
 private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
-    ServerLyricsConnector, CatalogDriftReportingConnector {
+    ServerLyricsConnector, ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2320,7 +2320,7 @@ private struct RoutedDaoLiYuConnector: RoutedConnectorProxy, RefreshingMetadataS
 private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerFavoriteConnector,
     ServerScrobblingConnector, ServerRadioConnector, ServerRadioStreamResolvingConnector,
-    CatalogDriftReportingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2401,7 +2401,7 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
 /// `SynologyAudioStationSource` 遵循的协议逐一对应。
 private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerLyricsConnector, ServerPlaylistConnector, ServerRatingConnector, ServerRadioConnector,
-    CatalogDriftReportingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2472,7 +2472,7 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
     MediaServerWritebackConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerFavoriteConnector, IncrementalSongCatalogConnector,
     ServerRadioConnector, ServerRadioStreamResolvingConnector, ServerListeningStatsConnector,
-    CatalogDriftReportingConnector {
+    ServerCatalogChangeDetectingConnector, CatalogDriftReportingConnector {
     let sourceID: String
     let routing: SourceConnectionRouter
     let routedSupportsSidecarWriting: Bool
@@ -2973,13 +2973,16 @@ final class SourceManager {
         return (currentSource, connector(for: currentSource))
     }
 
-    func serverCatalogScanStatus(for source: MusicSource) async throws -> ServerCatalogScanStatus {
+    func serverCatalogScanStatus(
+        for source: MusicSource,
+        changedSince: Date? = nil
+    ) async throws -> ServerCatalogScanStatus {
         let connector = connector(for: source)
         guard let provider = connector as? any ServerCatalogChangeDetectingConnector else {
             throw SourceError.connectionFailed("Server catalogue status unavailable")
         }
         try await connector.connect()
-        return try await provider.fetchServerCatalogScanStatus()
+        return try await provider.fetchServerCatalogScanStatus(changedSince: changedSince)
     }
 
     func requestServerCatalogScan(for source: MusicSource) async throws -> ServerCatalogScanRequestResult {

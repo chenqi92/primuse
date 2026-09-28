@@ -95,12 +95,13 @@ private enum DeviceLocalSongFilePresence {
 }
 #endif
 
-/// Foreground-only, cheap change detection for server catalogues.
+/// Cheap change detection for server catalogues: a few seconds after launch,
+/// on every return to the foreground, and whenever the person pulls to refresh.
 ///
-/// It never transfers a catalogue to decide: one `getScanStatus`-shaped request
-/// answers whether anything moved, and only then does a normal scan start. That
-/// is why it is limited to sources whose server exposes such a marker —
-/// `ServerCatalogAutoRefreshPolicy.supportsStatusProbe`.
+/// It never transfers a catalogue to decide. A scan-status call, or a handful
+/// of one-row requests, answers whether anything moved, and only then does a
+/// normal scan start — incremental where the server supports it. Which sources
+/// qualify is `ServerCatalogAutoRefreshPolicy.supportsStatusProbe`.
 @MainActor
 @Observable
 final class ServerCatalogAutoRefreshCoordinator {
@@ -109,6 +110,11 @@ final class ServerCatalogAutoRefreshCoordinator {
         var lastAppliedServerScanAt: Date?
         var itemCount: Int64?
         var lastCheckedAt: Date
+        /// Content fingerprint for servers that keep no scan clock.
+        var contentRevision: String?
+        /// Where the next "saved since" count starts, on the server's clock
+        /// when the server told us its time.
+        var changeWindowStart: Date?
     }
 
     private struct PersistedState: Codable, Sendable {
@@ -121,6 +127,36 @@ final class ServerCatalogAutoRefreshCoordinator {
         let identityFingerprint: String
         let serverScanAt: Date?
         let itemCount: Int64?
+        let contentRevision: String?
+        let changeWindowStart: Date?
+    }
+
+    /// What one check concluded.
+    enum CheckOutcome: Sendable, Equatable {
+        case upToDate
+        case refreshing
+        case alreadyScanning
+        case postponed
+        case failed
+        /// Another check of this source was already on its way.
+        case checking
+        case notChecked
+    }
+
+    /// One line of feedback for a refresh the person asked for.
+    struct Feedback: Identifiable, Equatable, Sendable {
+        enum Tone: Sendable { case success, info, warning }
+        let id = UUID()
+        let message: String
+        let tone: Tone
+    }
+
+    /// A refresh the person asked for, remembered until its scan commits so
+    /// the outcome can be reported. Automatic refreshes stay silent.
+    private struct UserRequestedRefresh {
+        let identityFingerprint: String
+        let songCountBefore: Int
+        let requestedAt: Date
     }
 
     /// Unchanged across the rename: it holds the per-source switches and the
@@ -129,6 +165,11 @@ final class ServerCatalogAutoRefreshCoordinator {
     private static let launchDelay: Duration = .seconds(4)
     private static let checkCooldown = ServerCatalogAutoRefreshPolicy.checkCooldown
     private static let maximumRetryCount = 8
+    /// How long a pull to refresh keeps its spinner waiting for answers.
+    /// Checks still running afterwards finish, and refresh, on their own.
+    private static let userRequestWait: Duration = .seconds(10)
+    private static let feedbackDuration: Duration = .seconds(3.5)
+    private static let userRequestReportWindow: TimeInterval = 30 * 60
 
     private let sourceManager: SourceManager
     private let scanService: ScanService
@@ -142,12 +183,21 @@ final class ServerCatalogAutoRefreshCoordinator {
     @ObservationIgnored private var retryTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var deferredSourceIDs: Set<String> = []
     @ObservationIgnored private var checkInFlightSourceIDs: Set<String> = []
+    /// When each source was last asked, whatever the answer. Automatic
+    /// triggers space themselves out from this, so a failed or deferred check
+    /// does not turn every foreground return into another round trip.
+    @ObservationIgnored private var lastProbeStartedAt: [String: Date] = [:]
     @ObservationIgnored private var serverScanRequestFingerprints: [String: String] = [:]
     @ObservationIgnored private var serverScanRequestInFlightSourceIDs: Set<String> = []
+    @ObservationIgnored private var userRequestedRefreshes: [String: UserRequestedRefresh] = [:]
+    @ObservationIgnored private var feedbackDismissTask: Task<Void, Never>?
     @ObservationIgnored private var didScheduleColdLaunch = false
+    @ObservationIgnored private var didRunColdLaunch = false
     @ObservationIgnored private var applicationIsActive = false
     private var disabledSourceIDs: Set<String>
     private var serverScanOnLaunchSourceIDs: Set<String>
+    /// Shown by `serverCatalogRefreshFeedback()` at the app root.
+    private(set) var feedback: Feedback?
 
     init(
         sourceManager: SourceManager,
@@ -187,7 +237,7 @@ final class ServerCatalogAutoRefreshCoordinator {
         persistState()
         guard enabled, let source = sourcesStore.source(id: sourceID) else { return }
         Task { @MainActor [weak self] in
-            await self?.checkSource(source, retryCount: 0, ignoresCooldown: true)
+            await self?.checkSource(source, trigger: .retry, retryCount: 0)
         }
     }
 
@@ -205,6 +255,13 @@ final class ServerCatalogAutoRefreshCoordinator {
         ServerCatalogAutoRefreshPolicy.supportsServerScanRequest(source.type)
     }
 
+    /// Sources a pull to refresh would check. Pages only offer the gesture
+    /// when this is non-empty — a spinner that can never find anything is
+    /// worse than no gesture.
+    var hasCheckableSources: Bool {
+        sourcesStore.sources.contains { isCheckable($0) }
+    }
+
     func setServerScanOnLaunchEnabled(_ enabled: Bool, for sourceID: String) {
         if enabled {
             serverScanOnLaunchSourceIDs.insert(sourceID)
@@ -216,16 +273,23 @@ final class ServerCatalogAutoRefreshCoordinator {
     }
 
     func setApplicationActive(_ active: Bool) {
+        let becameActive = active && !applicationIsActive
         applicationIsActive = active
-        guard active, !deferredSourceIDs.isEmpty else { return }
-        let sourceIDs = deferredSourceIDs
-        deferredSourceIDs.removeAll()
-        for sourceID in sourceIDs {
-            guard let source = sourcesStore.source(id: sourceID) else { continue }
-            Task { @MainActor [weak self] in
-                await self?.checkSource(source, retryCount: 0, ignoresCooldown: true)
+        guard active else { return }
+        if !deferredSourceIDs.isEmpty {
+            let sourceIDs = deferredSourceIDs
+            deferredSourceIDs.removeAll()
+            for sourceID in sourceIDs {
+                guard let source = sourcesStore.source(id: sourceID) else { continue }
+                Task { @MainActor [weak self] in
+                    await self?.checkSource(source, trigger: .retry, retryCount: 0)
+                }
             }
         }
+        // The launch pass owns the first check; after that every return to the
+        // foreground asks again, spaced by the per-source cooldown.
+        guard becameActive, didRunColdLaunch else { return }
+        checkAllSources(trigger: .foreground)
     }
 
     func startColdLaunchRefresh() {
@@ -234,20 +298,71 @@ final class ServerCatalogAutoRefreshCoordinator {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.launchDelay)
             guard !Task.isCancelled, let self else { return }
-            for source in self.sourcesStore.sources
-            where ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type)
-                && source.isEnabled && !source.isDeleted {
-                await self.checkSource(source, retryCount: 0, ignoresCooldown: false)
+            self.didRunColdLaunch = true
+            for source in self.sourcesStore.sources where self.isCheckable(source) {
+                await self.checkSource(source, trigger: .launch, retryCount: 0)
             }
         }
+    }
+
+    /// Checks every source with automatic refresh on, now, and waits for the
+    /// answers for at most `userRequestWait`. Used by pull to refresh and the
+    /// Mac menu command; the outcome is shown as a toast at the app root.
+    /// A pull is only offered when something can be checked, so only the menu
+    /// command, which is always there, says when nothing can.
+    @discardableResult
+    func refreshNow(reportsNothingToCheck: Bool = false) async -> ServerCatalogRefreshSummary {
+        let sources = sourcesStore.sources.filter { isCheckable($0) }
+        guard !sources.isEmpty else {
+            if reportsNothingToCheck {
+                present(Feedback(
+                    message: String(localized: "server_refresh_nothing_to_check"),
+                    tone: .info
+                ))
+            }
+            return ServerCatalogRefreshSummary()
+        }
+        let collector = CheckCollector(expected: sources.count)
+        for source in sources {
+            Task { @MainActor [weak self] in
+                let outcome = await self?.checkSource(
+                    source,
+                    trigger: .userRequest,
+                    retryCount: 0
+                ) ?? .notChecked
+                collector.record(outcome, for: source.id)
+            }
+        }
+        let timeout = Task { @MainActor in
+            try? await Task.sleep(for: Self.userRequestWait)
+            collector.finish()
+        }
+        let outcomes = await collector.wait()
+        timeout.cancel()
+
+        var summary = ServerCatalogRefreshSummary()
+        for source in sources {
+            switch outcomes[source.id] {
+            case .refreshing?: summary.refreshingSourceNames.append(source.name)
+            case .alreadyScanning?: summary.alreadyScanningCount += 1
+            case .upToDate?: summary.upToDateCount += 1
+            case .failed?: summary.failedSourceNames.append(source.name)
+            case .postponed?, .notChecked?: summary.postponedCount += 1
+            case .checking?, nil: summary.stillCheckingCount += 1
+            }
+        }
+        plog("🔄 Server catalogue refresh requested: refreshing \(summary.refreshingSourceNames.count), scanning \(summary.alreadyScanningCount), current \(summary.upToDateCount), failed \(summary.failedSourceNames.count), postponed \(summary.postponedCount), pending \(summary.stillCheckingCount)")
+        present(Self.feedback(for: summary))
+        return summary
     }
 
     func sourceScanSucceeded(
         sourceID: String,
         completion: SourceScanLifecycleCompletion
     ) {
-        guard completion == .committedSnapshot || completion == .committedNoChanges,
-              let pending = pendingMarkers.removeValue(forKey: sourceID) else { return }
+        guard completion == .committedSnapshot || completion == .committedNoChanges else { return }
+        reportUserRequestedRefresh(sourceID: sourceID)
+        guard let pending = pendingMarkers.removeValue(forKey: sourceID) else { return }
         guard let currentSource = sourcesStore.source(id: sourceID) else { return }
         guard Self.identityFingerprint(for: currentSource) == pending.identityFingerprint else {
             scheduleRetry(sourceID: sourceID, retryCount: 0)
@@ -257,7 +372,9 @@ final class ServerCatalogAutoRefreshCoordinator {
             identityFingerprint: pending.identityFingerprint,
             lastAppliedServerScanAt: pending.serverScanAt,
             itemCount: pending.itemCount,
-            lastCheckedAt: Date()
+            lastCheckedAt: Date(),
+            contentRevision: pending.contentRevision,
+            changeWindowStart: pending.changeWindowStart
         )
         retryTasks.removeValue(forKey: sourceID)?.cancel()
         deferredSourceIDs.remove(sourceID)
@@ -272,27 +389,53 @@ final class ServerCatalogAutoRefreshCoordinator {
         markers.removeValue(forKey: sourceID)
         pendingMarkers.removeValue(forKey: sourceID)
         deferredSourceIDs.remove(sourceID)
+        lastProbeStartedAt.removeValue(forKey: sourceID)
+        userRequestedRefreshes.removeValue(forKey: sourceID)
         retryTasks.removeValue(forKey: sourceID)?.cancel()
         persistState()
     }
 
+    private func isCheckable(_ source: MusicSource) -> Bool {
+        ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type)
+            && source.isEnabled
+            && !source.isDeleted
+            && isEnabled(for: source.id)
+    }
+
+    private func checkAllSources(trigger: ServerCatalogRefreshTrigger) {
+        let sources = sourcesStore.sources.filter { isCheckable($0) }
+        guard !sources.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            for source in sources {
+                guard let self else { return }
+                await self.checkSource(source, trigger: trigger, retryCount: 0)
+            }
+        }
+    }
+
+    @discardableResult
     private func checkSource(
         _ capturedSource: MusicSource,
-        retryCount: Int,
-        ignoresCooldown: Bool
-    ) async {
+        trigger: ServerCatalogRefreshTrigger,
+        retryCount: Int
+    ) async -> CheckOutcome {
         guard applicationIsActive,
               let source = sourcesStore.source(id: capturedSource.id),
-              ServerCatalogAutoRefreshPolicy.supportsStatusProbe(source.type),
-              source.isEnabled,
-              !source.isDeleted,
-              isEnabled(for: source.id) else {
+              isCheckable(source) else {
             if !applicationIsActive {
                 deferredSourceIDs.insert(capturedSource.id)
+                return .postponed
             }
-            return
+            return .notChecked
         }
-        guard checkInFlightSourceIDs.insert(source.id).inserted else { return }
+        if scanService.scanStates[source.id]?.isScanning == true {
+            // A scan already running will read whatever changed. The marker it
+            // may commit is whatever an earlier check left pending.
+            return .alreadyScanning
+        }
+        guard checkInFlightSourceIDs.insert(source.id).inserted else {
+            return .checking
+        }
         defer { checkInFlightSourceIDs.remove(source.id) }
 
         let identityFingerprint = Self.identityFingerprint(for: source)
@@ -305,42 +448,46 @@ final class ServerCatalogAutoRefreshCoordinator {
         let hasPendingLaunchScanRequest = isServerScanOnLaunchEnabled(for: source.id)
             && ServerCatalogAutoRefreshPolicy.supportsServerScanRequest(source.type)
             && serverScanRequestFingerprints[source.id] != identityFingerprint
-        if !ignoresCooldown,
-           !hasPendingLaunchScanRequest,
-           let checkedAt = existingMarker?.lastCheckedAt,
-           Date().timeIntervalSince(checkedAt) < Self.checkCooldown {
-            return
+        if trigger.honorsCooldown, !hasPendingLaunchScanRequest {
+            let lastAsked = [existingMarker?.lastCheckedAt, lastProbeStartedAt[source.id]]
+                .compactMap { $0 }
+                .max()
+            if let lastAsked, Date().timeIntervalSince(lastAsked) < Self.checkCooldown {
+                return .upToDate
+            }
         }
-        guard automaticWorkIsAllowed() else {
+        guard workEligibility(for: trigger) == .allowed else {
             scheduleRetry(sourceID: source.id, retryCount: retryCount)
-            return
+            return .postponed
         }
+        lastProbeStartedAt[source.id] = Date()
 
         do {
-            let status = try await sourceManager.serverCatalogScanStatus(for: source)
+            let status = try await sourceManager.serverCatalogScanStatus(
+                for: source,
+                changedSince: existingMarker?.changeWindowStart
+            )
+            let checkedAt = Date()
             guard applicationIsActive else {
                 deferredSourceIDs.insert(source.id)
-                return
+                return .postponed
             }
             guard let currentSource = sourcesStore.source(id: source.id),
-                  ServerCatalogAutoRefreshPolicy.supportsStatusProbe(currentSource.type),
-                  currentSource.isEnabled,
-                  !currentSource.isDeleted,
-                  isEnabled(for: currentSource.id) else { return }
+                  isCheckable(currentSource) else { return .notChecked }
             guard Self.identityFingerprint(for: currentSource) == identityFingerprint else {
                 scheduleRetry(sourceID: source.id, retryCount: retryCount)
-                return
+                return .postponed
             }
-            guard automaticWorkIsAllowed() else {
+            guard workEligibility(for: trigger) == .allowed else {
                 scheduleRetry(sourceID: source.id, retryCount: retryCount)
-                return
+                return .postponed
             }
             if isServerScanOnLaunchEnabled(for: source.id),
                ServerCatalogAutoRefreshPolicy.supportsServerScanRequest(source.type),
                serverScanRequestFingerprints[source.id] != identityFingerprint {
                 guard !serverScanRequestInFlightSourceIDs.contains(source.id) else {
                     scheduleRetry(sourceID: source.id, retryCount: retryCount)
-                    return
+                    return .postponed
                 }
                 if status.isScanning {
                     // Scan status does not reveal whether the running job is a
@@ -351,7 +498,7 @@ final class ServerCatalogAutoRefreshCoordinator {
                         retryCount: 0,
                         minimumDelay: 5 * 60
                     )
-                    return
+                    return .postponed
                 } else {
                     // Claim before suspension: MainActor methods are reentrant,
                     // and foreground/resource callbacks may otherwise send the
@@ -384,7 +531,7 @@ final class ServerCatalogAutoRefreshCoordinator {
                                 retryCount: retryCount,
                                 minimumDelay: 15 * 60
                             )
-                            return
+                            return .failed
                         }
                         // A transport failure after sending startScan is
                         // ambiguous. Keep the per-launch claim so a lost
@@ -398,28 +545,25 @@ final class ServerCatalogAutoRefreshCoordinator {
                             retryCount: retryCount,
                             minimumDelay: 60
                         )
-                        return
+                        return .postponed
                     }
                     serverScanRequestInFlightSourceIDs.remove(source.id)
                     guard applicationIsActive else {
                         deferredSourceIDs.insert(source.id)
-                        return
+                        return .postponed
                     }
                     guard let latestSource = sourcesStore.source(id: source.id),
-                          ServerCatalogAutoRefreshPolicy.supportsStatusProbe(latestSource.type),
-                          latestSource.isEnabled,
-                          !latestSource.isDeleted,
-                          isEnabled(for: latestSource.id) else {
-                        return
+                          isCheckable(latestSource) else {
+                        return .notChecked
                     }
                     guard Self.identityFingerprint(for: latestSource) == identityFingerprint else {
                         serverScanRequestFingerprints.removeValue(forKey: source.id)
                         scheduleRetry(sourceID: source.id, retryCount: 0)
-                        return
+                        return .postponed
                     }
-                    guard automaticWorkIsAllowed() else {
+                    guard workEligibility(for: trigger) == .allowed else {
                         scheduleRetry(sourceID: source.id, retryCount: retryCount)
-                        return
+                        return .postponed
                     }
                     if case .accepted? = result {
                         scheduleRetry(
@@ -427,12 +571,14 @@ final class ServerCatalogAutoRefreshCoordinator {
                             retryCount: 0,
                             minimumDelay: 60
                         )
-                        return
+                        return .postponed
                     }
                     // nil / unsupported / permissionDenied all fall through to
                     // the read-only status path below.
                 }
             }
+            let lastAppliedContentRevision = existingMarker?.contentRevision
+                ?? scanService.committedCatalogRevision(for: source.id)
             let decision = ServerCatalogRefreshPolicy.decision(
                 serverIsScanning: status.isScanning,
                 lastAppliedServerScanAt: existingMarker?.lastAppliedServerScanAt,
@@ -440,7 +586,10 @@ final class ServerCatalogAutoRefreshCoordinator {
                 serverLastScanAt: status.lastCompletedScanAt,
                 serverItemCount: status.itemCount,
                 localLastScannedAt: currentSource.lastScannedAt,
-                localSongCount: currentSource.songCount
+                localSongCount: currentSource.songCount,
+                lastAppliedContentRevision: lastAppliedContentRevision,
+                serverContentRevision: status.contentRevision,
+                serverChangedItemCount: status.changedItemCount
             )
             guard decision != .deferWhileScanning else {
                 scheduleRetry(
@@ -448,8 +597,12 @@ final class ServerCatalogAutoRefreshCoordinator {
                     retryCount: 0,
                     minimumDelay: 5 * 60
                 )
-                return
+                return .postponed
             }
+            let changeWindowStart = ServerCatalogChangeWindowPolicy.nextWindowStart(
+                serverObservedAt: status.serverObservedAt,
+                deviceCheckedAt: checkedAt
+            )
 
             let needsRefresh = identityChanged || decision == .refresh
             guard needsRefresh else {
@@ -457,22 +610,39 @@ final class ServerCatalogAutoRefreshCoordinator {
                     identityFingerprint: identityFingerprint,
                     lastAppliedServerScanAt: status.lastCompletedScanAt,
                     itemCount: status.itemCount,
-                    lastCheckedAt: Date()
+                    lastCheckedAt: checkedAt,
+                    contentRevision: status.contentRevision,
+                    changeWindowStart: changeWindowStart
                 )
                 retryTasks.removeValue(forKey: source.id)?.cancel()
                 persistState()
-                return
+                return .upToDate
             }
 
+            plog("🔄 \(source.name): server catalogue changed (\(trigger.rawValue)); refreshing")
             pendingMarkers[source.id] = PendingMarker(
                 identityFingerprint: identityFingerprint,
                 serverScanAt: status.lastCompletedScanAt,
-                itemCount: status.itemCount
+                itemCount: status.itemCount,
+                contentRevision: status.contentRevision,
+                changeWindowStart: changeWindowStart
             )
+            if trigger.isUserInitiated {
+                userRequestedRefreshes[source.id] = UserRequestedRefresh(
+                    identityFingerprint: identityFingerprint,
+                    songCountBefore: currentSource.songCount,
+                    requestedAt: checkedAt
+                )
+            }
             let didStart = scanService.scanSource(
                 currentSource,
                 mode: .automatic,
-                snapshotExecutionContext: .foregroundResume,
+                // A refresh the person asked for may run while music plays;
+                // an automatic one waits for the resource gate like any other
+                // background catalogue work.
+                snapshotExecutionContext: trigger.isUserInitiated
+                    ? .userInitiatedForeground
+                    : .foregroundResume,
                 sourceManager: sourceManager,
                 library: library,
                 sourceStore: sourcesStore,
@@ -487,12 +657,16 @@ final class ServerCatalogAutoRefreshCoordinator {
                     retryCount: retryCount,
                     minimumDelay: 300
                 )
+                return .refreshing
             } else {
                 // A user-initiated scan may already own this source. Its
                 // successful lifecycle is equally authoritative for the
                 // status marker, so keep the pending marker and only retain a
                 // bounded follow-up in case that scan fails.
                 scheduleRetry(sourceID: source.id, retryCount: retryCount)
+                return scanService.scanStates[source.id]?.isScanning == true
+                    ? .alreadyScanning
+                    : .postponed
             }
         } catch {
             if let sourceError = error as? SourceError,
@@ -506,27 +680,43 @@ final class ServerCatalogAutoRefreshCoordinator {
                     retryCount: retryCount,
                     minimumDelay: 15 * 60
                 )
-                return
+                return .failed
             }
+            plog("⚠️ Server catalogue check failed for \(source.name): \(error.localizedDescription)")
             scheduleRetry(sourceID: source.id, retryCount: retryCount)
+            return .failed
         }
     }
 
     func automaticWorkIsAllowed() -> Bool {
+        workEligibility(for: .retry) == .allowed
+    }
+
+    private func workEligibility(
+        for trigger: ServerCatalogRefreshTrigger
+    ) -> ServerCatalogRefreshEligibility {
         let network = NetworkMonitor.shared
-        guard applicationIsActive,
-              network.hasDeterminedPath,
-              network.isOnUnmeteredNetwork,
-              !ProcessInfo.processInfo.isLowPowerModeEnabled,
-              !player.isPlaybackActive,
-              !player.isLoading else { return false }
+        return ServerCatalogRefreshWorkPolicy.eligibility(
+            trigger: trigger,
+            applicationIsActive: applicationIsActive,
+            hasDeterminedNetwork: network.hasDeterminedPath,
+            isReachable: network.isReachable,
+            isOnUnmeteredNetwork: network.isOnUnmeteredNetwork,
+            isLowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled,
+            hasSeriousThermalPressure: Self.hasSeriousThermalPressure,
+            availableDiskBytes: Self.availableDiskBytes(),
+            isPlaybackBusy: player.isPlaybackActive || player.isLoading
+        )
+    }
+
+    private static var hasSeriousThermalPressure: Bool {
         switch ProcessInfo.processInfo.thermalState {
-        case .serious, .critical:
-            return false
         case .nominal, .fair:
-            return Self.availableDiskBytes() >= 512 * 1_024 * 1_024
+            false
+        case .serious, .critical:
+            true
         @unknown default:
-            return false
+            true
         }
     }
 
@@ -551,11 +741,99 @@ final class ServerCatalogAutoRefreshCoordinator {
             self.deferredSourceIDs.remove(sourceID)
             await self.checkSource(
                 source,
-                retryCount: min(retryCount + 1, Self.maximumRetryCount),
-                ignoresCooldown: true
+                trigger: .retry,
+                retryCount: min(retryCount + 1, Self.maximumRetryCount)
             )
         }
     }
+
+    // MARK: - Feedback
+
+    private func reportUserRequestedRefresh(sourceID: String) {
+        // A request whose scan failed is not reported by some later, unrelated
+        // scan of the same source.
+        guard let request = userRequestedRefreshes.removeValue(forKey: sourceID),
+              Date().timeIntervalSince(request.requestedAt) < Self.userRequestReportWindow,
+              let source = sourcesStore.source(id: sourceID),
+              Self.identityFingerprint(for: source) == request.identityFingerprint else { return }
+        let delta = source.songCount - request.songCountBefore
+        let message: String
+        if delta > 0 {
+            message = String(
+                format: String(localized: "server_refresh_done_added_format"),
+                source.name,
+                delta
+            )
+        } else if delta < 0 {
+            message = String(
+                format: String(localized: "server_refresh_done_removed_format"),
+                source.name,
+                -delta
+            )
+        } else {
+            message = String(
+                format: String(localized: "server_refresh_done_synced_format"),
+                source.name
+            )
+        }
+        present(Feedback(message: message, tone: .success))
+    }
+
+    private static func feedback(for summary: ServerCatalogRefreshSummary) -> Feedback? {
+        func names(_ list: [String]) -> String {
+            list.formatted(.list(type: .and))
+        }
+        switch summary.headline {
+        case .nothingToCheck:
+            return nil
+        case .refreshing(let sourceNames):
+            return Feedback(
+                message: String(
+                    format: String(localized: "server_refresh_found_changes_format"),
+                    names(sourceNames)
+                ),
+                tone: .info
+            )
+        case .alreadyScanning:
+            return Feedback(message: String(localized: "server_refresh_already_scanning"), tone: .info)
+        case .partlyUnreachable(let sourceNames):
+            return Feedback(
+                message: String(
+                    format: String(localized: "server_refresh_partly_unreachable_format"),
+                    names(sourceNames)
+                ),
+                tone: .warning
+            )
+        case .upToDate:
+            return Feedback(message: String(localized: "server_refresh_up_to_date"), tone: .success)
+        case .unreachable(let sourceNames):
+            return Feedback(
+                message: String(
+                    format: String(localized: "server_refresh_unreachable_format"),
+                    names(sourceNames)
+                ),
+                tone: .warning
+            )
+        case .stillChecking:
+            return Feedback(message: String(localized: "server_refresh_still_checking"), tone: .info)
+        case .postponed:
+            return Feedback(message: String(localized: "server_refresh_postponed"), tone: .info)
+        }
+    }
+
+    private func present(_ newFeedback: Feedback?) {
+        guard let newFeedback else { return }
+        feedback = newFeedback
+        feedbackDismissTask?.cancel()
+        let id = newFeedback.id
+        feedbackDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.feedbackDuration)
+            guard !Task.isCancelled, let self, self.feedback?.id == id else { return }
+            self.feedback = nil
+        }
+    }
+
+    // MARK: - Persistence
 
     private func persistState() {
         let state = PersistedState(
@@ -588,6 +866,46 @@ final class ServerCatalogAutoRefreshCoordinator {
         guard let attributes = try? FileManager.default.attributesOfFileSystem(forPath: path),
               let value = attributes[.systemFreeSize] as? NSNumber else { return 0 }
         return value.int64Value
+    }
+}
+
+/// Gathers the answers of a pull to refresh's parallel checks, and lets the
+/// caller stop waiting at a deadline while the checks themselves carry on.
+@MainActor
+private final class CheckCollector {
+    private let expected: Int
+    private var outcomes: [String: ServerCatalogAutoRefreshCoordinator.CheckOutcome] = [:]
+    private var isFinished = false
+    private var continuation: CheckedContinuation<
+        [String: ServerCatalogAutoRefreshCoordinator.CheckOutcome],
+        Never
+    >?
+
+    init(expected: Int) {
+        self.expected = expected
+    }
+
+    func record(
+        _ outcome: ServerCatalogAutoRefreshCoordinator.CheckOutcome,
+        for sourceID: String
+    ) {
+        guard !isFinished else { return }
+        outcomes[sourceID] = outcome
+        if outcomes.count >= expected { finish() }
+    }
+
+    func finish() {
+        guard !isFinished else { return }
+        isFinished = true
+        continuation?.resume(returning: outcomes)
+        continuation = nil
+    }
+
+    func wait() async -> [String: ServerCatalogAutoRefreshCoordinator.CheckOutcome] {
+        if isFinished { return outcomes }
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
     }
 }
 

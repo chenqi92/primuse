@@ -632,7 +632,7 @@ struct LibraryView: View {
         .task(id: previewRevision) {
             await refreshArtworkPreviews(for: previewRevision)
         }
-        .refreshable {
+        .serverCatalogPullToRefresh {
             LibraryArtworkPreviewSessionStore.shared.invalidateForManualRefresh()
             artworkPreviewSelection = LibraryArtworkPreviewSelection()
             await refreshArtworkPreviews(for: artworkPreviewRevision)

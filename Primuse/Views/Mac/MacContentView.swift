@@ -299,6 +299,7 @@ struct MacContentView: View {
             }
         }
         .songBatchRemovalFeedback()
+        .serverCatalogRefreshFeedback()
         .smartNudges()
         .macPlaybackErrorFeedback()
         .appleMusicSubscriptionOffer()

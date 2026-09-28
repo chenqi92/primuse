@@ -4004,9 +4004,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "自動更新";
-"server_auto_refresh_description" = "起動後にサーバーのライブラリ状態を確認し、サーバー側の内容が変わったときだけローカルのカタログを更新します。サーバースキャンは開始しません。";
+"server_auto_refresh_description" = "起動時、フォアグラウンドに戻ったとき、または手動で更新したときにサーバーのライブラリ状態を確認し、サーバー側の内容が変わったときだけローカルのカタログを同期します。サーバースキャンは開始しません。";
 "server_scan_on_launch" = "起動時にサーバーの完全スキャンを要求";
 "server_scan_on_launch_description" = "Primuse の起動時にサーバーへライブラリの完全スキャンを要求します。管理者アカウントが必要で、未対応や拒否された場合は状態確認のみの更新に戻ります。";
+"server_refresh_menu_item" = "ソースの更新を確認";
+"server_refresh_found_changes_format" = "%@ の新しい内容を同期しています";
+"server_refresh_already_scanning" = "ソースはすでに同期中です";
+"server_refresh_up_to_date" = "ソースは最新の状態です";
+"server_refresh_partly_unreachable_format" = "ほかのソースは最新です。%@ に接続できませんでした";
+"server_refresh_unreachable_format" = "%@ に接続できませんでした";
+"server_refresh_still_checking" = "ソースを確認中です。新しい内容は自動で同期されます";
+"server_refresh_postponed" = "今はソースを確認できません。しばらくしてから自動で再試行します";
+"server_refresh_nothing_to_check" = "確認できるサーバーソースがありません";
+"server_refresh_done_added_format" = "%1$@：%2$d 曲追加";
+"server_refresh_done_removed_format" = "%1$@：%2$d 曲削除";
+"server_refresh_done_synced_format" = "%@ を同期しました";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "歌詞ポスター";

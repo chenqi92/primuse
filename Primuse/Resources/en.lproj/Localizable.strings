@@ -3766,9 +3766,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Refresh Automatically";
-"server_auto_refresh_description" = "After launch, Primuse checks the server's library status and refreshes the local catalog only when server content has changed. It does not start a server scan.";
+"server_auto_refresh_description" = "When Primuse opens, comes back to the foreground or you refresh, it checks the server's library and syncs the local catalog only when server content has changed. It does not start a server scan.";
 "server_scan_on_launch" = "Request Full Server Scan on Launch";
 "server_scan_on_launch_description" = "Ask the server to run a full library scan when Primuse launches. An administrator account is required; unsupported or denied requests fall back to a status-only refresh.";
+"server_refresh_menu_item" = "Check Sources for Updates";
+"server_refresh_found_changes_format" = "Syncing new content from %@";
+"server_refresh_already_scanning" = "Sources are already syncing";
+"server_refresh_up_to_date" = "Sources are up to date";
+"server_refresh_partly_unreachable_format" = "Other sources are up to date; couldn't reach %@";
+"server_refresh_unreachable_format" = "Couldn't reach %@";
+"server_refresh_still_checking" = "Still checking sources; new content will sync on its own";
+"server_refresh_postponed" = "Sources can't be checked right now; Primuse will try again shortly";
+"server_refresh_nothing_to_check" = "No server sources to check";
+"server_refresh_done_added_format" = "%1$@: %2$d added";
+"server_refresh_done_removed_format" = "%1$@: %2$d removed";
+"server_refresh_done_synced_format" = "%@ is synced";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "Lyric Poster";

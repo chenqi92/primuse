@@ -3909,9 +3909,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "تحديث تلقائي";
-"server_auto_refresh_description" = "بعد التشغيل يتحقق Primuse من حالة مكتبة الخادم ويحدّث الفهرس المحلي فقط عند تغيّر محتوى الخادم. لا يبدأ فحصًا على الخادم.";
+"server_auto_refresh_description" = "عند فتح Primuse أو عودته إلى الواجهة أو عند التحديث يدويًا، يتحقق من مكتبة الخادم ويزامن الفهرس المحلي فقط عند تغيّر محتوى الخادم. لا يبدأ فحصًا على الخادم.";
 "server_scan_on_launch" = "طلب فحص كامل للخادم عند التشغيل";
 "server_scan_on_launch_description" = "يطلب من الخادم فحص المكتبة بالكامل عند تشغيل Primuse. يتطلب حساب مسؤول؛ وعند عدم الدعم أو الرفض يعود إلى تحديث يتحقق من الحالة فقط.";
+"server_refresh_menu_item" = "التحقق من تحديثات المصادر";
+"server_refresh_found_changes_format" = "جارٍ مزامنة المحتوى الجديد من %@";
+"server_refresh_already_scanning" = "المصادر قيد المزامنة بالفعل";
+"server_refresh_up_to_date" = "المصادر محدّثة";
+"server_refresh_partly_unreachable_format" = "المصادر الأخرى محدّثة؛ تعذّر الوصول إلى %@";
+"server_refresh_unreachable_format" = "تعذّر الوصول إلى %@";
+"server_refresh_still_checking" = "لا يزال التحقق من المصادر جاريًا؛ ستُزامَن المحتويات الجديدة تلقائيًا";
+"server_refresh_postponed" = "لا يمكن التحقق من المصادر الآن؛ سيعيد Primuse المحاولة قريبًا";
+"server_refresh_nothing_to_check" = "لا توجد مصادر خادم للتحقق منها";
+"server_refresh_done_added_format" = "%1$@: أُضيف %2$d";
+"server_refresh_done_removed_format" = "%1$@: أُزيل %2$d";
+"server_refresh_done_synced_format" = "تمت مزامنة %@";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "ملصق كلمات";

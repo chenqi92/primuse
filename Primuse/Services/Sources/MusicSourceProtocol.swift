@@ -1711,6 +1711,15 @@ struct ServerCatalogScanStatus: Sendable, Equatable {
     let isScanning: Bool
     let itemCount: Int64?
     let lastCompletedScanAt: Date?
+    /// Fingerprint of what the catalogue holds (per-library totals and newest
+    /// rows) for servers that keep no scan clock. Changes when rows arrive or
+    /// leave; stays put while nothing does.
+    var contentRevision: String? = nil
+    /// Rows saved since the `changedSince` the caller passed, or nil when the
+    /// server cannot say (or answered in a way that cannot be a filtered count).
+    var changedItemCount: Int? = nil
+    /// The server's clock at the time of the check, from its `Date` header.
+    var serverObservedAt: Date? = nil
 }
 
 enum ServerCatalogScanRequestResult: Sendable, Equatable {
@@ -1720,9 +1729,12 @@ enum ServerCatalogScanRequestResult: Sendable, Equatable {
 }
 
 /// Read-only server state used to decide whether an authoritative local
-/// catalogue refresh is necessary. This capability never starts a server scan.
+/// catalogue refresh is necessary. This capability never starts a server scan,
+/// and its cost must not grow with the catalogue: a status call, or a handful
+/// of one-row requests. `changedSince` asks servers that can filter by save
+/// time how many rows changed after it; the others ignore it.
 protocol ServerCatalogChangeDetectingConnector: MusicSourceConnector {
-    func fetchServerCatalogScanStatus() async throws -> ServerCatalogScanStatus
+    func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus
 }
 
 /// Explicit, opt-in server mutation used only by Navidrome's launch refresh.

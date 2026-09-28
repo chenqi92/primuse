@@ -482,6 +482,89 @@ struct ServerCatalogRefreshPolicyTests {
         ) == .deferWhileScanning)
     }
 
+    @Test func contentRevisionChangeRefreshes() {
+        #expect(ServerCatalogRefreshPolicy.decision(
+            serverIsScanning: false,
+            lastAppliedServerScanAt: nil,
+            lastAppliedItemCount: 2_000,
+            serverLastScanAt: nil,
+            serverItemCount: 2_000,
+            localLastScannedAt: localScan,
+            localSongCount: 2_000,
+            lastAppliedContentRevision: "emby:catalog:v1|lib=2000@900",
+            serverContentRevision: "emby:catalog:v1|lib=2000@950"
+        ) == .refresh)
+    }
+
+    @Test func unchangedContentRevisionAndCountStayQuiet() {
+        #expect(ServerCatalogRefreshPolicy.decision(
+            serverIsScanning: false,
+            lastAppliedServerScanAt: nil,
+            lastAppliedItemCount: 2_000,
+            serverLastScanAt: nil,
+            serverItemCount: 2_000,
+            localLastScannedAt: localScan,
+            localSongCount: 1_990,
+            lastAppliedContentRevision: "emby:catalog:v1|lib=2000@900",
+            serverContentRevision: "emby:catalog:v1|lib=2000@900",
+            serverChangedItemCount: 0
+        ) == .noChanges)
+    }
+
+    @Test func rowsSavedSinceTheLastCheckRefreshEvenWhenTheRevisionHolds() {
+        // An edited tag moves neither the total nor the newest row.
+        #expect(ServerCatalogRefreshPolicy.decision(
+            serverIsScanning: false,
+            lastAppliedServerScanAt: nil,
+            lastAppliedItemCount: 2_000,
+            serverLastScanAt: nil,
+            serverItemCount: 2_000,
+            localLastScannedAt: localScan,
+            localSongCount: 2_000,
+            lastAppliedContentRevision: "r",
+            serverContentRevision: "r",
+            serverChangedItemCount: 1
+        ) == .refresh)
+    }
+
+    @Test func firstContentCheckWithoutBaselineComparesCounts() {
+        // No revision applied yet: the total against the local rows decides,
+        // and the check that follows records its own baseline.
+        #expect(ServerCatalogRefreshPolicy.decision(
+            serverIsScanning: false,
+            lastAppliedServerScanAt: nil,
+            lastAppliedItemCount: nil,
+            serverLastScanAt: nil,
+            serverItemCount: 2_000,
+            localLastScannedAt: localScan,
+            localSongCount: 2_000,
+            serverContentRevision: "r"
+        ) == .noChanges)
+        #expect(ServerCatalogRefreshPolicy.decision(
+            serverIsScanning: false,
+            lastAppliedServerScanAt: nil,
+            lastAppliedItemCount: nil,
+            serverLastScanAt: nil,
+            serverItemCount: 2_001,
+            localLastScannedAt: localScan,
+            localSongCount: 2_000,
+            serverContentRevision: "r"
+        ) == .refresh)
+    }
+
+    @Test func scanningServerStillDefersBeforeContentSignals() {
+        #expect(ServerCatalogRefreshPolicy.decision(
+            serverIsScanning: true,
+            lastAppliedServerScanAt: nil,
+            lastAppliedItemCount: 2_000,
+            serverLastScanAt: nil,
+            serverItemCount: 2_000,
+            localLastScannedAt: localScan,
+            localSongCount: 2_000,
+            serverChangedItemCount: 4
+        ) == .deferWhileScanning)
+    }
+
     @Test func noRemoteSignalsOnlyRefreshesAnUninitializedSource() {
         #expect(ServerCatalogRefreshPolicy.decision(
             serverIsScanning: false,

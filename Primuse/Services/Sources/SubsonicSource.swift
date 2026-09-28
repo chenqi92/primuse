@@ -59,7 +59,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private static let catalogRequestMaximumAttempts = 3
     private static let catalogSnapshotMaximumAttempts = 2
 
-    func fetchServerCatalogScanStatus() async throws -> ServerCatalogScanStatus {
+    func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
         let container: ScanStatusContainer = try await requestJSON("getScanStatus")
         try Self.rejectFailedServerScan(container.scanStatus)
         return Self.scanStatus(from: container)

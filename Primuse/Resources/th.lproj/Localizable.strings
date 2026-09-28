@@ -3909,9 +3909,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "รีเฟรชอัตโนมัติ";
-"server_auto_refresh_description" = "หลังเปิดแอป Primuse จะตรวจสถานะคลังของเซิร์ฟเวอร์ และรีเฟรชแคตตาล็อกในเครื่องเฉพาะเมื่อเนื้อหาบนเซิร์ฟเวอร์เปลี่ยนไป โดยจะไม่สั่งให้เซิร์ฟเวอร์สแกน";
+"server_auto_refresh_description" = "เมื่อเปิด Primuse กลับมาที่แอป หรือรีเฟรชเอง แอปจะตรวจคลังของเซิร์ฟเวอร์ และซิงค์แคตตาล็อกในเครื่องเฉพาะเมื่อเนื้อหาบนเซิร์ฟเวอร์เปลี่ยนไป โดยจะไม่สั่งให้เซิร์ฟเวอร์สแกน";
 "server_scan_on_launch" = "ขอให้เซิร์ฟเวอร์สแกนทั้งหมดตอนเปิดแอป";
 "server_scan_on_launch_description" = "ขอให้เซิร์ฟเวอร์สแกนคลังทั้งหมดเมื่อเปิด Primuse ต้องใช้บัญชีผู้ดูแลระบบ หากไม่รองรับหรือถูกปฏิเสธ จะย้อนกลับไปเป็นการรีเฟรชที่ตรวจสถานะอย่างเดียว";
+"server_refresh_menu_item" = "ตรวจหาอัปเดตของแหล่งเพลง";
+"server_refresh_found_changes_format" = "กำลังซิงค์เนื้อหาใหม่จาก %@";
+"server_refresh_already_scanning" = "แหล่งเพลงกำลังซิงค์อยู่แล้ว";
+"server_refresh_up_to_date" = "แหล่งเพลงเป็นปัจจุบันแล้ว";
+"server_refresh_partly_unreachable_format" = "แหล่งเพลงอื่นเป็นปัจจุบันแล้ว แต่เชื่อมต่อ %@ ไม่ได้";
+"server_refresh_unreachable_format" = "เชื่อมต่อ %@ ไม่ได้";
+"server_refresh_still_checking" = "ยังตรวจแหล่งเพลงอยู่ เนื้อหาใหม่จะซิงค์เอง";
+"server_refresh_postponed" = "ตอนนี้ตรวจแหล่งเพลงไม่ได้ Primuse จะลองใหม่อีกครั้งในไม่ช้า";
+"server_refresh_nothing_to_check" = "ไม่มีแหล่งเพลงบนเซิร์ฟเวอร์ให้ตรวจ";
+"server_refresh_done_added_format" = "%1$@: เพิ่ม %2$d เพลง";
+"server_refresh_done_removed_format" = "%1$@: นำออก %2$d เพลง";
+"server_refresh_done_synced_format" = "ซิงค์ %@ แล้ว";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "โปสเตอร์เนื้อเพลง";

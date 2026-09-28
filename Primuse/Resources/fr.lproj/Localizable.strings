@@ -4003,9 +4003,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Actualiser automatiquement";
-"server_auto_refresh_description" = "Après le lancement, Primuse vérifie l’état de la bibliothèque du serveur et n’actualise le catalogue local que si le contenu du serveur a changé. Aucune analyse du serveur n’est lancée.";
+"server_auto_refresh_description" = "À l’ouverture, au retour au premier plan ou lors d’une actualisation, Primuse vérifie la bibliothèque du serveur et ne synchronise le catalogue local que si le contenu du serveur a changé. Aucune analyse du serveur n’est lancée.";
 "server_scan_on_launch" = "Demander une analyse complète du serveur au lancement";
 "server_scan_on_launch_description" = "Demande au serveur d’analyser entièrement la bibliothèque au lancement de Primuse. Un compte administrateur est nécessaire ; les demandes non prises en charge ou refusées reviennent à une simple actualisation d’état.";
+"server_refresh_menu_item" = "Rechercher des mises à jour des sources";
+"server_refresh_found_changes_format" = "Synchronisation des nouveautés de %@";
+"server_refresh_already_scanning" = "Les sources sont déjà en cours de synchronisation";
+"server_refresh_up_to_date" = "Les sources sont à jour";
+"server_refresh_partly_unreachable_format" = "Les autres sources sont à jour ; impossible de joindre %@";
+"server_refresh_unreachable_format" = "Impossible de joindre %@";
+"server_refresh_still_checking" = "Vérification des sources en cours ; les nouveautés se synchroniseront automatiquement";
+"server_refresh_postponed" = "Impossible de vérifier les sources pour le moment ; Primuse réessaiera sous peu";
+"server_refresh_nothing_to_check" = "Aucune source serveur à vérifier";
+"server_refresh_done_added_format" = "%1$@ : %2$d ajoutés";
+"server_refresh_done_removed_format" = "%1$@ : %2$d retirés";
+"server_refresh_done_synced_format" = "%@ est synchronisé";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "Affiche de paroles";

@@ -596,6 +596,20 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     }
 }
 
+extension SynologyAudioStationSource: ServerCatalogChangeDetectingConnector {
+    /// The catalogue total from a one-row page. It sees rows arriving or
+    /// leaving; an edited tag waits for the next scan.
+    func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
+        try await connect()
+        let total = try await perform { try await $0.songPage(offset: 0, limit: 1).total }
+        return ServerCatalogScanStatus(
+            isScanning: false,
+            itemCount: Int64(total),
+            lastCompletedScanAt: nil
+        )
+    }
+}
+
 extension SynologyAudioStationSource: CatalogDriftReportingConnector {
     func takeCatalogDriftObservation() async -> Bool {
         await client.takeCatalogDriftObservation()

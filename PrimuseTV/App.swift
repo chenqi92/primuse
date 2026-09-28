@@ -196,6 +196,8 @@ struct PrimuseTVApp: App {
                         store.finishPendingRadioDeepLink()
                     }
                     store.recoverReceivedMusicIfNeeded()
+                    // 电视自己扫过的服务器源:问一遍有没有新歌,有就在后台重扫。
+                    store.startServerCatalogAutoRefresh()
                 }
                 // 注意:不在回到前台时自动重新拉快照。否则会用手机端的权威状态覆盖
                 // Apple TV 上的本地改动(如本地启用某个源)。仅在启动时拉一次 + 设置页

@@ -234,6 +234,20 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
     }
 }
 
+extension SongloftSource: ServerCatalogChangeDetectingConnector {
+    /// The catalogue total from a one-row page. It sees rows arriving or
+    /// leaving; an edited tag waits for the next scan.
+    func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
+        try await connect()
+        let total = try await client.trackPage(offset: 0, limit: 1).total
+        return ServerCatalogScanStatus(
+            isScanning: false,
+            itemCount: Int64(total),
+            lastCompletedScanAt: nil
+        )
+    }
+}
+
 extension SongloftSource: CatalogDriftReportingConnector {
     func takeCatalogDriftObservation() async -> Bool {
         await client.takeCatalogDriftObservation()

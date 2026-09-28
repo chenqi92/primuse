@@ -2171,6 +2171,17 @@ struct PrimuseApp: App {
                     let locked = UserDefaults.standard.bool(forKey: key)
                     UserDefaults.standard.set(!locked, forKey: key)
                 }
+
+                Divider()
+
+                // Mac 没有下拉刷新,这条命令就是它:问一遍各服务器源有没有新歌。
+                Button("server_refresh_menu_item") {
+                    Task {
+                        await AppServices.shared.serverCatalogAutoRefresh
+                            .refreshNow(reportsNothingToCheck: true)
+                    }
+                }
+                .keyboardShortcut("r", modifiers: .command)
             }
 
             // Playback menu —— Apple Music / Spotify 一致的桌面播放范式。

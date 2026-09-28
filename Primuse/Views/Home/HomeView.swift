@@ -753,6 +753,8 @@ struct HomeView: View {
                 .padding(.bottom, bottomChromeClearance)
                 .pmAnimation(.contentAppear, value: model.isPrepared)
             }
+            // 下拉就去问一遍各服务器源有没有新歌,有就在后台同步;编辑版面时不接这个手势。
+            .serverCatalogPullToRefresh(isEnabled: !editorMode)
             // iPhone Duo 竖栏：卡片与横滑区铺到屏幕右缘，系统的玻璃胶囊浮在上面。
             .pmExtendsUnderVerticalBar()
             .onChange(of: activeHomeFilter) { _, _ in

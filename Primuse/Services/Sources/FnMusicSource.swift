@@ -687,6 +687,22 @@ extension FnMusicSource {
     }
 }
 
+extension FnMusicSource: ServerCatalogChangeDetectingConnector {
+    /// The catalogue total from a one-row page. It sees rows arriving or
+    /// leaving; an edited tag waits for the next scan.
+    func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
+        try await connect()
+        guard let total = try await trackPage(page: 1, size: 1).total else {
+            throw SourceError.connectionFailed("fnMusic track list reported no total")
+        }
+        return ServerCatalogScanStatus(
+            isScanning: false,
+            itemCount: Int64(total),
+            lastCompletedScanAt: nil
+        )
+    }
+}
+
 extension FnMusicSource: CatalogDriftReportingConnector {
     func takeCatalogDriftObservation() -> Bool {
         defer { catalogDriftInLastWalk = false }

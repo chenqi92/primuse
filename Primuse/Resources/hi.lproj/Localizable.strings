@@ -3909,9 +3909,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "स्वतः ताज़ा करें";
-"server_auto_refresh_description" = "शुरू होने के बाद Primuse सर्वर की लाइब्रेरी स्थिति जाँचता है और स्थानीय सूची तभी ताज़ा करता है जब सर्वर की सामग्री बदली हो। यह सर्वर पर स्कैन शुरू नहीं करता।";
+"server_auto_refresh_description" = "Primuse खुलने, फिर से सामने आने या आपके रीफ़्रेश करने पर सर्वर की लाइब्रेरी जाँचता है और स्थानीय सूची तभी सिंक करता है जब सर्वर की सामग्री बदली हो। यह सर्वर पर स्कैन शुरू नहीं करता।";
 "server_scan_on_launch" = "शुरू होने पर पूरा सर्वर स्कैन माँगें";
 "server_scan_on_launch_description" = "Primuse शुरू होने पर सर्वर से पूरी लाइब्रेरी स्कैन करने को कहता है। व्यवस्थापक खाता आवश्यक है; असमर्थित या अस्वीकृत अनुरोध केवल स्थिति जाँचने वाले ताज़ा पर लौट आते हैं।";
+"server_refresh_menu_item" = "स्रोतों के अपडेट जाँचें";
+"server_refresh_found_changes_format" = "%@ की नई सामग्री सिंक हो रही है";
+"server_refresh_already_scanning" = "स्रोत पहले से सिंक हो रहे हैं";
+"server_refresh_up_to_date" = "स्रोत अप-टू-डेट हैं";
+"server_refresh_partly_unreachable_format" = "बाक़ी स्रोत अप-टू-डेट हैं; %@ से कनेक्ट नहीं हो सका";
+"server_refresh_unreachable_format" = "%@ से कनेक्ट नहीं हो सका";
+"server_refresh_still_checking" = "स्रोत अभी जाँचे जा रहे हैं; नई सामग्री अपने आप सिंक होगी";
+"server_refresh_postponed" = "अभी स्रोत जाँचे नहीं जा सकते; Primuse थोड़ी देर में फिर कोशिश करेगा";
+"server_refresh_nothing_to_check" = "जाँचने के लिए कोई सर्वर स्रोत नहीं है";
+"server_refresh_done_added_format" = "%1$@: %2$d जोड़े गए";
+"server_refresh_done_removed_format" = "%1$@: %2$d हटाए गए";
+"server_refresh_done_synced_format" = "%@ सिंक हो गया";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "लिरिक पोस्टर";

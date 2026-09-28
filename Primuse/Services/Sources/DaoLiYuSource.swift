@@ -344,6 +344,20 @@ actor DaoLiYuSource: RefreshingMetadataSongConnector, ServerLyricsConnector {
     }
 }
 
+extension DaoLiYuSource: ServerCatalogChangeDetectingConnector {
+    /// The catalogue total from a one-row page. It sees rows arriving or
+    /// leaving; an edited tag waits for the next scan.
+    func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
+        try await connect()
+        let total = try await client.trackPage(skip: 0, take: 1).total
+        return ServerCatalogScanStatus(
+            isScanning: false,
+            itemCount: Int64(total),
+            lastCompletedScanAt: nil
+        )
+    }
+}
+
 extension DaoLiYuSource: CatalogDriftReportingConnector {
     func takeCatalogDriftObservation() -> Bool {
         defer { catalogDriftInLastWalk = false }

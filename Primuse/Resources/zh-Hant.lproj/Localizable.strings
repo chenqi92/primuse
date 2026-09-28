@@ -3980,9 +3980,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "自動重新整理";
-"server_auto_refresh_description" = "App 開啟後檢查伺服器的資料庫狀態，僅在伺服器內容變更時重新整理本機目錄，不會發起伺服器掃描。";
+"server_auto_refresh_description" = "開啟 App、回到前景或手動重新整理時檢查伺服器的資料庫狀態，僅在伺服器內容變更時同步本機目錄，不會發起伺服器掃描。";
 "server_scan_on_launch" = "啟動時請求完整伺服器掃描";
 "server_scan_on_launch_description" = "Primuse 啟動時請求伺服器完整掃描資料庫。需要管理員帳號；不支援或無權限時會自動回退為僅檢查狀態。";
+"server_refresh_menu_item" = "檢查音樂來源更新";
+"server_refresh_found_changes_format" = "%@ 有新內容，正在同步";
+"server_refresh_already_scanning" = "音樂來源正在同步中";
+"server_refresh_up_to_date" = "音樂來源已是最新";
+"server_refresh_partly_unreachable_format" = "其餘音樂來源已是最新，%@ 暫時連不上";
+"server_refresh_unreachable_format" = "暫時連不上 %@";
+"server_refresh_still_checking" = "仍在檢查音樂來源，有新內容會自動同步";
+"server_refresh_postponed" = "音樂來源暫時無法檢查，稍後會自動再試";
+"server_refresh_nothing_to_check" = "沒有可檢查的伺服器音樂來源";
+"server_refresh_done_added_format" = "%1$@ 新增 %2$d 首";
+"server_refresh_done_removed_format" = "%1$@ 移除 %2$d 首";
+"server_refresh_done_synced_format" = "%@ 已同步";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "歌詞海報";

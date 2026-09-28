@@ -754,6 +754,7 @@ struct SourcesContentView: View {
                 }
             }
         }
+        .serverCatalogPullToRefresh()
         .pmExtendsUnderVerticalBar()
         .task(id: sources.map(\.id).joined(separator: ",")) {
             // 后台逐源算磁盘占用, 一次性重建字典(顺带清掉已删源的残留键)。

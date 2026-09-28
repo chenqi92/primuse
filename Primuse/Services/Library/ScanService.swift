@@ -814,6 +814,13 @@ final class ScanService {
         try await persistSyncState(state)
     }
 
+    /// The catalogue revision the last committed walk or incremental pass
+    /// saw. A server change check that has no baseline of its own yet compares
+    /// against it rather than refreshing blind.
+    func committedCatalogRevision(for sourceID: String) -> String? {
+        syncStates[sourceID]?.catalogSyncMarker?.catalogRevision
+    }
+
     func sourceFileName(for song: Song) -> String? {
         guard let index = syncStates[song.sourceID]?.index else { return nil }
         // Opaque file-ID providers use the ID as their stable key. Path-based

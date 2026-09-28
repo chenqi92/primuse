@@ -3909,9 +3909,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Обновлять автоматически";
-"server_auto_refresh_description" = "После запуска Primuse проверяет состояние медиатеки сервера и обновляет локальный каталог только при изменении содержимого на сервере. Сканирование на сервере не запускается.";
+"server_auto_refresh_description" = "При запуске, возвращении на передний план или ручном обновлении Primuse проверяет медиатеку сервера и синхронизирует локальный каталог, только если содержимое на сервере изменилось. Сканирование на сервере не запускается.";
 "server_scan_on_launch" = "Запрашивать полное сканирование сервера при запуске";
 "server_scan_on_launch_description" = "При запуске Primuse просит сервер полностью просканировать медиатеку. Нужна учётная запись администратора; при отсутствии поддержки или отказе выполняется только проверка состояния.";
+"server_refresh_menu_item" = "Проверить обновления источников";
+"server_refresh_found_changes_format" = "Синхронизация нового содержимого из %@";
+"server_refresh_already_scanning" = "Источники уже синхронизируются";
+"server_refresh_up_to_date" = "Источники в актуальном состоянии";
+"server_refresh_partly_unreachable_format" = "Остальные источники актуальны; не удалось подключиться к %@";
+"server_refresh_unreachable_format" = "Не удалось подключиться к %@";
+"server_refresh_still_checking" = "Источники ещё проверяются; новое содержимое синхронизируется автоматически";
+"server_refresh_postponed" = "Сейчас нельзя проверить источники; Primuse скоро попробует снова";
+"server_refresh_nothing_to_check" = "Нет серверных источников для проверки";
+"server_refresh_done_added_format" = "%1$@: добавлено %2$d";
+"server_refresh_done_removed_format" = "%1$@: удалено %2$d";
+"server_refresh_done_synced_format" = "%@ синхронизирован";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "Постер с текстом";

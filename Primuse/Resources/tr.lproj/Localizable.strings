@@ -3909,9 +3909,21 @@
 
 /* Server catalogue automatic refresh (whole Subsonic family) */
 "server_auto_refresh" = "Otomatik yenile";
-"server_auto_refresh_description" = "Açıldıktan sonra Primuse sunucunun kitaplık durumunu denetler ve yerel kataloğu yalnızca sunucudaki içerik değiştiyse yeniler. Sunucuda tarama başlatmaz.";
+"server_auto_refresh_description" = "Primuse açıldığında, ön plana döndüğünde veya yenilediğinizde sunucunun kitaplığını denetler ve yerel kataloğu yalnızca sunucudaki içerik değiştiyse eşzamanlar. Sunucuda tarama başlatmaz.";
 "server_scan_on_launch" = "Açılışta sunucuda tam tarama iste";
 "server_scan_on_launch_description" = "Primuse açılırken sunucudan kitaplığı baştan sona taramasını ister. Yönetici hesabı gerekir; desteklenmeyen veya reddedilen istekler yalnızca durum denetleyen yenilemeye geri döner.";
+"server_refresh_menu_item" = "Kaynaklardaki Güncellemeleri Denetle";
+"server_refresh_found_changes_format" = "%@ kaynağındaki yeni içerik eşzamanlanıyor";
+"server_refresh_already_scanning" = "Kaynaklar zaten eşzamanlanıyor";
+"server_refresh_up_to_date" = "Kaynaklar güncel";
+"server_refresh_partly_unreachable_format" = "Diğer kaynaklar güncel; %@ kaynağına ulaşılamadı";
+"server_refresh_unreachable_format" = "%@ kaynağına ulaşılamadı";
+"server_refresh_still_checking" = "Kaynaklar hâlâ denetleniyor; yeni içerik kendiliğinden eşzamanlanacak";
+"server_refresh_postponed" = "Kaynaklar şu anda denetlenemiyor; Primuse birazdan yeniden deneyecek";
+"server_refresh_nothing_to_check" = "Denetlenecek sunucu kaynağı yok";
+"server_refresh_done_added_format" = "%1$@: %2$d eklendi";
+"server_refresh_done_removed_format" = "%1$@: %2$d kaldırıldı";
+"server_refresh_done_synced_format" = "%@ eşzamanlandı";
 
 /* Lyric poster sharing */
 "lyric_poster_title" = "Şarkı Sözü Posteri";

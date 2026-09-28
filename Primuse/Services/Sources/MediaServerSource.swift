@@ -62,6 +62,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private var catalogLayout: CatalogLayout?
     /// Set by `scanSongs` when a library moved while it was being paged.
     private var catalogDriftInLastWalk = false
+    /// Raw `Date` header of the most recent response. The change check reads
+    /// it to measure its "saved since" window on the server's clock.
+    private var lastServerDateHeader: String?
 
     init(
         sourceID: String,
@@ -1077,6 +1080,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     /// is derived from exactly the counts the offsets are based on, so a
     /// catalogue that moved under the walk cannot pass verification.
     private func rebuildCatalogLayout() async throws -> CatalogLayout {
+        let layout = try await measureCatalogLayout()
+        catalogLayout = layout
+        return layout
+    }
+
+    /// The layout as the server reports it right now, without adopting it. A
+    /// change check must not replace the offset space a paged walk on this
+    /// same connector may still be reading from.
+    private func measureCatalogLayout() async throws -> CatalogLayout {
         // Sorted by id rather than by the server's presentation order: the
         // offset space has to mean the same thing after an app relaunch for a
         // staged page to still line up.
@@ -1095,9 +1107,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         guard catalogCount <= Self.maximumCatalogTracks else {
             throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
         }
-        let layout = CatalogLayout(revision: marker, segments: segments, startedAt: Date())
-        catalogLayout = layout
-        return layout
+        return CatalogLayout(revision: marker, segments: segments, startedAt: Date())
     }
 
     func stableSongCatalogRevision() async throws -> String? {
@@ -2777,6 +2787,10 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         try validate(response)
         guard data.count <= maximumResponseBytes else {
             throw SourceError.connectionFailed("Response exceeds \(maximumResponseBytes) bytes")
+        }
+        if let http = response as? HTTPURLResponse,
+           let dateHeader = http.value(forHTTPHeaderField: "Date") {
+            lastServerDateHeader = dateHeader
         }
         return data
     }
@@ -4763,6 +4777,49 @@ private struct PlexPlaylistTrack: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
+    }
+}
+
+extension MediaServerSource: ServerCatalogChangeDetectingConnector {
+    /// "Did the catalogue change?" without reading it: one total-plus-newest
+    /// request per music library catches rows arriving or leaving, and on
+    /// Jellyfin/Emby one `MinDateLastSaved` count per library catches edited
+    /// rows. Plex has no expressible "saved since" filter, so a tag edited on a
+    /// Plex server still waits for the next scan.
+    func fetchServerCatalogScanStatus(changedSince: Date?) async throws -> ServerCatalogScanStatus {
+        try await connect()
+        lastServerDateHeader = nil
+        let layout = try await measureCatalogLayout()
+        let serverObservedAt = lastServerDateHeader.flatMap(ServerClockPolicy.date(fromHTTPDateHeader:))
+        let totalCount = MediaServerCatalogPagingPolicy.totalCount(
+            segmentCounts: layout.segments.map(\.count)
+        )
+        var changedItemCount: Int?
+        if let changedSince, kind != .plex {
+            do {
+                var count = 0
+                for segment in layout.segments where segment.count > 0 {
+                    count += try await fetchModifiedAudioItemCount(
+                        parentID: segment.library.id,
+                        since: changedSince
+                    )
+                }
+                changedItemCount = ServerCatalogChangeWindowPolicy.usableChangedItemCount(
+                    count,
+                    totalItemCount: totalCount
+                )
+            } catch PagedSongCatalogError.unavailable {
+                changedItemCount = nil
+            }
+        }
+        return ServerCatalogScanStatus(
+            isScanning: false,
+            itemCount: Int64(totalCount),
+            lastCompletedScanAt: nil,
+            contentRevision: layout.revision,
+            changedItemCount: changedItemCount,
+            serverObservedAt: serverObservedAt
+        )
     }
 }
 
