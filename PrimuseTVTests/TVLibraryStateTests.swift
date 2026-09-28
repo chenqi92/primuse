@@ -1178,6 +1178,44 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertNotNil(store.song(songID))
     }
 
+    func testRescanReadsTrackLyricsAddedBesideExistingCueImage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let folderName = "TV CUE Lyrics QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try waveFixture(duration: 4).write(to: folder.appendingPathComponent("Album.wav"))
+        try Data("""
+        FILE "Album.wav" WAVE
+          TRACK 01 AUDIO
+            TITLE "First"
+            INDEX 01 00:00:00
+          TRACK 02 AUDIO
+            TITLE "Second"
+            INDEX 01 00:02:00
+        """.utf8).write(to: folder.appendingPathComponent("Album.cue"))
+        func firstTrack() -> Song? {
+            fixture.library.songs.first {
+                $0.cueSheetPath == "/\(folderName)/Album.cue" && $0.trackNumber == 1
+            }
+        }
+
+        let first = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(first)
+        XCTAssertNil(firstTrack()?.lyricsText)
+
+        // 已入库的分轨,后来才在目录里补上它自己的歌词文件。
+        try Data("[00:00.00]first track lyric line\n".utf8)
+            .write(to: folder.appendingPathComponent("01 First.lrc"))
+        let second = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(second)
+        XCTAssertEqual(firstTrack()?.lyricsText, "first track lyric line")
+    }
+
     private func waveFixture(duration: TimeInterval = 0.1) -> Data {
         let samples = Data(repeating: 0, count: Int(8_000 * duration) * 2)
         var data = Data()

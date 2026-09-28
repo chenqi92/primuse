@@ -2070,7 +2070,14 @@ final class TVSourceScanner {
                 read: { [self] position in
                     let item = metadataItems[position]
                     let startedAt = ProcessInfo.processInfo.systemUptime
-                    let result = await readMetadata(item.song, item.sidecars, readerPool)
+                    // 骨架沿用库里已缓存的歌词引用;CUE 分轨按曲目挑中的歌词文件
+                    // 只在这次列目录的候选里,读的时候要交给富集,否则后来补进
+                    // 目录的 `01 标题.lrc` 永远读不到。
+                    var readSong = item.song
+                    if item.candidate.isCueTrack, let hinted = item.candidate.lyricsFileName {
+                        readSong.lyricsFileName = hinted
+                    }
+                    let result = await readMetadata(readSong, item.sidecars, readerPool)
                     scanReadWindow.recordSong(seconds: ProcessInfo.processInfo.systemUptime - startedAt,
                                               reused: false)
                     return result
