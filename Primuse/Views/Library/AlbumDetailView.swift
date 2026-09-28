@@ -18,6 +18,8 @@ struct AlbumDetailView: View {
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
     @Environment(CoverTintProvider.self) private var coverTints
     @Environment(\.colorScheme) private var colorScheme
+    #elseif os(macOS)
+    @Environment(\.locale) private var locale
     #endif
     let album: Album
     private let onMacInlineBack: (() -> Void)?
@@ -470,9 +472,16 @@ struct AlbumDetailView: View {
     private var macTrackTable: some View {
         let discs = discSections
         let showsDiscHeaders = discs.contains { $0.number > 1 }
+        let largestTrackNumber = max(
+            discs.map { $0.songs.count }.max() ?? 1,
+            discs.flatMap(\.songs).compactMap(\.trackNumber).filter { $0 > 0 }.max() ?? 1
+        )
+        let ordinalWidth = MacOrdinalColumn.width(
+            for: largestTrackNumber, minimum: 28, fontSize: 11, locale: locale
+        )
         return VStack(spacing: 0) {
             HStack(spacing: PMSpace.s10) {
-                Text("#").frame(width: 28, alignment: .center)
+                Text("#").frame(width: ordinalWidth, alignment: .center)
                 Color.clear.frame(width: 36)
                 Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
                 Text("sort_artist").frame(width: 180, alignment: .leading)
@@ -494,7 +503,7 @@ struct AlbumDetailView: View {
                     }
 
                     ForEach(Array(disc.songs.enumerated()), id: \.element.id) { index, song in
-                        macTrackRow(song, index: index)
+                        macTrackRow(song, index: index, ordinalWidth: ordinalWidth)
                             .songSelectable(
                                 songID: song.id,
                                 selection: selection,
@@ -526,7 +535,7 @@ struct AlbumDetailView: View {
         }
     }
 
-    private func macTrackRow(_ song: Song, index: Int) -> some View {
+    private func macTrackRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let trackNumber = song.trackNumber.flatMap { $0 > 0 ? $0 : nil } ?? index + 1
         return Button { playSong(song) } label: {
@@ -538,13 +547,14 @@ struct AlbumDetailView: View {
                             .foregroundStyle(PMColor.brand)
                             .pmFadeTransition()
                     } else {
-                        Text("\(trackNumber)")
+                        Text(verbatim: trackNumber.formatted(.number.locale(locale)))
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
                             .pmFadeTransition()
                     }
                 }
-                .frame(width: 28, alignment: .center)
+                .frame(width: ordinalWidth, alignment: .center)
 
                 CachedArtworkView(
                     coverRef: song.coverArtFileName, songID: song.id,

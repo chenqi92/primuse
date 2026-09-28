@@ -22,6 +22,8 @@ struct SmartPlaylistDetailView: View {
     @Environment(ScraperSettingsStore.self) private var scraperSettings
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
+    #elseif os(macOS)
+    @Environment(\.locale) private var locale
     #endif
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -513,9 +515,12 @@ struct SmartPlaylistDetailView: View {
     }
 
     private func macSongTable(_ matched: [Song]) -> some View {
-        VStack(spacing: 0) {
+        let ordinalWidth = MacOrdinalColumn.width(
+            for: matched.count, minimum: 28, fontSize: 11, locale: locale
+        )
+        return VStack(spacing: 0) {
             HStack(spacing: PMSpace.s10) {
-                Text("#").frame(width: 28, alignment: .center)
+                Text("#").frame(width: ordinalWidth, alignment: .center)
                 Color.clear.frame(width: 36)
                 Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
                 Text("sort_artist").frame(width: 180, alignment: .leading)
@@ -533,14 +538,14 @@ struct SmartPlaylistDetailView: View {
 
             LazyVStack(spacing: 1) {
                 ForEach(Array(matched.enumerated()), id: \.element.id) { index, song in
-                    macSongRow(song, index: index)
+                    macSongRow(song, index: index, ordinalWidth: ordinalWidth)
                 }
             }
             .padding(.vertical, 4)
         }
     }
 
-    private func macSongRow(_ song: Song, index: Int) -> some View {
+    private func macSongRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         return Button { playSong(song) } label: {
             HStack(spacing: PMSpace.s10) {
@@ -550,12 +555,13 @@ struct SmartPlaylistDetailView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(PMColor.brand)
                     } else {
-                        Text("\(index + 1)")
+                        Text(verbatim: (index + 1).formatted(.number.locale(locale)))
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)
+                            .lineLimit(1)
                     }
                 }
-                .frame(width: 28, alignment: .center)
+                .frame(width: ordinalWidth, alignment: .center)
 
                 CachedArtworkView(
                     coverRef: song.coverArtFileName, songID: song.id,

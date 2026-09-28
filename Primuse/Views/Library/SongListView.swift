@@ -6,6 +6,14 @@ import UIKit
 #endif
 #if os(macOS)
 import AppKit
+
+enum MacOrdinalColumn {
+    static func width(for largestNumber: Int, minimum: CGFloat, fontSize: CGFloat, locale: Locale) -> CGFloat {
+        let label = max(1, largestNumber).formatted(.number.locale(locale))
+        let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        return max(minimum, ceil((label as NSString).size(withAttributes: [.font: font]).width) + 4)
+    }
+}
 #endif
 
 struct SongLibraryLocationRequest: Identifiable, Equatable, Sendable {
@@ -795,6 +803,7 @@ struct SongListView: View {
     @State private var folderIndexScopeToken = UUID()
     #if os(macOS)
     @State private var macViewMode: MacSongsViewMode = .list
+    @Environment(\.locale) private var locale
     @State private var macRowDensity: MacSongsRowDensity = .standard
     @State private var visibleColumns: Set<MacSongsColumn>
     @State private var columnOrder: [MacSongsColumn]
@@ -1834,18 +1843,22 @@ struct SongListView: View {
         request: MacSongLocationScrollRequest
     ) -> some View {
         let rowHeight: CGFloat? = macViewMode == .grid ? nil : macVirtualRowHeight
+        let ordinalWidth = MacOrdinalColumn.width(
+            for: rows.count, minimum: 32, fontSize: 11, locale: locale
+        )
         return MacSongScrollSurface(
             allowsHorizontalScrolling: macViewMode == .list,
             rowCount: rows.count,
             rowHeight: rowHeight,
             request: request
         ) {
-            macSongScrollChrome(isEmpty: rows.isEmpty)
+            macSongScrollChrome(isEmpty: rows.isEmpty, ordinalWidth: ordinalWidth)
         } results: { range, viewportWidth in
             macFlatSongResults(
                 rows: rows,
                 range: range,
-                viewportWidth: viewportWidth
+                viewportWidth: viewportWidth,
+                ordinalWidth: ordinalWidth
             )
         }
     }
@@ -1853,7 +1866,8 @@ struct SongListView: View {
     private func macFlatSongResults(
         rows: [SongListRowIdentity],
         range: Range<Int>,
-        viewportWidth: CGFloat
+        viewportWidth: CGFloat,
+        ordinalWidth: CGFloat
     ) -> some View {
         Group {
             switch macViewMode {
@@ -1861,7 +1875,8 @@ struct SongListView: View {
                 macWindowedSongResults(
                     rows: rows,
                     range: range,
-                    viewportWidth: viewportWidth
+                    viewportWidth: viewportWidth,
+                    ordinalWidth: ordinalWidth
                 )
                 .pmAppearFade()
             case .grid:
@@ -1880,7 +1895,8 @@ struct SongListView: View {
     private func macWindowedSongResults(
         rows: [SongListRowIdentity],
         range: Range<Int>,
-        viewportWidth: CGFloat
+        viewportWidth: CGFloat,
+        ordinalWidth: CGFloat
     ) -> some View {
         let rowHeight = macVirtualRowHeight
         let rowWidth = max(0, viewportWidth - PMSpace.xxxl * 2)
@@ -1897,9 +1913,9 @@ struct SongListView: View {
                         Group {
                             switch macViewMode {
                             case .list:
-                                songTableRow(song, index: row.offset)
+                                songTableRow(song, index: row.offset, ordinalWidth: ordinalWidth)
                             case .compact:
-                                compactSongRow(song, index: row.offset)
+                                compactSongRow(song, index: row.offset, ordinalWidth: ordinalWidth)
                             case .grid:
                                 EmptyView()
                             }
@@ -1960,12 +1976,12 @@ struct SongListView: View {
 
     /// 滚动面自己的顶部: 列表视图是可置顶的表头, 紧凑视图留一点呼吸空间,
     /// 网格视图没有表头。空状态也放在这里, 没有行时它就是唯一内容。
-    private func macSongScrollChrome(isEmpty: Bool) -> some View {
+    private func macSongScrollChrome(isEmpty: Bool, ordinalWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             switch macViewMode {
             case .list:
                 VStack(spacing: 0) {
-                    tableHeader
+                    tableHeader(ordinalWidth: ordinalWidth)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
                     Rectangle().fill(PMColor.divider).frame(height: 0.5)
@@ -2282,26 +2298,26 @@ struct SongListView: View {
     /// Fixed column widths make the header and virtualized rows agree exactly.
     /// When users expand the table beyond the viewport, the shared horizontal
     /// scroll surface keeps every field reachable instead of truncating it.
-    private var tableContentWidth: CGFloat {
+    private func tableContentWidth(ordinalWidth: CGFloat) -> CGFloat {
         let columnsWidth = activeTableColumns.reduce(CGFloat.zero) {
             $0 + columnWidth($1)
         }
         let elementCount = activeTableColumns.count + 2 // row number + artwork
-        return 64 + columnsWidth + CGFloat(max(0, elementCount - 1)) * 12
+        return ordinalWidth + 32 + columnsWidth + CGFloat(max(0, elementCount - 1)) * 12
     }
 
     /// The number and artwork slots stay fixed; named columns share the same
     /// persisted order and widths as every virtualized row below them.
-    private var tableHeader: some View {
+    private func tableHeader(ordinalWidth: CGFloat) -> some View {
         HStack(spacing: 12) {
-            Text("#").frame(width: 32, alignment: .leading)
+            Text("#").frame(width: ordinalWidth, alignment: .leading)
             Color.clear.frame(width: 32, height: 1)
 
             ForEach(activeTableColumns) { column in
                 tableColumnHeader(column)
             }
         }
-        .frame(width: tableContentWidth, alignment: .leading)
+        .frame(width: tableContentWidth(ordinalWidth: ordinalWidth), alignment: .leading)
         .font(.system(size: 10.5, weight: .semibold))
         .tracking(0.6)
         .textCase(.uppercase)
@@ -2440,7 +2456,7 @@ struct SongListView: View {
     }
 
     @ViewBuilder
-    private func songTableRow(_ song: Song, index: Int) -> some View {
+    private func songTableRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let isLocated = locatedSongID == song.id
         let isEmphasized = isCurrent || isLocated
@@ -2457,17 +2473,15 @@ struct SongListView: View {
                             .foregroundStyle(PMColor.brand)
                             .pmFadeTransition()
                     } else {
-                        Text(verbatim: String(index + 1))
+                        Text(verbatim: (index + 1).formatted(.number.locale(locale)))
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .allowsTightening(true)
                             .pmFadeTransition()
                     }
                 }
-                .frame(width: 32, alignment: .leading)
-                // 只管这一格 32pt 宽的序号位，换歌时只有两行会动。
+                .frame(width: ordinalWidth, alignment: .leading)
+                // 换歌时只有当前与上一首的序号格会更新。
                 .pmAnimation(.hover, value: isCurrent)
 
                 // Cover
@@ -2490,7 +2504,7 @@ struct SongListView: View {
                     )
                 }
             }
-            .frame(width: tableContentWidth, alignment: .leading)
+            .frame(width: tableContentWidth(ordinalWidth: ordinalWidth), alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, macRowDensity.verticalPadding)
             .pmRowBackground(selected: isEmphasized)
@@ -2628,7 +2642,7 @@ struct SongListView: View {
         }
     }
 
-    private func compactSongRow(_ song: Song, index: Int) -> some View {
+    private func compactSongRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let isLocated = locatedSongID == song.id
         let isEmphasized = isCurrent || isLocated
@@ -2641,16 +2655,14 @@ struct SongListView: View {
                             .foregroundStyle(PMColor.brand)
                             .pmFadeTransition()
                     } else {
-                        Text(verbatim: String(index + 1))
+                        Text(verbatim: (index + 1).formatted(.number.locale(locale)))
                             .font(.system(size: 10.5, design: .monospaced))
                             .foregroundStyle(PMColor.textFaint)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .allowsTightening(true)
                             .pmFadeTransition()
                     }
                 }
-                .frame(width: 28, alignment: .leading)
+                .frame(width: max(28, ordinalWidth), alignment: .leading)
                 .pmAnimation(.hover, value: isCurrent)
 
                 HStack(spacing: 5) {

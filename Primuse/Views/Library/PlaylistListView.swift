@@ -1062,6 +1062,9 @@ struct PlaylistOrderSheet: View {
     let onDone: ([Playlist]) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    #if os(macOS)
+    @Environment(\.locale) private var locale
+    #endif
     @State private var localPlaylists: [Playlist]
 
     init(playlists: [Playlist], onDone: @escaping ([Playlist]) -> Void) {
@@ -1136,7 +1139,10 @@ struct PlaylistOrderSheet: View {
 
     #if os(macOS)
     private var macBody: some View {
-        VStack(spacing: 0) {
+        let ordinalWidth = MacOrdinalColumn.width(
+            for: localPlaylists.count, minimum: 26, fontSize: 11, locale: locale
+        )
+        return VStack(spacing: 0) {
             HStack(spacing: 14) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(PMColor.brand.opacity(0.16))
@@ -1178,7 +1184,7 @@ struct PlaylistOrderSheet: View {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 8) {
                     ForEach(Array(localPlaylists.enumerated()), id: \.element.id) { index, playlist in
-                        macPlaylistRow(playlist, index: index)
+                        macPlaylistRow(playlist, index: index, ordinalWidth: ordinalWidth)
                     }
                 }
                 .padding(14)
@@ -1225,12 +1231,13 @@ struct PlaylistOrderSheet: View {
         .shadow(color: .black.opacity(0.24), radius: 28, y: 14)
     }
 
-    private func macPlaylistRow(_ playlist: Playlist, index: Int) -> some View {
+    private func macPlaylistRow(_ playlist: Playlist, index: Int, ordinalWidth: CGFloat) -> some View {
         HStack(spacing: 10) {
-            Text(verbatim: "\(index + 1)")
+            Text(verbatim: (index + 1).formatted(.number.locale(locale)))
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(PMColor.textFaint)
-                .frame(width: 26, alignment: .trailing)
+                .lineLimit(1)
+                .frame(width: ordinalWidth, alignment: .trailing)
 
             PlaylistArtworkView(playlist: playlist, size: 38, cornerRadius: 5)
 

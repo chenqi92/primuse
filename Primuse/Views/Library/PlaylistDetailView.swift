@@ -1503,6 +1503,9 @@ struct PlaylistReorderSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(MusicLibrary.self) private var library
+    #if os(macOS)
+    @Environment(\.locale) private var locale
+    #endif
     @State private var localSongs: [Song]
 
     init(playlist: Playlist, songs: [Song], onDone: @escaping ([Song]) -> Void) {
@@ -1586,7 +1589,10 @@ struct PlaylistReorderSheet: View {
 
     #if os(macOS)
     private var macBody: some View {
-        VStack(spacing: 0) {
+        let ordinalWidth = MacOrdinalColumn.width(
+            for: localSongs.count, minimum: 26, fontSize: 11, locale: locale
+        )
+        return VStack(spacing: 0) {
             HStack(spacing: 14) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(PMColor.brand.opacity(0.16))
@@ -1628,7 +1634,7 @@ struct PlaylistReorderSheet: View {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 8) {
                     ForEach(Array(localSongs.enumerated()), id: \.element.id) { index, song in
-                        macSongRow(song, index: index)
+                        macSongRow(song, index: index, ordinalWidth: ordinalWidth)
                     }
                 }
                 .padding(14)
@@ -1684,12 +1690,13 @@ struct PlaylistReorderSheet: View {
         localSongs.map(\.id) != initialSongs.map(\.id)
     }
 
-    private func macSongRow(_ song: Song, index: Int) -> some View {
+    private func macSongRow(_ song: Song, index: Int, ordinalWidth: CGFloat) -> some View {
         HStack(spacing: 10) {
-            Text("\(index + 1)")
+            Text(verbatim: (index + 1).formatted(.number.locale(locale)))
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(PMColor.textFaint)
-                .frame(width: 26, alignment: .trailing)
+                .lineLimit(1)
+                .frame(width: ordinalWidth, alignment: .trailing)
 
             CachedArtworkView(
                 coverRef: song.coverArtFileName,
