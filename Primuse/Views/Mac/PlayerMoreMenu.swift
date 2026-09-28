@@ -195,13 +195,12 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             divider()
             // 有声内容按书的顺序听, 随机与循环只会打乱章节。
             if !isSpokenWord {
-                menuRow(title: "shuffle",
-                        symbol: player.shuffleEnabled ? "checkmark" : "shuffle") {
-                    player.shuffleEnabled.toggle()
-                }
-                menuRow(title: repeatMenuTitleKey,
-                        symbol: player.repeatMode == .off ? "repeat" :
-                                 player.repeatMode == .one ? "repeat.1" : "checkmark") {
+                toggleRow(title: "shuffle", symbol: "shuffle",
+                          isOn: Binding(get: { player.shuffleEnabled },
+                                        set: { player.shuffleEnabled = $0 }))
+                checkRow(title: repeatMenuTitleKey,
+                         symbol: player.repeatMode == .one ? "repeat.1" : "repeat",
+                         isChecked: player.repeatMode != .off) {
                     cycleRepeat()
                 }
                 divider()
@@ -305,21 +304,9 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
             }
             divider()
             if !isSpokenWord {
-                Toggle(isOn: $lyricsMotionEnabled) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "text.line.first.and.arrowtriangle.forward")
-                            .frame(width: 18)
-                            .foregroundStyle(PMColor.textMuted)
-                        Text("immersive_lyrics_motion_title")
-                            .font(.callout)
-                            .foregroundStyle(PMColor.text)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .pmRowBackground(cornerRadius: 6)
-                    .contentShape(Rectangle())
-                }
-                .toggleStyle(.switch)
+                toggleRow(title: "immersive_lyrics_motion_title",
+                          symbol: "text.line.first.and.arrowtriangle.forward",
+                          isOn: $lyricsMotionEnabled)
             }
 
             // 字号子菜单 —— 用 popover 打开第二层。
@@ -497,6 +484,42 @@ struct PlayerMoreMenu<MenuLabel: View>: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+    }
+
+    /// 开关项:和其它行同一套图标、字号、行高,开着时行尾打勾 —— Mac 菜单表示开关
+    /// 状态的方式,与字号子菜单的勾同一画法。不用 `.switch` 开关:它的尺寸不跟行走,
+    /// 放在这列里会顶出面板右缘。图标固定不换,勾只占位不增删,行宽不跳。
+    private func toggleRow(title: LocalizedStringKey, symbol: String,
+                           isOn: Binding<Bool>) -> some View {
+        checkRow(title: title, symbol: symbol, isChecked: isOn.wrappedValue) {
+            isOn.wrappedValue.toggle()
+        }
+    }
+
+    /// 带状态的行。点了不收起菜单,当场看得到勾的变化(循环还要连点切档)。
+    private func checkRow(title: LocalizedStringKey, symbol: String, isChecked: Bool,
+                          action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .frame(width: 18)
+                    .foregroundStyle(PMColor.textMuted)
+                    .contentTransition(.symbolEffect(.replace))
+                Text(title)
+                    .font(.callout)
+                    .foregroundStyle(PMColor.text)
+                Spacer()
+                Image(systemName: "checkmark")
+                    .font(.caption)
+                    .foregroundStyle(PMColor.brand)
+                    .opacity(isChecked ? 1 : 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .pmRowBackground(cornerRadius: 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isChecked ? [.isToggle, .isSelected] : .isToggle)
     }
 
     private func divider() -> some View {
