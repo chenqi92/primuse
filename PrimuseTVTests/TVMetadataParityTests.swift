@@ -313,6 +313,26 @@ final class TVMetadataParityTests: XCTestCase {
         XCTAssertFalse(replaced)
     }
 
+    func testExplicitFlushOnlyWritesNewInspections() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let inspections = TVMetadataInspectionStore(url: url)
+        // 扫描收尾与进后台都会调 flush:什么都没读过时不该写出(或重写)文件。
+        await inspections.flush()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        let original = song()
+        await inspections.record(original, complete: true)
+        await inspections.flush()
+        let written = try Data(contentsOf: url)
+        try FileManager.default.removeItem(at: url)
+        await inspections.flush()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "Nothing new since the last write")
+        let reloaded = TVMetadataInspectionStore(url: url)
+        let current = await reloaded.isCurrent(original)
+        XCTAssertFalse(current)
+        XCTAssertFalse(written.isEmpty)
+    }
+
     func testChangedSidecarInvalidatesInspection() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
         defer { try? FileManager.default.removeItem(at: url) }

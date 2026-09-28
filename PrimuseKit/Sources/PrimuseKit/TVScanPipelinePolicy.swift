@@ -7,6 +7,21 @@ import Foundation
 public enum TVScanPipelinePolicy {
     public static let publicationBatchSize = 20
 
+    /// 扫描中途把攒下的行交给曲库的门槛。扫描器每 20 首发布一批;远端读标签慢到
+    /// 一首一秒时,原来「满 200 首或隔 1.5 秒」的规则等于每批都提交一次,每次都要
+    /// 过一遍整库。按数量或时间上限合并,数据库写入与整库维护都降到十几秒一次。
+    public static let intermediateCommitSongCount = 200
+    public static let intermediateCommitInterval: TimeInterval = 15
+
+    public static func shouldCommitIntermediateBatch(
+        pendingCount: Int,
+        secondsSinceLastCommit: TimeInterval
+    ) -> Bool {
+        guard pendingCount > 0 else { return false }
+        return pendingCount >= intermediateCommitSongCount
+            || secondsSinceLastCommit >= intermediateCommitInterval
+    }
+
     public static func songID(
         sourceID: String,
         path: String,
@@ -171,5 +186,67 @@ public enum TVScanPipelinePolicy {
             existing: existing,
             incoming: candidate
         )
+    }
+}
+
+/// 扫描读标签的一段统计窗口:远端请求的次数、字节、耗时与失败,和每首歌从开始读到
+/// 读完的总耗时。两者相减大致就是解析标签、写封面歌词与排队等待的时间。
+/// 只做累加与汇总,日志由调用方按窗口打印。
+public struct TVScanReadStatistics: Sendable, Equatable {
+    public private(set) var requests = 0
+    public private(set) var bytes: Int64 = 0
+    public private(set) var requestSeconds: [Double] = []
+    public private(set) var failures = 0
+    public private(set) var timeouts = 0
+    public private(set) var songs = 0
+    public private(set) var reusedSongs = 0
+    public private(set) var songSeconds: Double = 0
+
+    public init() {}
+
+    public mutating func recordRequest(bytes: Int, seconds: Double) {
+        requests += 1
+        self.bytes += Int64(max(0, bytes))
+        requestSeconds.append(max(0, seconds))
+    }
+
+    public mutating func recordFailure(timedOut: Bool, seconds: Double) {
+        failures += 1
+        if timedOut { timeouts += 1 }
+        requestSeconds.append(max(0, seconds))
+    }
+
+    public mutating func recordSong(seconds: Double, reused: Bool) {
+        songs += 1
+        if reused { reusedSongs += 1 }
+        songSeconds += max(0, seconds)
+    }
+
+    public mutating func merge(_ other: TVScanReadStatistics) {
+        requests += other.requests
+        bytes += other.bytes
+        requestSeconds.append(contentsOf: other.requestSeconds)
+        failures += other.failures
+        timeouts += other.timeouts
+        songs += other.songs
+        reusedSongs += other.reusedSongs
+        songSeconds += other.songSeconds
+    }
+
+    public var networkSeconds: Double { requestSeconds.reduce(0, +) }
+
+    /// 最近邻取法的分位数(0...1);没有样本时为 0。
+    public func requestPercentile(_ fraction: Double) -> Double {
+        guard !requestSeconds.isEmpty else { return 0 }
+        let sorted = requestSeconds.sorted()
+        let clamped = min(max(fraction, 0), 1)
+        let index = min(sorted.count - 1, Int((clamped * Double(sorted.count)).rounded(.up)) - 1)
+        return sorted[max(0, index)]
+    }
+
+    /// 每首真正读过的歌(不含复用检查记录的)平均用了多少毫秒。
+    public var averageReadSongMilliseconds: Int {
+        let read = songs - reusedSongs
+        return read > 0 ? Int(songSeconds / Double(read) * 1000) : 0
     }
 }

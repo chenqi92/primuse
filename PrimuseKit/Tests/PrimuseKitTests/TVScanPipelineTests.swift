@@ -193,3 +193,52 @@ struct TVScanPipelineTests {
         ))
     }
 }
+
+struct TVScanCommitPolicyTests {
+    @Test func slowScansCommitByTimeInsteadOfEveryPublication() {
+        // 一首一秒:每批 20 首隔 20 秒,但没到 15 秒的那几批要继续攒。
+        #expect(!TVScanPipelinePolicy.shouldCommitIntermediateBatch(pendingCount: 20, secondsSinceLastCommit: 1.5))
+        #expect(!TVScanPipelinePolicy.shouldCommitIntermediateBatch(pendingCount: 180, secondsSinceLastCommit: 14))
+        #expect(TVScanPipelinePolicy.shouldCommitIntermediateBatch(pendingCount: 40, secondsSinceLastCommit: 15))
+    }
+
+    @Test func fastScansCommitByCount() {
+        #expect(TVScanPipelinePolicy.shouldCommitIntermediateBatch(pendingCount: 200, secondsSinceLastCommit: 0.2))
+    }
+
+    @Test func firstBatchCommitsRightAwayAndEmptyNeverCommits() {
+        let neverCommitted = Date().timeIntervalSince(.distantPast)
+        #expect(TVScanPipelinePolicy.shouldCommitIntermediateBatch(pendingCount: 20, secondsSinceLastCommit: neverCommitted))
+        #expect(!TVScanPipelinePolicy.shouldCommitIntermediateBatch(pendingCount: 0, secondsSinceLastCommit: neverCommitted))
+    }
+}
+
+struct TVScanReadStatisticsTests {
+    @Test func separatesNetworkTimeFromPerSongTime() {
+        var stats = TVScanReadStatistics()
+        stats.recordRequest(bytes: 262_144, seconds: 0.2)
+        stats.recordRequest(bytes: 65_536, seconds: 0.4)
+        stats.recordFailure(timedOut: true, seconds: 12)
+        stats.recordSong(seconds: 1.0, reused: false)
+        stats.recordSong(seconds: 0, reused: true)
+        #expect(stats.requests == 2)
+        #expect(stats.bytes == 327_680)
+        #expect(stats.failures == 1 && stats.timeouts == 1)
+        #expect(abs(stats.networkSeconds - 12.6) < 0.0001)
+        #expect(stats.averageReadSongMilliseconds == 1000)
+        #expect(stats.requestPercentile(0.9) == 12)
+        #expect(stats.requestPercentile(0.5) == 0.4)
+    }
+
+    @Test func mergeAccumulatesWindows() {
+        var a = TVScanReadStatistics()
+        a.recordRequest(bytes: 10, seconds: 1)
+        var b = TVScanReadStatistics()
+        b.recordRequest(bytes: 5, seconds: 2)
+        b.recordSong(seconds: 3, reused: false)
+        a.merge(b)
+        #expect(a.requests == 2 && a.bytes == 15 && a.songs == 1)
+        #expect(TVScanReadStatistics().requestPercentile(0.9) == 0)
+    }
+}
+

@@ -506,6 +506,12 @@ final class TVLibraryStateTests: XCTestCase {
         }
         let reachedChild = await lister.reachedChild
         XCTAssertTrue(reachedChild)
+        // 中途提交把整库重建合并进延后维护(约 3 秒),资料库稍后才看得到这批歌;
+        // 行本身在提交返回前已经进了数据库(见下面的重开断言)。
+        let visibleDeadline = Date().addingTimeInterval(8)
+        while store.songs.count < 21, Date() < visibleDeadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
         XCTAssertGreaterThanOrEqual(store.songs.count, 21)
         XCTAssertEqual(store.scanner.phase, .scanning)
         let firstID = TVScanPipelinePolicy.songID(sourceID: fixture.source.id, path: "/song-0.mp3")

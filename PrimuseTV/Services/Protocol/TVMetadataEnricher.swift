@@ -123,6 +123,7 @@ actor TVMetadataReaderPool {
     private let audit = TVMetadataReadAudit()
     var readFailureCount: Int { get async { await audit.failures } }
     func markIncomplete() async { await audit.failed() }
+    func takeReadStatistics() async -> TVScanReadStatistics { await audit.takeWindow() }
     private let credential: SourceCredential?
     private let session: URLSession
     private var readers: [String: any ByteRangeReader] = [:]

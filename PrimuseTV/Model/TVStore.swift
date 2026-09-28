@@ -700,6 +700,9 @@ final class TVStore {
     @ObservationIgnored private var pendingScanSongs: [Song] = []
     @ObservationIgnored private var scanExistingIDsByFile: [String: String] = [:]
     @ObservationIgnored private var lastScanFlush = Date.distantPast
+    /// 正在后台提交的那一批扫描行。读标签的调度循环要等提交回调返回才补读取位,
+    /// 所以中途提交不在回调里等:交给这条串行任务,下一次提交(或收尾)前再等它。
+    @ObservationIgnored private var scanCommitTask: Task<Void, Error>?
     /// 服务器曲库变化检查(启动后一次、回到前台一次)。见文件末尾的扩展。
     @ObservationIgnored private var serverCatalogMarkers: [String: TVServerCatalogMarker]?
     @ObservationIgnored private var serverCatalogLastProbeAt: [String: Date] = [:]
@@ -3820,29 +3823,68 @@ final class TVStore {
         scanTask?.cancel()
     }
 
-    private func flushScanBatch(sourceID: String) async throws {
-        guard !pendingScanSongs.isEmpty else { return }
+    /// 把攒下的扫描行交给曲库,等上一批后台提交先做完。
+    /// `final` 用在扫描收尾:整库索引立即重建并等它完成、刷新查找表。中途(含断点前)
+    /// 只保证行进了数据库,整库重建合并进延后维护(约 3 秒一次,不等),查找表由
+    /// `observeLibraryChanges` 在可见集发布后自己跟上。
+    private func flushScanBatch(sourceID: String, final: Bool = false) async throws {
+        try await awaitScanCommit()
         let batch = pendingScanSongs
+        guard !batch.isEmpty || final else { return }
         pendingScanSongs = []
-        var replacements: [String: String] = [:]
-        for song in batch {
-            let key = Self.scanFileIdentity(song)
-            if let old = scanExistingIDsByFile[key], old != song.id,
-               library.song(id: old) != nil {
-                replacements[old] = song.id
-            }
-            scanExistingIDsByFile[key] = song.id
-        }
-        applySongIDReplacements(replacements)
-        library.addSongs(batch, affectedSourceIDs: nil, notifyRemovals: false, pruneMissingSongs: false)
-        guard case .success = await library.persistIncrementalNowAndWait() else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        locallyScannedSourceIDs.insert(sourceID)
-        defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
-        await library.waitForPendingIndex()
-        refreshVisibility()
+        let sinceLastCommit = Date().timeIntervalSince(lastScanFlush)
         lastScanFlush = Date()
+        try await commitScanBatch(batch, sourceID: sourceID, final: final, sinceLastCommit: sinceLastCommit)
+    }
+
+    private func awaitScanCommit() async throws {
+        guard let task = scanCommitTask else { return }
+        scanCommitTask = nil
+        try await task.value
+    }
+
+    private func commitScanBatch(
+        _ batch: [Song],
+        sourceID: String,
+        final: Bool,
+        sinceLastCommit: TimeInterval
+    ) async throws {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        var addMs = 0, persistMs = 0
+        if !batch.isEmpty {
+            var replacements: [String: String] = [:]
+            for song in batch {
+                let key = Self.scanFileIdentity(song)
+                if let old = scanExistingIDsByFile[key], old != song.id,
+                   library.song(id: old) != nil {
+                    replacements[old] = song.id
+                }
+                scanExistingIDsByFile[key] = song.id
+            }
+            applySongIDReplacements(replacements)
+            library.addSongs(batch, affectedSourceIDs: nil, notifyRemovals: false, pruneMissingSongs: false,
+                             indexMaintenance: final ? .immediate : .deferredIncremental)
+            let addedAt = ProcessInfo.processInfo.systemUptime
+            addMs = Int((addedAt - startedAt) * 1000)
+            guard case .success = await library.persistIncrementalNowAndWait() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            persistMs = Int((ProcessInfo.processInfo.systemUptime - addedAt) * 1000)
+            locallyScannedSourceIDs.insert(sourceID)
+            defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
+        }
+        var indexMs = 0, visibilityMs = 0
+        if final {
+            let indexStartedAt = ProcessInfo.processInfo.systemUptime
+            await library.waitForPendingIndex()
+            let indexedAt = ProcessInfo.processInfo.systemUptime
+            indexMs = Int((indexedAt - indexStartedAt) * 1000)
+            refreshVisibility()
+            visibilityMs = Int((ProcessInfo.processInfo.systemUptime - indexedAt) * 1000)
+        }
+        plog("📥 TV scan commit songs=\(batch.count) final=\(final) addMs=\(addMs) persistMs=\(persistMs)"
+             + " indexMs=\(indexMs) visibilityMs=\(visibilityMs)"
+             + " sinceLast=" + String(format: "%.1f", min(sinceLastCommit, 99_999)) + "s")
     }
 
     private static func albumArtistFoldersURL(sessionStore: PlaybackSessionStore) -> URL {
@@ -3880,13 +3922,28 @@ final class TVStore {
         guard scanGeneration == generation, !locallyRemovedSourceIDs.contains(sourceID),
               sourcesStore.source(id: sourceID)?.isDeleted == false else { throw CancellationError() }
         pendingScanSongs.append(contentsOf: songs)
-        if pendingScanSongs.count >= 200 || Date().timeIntervalSince(lastScanFlush) >= 1.5 {
-            try await flushScanBatch(sourceID: sourceID)
+        guard TVScanPipelinePolicy.shouldCommitIntermediateBatch(
+            pendingCount: pendingScanSongs.count,
+            secondsSinceLastCommit: Date().timeIntervalSince(lastScanFlush)
+        ) else { return }
+        // 上一批还没提交完就先等它:最多积压一批,读取不会无限领先写入;
+        // 它失败了也在这里抛出,扫描随之停下。
+        try await awaitScanCommit()
+        let batch = pendingScanSongs
+        pendingScanSongs = []
+        let sinceLastCommit = Date().timeIntervalSince(lastScanFlush)
+        lastScanFlush = Date()
+        scanCommitTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try await self.commitScanBatch(batch, sourceID: sourceID, final: false,
+                                           sinceLastCommit: sinceLastCommit)
         }
     }
 
     private func performScan(source: MusicSource, lister: TVDirectoryLister, dirs: [String],
                              rereadMetadata: Bool, generation: UUID) async -> Bool {
+        // 上一次扫描留下的后台提交先落完,不和这次的行交错。
+        try? await awaitScanCommit()
         pendingScanSongs = []
         scanExistingIDsByFile = Dictionary(
             library.songs.filter { $0.sourceID == source.id }.map { (Self.scanFileIdentity($0), $0.id) },
@@ -3910,8 +3967,9 @@ final class TVStore {
                 ? $0.state : nil
         }
         let saveCheckpoint: TVScanCheckpointHandler = { state in
-            // Do not turn every 20-row scanner publication into a complete
-            // library reindex. Only advance the checkpoint past durable rows.
+            // 断点只能越过已经进了数据库的行。每个目录走完都会来一次断点,这里不能
+            // 每次都提交(那等于把合并过的批次又拆回一目录一次),所以还攒着行时
+            // 跳过;刚提交完(每 200 首或 15 秒)的那次断点才落盘,并等后台提交写完。
             guard self.pendingScanSongs.isEmpty || state.pendingDirectories.isEmpty else { return }
             try await self.flushScanBatch(sourceID: source.id)
             try FileManager.default.createDirectory(at: checkpointURL.deletingLastPathComponent(),
@@ -3939,7 +3997,7 @@ final class TVStore {
         do {
             // A cancelled scan still commits the discovery batches already
             // accepted by the store, but never prunes or announces completion.
-            try await Task { try await self.flushScanBatch(sourceID: source.id) }.value
+            try await Task { try await self.flushScanBatch(sourceID: source.id, final: true) }.value
             guard isCurrentScan(source: source, generation: generation), result.canCommit else { return false }
             // A walk that saw the catalogue move keeps what it read (the batches
             // above) but cannot vouch for songs it never listed.
@@ -5677,6 +5735,8 @@ final class TVStore {
         persistPlaybackSession()
         if !isPlaying { finishListeningSession() }
         PlayHistoryStore.shared.flush()
+        // 扫描读过的歌的检查记录:定时器 10 秒一落,进后台后进程很快被挂起。
+        await TVMetadataInspectionStore.shared.flush()
         await playbackSessionTask?.value
         _ = await library.persistNowAndWait()
     }

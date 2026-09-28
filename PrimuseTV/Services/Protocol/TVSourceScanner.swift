@@ -1164,6 +1164,9 @@ final class TVSourceScanner {
         Song, SidecarDirectoryIndex<TVDirEntry>, TVMetadataReaderPool
     ) async -> TVMetadataEnrichmentResult
     @ObservationIgnored private var metadataScheduler: MetadataReadScheduler<Int, TVMetadataEnrichmentResult>?
+    /// 读标签阶段每 100 首打一行耗时拆分(见 `logScanReadWindow`)。
+    @ObservationIgnored private var scanReadWindow = TVScanReadStatistics()
+    @ObservationIgnored private var scanReadWindowStartedAt: TimeInterval = 0
 
     init(
         metadataInspections: TVMetadataInspectionStore = .shared,
@@ -1186,6 +1189,51 @@ final class TVSourceScanner {
         self.readingEnvironment = readingEnvironment
         self.readingMode = readingMode
         self.readMetadata = readMetadata
+    }
+
+    /// 一行拆出读标签的耗时:每首从开始读到读完(songMs)、其中花在远端请求上的
+    /// (netMsPerSong,并发时各请求分别计时)、请求延迟分位、失败与超时,以及当时的
+    /// 并发、请求间休息和热状态。songMs 与 netMsPerSong 的差大致是解析、写封面歌词与排队。
+    private func logScanReadWindow(
+        _ readerPool: TVMetadataReaderPool,
+        limits: MetadataBackfillExecutionLimits,
+        final: Bool
+    ) async {
+        var window = scanReadWindow
+        scanReadWindow = TVScanReadStatistics()
+        window.merge(await readerPool.takeReadStatistics())
+        let now = ProcessInfo.processInfo.systemUptime
+        let wall = now - scanReadWindowStartedAt
+        scanReadWindowStartedAt = now
+        guard window.songs > 0 || window.requests > 0 else { return }
+        let readSongs = max(1, window.songs - window.reusedSongs)
+        let thermal: String
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: thermal = "nominal"
+        case .fair: thermal = "fair"
+        case .serious: thermal = "serious"
+        case .critical: thermal = "critical"
+        @unknown default: thermal = "unknown"
+        }
+        let networkMsPerSong = Int(window.networkSeconds * 1000 / Double(readSongs))
+        let kilobytesPerSong = window.bytes / 1024 / Int64(readSongs)
+        let fields: [String] = [
+            "songs=\(window.songs)",
+            "reused=\(window.reusedSongs)",
+            "wall=" + String(format: "%.1f", wall) + "s",
+            "songMs=\(window.averageReadSongMilliseconds)",
+            "netMsPerSong=\(networkMsPerSong)",
+            "requests=\(window.requests)",
+            "KBPerSong=\(kilobytesPerSong)",
+            "reqP50Ms=\(Int(window.requestPercentile(0.5) * 1000))",
+            "reqP90Ms=\(Int(window.requestPercentile(0.9) * 1000))",
+            "failures=\(window.failures)",
+            "timeouts=\(window.timeouts)",
+            "workers=\(limits.workerCount)",
+            "delayMs=\(Int(limits.interRequestDelay * 1000))",
+            "thermal=" + thermal,
+        ]
+        plog("📡 TV scan reads " + fields.joined(separator: " ") + (final ? " final" : ""))
     }
 
     func readingConfigurationChanged() {
@@ -1986,21 +2034,27 @@ final class TVSourceScanner {
             if metadataScheduler === scheduler { metadataScheduler = nil }
         }
         var deliveryError: (any Error)?
+        let metadataLimits: @MainActor () -> MetadataBackfillExecutionLimits = { [self] in
+            MetadataBackfillExecutionPolicy.limits(
+                for: UIApplication.shared.applicationState == .background ? .background : .standard,
+                // 扫描的标签富集是用户刚点下的工作, 不能被"暂停自动
+                // 读取"停在零并发上。
+                preference: readingMode().resolvedForExplicitWork,
+                environment: readingEnvironment(source.type == .local)
+            )
+        }
+        // 列目录阶段读 CUE 的请求不算进读标签的窗口。
+        _ = await readerPool.takeReadStatistics()
+        scanReadWindow = TVScanReadStatistics()
+        scanReadWindowStartedAt = ProcessInfo.processInfo.systemUptime
         do {
             let cancelled = await scheduler.run(
                 items: Array(metadataItems.indices),
-                limits: { [self] in
-                    MetadataBackfillExecutionPolicy.limits(
-                        for: UIApplication.shared.applicationState == .background ? .background : .standard,
-                        // 扫描的标签富集是用户刚点下的工作, 不能被"暂停自动
-                        // 读取"停在零并发上。
-                        preference: readingMode().resolvedForExplicitWork,
-                        environment: readingEnvironment(source.type == .local)
-                    )
-                },
+                limits: metadataLimits,
                 shouldContinue: { deliveryError == nil },
                 read: { [self] position in
                     let item = metadataItems[position]
+                    let startedAt = ProcessInfo.processInfo.systemUptime
                     if !rereadMetadata, TVScanPipelinePolicy.canReuseMetadata(
                         existing: item.existing, candidate: item.candidate
                     ), let existing = item.existing,
@@ -2008,10 +2062,14 @@ final class TVSourceScanner {
                         var reused = item.song
                         reused.coverArtFileName = existing.coverArtFileName
                         reused.lyricsFileName = existing.lyricsFileName
+                        scanReadWindow.recordSong(seconds: 0, reused: true)
                         return TVMetadataEnrichmentResult(song: reused, status: .enriched,
                                                           errorDescription: nil, inspectionComplete: true)
                     }
-                    return await readMetadata(item.song, item.sidecars, readerPool)
+                    let result = await readMetadata(item.song, item.sidecars, readerPool)
+                    scanReadWindow.recordSong(seconds: ProcessInfo.processInfo.systemUptime - startedAt,
+                                              reused: false)
+                    return result
                 }
             ) { [self] position, result in
                 switch result.status {
@@ -2030,6 +2088,9 @@ final class TVSourceScanner {
                 }
                 metadataIssueCount = metadataFailureCount
                 currentFile = result.song.filePath
+                if scanReadWindow.songs >= 100 {
+                    await logScanReadWindow(readerPool, limits: metadataLimits(), final: false)
+                }
                 if pendingMetadataBatch.count >= TVScanPipelinePolicy.publicationBatchSize {
                     let batch = Array(pendingMetadataBatch.prefix(TVScanPipelinePolicy.publicationBatchSize))
                     do {
@@ -2042,6 +2103,9 @@ final class TVSourceScanner {
                     }
                 }
             }
+            // 读完(或被取消)先把检查记录落盘:电视切走后进程很快被挂起,等不到 10 秒的定时器。
+            await metadataInspections.flush()
+            await logScanReadWindow(readerPool, limits: metadataLimits(), final: true)
             if let deliveryError { throw deliveryError }
             if cancelled { throw CancellationError() }
             try Task.checkCancellation()
