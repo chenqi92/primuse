@@ -2452,8 +2452,8 @@ final class TVStore {
             duration: song.duration > 0 ? song.duration : 245,
             currentTime: 0,
             format: song.format,
-            bitrate: song.bitrate > 0 ? song.bitrate : 1411,
-            sampleRate: song.sampleRate > 0 ? song.sampleRate : 96,
+            bitrate: max(0, song.bitrate),
+            sampleRate: max(0, song.sampleRate),
             sourcePath: "")
         updateAutomaticThemePalette(albumPalette ?? songPalette)
         hasNowPlaying = true

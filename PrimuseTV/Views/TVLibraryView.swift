@@ -751,19 +751,14 @@ struct TVAlbumDetailView: View {
                         )
                     }
                     .disabled(songIDs.isEmpty)
-                    TVMedleyButton(songIDs: songIDs) { finishPlayback() }
-                    TVPillButton(
-                        title: String(localized: "tv_scrape_album_title"),
-                        systemImage: "wand.and.stars",
-                        action: {
-                            songIDsBeforeScrape = songIDs
-                            showsAlbumScrape = true
-                        }
-                    )
-                    .disabled(songIDs.isEmpty)
+                    // 串烧与补全并成第二排(所以这一栏比艺人页宽),放不下(长语言)才各占一行。
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 14) { secondaryActions(songIDs) }
+                        VStack(alignment: .leading, spacing: 22) { secondaryActions(songIDs) }
+                    }
                     Spacer(minLength: 0)
                 }
-                .frame(width: 440, alignment: .leading)
+                .frame(width: 540, alignment: .leading)
                 .focusSection()
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -809,6 +804,20 @@ struct TVAlbumDetailView: View {
             TVAlbumScrapeView(albumID: albumID).environment(store)
         }
         .accessibilityIdentifier("tv.album.detail")
+    }
+
+    @ViewBuilder
+    private func secondaryActions(_ songIDs: [String]) -> some View {
+        TVMedleyButton(songIDs: songIDs) { finishPlayback() }
+        TVPillButton(
+            title: String(localized: "tv_scrape_album_title"),
+            systemImage: "wand.and.stars",
+            action: {
+                songIDsBeforeScrape = songIDs
+                showsAlbumScrape = true
+            }
+        )
+        .disabled(songIDs.isEmpty)
     }
 
     /// 补全改了专辑名(或专辑艺人)时,这张专辑的歌归到了新的专辑 id 下。

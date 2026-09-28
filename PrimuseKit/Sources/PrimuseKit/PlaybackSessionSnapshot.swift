@@ -524,7 +524,7 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
     public private(set) var requestedIDs: [String]
     public private(set) var nextOffset: Int
     /// Songs before the window (`requestedIDs[0..<leadingEnd]`).
-    public let leadingEnd: Int
+    public private(set) var leadingEnd: Int
     public private(set) var leadingOffset: Int
 
     public init(token: String = UUID().uuidString, requestedIDs: [String], window: Range<Int>) {
@@ -541,9 +541,29 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
     }
 
     /// Follows song ID migrations so owed songs still resolve afterwards.
+    /// A request can hold both the legacy and the canonical ID of one song;
+    /// once mapped they collide and only one copy is kept — the one already
+    /// in the window if any, else the first still owed, else the first before
+    /// the window. Repeats that no migration touched stay as requested.
     public mutating func remapIDs(_ replacements: [String: String]) {
         guard !replacements.isEmpty else { return }
-        requestedIDs = requestedIDs.map { replacements[$0] ?? $0 }
+        let mapped = requestedIDs.map { replacements[$0] ?? $0 }
+        var migrated = Set<String>()
+        for (old, new) in zip(requestedIDs, mapped) where old != new { migrated.insert(new) }
+        let window = leadingEnd..<max(leadingEnd, nextOffset)
+        let ordered = Array(window) + Array(window.upperBound..<mapped.count) + Array(0..<leadingEnd)
+        var kept = Set<String>()
+        var dropped = IndexSet()
+        for index in ordered where migrated.contains(mapped[index]) {
+            if !kept.insert(mapped[index]).inserted { dropped.insert(index) }
+        }
+        requestedIDs = mapped
+        guard !dropped.isEmpty else { return }
+        func shifted(_ offset: Int) -> Int { offset - dropped.count(in: 0..<offset) }
+        nextOffset = shifted(nextOffset)
+        leadingOffset = shifted(leadingOffset)
+        leadingEnd = shifted(leadingEnd)
+        requestedIDs = mapped.indices.filter { !dropped.contains($0) }.map { mapped[$0] }
     }
 
     /// Up to `maxCount` IDs in playback order. The leading part is only used

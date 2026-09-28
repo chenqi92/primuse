@@ -716,8 +716,17 @@ struct TVNowPlayingView: View {
     }
 
     private func metadataLine(_ np: TVNowPlaying) -> String {
-        let technical = "\(np.format) \(np.bitrate) kbps · \(String(format: "%.1f", np.sampleRate)) kHz"
-        return np.album.isEmpty ? technical : "\(np.album) · \(technical)"
+        // 还没读出来的码率/采样率是 0,不显示,免得出现「0 kbps · 0.0 kHz」。
+        var encoding: [String] = []
+        if !np.format.isEmpty { encoding.append(np.format) }
+        if np.bitrate > 0 { encoding.append("\(np.bitrate) kbps") }
+        var parts = [np.album, encoding.joined(separator: " ")]
+        if np.sampleRate > 0 {
+            let khz = np.sampleRate.truncatingRemainder(dividingBy: 1) == 0
+                ? String(Int(np.sampleRate)) : String(format: "%.1f", np.sampleRate)
+            parts.append("\(khz) kHz")
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private func scrubber(immersiveDark: Bool) -> some View {

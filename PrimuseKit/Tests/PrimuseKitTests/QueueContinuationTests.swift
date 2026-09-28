@@ -57,6 +57,42 @@ struct QueueContinuationTests {
         #expect(continuation.takeNext(maxCount: 2, repeatsAll: false) == ["n1000", "s1001"])
     }
 
+    @Test("Legacy and canonical IDs of one song collapse to a single request entry")
+    func remapDropsMigrationCollisions() {
+        // 0..<2 before the window, 2..<4 in the window, 4... still owed.
+        var ids = ["a", "old-c", "b", "c", "d", "old-b", "e", "old-d", "d"]
+        var continuation = QueueContinuation(requestedIDs: ids, window: 2..<4)
+        continuation.remapIDs(["old-b": "b", "old-c": "c", "old-d": "d"])
+        // The window copies of b and c win; old-c before the window and old-b
+        // after it go. old-d collides with an owed d: the first owed copy
+        // stays. The later plain "d" is also a copy of a migrated song.
+        #expect(continuation.requestedIDs == ["a", "b", "c", "d", "e"])
+        #expect(continuation.leadingEnd == 1)
+        #expect(continuation.takeNext(maxCount: 10, repeatsAll: true) == ["d", "e"])
+        #expect(continuation.takeNext(maxCount: 10, repeatsAll: true) == ["a"])
+        #expect(continuation.isExhausted)
+
+        // Repeats no migration touched are kept.
+        ids = ["x", "y", "x", "z"]
+        continuation = QueueContinuation(requestedIDs: ids, window: 0..<1)
+        continuation.remapIDs(["old-z": "z"])
+        #expect(continuation.requestedIDs == ids)
+    }
+
+    @Test("A collapsed request keeps partially handed-out offsets in place")
+    func remapShiftsOffsets() {
+        var continuation = QueueContinuation(
+            requestedIDs: ["p0", "p1", "old-w", "w", "t0", "old-t0", "t1"],
+            window: 3..<4
+        )
+        _ = continuation.takeNext(maxCount: 1, repeatsAll: false)  // t0
+        continuation.remapIDs(["old-w": "w", "old-t0": "t0"])
+        #expect(continuation.requestedIDs == ["p0", "p1", "w", "t0", "t1"])
+        #expect(continuation.takeNext(maxCount: 5, repeatsAll: false) == ["t1"])
+        #expect(continuation.takeNext(maxCount: 5, repeatsAll: true) == ["p0", "p1"])
+        #expect(continuation.isExhausted)
+    }
+
     @Test("A continuation survives the store round trip")
     func storeRoundTrip() throws {
         let directory = FileManager.default.temporaryDirectory

@@ -130,6 +130,9 @@ actor TVMetadataReaderPool {
     private var cachedRangeBytes = 0
     private var rangeTasks: [RangeKey: RangeTask] = [:]
     private var isClosed = false
+    private static let resolvedStreamTypes: Set<MusicSourceType> = [
+        .webdav, .oneDrive, .dropbox, .synology, .qnap, .ugreen,
+    ]
     private static let maximumCachedRangeBytes = 24 * 1024 * 1024
     private static let maximumIndividualCachedRangeBytes: Int64 = 4 * 1024 * 1024
 
@@ -169,9 +172,9 @@ actor TVMetadataReaderPool {
         ) {
             reader = direct
         } else {
-            guard source.type == .webdav
-                || source.type == .oneDrive
-                || source.type == .dropbox else {
+            // NAS 文件站(群晖/威联通/绿联)的下载地址同样支持按段读;以前没列进来,
+            // 整轨 CUE 读不到就让整次扫描失败,标签也从没在电视上读出来过。
+            guard Self.resolvedStreamTypes.contains(source.type) else {
                 throw TVMetadataError.readerUnavailable
             }
             let fileExtension = (path as NSString).pathExtension

@@ -59,7 +59,7 @@ struct TVMedleyButton: View {
     @State private var pendingIDs: [String]?
 
     var body: some View {
-        TVPillButton(title: String(localized: "medley_play_selection"), systemImage: "shuffle") {
+        TVPillButton(title: String(localized: "medley_play_selection"), systemImage: "rectangle.stack.badge.play") {
             pendingIDs = songIDs
         }
         .disabled(!store.canPlayMedley(songIDs: songIDs))
