@@ -4847,3 +4847,5 @@
 "tv_scrape_album_progress_format" = "第 %1$d / %2$d 首 · %3$@";
 "tv_scrape_album_result_format" = "更新了 %1$d 首，%2$d 首没有新信息";
 "tv_scrape_album_stopped" = "已停止";
+"tv_scrape_import_keyboard_hint" = "选中输入框后，iPhone 上会弹出键盘通知，可以直接粘贴刮削源 JSON 或 HTTPS 配置地址。";
+"tv_scrape_phone_only_note" = "歌词 API 服务地址和 Cookie 请在 iPhone 上填写，再通过扫码或 iCloud 同步到电视。";

@@ -4755,3 +4755,5 @@
 "tv_scrape_album_progress_format" = "%1$d / %2$d 曲目 · %3$@";
 "tv_scrape_album_result_format" = "更新 %1$d 曲、新しい情報なし %2$d 曲";
 "tv_scrape_album_stopped" = "停止しました";
+"tv_scrape_import_keyboard_hint" = "入力欄を選択すると iPhone にキーボード通知が表示されます。そこでスクレイパーの JSON または HTTPS 設定 URL を貼り付けてください。";
+"tv_scrape_phone_only_note" = "歌詞 API サーバーのアドレスと Cookie は iPhone で設定し、QR 転送または iCloud でテレビに同期してください。";

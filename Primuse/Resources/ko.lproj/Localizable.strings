@@ -4754,3 +4754,5 @@
 "tv_scrape_album_progress_format" = "%2$d곡 중 %1$d번째 · %3$@";
 "tv_scrape_album_result_format" = "%1$d곡 업데이트, %2$d곡은 새 정보 없음";
 "tv_scrape_album_stopped" = "중지됨";
+"tv_scrape_import_keyboard_hint" = "입력란을 선택하면 iPhone에 키보드 알림이 나타납니다. 스크래퍼 JSON 또는 HTTPS 구성 URL을 붙여 넣으세요.";
+"tv_scrape_phone_only_note" = "가사 API 서버 주소와 쿠키는 iPhone에서 입력한 뒤 QR 전송이나 iCloud로 TV에 동기화하세요.";

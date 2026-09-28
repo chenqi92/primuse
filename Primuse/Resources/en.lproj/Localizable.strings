@@ -4517,3 +4517,5 @@
 "tv_scrape_album_progress_format" = "%1$d of %2$d · %3$@";
 "tv_scrape_album_result_format" = "Updated: %1$d · Nothing new: %2$d";
 "tv_scrape_album_stopped" = "Stopped";
+"tv_scrape_import_keyboard_hint" = "When the field is selected, your iPhone shows a keyboard notification — paste scraper JSON or an HTTPS config URL there.";
+"tv_scrape_phone_only_note" = "Set lyrics API server addresses and cookies on iPhone, then bring them over by QR transfer or iCloud.";

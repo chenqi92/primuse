@@ -4754,3 +4754,5 @@
 "tv_scrape_album_progress_format" = "%1$d von %2$d · %3$@";
 "tv_scrape_album_result_format" = "Aktualisiert: %1$d · Nichts Neues: %2$d";
 "tv_scrape_album_stopped" = "Gestoppt";
+"tv_scrape_import_keyboard_hint" = "Wenn das Feld ausgewählt ist, zeigt dein iPhone eine Tastaturmitteilung – füge dort Scraper-JSON oder eine HTTPS-Konfigurations-URL ein.";
+"tv_scrape_phone_only_note" = "Lyrics-API-Serveradressen und Cookies legst du auf dem iPhone fest und überträgst sie per QR-Code oder iCloud.";

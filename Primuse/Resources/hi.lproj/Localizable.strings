@@ -4660,3 +4660,5 @@
 "tv_scrape_album_progress_format" = "%2$d में से %1$d · %3$@";
 "tv_scrape_album_result_format" = "अपडेट हुए: %1$d · कुछ नया नहीं: %2$d";
 "tv_scrape_album_stopped" = "रोका गया";
+"tv_scrape_import_keyboard_hint" = "फ़ील्ड चुनने पर iPhone पर कीबोर्ड सूचना दिखेगी — वहाँ स्क्रैपर JSON या HTTPS कॉन्फ़िग URL पेस्ट करें।";
+"tv_scrape_phone_only_note" = "लिरिक्स API सर्वर पते और कुकी iPhone पर भरें, फिर QR ट्रांसफ़र या iCloud से टीवी पर लाएँ।";

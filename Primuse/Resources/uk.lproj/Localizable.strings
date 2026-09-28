@@ -4660,3 +4660,5 @@
 "tv_scrape_album_progress_format" = "%1$d з %2$d · %3$@";
 "tv_scrape_album_result_format" = "Оновлено: %1$d · Без змін: %2$d";
 "tv_scrape_album_stopped" = "Зупинено";
+"tv_scrape_import_keyboard_hint" = "Коли поле вибрано, на iPhone з’явиться сповіщення клавіатури — вставте туди JSON скрейпера або HTTPS-адресу конфігурації.";
+"tv_scrape_phone_only_note" = "Адреси серверів API текстів і cookie задайте на iPhone, потім перенесіть їх за QR-кодом або через iCloud.";

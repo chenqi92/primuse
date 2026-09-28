@@ -4660,3 +4660,5 @@
 "tv_scrape_album_progress_format" = "%1$d / %2$d · %3$@";
 "tv_scrape_album_result_format" = "Güncellenen: %1$d · Yeni bilgi yok: %2$d";
 "tv_scrape_album_stopped" = "Durduruldu";
+"tv_scrape_import_keyboard_hint" = "Alan seçildiğinde iPhone’unda bir klavye bildirimi görünür; kazıyıcı JSON’unu veya HTTPS yapılandırma URL’sini oraya yapıştır.";
+"tv_scrape_phone_only_note" = "Şarkı sözü API sunucu adreslerini ve çerezleri iPhone’da ayarla, ardından QR aktarımı veya iCloud ile TV’ye taşı.";

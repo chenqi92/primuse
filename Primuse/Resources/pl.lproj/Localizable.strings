@@ -4660,3 +4660,5 @@
 "tv_scrape_album_progress_format" = "%1$d z %2$d · %3$@";
 "tv_scrape_album_result_format" = "Zaktualizowano: %1$d · Bez zmian: %2$d";
 "tv_scrape_album_stopped" = "Zatrzymano";
+"tv_scrape_import_keyboard_hint" = "Gdy pole jest zaznaczone, iPhone pokaże powiadomienie klawiatury — wklej tam JSON scrapera lub adres HTTPS konfiguracji.";
+"tv_scrape_phone_only_note" = "Adresy serwerów API tekstów i pliki cookie ustaw na iPhonie, a potem przenieś je kodem QR lub przez iCloud.";

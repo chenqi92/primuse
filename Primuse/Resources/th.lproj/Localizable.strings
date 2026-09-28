@@ -4660,3 +4660,5 @@
 "tv_scrape_album_progress_format" = "%1$d จาก %2$d · %3$@";
 "tv_scrape_album_result_format" = "อัปเดตแล้ว %1$d · ไม่มีข้อมูลใหม่ %2$d";
 "tv_scrape_album_stopped" = "หยุดแล้ว";
+"tv_scrape_import_keyboard_hint" = "เมื่อเลือกช่องป้อนข้อมูล iPhone จะแสดงการแจ้งเตือนแป้นพิมพ์ วาง JSON ของแหล่งดึงข้อมูลหรือ URL การตั้งค่า HTTPS ได้ที่นั่น";
+"tv_scrape_phone_only_note" = "ตั้งค่าที่อยู่เซิร์ฟเวอร์ API เนื้อเพลงและคุกกี้บน iPhone แล้วส่งมายังทีวีด้วยการสแกน QR หรือ iCloud";
