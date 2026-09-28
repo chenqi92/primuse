@@ -946,14 +946,17 @@ struct TVPagedList<Item, ID: Hashable, Row: View>: View {
 }
 
 /// 网格也限制参与布局和焦点搜索的项目数；保留已加载项目的身份，靠近末尾时续页。
-struct TVPagedGrid<Item: Identifiable, Cell: View>: View {
+/// `items` 可以是按需转换的整库列表(`TVLibraryList`):只有渲染到的那一页会被转换。
+struct TVPagedGrid<Items: RandomAccessCollection, Cell: View>: View
+where Items.Element: Identifiable, Items.Index == Int {
+    typealias Item = Items.Element
     private struct Entry: Identifiable {
         var id: Item.ID { item.id }
         let index: Int
         let item: Item
     }
 
-    let items: [Item]
+    let items: Items
     let columns: [GridItem]
     var spacing: CGFloat
     private let cell: (Int, Item, @escaping (Bool) -> Void) -> Cell
@@ -962,7 +965,7 @@ struct TVPagedGrid<Item: Identifiable, Cell: View>: View {
     /// `revealing`:网格重建时要能直接落到的那一项(比如回到资料库时上次聚焦的专辑)。
     /// 初次渲染就覆盖到它,否则它排在第一页之外时根本没有视图可滚动、可聚焦。
     init(
-        items: [Item],
+        items: Items,
         columns: [GridItem],
         spacing: CGFloat = 28,
         revealing anchorID: Item.ID? = nil,

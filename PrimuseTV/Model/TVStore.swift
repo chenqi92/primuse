@@ -215,8 +215,6 @@ struct TVSong: Identifiable, Hashable {
     var displayPath: String? {
         SongPathPresentationPolicy.displayPath(filePath: filePath, sourceID: sourceID, sourceType: sourceType)
     }
-    let plays: Int
-    let liked: Bool
 }
 
 struct TVArtist: Identifiable, Hashable {
@@ -226,6 +224,91 @@ struct TVArtist: Identifiable, Hashable {
     let tint2: Color
     let glyph: String
     let songCount: Int
+}
+
+/// 曲库条目到界面值的纯转换。只带转换要用的几样值(艺术家名配置、源类型、
+/// 封面取色),不碰 TVStore,所以列表可以在被读到的那一项上现转。
+protocol TVLibraryMapper {
+    associatedtype Source
+    associatedtype Element
+    func map(_ source: Source) -> Element
+}
+
+/// 按需转换的整库列表。以前每次曲库变化都把整库映射成 TVSong / TVAlbum / TVArtist
+/// (5.8 万首约半秒,冷启动首页要等它),而界面一次只画几十项;现在只有被读到的
+/// 那一项才转换,底层直接是曲库的可见数组,不复制。
+struct TVLibraryList<Mapper: TVLibraryMapper>: RandomAccessCollection {
+    typealias Index = Int
+    typealias Indices = Range<Int>
+    let source: [Mapper.Source]
+    let mapper: Mapper
+
+    var startIndex: Int { source.startIndex }
+    var endIndex: Int { source.endIndex }
+    subscript(position: Int) -> Mapper.Element { mapper.map(source[position]) }
+}
+
+struct TVSongMapper: TVLibraryMapper {
+    let artistNames: ArtistNameConfiguration
+    let sourceTypes: [String: MusicSourceType]
+
+    func map(_ s: Song) -> TVSong {
+        TVSong(id: s.id, albumID: s.albumID ?? "", coverRef: s.coverArtFileName, title: s.title,
+               artist: s.displayArtistName(configuration: artistNames) ?? PMString("ext.tv.unknownArtist"),
+               duration: s.duration,
+               format: s.fileFormat.displayName, bitrate: s.bitRate ?? 0,
+               sampleRate: Double(s.sampleRate ?? 0) / 1000,
+               sourceID: s.sourceID,
+               filePath: s.filePath,
+               sourceType: sourceTypes[s.sourceID])
+    }
+}
+
+struct TVAlbumMapper: TVLibraryMapper {
+    let palettes: [String: TVArtworkPalette]
+
+    func map(_ a: Album) -> TVAlbum {
+        let fallback = TVLibraryTint.colors(a.id.isEmpty ? a.title : a.id)
+        let palette = palettes[a.id]
+        return TVAlbum(id: a.id, title: a.title, artist: a.artistName ?? PMString("ext.tv.unknownArtist"),
+                       year: a.year ?? 0,
+                       tint: palette.map { TVLibraryTint.color($0.primary) } ?? fallback.0,
+                       tint2: palette.map { TVLibraryTint.color($0.secondary) } ?? fallback.1,
+                       glyph: TVLibraryTint.glyph(a.title))
+    }
+}
+
+struct TVArtistMapper: TVLibraryMapper {
+    func map(_ a: Artist) -> TVArtist {
+        let (t1, t2) = TVLibraryTint.colors(a.id.isEmpty ? a.name : a.id)
+        return TVArtist(id: a.id, name: a.name, tint: t1, tint2: t2,
+                        glyph: TVLibraryTint.glyph(a.name), songCount: a.songCount)
+    }
+}
+
+typealias TVSongList = TVLibraryList<TVSongMapper>
+typealias TVAlbumList = TVLibraryList<TVAlbumMapper>
+typealias TVArtistList = TVLibraryList<TVArtistMapper>
+
+/// 没有真实封面时按 id 派生的稳定配色与占位字。
+enum TVLibraryTint {
+    static func colors(_ seed: String) -> (Color, Color) {
+        var h: UInt64 = 5381
+        for b in seed.utf8 { h = (h &* 33) &+ UInt64(b) }
+        let hues: [Double] = [0.02, 0.46, 0.58, 0.69, 0.86]
+        let hue = hues[Int(h % UInt64(hues.count))]
+        return (Color(hue: hue, saturation: 0.38, brightness: 0.58),
+                Color(hue: hue, saturation: 0.30, brightness: 0.22))
+    }
+
+    static func glyph(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? "♪" : String(t.prefix(1))
+    }
+
+    static func color(_ rgb: TVArtworkPalette.RGB) -> Color {
+        Color(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue, opacity: 1)
+    }
 }
 
 enum TVPlaylistKind { case normal, smart, liked }
@@ -580,9 +663,9 @@ final class TVStore {
         }
     }
 
-    /// 曲库已发布、查找表还没建好的那一小段。手机和 Mac 直接读曲库的可见集合,
-    /// 电视要先整库映射成 TVSong;这段时间首页继续显示「加载中」,不先画一个
-    /// 只有电台排(或「没有音乐」空态)的首页再跳出内容。
+    /// 曲库已发布、源类型等查找状态还没跟上的那一小段(下一轮主循环就会补上)。
+    /// 这段时间首页继续显示「加载中」,不先画一个只有电台排(或「没有音乐」空态)
+    /// 的首页再跳出内容。
     var isPreparingLibraryContent: Bool {
         _ = libraryContentRevision
         return library.isReady && !hasBuiltLookupSinceLibraryReady
@@ -591,8 +674,8 @@ final class TVStore {
     var hasRealLibrary: Bool {
         _ = libraryContentRevision
         return VisibleLibraryPresencePolicy.hasContent(
-            songCount: cachedSongs.count,
-            albumCount: cachedAlbums.count
+            songCount: library.musicSongs.count,
+            albumCount: library.visibleAlbums.count
         )
     }
 
@@ -805,22 +888,15 @@ final class TVStore {
     /// 检查点连同同步索引一起删掉, 所以目录单独存一份, 启动时交给资料库。
     @ObservationIgnored private var albumArtistFolderParents: [String: [String: String]] = [:]
 
-    // 单条查询索引:song(_:)/album(_:) 命中字典而非全量 map 整库。
-    // 在 refreshVisibility()(reload / 改源后)重建,曲库快照变更即失效。
-    @ObservationIgnored private var songByID: [String: TVSong] = [:]
-    @ObservationIgnored private var albumByID: [String: TVAlbum] = [:]
-    @ObservationIgnored private var cachedAlbumIndexByID: [String: Int] = [:]
-    @ObservationIgnored private var cachedSongs: [TVSong] = []
-    @ObservationIgnored private var cachedSongIDs: [String] = []
-    @ObservationIgnored private var cachedAlbumSongIDs: [String: [String]] = [:]
+    // 浏览数据直接读曲库的可见数组,按需转换成界面值(见 `TVLibraryList`)。
+    // 下面几份是按查找修订号懒建的小索引:第一次用到才建,修订号一变就作废。
+    @ObservationIgnored private var musicSongIDsCache: (revision: UInt64, ids: [String])?
+    @ObservationIgnored private var albumSongIDsIndex: [String: [String]]?
     @ObservationIgnored private var sortedAlbumSongIDs: [String: [String]] = [:]
-    @ObservationIgnored private var cachedAlbums: [TVAlbum] = []
-    @ObservationIgnored private var recentlyAddedAlbumIDs: [String] = []
-    @ObservationIgnored private var cachedArtists: [TVArtist] = []
+    @ObservationIgnored private var recentlyAddedAlbumIDsCache: [String]?
     @ObservationIgnored private var cachedNormalPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var cachedSmartPlaylists: [TVPlaylist] = []
     @ObservationIgnored private var smartPlaylistSongIDs: [String: [String]] = [:]
-    @ObservationIgnored private var playCountsBySongID: [String: Int] = [:]
     private var playHistoryRevision = 0
     @ObservationIgnored private var sourceTypeByID: [String: MusicSourceType] = [:]
     private struct LookupRevision: Equatable {
@@ -942,14 +1018,32 @@ final class TVStore {
 
     // MARK: 浏览数据(全部来自真实曲库;为空即显示空态)
 
-    var albums: [TVAlbum] {
+    var albums: TVAlbumList {
         _ = libraryContentRevision
         _ = albumArtworkPaletteRevision
-        return cachedAlbums
+        return TVAlbumList(source: library.visibleAlbums, mapper: albumMapper)
     }
-    var songs: [TVSong] { _ = libraryContentRevision; _ = playHistoryRevision; return cachedSongs }
-    var songIDs: [String] { _ = libraryContentRevision; return cachedSongIDs }
-    var artists: [TVArtist] { _ = libraryContentRevision; return cachedArtists }
+    /// 音乐(不含有声内容),顺序与曲库可见顺序相同。
+    var songs: TVSongList {
+        _ = libraryContentRevision
+        return TVSongList(source: library.musicSongs, mapper: songMapper)
+    }
+    var songIDs: [String] {
+        _ = libraryContentRevision
+        let revision = library.musicSongsRevision
+        if let cached = musicSongIDsCache, cached.revision == revision { return cached.ids }
+        let ids = library.musicSongs.map(\.id)
+        musicSongIDsCache = (revision, ids)
+        return ids
+    }
+    var artists: TVArtistList {
+        _ = libraryContentRevision
+        return TVArtistList(source: library.visibleArtists, mapper: TVArtistMapper())
+    }
+    private var songMapper: TVSongMapper {
+        TVSongMapper(artistNames: library.artistNameConfiguration, sourceTypes: sourceTypeByID)
+    }
+    private var albumMapper: TVAlbumMapper { TVAlbumMapper(palettes: artworkPalettes) }
     var normalPlaylists: [TVPlaylist] {
         _ = libraryContentRevision
         rebuildNormalPlaylistCacheIfNeeded()
@@ -979,8 +1073,11 @@ final class TVStore {
 
     // MARK: 查询
 
-    func album(_ id: String) -> TVAlbum? { albumByID[id] }
-    func song(_ id: String) -> TVSong? { _ = playHistoryRevision; return songByID[id] }
+    func album(_ id: String) -> TVAlbum? {
+        _ = albumArtworkPaletteRevision
+        return library.visibleAlbum(id: id).map(albumMapper.map)
+    }
+    func song(_ id: String) -> TVSong? { library.visibleSong(id: id).map(songMapper.map) }
 
     func songs(forArtistID id: String) -> [TVSong] {
         let spokenWordIDs = library.spokenWordSongIDs
@@ -1047,7 +1144,10 @@ final class TVStore {
                                   lyricSnippet: hit.lyricSnippet, relatedConcept: concept))
             }
         }
-        return .init(artists: Array(artists.filter { $0.name.localizedCaseInsensitiveContains(q) }.prefix(12)),
+        let artistMapper = TVArtistMapper()
+        return .init(artists: Array(library.visibleArtists.lazy
+                        .filter { $0.name.localizedCaseInsensitiveContains(q) }
+                        .prefix(12).map(artistMapper.map)),
                      albums: primary.albumResults.prefix(12).compactMap { album($0.id) }, songs: hits)
     }
 
@@ -1069,7 +1169,8 @@ final class TVStore {
                 relatedConcept: nil
             ))
         }
-        let top = artists.first { $0.name.localizedCaseInsensitiveContains(q) }
+        let top = library.visibleArtists.first { $0.name.localizedCaseInsensitiveContains(q) }
+            .map(TVArtistMapper().map)
         return (top, hits)
     }
 
@@ -1109,19 +1210,26 @@ final class TVStore {
     /// 空查询时的建议(艺术家名),与旧逻辑一致。
     func searchSuggestions(_ query: String) -> [String] {
         let q = query.trimmingCharacters(in: .whitespaces)
-        let names = artists.map(\.name)
+        let names = library.visibleArtists.map(\.name)
         let hits = q.isEmpty ? names : names.filter { $0.localizedCaseInsensitiveContains(q) }
         return Array((hits.isEmpty ? names : hits).prefix(5))
     }
     func albumOf(_ song: TVSong) -> TVAlbum? { album(song.albumID) }
     func songs(forAlbum id: String) -> [TVSong] {
         _ = libraryContentRevision
-        _ = playHistoryRevision
         if sortedAlbumSongIDs[id] == nil {
-            let songs = (cachedAlbumSongIDs[id] ?? []).compactMap { library.song(id: $0) }
+            let index = albumSongIDsIndex ?? {
+                // 专辑 → 曲目 id 只在第一次有人问时整库分一次组,之后 O(1)。
+                var index: [String: [String]] = [:]
+                for song in library.visibleSongs { index[song.albumID ?? "", default: []].append(song.id) }
+                albumSongIDsIndex = index
+                return index
+            }()
+            let songs = (index[id] ?? []).compactMap { library.visibleSong(id: $0) }
             sortedAlbumSongIDs[id] = AlbumTrackOrder.sorted(songs).map(\.id)
         }
-        return (sortedAlbumSongIDs[id] ?? []).compactMap { songByID[$0] }
+        let mapper = songMapper
+        return (sortedAlbumSongIDs[id] ?? []).compactMap { library.visibleSong(id: $0).map(mapper.map) }
     }
 
     var recentlyPlayed: [TVSong] {
@@ -1129,17 +1237,23 @@ final class TVStore {
         let spokenWordIDs = library.spokenWordSongIDs
         let songs = library.recentlyPlayedSongs(limit: spokenWordIDs.isEmpty ? 12 : 40)
             .filter { !spokenWordIDs.contains($0.id) }
-        return songs.prefix(12).map { self.map($0) }
+        return songs.prefix(12).map(songMapper.map)
     }
     var recentlyAddedAlbums: [TVAlbum] {
         _ = libraryContentRevision
         _ = albumArtworkPaletteRevision
-        return recentlyAddedAlbumIDs.compactMap { albumByID[$0] }
+        let ids = recentlyAddedAlbumIDsCache ?? {
+            let ids = library.recentlyAddedAlbums(limit: 12).map(\.id)
+            recentlyAddedAlbumIDsCache = ids
+            return ids
+        }()
+        let mapper = albumMapper
+        return ids.compactMap { library.visibleAlbum(id: $0).map(mapper.map) }
     }
     var recommended: [TVAlbum] {
         _ = libraryContentRevision
         _ = albumArtworkPaletteRevision
-        return cachedAlbums.count > 6 ? Array(cachedAlbums.suffix(6)) : cachedAlbums
+        return library.visibleAlbums.suffix(6).map(albumMapper.map)
     }
 
     var recommendationRevision: Int { libraryContentRevision }
@@ -1201,38 +1315,19 @@ final class TVStore {
     // 真实封面可由快照同步缓存或源端引用载入；按 id 派生的渐变只作为加载中/
     // 无封面时的稳定兜底，标题、艺术家、年份等元数据都来自真实曲库。
 
-    private func map(_ a: Album) -> TVAlbum {
-        let fallback = Self.tint(a.id.isEmpty ? a.title : a.id)
-        let palette = artworkPalettes[a.id]
-        let t1 = palette?.primary.color ?? fallback.0
-        let t2 = palette?.secondary.color ?? fallback.1
-        return TVAlbum(id: a.id, title: a.title, artist: a.artistName ?? PMString("ext.tv.unknownArtist"),
-                       year: a.year ?? 0, tint: t1, tint2: t2, glyph: Self.glyph(a.title))
-    }
+    private func map(_ a: Album) -> TVAlbum { albumMapper.map(a) }
 
-    /// TVArtworkView 载入真实封面后回写主题色。专辑缓存、查询索引和当前播放态
-    /// 一次更新，所有已经使用 album.tint / nowPlaying.tint 的页面会自动重绘。
+    /// TVArtworkView 载入真实封面后回写主题色。专辑值是读取时按 `artworkPalettes`
+    /// 现转的,记下调色板再推进修订号,所有用到 album.tint / nowPlaying.tint 的页面就会重绘。
     func applyArtworkPalette(_ palette: TVArtworkPalette, forAlbumID albumID: String) {
         guard !albumID.isEmpty, artworkPalettes[albumID] != palette else { return }
         artworkPalettes[albumID] = palette
-        let primary = palette.primary.color
-        let secondary = palette.secondary.color
-
-        var updatedAlbum = false
-        if let index = cachedAlbumIndexByID[albumID],
-           cachedAlbums.indices.contains(index),
-           cachedAlbums[index].id == albumID {
-            cachedAlbums[index].tint = primary
-            cachedAlbums[index].tint2 = secondary
-            albumByID[albumID] = cachedAlbums[index]
-            updatedAlbum = true
-        }
         if nowPlaying.albumID == albumID {
-            nowPlaying.tint = primary
-            nowPlaying.tint2 = secondary
+            nowPlaying.tint = palette.primary.color
+            nowPlaying.tint2 = palette.secondary.color
             updateAutomaticThemePalette(palette)
         }
-        if updatedAlbum { scheduleArtworkPaletteInvalidation(.album) }
+        scheduleArtworkPaletteInvalidation(.album)
     }
 
     /// 歌曲级真实封面的调色板按 Song.id 独立缓存；播放器和歌曲卡片都
@@ -1290,22 +1385,7 @@ final class TVStore {
             secondaryHex: palette.secondary.hex
         )
     }
-    private func map(_ s: Song) -> TVSong {
-        TVSong(id: s.id, albumID: s.albumID ?? "", coverRef: s.coverArtFileName, title: s.title,
-               artist: library.artistDisplayName(for: s) ?? PMString("ext.tv.unknownArtist"), duration: s.duration,
-               format: s.fileFormat.displayName, bitrate: s.bitRate ?? 0,
-               sampleRate: Double(s.sampleRate ?? 0) / 1000,
-               sourceID: s.sourceID,
-               filePath: s.filePath,
-               sourceType: sourceTypeByID[s.sourceID] ?? sourcesStore.source(id: s.sourceID)?.type,
-               plays: playCountsBySongID[s.id] ?? 0,
-               liked: library.isLiked(songID: s.id))
-    }
-    private func map(_ a: Artist) -> TVArtist {
-        let (t1, t2) = Self.tint(a.id.isEmpty ? a.name : a.id)
-        return TVArtist(id: a.id, name: a.name, tint: t1, tint2: t2,
-                        glyph: Self.glyph(a.name), songCount: a.songCount)
-    }
+    private func map(_ s: Song) -> TVSong { songMapper.map(s) }
     static let playlistArtworkCandidateLimit = 16
 
     private func mapPlaylist(_ p: Playlist, kind: TVPlaylistKind) -> TVPlaylist {
@@ -1776,18 +1856,8 @@ final class TVStore {
 
     /// 由字符串确定性选择低饱和占位色。只使用适合电视背景的珊瑚、松绿、
     /// 藏蓝、靛蓝和梅紫，避免全色相随机后大量落入泥棕色。
-    private static func tint(_ seed: String) -> (Color, Color) {
-        var h: UInt64 = 5381
-        for b in seed.utf8 { h = (h &* 33) &+ UInt64(b) }
-        let hues: [Double] = [0.02, 0.46, 0.58, 0.69, 0.86]
-        let hue = hues[Int(h % UInt64(hues.count))]
-        return (Color(hue: hue, saturation: 0.38, brightness: 0.58),
-                Color(hue: hue, saturation: 0.30, brightness: 0.22))
-    }
-    private static func glyph(_ s: String) -> String {
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? "♪" : String(t.prefix(1))
-    }
+    private static func tint(_ seed: String) -> (Color, Color) { TVLibraryTint.colors(seed) }
+    private static func glyph(_ s: String) -> String { TVLibraryTint.glyph(s) }
 
     // MARK: 启动引导(从 iCloud 拉取快照并重载真实曲库)
 
@@ -3127,7 +3197,7 @@ final class TVStore {
                   playURL: Self.topShelfLink(host: "radio", key: "id", station.id))
         }
         let added = recentlyAddedAlbums
-        let albumList = added.isEmpty ? albums : added
+        let albumList = added.isEmpty ? Array(albums.prefix(12)) : added
         let lib: [TopShelfPublisher.Draft] = albumList.prefix(12).map { a in
             .init(id: a.id, title: a.title, subtitle: a.artist, artist: a.artist,
                   album: a.title, coverKey: a.id, songID: nil, coverRef: nil,
@@ -3305,22 +3375,6 @@ final class TVStore {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.observePlaybackHistoryChanges()
-                let counts = Dictionary(grouping: PlayHistoryStore.shared.entries, by: \.songID).mapValues(\.count)
-                let changed = Set(counts.keys).union(self.playCountsBySongID.keys).filter {
-                    counts[$0] != self.playCountsBySongID[$0]
-                }
-                self.playCountsBySongID = counts
-                for id in changed {
-                    if let raw = self.library.song(id: id), self.songByID[id] != nil {
-                        self.songByID[id] = self.map(raw)
-                    }
-                }
-                // 播放次数没变(CloudKit 合并只动了时间戳等)时不必把整库列表扫一遍。
-                if !changed.isEmpty {
-                    for index in self.cachedSongs.indices where changed.contains(self.cachedSongs[index].id) {
-                        if let updated = self.songByID[self.cachedSongs[index].id] { self.cachedSongs[index] = updated }
-                    }
-                }
                 self.playHistoryRevision &+= 1
                 self.publishTopShelf()
             }
@@ -3381,37 +3435,13 @@ final class TVStore {
         let signpost = PrimuseSignposts.hitch.beginInterval("tv.rebuildLookupCaches")
         defer { PrimuseSignposts.hitch.endInterval("tv.rebuildLookupCaches", signpost) }
         sourceTypeByID = sourceTypes
-        playCountsBySongID = Dictionary(grouping: PlayHistoryStore.shared.entries, by: \.songID).mapValues(\.count)
-        let visibleSongs = library.visibleSongs
-        // 有声内容不进音乐的曲库列表 / 首页 / 整库播放,但仍能按 id 查到 ——
-        // 有声页、续播和队列都靠 song(_:) 取它。
-        let spokenWordIDs = library.spokenWordSongIDs
-        let mapStartedAt = ProcessInfo.processInfo.systemUptime
-        let allMapped = visibleSongs.map { self.map($0) }
-        let songsMappedAt = ProcessInfo.processInfo.systemUptime
-        cachedSongs = spokenWordIDs.isEmpty
-            ? allMapped
-            : allMapped.filter { !spokenWordIDs.contains($0.id) }
-        cachedSongIDs = cachedSongs.map(\.id)
-        // 直接按专辑收 id,不再先把整库 Song 按专辑分组复制一遍再取 id(顺序相同)。
-        var albumSongIDs: [String: [String]] = [:]
-        for song in visibleSongs { albumSongIDs[song.albumID ?? "", default: []].append(song.id) }
-        cachedAlbumSongIDs = albumSongIDs
+        // 不再整库映射成 TVSong / TVAlbum / TVArtist:浏览数据按需现转(`TVLibraryList`)。
+        // 这里只作废按修订号懒建的几份小索引,下一次有人问才重建。
+        musicSongIDsCache = nil
+        albumSongIDsIndex = nil
         sortedAlbumSongIDs.removeAll(keepingCapacity: true)
-        let albumsStartedAt = ProcessInfo.processInfo.systemUptime
-        cachedAlbums = library.visibleAlbums.map { self.map($0) }
-        recentlyAddedAlbumIDs = library.recentlyAddedAlbums(limit: 12).map(\.id)
-        cachedArtists = library.visibleArtists.map { self.map($0) }
-        let albumsMappedAt = ProcessInfo.processInfo.systemUptime
-        songByID = Dictionary(allMapped.map { ($0.id, $0) },
-                              uniquingKeysWith: { first, _ in first })
-        albumByID = Dictionary(cachedAlbums.map { ($0.id, $0) },
-                               uniquingKeysWith: { first, _ in first })
-        cachedAlbumIndexByID = Dictionary(
-            cachedAlbums.indices.map { (cachedAlbums[$0].id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        plog("TV lookup ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songMap=\(Int((songsMappedAt - mapStartedAt) * 1000)) albumTracks=\(Int((albumsStartedAt - songsMappedAt) * 1000)) albumArtist=\(Int((albumsMappedAt - albumsStartedAt) * 1000)) songs=\(visibleSongs.count) trigger=\(trigger)")
+        recentlyAddedAlbumIDsCache = nil
+        plog("TV lookup ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songs=\(library.visibleSongs.count) trigger=\(trigger)")
         lookupRevision = revision
         if library.isReady { hasBuiltLookupSinceLibraryReady = true }
         libraryContentRevision &+= 1
@@ -5056,7 +5086,7 @@ final class TVStore {
     /// 全部播放 / 随机播放整个可见曲库(库多为散曲、没有真正专辑,所以播放范围用整库)。
     @discardableResult
     func playAll(shuffle: Bool) -> Bool {
-        playResolvedQueue(songIDs: cachedSongIDs, shuffled: shuffle)
+        playResolvedQueue(songIDs: songIDs, shuffled: shuffle)
     }
 
     func next() {
@@ -5268,8 +5298,9 @@ final class TVStore {
     /// 通用单曲入口的队列范围:当前可见曲库顺序(专辑范围只留给显式的专辑播放),
     /// 曲库里找不到这首(例如刚接收、尚未可见)时退化为单曲队列,避免队列与实际播放不一致。
     private func setQueueAround(_ song: TVSong) {
-        let selected = cachedSongIDs.firstIndex(of: song.id)
-        let scope = selected == nil ? [song.id] : cachedSongIDs
+        let musicSongIDs = songIDs
+        let selected = musicSongIDs.firstIndex(of: song.id)
+        let scope = selected == nil ? [song.id] : musicSongIDs
         let plan = TVPlaybackQueuePolicy.plan(
             count: scope.count,
             selectedIndex: selected,
@@ -5715,7 +5746,7 @@ final class TVStore {
     }
 
     private func restorePlaybackSessionIfNeeded() {
-        guard !playbackRestoreAttempted, !hasNowPlaying, !songByID.isEmpty else { return }
+        guard !playbackRestoreAttempted, !hasNowPlaying, !library.visibleSongs.isEmpty else { return }
         playbackRestoreAttempted = true
         do {
             guard var snapshot = try sessionStore.load() else { return }
@@ -5729,7 +5760,7 @@ final class TVStore {
             let reshapedLegacyQueue = restored.reshapedLegacyQueue
             guard let plan = PlaybackSessionRestorationPolicy.plan(
                 snapshot: snapshot,
-                availableSongIDs: Set(snapshot.queueSongIDs.filter { songByID[$0] != nil })
+                availableSongIDs: Set(snapshot.queueSongIDs.filter { library.visibleSong(id: $0) != nil })
             ) else { return }
             queueContinuation = continuation
             if reshapedLegacyQueue { persistQueueContinuation() }

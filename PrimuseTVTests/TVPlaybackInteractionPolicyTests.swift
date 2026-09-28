@@ -1792,7 +1792,7 @@ final class TVDeviceRegressionTests: XCTestCase {
         func song(path: String, sourceType: MusicSourceType = .navidrome) -> TVSong {
             TVSong(id: "path", albumID: "album", coverRef: nil, title: "Song", artist: "Artist",
                    duration: 30, format: "MP3", bitrate: 320, sampleRate: 44.1,
-                   sourceID: "source", filePath: path, sourceType: sourceType, plays: 0, liked: false)
+                   sourceID: "source", filePath: path, sourceType: sourceType)
         }
         let remote = song(path: "https://user:password@example.com/Music/Hello%20World.mp3?token=secret#fragment")
         XCTAssertEqual(remote.displayPath, "/Music/Hello World.mp3")
@@ -1801,7 +1801,7 @@ final class TVDeviceRegressionTests: XCTestCase {
         XCTAssertNil(song(path: "/Music/Song.mp3", sourceType: .appleMusic).displayPath)
     }
 
-    func testListeningHistoryRefreshesSongCountsAndSmartPlaylistsWithoutRebuildingLibrary() async throws {
+    func testListeningHistoryRefreshesSmartPlaylistsWithoutRebuildingLibrary() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let library = MusicLibrary(storageDirectory: directory)
@@ -1822,11 +1822,9 @@ final class TVDeviceRegressionTests: XCTestCase {
         XCTAssertEqual(store.smartPlaylists.first?.count, 0)
         PlayHistoryStore.shared.record(song: song, startedAt: Date(), listenedSec: 35)
         for _ in 0..<1_000 {
-            if store.song(song.id)?.plays == 1 { break }
+            if store.smartPlaylists.first?.count == 1 { break }
             await Task.yield()
         }
-        XCTAssertEqual(store.song(song.id)?.plays, 1)
-        XCTAssertEqual(store.songs.first?.plays, 1)
         XCTAssertEqual(store.smartPlaylists.first?.count, 1)
         XCTAssertEqual(store.recommendationRevision, revision)
         _ = await library.persistNowAndWait()

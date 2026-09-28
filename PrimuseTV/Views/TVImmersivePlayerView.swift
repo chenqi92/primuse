@@ -687,9 +687,11 @@ struct TVImmersivePlayerView: View {
 
     private func refreshGallerySongs() {
         let currentID = store.nowPlaying.songID
-        let eligible = store.songs.filter { song in
+        // 在曲库原始数组上筛,只把最后选中的十几首转成界面值,不为整库逐首转换。
+        let library = store.songs
+        let eligible = library.source.filter { song in
             song.id != currentID
-                && !(song.coverRef?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                && !(song.coverArtFileName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         }
         guard !eligible.isEmpty else {
             gallerySongs = []
@@ -708,13 +710,13 @@ struct TVImmersivePlayerView: View {
         var attempts = 0
         while selected.count < limit && attempts < eligible.count * 2 {
             let song = eligible[cursor % eligible.count]
-            if seen.insert(song.id).inserted { selected.append(song) }
+            if seen.insert(song.id).inserted { selected.append(library.mapper.map(song)) }
             cursor += step
             attempts += 1
         }
         if selected.count < limit {
             for song in eligible where seen.insert(song.id).inserted {
-                selected.append(song)
+                selected.append(library.mapper.map(song))
                 if selected.count == limit { break }
             }
         }

@@ -151,9 +151,12 @@ struct TVPlayerShelfContext: Equatable {
         }
     }
 
-    private static func pinned<Element>(_ elements: [Element], first isCurrent: (Element) -> Bool) -> [Element] {
-        guard let index = elements.firstIndex(where: isCurrent), index > 0 else { return elements }
-        var reordered = elements
+    private static func pinned<Elements: RandomAccessCollection>(
+        _ elements: Elements,
+        first isCurrent: (Elements.Element) -> Bool
+    ) -> [Elements.Element] {
+        var reordered = Array(elements)
+        guard let index = reordered.firstIndex(where: isCurrent), index > 0 else { return reordered }
         let current = reordered.remove(at: index)
         reordered.insert(current, at: 0)
         return reordered

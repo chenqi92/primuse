@@ -86,11 +86,12 @@ struct TVHomeView: View {
         TVAlbum(id: "_", title: "Primuse", artist: "", year: 0,
                 tint: TVColor.brand, tint2: .black, glyph: "♪")
     }
-    private var heroSongs: [TVSong] {
+    /// 整库模式直接在曲库原始数组上求和,不为整库逐首转换界面值。
+    private var heroTotalDuration: Double {
         switch heroContent {
-        case .album: return candidateAlbumSongs
-        case .song: return store.songs
-        case .empty: return []
+        case .album: return candidateAlbumSongs.reduce(0) { $0 + $1.duration }
+        case .song: return store.songs.source.reduce(0) { $0 + $1.duration }
+        case .empty: return 0
         }
     }
     private var heroSongCount: Int {
@@ -105,7 +106,7 @@ struct TVHomeView: View {
     }
     private var heroSubtitle: String {
         var parts = [PMString("ext.tv.songsCount", heroSongCount)]
-        let mins = (heroSongs.reduce(0) { $0 + $1.duration } / 60).finiteInt()
+        let mins = (heroTotalDuration / 60).finiteInt()
         if mins > 0 { parts.append(PMString("ext.tv.minCount", mins)) }
         if hero.year > 0 { parts.append("\(hero.year)") }
         if !hero.artist.isEmpty { parts.append(hero.artist) }
