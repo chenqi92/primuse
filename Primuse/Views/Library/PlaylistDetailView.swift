@@ -16,6 +16,8 @@ struct PlaylistDetailView: View {
     @Environment(MusicScraperService.self) private var scraperService
     #if os(iOS)
     @Environment(\.pmHeightClass) private var heightClass
+    #elseif os(macOS)
+    @Environment(\.locale) private var locale
     #endif
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -1089,13 +1091,17 @@ struct PlaylistDetailView: View {
             return (entry, songCounter)
         }
         let playCounts = playCountsBySongID
+        let lastRowNumber = songCounter.formatted(.number.locale(locale))
+        let indexColumnWidth = max(32, ceil((lastRowNumber as NSString).size(withAttributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        ]).width) + 4)
         return VStack(spacing: 0) {
             // 设计稿 9 列: # / cover / 标题 / 艺术家 / 专辑 / 格式 / 时长 / 播放 / 源
             HStack(spacing: 12) {
                 if selection.isActive {
-                    Color.clear.frame(width: 32, height: 1)
+                    Color.clear.frame(width: indexColumnWidth, height: 1)
                 } else {
-                    Text("#").frame(width: 32, alignment: .leading)
+                    Text("#").frame(width: indexColumnWidth, alignment: .leading)
                 }
                 Color.clear.frame(width: 32, height: 1)
                 Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
@@ -1119,7 +1125,12 @@ struct PlaylistDetailView: View {
                 ForEach(rows, id: \.entry.id) { row in
                     switch row.entry {
                     case .song(let song):
-                        macSongRow(song, index: row.songIndex, playCount: playCounts[song.id, default: 0])
+                        macSongRow(
+                            song,
+                            index: row.songIndex,
+                            indexColumnWidth: indexColumnWidth,
+                            playCount: playCounts[song.id, default: 0]
+                        )
                             .songSelectable(
                                 songID: song.id,
                                 selection: selection,
@@ -1141,7 +1152,7 @@ struct PlaylistDetailView: View {
         }
     }
 
-    private func macSongRow(_ song: Song, index: Int, playCount: Int) -> some View {
+    private func macSongRow(_ song: Song, index: Int, indexColumnWidth: CGFloat, playCount: Int) -> some View {
         let isCurrent = player.currentSong?.id == song.id
         let source = sourcesStore.sources.first(where: { $0.id == song.sourceID })
         return HStack(spacing: 12) {
@@ -1152,7 +1163,7 @@ struct PlaylistDetailView: View {
                 membership: selection.membership(for: song.id)
             )
             .frame(
-                width: 32,
+                width: indexColumnWidth,
                 alignment: selection.isActive ? .center : .leading
             )
 
@@ -1258,6 +1269,7 @@ struct PlaylistDetailView: View {
     }
 
     private struct MacPlaylistSelectionIndexCell: View {
+        @Environment(\.locale) private var locale
         let index: Int
         let isCurrent: Bool
         let isSelectionActive: Bool
@@ -1276,8 +1288,9 @@ struct PlaylistDetailView: View {
                         .foregroundStyle(PMColor.brand)
                         .pmFadeTransition(motion: .list)
                 } else {
-                    Text("\(index + 1)")
+                    Text(verbatim: (index + 1).formatted(.number.locale(locale)))
                         .font(.system(size: 11, design: .monospaced))
+                        .lineLimit(1)
                         .foregroundStyle(PMColor.textFaint)
                         .pmFadeTransition(motion: .list)
                 }
