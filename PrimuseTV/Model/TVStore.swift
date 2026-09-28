@@ -3897,17 +3897,17 @@ final class TVStore {
             persistMs = Int((ProcessInfo.processInfo.systemUptime - addedAt) * 1000)
             markSourceLocallyScanned(sourceID)
         }
-        var indexMs = 0, visibilityMs = 0
+        var indexMs = 0
         if final {
             let indexStartedAt = ProcessInfo.processInfo.systemUptime
             await library.waitForPendingIndex()
             let indexedAt = ProcessInfo.processInfo.systemUptime
             indexMs = Int((indexedAt - indexStartedAt) * 1000)
-            refreshVisibility()
-            visibilityMs = Int((ProcessInfo.processInfo.systemUptime - indexedAt) * 1000)
+            // 可见集不在这里刷新:收尾路径(runScan)剪枝后还会整库刷一次,两次整库
+            // 重建连在一起就是扫描完成那一下 2 秒多的主线程卡顿。
         }
         plog("📥 TV scan commit songs=\(batch.count) final=\(final) addMs=\(addMs) persistMs=\(persistMs)"
-             + " indexMs=\(indexMs) visibilityMs=\(visibilityMs)"
+             + " indexMs=\(indexMs)"
              + (final ? " unchangedSkipped=\(scanUnchangedSkippedCount)" : "")
              + " sinceLast=" + String(format: "%.1f", min(sinceLastCommit, 99_999)) + "s")
     }

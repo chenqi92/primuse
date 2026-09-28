@@ -5449,9 +5449,18 @@ final class MusicLibrary {
         let hasStaleRetainedRows = deviceLocalExcludedSongsByID.values.contains {
             $0.sourceID == sourceID && !incomingIDs.contains($0.id)
         }
-        if removed.isEmpty, !hasStaleRetainedRows, incoming.allSatisfy(matchesStoredSong) {
+        if removed.isEmpty, !hasStaleRetainedRows {
+            // 没有要剪的:只把和库里不一样的几行交出去。强制重读元数据的重扫里
+            // 常有零星几行对不上,以前一行不同就整源再合并一遍。
+            let changed = incoming.filter { !matchesStoredSong($0) }
+            plog("📥 TV scan prune source=\(sourceID) incoming=\(incoming.count) changed=\(changed.count) removed=0")
+            if !changed.isEmpty {
+                addSongs(changed, affectedSourceIDs: nil, notifyRemovals: false,
+                         pruneMissingSongs: false)
+            }
             return recovery
         }
+        plog("📥 TV scan prune source=\(sourceID) incoming=\(incoming.count) removed=\(removed.count) staleRetained=\(hasStaleRetainedRows)")
         // Cache deletion notifications are irreversible; publish them only
         // after both the library and source checkpoint have committed.
         addSongs(incoming, affectedSourceIDs: [sourceID], notifyRemovals: false)
@@ -10378,6 +10387,7 @@ final class MusicLibrary {
 
         mutating func loadSnapshot(preferExternalSnapshot: Bool = false) {
             let loadStartedAt = ProcessInfo.processInfo.systemUptime
+            plog("🚀 library load stage=begin external=\(preferExternalSnapshot)")
             let hasCompatibilitySnapshot = FileManager.default.fileExists(atPath: snapshotURL.path)
             let compatibilityFingerprint = hasCompatibilitySnapshot
                 ? MusicLibrary.snapshotFingerprint(at: snapshotURL)
@@ -10548,6 +10558,10 @@ final class MusicLibrary {
             let shouldInspectLoadedSongs = preferExternalSnapshot
                 || canonicalSongs == nil
                 || (initialStoreState?.completedMigrationVersion ?? 0) < MusicLibrary.loadedSongMigrationVersion
+            // 分阶段落点: 冷启动卡在「加载中」时, 看最后一行停在哪一段。
+            plog("🚀 library load stage=decoded songs=\(loadedSongs.count) inspect=\(shouldInspectLoadedSongs)"
+                 + " external=\(preferExternalSnapshot) canonical=\(canonicalSongs != nil)"
+                 + " ms=\(Int((ProcessInfo.processInfo.systemUptime - loadStartedAt) * 1_000))")
             let migration = shouldInspectLoadedSongs
                 ? MusicLibrary.migrateLoadedSongs(
                     &loadedSongs,
@@ -10560,6 +10574,8 @@ final class MusicLibrary {
                     changedSongs: []
                 )
             let migrationFinishedAt = ProcessInfo.processInfo.systemUptime
+            plog("🚀 library load stage=migrated changed=\(migration.changedSongs.count)"
+                 + " ms=\(Int((migrationFinishedAt - loadStartedAt) * 1_000))")
             if shouldInspectLoadedSongs, songStore != nil {
                 // G5: 记录意图, 发布步骤按历史顺序执行(先写库, 再标记迁移版本),
                 // 失败时的 `songStoreRequiresReplacement` / `pendingSnapshotImportID`
@@ -10678,6 +10694,7 @@ final class MusicLibrary {
                 }
             }
             let indexFinishedAt = ProcessInfo.processInfo.systemUptime
+            plog("🚀 library load stage=indexed ms=\(Int((indexFinishedAt - loadStartedAt) * 1_000))")
 
             // `songStoreRequiresReplacement` 只有在发布步骤执行完推迟的存储写入后
             // 才是最终值, 所以那一项条件留到发布步骤再判断。
