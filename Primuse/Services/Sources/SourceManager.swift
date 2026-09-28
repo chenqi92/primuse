@@ -9466,10 +9466,13 @@ final class SourceManager {
             }
         }
 
+        // 路径一律用 cacheFileURL 拼: URL.appendingPathComponent 不带目录提示时
+        // 会对文件 URL 做 lstat/getattrlist 判断是不是目录。服务端目录刷新一次
+        // 送来几千首「内容变了」的歌, 每首八九个路径各几级, 主线程就连续卡几百毫秒。
         let cachesRoot = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         let tempRoot = FileManager.default.temporaryDirectory
         var cacheTargets: [URL] = []
-        cacheTargets.reserveCapacity(songs.count * 6)
+        cacheTargets.reserveCapacity(songs.count * 8)
         var audioRelativePaths: [String] = []
         audioRelativePaths.reserveCapacity(songs.count)
 
@@ -9477,12 +9480,10 @@ final class SourceManager {
             let audioName = cacheFileName(for: song)
             let audioRelativePath = "\(song.sourceID)/\(audioName)"
             if !preservingAudioPaths.contains(audioRelativePath) {
-                cacheTargets.append(
-                    cachesRoot
-                        .appendingPathComponent(Self.audioCacheDirName)
-                        .appendingPathComponent(song.sourceID)
-                        .appendingPathComponent(audioName)
-                )
+                cacheTargets.append(Self.cacheFileURL(
+                    cachesRoot,
+                    [Self.audioCacheDirName, song.sourceID, audioName]
+                ))
                 audioRelativePaths.append(audioRelativePath)
             }
 
@@ -9491,50 +9492,18 @@ final class SourceManager {
             let connectorNamespace = MusicSourceSecurityRevision.cacheNamespace(
                 for: song.sourceID
             )
-            cacheTargets.append(
-                tempRoot.appendingPathComponent("primuse_smb_cache")
-                    .appendingPathComponent(song.sourceID)
-                    .appendingPathComponent(connectorNamespace)
-                    .appendingPathComponent(cacheName)
-            )
-            cacheTargets.append(
-                tempRoot.appendingPathComponent("primuse_smb_cache")
-                    .appendingPathComponent(song.sourceID)
-                    .appendingPathComponent(connectorNamespace)
-                    .appendingPathComponent(legacyName)
-            )
-            cacheTargets.append(
-                tempRoot.appendingPathComponent("primuse_ftp_cache")
-                    .appendingPathComponent(song.sourceID)
-                    .appendingPathComponent(connectorNamespace)
-                    .appendingPathComponent(legacyName)
-            )
-            cacheTargets.append(
-                tempRoot.appendingPathComponent("primuse_sftp_cache")
-                    .appendingPathComponent(song.sourceID)
-                    .appendingPathComponent(connectorNamespace)
-                    .appendingPathComponent(cacheName)
-            )
-            cacheTargets.append(
-                tempRoot.appendingPathComponent("primuse_webdav_cache")
-                    .appendingPathComponent(song.sourceID)
-                    .appendingPathComponent(connectorNamespace)
-                    .appendingPathComponent(cacheName)
-            )
-            cacheTargets.append(
-                FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
-                    .appendingPathComponent("primuse_s3_cache")
-                    .appendingPathComponent(song.sourceID)
-                    .appendingPathComponent(connectorNamespace)
-                    .appendingPathComponent(cacheName)
-            )
+            let sourceID = song.sourceID
+            func scoped(_ root: URL, _ directory: String, _ name: String) -> URL {
+                Self.cacheFileURL(root, [directory, sourceID, connectorNamespace, name])
+            }
+            cacheTargets.append(scoped(tempRoot, "primuse_smb_cache", cacheName))
+            cacheTargets.append(scoped(tempRoot, "primuse_smb_cache", legacyName))
+            cacheTargets.append(scoped(tempRoot, "primuse_ftp_cache", legacyName))
+            cacheTargets.append(scoped(tempRoot, "primuse_sftp_cache", cacheName))
+            cacheTargets.append(scoped(tempRoot, "primuse_webdav_cache", cacheName))
+            cacheTargets.append(scoped(cachesRoot, "primuse_s3_cache", cacheName))
             if let nfsName = NFSSelectionPathCodec.cacheFileName(for: song.filePath) {
-                cacheTargets.append(
-                    tempRoot.appendingPathComponent("primuse_nfs_cache")
-                        .appendingPathComponent(song.sourceID)
-                        .appendingPathComponent(connectorNamespace)
-                        .appendingPathComponent(nfsName)
-                )
+                cacheTargets.append(scoped(tempRoot, "primuse_nfs_cache", nfsName))
             }
             if let upnpURL = URL(string: song.filePath),
                let scheme = upnpURL.scheme?.lowercased(),
@@ -9543,12 +9512,7 @@ final class SourceManager {
                     path: upnpURL.absoluteString,
                     preferredExtension: upnpURL.pathExtension.isEmpty ? "bin" : upnpURL.pathExtension
                 )
-                cacheTargets.append(
-                    tempRoot.appendingPathComponent("primuse_upnp_cache")
-                        .appendingPathComponent(song.sourceID)
-                        .appendingPathComponent(connectorNamespace)
-                        .appendingPathComponent(upnpName)
-                )
+                cacheTargets.append(scoped(tempRoot, "primuse_upnp_cache", upnpName))
             }
 
             if let mvPath = normalizedMusicVideoPath(for: song),
@@ -9556,15 +9520,11 @@ final class SourceManager {
                 musicVideoCacheDownloads.cancel(
                     key: Self.musicVideoCacheKey(sourceID: song.sourceID, path: mvPath)
                 )
-                cacheTargets.append(
-                    cachesRoot
-                        .appendingPathComponent(Self.videoCacheDirName)
-                        .appendingPathComponent(song.sourceID)
-                        .appendingPathComponent(connectorNamespace)
-                        .appendingPathComponent(
-                            Self.videoCacheFileName(sourceID: song.sourceID, path: mvPath)
-                        )
-                )
+                cacheTargets.append(scoped(
+                    cachesRoot,
+                    Self.videoCacheDirName,
+                    Self.videoCacheFileName(sourceID: song.sourceID, path: mvPath)
+                ))
             }
             if !preservingAudioPaths.contains(audioRelativePath) {
                 setOfflineAudioSnapshot(.notCached, for: song.id)
@@ -9575,11 +9535,16 @@ final class SourceManager {
         // invalidation per song (often twice: id + cover ref) forced SwiftUI
         // through thousands of update cycles. Clear the small in-memory cache
         // once and publish one broad invalidation instead.
+        //
+        // 内容变更（服务端刷新常一次几千首）只让点名的歌失效: 清空整个内存缓存
+        // 会让在屏和随后滚进来的封面全部重新读盘解码, 刷新分几批到就清几次。
         if songs.count == 1, let song = songs.first {
             CachedArtworkView.invalidateCache(for: song.id)
             if let coverRef = song.coverArtFileName {
                 CachedArtworkView.invalidateCache(for: coverRef)
             }
+        } else if preserveFreshMetadataAssets {
+            CachedArtworkView.invalidateCache(forSongs: songs)
         } else {
             CachedArtworkView.clearMemoryCache()
         }
@@ -9604,6 +9569,18 @@ final class SourceManager {
                 await MetadataAssetStore.shared.invalidateCaches(forSongIDs: songIDs)
             }
         }
+    }
+
+    /// 拼缓存文件路径且不碰文件系统: 前几级按目录、最后一级按文件给出提示。
+    nonisolated static func cacheFileURL(_ root: URL, _ components: [String]) -> URL {
+        var url = root
+        for (index, component) in components.enumerated() {
+            url = url.appending(
+                path: component,
+                directoryHint: index == components.count - 1 ? .notDirectory : .isDirectory
+            )
+        }
+        return url
     }
 
     /// Source removal already deletes whole per-source audio/video/temp
