@@ -1152,6 +1152,32 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertNil(store.song(songID))
     }
 
+    func testUnchangedRescanSkipsLibraryCommitsAndKeepsSong() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let store = fixture.store()
+        store.reload()
+        let source = try store.prepareTransferSource()
+        let folderName = "TV Rescan QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try waveFixture().write(to: folder.appendingPathComponent("Unchanged.wav"))
+        let songID = TVScanPipelinePolicy.songID(sourceID: source.id, path: "/\(folderName)/Unchanged.wav")
+
+        let first = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(first)
+        let scanned = try XCTUnwrap(fixture.library.storedSong(id: songID))
+        XCTAssertTrue(fixture.library.matchesStoredSong(scanned))
+
+        let second = await store.runScan(source: source, lister: TVLocalDirectoryLister(), dirs: ["/"])
+        XCTAssertTrue(second)
+        XCTAssertEqual(store.scanner.phase, .done)
+        XCTAssertGreaterThan(store.scanUnchangedSkippedCount, 0)
+        XCTAssertEqual(fixture.library.storedSong(id: songID), scanned)
+        XCTAssertNotNil(store.song(songID))
+    }
+
     private func waveFixture(duration: TimeInterval = 0.1) -> Data {
         let samples = Data(repeating: 0, count: Int(8_000 * duration) * 2)
         var data = Data()

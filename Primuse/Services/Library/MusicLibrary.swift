@@ -5436,6 +5436,15 @@ final class MusicLibrary {
             playlistDates: Dictionary(allPlaylists.map { ($0.id, $0.updatedAt) }, uniquingKeysWith: { first, _ in first }),
             recentIDs: recentPlaybackSongIDs
         )
+        // 扫描途中每一行变化都已经分批交给过曲库。没有要剪的、保留目录里也没有
+        // 要清的、每一行又都和库里一样时,整源再合并一遍只是在主线程上把几万首
+        // 重新派生、比较一遍,再排一次整库索引重建 —— 重扫收尾那 1 秒多的卡顿。
+        let hasStaleRetainedRows = deviceLocalExcludedSongsByID.values.contains {
+            $0.sourceID == sourceID && !incomingIDs.contains($0.id)
+        }
+        if removed.isEmpty, !hasStaleRetainedRows, incoming.allSatisfy(matchesStoredSong) {
+            return recovery
+        }
         // Cache deletion notifications are irreversible; publish them only
         // after both the library and source checkpoint have committed.
         addSongs(incoming, affectedSourceIDs: [sourceID], notifyRemovals: false)
@@ -6200,6 +6209,24 @@ final class MusicLibrary {
         if let visibleSong = visibleSongByID[id] { return visibleSong }
         guard let index = songIndexByID[id] else { return nil }
         return songs[index]
+    }
+
+    /// 资料库里存着的那一行,不经可见集缓存。可见集延后发布,判断「扫描交来的
+    /// 这一行是否和库里一样」必须比对这一份,否则会把刚提交的改动当成没变。
+    func storedSong(id: String) -> Song? {
+        songIndexByID[id].map { songs[$0] }
+    }
+
+    /// 把这一行交给 `addSongs` 会不会改变库里的任何东西。库里的行已经补过派生
+    /// ID 与自动艺术家图,所以原样不同时按合并时的同一套规则补齐再比;原样相同的
+    /// (重扫时的绝大多数)不必再算哈希。
+    func matchesStoredSong(_ song: Song) -> Bool {
+        guard let stored = storedSong(id: song.id) else { return false }
+        if stored == song { return true }
+        var prepared = song
+        Self.fillDerivedIDs(&prepared, configuration: artistNameConfiguration)
+        applyAutomaticArtistArtwork(to: &prepared)
+        return stored == prepared
     }
 
     /// O(1) visible-only lookup for background workers and external routes.

@@ -706,6 +706,9 @@ final class TVStore {
     @ObservationIgnored private var pendingScanSongs: [Song] = []
     @ObservationIgnored private var scanExistingIDsByFile: [String: String] = [:]
     @ObservationIgnored private var lastScanFlush = Date.distantPast
+    /// 本次扫描因为和库里一模一样而没有提交的行数,收尾日志与测试读它。
+    @ObservationIgnored private(set) var scanUnchangedSkippedCount = 0
+    @ObservationIgnored private var scanAcceptedSongIDs: Set<String> = []
     /// 正在后台提交的那一批扫描行。读标签的调度循环要等提交回调返回才补读取位,
     /// 所以中途提交不在回调里等:交给这条串行任务,下一次提交(或收尾)前再等它。
     @ObservationIgnored private var scanCommitTask: Task<Void, Error>?
@@ -3876,8 +3879,7 @@ final class TVStore {
                 throw CocoaError(.fileWriteUnknown)
             }
             persistMs = Int((ProcessInfo.processInfo.systemUptime - addedAt) * 1000)
-            locallyScannedSourceIDs.insert(sourceID)
-            defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
+            markSourceLocallyScanned(sourceID)
         }
         var indexMs = 0, visibilityMs = 0
         if final {
@@ -3890,6 +3892,7 @@ final class TVStore {
         }
         plog("📥 TV scan commit songs=\(batch.count) final=\(final) addMs=\(addMs) persistMs=\(persistMs)"
              + " indexMs=\(indexMs) visibilityMs=\(visibilityMs)"
+             + (final ? " unchangedSkipped=\(scanUnchangedSkippedCount)" : "")
              + " sinceLast=" + String(format: "%.1f", min(sinceLastCommit, 99_999)) + "s")
     }
 
@@ -3924,10 +3927,37 @@ final class TVStore {
         library.updateAlbumArtistFolders(AlbumArtistFolderIndex(parentsBySource: next))
     }
 
+    /// 这一行和资料库里存着的完全一样(同一身份、同一文件位置):不必再提交。
+    /// 重扫时绝大多数行都是这样 —— 骨架是从库里原样带出来的,复用检查结果的
+    /// 标签阶段又交回同一行 —— 而每次提交都要在主线程上整库合并一遍、再排一次
+    /// 整库索引重建。比对的是库里存的那一行,不是可见集缓存:后者延后发布,
+    /// 拿它比会把刚提交过的改动当成没变。
+    ///
+    /// 这次扫描已经交出去过的 id 一律照常提交:它的前一行可能还在排队、没进库,
+    /// 这时库里那一行是旧的,和旧行相同恰恰说明要把排队的那一行覆盖回来。
+    private func isUnchangedScanRow(_ song: Song) -> Bool {
+        !scanAcceptedSongIDs.contains(song.id)
+            && scanExistingIDsByFile[Self.scanFileIdentity(song)] == song.id
+            && library.matchesStoredSong(song)
+    }
+
+    private func markSourceLocallyScanned(_ sourceID: String) {
+        guard locallyScannedSourceIDs.insert(sourceID).inserted else { return }
+        defaults.set(Array(locallyScannedSourceIDs), forKey: "tv.scannedSourceIDs")
+    }
+
     private func acceptScanBatch(_ songs: [Song], sourceID: String, generation: UUID) async throws {
         guard scanGeneration == generation, !locallyRemovedSourceIDs.contains(sourceID),
               sourcesStore.source(id: sourceID)?.isDeleted == false else { throw CancellationError() }
-        pendingScanSongs.append(contentsOf: songs)
+        let changed = songs.filter { !isUnchangedScanRow($0) }
+        if changed.count < songs.count {
+            scanUnchangedSkippedCount += songs.count - changed.count
+            // 没变的行早已在库里落了盘,这个源同样算本机扫过。
+            markSourceLocallyScanned(sourceID)
+        }
+        guard !changed.isEmpty else { return }
+        scanAcceptedSongIDs.formUnion(changed.map(\.id))
+        pendingScanSongs.append(contentsOf: changed)
         guard TVScanPipelinePolicy.shouldCommitIntermediateBatch(
             pendingCount: pendingScanSongs.count,
             secondsSinceLastCommit: Date().timeIntervalSince(lastScanFlush)
@@ -3951,6 +3981,8 @@ final class TVStore {
         // 上一次扫描留下的后台提交先落完,不和这次的行交错。
         try? await awaitScanCommit()
         pendingScanSongs = []
+        scanUnchangedSkippedCount = 0
+        scanAcceptedSongIDs = []
         scanExistingIDsByFile = Dictionary(
             library.songs.filter { $0.sourceID == source.id }.map { (Self.scanFileIdentity($0), $0.id) },
             uniquingKeysWith: { first, _ in first }
