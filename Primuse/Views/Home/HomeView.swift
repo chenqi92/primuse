@@ -2066,7 +2066,8 @@ struct HomeView: View {
                 let startedAt = Date()
                 let heroCoverSongs = Self.makeHeroCoverSongs(
                     songs: songs,
-                    recentSongs: recentSongs
+                    recentSongs: recentSongs,
+                    dayStamp: signature.dayStamp
                 )
                 let albumTiles = Self.makeRecentlyAddedAlbumTiles(
                     songs: songs,
@@ -2587,7 +2588,7 @@ struct HomeView: View {
 
     /// 4 张封面错落叠放 — 用 ZStack 加旋转 + 偏移, 跟 Spotify Mix /
     /// Apple Music「For You」拼贴风格一致。封面来自最近添加 + 最近播放
-    /// 的随机抽样, 每次 view 出现重洗一次。
+    /// 的按日期稳定挑选, 同一天不换人。
     @ViewBuilder
     private var heroCoverCollage: some View {
         // 手机横屏整块 hero 要压到视口四成以内,拼贴跟着等比缩一档:
@@ -2648,10 +2649,11 @@ struct HomeView: View {
 
     nonisolated private static func makeHeroCoverSongs(
         songs: [Song],
-        recentSongs: [Song]
+        recentSongs: [Song],
+        dayStamp: Int
     ) -> [Song] {
-        // 优先最近播放, 不够再补最近添加, 都过滤出有 cover 的歌, 最后随机
-        // 抽 4 首。结果跟随首页快照刷新,避免每次 tab 回首页都重排。
+        // 优先最近播放, 不够再补最近添加, 都过滤出有 cover 的歌, 再按日期稳定地
+        // 挑 4 首。不能随机：冷启动时快照会连着重算好几次，每次换一组就是满屏闪。
         let added = songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(60)
         // 用 seen-set 按 id 去重: recentSongs 自身可能含重复 id (脏快照/跨源未彻底
         // 去重), 否则下方 ForEach(id: \.element.id) 会因重复 id 触发 SwiftUI 告警/崩溃。
@@ -2661,7 +2663,12 @@ struct HomeView: View {
             pool.append(song)
         }
         let withCover = pool.filter { $0.coverArtFileName?.isEmpty == false }
-        return Array(withCover.shuffled().prefix(4))
+        let byID = Dictionary(withCover.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return HomeHeroCoverSelection.pick(
+            candidateIDs: withCover.map(\.id),
+            dayStamp: dayStamp,
+            limit: 4
+        ).compactMap { byID[$0] }
     }
 
     // MARK: - Quick Access

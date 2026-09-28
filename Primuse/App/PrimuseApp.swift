@@ -1475,6 +1475,31 @@ struct PrimuseApp: App {
     }
     #endif
 
+    private static func nowPlayingArtworkIdentity(
+        _ song: Song
+    ) -> NowPlayingArtworkRefreshPolicy.ArtworkIdentity {
+        .init(
+            songID: song.id,
+            artworkReference: song.coverArtFileName,
+            sourceID: song.sourceID,
+            filePath: song.filePath,
+            fileFormat: song.fileFormat.rawValue
+        )
+    }
+
+    /// forceRefreshNowPlayingArtwork 内部已 bump coverRevision, 播放器各处封面按
+    /// revisionToken 重载, 即便 coverArtFileName 字符串没变。
+    private func refreshNowPlayingArtwork(for song: Song) {
+        playerService.forceRefreshNowPlayingArtwork()
+        themeService.updateFromCoverArt(
+            fileName: song.coverArtFileName,
+            songID: song.id,
+            appleMusicID: song.sourceID == AppleMusicLibraryService.systemSourceID
+                ? song.filePath
+                : nil
+        )
+    }
+
     var body: some Scene {
         macAwareMainGroup {
             injectServices {
@@ -1706,19 +1731,30 @@ struct PrimuseApp: App {
                           musicLibrary.lastReplacedSongIDs.contains(currentID),
                           let updated = musicLibrary.song(id: currentID)
                     else { return }
+                    let previousArtwork = playerService.currentSong.map(Self.nowPlayingArtworkIdentity)
                     playerService.syncSongMetadata(updated)
-                    // forceRefreshNowPlayingArtwork 内部已 bump coverRevision,
-                    // 这里不需要重复 bump。三处封面 view 监听 revisionToken 会触发
-                    // reload, 即便 coverArtFileName 字符串没变 (重复刮 deterministic
-                    // hash 文件名时 coverRef 不变, onChange 不会触发)。
-                    playerService.forceRefreshNowPlayingArtwork()
-                    themeService.updateFromCoverArt(
-                        fileName: updated.coverArtFileName,
-                        songID: updated.id,
-                        appleMusicID: updated.sourceID == AppleMusicLibraryService.systemSourceID
-                            ? updated.filePath
-                            : nil
-                    )
+                    // 冷启动的回填/复查/服务端同步会成批替换当前歌但封面没变; 那时也
+                    // bump coverRevision 会让所有播放器封面换缓存键重读再淡入, 背景重新
+                    // 取色, 看起来一直在闪。只在封面来源变了时重载; 同名封面被重新刮削
+                    // (coverRef 不变) 由下面的 .primuseArtworkDidInvalidate 接住。
+                    guard NowPlayingArtworkRefreshPolicy.replacementRequiresReload(
+                        previous: previousArtwork,
+                        updated: Self.nowPlayingArtworkIdentity(updated)
+                    ) else { return }
+                    refreshNowPlayingArtwork(for: updated)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .primuseArtworkDidInvalidate)) { note in
+                    guard let currentSong = playerService.currentSong,
+                          NowPlayingArtworkRefreshPolicy.invalidationTargetsSong(
+                              songID: currentSong.id,
+                              artworkReference: currentSong.coverArtFileName,
+                              object: note.object as? String,
+                              tokens: ["songID", "oldRef", "newRef"].compactMap { note.userInfo?[$0] as? String }
+                                  + (note.userInfo?["tokens"] as? [String] ?? [])
+                                  + (note.userInfo?["songIDs"] as? [String] ?? []),
+                              isBroadcastToAll: note.userInfo?["all"] as? Bool == true
+                          ) else { return }
+                    refreshNowPlayingArtwork(for: currentSong)
                 }
                 .onOpenURL { url in
                     plog("🔗 onOpenURL: scheme=\(url.scheme ?? "?") host=\(url.host ?? "?")")

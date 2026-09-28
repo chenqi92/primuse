@@ -5576,6 +5576,105 @@ public enum ArtworkCacheReloadPolicy {
     }
 }
 
+/// 当前歌的资料库行被替换时，播放器封面要不要强制重载。
+///
+/// 冷启动时回填、专辑艺术家复查、服务端同步会成批替换歌曲行，正在播的那首常在其中，
+/// 但封面根本没变。以前一律 bump `coverRevision`：迷你条、播放页的封面换缓存键、
+/// 从盘上重读再淡入，背景也重新取色，于是冷启动那几秒封面一闪一闪。
+/// 现在只有决定封面来源的字段变了才重载；同名封面文件被重新刮削（引用字符串不变）
+/// 由封面失效通知接住，见 `invalidationTargetsSong`。
+public enum NowPlayingArtworkRefreshPolicy {
+    public struct ArtworkIdentity: Equatable, Sendable {
+        public let songID: String
+        public let artworkReference: String?
+        public let sourceID: String
+        public let filePath: String
+        public let fileFormat: String?
+
+        public init(
+            songID: String,
+            artworkReference: String?,
+            sourceID: String,
+            filePath: String,
+            fileFormat: String?
+        ) {
+            self.songID = songID
+            self.artworkReference = artworkReference
+            self.sourceID = sourceID
+            self.filePath = filePath
+            self.fileFormat = fileFormat
+        }
+    }
+
+    public static func replacementRequiresReload(
+        previous: ArtworkIdentity?,
+        updated: ArtworkIdentity
+    ) -> Bool {
+        guard let previous else { return true }
+        return normalized(previous) != normalized(updated)
+    }
+
+    /// 失效通知是否点名了这首歌。「全部失效」（删源、清缓存）不算：那是在回收别的歌
+    /// 的缓存，正在显示的封面没变，跟着重载只会让播放页闪一下。
+    public static func invalidationTargetsSong(
+        songID: String,
+        artworkReference: String?,
+        object: String?,
+        tokens: [String],
+        isBroadcastToAll: Bool
+    ) -> Bool {
+        guard !isBroadcastToAll else { return false }
+        var local: Set<String> = [songID]
+        if let ref = artworkReference?.trimmingCharacters(in: .whitespacesAndNewlines), !ref.isEmpty {
+            local.insert(ref)
+        }
+        local.remove("")
+        guard !local.isEmpty else { return false }
+        return ([object].compactMap { $0 } + tokens).contains { local.contains($0) }
+    }
+
+    private static func normalized(_ identity: ArtworkIdentity) -> ArtworkIdentity {
+        func clean(_ value: String?) -> String? {
+            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+        return ArtworkIdentity(
+            songID: identity.songID,
+            artworkReference: clean(identity.artworkReference),
+            sourceID: identity.sourceID,
+            filePath: identity.filePath,
+            fileFormat: clean(identity.fileFormat)
+        )
+    }
+}
+
+/// 首页顶部拼贴从候选池里挑哪几首。
+///
+/// 以前是 `shuffled()`：冷启动期间资料库、播放记录、回填每变一次首页就重算一次，
+/// 每次都换一组歌，拼贴里的封面跟着换人、从占位淡入，看起来一直在闪；结果永远
+/// 和上一份不一样，「相同结果不写快照」的判断也从来拦不住。
+///
+/// 改成按「日期 + 歌曲 id」的稳定哈希排名：同一天里候选池不变，挑出来的就不变，
+/// 候选池进出一首也最多换掉一张；隔天自然换一组。
+public enum HomeHeroCoverSelection {
+    public static func pick(
+        candidateIDs: [String],
+        dayStamp: Int,
+        limit: Int
+    ) -> [String] {
+        guard limit > 0 else { return [] }
+        var seen = Set<String>()
+        let ranked = candidateIDs
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .map { (id: $0, rank: StableFNV1a64.hash("\(dayStamp)|\($0)")) }
+            .sorted { lhs, rhs in
+                lhs.rank != rhs.rank ? lhs.rank < rhs.rank : lhs.id < rhs.id
+            }
+        return ranked.prefix(limit).map(\.id)
+    }
+}
+
 public enum ImmersiveControlsAction: Sendable {
     case present
     case contentTap
