@@ -11,26 +11,43 @@ import Foundation
 /// 字段映射(同 iOS MediaServerSource):host/port/useSsl/basePath;Jellyfin/Emby 的
 /// username+password、Plex 的 token 都来自同步凭据;song.filePath = `/items/{id}.{ext}`。
 public actor MediaServerStreamResolver: StreamResolver {
-    private var tokens: [String: String] = [:]   // sourceID → AccessToken(Jellyfin/Emby)
-    private var tokenTasks: [String: (id: UUID, task: Task<String, Error>)] = [:]
+    private struct CachedSession: Sendable {
+        let account: SourceLoginSessionStore.Account
+        let token: String
+    }
+
+    /// Jellyfin/Emby 的播放和扫描、收藏等共用同一个登录会话（见 `SourceLoginSessionStore`）：
+    /// 交给播放器的地址里的 token 不会因为别处重新登录而失效。
+    private let sessionStore: SourceLoginSessionStore
+    private var sessions: [String: CachedSession] = [:]
+    private var sessionHolders: [String: UUID] = [:]
+    private var sessionGenerations: [String: UInt64] = [:]
     private let session: URLSession
 
     public init() {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 20
         self.session = StreamResolverSessionFactory.make(configuration: cfg)
+        self.sessionStore = .shared
     }
 
     deinit { session.invalidateAndCancel() }
 
     /// Module-internal injection point for deterministic URLProtocol tests.
-    init(session: URLSession) {
+    init(session: URLSession, sessionStore: SourceLoginSessionStore = SourceLoginSessionStore()) {
         self.session = session
+        self.sessionStore = sessionStore
     }
 
-    public func invalidateSession(sourceID: String) {
-        tokens[sourceID] = nil
-        tokenTasks.removeValue(forKey: sourceID)?.task.cancel()
+    /// 播放端作废会话多半是因为播放地址被拒：连同共用会话里的这个 token 一起作废，
+    /// 下次取到的是重新登录的，而不是同一个已经失效的。别的实例已经换过就不动。
+    public func invalidateSession(sourceID: String) async {
+        sessionGenerations[sourceID, default: 0] &+= 1
+        guard let cached = sessions.removeValue(forKey: sourceID) else { return }
+        await sessionStore.invalidate(cached.account, ifCurrent: cached.token)
+        if let holder = sessionHolders.removeValue(forKey: sourceID) {
+            await sessionStore.release(cached.account, holder: holder, token: nil)
+        }
     }
 
     public func streamURL(for song: Song,
@@ -50,7 +67,7 @@ public actor MediaServerStreamResolver: StreamResolver {
                 throw StreamResolveError.missingCredential
             }
             let partKey = try await plexPartKey(base: base, ratingKey: itemID, token: token,
-                                                deviceID: "primuse-\(source.id)")
+                                                deviceID: MediaServerDeviceIdentity.deviceID(sourceID: source.id))
             guard let url = Self.plexStreamURL(base: base, partKey: partKey, token: token) else {
                 throw StreamResolveError.cannotBuildURL
             }
@@ -95,29 +112,37 @@ public actor MediaServerStreamResolver: StreamResolver {
 
     private func currentToken(source: MusicSource, base: URL, username: String,
                               password: String, emby: Bool) async throws -> String {
-        if let cached = tokens[source.id] { return cached }
-        if let inFlight = tokenTasks[source.id] { return try await inFlight.task.value }
-        let taskID = UUID()
-        let task = Task<String, Error> { [self] in
-            try await login(base: base, username: username, password: password,
-                            deviceID: "primuse-\(source.id)", emby: emby)
+        let account = SourceLoginSessionStore.Account(
+            sourceID: source.id, username: username, secret: password, qualifiers: [source.type.rawValue]
+        )
+        if let cached = sessions[source.id], cached.account == account { return cached.token }
+        if let stale = sessions.removeValue(forKey: source.id), let holder = sessionHolders[source.id] {
+            // 凭据换了：旧凭据的会话由它自己的持有者决定去留。
+            await sessionStore.release(stale.account, holder: holder, token: nil)
         }
-        tokenTasks[source.id] = (taskID, task)
-        let token: String
-        do {
-            token = try await task.value
-        } catch {
-            if tokenTasks[source.id]?.id == taskID { tokenTasks[source.id] = nil }
-            throw error
+        let holder = sessionHolders[source.id] ?? UUID()
+        sessionHolders[source.id] = holder
+        let generation = sessionGenerations[source.id, default: 0]
+        let deviceID = MediaServerDeviceIdentity.deviceID(sourceID: source.id)
+        let session = try await sessionStore.session(
+            for: account,
+            route: SourceLoginSessionStore.Route(endpoint: base),
+            holder: holder
+        ) { [self] in
+            try await login(base: base, username: username, password: password, deviceID: deviceID, emby: emby)
         }
-        if tokenTasks[source.id]?.id == taskID {
-            tokens[source.id] = token
-            tokenTasks[source.id] = nil
-        }
-        return token
+        guard sessionGenerations[source.id, default: 0] == generation else { throw CancellationError() }
+        sessions[source.id] = CachedSession(account: account, token: session.token)
+        return session.token
     }
 
-    private func login(base: URL, username: String, password: String, deviceID: String, emby: Bool) async throws -> String {
+    private func login(
+        base: URL,
+        username: String,
+        password: String,
+        deviceID: String,
+        emby: Bool
+    ) async throws -> SourceLoginSessionStore.Session {
         var req = URLRequest(
             url: ProxyPrefixedBasePathPolicy.appending("Users/AuthenticateByName", to: base)
         )
@@ -133,7 +158,7 @@ public actor MediaServerStreamResolver: StreamResolver {
         )
         try Self.checkAuth(response)
         guard let token = Self.parseAccessToken(data) else { throw StreamResolveError.authFailed }
-        return token
+        return SourceLoginSessionStore.Session(token: token, userID: Self.parseUserID(data))
     }
 
     // MARK: - Plex 元数据 → partKey
@@ -218,7 +243,12 @@ public actor MediaServerStreamResolver: StreamResolver {
     }
 
     static func mediaBrowserAuth(deviceID: String, token: String?) -> String {
-        var parts = ["Client=\"Primuse\"", "Device=\"Apple TV\"", "DeviceId=\"\(deviceID)\"", "Version=\"1.0.0\""]
+        var parts = [
+            "Client=\"Primuse\"",
+            "Device=\"\(MediaServerDeviceIdentity.deviceName)\"",
+            "DeviceId=\"\(deviceID)\"",
+            "Version=\"1.0.0\"",
+        ]
         if let token { parts.append("Token=\"\(token)\"") }
         return "MediaBrowser \(parts.joined(separator: ", "))"
     }
@@ -232,6 +262,15 @@ public actor MediaServerStreamResolver: StreamResolver {
     static func parseAccessToken(_ data: Data) -> String? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return json["AccessToken"] as? String
+    }
+
+    /// 登录响应里的 `User.Id`：扫描端接手这个会话时要用它拼 `/Users/{id}/…`。
+    static func parseUserID(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let user = json["User"] as? [String: Any],
+              let id = user["Id"] as? String,
+              !id.isEmpty else { return nil }
+        return id
     }
 
     /// 从 Plex /library/metadata 响应取第一个 part 的 key。

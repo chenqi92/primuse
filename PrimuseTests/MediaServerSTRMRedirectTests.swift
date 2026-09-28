@@ -238,6 +238,48 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
         await source.disconnect()
     }
 
+    /// Jellyfin 对同一用户同一设备号只留最后一次登录。同一个源的播放、写回、诊断等实例共用一次
+    /// 登录，设备号每台设备各一个（不再是随 iCloud 同步到所有设备的 `primuse-<源 ID>`）。
+    func testConnectorsForOneMediaSourceShareOneLoginOnThisDeviceID() async throws {
+        let host = uniqueHost("shared-login")
+        let server = SharedLoginServer()
+        MediaServerRedirectURLProtocol.configure(host: host) { server.reply(to: $0) }
+        let playback = makeSource(host: host, kind: .jellyfin, authType: .password)
+        let writeback = makeSource(host: host, kind: .jellyfin, authType: .password)
+
+        _ = try await playback.listFiles(at: "/")
+        _ = try await writeback.listFiles(at: "/")
+        XCTAssertEqual(server.loginCount, 1)
+        XCTAssertEqual(server.rejectedCount, 0)
+
+        let login = try XCTUnwrap(MediaServerRedirectURLProtocol.requests(host: host)
+            .first { $0.url?.path == "/Users/AuthenticateByName" })
+        let authorization = login.value(forHTTPHeaderField: "Authorization") ?? ""
+        XCTAssertTrue(authorization.contains("DeviceId=\"\(MediaServerDeviceIdentity.deviceID(sourceID: host))\""))
+        XCTAssertFalse(authorization.contains("primuse-\(host)"))
+        await writeback.disconnect()
+        await playback.disconnect()
+    }
+
+    /// 会话在服务端过期后，先发现的一方重新登录一次，另一方被拒后直接改用新的 token。
+    func testExpiredSharedMediaSessionIsRenewedOnceForAllConnectors() async throws {
+        let host = uniqueHost("renewed-login")
+        let server = SharedLoginServer()
+        MediaServerRedirectURLProtocol.configure(host: host) { server.reply(to: $0) }
+        let playback = makeSource(host: host, kind: .emby, authType: .password)
+        let library = makeSource(host: host, kind: .emby, authType: .password)
+        _ = try await playback.listFiles(at: "/")
+        _ = try await library.listFiles(at: "/")
+
+        server.expireSessions()
+        _ = try await playback.listFiles(at: "/")
+        _ = try await library.listFiles(at: "/")
+        XCTAssertEqual(server.loginCount, 2)
+        XCTAssertEqual(server.rejectedCount, 2)
+        await library.disconnect()
+        await playback.disconnect()
+    }
+
     func testRawPublicHTTPRedirectDropsSourceCredentialsAndKeepsRange() throws {
         var request = URLRequest(url: try XCTUnwrap(URL(string: "http://media.example:8096/Audio/song/stream?api_key=source")))
         request.setValue("bytes=128-255", forHTTPHeaderField: "Range")
@@ -300,6 +342,37 @@ final class MediaServerSTRMRedirectTests: XCTestCase {
             headers: ["Content-Type": "audio/flac", "Content-Range": "bytes \(lower)-\(upper)/\(content.count)"],
             body: content.subdata(in: lower..<(upper + 1))
         )
+    }
+}
+
+/// 只认最后一次登录发出的 token，和 Jellyfin 同一设备号的规则一样。
+private final class SharedLoginServer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var logins = 0
+    private var rejected = 0
+    private var validToken: String?
+
+    var loginCount: Int { lock.withLock { logins } }
+    var rejectedCount: Int { lock.withLock { rejected } }
+    func expireSessions() { lock.withLock { validToken = nil } }
+
+    func reply(to request: URLRequest) -> MediaServerRedirectURLProtocol.Reply {
+        lock.withLock {
+            switch request.url?.path {
+            case "/Users/AuthenticateByName":
+                logins += 1
+                validToken = "token-\(logins)"
+                return .json(#"{"AccessToken":"token-\#(logins)","User":{"Id":"user"}}"#)
+            case "/Users/user/Views":
+                guard let token = request.value(forHTTPHeaderField: "X-Emby-Token"), token == validToken else {
+                    rejected += 1
+                    return .init(status: 401)
+                }
+                return .json(#"{"Items":[]}"#)
+            default:
+                return .init(status: 404)
+            }
+        }
     }
 }
 

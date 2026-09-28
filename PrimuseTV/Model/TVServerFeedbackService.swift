@@ -992,8 +992,10 @@ actor TVServerFeedbackHTTPClient: TVServerFeedbackClient {
         sourceID: String,
         token: String
     ) -> [String: String] {
-        let deviceID = sourceID.replacingOccurrences(of: "\"", with: "")
-        let authorization = "MediaBrowser Client=\"Primuse\", Device=\"Apple TV\", DeviceId=\"primuse-\(deviceID)\", Version=\"1.0.0\", Token=\"\(token)\""
+        // 和播放解析器同一个设备号：这个 token 就是它登录拿到的。
+        let deviceID = MediaServerDeviceIdentity.deviceID(sourceID: sourceID)
+        let deviceName = MediaServerDeviceIdentity.deviceName
+        let authorization = "MediaBrowser Client=\"Primuse\", Device=\"\(deviceName)\", DeviceId=\"\(deviceID)\", Version=\"1.0.0\", Token=\"\(token)\""
         return [
             "X-Emby-Authorization": authorization,
             "X-Emby-Token": token,

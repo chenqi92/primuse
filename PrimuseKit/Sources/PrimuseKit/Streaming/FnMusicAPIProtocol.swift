@@ -212,7 +212,7 @@ public enum FnMusicAPIProtocol {
     }
 
     /// 这台设备的飞牛设备号，所有源、所有功能都用这一个，和网页端一个浏览器一个号一样。
-    /// 飞牛同一个设备号只认最后一次登录，所以同一台设备上的会话必须共用，见 `FnMusicSessionStore`。
+    /// 飞牛同一个设备号只认最后一次登录，所以同一台设备上的会话必须共用，见 `SourceLoginSessionStore`。
     public static func deviceID(defaults: UserDefaults = .standard) -> String {
         deviceIDLock.lock()
         defer { deviceIDLock.unlock() }

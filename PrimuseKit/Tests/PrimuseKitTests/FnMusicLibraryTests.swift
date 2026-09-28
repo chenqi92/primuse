@@ -314,7 +314,7 @@ private final class FnMusicLibraryFixture: @unchecked Sendable {
         let session = URLSession(configuration: config)
         let source = MusicSource(id: host, name: "Feiniu", type: .fnMusic, host: host, port: 5666, useSsl: false, username: "qa")
         // 和真机一样，曲库客户端与播放解析器共用同一个会话仓库。
-        let sessions = FnMusicSessionStore()
+        let sessions = SourceLoginSessionStore()
         return (FnMusicServiceClient(source: source, credential: .init(username: "qa", password: "test"),
                                      session: session, sessionStore: sessions),
                 FnMusicStreamResolver(session: URLSession(configuration: config), sessionStore: sessions), source)

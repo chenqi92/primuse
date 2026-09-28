@@ -19,13 +19,13 @@ public actor FnMusicStreamResolver: StreamResolver {
     }
 
     private struct CachedSession: Sendable {
-        let account: FnMusicSessionStore.Account
+        let account: SourceLoginSessionStore.Account
         let token: String
     }
 
-    /// 播放和曲库、封面歌词共用同一个登录会话（见 `FnMusicSessionStore`）：交给播放器的
+    /// 播放和曲库、封面歌词共用同一个登录会话（见 `SourceLoginSessionStore`）：交给播放器的
     /// Cookie 不会因为曲库那边重新登录而失效。
-    private let sessionStore: FnMusicSessionStore
+    private let sessionStore: SourceLoginSessionStore
     private var sessions: [String: CachedSession] = [:]
     private var sessionHolders: [String: UUID] = [:]
     private var sessionGenerations: [String: UInt64] = [:]
@@ -42,7 +42,7 @@ public actor FnMusicStreamResolver: StreamResolver {
         self.sessionStore = .shared
     }
 
-    init(session: URLSession, sessionStore: FnMusicSessionStore = FnMusicSessionStore()) {
+    init(session: URLSession, sessionStore: SourceLoginSessionStore = SourceLoginSessionStore()) {
         self.session = session
         self.sessionStore = sessionStore
     }
@@ -122,8 +122,8 @@ public actor FnMusicStreamResolver: StreamResolver {
         let provider = endpointProvider(for: source, accessCode: accessCode)
         let endpoint = try await provider.endpoint()
         let base = endpoint.baseURL
-        let account = FnMusicSessionStore.Account(
-            sourceID: source.id, username: username, password: password, accessCode: accessCode
+        let account = SourceLoginSessionStore.Account(
+            sourceID: source.id, username: username, secret: password, qualifiers: [accessCode ?? ""]
         )
         var token = try await currentSession(
             source: source,
@@ -172,7 +172,7 @@ public actor FnMusicStreamResolver: StreamResolver {
         return (url, token, endpoint, accessCode)
     }
 
-    private func currentSession(source: MusicSource, account: FnMusicSessionStore.Account,
+    private func currentSession(source: MusicSource, account: SourceLoginSessionStore.Account,
                                 base: URL, username: String, password: String,
                                 accessCode: String?, usesRelay: Bool) async throws -> String {
         if let cached = sessions[source.id], cached.account == account {
@@ -188,7 +188,7 @@ public actor FnMusicStreamResolver: StreamResolver {
         let generation = sessionGenerations[source.id, default: 0]
         let token = try await sessionStore.token(
             for: account,
-            route: FnMusicSessionStore.Route(source: source),
+            route: SourceLoginSessionStore.Route(source: source),
             holder: holder
         ) { [self] in
             try await fnMusicLogin(

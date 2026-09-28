@@ -13,11 +13,11 @@ actor FnMusicAPI {
     private(set) var token: String?
     private var sessionGeneration: UInt64 = 0
     /// 同一个源的播放、写回、诊断、各条线路各有一个实例，都和这里共用同一个登录会话，
-    /// 见 `FnMusicSessionStore`。
-    private let sessionStore: FnMusicSessionStore
-    private let sessionRoute: FnMusicSessionStore.Route
+    /// 见 `SourceLoginSessionStore`。
+    private let sessionStore: SourceLoginSessionStore
+    private let sessionRoute: SourceLoginSessionStore.Route
     private let sessionHolder = UUID()
-    private var sessionAccount: FnMusicSessionStore.Account?
+    private var sessionAccount: SourceLoginSessionStore.Account?
     /// 被服务端拒绝过的 token：下次取 token 前先让会话仓库作废它。
     private var rejectedToken: String?
 
@@ -33,18 +33,18 @@ actor FnMusicAPI {
         accessCode: String?,
         alternateTLSValidationHostname: String? = nil,
         session: URLSession? = nil,
-        sessionStore: FnMusicSessionStore = .shared
+        sessionStore: SourceLoginSessionStore = .shared
     ) {
         self.sourceID = sourceID
         self.accessCode = accessCode
         self.usesFNConnect = connectionMode == .fnConnect
         self.sessionStore = sessionStore
-        self.sessionRoute = FnMusicSessionStore.Route(
+        self.sessionRoute = SourceLoginSessionStore.Route(
             host: host,
             port: port,
             useSSL: useSSL,
             basePath: basePath,
-            connectionMode: connectionMode
+            variant: connectionMode.rawValue
         )
 
         let configuration = URLSessionConfiguration.default
@@ -112,8 +112,8 @@ actor FnMusicAPI {
         sessionGeneration &+= 1
         let generation = sessionGeneration
         token = nil
-        let account = FnMusicSessionStore.Account(
-            sourceID: sourceID, username: username, password: password, accessCode: accessCode
+        let account = SourceLoginSessionStore.Account(
+            sourceID: sourceID, username: username, secret: password, qualifiers: [accessCode ?? ""]
         )
         if let previous = sessionAccount, previous != account {
             await sessionStore.release(previous, holder: sessionHolder, token: nil)

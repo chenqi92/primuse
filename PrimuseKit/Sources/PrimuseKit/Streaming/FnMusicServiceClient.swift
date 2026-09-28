@@ -267,10 +267,10 @@ public actor FnMusicServiceClient {
     private let session: URLSession
     private var token: String?
     private var sessionGeneration: UInt64 = 0
-    /// 播放解析器、封面歌词等都和这里共用同一个登录会话，见 `FnMusicSessionStore`。
-    private let sessionStore: FnMusicSessionStore
-    private let sessionAccount: FnMusicSessionStore.Account?
-    private let sessionRoute: FnMusicSessionStore.Route
+    /// 播放解析器、封面歌词等都和这里共用同一个登录会话，见 `SourceLoginSessionStore`。
+    private let sessionStore: SourceLoginSessionStore
+    private let sessionAccount: SourceLoginSessionStore.Account?
+    private let sessionRoute: SourceLoginSessionStore.Route
     private let sessionHolder = UUID()
     /// 被服务端拒绝过的 token：下次取 token 前先让会话仓库作废它。
     private var rejectedToken: String?
@@ -286,7 +286,7 @@ public actor FnMusicServiceClient {
         self.sessionAccount = Self.sessionAccount(
             sourceID: source.id, username: username, password: password, accessCode: accessCode
         )
-        self.sessionRoute = FnMusicSessionStore.Route(source: source)
+        self.sessionRoute = SourceLoginSessionStore.Route(source: source)
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
@@ -311,7 +311,7 @@ public actor FnMusicServiceClient {
         source: MusicSource,
         credential: SourceCredential?,
         session: URLSession,
-        sessionStore: FnMusicSessionStore = FnMusicSessionStore()
+        sessionStore: SourceLoginSessionStore = SourceLoginSessionStore()
     ) {
         let credential = credential ?? SourceCredential()
         self.sourceID = source.id
@@ -323,7 +323,7 @@ public actor FnMusicServiceClient {
         self.sessionAccount = Self.sessionAccount(
             sourceID: source.id, username: username, password: password, accessCode: accessCode
         )
-        self.sessionRoute = FnMusicSessionStore.Route(source: source)
+        self.sessionRoute = SourceLoginSessionStore.Route(source: source)
         self.session = session
         self.endpointProvider = FnMusicEndpointProvider(
             source: source,
@@ -346,10 +346,10 @@ public actor FnMusicServiceClient {
         username: String,
         password: String?,
         accessCode: String?
-    ) -> FnMusicSessionStore.Account? {
+    ) -> SourceLoginSessionStore.Account? {
         guard !username.isEmpty, let password, !password.isEmpty else { return nil }
-        return FnMusicSessionStore.Account(
-            sourceID: sourceID, username: username, password: password, accessCode: accessCode
+        return SourceLoginSessionStore.Account(
+            sourceID: sourceID, username: username, secret: password, qualifiers: [accessCode ?? ""]
         )
     }
 

@@ -36,6 +36,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private let requestDataLoader: RequestDataLoader?
     private let deviceID: String
     private let cacheDirectory: URL
+    /// 用户名密码登录的 Jellyfin/Emby：同一个源的播放、扫描、写回、诊断、各条线路实例（以及
+    /// 电视上的播放解析器）共用一个会话，见 `SourceLoginSessionStore`。
+    private let sessionStore: SourceLoginSessionStore
+    private let sessionAccount: SourceLoginSessionStore.Account?
+    private let sessionRoute: SourceLoginSessionStore.Route
+    private let sessionHolder = UUID()
+    /// 被服务端拒绝过的 token：下次登录前先让共用会话作废它。
+    private var rejectedToken: String?
 
     private var accessToken: String?
     /// Route generation on which the session was last proven.
@@ -67,10 +75,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         authType: SourceAuthType,
         alternateTLSValidationHostname: String? = nil,
         requestDataLoader: RequestDataLoader? = nil,
-        sessionConfiguration: URLSessionConfiguration? = nil
+        sessionConfiguration: URLSessionConfiguration? = nil,
+        sessionStore: SourceLoginSessionStore = .shared
     ) {
         self.sourceID = sourceID
         self.kind = kind
+        self.sessionStore = sessionStore
         switch kind {
         case .jellyfin:
             self.serverLyricsCapabilities = ServerLyricsCapabilities(
@@ -96,7 +106,18 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         self.authType = authType
         self.requestDataLoader = requestDataLoader
         self.alternateTLSValidationHostname = alternateTLSValidationHostname
-        self.deviceID = "primuse-\(sourceID)"
+        self.deviceID = MediaServerDeviceIdentity.deviceID(sourceID: sourceID)
+        self.sessionRoute = SourceLoginSessionStore.Route(endpoint: baseURL)
+        if kind != .plex, authType != .apiKey, !username.isEmpty {
+            self.sessionAccount = SourceLoginSessionStore.Account(
+                sourceID: sourceID,
+                username: username,
+                secret: secret,
+                qualifiers: [kind == .emby ? "emby" : "jellyfin"]
+            )
+        } else {
+            self.sessionAccount = nil
+        }
 
         let configuration = (sessionConfiguration?.copy() as? URLSessionConfiguration) ?? .default
         // Matches WebDAV / Subsonic / Synology: a catalogue request over the
@@ -130,6 +151,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     deinit {
         session?.invalidateAndCancel()
         mediaSession?.invalidateAndCancel()
+        if let sessionAccount {
+            Task { [sessionStore, sessionHolder] in
+                await sessionStore.release(sessionAccount, holder: sessionHolder, token: nil)
+            }
+        }
     }
 
     private static func makeSession(
@@ -258,25 +284,66 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         default:
             // Jellyfin/Emby allow a named account with no password. The empty
             // string must still be sent as `Pw` to AuthenticateByName.
-            guard username.isEmpty == false else {
+            guard let sessionAccount else {
                 throw SourceError.authenticationFailed
             }
-
-            let payload = [
-                "Username": username,
-                "Pw": secret
-            ]
-            let data = try SafeJSONSerialization.data(withJSONObject: payload)
-            let response = try await performRequest(
-                path: "/Users/AuthenticateByName",
-                method: "POST",
-                body: data,
-                requiresAuth: false
-            )
-            let auth = try decoder.decode(LoginResponse.self, from: response)
-            accessToken = auth.accessToken
-            userID = auth.user.id
+            if let rejected = rejectedToken {
+                rejectedToken = nil
+                await sessionStore.invalidate(sessionAccount, ifCurrent: rejected)
+            }
+            let generation = transportGeneration
+            var shared = try await sharedSession(for: sessionAccount)
+            try checkTransportGeneration(generation)
+            accessToken = shared.token
+            if let sharedUserID = shared.userID {
+                userID = sharedUserID
+                return
+            }
+            // 别处登录的会话没带用户 ID 时补查一次；这个 token 已经失效就作废它，自己登录一次。
+            do {
+                let data = try await performRequest(path: "/Users/Me", allowPasswordReauthentication: false)
+                userID = try decoder.decode(User.self, from: data).id
+            } catch SourceError.authenticationFailed {
+                try checkTransportGeneration(generation)
+                await sessionStore.invalidate(sessionAccount, ifCurrent: shared.token)
+                shared = try await sharedSession(for: sessionAccount)
+                try checkTransportGeneration(generation)
+                accessToken = shared.token
+                guard let sharedUserID = shared.userID else { throw SourceError.authenticationFailed }
+                userID = sharedUserID
+            }
         }
+    }
+
+    private func sharedSession(
+        for account: SourceLoginSessionStore.Account
+    ) async throws -> SourceLoginSessionStore.Session {
+        try await sessionStore.session(for: account, route: sessionRoute, holder: sessionHolder) { [self] in
+            try await authenticateByName()
+        }
+    }
+
+    private func authenticateByName() async throws -> SourceLoginSessionStore.Session {
+        let payload = [
+            "Username": username,
+            "Pw": secret
+        ]
+        let data = try SafeJSONSerialization.data(withJSONObject: payload)
+        let response = try await performRequest(
+            path: "/Users/AuthenticateByName",
+            method: "POST",
+            body: data,
+            requiresAuth: false
+        )
+        let auth = try decoder.decode(LoginResponse.self, from: response)
+        return SourceLoginSessionStore.Session(token: auth.accessToken, userID: auth.user.id)
+    }
+
+    /// 这个 token 被服务端拒绝了：丢掉它，下次登录时连同共用会话一起作废。
+    private func discardRejectedSession() {
+        if let accessToken { rejectedToken = accessToken }
+        accessToken = nil
+        userID = nil
     }
 
     func disconnect() async {
@@ -289,6 +356,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         mediaSession = nil
         accessToken = nil
         userID = nil
+        rejectedToken = nil
+        if let sessionAccount {
+            // 只放下这个实例手里的；同一个源的其它实例还在用这个会话。
+            await sessionStore.release(sessionAccount, holder: sessionHolder, token: nil)
+        }
         plexItems.removeAll()
         plexAPIVersion = nil
         plexSigninState = nil
@@ -498,8 +570,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
            allowReauthentication,
            kind != .plex,
            authType != .apiKey {
-            accessToken = nil
-            userID = nil
+            discardRejectedSession()
             return try await fetchRange(
                 path: path,
                 offset: offset,
@@ -2089,8 +2160,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         if forceRefresh {
             loginTask?.cancel()
             loginTask = nil
-            accessToken = nil
-            userID = nil
+            discardRejectedSession()
         }
         try await connect()
         return try radioPlaybackURL(for: stationID)
@@ -2689,8 +2759,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
            authType != .apiKey,
            let http = response as? HTTPURLResponse,
            http.statusCode == 401 || http.statusCode == 403 {
-            accessToken = nil
-            userID = nil
+            discardRejectedSession()
             try await connect()
             return try await performRequest(
                 path: path,
@@ -3202,7 +3271,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private func jellyfinAuthorizationHeader(includeToken: Bool) -> String {
         var parts = [
             "Client=\"Primuse\"",
-            "Device=\"iOS\"",
+            "Device=\"\(MediaServerDeviceIdentity.deviceName)\"",
             "DeviceId=\"\(deviceID)\"",
             "Version=\"1.0.0\""
         ]
@@ -3215,7 +3284,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private func embyAuthorizationHeader(includeToken: Bool) -> String {
         var parts = [
             "MediaBrowser Client=\"Primuse\"",
-            "Device=\"iOS\"",
+            "Device=\"\(MediaServerDeviceIdentity.deviceName)\"",
             "DeviceId=\"\(deviceID)\"",
             "Version=\"1.0.0\""
         ]
