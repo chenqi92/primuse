@@ -3407,6 +3407,7 @@
 			isa = PBXGroup;
 			children = (
 				8A329CA93AC88CAE08B84F0A /* MacResourceRegressionTests.swift */,
+				6C0340425B4875EC8A446D0D /* MacVolumeSliderTests.swift */,
 			);
 			path = PrimuseMacTests;
 			sourceTree = "<group>";
@@ -4600,7 +4601,6 @@
 				6501ADF2A78A679B038D1826 /* LibraryStartupPreparationTests.swift */,
 				72EDF3F4D1CF10A41CE2DA3C /* LifecycleRegressionTests.swift */,
 				AD7784439BAA2CA78032A57B /* ListeningFeaturesTests.swift */,
-				6C0340425B4875EC8A446D0D /* MacVolumeSliderTests.swift */,
 				84E23C9293FD5D2A2D5CB33F /* MediaServerSTRMRedirectTests.swift */,
 				A50429232F7FCB8DE7649F32 /* MotionArtworkEndpointClientTests.swift */,
 				738CA001A4119151DECB6874 /* MusicDiscoveryEngineEquivalenceTests.swift */,
@@ -5362,7 +5362,6 @@
 				1FE2BC706AA7F2A36C401F13 /* LibraryStartupPreparationTests.swift in Sources */,
 				B6BBC2FD980B62AF838C437F /* LifecycleRegressionTests.swift in Sources */,
 				928146F0EF3650B675D4F97F /* ListeningFeaturesTests.swift in Sources */,
-				C24664FF9B03E510B6F6ABB5 /* MacVolumeSliderTests.swift in Sources */,
 				95A46BF131D560E1897BAE8B /* MediaServerSTRMRedirectTests.swift in Sources */,
 				B2AEC2569A938C3843AFDFCC /* MotionArtworkEndpointClientTests.swift in Sources */,
 				D807361D6DE3891296DFDF58 /* MusicDiscoveryEngineEquivalenceTests.swift in Sources */,
@@ -5787,6 +5786,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				EEF9A313CE3B945DAACA62F0 /* MacResourceRegressionTests.swift in Sources */,
+				C24664FF9B03E510B6F6ABB5 /* MacVolumeSliderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
