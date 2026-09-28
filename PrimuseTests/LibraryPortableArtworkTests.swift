@@ -2,6 +2,7 @@ import Foundation
 import ImageIO
 import PrimuseKit
 import UIKit
+import UniformTypeIdentifiers
 import SwiftUI
 import XCTest
 @testable import Primuse
@@ -416,5 +417,121 @@ extension LibraryPortableArtworkTests {
         library.addSongs([first, second])
         XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [first, second]), .selectedSong(first.id))
         XCTAssertEqual(library.artworkOverrideResolution(for: owner, eligibleSongs: [second]), .automatic)
+    }
+
+    // MARK: - 自选封面：元数据与像素对不上的网图 (#104)
+
+    /// 左红右蓝、上下渐变的 JPEG，方便判断方向与是否退化成纯色。
+    private func splitJPEG(width: Int, height: Int, orientation: Int? = nil) throws -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(
+            size: CGSize(width: width, height: height), format: format
+        ).image { context in
+            for row in 0..<height {
+                let shade = CGFloat(row) / CGFloat(max(1, height - 1))
+                UIColor(red: 1, green: shade, blue: 0, alpha: 1).setFill()
+                context.fill(CGRect(x: 0, y: row, width: width / 2, height: 1))
+                UIColor(red: 0, green: shade, blue: 1, alpha: 1).setFill()
+                context.fill(CGRect(x: width / 2, y: row, width: width - width / 2, height: 1))
+            }
+        }
+        let cgImage = try XCTUnwrap(rendered.cgImage)
+        let output = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(
+            output, UTType.jpeg.identifier as CFString, 1, nil
+        ))
+        var properties: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.9]
+        if let orientation { properties[kCGImagePropertyOrientation] = orientation }
+        CGImageDestinationAddImage(destination, cgImage, properties as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return output as Data
+    }
+
+    /// 仿照报告里那张图的 EXIF：IFD0 声称 3745×3745，IFD1 的内嵌缩略图指针
+    /// 指到段外（截断），并且同样的段出现两次。
+    private func injectingInconsistentExif(into jpeg: Data) -> Data {
+        func u16(_ value: Int) -> [UInt8] { [UInt8(value >> 8 & 0xFF), UInt8(value & 0xFF)] }
+        func u32(_ value: Int) -> [UInt8] { u16(value >> 16) + u16(value & 0xFFFF) }
+        func entry(_ tag: Int, _ type: Int, _ count: Int, _ value: [UInt8]) -> [UInt8] {
+            u16(tag) + u16(type) + u32(count) + value + Array(repeating: 0, count: 4 - value.count)
+        }
+        var tiff: [UInt8] = Array("MM".utf8) + u16(42) + u32(8)
+        let ifd0: [[UInt8]] = [
+            entry(0x100, 3, 1, u16(3745)),
+            entry(0x101, 3, 1, u16(3745)),
+            entry(0x112, 3, 1, u16(1)),
+        ]
+        let ifd1Offset = 8 + 2 + ifd0.count * 12 + 4
+        tiff += u16(ifd0.count) + ifd0.flatMap { $0 } + u32(ifd1Offset)
+        let ifd1: [[UInt8]] = [
+            entry(0x103, 3, 1, u16(6)),
+            entry(0x201, 4, 1, u32(4000)),
+            entry(0x202, 4, 1, u32(8701)),
+        ]
+        tiff += u16(ifd1.count) + ifd1.flatMap { $0 } + u32(0)
+        tiff += [0xFF, 0xD8, 0xFF, 0xDB]
+        let payload = Array("Exif\0\0".utf8) + tiff
+        let segment: [UInt8] = [0xFF, 0xE1] + u16(payload.count + 2) + payload
+        var bytes = [UInt8](jpeg)
+        bytes.insert(contentsOf: segment + segment, at: 2)
+        return Data(bytes)
+    }
+
+    private func decoded(_ data: Data) throws -> CGImage {
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+        return try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+    }
+
+    private func rgb(_ image: CGImage, x: Int, y: Int) throws -> (Int, Int, Int) {
+        let width = image.width, height = image.height
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let pixels = try XCTUnwrap(context.data?.assumingMemoryBound(to: UInt8.self))
+        // 位图内存按自上而下存放，第 0 行就是图的顶边。
+        let offset = (y * width + x) * 4
+        return (Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2]))
+    }
+
+    func testUploadWithInconsistentExifKeepsRealPixels() throws {
+        let original = injectingInconsistentExif(into: try splitJPEG(width: 300, height: 300))
+        let processed = try XCTUnwrap(LibraryArtworkImageProcessor.process(original))
+        let image = try decoded(processed)
+        XCTAssertEqual(image.width, 300)
+        XCTAssertEqual(image.height, 300)
+        let left = try rgb(image, x: 40, y: 150)
+        let right = try rgb(image, x: 260, y: 150)
+        XCTAssertGreaterThan(left.0, 200)
+        XCTAssertLessThan(left.2, 60)
+        XCTAssertLessThan(right.0, 60)
+        XCTAssertGreaterThan(right.2, 200)
+        XCTAssertLessThan(try rgb(image, x: 40, y: 5).1, try rgb(image, x: 40, y: 295).1 - 150)
+    }
+
+    func testStrippedUploadStillAppliesExifOrientation() throws {
+        let original = try splitJPEG(width: 300, height: 200, orientation: 6)
+        let processed = try XCTUnwrap(LibraryArtworkImageProcessor.process(original))
+        let image = try decoded(processed)
+        XCTAssertEqual(image.width, 200)
+        XCTAssertEqual(image.height, 300)
+
+        // 以 ImageIO 自己摆正的结果为准，逐个角落比颜色。
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(original as CFData, nil))
+        let reference = try XCTUnwrap(CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 300,
+        ] as CFDictionary))
+        XCTAssertEqual(reference.width, 200)
+        for (x, y) in [(20, 20), (180, 20), (20, 280), (180, 280)] {
+            let actual = try rgb(image, x: x, y: y)
+            let expected = try rgb(reference, x: x, y: y)
+            XCTAssertLessThan(abs(actual.0 - expected.0) + abs(actual.1 - expected.1) + abs(actual.2 - expected.2), 60,
+                              "corner (\(x),\(y)) \(actual) vs \(expected)")
+        }
     }
 }

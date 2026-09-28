@@ -1176,29 +1176,150 @@ enum LibraryArtworkImageProcessor {
     nonisolated static func process(_ data: Data) -> Data? {
         guard !data.isEmpty, data.count <= maximumInputBytes,
               !withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }),
-              let source = CGImageSourceCreateWithData(
+              let original = CGImageSourceCreateWithData(
                 data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary
               ) else {
             return nil
         }
+        let input = DecodeInput(original: original, data: data)
 
         for longSide in targetLongSides {
             guard !withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) else { return nil }
-            guard let image = encodableImage(from: source, longSide: longSide) else { continue }
+            guard let decoded = encodableImage(from: input, longSide: longSide) else { continue }
             for quality in qualities {
                 guard !withUnsafeCurrentTask(body: { $0?.isCancelled ?? false }) else { return nil }
-                guard let encoded = encodeJPEG(image, quality: quality) else { continue }
+                guard let encoded = encodeJPEG(decoded.image, quality: quality) else { continue }
                 if encoded.count <= LibraryArtworkContentIDPolicy.maximumSyncedArtworkBytes {
+                    // 同步快照也走这里、一次成百张，只在缩略图被换掉时记一笔。
+                    if decoded.thumbnailRejection != nil {
+                        plog("🖼️ artwork processed: type=\(input.typeIdentifier) in=\(data.count)B \(input.sizeDescription) orientation=\(input.orientation) stripped=\(input.strippedByteCount.map { "\($0)B" } ?? "no") path=\(decoded.path) thumbRejected=\(decoded.thumbnailRejection ?? "no") out=\(decoded.image.width)x\(decoded.image.height) \(encoded.count)B q=\(quality)")
+                    }
                     return encoded
                 }
             }
         }
+        plog("🖼️ artwork processing failed: type=\(input.typeIdentifier) in=\(data.count)B \(input.sizeDescription) stripped=\(input.strippedByteCount.map { "\($0)B" } ?? "no")")
         return nil
     }
 
+    /// 解码用的来源，以及剥掉元数据后还需要自己补做的摆正。
+    private struct DecodeInput {
+        /// JPEG 剥掉元数据后的来源；其它格式、或者没东西可剥时就是原图。
+        let source: CGImageSource
+        /// 摆正要用的 EXIF 方向（1…8），从原图读，剥掉之后来源里就没有了。
+        let orientation: Int
+        /// 缩略图接口还没替我们做、要自己补的方向：剥过的来源里没有方向信息，
+        /// `WithTransform` 不会转，得自己转；没剥时由它处理，这里是 1。
+        let pendingThumbnailOrientation: Int
+        /// SOF 给出的真实像素尺寸（未摆正）。
+        let pixelSize: (width: Int, height: Int)?
+        let typeIdentifier: String
+        let strippedByteCount: Int?
+
+        init(original: CGImageSource, data: Data) {
+            let properties = CGImageSourceCopyPropertiesAtIndex(original, 0, nil) as? [CFString: Any] ?? [:]
+            let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
+            let typeIdentifier = CGImageSourceGetType(original) as String? ?? "unknown"
+            // 真机的缩略图接口会参考 EXIF 里的尺寸和内嵌缩略图；这些信息和真实
+            // 像素对不上时，出来的是整张一块纯色（#104）。JPEG 先剥掉再解。
+            if typeIdentifier == UTType.jpeg.identifier,
+               let stripped = ArtworkImageNormalizationPolicy.strippingJPEGMetadata(data),
+               let strippedSource = CGImageSourceCreateWithData(
+                stripped as CFData, [kCGImageSourceShouldCache: false] as CFDictionary
+               ),
+               CGImageSourceGetCount(strippedSource) > 0 {
+                source = strippedSource
+                pendingThumbnailOrientation = orientation
+                strippedByteCount = stripped.count
+            } else {
+                source = original
+                pendingThumbnailOrientation = 1
+                strippedByteCount = nil
+            }
+            self.orientation = orientation
+            self.typeIdentifier = typeIdentifier
+            let sourceProperties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+            if let width = sourceProperties[kCGImagePropertyPixelWidth] as? Int,
+               let height = sourceProperties[kCGImagePropertyPixelHeight] as? Int,
+               width > 0, height > 0 {
+                pixelSize = (width, height)
+            } else {
+                pixelSize = nil
+            }
+        }
+
+        /// 摆正并收进 `longSide` 之后应该得到的尺寸。
+        func expectedSize(longSide: Int) -> (width: Int, height: Int)? {
+            guard let pixelSize else { return nil }
+            let swaps = ArtworkImageNormalizationPolicy.swapsDimensions(forExif: orientation)
+            return ArtworkImageNormalizationPolicy.boundedPixelSize(
+                width: swaps ? pixelSize.height : pixelSize.width,
+                height: swaps ? pixelSize.width : pixelSize.height,
+                longSide: longSide
+            )
+        }
+
+        var sizeDescription: String {
+            pixelSize.map { "\($0.width)x\($0.height)" } ?? "?x?"
+        }
+    }
+
+    private struct DecodedArtwork {
+        let image: CGImage
+        let path: String
+        let thumbnailRejection: String?
+    }
+
     /// 取一张长边不超过 `longSide`、且 JPEG 编码器一定收得下的位图。
+    ///
+    /// 缩略图接口省内存，先用它；但它的结果要过两道检查：尺寸得和真实像素算出
+    /// 来的一致，画面不能是一块纯色。任一不过就改走整张解码自己缩 —— 整张解码
+    /// 只认像素数据。整张解码也不理想时，按「尺寸对且不是纯色 > 不是纯色 > 能出图」
+    /// 挑一张：RAW 之类裁切后尺寸本就和属性不同的图照样能用，真正的纯色图也照收。
     private nonisolated static func encodableImage(
-        from source: CGImageSource,
+        from input: DecodeInput,
+        longSide: Int
+    ) -> DecodedArtwork? {
+        // 读不到像素尺寸的来源没法核对大小，只看是不是纯色。
+        let expected = input.expectedSize(longSide: longSide)
+        func assess(_ image: CGImage) -> (sizeMatches: Bool, uniform: Bool) {
+            let sizeMatches = expected.map {
+                ArtworkImageNormalizationPolicy.matchesExpectedSize(
+                    width: image.width,
+                    height: image.height,
+                    expected: $0
+                )
+            } ?? true
+            return (sizeMatches, isUniform(image))
+        }
+
+        var rejection = "nil"
+        var thumbnailCandidate: (image: CGImage, uniform: Bool)?
+        if let thumbnail = thumbnailImage(from: input, longSide: longSide) {
+            let quality = assess(thumbnail)
+            if quality.sizeMatches && !quality.uniform {
+                return DecodedArtwork(image: thumbnail, path: "thumbnail", thumbnailRejection: nil)
+            }
+            rejection = quality.sizeMatches
+                ? "uniform"
+                : "size \(thumbnail.width)x\(thumbnail.height)≠\(expected.map { "\($0.width)x\($0.height)" } ?? "?")"
+                    + (quality.uniform ? " uniform" : "")
+            thumbnailCandidate = (thumbnail, quality.uniform)
+        }
+
+        if let full = fullyDecodedImage(from: input, longSide: longSide) {
+            let quality = assess(full)
+            if !quality.uniform || thumbnailCandidate == nil || thumbnailCandidate?.uniform == true {
+                return DecodedArtwork(image: full, path: "full", thumbnailRejection: rejection)
+            }
+        }
+        return thumbnailCandidate.map {
+            DecodedArtwork(image: $0.image, path: "thumbnail", thumbnailRejection: rejection)
+        }
+    }
+
+    private nonisolated static func thumbnailImage(
+        from input: DecodeInput,
         longSide: Int
     ) -> CGImage? {
         let options: [CFString: Any] = [
@@ -1207,35 +1328,69 @@ enum LibraryArtworkImageProcessor {
             kCGImageSourceThumbnailMaxPixelSize: longSide,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        if let thumbnail = CGImageSourceCreateThumbnailAtIndex(
-            source,
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+            input.source,
             0,
             options as CFDictionary
-        ) {
+        ) else { return nil }
+        let pending = input.pendingThumbnailOrientation
+        guard pending != 1 else {
             // 缩略图路径带 `WithTransform`，出来就是摆正的。
             return jpegReadyImage(thumbnail, exifOrientation: 1)
         }
-        return fullyDecodedImage(from: source, longSide: longSide)
+        // 剥过元数据的来源不带方向，缩略图没转，这里补上。
+        let swaps = ArtworkImageNormalizationPolicy.swapsDimensions(forExif: pending)
+        return redrawOpaque(
+            thumbnail,
+            width: swaps ? thumbnail.height : thumbnail.width,
+            height: swaps ? thumbnail.width : thumbnail.height,
+            exifOrientation: pending
+        )
     }
 
-    /// ImageIO 生成不出缩略图时的兜底：整张解出来自己缩。
+    /// 缩成 8×8 抽亮度，看是不是整张一个颜色。
+    private nonisolated static func isUniform(_ image: CGImage) -> Bool {
+        let side = 8
+        guard let context = CGContext(
+            data: nil,
+            width: side,
+            height: side,
+            bitsPerComponent: 8,
+            bytesPerRow: side * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return false }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let pixels = context.data?.assumingMemoryBound(to: UInt8.self) else { return false }
+        var minimum = Int.max
+        var maximum = Int.min
+        for index in 0..<(side * side) {
+            let offset = index * 4
+            let luma = (Int(pixels[offset]) * 299 + Int(pixels[offset + 1]) * 587
+                + Int(pixels[offset + 2]) * 114) / 1000
+            minimum = min(minimum, luma)
+            maximum = max(maximum, luma)
+        }
+        return ArtworkImageNormalizationPolicy.looksUniform(minimumLuma: minimum, maximumLuma: maximum)
+    }
+
+    /// 缩略图不可用时的兜底：整张解出来自己缩。
     ///
     /// `CGImageSourceCreateThumbnailAtIndex` 并不是对每张能解码的图都成功，
-    /// 而它返回 nil 时上层只会得到「这张图无效」——用户看到的就是选了照片
-    /// 却没有任何变化。`CGImageSourceCreateImageAtIndex` 走的是完整解码器，
-    /// 这类图基本都能解出来，代价是要自己按 EXIF 摆正并缩放。
+    /// 也不总是只看像素数据；`CGImageSourceCreateImageAtIndex` 走的是完整解码器，
+    /// 代价是要自己按 EXIF 摆正并缩放。
     private nonisolated static func fullyDecodedImage(
-        from source: CGImageSource,
+        from input: DecodeInput,
         longSide: Int
     ) -> CGImage? {
         guard let image = CGImageSourceCreateImageAtIndex(
-            source,
+            input.source,
             0,
             [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
         ) else { return nil }
 
-        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
-        let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
+        let orientation = input.orientation
         let swapsDimensions = ArtworkImageNormalizationPolicy.swapsDimensions(forExif: orientation)
         guard let bounded = ArtworkImageNormalizationPolicy.boundedPixelSize(
             width: swapsDimensions ? image.height : image.width,

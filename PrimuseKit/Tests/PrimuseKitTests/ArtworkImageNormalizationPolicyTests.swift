@@ -161,4 +161,81 @@ struct ArtworkImageNormalizationPolicyTests {
             #expect(!steps.mirroredHorizontally)
         }
     }
+
+    // MARK: - 剥元数据
+
+    /// 拼一段 JPEG 标记段：FF xx + 两字节长度 + 负载。
+    private func segment(_ marker: UInt8, _ payload: [UInt8]) -> [UInt8] {
+        let length = payload.count + 2
+        return [0xFF, marker, UInt8(length >> 8), UInt8(length & 0xFF)] + payload
+    }
+
+    private var scanTail: [UInt8] {
+        // SOS 头 + 几个熵编码字节（含一个 FF00 填充）+ EOI
+        segment(0xDA, [0x01, 0x01, 0x00, 0x00, 0x3F, 0x00]) + [0x12, 0xFF, 0x00, 0x34, 0xFF, 0xD9]
+    }
+
+    @Test("EXIF、XMP、Photoshop 段与注释被去掉，JFIF、ICC、Adobe 与像素数据保留")
+    func stripsDescriptiveSegmentsOnly() throws {
+        let jfif = segment(0xE0, Array("JFIF\0".utf8) + [1, 1, 0, 0, 1, 0, 1, 0, 0])
+        let exif = segment(0xE1, Array("Exif\0\0MM".utf8))
+        let exifAgain = segment(0xE1, Array("Exif\0\0MM".utf8) + [0x00, 0x2A])
+        let icc = segment(0xE2, Array("ICC_PROFILE\0".utf8) + [1, 1])
+        let photoshop = segment(0xED, Array("Photoshop 3.0\0".utf8))
+        let adobe = segment(0xEE, Array("Adobe".utf8) + [0, 100, 0, 0, 0, 0, 1])
+        let comment = segment(0xFE, Array("hello".utf8))
+        let quant = segment(0xDB, [0x00] + Array(repeating: 1, count: 64))
+        let frame = segment(0xC0, [8, 0x01, 0x2C, 0x01, 0x2C, 1, 1, 0x11, 0])
+        let input = [0xFF, 0xD8] + jfif + exif + exifAgain + icc + photoshop + adobe + comment
+            + quant + frame + scanTail
+
+        let stripped = try #require(ArtworkImageNormalizationPolicy.strippingJPEGMetadata(Data(input)))
+        #expect([UInt8](stripped) == [0xFF, 0xD8] + jfif + icc + adobe + quant + frame + scanTail)
+    }
+
+    @Test("没有可剥的段时返回 nil，调用方照用原数据")
+    func cleanJPEGIsLeftAlone() {
+        let frame = segment(0xC0, [8, 0, 16, 0, 16, 1, 1, 0x11, 0])
+        let input = [0xFF, 0xD8] + segment(0xE0, Array("JFIF\0".utf8)) + frame + scanTail
+        #expect(ArtworkImageNormalizationPolicy.strippingJPEGMetadata(Data(input)) == nil)
+    }
+
+    @Test("不是 JPEG、或段长度越界时返回 nil，不产出半截数据")
+    func malformedInputReturnsNil() {
+        let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        #expect(ArtworkImageNormalizationPolicy.strippingJPEGMetadata(Data(png)) == nil)
+
+        // EXIF 段声明 0x1000 字节，实际文件到此为止。
+        let truncated: [UInt8] = [0xFF, 0xD8, 0xFF, 0xE1, 0x10, 0x00, 0x45, 0x78]
+        #expect(ArtworkImageNormalizationPolicy.strippingJPEGMetadata(Data(truncated)) == nil)
+
+        // 扫描还没开始就遇到 EOI。
+        let early = [0xFF, 0xD8] + segment(0xE1, [1, 2, 3]) + [0xFF, 0xD9]
+        #expect(ArtworkImageNormalizationPolicy.strippingJPEGMetadata(Data(early)) == nil)
+    }
+
+    @Test("段之间的 0xFF 填充不影响解析")
+    func toleratesFillBytesBetweenSegments() throws {
+        let exif = segment(0xE1, [1, 2, 3])
+        let frame = segment(0xC0, [8, 0, 16, 0, 16, 1, 1, 0x11, 0])
+        let input: [UInt8] = [0xFF, 0xD8] + exif + [0xFF] + frame + scanTail
+        let stripped = try #require(ArtworkImageNormalizationPolicy.strippingJPEGMetadata(Data(input)))
+        #expect([UInt8](stripped) == [0xFF, 0xD8] + frame + scanTail)
+    }
+
+    // MARK: - 结果校验
+
+    @Test("尺寸允许 1 像素取整误差，差得多就判为不可用")
+    func expectedSizeTolerance() {
+        let expected = (width: 300, height: 300)
+        #expect(ArtworkImageNormalizationPolicy.matchesExpectedSize(width: 300, height: 299, expected: expected))
+        #expect(!ArtworkImageNormalizationPolicy.matchesExpectedSize(width: 1, height: 1, expected: expected))
+        #expect(!ArtworkImageNormalizationPolicy.matchesExpectedSize(width: 96, height: 96, expected: expected))
+    }
+
+    @Test("亮度起伏不超过 2 算作纯色")
+    func uniformityThreshold() {
+        #expect(ArtworkImageNormalizationPolicy.looksUniform(minimumLuma: 106, maximumLuma: 108))
+        #expect(!ArtworkImageNormalizationPolicy.looksUniform(minimumLuma: 33, maximumLuma: 214))
+    }
 }

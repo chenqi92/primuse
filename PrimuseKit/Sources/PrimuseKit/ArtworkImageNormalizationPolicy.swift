@@ -74,4 +74,81 @@ public enum ArtworkImageNormalizationPolicy {
     public static func swapsDimensions(forExif value: Int) -> Bool {
         orientationSteps(forExif: value).quarterTurnsClockwise % 2 == 1
     }
+
+    // MARK: - 元数据与结果校验
+
+    /// 去掉 JPEG 里描述性的元数据段，像素数据原样保留。
+    ///
+    /// 网图被反复缩放、另存后，EXIF 里的尺寸常常和真实像素对不上（300×300 的图
+    /// 写着 3745×3745），还可能有两段 EXIF、截断的内嵌缩略图。真机上的 ImageIO
+    /// 生成缩略图时会参考这些信息，结果是整张图退化成一块纯色，而模拟器和 Mac
+    /// 上完全正常。剥掉之后解码器只能按 SOF 里的真实尺寸来。
+    ///
+    /// 保留 APP0 (JFIF)、APP2 (ICC 色彩配置) 和 APP14 (Adobe 色彩变换标记)，
+    /// 后两者决定颜色怎么解释，去掉会偏色；其余 APPn 与注释段都丢弃。方向信息
+    /// 只在 EXIF 里，调用方要在剥之前自己读出来。
+    ///
+    /// 不是 JPEG、结构读不通、或者本来就没有可剥的段时返回 nil，调用方照用原数据。
+    public static func strippingJPEGMetadata(_ data: Data) -> Data? {
+        let bytes = [UInt8](data)
+        guard bytes.count >= 4, bytes[0] == 0xFF, bytes[1] == 0xD8 else { return nil }
+        var output: [UInt8] = [0xFF, 0xD8]
+        output.reserveCapacity(bytes.count)
+        var index = 2
+        var removedAny = false
+        while index < bytes.count {
+            guard bytes[index] == 0xFF else { return nil }
+            var markerIndex = index + 1
+            // 段之间允许填充 0xFF。
+            while markerIndex < bytes.count, bytes[markerIndex] == 0xFF { markerIndex += 1 }
+            guard markerIndex < bytes.count else { return nil }
+            let marker = bytes[markerIndex]
+            // 独立标记没有长度字段；扫描开始之前出现 EOI 说明文件是坏的。
+            if marker == 0x01 || (0xD0...0xD7).contains(marker) {
+                output.append(contentsOf: [0xFF, marker])
+                index = markerIndex + 1
+                continue
+            }
+            guard marker != 0xD9, markerIndex + 2 < bytes.count else { return nil }
+            let length = Int(bytes[markerIndex + 1]) << 8 | Int(bytes[markerIndex + 2])
+            let segmentEnd = markerIndex + 1 + length
+            guard length >= 2, segmentEnd <= bytes.count else { return nil }
+            if marker == 0xDA {
+                // SOS 之后是熵编码数据，连同后面的全部原样照抄。
+                output.append(contentsOf: [0xFF, marker])
+                output.append(contentsOf: bytes[(markerIndex + 1)...])
+                break
+            }
+            let isDescriptive = (0xE0...0xEF).contains(marker) || marker == 0xFE
+            let isKept = marker == 0xE0 || marker == 0xE2 || marker == 0xEE
+            if isDescriptive && !isKept {
+                removedAny = true
+            } else {
+                output.append(contentsOf: [0xFF, marker])
+                output.append(contentsOf: bytes[(markerIndex + 1)..<segmentEnd])
+            }
+            index = segmentEnd
+        }
+        guard removedAny, output.count > 2 else { return nil }
+        return Data(output)
+    }
+
+    /// 解出来的位图是不是预期的大小。允许 1 像素的取整误差。
+    ///
+    /// 预期大小由 SOF 里的真实像素尺寸算出；缩略图接口给的结果对不上，就说明它
+    /// 参考了别的信息（EXIF 尺寸、内嵌缩略图），这张结果不能用。
+    public static func matchesExpectedSize(
+        width: Int,
+        height: Int,
+        expected: (width: Int, height: Int)
+    ) -> Bool {
+        abs(width - expected.width) <= 1 && abs(height - expected.height) <= 1
+    }
+
+    /// 抽样亮度几乎没有起伏 —— 整张图退化成一块纯色时的样子。
+    ///
+    /// 只拿来决定「换一条路再解一次」：真正的纯色图两条路结果一样，照样收下。
+    public static func looksUniform(minimumLuma: Int, maximumLuma: Int) -> Bool {
+        maximumLuma - minimumLuma <= 2
+    }
 }
