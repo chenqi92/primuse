@@ -3533,8 +3533,15 @@ final class MusicLibrary {
             if PlayHistoryStore.shared.spokenWordSongIDs != spokenWordSongIDs {
                 PlayHistoryStore.shared.spokenWordSongIDs = spokenWordSongIDs
             }
+            if oldValue != spokenWordSongIDs {
+                spokenWordClassificationRevision &+= 1
+            }
         }
     }
+    /// 有声 / 音乐的分流真的变了才加一。改目录标签、别的设备改分类时,可见歌曲的
+    /// 顺序一首没动,`visibleSongCollectionRevision` 不会变;按修订号缓存「音乐」
+    /// 列表的读者(电视的查找表、随机队列)靠这一个失效。
+    private(set) var spokenWordClassificationRevision = 0
 
     /// Spoken-word item id → the id of the book the shelf puts it in.
     @ObservationIgnored private(set) var spokenWordBookIDs: [String: String] = [:]

@@ -179,7 +179,10 @@ final class SpokenWordStore {
     /// on folders a source no longer scans are dropped, so a tag never keeps
     /// acting through a folder that was deselected. A source whose folders
     /// are still being chosen (none saved yet) keeps its tags.
-    func updateFolderTagSources(_ sources: [MusicSource]) {
+    ///
+    /// `pruningStaleTags: false` 只更新路径写法、不清标签:Apple TV 各源自己扫描,
+    /// 扫的目录可以和手机不同,在那里按本机目录清标签会把手机上的标签同步删掉。
+    func updateFolderTagSources(_ sources: [MusicSource], pruningStaleTags: Bool = true) {
         let descriptors = sources.filter { !$0.isDeleted }.map(LibraryFolderSourceDescriptor.init(source:))
         let scanned = Dictionary(
             sources.map { ($0.id, (type: $0.type, directories: $0.scannedDirectories)) },
@@ -187,7 +190,7 @@ final class SpokenWordStore {
         )
         var removed = false
         let now = Date()
-        for key in overrides.keys where SpokenWordFolderTag.isFolderKey(key) {
+        for key in overrides.keys where pruningStaleTags && SpokenWordFolderTag.isFolderKey(key) {
             // 标签所在目录仍在某个扫描目录之下(勾了它的上级,它显示为「已包含」)就留着;
             // 只有整棵都不再扫描才清掉。
             guard let tag = SpokenWordFolderTag.parse(overrideKey: key),

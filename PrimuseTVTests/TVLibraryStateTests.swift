@@ -288,6 +288,34 @@ final class TVLibraryStateTests: XCTestCase {
         store.engine.stop()
     }
 
+    func testSpokenWordFolderTagKeepsBooksOutOfMusicAndShuffle() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        var chapter = fixture.song("tagged-book-chapter")
+        chapter.filePath = "/Audiobooks/Novel/01.mp3"
+        let track = fixture.song("untagged-music-track")
+        fixture.library.addSongs([chapter, track])
+        _ = await fixture.library.persistNowAndWait()
+        let store = fixture.store()
+        store.reload()
+        let spokenWord = SpokenWordStore.shared
+        spokenWord.setSpokenWordFolder(true, sourceID: fixture.source.id, path: "/Audiobooks")
+        defer { spokenWord.setSpokenWordFolder(false, sourceID: fixture.source.id, path: "/Audiobooks") }
+
+        // 标签 600ms 去抖后通知重分;分流变了而可见顺序没变,音乐列表也要跟着重建。
+        let deadline = Date().addingTimeInterval(8)
+        while store.songs.contains(where: { $0.id == chapter.id }), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(fixture.library.spokenWordSongIDs.contains(chapter.id))
+        XCTAssertFalse(store.songs.contains { $0.id == chapter.id })
+        XCTAssertTrue(store.songs.contains { $0.id == track.id })
+        XCTAssertTrue(store.playAll(shuffle: true))
+        XCTAssertEqual(store.nowPlaying.songID, track.id)
+        XCTAssertFalse(store.queueUpNextIDs.contains(chapter.id))
+        store.engine.stop()
+    }
+
     func testLikesSurviveLibraryRestart() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

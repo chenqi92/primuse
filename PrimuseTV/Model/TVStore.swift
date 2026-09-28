@@ -543,6 +543,14 @@ final class TVStore {
         observeRadioStoreChanges()
         observePlaybackChanges()
         metadataScraper.startObservingArtworkRestores()
+        // 目录上的「有声」标签要按各源的路径写法匹配;装载曲库分类之前先交给它,
+        // 否则标成有声的目录在电视上仍算音乐,随机播放会抽到有声书。
+        SpokenWordStore.shared.updateFolderTagSources(initialSources.allSources, pruningStaleTags: false)
+        spokenWordClassificationObserver = NotificationCenter.default.addObserver(
+            forName: .primuseSpokenWordClassificationDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.library.refreshContentClassification() }
+        }
         if library == nil {
             let target = self.library
             let knownSourceIDs = Set(initialSources.allSources.map(\.id))
@@ -812,9 +820,11 @@ final class TVStore {
         let replacements: UUID
         let artwork: Int
         let playlists: Int
+        let spokenWord: Int
         let sourceTypes: [String: MusicSourceType]
     }
     @ObservationIgnored private var lookupRevision: LookupRevision?
+    @ObservationIgnored private var spokenWordClassificationObserver: NSObjectProtocol?
     @ObservationIgnored private var normalPlaylistCacheRevision = -1
     @ObservationIgnored private var smartPlaylistCacheRevision = -1
     @ObservationIgnored private var smartPlaylistHistoryRevision = -1
@@ -3255,6 +3265,7 @@ final class TVStore {
             _ = library.songReplacementToken
             _ = library.albumArtworkLookupRevision
             _ = library.playlistCollectionRevision
+            _ = library.spokenWordClassificationRevision
             _ = sourcesStore.allSources
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -3265,6 +3276,9 @@ final class TVStore {
                     await Task.yield()
                     guard let self else { return }
                     self.libraryRefreshTask = nil
+                    // 源的路径写法变了(新加源、改地址)时目录标签要重新匹配;没变是空操作。
+                    SpokenWordStore.shared.updateFolderTagSources(self.sourcesStore.allSources,
+                                                                 pruningStaleTags: false)
                     self.refreshVisibilityOffMain()
                     // 电台的可见性跟着音乐源的启用 / 删除走,源一变电台列表也要重算。
                     self.reloadRadioStations(fromDisk: false)
@@ -3333,6 +3347,7 @@ final class TVStore {
             replacements: library.songReplacementToken,
             artwork: library.albumArtworkLookupRevision,
             playlists: library.playlistCollectionRevision,
+            spokenWord: library.spokenWordClassificationRevision,
             sourceTypes: sourceTypes
         )
         guard revision != lookupRevision else { return }
@@ -3344,6 +3359,7 @@ final class TVStore {
                 previous.replacements != revision.replacements ? "ids" : nil,
                 previous.artwork != revision.artwork ? "artwork" : nil,
                 previous.playlists != revision.playlists ? "playlists" : nil,
+                previous.spokenWord != revision.spokenWord ? "spokenWord" : nil,
                 previous.sourceTypes != revision.sourceTypes ? "sourceTypes" : nil,
             ].compactMap { $0 }.joined(separator: "+")
         } ?? "initial"
