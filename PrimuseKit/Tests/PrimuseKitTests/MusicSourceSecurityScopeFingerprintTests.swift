@@ -126,14 +126,18 @@ struct MusicSourceSecurityScopeFingerprintTests {
 
         var rotatedCredential = source
         rotatedCredential.username = "another-user"
-        var movedContentRoot = source
+        let webDAV = makeWebDAVSource()
+        var movedContentRoot = webDAV
         movedContentRoot.basePath = "/other-music"
 
         #expect(original != MusicSourceSecurityScopeFingerprint.credentialScoped(
             for: rotatedCredential,
             revisionIdentity: "3"
         ))
-        #expect(original != MusicSourceSecurityScopeFingerprint.credentialScoped(
+        #expect(MusicSourceSecurityScopeFingerprint.credentialScoped(
+            for: webDAV,
+            revisionIdentity: "3"
+        ) != MusicSourceSecurityScopeFingerprint.credentialScoped(
             for: movedContentRoot,
             revisionIdentity: "3"
         ))
@@ -144,18 +148,19 @@ struct MusicSourceSecurityScopeFingerprintTests {
     }
 
     @Test func credentialScopeRejectsAnAlternateAddressServingAnotherContentRoot() {
-        let source = makeSynologySource()
+        // WebDAV 的路径就是目录：换了前缀就是换了一份内容。
+        let source = makeWebDAVSource()
         var repointed = source
         repointed.connectionConfiguration = SourceConnectionConfiguration(
             localEndpoint: SourceConnectionEndpoint(
                 host: "192.168.0.50",
-                port: 5_001,
+                port: 5_006,
                 useSsl: true,
                 pathPrefix: "/archive"
             ),
             publicEndpoint: SourceConnectionEndpoint(
                 host: "nas.example.cn",
-                port: 5_001,
+                port: 5_006,
                 useSsl: true,
                 pathPrefix: "/archive"
             )
@@ -170,6 +175,60 @@ struct MusicSourceSecurityScopeFingerprintTests {
                 revisionIdentity: "3"
             )
         )
+    }
+
+    @Test func serverAPIPathPrefixIsARouteNotAContentRoot() {
+        // 群晖：从带反向代理前缀的地址换成只用 QuickConnect ID，还是同一个账号。
+        let proxied = MusicSource(
+            id: "synology-source",
+            name: "NAS",
+            type: .synology,
+            connectionConfiguration: SourceConnectionConfiguration(
+                publicEndpoint: SourceConnectionEndpoint(
+                    host: "nas.example.cn",
+                    port: 443,
+                    useSsl: true,
+                    pathPrefix: "/nas"
+                )
+            ),
+            username: "listener"
+        )
+        var quickConnectOnly = proxied
+        quickConnectOnly.connectionConfiguration = SourceConnectionConfiguration(
+            remoteAccessMode: .vendor,
+            vendorIdentifier: "my-nas"
+        )
+        var withLAN = proxied
+        withLAN.connectionConfiguration = SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(host: "192.168.0.50", port: 5_001, useSsl: true),
+            publicEndpoint: proxied.connectionConfiguration?.publicEndpoint
+        )
+        for edited in [quickConnectOnly, withLAN] {
+            #expect(
+                MusicSourceScopeFingerprint.credentialScope(for: proxied)
+                    == MusicSourceScopeFingerprint.credentialScope(for: edited)
+            )
+            #expect(SourceScanContentScopePolicy.contentUnchanged(previous: proxied, current: edited))
+        }
+
+        // Navidrome：反向代理的子路径改了也只是换线路。
+        let navidrome = MusicSource(
+            id: "navidrome-source",
+            name: "Navidrome",
+            type: .navidrome,
+            host: "music.example.com",
+            port: 443,
+            useSsl: true,
+            username: "listener",
+            basePath: "/navidrome"
+        )
+        var movedProxyPath = navidrome
+        movedProxyPath.basePath = "/music"
+        #expect(
+            MusicSourceScopeFingerprint.credentialScope(for: navidrome)
+                == MusicSourceScopeFingerprint.credentialScope(for: movedProxyPath)
+        )
+        #expect(SourceScanContentScopePolicy.contentUnchanged(previous: navidrome, current: movedProxyPath))
     }
 
     @Test func routeAndNameEditsKeepTheScannedContent() {
@@ -208,7 +267,7 @@ struct MusicSourceSecurityScopeFingerprintTests {
         let source = makeSynologySource()
         var otherAccount = source
         otherAccount.username = "another-listener"
-        var otherRoot = source
+        var otherRoot = makeWebDAVSource()
         otherRoot.basePath = "/video"
         var otherDirectories = source
         otherDirectories.extraConfig = MusicSource.encodeScannedDirectories(
@@ -225,9 +284,26 @@ struct MusicSourceSecurityScopeFingerprintTests {
         var otherSource = source
         otherSource.id = "another-source"
 
-        for edited in [otherAccount, otherRoot, otherDirectories, disabled, newDevice, deleted, otherSource] {
+        for edited in [otherAccount, otherDirectories, disabled, newDevice, deleted, otherSource] {
             #expect(!SourceScanContentScopePolicy.contentUnchanged(previous: source, current: edited))
         }
+        #expect(!SourceScanContentScopePolicy.contentUnchanged(
+            previous: makeWebDAVSource(),
+            current: otherRoot
+        ))
+    }
+
+    private func makeWebDAVSource() -> MusicSource {
+        MusicSource(
+            id: "webdav-source",
+            name: "WebDAV",
+            type: .webdav,
+            host: "192.168.0.50",
+            port: 5_006,
+            useSsl: true,
+            username: "listener",
+            basePath: "/music"
+        )
     }
 
     private func makeSynologySource() -> MusicSource {

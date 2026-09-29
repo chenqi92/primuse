@@ -71,6 +71,56 @@ final class ServerRatingSyncService {
         enqueue(review, startImmediately: true)
     }
 
+    /// 音乐源只换了线路（加外网地址、换 QuickConnect / FN Connect ID、改反向代理前缀）
+    /// 时账号没变：已绑定评分与待发送评分里的账号指纹、安全指纹都换成新线路算出的值。
+    /// 不换的话评分在界面上查不到，待发送的也会被当成换了账号直接丢掉。新值与旧版
+    /// App 用同一套算法，跨设备、跨版本都对得上。换账号、改凭据不走这里，照旧作废。
+    func sourceRouteDidChange(previous: MusicSource, current: MusicSource) {
+        guard ServerRatingWritebackPolicy.supports(current.type),
+              SourceScanContentScopePolicy.contentUnchanged(previous: previous, current: current) else {
+            return
+        }
+        let previousAccount = MusicSourceScopeFingerprint.make(for: previous, includeSourceID: true)
+        let currentAccount = MusicSourceScopeFingerprint.make(for: current, includeSourceID: true)
+        let previousSecurity = MusicSourceSecurityRevision.scopedFingerprint(for: previous)
+        let currentSecurity = MusicSourceSecurityRevision.scopedFingerprint(for: current)
+        guard previousAccount != currentAccount || previousSecurity != currentSecurity else { return }
+
+        library.rebindServerRatingTargets(
+            sourceID: current.id,
+            fromAccountFingerprint: previousAccount,
+            toAccountFingerprint: currentAccount
+        )
+        var changed = false
+        for (target, entry) in entries
+        where target.sourceID == current.id && target.accountFingerprint == previousAccount {
+            let rebound = ServerSongRatingTarget(
+                sourceID: target.sourceID,
+                itemID: target.itemID,
+                accountFingerprint: currentAccount
+            )
+            entries.removeValue(forKey: target)
+            changed = true
+            if let newer = entries[rebound], newer.version >= entry.version { continue }
+            var review = entry.review
+            if review.serverRatingTarget == target { review.serverRatingTarget = rebound }
+            entries[rebound] = Entry(
+                id: entry.id,
+                target: rebound,
+                version: entry.version,
+                rating: entry.rating,
+                securityFingerprint: entry.securityFingerprint == previousSecurity
+                    ? currentSecurity
+                    : entry.securityFingerprint,
+                review: review,
+                baseline: entry.baseline,
+                pending: entry.pending,
+                blockedByConflict: entry.blockedByConflict
+            )
+        }
+        if changed { persist() }
+    }
+
     func resume(sourceID: String? = nil) {
         guard library.readiness == .ready, !library.isExternalSnapshotWriteOwned else { return }
         // Acknowledgement can precede the debounced library snapshot. Keep

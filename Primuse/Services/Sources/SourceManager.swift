@@ -6307,6 +6307,18 @@ final class SourceManager {
             currentCredentialSignature: currentCredentialSignature
         ) {
         case .allowExisting:
+            // 完整作用域没变，就证明缓存仍属于记录时那份作用域。账号作用域的算法
+            // 改过（服务端接口类源的路径前缀不再算内容根），记着的旧值在这里换成
+            // 新算法的值；否则下次只改线路时会被当成换账号，整个源的缓存被隔离。
+            if recordedAudioCacheCredentialScopeSignatures[sourceID] != currentCredentialSignature {
+                let previousCredentialSignature =
+                    recordedAudioCacheCredentialScopeSignatures[sourceID]
+                recordedAudioCacheCredentialScopeSignatures[sourceID] = currentCredentialSignature
+                if !persistAudioCacheScopeSignatures() {
+                    recordedAudioCacheCredentialScopeSignatures[sourceID] =
+                        previousCredentialSignature
+                }
+            }
             finishLegacyAudioCacheAdoption(for: sourceID)
             guard (audioCacheScopeGenerationBySourceID[sourceID] ?? 0) == generation else {
                 return .finishedBlocked

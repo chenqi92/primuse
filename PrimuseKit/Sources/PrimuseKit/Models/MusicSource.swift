@@ -450,6 +450,13 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// 地址里的路径前缀是否决定读到哪些文件。只有 WebDAV 是：路径就是目录。
+    /// 其余带路径前缀的源都走服务端接口，前缀只是 URL（反向代理）的一段，
+    /// 歌曲与文件 ID 跟它无关，换前缀和换主机一样只是换了一条线路。
+    public var endpointPathPrefixSelectsContent: Bool {
+        self == .webdav
+    }
+
     /// Connection URLs that may include a route-specific HTTP prefix. S3 is
     /// intentionally separate from `supportsEndpointSpecificPath`: its legacy
     /// `basePath` stores the bucket, while a reverse-proxy prefix belongs to

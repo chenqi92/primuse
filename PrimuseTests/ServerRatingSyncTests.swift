@@ -360,6 +360,62 @@ final class ServerRatingSyncTests: XCTestCase {
         }
     }
 
+    func testRouteOnlySourceEditKeepsRatingsAndPendingWrites() async throws {
+        try await withRig { rig in
+            rig.edit(5, comment: "keep")
+            await rig.settle()
+            rig.manager.writeError = URLError(.notConnectedToInternet)
+            rig.edit(3, comment: "keep")
+            await rig.settle()
+            // 断网那次写入失败的提示是预期的；关掉它，最后再确认改绑后重发不再出错。
+            XCTAssertNotNil(rig.library.serverRatingErrorMessage)
+            rig.library.dismissServerRatingError()
+
+            // 给 Navidrome 加一个外网地址：还是同一个账号、同一首服务端歌曲。
+            var moved = rig.source
+            moved.host = "ratings-public.invalid"
+            rig.sources.items[rig.sourceID] = moved
+            let movedTarget = try XCTUnwrap(ServerSongRatingTarget.make(song: rig.song, source: moved))
+            XCTAssertNotEqual(movedTarget, rig.target)
+            rig.manager.values[movedTarget] = rig.manager.values[rig.target]
+            // 改绑之前，绑在旧线路上的评分在界面上查不到。
+            XCTAssertNil(rig.library.libraryReview(for: rig.subject))
+
+            rig.service.sourceRouteDidChange(previous: rig.source, current: moved)
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.rating, 3)
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.comment, "keep")
+
+            rig.manager.writeError = nil
+            rig.service.resume()
+            await rig.settle()
+            XCTAssertEqual(rig.manager.values[movedTarget], 3)
+            XCTAssertEqual(rig.manager.writes.last?.target, movedTarget)
+            XCTAssertNil(rig.library.serverRatingErrorMessage)
+        }
+    }
+
+    func testAccountChangeStillDropsRatingsBoundToTheOldAccount() async throws {
+        try await withRig { rig in
+            rig.edit(5)
+            await rig.settle()
+            rig.manager.writeError = URLError(.notConnectedToInternet)
+            rig.edit(3)
+            await rig.settle()
+            let writes = rig.manager.writes.count
+
+            var otherAccount = rig.source
+            otherAccount.username = "another-user"
+            rig.sources.items[rig.sourceID] = otherAccount
+            rig.service.sourceRouteDidChange(previous: rig.source, current: otherAccount)
+            XCTAssertNil(rig.library.libraryReview(for: rig.subject))
+
+            rig.manager.writeError = nil
+            rig.service.resume()
+            await rig.settle()
+            XCTAssertEqual(rig.manager.writes.count, writes)
+        }
+    }
+
     private func withRig(_ body: (RatingRig) async throws -> Void) async throws {
         let rig = try RatingRig()
         let directory = rig.directory

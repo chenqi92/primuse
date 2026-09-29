@@ -1665,10 +1665,18 @@ final class AppServices {
         let nc = NotificationCenter.default
 
         sourceLifecycleObserverTokens.append(
-            nc.addObserver(forName: .primuseSourcesDidChange, object: nil, queue: .main) { [weak self] _ in
+            nc.addObserver(forName: .primuseSourcesDidChange, object: nil, queue: .main) { [weak self] note in
                 guard let self else { return }
+                let changedSources = note.userInfo?["sources"] as? [String: MusicSource] ?? [:]
+                let previousSources = note.userInfo?["previousSources"] as? [String: MusicSource] ?? [:]
                 MainActor.assumeIsolated {
                     self.reconcileDisabledSourceIDs()
+                    // 先把只换了线路的源的评分改绑到新指纹，再恢复发送；顺序反了，
+                    // 待发送的评分会被当成换了账号丢掉。
+                    for (sourceID, previous) in previousSources {
+                        guard let current = changedSources[sourceID] else { continue }
+                        self.serverRatingSync.sourceRouteDidChange(previous: previous, current: current)
+                    }
                     self.serverRatingSync.resume()
                     SpokenWordStore.shared.updateFolderTagSources(self.sourcesStore.allSources)
                 }

@@ -55,8 +55,9 @@ public enum MusicSourceScopeFingerprint {
     /// trusted offline bytes.
     ///
     /// Deliberately excluded: host, port, TLS, remote-access mode and vendor
-    /// identifier. Deliberately included: the content root, because a new path
-    /// prefix really does change which files a song identifier resolves to.
+    /// identifier. Deliberately included: the content root, because a new
+    /// WebDAV path prefix really does change which files a song identifier
+    /// resolves to. For server-API sources the prefix is only part of the URL.
     public static func credentialScope(for source: MusicSource) -> String {
         let components: [String] = [
             source.id,
@@ -79,8 +80,12 @@ public enum MusicSourceScopeFingerprint {
     /// is upgraded from legacy host fields to an explicit multi-route
     /// configuration by the very edit that adds the second address.
     private static func contentRoot(for source: MusicSource) -> String {
-        guard source.type.supportsEndpointSpecificPath,
-              let configuration = source.effectiveConnectionConfiguration else {
+        guard source.type.supportsEndpointSpecificPath else { return source.basePath ?? "" }
+        // 群晖、飞牛、Subsonic、Jellyfin 这类走服务端接口的源，前缀只是反向代理
+        // 地址的一段：只用 QuickConnect / FN Connect ID 与带前缀的地址之间切换时，
+        // 读到的是同一个账号的同一份曲库。
+        guard source.type.endpointPathPrefixSelectsContent else { return "" }
+        guard let configuration = source.effectiveConnectionConfiguration else {
             return source.basePath ?? ""
         }
         let endpoint = configuration.localEndpoint ?? configuration.publicEndpoint
@@ -109,6 +114,11 @@ public enum SourceScanContentScopePolicy {
 
     private static func contentFields(of source: MusicSource) -> MusicSource {
         var fields = source
+        if source.type.supportsEndpointSpecificPath,
+           !source.type.endpointPathPrefixSelectsContent {
+            // 服务端接口类源的 basePath 就是地址里的路径前缀，属于线路。
+            fields.basePath = nil
+        }
         fields.name = ""
         fields.host = nil
         fields.port = nil

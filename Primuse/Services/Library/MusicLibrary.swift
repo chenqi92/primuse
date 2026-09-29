@@ -6428,6 +6428,42 @@ final class MusicLibrary {
         return review
     }
 
+    /// 音乐源只换了线路（加外网地址、换 QuickConnect / FN Connect ID…）时，把绑在
+    /// 旧线路账号指纹上的评分改绑到新值。账号指纹的算法含线路，不改绑的话这些评分
+    /// 在界面上查不到（`storedLibraryReview` 只认当前算出来的目标）。
+    func rebindServerRatingTargets(
+        sourceID: String,
+        fromAccountFingerprint previous: String,
+        toAccountFingerprint current: String
+    ) {
+        guard previous != current else { return }
+        // S2: 发布前的改动会被存储里的值整体覆盖，排队到发布后再做。
+        if deferringUntilReady({ [weak self] in
+            self?.rebindServerRatingTargets(
+                sourceID: sourceID,
+                fromAccountFingerprint: previous,
+                toAccountFingerprint: current
+            )
+        }) { return }
+        var changed = false
+        for (key, review) in libraryReviewsBySubject {
+            guard let target = review.serverRatingTarget,
+                  target.sourceID == sourceID,
+                  target.accountFingerprint == previous else { continue }
+            var rebound = review
+            rebound.serverRatingTarget = ServerSongRatingTarget(
+                sourceID: target.sourceID,
+                itemID: target.itemID,
+                accountFingerprint: current
+            )
+            libraryReviewsBySubject[key] = rebound
+            changed = true
+        }
+        guard changed else { return }
+        libraryReviewRevision &+= 1
+        persistSnapshot(after: 0.2)
+    }
+
     func restoreLocallyAuthoredServerRating(_ review: LibraryReview) {
         guard let target = review.serverRatingTarget else { return }
         let current = self.review(forServerRatingTarget: target)
