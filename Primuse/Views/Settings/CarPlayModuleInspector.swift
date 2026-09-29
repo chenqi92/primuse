@@ -52,7 +52,7 @@ struct CarPlayModuleInspector: View {
                             Text(LocalizedStringKey(block.style.titleKey))
                             Spacer()
                             if block.style != .list {
-                                Text(verbatim: "\(block.columns)×\(block.rowsPerPage)")
+                                Text(String(format: String(localized: "carplay_columns_format"), block.columns))
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
                             }
@@ -85,7 +85,12 @@ struct CarPlayModuleInspector: View {
                     }
                     .padding(.vertical, 2)
                 } footer: {
-                    Text(String(format: String(localized: "carplay_pages_estimate"), pageEstimate))
+                    // 车机上封面按屏幕宽度排，一屏放多少由车机决定，只有清单能估出屏数。
+                    if block.style == .list {
+                        Text(String(format: String(localized: "carplay_pages_estimate"), pageEstimate))
+                    } else {
+                        Text("carplay_item_limit_footer")
+                    }
                 }
 
                 Section("carplay_tap_action") {
@@ -160,8 +165,7 @@ struct CarPlayModuleInspector: View {
     }
 
     private var pageEstimate: Int {
-        let perPage = block.style == .list ? 5 : block.columns * block.rowsPerPage
-        return max(1, Int(ceil(Double(block.itemLimit) / Double(max(1, perPage)))))
+        max(1, Int(ceil(Double(block.itemLimit) / 5)))
     }
 
     private func layoutOption(_ style: CarPlayBrowseStyle, columns: Int, title: String) -> some View {

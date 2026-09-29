@@ -312,7 +312,7 @@ struct CarPlayModuleList: View {
 
     private func summary(_ block: CarPlayLayoutBlock) -> String {
         guard block.isVisible else { return String(localized: "carplay_module_hidden") }
-        let style = block.style == .list || block.style == .capsules ? NSLocalizedString(block.style.titleKey, comment: "") : "\(block.columns)×\(block.rowsPerPage) " + String(localized: "carplay_style_covers")
+        let style = block.style == .list || block.style == .capsules ? NSLocalizedString(block.style.titleKey, comment: "") : String(format: String(localized: "carplay_columns_format"), block.columns) + " " + String(localized: "carplay_style_covers")
         return style + " · \(block.itemLimit) " + String(localized: "carplay_items_unit") + " · " + String(localized: block.playsImmediately ? "carplay_action_play" : "carplay_action_browse")
     }
 }

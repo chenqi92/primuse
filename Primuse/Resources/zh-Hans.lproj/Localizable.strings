@@ -4026,9 +4026,11 @@
 "carplay_module_name" = "模块名称";
 "carplay_content_layout" = "内容布局";
 "carplay_content_sources" = "内容来源";
-"carplay_grid_2" = "2×2 封面";
-"carplay_grid_3" = "3×3 封面";
-"carplay_layout_car_width_hint" = "In the car, cover size is set by CarPlay and each row fills the width of the car screen; the column count here only affects the preview.";
+"carplay_grid_2" = "2 列封面";
+"carplay_grid_3" = "3 列封面";
+"carplay_layout_car_width_hint" = "车机上封面大小由系统决定，每行放几个按车机屏幕宽度自动排满；这里的列数只影响预览。";
+"carplay_columns_format" = "%d 列";
+"carplay_item_limit_footer" = "上限 60";
 "carplay_pages_estimate" = "约 %d 屏 · 上限 60";
 "carplay_reset_module" = "重置此模块";
 "carplay_preview_in_car" = "在车机预览";

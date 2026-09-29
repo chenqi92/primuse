@@ -234,7 +234,7 @@ final class CarPlayEditorUITests: XCTestCase {
         slider.adjust(toNormalizedSliderPosition: 0.75)
         attach(app, "CarPlay-inspector-device")
         app.buttons["完成"].firstMatch.tap()
-        XCTAssertTrue(shortcut.label.contains("3×3"), shortcut.label)
+        XCTAssertTrue(shortcut.label.contains("3 列"), shortcut.label)
         app.buttons["carplay.undoButton"].tap()
         XCTAssertTrue(shortcut.label.contains("24"), shortcut.label)
         app.buttons["carplay.redoButton"].tap()
