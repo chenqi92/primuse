@@ -442,7 +442,8 @@ struct TVSongMatchView: View {
                 let image = result.coverData.flatMap(UIImage.init(data:))
                 previewImage = image
                 applyTags = result.tagsChanged
-                applyCover = image != nil
+                // CUE 分轨共用整张专辑的封面,单首换封面默认不勾。
+                applyCover = image != nil && !song.isCueTrack
                 applyLyrics = result.lyrics?.isEmpty == false
                 preview = image == nil ? result.droppingCover() : result
                 if debugAppliesPreview {

@@ -221,6 +221,21 @@ final class TVMetadataScrapeService {
         proposed.year = Self.firstPositive(detail?.year, item.year, song.year)
         proposed.trackNumber = Self.firstPositive(detail?.trackNumber, item.trackNumber, song.trackNumber)
         proposed.discNumber = Self.firstPositive(detail?.discNumber, song.discNumber)
+        // CUE 分轨的歌手、专辑、音轨号、碟号以 CUE 表为准;候选常是别的版本或合辑,
+        // 勾「标签」时照搬会把这一首拆出专辑,只让年份、流派、标题跟着候选走。
+        if song.isCueTrack {
+            proposed.artist = ScrapeCueIdentityPolicy.resolvedOptionalText(
+                original: original.artist, scraped: proposed.artist, isCueTrack: true
+            )
+            proposed.sourceArtistNames = proposed.artist == original.artist
+                ? original.sourceArtistNames : proposed.sourceArtistNames
+            proposed.albumTitle = ScrapeCueIdentityPolicy.resolvedOptionalText(
+                original: original.albumTitle, scraped: proposed.albumTitle, isCueTrack: true
+            )
+            proposed.albumArtist = original.albumArtist
+            proposed.trackNumber = original.trackNumber ?? proposed.trackNumber
+            proposed.discNumber = original.discNumber
+        }
 
         var coverData: Data?
         if let coverURL {
