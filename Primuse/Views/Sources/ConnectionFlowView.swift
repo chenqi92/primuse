@@ -358,111 +358,90 @@ struct ConnectionFlowView: View {
     }
 
     #if os(macOS)
+    /// 内容直接铺在弹窗上: 弹窗本身已经是一张卡片, 里面再套一层带描边和阴影的
+    /// 卡片就成了「卡片套卡片」。
     private var macOTPView: some View {
-        VStack {
-            Spacer(minLength: 28)
+        VStack(spacing: 0) {
+            Spacer(minLength: 20)
 
-            VStack(spacing: 0) {
-                VStack(spacing: 24) {
-                    VStack(spacing: 14) {
-                        Image(systemName: "lock.shield.fill")
-                            .font(.system(size: 27, weight: .semibold))
-                            .foregroundStyle(PMColor.brand)
-                            .frame(width: 58, height: 58)
-                            .background(PMColor.brand.opacity(0.13), in: .rect(cornerRadius: 16))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .strokeBorder(PMColor.brand.opacity(0.28), lineWidth: 0.5)
-                            }
+            VStack(spacing: 22) {
+                VStack(spacing: 14) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 27, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                        .frame(width: 58, height: 58)
+                        .background(PMColor.brand.opacity(0.13), in: .rect(cornerRadius: 16))
 
-                        VStack(spacing: 6) {
-                            Text("enter_otp")
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(PMColor.text)
-                            Text("otp_hint")
-                                .font(.system(size: 13))
-                                .foregroundStyle(PMColor.textMuted)
-                                .multilineTextAlignment(.center)
-                        }
-                    }
-
-                    ZStack {
-                        HStack(spacing: 10) {
-                            ForEach(0..<6, id: \.self) { index in
-                                OTPDigitBox(
-                                    digit: index < otpCode.count
-                                        ? String(otpCode[otpCode.index(otpCode.startIndex, offsetBy: index)])
-                                        : "",
-                                    isCurrent: index == otpCode.count && otpFocused
-                                )
-                            }
-                        }
-
-                        TextField("", text: $otpCode)
-                            .textFieldStyle(.plain)
-                            .focused($otpFocused)
-                            .frame(width: 1, height: 1)
-                            .opacity(0.001)
-                            .onSubmit {
-                                if otpCode.count == 6 { verifyOTP() }
-                            }
-                            .onChange(of: otpCode) { _, value in
-                                let normalized = String(value.filter(\.isNumber).prefix(6))
-                                if normalized != value {
-                                    otpCode = normalized
-                                }
-                                if !normalized.isEmpty {
-                                    errorMessage = ""
-                                }
-                            }
-                            .accessibilityLabel(Text("enter_otp"))
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { otpFocused = true }
-
-                    if !errorMessage.isEmpty {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(PMColor.bad)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(PMColor.bad.opacity(0.10), in: .rect(cornerRadius: 8))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(PMColor.bad.opacity(0.22), lineWidth: 0.5)
-                            }
+                    VStack(spacing: 6) {
+                        Text("enter_otp")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(PMColor.text)
+                        Text("otp_hint")
+                            .font(.system(size: 13))
+                            .foregroundStyle(PMColor.textMuted)
+                            .multilineTextAlignment(.center)
                     }
                 }
-                .padding(.horizontal, 32)
-                .padding(.top, 30)
-                .padding(.bottom, 26)
 
-                Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-                Toggle(isOn: $rememberDevice) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("remember_device_otp")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(PMColor.text)
-                        Text("remember_device_desc")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(PMColor.textMuted)
+                ZStack {
+                    HStack(spacing: 10) {
+                        ForEach(0..<6, id: \.self) { index in
+                            OTPDigitBox(
+                                digit: index < otpCode.count
+                                    ? String(otpCode[otpCode.index(otpCode.startIndex, offsetBy: index)])
+                                    : "",
+                                isCurrent: index == otpCode.count && otpFocused
+                            )
+                        }
                     }
+
+                    TextField("", text: $otpCode)
+                        .textFieldStyle(.plain)
+                        .focused($otpFocused)
+                        .frame(width: 1, height: 1)
+                        .opacity(0.001)
+                        .onSubmit {
+                            if otpCode.count == 6 { verifyOTP() }
+                        }
+                        .onChange(of: otpCode) { _, value in
+                            let normalized = String(value.filter(\.isNumber).prefix(6))
+                            if normalized != value {
+                                otpCode = normalized
+                            }
+                            if !normalized.isEmpty {
+                                errorMessage = ""
+                            }
+                        }
+                        .accessibilityLabel(Text("enter_otp"))
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { otpFocused = true }
+
+                if !errorMessage.isEmpty {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(PMColor.bad)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(PMColor.bad.opacity(0.10), in: .rect(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(PMColor.bad.opacity(0.22), lineWidth: 0.5)
+                        }
+                }
+
+                // 标题里已经写了「下次跳过验证」, 不再另起一行重复说明。
+                Toggle(isOn: $rememberDevice) {
+                    Text("remember_device_otp")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMColor.text)
                 }
                 .toggleStyle(.checkbox)
-                .padding(.horizontal, 24)
-                .frame(height: 66)
             }
-            .frame(width: 500)
-            .background(PMColor.bgElev, in: .rect(cornerRadius: 16))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
-            }
-            .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
+            .frame(maxWidth: 420)
 
-            Spacer(minLength: 28)
+            Spacer(minLength: 20)
         }
         .padding(.horizontal, 36)
         .onAppear {
