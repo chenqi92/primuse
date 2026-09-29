@@ -88,6 +88,41 @@ public enum MusicSourceScopeFingerprint {
     }
 }
 
+/// 一次音乐源编辑之后，扫描积累的同步索引（文件夹层级、增量游标、删除证据）
+/// 是否仍描述同一份内容。
+///
+/// 只把确知不碰内容的字段排除在比较之外：名称、访问线路（主机 / 端口 / TLS、
+/// 多线路配置、群晖与飞牛的连接方式）以及扫描自己回写的计数与时间。其余字段
+/// 任何一个不同都按内容可能变了处理；账号与内容根另由 `credentialScope` 把关，
+/// 因为多线路配置里的路径前缀就是内容根。
+public enum SourceScanContentScopePolicy {
+    public static func contentUnchanged(previous: MusicSource, current: MusicSource) -> Bool {
+        guard previous.id == current.id,
+              !previous.isDeleted,
+              !current.isDeleted,
+              MusicSourceScopeFingerprint.credentialScope(for: previous)
+                == MusicSourceScopeFingerprint.credentialScope(for: current) else {
+            return false
+        }
+        return contentFields(of: previous) == contentFields(of: current)
+    }
+
+    private static func contentFields(of source: MusicSource) -> MusicSource {
+        var fields = source
+        fields.name = ""
+        fields.host = nil
+        fields.port = nil
+        fields.useSsl = false
+        fields.synologyConnectionMode = nil
+        fields.fnMusicConnectionMode = nil
+        fields.connectionConfiguration = nil
+        fields.lastScannedAt = nil
+        fields.songCount = 0
+        fields.modifiedAt = .distantPast
+        return fields
+    }
+}
+
 public enum SourceCatalogSnapshotPolicy {
     /// Compares authoritative snapshots without exposing pagination order.
     /// Duplicate IDs fail closed so malformed snapshots never become a no-op.

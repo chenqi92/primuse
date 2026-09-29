@@ -71,6 +71,39 @@ final class SourceChangeScanInvalidationTests: XCTestCase {
         XCTAssertTrue(fixture.scan.libraryFolderSyncIndex(for: row.id).isEmpty)
     }
 
+    func testRouteOnlyLocalEditKeepsFolderTopologyUnderTheNewScope() async throws {
+        let fixture = try makeFixture(pausedPaths: [])
+        XCTAssertTrue(fixture.start())
+        try await waitUntil { fixture.store.source(id: fixture.source.id)?.lastScannedAt != nil }
+        XCTAssertFalse(fixture.scan.libraryFolderSyncIndex(for: fixture.source.id).isEmpty)
+
+        // 给 NAS 换一个访问地址：内容没变，目录层级不能空到下次扫描。
+        fixture.store.update(fixture.source.id) { $0.host = "nas.example.com" }
+        try await settle()
+        XCTAssertFalse(fixture.scan.libraryFolderSyncIndex(for: fixture.source.id).isEmpty)
+
+        // 同步状态已经换成新行的作用域：这一行从云端回来时不再被当成作用域变了。
+        let edited = try XCTUnwrap(fixture.store.source(id: fixture.source.id))
+        post(edited, origin: "remote")
+        try await settle()
+        XCTAssertFalse(fixture.scan.libraryFolderSyncIndex(for: fixture.source.id).isEmpty)
+    }
+
+    func testLocalDirectoryEditStillDropsFolderTopology() async throws {
+        let fixture = try makeFixture(pausedPaths: [])
+        XCTAssertTrue(fixture.start())
+        try await waitUntil { fixture.store.source(id: fixture.source.id)?.lastScannedAt != nil }
+        XCTAssertFalse(fixture.scan.libraryFolderSyncIndex(for: fixture.source.id).isEmpty)
+
+        fixture.store.update(fixture.source.id) {
+            $0.extraConfig = MusicSource.encodeScannedDirectories(
+                ["/Other"], into: $0.extraConfig, type: $0.type
+            )
+        }
+        try await settle()
+        XCTAssertTrue(fixture.scan.libraryFolderSyncIndex(for: fixture.source.id).isEmpty)
+    }
+
     func testRemoteEchoOfLocalRowNeitherNotifiesNorRewritesIt() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("SourceEcho-\(UUID().uuidString)")
@@ -152,7 +185,9 @@ final class SourceChangeScanInvalidationTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("SourceChangeScan-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let source = MusicSource(id: "source", name: "NAS", type: .webdav, extraConfig: "[\"/Music\"]")
+        let source = MusicSource(
+            id: "source", name: "NAS", type: .webdav, host: "192.168.0.50", extraConfig: "[\"/Music\"]"
+        )
         let connector = PausableScanConnector(pausedPaths: pausedPaths)
         let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
         let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))

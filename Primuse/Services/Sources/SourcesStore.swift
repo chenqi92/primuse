@@ -204,9 +204,10 @@ final class SourcesStore {
     }
 
     func upsert(_ source: MusicSource) {
+        let previous = allSources.first { $0.id == source.id }
         applyUpsert(source)
         persist()
-        notifyChanged([source.id])
+        notifyChanged([source.id], previous: previous.map { [source.id: $0] } ?? [:])
     }
 
     private func applyUpsert(_ source: MusicSource) {
@@ -235,9 +236,10 @@ final class SourcesStore {
 
     /// User-facing edit. Bumps `modifiedAt` and triggers an iCloud sync push.
     func update(_ sourceID: String, mutate: (inout MusicSource) -> Void) {
+        let previous = allSources.first { $0.id == sourceID }
         guard applyUserUpdate(sourceID, mutate: mutate) else { return }
         persist()
-        notifyChanged([sourceID])
+        notifyChanged([sourceID], previous: previous.map { [sourceID: $0] } ?? [:])
     }
 
     /// User-facing edit that is reported as successful only after the updated
@@ -257,7 +259,10 @@ final class SourcesStore {
             allSources = previousSources
             throw error
         }
-        notifyChanged([sourceID])
+        notifyChanged(
+            [sourceID],
+            previous: previousSources.first { $0.id == sourceID }.map { [sourceID: $0] } ?? [:]
+        )
         return true
     }
 
@@ -665,6 +670,7 @@ final class SourcesStore {
             restoresRecordedDeletion = false
         }
 
+        var previousRow: MusicSource?
         if let existing = allSources.first(where: { $0.id == remote.id }) {
             if existing.isDeleted && !remote.isDeleted {
                 let deletion = MusicSourceDeletionRecord(tombstone: existing)
@@ -692,6 +698,7 @@ final class SourcesStore {
             if let index = allSources.firstIndex(where: { $0.id == merged.id }) {
                 allSources[index] = merged
             }
+            previousRow = existing
         } else {
             // Don't reanimate a record the server has marked deleted.
             // Stage 4's migration may push tombstones up; once the
@@ -707,14 +714,24 @@ final class SourcesStore {
             removeSourceDeletionRecord(id: remote.id)
         }
         persist()
-        notifyChanged([remote.id], origin: "remote")
+        notifyChanged(
+            [remote.id],
+            origin: "remote",
+            previous: previousRow.map { [remote.id: $0] } ?? [:]
+        )
     }
 
     /// `origin` tells observers whether the change was produced locally or is
     /// the result of applying a record that CloudKit just handed us. The sync
     /// enqueue paths use it to avoid echoing a fetched record straight back as
     /// a save; UI observers ignore it and refresh either way.
-    private func notifyChanged(_ ids: [String], origin: String = "local") {
+    /// `previous` 是改之前的那几行：ScanService 拿它判断这次只改了线路、名称还是
+    /// 真动了内容，只改线路时保留目录层级与同步索引。
+    private func notifyChanged(
+        _ ids: [String],
+        origin: String = "local",
+        previous: [String: MusicSource] = [:]
+    ) {
         var scopeFingerprints: [String: String] = [:]
         var credentialScopeFingerprints: [String: String] = [:]
         // 活着的那几行本身也随通知带出去: ScanService 要拿它们判断扫描作用域
@@ -738,6 +755,7 @@ final class SourcesStore {
                 "sources": changedSources,
                 "scopeFingerprints": scopeFingerprints,
                 "credentialScopeFingerprints": credentialScopeFingerprints,
+                "previousSources": previous,
                 "origin": origin,
             ]
         )

@@ -172,6 +172,64 @@ struct MusicSourceSecurityScopeFingerprintTests {
         )
     }
 
+    @Test func routeAndNameEditsKeepTheScannedContent() {
+        let source = makeSynologySource()
+        var withPublicAddress = source
+        withPublicAddress.name = "NAS (anywhere)"
+        withPublicAddress.connectionConfiguration = SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(
+                host: "192.168.0.50",
+                port: 5_001,
+                useSsl: true,
+                pathPrefix: "/music"
+            ),
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "nas.example.cn",
+                port: 5_001,
+                useSsl: true,
+                pathPrefix: "/music"
+            )
+        )
+        withPublicAddress.modifiedAt = source.modifiedAt.addingTimeInterval(60)
+        withPublicAddress.songCount = 4_375
+        #expect(SourceScanContentScopePolicy.contentUnchanged(
+            previous: source,
+            current: withPublicAddress
+        ))
+
+        var movedHost = source
+        movedHost.host = "192.168.0.51"
+        movedHost.port = 5_000
+        movedHost.useSsl = false
+        #expect(SourceScanContentScopePolicy.contentUnchanged(previous: source, current: movedHost))
+    }
+
+    @Test func contentEditsStillInvalidateTheScannedContent() {
+        let source = makeSynologySource()
+        var otherAccount = source
+        otherAccount.username = "another-listener"
+        var otherRoot = source
+        otherRoot.basePath = "/video"
+        var otherDirectories = source
+        otherDirectories.extraConfig = MusicSource.encodeScannedDirectories(
+            ["/music/Other"],
+            into: source.extraConfig,
+            type: source.type
+        )
+        var disabled = source
+        disabled.isEnabled = false
+        var newDevice = source
+        newDevice.deviceId = "trusted-device"
+        var deleted = source
+        deleted.isDeleted = true
+        var otherSource = source
+        otherSource.id = "another-source"
+
+        for edited in [otherAccount, otherRoot, otherDirectories, disabled, newDevice, deleted, otherSource] {
+            #expect(!SourceScanContentScopePolicy.contentUnchanged(previous: source, current: edited))
+        }
+    }
+
     private func makeSynologySource() -> MusicSource {
         MusicSource(
             id: "synology-source",

@@ -707,6 +707,7 @@ final class ScanService {
                   let sourceIDs = note.userInfo?["ids"] as? [String] else { return }
             let cameFromRemote = (note.userInfo?["origin"] as? String) == "remote"
             let changedSources = note.userInfo?["sources"] as? [String: MusicSource] ?? [:]
+            let previousSources = note.userInfo?["previousSources"] as? [String: MusicSource] ?? [:]
             MainActor.assumeIsolated {
                 for sourceID in sourceIDs {
                     if cameFromRemote,
@@ -718,10 +719,47 @@ final class ScanService {
                         self.cancelScan(for: sourceID)
                     }
                     self.removeCheckpoint(for: sourceID)
+                    if let previous = previousSources[sourceID],
+                       let current = changedSources[sourceID],
+                       self.carrySyncStateAcrossContentNeutralEdit(
+                           previous: previous,
+                           current: current
+                       ) {
+                        continue
+                    }
                     self.invalidateSyncState(for: sourceID)
                 }
             }
         }
+    }
+
+    /// 只改了线路、名称这类不碰内容的字段（例如给 NAS 加一个外网地址）时，同步
+    /// 状态描述的仍是同一份内容：留着它，把作用域指纹换成新行的，目录页就不会
+    /// 空到下次扫描，定期增量同步也不必先走一次完整遍历。进行中的扫描已由调用方
+    /// 取消；这里先推进写入序号再写，被取消的那次扫描迟到的写入会被挡在外面。
+    /// 返回 false 时调用方照旧作废同步状态。
+    private func carrySyncStateAcrossContentNeutralEdit(
+        previous: MusicSource,
+        current: MusicSource
+    ) -> Bool {
+        guard SourceScanContentScopePolicy.contentUnchanged(previous: previous, current: current),
+              let directories = scanDirectories(for: current),
+              var state = syncStates[current.id] else { return false }
+        state.scopeFingerprint = Self.scopeFingerprint(for: current, directories: directories)
+        if state.identityScopeFingerprint != nil {
+            state.identityScopeFingerprint = Self.scopeFingerprint(for: current, directories: [])
+        }
+        syncStateMutationEpochs[current.id] = syncStateMutationEpochs[current.id, default: 0] &+ 1
+        syncStates[current.id] = state
+        Task { [weak self] in
+            do {
+                try await self?.persistSyncState(state)
+            } catch {
+                plog("⚠️ Source sync state rescope not persisted source=\(current.id.prefix(8)): \(error.localizedDescription)")
+            }
+        }
+        plog("🛡️ Source edit kept folder topology source=\(current.id.prefix(8)) scope=content-unchanged")
+        return true
     }
 
     /// True when the checkpoint or sync state on file was built for exactly
