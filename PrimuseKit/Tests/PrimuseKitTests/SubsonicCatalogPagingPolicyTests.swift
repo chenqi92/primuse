@@ -344,6 +344,100 @@ struct PagedSongCatalogStagingStoreTests {
         }
     }
 
+    @Test("A stage left by an earlier launch cannot refuse this launch's reset")
+    func earlierLaunchOwnershipIsReleased() throws {
+        try withStore { store in
+            try store.reset(
+                sourceID: "source",
+                stageSessionID: "session-old-launch",
+                ownerGeneration: 9,
+                replacingStageSessionID: nil,
+                scopeFingerprint: "account-a",
+                catalogRevision: "scan-a"
+            )
+            // Generations restart at launch: without the release, generation 1
+            // with a stale session id is refused by the old owner.
+            #expect(throws: PagedSongCatalogStagingError.scopeChanged) {
+                try store.reset(
+                    sourceID: "source",
+                    stageSessionID: "session-new",
+                    ownerGeneration: 1,
+                    replacingStageSessionID: nil,
+                    scopeFingerprint: "account-a",
+                    catalogRevision: "scan-b"
+                )
+            }
+            try store.releaseOwnershipFromEarlierLaunch()
+            try store.reset(
+                sourceID: "source",
+                stageSessionID: "session-new",
+                ownerGeneration: 1,
+                replacingStageSessionID: nil,
+                scopeFingerprint: "account-a",
+                catalogRevision: "scan-b"
+            )
+            #expect(try store.snapshot(sourceID: "source")?.stageSessionID == "session-new")
+            #expect(try store.snapshot(sourceID: "source")?.ownerGeneration == 1)
+        }
+    }
+
+    @Test("Startup cleanup drops only stages no checkpoint can resume")
+    func unresumableStagesAreDiscarded() throws {
+        try withStore { store in
+            for (sourceID, sessionID) in [
+                ("resumable", "session-r"),
+                ("orphan", "session-o"),
+                ("stale", "session-s-old"),
+            ] {
+                try store.reset(
+                    sourceID: sourceID,
+                    stageSessionID: sessionID,
+                    ownerGeneration: 3,
+                    replacingStageSessionID: nil,
+                    scopeFingerprint: "account-a",
+                    catalogRevision: "scan-a"
+                )
+                _ = try store.stagePage(
+                    sourceID: sourceID,
+                    stageSessionID: sessionID,
+                    scopeFingerprint: "account-a",
+                    catalogRevision: "scan-a",
+                    offset: 0,
+                    nextOffset: 500,
+                    itemIDs: ["item-\(sourceID)"],
+                    songs: [makeSong(index: sourceID.count)],
+                    metadataInspectedSongIDs: [],
+                    hierarchyItems: [],
+                    addedSongCount: 1
+                )
+            }
+            try store.releaseOwnershipFromEarlierLaunch()
+            // A scan of this launch already reset its own stage; it is owned
+            // and must survive although no startup checkpoint names it.
+            try store.reset(
+                sourceID: "claimed",
+                stageSessionID: "session-c",
+                ownerGeneration: 1,
+                replacingStageSessionID: nil,
+                scopeFingerprint: "account-a",
+                catalogRevision: "scan-a"
+            )
+
+            let discarded = try store.discardUnresumableStages(keepingStageSessionIDs: [
+                "resumable": "session-r",
+                "stale": "session-s-new",
+            ])
+
+            #expect(discarded == ["orphan", "stale"])
+            #expect(try store.snapshot(sourceID: "resumable")?.stagedItemCount == 1)
+            #expect(try store.snapshot(sourceID: "claimed") != nil)
+            #expect(try store.snapshot(sourceID: "orphan") == nil)
+            #expect(try store.snapshot(sourceID: "stale") == nil)
+            #expect(try store.stagedItemIDs(sourceID: "orphan", among: ["item-orphan"]).isEmpty)
+            #expect(try store.stagedItemIDs(sourceID: "resumable", among: ["item-resumable"]) == ["item-resumable"])
+        }
+    }
+
     @Test("Staged progress survives reopening the SQLite store")
     func stagedProgressSurvivesColdRestart() throws {
         let url = temporaryStoreURL()

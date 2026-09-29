@@ -571,6 +571,55 @@ public final class PagedSongCatalogStagingStore: @unchecked Sendable {
         }
     }
 
+    /// Owner generation of a stage no scan of this launch has claimed.
+    public static let unownedGeneration = Int.min
+
+    /// Scan generations restart with every launch, so an owner generation
+    /// written by an earlier process means nothing now; left in place it could
+    /// outrank this launch's scans and refuse their reset forever. Call once
+    /// at startup, before any scan runs.
+    public func releaseOwnershipFromEarlierLaunch() throws {
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE pagedCatalogStages SET ownerGeneration = ?",
+                arguments: [Self.unownedGeneration]
+            )
+        }
+    }
+
+    /// Deletes stages no checkpoint can resume: a stage resumes only while a
+    /// checkpoint names its session, so any other one is dead rows (a removed
+    /// source, a crash between reset and the first page). Stages a scan of this
+    /// launch has already reset are owned and left alone.
+    @discardableResult
+    public func discardUnresumableStages(
+        keepingStageSessionIDs keep: [String: String]
+    ) throws -> [String] {
+        try database.write { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT sourceID, stageSessionID FROM pagedCatalogStages WHERE ownerGeneration = ?",
+                arguments: [Self.unownedGeneration]
+            )
+            var discarded: [String] = []
+            for row in rows {
+                let sourceID: String = row["sourceID"]
+                let stageSessionID: String = row["stageSessionID"]
+                guard keep[sourceID] != stageSessionID else { continue }
+                try Self.deleteStage(sourceID: sourceID, in: db)
+                discarded.append(sourceID)
+            }
+            // Page rows whose stage row is already gone.
+            for table in ["pagedCatalogItems", "pagedCatalogSongs", "pagedCatalogHierarchy"] {
+                try db.execute(sql: """
+                    DELETE FROM \(table)
+                    WHERE sourceID NOT IN (SELECT sourceID FROM pagedCatalogStages)
+                    """)
+            }
+            return discarded.sorted()
+        }
+    }
+
     public func discard(sourceID: String, stageSessionID: String? = nil) throws {
         try database.write { db in
             if let stageSessionID {

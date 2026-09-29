@@ -613,15 +613,40 @@ final class ScanService {
             initialCheckpoints: startupState.checkpoints
         )
         do {
-            pagedCatalogStore = try PagedSongCatalogStagingStore(
+            let store = try PagedSongCatalogStagingStore(
                 path: directory.appendingPathComponent("paged-catalog-staging.sqlite").path
             )
+            // Before any scan of this launch can reset a stage: owner
+            // generations left by an earlier process must not outrank it.
+            do {
+                try store.releaseOwnershipFromEarlierLaunch()
+            } catch {
+                plog("⚠️ Catalogue stage ownership release failed: \(error.localizedDescription)")
+            }
+            pagedCatalogStore = store
         } catch {
             pagedCatalogStore = nil
             plog("⚠️ Navidrome staging unavailable; compatibility scans will be merge-only: \(error.localizedDescription)")
         }
         syncStateURL = resolvedSyncStateURL
         loadCheckpoints(startupState.checkpoints)
+        if let pagedCatalogStore {
+            let resumableStageSessions = startupState.checkpoints.compactMapValues {
+                $0.subsonicCatalogState?.stageSessionID
+            }
+            Task.detached(priority: .utility) {
+                do {
+                    let discarded = try pagedCatalogStore.discardUnresumableStages(
+                        keepingStageSessionIDs: resumableStageSessions
+                    )
+                    if !discarded.isEmpty {
+                        plog("🗂️ Discarded \(discarded.count) unresumable catalogue stage(s)")
+                    }
+                } catch {
+                    plog("⚠️ Catalogue stage cleanup failed: \(error.localizedDescription)")
+                }
+            }
+        }
         applySyncStates(startupState.syncStates)
         syncStateStore = SourceSyncStateFileStore(
             url: syncStateURL,
