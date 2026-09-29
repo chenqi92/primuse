@@ -849,11 +849,15 @@ struct LibraryReviewSection: View {
 
                     Spacer(minLength: 8)
 
+                    #if os(macOS)
+                    macCommentButton
+                    #else
                     if usesCompactControls {
                         commentButton.buttonStyle(.plain)
                     } else {
                         commentButton.buttonStyle(.bordered)
                     }
+                    #endif
                 }
 
                 if let comment = review?.comment, !comment.isEmpty {
@@ -875,6 +879,12 @@ struct LibraryReviewSection: View {
         }
     }
 
+    /// 三元表达式直接写进 `Text`/`Label` 会被推断成 `String`、不走本地化，
+    /// 所以按钮文案经这个显式类型的属性取。
+    private var commentActionKey: LocalizedStringKey {
+        review?.comment.isEmpty == false ? "library_review_edit_comment" : "library_review_add_comment"
+    }
+
     private var commentButton: some View {
         Button {
             showsCommentEditor = true
@@ -886,18 +896,49 @@ struct LibraryReviewSection: View {
                     .contentShape(Rectangle())
             } else {
                 Label(
-                    review?.comment.isEmpty == false
-                        ? "library_review_edit_comment"
-                        : "library_review_add_comment",
+                    commentActionKey,
                     systemImage: review?.comment.isEmpty == false ? "text.bubble.fill" : "text.bubble"
                 )
             }
         }
         .foregroundStyle(foregroundColor ?? (onArtwork ? Color.white : Color.accentColor))
-        .accessibilityLabel(Text(review?.comment.isEmpty == false
-            ? "library_review_edit_comment" : "library_review_add_comment"))
+        .accessibilityLabel(Text(commentActionKey))
         .accessibilityHint(Text("library_review_comment_hint"))
     }
+
+    #if os(macOS)
+    /// 系统 `.bordered` 在 Mac 上是一块灰色凸起按钮，放在封面取色的头部或播放页上
+    /// 很突兀；换成和其它 Mac 页面一致的半透明胶囊。
+    private var macCommentButton: some View {
+        let hasComment = review?.comment.isEmpty == false
+        let tint = foregroundColor ?? (onArtwork ? Color.white : PMColor.text)
+        return Button {
+            showsCommentEditor = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: hasComment ? "text.bubble.fill" : "text.bubble")
+                    .font(.system(size: 12, weight: .semibold))
+                if !compact {
+                    Text(commentActionKey)
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, compact ? 0 : 12)
+            .frame(width: compact ? 30 : nil, height: 28)
+            .background(
+                onArtwork || foregroundColor != nil ? tint.opacity(0.16) : PMColor.glassBtn,
+                in: .capsule
+            )
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .pmHoverLift()
+        .help(Text(commentActionKey))
+        .accessibilityLabel(Text(commentActionKey))
+        .accessibilityHint(Text("library_review_comment_hint"))
+    }
+    #endif
 }
 
 struct LibraryReviewRatingPicker: View {
@@ -963,6 +1004,9 @@ private struct LibraryReviewCommentEditor: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        MacLibraryReviewCommentEditor(subject: subject)
+        #else
         NavigationStack {
             Form {
                 Section {
@@ -1002,8 +1046,241 @@ private struct LibraryReviewCommentEditor: View {
             }
             .onAppear { draft = currentReview?.comment ?? "" }
         }
-        #if os(macOS)
-        .frame(minWidth: 460, minHeight: 320)
         #endif
     }
 }
+
+#if os(macOS)
+/// Mac 上的评分与评论面板。原先和 iOS 共用 `NavigationStack` + `Form`：在 Mac 的
+/// 弹窗里标题不显示、输入框是一块没有边框的白底、按钮落在系统默认位置，和其它
+/// Mac 弹窗（新建歌单、调整顺序）完全两个样子。这里按同一套面板画：标题栏、
+/// 星级、带边框的输入区、底部操作行。星级和评论一起保存，取消则都不改。
+private struct MacLibraryReviewCommentEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(MusicLibrary.self) private var library
+
+    let subject: LibraryReviewSubject
+    @State private var draft = ""
+    @State private var draftRating: Int?
+    @State private var initialComment = ""
+    @State private var initialRating: Int?
+    @State private var subjectTitle: String?
+    @FocusState private var editorFocused: Bool
+
+    private var limit: Int { LibraryReviewPreferences.maximumCommentLength }
+
+    private var hasChanges: Bool {
+        draft != initialComment || draftRating != initialRating
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            VStack(alignment: .leading, spacing: 18) {
+                ratingRow
+                commentField
+            }
+            .padding(20)
+            .frame(maxHeight: .infinity, alignment: .top)
+
+            Rectangle().fill(PMColor.divider).frame(height: 0.5)
+
+            footer
+        }
+        .frame(width: 480, height: 440)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(PMColor.bg.opacity(0.86))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
+        }
+        .onAppear {
+            let review = library.libraryReview(for: subject)
+            initialComment = review?.comment ?? ""
+            initialRating = review?.rating
+            draft = initialComment
+            draftRating = initialRating
+            subjectTitle = resolvedSubjectTitle()
+            editorFocused = true
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(PMColor.brand.opacity(0.16))
+                .frame(width: 44, height: 44)
+                .overlay {
+                    Image(systemName: "star.bubble")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(PMColor.brand)
+                }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("library_review_title")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(PMColor.text)
+                if let subjectTitle, !subjectTitle.isEmpty {
+                    Text(verbatim: subjectTitle)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(PMColor.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PMColor.textMuted)
+                    .frame(width: 26, height: 26)
+                    .background(PMColor.glassBtn, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("cancel"))
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+    }
+
+    private var ratingRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            fieldLabel("rating")
+            HStack(spacing: 10) {
+                LibraryReviewRatingPicker(
+                    rating: draftRating,
+                    foregroundStyle: PMColor.warn,
+                    symbolSize: 18,
+                    buttonSize: 30
+                ) { value in
+                    draftRating = value == draftRating ? nil : value
+                }
+
+                Spacer(minLength: 8)
+
+                if draftRating != nil {
+                    Button("library_review_clear_rating") { draftRating = nil }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(PMColor.textMuted)
+                        .pmFadeTransition()
+                }
+            }
+            .pmAnimation(.control, value: draftRating != nil)
+        }
+    }
+
+    private var commentField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                fieldLabel("library_review_comment_title")
+                Spacer()
+                Text(verbatim: "\(draft.count)/\(limit)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(draft.count >= limit ? PMColor.warn : PMColor.textFaint)
+            }
+
+            TextEditor(text: $draft)
+                .font(.system(size: 13))
+                .foregroundStyle(PMColor.text)
+                .scrollContentBackground(.hidden)
+                .focused($editorFocused)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+                .frame(maxHeight: .infinity)
+                .background(PMColor.bgElev, in: .rect(cornerRadius: 8))
+                .overlay(alignment: .topLeading) {
+                    if draft.isEmpty {
+                        // NSTextView 的行片段自带 5pt 内边距，占位文字跟着它对齐。
+                        Text("library_review_add_comment")
+                            .font(.system(size: 13))
+                            .foregroundStyle(PMColor.textFaint)
+                            .padding(.leading, 13)
+                            .padding(.top, 8)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(
+                            editorFocused ? PMColor.brand : PMColor.dividerStrong,
+                            lineWidth: editorFocused ? 1.5 : 0.5
+                        )
+                }
+                .pmAnimation(.hover, value: editorFocused)
+                .accessibilityLabel(Text("library_review_comment_title"))
+                .onChange(of: draft) { _, value in
+                    if value.count > limit {
+                        draft = String(value.prefix(limit))
+                    }
+                }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Spacer()
+            Button("cancel") { dismiss() }
+                .buttonStyle(.plain)
+                .font(.system(size: 12.5))
+                .foregroundStyle(PMColor.text)
+                .padding(.horizontal, 14)
+                .frame(height: 30)
+                .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
+                .keyboardShortcut(.cancelAction)
+            // 输入框占着回车，保存用 ⌘↩。
+            Button("save") { save() }
+                .buttonStyle(.plain)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .frame(height: 30)
+                .background(hasChanges ? PMColor.brand : PMColor.textFaint, in: .rect(cornerRadius: 7))
+                .disabled(!hasChanges)
+                .keyboardShortcut(.return, modifiers: .command)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+    }
+
+    private func fieldLabel(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(PMColor.textMuted)
+    }
+
+    private func save() {
+        library.updateLibraryReview(for: subject, rating: draftRating, comment: draft)
+        dismiss()
+    }
+
+    /// 标题栏副标题：评的是哪首歌 / 哪张专辑。只在打开时查一次，
+    /// 不让面板跟着资料库的每次发布重算。
+    private func resolvedSubjectTitle() -> String? {
+        let id = subject.entityID
+        switch subject.kind {
+        case .song:
+            return library.song(id: id)?.title
+        case .album:
+            return library.visibleAlbum(id: id)?.title
+        case .playlist:
+            return library.playlist(id: id)?.name
+                ?? library.smartPlaylists.first(where: { $0.id == id })?.name
+        case .genre:
+            return library.visibleGenres.first(where: { $0.id == id })?.name
+        }
+    }
+}
+#endif
