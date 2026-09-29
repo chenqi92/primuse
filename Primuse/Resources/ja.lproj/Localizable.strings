@@ -3928,6 +3928,7 @@
 "carplay_content_sources" = "Content sources";
 "carplay_grid_2" = "2×2 covers";
 "carplay_grid_3" = "3×3 covers";
+"carplay_layout_car_width_hint" = "In the car, cover size is set by CarPlay and each row fills the width of the car screen; the column count here only affects the preview.";
 "carplay_pages_estimate" = "About %d screens · Maximum 60";
 "carplay_reset_module" = "Reset module";
 "carplay_preview_in_car" = "Preview layout";

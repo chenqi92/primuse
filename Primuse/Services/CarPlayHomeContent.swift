@@ -268,7 +268,7 @@ enum CarPlayHomeContent {
         var remainingSections = max(1, CPListTemplate.maximumSectionCount - 1)
         return resolved.filter { $0.configuration.isVisible && $0.configuration.kind != .siri }.map { source in
             var block = source
-            let columns = block.configuration.style == .list ? 1 : rowSize(for: block.configuration)
+            let columns = block.configuration.style == .list ? 1 : imageRowCapacity
             let available = remainingSections > 0 ? remainingRows * columns : 0
             block.items = Array(block.items.prefix(available))
             if !block.items.isEmpty {
@@ -279,8 +279,13 @@ enum CarPlayHomeContent {
         }
     }
 
-    static func rowSize(for block: CarPlayLayoutBlock) -> Int {
-        max(1, min(Int(CPMaximumNumberOfGridImages), block.normalized.columns))
+    /// 车机上封面的尺寸由系统决定，一行放几个只取决于车机屏幕宽度，
+    /// 编辑器里的「列数」只管手机上的预览。iOS 26 起一个封面行可以自动折行，
+    /// 整个模块尽量放进同一行交给系统排；24 能被 2/3/4/6/8/12 整除，
+    /// 超出后另起一行时折行位置仍然对齐。更早的系统只认前几张图，按系统上限切。
+    static var imageRowCapacity: Int {
+        if #available(iOS 26.0, *) { return 24 }
+        return max(1, Int(CPMaximumNumberOfGridImages))
     }
 
     static func resolve(_ item: CarPlayLayoutItem, directly: Bool) -> CarPlayHomeItem {

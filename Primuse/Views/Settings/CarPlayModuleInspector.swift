@@ -38,7 +38,7 @@ struct CarPlayModuleInspector: View {
                     }
                 }
             } else {
-                Section("carplay_content_layout") {
+                Section {
                     HStack(spacing: 8) {
                         layoutOption(.list, columns: 1, title: "carplay_style_list")
                         layoutOption(.covers, columns: 2, title: "carplay_grid_2")
@@ -57,6 +57,12 @@ struct CarPlayModuleInspector: View {
                                     .monospacedDigit()
                             }
                         }
+                    }
+                } header: {
+                    Text("carplay_content_layout")
+                } footer: {
+                    if block.style != .list {
+                        Text("carplay_layout_car_width_hint")
                     }
                 }
                 .settingsAnchor("carplay.style")

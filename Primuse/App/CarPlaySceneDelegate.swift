@@ -851,8 +851,7 @@ extension CarPlaySceneDelegate {
 
     private func playlistsSections(browseOnly: Bool = false) -> [CPListSection] {
         let playlists = AppServices.shared.musicLibrary.playlists.sorted { $0.updatedAt > $1.updatedAt }
-        return collectionSections(Array(playlists.prefix(CPListTemplate.maximumItemCount)).map { playlistEntry($0, browseOnly: browseOnly) },
-                                  columns: layout.visualStyle == .wall ? 3 : 2)
+        return collectionSections(Array(playlists.prefix(CPListTemplate.maximumItemCount)).map { playlistEntry($0, browseOnly: browseOnly) })
     }
 }
 
@@ -989,7 +988,6 @@ extension CarPlaySceneDelegate {
             return collectionSections(entries,
                                       title: block.configuration.showsTitle ? block.title : nil,
                                       style: block.configuration.style,
-                                      columns: CarPlayHomeContent.rowSize(for: block.configuration),
                                       artworkBudget: artworkBudget)
         }
         var navigation = [
@@ -1095,7 +1093,7 @@ extension CarPlaySceneDelegate {
     }
 
     private func collectionSections(_ entries: [CollectionEntry], title: String? = nil,
-                                    style: CarPlayBrowseStyle? = nil, columns: Int = 6,
+                                    style: CarPlayBrowseStyle? = nil,
                                     artworkBudget: Int = CarPlayArtworkLoadPolicy.maximumEagerArtworkCount) -> [CPListSection] {
         guard !entries.isEmpty else { return [] }
         let entries = Array(entries.prefix(CPListTemplate.maximumItemCount))
@@ -1105,7 +1103,7 @@ extension CarPlaySceneDelegate {
                 collectionItem(entry, loadsArtwork: CarPlayArtworkLoadPolicy.shouldLoad(index: index, budget: artworkBudget))
             }, header: title, sectionIndexTitle: nil)]
         }
-        let rowSize = max(1, min(Int(CPMaximumNumberOfGridImages), columns))
+        let rowSize = CarPlayHomeContent.imageRowCapacity
         let rows = stride(from: 0, to: entries.count, by: rowSize).map { offset in
             imageRow(
                 Array(entries[offset..<min(offset + rowSize, entries.count)]),
@@ -1191,7 +1189,7 @@ extension CarPlaySceneDelegate {
                     element.isEnabled = entry.enabled
                     return element
                 }
-                row = CPListImageRowItem(text: nil, elements: elements, allowsMultipleLines: false)
+                row = CPListImageRowItem(text: nil, elements: elements, allowsMultipleLines: true)
             }
         } else {
             row = CPListImageRowItem(text: "", images: placeholders, imageTitles: entries.map(\.title))
