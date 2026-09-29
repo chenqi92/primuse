@@ -2132,6 +2132,21 @@ struct ServerPlaylistSnapshot: Sendable {
 /// 只读: Primuse 侧的编辑不回写服务端, 镜像歌单在下次扫描时被服务端内容覆盖。
 protocol ServerPlaylistConnector: MusicSourceConnector {
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot
+    /// 逐个读歌单明细的源在每读全一个时交出它, 让界面先显示; 最终快照照旧返回,
+    /// 只有它能决定删掉哪些镜像。一次拿到全部的源用默认实现, 不回调。
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot
+}
+
+typealias ServerPlaylistProgress = @Sendable (ServerPlaylist) async -> Void
+
+extension ServerPlaylistConnector {
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists()
+    }
 }
 
 /// 往服务端已有歌单里追加歌曲(Subsonic `updatePlaylist`)。只追加, 不删不排序 ——

@@ -487,14 +487,22 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
-        let snapshot = try await libraryClient.playlists()
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
+        let snapshot = try await libraryClient.playlists { await progress(Self.serverPlaylist($0)) }
         return ServerPlaylistSnapshot(
-            playlists: snapshot.playlists.map {
-                ServerPlaylist(id: $0.id, name: $0.name, coverArtReference: $0.coverReference,
-                               trackIDs: $0.trackIDs, reportedTrackCount: $0.trackIDs.count)
-            },
+            playlists: snapshot.playlists.map(Self.serverPlaylist),
             failedPlaylistIDs: snapshot.failedPlaylistIDs
         )
+    }
+
+    private static func serverPlaylist(_ playlist: FnMusicPlaylist) -> ServerPlaylist {
+        ServerPlaylist(id: playlist.id, name: playlist.name, coverArtReference: playlist.coverReference,
+                       trackIDs: playlist.trackIDs, reportedTrackCount: playlist.trackIDs.count)
     }
 
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {

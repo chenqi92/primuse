@@ -629,10 +629,13 @@ final class FnMusicSourceTests: XCTestCase {
 
     func testPlaylistAndFavoriteConnectorsUseAuthenticatedLibraryEndpoints() async throws {
         let source = makeSource()
-        let snapshot = try await source.fetchServerPlaylists()
+        let delivered = DeliveredServerPlaylists()
+        let snapshot = try await source.fetchServerPlaylists { await delivered.append($0) }
         XCTAssertEqual(snapshot.playlists.map(\.id), ["playlist"])
         XCTAssertEqual(snapshot.playlists.first?.trackIDs, ["song"])
         XCTAssertTrue(snapshot.failedPlaylistIDs.isEmpty)
+        let deliveredIDs = await delivered.ids
+        XCTAssertEqual(deliveredIDs, ["playlist"])
         let added = try await source.setServerFavorite(itemID: "song", isFavorite: true)
         XCTAssertEqual(added.itemIDs, ["song"])
         let removed = try await source.setServerFavorite(itemID: "song", isFavorite: false)
@@ -666,6 +669,36 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertNotNil(library.playlist(id: id("empty")))
         XCTAssertNil(library.playlist(id: id("deleted")))
         XCTAssertNotNil(library.playlist(id: id("other", sourceID: "elsewhere")))
+    }
+
+    /// 同步途中先落地的歌单只新建/覆盖、从不删除; 对不上曲库或自报数量对不上的不动。
+    func testProgressiveMirrorShowsPlaylistsWithoutPruningOrApplyingIncompleteOnes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("FnMusicMirror-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let library = MusicLibrary(storageDirectory: root)
+        let source = MusicSource(id: "fn", name: "Feiniu", type: .fnMusic)
+        library.addSongs([
+            Song(id: "one", title: "One", fileFormat: .flac, filePath: "/fnmusic/tracks/one.flac", sourceID: source.id),
+            Song(id: "two", title: "Two", fileFormat: .flac, filePath: "/fnmusic/tracks/two.flac", sourceID: source.id),
+        ], affectedSourceIDs: [source.id])
+        await library.waitForPendingIndex()
+        func id(_ name: String) -> String {
+            ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: name)
+        }
+        library.ensurePlaylist(id: id("stale"), name: "Stale")
+        library.replaceMirrorPlaylistSongs(playlistID: id("stale"), songIDs: ["one"], coverArtPath: nil)
+
+        let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
+        applier.apply(ServerPlaylist(id: "first", name: "First", trackIDs: ["two", "one"], reportedTrackCount: 2))
+        applier.apply(ServerPlaylist(id: "unknown", name: "Unknown", trackIDs: ["missing"], reportedTrackCount: 1))
+        applier.apply(ServerPlaylist(id: "truncated", name: "Truncated", trackIDs: ["one"], reportedTrackCount: 5))
+        applier.apply(ServerPlaylist(id: "empty", name: "Empty", trackIDs: [], reportedTrackCount: 0))
+
+        XCTAssertEqual(library.songs(forPlaylist: id("first")).map(\.id), ["two", "one"])
+        XCTAssertNotNil(library.playlist(id: id("empty")))
+        XCTAssertNil(library.playlist(id: id("unknown")))
+        XCTAssertNil(library.playlist(id: id("truncated")))
+        XCTAssertEqual(library.songs(forPlaylist: id("stale")).map(\.id), ["one"])
     }
 
     /// 探测失败发生在 connect() 之后时, 被探测的实例可能同时被扫描 / 播放
@@ -1321,4 +1354,12 @@ private final class FnMusicTagHTTPProtocol: URLProtocol, @unchecked Sendable {
         } catch { client?.urlProtocol(self, didFailWithError: error) }
     }
     override func stopLoading() {}
+}
+
+private actor DeliveredServerPlaylists {
+    private(set) var ids: [String] = []
+
+    func append(_ playlist: ServerPlaylist) {
+        ids.append(playlist.id)
+    }
 }

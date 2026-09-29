@@ -2266,11 +2266,18 @@ private struct RoutedFnMusicConnector: RoutedConnectorProxy, RefreshingMetadataS
     let routedPreferredDeleteBatchSize: Int
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    /// 换线路重读时同一个歌单会再交出一次, 镜像按内容覆盖, 重复无害。
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerPlaylistConnector else {
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
-            return try await provider.fetchServerPlaylists()
+            return try await provider.fetchServerPlaylists(progress: progress)
         }
     }
 
@@ -12029,9 +12036,12 @@ final class SourceManager {
     /// 拉取服务端曲库源上的用户歌单。源不支持(NAS / 云盘 / 本地)返回 nil,
     /// 与"支持但一个歌单都没有"(返回空快照)区分开 —— 后者要清理本地陈旧镜像,
     /// 前者什么都不该动。
-    func fetchServerPlaylists(for source: MusicSource) async throws -> ServerPlaylistSnapshot? {
+    func fetchServerPlaylists(
+        for source: MusicSource,
+        progress: @escaping ServerPlaylistProgress = { _ in }
+    ) async throws -> ServerPlaylistSnapshot? {
         guard let conn = connector(for: source) as? any ServerPlaylistConnector else { return nil }
-        return try await conn.fetchServerPlaylists()
+        return try await conn.fetchServerPlaylists(progress: progress)
     }
 
     /// 往服务端歌单里追加这些歌。歌必须都来自 `source`; 源在请求途中被停用、

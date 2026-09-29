@@ -26,8 +26,15 @@ enum ServerPlaylistSyncService {
         guard source.type.isServerLibrary else { return result }
 
         let snapshot: ServerPlaylistSnapshot?
+        let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
         do {
-            snapshot = try await sourceManager.fetchServerPlaylists(for: source)
+            // 进度回调只在这次读取期间被调用, 读完就不再持有闸门。
+            snapshot = try await withoutActuallyEscaping(applyFence) { fence in
+                try await sourceManager.fetchServerPlaylists(for: source) { @MainActor playlist in
+                    guard fence() else { return }
+                    applier.apply(playlist)
+                }
+            }
         } catch is CancellationError {
             return result
         } catch {

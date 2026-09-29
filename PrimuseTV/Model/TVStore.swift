@@ -4231,14 +4231,19 @@ final class TVStore {
 
     private func syncFnMusicLibrary(source: MusicSource, credential: SourceCredential?, generation: UUID) async {
         do {
-            let snapshot = try await scanner.fetchFnMusicPlaylists(source: source, credential: credential)
+            // 读全一个显示一个，整轮读完再按快照核对删除，与 iPhone/Mac 一致。
+            let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
+            let snapshot = try await scanner.fetchFnMusicPlaylists(
+                source: source, credential: credential
+            ) { @MainActor [weak self] playlist in
+                guard let self, self.isCurrentScan(source: source, generation: generation) else { return }
+                applier.apply(Self.serverPlaylist(playlist))
+            }
             guard isCurrentScan(source: source, generation: generation) else { return }
             _ = ServerPlaylistMirror.apply(
                 snapshot: ServerPlaylistSnapshot(
-                    playlists: snapshot.playlists.map {
-                        ServerPlaylist(id: $0.id, name: $0.name, coverArtReference: $0.coverReference,
-                                       trackIDs: $0.trackIDs, reportedTrackCount: $0.trackIDs.count)
-                    }, failedPlaylistIDs: snapshot.failedPlaylistIDs
+                    playlists: snapshot.playlists.map(Self.serverPlaylist),
+                    failedPlaylistIDs: snapshot.failedPlaylistIDs
                 ), source: source, library: library
             )
         } catch {
@@ -4262,6 +4267,11 @@ final class TVStore {
             if OperationCancellationPolicy.isCancellation(error) { return }
             plog("Server favorite sync failed for '\(source.name)': \(error.localizedDescription)")
         }
+    }
+
+    private static func serverPlaylist(_ playlist: FnMusicPlaylist) -> ServerPlaylist {
+        ServerPlaylist(id: playlist.id, name: playlist.name, coverArtReference: playlist.coverReference,
+                       trackIDs: playlist.trackIDs, reportedTrackCount: playlist.trackIDs.count)
     }
 
     private func isCurrentScan(source: MusicSource, generation: UUID) -> Bool {

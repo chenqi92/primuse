@@ -34,7 +34,11 @@ public struct FnMusicLibraryClient: Sendable {
         self.load = load
     }
 
-    public func playlists() async throws -> FnMusicPlaylistSnapshot {
+    /// `onPlaylist` 每读全一个歌单就交出一个，调用方可以先显示，不必等整轮读完：
+    /// 中继慢、App 半路被挂起时，已经读到的歌单不会跟着最慢的那个一起等。
+    public func playlists(
+        onPlaylist: (@Sendable (FnMusicPlaylist) async -> Void)? = nil
+    ) async throws -> FnMusicPlaylistSnapshot {
         let summaries: [Summary] = try await index(path: "/playlist/list", parse: Summary.init)
         var trackIDs: [String: [String]] = [:]
         // 明细翻到一半失败（会话被顶掉、网络抖一下、歌单正被改）整份歌单就不会出现。
@@ -42,11 +46,18 @@ public struct FnMusicLibraryClient: Sendable {
         for _ in 0..<2 {
             for summary in summaries where trackIDs[summary.id] == nil {
                 try Task.checkCancellation()
+                let ids: [String]
                 do {
-                    trackIDs[summary.id] = try await playlistTrackIDs(summary)
+                    ids = try await playlistTrackIDs(summary)
                 } catch {
                     if OperationCancellationPolicy.isCancellation(error) { throw CancellationError() }
+                    continue
                 }
+                trackIDs[summary.id] = ids
+                await onPlaylist?(FnMusicPlaylist(
+                    id: summary.id, name: summary.name,
+                    coverReference: summary.coverReference, trackIDs: ids
+                ))
             }
         }
         let playlists = summaries.compactMap { summary in

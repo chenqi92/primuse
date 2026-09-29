@@ -54,6 +54,26 @@ struct FnMusicLibraryTests {
         #expect(details.count == 4)
     }
 
+    /// 每读全一个歌单就先交出去，不等整轮：补读成功的在第二轮交出，始终读不全的不交。
+    @Test func playlistsAreHandedOverAsSoonAsEachOneIsRead() async throws {
+        let fixture = FnMusicLibraryFixture(transientDetailFailures: ["p1": 1])
+        fixture.setPage("/playlist/list", page: 1,
+                        list: (0..<4).map { ["guid": "p\($0)", "name": "List \($0)"] }, total: 4)
+        for i in [0, 1, 3] {
+            fixture.setPage("/track/playlist-detail/list", playlist: "p\(i)", page: 1,
+                            list: [["guid": "s\(i)"]], total: 1)
+        }
+        fixture.setPage("/track/playlist-detail/list", playlist: "p2", page: 1,
+                        list: [["guid": "unexpected"]], total: 2)
+        let (client, _, _) = fixture.clients()
+        let delivered = DeliveredPlaylists()
+        let snapshot = try await client.library.playlists { await delivered.append($0) }
+        #expect(await delivered.ids == ["p0", "p3", "p1"])
+        #expect(await delivered.trackIDs == [["s0"], ["s3"], ["s1"]])
+        #expect(snapshot.playlists.map(\.id) == ["p0", "p1", "p3"])
+        #expect(snapshot.failedPlaylistIDs == ["p2"])
+    }
+
     /// 飞牛同一个 deviceId 只认最后一次登录。曲库客户端与播放解析器以前各存各的 token，
     /// 谁登录都会让对方 401、再重新登录把对方挤掉；现在两边共用一次登录。
     @Test func libraryClientAndStreamResolverShareOneLogin() async throws {
@@ -411,4 +431,14 @@ private final class FnMusicLibraryURLProtocol: URLProtocol, @unchecked Sendable 
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+}
+
+private actor DeliveredPlaylists {
+    private(set) var ids: [String] = []
+    private(set) var trackIDs: [[String]] = []
+
+    func append(_ playlist: FnMusicPlaylist) {
+        ids.append(playlist.id)
+        trackIDs.append(playlist.trackIDs)
+    }
 }

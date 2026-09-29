@@ -104,6 +104,45 @@ enum ServerPlaylistMirror {
         return result
     }
 
+    /// 同步途中每读全一个歌单就先落地, 不必等整轮读完。只新建/覆盖, 从不删除:
+    /// 哪些镜像该删只有整轮的快照说了算, 半路中断时已显示的歌单留到下一轮核对。
+    /// 取舍与 `apply` 相同 —— 自报数量对不上或一首都没对上的不动。
+    @MainActor
+    final class ProgressiveApplier {
+        private let source: MusicSource
+        private let library: MusicLibrary
+        /// 同步期间曲库不会因为这一步变化, 建一次给整轮用; 漏掉的新歌由收尾的 `apply` 补上。
+        private lazy var index = ServerPlaylistMirror.serverItemIndex(sourceID: source.id, library: library)
+
+        init(source: MusicSource, library: MusicLibrary) {
+            self.source = source
+            self.library = library
+        }
+
+        func apply(_ serverPlaylist: ServerPlaylist) {
+            if let reported = serverPlaylist.reportedTrackCount,
+               reported > serverPlaylist.trackIDs.count { return }
+            let songIDs = ServerPlaylistMirror.uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
+            let serverHasTracks = (serverPlaylist.reportedTrackCount ?? serverPlaylist.trackIDs.count) > 0
+            if songIDs.isEmpty, serverHasTracks { return }
+            let localID = ServerPlaylistIdentity.playlistID(
+                sourceID: source.id,
+                serverPlaylistID: serverPlaylist.id
+            )
+            if serverPlaylist.isReadOnly {
+                readOnlyPlaylistIDs.insert(localID)
+            } else {
+                readOnlyPlaylistIDs.remove(localID)
+            }
+            library.ensurePlaylist(id: localID, name: serverPlaylist.name)
+            library.replaceMirrorPlaylistSongs(
+                playlistID: localID,
+                songIDs: songIDs,
+                coverArtPath: serverPlaylist.coverArtReference
+            )
+        }
+    }
+
     /// 往服务端歌单加完歌后, 用服务端回读的明细刷新这一个镜像, 不必等下一轮
     /// 整源同步。
     static func applyAppended(
@@ -130,7 +169,7 @@ enum ServerPlaylistMirror {
     ///
     /// 只取该源的歌: 不同源可能有同样的服务端 ID(两个 Navidrome 各自的自增
     /// ID), 混在一起会把歌单指到别的服务器上的歌。
-    private static func serverItemIndex(sourceID: String, library: MusicLibrary) -> [String: String] {
+    fileprivate static func serverItemIndex(sourceID: String, library: MusicLibrary) -> [String: String] {
         var index: [String: String] = [:]
         for song in library.songs where song.sourceID == sourceID {
             guard let itemID = ServerPlaylistIdentity.serverItemID(fromFilePath: song.filePath) else { continue }
@@ -144,7 +183,7 @@ enum ServerPlaylistMirror {
     /// 保序去重 —— 服务端歌单允许同一首歌重复出现, 但 `playlistSongs` 以
     /// songID 为键, 重复项会在持久化时被折叠。这里提前去掉, 让写入的顺序
     /// 与最终展示一致。
-    private static func uniqued(_ ids: [String]) -> [String] {
+    fileprivate static func uniqued(_ ids: [String]) -> [String] {
         var seen = Set<String>()
         return ids.filter { seen.insert($0).inserted }
     }
