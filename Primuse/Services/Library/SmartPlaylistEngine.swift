@@ -325,7 +325,15 @@ enum SmartPlaylistEngine {
                     < ($1.displayArtistName(configuration: artistConfiguration) ?? "")
             }
         case .albumTitle:
-            sorted = songs.sorted { ($0.albumTitle ?? "") < ($1.albumTitle ?? "") }
+            sorted = songs.sorted { lhs, rhs in
+                let lhsTitle = lhs.albumTitle ?? ""
+                let rhsTitle = rhs.albumTitle ?? ""
+                if lhsTitle != rhsTitle { return lhsTitle < rhsTitle }
+                let lhsAlbum = lhs.albumID ?? ""
+                let rhsAlbum = rhs.albumID ?? ""
+                if lhsAlbum != rhsAlbum { return lhsAlbum < rhsAlbum }
+                return AlbumTrackOrder.isOrderedBefore(lhs, rhs)
+            }
         case .dateAdded:
             sorted = songs.sorted { $0.dateAdded < $1.dateAdded }
         case .duration:

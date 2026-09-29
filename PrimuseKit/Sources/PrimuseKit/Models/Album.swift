@@ -50,20 +50,24 @@ public enum AlbumTrackOrder {
     }
 
     public static func sorted(_ songs: [Song]) -> [Song] {
-        songs.sorted { lhs, rhs in
-            let leftDisc = discNumber(for: lhs)
-            let rightDisc = discNumber(for: rhs)
-            if leftDisc != rightDisc { return leftDisc < rightDisc }
+        songs.sorted(by: isOrderedBefore)
+    }
 
-            let leftTrack = positiveTrackNumber(lhs) ?? Int.max
-            let rightTrack = positiveTrackNumber(rhs) ?? Int.max
-            if leftTrack != rightTrack { return leftTrack < rightTrack }
+    /// Disc, then track, then title. Any list that groups songs by album
+    /// (e.g. sorting a folder by album) must order within the group this way.
+    public static func isOrderedBefore(_ lhs: Song, _ rhs: Song) -> Bool {
+        let leftDisc = discNumber(for: lhs)
+        let rightDisc = discNumber(for: rhs)
+        if leftDisc != rightDisc { return leftDisc < rightDisc }
 
-            // Duplicate or absent track tags must not inherit scan order.
-            let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
-            if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
-            return lhs.id < rhs.id
-        }
+        let leftTrack = positiveTrackNumber(lhs) ?? Int.max
+        let rightTrack = positiveTrackNumber(rhs) ?? Int.max
+        if leftTrack != rightTrack { return leftTrack < rightTrack }
+
+        // Duplicate or absent track tags must not inherit scan order.
+        let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+        if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+        return lhs.id < rhs.id
     }
 
     private static func positiveTrackNumber(_ song: Song) -> Int? {

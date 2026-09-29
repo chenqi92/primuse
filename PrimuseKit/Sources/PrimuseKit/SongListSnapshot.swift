@@ -904,6 +904,16 @@ public enum SongListSnapshotBuilder {
             comparison = (lhs.artistName ?? "").localizedCompare(rhs.artistName ?? "")
         case .album, .albumDescending:
             comparison = (lhs.albumTitle ?? "").localizedCompare(rhs.albumTitle ?? "")
+            if comparison == .orderedSame {
+                // Same-titled albums stay grouped; the direction only flips
+                // album order, tracks inside one album always read 1, 2, 3.
+                let lhsAlbum = lhs.albumID ?? ""
+                let rhsAlbum = rhs.albumID ?? ""
+                if lhsAlbum != rhsAlbum {
+                    return order.isAscending ? lhsAlbum < rhsAlbum : lhsAlbum > rhsAlbum
+                }
+                return AlbumTrackOrder.isOrderedBefore(lhs, rhs)
+            }
         case .dateAdded:
             if lhs.dateAdded != rhs.dateAdded {
                 return lhs.dateAdded > rhs.dateAdded

@@ -180,6 +180,42 @@ struct SongListSnapshotTests {
         #expect(sortedIDs(songs, by: .formatDescending) == ["b", "a"])
     }
 
+    @Test("Album sorting keeps each album grouped in disc and track order")
+    func albumSortingFollowsTrackOrder() {
+        // Hash-like IDs deliberately disagree with track order, as with
+        // the tracks split out of a single-file CUE album.
+        func track(
+            _ id: String,
+            _ number: Int?,
+            disc: Int? = nil,
+            album: String = "Red Flag",
+            albumID: String = "album-a"
+        ) -> Song {
+            var result = song(id: id, title: "T\(id)", albumTitle: album)
+            result.albumID = albumID
+            result.trackNumber = number
+            result.discNumber = disc
+            return result
+        }
+        let songs = [
+            track("f3", 3),
+            track("a8", 1, disc: 2),
+            track("09", 2),
+            track("7c", 1),
+            track("b1", nil),
+            track("2e", 2, albumID: "album-b"),
+            track("d4", 1, albumID: "album-b"),
+            track("55", 1, album: "Alpha", albumID: "album-c"),
+        ]
+
+        #expect(sortedIDs(songs, by: .album) == [
+            "55", "7c", "09", "f3", "b1", "a8", "d4", "2e",
+        ])
+        #expect(sortedIDs(songs, by: .albumDescending) == [
+            "d4", "2e", "7c", "09", "f3", "b1", "a8", "55",
+        ])
+    }
+
     @Test("Sorts table metrics, server counters, and downloaded state in both directions")
     func sortsMacTableColumns() {
         let songs = [
