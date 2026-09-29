@@ -12,6 +12,8 @@ import AppKit
 @MainActor
 private final class HomeRefreshCoordinator {
     var debounceTask: Task<Void, Never>?
+    /// 歌单变化的刷新。和资料库版本的去抖分开: 那边每次都会取消重来。
+    var playlistRefreshTask: Task<Void, Never>?
     var recommendationTask: Task<Void, Never>?
     var libraryHighlightsTask: Task<Void, Never>?
     var pendingSignature: HomeView.HomeSnapshotSignature?
@@ -20,9 +22,11 @@ private final class HomeRefreshCoordinator {
 
     func cancelAll() {
         debounceTask?.cancel()
+        playlistRefreshTask?.cancel()
         recommendationTask?.cancel()
         libraryHighlightsTask?.cancel()
         debounceTask = nil
+        playlistRefreshTask = nil
         recommendationTask = nil
         libraryHighlightsTask = nil
         pendingSignature = nil
@@ -156,14 +160,20 @@ private actor HomeInitialSnapshotCacheStore {
 /// batches do not invalidate the much larger home-page view tree.
 private struct HomeLibraryRevisionObserver: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(ScanService.self) private var scanService
     let onLibraryRevisionChange: () -> Void
     let onPlaylistRevisionChange: () -> Void
+    let onScanningChange: (Bool) -> Void
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .onChange(of: library.searchRevision) { _, _ in
                 onLibraryRevisionChange()
+            }
+            // 「在不在扫」一轮只翻两次, 不读每秒变好几次的进度。
+            .onChange(of: scanService.scanningSourceIDs.isEmpty, initial: true) { _, idle in
+                onScanningChange(!idle)
             }
             .onChange(of: library.playlistCollectionRevision) { _, _ in
                 onPlaylistRevisionChange()
@@ -773,7 +783,8 @@ struct HomeView: View {
         .background {
             HomeLibraryRevisionObserver(
                 onLibraryRevisionChange: scheduleDebouncedHomeRefresh,
-                onPlaylistRevisionChange: refreshHomeSnapshotForPlaylistChange
+                onPlaylistRevisionChange: refreshHomeSnapshotForPlaylistChange,
+                onScanningChange: updateLibraryScanning
             )
             if activeHomeFilter != .radio, activeHomeFilter != .spokenWord,
                showFolders || showListeningRanking {
@@ -966,6 +977,8 @@ struct HomeView: View {
     /// `scenePhase` 是任务创建那一刻的值，冷启动时首页若在场景进入前台之前出现，任务醒来后仍以为
     /// 在后台，把首次加载推给「回到前台」—— 而那次回到前台已经过去了，首页就一直停在加载占位。
     @State private var isSceneActive = false
+    /// 有源在扫描。扫描期间资料库版本驱动的重算放宽到更长的最小间隔。
+    @State private var isLibraryScanning = false
     // Debounce for `searchRevision`-driven refreshes. MusicLibrary bumps
     // `searchRevision` on *every* upsert batch during a scan, so a large
     // library scan would otherwise fire refreshHomeSnapshot() dozens
@@ -1753,7 +1766,10 @@ struct HomeView: View {
         // 决定。去抖之外再加一道最小重算间隔, 让连续发布只重算一次。用户自己
         // 的改动 (歌单/设置/场景切换) 走 refreshHomeSnapshot(), 不受这道闸门约束。
         let elapsed = refreshCoordinator.lastRefreshAt.map { Date().timeIntervalSince($0) }
-        let delay = LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: elapsed)
+        let delay = LibraryDerivedRefreshPolicy.delay(
+            sinceLastRefresh: elapsed,
+            libraryIsScanning: isLibraryScanning
+        )
         refreshCoordinator.debounceTask?.cancel()
         refreshCoordinator.debounceTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(delay))
@@ -1762,12 +1778,32 @@ struct HomeView: View {
         }
     }
 
-    /// Playlist mutations are comparatively rare and already coalesced by
-    /// `MusicLibrary`. Refresh them immediately instead of routing them through
-    /// the scan debounce, otherwise a batch add leaves the home card stale.
+    private func updateLibraryScanning(_ scanning: Bool) {
+        guard isLibraryScanning != scanning else { return }
+        isLibraryScanning = scanning
+        // 扫描刚结束: 排着的那次还按扫描档在等, 按正常档重排, 最终结果尽快上首页。
+        if !scanning, refreshCoordinator.debounceTask != nil {
+            scheduleDebouncedHomeRefresh()
+        }
+    }
+
+    /// Playlist mutations don't go through the scan debounce, otherwise a batch
+    /// add leaves the home card stale. They are not rare during a sync though:
+    /// server playlists land one at a time at the end of a scan, and refreshing
+    /// the whole page for each of them meant dozens of full recomputes in a few
+    /// seconds. Throttle to one short trailing refresh that reads the latest state.
     private func refreshHomeSnapshotForPlaylistChange() {
         guard model.isPrepared else { return }
-        refreshHomeSnapshot()
+        // 已经排着一次就不重排: 它醒来时读的是当下的歌单, 一串变化只算一次。
+        guard refreshCoordinator.playlistRefreshTask == nil else { return }
+        let elapsed = refreshCoordinator.lastRefreshAt.map { Date().timeIntervalSince($0) }
+        let delay = LibraryDerivedRefreshPolicy.playlistDelay(sinceLastRefresh: elapsed)
+        refreshCoordinator.playlistRefreshTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            refreshCoordinator.playlistRefreshTask = nil
+            refreshHomeSnapshot()
+        }
     }
 
     private var homeSnapshotSignature: HomeSnapshotSignature {

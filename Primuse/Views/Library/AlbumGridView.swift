@@ -96,18 +96,61 @@ struct AlbumGridView: View {
         }
     }
 
+    /// 排序结果按「同一份专辑数组 + 同一档排序 + 同一个筛选词」缓存。body 在扫描
+    /// 入库、悬停、打开专辑时都会重算, 以前每次都把全部专辑用 localizedCompare
+    /// 重排一遍。
+    @State private var macSortCache = MacAlbumSortCache()
+
     private var sortedAlbums: [Album] {
+        let source = library.visibleAlbums
+        if let cached = macSortCache.value(source: source, sort: albumSort, filter: albumFilter) {
+            return cached
+        }
+        let sorted: [Album]
         switch albumSort {
         case .title:
-            return filteredAlbums.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+            // visibleAlbums 已经按标题 localizedCompare 排好, 筛选保持顺序。
+            sorted = filteredAlbums
         case .artist:
-            return filteredAlbums.sorted {
+            sorted = filteredAlbums.sorted {
                 ($0.artistName ?? "").localizedCompare($1.artistName ?? "") == .orderedAscending
             }
         case .year:
-            return filteredAlbums.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+            sorted = filteredAlbums.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
         case .songCount:
-            return filteredAlbums.sorted { $0.songCount > $1.songCount }
+            sorted = filteredAlbums.sorted { $0.songCount > $1.songCount }
+        }
+        macSortCache.store(sorted, source: source, sort: albumSort, filter: albumFilter)
+        return sorted
+    }
+
+    /// 不是 Observable: 在 body 里写它不会引起重绘。持有输入数组本身, 所以它的
+    /// 存储地址在缓存期间不会被别的数组复用, 可以拿地址判断是不是同一份。
+    private final class MacAlbumSortCache {
+        private var source: [Album] = []
+        private var sort: AlbumSortOrder?
+        private var filter = ""
+        private var value: [Album] = []
+
+        func value(source: [Album], sort: AlbumSortOrder, filter: String) -> [Album]? {
+            guard self.sort == sort, self.filter == filter,
+                  Self.sameStorage(self.source, source) else { return nil }
+            return value
+        }
+
+        func store(_ value: [Album], source: [Album], sort: AlbumSortOrder, filter: String) {
+            self.source = source
+            self.sort = sort
+            self.filter = filter
+            self.value = value
+        }
+
+        private static func sameStorage(_ lhs: [Album], _ rhs: [Album]) -> Bool {
+            guard lhs.count == rhs.count else { return false }
+            guard !lhs.isEmpty else { return true }
+            return lhs.withUnsafeBufferPointer { l in
+                rhs.withUnsafeBufferPointer { r in l.baseAddress == r.baseAddress }
+            }
         }
     }
 

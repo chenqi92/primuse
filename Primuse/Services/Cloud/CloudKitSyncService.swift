@@ -210,6 +210,11 @@ final class CloudKitSyncService {
     /// 补传了待上传账本里的电台（见 `flushDeferredRadioStationChanges`），快照要等
     /// 下一次拉取成功、本机 radio-stations.json 已含拉到的记录之后再传。
     private var radioSnapshotAfterFetch = false
+    /// 远端记录(拉到的改动、删除、保存冲突时并回来的服务器副本)已经并进资料库内存,
+    /// 但整库快照还没落盘。只有这时批末才需要把已武装的整库写提前执行: 游标越过的
+    /// 记录只活在内存里。本机自己推上去的保存回执不算 —— 以前每个回执都提前写一次
+    /// 整库, 扫描收尾逐个落地几十个服务端歌单时, 一个歌单就是一份 30MB 的整库快照。
+    @ObservationIgnored private var remoteLibraryMergeAwaitingDurableWrite = false
 
     /// Listening-stats payload precomputed by the throttled flush, keyed by the
     /// store revision it was built from. A miss simply encodes synchronously.
@@ -676,7 +681,7 @@ final class CloudKitSyncService {
         // 账号观察者留着: 它是账号恢复可用时把引擎重新拉起来的唯一入口, 拆了
         // 就只能等用户重开开关。总开关关着时它什么都不做。
         // 引擎摘掉之后不会再有批末落盘, 攒着的现在写掉。
-        flushCoalescedRemoteWrites()
+        flushCoalescedRemoteWrites(forceLibrarySnapshot: true)
         engine = nil
         sharedEngine = nil
         isStarted = false
@@ -1827,13 +1832,17 @@ final class CloudKitSyncService {
 
     /// 一批远端事件处理完、或者引擎游标落盘之前, 把攒着的整份写一次:
     /// system fields 缓存、逐条并进来的电台清单和歌单耐久账本。
-    fileprivate func flushCoalescedRemoteWrites() {
+    fileprivate func flushCoalescedRemoteWrites(forceLibrarySnapshot: Bool = false) {
         flushSystemFieldsCache()
         radioStationsStore.flushRemotePersist()
         library.flushRemotePlaylistDurabilityLedger()
         // 歌单曲目、智能歌单和听歌统计只在整库快照 / 统计文件里, 它们的防抖写
         // 还没到点就存游标, 进程这时被杀, 越过游标的那批记录就再也拉不回来。
-        library.flushArmedSnapshotWriteNow()
+        // 没有远端记录并进来时, 已武装的写照常按防抖到点再写。
+        if forceLibrarySnapshot || remoteLibraryMergeAwaitingDurableWrite {
+            remoteLibraryMergeAwaitingDurableWrite = false
+            library.flushArmedSnapshotWriteNow()
+        }
         PlayHistoryStore.shared.flushPendingSave()
     }
 
@@ -2019,6 +2028,7 @@ final class CloudKitSyncService {
         decodedListeningStats: [PlayHistoryStore.Entry]? = nil,
         syncEngine: CKSyncEngine
     ) {
+        remoteLibraryMergeAwaitingDurableWrite = true
         if record.recordType == RecordType.musicSource,
            let source = decodedSource(from: record),
            !MusicSourceCloudSyncPolicy.isEligible(source) {
@@ -2165,6 +2175,7 @@ final class CloudKitSyncService {
         recordType: String,
         allowLocalRestore: Bool = false
     ) {
+        remoteLibraryMergeAwaitingDurableWrite = true
         // record 已经从 server 移除,缓存里的 changeTag 也没用了。
         removeSystemFields(for: recordID)
         if recordType == RecordType.radioStation {
@@ -3046,6 +3057,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
         _ failed: CKSyncEngine.Event.SentRecordZoneChanges.FailedRecordSave,
         syncEngine: CKSyncEngine
     ) {
+        // 冲突合并会把服务器副本并进资料库, 和拉到的记录一样要赶在游标之前落盘。
+        remoteLibraryMergeAwaitingDurableWrite = true
         let recordID = failed.record.recordID
         let ckError = failed.error
 

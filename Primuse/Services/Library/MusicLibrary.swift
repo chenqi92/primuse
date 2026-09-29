@@ -3172,6 +3172,13 @@ enum LibraryReadiness: Equatable, Sendable {
     case ready
 }
 
+/// 一张专辑 / 一个艺人自己的封面版本, 见 `MusicLibrary.scopedPreferredArtworkSong`。
+@MainActor
+@Observable
+final class LibraryArtworkLookupToken {
+    fileprivate(set) var revision = 0
+}
+
 @MainActor
 @Observable
 final class MusicLibrary {
@@ -3495,6 +3502,8 @@ final class MusicLibrary {
             visibleSongsReference = LibraryArrayReference(newValue)
             visibleCacheGeneration &+= 1
             LibraryArrayReclaimer.release(previous)
+            // 可见歌曲换了一份, 查找表里的首选封面歌曲可能跟着换了内容。
+            scheduleArtworkLookupTokenRefresh()
         }
     }
     private var musicSongsReference = LibraryArrayReference<Song>()
@@ -3561,6 +3570,7 @@ final class MusicLibrary {
             let previous = visibleArtistsReference
             visibleArtistsReference = LibraryArrayReference(newValue)
             LibraryArrayReclaimer.release(previous)
+            scheduleArtworkLookupTokenRefresh()
         }
     }
     private var visibleGenresReference = LibraryArrayReference<LibraryGenre>()
@@ -3663,7 +3673,9 @@ final class MusicLibrary {
     /// of comparing `[Song]`; a derived `Song` equality also walks lyricsText,
     /// which made a 10K-song library block AttributeGraph for several seconds.
     private(set) var visibleSongCollectionRevision: Int = 0
-    private(set) var albumArtworkLookupRevision: Int = 0
+    private(set) var albumArtworkLookupRevision: Int = 0 {
+        didSet { scheduleArtworkLookupTokenRefresh() }
+    }
     private(set) var sourceSyncCompletionRevision: Int = 0
     private(set) var searchRevision: Int = 0
     /// Whole-library Spotlight snapshots follow this explicit checkpoint,
@@ -4130,6 +4142,8 @@ final class MusicLibrary {
         if artworkLookupsChanged {
             albumArtworkLookupRevision &+= 1
         }
+        // 自动艺人图、艺人改名这类只动了艺人查找表的发布也要让对应卡片比对一次。
+        scheduleArtworkLookupTokenRefresh()
         if prepared.orderedIDsChanged {
             visibleSongCollectionRevision &+= 1
         }
@@ -6555,6 +6569,97 @@ final class MusicLibrary {
         return visibleSongByID[songID]
     }
 
+    // MARK: - 按条目失效的封面查找
+
+    /// 一张专辑 / 一个艺人自己的封面版本。上面两个 `preferredArtworkSong` 读的是
+    /// 整库级的版本号: 扫描每入库一批就会有新专辑加入, 屏幕上每张已经挂着的封面
+    /// 卡片都跟着失效重算。卡片改读这里, 只有它自己的首选歌曲、那首歌的封面
+    /// 引用、艺人自己的封面字段真的变了才失效。
+    private enum ArtworkLookupKey: Hashable {
+        case album(String)
+        case artist(String)
+    }
+
+    @ObservationIgnored private var artworkLookupTokens: [ArtworkLookupKey: LibraryArtworkLookupToken] = [:]
+    @ObservationIgnored private var artworkLookupIdentities: [ArtworkLookupKey: String] = [:]
+    @ObservationIgnored private var artworkLookupTokenRefreshScheduled = false
+
+    /// 专辑卡片用: 只在这张专辑的首选封面歌曲或它的封面引用变了时失效。
+    func scopedPreferredArtworkSong(forAlbumID albumID: String) -> Song? {
+        _ = artworkLookupToken(for: .album(albumID)).revision
+        guard let songID = preferredArtworkSongIDByAlbumID[albumID] else { return nil }
+        return visibleSongByID[songID]
+    }
+
+    /// 艺人卡片用: 同上, 另外跟着这个艺人自己的名字和封面引用。
+    func scopedPreferredArtworkSong(forArtistID artistID: String) -> Song? {
+        _ = artworkLookupToken(for: .artist(artistID)).revision
+        guard let songID = preferredArtworkSongIDByArtistID[artistID] else { return nil }
+        return visibleSongByID[songID]
+    }
+
+    /// 艺人卡片用的当前艺人值, 失效范围同 `scopedPreferredArtworkSong(forArtistID:)`。
+    /// `visibleArtist(id:)` 读的是整份艺人数组, 扫描时每次入库都会让它失效。
+    func scopedVisibleArtist(id artistID: String) -> Artist? {
+        _ = artworkLookupToken(for: .artist(artistID)).revision
+        return visibleArtistByID[artistID]
+    }
+
+    private func artworkLookupToken(for key: ArtworkLookupKey) -> LibraryArtworkLookupToken {
+        if let token = artworkLookupTokens[key] { return token }
+        let token = LibraryArtworkLookupToken()
+        artworkLookupTokens[key] = token
+        artworkLookupIdentities[key] = artworkLookupIdentity(for: key)
+        return token
+    }
+
+    private func artworkLookupIdentity(for key: ArtworkLookupKey) -> String {
+        func songIdentity(_ songID: String?) -> String {
+            guard let songID, let song = visibleSongByID[songID] else { return "" }
+            return [
+                song.id,
+                song.coverArtFileName ?? "",
+                song.revision ?? "",
+                song.sourceID,
+                song.filePath,
+                song.fileFormat.rawValue,
+            ].joined(separator: "\u{1F}")
+        }
+        switch key {
+        case .album(let albumID):
+            return songIdentity(preferredArtworkSongIDByAlbumID[albumID])
+        case .artist(let artistID):
+            let artist = visibleArtistByID[artistID]
+            return [
+                artist == nil ? "-" : "+",
+                artist?.name ?? "",
+                artist?.thumbnailPath ?? "",
+                songIdentity(preferredArtworkSongIDByArtistID[artistID]),
+            ].joined(separator: "\u{1E}")
+        }
+    }
+
+    /// 查找表的几条发布路径各自在不同时刻换掉字典与版本号, 所以不在某一个
+    /// 赋值点上当场比对, 而是排到这一轮主线程工作之后比一次, 那时查找表已经
+    /// 是一致的新状态。只比对有卡片读过的那些条目, 成本随挂过的卡片数走。
+    private func scheduleArtworkLookupTokenRefresh() {
+        guard !artworkLookupTokens.isEmpty, !artworkLookupTokenRefreshScheduled else { return }
+        artworkLookupTokenRefreshScheduled = true
+        Task { @MainActor [weak self] in
+            self?.refreshArtworkLookupTokens()
+        }
+    }
+
+    private func refreshArtworkLookupTokens() {
+        artworkLookupTokenRefreshScheduled = false
+        for (key, token) in artworkLookupTokens {
+            let identity = artworkLookupIdentity(for: key)
+            guard artworkLookupIdentities[key] != identity else { continue }
+            artworkLookupIdentities[key] = identity
+            token.revision &+= 1
+        }
+    }
+
     private func promotePreferredArtworkSongIfNeeded(_ song: Song) {
         guard visibleSongByID[song.id] != nil else { return }
         var changed = false
@@ -7385,7 +7490,7 @@ final class MusicLibrary {
                 allPlaylists[idx] = p
                 sortPlaylists()
                 persistPlaylistDurabilityLedger()
-                persistSnapshot()
+                persistSnapshot(after: Self.snapshotDelay(forPlaylistID: id))
                 notifyPlaylistsChanged([id])
             }
             return p
@@ -7397,7 +7502,7 @@ final class MusicLibrary {
         playlistSongIDs[playlist.id] = []
         sortPlaylists()
         persistPlaylistDurabilityLedger()
-        persistSnapshot()
+        persistSnapshot(after: Self.snapshotDelay(forPlaylistID: playlist.id))
         notifyPlaylistsChanged([playlist.id])
         return playlist
     }
@@ -7470,7 +7575,7 @@ final class MusicLibrary {
             persistPlaylistDurabilityLedger()
         }
         sortPlaylists()
-        persistSnapshot()
+        persistSnapshot(after: Self.snapshotDelay(forPlaylistID: playlistID))
         notifyPlaylistsChanged([playlistID])
     }
 
@@ -7502,7 +7607,7 @@ final class MusicLibrary {
         allPlaylists[index].hasDedicatedCoverArt = normalized != nil
         allPlaylists[index].updatedAt = Date()
         sortPlaylists()
-        persistSnapshot()
+        persistSnapshot(after: Self.mirrorPlaylistSnapshotDelay)
         notifyPlaylistsChanged([playlistID])
     }
 
@@ -9222,7 +9327,9 @@ final class MusicLibrary {
     /// this cannot be cleared by a later metadata-only replacement before UI
     /// observation delivers the change.
     private(set) var songListSnapshotInvalidationRevision: UInt64 = 0
-    private(set) var songReplacementToken = UUID()
+    private(set) var songReplacementToken = UUID() {
+        didSet { scheduleArtworkLookupTokenRefresh() }
+    }
 
     func replaceSong(_ updatedSong: Song) {
         // S2: 与 `replaceSongs` 一致地排队。空库上 `validatedSongIndex` 返回 nil,
@@ -11595,6 +11702,15 @@ final class MusicLibrary {
     /// 一天就能写出好几 GB。进后台、导出到 iCloud / Apple TV 之前都会先强制落盘,
     /// 启动时 SQLite 也比 JSON 权威, 所以这里放宽只影响崩溃时丢几分钟的「最近播放」。
     static let lowPriorityPortableSnapshotDelay: TimeInterval = 600
+
+    /// 服务端歌单的镜像随时能从服务器重新拉回来, 不值得按用户编辑的 2 秒档落盘:
+    /// 扫描收尾逐个落地几十个歌单时, 2 秒档意味着同步期间每两秒一份整库快照。
+    /// 已经为用户改动武装的更早截止时间不受影响(persistSnapshot 保留最早的那个)。
+    static let mirrorPlaylistSnapshotDelay: TimeInterval = 15
+
+    static func snapshotDelay(forPlaylistID playlistID: String) -> TimeInterval {
+        MirrorPlaylistIdentity.isMirrorPlaylist(playlistID) ? mirrorPlaylistSnapshotDelay : 2
+    }
 
     private func persistSnapshot(
         after delay: TimeInterval = 2,

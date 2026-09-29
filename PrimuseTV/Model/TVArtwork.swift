@@ -1149,7 +1149,8 @@ struct TVArtworkView: View {
         if let requestedSongID, !requestedSongID.isEmpty {
             return store.library.song(id: requestedSongID)
         }
-        return store.library.preferredArtworkSong(forAlbumID: coverKey)
+        // 只随这张专辑自己的首选封面失效, 扫描入库时整墙格子不跟着重算。
+        return store.library.scopedPreferredArtworkSong(forAlbumID: coverKey)
     }
 
     private var songID: String? { requestedSongID ?? sourceArtworkSong?.id }

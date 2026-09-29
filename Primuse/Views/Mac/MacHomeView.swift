@@ -26,12 +26,17 @@ private final class MacHomeRefreshCoordinator {
 /// debounced.
 private struct MacHomeLibraryRevisionObserver: View {
     @Environment(MusicLibrary.self) private var library
+    @Environment(ScanService.self) private var scanService
     let onRevisionChange: () -> Void
+    let onScanFinished: () -> Void
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .onChange(of: library.searchRevision) { _, _ in onRevisionChange() }
+            .onChange(of: scanService.scanningSourceIDs.isEmpty) { _, idle in
+                if idle { onScanFinished() }
+            }
     }
 }
 
@@ -125,9 +130,11 @@ struct MacHomeView: View {
         }
         .background(PMColor.bg.ignoresSafeArea())
         .background {
-            MacHomeLibraryRevisionObserver {
-                scheduleDerivedRefresh()
-            }
+            MacHomeLibraryRevisionObserver(
+                onRevisionChange: { scheduleDerivedRefresh(libraryDriven: true) },
+                // 扫描期间排着的那次按扫描档在等; 扫完按正常档重排。
+                onScanFinished: { scheduleDerivedRefresh() }
+            )
         }
         .task {
             isHomeVisible = true
@@ -369,12 +376,17 @@ struct MacHomeView: View {
 
     /// 合并 searchRevision 风暴: cancel 上一次再重启计时, 只有最后一次 revision
     /// 落定后才真正重算。
-    private func scheduleDerivedRefresh() {
+    /// `libraryDriven`: 由资料库版本触发。只有这一类在扫描期间放宽间隔,
+    /// 播放记录、日期、语言这些用户看得见的变化照常。
+    private func scheduleDerivedRefresh(libraryDriven: Bool = false) {
         guard scenePhase == .active, isHomeVisible else { return }
         // 同 iOS HomeView: 去抖只能合并密集到达的版本变化, 而扫描/回填的发布
         // 间隔比去抖窗口长, 所以还要一道最小重算间隔才能真正合并。
         let elapsed = refreshCoordinator.lastRefreshAt.map { Date().timeIntervalSince($0) }
-        let delay = LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: elapsed)
+        let delay = LibraryDerivedRefreshPolicy.delay(
+            sinceLastRefresh: elapsed,
+            libraryIsScanning: libraryDriven && !scanService.scanningSourceIDs.isEmpty
+        )
         refreshCoordinator.debounceTask?.cancel()
         refreshCoordinator.debounceTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(delay))

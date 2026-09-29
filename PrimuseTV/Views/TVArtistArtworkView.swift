@@ -9,7 +9,8 @@ struct TVArtistArtworkView: View {
     @State private var image: UIImage?
     @State private var cacheRevision = 0
 
-    private var reference: String? { store.library.visibleArtist(id: artist.id)?.thumbnailPath }
+    /// 只随这个艺人自己的封面字段失效, 扫描入库时别的艺人变化不牵动这一格。
+    private var reference: String? { store.library.scopedVisibleArtist(id: artist.id)?.thumbnailPath }
     private var resolution: LibraryArtworkOverrideResolution {
         store.library.artworkPresentation(for: .init(kind: .artist, id: artist.id)).resolution
     }

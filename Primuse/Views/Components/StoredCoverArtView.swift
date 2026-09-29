@@ -539,8 +539,9 @@ struct AlbumArtworkView: View {
         LibraryArtworkOwner(kind: .album, id: album.id)
     }
 
+    /// 只随这张专辑自己的首选封面变化失效; 扫描入库时别的专辑加入不影响这张卡片。
     private var fallbackSong: PrimuseKit.Song? {
-        library.preferredArtworkSong(forAlbumID: album.id)
+        library.scopedPreferredArtworkSong(forAlbumID: album.id)
     }
 
     var body: some View {
@@ -726,8 +727,10 @@ struct ArtistArtworkView: View {
     @State private var reloadRevision = 0
     @State private var automaticArtworkResolved: Bool?
 
+    /// 只随这个艺人自己的封面字段失效; `visibleArtist(id:)` 读整份艺人数组,
+    /// 扫描每入库一批, 屏幕上的艺人卡片就要全部重算一遍。
     private var currentArtist: PrimuseKit.Artist {
-        library.visibleArtist(id: artist.id) ?? artist
+        library.scopedVisibleArtist(id: artist.id) ?? artist
     }
 
     private var owner: LibraryArtworkOwner {
@@ -785,7 +788,7 @@ struct ArtistArtworkView: View {
 
             if currentArtist.thumbnailPath?.isEmpty != false
                 || automaticArtworkResolved == false,
-               let fallbackSong = library.preferredArtworkSong(
+               let fallbackSong = library.scopedPreferredArtworkSong(
                    forArtistID: currentArtist.id
                ) {
                 CachedArtworkView(

@@ -594,6 +594,35 @@ final class LifecycleRegressionTests: XCTestCase {
         )
     }
 
+    func testScanFlushCadenceKeepsFirstCommitFastAndSettlesAfterward() {
+        for profile in [ScanExecutionProfile.standard, .backgroundPlayback] {
+            // 第一次提交与原来的档位一致, 新源不会久久空着。
+            XCTAssertEqual(
+                ScanExecutionProfilePolicy.flushBatchSize(for: profile, completedFlushes: 0),
+                ScanExecutionProfilePolicy.flushBatchSize(for: profile)
+            )
+            XCTAssertEqual(
+                ScanExecutionProfilePolicy.flushInterval(for: profile, completedFlushes: 0),
+                ScanExecutionProfilePolicy.flushInterval(for: profile)
+            )
+            // 之后放宽: 每次提交的主线程成本随整库大小走, 不随这批有几首。
+            XCTAssertGreaterThan(
+                ScanExecutionProfilePolicy.flushBatchSize(for: profile, completedFlushes: 1),
+                ScanExecutionProfilePolicy.flushBatchSize(for: profile)
+            )
+            XCTAssertGreaterThan(
+                ScanExecutionProfilePolicy.flushInterval(for: profile, completedFlushes: 1),
+                ScanExecutionProfilePolicy.flushInterval(for: profile)
+            )
+        }
+        XCTAssertEqual(ScanExecutionProfilePolicy.flushInterval(for: .standard, completedFlushes: 3), 5)
+        XCTAssertEqual(ScanExecutionProfilePolicy.flushBatchSize(for: .standard, completedFlushes: 3), 1000)
+        XCTAssertGreaterThan(
+            ScanExecutionProfilePolicy.flushInterval(for: .backgroundPlayback, completedFlushes: 1),
+            ScanExecutionProfilePolicy.flushInterval(for: .standard, completedFlushes: 1)
+        )
+    }
+
     func testScanExecutionProfilePriorityLeavesForegroundUnchanged() {
         XCTAssertEqual(
             ScanExecutionProfilePolicy.taskPriority(for: .standard, context: .userInitiatedForeground),

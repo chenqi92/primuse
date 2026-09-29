@@ -130,6 +130,13 @@ enum ScanExecutionProfilePolicy {
     /// which is exactly the work that must stay out of the audio path.
     static let backgroundPlaybackFlushBatchSize = 400
     static let backgroundPlaybackFlushInterval: TimeInterval = 5
+    /// 第一次提交之后的节奏。每次提交在主线程上的成本随整库大小走, 不随这批
+    /// 有几首 —— 3 万首的库里 1.5 秒一次, 资料库与首页每 1.5 秒整页失效重算一遍。
+    /// 第一次仍按上面的快节奏提交, 新源不至于久久空着; 之后放宽到这里。
+    static let standardSettledFlushBatchSize = 1000
+    static let standardSettledFlushInterval: TimeInterval = 5
+    static let backgroundPlaybackSettledFlushBatchSize = 2000
+    static let backgroundPlaybackSettledFlushInterval: TimeInterval = 10
     /// Nothing observes scan progress while the app is backgrounded, so
     /// publishing it only rate-limits the observation churn on resume.
     static let backgroundPlaybackProgressPublishInterval: TimeInterval = 5
@@ -145,6 +152,29 @@ enum ScanExecutionProfilePolicy {
         switch profile {
         case .standard: standardFlushInterval
         case .backgroundPlayback: backgroundPlaybackFlushInterval
+        }
+    }
+
+    /// `completedFlushes` 是本轮扫描已经做过的中间提交次数。
+    static func flushBatchSize(
+        for profile: ScanExecutionProfile,
+        completedFlushes: Int
+    ) -> Int {
+        guard completedFlushes > 0 else { return flushBatchSize(for: profile) }
+        switch profile {
+        case .standard: return standardSettledFlushBatchSize
+        case .backgroundPlayback: return backgroundPlaybackSettledFlushBatchSize
+        }
+    }
+
+    static func flushInterval(
+        for profile: ScanExecutionProfile,
+        completedFlushes: Int
+    ) -> TimeInterval {
+        guard completedFlushes > 0 else { return flushInterval(for: profile) }
+        switch profile {
+        case .standard: return standardSettledFlushInterval
+        case .backgroundPlayback: return backgroundPlaybackSettledFlushInterval
         }
     }
 
@@ -1476,12 +1506,18 @@ final class ScanService {
     /// Live cadence for the profile the app is in right now: a scan started in
     /// the foreground and still running after the scene backgrounds during
     /// playback adopts the reduced cadence on its next iteration.
-    private var currentFlushBatchSize: Int {
-        ScanExecutionProfilePolicy.flushBatchSize(for: currentExecutionProfile)
+    private func currentFlushBatchSize(completedFlushes: Int) -> Int {
+        ScanExecutionProfilePolicy.flushBatchSize(
+            for: currentExecutionProfile,
+            completedFlushes: completedFlushes
+        )
     }
 
-    private var currentFlushInterval: TimeInterval {
-        ScanExecutionProfilePolicy.flushInterval(for: currentExecutionProfile)
+    private func currentFlushInterval(completedFlushes: Int) -> TimeInterval {
+        ScanExecutionProfilePolicy.flushInterval(
+            for: currentExecutionProfile,
+            completedFlushes: completedFlushes
+        )
     }
 
     private var currentProgressPublishInterval: TimeInterval {
@@ -2223,6 +2259,7 @@ final class ScanService {
             var lastFlushAt = Date()
             var lastProgressPublishedAt = Date.distantPast
             var lastDirectoryState = resumableDirectoryState
+            var completedFlushes = 0
             for try await update in stream {
                 if Self.requiresAutomaticServerCatalogResourceGate(source.type),
                    Self.shouldDeferAutomaticServerCatalogWork(
@@ -2284,8 +2321,9 @@ final class ScanService {
 
                 let pendingDelta = update.scannedCount - lastIncrementalUpdate
                 let timeSinceFlush = Date().timeIntervalSince(lastFlushAt)
-                if pendingDelta >= currentFlushBatchSize
-                    || (pendingDelta > 0 && timeSinceFlush >= currentFlushInterval) {
+                if pendingDelta >= currentFlushBatchSize(completedFlushes: completedFlushes)
+                    || (pendingDelta > 0
+                        && timeSinceFlush >= currentFlushInterval(completedFlushes: completedFlushes)) {
                     // 中间 flush ── lastSongs 是当前累积的部分扫描结果, 还没
                     // 扫到的歌会被 addSongs 临时移除, 下次 flush 又补回。
                     // 这种"伪移除"不该触发缓存清理, 否则扫描中用户的本地
@@ -2316,6 +2354,7 @@ final class ScanService {
                     }
                     lastIncrementalUpdate = update.scannedCount
                     lastFlushAt = Date()
+                    completedFlushes += 1
                 }
             }
 
@@ -2925,6 +2964,34 @@ final class ScanService {
         var lastObservedSyncIndex: [String: SourceSyncIndexedItem] = [:]
         var lastObservedPendingDirectories: [String] = []
 
+        // 走过但还没进资料库的行。checkpoint 只带这一小段: 已经发布的行由
+        // 资料库自己持久化, 把整份累积目录再塞进 checkpoint 只会让每次落盘
+        // 重新编码一遍全库 —— 而写入间隔本来就随体积变长, 越大的库反而存得
+        // 越少。带上尾巴就能既小又频繁。
+        var unpublishedRows: [Song] = []
+        var completedFlushes = 0
+        // 扫描中途出错或让路时, 已经读到的行照样入库: 提交间隔放宽之后, 两次提交
+        // 之间可能攒着上千首, 不能因为后面一页读失败就让这些已经读好的歌一起消失,
+        // 要等下一轮扫描才出现。只合并、不修剪, 和中间提交一样; 被取消(源删了、
+        // 范围改了、用户停止)时围栏不成立, 照旧什么都不写, 这些行留在 checkpoint 里。
+        func commitReadRowsBeforeExit() {
+            guard !unpublishedRows.isEmpty, scanFenceIsValid() else { return }
+            let rows = unpublishedRows
+            unpublishedRows.removeAll()
+            library.addSongs(
+                rows,
+                affectedSourceIDs: Set([source.id]),
+                notifyRemovals: false,
+                pruneMissingSongs: false,
+                mergeServerCatalogRows: source.type.isSubsonicFamily,
+                indexMaintenance: .deferredIncremental
+            )
+            let acceptedCount = library.songCountsBySourceID()[source.id] ?? 0
+            rememberCoalescingSourceStore(sourceStore)
+            sourceStore.updateLocalCoalesced(source.id) { $0.songCount = acceptedCount }
+            plog("📥 \(source.name): committed \(rows.count) read row(s) before the scan stopped")
+        }
+
         do {
             var lastSongs: [Song] = []
             var lastIncrementalMutation = 0
@@ -2934,11 +3001,6 @@ final class ScanService {
             // `SourceCatalogSnapshotPolicy.hasChanges` 因此会把首次扫描误判成
             // 空操作, 连带跳过后台刮削入队。
             var publishedIntermediateRows = false
-            // 走过但还没进资料库的行。checkpoint 只带这一小段: 已经发布的行由
-            // 资料库自己持久化, 把整份累积目录再塞进 checkpoint 只会让每次落盘
-            // 重新编码一遍全库 —— 而写入间隔本来就随体积变长, 越大的库反而存得
-            // 越少。带上尾巴就能既小又频繁。
-            var unpublishedRows: [Song] = []
             for try await update in stream {
                 if Self.requiresAutomaticServerCatalogResourceGate(source.type),
                    Self.shouldDeferAutomaticServerCatalogWork(
@@ -2947,6 +3009,7 @@ final class ScanService {
                 ) {
                     try await waitForCheckpointPersistence()
                     guard scanFenceIsValid() else { return }
+                    commitReadRowsBeforeExit()
                     recordScanInterruption(
                         sourceID: source.id,
                         scannedCount: update.scannedCount,
@@ -3011,8 +3074,10 @@ final class ScanService {
                 let observedMutationCount = max(update.mutationCount, update.addedCount)
                 let pendingDelta = observedMutationCount - lastIncrementalMutation
                 let timeSinceFlush = Date().timeIntervalSince(lastFlushAt)
-                let shouldFlushIncrementally = pendingDelta >= currentFlushBatchSize
-                    || (pendingDelta > 0 && timeSinceFlush >= currentFlushInterval)
+                let shouldFlushIncrementally =
+                    pendingDelta >= currentFlushBatchSize(completedFlushes: completedFlushes)
+                    || (pendingDelta > 0
+                        && timeSinceFlush >= currentFlushInterval(completedFlushes: completedFlushes))
                 if shouldFlushIncrementally {
                     // 中间 flush 只交这一批新增/刷新的行, 不再把整份累积目录
                     // 重新提交一遍 —— 后者在 7 万首的库里等于每 1.5 s 重跑一次
@@ -3057,6 +3122,7 @@ final class ScanService {
                     }
                     lastIncrementalMutation = observedMutationCount
                     lastFlushAt = Date()
+                    completedFlushes += 1
                 }
             }
 
@@ -3121,6 +3187,7 @@ final class ScanService {
             }
         } catch {
             guard scanFenceIsValid() else { return }
+            commitReadRowsBeforeExit()
             if Self.isMissingConnectorRootError(error) {
                 // ConnectorScanner only lets a missing-path error escape for
                 // a selected root. Clear its durable resume intent so the UI

@@ -269,6 +269,8 @@ enum LibraryPinStorage {
 
 private struct LibraryArtworkPreviewSelection: Sendable {
     var revision = ""
+    /// 挑这一份时的用户改动部分(快捷访问、手选封面)。只有它变了才立刻重挑。
+    var userRevision = ""
     var songs: [Song] = []
     var albums: [Album] = []
     var artists: [Artist] = []
@@ -423,6 +425,8 @@ struct LibraryView: View {
     private var hiddenSectionsRawValue = ""
     @AppStorage(QuickAccessCoverStyle.storageKey) private var quickAccessCoverStyle = QuickAccessCoverStyle.automatic
     @State private var artworkPreviewSelection = LibraryArtworkPreviewSelection()
+    /// 上一次真正挑完封面预览的时刻, 给资料库内容驱动的重挑做节流。
+    @State private var artworkPreviewBuiltAt: Date?
 
     private var songs: [Song] { library.visibleSongs }
     private var albums: [Album] { library.visibleAlbums }
@@ -473,10 +477,13 @@ struct LibraryView: View {
             String(library.albumArtworkLookupRevision),
             String(library.sourceSyncCompletionRevision),
             String(library.playlistCollectionRevision),
-            String(library.artworkOverrideRevision),
-            quickAccessRawValue,
             radioSignature,
+            artworkPreviewUserRevision,
         ].joined(separator: "#")
+    }
+    /// 预览签名里由用户操作决定的部分。其余部分随扫描、回填不停地变。
+    private var artworkPreviewUserRevision: String {
+        "\(library.artworkOverrideRevision)#\(quickAccessRawValue)"
     }
 
     init(
@@ -635,6 +642,7 @@ struct LibraryView: View {
         .serverCatalogPullToRefresh {
             LibraryArtworkPreviewSessionStore.shared.invalidateForManualRefresh()
             artworkPreviewSelection = LibraryArtworkPreviewSelection()
+            artworkPreviewBuiltAt = nil
             await refreshArtworkPreviews(for: artworkPreviewRevision)
         }
         .onAppear {
@@ -1061,20 +1069,26 @@ struct LibraryView: View {
         artworkPreviewSelection.revision == artworkPreviewRevision
     }
 
+    /// 挑过一次之后就一直显示挑好的那份, 直到新的一份挑完。以前签名一变就先
+    /// 退回列表最前面三个, 扫描时每次入库预览都要来回跳一下、整排封面重新加载。
+    private var hasArtworkPreviewSelection: Bool {
+        !artworkPreviewSelection.revision.isEmpty
+    }
+
     private var previewSongs: [Song] {
-        hasCurrentArtworkPreviewSelection
+        hasArtworkPreviewSelection
             ? artworkPreviewSelection.songs
             : Array(songs.prefix(3))
     }
 
     private var previewAlbums: [Album] {
-        hasCurrentArtworkPreviewSelection
+        hasArtworkPreviewSelection
             ? artworkPreviewSelection.albums
             : Array(albums.prefix(3))
     }
 
     private var previewArtists: [Artist] {
-        hasCurrentArtworkPreviewSelection
+        hasArtworkPreviewSelection
             ? artworkPreviewSelection.artists
             : Array(artists.prefix(3))
     }
@@ -1086,27 +1100,29 @@ struct LibraryView: View {
     }
 
     private var previewPlaylists: [Playlist] {
-        hasCurrentArtworkPreviewSelection
+        hasArtworkPreviewSelection
             ? artworkPreviewSelection.playlists
             : Array(regularPlaylists.prefix(3))
     }
 
     private var previewRadioStations: [RadioStation] {
-        hasCurrentArtworkPreviewSelection
+        hasArtworkPreviewSelection
             ? artworkPreviewSelection.radioStations
             : Array(radioStationsStore.stations.prefix(3))
     }
 
     private func albumFallbackSongs(_ album: Album) -> [Song] {
+        if let songs = artworkPreviewSelection.albumFallbackSongs[album.id] {
+            return songs
+        }
         if hasCurrentArtworkPreviewSelection {
-            return artworkPreviewSelection.albumFallbackSongs[album.id] ?? []
+            return []
         }
         return library.preferredArtworkSong(forAlbumID: album.id).map { [$0] } ?? []
     }
 
     private func artistFallbackSongs(_ artist: Artist) -> [Song] {
-        guard hasCurrentArtworkPreviewSelection else { return [] }
-        return artworkPreviewSelection.artistFallbackSongs[artist.id] ?? []
+        artworkPreviewSelection.artistFallbackSongs[artist.id] ?? []
     }
 
     private func libraryAlbumArtwork(
@@ -1258,8 +1274,19 @@ struct LibraryView: View {
             artworkPreviewSelection = cached
             return
         }
+        let userRevision = artworkPreviewUserRevision
+        // 封面预览只是入口上的装饰, 不需要跟着扫描、回填实时换: 已经有一份、
+        // 而且变的只是资料库内容时, 最少隔一段才重挑(签名再变会取消这次等待,
+        // 按上次挑完的时刻重新算)。快捷访问、手选封面这些用户改动照常立刻重挑。
+        let delaySeconds: TimeInterval
+        if hasArtworkPreviewSelection, artworkPreviewSelection.userRevision == userRevision {
+            let elapsed = artworkPreviewBuiltAt.map { Date().timeIntervalSince($0) }
+            delaySeconds = LibraryDerivedRefreshPolicy.artworkPreviewDelay(sinceLastRefresh: elapsed)
+        } else {
+            delaySeconds = LibraryDerivedRefreshPolicy.artworkPreviewDebounce
+        }
         do {
-            try await Task.sleep(for: .milliseconds(280))
+            try await Task.sleep(for: .seconds(delaySeconds))
         } catch {
             return
         }
@@ -1276,46 +1303,46 @@ struct LibraryView: View {
             pin.kind == .artist ? pin.itemID : nil
         })
 
-        let albumOverrideIDs = Set(albumsSnapshot.compactMap { album -> String? in
-            let presentation = library.artworkPresentation(
-                for: LibraryArtworkOwner(kind: .album, id: album.id)
-            )
-            return presentation.uploadedContentID != nil || presentation.selectedSong != nil
-                ? album.id
-                : nil
-        })
-        let artistOverrideIDs = Set(artistsSnapshot.compactMap { artist -> String? in
-            let presentation = library.artworkPresentation(
-                for: LibraryArtworkOwner(kind: .artist, id: artist.id)
-            )
-            return presentation.uploadedContentID != nil || presentation.selectedSong != nil
-                ? artist.id
-                : nil
-        })
-        let playlistOverrideIDs = Set(playlistsSnapshot.compactMap { playlist -> String? in
-            let presentation = library.artworkPresentation(
-                for: LibraryArtworkOwner(kind: .playlist, id: playlist.id)
-            )
-            return presentation.uploadedContentID != nil || presentation.selectedSong != nil
-                ? playlist.id
-                : nil
-        })
-        let playlistIDsWithMemberArtworkHint = Set(playlistsSnapshot.compactMap { playlist -> String? in
-            library.songs(forPlaylist: playlist.id).contains(
-                where: LibraryArtworkPreviewBuilder.songHasArtworkHint
-            ) ? playlist.id : nil
-        })
+        // 只看真的设过封面的那几个, 不再对每张专辑、每个艺人逐个问一遍 ——
+        // 那是主线程上随整库大小走的一趟。
+        var albumOverrides = Set<String>()
+        var artistOverrides = Set<String>()
+        var playlistOverrides = Set<String>()
+        for override in library.allArtworkOverrides {
+            let presentation = library.artworkPresentation(for: override.owner)
+            guard presentation.uploadedContentID != nil || presentation.selectedSong != nil else {
+                continue
+            }
+            switch override.owner.kind {
+            case .album: albumOverrides.insert(override.owner.id)
+            case .artist: artistOverrides.insert(override.owner.id)
+            case .playlist: playlistOverrides.insert(override.owner.id)
+            }
+        }
+        let albumOverrideIDs = albumOverrides
+        let artistOverrideIDs = artistOverrides
+        let playlistOverrideIDs = playlistOverrides
+        // 歌单成员只取 id(字典取值 + 写时复制), 判断有没有封面线索放到后台。
+        let playlistMemberIDs = Dictionary(
+            playlistsSnapshot.map { ($0.id, library.rawSongIDs(forPlaylist: $0.id)) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         let selection = await LibraryArtworkPreviewSessionStore.shared.selection(
             for: revision
         ) { randomSeed in
-            // 只要两组 id, 不复制一份整库歌曲数组。
+            // 只要几组 id, 不复制一份整库歌曲数组。
             var albumIDsWithSongArtworkHint = Set<String>()
             var artistIDsWithSongArtworkHint = Set<String>()
+            var songIDsWithArtworkHint = Set<String>()
             for song in songsSnapshot where LibraryArtworkPreviewBuilder.songHasArtworkHint(song) {
+                songIDsWithArtworkHint.insert(song.id)
                 if let albumID = song.albumID { albumIDsWithSongArtworkHint.insert(albumID) }
                 if let artistID = song.artistID { artistIDsWithSongArtworkHint.insert(artistID) }
             }
+            let playlistIDsWithMemberArtworkHint = Set(playlistMemberIDs.compactMap { entry in
+                entry.value.contains(where: songIDsWithArtworkHint.contains) ? entry.key : nil
+            })
 
             let selectedSongs = LibraryArtworkPreviewBuilder.select(
                 songsSnapshot,
@@ -1391,6 +1418,7 @@ struct LibraryView: View {
 
             return LibraryArtworkPreviewSelection(
                 revision: revision,
+                userRevision: userRevision,
                 songs: selectedSongs,
                 albums: selectedAlbums,
                 artists: selectedArtists,
@@ -1405,6 +1433,7 @@ struct LibraryView: View {
               artworkPreviewRevision == revision,
               let selection else { return }
         artworkPreviewSelection = selection
+        artworkPreviewBuiltAt = Date()
     }
 
     private func categoryCountText(_ section: LibrarySection) -> String {

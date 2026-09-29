@@ -495,6 +495,67 @@ struct MetadataReadSchedulerTests {
         }
     }
 
+    /// 扫描期间首页只随资料库内容变化的展示放宽到更长的间隔; 不在扫描时和原来一致。
+    @Test func libraryDrivenRecomputesWaitLongerWhileScanning() {
+        let debounce = LibraryDerivedRefreshPolicy.debounce
+        let scanning = LibraryDerivedRefreshPolicy.scanningMinimumInterval
+        #expect(scanning > LibraryDerivedRefreshPolicy.minimumInterval)
+        for elapsed: TimeInterval? in [nil, 0, 5, 15, 60, TimeInterval.nan] {
+            #expect(
+                LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: elapsed, libraryIsScanning: false)
+                    == LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: elapsed)
+            )
+        }
+        // 本会话还没算过一次时不拖: 首页不能因为正在扫描就一直空着。
+        #expect(LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: nil, libraryIsScanning: true) == debounce)
+        #expect(LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: 0, libraryIsScanning: true) == scanning)
+        for elapsed in stride(from: 0, through: scanning * 2, by: 1) {
+            let delay = LibraryDerivedRefreshPolicy.delay(sinceLastRefresh: elapsed, libraryIsScanning: true)
+            #expect(delay >= debounce)
+            #expect(elapsed + delay >= scanning)
+        }
+    }
+
+    /// 资料库入口的封面预览: 第一次很快出来, 之后只随内容变化时最少隔一段才重挑。
+    @Test func libraryArtworkPreviewRepicksAreRateLimited() {
+        let debounce = LibraryDerivedRefreshPolicy.artworkPreviewDebounce
+        let minimum = LibraryDerivedRefreshPolicy.artworkPreviewMinimumInterval
+        #expect(debounce < 1)
+        #expect(minimum > debounce)
+        #expect(LibraryDerivedRefreshPolicy.artworkPreviewDelay(sinceLastRefresh: nil) == debounce)
+        #expect(LibraryDerivedRefreshPolicy.artworkPreviewDelay(sinceLastRefresh: 0) == minimum)
+        #expect(LibraryDerivedRefreshPolicy.artworkPreviewDelay(sinceLastRefresh: 3_600) == debounce)
+        for invalid in [TimeInterval.nan, -1, -TimeInterval.infinity] {
+            #expect(LibraryDerivedRefreshPolicy.artworkPreviewDelay(sinceLastRefresh: invalid) == debounce)
+        }
+        for elapsed in stride(from: 0, through: minimum * 2, by: 0.5) {
+            let delay = LibraryDerivedRefreshPolicy.artworkPreviewDelay(sinceLastRefresh: elapsed)
+            #expect(delay >= debounce)
+            #expect(elapsed + delay >= minimum)
+        }
+    }
+
+    /// 扫描收尾逐个落地服务端歌单时, 首页不能一个歌单整页重算一次; 但用户自己
+    /// 改的歌单仍要比资料库版本那一档快得多地出现在首页。
+    @Test func playlistDrivenRecomputesAreRateLimitedButStayQuick() {
+        let debounce = LibraryDerivedRefreshPolicy.playlistDebounce
+        let minimum = LibraryDerivedRefreshPolicy.playlistMinimumInterval
+        #expect(debounce > 0)
+        #expect(minimum > debounce)
+        #expect(minimum < LibraryDerivedRefreshPolicy.minimumInterval)
+        #expect(LibraryDerivedRefreshPolicy.playlistDelay(sinceLastRefresh: nil) == debounce)
+        #expect(LibraryDerivedRefreshPolicy.playlistDelay(sinceLastRefresh: 0) == minimum)
+        #expect(LibraryDerivedRefreshPolicy.playlistDelay(sinceLastRefresh: 3_600) == debounce)
+        for invalid in [TimeInterval.nan, -1, -TimeInterval.infinity] {
+            #expect(LibraryDerivedRefreshPolicy.playlistDelay(sinceLastRefresh: invalid) == debounce)
+        }
+        for elapsed in stride(from: 0, through: minimum * 2, by: 0.5) {
+            let delay = LibraryDerivedRefreshPolicy.playlistDelay(sinceLastRefresh: elapsed)
+            #expect(delay >= debounce)
+            #expect(elapsed + delay >= minimum)
+        }
+    }
+
     /// 读取的 CPU 代价用 `getrusage(RUSAGE_SELF)` 量, 那是整个进程的 CPU。资料库
     /// 发布如果落在读取窗口里, 就会被记到这一首头上 —— 而发布的代价按批摊销,
     /// 歇得更久不会让它变便宜。实测 (2026-09-12): 慢读取间隔里跨过发布的比例

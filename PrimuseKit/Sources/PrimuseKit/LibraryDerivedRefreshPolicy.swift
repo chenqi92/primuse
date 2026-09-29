@@ -24,4 +24,41 @@ public enum LibraryDerivedRefreshPolicy {
         guard let elapsed, elapsed.isFinite, elapsed >= 0 else { return debounce }
         return max(debounce, minimumInterval - elapsed)
     }
+
+    /// 扫描进行中时的最小间隔。首页上随扫描变化的只是封面、最近添加这些展示,
+    /// 不需要实时跟; 扫描结束会立刻按正常档位补一次, 最终结果不会晚到。
+    public static let scanningMinimumInterval: TimeInterval = 45
+
+    public static func delay(
+        sinceLastRefresh elapsed: TimeInterval?,
+        libraryIsScanning: Bool
+    ) -> TimeInterval {
+        guard libraryIsScanning else { return delay(sinceLastRefresh: elapsed) }
+        guard let elapsed, elapsed.isFinite, elapsed >= 0 else { return debounce }
+        return max(debounce, scanningMinimumInterval - elapsed)
+    }
+
+    /// 资料库入口上的封面预览: 第一次与用户改动后只等这么一下(合并连续的改动)。
+    public static let artworkPreviewDebounce: TimeInterval = 0.28
+
+    /// 只是资料库内容在变时, 两次重挑封面预览之间的最小间隔。预览只是入口上的
+    /// 装饰, 扫描时每次入库都重挑一遍, 整排封面就跟着重新加载一遍。
+    public static let artworkPreviewMinimumInterval: TimeInterval = 30
+
+    public static func artworkPreviewDelay(sinceLastRefresh elapsed: TimeInterval?) -> TimeInterval {
+        guard let elapsed, elapsed.isFinite, elapsed >= 0 else { return artworkPreviewDebounce }
+        return max(artworkPreviewDebounce, artworkPreviewMinimumInterval - elapsed)
+    }
+
+    /// 歌单变化的合并窗口。用户自己建/改歌单要很快在首页看到, 但扫描收尾会把
+    /// 服务端歌单一个一个落地 —— 一个歌单一次整页重算, 几秒里就是几十次。
+    public static let playlistDebounce: TimeInterval = 1
+
+    /// 两次由歌单变化驱动的重算之间的最小间隔。
+    public static let playlistMinimumInterval: TimeInterval = 5
+
+    public static func playlistDelay(sinceLastRefresh elapsed: TimeInterval?) -> TimeInterval {
+        guard let elapsed, elapsed.isFinite, elapsed >= 0 else { return playlistDebounce }
+        return max(playlistDebounce, playlistMinimumInterval - elapsed)
+    }
 }
