@@ -298,7 +298,8 @@ struct ImmersivePlayerView: View {
                 ? String(localized: "lyrics_loading")
                 : String(localized: "no_lyrics"),
             controlsInset: controlsInset(metrics),
-            isResting: isAmbientRest
+            isResting: isAmbientRest,
+            showsPlaybackProgress: showsChrome && !isAmbientRest
         ) { side in
             ZStack {
                 ImmersiveArtworkFallback(palette: artworkPalette)

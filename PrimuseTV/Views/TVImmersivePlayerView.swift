@@ -416,6 +416,7 @@ struct TVImmersivePlayerView: View {
             lyricsPlaceholder: PMString("ext.tv.nowPlaying.noLyrics"),
             visualizerDisclosure: PMString("ext.tv.immersive.timelineDisclosure"),
             controlsInset: metrics.s(150),
+            showsPlaybackProgress: showsChrome,
             chromeBlurRadius: 60
         ) { side in
             if np.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

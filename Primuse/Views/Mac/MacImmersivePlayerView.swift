@@ -262,6 +262,7 @@ struct MacImmersivePlayerView: View {
             lyricInterlude: lyricInterlude,
             lyricsPlaceholder: String(localized: "no_lyrics"),
             controlsInset: controlsInset(metrics),
+            showsPlaybackProgress: showsChrome,
             chromeBlurRadius: 52
         ) { side in
             ZStack {

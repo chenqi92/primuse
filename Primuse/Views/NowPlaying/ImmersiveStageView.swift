@@ -132,6 +132,8 @@ struct ImmersiveStageView<Artwork: View>: View {
     var showsClock = false
     /// 休憩时舞台把可读文字淡出，只留画面；时钟与歌词由容器的休憩层负责。
     var isResting = false
+    /// 底部细进度条跟随容器的浮动控件一起出现、一起隐去。
+    var showsPlaybackProgress = true
     var chromeBlurRadius: CGFloat = 52
     @ViewBuilder var artwork: (CGFloat) -> Artwork
 
@@ -181,11 +183,12 @@ struct ImmersiveStageView<Artwork: View>: View {
             ImmersiveHairlinePlaybackProgress(
                 initialElapsed: track.elapsed,
                 duration: track.duration,
-                isPlaying: playbackClockIsActive,
+                isPlaying: playbackClockIsActive && showsPlaybackProgress,
                 playbackTime: playbackTime,
                 height: max(1, metrics.f(platform == .tvOS ? 4 : 2)),
                 accent: palette.primary
             )
+            .opacity(showsPlaybackProgress ? 1 : 0)
         }
         .clipped()
     }
