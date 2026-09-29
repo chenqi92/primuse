@@ -2486,7 +2486,9 @@ final class AlwaysDownloadCoordinator {
 
         let selectedPlaylists = library.playlists.compactMap { playlist -> (String, [Song])? in
             guard cleanedIDs.contains(playlist.id) else { return nil }
-            return (playlist.id, library.songs(forPlaylist: playlist.id).filteredPlayable())
+            // 读存储里的行：可见集可能还停在扫描前，服务器换了文件却要等好几分钟
+            // 才开始刷新。禁用的源由 makeDesiredSongs 按源配置剔除。
+            return (playlist.id, library.storedSongs(forPlaylist: playlist.id).filteredPlayable())
         }
         let sources = sourcesStore.sources
         let desired = await Task.detached(priority: .utility) {

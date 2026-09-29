@@ -8364,6 +8364,13 @@ final class MusicLibrary {
         playlistSongIDs[playlistID] ?? []
     }
 
+    /// 歌单成员在库里存着的那一行，不经可见集、也不按禁用源过滤。扫描刚提交的
+    /// 新大小 / 修订号要等整库分组重建后才进可见集，刮削、回填一直在改库时那次
+    /// 重建会被反复作废；要按文件内容做决定的调用方（「始终保持离线」）读这一份。
+    func storedSongs(forPlaylist playlistID: String) -> [Song] {
+        rawSongIDs(forPlaylist: playlistID).compactMap { storedSong(id: $0) }
+    }
+
     /// Projects the already-persisted Apple Music mirrors into the folder
     /// browser. This is deliberately local-only: opening the library never
     /// starts another MusicKit request or authorization prompt.

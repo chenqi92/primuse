@@ -1302,6 +1302,44 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         try? FileManager.default.removeItem(at: cacheURL)
     }
 
+    @MainActor
+    func testAlwaysDownloadReadsStoredPlaylistRowsBeforeTheVisibleCacheCatchesUp() async throws {
+        let storageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseStoredPlaylistRows-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: storageDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: storageDirectory) }
+        let library = MusicLibrary(storageDirectory: storageDirectory)
+        var original = Song(
+            id: "stored-playlist-song", title: "Track", fileFormat: .mp3,
+            filePath: "/music/track.mp3", sourceID: "stored-playlist-source", fileSize: 100
+        )
+        original.revision = "first"
+        library.addSongs([original], affectedSourceIDs: [original.sourceID])
+        await library.waitForPendingIndex()
+        let playlist = library.createPlaylist(name: "Always offline")
+        library.add(songIDs: [original.id, "pending:missing"], toPlaylist: playlist.id)
+        XCTAssertEqual(library.storedSongs(forPlaylist: playlist.id).map(\.fileSize), [100])
+
+        // 服务器同路径换成更大的文件后重扫：提交当下存储里的行就得是新的，
+        // 不能等可见集的整库分组重建。
+        var replaced = original
+        replaced.fileSize = 200
+        replaced.revision = "second"
+        library.addSongs([replaced], affectedSourceIDs: [original.sourceID])
+        let stored = library.storedSongs(forPlaylist: playlist.id)
+        XCTAssertEqual(stored.map(\.fileSize), [200])
+        XCTAssertEqual(stored.map(\.revision), ["second"])
+
+        await library.waitForPendingIndex()
+        XCTAssertEqual(library.songs(forPlaylist: playlist.id).map(\.fileSize), [200])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("The isolated library did not finish persistence")
+        }
+    }
+
     func testOfflineTransferSizePolicyCapsSmallAndUnknownArtifacts() throws {
         let expected: Int64 = 1_024
         XCTAssertEqual(
