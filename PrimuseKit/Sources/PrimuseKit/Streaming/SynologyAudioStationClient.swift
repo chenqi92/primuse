@@ -831,24 +831,29 @@ public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
 
     /// 歌单列表取不到就整体失败;某一份歌单的曲目取不到只记进 `failedPlaylistIDs`,
     /// 不影响其他歌单。取数由调用方传入:iPhone 端的每次请求要经过自己的
-    /// QuickConnect 路线失效处理。
+    /// QuickConnect 路线失效处理。`onPlaylist` 每读全一个就交出,调用方可先显示。
     public static func collect(
         playlists: @Sendable () async throws -> [SynologyAudioStationPlaylist],
-        trackIDs: @Sendable (String) async throws -> [String]
+        trackIDs: @Sendable (String) async throws -> [String],
+        onPlaylist: (@Sendable (SynologyAudioStationPlaylistMirror) async -> Void)? = nil
     ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
         var mirrors: [SynologyAudioStationPlaylistMirror] = []
         var failed: Set<String> = []
         for playlist in try await playlists() {
             try Task.checkCancellation()
             let mirrorID = mirrorID(for: playlist.id)
+            let mirror: SynologyAudioStationPlaylistMirror
             do {
                 let ids = try await trackIDs(playlist.id).filter(SynologyAudioStationAPI.isCatalogSongID)
-                mirrors.append(SynologyAudioStationPlaylistMirror(id: mirrorID, name: playlist.name, trackIDs: ids))
+                mirror = SynologyAudioStationPlaylistMirror(id: mirrorID, name: playlist.name, trackIDs: ids)
             } catch let error where OperationCancellationPolicy.isCancellation(error) {
                 throw CancellationError()
             } catch {
                 failed.insert(mirrorID)
+                continue
             }
+            mirrors.append(mirror)
+            await onPlaylist?(mirror)
         }
         return SynologyAudioStationPlaylistMirrorSnapshot(playlists: mirrors, failedPlaylistIDs: failed)
     }
@@ -856,10 +861,13 @@ public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
 
 extension SynologyAudioStationClient {
     /// 直接用这个客户端取数的镜像快照(电视端)。
-    public func playlistMirrorSnapshot() async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
+    public func playlistMirrorSnapshot(
+        onPlaylist: (@Sendable (SynologyAudioStationPlaylistMirror) async -> Void)? = nil
+    ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
         try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
             playlists: { try await self.playlists() },
-            trackIDs: { try await self.playlistTrackIDs(id: $0) }
+            trackIDs: { try await self.playlistTrackIDs(id: $0) },
+            onPlaylist: onPlaylist
         )
     }
 

@@ -2240,12 +2240,15 @@ final class TVSourceScanner {
     /// 返回 nil 表示该类型没有歌单能力,调用方不要动本地任何歌单。
     func fetchServerPlaylists(
         source: MusicSource,
-        credential: SourceCredential?
+        credential: SourceCredential?,
+        progress: @escaping ServerPlaylistProgress = { _ in }
     ) async throws -> ServerPlaylistSnapshot? {
         guard Self.serverPlaylistTypes.contains(source.type) else { return nil }
         if source.type == .synologyAudioStation {
             let mirrors = try await withRoutedSource(source) { routedSource in
-                try await Self.audioStationPlaylistMirrors(source: routedSource, credential: credential)
+                try await Self.audioStationPlaylistMirrors(
+                    source: routedSource, credential: credential, progress: progress
+                )
             }
             return ServerPlaylistSnapshot(mirrors)
         }
@@ -2256,20 +2259,21 @@ final class TVSourceScanner {
             ) as? any ServerPlaylistConnector else { return nil }
             defer { Task { await connector.disconnect() } }
             try await connector.connect()
-            return try await connector.fetchServerPlaylists()
+            return try await connector.fetchServerPlaylists(progress: progress)
         }
     }
 
     private static func audioStationPlaylistMirrors(
         source: MusicSource,
-        credential: SourceCredential?
+        credential: SourceCredential?,
+        progress: @escaping ServerPlaylistProgress
     ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
         do {
             return try await SynologyAudioStationClient(
                 source: source, credential: credential,
                 deviceName: source.deviceId?.isEmpty == false ? SynologyAudioStationStreamResolver.trustedDeviceName : nil
             )
-                .playlistMirrorSnapshot()
+                .playlistMirrorSnapshot { await progress(ServerPlaylist($0)) }
         } catch {
             throw SynologyAudioStationStreamResolver.streamError(from: error)
         }

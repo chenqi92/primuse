@@ -2118,10 +2118,17 @@ struct ServerPlaylistSnapshot: Sendable {
     /// 不会让镜像被当成「被截断」而一直不更新。
     init(_ audioStation: SynologyAudioStationPlaylistMirrorSnapshot) {
         self.init(
-            playlists: audioStation.playlists.map {
-                ServerPlaylist(id: $0.id, name: $0.name, trackIDs: $0.trackIDs, reportedTrackCount: $0.trackIDs.count)
-            },
+            playlists: audioStation.playlists.map(ServerPlaylist.init),
             failedPlaylistIDs: audioStation.failedPlaylistIDs
+        )
+    }
+}
+
+extension ServerPlaylist {
+    init(_ audioStation: SynologyAudioStationPlaylistMirror) {
+        self.init(
+            id: audioStation.id, name: audioStation.name,
+            trackIDs: audioStation.trackIDs, reportedTrackCount: audioStation.trackIDs.count
         )
     }
 }

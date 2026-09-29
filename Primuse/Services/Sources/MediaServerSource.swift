@@ -2076,12 +2076,18 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         try await connect()
 
         if kind == .plex {
-            return try await fetchPlexPlaylists()
+            return try await fetchPlexPlaylists(progress: progress)
         } else {
-            return try await fetchJellyfinOrEmbyPlaylists()
+            return try await fetchJellyfinOrEmbyPlaylists(progress: progress)
         }
     }
 
@@ -2176,7 +2182,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return try radioPlaybackURL(for: stationID)
     }
 
-    private func fetchJellyfinOrEmbyPlaylists() async throws -> ServerPlaylistSnapshot {
+    private func fetchJellyfinOrEmbyPlaylists(
+        progress: ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         guard let userID else { throw SourceError.authenticationFailed }
 
         let summaryResponse = try await fetchAllJellyfinOrEmbyItems(
@@ -2206,13 +2214,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     maximumCount: Self.maximumCatalogTracks,
                     deduplicatesItems: false
                 )
-                result.append(ServerPlaylist(
+                let playlist = ServerPlaylist(
                     id: summary.id,
                     name: summary.name.isEmpty ? summary.id : summary.name,
                     coverArtReference: playlistCoverArtReference(for: summary),
                     trackIDs: itemsResponse.items.map(\.id),
                     reportedTrackCount: itemsResponse.totalCount
-                ))
+                )
+                result.append(playlist)
+                await progress(playlist)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -2331,7 +2341,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         return refreshed
     }
 
-    private func fetchPlexPlaylists() async throws -> ServerPlaylistSnapshot {
+    private func fetchPlexPlaylists(
+        progress: ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         let summaries = try await fetchAllPlexPlaylistSummaries()
         let audioPlaylists = summaries.filter { $0.playlistType == "audio" }
         guard audioPlaylists.isEmpty == false else {
@@ -2348,13 +2360,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 let itemsResponse = try await fetchAllPlexPlaylistItems(
                     playlistID: summary.ratingKey
                 )
-                result.append(ServerPlaylist(
+                let playlist = ServerPlaylist(
                     id: summary.ratingKey,
                     name: summary.title.isEmpty ? summary.ratingKey : summary.title,
                     coverArtReference: playlistCoverArtReference(for: summary),
                     trackIDs: itemsResponse.items.map(\.ratingKey),
                     reportedTrackCount: itemsResponse.totalCount ?? summary.leafCount
-                ))
+                )
+                result.append(playlist)
+                await progress(playlist)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {

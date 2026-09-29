@@ -636,13 +636,17 @@ struct SynologyAudioStationTests {
         let listed = try JSONDecoder().decode([SynologyAudioStationPlaylist].self, from: Data("""
             [{"id":"playlist_personal_normal/好","name":"好"},{"id":"playlist_personal_normal/坏","name":"坏"}]
             """.utf8))
+        let delivered = DeliveredAudioStationPlaylists()
         let snapshot = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
             playlists: { listed },
             trackIDs: { id in
                 guard id.hasSuffix("好") else { throw SynologyAudioStationError.invalidResponse }
                 return ["music_1", "music_/volume1/a.flac", "music_v_2"]
-            }
+            },
+            onPlaylist: { await delivered.append($0) }
         )
+        // 读全的歌单读完就交出，读不到的不交。
+        #expect(await delivered.names == ["好"])
         #expect(snapshot.playlists.map(\.name) == ["好"])
         #expect(snapshot.playlists.first?.trackIDs == ["music_1", "music_v_2"])
         #expect(snapshot.failedPlaylistIDs == [
@@ -1154,5 +1158,13 @@ private enum Fixtures {
             throw SynologyAudioStationError.invalidResponse
         }
         return page.songs
+    }
+}
+
+private actor DeliveredAudioStationPlaylists {
+    private(set) var names: [String] = []
+
+    func append(_ playlist: SynologyAudioStationPlaylistMirror) {
+        names.append(playlist.name)
     }
 }

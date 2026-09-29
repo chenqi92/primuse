@@ -470,10 +470,17 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     /// 只读镜像:个人与共享歌单(客户端已滤掉系统内部歌单),智能歌单也照样镜像。
     /// 镜像 id 与曲目筛选是和电视端共用的 `SynologyAudioStationPlaylistMirrorSnapshot`。
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         try await connect()
         let snapshot = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
             playlists: { try await self.perform { try await $0.playlists() } },
-            trackIDs: { id in try await self.perform { try await $0.playlistTrackIDs(id: id) } }
+            trackIDs: { id in try await self.perform { try await $0.playlistTrackIDs(id: id) } },
+            onPlaylist: { await progress(ServerPlaylist($0)) }
         )
         return ServerPlaylistSnapshot(snapshot)
     }

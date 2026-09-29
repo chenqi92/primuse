@@ -1046,6 +1046,12 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     /// 单个歌单取曲目失败只跳过它, 不让整次同步失败 —— 一个坏歌单不该挡住
     /// 其余歌单。`getPlaylist` 规范上没有分页参数, 一次返回全部 `entry`。
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         try await connect()
         let container: PlaylistsContainer = try await requestJSON("getPlaylists")
         let summaries = container.playlists?.playlist ?? []
@@ -1069,14 +1075,13 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 failedPlaylistIDs.insert(summary.id.value)
                 continue
             }
+            var mirrored = playlist
             if playlist.isReadOnly, !playlist.isSmartPlaylist {
                 if isAdmin == nil { isAdmin = await currentUserIsAdmin() }
-                if isAdmin == true {
-                    result.append(playlist.withReadOnly(false))
-                    continue
-                }
+                if isAdmin == true { mirrored = playlist.withReadOnly(false) }
             }
-            result.append(playlist)
+            result.append(mirrored)
+            await progress(mirrored)
         }
 
         // Airsonic/gonic retain the legacy read-only mirror. Navidrome and the
@@ -1087,13 +1092,15 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
                 let starred: Starred2Container = try await requestJSON("getStarred2")
                 let songs = starred.starred2?.song ?? []
                 if !songs.isEmpty {
-                    result.append(ServerPlaylist(
+                    let starredPlaylist = ServerPlaylist(
                         id: Self.starredPlaylistID,
                         name: String(localized: "playlist_liked_name"),
                         coverArtReference: songs.first?.coverArt.flatMap { coverArtURLString(for: $0) },
                         trackIDs: songs.map(\.id),
                         reportedTrackCount: songs.count
-                    ))
+                    )
+                    result.append(starredPlaylist)
+                    await progress(starredPlaylist)
                 }
             } catch is CancellationError {
                 throw CancellationError()

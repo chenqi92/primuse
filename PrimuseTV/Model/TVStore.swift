@@ -4197,8 +4197,13 @@ final class TVStore {
         generation: UUID
     ) async {
         do {
+            let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
             guard let snapshot = try await scanner.fetchServerPlaylists(
-                source: source, credential: credential
+                source: source, credential: credential,
+                progress: { @MainActor [weak self] playlist in
+                    guard let self, self.isCurrentScan(source: source, generation: generation) else { return }
+                    applier.apply(playlist)
+                }
             ) else { return }
             guard isCurrentScan(source: source, generation: generation) else { return }
             _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)

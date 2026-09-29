@@ -2128,11 +2128,17 @@ private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadata
     }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerPlaylistConnector else {
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
-            return try await provider.fetchServerPlaylists()
+            return try await provider.fetchServerPlaylists(progress: progress)
         }
     }
 
@@ -2404,9 +2410,15 @@ private struct RoutedSongloftConnector: RoutedConnectorProxy, RefreshingMetadata
     }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerPlaylistConnector else { throw SongloftServiceError.invalidResponse }
-            return try await provider.fetchServerPlaylists()
+            return try await provider.fetchServerPlaylists(progress: progress)
         }
     }
 
@@ -2485,11 +2497,17 @@ private struct RoutedSynologyAudioStationConnector: RoutedConnectorProxy, Refres
     }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerPlaylistConnector else {
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
-            return try await provider.fetchServerPlaylists()
+            return try await provider.fetchServerPlaylists(progress: progress)
         }
     }
 
@@ -2575,11 +2593,17 @@ private struct RoutedMediaServerConnector: RoutedConnectorProxy, RefreshingMetad
     }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         try await routing.withRead { connector in
             guard let provider = connector as? any ServerPlaylistConnector else {
                 throw SourceError.connectionFailed("Server playlist connector unavailable")
             }
-            return try await provider.fetchServerPlaylists()
+            return try await provider.fetchServerPlaylists(progress: progress)
         }
     }
 

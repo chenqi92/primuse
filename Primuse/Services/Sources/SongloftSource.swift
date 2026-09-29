@@ -182,6 +182,12 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
     }
 
     func fetchServerPlaylists() async throws -> ServerPlaylistSnapshot {
+        try await fetchServerPlaylists(progress: { _ in })
+    }
+
+    func fetchServerPlaylists(
+        progress: @escaping ServerPlaylistProgress
+    ) async throws -> ServerPlaylistSnapshot {
         let listed = try await client.playlists()
         var playlists: [ServerPlaylist] = []
         var failed: Set<String> = []
@@ -191,9 +197,11 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
             guard !playlist.isFavorite else { continue }
             do {
                 let ids = try await client.playlistSongIDs(id: playlist.id, expectedCount: playlist.songCount)
-                playlists.append(ServerPlaylist(id: String(playlist.id), name: playlist.name,
+                let mirrored = ServerPlaylist(id: String(playlist.id), name: playlist.name,
                     coverArtReference: playlist.coverReference, trackIDs: ids.map(String.init),
-                    reportedTrackCount: playlist.songCount))
+                    reportedTrackCount: playlist.songCount)
+                playlists.append(mirrored)
+                await progress(mirrored)
             } catch is CancellationError { throw CancellationError() }
             catch { failed.insert(String(playlist.id)) }
         }
