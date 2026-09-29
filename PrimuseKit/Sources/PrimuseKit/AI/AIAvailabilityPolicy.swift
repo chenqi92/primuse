@@ -239,20 +239,21 @@ public enum AIAvailabilityPolicy {
                 requiresExplicitConsent: true
             )
 
-        case .bundledRemote where regionContext.distributionEnvironment == .testing:
+        // 内置中转暂不按商店地区拦截，实际可用性由服务响应判断。
+        case .bundledRemote:
             return AIAccessDecision(
                 isAllowed: true,
                 shouldExposeConfiguration: true,
                 requiresExplicitConsent: true
             )
 
-        case .appleSystemModel, .bundledRemote:
+        case .appleSystemModel:
             switch regionContext.region {
             case .international:
                 return AIAccessDecision(
                     isAllowed: true,
                     shouldExposeConfiguration: true,
-                    requiresExplicitConsent: executionClass == .bundledRemote
+                    requiresExplicitConsent: false
                 )
             case .mainlandChina:
                 return AIAccessDecision(

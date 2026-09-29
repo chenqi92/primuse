@@ -148,15 +148,13 @@ struct AIRegionAvailabilityTests {
         #expect(configuredRemote.shouldExposeConfiguration)
         #expect(configuredRemote.requiresExplicitConsent)
 
-        for executionClass in [AIExecutionClass.appleSystemModel, .bundledRemote] {
-            let decision = AIAvailabilityPolicy.decision(
-                for: executionClass,
-                regionContext: region
-            )
-            #expect(!decision.isAllowed)
-            #expect(!decision.shouldExposeConfiguration)
-            #expect(decision.denialReason == .regionRestricted)
-        }
+        let appleSystemModel = AIAvailabilityPolicy.decision(
+            for: .appleSystemModel,
+            regionContext: region
+        )
+        #expect(!appleSystemModel.isAllowed)
+        #expect(!appleSystemModel.shouldExposeConfiguration)
+        #expect(appleSystemModel.denialReason == .regionRestricted)
     }
 
     @Test func unknownRegionKeepsCustomConfigurationAvailable() {

@@ -4,7 +4,8 @@ import Testing
 
 @Suite("AI distribution availability")
 struct AIDistributionAvailabilityTests {
-    @Test func testingDistributionAllowsBundledRelayInEveryRegion() {
+    @Test(arguments: [AIDistributionEnvironment.production, .testing])
+    func bundledRelayIsAvailableInEveryRegion(distribution: AIDistributionEnvironment) {
         for region in [
             AICommercialRegion.mainlandChina,
             .international,
@@ -13,7 +14,7 @@ struct AIDistributionAvailabilityTests {
             let context = AIRegionContext(
                 region: region,
                 source: .appStorefront,
-                distributionEnvironment: .testing
+                distributionEnvironment: distribution
             )
             let decision = AIAvailabilityPolicy.decision(
                 for: .bundledRemote,
@@ -27,27 +28,33 @@ struct AIDistributionAvailabilityTests {
         }
     }
 
-    @Test func productionDistributionKeepsBundledRelayRegionRestrictions() {
-        let mainland = AIRegionContext(
-            region: .mainlandChina,
+    @Test(arguments: [AICommercialRegion.mainlandChina, .international, .unknown])
+    func productionBundledRelayRoutingStillRequiresConsent(region: AICommercialRegion) {
+        let context = AIRegionContext(
+            region: region,
             source: .appStorefront,
-            countryCode: "CHN",
             distributionEnvironment: .production
         )
-        let unknown = AIRegionContext(
-            region: .unknown,
-            source: .unresolved,
-            distributionEnvironment: .production
+        let relay = AIProviderDescriptor(
+            id: UUID(),
+            displayName: "Built-in AI",
+            kind: .openAICompatible,
+            executionClass: .bundledRemote,
+            capabilities: [.semanticSearchInterpretation]
         )
 
-        #expect(AIAvailabilityPolicy.decision(
-            for: .bundledRemote,
-            regionContext: mainland
-        ).denialReason == .regionRestricted)
-        #expect(AIAvailabilityPolicy.decision(
-            for: .bundledRemote,
-            regionContext: unknown
-        ).denialReason == .regionUndetermined)
+        #expect(AIProviderRoutingPolicy.candidates(
+            from: [relay],
+            capability: .semanticSearchInterpretation,
+            regionContext: context,
+            hasExplicitRemoteConsent: false
+        ).isEmpty)
+        #expect(AIProviderRoutingPolicy.candidates(
+            from: [relay],
+            capability: .semanticSearchInterpretation,
+            regionContext: context,
+            hasExplicitRemoteConsent: true
+        ).map(\.id) == [relay.id])
     }
 
     @Test func testingDistributionDoesNotBypassAppleModelAvailability() {
@@ -71,7 +78,7 @@ struct AIDistributionAvailabilityTests {
         let context = try JSONDecoder().decode(AIRegionContext.self, from: data)
 
         #expect(context.distributionEnvironment == .production)
-        #expect(!AIAvailabilityPolicy.decision(
+        #expect(AIAvailabilityPolicy.decision(
             for: .bundledRemote,
             regionContext: context
         ).isAllowed)
