@@ -3159,6 +3159,7 @@
 "source_diag_directory_ok_format" = "निर्देशिका को सफलतापूर्वक पढ़ें, %d दृश्यमान आइटम मिले।";
 "source_diag_directory_title" = "डायरेक्ट्री एक्सेस";
 "source_diag_preparing_scan" = "स्कैन से पहले स्रोत की जांच की जा रही है...";
+"scan_waiting_for_server_scan" = "सर्वर अपनी लाइब्रेरी स्कैन कर रहा है; पूरा होने पर अपने-आप जारी रहेगा...";
 "source_diag_checking_changes" = "सर्वर पर बदलाव जांचे जा रहे हैं...";
 "source_diag_run_again" = "फिर से चलाएँ";
 "source_diag_running" = "कनेक्शन और स्कैन की तैयारी की जांच की जा रही है...";

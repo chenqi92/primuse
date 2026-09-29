@@ -793,6 +793,7 @@
 "rescan" = "Повторное сканирование";
 "Syncing…" = "Синхронизация…";
 "source_diag_preparing_scan" = "Проверка источника перед сканированием...";
+"scan_waiting_for_server_scan" = "Сервер сканирует медиатеку; продолжим, когда он закончит...";
 "source_diag_checking_changes" = "Проверка изменений на сервере...";
 "The update will be installed from the App Store." = "Обновление будет установлено с App Store.";
 "error_scrobble_http %@ %@" = "Сервер скробблинга возвращен HTTP %@: %@";

@@ -464,6 +464,10 @@ final class ScanService {
     /// A drift-tolerant walk may move onto a new catalogue revision this many
     /// times in a row without staging a page before it is reported as failed.
     private static let maximumCatalogDriftReanchorsWithoutProgress = 5
+    /// How long a catalogue walk waits for the server's own library scan
+    /// (Navidrome `getScanStatus.scanning`) before parking as interrupted.
+    private static let maximumServerScanWait: TimeInterval = 20 * 60
+    private static let serverScanPollInterval: Duration = .seconds(15)
     /// macOS has no scene-background flush before quit, so keep the widest
     /// checkpoint interval shorter there than on iOS, where cancellation on
     /// `.inactive` always forces a final write.
@@ -3439,6 +3443,7 @@ final class ScanService {
         let toleratesCatalogDrift = source.type.toleratesPagedCatalogDrift
         var catalogDriftObserved = false
         var driftReanchorsWithoutProgress = 0
+        var serverScanWaitStartedAt: Date?
         func persistPagedCatalogState(
             _ snapshot: PagedSongCatalogStageSnapshot,
             totalCount: Int,
@@ -4073,20 +4078,32 @@ final class ScanService {
                 }
                 snapshotRestartCount += 1
                 do {
-                    try await resetPagedServerCatalogCheckpoint(
+                    // Before this walk has adopted a stage, whatever the store
+                    // holds is the one to replace — the loop's own reset does
+                    // the same. Its owner generation may come from an earlier
+                    // launch, so it can't be outranked by this launch's count.
+                    var replacingStageSessionID = activeStageSessionID
+                    if replacingStageSessionID == nil {
+                        replacingStageSessionID = try await Task.detached(priority: .utility) {
+                            try stagingStore.snapshot(sourceID: source.id)
+                        }.value?.stageSessionID
+                        guard pagedFenceIsValid() else { return true }
+                    }
+                    // Keep the fresh stage as ours, so a second restart
+                    // replaces it rather than being refused by it.
+                    activeStageSessionID = try await resetPagedServerCatalogCheckpoint(
                         sourceID: source.id,
                         generation: generation,
                         directories: directories,
                         mode: mode,
                         scopeFingerprint: scopeFingerprint,
                         catalogRevision: nil,
-                        replacingStageSessionID: activeStageSessionID,
+                        replacingStageSessionID: replacingStageSessionID,
                         stagingStore: stagingStore,
                         sourceStore: sourceStore
                     )
                     guard pagedFenceIsValid() else { return true }
                     resumeCheckpoint = checkpoints[source.id]
-                    activeStageSessionID = nil
                 } catch {
                     guard !OperationCancellationPolicy.isCancellation(error),
                           pagedFenceIsValid() else {
@@ -4110,6 +4127,36 @@ final class ScanService {
                     return true
                 }
                 await Task.yield()
+                continue pagedSnapshotLoop
+            } catch PagedSongCatalogError.serverScanInProgress {
+                // A server rebuilding its library — often the full scan this
+                // app just asked for at launch — is not a catalogue that moved
+                // under the walk. Retrying at once only burned the restart
+                // budget in milliseconds and failed the scan; the staged pages
+                // stay valid, so wait for the server and pick up from them.
+                guard pagedFenceIsValid() else { return true }
+                let now = Date()
+                if serverScanWaitStartedAt == nil {
+                    serverScanWaitStartedAt = now
+                    plog("⏳ \(source.name): server is scanning its library; waiting before reading the catalogue")
+                }
+                guard now.timeIntervalSince(serverScanWaitStartedAt ?? now)
+                        < Self.maximumServerScanWait else {
+                    plog("⏳ \(source.name): server still scanning after \(Int(Self.maximumServerScanWait / 60)) min; parking the scan as interrupted")
+                    try? await waitForCheckpointPersistence()
+                    guard pagedFenceIsValid() else { return true }
+                    recordScanInterruption(sourceID: source.id)
+                    return true
+                }
+                if var state = scanStates[source.id] {
+                    state.isScanning = true
+                    state.currentFile = String(localized: "scan_waiting_for_server_scan")
+                    state.failureMessage = nil
+                    scanStates[source.id] = state
+                }
+                try? await Task.sleep(for: Self.serverScanPollInterval)
+                guard pagedFenceIsValid() else { return true }
+                resumeCheckpoint = checkpoints[source.id]
                 continue pagedSnapshotLoop
             } catch let error where OperationCancellationPolicy.isCancellation(error) {
                 if pagedFenceIsValid() {
@@ -4141,6 +4188,7 @@ final class ScanService {
         return true
     }
 
+    @discardableResult
     private func resetPagedServerCatalogCheckpoint(
         sourceID: String,
         generation: Int,
@@ -4151,7 +4199,7 @@ final class ScanService {
         replacingStageSessionID: String?,
         stagingStore: PagedSongCatalogStagingStore?,
         sourceStore: SourcesStore
-    ) async throws {
+    ) async throws -> String? {
         try checkScanCommitFence(
             sourceID: sourceID,
             generation: generation,
@@ -4159,8 +4207,10 @@ final class ScanService {
             expectedScopeDirectories: directories,
             sourceStore: sourceStore
         )
+        var resetSessionID: String?
         if let stagingStore {
             let nextSessionID = UUID().uuidString
+            resetSessionID = nextSessionID
             try await Task.detached(priority: .utility) {
                 try stagingStore.reset(
                     sourceID: sourceID,
@@ -4193,6 +4243,7 @@ final class ScanService {
             expectedScopeDirectories: directories,
             sourceStore: sourceStore
         )
+        return resetSessionID
     }
 
     /// Posts the "scan failed" notification, worded like the failure shown on

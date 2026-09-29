@@ -131,7 +131,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             throw Self.error(from: container.error)
         }
         guard container.scanStatus?.scanning != true else {
-            throw PagedSongCatalogError.snapshotChangedDuringPagination
+            throw PagedSongCatalogError.serverScanInProgress
         }
         try Self.rejectFailedServerScan(container.scanStatus)
         let lastScan = container.scanStatus?.lastScan ?? ""

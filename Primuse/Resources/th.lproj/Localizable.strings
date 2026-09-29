@@ -3159,6 +3159,7 @@
 "source_diag_directory_ok_format" = "อ่านไดเร็กทอรีสำเร็จ พบ %d รายการที่มองเห็นได้";
 "source_diag_directory_title" = "การเข้าถึงไดเรกทอรี";
 "source_diag_preparing_scan" = "กำลังตรวจสอบแหล่งที่มาก่อนสแกน...";
+"scan_waiting_for_server_scan" = "เซิร์ฟเวอร์กำลังสแกนคลังเพลง จะดำเนินการต่อเมื่อเสร็จ...";
 "source_diag_checking_changes" = "กำลังตรวจสอบการเปลี่ยนแปลงบนเซิร์ฟเวอร์...";
 "source_diag_run_again" = "วิ่งอีกครั้ง";
 "source_diag_running" = "กำลังตรวจสอบการเชื่อมต่อและความพร้อมในการสแกน...";

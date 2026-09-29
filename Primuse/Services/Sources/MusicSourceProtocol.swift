@@ -1792,6 +1792,10 @@ protocol ExistingSongAwareScanningConnector: SongScanningConnector {
 enum PagedSongCatalogError: Error, Sendable, Equatable {
     case unavailable
     case snapshotChangedDuringPagination
+    /// The server is rebuilding its own library right now. Nothing read in
+    /// this window is a stable catalogue, so the walk waits instead of
+    /// spending its snapshot retries.
+    case serverScanInProgress
 }
 
 struct PagedSongCatalogPage: Sendable {

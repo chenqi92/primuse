@@ -1401,6 +1401,7 @@
 "source_diag_summary_failed" = "需要處理";
 "source_diag_summary_detail_format" = "%@ · %@";
 "source_diag_preparing_scan" = "掃描前正在檢查音樂源...";
+"scan_waiting_for_server_scan" = "伺服器正在掃描曲庫，完成後自動繼續...";
 "source_diag_checking_changes" = "正在檢查伺服器上的變更...";
 "source_diag_config_title" = "設定";
 "source_diag_config_ok" = "必要設定已填寫。";

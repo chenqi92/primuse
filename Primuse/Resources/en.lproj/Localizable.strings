@@ -1466,6 +1466,7 @@
 "source_diag_summary_failed" = "Needs attention";
 "source_diag_summary_detail_format" = "%@ · %@";
 "source_diag_preparing_scan" = "Checking source before scan...";
+"scan_waiting_for_server_scan" = "Server is scanning its library; will continue when it finishes...";
 "source_diag_checking_changes" = "Checking the server for changes...";
 "source_diag_config_title" = "Configuration";
 "source_diag_config_ok" = "Required settings are present.";

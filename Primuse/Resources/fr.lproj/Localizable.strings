@@ -1458,6 +1458,7 @@
 "source_diag_summary_failed" = "Action requise";
 "source_diag_summary_detail_format" = "%@ · %@";
 "source_diag_preparing_scan" = "Vérification de la source avant l'analyse...";
+"scan_waiting_for_server_scan" = "Le serveur analyse sa bibliothèque ; reprise automatique une fois terminé...";
 "source_diag_checking_changes" = "Recherche des modifications sur le serveur...";
 "source_diag_config_title" = "Configuration";
 "source_diag_config_ok" = "Les réglages requis sont présents.";

@@ -48,6 +48,7 @@ final class SourceConnectionRouterTests: XCTestCase {
     func testBusinessAuthenticationTrustAndCancellationErrorsKeepLAN() async throws {
         let errors: [any Error] = [
             PagedSongCatalogError.snapshotChangedDuringPagination, PagedSongCatalogError.unavailable,
+            PagedSongCatalogError.serverScanInProgress,
             SourceError.connectionFailed("Navidrome server scan failed"), SourceError.connectionFailed("HTTP 503"),
             SourceError.timeout, SourceError.authenticationFailed, SourceError.credentialUnavailable("missing"),
             SourceError.fileNotFound("song"), SourceError.pathNotFound("directory"),

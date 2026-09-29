@@ -3159,6 +3159,7 @@
 "source_diag_directory_ok_format" = "Leitura do diretório com sucesso, itens visíveis %d encontrados.";
 "source_diag_directory_title" = "Acesso ao diretório";
 "source_diag_preparing_scan" = "Verificando a fonte antes da digitalização...";
+"scan_waiting_for_server_scan" = "O servidor está escaneando a biblioteca; continuará quando terminar...";
 "source_diag_checking_changes" = "Verificando alterações no servidor...";
 "source_diag_run_again" = "Executar novamente";
 "source_diag_running" = "Verificando a conexão e a prontidão da digitalização...";
