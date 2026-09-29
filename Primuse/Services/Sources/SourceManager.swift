@@ -7117,8 +7117,13 @@ final class SourceManager {
             return
         }
         let url = cacheURL(for: song)
+        let relativePath = audioCacheRelativePath(for: song)
+        // 保留中的旧版本按新版本大小校验必然不够；和播放、后台读取一样只看文件在不在。
+        let preservesExistingArtifact = preservingAutomaticRefreshPaths.contains(relativePath)
+            || contentChangeProtectionPendingPaths.contains(relativePath)
+        let expectedSize = preservesExistingArtifact ? 0 : song.fileSize
         let info = await Task.detached(priority: .utility) {
-            Self.offlineFileInfo(at: url, expectedSize: song.fileSize)
+            Self.offlineFileInfo(at: url, expectedSize: expectedSize)
         }.value
         guard offlineAudioSnapshotVersions[song.id, default: 0] == version else { return }
         guard audioCacheReadsAreAllowed(for: song.sourceID) else {
@@ -7411,7 +7416,9 @@ final class SourceManager {
         guard let missingPaths = await AudioCacheManager.shared.reconcileAutomaticPlaylistPins(
             prepared.requests,
             generation: generation,
-            excludedPaths: excludedArtifactPaths
+            excludedPaths: excludedArtifactPaths,
+            preservedPaths: preservingAutomaticRefreshPaths
+                .union(contentChangeProtectionPendingPaths)
         ) else { return nil }
         guard generation == automaticOfflineReconciliationGeneration else { return nil }
         let previousDesired = automaticPlaylistPinnedSongsByID

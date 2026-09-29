@@ -500,10 +500,14 @@ actor AudioCacheManager {
     /// Replaces only automatic playlist ownership. Manual pins survive, while
     /// files that lose their final automatic owner remain as ordinary LRU
     /// cache entries instead of being deleted immediately.
+    /// `preservedPaths` 是内容已更新、正在「保留旧文件、下完再替换」的路径：
+    /// 旧文件对应的是上一个版本，按新版本的大小校验必然不够，只要文件还在就
+    /// 算可用，免得刷新期间被当成缺失、显示成未缓存。
     func reconcileAutomaticPlaylistPins(
         _ requests: [AutomaticOfflinePinRequest],
         generation: Int,
-        excludedPaths: Set<String> = []
+        excludedPaths: Set<String> = [],
+        preservedPaths: Set<String> = []
     ) -> Set<String>? {
         ensureInitialized()
         guard generation >= automaticPlaylistReconciliationGeneration else { return nil }
@@ -550,7 +554,8 @@ actor AudioCacheManager {
             let fileURL = basePath.appendingPathComponent(request.path)
             let byteCount = logicalFileSize(at: fileURL)
             let isUsable = byteCount.map { size in
-                request.expectedByteCount <= 0
+                if preservedPaths.contains(request.path) { return size > 0 }
+                return request.expectedByteCount <= 0
                     || size >= Int64(Double(request.expectedByteCount) * 0.95)
             } ?? false
             guard isUsable else {

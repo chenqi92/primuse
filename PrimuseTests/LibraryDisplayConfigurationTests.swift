@@ -1233,6 +1233,75 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
         ))
     }
 
+    @MainActor
+    func testLargerSamePathReplacementKeepsPinnedCacheUsableDuringReconciliation() async throws {
+        let sourceID = "offline-content-growth-\(UUID().uuidString)"
+        let source = MusicSource(id: sourceID, name: "QA", type: .local, basePath: "/tmp")
+        let manager = SourceManager(sourcesProvider: { [source] in [source] })
+        var original = Song(
+            id: "song", title: "Track", fileFormat: .flac,
+            filePath: "/album/track.flac", sourceID: sourceID, fileSize: 100
+        )
+        original.revision = "first"
+        var replacement = original
+        replacement.fileSize = 200
+        replacement.revision = "second"
+
+        let originalDesired = try XCTUnwrap(AlwaysDownloadCoordinator.makeDesiredSongs(
+            selectedPlaylists: [("playlist", [original])], sources: [source]
+        ).first)
+        let replacementDesired = try XCTUnwrap(AlwaysDownloadCoordinator.makeDesiredSongs(
+            selectedPlaylists: [("playlist", [replacement])], sources: [source]
+        ).first)
+        XCTAssertEqual(originalDesired.artifactPath, replacementDesired.artifactPath)
+        XCTAssertNotEqual(originalDesired.artifactSignature, replacementDesired.artifactSignature)
+
+        let verifiedSourceIDs = await manager.automaticOfflineVerifiedSourceIDs([sourceID])
+        XCTAssertTrue(verifiedSourceIDs.contains(sourceID))
+        let relativePath = originalDesired.artifactPath
+        let cacheURL = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
+            .appendingPathComponent("primuse_audio_cache", isDirectory: true)
+            .appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(
+            at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        let oldBytes = Data(repeating: 0x5A, count: 100)
+        try oldBytes.write(to: cacheURL)
+
+        let initialMissing = await manager.reconcileAutomaticPlaylistPins(
+            [originalDesired], generation: 1
+        )
+        XCTAssertEqual(initialMissing, Set<String>())
+        XCTAssertNotNil(manager.cachedURL(for: original))
+
+        let disposition = AutomaticOfflineArtifactPolicy.refreshDisposition(
+            fileExists: true,
+            recordedArtifactSignature: originalDesired.artifactSignature,
+            desiredArtifactSignature: replacementDesired.artifactSignature,
+            recordedSourceIdentitySignature: originalDesired.sourceIdentitySignature,
+            desiredSourceIdentitySignature: replacementDesired.sourceIdentitySignature,
+            sourceScopeIsVerified: true
+        )
+        XCTAssertEqual(disposition, .preserveExisting)
+        _ = await manager.reconcileAutomaticOfflineProvenance(
+            [relativePath: disposition], generation: 2
+        )
+        let missingAfterGrowth = await manager.reconcileAutomaticPlaylistPins(
+            [replacementDesired], generation: 2
+        )
+        XCTAssertEqual(missingAfterGrowth, Set<String>(), "The pinned old artifact must stay available while the larger replacement downloads")
+        XCTAssertEqual(try? Data(contentsOf: cacheURL), oldBytes)
+        XCTAssertNotNil(manager.cachedURL(for: replacement))
+        // 歌曲行的缓存标记同样要把保留中的旧版本算作已离线。
+        await manager.refreshOfflineAudioSnapshot(for: replacement)
+        XCTAssertTrue(manager.offlineAudioSnapshot(for: replacement).isDownloaded)
+        XCTAssertEqual(try? Data(contentsOf: cacheURL), oldBytes)
+
+        _ = await manager.reconcileAutomaticPlaylistPins([], generation: 3)
+        await AudioCacheManager.shared.removeEntry(path: relativePath)
+        try? FileManager.default.removeItem(at: cacheURL)
+    }
+
     func testOfflineTransferSizePolicyCapsSmallAndUnknownArtifacts() throws {
         let expected: Int64 = 1_024
         XCTAssertEqual(
