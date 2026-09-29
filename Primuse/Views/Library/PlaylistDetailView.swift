@@ -403,7 +403,7 @@ struct PlaylistDetailView: View {
                     selection.activate()
                 }
             } label: {
-                Label(selection.isActive ? "done" : "batch_select",
+                Label(selection.isActive ? LocalizedStringKey("done") : "batch_select",
                       systemImage: "checkmark.circle")
             }
             .disabled(songs.isEmpty)
@@ -1492,10 +1492,10 @@ struct PlaylistDetailView: View {
 
 // MARK: - Playlist Reorder Sheet
 
-/// 拖拽重排歌单内歌曲顺序。用 List + EditMode + ForEach.onMove (SwiftUI 原生
-/// 拖动 handle), 完成后回调把新顺序传出去, parent 调 library.replacePlaylistSongs
-/// 写回 + sync。Apple Music 镜像歌单不进这里 (PlaylistDetailView 已经 disable
-/// 重排入口)。
+/// 拖拽重排歌单内歌曲顺序。用 List + ForEach.onMove (SwiftUI 原生拖动; iOS 开
+/// EditMode 显示手柄, Mac 上整行按住即可拖、右键可置顶), 完成后回调把新顺序
+/// 传出去, parent 调 library.replacePlaylistSongs 写回 + sync。Apple Music 镜像
+/// 歌单不进这里 (PlaylistDetailView 已经 disable 重排入口)。
 struct PlaylistReorderSheet: View {
     let playlist: Playlist
     let initialSongs: [Song]
@@ -1505,6 +1505,7 @@ struct PlaylistReorderSheet: View {
     @Environment(MusicLibrary.self) private var library
     #if os(macOS)
     @Environment(\.locale) private var locale
+    @Environment(SourceManager.self) private var sourceManager
     #endif
     @State private var localSongs: [Song]
 
@@ -1631,14 +1632,22 @@ struct PlaylistReorderSheet: View {
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 8) {
-                    ForEach(Array(localSongs.enumerated()), id: \.element.id) { index, song in
-                        macSongRow(song, index: index, ordinalWidth: ordinalWidth)
-                    }
+            // 原生 List 的拖动排序:插入线、拖到边缘自动滚动都由系统负责,
+            // 上千首的歌单也能一次拖到位。
+            List {
+                ForEach(Array(localSongs.enumerated()), id: \.element.id) { index, song in
+                    macSongRow(song, index: index, ordinalWidth: ordinalWidth)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
-                .padding(14)
+                .onMove { from, to in
+                    localSongs.move(fromOffsets: from, toOffset: to)
+                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .contentMargins(.vertical, 10, for: .scrollContent)
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
@@ -1656,6 +1665,7 @@ struct PlaylistReorderSheet: View {
                     .padding(.horizontal, 14)
                     .frame(height: 30)
                     .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
+                    .keyboardShortcut(.cancelAction)
                 Button("done") {
                     if hasChanges {
                         onDone(localSongs)
@@ -1668,6 +1678,7 @@ struct PlaylistReorderSheet: View {
                 .padding(.horizontal, 16)
                 .frame(height: 30)
                 .background(PMColor.brand, in: .rect(cornerRadius: 7))
+                .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
@@ -1724,14 +1735,11 @@ struct PlaylistReorderSheet: View {
 
             Spacer()
 
-            HStack(spacing: 2) {
-                reorderButton("chevron.up", disabled: index == 0) {
-                    moveSong(from: index, to: index - 1)
-                }
-                reorderButton("chevron.down", disabled: index == localSongs.count - 1) {
-                    moveSong(from: index, to: index + 1)
-                }
-            }
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(PMColor.textFaint)
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 10)
         .frame(height: 52)
@@ -1740,24 +1748,32 @@ struct PlaylistReorderSheet: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
-    }
-
-    private func reorderButton(_ symbol: String, disabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(disabled ? PMColor.textFaint.opacity(0.45) : PMColor.textMuted)
-                .frame(width: 24, height: 24)
-                .background(PMColor.glassBtn, in: .circle)
+        .contentShape(.rect(cornerRadius: 10))
+        .help(Text("Drag to Reorder"))
+        .contextMenu {
+            Button("radio_manage_pin_top", systemImage: "arrow.up.to.line") {
+                moveSong(from: index, to: 0)
+            }
+            .disabled(index == 0)
         }
-        .buttonStyle(.plain)
-        .disabled(disabled)
+        .accessibilityAction(named: Text("home_edit_move_up")) {
+            moveSong(from: index, to: index - 1)
+        }
+        .accessibilityAction(named: Text("home_edit_move_down")) {
+            moveSong(from: index, to: index + 1)
+        }
+        // 拖起的行可能被搬进独立的预览宿主渲染, 封面要读的两个模型显式带上。
+        .environment(library)
+        .environment(sourceManager)
     }
 
     private func moveSong(from source: Int, to destination: Int) {
-        guard localSongs.indices.contains(source), localSongs.indices.contains(destination) else { return }
-        let item = localSongs.remove(at: source)
-        localSongs.insert(item, at: destination)
+        guard localSongs.indices.contains(source), localSongs.indices.contains(destination),
+              source != destination else { return }
+        pmWithAnimation(.list) {
+            let item = localSongs.remove(at: source)
+            localSongs.insert(item, at: destination)
+        }
     }
     #endif
 }

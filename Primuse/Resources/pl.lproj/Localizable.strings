@@ -2325,10 +2325,10 @@
 "playlist_picker_empty_hint" = "Brak jeszcze regularnych list odtwarzania. Utwórz jeden poniżej.";
 "playlist_reorder" = "Zmień kolejność";
 "playlist_reorder_changed" = "Zmieniono zamówienie";
-"playlist_reorder_hint" = "Użyj strzałek, aby przenosić utwory";
+"playlist_reorder_hint" = "Przeciągaj utwory, aby zmienić kolejność";
 "playlist_order_action" = "Zmień kolejność playlist";
 "playlist_order_title" = "Kolejność playlist";
-"playlist_order_hint" = "Przesuwaj playlisty strzałkami";
+"playlist_order_hint" = "Przeciągaj playlisty, aby zmienić kolejność";
 "playlist_reorder_title" = "Dostosuj kolejność odtwarzania";
 "playlist_use_first_song_cover" = "lub użyj pierwszego utworu";
 "playlists_count" = "listy odtwarzania";

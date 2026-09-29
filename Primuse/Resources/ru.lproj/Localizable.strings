@@ -672,7 +672,7 @@
 "local_import_provider_hint" = "Если файл находится на облачном диске, сохраните его в локальной папке «На моем iPhone» в разделе «Файлы» перед повторным импортом. Вы также можете добавить облачный диск в качестве источника музыки в приложении.";
 "playlist_order_action" = "Изменить порядок плейлистов";
 "playlist_order_title" = "Порядок плейлистов";
-"playlist_order_hint" = "Перемещайте плейлисты стрелками";
+"playlist_order_hint" = "Перетаскивайте плейлисты, чтобы изменить порядок";
 "playlist_reorder_title" = "Изменить порядок воспроизведения";
 "reverb_large_hall" = "Большой зал";
 "play_all" = "Воспроизвести всё";
@@ -733,7 +733,7 @@
 "tag_editor_lyrics_delete" = "Удалить текст";
 "error_api %@ %@" = "Ошибка API %@: %@";
 "hide_playlist_from_primuse" = "Скрыть от Primuse";
-"playlist_reorder_hint" = "Используйте стрелки для перемещения песен.";
+"playlist_reorder_hint" = "Перетаскивайте песни, чтобы изменить порядок";
 "smart_field_playCount" = "Счетчик игр";
 "relay_share_error_response" = "Реле вернуло неверный или небезопасный ответ.";
 "scrape_writeback_metadata" = "Метаданные песни";

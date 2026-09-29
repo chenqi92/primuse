@@ -2627,10 +2627,10 @@
 "source_remove_managed_confirm_message" = "Cette action retire la source de la bibliothèque et supprime tous les fichiers copiés dans Primuse afin de libérer de l’espace sur l’appareil. Les fichiers d’origine ne sont pas modifiés ; les copies supprimées sont irrécupérables.";
 "playlist_order_action" = "Réordonner les playlists";
 "playlist_order_title" = "Ordre des playlists";
-"playlist_order_hint" = "Utilisez les flèches pour déplacer les playlists";
+"playlist_order_hint" = "Faites glisser les playlists pour les réorganiser";
 "playlist_reorder_title" = "Ajuster l’ordre de lecture";
 "playlist_reorder_changed" = "Ordre modifié";
-"playlist_reorder_hint" = "Utilisez les flèches pour déplacer les morceaux";
+"playlist_reorder_hint" = "Faites glisser les morceaux pour les réorganiser";
 "artist_monthly_plays_format" = "%d lectures ce mois-ci";
 "artist_popular" = "Les plus écoutés";
 "casting_connected" = "● Connecté";

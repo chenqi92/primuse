@@ -2628,10 +2628,10 @@
 "source_remove_managed_confirm_message" = "ライブラリからこの音楽ソースを削除し、デバイスの空き容量を増やすためにPrimuseへコピーしたすべてのファイルを削除します。元のファイルには影響しません。削除したコピーは復元できません。";
 "playlist_order_action" = "プレイリストの並べ替え";
 "playlist_order_title" = "プレイリストの順序";
-"playlist_order_hint" = "矢印でプレイリストを移動";
+"playlist_order_hint" = "ドラッグしてプレイリストを並べ替え";
 "playlist_reorder_title" = "再生順を調整";
 "playlist_reorder_changed" = "順序を変更しました";
-"playlist_reorder_hint" = "矢印で曲を移動";
+"playlist_reorder_hint" = "ドラッグして曲を並べ替え";
 "artist_monthly_plays_format" = "今月 %d 回再生";
 "artist_popular" = "よく聴く曲";
 "casting_connected" = "● 接続済み";

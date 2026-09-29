@@ -672,7 +672,7 @@
 "local_import_provider_hint" = "Якщо файл із хмарного диска, збережіть його в локальній папці «На моєму iPhone» у Файлах перед повторним імпортом. Ви також можете додати хмарний диск як джерело музики в програмі.";
 "playlist_order_action" = "Змінити порядок плейлістів";
 "playlist_order_title" = "Порядок плейлістів";
-"playlist_order_hint" = "Переміщуйте плейлісти стрілками";
+"playlist_order_hint" = "Перетягуйте плейлісти, щоб змінити порядок";
 "playlist_reorder_title" = "Налаштувати порядок відтворення";
 "reverb_large_hall" = "Велика зала";
 "play_all" = "Відтворити все";
@@ -733,7 +733,7 @@
 "tag_editor_lyrics_delete" = "Видалити текст";
 "error_api %@ %@" = "API помилка %@: %@";
 "hide_playlist_from_primuse" = "Сховатися від Primuse";
-"playlist_reorder_hint" = "Використовуйте стрілки для переміщення пісень";
+"playlist_reorder_hint" = "Перетягуйте пісні, щоб змінити порядок";
 "smart_field_playCount" = "Грати";
 "relay_share_error_response" = "Реле повернуло недійсну або небезпечну відповідь.";
 "scrape_writeback_metadata" = "Метадані пісні";

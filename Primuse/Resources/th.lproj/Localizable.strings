@@ -2325,10 +2325,10 @@
 "playlist_picker_empty_hint" = "ยังไม่มีเพลย์ลิสต์ปกติ สร้างหนึ่งรายการด้านล่าง";
 "playlist_reorder" = "สั่งซื้อใหม่";
 "playlist_reorder_changed" = "คำสั่งซื้อมีการเปลี่ยนแปลง";
-"playlist_reorder_hint" = "ใช้ลูกศรเพื่อย้ายเพลง";
+"playlist_reorder_hint" = "ลากเพลงเพื่อจัดลำดับใหม่";
 "playlist_order_action" = "จัดลำดับเพลย์ลิสต์";
 "playlist_order_title" = "ลำดับเพลย์ลิสต์";
-"playlist_order_hint" = "ใช้ลูกศรเพื่อย้ายเพลย์ลิสต์";
+"playlist_order_hint" = "ลากเพลย์ลิสต์เพื่อจัดลำดับใหม่";
 "playlist_reorder_title" = "ปรับลำดับการเล่น";
 "playlist_use_first_song_cover" = "หรือใช้เพลงแรก";
 "playlists_count" = "เพลย์ลิสต์";

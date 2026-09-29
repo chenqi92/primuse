@@ -29,10 +29,10 @@ struct MacSidebar: View {
     }
 
     /// 「资料库」分组里的行: 完全照设置 › 外观里排好的顺序与显隐, 电台、有声、
-    /// 统计也在其中 —— 设置页那张列表就是侧栏的样子。歌单不在这里, 它有自己的
-    /// 分区, 开关只管那个分区显不显示。
+    /// 统计、歌单也在其中 —— 设置页那张列表就是侧栏的样子。歌单另外还有自己的
+    /// 分区列出前几个, 同一个开关管两处。
     private var sidebarLibrarySections: [LibrarySection] {
-        MacSidebarLibraryLayout.rows(from: visibleLibrarySections)
+        visibleLibrarySections
     }
 
     /// 有声内容按「书」计数: 一部 200 集的评书是一本, 不是 200 条。分组在曲库
@@ -167,8 +167,13 @@ struct MacSidebar: View {
                 trailing: countLabel(spokenWordBookCount)
             )
         case .playlists:
-            // 歌单有自己的分区 (见 `playlistsSection`)。
-            EmptyView()
+            // 下面的歌单分区只列前几个, 全部歌单从这一行进总览页。
+            item(
+                route: .section(.playlists),
+                icon: section.icon,
+                title: section.title,
+                trailing: countLabel(sidebarPlaylists.count + sidebarSmartPlaylists.count)
+            )
         case .albums:
             item(
                 route: .section(.albums),
@@ -204,7 +209,7 @@ struct MacSidebar: View {
             }
 
             // 智能歌单排在普通歌单上面 (跟歌单总览页的分区顺序一致)。侧栏只列前
-            // 几个保持节奏, 超出的通过下面「全部歌单」行进入总览页。
+            // 几个保持节奏, 超出的通过末尾「查看全部」或资料库里的「歌单」行进总览页。
             ForEach(sidebarSmartPlaylists.prefix(sidebarPlaylistLimit), id: \.id) { smart in
                 item(route: .smartPlaylist(smart),
                      icon: smart.effectiveKind == .ai ? "sparkles" : "slider.horizontal.3",
@@ -219,6 +224,11 @@ struct MacSidebar: View {
                 .contextMenu {
                     playlistContextMenu(for: playlist)
                 }
+            }
+
+            if isPlaylistListTruncated {
+                showAllPlaylistsItem
+                    .pmFadeTransition()
             }
 
             if sidebarPlaylists.isEmpty && sidebarSmartPlaylists.isEmpty {
@@ -240,6 +250,42 @@ struct MacSidebar: View {
     private var playlistRowIDs: [String] {
         sidebarSmartPlaylists.prefix(sidebarPlaylistLimit).map(\.id)
             + sidebarPlaylists.prefix(sidebarPlaylistLimit).map(\.id)
+            + (isPlaylistListTruncated ? ["show-all"] : [])
+    }
+
+    private var isPlaylistListTruncated: Bool {
+        sidebarPlaylists.count > sidebarPlaylistLimit
+            || sidebarSmartPlaylists.count > sidebarPlaylistLimit
+    }
+
+    /// 列表被截断时的末行: 文字弱一档, 右侧给出总数, 点进歌单总览页。
+    private var showAllPlaylistsItem: some View {
+        Button {
+            select(.section(.playlists))
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(width: 18, height: 18)
+
+                Text("see_all")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+
+                Spacer(minLength: 4)
+
+                if let trailing = countLabel(sidebarPlaylists.count + sidebarSmartPlaylists.count) {
+                    trailing
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .pmRowBackground(selected: false)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var newPlaylistMenu: some View {
@@ -708,17 +754,9 @@ struct MacSidebar: View {
     }
 }
 
-/// 侧栏「资料库」分组的行 = 设置里可见的分类按原顺序, 只去掉单独成区的歌单。
-/// Mac 设置页的排序列表用同一条规则, 两边顺序必然一致。
+/// 侧栏「资料库」分组的行 = 设置里可见的分类按原顺序 (歌单也是其中一行),
+/// Mac 设置页的排序列表就是这份完整顺序, 两边必然一致。
 enum MacSidebarLibraryLayout {
-    static func rows(from visibleSections: [LibrarySection]) -> [LibrarySection] {
-        visibleSections.filter(isSidebarRow)
-    }
-
-    static func isSidebarRow(_ section: LibrarySection) -> Bool {
-        section != .playlists
-    }
-
     /// 侧栏上这一行叫什么; 设置页的排序列表用同一个名字。
     static func localizedTitle(for section: LibrarySection) -> String {
         switch section {
@@ -726,15 +764,6 @@ enum MacSidebarLibraryLayout {
         case .radio: return String(localized: "listening_space_radio")
         case .spokenWord: return String(localized: "listening_space_spoken_word")
         default: return section.localizedTitle
-        }
-    }
-
-    /// 把重新排好的侧栏行写回完整顺序: 不在侧栏里的分类留在原来的下标上。
-    static func merging(_ rows: [LibrarySection], into fullOrder: [LibrarySection]) -> [LibrarySection] {
-        var remaining = rows[...]
-        return fullOrder.map { section in
-            guard isSidebarRow(section), let next = remaining.popFirst() else { return section }
-            return next
         }
     }
 }

@@ -672,7 +672,7 @@
 "local_import_provider_hint" = "Dosya bir bulut sürücüsünden geliyorsa, tekrar içe aktarmadan önce onu Dosyalar'daki yerel bir \"iPhone'mde\" klasörüne kaydedin. Bulut sürücüsünü uygulama içi müzik kaynağı olarak da ekleyebilirsiniz.";
 "playlist_order_action" = "Çalma listelerini sırala";
 "playlist_order_title" = "Çalma listesi sırası";
-"playlist_order_hint" = "Çalma listelerini oklarla taşıyın";
+"playlist_order_hint" = "Sıralamak için çalma listelerini sürükleyin";
 "playlist_reorder_title" = "Oynatma Sırasını Ayarla";
 "reverb_large_hall" = "Büyük Salon";
 "play_all" = "Tümünü oynat";
@@ -733,7 +733,7 @@
 "tag_editor_lyrics_delete" = "Şarkı Sözlerini Kaldır";
 "error_api %@ %@" = "API hatası %@: %@";
 "hide_playlist_from_primuse" = "Primuse'den gizle";
-"playlist_reorder_hint" = "Şarkıları taşımak için okları kullanın";
+"playlist_reorder_hint" = "Sıralamak için şarkıları sürükleyin";
 "smart_field_playCount" = "Oynatma Sayısı";
 "relay_share_error_response" = "Aktarıcı geçersiz veya güvenli olmayan bir yanıt döndürdü.";
 "scrape_writeback_metadata" = "Şarkı Üst verileri";

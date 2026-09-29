@@ -2325,10 +2325,10 @@
 "playlist_picker_empty_hint" = "अभी तक कोई नियमित प्लेलिस्ट नहीं। नीचे एक बनाएं.";
 "playlist_reorder" = "पुन: व्यवस्थित करें";
 "playlist_reorder_changed" = "आदेश बदल गया";
-"playlist_reorder_hint" = "गानों को स्थानांतरित करने के लिए तीरों का उपयोग करें";
+"playlist_reorder_hint" = "क्रम बदलने के लिए गाने खींचें";
 "playlist_order_action" = "प्लेलिस्ट क्रम बदलें";
 "playlist_order_title" = "प्लेलिस्ट क्रम";
-"playlist_order_hint" = "तीरों से प्लेलिस्ट हिलाएँ";
+"playlist_order_hint" = "क्रम बदलने के लिए प्लेलिस्ट खींचें";
 "playlist_reorder_title" = "प्ले ऑर्डर समायोजित करें";
 "playlist_use_first_song_cover" = "या पहले गाने का उपयोग करें";
 "playlists_count" = "प्लेलिस्ट";

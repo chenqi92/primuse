@@ -658,7 +658,7 @@ struct PlaylistListView: View {
                         .pmAnimation(.control, value: isManagingPlaylists)
                 }
                 .buttonStyle(.plain)
-                .help(Text(isManagingPlaylists ? "done" : "batch_select"))
+                .help(Text(isManagingPlaylists ? LocalizedStringKey("done") : "batch_select"))
             }
         }
     }
@@ -1056,7 +1056,7 @@ struct MacNewPlaylistSheet: View {
 /// 调整歌单在列表里的顺序。歌单原本固定按最近更新倒序排,往任何一个歌单里加
 /// 一首歌它就跳到最前面,用户排不了;这里把顺序交给用户,写回 `sortOrder` 之后
 /// 跨设备一致。交互跟歌单内歌曲重排 (`PlaylistReorderSheet`) 保持一致:
-/// iOS 拖动手柄,macOS 上下箭头。
+/// 两端都是拖动;Mac 上整行按住即可拖,右键可直接置顶。
 struct PlaylistOrderSheet: View {
     let initialPlaylists: [Playlist]
     let onDone: ([Playlist]) -> Void
@@ -1064,6 +1064,8 @@ struct PlaylistOrderSheet: View {
     @Environment(\.dismiss) private var dismiss
     #if os(macOS)
     @Environment(\.locale) private var locale
+    @Environment(MusicLibrary.self) private var library
+    @Environment(SourceManager.self) private var sourceManager
     #endif
     @State private var localPlaylists: [Playlist]
 
@@ -1181,14 +1183,22 @@ struct PlaylistOrderSheet: View {
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 8) {
-                    ForEach(Array(localPlaylists.enumerated()), id: \.element.id) { index, playlist in
-                        macPlaylistRow(playlist, index: index, ordinalWidth: ordinalWidth)
-                    }
+            // 原生 List 的拖动排序:插入线、拖到边缘自动滚动都由系统负责,
+            // 几百个歌单也能一次拖到位。
+            List {
+                ForEach(Array(localPlaylists.enumerated()), id: \.element.id) { index, playlist in
+                    macPlaylistRow(playlist, index: index, ordinalWidth: ordinalWidth)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
-                .padding(14)
+                .onMove { from, to in
+                    localPlaylists.move(fromOffsets: from, toOffset: to)
+                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .contentMargins(.vertical, 10, for: .scrollContent)
 
             Rectangle().fill(PMColor.divider).frame(height: 0.5)
 
@@ -1206,6 +1216,7 @@ struct PlaylistOrderSheet: View {
                     .padding(.horizontal, 14)
                     .frame(height: 30)
                     .background(PMColor.glassBtn, in: .rect(cornerRadius: 7))
+                    .keyboardShortcut(.cancelAction)
                 Button("done") { commit() }
                     .buttonStyle(.plain)
                     .font(.system(size: 12.5, weight: .semibold))
@@ -1213,6 +1224,7 @@ struct PlaylistOrderSheet: View {
                     .padding(.horizontal, 16)
                     .frame(height: 30)
                     .background(PMColor.brand, in: .rect(cornerRadius: 7))
+                    .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
@@ -1248,14 +1260,11 @@ struct PlaylistOrderSheet: View {
 
             Spacer()
 
-            HStack(spacing: 2) {
-                moveButton("chevron.up", disabled: index == 0) {
-                    movePlaylist(from: index, to: index - 1)
-                }
-                moveButton("chevron.down", disabled: index == localPlaylists.count - 1) {
-                    movePlaylist(from: index, to: index + 1)
-                }
-            }
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(PMColor.textFaint)
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 10)
         .frame(height: 52)
@@ -1264,25 +1273,33 @@ struct PlaylistOrderSheet: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
         }
-    }
-
-    private func moveButton(_ symbol: String, disabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(disabled ? PMColor.textFaint.opacity(0.45) : PMColor.textMuted)
-                .frame(width: 24, height: 24)
-                .background(PMColor.glassBtn, in: .circle)
+        .contentShape(.rect(cornerRadius: 10))
+        .help(Text("Drag to Reorder"))
+        .contextMenu {
+            Button("radio_manage_pin_top", systemImage: "arrow.up.to.line") {
+                movePlaylist(from: index, to: 0)
+            }
+            .disabled(index == 0)
         }
-        .buttonStyle(.plain)
-        .disabled(disabled)
+        .accessibilityAction(named: Text("home_edit_move_up")) {
+            movePlaylist(from: index, to: index - 1)
+        }
+        .accessibilityAction(named: Text("home_edit_move_down")) {
+            movePlaylist(from: index, to: index + 1)
+        }
+        // 拖起的行可能被搬进独立的预览宿主渲染, 封面要读的两个模型显式带上。
+        .environment(library)
+        .environment(sourceManager)
     }
 
     private func movePlaylist(from source: Int, to destination: Int) {
         guard localPlaylists.indices.contains(source),
-              localPlaylists.indices.contains(destination) else { return }
-        let item = localPlaylists.remove(at: source)
-        localPlaylists.insert(item, at: destination)
+              localPlaylists.indices.contains(destination),
+              source != destination else { return }
+        pmWithAnimation(.list) {
+            let item = localPlaylists.remove(at: source)
+            localPlaylists.insert(item, at: destination)
+        }
     }
     #endif
 }

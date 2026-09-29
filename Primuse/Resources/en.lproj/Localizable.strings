@@ -2438,10 +2438,10 @@
 "source_remove_managed_confirm_message" = "This removes the source from your library and deletes all files copied into Primuse to free device storage. Original files are not affected; deleted copies cannot be recovered.";
 "playlist_order_action" = "Reorder Playlists";
 "playlist_order_title" = "Playlist Order";
-"playlist_order_hint" = "Use the arrows to move playlists";
+"playlist_order_hint" = "Drag playlists to reorder";
 "playlist_reorder_title" = "Adjust Play Order";
 "playlist_reorder_changed" = "Order changed";
-"playlist_reorder_hint" = "Use the arrows to move songs";
+"playlist_reorder_hint" = "Drag songs to reorder";
 "artist_monthly_plays_format" = "%d plays this month";
 "artist_popular" = "Most Played";
 "casting_connected" = "● Connected";
