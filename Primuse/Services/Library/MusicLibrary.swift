@@ -10983,6 +10983,12 @@ final class MusicLibrary {
         preparedStartup: PreparedStartup? = nil,
         sourceIdentityPrefixes: [String: String]? = nil
     ) {
+        // 发布在主线程上分段计时: 冷启动那一下主线程阻塞落在哪一步, 看这一行。
+        let publishStartedAt = ProcessInfo.processInfo.systemUptime
+        var publishMarks: [(String, Double)] = []
+        func markPublish(_ step: String) {
+            publishMarks.append((step, ProcessInfo.processInfo.systemUptime))
+        }
         var storage: StartupStorage
         if let preparedStartup {
             storage = preparedStartup.storage
@@ -11058,9 +11064,11 @@ final class MusicLibrary {
             libraryReviewRevision &+= 1
         }
 
+        markPublish("apply")
         // 发布步骤 (1): 可观察模型到此为止已经完整, 翻转就绪状态。
         // 之后的耐久写入与历史版本一样在 `loadSnapshot` 内部直接执行。
         markReadyBeforeDurableWrites()
+        markPublish("ready")
 
         // 发布步骤 (2) — G5: 准备阶段登记的耐久副作用, 按历史版本的顺序补做。
         if let corruptSnapshotToArchive = storage.corruptSnapshotToArchive {
@@ -11097,6 +11105,7 @@ final class MusicLibrary {
             // sessions). Try resolving them once on load.
             schedulePendingIdentityFlush()
         }
+        markPublish("durable")
         if storage.shouldWriteDerivedCache { persistDerivedIndexCache() }
         if storage.shouldWriteStartupCache, !songStoreRequiresReplacement {
             scheduleStartupCacheWrite(
@@ -11110,15 +11119,28 @@ final class MusicLibrary {
             persistNow()
         }
 
+        markPublish("caches")
         // 发布步骤 (2.5): 配置对账 —— 准备期间记录的禁用源 / 命名配置在这里
         // 按普通 setter 重放差异, 必须早于排队突变的重放。
         reconcilePreparingConfiguration()
+        markPublish("reconcile")
 
         // 发布步骤 (3) 重放排队突变 → (4) 补齐被推迟的持久化 →
         // (5) `onReady` 回调 → (6) 唤醒 `whenReady()`。
         replayDeferredMutations()
         flushDeferredPersistenceAfterReadiness()
+        markPublish("replay")
         notifyReadinessObservers()
+        markPublish("observers")
+        if preparedStartup != nil {
+            var previous = publishStartedAt
+            let steps = publishMarks.map { step, at in
+                defer { previous = at }
+                return "\(step)=\(Int((at - previous) * 1_000))"
+            }
+            plog("🚀 library publish total=\(Int((ProcessInfo.processInfo.systemUptime - publishStartedAt) * 1_000))ms "
+                 + steps.joined(separator: " "))
+        }
     }
 
     /// 在主线程之外完成一次完整的库装载, 结果是不可变的 `PreparedStartup`。

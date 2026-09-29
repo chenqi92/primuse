@@ -2336,7 +2336,10 @@ final class LibrarySnapshotSync: Sendable {
     /// Read both records before touching the live files. Re-reading the
     /// snapshot change tag rejects a concurrent source/library replacement.
     func downloadTVPayload() async -> LANSyncPayload? {
-        guard let database else { return nil }
+        guard let database else {
+            plog("TV snapshot download skipped: no CloudKit database")
+            return nil
+        }
         do {
             for _ in 0..<3 {
                 let record = try await database.record(for: recordID)
@@ -2347,7 +2350,10 @@ final class LibrarySnapshotSync: Sendable {
                 )
                 var libraries: [(entry: LibrarySnapshotDeviceEntry?, library: Data, lyricsGz: Data?, changeTag: String?)] = []
                 if manifest.isEmpty {
-                    guard let raw = try Self.libraryData(from: record) else { return nil }
+                    guard let raw = try Self.libraryData(from: record) else {
+                        plog("TV snapshot download: singleton record has no readable library")
+                        return nil
+                    }
                     libraries.append((nil, raw, record["lyricsGz"] as? Data, nil))
                 } else {
                     let ordered = LibrarySnapshotDeviceManifestPolicy.mergeOrder(manifest)
@@ -2360,19 +2366,38 @@ final class LibrarySnapshotSync: Sendable {
                             plog("LibrarySnapshotSync: device library record missing device=\(entry.deviceID.prefix(8))…")
                             continue
                         }
-                        guard let raw = try Self.libraryData(from: deviceRecord) else { continue }
+                        guard let raw = try Self.libraryData(from: deviceRecord) else {
+                            plog("TV snapshot download: device library unreadable or over limit device=\(entry.deviceID.prefix(8))…")
+                            continue
+                        }
                         libraries.append((entry, raw, deviceRecord["lyricsGz"] as? Data, deviceRecord.recordChangeTag))
                     }
-                    guard !libraries.isEmpty else { return nil }
+                    guard !libraries.isEmpty else {
+                        plog("TV snapshot download: no readable device library (manifest=\(manifest.count))")
+                        return nil
+                    }
                 }
                 let rawLibrary = libraries.count == 1
                     ? libraries[0].library
                     : try MusicLibrary.mergingDeviceSnapshots(libraries.map(\.library))
-                guard rawLibrary.count <= Self.maxLibraryRawBytes,
-                      MusicLibrary.isValidSnapshotData(rawLibrary),
-                      let sourceData = sourcesSnapshotData(from: record, fm: .default),
-                      let libraryGz = Self.gzip(rawLibrary),
-                      let sourcesGz = Self.gzip(sourceData) else { return nil }
+                // 「未找到曲库快照」以前可能是下面任何一条静默返回;逐条说清是哪一条。
+                guard rawLibrary.count <= Self.maxLibraryRawBytes else {
+                    plog("TV snapshot download: merged library too large bytes=\(rawLibrary.count) limit=\(Self.maxLibraryRawBytes) devices=\(libraries.count)")
+                    return nil
+                }
+                guard MusicLibrary.isValidSnapshotData(rawLibrary) else {
+                    plog("TV snapshot download: merged library does not decode bytes=\(rawLibrary.count)")
+                    return nil
+                }
+                guard let sourceData = sourcesSnapshotData(from: record, fm: .default) else {
+                    plog("TV snapshot download: sources missing from snapshot record")
+                    return nil
+                }
+                guard let libraryGz = Self.gzip(rawLibrary),
+                      let sourcesGz = Self.gzip(sourceData) else {
+                    plog("TV snapshot download: gzip failed")
+                    return nil
+                }
                 let credentials = await downloadCredentials()
                 let latest = try await database.record(for: recordID)
                 guard latest.recordChangeTag == record.recordChangeTag else { continue }
@@ -2382,7 +2407,10 @@ final class LibrarySnapshotSync: Sendable {
                     payload.radioStationsGz = gz
                 } else if let url = (record["radioStations"] as? CKAsset)?.fileURL {
                     guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-                          size <= Self.maxRadioStationsRawBytes else { return nil }
+                          size <= Self.maxRadioStationsRawBytes else {
+                        plog("TV snapshot download: radio stations asset missing or over limit")
+                        return nil
+                    }
                     payload.radioStationsGz = Self.gzip(try Data(contentsOf: url))
                 }
                 payload.lyricsGz = Self.mergedLyricsGz(libraries.map(\.lyricsGz))

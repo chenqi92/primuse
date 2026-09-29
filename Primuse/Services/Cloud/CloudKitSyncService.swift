@@ -308,6 +308,8 @@ final class CloudKitSyncService {
         // otherwise, and the UI is much friendlier when we surface that up front.
         let accountAvailable = await checkAccountAndUpdateStatus()
         guard accountAvailable, startAttemptID == attemptID, engine == nil else { return }
+        await logAccountFingerprint()
+        guard startAttemptID == attemptID, engine == nil else { return }
 
         var configuration = CKSyncEngine.Configuration(
             database: database,
@@ -756,7 +758,10 @@ final class CloudKitSyncService {
 
     /// Force a fetch + send pass (used by the "Sync now" action).
     func syncNow() async {
-        guard let engine else { return }
+        guard let engine else {
+            plog("☁️ syncNow skipped: engine not running")
+            return
+        }
         status = .syncing
         do {
             try await engine.fetchChanges()
@@ -768,10 +773,29 @@ final class CloudKitSyncService {
             guard self.engine === engine else { return }
             status = drained ? .upToDate : .syncing
             if drained { lastSyncedAt = Date() }
+            // 拉到的记录另有「fetched N」一行;这一行只证明这次确实拉过、推过。
+            plog("☁️ syncNow done drained=\(drained)")
         } catch {
             guard self.engine === engine else { return }
             status = mapToSyncStatus(error)
+            plog("☁️ syncNow failed: \(error.localizedDescription)")
         }
+    }
+
+    /// 记下当前 iCloud 账户的短指纹(不落原始 ID)。两台设备「一边传了、另一边收不到」时,
+    /// 先比这一行:指纹不同就是登录的不是同一个 Apple 账户,不必再查同步代码。
+    private func logAccountFingerprint() async {
+        guard let container = configuredContainer(),
+              let recordName = try? await container.userRecordID().recordName else {
+            plog("☁️ account fingerprint unavailable")
+            return
+        }
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in recordName.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        plog("☁️ account fingerprint=\(String(hash, radix: 16).prefix(8)) container=\(Self.containerID)")
     }
 
     /// `sendChanges()` may throw a top-level partial failure even when every
