@@ -914,13 +914,18 @@ public final class LibraryFolderIndex: Sendable {
 /// current folder and folder actions include every descendant.
 public enum LibraryFolderBrowsePolicy {
     public static func sortedSongs(_ songs: [Song]) -> [Song] {
-        songs.sorted {
-            if ($0.discNumber ?? 0) != ($1.discNumber ?? 0) { return ($0.discNumber ?? 0) < ($1.discNumber ?? 0) }
-            if ($0.trackNumber ?? 0) != ($1.trackNumber ?? 0) { return ($0.trackNumber ?? 0) < ($1.trackNumber ?? 0) }
-            let titleOrder = $0.title.localizedStandardCompare($1.title)
-            if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
-            return $0.id < $1.id
-        }
+        AlbumTrackOrder.sorted(songs)
+    }
+
+    /// Folder browsing in track order: each directory's songs in disc/track
+    /// order, subfolders after their parent, hidden songs left out.
+    public static func trackOrderedSongIDs(
+        in nodeID: LibraryFolderNodeID,
+        scope: LibraryFolderSongScope,
+        index: LibraryFolderIndex,
+        isVisible: (String) -> Bool
+    ) -> [String] {
+        index.songIDs(in: nodeID, scope: scope).filter(isVisible)
     }
 
     public static func collapsedScanRoot(
@@ -1217,10 +1222,21 @@ public enum LibraryFolderIndexBuilder {
                 }
 
                 leafAndAncestors.leaf.directSongIDs.append(song.id)
+                leafAndAncestors.leaf.directSongOffsets.append(offset)
                 for ancestor in leafAndAncestors.ancestors {
                     ancestor.descendantSongCount += 1
                 }
                 nodeIDBySongID[song.id] = leafAndAncestors.leaf.id
+            }
+            // A directory is usually one album: keep its songs in track order
+            // so browsing and playing it reads 1, 2, 3 rather than scan order.
+            for accumulator in accumulators.values where accumulator.directSongOffsets.count > 1 {
+                if isBuildCancelled {
+                    return emptyPartition(source: source, sourceNodeID: sourceNodeID)
+                }
+                accumulator.directSongIDs = AlbumTrackOrder.sorted(
+                    accumulator.directSongOffsets.map { songs[$0] }
+                ).map(\.id)
             }
         } else {
             var sourceSongIDs: [String] = []
@@ -1484,6 +1500,7 @@ private final class LibraryFolderNodeAccumulator {
     var childIDs: [LibraryFolderNodeID] = []
     var childIDSet: Set<LibraryFolderNodeID> = []
     var directSongIDs: [String] = []
+    var directSongOffsets: [Int] = []
     var descendantSongCount = 0
 
     init(

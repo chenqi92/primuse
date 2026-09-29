@@ -335,6 +335,7 @@
 "sort_title" = "Titre";
 "sort_artist" = "Artiste";
 "sort_album" = "Album";
+"sort_track_order" = "Ordre des pistes";
 "sort_date_added" = "Date d'ajout";
 "sort_source_date" = "Date de la source";
 "sort_format" = "Format";

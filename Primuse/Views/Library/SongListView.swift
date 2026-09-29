@@ -573,6 +573,11 @@ private final class SongListCache {
 
 }
 
+/// 文件夹页的歌曲顺序: 默认曲目顺序, 在排序菜单里选了别的维度才跟随歌曲列表。
+enum LibraryFolderSongOrderPreference {
+    static let followsListSortKey = "library.folderFollowsListSort.v1"
+}
+
 @MainActor
 @Observable
 private final class LibraryFolderBrowserCache {
@@ -586,13 +591,18 @@ private final class LibraryFolderBrowserCache {
         let rowOrderRevision: Int
         let nodeID: LibraryFolderNodeID
         let scope: QueryScope
+        let followsListSort: Bool
     }
 
     @ObservationIgnored private var indexReference: LibraryFolderIndex?
     @ObservationIgnored private var orderedQueries: [OrderedQueryKey: [String]] = [:]
+    @ObservationIgnored private var visibleSongIDs: (revision: Int, ids: Set<String>)?
 
     private(set) var hasIndex = false
     private(set) var revision = 0
+    /// false = 曲目顺序(默认): 一个文件夹通常就是一张专辑, 按碟号/曲号读;
+    /// true = 跟随歌曲列表当前的排序。
+    var followsListSort = false
 
     var index: LibraryFolderIndex? {
         _ = revision
@@ -629,10 +639,26 @@ private final class LibraryFolderBrowserCache {
             folderRevision: revision,
             rowOrderRevision: rowOrderRevision,
             nodeID: nodeID,
-            scope: scope
+            scope: scope,
+            followsListSort: followsListSort
         )
         if let cached = orderedQueries[key] { return cached }
         guard let index else { return [] }
+
+        if !followsListSort {
+            if visibleSongIDs?.revision != rowOrderRevision {
+                visibleSongIDs = (rowOrderRevision, Set(listCache.orderedSongIDs))
+            }
+            let visible = visibleSongIDs?.ids ?? []
+            let ordered = LibraryFolderBrowsePolicy.trackOrderedSongIDs(
+                in: nodeID,
+                scope: scope == .visible ? .direct : .descendants,
+                index: index,
+                isVisible: visible.contains
+            )
+            orderedQueries[key] = ordered
+            return ordered
+        }
 
         let ordered: [String]
         switch scope {
@@ -795,6 +821,8 @@ struct SongListView: View {
     private var storedBrowseModeRawValue = LibrarySongBrowseMode.folder.rawValue
     #endif
     @State private var folderCache = LibraryFolderBrowserCache()
+    @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
+    private var folderFollowsListSort = false
     @State private var showsHomeFolders = false
     @State private var folderIndexStore = LibraryFolderIndexStore()
     @State private var folderIndexTask: Task<Void, Never>?
@@ -1233,6 +1261,9 @@ struct SongListView: View {
 
     var body: some View {
         observedContent
+            .onChange(of: folderFollowsListSort, initial: true) { _, follows in
+                folderCache.followsListSort = follows
+            }
             .onChange(of: browseMode) { _, mode in
                 cancelExplicitSortForNavigation()
                 storedBrowseModeRawValue = mode.rawValue
@@ -2187,12 +2218,19 @@ struct SongListView: View {
                 .foregroundStyle(PMColor.textFaint)
 
             Menu {
-                SongSortMenuOptions(sortOrder: sortOrderBinding)
+                SongSortMenuOptions(
+                    sortOrder: sortOrderBinding,
+                    followsListSort: browseMode == .folder ? $folderFollowsListSort : nil
+                )
             } label: {
                 HStack(spacing: 4) {
-                    Text(verbatim: sortOrder.label)
-                    Image(systemName: sortOrder.directionIcon)
-                        .font(.system(size: 9, weight: .bold))
+                    if browseMode == .folder, !folderFollowsListSort {
+                        Text("sort_track_order")
+                    } else {
+                        Text(verbatim: sortOrder.label)
+                        Image(systemName: sortOrder.directionIcon)
+                            .font(.system(size: 9, weight: .bold))
+                    }
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
                 }
@@ -2330,6 +2368,7 @@ struct SongListView: View {
             Group {
                 if let criterion = column.sortCriterion {
                     Button {
+                        if browseMode == .folder { folderFollowsListSort = true }
                         sortOrderBinding.wrappedValue = sortOrder.selecting(criterion)
                     } label: {
                         tableColumnHeaderLabel(column)
@@ -5201,6 +5240,8 @@ private struct LibraryFolderNodeView: View {
     let listCache: SongListCache
     let selection: SongSelectionModel
     @Binding var sortOrder: SongListView.SongSortOrder
+    @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
+    private var followsListSort = false
 
     var body: some View {
         content
@@ -5354,9 +5395,10 @@ private struct LibraryFolderNodeView: View {
             .disabled(node.descendantSongCount == 0)
 
             Menu {
-                Picker("sort_by", selection: $sortOrder) {
+                Picker("sort_by", selection: macSortBinding) {
+                    Text("sort_track_order").tag(SongListView.SongSortOrder?.none)
                     ForEach(SongListView.SongSortOrder.allCases, id: \.self) { order in
-                        Text(verbatim: order.label).tag(order)
+                        Text(verbatim: order.label).tag(Optional(order))
                     }
                 }
             } label: {
@@ -5367,6 +5409,21 @@ private struct LibraryFolderNodeView: View {
             .disabled(selection.isActive)
         }
         .padding(12)
+    }
+
+    /// nil = 曲目顺序; 选其它排序就跟随歌曲列表。
+    private var macSortBinding: Binding<SongListView.SongSortOrder?> {
+        Binding(
+            get: { followsListSort ? sortOrder : nil },
+            set: { newOrder in
+                guard let newOrder else {
+                    followsListSort = false
+                    return
+                }
+                followsListSort = true
+                sortOrder = newOrder
+            }
+        )
     }
     #endif
 
@@ -5645,13 +5702,35 @@ extension LibrarySongSortCriterion {
 #if os(macOS)
 private struct SongSortMenuOptions: View {
     @Binding var sortOrder: SongListView.SongSortOrder
+    /// 文件夹模式传入: 多一个「曲目顺序」, 选其它维度才跟随歌曲列表。
+    var followsListSort: Binding<Bool>? = nil
+
+    private var usesListSort: Bool { followsListSort?.wrappedValue ?? true }
 
     var body: some View {
+        if let followsListSort {
+            Button {
+                followsListSort.wrappedValue = false
+            } label: {
+                if usesListSort {
+                    Text("sort_track_order")
+                } else {
+                    Label("sort_track_order", systemImage: "checkmark")
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+            Divider()
+        }
         ForEach(LibrarySongSortCriterion.menuCases, id: \.self) { criterion in
             Button {
+                if let followsListSort, !followsListSort.wrappedValue {
+                    // 从曲目顺序切回来时只换维度, 不把当前维度调头。
+                    followsListSort.wrappedValue = true
+                    if sortOrder.criterion == criterion { return }
+                }
                 sortOrder = sortOrder.selecting(criterion)
             } label: {
-                if sortOrder.criterion == criterion {
+                if usesListSort, sortOrder.criterion == criterion {
                     // 当前排序与升降序只靠这个图标表达；macOS 27 起菜单默认隐藏图标。
                     Label(criterion.label, systemImage: sortOrder.directionIcon)
                         .labelStyle(.titleAndIcon)
@@ -5660,7 +5739,7 @@ private struct SongSortMenuOptions: View {
                 }
             }
             .accessibilityValue(
-                sortOrder.criterion == criterion
+                usesListSort && sortOrder.criterion == criterion
                     ? Text(verbatim: sortOrder.directionLabel)
                     : Text(verbatim: "")
             )
@@ -5675,39 +5754,55 @@ private struct SongSortMenuOptions: View {
 /// 工具栏条目跑在自己的视图图里, 所以只收 Binding, 不读环境。
 private struct SongSortSubmenu: View {
     @Binding var sortOrder: SongListView.SongSortOrder
+    /// 文件夹页传入: 维度列表最前面多一个「曲目顺序」, 选它就不跟随歌曲列表的排序。
+    var followsListSort: Binding<Bool>? = nil
 
     var body: some View {
         Menu {
             Section {
                 Picker("sort_by", selection: criterionBinding) {
+                    if followsListSort != nil {
+                        Text("sort_track_order")
+                            .tag(LibrarySongSortCriterion?.none)
+                    }
                     ForEach(LibrarySongSortCriterion.menuCases, id: \.self) { criterion in
                         Text(verbatim: criterion.label)
-                            .tag(criterion)
+                            .tag(Optional(criterion))
                     }
                 }
                 .pickerStyle(.inline)
             }
 
-            Section {
-                Picker("smart_sort_direction", selection: ascendingBinding) {
-                    Label("smart_sort_ascending", systemImage: "arrow.up")
-                        .tag(true)
-                    Label("smart_sort_descending", systemImage: "arrow.down")
-                        .tag(false)
+            // 曲目顺序固定从第一首读起, 没有升降序可选。
+            if usesListSort {
+                Section {
+                    Picker("smart_sort_direction", selection: ascendingBinding) {
+                        Label("smart_sort_ascending", systemImage: "arrow.up")
+                            .tag(true)
+                        Label("smart_sort_descending", systemImage: "arrow.down")
+                            .tag(false)
+                    }
+                    .pickerStyle(.inline)
                 }
-                .pickerStyle(.inline)
             }
         } label: {
             Label("sort_by", systemImage: "arrow.up.arrow.down")
         }
     }
 
+    private var usesListSort: Bool { followsListSort?.wrappedValue ?? true }
+
     /// `selecting` 对同一个维度是「调头」语义, 所以维度没变时一次都不能调用它,
     /// 否则点回当前选中项就会莫名其妙地翻转升降序。
-    private var criterionBinding: Binding<LibrarySongSortCriterion> {
+    private var criterionBinding: Binding<LibrarySongSortCriterion?> {
         Binding(
-            get: { sortOrder.criterion },
+            get: { usesListSort ? sortOrder.criterion : nil },
             set: { newCriterion in
+                guard let newCriterion else {
+                    followsListSort?.wrappedValue = false
+                    return
+                }
+                followsListSort?.wrappedValue = true
                 guard newCriterion != sortOrder.criterion else { return }
                 sortOrder = sortOrder.selecting(newCriterion)
             }
@@ -5911,6 +6006,8 @@ private struct LibraryFolderNormalToolbarMenu: View {
     let index: LibraryFolderIndex?
     let library: MusicLibrary
     let source: MusicSource?
+    @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
+    private var followsListSort = false
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
     @AppStorage(HomeFolderPinStorage.displayCountKey) private var displayCount = HomeFolderPinStorage.defaultDisplayCount
 
@@ -5973,7 +6070,7 @@ private struct LibraryFolderNormalToolbarMenu: View {
             }
         }
 
-        SongSortSubmenu(sortOrder: $sortOrder)
+        SongSortSubmenu(sortOrder: $sortOrder, followsListSort: $followsListSort)
     }
 }
 

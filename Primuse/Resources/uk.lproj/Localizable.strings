@@ -1863,6 +1863,7 @@
 "scraper_warn_no_fixed_domain" = "Домен фіксованої мережі не виявлено. Сценарій отримання метаданих може динамічно створювати URL-адреси в JavaScript.";
 "Paste Configuration" = "Вставити конфігурацію";
 "sort_album" = "Альбом";
+"sort_track_order" = "Порядок треків";
 "yearly_month_9" = "Вересень";
 "onboarding_sources_cloud" = "123 Pan, Baidu Pan, Aliyun Drive тощо";
 "Go back to the previous track in Primuse." = "Повернутися до попереднього треку в Primuse.";

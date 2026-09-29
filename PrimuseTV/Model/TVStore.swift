@@ -891,6 +891,7 @@ final class TVStore {
     // 浏览数据直接读曲库的可见数组,按需转换成界面值(见 `TVLibraryList`)。
     // 下面几份是按查找修订号懒建的小索引:第一次用到才建,修订号一变就作废。
     @ObservationIgnored private var musicSongIDsCache: (revision: UInt64, ids: [String])?
+    @ObservationIgnored private var musicSongIDSetCache: (revision: UInt64, ids: Set<String>)?
     @ObservationIgnored private var albumSongIDsIndex: [String: [String]]?
     @ObservationIgnored private var sortedAlbumSongIDs: [String: [String]] = [:]
     @ObservationIgnored private var recentlyAddedAlbumIDsCache: [String]?
@@ -1034,6 +1035,15 @@ final class TVStore {
         if let cached = musicSongIDsCache, cached.revision == revision { return cached.ids }
         let ids = library.musicSongs.map(\.id)
         musicSongIDsCache = (revision, ids)
+        return ids
+    }
+    /// 同一批音乐的成员集合, 给按曲目顺序浏览文件夹时过滤用。
+    var songIDSet: Set<String> {
+        _ = libraryContentRevision
+        let revision = library.musicSongsRevision
+        if let cached = musicSongIDSetCache, cached.revision == revision { return cached.ids }
+        let ids = Set(songIDs)
+        musicSongIDSetCache = (revision, ids)
         return ids
     }
     var artists: TVArtistList {

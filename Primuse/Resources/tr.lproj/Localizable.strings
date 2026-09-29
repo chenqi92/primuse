@@ -1863,6 +1863,7 @@
 "scraper_warn_no_fixed_domain" = "Hiçbir sabit ağ etki alanı algılanmadı. Üst veri alma komut dosyası, URL'leri JavaScript'te dinamik olarak oluşturabilir.";
 "Paste Configuration" = "Yapılandırmayı Yapıştır";
 "sort_album" = "Albüm";
+"sort_track_order" = "Parça sırası";
 "yearly_month_9" = "Eylül";
 "onboarding_sources_cloud" = "123 Tava, Baidu Tava, Aliyun Sürücü ve daha fazlası";
 "Go back to the previous track in Primuse." = "Primuse'de önceki parçaya geri dönün.";

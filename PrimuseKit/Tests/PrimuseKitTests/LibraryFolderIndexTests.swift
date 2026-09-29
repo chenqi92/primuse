@@ -248,6 +248,26 @@ struct LibraryFolderIndexTests {
         #expect(updated.directSongIDs(in: root.id) == songs.dropLast().map(\.id))
     }
 
+    @Test("A folder lists its songs in track order, subfolders after their parent")
+    func foldersKeepTrackOrder() throws {
+        let source = LibraryFolderSourceDescriptor(sourceID: "local", displayName: "Music", scanRoots: ["/"], pathSemantics: .hierarchical, pathEncoding: .native)
+        var tagged = testSong(id: "tagged-2", title: "Apple", path: "/Album/x.flac", sourceID: "local")
+        tagged.trackNumber = 2
+        let index = LibraryFolderIndexBuilder.build(sources: [source], songs: [
+            testSong(id: "track-10", title: "Aardvark", path: "/Album/10 Aardvark.flac", sourceID: "local"),
+            tagged,
+            testSong(id: "track-1", title: "Zulu", path: "/Album/01 Zulu.flac", sourceID: "local"),
+            testSong(id: "cd2-1", title: "Beta", path: "/Album/CD2/01 Beta.flac", sourceID: "local"),
+        ])
+        let sourceNode = try #require(index.sourceNode(for: "local"))
+        let root = try #require(LibraryFolderBrowsePolicy.collapsedScanRoot(in: index, for: sourceNode.id))
+        let album = try #require(index.children(of: root.id).first)
+        #expect(index.directSongIDs(in: album.id) == ["track-1", "tagged-2", "track-10"])
+        #expect(LibraryFolderBrowsePolicy.trackOrderedSongIDs(
+            in: album.id, scope: .descendants, index: index, isVisible: { $0 != "tagged-2" }
+        ) == ["track-1", "track-10", "cd2-1"])
+    }
+
     @Test("Flattened source pages keep real folders and unresolved songs accessible")
     func projectsSingleRootWithoutChangingMembership() throws {
         let source = LibraryFolderSourceDescriptor(sourceID: "local", displayName: "Music", scanRoots: ["/"], pathSemantics: .hierarchical, pathEncoding: .native)
@@ -303,7 +323,8 @@ struct LibraryFolderIndexTests {
         duplicateB.trackNumber = 0
         let songs = [second, duplicateB, nextDisc, duplicateA, first]
         let order = LibraryFolderBrowsePolicy.sortedSongs(songs).map(\.id)
-        #expect(order == ["tie-a", "tie-b", "first", "second", "next-disc"])
+        // Same rule as the album page: songs without a track number follow the numbered ones.
+        #expect(order == ["first", "second", "tie-a", "tie-b", "next-disc"])
         #expect(LibraryFolderBrowsePolicy.sortedSongs(Array(songs.reversed())).map(\.id) == order)
     }
 

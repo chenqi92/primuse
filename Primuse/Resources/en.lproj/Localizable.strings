@@ -100,6 +100,7 @@
 "sort_title" = "Title";
 "sort_artist" = "Artist";
 "sort_album" = "Album";
+"sort_track_order" = "Track Order";
 "sort_date_added" = "Date Added";
 "sort_source_date" = "Source Date";
 "sort_format" = "Format";

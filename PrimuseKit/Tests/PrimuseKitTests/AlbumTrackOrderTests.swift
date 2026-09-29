@@ -68,12 +68,35 @@ struct AlbumTrackOrderTests {
         #expect(AlbumTrackOrder.sorted([]).isEmpty)
     }
 
+    @Test("Songs without a track tag follow the number their file names start with")
+    func untaggedTracksUseFileNameNumbers() {
+        let input = [
+            song("b", disc: nil, track: nil, title: "Blue", path: "/Album/02 Blue.flac"),
+            song("c", disc: nil, track: 3, title: "Always"),
+            song("a", disc: nil, track: nil, title: "Zebra", path: "/Album/01. Zebra.flac"),
+            song("d", disc: nil, track: nil, title: "Bonus", path: "/Album/Bonus.flac"),
+            song("e", disc: nil, track: nil, title: "Coda", path: "/Album/1-10 Coda.flac"),
+        ]
+        #expect(AlbumTrackOrder.sorted(input).map(\.id) == ["a", "b", "c", "e", "d"])
+        #expect(input.sorted(by: AlbumTrackOrder.isOrderedBefore).map(\.id) == ["a", "b", "c", "e", "d"])
+    }
+
+    @Test("File name track numbers", arguments: [
+        ("03 Title.flac", 3), ("03. Title.flac", 3), ("03-Title.flac", 3), ("3_Title.flac", 3),
+        ("1-03 Title.flac", 3), ("2.11 Title.flac", 11), ("07.flac", 7), ("/A/12 B/05 C.mp3", 5),
+        ("(01) Title.flac", nil), ("1999 Title.flac", nil), ("4ever.flac", nil), ("00 Intro.flac", nil),
+        ("Title 03.flac", nil), ("", nil),
+    ] as [(String, Int?)])
+    func fileNameTrackNumbers(_ path: String, _ expected: Int?) {
+        #expect(AlbumTrackOrder.fileNameTrackNumber(path) == expected)
+    }
+
     private func song(
         _ id: String, disc: Int?, track: Int?, title: String? = nil,
-        format: AudioFormat = .flac
+        format: AudioFormat = .flac, path: String? = nil
     ) -> Song {
         Song(id: id, title: title ?? id, albumID: "album", trackNumber: track,
-             discNumber: disc, fileFormat: format, filePath: "\(id).\(format.rawValue)",
+             discNumber: disc, fileFormat: format, filePath: path ?? "\(id).\(format.rawValue)",
              sourceID: "source")
     }
 }

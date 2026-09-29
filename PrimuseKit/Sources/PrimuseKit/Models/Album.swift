@@ -50,7 +50,15 @@ public enum AlbumTrackOrder {
     }
 
     public static func sorted(_ songs: [Song]) -> [Song] {
-        songs.sorted(by: isOrderedBefore)
+        guard songs.count > 1 else { return songs }
+        // Resolve each song's position once; a folder of untagged files
+        // would otherwise re-parse both file names on every comparison.
+        let keys = songs.map { (disc: discNumber(for: $0), track: trackNumber(for: $0) ?? Int.max) }
+        return songs.indices.sorted { lhs, rhs in
+            if keys[lhs].disc != keys[rhs].disc { return keys[lhs].disc < keys[rhs].disc }
+            if keys[lhs].track != keys[rhs].track { return keys[lhs].track < keys[rhs].track }
+            return isOrderedByTitle(songs[lhs], songs[rhs])
+        }.map { songs[$0] }
     }
 
     /// Disc, then track, then title. Any list that groups songs by album
@@ -60,19 +68,49 @@ public enum AlbumTrackOrder {
         let rightDisc = discNumber(for: rhs)
         if leftDisc != rightDisc { return leftDisc < rightDisc }
 
-        let leftTrack = positiveTrackNumber(lhs) ?? Int.max
-        let rightTrack = positiveTrackNumber(rhs) ?? Int.max
+        let leftTrack = trackNumber(for: lhs) ?? Int.max
+        let rightTrack = trackNumber(for: rhs) ?? Int.max
         if leftTrack != rightTrack { return leftTrack < rightTrack }
+        return isOrderedByTitle(lhs, rhs)
+    }
 
+    private static func isOrderedByTitle(_ lhs: Song, _ rhs: Song) -> Bool {
         // Duplicate or absent track tags must not inherit scan order.
         let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
         if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
         return lhs.id < rhs.id
     }
 
-    private static func positiveTrackNumber(_ song: Song) -> Int? {
-        guard let number = song.trackNumber, number > 0 else { return nil }
-        return number
+    /// The track tag, or the number a rip names its files with ("03 Title.flac")
+    /// when the tag is missing, so an untagged album is not read A to Z.
+    public static func trackNumber(for song: Song) -> Int? {
+        if let number = song.trackNumber, number > 0 { return number }
+        return fileNameTrackNumber(song.filePath)
+    }
+
+    /// "03 Title", "03. Title", "03-Title", "1-03 Title" (disc-track) → 3.
+    /// Four digits ("1999 Title") or a word ("4ever") are not track numbers.
+    static func fileNameTrackNumber(_ filePath: String) -> Int? {
+        let fileName = filePath.split(separator: "/").last.map(String.init) ?? filePath
+        let stem = Array(fileName.lastIndex(of: ".").map { fileName[..<$0] } ?? fileName[...])
+        func digits(from start: Int) -> (value: Int, end: Int)? {
+            var end = start
+            while end < stem.count, end - start < 4, stem[end].isASCII, stem[end].isNumber { end += 1 }
+            guard (1...3).contains(end - start), let value = Int(String(stem[start..<end])) else { return nil }
+            return (value, end)
+        }
+        func endsNumber(at index: Int) -> Bool {
+            index == stem.count || [" ", ".", "-", "_", "、", "．", ")", "]"].contains(stem[index])
+        }
+        guard let first = digits(from: 0), first.end == stem.count || !stem[first.end].isNumber else { return nil }
+        if first.end < stem.count, stem[first.end] == "-" || stem[first.end] == ".",
+           let second = digits(from: first.end + 1),
+           second.end == stem.count || (!stem[second.end].isNumber && endsNumber(at: second.end)),
+           second.value > 0 {
+            return second.value
+        }
+        guard endsNumber(at: first.end), first.value > 0 else { return nil }
+        return first.value
     }
 }
 

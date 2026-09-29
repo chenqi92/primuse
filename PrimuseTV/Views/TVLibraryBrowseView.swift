@@ -134,7 +134,10 @@ struct TVFolderBrowser: View {
                         Text(currentTitle(current, index: index)).tvFont(.sectionTitle).lineLimit(2)
                         Spacer(minLength: 0)
                         TVPillButton(title: PMString("ext.tv.home.playAll"), systemImage: "play.fill", style: .solid) {
-                            let ids = LibraryFolderBrowsePolicy.actionSongIDs(in: current.id, index: index, orderedBy: store.songIDs)
+                            let visible = store.songIDSet
+                            let ids = LibraryFolderBrowsePolicy.trackOrderedSongIDs(
+                                in: current.id, scope: .descendants, index: index, isVisible: visible.contains
+                            )
                             if store.playResolvedQueue(songIDs: ids, shuffled: false) { openPlayer() }
                         }
                     }
@@ -160,7 +163,10 @@ struct TVFolderBrowser: View {
                     }
                 }
                 if let current {
-                    let ids = LibraryFolderBrowsePolicy.visibleSongIDs(in: current.id, index: index, orderedBy: store.songIDs)
+                    let visible = store.songIDSet
+                    let ids = LibraryFolderBrowsePolicy.trackOrderedSongIDs(
+                        in: current.id, scope: .direct, index: index, isVisible: visible.contains
+                    )
                     TVPagedSongIDList(songIDs: ids, alignment: .leading, spacing: 22, action: openPlayer)
                 } else if nodes.isEmpty {
                     TVEmptyState(icon: "folder", title: TVDiscoveryText.string("no_folders"), subtitle: TVDiscoveryText.string("folders_hint"))
