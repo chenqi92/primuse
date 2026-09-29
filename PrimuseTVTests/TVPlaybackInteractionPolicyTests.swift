@@ -840,6 +840,11 @@ final class TVLibraryBrowsePerformancePolicyTests: XCTestCase {
 
     func testSongArtworkPaletteUpdatesCoalesceWithoutInvalidatingOtherScopes() async throws {
         let store = TVStore()
+        // 基线要在曲库装载、首页内容就绪那一次推进之后再取;这里只关心调色板更新本身。
+        await store.library.whenReady()
+        for _ in 0..<1_000 where store.isPreparingLibraryContent {
+            await Task.yield()
+        }
         let initialPaletteRevisions = store.artworkPalettePublicationRevisions
         let initialRecommendationRevision = store.recommendationRevision
 
