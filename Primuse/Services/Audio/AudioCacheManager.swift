@@ -86,7 +86,8 @@ enum AutomaticOfflineArtifactPolicy {
         desiredArtifactSignature: String,
         recordedSourceIdentitySignature: String?,
         desiredSourceIdentitySignature: String,
-        knownContentIsCurrent: Bool = true
+        knownContentIsCurrent: Bool = true,
+        sourceScopeIsVerified: Bool = false
     ) -> AutomaticOfflineRefreshDisposition {
         guard fileExists else { return .none }
         if isUntracked(
@@ -108,6 +109,12 @@ enum AutomaticOfflineArtifactPolicy {
         if recordedSourceIdentitySignature == desiredSourceIdentitySignature {
             return .preserveExisting
         }
+        // 记录的账号作用域对不上，但源的缓存目录刚校验过：换账号的源在校验时已
+        // 整目录隔离，还在的文件就是当前账号的（多半是旧版按线路记的来历）。
+        // 内容是否一致无从判断，所以照样刷新，只是下完前旧文件照常能播。
+        if sourceScopeIsVerified {
+            return .preserveExisting
+        }
         return .discardUntrusted
     }
 
@@ -116,6 +123,21 @@ enum AutomaticOfflineArtifactPolicy {
         recordedSourceIdentitySignature: String?
     ) -> Bool {
         recordedArtifactSignature == nil && recordedSourceIdentitySignature == nil
+    }
+}
+
+/// 旧版的完成记录与下载来历按含线路的源指纹计算，只增改外网地址就全部
+/// 对不上。现在按账号作用域计算；记录恰好等于旧算法对当前这首歌的结果时
+/// 原样换算成新值，升级后已离线的歌不必再下一遍。其他记录保持原样，交给
+/// 正常的来历判定。
+enum AutomaticOfflineLegacySignaturePolicy {
+    static func translated(
+        _ recorded: String?,
+        legacy: String,
+        current: String
+    ) -> String? {
+        guard let recorded, recorded == legacy else { return recorded }
+        return current
     }
 }
 
@@ -1367,6 +1389,7 @@ private actor AlwaysDownloadWorker {
     private var journalMutationCountSincePersist = 0
     private var desiredReplacementGeneration = 0
     private var nextJournalDeltaSequence: UInt64 = 1
+    private var lastReconciliationSummary: String?
 
     private var journalDeltaURL: URL {
         journalURL.appendingPathExtension("delta")
@@ -1431,14 +1454,7 @@ private actor AlwaysDownloadWorker {
         nextDesired.reserveCapacity(desiredSongs.count)
         for desired in desiredSongs {
             if let existing = nextDesired[desired.song.id] {
-                nextDesired[desired.song.id] = AlwaysDownloadDesiredSong(
-                    song: desired.song,
-                    playlistIDs: existing.playlistIDs.union(desired.playlistIDs),
-                    contentSignature: desired.contentSignature,
-                    sourceIdentitySignature: desired.sourceIdentitySignature,
-                    artifactPath: desired.artifactPath,
-                    artifactSignature: desired.artifactSignature
-                )
+                nextDesired[desired.song.id] = desired.addingPlaylistIDs(existing.playlistIDs)
             } else {
                 nextDesired[desired.song.id] = desired
             }
@@ -1447,6 +1463,7 @@ private actor AlwaysDownloadWorker {
         let nextDesiredSongIDsByArtifact = AutomaticOfflineArtifactIndex.make(
             from: desiredValues
         )
+        let migratedSongCount = migrateLegacySignatures(desiredValues)
         let knownSourceIdentities = journal.sourceIdentitySignatures ?? [:]
         let knownArtifactProvenance = journal.artifactProvenanceSignatures ?? [:]
         let knownArtifactSourceIdentities = journal.artifactSourceIdentitySignatures ?? [:]
@@ -1456,15 +1473,11 @@ private actor AlwaysDownloadWorker {
                 recordedSourceIdentitySignature: knownArtifactSourceIdentities[desired.artifactPath]
             ) ? desired.artifactPath : nil
         })
-        // 接手已有文件前先让源把缓存作用域校验完：账号变过的源会在这一步整目录
-        // 隔离，后面按文件是否存在来判断时就不会把旧账号的字节算进来。没校验
-        // 下来的源这一轮只排队，由下载前的同一道校验决定复用还是重下。
-        let adoptableSourceIDs = await sourceManager.automaticOfflineAdoptableSourceIDs(
-            Set(desiredValues.compactMap { desired in
-                untrackedArtifactPaths.contains(desired.artifactPath)
-                    ? desired.song.sourceID
-                    : nil
-            })
+        // 判断已有文件前先让源把缓存作用域校验完：账号变过的源会在这一步整目录
+        // 隔离（只改线路的保留），后面按文件是否存在来判断时就不会把旧账号的
+        // 字节算进来。没校验下来的源这一轮保持原来的保守判定，只排队不接手。
+        let verifiedSourceIDs = await sourceManager.automaticOfflineVerifiedSourceIDs(
+            Set(desiredValues.map(\.song.sourceID))
         )
         guard !Task.isCancelled,
               desiredReplacementGeneration == replacementGeneration else { return }
@@ -1482,7 +1495,8 @@ private actor AlwaysDownloadWorker {
                 desiredArtifactSignature: desired.artifactSignature,
                 recordedSourceIdentitySignature: knownArtifactSourceIdentities[desired.artifactPath],
                 desiredSourceIdentitySignature: desired.sourceIdentitySignature,
-                knownContentIsCurrent: knownContentIsCurrent(desired)
+                knownContentIsCurrent: knownContentIsCurrent(desired),
+                sourceScopeIsVerified: verifiedSourceIDs.contains(desired.song.sourceID)
             )
             preflightDispositions[desired.artifactPath] = AutomaticOfflineRefreshDisposition.strongest(
                 preflightDispositions[desired.artifactPath] ?? .none,
@@ -1512,7 +1526,7 @@ private actor AlwaysDownloadWorker {
         var sourceRetryAfter = journal.sourceRetryAfter ?? [:]
         for desired in desiredValues
         where knownSourceIdentities[desired.song.sourceID] != nil
-            && knownSourceIdentities[desired.song.sourceID] != desired.sourceIdentitySignature {
+            && knownSourceIdentities[desired.song.sourceID] != desired.sourceEndpointSignature {
             sourceRetryAfter.removeValue(forKey: desired.song.sourceID)
         }
         // Trust is earned per physical artifact, never by another successful
@@ -1520,10 +1534,11 @@ private actor AlwaysDownloadWorker {
         // tracked is vouched for by the source-wide cache scope check above.
         var artifactProvenance = knownArtifactProvenance
         var artifactSourceIdentities = knownArtifactSourceIdentities
+        var adoptedSongCount = 0
         for desired in desiredValues {
             let existingJob = journal.jobs[desired.song.id]
             let adoptsUntrackedFile = untrackedArtifactPaths.contains(desired.artifactPath)
-                && adoptableSourceIDs.contains(desired.song.sourceID)
+                && verifiedSourceIDs.contains(desired.song.sourceID)
                 && existingJob?.refreshPrepared != true
             guard !missingSongIDs.contains(desired.song.id),
                   journal.completedSignatures[desired.song.id] == nil,
@@ -1543,6 +1558,7 @@ private actor AlwaysDownloadWorker {
                   ) else { continue }
             journal.completedSignatures[desired.song.id] = desired.contentSignature
             knownSignatures[desired.song.id] = desired.contentSignature
+            adoptedSongCount += 1
             if adoptsUntrackedFile {
                 // 接手后和队列自己下完的文件一样记下来历：以后这首歌换了内容，
                 // 走「保留旧文件、下完再替换」，而不是被当成来历不明先删掉。
@@ -1570,7 +1586,8 @@ private actor AlwaysDownloadWorker {
                     desiredArtifactSignature: desired.artifactSignature,
                     recordedSourceIdentitySignature: knownArtifactSourceIdentities[desired.artifactPath],
                     desiredSourceIdentitySignature: desired.sourceIdentitySignature,
-                    knownContentIsCurrent: knownContentIsCurrent(desired)
+                    knownContentIsCurrent: knownContentIsCurrent(desired),
+                    sourceScopeIsVerified: verifiedSourceIDs.contains(desired.song.sourceID)
                 )
             if var existing = journal.jobs[songID],
                existing.contentSignature == desired.contentSignature {
@@ -1580,12 +1597,12 @@ private actor AlwaysDownloadWorker {
                 existing.artifactSignature = desired.artifactSignature
                 let existingDisposition = existing.refreshDisposition
                     ?? (existing.forceRedownload ? .discardUntrusted : .none)
-                // 旧版本把没经手过的已有文件一律排成「先删再下」；还没开删的
-                // 这类任务按现在的判定重排，已有文件就不会在下载前被删。
-                let reconsidersUntrackedFile = untrackedArtifactPaths.contains(desired.artifactPath)
-                    && existing.refreshDisposition == .discardUntrusted
-                    && existing.refreshPrepared != true
-                let disposition = reconsidersUntrackedFile
+                // 「先删再下」只在认不出文件属于当前账号时才成立。旧版本把没经手
+                // 过的文件、只改了线路的文件也排成了这样；现在能认出来的就按当前
+                // 判定重排，已有文件不会在下载前被删。
+                let reconsidersDiscard = existing.refreshDisposition == .discardUntrusted
+                    && requestedDisposition != .discardUntrusted
+                let disposition = reconsidersDiscard
                     ? requestedDisposition
                     : AutomaticOfflineRefreshDisposition.strongest(
                         existingDisposition,
@@ -1623,7 +1640,7 @@ private actor AlwaysDownloadWorker {
         journal.lastKnownSignatures = knownSignatures
         var sourceIdentities = journal.sourceIdentitySignatures ?? [:]
         for desired in desiredValues {
-            sourceIdentities[desired.song.sourceID] = desired.sourceIdentitySignature
+            sourceIdentities[desired.song.sourceID] = desired.sourceEndpointSignature
         }
         journal.sourceIdentitySignatures = sourceIdentities
         journal.sourceRetryAfter = sourceRetryAfter
@@ -1639,7 +1656,114 @@ private actor AlwaysDownloadWorker {
         ), !Task.isCancelled,
               desiredReplacementGeneration == replacementGeneration else { return }
         persistJournal(force: true)
+        logReconciliationSummary(
+            desiredCount: desiredValues.count,
+            completeCount: desiredValues.count - requiredSongIDs.count,
+            adoptedCount: adoptedSongCount,
+            migratedCount: migratedSongCount
+        )
         scheduleRunner()
+    }
+
+    /// 测试「始终保持离线」时看这一行：接手了多少已有文件、换算了多少旧记录、
+    /// 还要下载多少首，其中多少首下载前要先删（应当只在换账号时出现）。
+    /// 内容和上次一样就不重复打印，扫描期间对账很频繁。
+    private func logReconciliationSummary(
+        desiredCount: Int,
+        completeCount: Int,
+        adoptedCount: Int,
+        migratedCount: Int
+    ) {
+        guard desiredCount > 0 else {
+            lastReconciliationSummary = nil
+            return
+        }
+        var refreshKeepingOld = 0
+        var discardFirst = 0
+        for job in journal.jobs.values {
+            switch job.refreshDisposition ?? (job.forceRedownload ? .discardUntrusted : .none) {
+            case .none: break
+            case .preserveExisting: refreshKeepingOld += 1
+            case .discardUntrusted: discardFirst += 1
+            }
+        }
+        let summary = "desired=\(desiredCount) complete=\(completeCount)"
+            + " adoptedExisting=\(adoptedCount) migratedLegacy=\(migratedCount)"
+            + " queued=\(journal.jobs.count) refreshKeepingOld=\(refreshKeepingOld)"
+            + " discardFirst=\(discardFirst)"
+        guard summary != lastReconciliationSummary else { return }
+        lastReconciliationSummary = summary
+        plog("📌 AlwaysDownload reconcile \(summary)")
+    }
+
+    /// 返回有记录被换算的歌曲数，只用于日志。
+    private func migrateLegacySignatures(_ desiredValues: [AlwaysDownloadDesiredSong]) -> Int {
+        var lastKnownSignatures = journal.lastKnownSignatures ?? [:]
+        var artifactProvenance = journal.artifactProvenanceSignatures ?? [:]
+        var artifactSourceIdentities = journal.artifactSourceIdentitySignatures ?? [:]
+        var migratedSongCount = 0
+        for desired in desiredValues
+        where desired.legacyContentSignature != desired.contentSignature
+            || desired.legacyArtifactSignature != desired.artifactSignature
+            || desired.sourceEndpointSignature != desired.sourceIdentitySignature {
+            let songID = desired.song.id
+            let path = desired.artifactPath
+            var songChanged = false
+            func translate(_ recorded: String?, legacy: String, current: String) -> String? {
+                let translated = AutomaticOfflineLegacySignaturePolicy.translated(
+                    recorded,
+                    legacy: legacy,
+                    current: current
+                )
+                if translated != recorded { songChanged = true }
+                return translated
+            }
+            if let completed = journal.completedSignatures[songID] {
+                journal.completedSignatures[songID] = translate(
+                    completed,
+                    legacy: desired.legacyContentSignature,
+                    current: desired.contentSignature
+                )
+            }
+            if let known = lastKnownSignatures[songID] {
+                lastKnownSignatures[songID] = translate(
+                    known,
+                    legacy: desired.legacyContentSignature,
+                    current: desired.contentSignature
+                )
+            }
+            if var job = journal.jobs[songID],
+               job.contentSignature == desired.legacyContentSignature {
+                job.contentSignature = desired.contentSignature
+                job.artifactSignature = translate(
+                    job.artifactSignature,
+                    legacy: desired.legacyArtifactSignature,
+                    current: desired.artifactSignature
+                )
+                journal.jobs[songID] = job
+                songChanged = true
+            }
+            if let provenance = artifactProvenance[path] {
+                artifactProvenance[path] = translate(
+                    provenance,
+                    legacy: desired.legacyArtifactSignature,
+                    current: desired.artifactSignature
+                )
+            }
+            if let identity = artifactSourceIdentities[path] {
+                artifactSourceIdentities[path] = translate(
+                    identity,
+                    legacy: desired.sourceEndpointSignature,
+                    current: desired.sourceIdentitySignature
+                )
+            }
+            if songChanged { migratedSongCount += 1 }
+        }
+        guard migratedSongCount > 0 else { return 0 }
+        journal.lastKnownSignatures = lastKnownSignatures
+        journal.artifactProvenanceSignatures = artifactProvenance
+        journal.artifactSourceIdentitySignatures = artifactSourceIdentities
+        return migratedSongCount
     }
 
     func invalidateCompletedSong(_ songID: String) async {
@@ -2370,11 +2494,13 @@ final class AlwaysDownloadCoordinator {
         await worker.replaceDesiredSongs(desired)
     }
 
-    private nonisolated static func makeDesiredSongs(
+    nonisolated static func makeDesiredSongs(
         selectedPlaylists: [(String, [Song])],
         sources: [MusicSource]
     ) -> [AlwaysDownloadDesiredSong] {
         let sourcesByID = Dictionary(uniqueKeysWithValues: sources.map { ($0.id, $0) })
+        // 每个源只算一次指纹：整张歌单几千首，逐首重算要反复读安全修订号。
+        var identitiesBySourceID: [String: (identity: String, endpoint: String)] = [:]
         var desiredBySongID: [String: AlwaysDownloadDesiredSong] = [:]
         for (playlistID, songs) in selectedPlaylists {
             for song in songs {
@@ -2385,39 +2511,47 @@ final class AlwaysDownloadCoordinator {
                       AutomaticOfflineDownloadPolicy.supportsSourceType(source.type) else {
                     continue
                 }
-                let signature = contentSignature(
-                    song: song,
-                    source: source
-                )
-                let sourceIdentity = sourceIdentitySignature(source)
+                if let existing = desiredBySongID[song.id] {
+                    desiredBySongID[song.id] = existing.addingPlaylistIDs([playlistID])
+                    continue
+                }
+                let identities: (identity: String, endpoint: String)
+                if let cached = identitiesBySourceID[source.id] {
+                    identities = cached
+                } else {
+                    identities = (
+                        identity: sourceIdentitySignature(source),
+                        endpoint: sourceEndpointSignature(source)
+                    )
+                    identitiesBySourceID[source.id] = identities
+                }
                 let artifactFileName = CacheFileNamePolicy.make(
                     path: song.filePath,
                     preferredExtension: song.fileFormat.rawValue
                 )
-                let artifactPath = "\(song.sourceID)/\(artifactFileName)"
-                let artifactContentSignature = artifactSignature(
+                desiredBySongID[song.id] = AlwaysDownloadDesiredSong(
                     song: song,
-                    sourceIdentitySignature: sourceIdentity
+                    playlistIDs: [playlistID],
+                    contentSignature: contentSignature(
+                        song: song,
+                        sourceIdentitySignature: identities.identity
+                    ),
+                    sourceIdentitySignature: identities.identity,
+                    sourceEndpointSignature: identities.endpoint,
+                    artifactPath: "\(song.sourceID)/\(artifactFileName)",
+                    artifactSignature: artifactSignature(
+                        song: song,
+                        sourceIdentitySignature: identities.identity
+                    ),
+                    legacyContentSignature: contentSignature(
+                        song: song,
+                        sourceIdentitySignature: identities.endpoint
+                    ),
+                    legacyArtifactSignature: artifactSignature(
+                        song: song,
+                        sourceIdentitySignature: identities.endpoint
+                    )
                 )
-                if let existing = desiredBySongID[song.id] {
-                    desiredBySongID[song.id] = AlwaysDownloadDesiredSong(
-                        song: song,
-                        playlistIDs: existing.playlistIDs.union([playlistID]),
-                        contentSignature: signature,
-                        sourceIdentitySignature: sourceIdentity,
-                        artifactPath: artifactPath,
-                        artifactSignature: artifactContentSignature
-                    )
-                } else {
-                    desiredBySongID[song.id] = AlwaysDownloadDesiredSong(
-                        song: song,
-                        playlistIDs: [playlistID],
-                        contentSignature: signature,
-                        sourceIdentitySignature: sourceIdentity,
-                        artifactPath: artifactPath,
-                        artifactSignature: artifactContentSignature
-                    )
-                }
             }
         }
         return desiredBySongID.values.sorted { $0.song.id < $1.song.id }
@@ -2425,7 +2559,7 @@ final class AlwaysDownloadCoordinator {
 
     private nonisolated static func contentSignature(
         song: Song,
-        source: MusicSource?
+        sourceIdentitySignature: String
     ) -> String {
         let components = [
             song.id,
@@ -2435,13 +2569,19 @@ final class AlwaysDownloadCoordinator {
             String(song.fileSize),
             song.revision ?? "",
             song.lastModified.map { String($0.timeIntervalSince1970) } ?? "",
-            source.map { sourceIdentitySignature($0) } ?? "",
+            sourceIdentitySignature,
         ]
         let digest = SHA256.hash(data: Data(components.joined(separator: "\0").utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// 账号作用域，与源级缓存守卫认「同一个账号」用的是同一个值：只增改内外网
+    /// 地址时不变，换账号、共享目录、内容根或密码时才变。
     private nonisolated static func sourceIdentitySignature(_ source: MusicSource) -> String {
+        MusicSourceSecurityRevision.credentialScopedFingerprint(for: source)
+    }
+
+    private nonisolated static func sourceEndpointSignature(_ source: MusicSource) -> String {
         MusicSourceSecurityRevision.scopedFingerprint(for: source)
     }
 

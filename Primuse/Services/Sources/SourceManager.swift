@@ -134,9 +134,53 @@ struct AlwaysDownloadDesiredSong: Sendable {
     let song: Song
     let playlistIDs: Set<String>
     let contentSignature: String
+    /// 账号作用域（不含线路）。下载来历与内容签名都按它算：只增改内外网地址时
+    /// 它不变，已离线的歌不会被当成来历不明而重下。
     let sourceIdentitySignature: String
+    /// 含线路的完整作用域，只用来判断来源级重试冷却要不要作废，也是旧版
+    /// 记录下载来历时用的那个值。
+    let sourceEndpointSignature: String
     let artifactPath: String
     let artifactSignature: String
+    /// 旧版按含线路指纹算出的签名，只用来把旧 journal 里的记录换算过来。
+    let legacyContentSignature: String
+    let legacyArtifactSignature: String
+
+    init(
+        song: Song,
+        playlistIDs: Set<String>,
+        contentSignature: String,
+        sourceIdentitySignature: String,
+        sourceEndpointSignature: String? = nil,
+        artifactPath: String,
+        artifactSignature: String,
+        legacyContentSignature: String? = nil,
+        legacyArtifactSignature: String? = nil
+    ) {
+        self.song = song
+        self.playlistIDs = playlistIDs
+        self.contentSignature = contentSignature
+        self.sourceIdentitySignature = sourceIdentitySignature
+        self.sourceEndpointSignature = sourceEndpointSignature ?? sourceIdentitySignature
+        self.artifactPath = artifactPath
+        self.artifactSignature = artifactSignature
+        self.legacyContentSignature = legacyContentSignature ?? contentSignature
+        self.legacyArtifactSignature = legacyArtifactSignature ?? artifactSignature
+    }
+
+    func addingPlaylistIDs(_ ids: Set<String>) -> AlwaysDownloadDesiredSong {
+        AlwaysDownloadDesiredSong(
+            song: song,
+            playlistIDs: playlistIDs.union(ids),
+            contentSignature: contentSignature,
+            sourceIdentitySignature: sourceIdentitySignature,
+            sourceEndpointSignature: sourceEndpointSignature,
+            artifactPath: artifactPath,
+            artifactSignature: artifactSignature,
+            legacyContentSignature: legacyContentSignature,
+            legacyArtifactSignature: legacyArtifactSignature
+        )
+    }
 }
 
 enum AutomaticOfflineRefreshDisposition: String, Codable, Sendable {
@@ -7415,17 +7459,17 @@ final class SourceManager {
         return true
     }
 
-    /// 「始终保持离线」接手已有缓存之前调用：逐个源跑一遍缓存作用域校验，账号或
-    /// 内容根变过的源会在这里先把旧目录隔离掉。返回校验通过、目录里现存文件都
-    /// 属于当前账号的源。
-    func automaticOfflineAdoptableSourceIDs(_ sourceIDs: Set<String>) async -> Set<String> {
-        var adoptable = Set<String>()
+    /// 「始终保持离线」判断已有文件之前调用：逐个源跑一遍缓存作用域校验，账号或
+    /// 内容根变过的源会在这里先把旧目录隔离掉（只改线路的会保留）。返回校验
+    /// 通过、目录里现存文件都属于当前账号的源。
+    func automaticOfflineVerifiedSourceIDs(_ sourceIDs: Set<String>) async -> Set<String> {
+        var verified = Set<String>()
         for sourceID in sourceIDs {
             if await ensureAudioCacheScopeValidated(for: sourceID) {
-                adoptable.insert(sourceID)
+                verified.insert(sourceID)
             }
         }
-        return adoptable
+        return verified
     }
 
     func reconcileAutomaticOfflineProvenance(

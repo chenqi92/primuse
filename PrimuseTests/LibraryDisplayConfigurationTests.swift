@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 import PrimuseKit
@@ -1072,6 +1073,144 @@ final class AutomaticOfflineSafetyTests: XCTestCase {
             missingSongIDs: ["missing"]
         )
         XCTAssertEqual(requiredSongIDs, ["missing"])
+    }
+
+    func testIdentityMismatchInAVerifiedSourceScopeKeepsOldBytesPlayable() {
+        XCTAssertEqual(
+            AutomaticOfflineArtifactPolicy.refreshDisposition(
+                fileExists: true,
+                recordedArtifactSignature: "route-aware-artifact",
+                desiredArtifactSignature: "account-scoped-artifact",
+                recordedSourceIdentitySignature: "route-aware-scope",
+                desiredSourceIdentitySignature: "account-scope",
+                sourceScopeIsVerified: true
+            ),
+            .preserveExisting
+        )
+        XCTAssertEqual(
+            AutomaticOfflineArtifactPolicy.refreshDisposition(
+                fileExists: true,
+                recordedArtifactSignature: "route-aware-artifact",
+                desiredArtifactSignature: "account-scoped-artifact",
+                recordedSourceIdentitySignature: "route-aware-scope",
+                desiredSourceIdentitySignature: "account-scope",
+                sourceScopeIsVerified: false
+            ),
+            .discardUntrusted
+        )
+    }
+
+    func testAddingAPublicAddressKeepsAlwaysDownloadSignatures() throws {
+        let source = MusicSource(
+            id: "always-download-route-source",
+            name: "NAS",
+            type: .synology,
+            host: "192.168.0.50",
+            port: 5_001,
+            useSsl: true,
+            username: "listener",
+            basePath: "/music"
+        )
+        var withPublicAddress = source
+        withPublicAddress.connectionConfiguration = SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(
+                host: "192.168.0.50",
+                port: 5_001,
+                useSsl: true,
+                pathPrefix: "/music"
+            ),
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "nas.example.cn",
+                port: 5_001,
+                useSsl: true,
+                pathPrefix: "/music"
+            )
+        )
+        var otherAccount = source
+        otherAccount.username = "another-listener"
+        let song = Song(
+            id: "always-download-route-song",
+            title: "Song",
+            fileFormat: .flac,
+            filePath: "/music/album/song.flac",
+            sourceID: source.id,
+            fileSize: 42_000
+        )
+        func desired(_ source: MusicSource) throws -> AlwaysDownloadDesiredSong {
+            try XCTUnwrap(AlwaysDownloadCoordinator.makeDesiredSongs(
+                selectedPlaylists: [("playlist", [song])],
+                sources: [source]
+            ).first)
+        }
+
+        let before = try desired(source)
+        let after = try desired(withPublicAddress)
+        XCTAssertEqual(after.sourceIdentitySignature, before.sourceIdentitySignature)
+        XCTAssertEqual(after.contentSignature, before.contentSignature)
+        XCTAssertEqual(after.artifactSignature, before.artifactSignature)
+        XCTAssertNotEqual(after.sourceEndpointSignature, before.sourceEndpointSignature)
+
+        let moved = try desired(otherAccount)
+        XCTAssertNotEqual(moved.sourceIdentitySignature, before.sourceIdentitySignature)
+        XCTAssertNotEqual(moved.contentSignature, before.contentSignature)
+        XCTAssertNotEqual(moved.artifactSignature, before.artifactSignature)
+
+        // 旧版记录用的是含线路的指纹；换算依据必须与旧算法逐字相同。
+        let routeAwareScope = MusicSourceSecurityRevision.scopedFingerprint(for: source)
+        XCTAssertEqual(before.sourceEndpointSignature, routeAwareScope)
+        XCTAssertEqual(
+            before.legacyArtifactSignature,
+            AutomaticOfflineArtifactPolicy.signature(
+                sourceID: song.sourceID,
+                filePath: song.filePath,
+                fileFormat: song.fileFormat.rawValue,
+                fileSize: song.fileSize,
+                revision: song.revision,
+                lastModified: song.lastModified,
+                sourceIdentitySignature: routeAwareScope
+            )
+        )
+        let legacyContentComponents = [
+            song.id,
+            song.sourceID,
+            song.filePath,
+            song.fileFormat.rawValue,
+            String(song.fileSize),
+            song.revision ?? "",
+            song.lastModified.map { String($0.timeIntervalSince1970) } ?? "",
+            routeAwareScope,
+        ]
+        XCTAssertEqual(
+            before.legacyContentSignature,
+            SHA256.hash(data: Data(legacyContentComponents.joined(separator: "\0").utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+        )
+        XCTAssertNotEqual(before.legacyContentSignature, before.contentSignature)
+    }
+
+    func testLegacySignatureTranslationOnlyRewritesExactOldValues() {
+        XCTAssertEqual(
+            AutomaticOfflineLegacySignaturePolicy.translated(
+                "legacy",
+                legacy: "legacy",
+                current: "current"
+            ),
+            "current"
+        )
+        XCTAssertEqual(
+            AutomaticOfflineLegacySignaturePolicy.translated(
+                "older-route",
+                legacy: "legacy",
+                current: "current"
+            ),
+            "older-route"
+        )
+        XCTAssertNil(AutomaticOfflineLegacySignaturePolicy.translated(
+            nil,
+            legacy: "legacy",
+            current: "current"
+        ))
     }
 
     func testUntrackedFileWhoseKnownContentChangedRefreshesWithoutDeletingFirst() {
