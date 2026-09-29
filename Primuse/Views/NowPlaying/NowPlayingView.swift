@@ -567,6 +567,66 @@ private struct NowPlayingAlbumTransitionSourceModifier: ViewModifier {
 }
 #endif
 
+/// 大封面与歌词小封面之间交接时所在的位置。
+private enum LyricsArtworkPlacement: Equatable {
+    case cover
+    case compactLyrics
+    case immersiveLyrics
+}
+
+/// 歌词顶栏的进出场：文字与按钮淡入淡出，小封面的透明度单独给。
+///
+/// 从封面页进歌词时，小封面接的是正在缩过来的大封面，两张图叠在同一个框里，
+/// 都半透明就会叠出半透明的重影（#167）。这时小封面一出现就不透明，只有大封面淡出。
+/// 退场一律随顶栏淡出：回封面页时接手的大封面一出现就不透明，进全屏歌词时没人接手。
+private struct LyricsHeaderTransition: Transition {
+    var receivesArtworkFromCover: Bool
+
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        let artworkVisible = phase.isIdentity || (phase == .willAppear && receivesArtworkFromCover)
+        content
+            .environment(\.lyricsHeaderContentOpacity, phase.isIdentity ? 1 : 0)
+            .environment(\.lyricsHeaderArtworkOpacity, artworkVisible ? 1 : 0)
+    }
+}
+
+private struct LyricsHeaderContentOpacityKey: EnvironmentKey {
+    static let defaultValue: Double = 1
+}
+
+private struct LyricsHeaderArtworkOpacityKey: EnvironmentKey {
+    static let defaultValue: Double = 1
+}
+
+private extension EnvironmentValues {
+    var lyricsHeaderContentOpacity: Double {
+        get { self[LyricsHeaderContentOpacityKey.self] }
+        set { self[LyricsHeaderContentOpacityKey.self] = newValue }
+    }
+
+    var lyricsHeaderArtworkOpacity: Double {
+        get { self[LyricsHeaderArtworkOpacityKey.self] }
+        set { self[LyricsHeaderArtworkOpacityKey.self] = newValue }
+    }
+}
+
+/// 顶栏里的一块按 `LyricsHeaderTransition` 给的透明度显示。
+private struct LyricsHeaderRevealModifier: ViewModifier {
+    let isArtwork: Bool
+    @Environment(\.lyricsHeaderContentOpacity) private var contentOpacity
+    @Environment(\.lyricsHeaderArtworkOpacity) private var artworkOpacity
+
+    func body(content: Content) -> some View {
+        content.opacity(isArtwork ? artworkOpacity : contentOpacity)
+    }
+}
+
+private extension View {
+    func lyricsHeaderReveal(isArtwork: Bool = false) -> some View {
+        modifier(LyricsHeaderRevealModifier(isArtwork: isArtwork))
+    }
+}
+
 /// 把一段视图的构造推迟到这一层自己的 `body` 里，由 SwiftUI 单独求值。
 ///
 /// Debug（-Onone）构建不复用栈槽：一个构造视图的闭包里，每个分支、每个中间值都各占一块栈，
@@ -662,6 +722,9 @@ struct NowPlayingView: View {
     @State private var activeMinimizeDragAxis: NowPlayingDismissGesturePolicy.Axis?
     @State private var activeMinimizeDragStartLocation: CGPoint?
     @State private var isLyricsImmersive = false
+    /// 上一轮已经落定的封面位置。换位置的那一次更新里它还是旧值，
+    /// 进场的那一张封面据此判断是不是从另一张手里接过来的。
+    @State private var settledLyricsArtworkPlacement: LyricsArtworkPlacement = .cover
     #if DEBUG && os(iOS)
     @Environment(\.pmDebugPlayerMode) private var debugPlayerMode
     /// 取证框里模拟别的视口:遮挡区与窗口安全区都按框的来,不读外屏自己的。
@@ -943,13 +1006,6 @@ struct NowPlayingView: View {
             : .spring(response: 0.48, dampingFraction: 0.82, blendDuration: 0.08)
     }
 
-    /// 头部封面由 matchedGeometryEffect 负责位移与缩放, 这里只做淡入淡出,
-    /// 避免两套动画互相争抢导致封面先平移后突变。
-    private var lyricsHeaderTransition: AnyTransition {
-        guard !reduceMotion else { return .opacity }
-        return .opacity
-    }
-
     private var lyricsPanelTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
         return .asymmetric(
@@ -967,6 +1023,23 @@ struct NowPlayingView: View {
     private var playerArtworkTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
         return .opacity
+    }
+
+    private var lyricsArtworkPlacement: LyricsArtworkPlacement {
+        guard showLyrics else { return .cover }
+        return isLyricsImmersive ? .immersiveLyrics : .compactLyrics
+    }
+
+    /// 有歌词小封面的构图里, 顶栏的进出场。
+    private var lyricsHeaderHandoffTransition: LyricsHeaderTransition {
+        LyricsHeaderTransition(receivesArtworkFromCover: settledLyricsArtworkPlacement == .cover)
+    }
+
+    /// 有歌词小封面的构图里, 大封面的进出场: 从小封面那里接过来时一出现就不透明,
+    /// 淡出的只有随顶栏退场的小封面, 两张图叠在一起也始终是一张完整的封面 (#167)。
+    private var lyricsHandoffArtworkTransition: AnyTransition {
+        guard settledLyricsArtworkPlacement == .compactLyrics else { return playerArtworkTransition }
+        return .asymmetric(insertion: .identity, removal: playerArtworkTransition)
     }
 
     private var canOpenCurrentAlbum: Bool {
@@ -2257,10 +2330,16 @@ struct NowPlayingView: View {
         .task {
             // 取证页让播放页一出现就处在歌词 / 全屏歌词模式。真机上无人值守截图用
             // `PRIMUSE_DEBUG_PLAYER_MODE`(同样的取值,另有 `queueSheet`:弹出半屏的接下来播放;
-            // `fullscreen`:进全屏播放)。
+            // `fullscreen`:进全屏播放; `lyricsToggle`:每 4 秒走一次真实的封面 ⇄ 歌词切换,录屏看转场)。
             switch debugPlayerMode ?? ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_PLAYER_MODE"] {
             case "lyrics":
                 showLyrics = true
+            case "lyricsToggle":
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(4))
+                    guard !Task.isCancelled else { return }
+                    toggleStandardLyrics()
+                }
             case "immersive":
                 showLyrics = true
                 isLyricsImmersive = true
@@ -2547,6 +2626,9 @@ struct NowPlayingView: View {
             if !isVisible, isLyricsImmersive {
                 dismissImmersiveLyrics()
             }
+        }
+        .onChange(of: lyricsArtworkPlacement) { _, placement in
+            settledLyricsArtworkPlacement = placement
         }
         .onDisappear {
             immersiveControlsAutoHideTask?.cancel()
@@ -3068,7 +3150,7 @@ struct NowPlayingView: View {
                         .transition(lyricsPanelTransition)
                 } else {
                     compactLandscapeArtwork(metrics: metrics)
-                        .transition(playerArtworkTransition)
+                        .transition(lyricsHandoffArtworkTransition)
                 }
             }
             .frame(width: leftColumnWidth)
@@ -3122,7 +3204,7 @@ struct NowPlayingView: View {
             ZStack(alignment: .topLeading) {
                 if showLyrics {
                     compactLandscapeLyricsHeader(metrics: lyricsMetrics)
-                        .transition(lyricsHeaderTransition)
+                        .transition(lyricsHeaderHandoffTransition)
                 } else {
                     compactLandscapeCoverHeading(metrics: metrics)
                         .matchedLayoutElement(.songHeading, in: layoutNamespace)
@@ -3229,6 +3311,7 @@ struct NowPlayingView: View {
                 )
                 .frame(width: thumbnail, height: thumbnail)
                 .shadow(color: .black.opacity(0.22), radius: 10, y: 5)
+                .lyricsHeaderReveal(isArtwork: true)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(player.currentSong?.title ?? "")
@@ -3246,6 +3329,7 @@ struct NowPlayingView: View {
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .lyricsHeaderReveal()
             }
             .contentShape(Rectangle())
         }
@@ -4048,6 +4132,7 @@ struct NowPlayingView: View {
                                         isSource: isLyricsCompactArtworkVisible
                                     )
                                     .frame(width: 44, height: 44)
+                                    .lyricsHeaderReveal(isArtwork: true)
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(player.currentSong?.title ?? "")
@@ -4056,6 +4141,7 @@ struct NowPlayingView: View {
                                         Text(currentArtistDisplayName)
                                             .font(.caption).foregroundStyle(appearance.secondary).lineLimit(1)
                                     }
+                                    .lyricsHeaderReveal()
                                 }
                             }
                             .buttonStyle(.plain)
@@ -4065,6 +4151,7 @@ struct NowPlayingView: View {
                             Spacer()
 
                             musicVideoToggleButton(font: .title3, trailing: 4)
+                                .lyricsHeaderReveal()
 
                             // 竖栏里排着那一列按钮时(iPhone Duo),喜欢与更多在那一列里。
                             if !usesToolColumn {
@@ -4080,16 +4167,20 @@ struct NowPlayingView: View {
                                     .frame(width: 44, height: 44)
                                     .disabled(player.currentSong == nil)
                                     .accessibilityLabel(Text(isCurrentLiked ? "a11y_unlike" : "a11y_like"))
+                                    .lyricsHeaderReveal()
                                 }
 
                                 // More menu
                                 moreMenu
+                                    .lyricsHeaderReveal()
                             }
                             }
                             .padding(.horizontal, 20).padding(.bottom, 6)
                             .padding(.leading, insets.lyricsLeading)
                             .padding(.trailing, insets.lyricsTrailing)
-                            .transition(lyricsHeaderTransition)
+                            .transition(lyricsHeaderHandoffTransition)
+                            // 大封面缩进来的途中压在正在淡入的歌词上面, 而不是被歌词盖住。
+                            .zIndex(1)
                         }
 
                         // Full screen lyrics
@@ -4127,9 +4218,12 @@ struct NowPlayingView: View {
                                     guard !player.isMusicVideoPlaybackActive else { return }
                                     setStandardLyricsVisible(true)
                                 }
-                                .transition(playerArtworkTransition)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
+                        // 进出场的是这一层 GeometryReader, 转场要挂在它身上才生效 (挂在里面的封面上时
+                        // 这一层按默认淡入, 回封面页时大封面仍是半透明的)。移动的封面始终压在淡入淡出的歌词上面。
+                        .transition(lyricsHandoffArtworkTransition)
+                        .zIndex(1)
                     }
 
                     // Song info (player mode only — in lyrics mode it's in the top bar)
@@ -4543,6 +4637,17 @@ struct NowPlayingView: View {
                 revisionToken: player.coverRevision
             )
             .artworkCrossfade()
+            #if os(iOS)
+            // 专辑转场源的圆角裁切挂在封面本身上、随它一起移动。挂在下面那个定尺寸的框外面时,
+            // 切歌词途中缩走的封面会被裁在原来那块区域里, 只剩一截 (#167)。
+            .modifier(
+                NowPlayingAlbumTransitionSourceModifier(
+                    albumID: currentAlbum?.id,
+                    namespace: albumPresentationNamespace,
+                    cornerRadius: cornerRadius
+                )
+            )
+            #endif
             // 尺寸约束放在 matchedGeometryEffect 之外: 内容只接受被匹配到的
             // frame, 切歌词时才能一边位移一边连续缩小到小图位置。
             .matchedGeometryEffect(
@@ -4554,15 +4659,6 @@ struct NowPlayingView: View {
             .overlay(alignment: .bottom) {
                 MusicVideoPreparationBadge(songID: player.currentSong?.id)
             }
-            #if os(iOS)
-            .modifier(
-                NowPlayingAlbumTransitionSourceModifier(
-                    albumID: currentAlbum?.id,
-                    namespace: albumPresentationNamespace,
-                    cornerRadius: cornerRadius
-                )
-            )
-            #endif
         }
     }
 
