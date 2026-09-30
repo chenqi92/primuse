@@ -36,7 +36,7 @@
 	<array>
 		<string>group.com.welape.yuanyin</string>
 	</array>
-	<key>aps-environment</key>
+	<key>com.apple.developer.aps-environment</key>
 	<string>$(APS_ENVIRONMENT)</string>
 </dict>
 </plist>

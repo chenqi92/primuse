@@ -739,6 +739,17 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         window.frameAutosaveName != "PrimuseScrapeOptions"
     }
 
+    /// macOS 的推送权限键是 `com.apple.developer.aps-environment`,写成 iOS 的
+    /// `aps-environment` 时注册会静默失败,Mac 就只在启动和手动同步时拉云端。
+    /// 两个回调各留一行日志,「iPhone 改了 Mac 没反应」时先 grep `☁️ push`。
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        plog("☁️ push registered")
+    }
+
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        plog("☁️ push registration failed: \(error.localizedDescription)")
+    }
+
     func application(
         _ application: NSApplication,
         didReceiveRemoteNotification userInfo: [String: Any]
