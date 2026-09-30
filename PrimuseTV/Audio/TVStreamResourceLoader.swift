@@ -26,7 +26,17 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     private let explicitContentType: String?   // 已知文件格式推得的 UTType id(覆盖服务器误报的 octet-stream)
     private let enforcesFnMusicRangeResponses: Bool
     private let isLiveStream: Bool
-    private lazy var session: URLSession = {
+    /// 首次发请求时才建 session;deinit 只收尾已建好的那个。
+    /// 不能用 lazy:没发过请求就被释放的 loader 在 deinit 里读 lazy 会现场建 session,
+    /// proxy 对正在析构的 self 建弱引用直接闪退(objc_initWeak)。
+    private var sessionStorage: URLSession?
+    private var session: URLSession {
+        if let sessionStorage { return sessionStorage }
+        let session = makeSession()
+        sessionStorage = session
+        return session
+    }
+    private func makeSession() -> URLSession {
         let cfg = URLSessionConfiguration.default
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
         cfg.timeoutIntervalForRequest = 60
@@ -36,7 +46,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         // 随之泄漏(连同其线程 / 缓存 / 连接)。换曲时 TVAudioEngine 只替换 resourceLoader
         // 强引用,有了弱环 loader 便能正常析构,deinit 再 invalidate session 收尾。
         return URLSession(configuration: cfg, delegate: SessionDelegateProxy(self), delegateQueue: nil)
-    }()
+    }
     private let lock = NSLock()
     private var tasks: [ObjectIdentifier: URLSessionDataTask] = [:]
     private var plainHTTPTasks: [ObjectIdentifier: PlainHTTPTaskBox] = [:]
@@ -168,7 +178,7 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     deinit {
         // session 由弱持有 loader 的 proxy 当 delegate,loader 析构后 proxy 不再回调进来;
         // 这里主动 invalidate 释放 session 自身的线程 / 连接 / 缓存,并取消遗留 task。
-        session.invalidateAndCancel()
+        sessionStorage?.invalidateAndCancel()
     }
 
     /// 把真实 URL 换成自定义 scheme 给 AVURLAsset 用。
