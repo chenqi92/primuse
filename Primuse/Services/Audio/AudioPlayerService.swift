@@ -6307,6 +6307,12 @@ final class AudioPlayerService {
 
     /// 返回 queue 接下来 N 首 (考虑 shuffle / repeat all)。N 首之间不重复。
     /// 用于 prefetch chain — 让用户连续 next 时也能命中 prewarm。
+    /// The song an automatic advance will play next, in the same order the
+    /// audio prefetch uses.
+    var upcomingSongInQueue: Song? {
+        nextSongsInQueue(count: 1).first
+    }
+
     private func nextSongsInQueue(count: Int) -> [Song] {
         guard !queueEntries.isEmpty, count > 0 else { return [] }
         if repeatMode == .one { return [] }

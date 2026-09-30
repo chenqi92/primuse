@@ -177,6 +177,7 @@ struct MacNowPlayingView: View {
             lyricsRevision: lyricsTranslationRevision,
             lyrics: lyrics,
             settings: LyricsTranslationSettingsStore.shared,
+            player: player,
             translatedTextByLineID: $lyricTranslationsByLineID,
             activity: $lyricsTranslationActivity
         )

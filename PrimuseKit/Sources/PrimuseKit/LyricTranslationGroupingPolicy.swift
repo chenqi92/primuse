@@ -100,6 +100,50 @@ public struct LyricTranslationDeduplication: Equatable, Sendable {
     }
 }
 
+/// Translations stream back in the order rows are sent. When the lyrics open
+/// mid-song, rows from the one being sung onward go first and the earlier
+/// rows follow, so the line on screen is not the last to be translated.
+public enum LyricTranslationPlaybackOrderPolicy {
+    public static func ordered(
+        _ candidates: [LyricTranslationCandidate],
+        lineStartByID: [String: TimeInterval],
+        playbackTime: TimeInterval
+    ) -> [LyricTranslationCandidate] {
+        guard playbackTime.isFinite, playbackTime > 0 else { return candidates }
+        var pivot: Int?
+        for (index, candidate) in candidates.enumerated() {
+            guard let start = lineStartByID[candidate.id], start > 0 else { continue }
+            if start <= playbackTime { pivot = index } else { break }
+        }
+        guard let pivot, pivot > 0 else { return candidates }
+        return Array(candidates[pivot...] + candidates[..<pivot])
+    }
+
+    public static func ordered(
+        _ groups: [LyricTranslationGroup],
+        lyrics: [LyricLine],
+        playbackTime: TimeInterval
+    ) -> [LyricTranslationGroup] {
+        guard playbackTime.isFinite, playbackTime > 0 else { return groups }
+        var lineStartByID: [String: TimeInterval] = [:]
+        for line in LyricVoiceTimelinePolicy.flattenedLines(lyrics) where line.isSynchronized {
+            lineStartByID[line.id] = line.timestamp
+        }
+        guard !lineStartByID.isEmpty else { return groups }
+        return groups.map { group in
+            LyricTranslationGroup(
+                id: group.id,
+                sourceLanguageCode: group.sourceLanguageCode,
+                candidates: ordered(
+                    group.candidates,
+                    lineStartByID: lineStartByID,
+                    playbackTime: playbackTime
+                )
+            )
+        }
+    }
+}
+
 public enum LyricTranslationTerminalState: Equatable, Sendable {
     case notNeeded
     case ready

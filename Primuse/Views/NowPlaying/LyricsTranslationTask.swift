@@ -10,6 +10,7 @@ extension View {
         lyricsRevision: UInt,
         lyrics: [LyricLine],
         settings: LyricsTranslationSettingsStore,
+        player: AudioPlayerService,
         translatedTextByLineID: Binding<[String: String]>,
         activity: Binding<LyricsTranslationActivity>
     ) -> some View {
@@ -21,6 +22,7 @@ extension View {
                     lyricsRevision: lyricsRevision,
                     lyrics: lyrics,
                     settings: settings,
+                    player: player,
                     translatedTextByLineID: translatedTextByLineID,
                     activity: activity
                 )
@@ -40,6 +42,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
     let lyricsRevision: UInt
     let lyrics: [LyricLine]
     let settings: LyricsTranslationSettingsStore
+    let player: AudioPlayerService
     @Binding var translatedTextByLineID: [String: String]
     @Binding var activity: LyricsTranslationActivity
 
@@ -123,7 +126,15 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         guard !Task.isCancelled, translationTaskIdentity == identity else { return }
         let manualTranslations = prepared.manualTranslations
             .merging(prepared.scriptConversions) { manual, _ in manual }
-        let deduplication = LyricTranslationDeduplication(groups: prepared.groups)
+        // Order before deduplicating, so a repeated chorus is sent as the
+        // copy being sung rather than its first appearance.
+        let deduplication = LyricTranslationDeduplication(
+            groups: LyricTranslationPlaybackOrderPolicy.ordered(
+                prepared.groups,
+                lyrics: lyrics,
+                playbackTime: player.currentSong?.id == identity.songID ? player.currentTime : 0
+            )
+        )
         self.deduplication = deduplication
         let groups = deduplication.groups
         translatedTextByLineID = manualTranslations
@@ -139,6 +150,18 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         let cache = LyricsTranslationCache.shared
         let usesIntelligentProvider = identity.mode == .intelligentWithSystemFallback
             && intelligence.shouldExposeRemoteConfiguration
+        let prefetcher = LyricsTranslationPrefetcher.shared
+        if usesIntelligentProvider, let songID = identity.songID {
+            // The previous song may already be translating this one; its
+            // result lands in the cache below instead of a second request.
+            await prefetcher.waitIfTranslating(
+                songID: songID,
+                targetLanguageCode: identity.targetLanguageCode
+            )
+            guard !Task.isCancelled, translationTaskIdentity == identity else { return }
+        } else {
+            prefetcher.cancel()
+        }
         let preferredCacheProvider: LyricsTranslationCache.ProviderNamespace =
             usesIntelligentProvider ? .intelligent : .system
         var hits = manualTranslations
@@ -173,12 +196,21 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             if preferredCacheProvider == .intelligent, !hits.isEmpty {
                 activity = .intelligentCached
             }
+            if usesIntelligentProvider { prefetchUpcomingSong(identity: identity) }
             return
         }
 
         if usesIntelligentProvider {
             activity = .intelligentLoading
             let pendingCandidates = uncachedGroups.flatMap(\.candidates)
+            var pendingSources: [String: (text: String, sourceLang: String?)] = [:]
+            for group in uncachedGroups {
+                for candidate in group.candidates {
+                    pendingSources[candidate.id] = (candidate.text, group.sourceLanguageCode)
+                }
+            }
+            let startedAt = ContinuousClock.now
+            var loggedFirstLine = false
             var streamedTranslations: [String: String] = [:]
             if let execution = await intelligence.translateLyrics(
                 pendingCandidates,
@@ -195,6 +227,23 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                         }
                         streamedTranslations = [:]
                     case .translation(let id, let text):
+                        if !loggedFirstLine {
+                            loggedFirstLine = true
+                            plog("🌐 Lyrics AI translation first line after "
+                                + "\(Self.secondsText(since: startedAt)), "
+                                + "\(pendingCandidates.count) unique lines")
+                        }
+                        // Keep every finished row, so leaving the song midway
+                        // does not throw away what was already translated.
+                        if let source = pendingSources[id] {
+                            cache.setTranslation(
+                                text,
+                                for: source.text,
+                                sourceLang: source.sourceLang,
+                                targetLang: identity.targetLanguageCode,
+                                provider: .intelligent
+                            )
+                        }
                         streamedTranslations[id] = text
                         for lineID in deduplication.lineIDs(for: id) {
                             translatedTextByLineID[lineID] = text
@@ -231,11 +280,15 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                         candidates: remaining
                     )
                 }
+                plog("🌐 Lyrics AI translation finished after "
+                    + "\(Self.secondsText(since: startedAt)), "
+                    + "\(execution.translations.count)/\(pendingCandidates.count) lines")
                 if uncachedGroups.isEmpty {
                     activity = .intelligentSuccess(
                         provider: execution.providerName,
                         fallbackDepth: execution.fallbackDepth
                     )
+                    prefetchUpcomingSong(identity: identity)
                     return
                 }
             }
@@ -499,6 +552,24 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         activateGroup(at: 0, identity: identity)
     }
 
+    private static func secondsText(since start: ContinuousClock.Instant) -> String {
+        let elapsed = (ContinuousClock.now - start).components
+        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        return String(format: "%.1fs", seconds)
+    }
+
+    /// Once this song's translation is settled, translate the next queued
+    /// song ahead of time so its lyrics open already translated.
+    private func prefetchUpcomingSong(identity: TranslationTaskIdentity) {
+        guard let upcoming = player.upcomingSongInQueue,
+              upcoming.id != identity.songID else { return }
+        LyricsTranslationPrefetcher.shared.prefetch(
+            song: upcoming,
+            targetLanguageCode: identity.targetLanguageCode,
+            intelligence: intelligence
+        )
+    }
+
     /// Translation's availability reference is not Sendable in the current
     /// SDK. Keep it entirely inside this nonisolated operation and return only
     /// its Sendable status to the view's main-actor state machine.
@@ -667,5 +738,93 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             preparedGroups = []
             preparedIdentity = nil
         }
+    }
+}
+
+/// Translates the next queued song's lyrics with the remote provider before
+/// it starts. Only lyrics already stored on this device are used, so nothing
+/// is fetched from a source, and only one song is prepared at a time.
+@MainActor
+final class LyricsTranslationPrefetcher {
+    static let shared = LyricsTranslationPrefetcher()
+
+    private struct Job {
+        let songID: String
+        let targetLanguageCode: String
+        let task: Task<Void, Never>
+    }
+
+    private var job: Job?
+
+    private init() {}
+
+    func prefetch(
+        song: Song,
+        targetLanguageCode: String,
+        intelligence: MusicIntelligenceService
+    ) {
+        if let job, job.songID == song.id, job.targetLanguageCode == targetLanguageCode {
+            return
+        }
+        job?.task.cancel()
+        let songContext = LyricTranslationSongContext(title: song.title, artist: song.artistName)
+        let task = Task { @MainActor in
+            guard let lyrics = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id),
+                  !lyrics.isEmpty,
+                  let prepared = try? await LyricsTranslationPreparer.shared.prepare(
+                      lyrics: lyrics,
+                      targetLanguageCode: targetLanguageCode,
+                      enabled: true,
+                      songContext: songContext
+                  ),
+                  !Task.isCancelled else { return }
+            let cache = LyricsTranslationCache.shared
+            let groups = LyricTranslationDeduplication(groups: prepared.groups).groups
+            var sourceLanguageByID: [String: String?] = [:]
+            let pending = groups.flatMap { group in
+                group.candidates.filter { candidate in
+                    sourceLanguageByID[candidate.id] = group.sourceLanguageCode
+                    return cache.translation(
+                        for: candidate.text,
+                        sourceLang: group.sourceLanguageCode,
+                        targetLang: targetLanguageCode,
+                        provider: .intelligent
+                    ) == nil
+                }
+            }
+            guard !pending.isEmpty else { return }
+            plog("🌐 Prefetching lyrics translation for the next song: \(pending.count) lines")
+            guard let execution = await intelligence.translateLyrics(
+                pending,
+                targetLanguageCode: targetLanguageCode
+            ), !Task.isCancelled else { return }
+            cache.bulkSet(
+                pending.compactMap { candidate in
+                    execution.translations[candidate.id].map { translated in
+                        (
+                            source: candidate.text,
+                            sourceLang: sourceLanguageByID[candidate.id] ?? nil,
+                            translated: translated
+                        )
+                    }
+                },
+                targetLang: targetLanguageCode,
+                provider: .intelligent
+            )
+        }
+        job = Job(songID: song.id, targetLanguageCode: targetLanguageCode, task: task)
+    }
+
+    /// Lets the song that was being prepared reuse that request instead of
+    /// starting a second one.
+    func waitIfTranslating(songID: String, targetLanguageCode: String) async {
+        guard let job, job.songID == songID,
+              job.targetLanguageCode == targetLanguageCode else { return }
+        await job.task.value
+    }
+
+    func cancel() {
+        job?.task.cancel()
+        job = nil
     }
 }

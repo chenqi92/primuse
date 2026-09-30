@@ -2153,6 +2153,7 @@ struct NowPlayingView: View {
                             lyricsRevision: lyricsRevision,
                             lyrics: lyrics,
                             settings: LyricsTranslationSettingsStore.shared,
+                            player: player,
                             translatedTextByLineID: $lyricTranslationsByLineID,
                             activity: $lyricsTranslationActivity
                         )

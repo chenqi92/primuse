@@ -2158,4 +2158,39 @@ struct LyricChineseScriptConversionPolicyTests {
         #expect(deduplication.groups.map { $0.candidates.map(\.id) } == [["a"], ["b"]])
         #expect(deduplication.duplicateLineIDs.isEmpty)
     }
+
+    @Test func midSongTranslationStartsAtTheLineBeingSung() {
+        let lyrics = [
+            LyricLine(id: "a", timestamp: 1, text: "Chorus"),
+            LyricLine(id: "b", timestamp: 10, text: "Verse"),
+            LyricLine(id: "c", timestamp: 20, text: "Chorus"),
+            LyricLine(id: "d", timestamp: 30, text: "Outro"),
+        ]
+        let group = LyricTranslationGroup(id: "en", sourceLanguageCode: "en", candidates: lyrics.map {
+            LyricTranslationCandidate(id: $0.id, text: $0.text, sourceLanguageCode: "en")
+        })
+
+        let atStart = LyricTranslationPlaybackOrderPolicy.ordered([group], lyrics: lyrics, playbackTime: 0)
+        #expect(atStart.first?.candidates.map(\.id) == ["a", "b", "c", "d"])
+
+        let midSong = LyricTranslationPlaybackOrderPolicy.ordered([group], lyrics: lyrics, playbackTime: 22)
+        #expect(midSong.first?.candidates.map(\.id) == ["c", "d", "a", "b"])
+
+        // Ordered first, the chorus being sung becomes the copy that is sent.
+        let deduplication = LyricTranslationDeduplication(groups: midSong)
+        #expect(deduplication.groups.first?.candidates.map(\.id) == ["c", "d", "b"])
+        #expect(deduplication.lineIDs(for: "c") == ["c", "a"])
+    }
+
+    @Test func unsynchronizedLyricsKeepTheirOrder() {
+        let lyrics = [
+            LyricLine(timestamp: 0, text: "One", isSynchronized: false),
+            LyricLine(timestamp: 0, text: "Two", isSynchronized: false),
+        ]
+        let group = LyricTranslationGroup(id: "en", sourceLanguageCode: "en", candidates: lyrics.map {
+            LyricTranslationCandidate(id: $0.id, text: $0.text, sourceLanguageCode: "en")
+        })
+        let ordered = LyricTranslationPlaybackOrderPolicy.ordered([group], lyrics: lyrics, playbackTime: 60)
+        #expect(ordered == [group])
+    }
 }
