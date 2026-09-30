@@ -26,6 +26,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
     private let explicitContentType: String?   // 已知文件格式推得的 UTType id(覆盖服务器误报的 octet-stream)
     private let enforcesFnMusicRangeResponses: Bool
     private let isLiveStream: Bool
+    /// Head/tail bytes prefetched while the previous song played; requests
+    /// they cover are answered without touching the network.
+    private let seed: TVPlaybackSeed?
     /// 首次发请求时才建 session;deinit 只收尾已建好的那个。
     /// 不能用 lazy:没发过请求就被释放的 loader 在 deinit 里读 lazy 会现场建 session,
     /// proxy 对正在析构的 self 建弱引用直接闪退(objc_initWeak)。
@@ -163,12 +166,14 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         realURL: URL,
         headers: [String: String],
         fileExtension: String? = nil,
-        isLiveStream: Bool = false
+        isLiveStream: Bool = false,
+        seed: TVPlaybackSeed? = nil
     ) {
         self.realURL = realURL
         self.headers = headers
         self.explicitContentType = fileExtension.flatMap { UTType(filenameExtension: $0)?.identifier }
         self.isLiveStream = isLiveStream
+        self.seed = isLiveStream ? nil : seed
         let fnMusicStreamPath = "\(FnMusicAPIProtocol.apiPath)/track/stream"
         self.enforcesFnMusicRangeResponses = headers[FnMusicAPIProtocol.authxHeaderField] != nil
             && FnMusicAPIProtocol.authxPath(for: realURL) == fnMusicStreamPath
@@ -194,8 +199,8 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         for (key, value) in headers { req.setValue(value, forHTTPHeaderField: key) }
         req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
 
-        let offset: Int64
-        let length: Int64           // <=0 表示开放式 Range(读到资源末尾)
+        var offset: Int64
+        var length: Int64           // <=0 表示开放式 Range(读到资源末尾)
         if isLiveStream {
             // Continuous radio responses generally have no stable byte length
             // and may not implement Range at all.
@@ -238,6 +243,9 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         } else {
             offset = 0
             length = 2   // 仅取内容信息时拉头两字节即可拿到 Content-Range/Type
+        }
+        if let seed, answerFromSeed(loadingRequest, seed: seed, offset: &offset, length: &length) {
+            return true
         }
         if isLiveStream {
             req.setValue(nil, forHTTPHeaderField: "Range")
@@ -318,6 +326,43 @@ final class TVStreamResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URL
         lock.unlock()
         task.resume()
         return true
+    }
+
+    /// Answers the part of a loading request the prefetched seed covers.
+    /// Returns true when nothing is left for the network; otherwise moves
+    /// `offset`/`length` past the bytes already delivered.
+    private func answerFromSeed(
+        _ loadingRequest: AVAssetResourceLoadingRequest,
+        seed: TVPlaybackSeed,
+        offset: inout Int64,
+        length: inout Int64
+    ) -> Bool {
+        if let info = loadingRequest.contentInformationRequest {
+            // Without a playable type the server's answer is needed anyway.
+            guard let contentType = explicitContentType ?? seed.contentTypeIdentifier else { return false }
+            info.contentType = contentType
+            info.contentLength = seed.totalLength
+            info.isByteRangeAccessSupported = true
+        }
+        guard let dataRequest = loadingRequest.dataRequest else {
+            loadingRequest.finishLoading()
+            return true
+        }
+        let end = length > 0 ? min(offset + length, seed.totalLength) : seed.totalLength
+        var cursor = offset
+        while cursor < end, let bytes = seed.bytes(offset: cursor, maximumLength: end - cursor) {
+            dataRequest.respond(with: bytes)
+            cursor += Int64(bytes.count)
+        }
+        if cursor >= end {
+            loadingRequest.finishLoading()
+            return true
+        }
+        if cursor > offset {
+            if length > 0 { length = end - cursor }
+            offset = cursor
+        }
+        return false
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader,

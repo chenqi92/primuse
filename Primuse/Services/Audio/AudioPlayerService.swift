@@ -3845,7 +3845,7 @@ final class AudioPlayerService {
             let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
                 sourceID: song.sourceID
             )
-            await sourceManager?.waitForBackgroundAudioCache(for: song)
+            await sourceManager?.settleBackgroundAudioCacheForPlayback(of: song)
             guard isLocalTransportStartAuthorized(
                 playID: id,
                 itemID: song.id,
@@ -6271,8 +6271,14 @@ final class AudioPlayerService {
         )
         // Prefetch 接下来几首,而不是只 1 首 —— 用户连续 next 切歌时
         // (4-5s/次), 单首 prefetch chain 来不及, 第 2、3 首切到时 partial
-        // 还是空, SFB 现拉 1MB chunk 卡 2-3s。数量由 ST-01 设置页控制。
-        let nextSongs = nextSongsInQueue(count: playbackSettings.prewarmQueueCount)
+        // 还是空, SFB 现拉 1MB chunk 卡 2-3s。数量由 ST-01 设置页控制,
+        // 按流量计费的网络上只取紧接着的两首。
+        let nextSongs = nextSongsInQueue(
+            count: UpcomingPlaybackPrefetchPolicy.plannedSongCount(
+                configured: playbackSettings.prewarmQueueCount,
+                isMeteredNetwork: NetworkMonitor.shared.isExpensive || NetworkMonitor.shared.isConstrained
+            )
+        )
         var retainedSongIDs = Set(nextSongs.map(\.id))
         if let currentSong { retainedSongIDs.insert(currentSong.id) }
         sourceManager?.cancelBackgroundAudioCaching(keeping: retainedSongIDs)
@@ -6281,16 +6287,19 @@ final class AudioPlayerService {
         // A medley blends into each slice mid-file, which only works on audio
         // already on this device: fetch the next two whole.
         let completeFileIDs = isMedleyActive ? Set(nextSongs.prefix(2).map(\.id)) : []
+        // 严格按顺序一首一首来: 下一首的开头(约 20 秒)先到位, 后面的歌只取
+        // 能打开文件的那一小段; 每一步都先等当前这首的读取空下来。
         prefetchTask = Task {
-            for song in nextSongs {
+            for (rank, song) in nextSongs.enumerated() {
                 if Task.isCancelled { return }
                 if song.id == currentSong?.id { continue }
                 if sourceManager?.cachedURL(for: song) != nil { continue }
-                plog("⏩ Prefetching next song: \(song.title)")
+                plog("⏩ Prefetching queued song #\(rank + 1): \(song.title)")
                 await sourceManager?.cacheForUpcomingPlayback(
                     song: song,
                     cacheEnabled: playbackSettings.audioCacheEnabled,
-                    prefersCompleteFile: completeFileIDs.contains(song.id)
+                    prefersCompleteFile: completeFileIDs.contains(song.id),
+                    queueRank: rank
                 )
             }
         }

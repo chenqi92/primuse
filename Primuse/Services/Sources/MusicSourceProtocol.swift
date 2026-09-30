@@ -1609,6 +1609,9 @@ extension MusicSourceConnector {
     /// Correct but slow. Cloud connectors override this with HTTP Range.
     func fetchRange(path: String, offset: Int64, length: Int64) async throws -> Data {
         guard length > 0 else { return Data() }
+        // A speculative seed must never become the complete download this
+        // fallback performs.
+        if SpeculativeRangeRead.isActive { throw SpeculativeRangeReadError.rangeUnsupported }
         let url = try await localURL(for: path)
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }

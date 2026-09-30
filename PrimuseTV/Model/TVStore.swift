@@ -877,6 +877,9 @@ final class TVStore {
     @ObservationIgnored private var topShelfTask: Task<Void, Never>?
     @ObservationIgnored private var playbackSessionTask: Task<Void, Never>?
     @ObservationIgnored private var playbackMonitorTask: Task<Void, Never>?
+    /// 播放中给接下来几首预取开头(见 `TVPlaybackCoordinator.prefetchUpcoming`)。
+    @ObservationIgnored private var upcomingPrefetchTask: Task<Void, Never>?
+    @ObservationIgnored private var upcomingPrefetchRequestID: UUID?
     @ObservationIgnored private var libraryRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var radioRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var historyRequestID: UUID?
@@ -4941,6 +4944,9 @@ final class TVStore {
         playbackRestoreAttempted = true
         coordinator.cancelAuxiliaryTasks()
         playbackTask?.cancel()
+        upcomingPrefetchTask?.cancel()
+        upcomingPrefetchTask = nil
+        TVPlaybackPrefetchStore.shared.discardCompleteFile(keeping: nil)
         let requestID = UUID()
         activePlaybackRequestID = requestID
         radioReconnectTask?.cancel()
@@ -5194,6 +5200,7 @@ final class TVStore {
             repeatMode = repeatMode == .off ? .all : (repeatMode == .all ? .one : .off)
         }
         persistPlaybackSession()
+        rescheduleUpcomingPrefetchIfPlaying()
     }
 
     func toggleMusicVideoMode() {
@@ -5297,12 +5304,67 @@ final class TVStore {
     }
 
     private func refreshUpNext() {
+        defer { rescheduleUpcomingPrefetchIfPlaying() }
         guard queue.indices.contains(queueIndex),
               queueIndex + 1 < queue.count else {
             queueUpNextIDs = []
             return
         }
         queueUpNextIDs = Array(queue[(queueIndex + 1)...])
+    }
+
+    /// 接下来几首预取的数量;每首依次进行, 下一首拿到约 20 秒的开头。
+    private static let upcomingPrefetchCount = 3
+
+    /// 当前这首真正出声后, 按实际播放顺序给后面几首预取开头, 让自动切到下一首时
+    /// 不用等网络。换歌、换电台、串烧都会先停掉上一轮。
+    private func scheduleUpcomingPrefetch() {
+        upcomingPrefetchTask?.cancel()
+        upcomingPrefetchTask = nil
+        guard let requestID = activePlaybackRequestID,
+              !isMedleyActive, !isLiveRadio, appleMusicSelection == nil else { return }
+        let songs = upcomingPrefetchSongs(limit: Self.upcomingPrefetchCount)
+        TVPlaybackPrefetchStore.shared.discardCompleteFile(
+            keeping: songs.first.map(TVPlaybackPrefetchStore.key(for:))
+        )
+        upcomingPrefetchRequestID = requestID
+        guard !songs.isEmpty else { return }
+        upcomingPrefetchTask = Task { @MainActor [weak self] in
+            // 先让当前这首把起播缓冲攒起来, 再开始取后面的。
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled,
+                  self.activePlaybackRequestID == requestID else { return }
+            await self.coordinator.prefetchUpcoming(songs)
+        }
+    }
+
+    /// 播放中队列或循环方式变了, 按新顺序重新规划; 还没开始出声的新选择不在这里处理。
+    private func rescheduleUpcomingPrefetchIfPlaying() {
+        guard let requestID = activePlaybackRequestID,
+              upcomingPrefetchRequestID == requestID else { return }
+        scheduleUpcomingPrefetch()
+    }
+
+    /// 实际播放顺序里接下来的几首(随机已经体现在 `queue` 里, 列表循环会绕回队首)。
+    private func upcomingPrefetchSongs(limit: Int) -> [Song] {
+        guard limit > 0, repeatMode != .one, queue.indices.contains(queueIndex) else { return [] }
+        var result: [Song] = []
+        var seen: Set<String> = [queue[queueIndex]]
+        var index = queueIndex
+        for _ in 0..<min(queue.count, limit * 4) {
+            guard let next = QueueTraversalPolicy.nextAvailableIndex(
+                queueCount: queue.count,
+                after: index,
+                wraps: repeatMode == .all,
+                isAvailable: { library.visibleSong(id: queue[$0]) != nil }
+            ), next != queueIndex else { break }
+            index = next
+            if seen.insert(queue[next]).inserted, let song = library.visibleSong(id: queue[next]) {
+                result.append(song)
+                if result.count == limit { break }
+            }
+        }
+        return result
     }
 
     func previous(restartCurrentIfNeeded: Bool = true) {
@@ -5432,6 +5494,8 @@ final class TVStore {
         currentRadioStationID = nil
         radioMetadataTitle = ""
         playbackTask?.cancel()
+        upcomingPrefetchTask?.cancel()
+        upcomingPrefetchTask = nil
         let requestID = UUID()
         activePlaybackRequestID = requestID
         playbackIssue = nil
@@ -5716,6 +5780,7 @@ final class TVStore {
             }
             ScrobbleService.shared.handlePlaybackStarted(song: raw)
             publishTopShelf()
+            scheduleUpcomingPrefetch()
         }
         ScrobbleService.shared.handlePlaybackDurationResolved(songID: id, duration: duration)
         playbackMonitorTask = Task { [weak self] in

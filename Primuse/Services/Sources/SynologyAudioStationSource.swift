@@ -388,6 +388,8 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
         let id = try Self.songID(from: path)
         guard length > 0 else { return Data() }
         if rangeRequestsUnsupported || SynologyAudioStationAPI.isVirtualTrackID(id) {
+            // 预取只要一小段:不支持 Range 时整曲下载就不是预取了。
+            if SpeculativeRangeRead.isActive { throw SpeculativeRangeReadError.rangeUnsupported }
             return try await rangeFromCompleteFile(path: path, offset: offset, length: length)
         }
         do {
@@ -397,6 +399,7 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
                 rangeRequestsUnsupported = true
                 plog("⚠️ Audio Station stream ignored Range source=\(sourceID.prefix(8)); falling back to complete downloads")
             }
+            if SpeculativeRangeRead.isActive { throw SpeculativeRangeReadError.rangeUnsupported }
             return try await rangeFromCompleteFile(path: path, offset: offset, length: length)
         }
     }

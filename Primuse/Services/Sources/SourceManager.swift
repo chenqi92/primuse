@@ -340,6 +340,32 @@ enum BackgroundAudioCacheTaskWaiter {
             race.cancel()
         }
     }
+
+    /// Waits for a transfer that was just cancelled to wind down, but never
+    /// longer than `timeout`: playback must not stall on a transport that is
+    /// slow to honour cancellation.
+    static func wait(for task: Task<Void, Never>, timeout: Duration) async {
+        let race = CancellableResultRace<Void>()
+        let observer = Task {
+            await task.value
+            race.resolve(.success(()))
+        }
+        let timer = Task {
+            try? await Task.sleep(for: timeout)
+            race.resolve(.success(()))
+        }
+        defer {
+            observer.cancel()
+            timer.cancel()
+        }
+        try? await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                race.install(continuation)
+            }
+        } onCancel: {
+            race.cancel()
+        }
+    }
 }
 
 enum AutomaticOfflineTaskJoinPolicy {
@@ -819,6 +845,11 @@ private struct BackgroundAudioCacheTaskRecord {
     let sourceID: String
     let taskKey: String
     let task: Task<Void, Never>
+    /// Position in the upcoming queue (0 = next song); nil for cache work
+    /// that is not a queue prefetch.
+    let queueRank: Int?
+    /// What the transfer is doing now; decides whether playback joins it.
+    var phase: UpcomingPlaybackPrefetchPolicy.InFlightPhase = .queued
 }
 
 /// 一次 MV 后台缓存下载。`target` 决定这次下载写到哪个 namespace 目录,
@@ -2847,6 +2878,10 @@ final class SourceManager {
     @ObservationIgnored var automaticOfflineDownloadRemovedHandler: ((String) -> Void)?
     @ObservationIgnored private var automaticPlaylistPinnedSongsByID: [String: Song] = [:]
     private var backgroundAudioCacheTasks: [String: BackgroundAudioCacheTaskRecord] = [:]
+    /// Sources (per transport) whose server or proxy answered a queue seed
+    /// with the whole file. Seeds for them stop until the next launch;
+    /// playback itself is unaffected.
+    @ObservationIgnored private var speculativeRangeUnsupportedKeys: Set<String> = []
     /// 启动时的队列预热由 SourceManager 持有: 它必须和 prefetch 共用
     /// `backgroundAudioCacheTasks` 单飞表, 并且能被 `cancelBackgroundAudioCaching`
     /// 与关闭自动缓存一起停掉。
@@ -10124,17 +10159,32 @@ final class SourceManager {
     /// - Parameter prefersCompleteFile: download the whole file where only its
     ///   head and tail would be prewarmed. A medley starts the song mid-file and
     ///   blends into it, which needs the audio on this device.
+    /// - Parameter queueRank: position after the current song (0 = next).
+    ///   The next song gets a longer head; complete files are limited to the
+    ///   songs about to play (`UpcomingPlaybackPrefetchPolicy`).
     func cacheForUpcomingPlayback(
         song: Song,
         cacheEnabled: Bool = true,
         rangePrewarmOnly: Bool = false,
-        prefersCompleteFile: Bool = false
+        prefersCompleteFile: Bool = false,
+        queueRank: Int? = nil
     ) async {
+        // A song that moved closer to the playhead deserves more than the
+        // seed started for it at its old position: let that run finish, then
+        // lengthen it.
+        if let queueRank,
+           let existing = backgroundAudioCacheTasks[song.id],
+           let existingRank = existing.queueRank,
+           existingRank > queueRank {
+            await BackgroundAudioCacheTaskWaiter.wait(for: existing.task)
+            guard !Task.isCancelled else { return }
+        }
         guard let task = backgroundAudioCacheTask(
             for: song,
             cacheEnabled: cacheEnabled,
             rangePrewarmOnly: rangePrewarmOnly,
-            prefersCompleteFile: prefersCompleteFile
+            prefersCompleteFile: prefersCompleteFile,
+            queueRank: queueRank
         ) else { return }
         await task.value
     }
@@ -10148,8 +10198,15 @@ final class SourceManager {
         // 需要完整本地文件的格式 (DTS / FFmpeg) 根本不适合稀疏种子, 直接在
         // 登记之前剔除: 否则这条只做种子的记录会被随后的 prefetch 加入,
         // 让那首歌的完整下载在本轮被跳过。
-        let songs = songs.filter { !FileFormatRouter.requiresCompleteLocalFile($0.fileFormat) }
+        var songs = songs.filter { !FileFormatRouter.requiresCompleteLocalFile($0.fileFormat) }
         guard automaticAudioCachingEnabled, !songs.isEmpty else { return }
+        // 按流量计费的网络上只热恢复的那首和它后面一首。
+        let meteredLimit = UpcomingPlaybackPrefetchPolicy.plannedSongCount(
+            configured: songs.count,
+            isMeteredNetwork: NetworkMonitor.shared.isExpensive || NetworkMonitor.shared.isConstrained
+        )
+        songs = Array(songs.prefix(meteredLimit))
+        guard !songs.isEmpty else { return }
 
         let admittedIDs = StartupPrewarmAdmissionPolicy.songsToPrewarm(
             resumeSongID: songs.first?.id,
@@ -10172,7 +10229,9 @@ final class SourceManager {
                 await self.cacheForUpcomingPlayback(
                     song: song,
                     cacheEnabled: true,
-                    rangePrewarmOnly: true
+                    rangePrewarmOnly: true,
+                    // 恢复播放通常从上次的位置接着放, 开头只要够打开文件即可。
+                    queueRank: 1
                 )
             }
             self?.finishStartupPrewarm(runID: runID)
@@ -10209,6 +10268,35 @@ final class SourceManager {
         await BackgroundAudioCacheTaskWaiter.wait(for: task)
     }
 
+    /// Playback is about to start `song`. Join its in-flight prefetch only
+    /// when those bytes are needed before the first sound anyway (the open
+    /// seed, or a complete file the format requires); otherwise cancel it so
+    /// a whole-file transfer or a still-queued seed never delays the start.
+    func settleBackgroundAudioCacheForPlayback(of song: Song) async {
+        guard let record = backgroundAudioCacheTasks[song.id] else { return }
+        if cachedURL(for: song) != nil {
+            record.task.cancel()
+            return
+        }
+        let requiresCompleteFile = FileFormatRouter.requiresCompleteLocalFile(song.fileFormat)
+            || song.fileSize <= 0
+            || song.isStreamDescriptor
+        let decision = UpcomingPlaybackPrefetchPolicy.joinDecision(
+            phase: record.phase,
+            playbackRequiresCompleteFile: requiresCompleteFile,
+            completedFraction: offlineAudioSnapshots[song.id]?.progress
+        )
+        switch decision {
+        case .wait:
+            plog("↩️ Cache: joining in-flight prefetch for '\(song.title)' phase=\(record.phase)")
+            await BackgroundAudioCacheTaskWaiter.wait(for: record.task)
+        case .cancelAndProceed:
+            plog("⏭ Cache: playback starts without waiting for prefetch of '\(song.title)' phase=\(record.phase)")
+            record.task.cancel()
+            await BackgroundAudioCacheTaskWaiter.wait(for: record.task, timeout: .milliseconds(1500))
+        }
+    }
+
     func cancelBackgroundAudioCaching(keeping songIDs: Set<String>) {
         // 启动预热整体让位: 播放器紧接着会为它真正需要的歌重新排 prefetch。
         cancelStartupPrewarm()
@@ -10229,7 +10317,8 @@ final class SourceManager {
         for song: Song,
         cacheEnabled: Bool,
         rangePrewarmOnly: Bool = false,
-        prefersCompleteFile: Bool = false
+        prefersCompleteFile: Bool = false,
+        queueRank: Int? = nil
     ) -> Task<Void, Never>? {
         guard cacheEnabled,
               automaticAudioCachingEnabled,
@@ -10243,21 +10332,42 @@ final class SourceManager {
         let runID = UUID()
         let task = Task(priority: .utility) { @MainActor [weak self] in
             guard let self else { return }
-            await self.performBackgroundAudioCache(
-                song: song,
-                cacheEnabled: cacheEnabled,
-                rangePrewarmOnly: rangePrewarmOnly,
-                prefersCompleteFile: prefersCompleteFile
-            )
+            if let queueRank {
+                await self.performUpcomingPlaybackCache(
+                    song: song,
+                    rank: queueRank,
+                    rangeSeedOnly: rangePrewarmOnly,
+                    prefersCompleteFile: prefersCompleteFile,
+                    runID: runID
+                )
+            } else {
+                await self.performBackgroundAudioCache(
+                    song: song,
+                    cacheEnabled: cacheEnabled,
+                    rangePrewarmOnly: rangePrewarmOnly,
+                    prefersCompleteFile: prefersCompleteFile,
+                    runID: runID
+                )
+            }
             self.finishBackgroundAudioCacheTask(songID: song.id, runID: runID)
         }
         backgroundAudioCacheTasks[song.id] = BackgroundAudioCacheTaskRecord(
             id: runID,
             sourceID: song.sourceID,
             taskKey: audioCacheRelativePath(for: song),
-            task: task
+            task: task,
+            queueRank: queueRank
         )
         return task
+    }
+
+    private func setBackgroundAudioCachePhase(
+        _ phase: UpcomingPlaybackPrefetchPolicy.InFlightPhase,
+        songID: String,
+        runID: UUID
+    ) {
+        guard backgroundAudioCacheTasks[songID]?.id == runID else { return }
+        backgroundAudioCacheTasks[songID]?.phase = phase
     }
 
     private func finishBackgroundAudioCacheTask(songID: String, runID: UUID) {
@@ -10269,7 +10379,8 @@ final class SourceManager {
         song: Song,
         cacheEnabled: Bool,
         rangePrewarmOnly: Bool = false,
-        prefersCompleteFile: Bool = false
+        prefersCompleteFile: Bool = false,
+        runID: UUID
     ) async {
         do {
             try Task.checkCancellation()
@@ -10295,6 +10406,7 @@ final class SourceManager {
             // 下载速度受服务端编码速度限制, 不提前备好每首歌开头都要静音等待。
             let plan = transcodePlan(for: song, source: source)
             if case .transcode(let bitRateKbps) = plan {
+                setBackgroundAudioCachePhase(.completeFile(.transcoded), songID: song.id, runID: runID)
                 await prefetchAdaptiveTranscode(
                     song: song,
                     source: source,
@@ -10338,10 +10450,16 @@ final class SourceManager {
             case .disabled:
                 return
             case .rangePrewarm:
+                setBackgroundAudioCachePhase(.openSeed, songID: song.id, runID: runID)
                 await prewarmCloudSong(song: song, connector: conn)
             case .completeFile:
                 // 只做稀疏种子的清扫 (启动预热) 不允许升级成整曲下载。
                 guard !rangePrewarmOnly else { return }
+                setBackgroundAudioCachePhase(
+                    .completeFile(prefersCompleteFile ? .medley : .original),
+                    songID: song.id,
+                    runID: runID
+                )
                 _ = await performOfflineDownload(song)
             }
         } catch {
@@ -10351,6 +10469,349 @@ final class SourceManager {
                 plog("⚠️ Cache failed for '\(song.title)': \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Queue prefetch for the song `rank` places after the current one.
+    /// Every step waits for the current song's reads to go quiet first, and
+    /// a seed moves one bounded request at a time.
+    private func performUpcomingPlaybackCache(
+        song: Song,
+        rank: Int,
+        rangeSeedOnly: Bool,
+        prefersCompleteFile: Bool,
+        runID: UUID
+    ) async {
+        do {
+            try Task.checkCancellation()
+            await awaitPathKeyedReconcileReservation(for: audioCacheRelativePath(for: song))
+            try Task.checkCancellation()
+            guard automaticAudioCachingEnabled,
+                  await ensureAudioCacheScopeValidated(for: song.sourceID),
+                  cachedURL(for: song) == nil else { return }
+
+            let sources = try await sourcesProvider()
+            guard let source = sources.first(where: { $0.id == song.sourceID }) else {
+                plog("⚠️ Cache: source not found for '\(song.title)'")
+                return
+            }
+            guard source.type != .local else { return }
+
+            let plan = transcodePlan(for: song, source: source)
+            if case .transcode(let bitRateKbps) = plan {
+                // 转码的歌播放时也是整份下完再解码, 预取的就是那一份。
+                guard !rangeSeedOnly,
+                      UpcomingPlaybackPrefetchPolicy.allowsCompleteFile(rank: rank, kind: .transcoded) else { return }
+                await waitForPlaybackQuietBeforePrefetch()
+                try Task.checkCancellation()
+                setBackgroundAudioCachePhase(.completeFile(.transcoded), songID: song.id, runID: runID)
+                await prefetchAdaptiveTranscode(song: song, source: source, bitRateKbps: bitRateKbps)
+                return
+            }
+            // 旧式服务端转码流(CUE 里的 WMA 等): 播放用的是转码产物, 预取原文件没用。
+            guard !usesServerTranscodedStream(source: source, song: song, plan: plan) else { return }
+
+            let transport = upcomingPlaybackTransport(for: song, source: source, plan: plan)
+            let mode = RangeStreamingPrefetchPolicy.upcomingPrefetchMode(
+                sourceType: source.type,
+                transport: transport,
+                hasKnownFileSize: song.fileSize > 0 || song.isStreamDescriptor,
+                rank: rank,
+                prefersCompleteFile: prefersCompleteFile,
+                rangeSeedOnly: rangeSeedOnly
+            )
+            let seedKey = Self.speculativeRangeKey(sourceID: source.id, mode: mode)
+            switch mode {
+            case .disabled:
+                return
+            case .connectorSeed, .directSeed:
+                guard !speculativeRangeUnsupportedKeys.contains(seedKey) else { return }
+                guard !isPrewarmed(
+                    song: song,
+                    minimumHeadBytes: upcomingSeedHeadBytes(for: song, rank: rank)
+                ) else { return }
+            case .linkOnly, .completeFile:
+                break
+            }
+
+            guard !(await playbackSourceEndpointsAreUnavailable(for: source)) else { return }
+            await waitForPlaybackQuietBeforePrefetch()
+            try Task.checkCancellation()
+            let conn = connector(for: source)
+            try await conn.connect()
+            try Task.checkCancellation()
+
+            switch mode {
+            case .disabled:
+                return
+            case .linkOnly:
+                // OneDrive: 只换好下一首的预授权直链, 起播时少一次 Graph 往返。
+                if let oneDrive = conn as? OneDriveSource {
+                    _ = try? await oneDrive.publicDownloadURL(path: song.filePath)
+                    plog("⏩ Prefetch: resolved playback link for '\(song.title)'")
+                }
+            case .connectorSeed:
+                let path = song.filePath
+                await seedUpcomingSong(
+                    song,
+                    rank: rank,
+                    runID: runID,
+                    seedKey: seedKey
+                ) { offset, length in
+                    try await conn.fetchRange(
+                        path: path,
+                        offset: offset,
+                        length: length,
+                        priority: .background
+                    )
+                }
+            case .directSeed:
+                guard let url = await directPlaybackURLForUpcomingSeed(song: song, connector: conn) else {
+                    return
+                }
+                let fetcher = HTTPRangeFetcher(url: url, totalLength: song.fileSize)
+                await seedUpcomingSong(
+                    song,
+                    rank: rank,
+                    runID: runID,
+                    seedKey: seedKey
+                ) { offset, length in
+                    try await fetcher.fetch(offset: offset, length: length)
+                }
+            case .completeFile:
+                setBackgroundAudioCachePhase(
+                    .completeFile(prefersCompleteFile ? .medley : .original),
+                    songID: song.id,
+                    runID: runID
+                )
+                _ = await performOfflineDownload(song)
+            }
+        } catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                plog("↩️ Cache prefetch cancelled for '\(song.title)'")
+            } else {
+                plog("⚠️ Cache failed for '\(song.title)': \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Queue prefetch slots into the gaps of the current song's own reads.
+    /// If playback never goes quiet (a link barely keeping up), prefetch
+    /// still proceeds after the bound rather than starving forever.
+    private func waitForPlaybackQuietBeforePrefetch() async {
+        await CloudPlaybackSource.waitForPlaybackNetworkQuiet(maximumWait: .seconds(15))
+    }
+
+    /// Mirrors the route `resolveURL` will take for `song`, without resolving
+    /// or downloading anything.
+    private func upcomingPlaybackTransport(
+        for song: Song,
+        source: MusicSource,
+        plan: SourceTranscodePlan
+    ) -> RangeStreamingPrefetchPolicy.UpcomingPlaybackTransport {
+        if FileFormatRouter.requiresCompleteLocalFile(song.fileFormat) || song.isStreamDescriptor {
+            return .completeFile
+        }
+        if shouldUseRangeStreamingForPlayback(source: source, song: song, plan: plan) {
+            return .connectorRange
+        }
+        guard song.fileSize > 0 else { return .completeFile }
+        if shouldPreferAuthenticatedSubsonicWANStream(source: source, song: song, plan: plan)
+            || permitsConfiguredDirectURL(for: source, song: song, plan: plan) {
+            return .directHTTPRange
+        }
+        return .completeFile
+    }
+
+    /// The plain HTTP URL playback will open for `song` (Priority 3 in
+    /// `resolveURL`), or nil when playback would not use one.
+    private func directPlaybackURLForUpcomingSeed(
+        song: Song,
+        connector: any MusicSourceConnector
+    ) async -> URL? {
+        guard let url = try? await connector.streamingURL(for: song.filePath),
+              url.scheme == "http" || url.scheme == "https",
+              !Self.isTranscodedStreamURL(url),
+              !Self.isAdaptiveTranscodedStreamURL(url) else { return nil }
+        return url
+    }
+
+    private static func speculativeRangeKey(
+        sourceID: String,
+        mode: RangeStreamingPrefetchPolicy.UpcomingPrefetchMode
+    ) -> String {
+        mode == .directSeed ? "\(sourceID)#direct" : "\(sourceID)#connector"
+    }
+
+    private func upcomingSeedHeadBytes(for song: Song, rank: Int) -> Int64 {
+        UpcomingPlaybackPrefetchPolicy.headByteCount(
+            rank: rank,
+            fileSize: song.fileSize,
+            duration: song.duration,
+            chunkSize: CloudPlaybackSource.chunkSize
+        )
+    }
+
+    /// Seeds `song`'s sparse cache: first the head chunk and tail a decoder
+    /// needs to open the file (published immediately), then, for the next
+    /// song, the rest of a head worth about twenty seconds, one chunk per
+    /// quiet gap in current playback. Every response is bounded, so a server
+    /// or proxy that ignores `Range` costs one chunk, after which seeds for
+    /// that source stop.
+    private func seedUpcomingSong(
+        _ song: Song,
+        rank: Int,
+        runID: UUID,
+        seedKey: String,
+        fetch: @escaping @Sendable (Int64, Int64) async throws -> Data
+    ) async {
+        guard automaticAudioCachingEnabled else { return }
+        let fileSize = song.fileSize
+        guard fileSize > 0 else { return }
+        let chunk = CloudPlaybackSource.chunkSize
+        let targetHead = upcomingSeedHeadBytes(for: song, rank: rank)
+        guard targetHead > 0 else { return }
+        let tailSize = min(Self.prewarmTailSize, max(0, fileSize - targetHead))
+        let seedSize = targetHead + tailSize
+        guard let lease = await AudioCacheManager.shared.acquirePathFamilyLease(
+            path: audioCacheRelativePath(for: song),
+            reserveBytes: 0
+        ) else { return }
+        defer {
+            Task {
+                await AudioCacheManager.shared.releasePathFamilyLease(lease)
+            }
+        }
+        guard audioCacheReadsAreAllowed(for: song.sourceID),
+              (try? await prepareOfflineTransferCapacity(
+                  expectedSize: seedSize,
+                  lease: lease
+              )) != nil else { return }
+
+        let boundedFetch: @Sendable (Int64, Int64) async throws -> Data = { offset, length in
+            let data = try await SpeculativeRangeRead.withBoundedResponses(requestedLength: length) {
+                try await fetch(offset, length)
+            }
+            guard Int64(data.count) <= max(length, fileSize) else {
+                throw SpeculativeRangeReadError.rangeUnsupported
+            }
+            return data
+        }
+
+        do {
+            var head: Data
+            var tail: Data
+            let openHead = min(chunk, targetHead)
+            if let existing = await existingPrewarmSeed(for: song),
+               Int64(existing.head.count) >= openHead {
+                head = existing.head
+                tail = tailSize > 0 && Int64(existing.tail.count) >= tailSize
+                    ? Data(existing.tail.suffix(Int(tailSize)))
+                    : Data()
+                if tailSize > 0, tail.isEmpty {
+                    tail = try await boundedFetch(fileSize - tailSize, tailSize)
+                }
+            } else {
+                setBackgroundAudioCachePhase(.openSeed, songID: song.id, runID: runID)
+                // 头尾同时取 —— 解码器打开 mp3 就要读结尾的 ID3v1。
+                async let headData = boundedFetch(0, openHead)
+                async let tailData: Data = tailSize > 0
+                    ? boundedFetch(fileSize - tailSize, tailSize)
+                    : Data()
+                let fetched = try await (headData, tailData)
+                head = fetched.0
+                tail = fetched.1
+                try Task.checkCancellation()
+                guard !head.isEmpty else { return }
+                await seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
+            }
+
+            guard Int64(head.count) < targetHead else { return }
+            setBackgroundAudioCachePhase(.extendingSeed, songID: song.id, runID: runID)
+            var offset = Int64(head.count)
+            while offset < targetHead {
+                await CloudPlaybackSource.waitForPlaybackNetworkQuiet(maximumWait: .seconds(6))
+                try Task.checkCancellation()
+                let data = try await boundedFetch(offset, min(chunk, targetHead - offset))
+                try Task.checkCancellation()
+                guard !data.isEmpty else { break }
+                head.append(data)
+                offset += Int64(data.count)
+            }
+            await seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
+        } catch {
+            if Self.isSpeculativeRangeUnsupported(error) {
+                speculativeRangeUnsupportedKeys.insert(seedKey)
+                plog("⏭ Prefetch: source \(song.sourceID.prefix(8)) ignored Range for '\(song.title)'; queue seeds for it stop until relaunch")
+            } else if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                plog("↩️ Prewarm cancelled for '\(song.title)'")
+            } else {
+                plog("⚠️ Prewarm failed for '\(song.title)': \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// A server or proxy that answered a bounded seed with more than the
+    /// window, or said outright that it ignored `Range`.
+    private static func isSpeculativeRangeUnsupported(_ error: Error) -> Bool {
+        if error is SpeculativeRangeReadError { return true }
+        if (error as? URLError)?.code == .dataLengthExceedsMaximum { return true }
+        let message: String
+        if let sourceError = error as? SourceError,
+           case .connectionFailed(let text) = sourceError {
+            message = text
+        } else if let decoderError = error as? AudioDecoderError,
+                  case .decodingFailed(let text) = decoderError {
+            message = text
+        } else {
+            return false
+        }
+        return message.contains("ignored") && message.contains("Range")
+    }
+
+    /// The seed already on disk for `song`, if any, so lengthening it only
+    /// fetches what is missing. A live session's file is not a seed.
+    private func existingPrewarmSeed(for song: Song) async -> (head: Data, tail: Data)? {
+        guard audioCacheReadsAreAllowed(for: song.sourceID), song.fileSize > 0 else { return nil }
+        let partial = URL(fileURLWithPath: cacheURL(for: song).path + ".partial")
+        guard !CloudPlaybackSource.activeSessionPaths().contains(partial.path) else { return nil }
+        let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
+        let fileSize = song.fileSize
+        return await Task.detached(priority: .utility) {
+            Self.readPrewarmSeed(partial: partial, marker: marker, fileSize: fileSize)
+        }.value
+    }
+
+    nonisolated private static func readPrewarmSeed(
+        partial: URL,
+        marker: URL,
+        fileSize: Int64
+    ) -> (head: Data, tail: Data)? {
+        guard let parsed = CloudPlaybackSource.PrewarmMarker.read(from: marker) else { return nil }
+        let ranges = parsed.swiftRanges.sorted { $0.lowerBound < $1.lowerBound }
+        guard let first = ranges.first,
+              first.lowerBound == 0,
+              first.upperBound > 0,
+              let maxEnd = ranges.map(\.upperBound).max(),
+              maxEnd <= fileSize,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: partial.path),
+              let size = attributes[.size] as? Int64,
+              size >= maxEnd,
+              let handle = try? FileHandle(forReadingFrom: partial) else { return nil }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: Int(first.upperBound)),
+              Int64(head.count) == first.upperBound else { return nil }
+        var tail = Data()
+        if ranges.count > 1, let last = ranges.last, last.upperBound == fileSize,
+           last.lowerBound >= first.upperBound {
+            do {
+                try handle.seek(toOffset: UInt64(last.lowerBound))
+                let bytes = try handle.read(upToCount: Int(last.upperBound - last.lowerBound)) ?? Data()
+                if Int64(bytes.count) == last.upperBound - last.lowerBound { tail = bytes }
+            } catch {
+                tail = Data()
+            }
+        }
+        return (head, tail)
     }
 
     private func prepareOfflineTransferCapacity(
@@ -10927,7 +11388,16 @@ final class SourceManager {
     /// 才算 prewarm。head 长度检查让 prewarm head 调大后旧 partial 自然
     /// 重新 prewarm (不会被旧 256KB head 短路)。
     func isPrewarmed(song: Song) -> Bool {
+        isPrewarmed(song: song, minimumHeadBytes: Self.prewarmHeadSize)
+    }
+
+    /// Whether a trusted seed covering at least `minimumHeadBytes` of the
+    /// head (or the whole of a smaller file) is already on disk.
+    func isPrewarmed(song: Song, minimumHeadBytes: Int64) -> Bool {
         guard audioCacheReadsAreAllowed(for: song.sourceID) else { return false }
+        let requiredHead = song.fileSize > 0
+            ? min(minimumHeadBytes, song.fileSize)
+            : minimumHeadBytes
         let cache = cacheURL(for: song)
         let partial = URL(fileURLWithPath: cache.path + ".partial")
         let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
@@ -10939,7 +11409,7 @@ final class SourceManager {
               size >= maxEnd,
               let firstRange = m.swiftRanges.first,
               firstRange.lowerBound == 0,
-              (firstRange.upperBound - firstRange.lowerBound) >= Self.prewarmHeadSize
+              (firstRange.upperBound - firstRange.lowerBound) >= requiredHead
         else { return false }
         return true
     }
@@ -11029,8 +11499,9 @@ final class SourceManager {
         let partial = URL(fileURLWithPath: cache.path + ".partial")
         let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
 
-        // Already seeded with at least equivalent ranges? Skip.
-        if isPrewarmed(song: song) {
+        // Already seeded with at least as long a head? Skip. A longer head
+        // (the next song's) replaces a shorter seed.
+        if isPrewarmed(song: song, minimumHeadBytes: max(Self.prewarmHeadSize, Int64(head.count))) {
             return nil
         }
         // A streaming session records the ranges it wrote in memory and reads

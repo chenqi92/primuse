@@ -24,6 +24,7 @@ enum TrustedHTTPTransport {
     static func dataWithoutRedirects(
         for request: URLRequest, session: URLSession, maxBytes: Int
     ) async throws -> (Data, URLResponse) {
+        let maxBytes = SpeculativeRangeRead.effectiveLimit(maxBytes)
         guard let url = request.url else { throw URLError(.badURL) }
         if requiresPlainSocket(for: url) {
             _ = try await trustedPublicHTTPHost(for: url)
@@ -62,6 +63,9 @@ enum TrustedHTTPTransport {
         maxBytes: Int,
         redirectCount: Int
     ) async throws -> (Data, URLResponse) {
+        // A queue prefetch seed must not turn into a whole-file transfer when
+        // a server or proxy ignores `Range`; see `SpeculativeRangeRead`.
+        let maxBytes = SpeculativeRangeRead.effectiveLimit(maxBytes)
         guard let url = request.url else { throw URLError(.badURL) }
         guard requiresPlainSocket(for: url) else {
             return try await boundedSessionData(

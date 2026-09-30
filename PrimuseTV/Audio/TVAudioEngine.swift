@@ -560,7 +560,8 @@ final class TVAudioEngine {
 
     func load(url: URL, headers: [String: String] = [:], fileExtension: String? = nil,
               title: String, artist: String, album: String, duration: Double, isVideo: Bool,
-              cueStartTime: Double? = nil, cueEndTime: Double? = nil) {
+              cueStartTime: Double? = nil, cueEndTime: Double? = nil,
+              seed: TVPlaybackSeed? = nil) {
         clearLiveState()
         resetSFBIfNeeded()
         isVideoMode = isVideo
@@ -579,7 +580,12 @@ final class TVAudioEngine {
         // 直接「Cannot Open」。file:// 等非网络 scheme 才直连。
         if (url.scheme == "https" || url.scheme == "http"),
            let masked = TVStreamResourceLoader.maskedURL(from: url) {
-            let loader = TVStreamResourceLoader(realURL: url, headers: headers, fileExtension: fileExtension)
+            let loader = TVStreamResourceLoader(
+                realURL: url,
+                headers: headers,
+                fileExtension: fileExtension,
+                seed: seed
+            )
             let asset = AVURLAsset(url: masked)
             asset.resourceLoader.setDelegate(loader, queue: DispatchQueue(label: "tv.resourceloader"))
             resourceLoader = loader

@@ -856,6 +856,42 @@ enum CloudPlaybackSource {
             .union(finalizingTasks.values.map(\.partialPath))
             .union(pathWriterOwnerships.keys)
     }
+
+    /// Network reads the live playback streams are waiting on or reading
+    /// ahead with, across every source.
+    static func playbackNetworkFetchesInFlight() -> Int {
+        registryLock.lock()
+        let states = Array(activeStates.values)
+        registryLock.unlock()
+        return states.reduce(0) { $0 + $1.inFlightNetworkFetchCount() }
+    }
+
+    /// Returns once no playback stream has had a network read in flight for
+    /// `quietInterval`, or when `maximumWait` runs out. Queue prefetch and
+    /// the completion fill of a finished song call this before each request,
+    /// so they use the gaps in the current song's read-ahead instead of
+    /// splitting bandwidth with it (a priority hint alone does not do that
+    /// for HTTP transfers).
+    static func waitForPlaybackNetworkQuiet(
+        quietInterval: Duration = .milliseconds(400),
+        maximumWait: Duration
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now + maximumWait
+        var quietSince: ContinuousClock.Instant?
+        while !Task.isCancelled {
+            let now = clock.now
+            if playbackNetworkFetchesInFlight() == 0 {
+                let since = quietSince ?? now
+                quietSince = since
+                if now - since >= quietInterval { return }
+            } else {
+                quietSince = nil
+            }
+            if now >= deadline { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
 }
 
 fileprivate final class StreamingTaskStartGate: @unchecked Sendable {
@@ -878,28 +914,28 @@ private final class FetchResultBox: @unchecked Sendable {
     var error: Error?
 }
 
-private final class HTTPRangeFetcher: @unchecked Sendable {
+final class HTTPRangeFetcher: @unchecked Sendable {
     private let url: URL
     private let totalLength: Int64
-    private let session: URLSession
 
-    init(url: URL, totalLength: Int64) {
-        self.url = url
-        self.totalLength = totalLength
-
+    /// One session for every direct HTTP playback source and queue seed, so
+    /// the next song reuses the connection (and TLS session) the current one
+    /// already opened instead of handshaking again at each track change.
+    /// Sessions pool connections per host; each fetch is cancelled with its
+    /// Task, and closing a playback session cancels its fetch Tasks.
+    private static let sharedSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 600
         config.httpMaximumConnectionsPerHost = 6
-        self.session = URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
-    }
+        return URLSession(configuration: config, delegate: SmartSSLDelegate(), delegateQueue: nil)
+    }()
 
-    deinit {
-        // A URLSession created with a delegate retains that delegate until the
-        // session is explicitly invalidated. One fetcher is created per HTTP
-        // playback source, so leaving it active would accumulate sessions and
-        // their delegate queues as tracks change.
-        session.invalidateAndCancel()
+    private var session: URLSession { Self.sharedSession }
+
+    init(url: URL, totalLength: Int64) {
+        self.url = url
+        self.totalLength = totalLength
     }
 
     func fetch(offset: Int64, length: Int64) async throws -> Data {
@@ -1545,6 +1581,13 @@ private final class State: @unchecked Sendable {
         lock.unlock()
     }
 
+    fileprivate func inFlightNetworkFetchCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return 0 }
+        return foregroundFetchTasks.count + prefetchInFlight.count
+    }
+
     private func closeAndCancelForegroundFetches() -> [Task<Void, Never>] {
         lock.lock()
         closed = true
@@ -1774,7 +1817,8 @@ private final class State: @unchecked Sendable {
     }
 
     private func prepareTrailingFillTask(
-        request: (offset: Int64, length: Int64)
+        request: (offset: Int64, length: Int64),
+        waitsForPlaybackQuiet: Bool = false
     ) -> CloudPlaybackSource.PreparedTrailingFill {
         let fetch = connectorFetch
         let stateLabel = label
@@ -1788,6 +1832,12 @@ private final class State: @unchecked Sendable {
             }
         ) { [weak self, fetch, stateLabel] in
             guard let self else { return }
+            if waitsForPlaybackQuiet {
+                // The song that replaced this one is starting right now; let
+                // its first reads have the network before completing ours.
+                await CloudPlaybackSource.waitForPlaybackNetworkQuiet(maximumWait: .seconds(20))
+                guard !Task.isCancelled else { return }
+            }
             do {
                 let data = try await fetch(
                     request.offset,
@@ -1867,19 +1917,31 @@ private final class State: @unchecked Sendable {
         var fillRequest: (offset: Int64, length: Int64)?
         var preparedTrailingFill: CloudPlaybackSource.PreparedTrailingFill?
         let firstUpper = cachedRanges[0].upperBound
+        // Only complete songs heard (almost) to the end. A song skipped early
+        // would otherwise download most of itself at the very moment the
+        // next song starts.
         if cachedRanges.count == 1,
            firstUpper < totalLength,
-           (totalLength - firstUpper) < Self.autoFillThreshold {
+           StreamingSessionCompletionFillPolicy.allowsFill(
+               missingBytes: totalLength - firstUpper,
+               totalLength: totalLength
+           ) {
             fillRequest = (firstUpper, totalLength - firstUpper)
             trailingFillScheduled = true
         } else if cachedRanges.count == 2,
                   cachedRanges[1].upperBound == totalLength,
-                  (cachedRanges[1].lowerBound - firstUpper) < Self.autoFillThreshold {
+                  StreamingSessionCompletionFillPolicy.allowsFill(
+                      missingBytes: cachedRanges[1].lowerBound - firstUpper,
+                      totalLength: totalLength
+                  ) {
             fillRequest = (firstUpper, cachedRanges[1].lowerBound - firstUpper)
             trailingFillScheduled = true
         }
         if let fillRequest {
-            let prepared = prepareTrailingFillTask(request: fillRequest)
+            let prepared = prepareTrailingFillTask(
+                request: fillRequest,
+                waitsForPlaybackQuiet: true
+            )
             trailingFillTask = prepared.task
             preparedTrailingFill = prepared
         }

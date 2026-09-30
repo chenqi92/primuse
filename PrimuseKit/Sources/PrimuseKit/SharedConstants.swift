@@ -769,6 +769,69 @@ public enum RangeStreamingPrefetchPolicy {
         return .disabled
     }
 
+    /// How playback will read a queued song, as far as prefetch cares.
+    public enum UpcomingPlaybackTransport: Sendable, Equatable {
+        /// Ranged reads through the source connector (sparse cache).
+        case connectorRange
+        /// Ranged reads against a plain HTTP(S) playback URL (sparse cache).
+        case directHTTPRange
+        /// Playback needs, or will download, the whole file.
+        case completeFile
+    }
+
+    public enum UpcomingPrefetchMode: Sendable, Equatable {
+        case disabled
+        /// Seed head + tail through the connector's range reads.
+        case connectorSeed
+        /// Seed head + tail from the plain HTTP URL playback will use.
+        case directSeed
+        /// Resolve the playback link only; no audio bytes move.
+        case linkOnly
+        case completeFile
+    }
+
+    /// Cache work for a song queued after the current one (`rank` 0 is the
+    /// next song). Unlike `backgroundCacheMode`, this covers WebDAV and
+    /// Synology too: queue seeds run one bounded request at a time (see
+    /// `SpeculativeRangeRead`), which neither overloads DSM nor turns into a
+    /// whole-file download behind a proxy that ignores `Range`. OneDrive
+    /// stalls on concurrent ranged reads, so it only resolves the next link.
+    /// FTP ranged reads keep their control connection open until the session
+    /// ends, so FTP stays demand-driven.
+    public static func upcomingPrefetchMode(
+        sourceType: MusicSourceType,
+        transport: UpcomingPlaybackTransport,
+        hasKnownFileSize: Bool,
+        rank: Int,
+        prefersCompleteFile: Bool,
+        rangeSeedOnly: Bool
+    ) -> UpcomingPrefetchMode {
+        switch sourceType {
+        case .local, .appleMusic, .appleMusicLibrary, .ftp:
+            return .disabled
+        default:
+            break
+        }
+        let isOneDrive = sourceType == .oneDrive
+        if prefersCompleteFile, !rangeSeedOnly,
+           UpcomingPlaybackPrefetchPolicy.allowsCompleteFile(rank: rank, kind: .medley) {
+            return .completeFile
+        }
+        switch transport {
+        case .connectorRange:
+            guard hasKnownFileSize else { return .disabled }
+            return isOneDrive ? .linkOnly : .connectorSeed
+        case .directHTTPRange:
+            return hasKnownFileSize ? .directSeed : .disabled
+        case .completeFile:
+            if !rangeSeedOnly,
+               UpcomingPlaybackPrefetchPolicy.allowsCompleteFile(rank: rank, kind: .original) {
+                return .completeFile
+            }
+            return isOneDrive ? .linkOnly : .disabled
+        }
+    }
+
     /// Whether a foreground range read may schedule completion of the
     /// remaining cache gap in the background. Constrained connectors must
     /// stay demand-driven even when the remaining file is below the generic
