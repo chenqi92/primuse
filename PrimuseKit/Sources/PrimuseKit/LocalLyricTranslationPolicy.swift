@@ -1,7 +1,6 @@
 import Foundation
 
-/// Rules for the downloadable offline lyric translation model, which covers
-/// English ↔ Persian — the pairs Apple Translation does not offer.
+/// Routes supported by the downloadable offline translation packs.
 public enum LocalLyricTranslationPolicy {
     public static let englishIdentity = "en"
     public static let persianIdentity = "fa"
@@ -17,13 +16,28 @@ public enum LocalLyricTranslationPolicy {
 
         public static let englishToPersian = Direction(source: englishIdentity, target: persianIdentity)
         public static let persianToEnglish = Direction(source: persianIdentity, target: englishIdentity)
+        public static let englishToSimplifiedChinese = Direction(source: "en", target: "zh-Hans")
+        public static let simplifiedChineseToEnglish = Direction(source: "zh-Hans", target: "en")
+        public static let englishToTraditionalChinese = Direction(source: "en", target: "zh-Hant")
+        public static let traditionalChineseToEnglish = Direction(source: "zh-Hant", target: "en")
+        public static let englishToJapanese = Direction(source: "en", target: "ja")
+        public static let japaneseToEnglish = Direction(source: "ja", target: "en")
+        public static let englishToKorean = Direction(source: "en", target: "ko")
+        public static let koreanToEnglish = Direction(source: "ko", target: "en")
     }
 
-    public static let directions: [Direction] = [.englishToPersian, .persianToEnglish]
+    public static let persianDirections: [Direction] = [.englishToPersian, .persianToEnglish]
+    public static let cjkDirections: [Direction] = [
+        .englishToSimplifiedChinese, .simplifiedChineseToEnglish,
+        .englishToTraditionalChinese, .traditionalChineseToEnglish,
+        .englishToJapanese, .japaneseToEnglish, .englishToKorean, .koreanToEnglish,
+    ]
+    public static let directions = persianDirections + cjkDirections
 
     public enum Route: Equatable, Sendable {
         /// The model translates the pair directly.
         case local(Direction)
+        case localPivot(first: Direction, second: Direction)
         /// Apple Translation (with an installed language pack) turns the
         /// source into English, then the model translates English → Persian.
         case systemThenLocal(systemSource: String, local: Direction)
@@ -31,36 +45,53 @@ public enum LocalLyricTranslationPolicy {
         /// (installed) translates English into the target.
         case localThenSystem(local: Direction, systemTarget: String)
         case unsupported
+
+        public var localDirections: [Direction] {
+            switch self {
+            case .local(let direction), .systemThenLocal(_, let direction), .localThenSystem(let direction, _):
+                return [direction]
+            case .localPivot(let first, let second):
+                return [first, second]
+            case .unsupported:
+                return []
+            }
+        }
     }
 
-    /// How a pair that Apple Translation cannot handle by itself reaches the
-    /// offline model. Undetected source languages, Latin-script Persian and
-    /// pairs without Persian on either side are not routed: the caller must
-    /// report them as unavailable rather than guess a language.
+    /// A local English bridge also works on devices without Apple Translation.
     public static func route(
         sourceLanguageCode: String?,
         targetLanguageCode: String,
         allowsSystemPivot: Bool
     ) -> Route {
         guard let sourceLanguageCode else { return .unsupported }
-        let source = LyricTranslationGroupingPolicy.languageIdentity(sourceLanguageCode)
-        let target = LyricTranslationGroupingPolicy.languageIdentity(targetLanguageCode)
+        let source = modelLanguageIdentity(sourceLanguageCode)
+        let target = modelLanguageIdentity(targetLanguageCode)
         guard !LyricTranslationGroupingPolicy.representsSameTranslationLanguage(source, target) else {
             return .unsupported
         }
         let sourceIsPersian = isPersianScriptPersian(source)
         let targetIsPersian = isPersianScriptPersian(target)
-        let sourceIsEnglish = primaryLanguage(source) == englishIdentity
-        let targetIsEnglish = primaryLanguage(target) == englishIdentity
-
-        if sourceIsEnglish, targetIsPersian { return .local(.englishToPersian) }
-        if sourceIsPersian, targetIsEnglish { return .local(.persianToEnglish) }
-        guard allowsSystemPivot else { return .unsupported }
-        if targetIsPersian, !isAnyPersian(source) {
+        guard !(isAnyPersian(source) && !sourceIsPersian),
+              !(isAnyPersian(target) && !targetIsPersian) else { return .unsupported }
+        if let direct = directions.first(where: { $0.source == source && $0.target == target }) {
+            return .local(direct)
+        }
+        // Preserve the installed system bridge for the existing Persian pack.
+        if allowsSystemPivot, targetIsPersian {
             return .systemThenLocal(systemSource: source, local: .englishToPersian)
         }
-        if sourceIsPersian, !isAnyPersian(target) {
+        if allowsSystemPivot, sourceIsPersian {
             return .localThenSystem(local: .persianToEnglish, systemTarget: target)
+        }
+        let first = directions.first { $0.source == source && $0.target == englishIdentity }
+        let second = directions.first { $0.source == englishIdentity && $0.target == target }
+        if let first, let second { return .localPivot(first: first, second: second) }
+        if allowsSystemPivot, let second {
+            return .systemThenLocal(systemSource: source, local: second)
+        }
+        if allowsSystemPivot, let first {
+            return .localThenSystem(local: first, systemTarget: target)
         }
         return .unsupported
     }
@@ -117,6 +148,13 @@ public enum LocalLyricTranslationPolicy {
 
     // MARK: Helpers
 
+    private static func modelLanguageIdentity(_ code: String) -> String {
+        let identity = LyricTranslationGroupingPolicy.languageIdentity(code)
+        if identity == "zh" { return "zh-Hans" }
+        if isPersianScriptPersian(identity) { return persianIdentity }
+        return identity
+    }
+
     private static func primaryLanguage(_ identity: String) -> String {
         identity.split(separator: "-", maxSplits: 1).first.map { $0.lowercased() } ?? identity
     }
@@ -141,12 +179,14 @@ public struct LocalLyricTranslationManifest: Codable, Equatable, Sendable {
         public let model: String
         /// SentencePiece model file, relative to the pack root.
         public let vocabulary: String
+        public let targetVocabulary: String?
 
-        public init(source: String, target: String, model: String, vocabulary: String) {
+        public init(source: String, target: String, model: String, vocabulary: String, targetVocabulary: String? = nil) {
             self.source = source
             self.target = target
             self.model = model
             self.vocabulary = vocabulary
+            self.targetVocabulary = targetVocabulary
         }
 
         public var direction: LocalLyricTranslationPolicy.Direction {
@@ -173,19 +213,23 @@ public struct LocalLyricTranslationManifest: Codable, Equatable, Sendable {
 
     /// Decodes and validates a manifest: the supported format, a version,
     /// both directions, and only relative paths inside the pack.
-    public static func decode(_ data: Data) -> LocalLyricTranslationManifest? {
+    public static func decode(
+        _ data: Data,
+        requiredDirections: [LocalLyricTranslationPolicy.Direction] = LocalLyricTranslationPolicy.persianDirections
+    ) -> LocalLyricTranslationManifest? {
         guard let manifest = try? JSONDecoder().decode(Self.self, from: data),
               manifest.format == supportedFormat,
               !manifest.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        for direction in LocalLyricTranslationPolicy.directions {
-            guard let entry = manifest.entry(for: direction),
-                  isSafeRelativePath(entry.model),
-                  isSafeRelativePath(entry.vocabulary) else {
-                return nil
-            }
-        }
+        let listed = manifest.directions.map(\.direction)
+        guard Set(listed).count == listed.count,
+              requiredDirections.allSatisfy({ listed.contains($0) }),
+              manifest.directions.allSatisfy({ entry in
+                  LocalLyricTranslationPolicy.directions.contains(entry.direction)
+                      && isSafeRelativePath(entry.model) && isSafeRelativePath(entry.vocabulary)
+                      && (entry.targetVocabulary.map(isSafeRelativePath) ?? true)
+              }) else { return nil }
         return manifest
     }
 
@@ -195,8 +239,9 @@ public struct LocalLyricTranslationManifest: Codable, Equatable, Sendable {
 
     /// Files that must exist before the model can be loaded.
     public var requiredFiles: [String] {
-        LocalLyricTranslationPolicy.directions.compactMap { entry(for: $0) }.flatMap {
-            ["\($0.model)/\(Self.compiledModelAnchor)", $0.vocabulary]
+        directions.flatMap { entry in
+            ["\(entry.model)/\(Self.compiledModelAnchor)", entry.vocabulary]
+                + (entry.targetVocabulary.map { [$0] } ?? [])
         }
     }
 

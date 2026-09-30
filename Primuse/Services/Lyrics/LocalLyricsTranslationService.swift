@@ -15,10 +15,23 @@ import Security
 /// `translation-model.json`, one compiled Core ML model and one SentencePiece
 /// vocabulary per direction. Debug builds can point at a local copy.
 enum LocalLyricsTranslationModel {
-    static let assetPackID = "LyricsTranslationModel"
-    static let manifestFile = "translation-model.json"
-    /// Shown before the download (compressed pack size).
-    static let approximateDownloadBytes: Int64 = 33_000_000
+    enum Pack: String, CaseIterable, Hashable, Sendable, Identifiable {
+        case persian, cjk
+
+        var id: String { rawValue }
+        var assetPackID: String { self == .persian ? "LyricsTranslationModel" : "LyricsTranslationCJKModel" }
+        var manifestFile: String { self == .persian ? "translation-model.json" : "cjk/translation-model.json" }
+        var approximateDownloadBytes: Int64 { self == .persian ? 33_000_000 : 329_000_000 }
+        var pairsKey: String { self == .persian ? "lyrics_translation_local_pairs" : "lyrics_translation_local_cjk_pairs" }
+        var footerKey: String { self == .persian ? "lyrics_translation_local_footer" : "lyrics_translation_local_cjk_footer" }
+        var directions: [LocalLyricTranslationPolicy.Direction] {
+            self == .persian ? LocalLyricTranslationPolicy.persianDirections : LocalLyricTranslationPolicy.cjkDirections
+        }
+
+        static func containing(_ direction: LocalLyricTranslationPolicy.Direction) -> Pack {
+            LocalLyricTranslationPolicy.persianDirections.contains(direction) ? .persian : .cjk
+        }
+    }
 
     #if DEBUG
     /// `PRIMUSE_LYRICS_TRANSLATION_MODEL` points development and build-host
@@ -55,19 +68,24 @@ enum LocalLyricsTranslationModel {
             guard let entry = manifest.entry(for: direction) else { return nil }
             return files[entry.vocabulary]
         }
+
+        func targetVocabularyURL(for direction: LocalLyricTranslationPolicy.Direction) -> URL? {
+            guard let path = manifest.entry(for: direction)?.targetVocabulary else { return nil }
+            return files[path]
+        }
     }
 
     /// The model if it is on this device and complete. Returns nil when the
     /// pack is missing, was purged by the system, or has an unknown layout.
-    static func locate() -> Located? {
-        guard let manifestURL = fileURL(manifestFile),
+    static func locate(_ pack: Pack) -> Located? {
+        guard let manifestURL = fileURL(pack.manifestFile, pack: pack),
               let data = try? Data(contentsOf: manifestURL),
-              let manifest = LocalLyricTranslationManifest.decode(data) else {
+              let manifest = LocalLyricTranslationManifest.decode(data, requiredDirections: pack.directions) else {
             return nil
         }
         var files: [String: URL] = [:]
         for path in manifest.requiredFiles {
-            guard let url = fileURL(path),
+            guard let url = fileURL(path, pack: pack),
                   FileManager.default.fileExists(atPath: url.path) else {
                 return nil
             }
@@ -76,7 +94,7 @@ enum LocalLyricsTranslationModel {
         return Located(manifest: manifest, files: files)
     }
 
-    private static func fileURL(_ path: String) -> URL? {
+    private static func fileURL(_ path: String, pack: Pack) -> URL? {
         #if DEBUG
         if let directory = debugOverrideDirectory {
             return directory.appendingPathComponent(path)
@@ -85,7 +103,7 @@ enum LocalLyricsTranslationModel {
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *),
            BackgroundAssetsPrerequisites.isSatisfied,
-           AssetPackManager.shared.assetPackIsAvailableLocally(withID: assetPackID) {
+           AssetPackManager.shared.assetPackIsAvailableLocally(withID: pack.assetPackID) {
             return try? AssetPackManager.shared.url(for: FilePath(path))
         }
         #endif
@@ -93,14 +111,14 @@ enum LocalLyricsTranslationModel {
     }
 
     /// Downloads the pack if needed; `progress` receives 0...1.
-    static func download(progress: @escaping @Sendable (Double) -> Void) async throws -> Located {
-        if let located = locate() { return located }
+    static func download(_ modelPack: Pack, progress: @escaping @Sendable (Double) -> Void) async throws -> Located {
+        if let located = locate(modelPack) { return located }
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
             let manager = AssetPackManager.shared
-            let pack = try await manager.assetPack(withID: assetPackID)
+            let pack = try await manager.assetPack(withID: modelPack.assetPackID)
             let watcher = Task {
-                for await update in manager.statusUpdates(forAssetPackWithID: assetPackID) {
+                for await update in manager.statusUpdates(forAssetPackWithID: modelPack.assetPackID) {
                     if case .downloading(_, let fraction) = update {
                         progress(fraction.fractionCompleted)
                     }
@@ -108,16 +126,16 @@ enum LocalLyricsTranslationModel {
             }
             defer { watcher.cancel() }
             try await manager.ensureLocalAvailability(of: pack, requireLatestVersion: false)
-            if let located = locate() { return located }
+            if let located = locate(modelPack) { return located }
         }
         #endif
         throw LocalLyricsTranslationError.modelUnavailable
     }
 
-    static func remove() async {
+    static func remove(_ pack: Pack) async {
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
-            try? await AssetPackManager.shared.remove(assetPackWithID: assetPackID)
+            try? await AssetPackManager.shared.remove(assetPackWithID: pack.assetPackID)
         }
         #endif
     }
@@ -228,83 +246,91 @@ final class LocalLyricsTranslationService {
         case failed
     }
 
-    private(set) var modelState: ModelState
-    /// Why the last download failed, shown under the retry button.
-    private(set) var modelFailureReason: String?
-    /// Changes whenever the model becomes usable or goes away, so lyric
-    /// views can re-run translation.
+    typealias Pack = LocalLyricsTranslationModel.Pack
+    private(set) var requestedPack: Pack = .persian
+    private var states: [Pack: ModelState] = [:]
+    private var failureReasons: [Pack: String] = [:]
+    var modelState: ModelState { modelState(for: requestedPack) }
+    var modelFailureReason: String? { modelFailureReason(for: requestedPack) }
     private(set) var modelRevision: UInt = 0 {
         didSet { NotificationCenter.default.post(name: .localLyricsTranslationModelChanged, object: nil) }
     }
-    @ObservationIgnored private var located: LocalLyricsTranslationModel.Located?
-    @ObservationIgnored private var downloadTask: Task<Void, Never>?
+    @ObservationIgnored private var locatedPacks: [Pack: LocalLyricsTranslationModel.Located] = [:]
+    @ObservationIgnored private var downloadTasks: [Pack: Task<Void, Never>] = [:]
     @ObservationIgnored private let runner = LocalLyricsTranslationRunner()
 
     private init() {
-        if !LocalLyricsTranslationModel.isSystemSupported {
-            modelState = .unsupportedSystem
-        } else if let located = LocalLyricsTranslationModel.locate() {
-            self.located = located
-            modelState = .ready
-        } else {
-            modelState = .notDownloaded
+        for pack in Pack.allCases {
+            if !LocalLyricsTranslationModel.isSystemSupported {
+                states[pack] = .unsupportedSystem
+            } else if let located = LocalLyricsTranslationModel.locate(pack) {
+                locatedPacks[pack] = located
+                states[pack] = .ready
+            } else {
+                states[pack] = .notDownloaded
+            }
         }
     }
 
+    func modelState(for pack: Pack) -> ModelState { states[pack] ?? .unsupportedSystem }
+    func modelFailureReason(for pack: Pack) -> String? { failureReasons[pack] }
     var isModelReady: Bool { modelState == .ready }
 
-    /// Re-checks the pack, which the system may purge while the app is not
-    /// running or in the background.
     func refreshAvailability() {
-        guard modelState == .ready || modelState == .notDownloaded else { return }
-        let current = LocalLyricsTranslationModel.locate()
-        if current == nil, modelState == .ready {
-            located = nil
-            modelState = .notDownloaded
-            modelRevision &+= 1
-            Task { await runner.unload() }
-        } else if let current, modelState == .notDownloaded {
-            located = current
-            modelState = .ready
-            modelRevision &+= 1
+        for pack in Pack.allCases {
+            let state = modelState(for: pack)
+            guard state == .ready || state == .notDownloaded else { continue }
+            let current = LocalLyricsTranslationModel.locate(pack)
+            if current == nil, state == .ready {
+                locatedPacks[pack] = nil
+                states[pack] = .notDownloaded
+                modelRevision &+= 1
+                Task { await runner.unload() }
+            } else if let current, state == .notDownloaded {
+                locatedPacks[pack] = current
+                states[pack] = .ready
+                modelRevision &+= 1
+            }
         }
     }
 
-    func downloadModel() {
-        guard modelState == .notDownloaded || modelState == .failed, downloadTask == nil else { return }
-        modelState = .downloading(0)
-        modelFailureReason = nil
-        downloadTask = Task { @MainActor in
+    func downloadModel(_ selectedPack: Pack? = nil) {
+        let pack = selectedPack ?? requestedPack
+        let state = modelState(for: pack)
+        guard state == .notDownloaded || state == .failed, downloadTasks[pack] == nil else { return }
+        states[pack] = .downloading(0)
+        failureReasons[pack] = nil
+        downloadTasks[pack] = Task { @MainActor in
             do {
-                let located = try await LocalLyricsTranslationModel.download { fraction in
+                let located = try await LocalLyricsTranslationModel.download(pack) { fraction in
                     Task { @MainActor in
-                        guard case .downloading = self.modelState else { return }
-                        self.modelState = .downloading(fraction)
+                        guard case .downloading = self.modelState(for: pack) else { return }
+                        self.states[pack] = .downloading(fraction)
                     }
                 }
-                self.located = located
-                self.modelState = .ready
+                self.locatedPacks[pack] = located
+                self.states[pack] = .ready
                 self.modelRevision &+= 1
                 plog("🌐 LocalTranslation: model ready version=\(located.manifest.version)")
             } catch {
                 let nsError = error as NSError
                 let channel = Bundle.main.distributionChannel
                 plog("⚠️ LocalTranslation: model download failed channel=\(channel.rawValue) domain=\(nsError.domain) code=\(nsError.code): \(String(describing: error))")
-                // Hosted packs only download in TestFlight and App Store builds.
-                self.modelFailureReason = channel == .development
+                self.failureReasons[pack] = channel == .development
                     ? String(localized: "karaoke_ai_download_dev_build")
                     : String(format: String(localized: "karaoke_ai_download_failed_format"), error.localizedDescription)
-                self.modelState = .failed
+                self.states[pack] = .failed
             }
-            self.downloadTask = nil
+            self.downloadTasks[pack] = nil
         }
     }
 
-    func removeModel() async {
-        located = nil
+    func removeModel(_ pack: Pack = .persian) async {
+        guard downloadTasks[pack] == nil else { return }
+        locatedPacks[pack] = nil
         await runner.unload()
-        await LocalLyricsTranslationModel.remove()
-        modelState = LocalLyricsTranslationModel.isSystemSupported ? .notDownloaded : .unsupportedSystem
+        await LocalLyricsTranslationModel.remove(pack)
+        states[pack] = LocalLyricsTranslationModel.isSystemSupported ? .notDownloaded : .unsupportedSystem
         modelRevision &+= 1
     }
 
@@ -335,20 +361,32 @@ final class LocalLyricsTranslationService {
                 route = await Self.confirmingInstalledBridge(route, systemTranslator: systemTranslator)
                 guard isCurrent(), !Task.isCancelled else { return outcome }
             }
-            let direction: LocalLyricTranslationPolicy.Direction
+            if case .unsupported = route {
+                route = LocalLyricTranslationPolicy.route(
+                    sourceLanguageCode: group.sourceLanguageCode,
+                    targetLanguageCode: targetLanguageCode,
+                    allowsSystemPivot: false
+                )
+            }
             switch route {
             case .unsupported:
                 outcome.unsupportedGroups.append(group)
                 plog("🌐 LocalTranslation: unsupported pair \(group.sourceLanguageCode ?? "auto") -> \(targetLanguageCode)")
                 continue
-            case .local(let value), .systemThenLocal(_, let value), .localThenSystem(let value, _):
-                direction = value
+            default:
+                break
             }
-            guard let located else {
+            let directions = route.localDirections
+            let packs = directions.map(Pack.containing)
+            if let missing = packs.first(where: { locatedPacks[$0] == nil }) {
+                requestedPack = missing
                 outcome.groupsNeedingModel.append(group)
                 continue
             }
-            let provider = LyricsTranslationCache.ProviderNamespace.local(modelVersion: located.manifest.version)
+            let versions = directions.compactMap { direction in
+                locatedPacks[Pack.containing(direction)].map { $0.manifest.version }
+            }.joined(separator: "+")
+            let provider = LyricsTranslationCache.ProviderNamespace.local(modelVersion: versions)
             var pending: [LyricTranslationCandidate] = []
             for candidate in group.candidates {
                 if let cached = cache.translation(
@@ -378,8 +416,16 @@ final class LocalLyricsTranslationService {
                 }
                 var results: [String?] = []
                 for input in inputs {
-                    guard isCurrent(), !Task.isCancelled else { return outcome }
-                    results.append(try await runner.translate(input, direction: direction, located: located))
+                    var result: String? = input
+                    for direction in directions {
+                        guard isCurrent(), !Task.isCancelled else { return outcome }
+                        guard let value = result, let located = locatedPacks[Pack.containing(direction)] else {
+                            throw LocalLyricsTranslationError.modelUnavailable
+                        }
+                        result = try await runner.translate(value, direction: direction, located: located)
+                        if result == nil { break }
+                    }
+                    results.append(result)
                 }
                 if case .localThenSystem(_, let systemTarget) = route, let systemTranslator {
                     let english = results.map { $0 ?? "" }
@@ -406,7 +452,7 @@ final class LocalLyricsTranslationService {
             } catch {
                 outcome.failed = true
                 plog("⚠️ LocalTranslation: \(group.sourceLanguageCode ?? "auto") -> \(targetLanguageCode) failed: \(String(describing: error))")
-                if LocalLyricsTranslationModel.locate() == nil {
+                if packs.contains(where: { LocalLyricsTranslationModel.locate($0) == nil }) {
                     // The system purged the pack while it was in use.
                     refreshAvailability()
                 }
@@ -429,7 +475,7 @@ final class LocalLyricsTranslationService {
         case .localThenSystem(_, let target):
             return await systemTranslator.isInstalled(from: LocalLyricTranslationPolicy.englishIdentity, to: target)
                 ? route : .unsupported
-        case .local, .unsupported:
+        case .local, .localPivot, .unsupported:
             return route
         }
     }
@@ -439,8 +485,12 @@ final class LocalLyricsTranslationService {
 /// after a quiet period, so the model does not stay in memory during long
 /// listening sessions.
 private actor LocalLyricsTranslationRunner {
-    private var directions: [LocalLyricTranslationPolicy.Direction: LocalLyricsTranslationDirection] = [:]
-    private var loadedVersion: String?
+    private struct ModelKey: Hashable {
+        let version: String
+        let direction: LocalLyricTranslationPolicy.Direction
+    }
+    private var directions: [ModelKey: LocalLyricsTranslationDirection] = [:]
+    private var recency: [ModelKey] = []
     private var unloadTask: Task<Void, Never>?
     private static let idleUnloadDelay: Duration = .seconds(90)
 
@@ -451,12 +501,11 @@ private actor LocalLyricsTranslationRunner {
     ) throws -> String? {
         unloadTask?.cancel()
         defer { scheduleUnload() }
-        if loadedVersion != located.manifest.version {
-            directions = [:]
-            loadedVersion = located.manifest.version
-        }
+        let key = ModelKey(version: located.manifest.version, direction: direction)
+        recency.removeAll { $0 == key }
+        recency.append(key)
         let model: LocalLyricsTranslationDirection
-        if let loaded = directions[direction] {
+        if let loaded = directions[key] {
             model = loaded
         } else {
             guard #available(iOS 18.0, macOS 15.0, tvOS 18.0, *),
@@ -465,8 +514,15 @@ private actor LocalLyricsTranslationRunner {
                 throw LocalLyricsTranslationError.modelUnavailable
             }
             let started = Date()
-            model = try LocalLyricsTranslationDirection(compiledModelURL: modelURL, vocabularyURL: vocabularyURL)
-            directions[direction] = model
+            if recency.count > 2 {
+                directions[recency.removeFirst()] = nil
+            }
+            model = try LocalLyricsTranslationDirection(
+                compiledModelURL: modelURL,
+                vocabularyURL: vocabularyURL,
+                targetVocabularyURL: located.targetVocabularyURL(for: direction)
+            )
+            directions[key] = model
             plog("🌐 LocalTranslation: loaded \(direction.source)->\(direction.target) in \(Int(Date().timeIntervalSince(started) * 1_000))ms")
         }
         return try model.translate(text)
@@ -476,7 +532,7 @@ private actor LocalLyricsTranslationRunner {
         unloadTask?.cancel()
         unloadTask = nil
         directions = [:]
-        loadedVersion = nil
+        recency = []
     }
 
     private func scheduleUnload() {

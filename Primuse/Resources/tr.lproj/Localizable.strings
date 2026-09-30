@@ -4680,3 +4680,7 @@
 "desktop_lyrics_island_power_connected" = "Güç bağlandı";
 "desktop_lyrics_island_on_battery" = "Pilde";
 "desktop_lyrics_island_progress" = "Oynatma ilerlemesi";
+
+"lyrics_translation_local_cjk_pairs" = "İngilizce ↔ Çince, Japonca, Korece";
+
+"lyrics_translation_local_cjk_footer" = "Şarkı sözlerini bu cihazda İngilizce ile basitleştirilmiş veya geleneksel Çince, Japonca ve Korece arasında çevirir. Diğer dil çiftleri İngilizce üzerinden, ağ bağlantısı olmadan çevrilir.";

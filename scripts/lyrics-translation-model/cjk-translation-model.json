@@ -1,0 +1,59 @@
+{
+  "format": 1,
+  "version": "firefox-cjk-base-memory-int8-20260930-1",
+  "directions": [
+    {
+      "source": "zh-Hant",
+      "target": "en",
+      "model": "cjk/zh-Hant-en.mlmodelc",
+      "vocabulary": "cjk/vocab.zh-Hant-en.source.spm",
+      "targetVocabulary": "cjk/vocab.zh-Hant-en.target.spm"
+    },
+    {
+      "source": "en",
+      "target": "zh-Hant",
+      "model": "cjk/en-zh-Hant.mlmodelc",
+      "vocabulary": "cjk/vocab.en-zh-Hant.source.spm",
+      "targetVocabulary": "cjk/vocab.en-zh-Hant.target.spm"
+    },
+    {
+      "source": "zh-Hans",
+      "target": "en",
+      "model": "cjk/zh-Hans-en.mlmodelc",
+      "vocabulary": "cjk/vocab.zh-Hans-en.source.spm"
+    },
+    {
+      "source": "en",
+      "target": "zh-Hans",
+      "model": "cjk/en-zh-Hans.mlmodelc",
+      "vocabulary": "cjk/vocab.en-zh-Hans.source.spm",
+      "targetVocabulary": "cjk/vocab.en-zh-Hans.target.spm"
+    },
+    {
+      "source": "en",
+      "target": "ko",
+      "model": "cjk/en-ko.mlmodelc",
+      "vocabulary": "cjk/vocab.en-ko.source.spm",
+      "targetVocabulary": "cjk/vocab.en-ko.target.spm"
+    },
+    {
+      "source": "ko",
+      "target": "en",
+      "model": "cjk/ko-en.mlmodelc",
+      "vocabulary": "cjk/vocab.ko-en.source.spm"
+    },
+    {
+      "source": "en",
+      "target": "ja",
+      "model": "cjk/en-ja.mlmodelc",
+      "vocabulary": "cjk/vocab.en-ja.source.spm",
+      "targetVocabulary": "cjk/vocab.en-ja.target.spm"
+    },
+    {
+      "source": "ja",
+      "target": "en",
+      "model": "cjk/ja-en.mlmodelc",
+      "vocabulary": "cjk/vocab.ja-en.source.spm"
+    }
+  ]
+}

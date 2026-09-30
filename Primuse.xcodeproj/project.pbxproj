@@ -1497,6 +1497,7 @@
 		EE6D78AE8A6BAC03DAEBF824 /* PrimuseRadioAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC58680E103085AFD9B2E909 /* PrimuseRadioAppIntents.swift */; };
 		EEB5B873F81C5BEDCB6978B3 /* AppleMusicLibrarySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BE82C5DF65A566D6D3CDE4E /* AppleMusicLibrarySource.swift */; };
 		EEC42360EF551FD4A043202A /* ListeningStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70AF95E5E81784D9E3FB8D36 /* ListeningStatsView.swift */; };
+		78D190AF5491B9C620755A08 /* AIStreamingIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F845ACAEAB047249A14588F7 /* AIStreamingIntegrationTests.swift */; };
 		EEF9A313CE3B945DAACA62F0 /* MacResourceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A329CA93AC88CAE08B84F0A /* MacResourceRegressionTests.swift */; };
 		EF02012CCED6102355617473 /* SynologyAudioStationErrorText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60CEED3AD7295532D6B1833 /* SynologyAudioStationErrorText.swift */; };
 		EF0207FFF0477E22E917719F /* AudioPlayerNodeClockReader.m in Sources */ = {isa = PBXBuildFile; fileRef = A70B0C9499688D7F88F09DFA /* AudioPlayerNodeClockReader.m */; };
@@ -2528,6 +2529,7 @@
 		8993EB01B647C223D06CA7AB /* MacLazyStackAccessibilityGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLazyStackAccessibilityGuard.swift; sourceTree = "<group>"; };
 		899FC409D467BC67F47C75C2 /* MusicSourceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicSourceProtocol.swift; sourceTree = "<group>"; };
 		89D9EF53EC9E4F2D38F2A7DE /* DuplicateCleanupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateCleanupService.swift; sourceTree = "<group>"; };
+		F845ACAEAB047249A14588F7 /* AIStreamingIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIStreamingIntegrationTests.swift; sourceTree = "<group>"; };
 		8A329CA93AC88CAE08B84F0A /* MacResourceRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacResourceRegressionTests.swift; sourceTree = "<group>"; };
 		8A7424889FC9166F74570F6E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		8A7C2D0F07C125A333AC1046 /* UPnPSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UPnPSource.swift; sourceTree = "<group>"; };
@@ -3427,6 +3429,7 @@
 		393EBBEB8D646675DDC7B714 /* PrimuseMacTests */ = {
 			isa = PBXGroup;
 			children = (
+				F845ACAEAB047249A14588F7 /* AIStreamingIntegrationTests.swift */,
 				8A329CA93AC88CAE08B84F0A /* MacResourceRegressionTests.swift */,
 				F87C23687A99BD4C594B6B2E /* MacVolumeSliderTests.swift */,
 			);
@@ -5819,6 +5822,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				78D190AF5491B9C620755A08 /* AIStreamingIntegrationTests.swift in Sources */,
 				EEF9A313CE3B945DAACA62F0 /* MacResourceRegressionTests.swift in Sources */,
 				4DC0539B60873695B56A4A2E /* MacVolumeSliderTests.swift in Sources */,
 			);

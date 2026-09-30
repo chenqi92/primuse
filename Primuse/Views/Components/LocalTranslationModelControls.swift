@@ -41,35 +41,38 @@ struct LocalTranslationModelBadge: View {
 struct LocalTranslationModelSection: View {
     private var service: LocalLyricsTranslationService { .shared }
     @State private var showRemoveConfirm = false
+    @State private var removalPack: LocalLyricsTranslationModel.Pack = .persian
 
     var body: some View {
-        if service.modelState != .unsupportedSystem {
-            Section {
-                LabeledContent("lyrics_translation_local_pairs") {
-                    status
-                }
-                actions
-            } header: {
-                Text("lyrics_translation_local_section")
-            } footer: {
-                Text("lyrics_translation_local_footer")
-            }
-            .confirmationDialog(
-                "lyrics_translation_local_remove_confirm",
-                isPresented: $showRemoveConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("lyrics_translation_local_remove", role: .destructive) {
-                    Task { await service.removeModel() }
+        ForEach(LocalLyricsTranslationModel.Pack.allCases) { pack in
+            if service.modelState(for: pack) != .unsupportedSystem {
+                Section {
+                    LabeledContent(LocalizedStringKey(pack.pairsKey)) {
+                        status(for: pack)
+                    }
+                    actions(for: pack)
+                } header: {
+                    Text("lyrics_translation_local_section")
+                } footer: {
+                    Text(LocalizedStringKey(pack.footerKey))
                 }
             }
-            .task { service.refreshAvailability() }
         }
+        .confirmationDialog(
+            "lyrics_translation_local_remove_confirm",
+            isPresented: $showRemoveConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("lyrics_translation_local_remove", role: .destructive) {
+                Task { await service.removeModel(removalPack) }
+            }
+        }
+        .task { service.refreshAvailability() }
     }
 
     @ViewBuilder
-    private var status: some View {
-        switch service.modelState {
+    private func status(for pack: LocalLyricsTranslationModel.Pack) -> some View {
+        switch service.modelState(for: pack) {
         case .ready:
             Text("lyrics_translation_local_ready")
                 .foregroundStyle(.secondary)
@@ -77,23 +80,20 @@ struct LocalTranslationModelSection: View {
             ProgressView(value: fraction)
                 .frame(maxWidth: 120)
         case .notDownloaded, .failed, .unsupportedSystem:
-            Text(ByteCountFormatter.string(
-                fromByteCount: LocalLyricsTranslationModel.approximateDownloadBytes,
-                countStyle: .file
-            ))
-            .foregroundStyle(.secondary)
+            Text(ByteCountFormatter.string(fromByteCount: pack.approximateDownloadBytes, countStyle: .file))
+                .foregroundStyle(.secondary)
         }
     }
 
     @ViewBuilder
-    private var actions: some View {
-        switch service.modelState {
+    private func actions(for pack: LocalLyricsTranslationModel.Pack) -> some View {
+        switch service.modelState(for: pack) {
         case .notDownloaded:
-            Button("lyrics_translation_local_download") { service.downloadModel() }
+            Button("lyrics_translation_local_download") { service.downloadModel(pack) }
         case .failed:
             VStack(alignment: .leading, spacing: 4) {
-                Button("lyrics_translation_local_retry") { service.downloadModel() }
-                if let reason = service.modelFailureReason {
+                Button("lyrics_translation_local_retry") { service.downloadModel(pack) }
+                if let reason = service.modelFailureReason(for: pack) {
                     Text(reason)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -101,6 +101,7 @@ struct LocalTranslationModelSection: View {
             }
         case .ready:
             Button("lyrics_translation_local_remove", role: .destructive) {
+                removalPack = pack
                 showRemoveConfirm = true
             }
         case .downloading, .unsupportedSystem:

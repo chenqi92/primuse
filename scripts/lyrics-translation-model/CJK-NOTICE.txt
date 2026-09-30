@@ -1,0 +1,70 @@
+Mozilla Firefox Translations CJK offline models
+Copyright Mozilla and contributors. MPL-2.0.
+
+Converted to Core ML with int8 weight storage and float32 computation.
+Original model weights, vocabularies and training configuration:
+https://mozilla.github.io/translations/models/
+https://github.com/mozilla/translations
+
+The conversion source is included as convert_firefox_translations.py.
+The license is included as LICENSE-MPL-2.0.txt.
+
+Source checkpoints and SHA-256 checksums:
+[
+  {
+    "direction": "zh-Hant-en",
+    "checkpoint": "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/models/zh_hant-en/zh_hant_openlid_zh_tw_lr0002_WJi5Ozi7SZWC6hgfD5GhTA/student-finetuned/final.model.npz.best-chrf.npz",
+    "checkpoint_sha256": "dde59b00c7dd2e6b87200840081fe607e12b942f7addc7ad1ea42a3d5824889b",
+    "source_vocabulary_sha256": "5cc6a76611dbf86219f109141533606b15ecb34eee83673bb86b2c16b14734db",
+    "target_vocabulary_sha256": "7bf002db37c10d3b114cc5588d7fdcb16c57d0fd1e2c34354c22cc9f0b6c3c29"
+  },
+  {
+    "direction": "en-zh-Hant",
+    "checkpoint": "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/models/en-zh_hant/zh_hant_llmaat_finetune10M_qe8_f2_aQ8azdOMQOSBVjBDOVDIZQ/student-finetuned/final.model.npz.best-chrf.npz",
+    "checkpoint_sha256": "b77278726996864ed763801ad088e7a787b8c23c6acc45a497b2ea37a7b0f383",
+    "source_vocabulary_sha256": "2266df70492162a249ab1c0154f929bd6098b246544c666c1a0d5a24dde7d2ea",
+    "target_vocabulary_sha256": "22b91a4436d70b91ab8777c677252ab5fae2bc284d71f977df5206c110e3444c"
+  },
+  {
+    "direction": "zh-Hans-en",
+    "checkpoint": "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/models/zh-en/cjk_retrain_base-memory_cNY_yaJCStGwnTeXgW8A5w/student-finetuned/final.model.npz.best-chrf.npz",
+    "checkpoint_sha256": "83af914d0354a53b53377e028dcefcb464033a8405d9e7452579262343d5bd6f",
+    "source_vocabulary_sha256": "dff594318ab7d8b7b60b844ab98ebe6b932ae8045fab15235404c787715965b3",
+    "target_vocabulary_sha256": "dff594318ab7d8b7b60b844ab98ebe6b932ae8045fab15235404c787715965b3"
+  },
+  {
+    "direction": "en-zh-Hans",
+    "checkpoint": "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/models/en-zh/llmaat_finetune10M_qe8_f2_ByQcSxGXQRqGi-UTxYE43g/student-finetuned/final.model.npz.best-chrf.npz",
+    "checkpoint_sha256": "9604368d0fb19aa431a82824cedd92205a68512b89086cbe8c4d8bd1585a8950",
+    "source_vocabulary_sha256": "bd9b65504acc6d9726dd281f7defc2adb7c2c22d0688fe2f84697de25197c8c5",
+    "target_vocabulary_sha256": "aded6993c36e440284d11cec3f6b8aef9c0e43188a772d80be342a713adf223d"
+  },
+  {
+    "direction": "en-ko",
+    "checkpoint": "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/models/en-ko/cjk_retrain_base-memory_GP50C3MpQ9apCWZOW-f3PA/student-finetuned/final.model.npz.best-chrf.npz",
+    "checkpoint_sha256": "8c8aeb3c7ecc542a3ee566c7e8ad26e88c19a723a341840c953701b9cf2bcdd7",
+    "source_vocabulary_sha256": "8d4e3141868efd410eb86c2b60d41aa6bc6b46e4c4b2c0b85e3792493c69d802",
+    "target_vocabulary_sha256": "2ece21b28dd7022d36127d17423a74dabf544787dfc1cf614f7b565f93a4a1d3"
+  },
+  {
+    "direction": "ko-en",
+    "checkpoint": "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/models/ko-en/cjk_retrain_base-memory_QgYNtG3BTzKBFSV1wl06Pg/student-finetuned/final.model.npz.best-chrf.npz",
+    "checkpoint_sha256": "152134aadf69890a9cdb534379132115c1a5b23109a609ed8fe30d05bf8c8c83",
+    "source_vocabulary_sha256": "1c72b740ab793cdc3a8f16913dd6b4e806c77421077dd2d85edeb7be38418598",
+    "target_vocabulary_sha256": "1c72b740ab793cdc3a8f16913dd6b4e806c77421077dd2d85edeb7be38418598"
+  },
+  {
+    "direction": "en-ja",
+    "checkpoint": "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/models/en-ja/llmaat_finetune10M_qe8_f2_ApiGGQIwTKuF9i_k3n9Q2Q/student-finetuned/final.model.npz.best-chrf.npz",
+    "checkpoint_sha256": "7a43d20e13591659ff8ec0abfefc02cfde8d43fc15f0aa7b1e6dc979dd52642c",
+    "source_vocabulary_sha256": "970c98d174fc01e0339fbabbf45af36a4be3f26f819ec1a5ea1189f71e091889",
+    "target_vocabulary_sha256": "3b3d9f8f3a034d98d0a476f1794fa79c01e4e98a967ceb6777a66ba2d03ec1e1"
+  },
+  {
+    "direction": "ja-en",
+    "checkpoint": "https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/models/ja-en/cjk_retrain_base-memory_NLRJLD_pQFyrvgKtbie2nA/student-finetuned/final.model.npz.best-chrf.npz",
+    "checkpoint_sha256": "0af34a5a2062b00929c723ad787e5b242f7030b75e1aaac08f67c566f1792939",
+    "source_vocabulary_sha256": "5cb217758bae05877bb3f0c2f612e4e7c1e4cb03c10db11f4a47098d7ae62919",
+    "target_vocabulary_sha256": "5cb217758bae05877bb3f0c2f612e4e7c1e4cb03c10db11f4a47098d7ae62919"
+  }
+]

@@ -19,15 +19,24 @@ final class LocalLyricsTranslationDirection: @unchecked Sendable {
     private let encoder: MLModel
     private let decoder: MLModel
     let tokenizer: SentencePieceUnigramTokenizer
+    private let targetTokenizer: SentencePieceUnigramTokenizer
+    private let stateShapes: [[NSNumber]]
     /// Upper bound on source pieces; lines longer than this are cut. Lyric
     /// lines are far shorter in practice.
     static let maximumSourcePieces = 200
-    static let hiddenSize = 256
 
     @available(iOS 18.0, macOS 15.0, tvOS 18.0, *)
-    init(compiledModelURL: URL, vocabularyURL: URL, computeUnits: MLComputeUnits = .cpuOnly) throws {
+    init(
+        compiledModelURL: URL,
+        vocabularyURL: URL,
+        targetVocabularyURL: URL? = nil,
+        computeUnits: MLComputeUnits = .cpuOnly
+    ) throws {
         tokenizer = try SentencePieceUnigramTokenizer(modelData: Data(contentsOf: vocabularyURL))
-        startToken = Int32(tokenizer.vocabularySize)
+        targetTokenizer = try targetVocabularyURL.map {
+            try SentencePieceUnigramTokenizer(modelData: Data(contentsOf: $0))
+        } ?? tokenizer
+        startToken = Int32(targetTokenizer.vocabularySize)
         let encodeConfiguration = MLModelConfiguration()
         encodeConfiguration.computeUnits = computeUnits
         encodeConfiguration.functionName = "encode"
@@ -36,6 +45,18 @@ final class LocalLyricsTranslationDirection: @unchecked Sendable {
         decodeConfiguration.functionName = "decode"
         encoder = try MLModel(contentsOf: compiledModelURL, configuration: encodeConfiguration)
         decoder = try MLModel(contentsOf: compiledModelURL, configuration: decodeConfiguration)
+        let inputs = decoder.modelDescription.inputDescriptionsByName
+        let outputs = decoder.modelDescription.outputDescriptionsByName
+        let stateNames = inputs.keys.filter { $0.hasPrefix("state") }
+        guard !stateNames.isEmpty else { throw LocalLyricsTranslationEngineError.invalidModelOutput }
+        stateShapes = try (1...stateNames.count).map { index in
+            guard let shape = inputs["state\(index)"]?.multiArrayConstraint?.shape,
+                  shape.count == 2, shape[0].intValue == 1, shape[1].intValue > 0,
+                  outputs["state\(index)_out"] != nil else {
+                throw LocalLyricsTranslationEngineError.invalidModelOutput
+            }
+            return shape
+        }
     }
 
     /// Translates one line. Returns nil for text without translatable
@@ -67,8 +88,7 @@ final class LocalLyricsTranslationDirection: @unchecked Sendable {
         let token = try MLMultiArray(shape: [1], dataType: .int32)
         let position = try MLMultiArray(shape: [1], dataType: .int32)
         // Same for the recurrent state between steps.
-        let state1 = try Self.zeroState()
-        let state2 = try Self.zeroState()
+        let states = try stateShapes.map(Self.zeroState)
         var next = startToken
         var output: [Int] = []
         // Same length limit as Marian's default max-length-factor.
@@ -76,31 +96,36 @@ final class LocalLyricsTranslationDirection: @unchecked Sendable {
         for step in 0..<limit {
             token[0] = NSNumber(value: next)
             position[0] = NSNumber(value: Int32(step))
-            let result = try decoder.prediction(from: MLDictionaryFeatureProvider(dictionary: [
+            var features = [
                 "token": MLFeatureValue(multiArray: token),
                 "position": MLFeatureValue(multiArray: position),
-                "state1": MLFeatureValue(multiArray: state1),
-                "state2": MLFeatureValue(multiArray: state2),
                 "encoder_out": encoderOut
-            ]))
-            guard let logits = result.featureValue(for: "logits")?.multiArrayValue,
-                  let newState1 = result.featureValue(for: "state1_out")?.multiArrayValue,
-                  let newState2 = result.featureValue(for: "state2_out")?.multiArrayValue else {
+            ]
+            for (index, state) in states.enumerated() {
+                features["state\(index + 1)"] = MLFeatureValue(multiArray: state)
+            }
+            let result = try decoder.prediction(from: MLDictionaryFeatureProvider(dictionary: features))
+            guard let logits = result.featureValue(for: "logits")?.multiArrayValue else {
                 throw LocalLyricsTranslationEngineError.invalidModelOutput
             }
             let best = Self.argmax(logits)
-            if best == tokenizer.endOfSentenceID { break }
+            if best == targetTokenizer.endOfSentenceID { break }
             output.append(best)
             next = Int32(best)
-            Self.copy(newState1, into: state1)
-            Self.copy(newState2, into: state2)
+            for (index, state) in states.enumerated() {
+                guard let nextState = result.featureValue(for: "state\(index + 1)_out")?.multiArrayValue,
+                      nextState.shape == state.shape else {
+                    throw LocalLyricsTranslationEngineError.invalidModelOutput
+                }
+                Self.copy(nextState, into: state)
+            }
         }
-        let translated = tokenizer.decode(output)
+        let translated = targetTokenizer.decode(output)
         return translated.isEmpty ? nil : translated
     }
 
-    private static func zeroState() throws -> MLMultiArray {
-        let state = try MLMultiArray(shape: [1, NSNumber(value: hiddenSize)], dataType: .float32)
+    private static func zeroState(_ shape: [NSNumber]) throws -> MLMultiArray {
+        let state = try MLMultiArray(shape: shape, dataType: .float32)
         state.withUnsafeMutableBufferPointer(ofType: Float.self) { buffer, _ in
             buffer.update(repeating: 0)
         }

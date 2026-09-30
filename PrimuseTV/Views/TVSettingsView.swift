@@ -68,6 +68,7 @@ struct TVSettingsView: View {
     @State private var artistNameSettings = ArtistNameSettingsStore.shared
     @State private var translationSettings = LyricsTranslationSettingsStore.shared
     @State private var showsTranslationModelRemoval = false
+    @State private var translationModelRemovalPack: LocalLyricsTranslationModel.Pack = .persian
     private var localTranslation: LocalLyricsTranslationService { .shared }
     @State private var appleMusic = TVAppleMusicCatalog()
 
@@ -357,42 +358,43 @@ struct TVSettingsView: View {
                     translationSettings.targetLanguageCode =
                         Self.translationTargets[(index + 1) % Self.translationTargets.count]
                 }
-                if localTranslation.modelState != .unsupportedSystem {
-                    settingDivider
-                    navRow(
-                        "arrow.down.circle",
-                        String(localized: "lyrics_translation_local_pairs"),
-                        translationModelStatus,
-                        trailing: translationModelTrailingIcon,
-                        action: translationModelAction
-                    )
+                ForEach(LocalLyricsTranslationModel.Pack.allCases) { pack in
+                    if localTranslation.modelState(for: pack) != .unsupportedSystem {
+                        settingDivider
+                        navRow(
+                            "arrow.down.circle",
+                            String(localized: String.LocalizationValue(pack.pairsKey)),
+                            translationModelStatus(for: pack),
+                            trailing: translationModelTrailingIcon(for: pack)
+                        ) { translationModelAction(for: pack) }
+                    }
                 }
             }
         }
         .task { localTranslation.refreshAvailability() }
     }
 
-    private var translationModelStatus: String {
-        switch localTranslation.modelState {
+    private func translationModelStatus(for pack: LocalLyricsTranslationModel.Pack) -> String {
+        switch localTranslation.modelState(for: pack) {
         case .ready:
             return String(localized: "lyrics_translation_local_ready")
         case .downloading(let fraction):
             return fraction.formatted(.percent.precision(.fractionLength(0)))
         case .failed:
-            return localTranslation.modelFailureReason ?? String(localized: "lyrics_translation_local_retry")
+            return localTranslation.modelFailureReason(for: pack) ?? String(localized: "lyrics_translation_local_retry")
         case .notDownloaded, .unsupportedSystem:
             return String(
                 format: String(localized: "lyrics_translation_local_download_size_format"),
                 ByteCountFormatter.string(
-                    fromByteCount: LocalLyricsTranslationModel.approximateDownloadBytes,
+                    fromByteCount: pack.approximateDownloadBytes,
                     countStyle: .file
                 )
             )
         }
     }
 
-    private var translationModelTrailingIcon: String {
-        switch localTranslation.modelState {
+    private func translationModelTrailingIcon(for pack: LocalLyricsTranslationModel.Pack) -> String {
+        switch localTranslation.modelState(for: pack) {
         case .ready: return "trash"
         case .failed: return "arrow.clockwise"
         case .downloading: return "hourglass"
@@ -400,11 +402,12 @@ struct TVSettingsView: View {
         }
     }
 
-    private func translationModelAction() {
-        switch localTranslation.modelState {
+    private func translationModelAction(for pack: LocalLyricsTranslationModel.Pack) {
+        switch localTranslation.modelState(for: pack) {
         case .notDownloaded, .failed:
-            localTranslation.downloadModel()
+            localTranslation.downloadModel(pack)
         case .ready:
+            translationModelRemovalPack = pack
             showsTranslationModelRemoval = true
         case .downloading, .unsupportedSystem:
             break
@@ -423,7 +426,7 @@ struct TVSettingsView: View {
                         style: .solid
                     ) {
                         showsTranslationModelRemoval = false
-                        Task { await localTranslation.removeModel() }
+                        Task { await localTranslation.removeModel(translationModelRemovalPack) }
                     }
                     TVPillButton(title: String(localized: "cancel"), systemImage: "xmark") {
                         showsTranslationModelRemoval = false

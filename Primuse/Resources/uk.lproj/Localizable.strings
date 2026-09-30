@@ -4680,3 +4680,7 @@
 "desktop_lyrics_island_power_connected" = "Живлення підключено";
 "desktop_lyrics_island_on_battery" = "Від акумулятора";
 "desktop_lyrics_island_progress" = "Хід відтворення";
+
+"lyrics_translation_local_cjk_pairs" = "Англійська ↔ Китайська, японська, корейська";
+
+"lyrics_translation_local_cjk_footer" = "Перекладає тексти пісень між англійською та спрощеною або традиційною китайською, японською й корейською на цьому пристрої. Інші пари перекладаються через англійську, без підключення до мережі.";

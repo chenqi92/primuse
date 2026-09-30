@@ -22,8 +22,8 @@ struct LocalLyricTranslationTests {
         #expect(route("zh-Hans", "fa") == .systemThenLocal(systemSource: "zh-Hans", local: .englishToPersian))
         #expect(route("ja", "fa") == .systemThenLocal(systemSource: "ja", local: .englishToPersian))
         #expect(route("fa", "zh-Hans") == .localThenSystem(local: .persianToEnglish, systemTarget: "zh-Hans"))
-        #expect(route("zh-Hans", "fa", pivot: false) == .unsupported)
-        #expect(route("fa", "ja", pivot: false) == .unsupported)
+        #expect(route("zh-Hans", "fa", pivot: false) == .localPivot(first: .simplifiedChineseToEnglish, second: .englishToPersian))
+        #expect(route("fa", "ja", pivot: false) == .localPivot(first: .persianToEnglish, second: .englishToJapanese))
     }
 
     @Test("Unknown sources, transliterated Persian and unrelated pairs are not routed")
@@ -34,8 +34,24 @@ struct LocalLyricTranslationTests {
         #expect(route("fa-Latn", "en") == .unsupported)
         #expect(route("en", "fa-Latn") == .unsupported)
         #expect(route("fa", "fa-Arab") == .unsupported)
-        #expect(route("zh-Hans", "ja") == .unsupported)
+        #expect(route("ar", "de", pivot: false) == .unsupported)
         #expect(route("en", "en-US") == .unsupported)
+    }
+
+    @Test("CJK directions and the English pivot work without the system translator")
+    func cjkPairs() {
+        #expect(route("en-GB", "zh-CN", pivot: false) == .local(.englishToSimplifiedChinese))
+        #expect(route("zh", "en", pivot: false) == .local(.simplifiedChineseToEnglish))
+        #expect(route("en", "zh-TW", pivot: false) == .local(.englishToTraditionalChinese))
+        #expect(route("zh-HK", "en", pivot: false) == .local(.traditionalChineseToEnglish))
+        #expect(route("en", "ja-JP", pivot: false) == .local(.englishToJapanese))
+        #expect(route("ko-KR", "en", pivot: false) == .local(.koreanToEnglish))
+        #expect(route("ja", "zh-Hans", pivot: false) == .localPivot(first: .japaneseToEnglish, second: .englishToSimplifiedChinese))
+        #expect(route("zh-Hant", "ko", pivot: false) == .localPivot(first: .traditionalChineseToEnglish, second: .englishToKorean))
+        #expect(route("zh-Hans", "zh-Hant", pivot: false) == .localPivot(first: .simplifiedChineseToEnglish, second: .englishToTraditionalChinese))
+        #expect(route("ja", "ja-JP", pivot: false) == .unsupported)
+        #expect(route("fa-Latn", "ja", pivot: false) == .unsupported)
+        #expect(route("fr", "ja", pivot: false) == .unsupported)
     }
 
     // MARK: Output checks
@@ -103,6 +119,33 @@ struct LocalLyricTranslationTests {
         """
         #expect(LocalLyricTranslationManifest.decode(Data(oneWay.utf8)) == nil)
         #expect(LocalLyricTranslationManifest.decode(Data("not json".utf8)) == nil)
+    }
+
+    @Test("CJK manifests require all directions and validate separate target vocabularies")
+    func cjkManifest() throws {
+        let entries = LocalLyricTranslationPolicy.cjkDirections.map { direction in
+            LocalLyricTranslationManifest.Entry(
+                source: direction.source, target: direction.target,
+                model: "cjk/\(direction.source)-\(direction.target).mlmodelc",
+                vocabulary: "cjk/source.spm", targetVocabulary: "cjk/target.spm"
+            )
+        }
+        let manifest = LocalLyricTranslationManifest(format: 1, version: "cjk", directions: entries)
+        func decode(_ entries: [LocalLyricTranslationManifest.Entry]) throws -> LocalLyricTranslationManifest? {
+            let data = try JSONEncoder().encode(LocalLyricTranslationManifest(format: 1, version: "cjk", directions: entries))
+            return LocalLyricTranslationManifest.decode(data, requiredDirections: LocalLyricTranslationPolicy.cjkDirections)
+        }
+        #expect(try decode(entries) == manifest)
+        #expect(manifest.requiredFiles.contains("cjk/target.spm"))
+        #expect(try decode(Array(entries.dropLast())) == nil)
+        #expect(try decode(entries + [entries[0]]) == nil)
+        let unsafe = LocalLyricTranslationManifest.Entry(
+            source: entries[0].source, target: entries[0].target,
+            model: entries[0].model, vocabulary: entries[0].vocabulary, targetVocabulary: "../target.spm"
+        )
+        #expect(try decode([unsafe] + entries.dropFirst()) == nil)
+        let legacyData = try JSONEncoder().encode(manifest)
+        #expect(LocalLyricTranslationManifest.decode(legacyData) == nil)
     }
 
     // MARK: Tokenizer

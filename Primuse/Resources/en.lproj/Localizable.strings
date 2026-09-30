@@ -4537,3 +4537,7 @@
 "desktop_lyrics_island_power_connected" = "Power Connected";
 "desktop_lyrics_island_on_battery" = "On Battery";
 "desktop_lyrics_island_progress" = "Playback Progress";
+
+"lyrics_translation_local_cjk_pairs" = "English ↔ Chinese, Japanese, Korean";
+
+"lyrics_translation_local_cjk_footer" = "Translates lyrics between English and Simplified or Traditional Chinese, Japanese and Korean on this device. Other pairs translate through English, without a network connection.";

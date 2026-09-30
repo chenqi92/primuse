@@ -1,12 +1,9 @@
-"""Convert a Mozilla Firefox Translations "tiny" student (Marian npz:
-transformer encoder + SSRU decoder, tied embeddings) into one Core ML package
-with two functions that share their weights:
+"""Convert a Mozilla Firefox Translations tiny or base-memory student
+(Marian transformer encoder + SSRU decoder) into a Core ML package with
+encode and decode functions. Embedding width, vocabulary sizes and decoder
+depth come from the weights; source and target embeddings can be separate.
 
-  encode(input_ids[1,S]) -> encoder_out[1,S,256]
-  decode(token[1], position[1], state1[1,256], state2[1,256], encoder_out[1,S,256])
-        -> logits[1,32000], state1_out, state2_out
-
-token == 32000 (one past the vocabulary) is Marian's start symbol, whose
+A token one past the target vocabulary is Marian's start symbol, whose
 embedding is zero. Weights are stored as per-channel int8; computation stays
 in float32 because float16 drifts over the decoding steps (see README).
 
@@ -14,6 +11,7 @@ usage: convert_firefox_translations.py <final.model.npz.best-chrf.npz> <out.mlpa
 """
 import math
 import os
+import re
 import shutil
 import sys
 
@@ -92,7 +90,7 @@ class FeedForward(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, p):
         super().__init__()
-        self.embedding = p["Wemb"]
+        self.embedding = p.get("encoder_Wemb", p.get("Wemb"))
         self.attention = nn.ModuleList([Attention(p, f"encoder_l{l}_self") for l in range(1, 7)])
         self.ffn = nn.ModuleList([FeedForward(p, f"encoder_l{l}") for l in range(1, 7)])
 
@@ -110,25 +108,27 @@ class Decoder(nn.Module):
 
     def __init__(self, p):
         super().__init__()
-        self.embedding = p["Wemb"]
+        self.embedding = p.get("decoder_Wemb", p.get("Wemb"))
+        self.depth = sum(re.fullmatch(r"decoder_l\d+_rnn_W", name) is not None for name in p)
+        layers = range(1, self.depth + 1)
         self.vocab = self.embedding.shape[0]
-        self.cell = nn.ModuleList([linear(p[f"decoder_l{l}_rnn_W"]) for l in (1, 2)])
-        self.forget = nn.ModuleList([linear(p[f"decoder_l{l}_rnn_Wf"], p[f"decoder_l{l}_rnn_bf"]) for l in (1, 2)])
+        self.cell = nn.ModuleList([linear(p[f"decoder_l{l}_rnn_W"]) for l in layers])
+        self.forget = nn.ModuleList([linear(p[f"decoder_l{l}_rnn_Wf"], p[f"decoder_l{l}_rnn_bf"]) for l in layers])
         self.cell_norm = nn.ModuleList([
-            LayerNorm(p[f"decoder_l{l}_rnn_ffn_ln_scale"], p[f"decoder_l{l}_rnn_ffn_ln_bias"]) for l in (1, 2)
+            LayerNorm(p[f"decoder_l{l}_rnn_ffn_ln_scale"], p[f"decoder_l{l}_rnn_ffn_ln_bias"]) for l in layers
         ])
-        self.context = nn.ModuleList([Attention(p, f"decoder_l{l}_context") for l in (1, 2)])
-        self.ffn = nn.ModuleList([FeedForward(p, f"decoder_l{l}") for l in (1, 2)])
+        self.context = nn.ModuleList([Attention(p, f"decoder_l{l}_context") for l in layers])
+        self.ffn = nn.ModuleList([FeedForward(p, f"decoder_l{l}") for l in layers])
         self.output_bias = nn.Parameter(p["decoder_ff_logit_out_b"].view(-1))
 
-    def forward(self, token, position, state1, state2, encoder_out):
+    def forward(self, token, position, *inputs):
+        states, encoder_out = inputs[:-1], inputs[-1]
         token = token.long()
         is_start = (token >= self.vocab).float()[:, None]
         embedded = self.embedding[torch.clamp(token, max=self.vocab - 1)] * (1.0 - is_start)
         x = embedded * math.sqrt(DIM) + sinusoid_at(position.float(), DIM)
-        states = [state1, state2]
         new_states = []
-        for i in range(2):
+        for i in range(self.depth):
             f = torch.sigmoid(self.forget[i](x))
             c = f * states[i] + (1 - f) * self.cell[i](x)
             new_states.append(c)
@@ -136,7 +136,7 @@ class Decoder(nn.Module):
             x = self.context[i](x[:, None, :], encoder_out)[:, 0, :]
             x = self.ffn[i](x)
         logits = x @ self.embedding.T + self.output_bias
-        return logits, new_states[0], new_states[1]
+        return (logits, *new_states)
 
 
 def load(path):
@@ -145,8 +145,13 @@ def load(path):
 
 
 def main():
+    global DIM
     npz, out = sys.argv[1], sys.argv[2]
     p = load(npz)
+    embedding = p.get("encoder_Wemb", p.get("Wemb"))
+    DIM = int(embedding.shape[1])
+    if DIM % HEADS != 0:
+        raise ValueError("Embedding width must divide into eight attention heads")
     encoder = Encoder(p).eval()
     decoder = Decoder(p).eval()
     for module in (encoder, decoder):
@@ -154,14 +159,14 @@ def main():
             parameter.requires_grad_(False)
 
     length = 12
-    ids = torch.randint(0, 32000, (1, length), dtype=torch.int32)
+    ids = torch.randint(0, encoder.embedding.shape[0], (1, length), dtype=torch.int32)
     with torch.no_grad():
         encoded = encoder(ids)
         traced_encoder = torch.jit.trace(encoder, (ids,))
-        start = torch.tensor([32000], dtype=torch.int32)
+        start = torch.tensor([decoder.vocab], dtype=torch.int32)
         zero_position = torch.tensor([0], dtype=torch.int32)
-        zero_state = torch.zeros(1, DIM)
-        traced_decoder = torch.jit.trace(decoder, (start, zero_position, zero_state, zero_state, encoded))
+        zero_states = tuple(torch.zeros(1, DIM) for _ in range(decoder.depth))
+        traced_decoder = torch.jit.trace(decoder, (start, zero_position, *zero_states, encoded))
 
     source = ct.RangeDim(lower_bound=1, upper_bound=MAX_SOURCE, default=length)
     common = dict(
@@ -180,14 +185,12 @@ def main():
         inputs=[
             ct.TensorType("token", shape=(1,), dtype=np.int32),
             ct.TensorType("position", shape=(1,), dtype=np.int32),
-            ct.TensorType("state1", shape=(1, DIM), dtype=np.float32),
-            ct.TensorType("state2", shape=(1, DIM), dtype=np.float32),
+            *[ct.TensorType(f"state{i+1}", shape=(1, DIM), dtype=np.float32) for i in range(decoder.depth)],
             ct.TensorType("encoder_out", shape=(1, source, DIM), dtype=np.float32),
         ],
         outputs=[
             ct.TensorType("logits", dtype=np.float32),
-            ct.TensorType("state1_out", dtype=np.float32),
-            ct.TensorType("state2_out", dtype=np.float32),
+            *[ct.TensorType(f"state{i+1}_out", dtype=np.float32) for i in range(decoder.depth)],
         ],
         **common,
     )

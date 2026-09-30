@@ -4774,3 +4774,7 @@
 "desktop_lyrics_island_power_connected" = "Secteur branché";
 "desktop_lyrics_island_on_battery" = "Sur batterie";
 "desktop_lyrics_island_progress" = "Progression de la lecture";
+
+"lyrics_translation_local_cjk_pairs" = "Anglais ↔ Chinois, japonais, coréen";
+
+"lyrics_translation_local_cjk_footer" = "Traduit les paroles entre l’anglais et le chinois simplifié ou traditionnel, le japonais et le coréen sur cet appareil. Les autres paires passent par l’anglais, sans connexion réseau.";

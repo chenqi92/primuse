@@ -4867,3 +4867,7 @@
 "desktop_lyrics_island_power_connected" = "已接通电源";
 "desktop_lyrics_island_on_battery" = "使用电池";
 "desktop_lyrics_island_progress" = "播放进度";
+
+"lyrics_translation_local_cjk_pairs" = "英语 ↔ 中文、日语、韩语";
+
+"lyrics_translation_local_cjk_footer" = "在本机完成简繁中文、日语、韩语与英语的歌词互译，其他语言组合经英语中转，无需联网。";

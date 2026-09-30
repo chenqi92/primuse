@@ -1,0 +1,16 @@
+{
+  "assetPackID": "LyricsTranslationCJKModel",
+  "downloadPolicy": {
+    "onDemand": {}
+  },
+  "fileSelectors": [
+    {
+      "directory": "cjk"
+    }
+  ],
+  "platforms": [
+    "iOS",
+    "macOS",
+    "tvOS"
+  ]
+}

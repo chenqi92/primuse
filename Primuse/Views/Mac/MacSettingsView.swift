@@ -4010,19 +4010,23 @@ private struct MacSTLyricsView: View {
                 }
             }
 
-            if settings.isEnabled, localTranslation.modelState != .unsupportedSystem {
-                MacSTSection(
-                    String(localized: "lyrics_translation_local_section"),
-                    hint: String(localized: "lyrics_translation_local_footer")
-                ) {
-                    MacSTGroup {
-                        MacSTRow(
-                            String(localized: "lyrics_translation_local_pairs"),
-                            hint: localTranslation.modelState == .failed
-                                ? localTranslation.modelFailureReason : nil,
-                            divider: false
+            if settings.isEnabled {
+                ForEach(LocalLyricsTranslationModel.Pack.allCases) { pack in
+                    if localTranslation.modelState(for: pack) != .unsupportedSystem {
+                        MacSTSection(
+                            String(localized: "lyrics_translation_local_section"),
+                            hint: String(localized: String.LocalizationValue(pack.footerKey))
                         ) {
-                            localTranslationModelControl
+                            MacSTGroup {
+                                MacSTRow(
+                                    String(localized: String.LocalizationValue(pack.pairsKey)),
+                                    hint: localTranslation.modelState(for: pack) == .failed
+                                        ? localTranslation.modelFailureReason(for: pack) : nil,
+                                    divider: false
+                                ) {
+                                    localTranslationModelControl(for: pack)
+                                }
+                            }
                         }
                     }
                 }
@@ -4121,20 +4125,20 @@ private struct MacSTLyricsView: View {
     }
 
     @ViewBuilder
-    private var localTranslationModelControl: some View {
-        switch localTranslation.modelState {
+    private func localTranslationModelControl(for pack: LocalLyricsTranslationModel.Pack) -> some View {
+        switch localTranslation.modelState(for: pack) {
         case .notDownloaded:
             MacSTButton(
                 title: String(
                     format: String(localized: "lyrics_translation_local_download_size_format"),
                     ByteCountFormatter.string(
-                        fromByteCount: LocalLyricsTranslationModel.approximateDownloadBytes,
+                        fromByteCount: pack.approximateDownloadBytes,
                         countStyle: .file
                     )
                 ),
                 systemImage: "arrow.down.circle"
             ) {
-                localTranslation.downloadModel()
+                localTranslation.downloadModel(pack)
             }
         case .downloading(let fraction):
             ProgressView(value: fraction)
@@ -4144,7 +4148,7 @@ private struct MacSTLyricsView: View {
                 title: String(localized: "lyrics_translation_local_retry"),
                 systemImage: "arrow.clockwise"
             ) {
-                localTranslation.downloadModel()
+                localTranslation.downloadModel(pack)
             }
         case .ready:
             MacSTButton(
@@ -4152,7 +4156,7 @@ private struct MacSTLyricsView: View {
                 systemImage: "trash",
                 destructive: true
             ) {
-                Task { await localTranslation.removeModel() }
+                Task { await localTranslation.removeModel(pack) }
             }
         case .unsupportedSystem:
             EmptyView()
