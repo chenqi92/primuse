@@ -8627,52 +8627,10 @@ struct LyricsScrollView: View {
         )
     }
 
-    @ViewBuilder
     private var translationStatusBadge: some View {
-        switch translationActivity {
-        case .idle, .notNeeded:
-            EmptyView()
-        case .intelligentLoading:
-            Label("lyrics_translation_ai_loading", systemImage: "sparkles")
-                .lyricsTranslationStatusBadgeStyle()
-        case .intelligentCached:
-            Label("lyrics_translation_ai_cached", systemImage: "checkmark.circle.fill")
-                .lyricsTranslationStatusBadgeStyle()
-        case .intelligentSuccess(let provider, let fallbackDepth):
-            Label(
-                String(
-                    format: String(localized: fallbackDepth > 0
-                                   ? "lyrics_translation_ai_fallback_success_format"
-                                   : "lyrics_translation_ai_success_format"),
-                    provider.isEmpty ? String(localized: "ai_provider_default_name") : provider
-                ),
-                systemImage: fallbackDepth > 0
-                    ? "arrow.trianglehead.branch" : "checkmark.circle.fill"
-            )
-            .lyricsTranslationStatusBadgeStyle()
-        case .systemFallback:
-            Label("lyrics_translation_ai_system_fallback", systemImage: "arrow.uturn.backward.circle")
-                .lyricsTranslationStatusBadgeStyle()
-        case .systemPreparationRequired:
-            Button {
-                lastLyricRowTapAt = Date()
-                LyricsTranslationSettingsStore.shared.requestSystemTranslationPreparation()
-            } label: {
-                Label(String(localized: "Translate Lyrics"), systemImage: "arrow.down.circle")
-            }
-            .buttonStyle(.plain)
-            .lyricsTranslationStatusBadgeStyle()
-        case .systemUnavailable:
-            Label("lyrics_translation_unavailable", systemImage: "exclamationmark.triangle")
-                .lyricsTranslationStatusBadgeStyle()
-        case .localTranslating:
-            Label("lyrics_translation_local_translating", systemImage: "character.book.closed")
-                .lyricsTranslationStatusBadgeStyle()
-        case .localModelRequired:
-            LocalTranslationModelBadge {
-                lastLyricRowTapAt = Date()
-            }
-            .lyricsTranslationStatusBadgeStyle()
+        // 点这颗状态标签不能被外层当成「点空白回封面」。
+        LyricsTranslationStatusChip(activity: translationActivity) {
+            lastLyricRowTapAt = Date()
         }
     }
 
@@ -9657,12 +9615,191 @@ struct LyricsScrollView: View {
     }
 }
 
-private extension View {
-    func lyricsTranslationStatusBadgeStyle() -> some View {
-        font(.caption.weight(.semibold))
-            .padding(.horizontal, 10)
+/// 歌词页右上角的翻译状态。状态刚出现或变化时展开成「图标 + 说明」，停一会儿
+/// 自动收成只剩图标的小圆片，不再一直压着歌词；点图标再展开。图标的颜色区分
+/// 成功、退回、失败与需要处理。需要处理的状态展开后，点说明才执行动作。
+private struct LyricsTranslationStatusChip: View {
+    let activity: LyricsTranslationActivity
+    /// 每次点到标签都先报给歌词页，挡掉同一下的「点空白回封面」。
+    let onInteraction: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isExpanded = true
+    /// 手动点开时换一个值，重新计时收起。
+    @State private var revealGeneration = 0
+
+    private var localModel: LocalLyricsTranslationService { .shared }
+
+    private enum Tone { case success, warning, failure, progress, action }
+
+    private struct Status {
+        /// 同一个 key 视为同一状态：下载百分比跳动不会反复展开。
+        let key: String
+        let title: String
+        let systemImage: String
+        let tone: Tone
+        let action: (() -> Void)?
+    }
+
+    private struct RevealIdentity: Hashable {
+        let key: String?
+        let generation: Int
+    }
+
+    private var status: Status? {
+        switch activity {
+        case .idle, .notNeeded:
+            return nil
+        case .intelligentLoading:
+            return Status(key: "aiLoading",
+                          title: String(localized: "lyrics_translation_ai_loading"),
+                          systemImage: "sparkles", tone: .progress, action: nil)
+        case .intelligentCached:
+            return Status(key: "aiCached",
+                          title: String(localized: "lyrics_translation_ai_cached"),
+                          systemImage: "checkmark.circle.fill", tone: .success, action: nil)
+        case .intelligentSuccess(let provider, let fallbackDepth):
+            let name = provider.isEmpty ? String(localized: "ai_provider_default_name") : provider
+            return Status(
+                key: "aiSuccess|\(provider)|\(fallbackDepth)",
+                title: String(
+                    format: String(localized: fallbackDepth > 0
+                                   ? "lyrics_translation_ai_fallback_success_format"
+                                   : "lyrics_translation_ai_success_format"),
+                    name
+                ),
+                systemImage: fallbackDepth > 0 ? "arrow.trianglehead.branch" : "checkmark.circle.fill",
+                tone: fallbackDepth > 0 ? .warning : .success,
+                action: nil
+            )
+        case .systemFallback:
+            return Status(key: "systemFallback",
+                          title: String(localized: "lyrics_translation_ai_system_fallback"),
+                          systemImage: "arrow.uturn.backward.circle.fill", tone: .warning, action: nil)
+        case .systemPreparationRequired:
+            return Status(key: "systemPreparation",
+                          title: String(localized: "Translate Lyrics"),
+                          systemImage: "arrow.down.circle.fill", tone: .action) {
+                LyricsTranslationSettingsStore.shared.requestSystemTranslationPreparation()
+            }
+        case .systemUnavailable:
+            return Status(key: "systemUnavailable",
+                          title: String(localized: "lyrics_translation_unavailable"),
+                          systemImage: "exclamationmark.triangle.fill", tone: .failure, action: nil)
+        case .localTranslating:
+            return Status(key: "localTranslating",
+                          title: String(localized: "lyrics_translation_local_translating"),
+                          systemImage: "character.book.closed.fill", tone: .progress, action: nil)
+        case .localModelRequired:
+            return localModelStatus
+        }
+    }
+
+    /// 与 `LocalTranslationModelBadge` 同一套文案与动作，只是拆成图标和说明两半。
+    private var localModelStatus: Status? {
+        switch localModel.modelState {
+        case .notDownloaded:
+            return Status(key: "localModelDownload",
+                          title: String(localized: "lyrics_translation_local_download"),
+                          systemImage: "arrow.down.circle.fill", tone: .action) {
+                LocalLyricsTranslationService.shared.downloadModel()
+            }
+        case .failed:
+            return Status(key: "localModelFailed",
+                          title: String(localized: "lyrics_translation_local_retry"),
+                          systemImage: "arrow.clockwise.circle.fill", tone: .failure) {
+                LocalLyricsTranslationService.shared.downloadModel()
+            }
+        case .downloading(let fraction):
+            return Status(
+                key: "localModelDownloading",
+                title: String(
+                    format: String(localized: "lyrics_translation_local_downloading_format"),
+                    fraction.formatted(.percent.precision(.fractionLength(0)))
+                ),
+                systemImage: "arrow.down.circle.dotted", tone: .progress, action: nil
+            )
+        case .ready, .unsupportedSystem:
+            return nil
+        }
+    }
+
+    private func tint(for tone: Tone) -> Color {
+        switch tone {
+        case .success: .green
+        case .warning: .orange
+        case .failure: .red
+        case .progress: .secondary
+        case .action: .accentColor
+        }
+    }
+
+    /// 要用户动手的状态多留一会儿，别人还没看清按钮就收了。
+    private func visibleDuration(for status: Status) -> Duration {
+        status.action == nil ? .seconds(3.5) : .seconds(6)
+    }
+
+    private var animation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.38, extraBounce: 0.08)
+    }
+
+    var body: some View {
+        let status = status
+        ZStack(alignment: .topTrailing) {
+            if let status {
+                chip(status)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .topTrailing)))
+            }
+        }
+        .animation(animation, value: status?.key)
+        .task(id: RevealIdentity(key: status?.key, generation: revealGeneration)) {
+            guard let status else { return }
+            if !isExpanded {
+                withAnimation(animation) { isExpanded = true }
+            }
+            do {
+                try await Task.sleep(for: visibleDuration(for: status))
+            } catch {
+                return
+            }
+            withAnimation(animation) { isExpanded = false }
+        }
+    }
+
+    private func chip(_ status: Status) -> some View {
+        Button {
+            onInteraction()
+            if !isExpanded {
+                revealGeneration &+= 1
+            } else if let action = status.action {
+                action()
+            } else {
+                withAnimation(animation) { isExpanded = false }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: status.systemImage)
+                    .foregroundStyle(tint(for: status.tone))
+                    .symbolEffect(.pulse, isActive: status.tone == .progress && !reduceMotion)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 16, height: 16)
+                if isExpanded {
+                    Text(status.title)
+                        .lineLimit(1)
+                        .monospacedDigit()
+                        .fixedSize()
+                        .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, isExpanded ? 10 : 6)
             .padding(.vertical, 6)
             .background(.ultraThinMaterial, in: Capsule())
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(status.title)
     }
 }
 
