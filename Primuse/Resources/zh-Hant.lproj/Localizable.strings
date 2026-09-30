@@ -3917,7 +3917,7 @@
 "carplay_item_limit_footer" = "上限 60";
 "carplay_pages_estimate" = "约 %d 屏 · 上限 60";
 "carplay_reset_module" = "重置此模块";
-"carplay_preview_in_car" = "在车机预览";
+"carplay_preview_in_car" = "預覽佈局";
 "carplay_remove_content" = "移除内容";
 "carplay_add_this_folder" = "添加此目录";
 "carplay_style_capsules" = "胶囊";
@@ -4290,13 +4290,13 @@
 "launch_diagnostics_files_hint" = "診斷資訊也已儲存到「檔案」App → 我的 iPhone → Primuse → Diagnostics。";
 
 // MARK: - 有聲內容
-"tab_spoken_word" = "有聲內容";
+"tab_spoken_word" = "有聲書";
 "spoken_word_continue_section" = "繼續收聽";
 "spoken_word_all_section" = "全部";
 "spoken_word_empty_hint" = "有聲書、相聲、評書、廣播劇這類內容會出現在這裡。";
 "spoken_word_remaining_format" = "剩餘 %@";
 "spoken_word_clear_progress" = "清除收聽位置";
-"mark_as_spoken_word" = "標記為有聲內容";
+"mark_as_spoken_word" = "標記為有聲書";
 "mark_as_music" = "標記為音樂";
 "chapters_title" = "章節";
 "a11y_skip_backward" = "後退 15 秒";
@@ -4342,9 +4342,9 @@
 "spoken_word_mark_previous_finished" = "將之前的章節標記為已聽完";
 "spoken_word_next_chapter" = "下一章";
 "spoken_word_previous_chapter" = "上一章";
-"spoken_word_playback_rate" = "有聲內容播放速度";
+"spoken_word_playback_rate" = "有聲書播放速度";
 "spoken_word_resume_here" = "從這裡繼續";
-"spoken_word_settings_section" = "有聲書與有聲內容";
+"spoken_word_settings_section" = "有聲書";
 "spoken_word_settings_footer" = "有聲書、評書、廣播劇使用獨立的速度，調快聽書不會讓音樂也變快。倒轉、快轉按鈕在鎖定畫面和車機上同樣有效。";
 "spoken_word_skip_backward" = "倒轉";
 "spoken_word_skip_forward" = "快轉";
@@ -4595,7 +4595,7 @@
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "音樂";
 "listening_space_radio" = "電台";
-"listening_space_spoken_word" = "有聲";
+"listening_space_spoken_word" = "有聲書";
 "home_continue_spaces_title" = "接著聽";
 "home_continue_spaces_hint" = "從上次停下的地方繼續";
 "home_continue_music_queue" = "之前的音樂佇列";
@@ -4609,7 +4609,7 @@
 "smart_nudge_kind_classify_spoken" = "詢問沒有標籤的長音訊";
 "smart_nudge_back_to_music_message" = "這本書快聽完了。接下來接著放之前的音樂嗎？";
 "smart_nudge_classify_spoken_message" = "這段長音訊沒有專輯和藝人。它是有聲書或節目嗎？";
-"smart_nudge_action_move" = "移到有聲";
+"smart_nudge_action_move" = "移到有聲書";
 "spoken_word_next_item" = "下一集";
 "spoken_word_previous_item" = "上一集";
 "mac_player_chapter_number_format" = "第 %lld 章";
@@ -4655,7 +4655,7 @@
 "tv_spoken_word_rate_unavailable" = "透過 AirPlay 等外部裝置輸出時，只能以原速播放。";
 "stats_spoken_word_time" = "聽書時長";
 "directory_tag_menu_title" = "資料夾裡的內容";
-"directory_tag_hint" = "點一下已選資料夾旁的標籤改成「有聲」，裡面的內容會放進有聲書架，不和音樂混在一起。";
+"directory_tag_hint" = "點一下已選資料夾旁的標籤改成「有聲書」，裡面的內容會放進有聲書架，不和音樂混在一起。";
 "home_filter_clear_hint" = "再點一次回到全部";
 "notifications_section" = "通知";
 "notify_long_tasks_footer" = "你發起的掃描、標籤讀取和刮削在背景完成時提醒你。掃描失敗、iCloud 空間已滿這類需要你處理的問題不受此開關影響；App 在前景時不會發通知。";
@@ -4740,7 +4740,7 @@
 "tv_scrape_phone_only_note" = "歌詞 API 伺服器位址和 Cookie 請在 iPhone 上填寫，再透過掃碼或 iCloud 同步到電視。";
 
 "desktop_lyrics_island" = "歌詞上島";
-"desktop_lyrics_island_description" = "桌面歌詞收進螢幕頂部正中，有瀏海的 Mac 上從瀏海裡長出來；指標移到頂部就展開播放控制。";
+"desktop_lyrics_island_description" = "在螢幕頂部顯示歌詞，懸停展開播放控制；可與桌面歌詞分別開關、同時顯示。";
 "desktop_lyrics_island_exit" = "回到桌面";
 "desktop_lyrics_island_system_status" = "在島上顯示耳機、音量和充電";
 "desktop_lyrics_island_system_status_description" = "切換輸出裝置、調整音量、插拔電源時，島上會短暫顯示一下。";
@@ -4755,3 +4755,14 @@
 "lyrics_translation_local_cjk_pairs" = "英語 ↔ 中文、日語、韓語";
 
 "lyrics_translation_local_cjk_footer" = "在本機完成簡繁中文、日語、韓語與英語的歌詞互譯，其他語言組合經英語中轉，無需連網。";
+
+"songs_show_column_headers" = "顯示欄位標題";
+"playlist_hide_network_notice" = "隱藏網路提示";
+"playlist_show_network_notice" = "顯示網路提示";
+"hide_lyrics_island" = "隱藏歌詞島";
+
+"search_like_all_songs_format" = "將全部 %d 首歌曲加入我喜歡";
+"search_all_songs_liked_format" = "全部 %d 首歌曲已在我喜歡中";
+
+"lyrics_island_always_on_top" = "永遠置頂";
+"menu_bar_icon_only_with_lyrics_island" = "歌詞島顯示時只保留選單列圖示";

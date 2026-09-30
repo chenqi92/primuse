@@ -1791,23 +1791,28 @@ struct MacAppIcon: Identifiable, Equatable, Sendable {
     /// 再交给 `applicationIconImage`。预览 PNG 是不带 alpha 的满幅方图, 直接当 dock
     /// 图标会又大又方, 跟系统其它图标 (含本 app 默认图标) 的圆角 + 留白对不上。
     @MainActor
-    static func dockIconImage(previewAsset asset: String) -> NSImage? {
-        guard let src = NSImage(named: asset) else { return nil }
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    static func dockIconImage(previewAsset asset: String, appearance: NSAppearance? = nil) -> NSImage? {
+        guard NSImage(named: asset) != nil else { return nil }
+        let appearance = appearance ?? NSApp.effectiveAppearance
+        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let side: CGFloat = 512
         let inset = side * 0.0977          // ≈ macOS 图标网格留白 (100 / 1024)
         let body = side - inset * 2
         let radius = body * 0.2247         // ≈ macOS 图标圆角比例
-        let content = Image(nsImage: src)
+        let content = Image(asset)
             .resizable()
             .interpolation(.high)
             .frame(width: body, height: body)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .frame(width: side, height: side)   // 居中 + 四周透明留白
             .environment(\.colorScheme, isDark ? .dark : .light)
-        let renderer = ImageRenderer(content: content)
-        renderer.scale = 2
-        return renderer.nsImage
+        var image: NSImage?
+        appearance.performAsCurrentDrawingAppearance {
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = 2
+            image = renderer.nsImage
+        }
+        return image
     }
 }
 
@@ -1882,6 +1887,7 @@ final class MacUIPreferences {
     }
 
     private(set) var artworkBrandColor: Color? = nil
+    @ObservationIgnored private var appearanceObservation: NSKeyValueObservation?
 
     /// 固定回退色与当前生效色分开，自动模式下全套 Mac 自绘控件会随封面更新。
     var fixedBrandColor: Color { Color(hex: brandColorHex) }
@@ -1960,6 +1966,13 @@ final class MacUIPreferences {
     /// 所以必须显式调一次)。在 AppDelegate.applicationDidFinishLaunching 里调。
     func applyOnLaunch() {
         applyColorScheme()
+        if appearanceObservation == nil {
+            appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+                Task { @MainActor [weak self] in
+                    self?.applyAppIcon()
+                }
+            }
+        }
         applyAppIcon()
     }
 

@@ -42,6 +42,7 @@ final class DesktopLyricsIslandState {
     var presented = false
     /// 指针压在刘海下面那行歌词上：整块淡下去，好看清、点到后面的东西。
     var peeking = false
+    var alwaysOnTop = false
     var activity: DesktopLyricsIslandActivity?
     /// view 按当前内容算出的岛本体目标尺寸（不含两肩），controller 拿它判定指针。
     var islandSize: CGSize = .zero
@@ -57,7 +58,7 @@ final class DesktopLyricsIslandState {
     }
 }
 
-/// 岛的窗口。要盖在菜单栏上面，所以不能让 AppKit 把 frame 往菜单栏下面挪。
+/// 岛的窗口贴住屏幕顶边，不让 AppKit 按菜单栏安全区域挪动。
 final class DesktopLyricsIslandPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -78,10 +79,10 @@ final class DesktopLyricsIslandController {
     static let displayKey = "desktopLyricsIslandDisplay"
     /// 设置里的「在岛上显示耳机、音量和充电状态」，默认开。
     static let systemStatusKey = "desktopLyricsIslandSystemStatus"
-    private static let lockedKey = "desktopLyricsLocked"
+    static let alwaysOnTopKey = "desktopLyricsIslandAlwaysOnTop"
 
     let state: DesktopLyricsIslandState
-    var onExit: () -> Void = {}
+    var onToggleDesktop: () -> Void = {}
     var onClose: () -> Void = {}
 
     private var panel: DesktopLyricsIslandPanel?
@@ -91,6 +92,7 @@ final class DesktopLyricsIslandController {
     nonisolated(unsafe) private var pointerMonitors: [Any] = []
     nonisolated(unsafe) private var pointerTimer: Timer?
     nonisolated(unsafe) private var screenObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var preferenceObserver: NSObjectProtocol?
 
     private var expandTask: Task<Void, Never>?
     private var collapseTask: Task<Void, Never>?
@@ -121,12 +123,14 @@ final class DesktopLyricsIslandController {
                     visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 876)
                 ))
         )
+        state.alwaysOnTop = UserDefaults.standard.bool(forKey: Self.alwaysOnTopKey)
     }
 
     deinit {
         for monitor in pointerMonitors { NSEvent.removeMonitor(monitor) }
         pointerTimer?.invalidate()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        if let preferenceObserver { NotificationCenter.default.removeObserver(preferenceObserver) }
     }
 
     /// 岛在屏上、并且没在往回收。
@@ -134,7 +138,7 @@ final class DesktopLyricsIslandController {
         panel?.isVisible == true && dismissTask == nil
     }
 
-    /// - Parameter screen: 从浮动桌面歌词切过来时传它所在的屏幕，岛就上到这块屏幕的顶边。
+    /// - Parameter screen: 优先显示在桌面歌词所在的屏幕顶部。
     func show(preferring screen: NSScreen? = nil) {
         dismissTask?.cancel()
         dismissTask = nil
@@ -142,6 +146,7 @@ final class DesktopLyricsIslandController {
             UserDefaults.standard.set(Int(id), forKey: Self.displayKey)
         }
         guard let target = Self.resolveScreen() else { return }
+        state.alwaysOnTop = UserDefaults.standard.bool(forKey: Self.alwaysOnTopKey)
 
         let panel = self.panel ?? makePanel()
         self.panel = panel
@@ -152,6 +157,7 @@ final class DesktopLyricsIslandController {
 
         startPointerTracking()
         observeScreenChanges()
+        observePreferenceChanges()
         systemMonitor.start { [weak self] activity in
             self?.present(activity)
         }
@@ -239,7 +245,37 @@ final class DesktopLyricsIslandController {
         screenFrame = screen.frame
         let metrics = Self.metrics(for: screen)
         if state.metrics != metrics { state.metrics = metrics }
-        panel?.setFrame(metrics.panelFrame(on: screen.frame), display: true)
+        guard let panel else { return }
+        // isFloatingPanel 会重设窗口层级，最终层级在面板配置完成后应用。
+        let level = NSWindow.Level(rawValue: state.alwaysOnTop
+            ? NSWindow.Level.statusBar.rawValue + 1
+            : NSWindow.Level.mainMenu.rawValue - 1)
+        if panel.level != level { panel.level = level }
+        let frame = metrics.panelFrame(on: screen.frame)
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
+    }
+
+    func setAlwaysOnTop(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.alwaysOnTopKey)
+        state.alwaysOnTop = enabled
+        if let screen = Self.resolveScreen() { apply(screen: screen) }
+        updatePointer()
+    }
+
+    private func observePreferenceChanges() {
+        guard preferenceObserver == nil else { return }
+        preferenceObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let enabled = UserDefaults.standard.bool(forKey: Self.alwaysOnTopKey)
+                guard enabled != self.state.alwaysOnTop else { return }
+                self.state.alwaysOnTop = enabled
+                if let screen = Self.resolveScreen() { self.apply(screen: screen) }
+                self.updatePointer()
+            }
+        }
     }
 
     /// 插拔显示器、改分辨率、合盖都会改屏幕排布，岛要跟着回到正确的顶边。
@@ -271,8 +307,6 @@ final class DesktopLyricsIslandController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        // 菜单栏之上、下拉菜单之下：点开 App 菜单或状态栏菜单时菜单照样盖在岛上面。
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
@@ -283,8 +317,9 @@ final class DesktopLyricsIslandController {
 
         let host = NSHostingView(rootView: DesktopLyricsIslandView(
             state: state,
-            onExit: { [weak self] in self?.onExit() },
-            onClose: { [weak self] in self?.onClose() }
+            onToggleDesktop: { [weak self] in self?.onToggleDesktop() },
+            onClose: { [weak self] in self?.onClose() },
+            onAlwaysOnTopChange: { [weak self] in self?.setAlwaysOnTop($0) }
         ).applyPrimuseEnvironments())
         // 面板尺寸由这里按屏幕算好，不让 SwiftUI 内容反过来撑窗口。
         host.sizingOptions = []
@@ -302,6 +337,10 @@ final class DesktopLyricsIslandController {
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
             self.screenObserver = nil
+        }
+        if let preferenceObserver {
+            NotificationCenter.default.removeObserver(preferenceObserver)
+            self.preferenceObserver = nil
         }
         panel?.orderOut(nil)
         panel?.contentView = nil
@@ -351,10 +390,6 @@ final class DesktopLyricsIslandController {
         pressBeganInside = false
     }
 
-    private var isLockedNow: Bool {
-        UserDefaults.standard.bool(forKey: Self.lockedKey)
-    }
-
     private func currentZone() -> DesktopLyricsIslandZone {
         let size = state.islandSize == .zero ? state.metrics.restingSize : state.islandSize
         let island = state.metrics.islandFrame(size: size, on: screenFrame)
@@ -367,8 +402,6 @@ final class DesktopLyricsIslandController {
     }
 
     /// 按指针此刻的位置决定展开 / 收起 / 变淡，以及面板吃不吃鼠标。
-    ///
-    /// 锁定时岛只看不碰：不展开，已展开的也收回去。解锁走菜单栏、App 菜单或 ⇧⌘L。
     private func updatePointer() {
         guard let panel, panel.isVisible, state.presented, dismissTask == nil else { return }
         #if DEBUG
@@ -379,10 +412,6 @@ final class DesktopLyricsIslandController {
         if !buttonHeld { pressBeganInside = false }
 
         if state.expanded {
-            if isLockedNow {
-                collapse()
-                return
-            }
             if zone == .inside {
                 if buttonHeld { pressBeganInside = true }
                 cancelCollapse()
@@ -401,7 +430,7 @@ final class DesktopLyricsIslandController {
         switch zone {
         case .trigger:
             setPeeking(false)
-            if !isLockedNow { scheduleExpand() }
+            scheduleExpand()
         case .peek:
             cancelExpand()
             setPeeking(true)
@@ -428,7 +457,6 @@ final class DesktopLyricsIslandController {
             guard let self, !Task.isCancelled else { return }
             self.expandTask = nil
             guard !self.state.expanded,
-                  !self.isLockedNow,
                   self.currentZone() == .trigger,
                   let panel = self.panel else { return }
             withAnimation(Self.morph) {

@@ -237,16 +237,269 @@ final class CloudKVSSyncTests: XCTestCase {
         sync.handleExternalChange(changedKeys: [key], reason: .quotaViolation)
         XCTAssertEqual(defaults.string(forKey: key), "mine")
     }
+
+    func testLocalEditsPublishImmediatelyWithoutForcingSynchronization() {
+        sync.register(key: key) { }
+        for value in [true, false, true] {
+            defaults.set(value, forKey: key)
+            sync.markChanged(key: key)
+            XCTAssertEqual(store.object(forKey: key) as? Bool, value)
+            XCTAssertEqual(store.double(forKey: revisionKey), defaults.double(forKey: revisionKey))
+        }
+        XCTAssertEqual(store.synchronizeCount, 0, "toggle callbacks must not force KVS storage synchronization")
+    }
+
+    func testCatchUpPublishesAllOfflineEditsWithoutPerKeySynchronization() {
+        let keys = [key, "second_setting"]
+        defaults.set(false, forKey: CloudSyncChannel.settings.defaultsKey)
+        for key in keys {
+            sync.register(key: key) { }
+            defaults.set("offline-edit", forKey: key)
+            sync.markChanged(key: key)
+        }
+        defaults.set(true, forKey: CloudSyncChannel.settings.defaultsKey)
+        XCTAssertEqual(sync.catchUp().pushed, keys.count)
+        for key in keys {
+            XCTAssertEqual(store.object(forKey: key) as? String, "offline-edit")
+        }
+        XCTAssertEqual(store.synchronizeCount, 0)
+    }
+
+    func testLinkedPlaybackTogglesPersistOnlyTheirFinalStateOnce() throws {
+        let playback = PlaybackSettingsStore(defaults: defaults, cloudSync: sync)
+        let key = PlaybackSettings.defaultsKey
+        playback.gaplessEnabled = true
+        let writesBeforeCrossfade = store.setCounts[key, default: 0]
+
+        playback.crossfadeEnabled = true
+        playback.gaplessEnabled = false // the UI's onChange repeats the linked value
+        XCTAssertFalse(playback.gaplessEnabled)
+        XCTAssertTrue(playback.crossfadeEnabled)
+        XCTAssertEqual(store.setCounts[key, default: 0] - writesBeforeCrossfade, 1)
+
+        let writesBeforeGapless = store.setCounts[key, default: 0]
+        playback.gaplessEnabled = true
+        playback.crossfadeEnabled = false
+        XCTAssertTrue(playback.gaplessEnabled)
+        XCTAssertFalse(playback.crossfadeEnabled)
+        XCTAssertEqual(store.setCounts[key, default: 0] - writesBeforeGapless, 1)
+        XCTAssertEqual(PlaybackSettings.load(defaults: defaults), playback.snapshot())
+        let data = try XCTUnwrap(store.object(forKey: key) as? Data)
+        XCTAssertEqual(try JSONDecoder().decode(PlaybackSettings.self, from: data), playback.snapshot())
+    }
+
+    func testLinkedSpatialTogglesPersistOnlyTheirFinalStateOnce() {
+        let playback = PlaybackSettingsStore(defaults: defaults, cloudSync: sync)
+        let key = PlaybackSettings.defaultsKey
+        playback.spatialHeadTrackingEnabled = true
+        XCTAssertTrue(playback.spatialAudioEnabled)
+        XCTAssertTrue(playback.spatialHeadTrackingEnabled)
+        XCTAssertEqual(store.setCounts[key, default: 0], 1)
+
+        playback.spatialAudioEnabled = false
+        XCTAssertFalse(playback.spatialAudioEnabled)
+        XCTAssertFalse(playback.spatialHeadTrackingEnabled)
+        XCTAssertEqual(store.setCounts[key, default: 0], 2)
+        XCTAssertEqual(PlaybackSettings.load(defaults: defaults), playback.snapshot())
+    }
+
+    func testUnchangedPlaybackPreferenceDoesNotPublishFreshInstallDefaults() {
+        let playback = PlaybackSettingsStore(defaults: defaults, cloudSync: sync)
+        playback.skipLeadingSilenceEnabled = playback.skipLeadingSilenceEnabled
+        XCTAssertNil(store.object(forKey: PlaybackSettings.defaultsKey))
+        XCTAssertEqual(defaults.double(forKey: PlaybackSettings.defaultsKey + "__updatedAt"), 0)
+    }
+
+    func testPlaybackEditAfterRemoteReloadUsesTheAppliedSnapshot() throws {
+        let playback = PlaybackSettingsStore(defaults: defaults, cloudSync: sync)
+        let key = PlaybackSettings.defaultsKey
+        playback.skipLeadingSilenceEnabled = false
+        var remote = playback.snapshot()
+        remote.skipLeadingSilenceEnabled = true
+        store.set(try JSONEncoder().encode(remote), forKey: key)
+        store.set(defaults.double(forKey: key + "__updatedAt") + 100, forKey: key + "__updatedAt")
+        store.set("other-device", forKey: key + "__writerID")
+        sync.handleExternalChange(changedKeys: [key], reason: .serverChange)
+        XCTAssertTrue(playback.skipLeadingSilenceEnabled)
+        let writesBefore = store.setCounts[key, default: 0]
+
+        playback.skipLeadingSilenceEnabled = false
+        XCTAssertEqual(store.setCounts[key, default: 0] - writesBefore, 1)
+        XCTAssertFalse(PlaybackSettings.load(defaults: defaults).skipLeadingSilenceEnabled)
+        let data = try XCTUnwrap(store.object(forKey: key) as? Data)
+        XCTAssertFalse(try JSONDecoder().decode(PlaybackSettings.self, from: data).skipLeadingSilenceEnabled)
+    }
+
+    func testSystemStoreWritesRunOffMainAndPreserveValueTypesAndDeletion() async throws {
+        let system = InMemoryCloudKeyValueStore()
+        let queued = CloudKVSSync(defaults: defaults, systemStoreFactory: { system })
+        let values: [(String, Any)] = [
+            (key, true), ("quality", 1.25), ("names", ["one", "two"]),
+            ("payload", Data([1, 2, 3])), ("title", "saved"),
+        ]
+        for (key, value) in values {
+            queued.register(key: key) { }
+            defaults.set(value, forKey: key)
+            queued.markChanged(key: key)
+        }
+        await queued.synchronizePendingChanges()
+        for (key, value) in values {
+            XCTAssertTrue((system.object(forKey: key) as? NSObject)?.isEqual(value) == true, key)
+            XCTAssertEqual(system.double(forKey: key + "__updatedAt"), defaults.double(forKey: key + "__updatedAt"))
+        }
+        defaults.removeObject(forKey: key)
+        queued.markChanged(key: key)
+        await queued.synchronizePendingChanges()
+        XCTAssertNil(system.object(forKey: key))
+        XCTAssertEqual(system.mainThreadSetCount, 0)
+        XCTAssertEqual(system.synchronizeCount, 1, "only the initial store load requests synchronization")
+    }
+
+    func testInitialCloudCacheIsAppliedBeforePlaybackRollouts() async throws {
+        var local = PlaybackSettings()
+        local.crossfadeDuration = PlaybackSettings.legacyDefaultCrossfadeDuration
+        local.save(defaults: defaults)
+        defaults.set(true, forKey: PlaybackSettings.lockScreenLyricsRolloutKey)
+        var remote = local
+        remote.crossfadeEnabled = true
+        remote.crossfadeDuration = 9
+        let key = PlaybackSettings.defaultsKey
+        let system = InMemoryCloudKeyValueStore()
+        system.set(try JSONEncoder().encode(remote), forKey: key)
+        system.set(100.0, forKey: key + "__updatedAt")
+        system.set("other-device", forKey: key + "__writerID")
+        let queued = CloudKVSSync(defaults: defaults, initialValues: system.dictionaryRepresentation,
+                                  systemStoreFactory: { system })
+        let playback = PlaybackSettingsStore(defaults: defaults, cloudSync: queued)
+        XCTAssertTrue(playback.crossfadeEnabled)
+        XCTAssertEqual(playback.crossfadeDuration, 9)
+        await queued.synchronizePendingChanges()
+        XCTAssertEqual(playback.crossfadeDuration, 9)
+        XCTAssertEqual(system.setCounts[key], 1, "the rollout must not publish stale local defaults")
+    }
+
+    func testBlockedSystemWriteDoesNotBlockToggleAndLatestValueWins() async throws {
+        let gate = CloudKVSWriteGate(key: key)
+        defer { gate.release() }
+        let system = InMemoryCloudKeyValueStore(beforeSet: { gate.blockFirstWrite(to: $0) })
+        let queued = CloudKVSSync(defaults: defaults, systemStoreFactory: { system })
+        queued.register(key: key) { }
+        await queued.synchronizePendingChanges()
+        defaults.set(true, forKey: key)
+        queued.markChanged(key: key)
+        await fulfillment(of: [gate.entered], timeout: 2)
+        XCTAssertTrue(defaults.bool(forKey: key))
+        XCTAssertNil(system.object(forKey: key), "the click returned while the system write is still blocked")
+
+        for value in [false, true, false] {
+            defaults.set(value, forKey: key)
+            queued.markChanged(key: key)
+        }
+        gate.release()
+        await queued.synchronizePendingChanges()
+        XCTAssertEqual(system.object(forKey: key) as? Bool, false)
+        XCTAssertFalse(defaults.bool(forKey: key))
+        XCTAssertEqual(system.mainThreadSetCount, 0)
+    }
+
+    func testQueuedWritePreservesNewerRemoteValueThatArrivedBeforeExecution() async throws {
+        let gate = CloudKVSWriteGate(key: "blocking_setting")
+        defer { gate.release() }
+        let system = InMemoryCloudKeyValueStore(beforeSet: { gate.blockFirstWrite(to: $0) })
+        let queued = CloudKVSSync(defaults: defaults, systemStoreFactory: { system })
+        queued.register(key: key) { }
+        queued.register(key: "blocking_setting") { }
+        await queued.synchronizePendingChanges()
+        defaults.set(true, forKey: "blocking_setting")
+        queued.markChanged(key: "blocking_setting")
+        await fulfillment(of: [gate.entered], timeout: 2)
+
+        defaults.set("queued-local", forKey: key)
+        queued.markChanged(key: key)
+        system.set("newer-remote", forKey: key)
+        system.set(defaults.double(forKey: revisionKey) + 100, forKey: revisionKey)
+        system.set("other-device", forKey: writerKey)
+        gate.release()
+        await queued.synchronizePendingChanges()
+        XCTAssertEqual(system.object(forKey: key) as? String, "newer-remote")
+        XCTAssertEqual(defaults.string(forKey: key), "newer-remote")
+    }
+
+    func testAccountChangeInvalidatesWritesQueuedForPreviousAccount() async throws {
+        let gate = CloudKVSWriteGate(key: "blocking_setting")
+        defer { gate.release() }
+        let applied = expectation(description: "new account applied")
+        let system = InMemoryCloudKeyValueStore(beforeSet: { gate.blockFirstWrite(to: $0) })
+        let queued = CloudKVSSync(defaults: defaults, systemStoreFactory: { system })
+        queued.register(key: key) { [defaults, key] in
+            if defaults?.string(forKey: key) == "new-account" { applied.fulfill() }
+        }
+        queued.register(key: "blocking_setting") { }
+        await queued.synchronizePendingChanges()
+        defaults.set(true, forKey: "blocking_setting")
+        queued.markChanged(key: "blocking_setting")
+        await fulfillment(of: [gate.entered], timeout: 2)
+        defaults.set("previous-account", forKey: key)
+        queued.markChanged(key: key)
+
+        system.set("new-account", forKey: key)
+        system.set(10.0, forKey: revisionKey)
+        system.set("new-account-writer", forKey: writerKey)
+        NotificationCenter.default.post(
+            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: system,
+            userInfo: [NSUbiquitousKeyValueStoreChangeReasonKey: NSUbiquitousKeyValueStoreAccountChange]
+        )
+        gate.release()
+        await fulfillment(of: [applied], timeout: 2)
+        await queued.synchronizePendingChanges()
+        XCTAssertEqual(system.object(forKey: key) as? String, "new-account")
+        XCTAssertEqual(system.setCounts[key], 1, "old-account writes must never reach the new account")
+        XCTAssertEqual(defaults.string(forKey: key), "new-account")
+        XCTAssertEqual(defaults.double(forKey: revisionKey), 10)
+    }
 }
 
-private final class InMemoryCloudKeyValueStore: CloudKeyValueStore {
+private final class InMemoryCloudKeyValueStore: CloudKeyValueStore, @unchecked Sendable {
+    private let lock = NSLock()
     private var values: [String: Any] = [:]
-    func object(forKey key: String) -> Any? { values[key] }
+    private var counts: [String: Int] = [:]
+    private var synchronizations = 0
+    private var mainThreadSets = 0
+    private let beforeSet: @Sendable (String) -> Void
+    init(beforeSet: @escaping @Sendable (String) -> Void = { _ in }) { self.beforeSet = beforeSet }
+    var dictionaryRepresentation: [String: Any] { lock.withLock { values } }
+    var setCounts: [String: Int] { lock.withLock { counts } }
+    var synchronizeCount: Int { lock.withLock { synchronizations } }
+    var mainThreadSetCount: Int { lock.withLock { mainThreadSets } }
+    func object(forKey key: String) -> Any? { lock.withLock { values[key] } }
     func set(_ value: Any?, forKey key: String) {
-        if let value { values[key] = value } else { values.removeValue(forKey: key) }
+        beforeSet(key)
+        lock.withLock {
+            counts[key, default: 0] += 1
+            if Thread.isMainThread { mainThreadSets += 1 }
+            if let value { values[key] = value } else { values.removeValue(forKey: key) }
+        }
     }
-    func removeObject(forKey key: String) { values.removeValue(forKey: key) }
-    func double(forKey key: String) -> Double { (values[key] as? NSNumber)?.doubleValue ?? 0 }
-    func string(forKey key: String) -> String? { values[key] as? String }
-    @discardableResult func synchronize() -> Bool { true }
+    func removeObject(forKey key: String) { lock.withLock { values.removeValue(forKey: key) } }
+    func double(forKey key: String) -> Double { lock.withLock { (values[key] as? NSNumber)?.doubleValue ?? 0 } }
+    func string(forKey key: String) -> String? { lock.withLock { values[key] as? String } }
+    @discardableResult func synchronize() -> Bool {
+        lock.withLock { synchronizations += 1 }
+        return true
+    }
+}
+
+private final class CloudKVSWriteGate: @unchecked Sendable {
+    let entered = XCTestExpectation(description: "system write blocked")
+    private let key: String
+    private let lock = NSLock()
+    private var used = false
+    private let semaphore = DispatchSemaphore(value: 0)
+    init(key: String) { self.key = key }
+    func blockFirstWrite(to key: String) {
+        guard key == self.key, lock.withLock({ if used { return false }; used = true; return true }) else { return }
+        entered.fulfill()
+        _ = semaphore.wait(timeout: .now() + 5)
+    }
+    func release() { semaphore.signal() }
 }

@@ -27,6 +27,7 @@ struct TVScanFlowView: View {
     @Environment(\.dismiss) private var dismiss
     let source: MusicSource
     var rereadMetadata = false
+    var mode: TVScanMode = .full
 
     @State private var lister: TVDirectoryLister?
     @State private var path = "/"
@@ -125,7 +126,7 @@ struct TVScanFlowView: View {
             }
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft, lister == nil {
                 lister = store.makeLister(for: source)
-                selected = source.scannedDirectories   // 回填上次扫描勾选的目录
+                selected = mode == .incremental ? [] : source.scannedDirectories
                 #if DEBUG
                 if let preset = TVDebugLaunch.scanPreset { selected = preset }
                 if !rereadMetadata, let debugPath = TVDebugLaunch.scanOpenPath {
@@ -191,7 +192,7 @@ struct TVScanFlowView: View {
         return HStack(alignment: .top, spacing: 80) {
             VStack(alignment: .leading, spacing: 0) {
                 TVEyebrow(text: PMString("ext.tv.scan.step3")).padding(.bottom, 6)
-                Text(PMString("ext.tv.scan.chooseFolders")).tvFont(size: 40, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text).padding(.bottom, 6)
+                Text(mode == .incremental ? TVScanMode.incrementalTitle : PMString("ext.tv.scan.chooseFolders")).tvFont(size: 40, weight: .bold, relativeTo: .title2).foregroundStyle(TVColor.text).padding(.bottom, 6)
                 Text(breadcrumb).tvFont(.caption, design: .monospaced).foregroundStyle(TVColor.textFaint).padding(.bottom, 22)
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -379,6 +380,12 @@ struct TVScanFlowView: View {
 
     private var summaryPanel: some View {
         VStack(spacing: 24) {
+            if mode == .incremental {
+                Text(TVScanMode.incrementalBody)
+                    .tvFont(.caption).foregroundStyle(TVColor.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 TVEyebrow(text: PMString("ext.tv.scan.summary")).padding(.bottom, 14)
                 summaryRow(PMString("ext.tv.scan.selected"), scanSelection.isEmpty ? String(localized: "folder_pick_none") : PMString("ext.tv.scan.folderCount", scanSelection.count))
@@ -573,7 +580,7 @@ struct TVScanFlowView: View {
         started = true
         Task {
             let admitted = await store.runScan(source: currentSource, lister: lister, dirs: dirs,
-                                              rereadMetadata: rereadMetadata)
+                                              rereadMetadata: rereadMetadata, mode: mode)
             guard !admitted, !Task.isCancelled else { return }
             browseError = PMString("ext.tv.scan.busy")
             started = false

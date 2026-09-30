@@ -334,6 +334,8 @@
 "ext.tv.test.needs2FA"                    = "Two-step verification is required. Press and hold the source, then choose Two-Step Verification.";
 "ext.tv.scan.step3"                       = "Add Source · Step 3";
 "ext.tv.scan.chooseFolders"               = "Choose Folders to Scan";
+"ext.tv.scan.incremental" = "Incremental scan";
+"ext.tv.scan.incrementalBody" = "Scan selected folders and keep existing albums.";
 "ext.tv.scan.up"                          = "Up One Level";
 "ext.tv.scan.loading"                     = "Loading…";
 "ext.tv.scan.noSubfolders"                = "This folder has no subfolders. Select the current folder to scan it directly.";
@@ -963,7 +965,7 @@
 "ext.tv.settings.tabBar.default" = "Default";
 "ext.tv.settings.tabBar.shownCount" = "%d shown";
 "ext.tv.settings.tabBar.contentHint" = "Appears only when there is content";
-"ext.tv.settings.tabBar.keepOne" = "Keep at least one page that always appears (Radio and Spoken Word disappear when they have no content).";
+"ext.tv.settings.tabBar.keepOne" = "Keep at least one page that always appears (Radio and Audiobooks disappear when they have no content).";
 "ext.tv.settings.tabBar.moveUp" = "Move Up";
 "ext.tv.settings.tabBar.moveDown" = "Move Down";
 "ext.tv.settings.tabBar.reset" = "Restore Defaults";

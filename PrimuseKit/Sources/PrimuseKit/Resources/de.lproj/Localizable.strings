@@ -336,6 +336,8 @@
 "ext.tv.test.needs2FA"                    = "Zwei-Faktor-Authentifizierung erforderlich. Halte die Quelle gedrückt und wähle Zwei-Faktor-Anmeldung.";
 "ext.tv.scan.step3"                       = "Quelle hinzufügen · Schritt 3";
 "ext.tv.scan.chooseFolders"               = "Ordner zum Scannen auswählen";
+"ext.tv.scan.incremental" = "Inkrementeller Scan";
+"ext.tv.scan.incrementalBody" = "Ausgewählte Ordner scannen und vorhandene Alben behalten.";
 "ext.tv.scan.up"                          = "Eine Ebene höher";
 "ext.tv.scan.loading"                     = "Laden…";
 "ext.tv.scan.noSubfolders"                = "Dieser Ordner enthält keine Unterordner. Wähle den aktuellen Ordner aus, um ihn direkt zu scannen.";
@@ -928,8 +930,8 @@
 "ext.tv.transfer.finished" = "%@ Titel vom iPhone übertragen";
 "ext.tv.transfer.failed" = "Die Übertragung wurde nicht abgeschlossen. Versuche es auf dem iPhone erneut.";
 "audio_variant_lossy_stereo" = "Stereo";
-"audio_variant_lossless" = "Lossless";
-"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_lossless" = "Verlustfrei";
+"audio_variant_hi_res_lossless" = "Hochauflösend verlustfrei";
 "audio_variant_dolby_atmos" = "Dolby Atmos";
 "audio_variant_dolby_audio" = "Dolby Audio";
 "apple_music_pick_from_catalog" = "Aus Apple Music wählen…";

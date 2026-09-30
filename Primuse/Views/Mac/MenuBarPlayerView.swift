@@ -12,7 +12,8 @@ struct MenuBarPlayerView: View {
 
     @AppStorage("desktopLyricsLocked") private var desktopLyricsLocked: Bool = false
     @AppStorage("desktopLyricsVisible") private var desktopLyricsVisible: Bool = false
-    @AppStorage(DesktopLyricsWindowController.islandModeKey) private var desktopLyricsIsland = false
+    @AppStorage(DesktopLyricsWindowController.islandVisibleKey) private var desktopLyricsIsland = false
+    @State private var shortcutStore = MacKeyboardShortcutStore.shared
     @AppStorage("miniPlayerVisible") private var miniPlayerVisible: Bool = false
     /// 与设置 › 歌词里的开关是同一个键；菜单栏控制器监听它的变化即时换上或撤下歌词。
     @AppStorage(MacMenuBarController.lyricsEnabledKey) private var menuBarLyricsEnabled = false
@@ -33,31 +34,30 @@ struct MenuBarPlayerView: View {
             if !player.isLiveRadio {
                 menuRow(icon: "text.bubble",
                         title: desktopLyricsVisible ? "hide_desktop_lyrics" : "show_desktop_lyrics",
-                        shortcut: "⌘L",
-                        active: desktopLyricsVisible,
-                        showsCheckmark: desktopLyricsVisible) {
+                        shortcut: shortcut(.showDesktopLyrics),
+                        active: desktopLyricsVisible) {
                     PrimuseAppDelegate.shared?.toggleDesktopLyrics()
                 }
 
                 menuRow(icon: desktopLyricsLocked ? "lock.fill" : "lock",
                         title: "lock_desktop_lyrics",
-                        shortcut: "⌘⇧L",
+                        shortcut: shortcut(.toggleDesktopLyricsLock),
                         active: desktopLyricsLocked) {
                     pmWithAnimation(.control) { desktopLyricsLocked.toggle() }
                 }
 
                 menuRow(icon: "rectangle.tophalf.inset.filled",
                         title: "desktop_lyrics_island",
-                        active: desktopLyricsIsland,
-                        showsCheckmark: desktopLyricsIsland) {
+                        shortcut: shortcut(.toggleLyricsIsland),
+                        active: desktopLyricsIsland) {
                     PrimuseAppDelegate.shared?.toggleDesktopLyricsIsland()
                 }
                 .help(Text("desktop_lyrics_island_description"))
 
                 menuRow(icon: "menubar.rectangle",
                         title: "menu_bar_lyrics",
-                        active: menuBarLyricsEnabled,
-                        showsCheckmark: menuBarLyricsEnabled) {
+                        shortcut: shortcut(.toggleMenuBarLyrics),
+                        active: menuBarLyricsEnabled) {
                     pmWithAnimation(.control) { menuBarLyricsEnabled.toggle() }
                 }
                 .help(Text("menu_bar_lyrics_description"))
@@ -65,29 +65,32 @@ struct MenuBarPlayerView: View {
 
             menuRow(icon: "rectangle.inset.filled.on.rectangle",
                     title: "mini_player",
-                    active: miniPlayerVisible,
-                    showsCheckmark: miniPlayerVisible) {
+                    shortcut: shortcut(.showMiniPlayer),
+                    active: miniPlayerVisible) {
                 PrimuseAppDelegate.shared?.toggleMiniPlayer()
             }
 
-            menuRow(icon: "arrow.up.left.and.arrow.down.right", title: "full_screen_player") {
+            menuRow(icon: "arrow.up.left.and.arrow.down.right", title: "full_screen_player",
+                    shortcut: shortcut(.toggleFullScreenPlayer)) {
                 PrimuseAppDelegate.shared?.toggleFullScreenPlayer()
             }
 
             Divider().background(PMColor.divider).padding(.vertical, 2)
 
-            menuRow(icon: "macwindow", title: "open_main_window", shortcut: "⌘0") {
+            menuRow(icon: "macwindow", title: "open_main_window", shortcut: shortcut(.openMainWindow)) {
                 onOpenMainWindow()
             }
             menuRow(icon: "gearshape", title: "settings_title", shortcut: "⌘,") {
                 SettingsWindowController.shared.show()
             }
+            .keyboardShortcut(",", modifiers: .command)
             menuRow(icon: "rectangle.portrait.and.arrow.right",
                     title: "quit_app",
                     shortcut: "⌘Q",
                     accent: PMColor.bad) {
                 NSApp.terminate(nil)
             }
+            .keyboardShortcut("q", modifiers: .command)
         }
         .padding(12)
         .frame(width: 280)
@@ -190,7 +193,7 @@ struct MenuBarPlayerView: View {
                 }
                 .buttonStyle(.plain)
                 .pmPointingHand()
-                .help(Text(player.isLiveRadio ? LocalizedStringKey("radio_previous_station") : "previous_song"))
+                .help(player.isLiveRadio ? Text("radio_previous_station") : shortcutHelp(.previousTrack))
             }
 
             Button { player.togglePlayPause() } label: {
@@ -219,7 +222,7 @@ struct MenuBarPlayerView: View {
             .disabled(player.isLoading && !player.isLiveRadio)
             .help(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
                 ? LocalizedStringKey("radio_stop")
-                : (player.isPlaying ? "pause" : "play")))
+                : (player.isPlaying ? "pause" : "play")) + shortcutSuffix(.playPause))
 
             if player.currentItemIsSpokenWord, !player.isLiveRadio {
                 Button { player.skipSpokenWordForward() } label: {
@@ -242,7 +245,7 @@ struct MenuBarPlayerView: View {
                 }
                 .buttonStyle(.plain)
                 .pmPointingHand()
-                .help(Text(player.isLiveRadio ? LocalizedStringKey("radio_next_station") : "next_song"))
+                .help(player.isLiveRadio ? Text("radio_next_station") : shortcutHelp(.nextTrack))
             }
             Spacer()
         }
@@ -265,51 +268,81 @@ struct MenuBarPlayerView: View {
         }
         .help(!player.isLiveRadio && player.playbackSettings.outputMode == .highFidelity
             ? Text("volume_high_fidelity_system_hint")
-            : Text("volume"))
+            : Text("volume") + shortcutSuffix(.volumeDown) + shortcutSuffix(.volumeUp))
     }
 
     // MARK: - Menu rows
 
+    private func shortcut(_ action: MacKeyboardShortcutAction) -> String? {
+        shortcutStore.shortcut(for: action)?.displayString
+    }
+
+    private func shortcutSuffix(_ action: MacKeyboardShortcutAction) -> Text {
+        guard let shortcut = shortcut(action) else { return Text(verbatim: "") }
+        return Text(verbatim: " (\(shortcut))")
+    }
+
+    private func shortcutHelp(_ action: MacKeyboardShortcutAction) -> Text {
+        Text(verbatim: action.localizedTitle) + shortcutSuffix(action)
+    }
+
     private func menuRow(icon: String, title: LocalizedStringKey,
                          shortcut: String? = nil,
                          active: Bool = false,
-                         showsCheckmark: Bool = false,
                          accent: Color = PMColor.brand,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 9) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .opacity(active ? 1 : 0)
+                    .frame(width: 11)
+                    .accessibilityHidden(true)
                 Image(systemName: icon)
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(active ? accent : PMColor.textMuted)
                     .frame(width: 14)
                     .contentTransition(.symbolEffect(.replace))
                 Text(title)
-                    .font(.system(size: 12.5, weight: active ? .medium : .regular))
+                    .font(.system(size: 12.5))
                     .foregroundStyle(PMColor.text)
                 Spacer()
-                if showsCheckmark {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(accent)
-                }
-                if let shortcut {
-                    Text(verbatim: shortcut)
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(PMColor.textFaint)
-                }
+                Text(verbatim: shortcut ?? "")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .frame(width: 48, alignment: .trailing)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(active ? PMColor.rowHover : .clear)
-            }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MenuBarActionButtonStyle())
         .pmPointingHand()
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
+}
+
+private struct MenuBarActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        MenuBarActionLabel(configuration: configuration)
+    }
+}
+
+private struct MenuBarActionLabel: View {
+    let configuration: ButtonStyleConfiguration
+    @State private var hovering = false
+
+    var body: some View {
+        configuration.label
+            .background {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(hovering || configuration.isPressed ? PMColor.rowHover : .clear)
+            }
+            .onHover { hovering = $0 }
+            .pmAnimation(.hover, value: hovering)
+    }
 }
 
 private struct MenuBarPlayerProgress: View {

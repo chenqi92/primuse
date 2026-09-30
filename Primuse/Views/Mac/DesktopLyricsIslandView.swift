@@ -3,18 +3,19 @@ import AppKit
 import SwiftUI
 import PrimuseKit
 
-/// 桌面歌词「上岛」后的样子 —— 见 `DesktopLyricsIslandController`。
+/// 屏幕顶部的歌词岛 —— 见 `DesktopLyricsIslandController`。
 ///
 /// 视觉上刻意不做成一块纯黑的播放器面板：
 /// - 本体是和刘海连成一片的墨黑，封面的颜色只以「光」的形式出现 —— 底边一道
-///   跟着进度走的光缝、岛下方一圈晕光、展开后从卡片底部透上来的模糊封面；
+///   跟着进度走的光缝、岛下方一圈晕光、展开后从卡片底部透上来的低亮度光池；
 /// - 收起时宽度跟着当前这句歌词呼吸，换句时整块随之伸缩；
 /// - 展开后歌词是主角，播放信息收成顶上一行，进度就是底边那道光缝本身。
 /// 系统状态（耳机、音量、电源）来时暂时占住这一行，几秒后退回歌词。
 struct DesktopLyricsIslandView: View {
     let state: DesktopLyricsIslandState
-    var onExit: () -> Void = {}
+    var onToggleDesktop: () -> Void = {}
     var onClose: () -> Void = {}
+    var onAlwaysOnTopChange: (Bool) -> Void = { _ in }
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
@@ -30,6 +31,7 @@ struct DesktopLyricsIslandView: View {
     /// 与浮动桌面歌词共用颜色设置：用户挑了颜色就用它，否则在墨黑底上用白字。
     @AppStorage("desktopLyricsColor") private var colorHex: String = "#FFFFFF"
     @AppStorage("desktopLyricsUsesArtworkColor") private var usesArtworkColor = true
+    @AppStorage(MacLyricsVisibilityPreferences.desktopKey) private var desktopLyricsVisible = false
 
     private var metrics: DesktopLyricsIslandMetrics { state.metrics }
 
@@ -136,7 +138,7 @@ struct DesktopLyricsIslandView: View {
     private var glowOpacity: Double {
         guard state.presented, hasSomethingPlaying else { return 0 }
         guard player.isPlaying else { return 0.12 }
-        return state.expanded ? 0.55 : 0.38
+        return state.expanded ? 0.28 : 0.24
     }
 
     private var lyricTint: Color {
@@ -418,35 +420,21 @@ struct DesktopLyricsIslandView: View {
         }
     }
 
-    /// 从卡片底部透上来的封面光：同一张封面放大、糊开，再用渐变把上半截抹掉，
-    /// 贴着刘海的那一截保持纯黑。
+    /// 用主题色铺低亮度的光池，避免浅色封面把岛面洗白。
     private var lightPool: some View {
         ZStack(alignment: .bottom) {
             RadialGradient(
-                colors: [glowColor.opacity(0.4), .clear],
-                center: .bottom,
+                colors: [glowColor.opacity(0.18), .clear],
+                center: UnitPoint(x: 0.35, y: 1),
                 startRadius: 0,
-                endRadius: metrics.expandedWidth * 0.6
+                endRadius: metrics.expandedWidth * 0.65
             )
-            if let song = player.currentSong, !player.isLiveRadio {
-                CachedArtworkView(
-                    coverRef: song.coverArtFileName,
-                    songID: song.id,
-                    size: 96,
-                    cornerRadius: 0,
-                    sourceID: song.sourceID,
-                    filePath: song.filePath,
-                    fileFormat: song.fileFormat,
-                    showsPlaceholder: false,
-                    loadsHighResolution: false,
-                    fillsProposedSize: true,
-                    revisionToken: player.coverRevision
-                )
-                .frame(width: metrics.expandedWidth, height: metrics.expandedWidth)
-                .blur(radius: 44)
-                .opacity(0.55)
-                .offset(y: metrics.expandedWidth * 0.56)
-            }
+            RadialGradient(
+                colors: [theme.secondaryAccent.opacity(0.1), .clear],
+                center: UnitPoint(x: 0.7, y: 1),
+                startRadius: 0,
+                endRadius: metrics.expandedWidth * 0.45
+            )
         }
         .frame(width: metrics.expandedWidth, height: metrics.expandedHeight, alignment: .bottom)
         .mask {
@@ -515,7 +503,7 @@ struct DesktopLyricsIslandView: View {
                 }
                 .contentShape(Circle())
             }
-            .buttonStyle(.pmPressable)
+            .buttonStyle(IslandControlButtonStyle(prominent: true))
             .pmPointingHand()
             .disabled(player.isLoading && !player.isLiveRadio)
             .help(Text(playHelpKey))
@@ -629,10 +617,35 @@ struct DesktopLyricsIslandView: View {
             } else {
                 Spacer(minLength: 0)
             }
-            islandButton("rectangle.bottomhalf.inset.filled", size: 12, help: "desktop_lyrics_island_exit") {
-                onExit()
+            islandButton(
+                state.alwaysOnTop ? "pin.fill" : "pin",
+                size: 11,
+                help: "lyrics_island_always_on_top",
+                selected: state.alwaysOnTop
+            ) {
+                onAlwaysOnTopChange(!state.alwaysOnTop)
             }
-            islandButton("xmark", size: 11, help: "hide_desktop_lyrics") {
+            .accessibilityIdentifier("lyricsIsland.alwaysOnTop")
+            .accessibilityValue(Text(
+                state.alwaysOnTop
+                    ? "desktop_widget_sync_status_enabled"
+                    : "desktop_widget_sync_status_disabled"
+            ))
+            islandButton(
+                desktopLyricsVisible ? "text.bubble.fill" : "text.bubble",
+                size: 12,
+                help: desktopLyricsVisible ? "hide_desktop_lyrics" : "show_desktop_lyrics",
+                selected: desktopLyricsVisible
+            ) {
+                onToggleDesktop()
+            }
+            .accessibilityIdentifier("lyricsIsland.desktopLyrics")
+            .accessibilityValue(Text(
+                desktopLyricsVisible
+                    ? "desktop_widget_sync_status_enabled"
+                    : "desktop_widget_sync_status_disabled"
+            ))
+            islandButton("xmark", size: 11, help: "hide_lyrics_island") {
                 onClose()
             }
         }
@@ -642,19 +655,21 @@ struct DesktopLyricsIslandView: View {
         _ symbol: String,
         size: CGFloat,
         help: LocalizedStringKey,
+        selected: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.88))
+                .foregroundStyle(selected ? theme.accentColor.mix(with: .white, by: 0.45) : .white)
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.pmPressable)
+        .buttonStyle(IslandControlButtonStyle())
         .pmPointingHand()
         .help(Text(help))
         .accessibilityLabel(Text(help))
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -799,6 +814,94 @@ struct DesktopLyricsIslandView: View {
 }
 
 // MARK: - Pieces
+
+private struct IslandControlButtonStyle: ButtonStyle {
+    var prominent = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        IslandControlLabel(configuration: configuration, prominent: prominent)
+    }
+}
+
+private struct IslandControlLabel: View {
+    let configuration: ButtonStyleConfiguration
+    let prominent: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+    @State private var pointerOffset = CGSize.zero
+
+    var body: some View {
+        ZStack {
+            RadialGradient(
+                colors: [.white.opacity(prominent ? 0.1 : 0.14), .clear],
+                center: .center,
+                startRadius: 0,
+                endRadius: side * 0.8
+            )
+            .frame(width: side * 1.6, height: side * 1.6)
+            .scaleEffect(reduceMotion ? 1 : (isHighlighted ? 1 : 0.7))
+            .opacity(isHighlighted ? 1 : 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+
+            configuration.label
+                .opacity(isEnabled ? (prominent || hovering ? 1 : 0.88) : 0.45)
+                .scaleEffect(controlScale)
+                .offset(controlOffset)
+                .shadow(color: .white.opacity(isHighlighted ? 0.16 : 0), radius: prominent ? 8 : 4)
+        }
+        .frame(width: side, height: side)
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let location):
+                guard isEnabled else { return }
+                hovering = true
+                guard !reduceMotion else { return }
+                let travel: CGFloat = prominent ? 1.5 : 2
+                pointerOffset = CGSize(
+                    width: max(-1, min(1, (location.x - side / 2) / (side / 2))) * travel,
+                    height: max(-1, min(1, (location.y - side / 2) / (side / 2))) * travel
+                )
+            case .ended:
+                hovering = false
+                pointerOffset = .zero
+            }
+        }
+        .onChange(of: isEnabled) { _, enabled in
+            if !enabled {
+                hovering = false
+                pointerOffset = .zero
+            }
+        }
+        .animation(hoverAnimation, value: hovering)
+        .animation(hoverAnimation, value: pointerOffset)
+        .animation(pressAnimation, value: configuration.isPressed)
+    }
+
+    private var isHighlighted: Bool { isEnabled && (hovering || configuration.isPressed) }
+    private var side: CGFloat { prominent ? 32 : 28 }
+
+    private var controlScale: CGFloat {
+        guard isEnabled, !reduceMotion else { return 1 }
+        if configuration.isPressed { return prominent ? 0.94 : 0.9 }
+        return hovering ? (prominent ? 1.035 : 1.1) : 1
+    }
+
+    private var controlOffset: CGSize {
+        guard isEnabled, hovering, !reduceMotion, !configuration.isPressed else { return .zero }
+        return CGSize(width: pointerOffset.width, height: pointerOffset.height - 0.7)
+    }
+
+    private var hoverAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.3, dampingFraction: 0.72)
+    }
+
+    private var pressAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .spring(response: 0.24, dampingFraction: 0.68)
+    }
+}
 
 /// 岛的外形：底边两角圆，顶边两肩向外翻出去贴住屏幕上沿 —— 和刘海本身的
 /// 收边方式一样，看上去是刘海长大了，而不是一块贴在屏幕顶上的卡片。

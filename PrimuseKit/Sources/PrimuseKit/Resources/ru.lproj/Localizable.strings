@@ -462,6 +462,8 @@
 "ext.tv.playback.failed" = "Ошибка воспроизведения.";
 "icloud_cloud_schema_missing" = "В производственной схеме iCloud отсутствует «%@». Повторная попытка не может это исправить; разработчик должен развернуть схему CloudKit.";
 "ext.tv.scan.chooseFolders" = "Выберите папки для сканирования.";
+"ext.tv.scan.incremental" = "Добавочное сканирование";
+"ext.tv.scan.incrementalBody" = "Сканировать выбранные папки, сохранив существующие альбомы.";
 "ext.tv.error.range.invalidUnit" = "Недопустимая единица Content-Range.";
 "ext.tv.error.range.invalidBounds" = "Границы Content-Range недействительны.";
 "playback" = "Воспроизведение";
@@ -734,11 +736,11 @@
 "tv_metadata_source_unavailable" = "Включите источник или повторно сканируйте его на iPhone или Mac и синхронизируйте.";
 "tv_metadata_reread_issues" = "Не удалось полностью прочитать %d композиций. Имеющиеся данные сохранены; можно повторить попытку.";
 
-"error.songloft.missingCredential" = "Songloft requires an account and password.";
-"error.songloft.invalidURL" = "The Songloft server address is invalid.";
-"error.songloft.authenticationFailed" = "Songloft sign-in failed. Check the account and password.";
-"error.songloft.invalidResponse" = "Songloft returned an incomplete or invalid response. The existing library was preserved.";
-"error.songloft.http" = "Songloft returned HTTP %@.";
+"error.songloft.missingCredential" = "Для Songloft нужны учётная запись и пароль.";
+"error.songloft.invalidURL" = "Недопустимый адрес сервера Songloft.";
+"error.songloft.authenticationFailed" = "Не удалось войти в Songloft. Проверьте учётную запись и пароль.";
+"error.songloft.invalidResponse" = "Songloft вернул неполные или недопустимые данные. Существующая медиатека сохранена.";
+"error.songloft.http" = "Songloft вернул HTTP %@.";
 
 "appleMusic.localAsset.managedDownload" = "Эту загрузку Apple Music нельзя воспроизвести как локальный аудиофайл. Запустите её из синхронизированного плейлиста Apple Music или откройте в приложении «Музыка».";
 "appleMusic.localAsset.protectedContent" = "Эта песня защищена, и её нельзя воспроизвести как локальный аудиофайл. Запустите её из синхронизированного плейлиста Apple Music или откройте в приложении «Музыка».";
@@ -875,8 +877,8 @@
 "ext.tv.transfer.finished" = "Перенесено песен из iPhone: %@";
 "ext.tv.transfer.failed" = "Передача не завершена. Повторите попытку на iPhone.";
 "audio_variant_lossy_stereo" = "Стерео";
-"audio_variant_lossless" = "Lossless";
-"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_lossless" = "Без потерь";
+"audio_variant_hi_res_lossless" = "Высокое разрешение без потерь";
 "audio_variant_dolby_atmos" = "Dolby Atmos";
 "audio_variant_dolby_audio" = "Dolby Audio";
 "apple_music_pick_from_catalog" = "Выбрать из Apple Music…";

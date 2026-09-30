@@ -3882,7 +3882,8 @@ final class TVStore {
         source: MusicSource,
         lister: TVDirectoryLister,
         dirs: [String],
-        rereadMetadata: Bool = false
+        rereadMetadata: Bool = false,
+        mode: TVScanMode = .full
     ) async -> Bool {
         guard await retryPendingSnapshotImport() else { return false }
         guard canMutateLibrary, !locallyRemovedSourceIDs.contains(source.id), TVScanAdmissionPolicy.canStart(
@@ -3896,7 +3897,7 @@ final class TVStore {
         scanGeneration = generation
         let task = Task {
             await self.performScan(source: source, lister: lister, dirs: dirs,
-                                   rereadMetadata: rereadMetadata, generation: generation)
+                                   rereadMetadata: rereadMetadata, mode: mode, generation: generation)
         }
         scanTask = task
         let committed = await task.value
@@ -4058,7 +4059,7 @@ final class TVStore {
     }
 
     private func performScan(source: MusicSource, lister: TVDirectoryLister, dirs: [String],
-                             rereadMetadata: Bool, generation: UUID) async -> Bool {
+                             rereadMetadata: Bool, mode: TVScanMode, generation: UUID) async -> Bool {
         // 上一次扫描留下的后台提交先落完,不和这次的行交错。
         try? await awaitScanCommit()
         pendingScanSongs = []
@@ -4072,7 +4073,8 @@ final class TVStore {
         let cred = TVCredentialStore.credential(for: source, bundle: credentialBundle)
         let checkpointURL = sessionStore.url.deletingLastPathComponent()
             .appendingPathComponent("scan-checkpoints", isDirectory: true)
-            .appendingPathComponent(TVScanPipelinePolicy.hash32(source.id) + ".json")
+            .appendingPathComponent(TVScanPipelinePolicy.hash32(source.id)
+                + (mode == .incremental ? "-incremental" : "") + ".json")
         let roots = TVScanPipelinePolicy.normalizedScanRoots(dirs)
         let connection = Self.connectionIdentity(source)
         let saved = (try? Data(contentsOf: checkpointURL)).flatMap {
@@ -4120,7 +4122,8 @@ final class TVStore {
             guard isCurrentScan(source: source, generation: generation), result.canCommit else { return false }
             // A walk that saw the catalogue move keeps what it read (the batches
             // above) but cannot vouch for songs it never listed.
-            if result.canPrune {
+            let isCompleteListing = result.canPrune && mode == .full
+            if isCompleteListing {
                 pruningRecovery = library.beginScanPruning(result.songs, sourceID: source.id)
             }
             let persistence = await scanPersistence(library)
@@ -4134,7 +4137,8 @@ final class TVStore {
                 try sourcesStore.updateDurably(source.id) {
                     $0.songCount = count
                     $0.lastScannedAt = Date()
-                    $0.extraConfig = MusicSource.encodeScannedDirectories(dirs, into: $0.extraConfig, type: $0.type)
+                    let savedDirs = mode.savedDirectories(previous: $0.scannedDirectories, scanned: dirs, sourceType: $0.type)
+                    $0.extraConfig = MusicSource.encodeScannedDirectories(savedDirs, into: $0.extraConfig, type: $0.type)
                 }
             } else {
                 try sourcesStore.updateLocalDurably(source.id) {
@@ -4147,14 +4151,15 @@ final class TVStore {
             if source.type != .fnMusic && source.type != .daoliyu && source.type != .songloft
                 && source.type != .synologyAudioStation {
                 library.updateAutomaticArtistArtworkCatalog(
-                    SourceArtistArtworkCatalog(sourceID: source.id, index: result.resumeState.index)
+                    SourceArtistArtworkCatalog(sourceID: source.id, index: result.resumeState.index),
+                    isCompleteListing: isCompleteListing
                 )
             }
             if source.type.usesOpaqueDirectoryIdentifiers {
                 recordAlbumArtistFolders(
                     sourceID: source.id,
                     index: result.resumeState.index,
-                    isCompleteListing: result.canPrune
+                    isCompleteListing: isCompleteListing
                 )
             }
             refreshVisibility()

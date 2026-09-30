@@ -271,6 +271,8 @@
 "ext.tv.scan.cancelScan" = "स्कैन रद्द करें";
 "ext.tv.scan.check" = "स्कैन करने के लिए चयन करें";
 "ext.tv.scan.chooseFolders" = "स्कैन करने के लिए फ़ोल्डर चुनें";
+"ext.tv.scan.incremental" = "इंक्रीमेंटल स्कैन";
+"ext.tv.scan.incrementalBody" = "चुने गए फ़ोल्डर स्कैन करें और मौजूदा एल्बम रखें।";
 "ext.tv.scan.complete" = "पूर्ण";
 "ext.tv.scan.completedSource" = "स्कैन पूर्ण · %@";
 "ext.tv.scan.connectFailed" = "कनेक्शन विफल। पता और क्रेडेंशियल जांचें.";
@@ -734,11 +736,11 @@
 "tv_metadata_source_unavailable" = "पहले यह स्रोत चालू करें या iPhone अथवा Mac पर दोबारा स्कैन करके सिंक करें।";
 "tv_metadata_reread_issues" = "%d गाने पूरी तरह नहीं पढ़े जा सके। मौजूदा जानकारी सुरक्षित है; आप फिर कोशिश कर सकते हैं।";
 
-"error.songloft.missingCredential" = "Songloft requires an account and password.";
-"error.songloft.invalidURL" = "The Songloft server address is invalid.";
-"error.songloft.authenticationFailed" = "Songloft sign-in failed. Check the account and password.";
-"error.songloft.invalidResponse" = "Songloft returned an incomplete or invalid response. The existing library was preserved.";
-"error.songloft.http" = "Songloft returned HTTP %@.";
+"error.songloft.missingCredential" = "Songloft के लिए खाता और पासवर्ड ज़रूरी हैं।";
+"error.songloft.invalidURL" = "Songloft सर्वर का पता मान्य नहीं है।";
+"error.songloft.authenticationFailed" = "Songloft में साइन इन नहीं हो पाया। खाता और पासवर्ड जाँचें।";
+"error.songloft.invalidResponse" = "Songloft ने अधूरा या अमान्य डेटा लौटाया। मौजूदा लाइब्रेरी सुरक्षित रखी गई।";
+"error.songloft.http" = "Songloft ने HTTP %@ लौटाया।";
 
 "appleMusic.localAsset.managedDownload" = "इस Apple Music डाउनलोड को स्थानीय ऑडियो फ़ाइल के रूप में नहीं चलाया जा सकता। इसे सिंक की गई Apple Music प्लेलिस्ट से चलाएँ या संगीत ऐप में खोलें।";
 "appleMusic.localAsset.protectedContent" = "यह गीत सुरक्षित है और स्थानीय ऑडियो फ़ाइल के रूप में नहीं चलाया जा सकता। इसे सिंक की गई Apple Music प्लेलिस्ट से चलाएँ या संगीत ऐप में खोलें।";
@@ -875,8 +877,8 @@
 "ext.tv.transfer.finished" = "iPhone से %@ गाने ट्रांसफर किए गए";
 "ext.tv.transfer.failed" = "ट्रांसफर पूरा नहीं हुआ। iPhone पर फिर से कोशिश करें।";
 "audio_variant_lossy_stereo" = "स्टीरियो";
-"audio_variant_lossless" = "Lossless";
-"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_lossless" = "लॉसलेस";
+"audio_variant_hi_res_lossless" = "हाई-रेज़ लॉसलेस";
 "audio_variant_dolby_atmos" = "Dolby Atmos";
 "audio_variant_dolby_audio" = "Dolby Audio";
 "apple_music_pick_from_catalog" = "Apple Music से चुनें…";

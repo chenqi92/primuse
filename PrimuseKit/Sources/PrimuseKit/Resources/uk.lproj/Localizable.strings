@@ -462,6 +462,8 @@
 "ext.tv.playback.failed" = "Помилка відтворення";
 "icloud_cloud_schema_missing" = "У виробничій схемі iCloud відсутній «%@». Повторна спроба не може виправити це; розробник повинен розгорнути схему CloudKit.";
 "ext.tv.scan.chooseFolders" = "Виберіть папки для сканування";
+"ext.tv.scan.incremental" = "Додаткове сканування";
+"ext.tv.scan.incrementalBody" = "Сканувати вибрані папки, зберігши наявні альбоми.";
 "ext.tv.error.range.invalidUnit" = "Одиниця діапазону вмісту недійсна.";
 "ext.tv.error.range.invalidBounds" = "Межі діапазону вмісту недійсні.";
 "playback" = "Відтворення";
@@ -734,11 +736,11 @@
 "tv_metadata_source_unavailable" = "Увімкніть джерело або повторно скануйте його на iPhone чи Mac та синхронізуйте.";
 "tv_metadata_reread_issues" = "Не вдалося повністю прочитати %d композицій. Наявні дані збережено; можна повторити спробу.";
 
-"error.songloft.missingCredential" = "Songloft requires an account and password.";
-"error.songloft.invalidURL" = "The Songloft server address is invalid.";
-"error.songloft.authenticationFailed" = "Songloft sign-in failed. Check the account and password.";
-"error.songloft.invalidResponse" = "Songloft returned an incomplete or invalid response. The existing library was preserved.";
-"error.songloft.http" = "Songloft returned HTTP %@.";
+"error.songloft.missingCredential" = "Для Songloft потрібні обліковий запис і пароль.";
+"error.songloft.invalidURL" = "Адреса сервера Songloft недійсна.";
+"error.songloft.authenticationFailed" = "Не вдалося ввійти в Songloft. Перевірте обліковий запис і пароль.";
+"error.songloft.invalidResponse" = "Songloft повернув неповні або недійсні дані. Наявну медіатеку збережено.";
+"error.songloft.http" = "Songloft повернув HTTP %@.";
 
 "appleMusic.localAsset.managedDownload" = "Це завантаження Apple Music не можна відтворити як локальний аудіофайл. Запустіть його із синхронізованого списку відтворення Apple Music або відкрийте в програмі «Музика».";
 "appleMusic.localAsset.protectedContent" = "Ця пісня захищена, і її не можна відтворити як локальний аудіофайл. Запустіть її із синхронізованого списку відтворення Apple Music або відкрийте в програмі «Музика».";
@@ -875,8 +877,8 @@
 "ext.tv.transfer.finished" = "Перенесено пісень з iPhone: %@";
 "ext.tv.transfer.failed" = "Передавання не завершено. Повторіть спробу на iPhone.";
 "audio_variant_lossy_stereo" = "Стерео";
-"audio_variant_lossless" = "Lossless";
-"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_lossless" = "Без втрат";
+"audio_variant_hi_res_lossless" = "Висока роздільна здатність без втрат";
 "audio_variant_dolby_atmos" = "Dolby Atmos";
 "audio_variant_dolby_audio" = "Dolby Audio";
 "apple_music_pick_from_catalog" = "Вибрати з Apple Music…";

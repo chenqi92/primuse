@@ -271,6 +271,8 @@
 "ext.tv.scan.cancelScan" = "إلغاء المسح";
 "ext.tv.scan.check" = "اختر للمسح";
 "ext.tv.scan.chooseFolders" = "اختيار المجلدات المراد مسحها";
+"ext.tv.scan.incremental" = "فحص إضافي";
+"ext.tv.scan.incrementalBody" = "افحص المجلدات المحددة واحتفظ بالألبومات الحالية.";
 "ext.tv.scan.complete" = "أكمل";
 "ext.tv.scan.completedSource" = "اكتمل المسح · %@";
 "ext.tv.scan.connectFailed" = "فشل الاتصال. تحقق من العنوان وبيانات الاعتماد.";
@@ -734,11 +736,11 @@
 "tv_metadata_source_unavailable" = "فعّل هذا المصدر أو أعد فحصه على iPhone أو Mac ثم زامنه.";
 "tv_metadata_reread_issues" = "تعذرت قراءة %d من الأغاني بالكامل. حُفظت المعلومات الحالية ويمكنك إعادة المحاولة.";
 
-"error.songloft.missingCredential" = "Songloft requires an account and password.";
-"error.songloft.invalidURL" = "The Songloft server address is invalid.";
-"error.songloft.authenticationFailed" = "Songloft sign-in failed. Check the account and password.";
-"error.songloft.invalidResponse" = "Songloft returned an incomplete or invalid response. The existing library was preserved.";
-"error.songloft.http" = "Songloft returned HTTP %@.";
+"error.songloft.missingCredential" = "يتطلب Songloft حسابًا وكلمة مرور.";
+"error.songloft.invalidURL" = "عنوان خادم Songloft غير صالح.";
+"error.songloft.authenticationFailed" = "فشل تسجيل الدخول إلى Songloft. تحقق من الحساب وكلمة المرور.";
+"error.songloft.invalidResponse" = "أعاد Songloft بيانات غير مكتملة أو غير صالحة. بقيت المكتبة الحالية محفوظة.";
+"error.songloft.http" = "أعاد Songloft حالة HTTP %@.";
 
 "appleMusic.localAsset.managedDownload" = "لا يمكن تشغيل تنزيل Apple Music هذا كملف صوت محلي. شغّله من قائمة تشغيل Apple Music تمت مزامنتها أو افتحه في تطبيق الموسيقى.";
 "appleMusic.localAsset.protectedContent" = "هذه الأغنية محمية ولا يمكن تشغيلها كملف صوت محلي. شغّلها من قائمة تشغيل Apple Music تمت مزامنتها أو افتحها في تطبيق الموسيقى.";
@@ -875,8 +877,8 @@
 "ext.tv.transfer.finished" = "تم نقل %@ أغنية من iPhone";
 "ext.tv.transfer.failed" = "لم يكتمل النقل. أعد المحاولة من iPhone.";
 "audio_variant_lossy_stereo" = "ستيريو";
-"audio_variant_lossless" = "Lossless";
-"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_lossless" = "دون فقدان";
+"audio_variant_hi_res_lossless" = "عالية الدقة دون فقدان";
 "audio_variant_dolby_atmos" = "Dolby Atmos";
 "audio_variant_dolby_audio" = "Dolby Audio";
 "apple_music_pick_from_catalog" = "الاختيار من Apple Music…";

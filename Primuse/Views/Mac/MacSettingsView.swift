@@ -1833,6 +1833,7 @@ private struct MacSTKeyboardShortcutsView: View {
     ]
     private let windowActions: [MacKeyboardShortcutAction] = [
         .focusSearch, .showMiniPlayer, .showDesktopLyrics, .toggleDesktopLyricsLock,
+        .toggleLyricsIsland, .toggleMenuBarLyrics, .toggleFullScreenPlayer, .openMainWindow,
     ]
 
     var body: some View {
@@ -3964,10 +3965,14 @@ private struct MacSTLyricsView: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(MacMenuBarController.lyricsEnabledKey)
     private var menuBarLyricsEnabled = false
-    @AppStorage(DesktopLyricsWindowController.islandModeKey)
+    @AppStorage(DesktopLyricsWindowController.islandVisibleKey)
     private var desktopLyricsIsland = false
     @AppStorage(DesktopLyricsIslandController.systemStatusKey)
     private var islandShowsSystemStatus = true
+    @AppStorage(DesktopLyricsIslandController.alwaysOnTopKey)
+    private var islandAlwaysOnTop = false
+    @AppStorage(MacMenuBarController.compactWithIslandKey)
+    private var compactMenuBarWithIsland = false
     @State private var showTranscriptionSettings = false
     private var localTranslation: LocalLyricsTranslationService { .shared }
 
@@ -4092,15 +4097,34 @@ private struct MacSTLyricsView: View {
                         String(localized: "desktop_lyrics_island"),
                         hint: String(localized: "desktop_lyrics_island_description")
                     ) {
-                        // 这里只改偏好：桌面歌词开着才立刻换形态，关着不替用户打开。
                         MacSTToggle(isOn: Binding(
                             get: { desktopLyricsIsland },
-                            set: { PrimuseAppDelegate.shared?.setDesktopLyricsIsland($0, reveal: false) }
+                            set: { PrimuseAppDelegate.shared?.setDesktopLyricsIsland($0) }
                         ))
                         .accessibilityLabel(Text("desktop_lyrics_island"))
                         .accessibilityHint(Text("desktop_lyrics_island_description"))
                     }
                     .settingsAnchor("lyrics.island")
+                    MacSTRow(String(localized: "lyrics_island_always_on_top")) {
+                        MacSTToggle(isOn: $islandAlwaysOnTop)
+                            .accessibilityLabel(Text("lyrics_island_always_on_top"))
+                            .accessibilityValue(Text(
+                                islandAlwaysOnTop
+                                    ? "desktop_widget_sync_status_enabled"
+                                    : "desktop_widget_sync_status_disabled"
+                            ))
+                    }
+                    .settingsAnchor("lyrics.islandAlwaysOnTop")
+                    MacSTRow(String(localized: "menu_bar_icon_only_with_lyrics_island")) {
+                        MacSTToggle(isOn: $compactMenuBarWithIsland)
+                            .accessibilityLabel(Text("menu_bar_icon_only_with_lyrics_island"))
+                            .accessibilityValue(Text(
+                                compactMenuBarWithIsland
+                                    ? "desktop_widget_sync_status_enabled"
+                                    : "desktop_widget_sync_status_disabled"
+                            ))
+                    }
+                    .settingsAnchor("lyrics.islandCompactMenuBar")
                     MacSTRow(
                         String(localized: "desktop_lyrics_island_system_status"),
                         hint: String(localized: "desktop_lyrics_island_system_status_description")

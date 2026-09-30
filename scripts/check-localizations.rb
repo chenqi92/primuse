@@ -70,6 +70,8 @@ OPENAI_ACCOUNT_BOUNDARY_BILLING_MARKERS = {
 RESOURCE_GROUPS = [
   ["Primuse Localizable.strings", ROOT / "Primuse/Resources", "Localizable.strings", false],
   ["Primuse SettingsSearch.strings", ROOT / "Primuse/Resources", "SettingsSearch.strings", true],
+  ["Primuse HomeDiscovery.strings", ROOT / "Primuse/Resources", "HomeDiscovery.strings", true],
+  ["Primuse MetadataReading.strings", ROOT / "Primuse/Resources", "MetadataReading.strings", true],
   ["Primuse CacheSync.strings", ROOT / "Primuse/Resources", "CacheSync.strings", true],
   ["Primuse WiFiTransfer.strings", ROOT / "Primuse/Resources", "WiFiTransfer.strings", true],
   ["PrimuseKit Localizable.strings", ROOT / "PrimuseKit/Sources/PrimuseKit/Resources", "Localizable.strings", true],
@@ -83,10 +85,12 @@ IDENTICAL_VALUE_PREFIXES = %w[
   artwork_
   baidu_snapshot_
   cache_sync_
+  carplay_
   cloud_account_
   fullscreen_effect_
   home_
   local_import_
+  library_review_
   lock_screen_
   metadata_writeback_
   relay_import_
@@ -102,9 +106,12 @@ IDENTICAL_VALUE_PREFIXES = %w[
   fnmusic_
   radio_
   update_banner_
+  error.songloft.
 ].freeze
 
 IDENTICAL_VALUE_KEYS = %w[
+  audio_variant_hi_res_lossless
+  audio_variant_lossless
   tag_editor_footer
   source_quick_sync
   source_deep_scan
@@ -126,6 +133,7 @@ IDENTICAL_VALUE_KEYS = %w[
   ext.tv.radio.stationCount
   src.subtitle.fnMusic
   src.subtitle.daoliyu
+  yearly_personality_lfvd_name
 ].freeze
 
 IDENTICAL_VALUE_GLOBAL_ALLOWLIST = %w[
@@ -145,6 +153,13 @@ IDENTICAL_VALUE_GLOBAL_ALLOWLIST = %w[
   relay_share_format
   relay_share_endpoint_placeholder
   radio_batch_entry_file
+  carplay_ok
+].freeze
+
+AUDIOBOOK_LABEL_KEYS = %w[
+  tab_spoken_word
+  listening_space_spoken_word
+  spoken_word_settings_section
 ].freeze
 
 VERBATIM_SWIFTUI_LITERALS = %w[
@@ -197,12 +212,13 @@ FORBIDDEN_VISIBLE_LITERALS = [
 JAPANESE_TRANSLATION_REQUIRED_PREFIXES = %w[
   ai_
   search_ai_
+  ext.tv.immersive.style.
 ].freeze
 
 IDENTICAL_VALUE_ALLOWLIST = {
-  "es-MX" => %w[home_mode_radio radio_title],
-  "pt-BR" => %w[stats_hours_minutes_format],
-  "pl" => %w[ext.tv.sources.form.host],
+  "es-MX" => %w[home_mode_radio radio_title carplay_visible],
+  "pt-BR" => %w[stats_hours_minutes_format carplay_section_playlists carplay_tab_playlists],
+  "pl" => %w[ext.tv.sources.form.host carplay_player_standard],
   "de" => %w[
     drime_token_section
     fnmusic_connection_fnconnect
@@ -211,6 +227,7 @@ IDENTICAL_VALUE_ALLOWLIST = {
     home_mode_radio
     home_radio_wall_badge
     radio_title
+    carplay_player_standard
   ],
   "fr" => %w[
     drime_token_section
@@ -223,6 +240,13 @@ IDENTICAL_VALUE_ALLOWLIST = {
     home_pipeline_sources
     home_sources_title
     ext.tv.radio.stationCount
+    carplay_visual_capsules
+    carplay_style_capsules
+    carplay_visible
+    carplay_albums_title
+    carplay_section_albums
+    carplay_tab_albums
+    carplay_player_standard
   ],
   "ja" => %w[
     drime_token_section
@@ -440,6 +464,12 @@ def check_resource_group(name, root, file_name, exact_english_parity, failures)
   union = values.values.reduce(Set.new) { |keys, dictionary| keys | dictionary.keys.to_set }
 
   values.each do |locale, dictionary|
+    dictionary.each do |key, value|
+      failures << "#{name} #{locale}: empty translation for #{key.inspect}" if value.strip.empty?
+      if !%w[ja zh-Hans zh-Hant].include?(locale) && value.match?(/\p{Han}/)
+        failures << "#{name} #{locale}: unexpected Han text in #{key.inspect}"
+      end
+    end
     next if locale == "en" && !exact_english_parity
 
     missing = union - dictionary.keys.to_set
@@ -796,6 +826,27 @@ def check_pmstring_source_localization_coverage(dictionaries, failures)
   end
 end
 
+def check_audiobook_labels(dictionaries, failures)
+  if dictionaries.fetch("en")["home_section_audiobooks"] != "Audiobooks"
+    failures << "Primuse Localizable.strings en: the audiobook category must be named Audiobooks"
+  end
+
+  dictionaries.each do |locale, dictionary|
+    audiobook_label = dictionary["home_section_audiobooks"]
+    if audiobook_label.nil? || audiobook_label.strip.empty?
+      failures << "Primuse Localizable.strings #{locale}: missing audiobook category label"
+      next
+    end
+
+    AUDIOBOOK_LABEL_KEYS.each do |key|
+      next if dictionary[key] == audiobook_label
+
+      failures << "Primuse Localizable.strings #{locale}: #{key.inspect} must match " \
+                  "the audiobook label #{audiobook_label.inspect}"
+    end
+  end
+end
+
 failures = []
 RESOURCE_GROUPS.each do |name, root, file_name, exact_english_parity|
   check_resource_group(name, root, file_name, exact_english_parity, failures)
@@ -807,6 +858,7 @@ app_localizations = localization_paths(ROOT / "Primuse/Resources", "Localizable.
   .transform_values { |path| load_strings(path) }
 check_app_source_localization_coverage(app_localizations, failures)
 check_forbidden_visible_literals(failures)
+check_audiobook_labels(app_localizations, failures)
 
 app_localizations.each do |locale, dictionary|
   value = dictionary[OPENAI_ACCOUNT_BOUNDARY_KEY]

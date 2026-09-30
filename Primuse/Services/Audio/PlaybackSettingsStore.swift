@@ -73,7 +73,7 @@ extension StreamQualityPreference {
     }
 }
 
-struct PlaybackSettings: Codable, Sendable {
+struct PlaybackSettings: Codable, Sendable, Equatable {
     static let defaultsKey = "primuse_playback_settings_v1"
     static let lockScreenLyricsRolloutKey = "primuse_lock_screen_lyrics_default_enabled_v1"
     static let crossfadeDurationRolloutKey = "primuse_crossfade_default_duration_v2"
@@ -482,11 +482,14 @@ final class PlaybackSettingsStore {
     var reverbRoomSize: Float { didSet { persist() } }
 
     private let defaults: UserDefaults
+    @ObservationIgnored private let cloudSync: CloudKVSSync
+    @ObservationIgnored private var lastPersistedSettings: PlaybackSettings?
     private var suppressPersist = false
     @ObservationIgnored var audioCacheEnabledDidChange: ((Bool) -> Void)?
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, cloudSync: CloudKVSSync = .shared) {
         self.defaults = defaults
+        self.cloudSync = cloudSync
         let s = PlaybackSettings.load(defaults: defaults)
         self.outputMode = s.outputMode
         self.dsdPlaybackMode = s.dsdPlaybackMode
@@ -524,11 +527,12 @@ final class PlaybackSettingsStore {
         self.reverbPresetIndex = s.reverbPresetIndex
         self.reverbWetDryMix = s.reverbWetDryMix
         self.reverbRoomSize = s.reverbRoomSize
+        self.lastPersistedSettings = snapshot()
 
         // 新装的设备还没有自己的设置: 灰度迁移只写本机默认值, 不能当成用户编辑
         // 推上 iCloud —— 那会把别的设备上的播放设置整份换成默认值。
         let hadPersistedSettings = defaults.data(forKey: PlaybackSettings.defaultsKey) != nil
-        CloudKVSSync.shared.register(key: PlaybackSettings.defaultsKey) { [weak self] in
+        cloudSync.register(key: PlaybackSettings.defaultsKey) { [weak self] in
             self?.reloadFromDefaults()
         }
         let lyricsRolledOut = PlaybackSettings.applyLockScreenLyricsRolloutIfNeeded(defaults: defaults)
@@ -536,7 +540,7 @@ final class PlaybackSettingsStore {
         if lyricsRolledOut || crossfadeRolledOut {
             reloadFromDefaults()
             if hadPersistedSettings {
-                CloudKVSSync.shared.markChanged(key: PlaybackSettings.defaultsKey)
+                cloudSync.markChanged(key: PlaybackSettings.defaultsKey)
             }
         }
     }
@@ -597,10 +601,12 @@ final class PlaybackSettingsStore {
         reverbWetDryMix = s.reverbWetDryMix
         reverbRoomSize = s.reverbRoomSize
 
+        let appliedSettings = snapshot()
+        lastPersistedSettings = appliedSettings
         guard !merge.keptFields.isEmpty else { return }
         // 写回的是套用后的内存快照(已做范围与联动归一), 与 `persist()` 落盘的
         // 内容一致, 只是不推云端。
-        snapshot().save(defaults: defaults)
+        appliedSettings.save(defaults: defaults)
         plog("☁️ PlaybackSettings remote payload applied, kept device-local: \(merge.keptFields.joined(separator: ", "))")
     }
 
@@ -647,7 +653,12 @@ final class PlaybackSettingsStore {
 
     private func persist() {
         guard !suppressPersist else { return }
-        snapshot().save(defaults: defaults)
-        CloudKVSSync.shared.markChanged(key: PlaybackSettings.defaultsKey)
+        let settings = snapshot()
+        // 联动字段的 didSet 和界面的 onChange 都可能回写同一份最终值。
+        // 不重复编码、写偏好或抬高云端修订号。
+        guard settings != lastPersistedSettings else { return }
+        settings.save(defaults: defaults)
+        lastPersistedSettings = settings
+        cloudSync.markChanged(key: PlaybackSettings.defaultsKey)
     }
 }

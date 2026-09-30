@@ -333,6 +333,8 @@
 "ext.tv.test.needs2FA"                    = "需要两步验证，请长按该源并选择“两步验证登录”。";
 "ext.tv.scan.step3"                       = "添加新源 · 第 3 步";
 "ext.tv.scan.chooseFolders"               = "选择要扫描的目录";
+"ext.tv.scan.incremental" = "增量扫描";
+"ext.tv.scan.incrementalBody" = "只扫描所选目录，保留已有专辑。";
 "ext.tv.scan.up"                          = "返回上一级";
 "ext.tv.scan.loading"                     = "加载中…";
 "ext.tv.scan.noSubfolders"                = "该目录下没有子文件夹，可勾选当前目录直接扫描。";
@@ -962,7 +964,7 @@
 "ext.tv.settings.tabBar.default" = "默认";
 "ext.tv.settings.tabBar.shownCount" = "显示 %d 项";
 "ext.tv.settings.tabBar.contentHint" = "有内容时才出现";
-"ext.tv.settings.tabBar.keepOne" = "至少要保留一个始终会出现的页面（电台和有声在没有内容时不出现）。";
+"ext.tv.settings.tabBar.keepOne" = "至少要保留一个始终会出现的页面（电台和有声书在没有内容时不出现）。";
 "ext.tv.settings.tabBar.moveUp" = "上移";
 "ext.tv.settings.tabBar.moveDown" = "下移";
 "ext.tv.settings.tabBar.reset" = "恢复默认";

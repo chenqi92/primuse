@@ -1,6 +1,92 @@
 import SwiftUI
 import PrimuseKit
 
+enum SearchRecommendationOriginPolicy {
+    nonisolated static func intelligentIDs<ID: Hashable>(
+        primary: [ID], recommended: [ID], isCurrentQuery: Bool
+    ) -> Set<ID> {
+        guard isCurrentQuery else { return [] }
+        return Set(recommended).subtracting(primary)
+    }
+}
+
+struct SearchRecommendationBadge: View {
+    var body: some View {
+        Label("library_recommendations_title", systemImage: "sparkles")
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color.accentColor.opacity(0.1), in: Capsule())
+            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct SearchArtworkRecommendationBadge: View {
+    var iconOnly = false
+
+    var body: some View {
+        Group {
+            if iconOnly {
+                Image(systemName: "sparkles")
+                    .frame(width: 12, height: 12)
+                    .padding(4)
+                    .accessibilityLabel(Text("library_recommendations_title"))
+            } else {
+                Label("library_recommendations_title", systemImage: "sparkles")
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+            }
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(Color.accentColor)
+        .background(.regularMaterial, in: Capsule())
+        .overlay { Capsule().strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5) }
+        .lineLimit(1)
+        .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    func searchRecommendationOverlay(isRecommended: Bool, iconOnly: Bool = false, inset: CGFloat = 6) -> some View {
+        overlay(alignment: .topTrailing) {
+            if isRecommended {
+                SearchArtworkRecommendationBadge(iconOnly: iconOnly)
+                    .padding(inset)
+            }
+        }
+    }
+}
+
+enum SearchResultActionTarget {
+    case album(String)
+    case artist(String)
+    case collection(SearchCollectionResult)
+
+    var moreMenuAccessibilityIdentifier: String {
+        switch self {
+        case .album(let id): "search.album.more.\(id)"
+        case .artist(let id): "search.artist.more.\(id)"
+        case .collection(let result): "search.collection.more.\(result.id)"
+        }
+    }
+
+    @MainActor
+    func songs(in library: MusicLibrary) -> [PrimuseKit.Song] {
+        switch self {
+        case .album(let id): library.songs(forAlbum: id)
+        case .artist(let id): library.songs(forArtist: id)
+        case .collection(let result): result.songs(in: library)
+        }
+    }
+
+    @MainActor
+    func addToLiked(in library: MusicLibrary) {
+        library.likeSongs(songs(in: library).map(\.id))
+    }
+}
+
 struct SearchCollectionResult: Identifiable, Hashable, Sendable {
     enum Target: Hashable, Sendable {
         case playlist(String)

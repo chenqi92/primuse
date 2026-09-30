@@ -18,6 +18,9 @@ struct PlaylistDetailView: View {
     @Environment(\.pmHeightClass) private var heightClass
     #elseif os(macOS)
     @Environment(\.locale) private var locale
+    @State private var tableLayout = MacSongTableLayout(scope: .playlist)
+    @State private var showColumnOptions = false
+    @AppStorage("playlist.mac.showNetworkNotice.v1") private var showsNetworkNotice = true
     #endif
     /// 系统工具栏竖排到侧边时(iPhone Duo)非 nil:工具栏按钮带上标题,收进系统溢出菜单时看得懂。
     @Environment(\.pmVerticalBarEdge) private var verticalBarEdge
@@ -697,13 +700,28 @@ struct PlaylistDetailView: View {
             .font(.caption)
             .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
+            #if os(macOS)
+            Button {
+                showsNetworkNotice = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(4)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("playlist_hide_network_notice"))
+            #endif
         }
         .padding(14)
         .background(
             Color.orange.opacity(0.08),
             in: RoundedRectangle(cornerRadius: 12, style: .continuous)
         )
+        #if os(macOS)
+        .accessibilityElement(children: .contain)
+        #else
         .accessibilityElement(children: .combine)
+        #endif
     }
 
     private var alwaysDownloadControl: some View {
@@ -849,71 +867,69 @@ struct PlaylistDetailView: View {
 
     #if os(macOS)
     private var macPlaylistDetail: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                MacLibraryHeader(
-                    eyebrow: "playlist",
-                    title: currentPlaylist?.name ?? playlist.name,
-                    subtitle: playlistSubtitle,
-                    iconSystemName: coverPlaceholderIcon,
-                    coverPlaylist: currentPlaylist ?? playlist,
-                    onBack: onMacInlineBack.map { onBack in
-                        {
-                            selection.deactivate()
-                            onBack()
+        GeometryReader { geometry in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    MacLibraryHeader(
+                        eyebrow: "playlist",
+                        title: currentPlaylist?.name ?? playlist.name,
+                        subtitle: playlistSubtitle,
+                        iconSystemName: coverPlaceholderIcon,
+                        coverPlaylist: currentPlaylist ?? playlist,
+                        onBack: onMacInlineBack.map { onBack in
+                            {
+                                selection.deactivate()
+                                onBack()
+                            }
+                        },
+                        backAccessibilityIdentifier: "playlistInlineBack",
+                        onPlay: { playAll() },
+                        onShuffle: {
+                            playAll(shuffled: true)
+                        },
+                        moreMenu: playlistMoreMenu
+                    )
+
+                    VStack(alignment: .leading, spacing: PMSpace.l) {
+                        LibraryReviewSection(subject: .playlist(playlist.id))
+
+                        if showsNetworkNotice && hasSongsFromUnreachableSources {
+                            unreachableSongsNotice
                         }
-                    },
-                    backAccessibilityIdentifier: "playlistInlineBack",
-                    onPlay: { playAll() },
-                    onShuffle: {
-                        playAll(shuffled: true)
-                    },
-                    moreMenu: playlistMoreMenu
-                )
 
-                VStack(alignment: .leading, spacing: PMSpace.l) {
-                    LibraryReviewSection(subject: .playlist(playlist.id))
+                        if pendingEntryCount > 0 {
+                            PlaylistPendingNotice(count: pendingEntryCount)
+                        }
 
-                    if hasSongsFromUnreachableSources {
-                        unreachableSongsNotice
+                        if isCurrentPlaylistScraping {
+                            batchScrapeProgressCard
+                                .pmFadeTransition(motion: .list)
+                        }
+
+                        // 设计稿: 普通歌单只有 LibraryHeader + 歌曲表。智能歌单才显示
+                        // smart rule callout (放在 SmartPlaylistDetailView 里)。原来这里
+                        // 给所有非 Liked/AM 歌单都套了一个 "reorder + 导出" 工具卡, 不在
+                        // 设计稿里, 现在直接换成 toolbar (排序/导出/更多) 工具条。
+                        macPlaylistToolbar
+
+                        if songs.isEmpty && pendingEntryCount == 0 {
+                            EmptyStateView(
+                                titleKey: "no_songs",
+                                descriptionKey: "no_songs_desc",
+                                systemImage: "music.note.list"
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 48)
+                        } else {
+                            macSongTable(viewportWidth: max(0, geometry.size.width - PMSpace.xxxl * 2))
+                        }
                     }
-
-                    if pendingEntryCount > 0 {
-                        PlaylistPendingNotice(count: pendingEntryCount)
-                    }
-
-                    if supportsAlwaysDownload {
-                        alwaysDownloadControl
-                            .pmFadeTransition(motion: .list)
-                    }
-
-                    if isCurrentPlaylistScraping {
-                        batchScrapeProgressCard
-                            .pmFadeTransition(motion: .list)
-                    }
-
-                    // 设计稿: 普通歌单只有 LibraryHeader + 歌曲表。智能歌单才显示
-                    // smart rule callout (放在 SmartPlaylistDetailView 里)。原来这里
-                    // 给所有非 Liked/AM 歌单都套了一个 "reorder + 导出" 工具卡, 不在
-                    // 设计稿里, 现在直接换成 toolbar (排序/导出/更多) 工具条。
-                    macPlaylistToolbar
-
-                    if songs.isEmpty && pendingEntryCount == 0 {
-                        EmptyStateView(
-                            titleKey: "no_songs",
-                            descriptionKey: "no_songs_desc",
-                            systemImage: "music.note.list"
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 48)
-                    } else {
-                        macSongTable
-                    }
+                    .padding(.horizontal, PMSpace.xxxl)
+                    .padding(.top, PMSpace.l)
                 }
-                .padding(.horizontal, PMSpace.xxxl)
-                .padding(.top, PMSpace.l)
+                .padding(.bottom, 112)
             }
-            .padding(.bottom, 112)
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .background(PMColor.bg.ignoresSafeArea())
         .sheet(isPresented: $showReorderSheet) {
@@ -1000,6 +1016,25 @@ struct PlaylistDetailView: View {
             .disabled(songs.count < 2)
             .accessibilityLabel(Text("sort_by"))
             .accessibilityIdentifier("playlistDetail.sort")
+            Button {
+                showColumnOptions.toggle()
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("songs_column_settings_ellipsis"))
+            .accessibilityIdentifier("playlistDetail.columns")
+            .popover(isPresented: $showColumnOptions, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("songs_view_options").font(.system(size: 13, weight: .semibold))
+                    MacSongTableColumnOptions(layout: tableLayout)
+                }
+                .padding(16)
+                .frame(width: 280)
+                .background(PMColor.bg)
+            }
         }
         .padding(.top, -2)
     }
@@ -1024,6 +1059,22 @@ struct PlaylistDetailView: View {
         middle.append(.init(icon: "arrow.down.circle", title: String(localized: "offline_download"),
                             enabled: !playable.isEmpty) {
             sourceManager.downloadForOffline(songs: songs)
+        })
+        if supportsAlwaysDownload {
+            middle.append(.init(
+                icon: alwaysDownloadBinding.wrappedValue ? "checkmark.circle.fill" : "arrow.down.circle",
+                title: String(localized: "playlist_always_download")
+            ) {
+                alwaysDownloadBinding.wrappedValue.toggle()
+            })
+        }
+        middle.append(.init(
+            icon: showsNetworkNotice ? "eye.slash" : "eye",
+            title: String(localized: showsNetworkNotice
+                          ? "playlist_hide_network_notice" : "playlist_show_network_notice")
+        ) { showsNetworkNotice.toggle() })
+        middle.append(.init(icon: "list.bullet.rectangle", title: String(localized: "songs_column_settings_ellipsis")) {
+            showColumnOptions = true
         })
         middle.append(.init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
                             trailing: songs.count.formatted(),
@@ -1082,7 +1133,7 @@ struct PlaylistDetailView: View {
         ]))
     }
 
-    private var macSongTable: some View {
+    private func macSongTable(viewportWidth: CGFloat) -> some View {
         // 序号只数真正的歌, 置灰的行不占号。
         var songCounter = 0
         let rows: [(entry: MusicLibrary.PlaylistEntry, songIndex: Int)] = displayEntries.map { entry in
@@ -1095,61 +1146,54 @@ struct PlaylistDetailView: View {
         let indexColumnWidth = max(32, ceil((lastRowNumber as NSString).size(withAttributes: [
             .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         ]).width) + 4)
-        return VStack(spacing: 0) {
-            // 设计稿 9 列: # / cover / 标题 / 艺术家 / 专辑 / 格式 / 时长 / 播放 / 源
-            HStack(spacing: 12) {
-                if selection.isActive {
-                    Color.clear.frame(width: indexColumnWidth, height: 1)
-                } else {
-                    Text("#").frame(width: indexColumnWidth, alignment: .leading)
+        return ScrollView(.horizontal) {
+            VStack(alignment: .leading, spacing: 0) {
+                if tableLayout.showsHeader {
+                    MacSongTableHeader(
+                        layout: tableLayout, ordinalWidth: indexColumnWidth,
+                        isSelectionActive: selection.isActive, sortOrder: displaySortOrder,
+                        sortableCriteria: Set(Self.sortCriteria),
+                        onSort: selectSort
+                    )
+                    .padding(.horizontal, MacSongTableLayout.horizontalPadding)
+                    .padding(.vertical, 8)
+                    Rectangle().fill(PMColor.divider).frame(height: 0.5)
                 }
-                Color.clear.frame(width: 32, height: 1)
-                Text("sort_title").frame(maxWidth: .infinity, alignment: .leading)
-                Text("sort_artist").frame(maxWidth: .infinity, alignment: .leading)
-                Text("sort_album").frame(maxWidth: .infinity, alignment: .leading)
-                Text("sort_format").frame(width: 100, alignment: .leading)
-                Text("track_duration_short").frame(width: 80, alignment: .trailing)
-                Text("home_playable_count_short").frame(width: 80, alignment: .trailing)
-                Text("source").frame(width: 60, alignment: .leading)
-            }
-            .font(.system(size: 10.5, weight: .semibold))
-            .tracking(0.6)
-            .textCase(.uppercase)
-            .foregroundStyle(PMColor.textFaint)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
 
-            Rectangle().fill(PMColor.divider).frame(height: 0.5)
-
-            LazyVStack(spacing: 1) {
-                ForEach(rows, id: \.entry.id) { row in
-                    switch row.entry {
-                    case .song(let song):
-                        macSongRow(
-                            song,
-                            index: row.songIndex,
-                            indexColumnWidth: indexColumnWidth,
-                            playCount: playCounts[song.id, default: 0]
-                        )
-                            .songSelectable(
-                                songID: song.id,
-                                selection: selection,
-                                orderedIDs: { songs.map(\.id) },
-                                defaultAction: { playSong(song) }
+                LazyVStack(spacing: 1) {
+                    ForEach(rows, id: \.entry.id) { row in
+                        switch row.entry {
+                        case .song(let song):
+                            macSongRow(
+                                song,
+                                index: row.songIndex,
+                                indexColumnWidth: indexColumnWidth,
+                                playCount: playCounts[song.id, default: 0]
                             )
-                    case .pending(let pending):
-                        PlaylistPendingEntryRow(
-                            entry: pending,
-                            playlistID: playlist.id,
-                            allowsEditing: allowsPlaylistRemoval
-                        )
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
+                                .songSelectable(
+                                    songID: song.id,
+                                    selection: selection,
+                                    orderedIDs: { songs.map(\.id) },
+                                    defaultAction: { playSong(song) }
+                                )
+                        case .pending(let pending):
+                            PlaylistPendingEntryRow(
+                                entry: pending,
+                                playlistID: playlist.id,
+                                allowsEditing: allowsPlaylistRemoval
+                            )
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                        }
                     }
                 }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
+            .frame(width: tableLayout.contentWidth(ordinalWidth: indexColumnWidth) + MacSongTableLayout.horizontalPadding * 2,
+                   alignment: .leading)
         }
+        .frame(width: viewportWidth, alignment: .leading)
+        .defaultScrollAnchor(.topLeading, for: .alignment)
     }
 
     private func macSongRow(_ song: Song, index: Int, indexColumnWidth: CGFloat, playCount: Int) -> some View {
@@ -1175,76 +1219,12 @@ struct PlaylistDetailView: View {
             )
             .frame(width: 32, alignment: .leading)
 
-            Text(song.title)
-                .font(.system(size: 12.5, weight: isCurrent ? .semibold : .medium))
-                .foregroundStyle(isCurrent ? PMColor.brand : PMColor.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(library.artistDisplayName(for: song) ?? "—")
-                .font(.system(size: 12.5))
-                .foregroundStyle(PMColor.textMuted)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(song.albumTitle ?? "—")
-                .font(.system(size: 12.5))
-                .foregroundStyle(PMColor.textMuted)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 6) {
-                PMFormatPill.forFormat(song.fileFormat.displayName)
-                if let sr = song.sampleRate, sr > 0 {
-                    Text(verbatim: "\(sr / 1000)k")
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(PMColor.textFaint)
-                }
+            ForEach(tableLayout.activeColumns) { column in
+                macSongTableCell(column, song: song, isEmphasized: isCurrent,
+                                 liked: library.isLiked(songID: song.id), plays: playCount, source: source)
             }
-            .frame(width: 100, alignment: .leading)
-
-            Text(song.duration.formattedDuration)
-                .font(.system(size: 11.5, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(PMColor.textMuted)
-                .frame(width: 80, alignment: .trailing)
-
-            Group {
-                if playCount > 0 {
-                    Text("\(playCount)")
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundStyle(PMColor.textMuted)
-                } else {
-                    Text(verbatim: "—")
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .foregroundStyle(PMColor.textFaint)
-                }
-            }
-            .frame(width: 80, alignment: .trailing)
-
-            HStack(spacing: 5) {
-                if let source {
-                    Circle()
-                        .fill(macSourceDotColor(for: source))
-                        .frame(width: 6, height: 6)
-                    Text(verbatim: source.name.components(separatedBy: "·").first?
-                        .trimmingCharacters(in: .whitespaces) ?? source.name)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(PMColor.textFaint)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                } else {
-                    Text(verbatim: "—")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(PMColor.textFaint)
-                }
-            }
-            .frame(width: 60, alignment: .leading)
         }
+        .frame(width: tableLayout.contentWidth(ordinalWidth: indexColumnWidth), alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(minHeight: 44)
@@ -1264,6 +1244,124 @@ struct PlaylistDetailView: View {
                 } label: {
                     Label("remove_from_playlist", systemImage: "trash")
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func macSongTableCell(
+        _ column: MacSongsColumn,
+        song: Song,
+        isEmphasized: Bool,
+        liked: Bool,
+        plays: Int,
+        source: MusicSource?
+    ) -> some View {
+        Group {
+            switch column {
+            case .title:
+                HStack(spacing: 6) {
+                    Text(song.title)
+                        .font(.system(size: 12.5, weight: isEmphasized ? .semibold : .medium))
+                        .foregroundStyle(isEmphasized ? PMColor.brand : PMColor.text)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if liked {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(PMColor.brand)
+                    }
+                }
+            case .artist:
+                Text(library.artistDisplayName(for: song) ?? "—")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            case .album:
+                Text(song.albumTitle ?? "—")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            case .format:
+                HStack(spacing: 6) {
+                    PMFormatPill.forFormat(song.fileFormat.displayName)
+                    if let sampleRate = song.formattedSampleRate {
+                        Text(verbatim: sampleRate)
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(PMColor.textFaint)
+                    }
+                }
+            case .duration:
+                Text(song.duration.formattedDuration)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(PMColor.textMuted)
+            case .plays:
+                playCountText(plays)
+            case .sourcePlays:
+                playCountText(song.serverPlayCount ?? 0)
+            case .downloaded:
+                MacSongTableDownloadIndicator(song: song)
+            case .source:
+                sourceCell(source)
+            case .year:
+                Text(song.year.map(String.init) ?? "—")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textMuted)
+            case .rating:
+                Text(verbatim: "—")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textFaint)
+            case .dateAdded:
+                Text(song.dateAdded, style: .date)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PMColor.textMuted)
+                    .lineLimit(1)
+            case .bitRate:
+                Text(song.formattedBitRate ?? "—")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textMuted)
+            case .bitDepth:
+                Text(song.formattedBitDepth ?? "—")
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(PMColor.textMuted)
+            }
+        }
+        .frame(width: tableLayout.width(column), alignment: column.alignment)
+    }
+
+    @ViewBuilder
+    private func playCountText(_ plays: Int) -> some View {
+        if plays > 0 {
+            Text("\(plays)")
+                .font(.system(size: 11.5, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(PMColor.textMuted)
+        } else {
+            Text(verbatim: "—")
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(PMColor.textFaint)
+        }
+    }
+
+    private func sourceCell(_ source: MusicSource?) -> some View {
+        HStack(spacing: 5) {
+            if let source {
+                Circle()
+                    .fill(macSourceDotColor(for: source))
+                    .frame(width: 6, height: 6)
+                Text(verbatim: source.name.components(separatedBy: "·").first?
+                    .trimmingCharacters(in: .whitespaces) ?? source.name)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } else {
+                Text(verbatim: "—")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(PMColor.textFaint)
             }
         }
     }
@@ -1299,6 +1397,7 @@ struct PlaylistDetailView: View {
         }
     }
 
+    /// 用源类型 hash 出稳定彩色点 (跟 sidebar 同算法)。
     private func macSourceDotColor(for source: MusicSource) -> Color {
         let palette: [Color] = [
             PMColor.flac, PMColor.dsd, PMColor.warn, PMColor.brand,

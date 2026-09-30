@@ -38,6 +38,10 @@ public enum MacKeyboardShortcutAction: String, Codable, CaseIterable, Sendable {
     case showMiniPlayer
     case showDesktopLyrics
     case toggleDesktopLyricsLock
+    case toggleLyricsIsland
+    case toggleMenuBarLyrics
+    case toggleFullScreenPlayer
+    case openMainWindow
 
     public var defaultShortcut: MacKeyboardShortcut {
         switch self {
@@ -103,6 +107,30 @@ public enum MacKeyboardShortcutAction: String, Codable, CaseIterable, Sendable {
                 modifiers: MacKeyboardShortcut.commandModifier | MacKeyboardShortcut.shiftModifier,
                 keyEquivalent: "l"
             )
+        case .toggleLyricsIsland:
+            return MacKeyboardShortcut(
+                keyCode: 37,
+                modifiers: MacKeyboardShortcut.commandModifier | MacKeyboardShortcut.optionModifier,
+                keyEquivalent: "l"
+            )
+        case .toggleMenuBarLyrics:
+            return MacKeyboardShortcut(
+                keyCode: 37,
+                modifiers: MacKeyboardShortcut.commandModifier | MacKeyboardShortcut.controlModifier,
+                keyEquivalent: "l"
+            )
+        case .toggleFullScreenPlayer:
+            return MacKeyboardShortcut(
+                keyCode: 3,
+                modifiers: MacKeyboardShortcut.commandModifier | MacKeyboardShortcut.controlModifier,
+                keyEquivalent: "f"
+            )
+        case .openMainWindow:
+            return MacKeyboardShortcut(
+                keyCode: 29,
+                modifiers: MacKeyboardShortcut.commandModifier,
+                keyEquivalent: "0"
+            )
         }
     }
 }
@@ -131,11 +159,6 @@ public enum MacKeyboardShortcutPolicy {
         MacKeyboardShortcut(keyCode: 43, modifiers: MacKeyboardShortcut.commandModifier, keyEquivalent: ","),
         MacKeyboardShortcut(keyCode: 48, modifiers: MacKeyboardShortcut.commandModifier, keyEquivalent: "\t"),
         MacKeyboardShortcut(keyCode: 49, modifiers: MacKeyboardShortcut.commandModifier, keyEquivalent: " "),
-        MacKeyboardShortcut(
-            keyCode: 3,
-            modifiers: MacKeyboardShortcut.commandModifier | MacKeyboardShortcut.controlModifier,
-            keyEquivalent: "f"
-        ),
     ]
 
     private struct StoragePayload: Codable {
@@ -234,15 +257,19 @@ public enum MacKeyboardShortcutPolicy {
             var result: [MacKeyboardShortcutAction: MacKeyboardShortcut] = [:]
             let storedActions = Set(payload.bindings.map(\.action))
             for action in MacKeyboardShortcutAction.allCases {
-                guard storedActions.contains(action.rawValue) else {
-                    result = assigning(action.defaultShortcut, to: action, in: result)
-                    continue
-                }
+                guard storedActions.contains(action.rawValue) else { continue }
                 guard let shortcut = payload.bindings.first(where: {
                     $0.action == action.rawValue
                 })?.shortcut,
                       validate(shortcut) == .accepted else { continue }
                 result = assigning(shortcut, to: action, in: result)
+            }
+            // New actions must not take a shortcut the user already assigned.
+            for action in MacKeyboardShortcutAction.allCases where !storedActions.contains(action.rawValue) {
+                let shortcut = action.defaultShortcut
+                if conflictingAction(for: shortcut, excluding: action, in: result) == nil {
+                    result[action] = shortcut
+                }
             }
             return result
         }

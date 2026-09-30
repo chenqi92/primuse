@@ -462,6 +462,8 @@
 "ext.tv.playback.failed" = "Oynatma başarısız oldu";
 "icloud_cloud_schema_missing" = "iCloud Üretim şemasında “%@” eksik. Yeniden denemek bunu düzeltemez; geliştiricinin CloudKit şemasını dağıtması gerekir.";
 "ext.tv.scan.chooseFolders" = "Taranacak Klasörleri Seçin";
+"ext.tv.scan.incremental" = "Artımlı tarama";
+"ext.tv.scan.incrementalBody" = "Seçilen klasörleri tara ve mevcut albümleri koru.";
 "ext.tv.error.range.invalidUnit" = "İçerik Aralığı birimi geçersiz.";
 "ext.tv.error.range.invalidBounds" = "İçerik Aralığı sınırları geçersiz.";
 "playback" = "Oynatma";
@@ -734,11 +736,11 @@
 "tv_metadata_source_unavailable" = "Önce bu kaynağı etkinleştirin veya iPhone ya da Mac üzerinde yeniden tarayıp eşzamanlayın.";
 "tv_metadata_reread_issues" = "%d şarkı tam olarak okunamadı. Mevcut bilgiler korundu; yeniden deneyebilirsiniz.";
 
-"error.songloft.missingCredential" = "Songloft requires an account and password.";
-"error.songloft.invalidURL" = "The Songloft server address is invalid.";
-"error.songloft.authenticationFailed" = "Songloft sign-in failed. Check the account and password.";
-"error.songloft.invalidResponse" = "Songloft returned an incomplete or invalid response. The existing library was preserved.";
-"error.songloft.http" = "Songloft returned HTTP %@.";
+"error.songloft.missingCredential" = "Songloft için hesap ve parola gereklidir.";
+"error.songloft.invalidURL" = "Songloft sunucu adresi geçersiz.";
+"error.songloft.authenticationFailed" = "Songloft’ta oturum açılamadı. Hesabı ve parolayı kontrol edin.";
+"error.songloft.invalidResponse" = "Songloft eksik veya geçersiz veri döndürdü. Mevcut arşiv korundu.";
+"error.songloft.http" = "Songloft HTTP %@ döndürdü.";
 
 "appleMusic.localAsset.managedDownload" = "Bu Apple Music indirmesi yerel ses dosyası olarak çalınamaz. Eşzamanlanmış bir Apple Music listesinden çalın veya Müzik uygulamasında açın.";
 "appleMusic.localAsset.protectedContent" = "Bu şarkı korumalıdır ve yerel ses dosyası olarak çalınamaz. Eşzamanlanmış bir Apple Music listesinden çalın veya Müzik uygulamasında açın.";
@@ -875,8 +877,8 @@
 "ext.tv.transfer.finished" = "iPhone'dan %@ şarkı aktarıldı";
 "ext.tv.transfer.failed" = "Aktarım tamamlanmadı. iPhone'da yeniden deneyin.";
 "audio_variant_lossy_stereo" = "Stereo";
-"audio_variant_lossless" = "Lossless";
-"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_lossless" = "Kayıpsız";
+"audio_variant_hi_res_lossless" = "Yüksek çözünürlüklü kayıpsız";
 "audio_variant_dolby_atmos" = "Dolby Atmos";
 "audio_variant_dolby_audio" = "Dolby Audio";
 "apple_music_pick_from_catalog" = "Apple Music’ten seç…";
@@ -912,7 +914,7 @@
 "ext.tv.settings.tabBar.default" = "Varsayılan";
 "ext.tv.settings.tabBar.shownCount" = "%d gösteriliyor";
 "ext.tv.settings.tabBar.contentHint" = "Yalnızca içerik olduğunda görünür";
-"ext.tv.settings.tabBar.keepOne" = "Her zaman görünen en az bir sayfa bırakın (Radyo ve Sesli Kitaplar içerik yokken görünmez).";
+"ext.tv.settings.tabBar.keepOne" = "Her zaman görünen en az bir sayfa bırakın (Radyo ve Sesli kitaplar içerik yokken görünmez).";
 "ext.tv.settings.tabBar.moveUp" = "Yukarı Taşı";
 "ext.tv.settings.tabBar.moveDown" = "Aşağı Taşı";
 "ext.tv.settings.tabBar.reset" = "Varsayılanlara Dön";

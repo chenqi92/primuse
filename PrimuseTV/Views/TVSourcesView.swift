@@ -28,6 +28,7 @@ struct TVSourcesView: View {
     @State private var showsMetadata = false
     @State private var otpSource: TVSource?         // 两步验证(OTP)输入
     @State private var scanSource: MusicSource?     // 选目录 + 扫描流程
+    @State private var incrementalScanSource: MusicSource?
     @FocusState private var focusedPrimaryAction: PrimaryAction?
 
     var focusRequest = 0
@@ -47,6 +48,7 @@ struct TVSourcesView: View {
             showsMetadata,
             otpSource != nil,
             scanSource != nil,
+            incrementalScanSource != nil,
             rereadSource != nil,
         ].filter { $0 }.count
     }
@@ -82,6 +84,9 @@ struct TVSourcesView: View {
                                                 canEdit: store.source(id: s.id).map(
                                                     TVSourceEditPolicy.canEdit
                                                 ) ?? false,
+                                                canIncrementalScan: store.source(id: s.id).map {
+                                                    !TVSourceScanner.serverCatalogTypes.contains($0.type)
+                                                } ?? false,
                                                 onSelect: {
                                                     if s.status == .disabled {
                                                         store.setSourceEnabled(s.id, true)
@@ -110,6 +115,9 @@ struct TVSourcesView: View {
                                                     }
                                                 },
                                                 onScan: { if let src = store.source(id: s.id) { scanSource = src } },
+                                                onIncrementalScan: {
+                                                    if let src = store.source(id: s.id) { incrementalScanSource = src }
+                                                },
                                                 onRereadTags: {
                                                     if let src = store.source(id: s.id) { rereadSource = src }
                                                 })
@@ -271,6 +279,9 @@ struct TVSourcesView: View {
         }
         .fullScreenCover(item: $scanSource, onDismiss: restorePrimaryFocus) { src in
             TVScanFlowView(source: src).environment(store)
+        }
+        .fullScreenCover(item: $incrementalScanSource, onDismiss: restorePrimaryFocus) { src in
+            TVScanFlowView(source: src, mode: .incremental).environment(store)
         }
         #if DEBUG
         .task {
@@ -579,6 +590,7 @@ private struct TVSourceRow: View {
     let source: TVSource
     var testing: Bool = false
     var canEdit = false
+    var canIncrementalScan = false
     var onSelect: () -> Void = {}            // 点击:启用 / 停用切换
     var onToggle: () -> Void = {}            // 长按菜单:启用 / 停用切换
     var onDelete: () -> Void = {}            // 长按菜单:从 Apple TV 移除
@@ -586,6 +598,7 @@ private struct TVSourceRow: View {
     var onTestConnection: () -> Void = {}    // 长按菜单:测试连接
     var onEdit: () -> Void = {}              // 长按菜单:编辑连接参数
     var onScan: () -> Void = {}              // 长按菜单:选目录 + 扫描(SMB)
+    var onIncrementalScan: () -> Void = {}
     var onRereadTags: () -> Void = {}        // 长按菜单:只重读这一个源的标签
 
     var body: some View {
@@ -670,6 +683,11 @@ private struct TVSourceRow: View {
                 }
             }
             if source.canScan {
+                if canIncrementalScan {
+                    Button { onIncrementalScan() } label: {
+                        Label(TVScanMode.incrementalTitle, systemImage: "folder.badge.plus")
+                    }
+                }
                 Button { onScan() } label: {
                     Label(PMString("ext.tv.sources.scanFolders"), systemImage: "folder.badge.gearshape")
                 }

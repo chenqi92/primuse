@@ -157,6 +157,14 @@ private struct MacSongScrollSurface<Chrome: View, Results: View>: View {
     @State private var previousResetKey: String?
 
     var body: some View {
+        GeometryReader { geometry in
+            scrollContent
+                .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+
+    @ViewBuilder
+    private var scrollContent: some View {
         let resetsToTop = previousResetKey.map { key in
             key != request.resetKey && request.target == nil
         } ?? false
@@ -833,12 +841,7 @@ struct SongListView: View {
     @State private var macViewMode: MacSongsViewMode = .list
     @Environment(\.locale) private var locale
     @State private var macRowDensity: MacSongsRowDensity = .standard
-    @State private var visibleColumns: Set<MacSongsColumn>
-    @State private var columnOrder: [MacSongsColumn]
-    @State private var columnWidths: [MacSongsColumn: CGFloat]
-    @State private var resizingColumn: MacSongsColumn?
-    @State private var resizingStartWidth: CGFloat = 0
-    @State private var columnDropTarget: MacSongsColumn?
+    @State private var tableLayout = MacSongTableLayout(scope: .library)
     @State private var macFolderPath: [LibraryFolderNodeID] = []
     /// 当前选中的数据源过滤 (nil = 全部)。设计稿 SourceFilterChips 是可点切换的。
     @State private var selectedSourceID: String? = nil
@@ -918,11 +921,6 @@ struct SongListView: View {
         _browseMode = State(initialValue: initialBrowseMode)
         #if os(iOS)
         _presentedBrowseMode = State(initialValue: initialBrowseMode)
-        #endif
-        #if os(macOS)
-        _visibleColumns = State(initialValue: MacSongTableLayoutPreference.loadVisibleColumns())
-        _columnOrder = State(initialValue: MacSongTableLayoutPreference.loadColumnOrder())
-        _columnWidths = State(initialValue: MacSongTableLayoutPreference.loadColumnWidths())
         #endif
     }
 
@@ -1078,185 +1076,6 @@ struct SongListView: View {
         }
     }
 
-    private enum MacSongsColumn: String, CaseIterable, Hashable, Identifiable {
-        case title, artist, album, format, duration, plays, sourcePlays, downloaded
-        case source, year, rating, dateAdded, bitRate, bitDepth
-
-        var id: String { rawValue }
-
-        static let defaultVisible: Set<MacSongsColumn> = [
-            .title, .artist, .album, .format, .duration, .plays, .sourcePlays,
-            .downloaded, .source, .bitRate, .bitDepth,
-        ]
-
-        static let defaultOrder = allCases
-
-        static let defaultWidths: [MacSongsColumn: CGFloat] = Dictionary(
-            uniqueKeysWithValues: allCases.map { ($0, $0.defaultWidth) }
-        )
-
-        var title: String {
-            switch self {
-            case .title: return String(localized: "sort_title")
-            case .artist: return String(localized: "artist_label")
-            case .album: return String(localized: "album_label")
-            case .format: return String(localized: "songs_column_format_sample_rate")
-            case .duration: return String(localized: "duration_label")
-            case .plays: return String(localized: "stats_play_count")
-            case .sourcePlays: return String(localized: "server_play_count_label")
-            case .downloaded: return String(localized: "filter_downloaded")
-            case .source: return String(localized: "source_label")
-            case .year: return String(localized: "year_label")
-            case .rating: return String(localized: "songs_column_rating")
-            case .dateAdded: return String(localized: "sort_date_added")
-            case .bitRate: return String(localized: "songs_column_bitrate")
-            case .bitDepth: return String(localized: "bit_depth_label")
-            }
-        }
-
-        var sortCriterion: LibrarySongSortCriterion? {
-            switch self {
-            case .title: return .title
-            case .artist: return .artist
-            case .album: return .album
-            case .format: return .format
-            case .duration: return .duration
-            case .plays: return .playCount
-            case .sourcePlays: return .serverPlayCount
-            case .downloaded: return .downloaded
-            case .source: return .source
-            case .year: return .year
-            case .rating: return nil
-            case .dateAdded: return .dateAdded
-            case .bitRate: return .bitRate
-            case .bitDepth: return .bitDepth
-            }
-        }
-
-        var alignment: Alignment {
-            switch self {
-            case .title, .artist, .album, .format, .source:
-                return .leading
-            case .downloaded:
-                return .center
-            case .duration, .plays, .sourcePlays, .year, .rating,
-                    .dateAdded, .bitRate, .bitDepth:
-                return .trailing
-            }
-        }
-
-        var defaultWidth: CGFloat {
-            switch self {
-            case .title: return 240
-            case .artist: return 170
-            case .album: return 210
-            case .format: return 110
-            case .duration: return 72
-            case .plays: return 72
-            case .sourcePlays: return 110
-            case .downloaded: return 88
-            case .source: return 110
-            case .year, .rating: return 60
-            case .dateAdded: return 100
-            case .bitRate: return 90
-            case .bitDepth: return 82
-            }
-        }
-
-        var minimumWidth: CGFloat {
-            switch self {
-            case .title: return 120
-            case .artist, .album: return 90
-            case .format: return 96
-            case .sourcePlays: return 90
-            case .downloaded: return 76
-            case .source: return 72
-            case .dateAdded: return 84
-            case .bitRate, .bitDepth: return 70
-            case .duration, .plays, .year, .rating: return 54
-            }
-        }
-
-        var maximumWidth: CGFloat { 520 }
-
-        func clampedWidth(_ width: CGFloat) -> CGFloat {
-            min(max(width, minimumWidth), maximumWidth)
-        }
-    }
-
-    private enum MacSongTableLayoutPreference {
-        private static let visibleColumnsKey = "library.macSongTable.visibleColumns.v1"
-        private static let columnOrderKey = "library.macSongTable.columnOrder.v1"
-        private static let columnWidthsKey = "library.macSongTable.columnWidths.v1"
-
-        static func loadVisibleColumns(
-            from defaults: UserDefaults = .standard
-        ) -> Set<MacSongsColumn> {
-            guard let rawValues = defaults.stringArray(forKey: visibleColumnsKey) else {
-                return MacSongsColumn.defaultVisible
-            }
-            var columns = Set(rawValues.compactMap(MacSongsColumn.init(rawValue:)))
-            columns.insert(.title)
-            return columns
-        }
-
-        static func saveVisibleColumns(
-            _ columns: Set<MacSongsColumn>,
-            to defaults: UserDefaults = .standard
-        ) {
-            let values = MacSongsColumn.allCases
-                .filter(columns.contains)
-                .map(\.rawValue)
-            defaults.set(values, forKey: visibleColumnsKey)
-        }
-
-        static func loadColumnOrder(
-            from defaults: UserDefaults = .standard
-        ) -> [MacSongsColumn] {
-            let stored = defaults.stringArray(forKey: columnOrderKey) ?? []
-            var seen: Set<MacSongsColumn> = []
-            var result = stored.compactMap(MacSongsColumn.init(rawValue:)).filter {
-                seen.insert($0).inserted
-            }
-            result.append(contentsOf: MacSongsColumn.allCases.filter { seen.insert($0).inserted })
-            return result
-        }
-
-        static func saveColumnOrder(
-            _ columns: [MacSongsColumn],
-            to defaults: UserDefaults = .standard
-        ) {
-            defaults.set(columns.map(\.rawValue), forKey: columnOrderKey)
-        }
-
-        static func loadColumnWidths(
-            from defaults: UserDefaults = .standard
-        ) -> [MacSongsColumn: CGFloat] {
-            let stored = defaults.dictionary(forKey: columnWidthsKey) ?? [:]
-            return Dictionary(uniqueKeysWithValues: MacSongsColumn.allCases.map { column in
-                let width = (stored[column.rawValue] as? NSNumber)
-                    .map { CGFloat(truncating: $0) }
-                    ?? column.defaultWidth
-                return (column, column.clampedWidth(width))
-            })
-        }
-
-        static func saveColumnWidths(
-            _ widths: [MacSongsColumn: CGFloat],
-            to defaults: UserDefaults = .standard
-        ) {
-            let values = Dictionary(uniqueKeysWithValues: MacSongsColumn.allCases.map { column in
-                (column.rawValue, Double(column.clampedWidth(widths[column] ?? column.defaultWidth)))
-            })
-            defaults.set(values, forKey: columnWidthsKey)
-        }
-
-        static func reset(in defaults: UserDefaults = .standard) {
-            defaults.removeObject(forKey: visibleColumnsKey)
-            defaults.removeObject(forKey: columnOrderKey)
-            defaults.removeObject(forKey: columnWidthsKey)
-        }
-    }
     #endif
 
     var body: some View {
@@ -1311,8 +1130,7 @@ struct SongListView: View {
                 scheduleDownloadedFilterRefresh(delay: .milliseconds(120))
             }
             #if os(macOS)
-            .onChange(of: visibleColumns) { _, columns in
-                MacSongTableLayoutPreference.saveVisibleColumns(columns)
+            .onChange(of: tableLayout.visibleColumns) { _, columns in
                 if columns.contains(.downloaded) {
                     scheduleDownloadedFilterRefresh()
                 }
@@ -1538,7 +1356,7 @@ struct SongListView: View {
     private var requiresDownloadedSongSnapshot: Bool {
         #if os(macOS)
         songFilter == .downloaded
-            || visibleColumns.contains(.downloaded)
+            || tableLayout.visibleColumns.contains(.downloaded)
             || sortOrder.criterion == .downloaded
         #else
         songFilter == .downloaded
@@ -2011,11 +1829,15 @@ struct SongListView: View {
         VStack(alignment: .leading, spacing: 0) {
             switch macViewMode {
             case .list:
-                VStack(spacing: 0) {
-                    tableHeader(ordinalWidth: ordinalWidth)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                    Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                if tableLayout.showsHeader {
+                    VStack(alignment: .leading, spacing: 0) {
+                        tableHeader(ordinalWidth: ordinalWidth)
+                            .padding(.horizontal, MacSongTableLayout.horizontalPadding)
+                            .padding(.vertical, 8)
+                        Rectangle().fill(PMColor.divider).frame(height: 0.5)
+                    }
+                } else {
+                    Color.clear.frame(height: 8)
                 }
             case .compact:
                 Color.clear.frame(height: 8)
@@ -2325,154 +2147,19 @@ struct SongListView: View {
         "\(listCache.songCount) \(String(localized: "songs_count")) · \(listCache.playableCount) \(String(localized: "home_playable")) · \(listCache.totalDuration.formattedShort)"
     }
 
-    private var activeTableColumns: [MacSongsColumn] {
-        columnOrder.filter(visibleColumns.contains)
-    }
+    private var activeTableColumns: [MacSongsColumn] { tableLayout.activeColumns }
 
-    private func columnWidth(_ column: MacSongsColumn) -> CGFloat {
-        column.clampedWidth(columnWidths[column] ?? column.defaultWidth)
-    }
+    private func columnWidth(_ column: MacSongsColumn) -> CGFloat { tableLayout.width(column) }
 
-    /// Fixed column widths make the header and virtualized rows agree exactly.
-    /// When users expand the table beyond the viewport, the shared horizontal
-    /// scroll surface keeps every field reachable instead of truncating it.
     private func tableContentWidth(ordinalWidth: CGFloat) -> CGFloat {
-        let columnsWidth = activeTableColumns.reduce(CGFloat.zero) {
-            $0 + columnWidth($1)
-        }
-        let elementCount = activeTableColumns.count + 2 // row number + artwork
-        return ordinalWidth + 32 + columnsWidth + CGFloat(max(0, elementCount - 1)) * 12
+        tableLayout.contentWidth(ordinalWidth: ordinalWidth)
     }
 
-    /// The number and artwork slots stay fixed; named columns share the same
-    /// persisted order and widths as every virtualized row below them.
     private func tableHeader(ordinalWidth: CGFloat) -> some View {
-        HStack(spacing: 12) {
-            Text("#").frame(width: ordinalWidth, alignment: .leading)
-            Color.clear.frame(width: 32, height: 1)
-
-            ForEach(activeTableColumns) { column in
-                tableColumnHeader(column)
-            }
+        MacSongTableHeader(layout: tableLayout, ordinalWidth: ordinalWidth, sortOrder: sortOrder.libraryOrder) { criterion in
+            if browseMode == .folder { folderFollowsListSort = true }
+            sortOrderBinding.wrappedValue = sortOrder.selecting(criterion)
         }
-        .frame(width: tableContentWidth(ordinalWidth: ordinalWidth), alignment: .leading)
-        .font(.system(size: 10.5, weight: .semibold))
-        .tracking(0.6)
-        .textCase(.uppercase)
-        .foregroundStyle(PMColor.textFaint)
-    }
-
-    @ViewBuilder
-    private func tableColumnHeader(_ column: MacSongsColumn) -> some View {
-        ZStack(alignment: .trailing) {
-            Group {
-                if let criterion = column.sortCriterion {
-                    Button {
-                        if browseMode == .folder { folderFollowsListSort = true }
-                        sortOrderBinding.wrappedValue = sortOrder.selecting(criterion)
-                    } label: {
-                        tableColumnHeaderLabel(column)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityValue(
-                        sortOrder.criterion == criterion
-                            ? Text(verbatim: sortOrder.directionLabel)
-                            : Text(verbatim: "")
-                    )
-                } else {
-                    tableColumnHeaderLabel(column)
-                }
-            }
-            .frame(width: columnWidth(column), alignment: column.alignment)
-            .contentShape(Rectangle())
-            .background(
-                columnDropTarget == column
-                    ? PMColor.brand.opacity(0.08)
-                    : .clear
-            )
-            .draggable(column.rawValue) {
-                Text(verbatim: column.title)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(PMColor.bgElev, in: .rect(cornerRadius: 7))
-            }
-            .dropDestination(for: String.self) { values, location in
-                guard let rawValue = values.first,
-                      let dragged = MacSongsColumn(rawValue: rawValue) else { return false }
-                moveColumn(
-                    dragged,
-                    relativeTo: column,
-                    placeAfterTarget: location.x >= columnWidth(column) / 2
-                )
-                return true
-            } isTargeted: { targeted in
-                columnDropTarget = targeted ? column : nil
-            }
-
-            Rectangle()
-                .fill(
-                    resizingColumn == column
-                        ? PMColor.brand
-                        : PMColor.dividerStrong.opacity(0.7)
-                )
-                .frame(width: resizingColumn == column ? 2 : 1, height: 18)
-                .frame(width: 10, alignment: .trailing)
-                .contentShape(Rectangle())
-                .gesture(columnResizeGesture(for: column))
-                .help(Text(verbatim: column.title))
-        }
-        .frame(width: columnWidth(column), alignment: column.alignment)
-    }
-
-    private func tableColumnHeaderLabel(_ column: MacSongsColumn) -> some View {
-        HStack(spacing: 4) {
-            Text(verbatim: column.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            if column.sortCriterion == sortOrder.criterion {
-                Image(systemName: sortOrder.directionIcon)
-                    .font(.system(size: 8.5, weight: .bold))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: column.alignment)
-    }
-
-    private func columnResizeGesture(for column: MacSongsColumn) -> some Gesture {
-        DragGesture(minimumDistance: 1)
-            .onChanged { value in
-                let startWidth: CGFloat
-                if resizingColumn == column {
-                    startWidth = resizingStartWidth
-                } else {
-                    resizingColumn = column
-                    resizingStartWidth = columnWidth(column)
-                    startWidth = columnWidth(column)
-                }
-                columnWidths[column] = column.clampedWidth(
-                    startWidth + value.translation.width
-                )
-            }
-            .onEnded { _ in
-                resizingColumn = nil
-                MacSongTableLayoutPreference.saveColumnWidths(columnWidths)
-            }
-    }
-
-    private func moveColumn(
-        _ dragged: MacSongsColumn,
-        relativeTo target: MacSongsColumn,
-        placeAfterTarget: Bool
-    ) {
-        guard dragged != target,
-              let sourceIndex = columnOrder.firstIndex(of: dragged) else { return }
-        var updated = columnOrder
-        let value = updated.remove(at: sourceIndex)
-        guard let targetIndex = updated.firstIndex(of: target) else { return }
-        updated.insert(value, at: targetIndex + (placeAfterTarget ? 1 : 0))
-        columnOrder = updated
-        columnDropTarget = nil
-        MacSongTableLayoutPreference.saveColumnOrder(updated)
     }
 
     /// 一次性把 PlayHistory 折叠成 songID → count 字典, 避免每行 O(N) 扫描。
@@ -3056,57 +2743,7 @@ struct SongListView: View {
                 segmentedIconPicker(MacSongsRowDensity.allCases, selection: $macRowDensity)
             }
 
-            viewOptionsSection(String(localized: "songs_display_columns")) {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    ForEach(MacSongsColumn.allCases) { column in
-                        Button {
-                            guard column != .title else { return }
-                            if visibleColumns.contains(column) {
-                                visibleColumns.remove(column)
-                            } else {
-                                visibleColumns.insert(column)
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                        .fill(visibleColumns.contains(column) ? PMColor.brand : .clear)
-                                        .frame(width: 14, height: 14)
-                                        .overlay {
-                                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                                .strokeBorder(visibleColumns.contains(column) ? .clear : PMColor.dividerStrong, lineWidth: 1.5)
-                                        }
-                                    if visibleColumns.contains(column) {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 8.5, weight: .bold))
-                                            .foregroundStyle(.white)
-                                    }
-                                }
-                                Text(verbatim: column.title)
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(visibleColumns.contains(column) ? PMColor.text : PMColor.textMuted)
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            // 整行 (含复选框本身) 都可点, 不必非点中文字。
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(column == .title)
-                        .opacity(column == .title ? 0.72 : 1)
-                    }
-                }
-
-                Button("reset") {
-                    MacSongTableLayoutPreference.reset()
-                    visibleColumns = MacSongsColumn.defaultVisible
-                    columnOrder = MacSongsColumn.defaultOrder
-                    columnWidths = MacSongsColumn.defaultWidths
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(PMColor.brand)
-            }
+            MacSongTableColumnOptions(layout: tableLayout)
         }
         .padding(16)
         .frame(width: 280)

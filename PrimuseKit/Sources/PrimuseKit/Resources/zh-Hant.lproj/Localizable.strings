@@ -333,6 +333,8 @@
 "ext.tv.test.needs2FA"                    = "需要兩步驟驗證，請長按此來源並選擇「兩步驟驗證登入」。";
 "ext.tv.scan.step3"                       = "加入新來源 · 步驟 3";
 "ext.tv.scan.chooseFolders"               = "選擇要掃描的資料夾";
+"ext.tv.scan.incremental" = "增量掃描";
+"ext.tv.scan.incrementalBody" = "只掃描所選目錄，保留已有專輯。";
 "ext.tv.scan.up"                          = "返回上一層";
 "ext.tv.scan.loading"                     = "載入中…";
 "ext.tv.scan.noSubfolders"                = "此資料夾沒有子資料夾，可勾選目前資料夾直接掃描。";
@@ -962,7 +964,7 @@
 "ext.tv.settings.tabBar.default" = "預設";
 "ext.tv.settings.tabBar.shownCount" = "顯示 %d 項";
 "ext.tv.settings.tabBar.contentHint" = "有內容時才出現";
-"ext.tv.settings.tabBar.keepOne" = "至少要保留一個始終會出現的頁面（電台和有聲在沒有內容時不會出現）。";
+"ext.tv.settings.tabBar.keepOne" = "至少要保留一個始終會出現的頁面（電台和有聲書在沒有內容時不會出現）。";
 "ext.tv.settings.tabBar.moveUp" = "上移";
 "ext.tv.settings.tabBar.moveDown" = "下移";
 "ext.tv.settings.tabBar.reset" = "恢復預設";

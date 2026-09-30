@@ -295,6 +295,10 @@ extension MacKeyboardShortcutAction {
         case .showMiniPlayer: return String(localized: "mini_player")
         case .showDesktopLyrics: return String(localized: "show_desktop_lyrics")
         case .toggleDesktopLyricsLock: return String(localized: "toggle_desktop_lyrics_lock")
+        case .toggleLyricsIsland: return String(localized: "desktop_lyrics_island")
+        case .toggleMenuBarLyrics: return String(localized: "menu_bar_lyrics")
+        case .toggleFullScreenPlayer: return String(localized: "full_screen_player")
+        case .openMainWindow: return String(localized: "open_main_window")
         }
     }
 }
@@ -558,21 +562,19 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         desktopLyrics?.toggle()
     }
 
-    /// 菜单栏、App 菜单里的「歌词上岛」：在歌词岛和浮动桌面歌词之间切换，
-    /// 桌面歌词关着时顺带打开。
     @MainActor
     func toggleDesktopLyricsIsland() {
-        let enabled = UserDefaults.standard.bool(forKey: DesktopLyricsWindowController.islandModeKey)
+        let enabled = UserDefaults.standard.bool(forKey: DesktopLyricsWindowController.islandVisibleKey)
         setDesktopLyricsIsland(!enabled)
     }
 
     @MainActor
-    func setDesktopLyricsIsland(_ enabled: Bool, reveal: Bool = true) {
+    func setDesktopLyricsIsland(_ enabled: Bool) {
         guard let desktopLyrics else {
-            UserDefaults.standard.set(enabled, forKey: DesktopLyricsWindowController.islandModeKey)
+            MacLyricsVisibilityPreferences.setIslandVisible(enabled)
             return
         }
-        desktopLyrics.setIslandMode(enabled, reveal: reveal)
+        desktopLyrics.setIslandVisible(enabled)
     }
 
     @MainActor
@@ -583,12 +585,23 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     func toggleFullScreenPlayer() {
-        // 主窗口切到 macOS 全屏 + 自动展开 NowPlaying。退出全屏由用户
-        // 主动按 ⌃⌘F 或绿灯触发,这里只负责进入。
+        menuBar?.closePopover()
         guard let window = mainAppWindow() else {
-            plog("⚠️ FullScreen: no main window candidate found, all windows: \(NSApp.windows.map { ($0.title, $0.styleMask.rawValue, $0.canBecomeMain) })")
+            MainWindowOpener.openMainWindow()
+            Task { @MainActor [weak self] in
+                for _ in 0..<20 {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    guard let self else { return }
+                    if self.mainAppWindow() != nil {
+                        self.toggleFullScreenPlayer()
+                        return
+                    }
+                }
+            }
             return
         }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
         // SwiftUI 的 WindowGroup 默认 collectionBehavior 不带
         // .fullScreenPrimary,导致 toggleFullScreen 静默无效。先补上。
         if !window.collectionBehavior.contains(.fullScreenPrimary) {
@@ -597,6 +610,10 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         let isFullScreen = window.styleMask.contains(.fullScreen)
         plog("🖥 FullScreen toggle window=\(window.title) isFull=\(isFullScreen) cb=\(window.collectionBehavior.rawValue)")
 
+        if isFullScreen {
+            window.toggleFullScreen(nil)
+            return
+        }
         // 先用无动画事务把 Now Playing 安装到窗口中，下一轮主事件循环再交给
         // AppKit 做原生全屏过渡。避免页面展开动画与窗口缩放同时抢主线程。
         NotificationCenter.default.post(
@@ -604,7 +621,6 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             userInfo: [PrimuseNowPlayingExpansion.animatedKey: false]
         )
-        guard !isFullScreen else { return }
         DispatchQueue.main.async { [weak window] in
             guard let window, !window.styleMask.contains(.fullScreen) else { return }
             window.toggleFullScreen(nil)
@@ -682,6 +698,15 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         case .toggleDesktopLyricsLock:
             let key = "desktopLyricsLocked"
             UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
+        case .toggleLyricsIsland:
+            toggleDesktopLyricsIsland()
+        case .toggleMenuBarLyrics:
+            let key = MacMenuBarController.lyricsEnabledKey
+            UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
+        case .toggleFullScreenPlayer:
+            toggleFullScreenPlayer()
+        case .openMainWindow:
+            menuBar?.activateMainWindowFromShortcut()
         }
     }
 
@@ -719,6 +744,7 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
         if isMainAppWindow(window) { return true }
+        if PrimuseAppDelegate.shared?.menuBar?.ownsKeyboardShortcutWindow(window) == true { return true }
         return window.frameAutosaveName == "PrimuseMiniPlayer"
             || window.frameAutosaveName == "PrimuseDesktopLyrics_v2"
     }

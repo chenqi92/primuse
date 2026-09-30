@@ -11,19 +11,33 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
 
+    func ownsKeyboardShortcutWindow(_ window: NSWindow) -> Bool {
+        popover?.isShown == true && popover?.contentViewController?.view.window === window
+    }
+
+    func closePopover() {
+        popover?.performClose(nil)
+    }
+
+    func activateMainWindowFromShortcut() {
+        activateMainWindow()
+        closePopover()
+    }
+
     /// Toggle whether the status item shows the current song title next to
     /// the icon. Stored in UserDefaults so it survives launches; users who
     /// prefer a clean menu bar can turn it off.
     @AppStorage("menuBarShowTitle") private var showTitle: Bool = true
     /// Max characters of song title shown in the status bar — Apple's
     /// system bar caps text width and squeezes other items if too long.
-    private let titleLimit = 28
+    private static let titleLimit = 28
     /// 菜单栏歌词比歌名长，给宽一点，但仍然不能把其他菜单栏图标挤走。
-    private let lyricLimit = 40
+    private static let lyricLimit = 40
 
     /// 设置里的「菜单栏歌词」开关。默认关：菜单栏宽度随歌词逐行变化，
     /// 不是每个人都想要。
     static let lyricsEnabledKey = "menuBarLyricsEnabled"
+    static let compactWithIslandKey = "menuBarCompactWithLyricsIsland"
     private var lyricsEnabled = UserDefaults.standard.bool(forKey: MacMenuBarController.lyricsEnabledKey)
     /// 只保留带时间戳的行：纯文本歌词没有可跟的播放位置。
     private var lyrics: [LyricLine] = []
@@ -95,10 +109,11 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let enabled = UserDefaults.standard.bool(forKey: Self.lyricsEnabledKey)
-                guard enabled != self.lyricsEnabled else { return }
-                self.lyricsEnabled = enabled
-                self.resetLyrics()
-                self.reloadLyricsIfNeeded(for: AppServices.shared.playerService.currentSong)
+                if enabled != self.lyricsEnabled {
+                    self.lyricsEnabled = enabled
+                    self.resetLyrics()
+                    self.reloadLyricsIfNeeded(for: AppServices.shared.playerService.currentSong)
+                }
                 self.refreshStatusTitle()
             }
         })
@@ -166,18 +181,33 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
             player.currentSong.flatMap { library.artistDisplayName(for: $0) },
         ].compactMap { $0 }.joined(separator: " — ")
 
-        if let line = currentLyricText() {
-            // 歌词前也留一个空格，理由同下。
-            button.title = " " + truncate(line, max: lyricLimit)
-            button.toolTip = songToolTip
-        } else if showTitle, let title = player.currentSong?.title, !title.isEmpty {
-            // Title 旁边一个空格,避免和图标贴在一起。
-            button.title = " " + truncate(title, max: titleLimit)
-            button.toolTip = songToolTip
-        } else {
-            button.title = ""
-            button.toolTip = "Primuse"
+        let defaults = UserDefaults.standard
+        let islandVisible = defaults.bool(forKey: DesktopLyricsWindowController.islandVisibleKey)
+        button.title = Self.statusTitle(
+            songTitle: player.currentSong?.title,
+            lyric: currentLyricText(),
+            showsTitle: showTitle,
+            islandVisible: islandVisible,
+            defaults: defaults
+        )
+        let showsSongInfo = !button.title.isEmpty
+            || (islandVisible && defaults.bool(forKey: Self.compactWithIslandKey))
+        button.toolTip = showsSongInfo && !songToolTip.isEmpty ? songToolTip : "Primuse"
+    }
+
+    static func statusTitle(
+        songTitle: String?,
+        lyric: String?,
+        showsTitle: Bool,
+        islandVisible: Bool,
+        defaults: UserDefaults = .standard
+    ) -> String {
+        if islandVisible && defaults.bool(forKey: compactWithIslandKey) { return "" }
+        if let lyric { return " " + truncate(lyric, max: lyricLimit) }
+        if showsTitle, let songTitle, !songTitle.isEmpty {
+            return " " + truncate(songTitle, max: titleLimit)
         }
+        return ""
     }
 
     // MARK: - Menu bar lyrics
@@ -258,7 +288,7 @@ final class MacMenuBarController: NSObject, NSPopoverDelegate {
         return text.isEmpty ? nil : text
     }
 
-    private func truncate(_ s: String, max: Int) -> String {
+    private static func truncate(_ s: String, max: Int) -> String {
         guard s.count > max else { return s }
         let idx = s.index(s.startIndex, offsetBy: max - 1)
         return String(s[..<idx]) + "…"

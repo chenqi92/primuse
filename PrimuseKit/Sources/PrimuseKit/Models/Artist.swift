@@ -193,6 +193,24 @@ public struct SourceArtistArtworkCatalog: Codable, Equatable, Sendable {
         self.candidatesByDirectory = candidatesByDirectory
     }
 
+    public func merging(_ update: SourceArtistArtworkCatalog) -> SourceArtistArtworkCatalog {
+        guard sourceID == update.sourceID else { return self }
+        return SourceArtistArtworkCatalog(
+            sourceID: sourceID,
+            directoryParents: directoryParents.merging(update.directoryParents) { _, new in new },
+            songParentDirectories: songParentDirectories.merging(update.songParentDirectories) { _, new in new },
+            candidatesByDirectory: candidatesByDirectory.merging(update.candidatesByDirectory) { _, new in new }
+        )
+    }
+
+    private init(sourceID: String, directoryParents: [String: String],
+                 songParentDirectories: [String: String], candidatesByDirectory: [String: [Candidate]]) {
+        self.sourceID = sourceID
+        self.directoryParents = directoryParents
+        self.songParentDirectories = songParentDirectories
+        self.candidatesByDirectory = candidatesByDirectory
+    }
+
     public static func isSupportedCandidateFileName(_ name: String) -> Bool {
         guard !name.hasPrefix(".") else { return false }
         let fileName = name as NSString

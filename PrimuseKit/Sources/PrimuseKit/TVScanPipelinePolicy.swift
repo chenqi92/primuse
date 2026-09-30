@@ -1,6 +1,25 @@
 import CryptoKit
 import Foundation
 
+public enum TVScanMode: String, Sendable {
+    case full
+    case incremental
+
+    public static var incrementalTitle: String {
+        PMString("ext.tv.scan.incremental")
+    }
+
+    public static var incrementalBody: String {
+        PMString("ext.tv.scan.incrementalBody")
+    }
+
+    public func savedDirectories(previous: [String], scanned: [String], sourceType: MusicSourceType) -> [String] {
+        SourceDirectorySelectionPolicy.normalizedSelections(
+            self == .incremental ? previous + scanned : scanned, for: sourceType
+        )
+    }
+}
+
 /// Pure policy shared by the tvOS streaming scanner and its regression tests.
 /// Keeping identity, batching and re-scan reconciliation here prevents the TV
 /// catalogue from drifting from the generic connector scanner.

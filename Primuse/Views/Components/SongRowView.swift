@@ -34,6 +34,7 @@ struct SongRowView: View {
     var isPlaying: Bool = false
     var showAlbum: Bool = true
     var showsActions: Bool = true
+    var actionsOnly = false
     var queueSwipeActionsEnabled = true
 
     /// Source badge — only shown when the parent decides multiple sources
@@ -111,11 +112,24 @@ struct SongRowView: View {
         Group {
             if actionRequest != nil {
                 Color.clear.frame(width: 0, height: 0)
+            } else if actionsOnly {
+                Menu {
+                    songActionMenuContent(entryPoint: .songRowActionMenu, offline: offlineSnapshot)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("a11y_more_actions")
+                .accessibilityIdentifier("song.actions.\(song.id)")
             } else {
                 rowContent
             }
         }
-        .songRowContextMenu(isEnabled: usesContextMenu && actionRequest == nil) {
+        .songRowContextMenu(isEnabled: usesContextMenu && actionRequest == nil && !actionsOnly) {
             if let selection {
                 Section {
                     Button {
@@ -501,6 +515,7 @@ struct SongRowView: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("a11y_more_actions")
+                .accessibilityIdentifier("song.actions.\(song.id)")
             }
             #endif
         }
@@ -1864,6 +1879,7 @@ extension SongRowView {
         isPlaying: Bool = false,
         showAlbum: Bool = true,
         showsActions: Bool = true,
+        actionsOnly: Bool = false,
         selection: SongSelectionModel? = nil,
         onRemoveFromPlaylist: (() -> Void)? = nil,
         queueSwipeActionsEnabled: Bool = true,
@@ -1873,6 +1889,7 @@ extension SongRowView {
         self.isPlaying = isPlaying
         self.showAlbum = showAlbum
         self.showsActions = showsActions
+        self.actionsOnly = actionsOnly
         self.selection = selection
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.queueSwipeActionsEnabled = queueSwipeActionsEnabled

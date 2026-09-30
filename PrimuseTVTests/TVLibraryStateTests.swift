@@ -1224,6 +1224,75 @@ final class TVLibraryStateTests: XCTestCase {
         XCTAssertNil(store.song(songID))
     }
 
+    func testIncrementalAlbumScanPreservesPreviousArtworkLikesAndScopeAcrossReload() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        var old = fixture.song("previous-album")
+        old.artistName = "QA Artist"
+        old.albumTitle = "Previous Album"
+        old.coverArtFileName = "/Old/cover.jpg"
+        fixture.library.addSongs([old])
+        fixture.library.toggleLiked(songID: old.id)
+        fixture.library.updateAutomaticArtistArtworkCatalog(SourceArtistArtworkCatalog(
+            sourceID: fixture.source.id,
+            index: [
+                "song": SourceSyncIndexedItem(stableKey: "song", path: old.filePath,
+                    parentPath: "/Old", isDirectory: false, songIDs: [old.id],
+                    size: 0, modifiedDate: nil, revision: nil),
+                "portrait": SourceSyncIndexedItem(stableKey: "portrait", path: "/Old/QA Artist.jpg",
+                    displayName: "QA Artist.jpg", parentPath: "/Old", isDirectory: false,
+                    size: 100, modifiedDate: nil, revision: "old")
+            ]
+        ))
+        let portrait = try XCTUnwrap(fixture.library.song(id: old.id)?.artistArtworkFileName)
+        try fixture.sources.updateDurably(fixture.source.id) {
+            $0.extraConfig = MusicSource.encodeScannedDirectories(["/"], into: $0.extraConfig, type: $0.type)
+        }
+        _ = await fixture.library.persistNowAndWait()
+        let store = fixture.store()
+        store.reload()
+        let folderName = "TV Incremental QA \(UUID().uuidString)"
+        let folder = TVLocalTransferSource.root.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try waveFixture().write(to: folder.appendingPathComponent("New.wav"))
+        let path = "/\(folderName)/New.wav"
+        let newID = TVScanPipelinePolicy.songID(sourceID: fixture.source.id, path: path)
+        for _ in 0..<2 {
+            let admitted = await store.runScan(source: fixture.source, lister: TVLocalDirectoryLister(),
+                dirs: ["/\(folderName)"], mode: .incremental)
+            XCTAssertTrue(admitted)
+            XCTAssertEqual(store.scanner.phase, .done)
+            XCTAssertEqual(fixture.library.songs.count, 2)
+            XCTAssertNotNil(fixture.library.song(id: newID))
+            XCTAssertEqual(fixture.library.song(id: old.id)?.coverArtFileName, old.coverArtFileName)
+            XCTAssertEqual(fixture.library.song(id: old.id)?.artistArtworkFileName, portrait)
+            XCTAssertTrue(fixture.library.isLiked(songID: old.id))
+            XCTAssertEqual(fixture.sources.source(id: fixture.source.id)?.scannedDirectories, ["/"])
+        }
+        _ = await fixture.library.persistNowAndWait()
+        let restarted = MusicLibrary(storageDirectory: fixture.directory)
+        XCTAssertNotNil(restarted.song(id: newID))
+        XCTAssertEqual(restarted.song(id: old.id)?.coverArtFileName, old.coverArtFileName)
+        XCTAssertEqual(restarted.song(id: old.id)?.artistArtworkFileName, portrait)
+        XCTAssertTrue(restarted.isLiked(songID: old.id))
+    }
+
+    func testEmptyIncrementalDirectoryKeepsPreviouslyScannedAlbum() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        fixture.library.addSongs([fixture.song("old")])
+        _ = await fixture.library.persistNowAndWait()
+        let store = fixture.store()
+        store.reload()
+        let admitted = await store.runScan(source: fixture.source, lister: EmptyDirectoryLister(),
+            dirs: ["/New"], mode: .incremental)
+        XCTAssertTrue(admitted)
+        XCTAssertEqual(store.scanner.phase, .done)
+        XCTAssertNotNil(fixture.library.song(id: "old"))
+        XCTAssertEqual(fixture.sources.source(id: fixture.source.id)?.songCount, 1)
+    }
+
     func testUnchangedRescanSkipsLibraryCommitsAndKeepsSong() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

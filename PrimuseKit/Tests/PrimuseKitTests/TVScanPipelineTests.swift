@@ -3,6 +3,13 @@ import Testing
 @testable import PrimuseKit
 
 struct TVScanPipelineTests {
+    @Test func incrementalScanKeepsPreviousScopeAndSupportsOpaqueProviderDirectories() {
+        #expect(TVScanMode.incremental.savedDirectories(previous: ["/"], scanned: ["/New"], sourceType: .baiduPan) == ["/"])
+        #expect(TVScanMode.incremental.savedDirectories(previous: ["/Old"], scanned: ["/New"], sourceType: .baiduPan) == ["/Old", "/New"])
+        #expect(TVScanMode.incremental.savedDirectories(previous: ["old-id"], scanned: ["new-id"], sourceType: .oneDrive) == ["old-id", "new-id"])
+        #expect(TVScanMode.full.savedDirectories(previous: ["/Old"], scanned: ["/New"], sourceType: .baiduPan) == ["/New"])
+    }
+
     private func song(
         id: String,
         title: String = "Song",

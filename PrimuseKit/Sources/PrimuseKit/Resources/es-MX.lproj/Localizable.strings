@@ -271,6 +271,8 @@
 "ext.tv.scan.cancelScan" = "Cancelar escaneo";
 "ext.tv.scan.check" = "Seleccionar para escanear";
 "ext.tv.scan.chooseFolders" = "Elija carpetas para escanear";
+"ext.tv.scan.incremental" = "Escaneo incremental";
+"ext.tv.scan.incrementalBody" = "Escanea las carpetas seleccionadas y conserva los álbumes existentes.";
 "ext.tv.scan.complete" = "Completo";
 "ext.tv.scan.completedSource" = "Escaneo completo · %@";
 "ext.tv.scan.connectFailed" = "Falló la conexión. Verifique la dirección y las credenciales.";
@@ -734,11 +736,11 @@
 "tv_metadata_source_unavailable" = "Activa esta fuente o vuelve a analizarla en iPhone o Mac y sincroniza.";
 "tv_metadata_reread_issues" = "No se pudieron leer por completo %d canciones. Se conservó la información existente; puedes reintentar.";
 
-"error.songloft.missingCredential" = "Songloft requires an account and password.";
-"error.songloft.invalidURL" = "The Songloft server address is invalid.";
-"error.songloft.authenticationFailed" = "Songloft sign-in failed. Check the account and password.";
-"error.songloft.invalidResponse" = "Songloft returned an incomplete or invalid response. The existing library was preserved.";
-"error.songloft.http" = "Songloft returned HTTP %@.";
+"error.songloft.missingCredential" = "Songloft requiere una cuenta y una contraseña.";
+"error.songloft.invalidURL" = "La dirección del servidor de Songloft no es válida.";
+"error.songloft.authenticationFailed" = "No se pudo iniciar sesión en Songloft. Revisa la cuenta y la contraseña.";
+"error.songloft.invalidResponse" = "Songloft devolvió datos incompletos o no válidos. Se conservó la biblioteca existente.";
+"error.songloft.http" = "Songloft devolvió HTTP %@.";
 
 "appleMusic.localAsset.managedDownload" = "Esta descarga de Apple Music no se puede reproducir como archivo de audio local. Reprodúcela desde una playlist de Apple Music sincronizada o ábrela en Música.";
 "appleMusic.localAsset.protectedContent" = "Esta canción está protegida y no se puede reproducir como archivo de audio local. Reprodúcela desde una playlist de Apple Music sincronizada o ábrela en Música.";
@@ -875,8 +877,8 @@
 "ext.tv.transfer.finished" = "Se transfirieron %@ canciones desde el iPhone";
 "ext.tv.transfer.failed" = "La transferencia no terminó. Vuelva a intentarlo desde el iPhone.";
 "audio_variant_lossy_stereo" = "Estéreo";
-"audio_variant_lossless" = "Lossless";
-"audio_variant_hi_res_lossless" = "Hi-Res Lossless";
+"audio_variant_lossless" = "Sin pérdida";
+"audio_variant_hi_res_lossless" = "Alta resolución sin pérdida";
 "audio_variant_dolby_atmos" = "Dolby Atmos";
 "audio_variant_dolby_audio" = "Dolby Audio";
 "apple_music_pick_from_catalog" = "Elegir de Apple Music…";

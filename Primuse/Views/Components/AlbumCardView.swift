@@ -4,11 +4,13 @@ import PrimuseKit
 struct AlbumCardView: View {
     let album: Album
     var showsSongCount = false
+    var isIntelligentRecommendation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             AlbumArtworkView(album: album, cornerRadius: 10)
                 .aspectRatio(1, contentMode: .fit)
+                .searchRecommendationOverlay(isRecommended: isIntelligentRecommendation)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.title)

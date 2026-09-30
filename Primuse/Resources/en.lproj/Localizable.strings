@@ -3707,7 +3707,7 @@
 "carplay_remove_content" = "Remove content";
 "carplay_add_this_folder" = "Add this folder";
 "carplay_style_capsules" = "Capsules";
-"carplay_listening_ranking" = "Listening history";
+"carplay_listening_ranking" = "Most Played";
 "carplay_siri_suggestions" = "Siri suggestions";
 "carplay_module_ranking_detail" = "Your most played music";
 "carplay_module_siri_detail" = "Ask Siri to choose music";
@@ -4076,13 +4076,13 @@
 "launch_diagnostics_files_hint" = "The diagnostics were also saved to Files → On My iPhone → Primuse → Diagnostics.";
 
 // MARK: - Spoken word
-"tab_spoken_word" = "Spoken Word";
+"tab_spoken_word" = "Audiobooks";
 "spoken_word_continue_section" = "Continue Listening";
 "spoken_word_all_section" = "All";
-"spoken_word_empty_hint" = "Audiobooks, radio drama, lectures and other spoken recordings appear here.";
+"spoken_word_empty_hint" = "Audiobooks, radio dramas, lectures and other spoken recordings appear here.";
 "spoken_word_remaining_format" = "%@ left";
 "spoken_word_clear_progress" = "Clear Listening Position";
-"mark_as_spoken_word" = "Mark as Spoken Word";
+"mark_as_spoken_word" = "Mark as Audiobook";
 "mark_as_music" = "Mark as Music";
 "chapters_title" = "Chapters";
 "a11y_skip_backward" = "Skip back 15 seconds";
@@ -4128,10 +4128,10 @@
 "spoken_word_mark_previous_finished" = "Mark Earlier Chapters as Finished";
 "spoken_word_next_chapter" = "Next Chapter";
 "spoken_word_previous_chapter" = "Previous Chapter";
-"spoken_word_playback_rate" = "Spoken Word Speed";
+"spoken_word_playback_rate" = "Audiobook Speed";
 "spoken_word_resume_here" = "Resume here";
-"spoken_word_settings_section" = "Audiobooks & Spoken Word";
-"spoken_word_settings_footer" = "Audiobooks, 评书 and radio dramas keep their own speed, so a faster book does not speed up your music. The skip buttons also appear on the lock screen and in the car.";
+"spoken_word_settings_section" = "Audiobooks";
+"spoken_word_settings_footer" = "Audiobooks, storytelling and radio dramas use a separate playback speed, so speeding up a book won't speed up your music. The skip buttons also work on the Lock Screen and in the car.";
 "spoken_word_skip_backward" = "Skip Back";
 "spoken_word_skip_forward" = "Skip Forward";
 "spoken_word_book_progress_format" = "%lld of %lld finished";
@@ -4381,7 +4381,7 @@
 /* Listening spaces: music, radio and spoken word */
 "listening_space_music" = "Music";
 "listening_space_radio" = "Radio";
-"listening_space_spoken_word" = "Spoken Word";
+"listening_space_spoken_word" = "Audiobooks";
 "home_continue_spaces_title" = "Pick Up Where You Left Off";
 "home_continue_spaces_hint" = "Resumes from where you left off";
 "home_continue_music_queue" = "Your music queue";
@@ -4395,7 +4395,7 @@
 "smart_nudge_kind_classify_spoken" = "Ask about long untagged files";
 "smart_nudge_back_to_music_message" = "The book is almost over. Continue with the music you left afterwards?";
 "smart_nudge_classify_spoken_message" = "This long file has no album or artist. Is it an audiobook or a show?";
-"smart_nudge_action_move" = "Move to Spoken Word";
+"smart_nudge_action_move" = "Move to Audiobooks";
 "spoken_word_next_item" = "Next Episode";
 "spoken_word_previous_item" = "Previous Episode";
 "mac_player_chapter_number_format" = "Chapter %lld";
@@ -4438,10 +4438,10 @@
 "spoken_word_bookmarks_count_format" = "Bookmarks · %lld";
 "spoken_word_contents_position_format" = "At %1$@ · %2$@ left";
 "spoken_word_bookmark_where_format" = "Chapter %1$lld · %2$@";
-"tv_spoken_word_rate_unavailable" = "While playing through another device (such as AirPlay), speed can only be normal.";
+"tv_spoken_word_rate_unavailable" = "Playback speed can't be changed when playing through an external device such as AirPlay.";
 "stats_spoken_word_time" = "Audiobook Time";
 "directory_tag_menu_title" = "What’s in This Folder";
-"directory_tag_hint" = "Tap the tag next to a selected folder and choose Spoken Word to put everything in it on the books shelf instead of in your music.";
+"directory_tag_hint" = "Tap the tag next to a selected folder and choose Audiobooks to put its contents on the audiobook shelf instead of in your music.";
 "home_filter_clear_hint" = "Tap again to show everything";
 "notifications_section" = "Notifications";
 "notify_long_tasks_footer" = "Get notified when a scan, tag reading or metadata scrape you started finishes in the background. Problems that need you, like a failed scan or full iCloud storage, are reported either way. Nothing is sent while the app is open.";
@@ -4526,7 +4526,7 @@
 "tv_scrape_phone_only_note" = "Set lyrics API server addresses and cookies on iPhone, then bring them over by QR transfer or iCloud.";
 
 "desktop_lyrics_island" = "Lyrics Island";
-"desktop_lyrics_island_description" = "Tucks desktop lyrics into the top center of the screen, growing out of the notch on MacBooks. Hover over the top to show playback controls.";
+"desktop_lyrics_island_description" = "Shows lyrics at the top of the screen. Hover to reveal playback controls. Works independently of desktop lyrics.";
 "desktop_lyrics_island_exit" = "Back to Desktop";
 "desktop_lyrics_island_system_status" = "Show Headphones, Volume and Charging on the Island";
 "desktop_lyrics_island_system_status_description" = "Briefly shows output device changes, volume adjustments and power status.";
@@ -4541,3 +4541,14 @@
 "lyrics_translation_local_cjk_pairs" = "English ↔ Chinese, Japanese, Korean";
 
 "lyrics_translation_local_cjk_footer" = "Translates lyrics between English and Simplified or Traditional Chinese, Japanese and Korean on this device. Other pairs translate through English, without a network connection.";
+
+"songs_show_column_headers" = "Show column headers";
+"playlist_hide_network_notice" = "Hide network notice";
+"playlist_show_network_notice" = "Show network notice";
+"hide_lyrics_island" = "Hide Lyrics Island";
+
+"search_like_all_songs_format" = "Add all %d songs to Liked";
+"search_all_songs_liked_format" = "All %d songs are in Liked";
+
+"lyrics_island_always_on_top" = "Always on Top";
+"menu_bar_icon_only_with_lyrics_island" = "Show only the menu bar icon when the lyrics island is visible";

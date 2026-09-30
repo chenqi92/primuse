@@ -175,17 +175,17 @@
 // tvOS — 没入フルスクリーン再生
 "ext.tv.settings.immersive"                = "没入スタイル";
 "ext.tv.immersive.exitHint"                = "メニューボタンで戻る";
-"ext.tv.immersive.style.native"            = "Original";
-"ext.tv.immersive.style.lyrics"            = "Lyrics";
-"ext.tv.immersive.style.cover"             = "Artwork";
-"ext.tv.immersive.style.visualizer"        = "Visualizer";
+"ext.tv.immersive.style.native"            = "オリジナル";
+"ext.tv.immersive.style.lyrics"            = "歌詞";
+"ext.tv.immersive.style.cover"             = "ジャケット";
+"ext.tv.immersive.style.visualizer"        = "ビジュアライザー";
 "ext.tv.immersive.style.lightField"        = "光のフィールド";
-"ext.tv.immersive.style.typography"        = "Typography";
+"ext.tv.immersive.style.typography"        = "タイポグラフィ";
 "ext.tv.immersive.style.deepField"         = "深層フィールド";
 "ext.tv.immersive.style.ambientBloom"      = "アンビエントブルーム";
 "ext.tv.immersive.style.lyricStage"        = "歌詞ステージ";
-"ext.tv.immersive.style.spectrum"          = "Spectrum";
-"ext.tv.immersive.style.vinyl"             = "Vinyl";
+"ext.tv.immersive.style.spectrum"          = "スペクトラム";
+"ext.tv.immersive.style.vinyl"             = "レコード";
 "ext.tv.immersive.timelineDisclosure"      = "タイムライン連動 · ライブ音量ではありません";
 "ext.tv.immersive.lyricsHint"              = "上にスワイプして歌詞を表示";
 "ext.tv.immersive.holdForQueue"            = "長押しでキューを表示";
@@ -336,6 +336,8 @@
 "ext.tv.test.needs2FA"                    = "2段階認証が必要です。ソースを長押しして「2段階認証」を選択してください。";
 "ext.tv.scan.step3"                       = "ソースを追加 · ステップ3";
 "ext.tv.scan.chooseFolders"               = "スキャンするフォルダを選択";
+"ext.tv.scan.incremental" = "差分スキャン";
+"ext.tv.scan.incrementalBody" = "選択したフォルダをスキャンし、既存のアルバムを保持します。";
 "ext.tv.scan.up"                          = "1つ上の階層へ";
 "ext.tv.scan.loading"                     = "読み込み中…";
 "ext.tv.scan.noSubfolders"                = "このフォルダにサブフォルダはありません。現在のフォルダを選択して直接スキャンできます。";
@@ -787,11 +789,11 @@
 "tv_metadata_source_unavailable" = "ソースを有効にするか、iPhoneまたはMacで再スキャンして同期してください。";
 "tv_metadata_reread_issues" = "%d曲を完全に読み込めませんでした。既存の情報は保持されています。再試行できます。";
 
-"error.songloft.missingCredential" = "Songloft requires an account and password.";
-"error.songloft.invalidURL" = "The Songloft server address is invalid.";
-"error.songloft.authenticationFailed" = "Songloft sign-in failed. Check the account and password.";
-"error.songloft.invalidResponse" = "Songloft returned an incomplete or invalid response. The existing library was preserved.";
-"error.songloft.http" = "Songloft returned HTTP %@.";
+"error.songloft.missingCredential" = "Songloftにはアカウントとパスワードが必要です。";
+"error.songloft.invalidURL" = "Songloftサーバーのアドレスが無効です。";
+"error.songloft.authenticationFailed" = "Songloftにサインインできませんでした。アカウントとパスワードを確認してください。";
+"error.songloft.invalidResponse" = "Songloftから不完全または無効なデータが返されました。既存のライブラリは保持されています。";
+"error.songloft.http" = "SongloftからHTTP %@が返されました。";
 
 "appleMusic.localAsset.managedDownload" = "この Apple Music のダウンロードはローカル音声ファイルとして再生できません。同期済みの Apple Music プレイリストから再生するか、ミュージックで開いてください。";
 "appleMusic.localAsset.protectedContent" = "この曲は保護されているため、ローカル音声ファイルとして再生できません。同期済みの Apple Music プレイリストから再生するか、ミュージックで開いてください。";

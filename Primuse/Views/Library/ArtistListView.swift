@@ -27,6 +27,7 @@ enum ArtistLayoutMode: String, CaseIterable, Identifiable {
 
 struct ArtistListView: View {
     let artists: [Artist]
+    var intelligentRecommendationIDs: Set<String> = []
     @State private var searchText: String = ""
 
     @Environment(\.pmHeightClass) private var heightClass
@@ -131,6 +132,7 @@ struct ArtistListView: View {
                 .overlay {
                     Circle().strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
                 }
+                .searchRecommendationOverlay(isRecommended: intelligentRecommendationIDs.contains(artist.id), iconOnly: true)
 
             Text(displayName(for: artist))
                 .font(.subheadline.weight(.medium))
@@ -150,6 +152,7 @@ struct ArtistListView: View {
                         size: 44,
                         cornerRadius: 22
                     )
+                    .searchRecommendationOverlay(isRecommended: intelligentRecommendationIDs.contains(artist.id), iconOnly: true, inset: 3)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(displayName(for: artist))

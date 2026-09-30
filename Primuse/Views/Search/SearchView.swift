@@ -367,8 +367,10 @@ private enum SearchCatalogDestination: Hashable {
     case albums, artists
 }
 
-private struct SearchAlbumResultsView: View {
+private struct SearchAlbumResultsView<Actions: View>: View {
     let albums: [PrimuseKit.Album]
+    let intelligentRecommendationIDs: Set<String>
+    @ViewBuilder var actions: (PrimuseKit.Album) -> Actions
 
     @Environment(\.pmHeightClass) private var heightClass
 
@@ -378,11 +380,15 @@ private struct SearchAlbumResultsView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: heightClass.value(22, compact: 14)) {
                 ForEach(albums) { album in
-                    NavigationLink(value: album) {
-                        AlbumCardView(album: album)
+                    VStack(alignment: .leading, spacing: 2) {
+                        NavigationLink(value: album) {
+                            AlbumCardView(album: album, showsSongCount: true,
+                                          isIntelligentRecommendation: intelligentRecommendationIDs.contains(album.id))
+                        }
+                        .buttonStyle(.plain)
+                        .mediaZoomSource(.album, id: album.id)
+                        actions(album)
                     }
-                    .buttonStyle(.plain)
-                    .mediaZoomSource(.album, id: album.id)
                 }
             }
             .padding(20)
@@ -682,6 +688,32 @@ struct SearchView: View {
         var seen = Set(keywordAlbums.map(\.id))
         let supplements = intelligenceRenderedQuery == searchText ? semanticAlbums : []
         return keywordAlbums + supplements.filter { seen.insert($0.id).inserted }
+    }
+
+    private var intelligentAlbumIDs: Set<String> {
+        SearchRecommendationOriginPolicy.intelligentIDs(
+            primary: keywordAlbums.map(\.id), recommended: semanticAlbums.map(\.id),
+            isCurrentQuery: intelligenceRenderedQuery == searchText
+        )
+    }
+
+    private var intelligentArtistIDs: Set<String> {
+        var primaryIDs = Set(searchResults.flatMap { library.artistIDs(for: $0.song) })
+        let query = renderedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        primaryIDs.formUnion(semanticArtists.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+        }.map(\.id))
+        return SearchRecommendationOriginPolicy.intelligentIDs(
+            primary: Array(primaryIDs), recommended: semanticArtists.map(\.id),
+            isCurrentQuery: intelligenceRenderedQuery == searchText
+        )
+    }
+
+    private var intelligentCollectionIDs: Set<SearchCollectionResult.Target> {
+        SearchRecommendationOriginPolicy.intelligentIDs(
+            primary: collectionResults.map(\.id), recommended: semanticCollections.map(\.id),
+            isCurrentQuery: intelligenceRenderedQuery == searchText
+        )
     }
 
     private func matchingCollections(_ section: SearchResultSection) -> [SearchCollectionResult] {
@@ -1230,9 +1262,11 @@ struct SearchView: View {
         .navigationDestination(for: SearchCatalogDestination.self) { destination in
             switch destination {
             case .albums:
-                SearchAlbumResultsView(albums: matchingAlbums)
+                SearchAlbumResultsView(albums: matchingAlbums, intelligentRecommendationIDs: intelligentAlbumIDs) { album in
+                    resultActions(.album(album.id))
+                }
             case .artists:
-                ArtistListView(artists: matchingArtists)
+                ArtistListView(artists: matchingArtists, intelligentRecommendationIDs: intelligentArtistIDs)
                     .navigationTitle(Text("tab_artists"))
                     .minimalNavigationDetail()
             }
@@ -1797,6 +1831,16 @@ struct SearchView: View {
                     showInLibraryButton(for: result.song)
                 }
             }
+            macTopMatchActions(match)
+        }
+    }
+
+    @ViewBuilder
+    private func macTopMatchActions(_ match: MacTopMatch) -> some View {
+        switch match {
+        case .artist(let artist): resultActions(.artist(artist.id))
+        case .album(let album): resultActions(.album(album.id))
+        case .song: EmptyView()
         }
     }
 
@@ -1871,8 +1915,10 @@ struct SearchView: View {
         switch match {
         case .artist(let artist):
             ArtistArtworkView(artist: artist, size: 112, cornerRadius: 56)
+                .searchRecommendationOverlay(isRecommended: intelligentArtistIDs.contains(artist.id), iconOnly: true)
         case .album(let album):
             AlbumArtworkView(album: album, size: 112, cornerRadius: 10)
+                .searchRecommendationOverlay(isRecommended: intelligentAlbumIDs.contains(album.id))
         case .song(let result):
             CachedArtworkView(
                 coverRef: result.song.coverArtFileName,
@@ -1928,6 +1974,7 @@ struct SearchView: View {
                     showInLibraryButton(for: result.song)
                 }
             }
+            macTopMatchActions(match)
         }
     }
 
@@ -2548,6 +2595,7 @@ struct SearchView: View {
                 VStack(alignment: .leading, spacing: 7) {
                     AlbumArtworkView(album: album, cornerRadius: 10)
                         .aspectRatio(1, contentMode: .fit)
+                        .searchRecommendationOverlay(isRecommended: intelligentAlbumIDs.contains(album.id))
                     Text(album.title)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(PMColor.text)
@@ -2567,7 +2615,7 @@ struct SearchView: View {
             }
             .buttonStyle(.plain)
             .pmHoverLift()
-            resultActions(library.songs(forAlbum: album.id))
+            resultActions(.album(album.id))
         }
     }
 
@@ -2580,6 +2628,7 @@ struct SearchView: View {
                         cornerRadius: 999
                     )
                     .aspectRatio(1, contentMode: .fit)
+                    .searchRecommendationOverlay(isRecommended: intelligentArtistIDs.contains(artist.id), iconOnly: true)
                     Text(artist.name)
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(PMColor.text)
@@ -2594,7 +2643,7 @@ struct SearchView: View {
             // hover 记在修饰符里, 卡片 body 不会重算 —— matchingArtists
             // 是没有缓存的整库计算属性, 划过时绝不能触发重新求值。
             .pmHoverLift()
-            resultActions(library.songs(forArtist: artist.id))
+            resultActions(.artist(artist.id))
         }
     }
 
@@ -2643,7 +2692,7 @@ struct SearchView: View {
             .contextMenu {
                 showInLibraryButton(for: result.song)
             }
-            if !selection.isActive { songMoreMenu([result.song]) }
+            if !selection.isActive { songMoreMenu(result.song) }
         }
     }
 
@@ -2657,6 +2706,7 @@ struct SearchView: View {
             Group {
                 if let artist {
                     ArtistArtworkView(artist: artist, size: 80, cornerRadius: 40)
+                        .searchRecommendationOverlay(isRecommended: intelligentArtistIDs.contains(artist.id), iconOnly: true)
                 } else if let song {
                     CachedArtworkView(coverRef: song.coverArtFileName,
                                       songID: song.id,
@@ -2667,6 +2717,7 @@ struct SearchView: View {
                                       fileFormat: song.fileFormat)
                 } else if let album {
                     AlbumArtworkView(album: album, size: 80, cornerRadius: 10)
+                        .searchRecommendationOverlay(isRecommended: intelligentAlbumIDs.contains(album.id))
                 } else {
                     Circle()
                         .fill(PMColor.rowHover)
@@ -2743,7 +2794,7 @@ struct SearchView: View {
                     Label("batch_select", systemImage: "checkmark.circle")
                 }
             }
-            if !selection.isActive { songMoreMenu([result.song]) }
+            if !selection.isActive { songMoreMenu(result.song) }
         }
     }
 
@@ -2812,7 +2863,7 @@ struct SearchView: View {
                     Label("batch_select", systemImage: "checkmark.circle")
                 }
             }
-            if !selection.isActive { songMoreMenu([result.song]) }
+            if !selection.isActive { songMoreMenu(result.song) }
         }
     }
 
@@ -3251,11 +3302,13 @@ struct SearchView: View {
                         ForEach(matchingAlbums.prefix(8)) { album in
                             VStack(alignment: .leading, spacing: 2) {
                                 NavigationLink(value: album) {
-                                    AlbumCardView(album: album).frame(width: albumCardWidth)
+                                    AlbumCardView(album: album, showsSongCount: true,
+                                                  isIntelligentRecommendation: intelligentAlbumIDs.contains(album.id))
+                                        .frame(width: albumCardWidth)
                                 }
                                 .buttonStyle(.plain)
                                 .mediaZoomSource(.album, id: album.id)
-                                resultActions(library.songs(forAlbum: album.id))
+                                resultActions(.album(album.id))
                             }
                         }
                     }
@@ -3289,6 +3342,7 @@ struct SearchView: View {
                         NavigationLink(value: artist) {
                             HStack(spacing: 12) {
                                 ArtistArtworkView(artist: artist, size: 44, cornerRadius: 22)
+                                    .searchRecommendationOverlay(isRecommended: intelligentArtistIDs.contains(artist.id), iconOnly: true, inset: 3)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(artist.name).font(.subheadline).lineLimit(1)
                                     Text("\(artist.songCount) \(String(localized: "songs_count"))")
@@ -3297,7 +3351,7 @@ struct SearchView: View {
                             }
                         }
                         .mediaZoomSource(.artist, id: artist.id)
-                        resultActions(library.songs(forArtist: artist.id))
+                        resultActions(.artist(artist.id))
                     }
                 }
                 if artists.count > 3 {
@@ -3360,23 +3414,20 @@ struct SearchView: View {
             Section {
                 ForEach(Array(bucket)) { result in
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 0) {
-                            SongRowView(
-                                song: result.song,
-                                isPlaying: player.currentSong?.id == result.song.id,
-                                showsActions: false,
-                                selection: selection,
-                                queueSwipeActionsEnabled: false,
-                                context: SongRowView.context(for: result.song, sourcesStore: sourcesStore, backfill: backfill)
-                            )
-                            // Keep playback taps on the view that owns the context menu.
-                            // An ancestor gesture otherwise becomes the List cell's
-                            // competing hit target and prevents the row's long press.
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
-                            }
-                            if !selection.isActive { songMoreMenu([result.song]) }
+                        SongRowView(
+                            song: result.song,
+                            isPlaying: player.currentSong?.id == result.song.id,
+                            showsActions: !selection.isActive,
+                            selection: selection,
+                            queueSwipeActionsEnabled: false,
+                            context: SongRowView.context(for: result.song, sourcesStore: sourcesStore, backfill: backfill)
+                        )
+                        // Keep playback taps on the view that owns the context menu.
+                        // An ancestor gesture otherwise becomes the List cell's
+                        // competing hit target and prevents the row's long press.
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind)
                         }
                         searchResultPath(for: result.song, leadingPadding: 54)
                         if result.matchKind == .lyrics, let snippet = result.lyricSnippet {
@@ -3434,23 +3485,20 @@ struct SearchView: View {
                 semanticFeedbackRow
                 ForEach(results) { result in
                     VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 0) {
-                            SongRowView(
-                                song: result.song,
-                                isPlaying: player.currentSong?.id == result.song.id,
-                                showsActions: false,
-                                selection: selection,
-                                queueSwipeActionsEnabled: false,
-                                context: SongRowView.context(
-                                    for: result.song,
-                                    sourcesStore: sourcesStore,
-                                    backfill: backfill
-                                )
+                        SongRowView(
+                            song: result.song,
+                            isPlaying: player.currentSong?.id == result.song.id,
+                            showsActions: !selection.isActive,
+                            selection: selection,
+                            queueSwipeActionsEnabled: false,
+                            context: SongRowView.context(
+                                for: result.song,
+                                sourcesStore: sourcesStore,
+                                backfill: backfill
                             )
-                            .contentShape(Rectangle())
-                            .onTapGesture { playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind) }
-                            if !selection.isActive { songMoreMenu([result.song]) }
-                        }
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture { playSong(result.song, lyricsHint: result.lyricSnippet, matchKind: result.matchKind) }
 
                         Text(verbatim: String(
                             format: String(localized: "search_ai_reason_format"),
@@ -4047,9 +4095,10 @@ struct SearchView: View {
         Task { await player.play(queue: playable) }
     }
 
-    private func resultActions(_ songs: [PrimuseKit.Song]) -> some View {
-        HStack(spacing: 6) {
-            Button { playCollection(songs) } label: {
+    private func resultActions(_ target: SearchResultActionTarget) -> some View {
+        let songs = target.songs(in: library)
+        return HStack(spacing: 6) {
+            Button { playCollection(target.songs(in: library)) } label: {
                 Image(systemName: "play.fill")
                     .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
@@ -4057,34 +4106,43 @@ struct SearchView: View {
             .disabled(songs.filteredPlayable().isEmpty)
             .accessibilityLabel(Text("play_all"))
             .help(Text("play_all"))
-            songMoreMenu(songs)
+            resultMoreMenu(target)
         }
         .buttonStyle(.borderless)
         .foregroundStyle(.secondary)
     }
 
-    private func songMoreMenu(_ songs: [PrimuseKit.Song]) -> some View {
-        Menu {
-            if songs.count == 1, let song = songs.first {
-                Button { library.toggleLiked(songID: song.id) } label: {
-                    Label(LocalizedStringKey(library.isLiked(songID: song.id) ? "a11y_unlike" : "a11y_like"),
-                          systemImage: library.isLiked(songID: song.id) ? "heart.slash" : "heart")
+    private func songMoreMenu(_ song: PrimuseKit.Song) -> some View {
+        SongRowView(song: library.song(id: song.id) ?? song, actionsOnly: true,
+                    context: SongRowView.context(for: song, sourcesStore: sourcesStore, backfill: backfill))
+    }
+
+    private func resultMoreMenu(_ target: SearchResultActionTarget) -> some View {
+        let songs = target.songs(in: library)
+        let allLiked = !songs.isEmpty && songs.allSatisfy { library.isLiked(songID: $0.id) }
+        return Menu {
+            if case .album = target {
+                Button { playCollection(target.songs(in: library)) } label: {
+                    Label("play_all", systemImage: "play.fill")
                 }
-            } else {
-                Button { library.likeSongs(songs.map(\.id)) } label: {
-                    Label("a11y_like", systemImage: "heart")
-                }
+                .disabled(songs.filteredPlayable().isEmpty)
+                Divider()
             }
+            Button { target.addToLiked(in: library) } label: {
+                Label(String(format: String(localized: allLiked ? "search_all_songs_liked_format" : "search_like_all_songs_format"), songs.count),
+                      systemImage: allLiked ? "heart.fill" : "heart")
+            }
+            .disabled(allLiked)
             Button {
-                songsToAddToPlaylist = songs
+                songsToAddToPlaylist = target.songs(in: library)
                 showsAddToPlaylist = true
             } label: {
                 Label("add_to_playlist", systemImage: "text.badge.plus")
             }
-            Button { player.insertNextInQueue(songs) } label: {
+            Button { player.insertNextInQueue(target.songs(in: library)) } label: {
                 Label("insert_next", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
-            Button { player.appendToQueue(songs) } label: {
+            Button { player.appendToQueue(target.songs(in: library)) } label: {
                 Label("add_to_queue", systemImage: "text.badge.plus")
             }
         } label: {
@@ -4095,6 +4153,7 @@ struct SearchView: View {
         .buttonStyle(.borderless)
         .disabled(songs.isEmpty)
         .accessibilityLabel(Text("a11y_more_actions"))
+        .accessibilityIdentifier(target.moreMenuAccessibilityIdentifier)
     }
 
     private func collectionResultRow(_ result: SearchCollectionResult) -> some View {
@@ -4114,12 +4173,15 @@ struct SearchView: View {
                         Text(verbatim: [result.detail, "\(songs.count) \(String(localized: "songs_count"))"]
                             .filter { !$0.isEmpty }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if intelligentCollectionIDs.contains(result.id) {
+                            SearchRecommendationBadge()
+                        }
                     }
                     Spacer(minLength: 0)
                 }
             }
             .buttonStyle(.plain)
-            resultActions(songs)
+            resultActions(.collection(result))
         }
     }
 

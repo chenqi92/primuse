@@ -9,6 +9,7 @@ struct MacKeyboardShortcutPolicyTests {
         let shortcuts = MacKeyboardShortcutPolicy.defaults
         #expect(shortcuts.count == MacKeyboardShortcutAction.allCases.count)
         #expect(Set(shortcuts.values).count == shortcuts.count)
+        #expect(shortcuts.values.allSatisfy { MacKeyboardShortcutPolicy.validate($0) == .accepted })
         #expect(MacKeyboardShortcutPolicy.shortcutsMatch(
             shortcuts[.playPause]!,
             MacKeyboardShortcut(keyCode: 49, keyEquivalent: " ")
@@ -90,6 +91,24 @@ struct MacKeyboardShortcutPolicyTests {
         let decoded = MacKeyboardShortcutPolicy.decode(data)
         #expect(decoded[.playPause] == custom)
         #expect(decoded[.nextTrack] == MacKeyboardShortcutAction.nextTrack.defaultShortcut)
+    }
+
+    @Test("New menu shortcuts fill missing bindings without replacing custom shortcuts")
+    func addsMenuBindingsToExistingStorage() throws {
+        let custom = MacKeyboardShortcutAction.toggleLyricsIsland.defaultShortcut
+        let data = Data("""
+        {"version":1,"bindings":[
+          {"action":"playPause","shortcut":{"keyCode":\(custom.keyCode),"modifiers":\(custom.modifiers),"keyEquivalent":"l"}},
+          {"action":"showDesktopLyrics","shortcut":null}
+        ]}
+        """.utf8)
+        let restored = MacKeyboardShortcutPolicy.decode(data)
+        #expect(restored[.playPause] == custom)
+        #expect(restored[.showDesktopLyrics] == nil)
+        #expect(restored[.toggleLyricsIsland] == nil)
+        #expect(restored[.toggleMenuBarLyrics] == MacKeyboardShortcutAction.toggleMenuBarLyrics.defaultShortcut)
+        #expect(restored[.toggleFullScreenPlayer] == MacKeyboardShortcutAction.toggleFullScreenPlayer.defaultShortcut)
+        #expect(restored[.openMainWindow] == MacKeyboardShortcutAction.openMainWindow.defaultShortcut)
     }
 
     @Test("Text editing, recording, and unrelated windows bypass dispatch")

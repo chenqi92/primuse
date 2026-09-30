@@ -3,6 +3,7 @@ import PrimuseKit
 
 /// 键值存储的最小接口。`NSUbiquitousKeyValueStore` 原样满足; 测试用内存实现。
 protocol CloudKeyValueStore: AnyObject {
+    var dictionaryRepresentation: [String: Any] { get }
     func object(forKey key: String) -> Any?
     func set(_ value: Any?, forKey key: String)
     func removeObject(forKey key: String)
@@ -12,6 +13,124 @@ protocol CloudKeyValueStore: AnyObject {
 }
 
 extension NSUbiquitousKeyValueStore: CloudKeyValueStore {}
+
+private final class CloudKeyValueMemoryStore: CloudKeyValueStore {
+    var dictionaryRepresentation: [String: Any] = [:]
+    func object(forKey key: String) -> Any? { dictionaryRepresentation[key] }
+    func set(_ value: Any?, forKey key: String) { dictionaryRepresentation[key] = value }
+    func removeObject(forKey key: String) { dictionaryRepresentation.removeValue(forKey: key) }
+    func double(forKey key: String) -> Double { (dictionaryRepresentation[key] as? NSNumber)?.doubleValue ?? 0 }
+    func string(forKey key: String) -> String? { dictionaryRepresentation[key] as? String }
+    @discardableResult func synchronize() -> Bool { true }
+}
+
+/// 通知可能早于 actor 处理到达，先使旧账号／初次下载前排队的写入失效。
+private final class CloudKVSAccountEpoch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func current() -> Int { lock.withLock { value } }
+    func advance() -> Int { lock.withLock { value += 1; return value } }
+}
+
+/// 启动时复制初始镜像后，系统 KVS 的后续访问集中在这个 actor。
+/// 不跨隔离域传递 non-Sendable 系统对象，只传属性列表 Data。
+private actor CloudKeyValueStoreIO {
+    typealias Policy = CloudKVSReconciliationPolicy
+    struct Snapshot: Sendable {
+        let data: Data
+        let epoch: Int
+    }
+
+    private let makeStore: @Sendable () -> any CloudKeyValueStore
+    private let notify: @Sendable (Snapshot, [String], Policy.ExternalChangeReason) async -> Void
+    private var store: (any CloudKeyValueStore)?
+    private let epoch = CloudKVSAccountEpoch()
+    private nonisolated(unsafe) var observerToken: NSObjectProtocol?
+
+    init(
+        makeStore: @escaping @Sendable () -> any CloudKeyValueStore,
+        notify: @escaping @Sendable (Snapshot, [String], Policy.ExternalChangeReason) async -> Void
+    ) {
+        self.makeStore = makeStore
+        self.notify = notify
+    }
+
+    deinit {
+        if let observerToken { NotificationCenter.default.removeObserver(observerToken) }
+    }
+
+    private func storage() -> any CloudKeyValueStore {
+        if let store { return store }
+        let store = makeStore()
+        self.store = store
+        return store
+    }
+
+    func start() throws -> Snapshot {
+        let store = storage()
+        observerToken = NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: store, queue: nil
+        ) { [weak self, epoch] note in
+            let keys = note.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String] ?? []
+            let reason = Policy.ExternalChangeReason(
+                rawChangeReason: note.userInfo?[NSUbiquitousKeyValueStoreChangeReasonKey] as? Int
+            )
+            if Policy.appliesRemoteUnconditionally(reason) { _ = epoch.advance() }
+            Task { await self?.didChange(keys: keys, reason: reason) }
+        }
+        store.synchronize()
+        return try snapshot()
+    }
+
+    func snapshot() throws -> Snapshot {
+        let snapshotEpoch = epoch.current()
+        return Snapshot(
+            data: try PropertyListSerialization.data(
+                fromPropertyList: storage().dictionaryRepresentation, format: .binary, options: 0
+            ),
+            epoch: snapshotEpoch
+        )
+    }
+
+    private func didChange(keys: [String], reason: Policy.ExternalChangeReason) async {
+        guard let snapshot = try? snapshot() else { return }
+        await notify(snapshot, keys, reason)
+    }
+
+    func write(key: String, data: Data?, version: Policy.Version, expectedEpoch: Int) throws -> Snapshot {
+        guard expectedEpoch == epoch.current() else { return try snapshot() }
+        let store = storage()
+        let remote = Policy.Version(
+            revision: store.double(forKey: key + "__updatedAt"),
+            writer: store.string(forKey: key + "__writerID") ?? ""
+        )
+        // 排队期间另一个设备可能已经写了更新值，不能用旧快照把它覆盖。
+        guard !Policy.isNewer(remote, than: version) else { return try snapshot() }
+        let value: Any?
+        if let data {
+            let values = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [Any]
+            value = values?.first
+        } else {
+            value = nil
+        }
+        if remote == version {
+            let existing = store.object(forKey: key)
+            if existing == nil && value == nil { return try snapshot() }
+            if let existing = existing as? NSObject, let value, existing.isEqual(value) { return try snapshot() }
+        }
+        if let value {
+            store.set(value, forKey: key)
+        } else {
+            store.removeObject(forKey: key)
+        }
+        guard expectedEpoch == epoch.current() else { return try snapshot() }
+        store.set(version.revision, forKey: key + "__updatedAt")
+        guard expectedEpoch == epoch.current() else { return try snapshot() }
+        store.set(version.writer, forKey: key + "__writerID")
+        return try snapshot()
+    }
+}
 
 /// Mirrors a curated set of UserDefaults entries into NSUbiquitousKeyValueStore so they
 /// roam across the user's iCloud-signed-in devices.
@@ -44,8 +163,11 @@ final class CloudKVSSync {
         guard CloudKitRuntime.canCreateContainer else {
             return CloudKVSSync(store: nil, defaults: .standard, observing: nil)
         }
-        let store = NSUbiquitousKeyValueStore.default
-        return CloudKVSSync(store: store, defaults: .standard, observing: store)
+        // 仅启动时取一次现有缓存，让登记及一次性迁移仍先看到云端已有值。
+        // 原对象不传给 actor；后续所有系统读写由 actor 独占。
+        let cachedValues = NSUbiquitousKeyValueStore.default.dictionaryRepresentation
+        return CloudKVSSync(defaults: .standard, initialValues: cachedValues,
+                            systemStoreFactory: { NSUbiquitousKeyValueStore.default })
     }()
 
     /// Posted when a registered key was updated by another device. `userInfo["key"]`
@@ -55,6 +177,10 @@ final class CloudKVSSync {
     private let kvs: (any CloudKeyValueStore)?
     private let defaults: UserDefaults
     private var registrations: [String: () -> Void] = [:]
+    private var systemIO: CloudKeyValueStoreIO?
+    private var initialReadTask: Task<Void, Never>?
+    private var pendingWriteTasks: [UUID: Task<Void, Never>] = [:]
+    private var systemEpoch = 0
     // Set on the main thread via the observer block; read only in deinit, where
     // strict concurrency rules don't allow touching MainActor state, so mark
     // this nonisolated(unsafe). NotificationCenter.removeObserver is thread-safe.
@@ -80,6 +206,54 @@ final class CloudKVSSync {
             }
         }
         observing.synchronize()
+    }
+
+    init(
+        defaults: UserDefaults, initialValues: [String: Any] = [:],
+        systemStoreFactory: @escaping @Sendable () -> any CloudKeyValueStore
+    ) {
+        let mirror = CloudKeyValueMemoryStore()
+        mirror.dictionaryRepresentation = initialValues
+        self.kvs = mirror
+        self.defaults = defaults
+        let io = CloudKeyValueStoreIO(makeStore: systemStoreFactory) { [weak self] snapshot, keys, reason in
+            await self?.receiveSystemSnapshot(snapshot, changedKeys: keys, reason: reason)
+        }
+        systemIO = io
+        initialReadTask = Task { [weak self] in
+            do {
+                let snapshot = try await io.start()
+                self?.receiveSystemSnapshot(snapshot, changedKeys: [], reason: nil)
+            } catch {
+                plog("⚠️ CloudKVS initial read failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 等待已排队的本机写入完成；网络传播仍由系统管理。
+    func synchronizePendingChanges() async {
+        await initialReadTask?.value
+        while !pendingWriteTasks.isEmpty {
+            let tasks = Array(pendingWriteTasks.values)
+            for task in tasks { await task.value }
+        }
+    }
+
+    private func receiveSystemSnapshot(
+        _ snapshot: CloudKeyValueStoreIO.Snapshot,
+        changedKeys: [String], reason: Policy.ExternalChangeReason?
+    ) {
+        guard snapshot.epoch >= systemEpoch, let mirror = kvs as? CloudKeyValueMemoryStore else { return }
+        systemEpoch = snapshot.epoch
+        if reason.map(Policy.carriesRemoteValues) ?? true,
+           let values = try? PropertyListSerialization.propertyList(from: snapshot.data, options: [], format: nil) as? [String: Any] {
+            mirror.dictionaryRepresentation = values
+        }
+        if let reason {
+            handleExternalChange(changedKeys: changedKeys, reason: reason)
+        } else {
+            _ = catchUp()
+        }
     }
 
     deinit {
@@ -297,7 +471,32 @@ final class CloudKVSSync {
         }
         kvs.set(version.revision, forKey: timestampKey(for: key))
         kvs.set(version.writer, forKey: writerKey(for: key))
-        kvs.synchronize()
+        guard let io = systemIO else { return }
+        let valueData: Data?
+        if let value = kvs.object(forKey: key) {
+            guard let data = try? PropertyListSerialization.data(fromPropertyList: [value], format: .binary, options: 0) else { return }
+            valueData = data
+        } else {
+            valueData = nil
+        }
+        let expectedEpoch = systemEpoch
+        let taskID = UUID()
+        pendingWriteTasks[taskID] = Task { [weak self] in
+            guard let self else { return }
+            defer { self.pendingWriteTasks.removeValue(forKey: taskID) }
+            await self.initialReadTask?.value
+            do {
+                let snapshot: CloudKeyValueStoreIO.Snapshot
+                if self.isEnabled, expectedEpoch == self.systemEpoch, self.localVersion(for: key) == version {
+                    snapshot = try await io.write(key: key, data: valueData, version: version, expectedEpoch: expectedEpoch)
+                } else {
+                    snapshot = try await io.snapshot()
+                }
+                self.receiveSystemSnapshot(snapshot, changedKeys: [key], reason: .serverChange)
+            } catch {
+                plog("⚠️ CloudKVS queued write failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func applyRemoteValue(

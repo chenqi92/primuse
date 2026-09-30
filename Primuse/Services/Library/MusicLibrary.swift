@@ -6793,11 +6793,13 @@ final class MusicLibrary {
     /// reapplies it to songs whose artist metadata is already known. Bare
     /// first-scan rows are resolved later by `replaceSong(s)` after metadata
     /// backfill fills their artist names.
-    func updateAutomaticArtistArtworkCatalog(_ catalog: SourceArtistArtworkCatalog) {
+    func updateAutomaticArtistArtworkCatalog(_ catalog: SourceArtistArtworkCatalog, isCompleteListing: Bool = true) {
         // S2: 目录表与它改写的 songs 都在发布时被拷回覆盖。
         if deferringUntilReady({ [weak self] in
-            self?.updateAutomaticArtistArtworkCatalog(catalog)
+            self?.updateAutomaticArtistArtworkCatalog(catalog, isCompleteListing: isCompleteListing)
         }) { return }
+        let catalog = isCompleteListing ? catalog
+            : automaticArtistArtworkCatalogsBySource[catalog.sourceID]?.merging(catalog) ?? catalog
         guard !catalog.sourceID.isEmpty,
               automaticArtistArtworkCatalogsBySource[catalog.sourceID] != catalog else {
             return
