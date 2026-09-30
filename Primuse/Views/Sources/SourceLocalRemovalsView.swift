@@ -1,6 +1,63 @@
 import PrimuseKit
 import SwiftUI
 
+struct SourceHiddenPlaylistsView: View {
+    @Environment(MusicLibrary.self) private var library
+    @Environment(\.dismiss) private var dismiss
+    let source: MusicSource
+
+    private var playlists: [MirrorPlaylistSuppression] {
+        library.hiddenMirrorPlaylists(forSourceID: source.id)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(playlists) { playlist in
+                        HStack(alignment: .center, spacing: 16) {
+                            Text(verbatim: playlist.displayName)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Button("restore_hidden_playlist") {
+                                library.restoreHiddenMirrorPlaylist(playlist)
+                            }
+                            .buttonStyle(.bordered)
+                            .fixedSize()
+                            .accessibilityLabel(Text(verbatim: String(localized: "restore_hidden_playlist") + " " + playlist.displayName))
+                        }
+                        .padding(.vertical, 8)
+                    }
+                } header: {
+                    Text(verbatim: source.name)
+                        .textCase(nil)
+                }
+            }
+            .overlay {
+                if playlists.isEmpty {
+                    ContentUnavailableView("no_playlists", systemImage: "eye.slash")
+                }
+            }
+            .navigationTitle("hidden_source_playlists")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("done") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 560, idealWidth: 680, minHeight: 440, idealHeight: 580)
+        #else
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        #endif
+    }
+}
+
 /// Rows this device dropped while the source copy stayed in place.
 ///
 /// The entry point only appears when a source actually has entries, so it

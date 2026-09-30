@@ -46,12 +46,17 @@ struct FnMusicLibraryTests {
                             list: [["guid": "s\(i)"]], total: 1)
         }
         let (client, _, _) = fixture.clients()
-        let snapshot = try await client.library.playlists()
+        let diagnostics = PlaylistDiagnostics()
+        let snapshot = try await client.library.playlists(diagnosticLogger: { diagnostics.append($0) })
         #expect(snapshot.failedPlaylistIDs.isEmpty)
         #expect(snapshot.playlists.map(\.id) == ["p0", "p1", "p2"])
         #expect(snapshot.playlists.map(\.trackIDs) == [["s0"], ["s1"], ["s2"]])
         let details = fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }
         #expect(details.count == 4)
+        let playlistTag = LogRedactionPolicy.digest("p1")
+        #expect(diagnostics.messages.contains { $0.contains("result=failed playlist=\(playlistTag) attempt=1") && $0.contains("500") })
+        #expect(diagnostics.messages.contains { $0.contains("result=complete playlist=\(playlistTag) attempt=2") && $0.contains("received=1") })
+        #expect(diagnostics.messages.last?.contains("listed=3 detailed=3 failed=0") == true)
     }
 
     /// 每读全一个歌单就先交出去，不等整轮：补读成功的在第二轮交出，始终读不全的不交。
@@ -67,11 +72,20 @@ struct FnMusicLibraryTests {
                         list: [["guid": "unexpected"]], total: 2)
         let (client, _, _) = fixture.clients()
         let delivered = DeliveredPlaylists()
-        let snapshot = try await client.library.playlists { await delivered.append($0) }
+        let diagnostics = PlaylistDiagnostics()
+        let snapshot = try await client.library.playlists(
+            diagnosticLogger: { diagnostics.append($0) },
+            onPlaylist: { await delivered.append($0) }
+        )
         #expect(await delivered.ids == ["p0", "p3", "p1"])
         #expect(await delivered.trackIDs == [["s0"], ["s3"], ["s1"]])
         #expect(snapshot.playlists.map(\.id) == ["p0", "p1", "p3"])
         #expect(snapshot.failedPlaylistIDs == ["p2"])
+        let failures = diagnostics.messages.filter { $0.contains("result=failed playlist=\(LogRedactionPolicy.digest("p2"))") }
+        #expect(failures.count == 2)
+        #expect(failures.allSatisfy { $0.contains("error=invalid-response") })
+        #expect(diagnostics.messages.contains { $0.contains("stage=detail-page playlist=\(LogRedactionPolicy.digest("p2"))") && $0.contains("page=1 received=1 accumulated=0 reported_total=2") })
+        #expect(diagnostics.messages.last?.contains("listed=4 detailed=3 failed=1") == true)
     }
 
     /// 飞牛同一个 deviceId 只认最后一次登录。曲库客户端与播放解析器以前各存各的 token，
@@ -152,7 +166,139 @@ struct FnMusicLibraryTests {
         let fixture = FnMusicLibraryFixture()
         fixture.setPage("/playlist/list", page: 1, list: [], total: 1)
         let (client, _, _) = fixture.clients()
-        await #expect(throws: FnMusicServiceError.self) { try await client.library.playlists() }
+        let diagnostics = PlaylistDiagnostics()
+        await #expect(throws: FnMusicServiceError.self) {
+            try await client.library.playlists(diagnosticLogger: { diagnostics.append($0) })
+        }
+        #expect(diagnostics.messages.last?.contains("stage=index result=failed") == true)
+        #expect(diagnostics.messages.contains { $0.contains("received=0 reported_total=1") })
+        #expect(!diagnostics.messages.contains { $0.contains("result=complete") })
+    }
+
+    @Test func playlistDiagnosticsDistinguishEmptyListAndCancellation() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [], total: 0)
+        let (client, _, _) = fixture.clients()
+        let diagnostics = PlaylistDiagnostics()
+        let empty = try await client.library.playlists(diagnosticLogger: { diagnostics.append($0) })
+        #expect(empty.playlists.isEmpty)
+        #expect(diagnostics.messages.last?.contains("listed=0 detailed=0 failed=0") == true)
+
+        let cancelled = FnMusicLibraryClient { _ in throw CancellationError() }
+        await #expect(throws: CancellationError.self) {
+            try await cancelled.playlists(diagnosticLogger: { diagnostics.append($0) })
+        }
+        #expect(diagnostics.messages.last?.contains("stage=index result=cancelled") == true)
+    }
+
+    @Test func playlistDiagnosticErrorsAreRedactedAndBounded() async {
+        let diagnostics = PlaylistDiagnostics()
+        let client = FnMusicLibraryClient { _ in
+            throw FnMusicServiceError.invalidResponse(
+                "private-test-playlist /private-test-folder username@example.invalid https://private-test.invalid\n"
+                    + "password=private-test-value Cookie: music-token=private-test-cookie " + String(repeating: "x", count: 2_000)
+            )
+        }
+        await #expect(throws: FnMusicServiceError.self) {
+            try await client.playlists(diagnosticLogger: { diagnostics.append($0) })
+        }
+        let failure = diagnostics.messages.last ?? ""
+        #expect(failure.contains("stage=index result=failed"))
+        #expect(!failure.contains("private-test"))
+        #expect(!failure.contains("\n"))
+        #expect(failure.count < 600)
+        #expect(failure.hasSuffix("error=invalid-response"))
+        #expect(LogRedactionPolicy.errorSummary(NSError(
+            domain: "private-test-domain", code: 123,
+            userInfo: [NSLocalizedDescriptionKey: "private-test-account"]
+        )) == "error=other")
+    }
+
+    @Test func invalidPlaylistDiagnosticsExposeFieldStatesWithoutValues() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [[
+            "guid": 42,
+            "name": "private-test-playlist",
+            "id": "private-test-id",
+            "playlistGUID": NSNull(),
+            "title": "private-test-title",
+        ]], total: 1)
+        let (client, _, _) = fixture.clients()
+        let diagnostics = PlaylistDiagnostics()
+        let snapshot = try await client.library.playlists(diagnosticLogger: { diagnostics.append($0) })
+        #expect(!snapshot.isIndexComplete)
+        #expect(snapshot.playlists.isEmpty)
+        #expect(diagnostics.messages.contains {
+            $0.contains("result=invalid-item row=1 guid=number name=string id=string playlistGUID=null title=string trackCount=missing")
+        })
+        #expect(diagnostics.messages.allSatisfy { !$0.contains("private-test") })
+        #expect(diagnostics.messages.last?.contains("stage=fetch result=partial listed=1 detailed=0 failed=0 index_complete=false invalid=1") == true)
+    }
+
+    @Test func playlistNamesAndOpaqueIdentifiersPreserveUnicodeAndQueryCharacters() async throws {
+        let fixture = FnMusicLibraryFixture()
+        let names = ["\u{3055}\u{304F}\u{3089} / J-Pop", "🎧 👨‍👩‍👧‍👦", "Cafe\u{301}", "A/B \\\"&%+#?<>\nLive", "　中文　"]
+        let ids = names.indices.map { " p\($0)/../+%2F?x=1&y=2#\u{200D} " }
+        fixture.setPage("/playlist/list", page: 1, list: zip(ids, names).map {
+            ["guid": $0.0, "name": $0.1]
+        }, total: names.count)
+        for id in ids {
+            fixture.setPage("/track/playlist-detail/list", playlist: id, page: 1, list: [["guid": "song"]], total: 1)
+        }
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.isIndexComplete)
+        #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.playlists.map(\.id) == ids)
+        #expect(snapshot.playlists.map { Array($0.name.utf8) } == names.map { Array($0.utf8) })
+        let details = fixture.requests.filter { $0.url?.path.hasSuffix("/track/playlist-detail/list") == true }
+        #expect(details.count == names.count)
+        #expect(details.map { request in
+            URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "playlistGUID" }?.value
+        } == ids.map(Optional.some))
+        #expect(details.allSatisfy { $0.url?.path == "/music/api/v1/track/playlist-detail/list" })
+    }
+
+    @Test func missingOrBlankPlaylistNamesDoNotInvalidateTheirStableIdentity() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/playlist/list", page: 1, list: [
+            ["guid": "p0", "name": ""], ["guid": "p1", "name": " \n　"],
+            ["guid": "p2", "name": NSNull()], ["guid": "p3"],
+        ], total: 4)
+        for i in 0..<4 {
+            fixture.setPage("/track/playlist-detail/list", playlist: "p\(i)", page: 1, list: [], total: 0)
+        }
+        let (client, _, _) = fixture.clients()
+        let snapshot = try await client.library.playlists()
+        #expect(snapshot.isIndexComplete)
+        #expect(snapshot.playlists.map(\.id) == ["p0", "p1", "p2", "p3"])
+        #expect(snapshot.playlists.allSatisfy { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    }
+
+    @Test func malformedIndexRowsDoNotBlockHealthyPlaylistsOrAuthorizePruning() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setRawPage("/playlist/list", page: 1, data: ["list": [
+            NSNull(),
+            ["guid": NSNull(), "name": "private-test-name"],
+            ["guid": "bad-count", "name": "private-test-name", "trackCount": "not-a-count"],
+            ["guid": "duplicate", "name": "First"],
+            ["guid": "healthy", "name": "Healthy"],
+            ["guid": "duplicate", "name": "Conflicting"],
+        ], "total": 6])
+        fixture.setPage("/track/playlist-detail/list", playlist: "healthy", page: 1, list: [["guid": "song"]], total: 1)
+        let (client, _, _) = fixture.clients()
+        let delivered = DeliveredPlaylists()
+        let diagnostics = PlaylistDiagnostics()
+        let snapshot = try await client.library.playlists(
+            diagnosticLogger: { diagnostics.append($0) },
+            onPlaylist: { await delivered.append($0) }
+        )
+        #expect(!snapshot.isIndexComplete)
+        #expect(snapshot.playlists.map(\.id) == ["healthy"])
+        #expect(snapshot.failedPlaylistIDs == ["bad-count", "duplicate"])
+        #expect(await delivered.ids == ["healthy"])
+        #expect(diagnostics.messages.contains { $0.contains("result=partial listed=6 usable=1 invalid=4") })
+        #expect(diagnostics.messages.allSatisfy { !$0.contains("private-test") })
     }
 
     @Test func playlistTrackRepetitionsRetainServerOrder() async throws {
@@ -165,6 +311,90 @@ struct FnMusicLibraryTests {
         let playlist = try #require(try await client.library.playlists().playlists.first)
         #expect(playlist.trackIDs == ["b", "a", "b"])
         #expect(playlist.coverReference == "fnmusic-cover/cover?revision=42")
+    }
+
+    @Test func nullableTrackIdentifiersUseTheFirstUsableAlias() async throws {
+        let fixture = FnMusicLibraryFixture()
+        let rows: [[String: Any]] = [
+            ["guid": NSNull(), "trackGUID": "s0"],
+            ["guid": "", "trackGUID": NSNull(), "id": "s1"],
+            ["guid": "s2", "trackGUID": "unrelated", "id": "unrelated-id"],
+        ]
+        fixture.setPage("/playlist/list", page: 1, list: [["guid": "p", "name": "List", "coverId": NSNull()]], total: 1)
+        fixture.setPage("/track/playlist-detail/list", playlist: "p", page: 1, list: rows, total: 3)
+        fixture.setPage("/favorite-track/list", page: 1, list: rows, total: 3)
+        let (client, _, _) = fixture.clients()
+        let playlist = try #require(try await client.library.playlists().playlists.first)
+        #expect(playlist.trackIDs == ["s0", "s1", "s2"])
+        #expect(playlist.coverReference == nil)
+        #expect(try await client.library.favorites() == ["s0", "s1", "s2"])
+    }
+
+    @Test func unavailableFavoriteWithoutIdentityFailsClosedAndLogsOnlyFieldStates() async {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setPage("/favorite-track/list", page: 1, list: [
+            ["guid": "private-test-song", "accessStatus": 0],
+            ["guid": NSNull(), "title": "private-test-title", "accessStatus": 3],
+        ], total: 2)
+        let (client, _, _) = fixture.clients()
+        let diagnostics = PlaylistDiagnostics()
+        await #expect(throws: FnMusicServiceError.self) {
+            try await client.library.favorites(diagnosticLogger: { diagnostics.append($0) })
+        }
+        #expect(diagnostics.messages.contains {
+            $0.contains("page=1 result=invalid-item row=2 guid=null trackGUID=missing id=missing access=missing")
+        })
+        #expect(diagnostics.messages.last?.hasSuffix("result=failed error=invalid-response reason=track-identity") == true)
+        #expect(diagnostics.messages.allSatisfy { !$0.contains("private-test") })
+        #expect(!diagnostics.messages.contains { $0.contains("result=complete") })
+    }
+
+    @Test func serverVersionDiagnosticsExcludeOtherConfigurationFields() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setRawPage("/sys/config", page: 1, data: [
+            "serverVersion": "1.0.10", "mediasrvVersion": "0.8.42",
+            "serverName": "private-test-server", "serverGUID": "private-test-guid",
+            "nasOAuth": ["clientId": "private-test-client", "url": "https://private-test.invalid"],
+        ])
+        fixture.setPage("/playlist/list", page: 1, list: [], total: 0)
+        let (client, _, _) = fixture.clients()
+        let diagnostics = PlaylistDiagnostics()
+        _ = try await client.library.playlists(diagnosticLogger: { diagnostics.append($0) })
+        #expect(diagnostics.messages.contains {
+            $0.hasSuffix("stage=server api=v1 server_version=1.0.10 media_version=0.8.42")
+        })
+        #expect(diagnostics.messages.allSatisfy { !$0.contains("private-test") })
+    }
+
+    @Test func invalidVersionLabelsCannotInjectSensitiveConfigurationIntoLogs() async throws {
+        let fixture = FnMusicLibraryFixture()
+        fixture.setRawPage("/sys/config", page: 1, data: [
+            "serverVersion": "1.0.10\nprivate-test-secret", "mediasrvVersion": "https://private-test.invalid",
+        ])
+        fixture.setPage("/playlist/list", page: 1, list: [], total: 0)
+        let (client, _, _) = fixture.clients()
+        let diagnostics = PlaylistDiagnostics()
+        _ = try await client.library.playlists(diagnosticLogger: { diagnostics.append($0) })
+        #expect(diagnostics.messages.contains {
+            $0.hasSuffix("stage=server api=v1 server_version=unknown media_version=unknown")
+        })
+        #expect(diagnostics.messages.allSatisfy { !$0.contains("private-test") && !$0.contains("\n") })
+    }
+
+    @Test func catalogFallsBackToAlbumOriginalReleaseYear() throws {
+        var json: [String: Any] = [
+            "guid": "s0", "title": "Song", "year": NSNull(),
+            "album": ["guid": "a0", "name": "Album", "originalReleaseYear": 2003],
+            "audioSpec": ["format": "flac"],
+        ]
+        let fallback = try #require(FnMusicCatalogTrack(json: json))
+        #expect(fallback.makeSong(sourceID: "source")?.year == 2003)
+        json["year"] = 2005
+        let explicit = try #require(FnMusicCatalogTrack(json: json))
+        #expect(explicit.year == 2005)
+        json.removeValue(forKey: "year")
+        json["album"] = ["guid": "a0", "name": "Album"]
+        #expect(FnMusicCatalogTrack(json: json)?.year == nil)
     }
 
     @Test func favoriteWritesAreIdempotentAndConfirmedAcrossAllPages() async throws {
@@ -431,6 +661,14 @@ private final class FnMusicLibraryURLProtocol: URLProtocol, @unchecked Sendable 
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+}
+
+private final class PlaylistDiagnostics: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [String] = []
+    var messages: [String] { lock.withLock { entries } }
+
+    func append(_ message: String) { lock.withLock { entries.append(message) } }
 }
 
 private actor DeliveredPlaylists {

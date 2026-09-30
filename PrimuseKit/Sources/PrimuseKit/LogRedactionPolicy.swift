@@ -2,6 +2,33 @@ import Foundation
 
 /// 正则实例常驻复用，避免批量日志反复编译脱敏规则。
 public enum LogRedactionPolicy {
+    /// Only emit known error categories and numeric codes; descriptions and
+    /// userInfo may contain server responses, account names, URLs or paths.
+    public static func errorSummary(_ error: Error) -> String {
+        if OperationCancellationPolicy.isCancellation(error) { return "error=cancelled" }
+        if let error = error as? FnMusicServiceError {
+            switch error {
+            case .missingCredential: return "error=missing-credential"
+            case .invalidURL: return "error=invalid-url"
+            case .authenticationFailed: return "error=authentication"
+            case .badServerResponse(let status): return "error=http status=\(status)"
+            case .invalidResponse(let detail):
+                if detail.hasSuffix("[playlist without guid or name]") {
+                    return "error=invalid-response reason=playlist-identity"
+                }
+                if detail.hasSuffix("[track without a usable guid]") {
+                    return "error=invalid-response reason=track-identity"
+                }
+                return "error=invalid-response"
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain { return "error=network code=\(nsError.code)" }
+        if nsError.domain == NSCocoaErrorDomain { return "error=cocoa code=\(nsError.code)" }
+        if error is DecodingError { return "error=decoding" }
+        return "error=other"
+    }
+
     /// 1. URL / 查询串里的 key=value。key 后紧跟 = 语义明确, 即便是 code/state/k
     ///    这类短名, 出现在 query 串里也几乎一定是凭证, 故保留全集。
     private static let queryParameterRule = makeRule(

@@ -2228,9 +2228,13 @@ final class TVSourceScanner {
         credential: SourceCredential?,
         onPlaylist: (@Sendable (FnMusicPlaylist) async -> Void)? = nil
     ) async throws -> FnMusicPlaylistSnapshot {
-        try await withRoutedSource(source) { routedSource in
+        let sourceTag = LogRedactionPolicy.digest(source.id)
+        return try await withRoutedSource(source) { routedSource in
             try await self.fnMusicClient(source: routedSource, credential: credential)
-                .library.playlists(onPlaylist: onPlaylist)
+                .library.playlists(
+                    diagnosticLogger: { plog("source=\(sourceTag) \($0)") },
+                    onPlaylist: onPlaylist
+                )
         }
     }
 
@@ -2309,8 +2313,11 @@ final class TVSourceScanner {
     }
 
     func fetchFnMusicFavorites(source: MusicSource, credential: SourceCredential?) async throws -> [String] {
-        try await withRoutedSource(source) { routedSource in
-            try await self.fnMusicClient(source: routedSource, credential: credential).library.favorites()
+        let sourceTag = LogRedactionPolicy.digest(source.id)
+        return try await withRoutedSource(source) { routedSource in
+            try await self.fnMusicClient(source: routedSource, credential: credential).library.favorites(
+                diagnosticLogger: { plog("source=\(sourceTag) \($0)") }
+            )
         }
     }
 

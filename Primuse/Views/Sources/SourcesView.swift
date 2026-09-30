@@ -478,6 +478,7 @@ struct SourcesContentView: View {
     @State private var browsingFoldersSource: MusicSource?
     @State private var inspectingMetadataSource: MusicSource?
     @State private var inspectingLocalRemovalsSource: MusicSource?
+    @State private var inspectingHiddenPlaylistsSource: MusicSource?
     @State private var sourceAlert: SourceAlert?
     @State private var activeCacheRun: SourceCacheRun?
     @State private var preparingCacheSourceID: String?
@@ -626,6 +627,9 @@ struct SourcesContentView: View {
             }
             .sheet(item: $diagnosingSource) { source in
                 SourceDiagnosticsView(source: source)
+            }
+            .sheet(item: $inspectingHiddenPlaylistsSource) { source in
+                SourceHiddenPlaylistsView(source: source)
             }
             .sheet(item: $browsingFoldersSource) { source in
                 NavigationStack {
@@ -994,6 +998,7 @@ struct SourcesContentView: View {
             }
 
             localRemovalsButton(source)
+            hiddenPlaylistsButton(source)
 
             if let progress = sourceCacheProgress(
                 for: source,
@@ -1384,6 +1389,31 @@ struct SourcesContentView: View {
                     .setServerScanOnLaunchEnabled(enabled, for: sourceID)
             }
         )
+    }
+
+    @ViewBuilder
+    private func hiddenPlaylistsButton(_ source: MusicSource) -> some View {
+        let hidden = library.hiddenMirrorPlaylists(forSourceID: source.id)
+        if !hidden.isEmpty {
+            Button {
+                inspectingHiddenPlaylistsSource = source
+            } label: {
+                HStack(spacing: 10) {
+                    Label("hidden_source_playlists", systemImage: "eye.slash")
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Text(hidden.count.formatted()).monospacedDigit()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                }
+                .font(.subheadline)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sources.hiddenPlaylists")
+        }
     }
 
     /// 只有这个源确实有"本机已移除、远端还在"的行时才出现。按账本内容判断

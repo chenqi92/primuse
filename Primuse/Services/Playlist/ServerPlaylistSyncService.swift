@@ -24,6 +24,8 @@ enum ServerPlaylistSyncService {
     ) async -> SyncResult {
         var result = SyncResult()
         guard source.type.isServerLibrary else { return result }
+        let context = "Server playlists source=\(LogRedactionPolicy.digest(source.id)) type=\(source.type.rawValue)"
+        plog("\(context) stage=fetch result=started enabled=\(source.isEnabled)")
 
         let snapshot: ServerPlaylistSnapshot?
         let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
@@ -36,22 +38,23 @@ enum ServerPlaylistSyncService {
                 }
             }
         } catch is CancellationError {
+            plog("\(context) stage=fetch result=cancelled")
             return result
         } catch {
-            plog("⚠️ Server playlist sync failed for '\(source.name)': \(error.localizedDescription)")
+            plog("\(context) stage=fetch result=failed \(LogRedactionPolicy.errorSummary(error))")
             return result
         }
         // nil = 该源类型没有歌单能力, 不要动本地任何东西。
-        guard let snapshot, applyFence() else { return result }
+        guard let snapshot else {
+            plog("\(context) stage=apply result=skipped reason=unsupported")
+            return result
+        }
+        guard applyFence() else {
+            plog("\(context) stage=apply result=skipped reason=stale-scan")
+            return result
+        }
 
         result = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
-        // 服务端一个歌单都没返回时下面一条日志都不会有, 与"请求失败"和"歌单里的
-        // 歌在本地一首都对不上"分不开。这一行把三种结果区分开。
-        plog("""
-            🎵 Server playlists '\(source.name)': listed \(snapshot.playlists.count), \
-            mirrored \(result.syncedPlaylistCount), unresolved \(result.unresolvedPlaylistCount), \
-            detail failed \(snapshot.failedPlaylistIDs.count)
-            """)
         return result
     }
 }
@@ -103,7 +106,7 @@ enum ServerPlaylistAppendService {
             source: source
         )
         ServerPlaylistMirror.applyAppended(refreshed, source: source, library: library)
-        plog("🎵 Server playlist '\(refreshed.name)' ← \(songs.count) song(s) appended on '\(source.name)'")
+        plog("Server playlists source=\(LogRedactionPolicy.digest(source.id)) playlist=\(LogRedactionPolicy.digest(refreshed.id)) stage=append result=complete tracks=\(songs.count)")
     }
 }
 
@@ -283,7 +286,7 @@ final class ServerFavoriteSyncService {
         } catch is CancellationError {
             return
         } catch {
-            plog("⚠️ Server favorite refresh failed for '\(source.name)': \(error.localizedDescription)")
+            plog("Server favorites source=\(LogRedactionPolicy.digest(source.id)) result=failed \(LogRedactionPolicy.errorSummary(error))")
         }
     }
 

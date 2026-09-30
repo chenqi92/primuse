@@ -671,6 +671,146 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertNotNil(library.playlist(id: id("other", sourceID: "elsewhere")))
     }
 
+    func testFeiniuRemoteDeletionThenNewPlaylistsSurvivesResyncAndReload() async throws {
+        try await withPlaylistSyncFixture { library, source, manager, host in
+            let first = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(first.syncedPlaylistCount, 1)
+            let oldID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "playlist")
+            XCTAssertNotNil(library.playlist(id: oldID))
+
+            FnMusicSourceURLProtocol.setPlaylists([], host: host)
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertNil(library.playlist(id: oldID))
+            XCTAssertTrue(library.hiddenMirrorPlaylists.isEmpty)
+
+            FnMusicSourceURLProtocol.setPlaylists([
+                ["guid": "new", "name": "New playlist", "trackCount": 1],
+                ["guid": "same-name", "name": "Playlist", "trackCount": 1],
+            ], host: host)
+            let refreshed = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(refreshed.syncedPlaylistCount, 2)
+            XCTAssertEqual(refreshed.unresolvedPlaylistCount, 0)
+            XCTAssertEqual(FnMusicSourceURLProtocol.playlistRequestCount(host: host), 3)
+            for remoteID in ["new", "same-name"] {
+                let id = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: remoteID)
+                XCTAssertTrue(library.playlists.contains { $0.id == id })
+                XCTAssertEqual(library.songs(forPlaylist: id).map(\.id), ["song"])
+            }
+            XCTAssertTrue(library.hiddenMirrorPlaylists.isEmpty)
+        }
+    }
+
+    func testFeiniuDeletedPlaylistDetailDoesNotBlockNewPlaylist() async throws {
+        try await withPlaylistSyncFixture { library, source, manager, host in
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            FnMusicSourceURLProtocol.setPlaylists([
+                ["guid": "playlist", "name": "Playlist", "trackCount": 1],
+                ["guid": "new", "name": "New playlist", "trackCount": 1],
+            ], deletedIDs: ["playlist"], host: host)
+
+            let refreshed = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(refreshed.syncedPlaylistCount, 1)
+            let newID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "new")
+            XCTAssertTrue(library.playlists.contains { $0.id == newID })
+            XCTAssertEqual(library.songs(forPlaylist: newID).map(\.id), ["song"])
+
+            FnMusicSourceURLProtocol.setPlaylists([
+                ["guid": "new", "name": "New playlist", "trackCount": 1],
+            ], host: host)
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            let oldID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "playlist")
+            XCTAssertNil(library.playlist(id: oldID))
+            XCTAssertTrue(library.playlists.contains { $0.id == newID })
+        }
+    }
+
+    func testFeiniuMalformedIndexKeepsExistingMirrorsAndImportsHealthyUnicodePlaylist() async throws {
+        try await withPlaylistSyncFixture { library, source, manager, host in
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            let oldID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "playlist")
+            let remoteID = " new/../+%2F?x=1&y=2#\u{200D} "
+            let name = "\u{3055}\u{304F}\u{3089} 🎧 / Cafe\u{301} & Live"
+            let newID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: remoteID)
+            let healthy: [String: Any] = ["guid": remoteID, "name": name, "trackCount": 1]
+            let malformed: [String: Any] = ["guid": NSNull(), "name": "Unusable identity"]
+            FnMusicSourceURLProtocol.setPlaylists([malformed, healthy], host: host)
+            let partial = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(partial.syncedPlaylistCount, 1)
+            XCTAssertEqual(library.songs(forPlaylist: newID).map(\.id), ["song"])
+            XCTAssertEqual(library.playlist(id: newID)?.name.utf8.map { $0 }, name.utf8.map { $0 })
+            XCTAssertNotNil(library.playlist(id: oldID), "无法识别的索引条目不能作为删除已有歌单的依据")
+
+            FnMusicSourceURLProtocol.setPlaylists([malformed], host: host)
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertNotNil(library.playlist(id: oldID))
+            XCTAssertNotNil(library.playlist(id: newID))
+
+            FnMusicSourceURLProtocol.setPlaylists([healthy], host: host)
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertNil(library.playlist(id: oldID), "完整索引恢复后仍须正常清理服务端已删除的歌单")
+            XCTAssertNotNil(library.playlist(id: newID))
+        }
+    }
+
+    func testFeiniuBlankPlaylistNamesRetainExistingNameOrUseLocalizedFallback() async throws {
+        try await withPlaylistSyncFixture { library, source, manager, host in
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            let existingID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "playlist")
+            let previousName = try XCTUnwrap(library.playlist(id: existingID)?.name)
+            let newID = ServerPlaylistIdentity.playlistID(sourceID: source.id, serverPlaylistID: "blank")
+            FnMusicSourceURLProtocol.setPlaylists([
+                ["guid": "playlist", "name": NSNull(), "trackCount": 1],
+                ["guid": "blank", "name": " \n　", "trackCount": 1],
+            ], host: host)
+            let refreshed = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(refreshed.syncedPlaylistCount, 2)
+            XCTAssertEqual(library.playlist(id: existingID)?.name, previousName)
+            XCTAssertEqual(library.playlist(id: newID)?.name, String(localized: "library_folder_apple_music_unnamed_playlist"))
+            XCTAssertEqual(library.songs(forPlaylist: newID).map(\.id), ["song"])
+
+            FnMusicSourceURLProtocol.setPlaylists([
+                ["guid": "playlist", "name": "Restored title", "trackCount": 1],
+                ["guid": "blank", "name": "Now named", "trackCount": 1],
+            ], host: host)
+            _ = await ServerPlaylistSyncService.sync(source: source, sourceManager: manager, library: library)
+            XCTAssertEqual(library.playlist(id: existingID)?.name, "Restored title")
+            XCTAssertEqual(library.playlist(id: newID)?.name, "Now named")
+        }
+    }
+
+    private func withPlaylistSyncFixture(
+        _ verify: (MusicLibrary, MusicSource, SourceManager, String) async throws -> Void
+    ) async throws {
+        let sourceID = UUID().uuidString
+        let host = sourceID.lowercased() + ".invalid"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("FnMusicPlaylistSync-\(sourceID)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        FnMusicSourceURLProtocol.register(host: host, loginDelay: 0, discoveryDelay: 0)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FnMusicSourceURLProtocol.self]
+        let connector = FnMusicSource(sourceID: sourceID, host: host, port: 5667, useSSL: true,
+                                     basePath: nil, connectionMode: .address, accessCode: nil,
+                                     username: "qa", password: "test", session: URLSession(configuration: configuration))
+        let source = MusicSource(id: sourceID, name: "Feiniu", type: .fnMusic, host: host)
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: root)
+        library.addSongs([Song(id: "song", title: "Song", fileFormat: .flac,
+                               filePath: "/fnmusic/tracks/song.flac", sourceID: source.id)])
+        await library.waitForPendingIndex()
+        try await verify(library, source, manager, host)
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Playlist fixture failed to persist")
+        }
+        let reloaded = MusicLibrary(storageDirectory: root)
+        XCTAssertEqual(Set(reloaded.playlists.map(\.id)), Set(library.playlists.map(\.id)))
+        XCTAssertEqual(reloaded.hiddenMirrorPlaylists, library.hiddenMirrorPlaylists)
+        for playlist in library.playlists {
+            XCTAssertEqual(reloaded.rawSongIDs(forPlaylist: playlist.id), library.rawSongIDs(forPlaylist: playlist.id))
+            XCTAssertEqual(reloaded.playlist(id: playlist.id)?.name.utf8.map { $0 }, playlist.name.utf8.map { $0 })
+        }
+    }
+
     /// 同步途中先落地的歌单只新建/覆盖、从不删除; 对不上曲库或自报数量对不上的不动。
     func testProgressiveMirrorShowsPlaylistsWithoutPruningOrApplyingIncompleteOnes() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("FnMusicMirror-\(UUID().uuidString)")
@@ -832,6 +972,9 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
         var favorite = false
         var loginDelay: TimeInterval
         var discoveryDelay: TimeInterval
+        var playlists: [[String: Any]] = [["guid": "playlist", "name": "Playlist", "trackCount": 1]]
+        var deletedPlaylistIDs: Set<String> = []
+        var playlistRequests = 0
     }
     nonisolated(unsafe) private static var states: [String: State] = [:]
     private let responseLock = NSLock()
@@ -847,6 +990,13 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
     }
     static func loginCount(host: String) -> Int { lock.withLock { states[host]?.logins ?? 0 } }
     static func logoutCount(host: String) -> Int { lock.withLock { states[host]?.logouts ?? 0 } }
+    static func playlistRequestCount(host: String) -> Int { lock.withLock { states[host]?.playlistRequests ?? 0 } }
+    static func setPlaylists(_ playlists: [[String: Any]], deletedIDs: Set<String> = [], host: String) {
+        lock.withLock {
+            states[host]?.playlists = playlists
+            states[host]?.deletedPlaylistIDs = deletedIDs
+        }
+    }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -908,8 +1058,14 @@ private final class FnMusicSourceURLProtocol: URLProtocol, @unchecked Sendable {
                 }
                 return (206, ["Content-Type": "audio/flac", "Content-Range": "bytes 0-1/8", "Content-Length": "2"], Data([1, 2]))
             case "list" where url.path.contains("/playlist/list"):
-                return (200, jsonHeaders, page([["guid": "playlist", "name": "Playlist", "trackCount": 1]]))
+                state.playlistRequests += 1
+                return (200, jsonHeaders, page(state.playlists))
             case "list" where url.path.contains("/playlist-detail/"):
+                let playlistID = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .first { $0.name == "playlistGUID" }?.value ?? ""
+                if state.deletedPlaylistIDs.contains(playlistID) {
+                    return (404, jsonHeaders, json(["code": 404, "msg": "Playlist deleted"]))
+                }
                 return (200, jsonHeaders, page([["guid": "song"]]))
             case "list" where url.path.contains("/favorite-track/"):
                 return (200, jsonHeaders, page(state.favorite ? [["guid": "song"]] : []))

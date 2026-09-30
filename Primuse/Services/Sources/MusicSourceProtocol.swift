@@ -2103,18 +2103,20 @@ struct ServerPlaylist: Sendable {
     }
 }
 
-/// 一次服务端歌单同步所见到的完整快照。
+/// 一次服务端歌单同步所见到的快照。
 ///
 /// `failedPlaylistIDs` 是已经出现在服务端歌单列表中、但本次无法完整取得曲目
 /// 明细的歌单。调用方必须保留这些 ID 对应的现有本地镜像；只有既不在
-/// `playlists`、也不在 `failedPlaylistIDs` 中的镜像，才可以视为已从服务端删除。
+/// `playlists`、也不在 `failedPlaylistIDs` 中且索引完整时，才可以视为已从服务端删除。
 struct ServerPlaylistSnapshot: Sendable {
     let playlists: [ServerPlaylist]
     let failedPlaylistIDs: Set<String>
+    let isIndexComplete: Bool
 
-    init(playlists: [ServerPlaylist], failedPlaylistIDs: Set<String> = []) {
+    init(playlists: [ServerPlaylist], failedPlaylistIDs: Set<String> = [], isIndexComplete: Bool = true) {
         self.playlists = playlists
         self.failedPlaylistIDs = failedPlaylistIDs
+        self.isIndexComplete = isIndexComplete
     }
 
     /// 群晖 Audio Station 的镜像已经去掉了未入库的条目,自报数量按剩下的曲目计,

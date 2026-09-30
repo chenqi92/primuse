@@ -15,6 +15,7 @@ struct TVSourcesView: View {
     @Environment(TVStore.self) private var store
     @State private var pendingDelete: TVSource?
     @State private var credentialEditor: TVSource?
+    @State private var hiddenPlaylistSource: TVSource?
     @State private var testingSourceIDs: Set<String> = []
     @State private var testResult: TVTestResult?
     @State private var queuedTestResults: [TVTestResult] = []
@@ -38,6 +39,7 @@ struct TVSourcesView: View {
         [
             pendingDelete != nil,
             credentialEditor != nil,
+            hiddenPlaylistSource != nil,
             testResult != nil,
             typePicker,
             sourceForm != nil,
@@ -87,6 +89,7 @@ struct TVSourcesView: View {
                                                 canIncrementalScan: store.source(id: s.id).map {
                                                     !TVSourceScanner.serverCatalogTypes.contains($0.type)
                                                 } ?? false,
+                                                hiddenPlaylistCount: store.library.hiddenMirrorPlaylists(forSourceID: s.id).count,
                                                 onSelect: {
                                                     if s.status == .disabled {
                                                         store.setSourceEnabled(s.id, true)
@@ -120,7 +123,8 @@ struct TVSourcesView: View {
                                                 },
                                                 onRereadTags: {
                                                     if let src = store.source(id: s.id) { rereadSource = src }
-                                                })
+                                                },
+                                                onShowHiddenPlaylists: { hiddenPlaylistSource = s })
                                 }
                             }
                         }
@@ -239,6 +243,9 @@ struct TVSourcesView: View {
         // 不用 .sheet:tvOS 的 sheet 自带一层系统卡片底,和弹框自己的面板叠成双层背景。
         .fullScreenCover(item: $credentialEditor, onDismiss: restorePrimaryFocus) { src in
             TVCredentialEditorView(source: src).environment(store)
+        }
+        .fullScreenCover(item: $hiddenPlaylistSource, onDismiss: restorePrimaryFocus) { source in
+            TVHiddenSourcePlaylistsView(source: source).environment(store)
         }
         .fullScreenCover(isPresented: $typePicker, onDismiss: finishTypePickerDismissal) {
             TVSourceTypePicker { type, prefill in
@@ -591,6 +598,7 @@ private struct TVSourceRow: View {
     var testing: Bool = false
     var canEdit = false
     var canIncrementalScan = false
+    var hiddenPlaylistCount = 0
     var onSelect: () -> Void = {}            // 点击:启用 / 停用切换
     var onToggle: () -> Void = {}            // 长按菜单:启用 / 停用切换
     var onDelete: () -> Void = {}            // 长按菜单:从 Apple TV 移除
@@ -600,6 +608,7 @@ private struct TVSourceRow: View {
     var onScan: () -> Void = {}              // 长按菜单:选目录 + 扫描(SMB)
     var onIncrementalScan: () -> Void = {}
     var onRereadTags: () -> Void = {}        // 长按菜单:只重读这一个源的标签
+    var onShowHiddenPlaylists: () -> Void = {}
 
     var body: some View {
         // 不缩放:全宽行缩放会溢出 ScrollView 横向裁切,导致描边左右被裁(只剩上下)。
@@ -695,6 +704,11 @@ private struct TVSourceRow: View {
                     Label(PMString("ext.tv.sources.rereadTags"), systemImage: "arrow.clockwise")
                 }
             }
+            if hiddenPlaylistCount > 0 {
+                Button(action: onShowHiddenPlaylists) {
+                    Label("hidden_source_playlists", systemImage: "eye.slash")
+                }
+            }
             Button { onTestConnection() } label: {
                 Label(PMString("ext.tv.sources.testConnection"), systemImage: "antenna.radiowaves.left.and.right")
             }
@@ -760,6 +774,71 @@ private struct TVSourceRow: View {
 }
 
 // MARK: - 在 TV 上手动输入登录凭据
+
+private struct TVHiddenSourcePlaylistsView: View {
+    @Environment(TVStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var closeFocused: Bool
+    let source: TVSource
+
+    private var playlists: [MirrorPlaylistSuppression] {
+        store.library.hiddenMirrorPlaylists(forSourceID: source.id)
+    }
+
+    var body: some View {
+        ZStack {
+            TVAmbientBackdrop(tint: source.color, tint2: TVColor.brandSecondary, strength: 0.4)
+            TVColor.bg.opacity(0.5).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                Text("hidden_source_playlists")
+                    .tvFont(size: 36, weight: .bold, relativeTo: .title2)
+                Text(verbatim: source.name)
+                    .tvFont(.caption).foregroundStyle(TVColor.textMuted)
+                if playlists.isEmpty {
+                    Text("no_playlists")
+                        .tvFont(.rowTitle)
+                        .foregroundStyle(TVColor.textMuted)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 14) {
+                            ForEach(playlists) { playlist in
+                                TVFocusButton(radius: TVRadius.card, scale: 1, lift: 0, action: {
+                                    store.library.restoreHiddenMirrorPlaylist(playlist)
+                                }) { focused in
+                                    HStack(spacing: 24) {
+                                        Text(verbatim: playlist.displayName)
+                                            .tvFont(.rowTitle)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Label("restore_hidden_playlist", systemImage: "eye")
+                                            .tvFont(.caption).fixedSize()
+                                    }
+                                    .foregroundStyle(focused ? .white : TVColor.text)
+                                    .padding(22)
+                                }
+                            }
+                        }
+                        .padding(8)
+                    }
+                    .focusSection()
+                }
+                TVFocusButton(action: { dismiss() }) { _ in
+                    Text("done").tvFont(.caption, weight: .semibold)
+                        .padding(.horizontal, 32).padding(.vertical, 16)
+                }
+                .focused($closeFocused)
+            }
+            .padding(44)
+            .frame(width: 1080, height: 780)
+            .tvPanel(radius: 26)
+        }
+        .onChange(of: playlists.isEmpty, initial: true) { _, isEmpty in
+            if isEmpty { closeFocused = true }
+        }
+        .onExitCommand { dismiss() }
+    }
+}
 
 private struct TVCredentialEditorView: View {
     @Environment(TVStore.self) private var store

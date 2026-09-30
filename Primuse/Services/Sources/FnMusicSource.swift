@@ -493,10 +493,15 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     func fetchServerPlaylists(
         progress: @escaping ServerPlaylistProgress
     ) async throws -> ServerPlaylistSnapshot {
-        let snapshot = try await libraryClient.playlists { await progress(Self.serverPlaylist($0)) }
+        let sourceTag = LogRedactionPolicy.digest(sourceID)
+        let snapshot = try await libraryClient.playlists(
+            diagnosticLogger: { plog("source=\(sourceTag) \($0)") },
+            onPlaylist: { await progress(Self.serverPlaylist($0)) }
+        )
         return ServerPlaylistSnapshot(
             playlists: snapshot.playlists.map(Self.serverPlaylist),
-            failedPlaylistIDs: snapshot.failedPlaylistIDs
+            failedPlaylistIDs: snapshot.failedPlaylistIDs,
+            isIndexComplete: snapshot.isIndexComplete
         )
     }
 
@@ -506,7 +511,10 @@ actor FnMusicSource: RefreshingMetadataSongConnector, ServerLyricsConnector, Ser
     }
 
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {
-        ServerFavoriteSnapshot(itemIDs: try await libraryClient.favorites())
+        let sourceTag = LogRedactionPolicy.digest(sourceID)
+        return ServerFavoriteSnapshot(itemIDs: try await libraryClient.favorites(
+            diagnosticLogger: { plog("source=\(sourceTag) \($0)") }
+        ))
     }
 
     func setServerFavorite(itemID: String, isFavorite: Bool) async throws -> ServerFavoriteSnapshot {

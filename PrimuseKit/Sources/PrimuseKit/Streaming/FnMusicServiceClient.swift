@@ -84,7 +84,6 @@ public struct FnMusicCatalogTrack: Sendable {
         self.hasUsableCatalogTitle = ServerCatalogMetadataInspectionPolicy.hasUsableTitle(
             catalogTitle
         )
-        self.year = fnMusicInt(json["year"])
         self.discNumber = fnMusicInt(json["discNo"])
         self.cueTrackIndex = fnMusicInt(json["trackIndex"])
             ?? fnMusicInt(json["cueTrackIndex"])
@@ -99,6 +98,7 @@ public struct FnMusicCatalogTrack: Sendable {
             ?? fnMusicDouble(json["cueEndTime"])
 
         let album = fnMusicObject(json["album"])
+        self.year = fnMusicInt(json["year"]) ?? fnMusicInt(album?["originalReleaseYear"])
         self.coverID = fnMusicCoverID(json) ?? fnMusicCoverID(album)
         self.albumGUID = fnMusicFirstNonemptyString(album, keys: ["guid", "id"])
             ?? fnMusicFirstNonemptyString(json, keys: ["albumGUID", "albumGuid", "albumId"])

@@ -21,6 +21,10 @@ enum ServerPlaylistMirror {
     ) -> SyncResult {
         var result = SyncResult()
         let index = serverItemIndex(sourceID: source.id, library: library)
+        let context = "Server playlists source=\(LogRedactionPolicy.digest(source.id)) type=\(source.type.rawValue)"
+        let prefix = ServerPlaylistIdentity.playlistIDPrefix(sourceID: source.id)
+        let previousIDs = Set(library.allPlaylists.filter { $0.id.hasPrefix(prefix) }.map(\.id))
+        let suppressedIDs = Set(library.hiddenMirrorPlaylists(forSourceID: source.id).map(\.playlistID))
         var keepIDs = ServerPlaylistReconciliationPolicy.mirrorIDsToKeep(
             sourceID: source.id,
             synchronizedServerPlaylistIDs: snapshot.playlists.map(\.id),
@@ -33,6 +37,7 @@ enum ServerPlaylistMirror {
                 serverPlaylistID: serverPlaylist.id
             )
             let songIDs = uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
+            let playlistContext = "\(context) playlist=\(LogRedactionPolicy.digest(serverPlaylist.id)) received=\(serverPlaylist.trackIDs.count) expected=\(serverPlaylist.reportedTrackCount ?? serverPlaylist.trackIDs.count)"
             if serverPlaylist.isReadOnly {
                 readOnlyPlaylistIDs.insert(localID)
             } else {
@@ -50,7 +55,7 @@ enum ServerPlaylistMirror {
                         coverArtPath: serverPlaylist.coverArtReference
                     )
                 }
-                plog("⚠️ Server playlist '\(serverPlaylist.name)' returned only \(serverPlaylist.trackIDs.count)/\(reportedTrackCount) track IDs — keeping the existing mirror")
+                plog("\(playlistContext) stage=match result=skipped reason=incomplete-detail retained_existing=\(previousIDs.contains(localID))")
                 continue
             }
 
@@ -68,15 +73,11 @@ enum ServerPlaylistMirror {
                         coverArtPath: serverPlaylist.coverArtReference
                     )
                 }
-                plog("""
-                    ⚠️ Server playlist '\(serverPlaylist.name)' has \
-                    \(serverPlaylist.reportedTrackCount ?? serverPlaylist.trackIDs.count) \
-                    track(s) on the server but none resolved locally — keeping the existing mirror
-                    """)
+                plog("\(playlistContext) stage=match result=skipped reason=no-local-match local_indexed_tracks=\(index.count) retained_existing=\(previousIDs.contains(localID))")
                 continue
             }
 
-            library.ensurePlaylist(id: localID, name: serverPlaylist.name)
+            library.ensurePlaylist(id: localID, name: resolvedName(serverPlaylist.name, localID: localID, library: library))
             library.replaceMirrorPlaylistSongs(
                 playlistID: localID,
                 songIDs: songIDs,
@@ -86,21 +87,31 @@ enum ServerPlaylistMirror {
             result.syncedPlaylistCount += 1
             result.matchedTrackCount += songIDs.count
 
-            let reported = serverPlaylist.reportedTrackCount ?? serverPlaylist.trackIDs.count
-            if songIDs.count < reported {
-                // 部分命中是正常的: 服务端歌单可能含视频 / 未纳入本次扫描范围
-                // 的曲目。记下来便于排查, 不阻止写入。
-                plog("🎵 Server playlist '\(serverPlaylist.name)' → \(songIDs.count)/\(reported) tracks matched")
-            } else {
-                plog("🎵 Server playlist '\(serverPlaylist.name)' → \(songIDs.count) tracks")
-            }
+            let missingCount = serverPlaylist.trackIDs.filter { index[$0] == nil }.count
+            plog("\(playlistContext) stage=match result=applied matched_unique=\(songIDs.count) missing=\(missingCount) hidden_manual=\(suppressedIDs.contains(localID))")
         }
 
         // 清理服务端已删除的歌单镜像。前缀带 sourceID, 只影响这一个源。
-        library.prunePlaylists(
-            withIDPrefix: ServerPlaylistIdentity.playlistIDPrefix(sourceID: source.id),
-            keepingIDs: keepIDs
-        )
+        if snapshot.isIndexComplete {
+            library.prunePlaylists(
+                withIDPrefix: prefix,
+                keepingIDs: keepIDs
+            )
+        }
+        let remainingMirrors = library.allPlaylists.filter { $0.id.hasPrefix(prefix) }
+        let remainingIDs = Set(remainingMirrors.filter { !$0.isDeleted }.map(\.id))
+        let visibleIDs = Set(library.playlists.map(\.id)).intersection(remainingIDs)
+        let manuallyHiddenIDs = remainingIDs.intersection(suppressedIDs)
+        let automaticallyHiddenIDs = remainingIDs.subtracting(visibleIDs).subtracting(manuallyHiddenIDs)
+        let listedCount = Set(snapshot.playlists.map(\.id)).union(snapshot.failedPlaylistIDs).count
+        plog("""
+            \(context) stage=apply result=\(snapshot.isIndexComplete ? "complete" : "partial") index_complete=\(snapshot.isIndexComplete) listed=\(listedCount) detailed=\(snapshot.playlists.count) \
+            detail_failed=\(snapshot.failedPlaylistIDs.count) applied=\(result.syncedPlaylistCount) \
+            unresolved=\(result.unresolvedPlaylistCount) local_indexed_tracks=\(index.count) \
+            local=\(remainingIDs.count) visible=\(visibleIDs.count) hidden_manual=\(manuallyHiddenIDs.count) \
+            hidden_source=\(automaticallyHiddenIDs.count) suppressions=\(suppressedIDs.count) \
+            source_disabled=\(library.disabledSourceIDs.contains(source.id)) pruned=\(previousIDs.subtracting(remainingMirrors.map(\.id)).count)
+            """)
         return result
     }
 
@@ -134,7 +145,7 @@ enum ServerPlaylistMirror {
             } else {
                 readOnlyPlaylistIDs.remove(localID)
             }
-            library.ensurePlaylist(id: localID, name: serverPlaylist.name)
+            library.ensurePlaylist(id: localID, name: ServerPlaylistMirror.resolvedName(serverPlaylist.name, localID: localID, library: library))
             library.replaceMirrorPlaylistSongs(
                 playlistID: localID,
                 songIDs: songIDs,
@@ -163,6 +174,13 @@ enum ServerPlaylistMirror {
             songIDs: songIDs,
             coverArtPath: serverPlaylist.coverArtReference
         )
+    }
+
+    private static func resolvedName(_ name: String, localID: String, library: MusicLibrary) -> String {
+        if !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return name }
+        if let existing = library.playlist(id: localID)?.name,
+           !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return existing }
+        return String(localized: "library_folder_apple_music_unnamed_playlist")
     }
 
     /// 服务端原生 item ID → 本地 `Song.id`。

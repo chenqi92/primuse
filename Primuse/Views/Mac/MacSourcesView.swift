@@ -26,6 +26,7 @@ struct MacSourcesView: View {
     @State private var diagnosingSource: MusicSource?
     @State private var inspectingMetadataSource: MusicSource?
     @State private var inspectingLocalRemovalsSource: MusicSource?
+    @State private var inspectingHiddenPlaylistsSource: MusicSource?
     @State private var directorySelectionSession: SourceDirectorySelectionSession?
     @State private var sourceToDelete: MusicSource?
     @State private var cloudDirectoryNameRefreshID = UUID()
@@ -109,6 +110,9 @@ struct MacSourcesView: View {
         }
         .sheet(item: $diagnosingSource) { source in
             SourceDiagnosticsView(source: source)
+        }
+        .sheet(item: $inspectingHiddenPlaylistsSource) { source in
+            SourceHiddenPlaylistsView(source: source)
         }
         .sheet(item: $inspectingMetadataSource) { source in
             NavigationStack {
@@ -357,6 +361,7 @@ struct MacSourcesView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
 
             macLocalRemovalsButton(source)
+            hiddenPlaylistsButton(source)
 
             if AppServices.shared.serverCatalogAutoRefresh.supportsAutomaticRefresh(source) {
                 serverCatalogAutoRefreshControl(for: source)
@@ -552,6 +557,31 @@ struct MacSourcesView: View {
                 .foregroundStyle(PMColor.textMuted)
                 .pmAppearFade(.contentAppear)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func hiddenPlaylistsButton(_ source: MusicSource) -> some View {
+        let hidden = library.hiddenMirrorPlaylists(forSourceID: source.id)
+        if !hidden.isEmpty {
+            Button {
+                inspectingHiddenPlaylistsSource = source
+            } label: {
+                HStack(spacing: 10) {
+                    Label("hidden_source_playlists", systemImage: "eye.slash")
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Text(hidden.count.formatted()).monospacedDigit()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                }
+                .font(.system(size: 13))
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sources.hiddenPlaylists")
         }
     }
 

@@ -189,6 +189,247 @@ final class HomePresentationCacheTests: XCTestCase {
 }
 
 @MainActor
+final class SourcePlaylistVisibilityTests: XCTestCase {
+    private func withLibrary(
+        _ verify: (MusicLibrary, URL) async throws -> Void
+    ) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SourcePlaylistVisibility-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.addSongs([
+            Song(id: "remote", title: "Remote", fileFormat: .mp3,
+                 filePath: "/songs/remote.mp3", sourceID: "server-a"),
+            Song(id: "other", title: "Other", fileFormat: .mp3,
+                 filePath: "/songs/other.mp3", sourceID: "server-b"),
+        ])
+        await library.waitForPendingIndex()
+        try await verify(library, directory)
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("Isolated playlist library failed to persist")
+        }
+    }
+
+    @discardableResult
+    private func mirror(
+        in library: MusicLibrary, sourceID: String = "server-a",
+        remoteID: String = "favorites", songs: [String] = ["remote"]
+    ) -> String {
+        let id = ServerPlaylistIdentity.playlistID(sourceID: sourceID, serverPlaylistID: remoteID)
+        library.ensurePlaylist(id: id, name: remoteID)
+        library.replaceMirrorPlaylistSongs(playlistID: id, songIDs: songs, coverArtPath: nil)
+        return id
+    }
+
+    func testDisablingSourceHidesExclusivePlaylistsAndKeepsMixedAndEmptyUserPlaylists() async throws {
+        try await withLibrary { library, _ in
+            let server = mirror(in: library)
+            let emptyServer = mirror(in: library, remoteID: "empty", songs: [])
+            let local = library.createPlaylist(name: "Only remote", songIDs: ["remote"])
+            let mixed = library.createPlaylist(name: "Mixed", songIDs: ["remote", "other"])
+            let empty = library.createPlaylist(name: "Empty")
+            let revision = library.playlistCollectionRevision
+
+            library.updateDisabledSourceIDs(["server-a"])
+
+            let visible = Set(library.playlists.map(\.id))
+            XCTAssertFalse(visible.contains(server))
+            XCTAssertFalse(visible.contains(emptyServer))
+            XCTAssertFalse(visible.contains(local.id))
+            XCTAssertTrue(visible.contains(mixed.id))
+            XCTAssertTrue(visible.contains(empty.id))
+            XCTAssertEqual(library.songs(forPlaylist: mixed.id).map(\.id), ["other"])
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: mixed.id), ["remote", "other"])
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: server), ["remote"])
+            XCTAssertTrue(library.hiddenMirrorPlaylists.isEmpty)
+            XCTAssertGreaterThan(library.playlistCollectionRevision, revision)
+
+            await library.updateDisabledSourceIDsInBackground([])
+            XCTAssertTrue(Set(library.playlists.map(\.id)).isSuperset(of: [server, emptyServer, local.id]))
+            XCTAssertEqual(library.songs(forPlaylist: mixed.id).map(\.id), ["remote", "other"])
+        }
+    }
+
+    func testMixedSourcePlaylistRemainsVisibleEvenWhenBothSourcesAreDisabled() async throws {
+        try await withLibrary { library, _ in
+            let mixed = library.createPlaylist(name: "Mixed", songIDs: ["remote", "other"])
+            let mixedMirror = mirror(in: library, songs: ["other", "remote"])
+            library.updateDisabledSourceIDs(["server-a", "server-b"])
+
+            XCTAssertTrue(library.playlists.contains { $0.id == mixed.id })
+            XCTAssertTrue(library.playlists.contains { $0.id == mixedMirror })
+        }
+    }
+
+    func testMembershipAndSongSourceChangesInvalidateVisibilityCache() async throws {
+        try await withLibrary { library, _ in
+            let playlist = library.createPlaylist(name: "Editable", songIDs: ["remote"])
+            library.updateDisabledSourceIDs(["server-a"])
+            XCTAssertFalse(library.playlists.contains { $0.id == playlist.id })
+
+            library.add(songIDs: ["other"], toPlaylist: playlist.id)
+            XCTAssertTrue(library.playlists.contains { $0.id == playlist.id })
+
+            library.replacePlaylistSongs(playlistID: playlist.id, songIDs: ["remote"])
+            XCTAssertFalse(library.playlists.contains { $0.id == playlist.id })
+
+            var moved = try XCTUnwrap(library.song(id: "remote"))
+            moved.sourceID = "server-b"
+            library.addSongs([moved], pruneMissingSongs: false)
+            await library.waitForPendingIndex()
+            XCTAssertTrue(library.playlists.contains { $0.id == playlist.id })
+        }
+    }
+
+    func testBackgroundDisableInvalidatesEmptyMirrorVisibility() async throws {
+        try await withLibrary { library, _ in
+            let emptyMirror = mirror(in: library, sourceID: "empty-source", songs: [])
+            let songRevision = library.visibleSongCollectionRevision
+            let playlistRevision = library.playlistCollectionRevision
+
+            await library.updateDisabledSourceIDsInBackground(["empty-source"])
+
+            XCTAssertEqual(library.visibleSongCollectionRevision, songRevision)
+            XCTAssertGreaterThan(library.playlistCollectionRevision, playlistRevision)
+            XCTAssertFalse(library.playlists.contains { $0.id == emptyMirror })
+            library.updateDisabledSourceIDs([])
+            XCTAssertTrue(library.playlists.contains { $0.id == emptyMirror })
+        }
+    }
+
+    func testUnresolvedImportedMembersKeepPlaylistVisible() async throws {
+        try await withLibrary { library, _ in
+            let pending = PlaylistPendingEntry(title: "Unmatched", artists: ["Artist"], origin: "import")
+            let playlist = library.createPlaylist(name: "Imported", members: [.song("remote"), .pending(pending)])
+            library.updateDisabledSourceIDs(["server-a"])
+            XCTAssertTrue(library.playlists.contains { $0.id == playlist.id })
+            XCTAssertEqual(library.pendingEntryCount(forPlaylist: playlist.id), 1)
+        }
+    }
+
+    func testManualHidingSurvivesServerSyncAndRestoresOnlySelectedSource() async throws {
+        try await withLibrary { library, directory in
+            let first = mirror(in: library)
+            let second = mirror(in: library, sourceID: "server-b", songs: ["other"])
+            library.hideMirrorPlaylist(id: first)
+            library.hideMirrorPlaylist(id: second)
+            let source = MusicSource(id: "server-a", name: "Server", type: .navidrome)
+            let snapshot = ServerPlaylistSnapshot(playlists: [
+                ServerPlaylist(id: "favorites", name: "Renamed favorites", trackIDs: ["remote"]),
+            ])
+            _ = ServerPlaylistMirror.apply(snapshot: snapshot, source: source, library: library)
+            XCTAssertFalse(library.playlists.contains { $0.id == first })
+            XCTAssertEqual(library.rawSongIDs(forPlaylist: first), ["remote"])
+            XCTAssertEqual(library.hiddenMirrorPlaylists(forSourceID: "server-a").map(\.playlistID), [first])
+
+            let hidden = try XCTUnwrap(library.hiddenMirrorPlaylists(forSourceID: "server-a").first)
+            library.restoreHiddenMirrorPlaylist(hidden)
+            XCTAssertTrue(library.playlists.contains { $0.id == first })
+            XCTAssertFalse(library.playlists.contains { $0.id == second })
+            XCTAssertTrue(library.hiddenMirrorPlaylists(forSourceID: "server-a").isEmpty)
+            guard case .success = await library.persistNowAndWait() else {
+                return XCTFail("Restore did not persist")
+            }
+
+            let reloaded = MusicLibrary(storageDirectory: directory)
+            XCTAssertTrue(reloaded.playlists.contains { $0.id == first })
+            XCTAssertFalse(reloaded.playlists.contains { $0.id == second })
+            XCTAssertEqual(reloaded.hiddenMirrorPlaylists(forSourceID: "server-b").map(\.playlistID), [second])
+        }
+    }
+
+    func testRestoreWhileDisabledShowsPlaylistAfterSourceIsEnabled() async throws {
+        try await withLibrary { library, _ in
+            let id = mirror(in: library)
+            library.hideMirrorPlaylist(id: id)
+            library.updateDisabledSourceIDs(["server-a"])
+            let hidden = try XCTUnwrap(library.hiddenMirrorPlaylists(forSourceID: "server-a").first)
+            library.restoreHiddenMirrorPlaylist(hidden)
+            _ = ServerPlaylistMirror.apply(
+                snapshot: ServerPlaylistSnapshot(playlists: [
+                    ServerPlaylist(id: "favorites", name: "Favorites", trackIDs: ["remote"]),
+                ]),
+                source: MusicSource(id: "server-a", name: "Server", type: .navidrome),
+                library: library
+            )
+            XCTAssertFalse(library.playlists.contains { $0.id == id })
+            XCTAssertTrue(library.hiddenMirrorPlaylists.isEmpty)
+
+            library.updateDisabledSourceIDs([])
+            XCTAssertTrue(library.playlists.contains { $0.id == id })
+        }
+    }
+
+    func testRestoringPrunedMirrorAllowsNextSyncToShowItAgain() async throws {
+        try await withLibrary { library, _ in
+            let id = mirror(in: library)
+            library.hideMirrorPlaylist(id: id)
+            library.prunePlaylists(withIDPrefix: ServerPlaylistIdentity.playlistIDPrefix(sourceID: "server-a"), keepingIDs: [])
+            XCTAssertNil(library.playlist(id: id))
+            let hidden = try XCTUnwrap(library.hiddenMirrorPlaylists(forSourceID: "server-a").first)
+            library.restoreHiddenMirrorPlaylist(hidden)
+
+            _ = ServerPlaylistMirror.apply(
+                snapshot: ServerPlaylistSnapshot(playlists: [
+                    ServerPlaylist(id: "favorites", name: "Favorites", trackIDs: ["remote"]),
+                ]),
+                source: MusicSource(id: "server-a", name: "Server", type: .navidrome),
+                library: library
+            )
+            XCTAssertTrue(library.playlists.contains { $0.id == id })
+            XCTAssertEqual(library.songs(forPlaylist: id).map(\.id), ["remote"])
+        }
+    }
+
+    func testColdStartupPreservesDisabledMembershipAndManualRestore() async throws {
+        try await withLibrary { library, directory in
+            let automatic = mirror(in: library)
+            let manual = mirror(in: library, sourceID: "server-b", songs: ["other"])
+            library.hideMirrorPlaylist(id: manual)
+            let suppression = try XCTUnwrap(library.hiddenMirrorPlaylists.first)
+            guard case .success = await library.persistNowAndWait() else {
+                return XCTFail("Fixture did not persist")
+            }
+            let preparing = MusicLibrary.makePreparing(storageDirectory: directory, disabledSourceIDs: ["server-a"])
+            preparing.restoreHiddenMirrorPlaylist(suppression)
+            let prepared = await MusicLibrary.prepareStartup(disabledSourceIDs: ["server-a"], storageDirectory: directory)
+            preparing.publish(prepared)
+
+            XCTAssertFalse(preparing.playlists.contains { $0.id == automatic })
+            XCTAssertTrue(preparing.playlists.contains { $0.id == manual })
+            XCTAssertEqual(preparing.rawSongIDs(forPlaylist: automatic), ["remote"])
+            preparing.updateDisabledSourceIDs([])
+            XCTAssertTrue(preparing.playlists.contains { $0.id == automatic })
+            guard case .success = await preparing.persistNowAndWait() else {
+                return XCTFail("Prepared restore did not persist")
+            }
+        }
+    }
+
+    func testAppleMusicDisableAndManualHidingUseIndependentVisibilityRules() async throws {
+        try await withLibrary { library, _ in
+            library.updateAppleMusicLibrarySyncEnabled(true)
+            library.updateAppleMusicSourceInstalled(true)
+            let id = AppleMusicLibraryIdentity.systemPlaylistID
+            library.ensurePlaylist(id: id, name: "Apple Music")
+            library.updateDisabledSourceIDs([AppleMusicLibraryIdentity.sourceID])
+            XCTAssertFalse(library.playlists.contains { $0.id == id })
+            library.updateDisabledSourceIDs([])
+            XCTAssertTrue(library.playlists.contains { $0.id == id })
+
+            library.hideMirrorPlaylist(id: id)
+            let hidden = try XCTUnwrap(library.hiddenMirrorPlaylists(forSourceID: AppleMusicLibraryIdentity.sourceID).first)
+            library.updateAppleMusicLibrarySyncEnabled(false)
+            library.restoreHiddenMirrorPlaylist(hidden)
+            XCTAssertFalse(library.playlists.contains { $0.id == id })
+            library.updateAppleMusicLibrarySyncEnabled(true)
+            XCTAssertTrue(library.playlists.contains { $0.id == id })
+        }
+    }
+}
+
+@MainActor
 final class LibraryPreviewSessionTests: XCTestCase {
     func testSuccessfulSourceSyncAdvancesPreviewInvalidationRevision() throws {
         let storageDirectory = FileManager.default.temporaryDirectory

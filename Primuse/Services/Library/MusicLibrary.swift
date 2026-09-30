@@ -3244,20 +3244,59 @@ final class MusicLibrary {
         libraryReviewsBySubject.values.sorted { $0.id < $1.id }
     }
     private var mirrorPlaylistSuppressions: [String: MirrorPlaylistSuppression] = [:]
-    /// Live (non-deleted) playlists for normal UI use. Apple Music's library
-    /// and user-playlist mirrors are read-only snapshots, so keep them stored
-    /// for fast re-enable but hide them whenever Apple Music library sync is
-    /// off, or its music source is disabled or has been removed.
+    @ObservationIgnored private var disabledSourcePlaylistCache: (
+        songs: UInt64, membership: UInt64, sources: Set<String>, hiddenIDs: Set<String>
+    )?
+
+    /// 自动隐藏只影响显示；保留歌单和完整成员，重新启用源时即可恢复。
     var playlists: [Playlist] {
         let hidesAppleMusicMirrors = !appleMusicLibrarySyncEnabled
             || !appleMusicSourceInstalled
-            || disabledSourceIDs.contains(AppleMusicLibraryIdentity.sourceID)
+        let hiddenBySource = playlistIDsHiddenByDisabledSources()
         return allPlaylists.filter { playlist in
             guard !playlist.isDeleted else { return false }
             guard !isMirrorPlaylistSuppressed(playlist.id) else { return false }
+            guard !hiddenBySource.contains(playlist.id) else { return false }
             return !hidesAppleMusicMirrors
                 || !AppleMusicLibraryIdentity.isMirrorPlaylist(playlist.id)
         }
+    }
+
+    private func playlistIDsHiddenByDisabledSources() -> Set<String> {
+        guard !disabledSourceIDs.isEmpty else { return [] }
+        // 缓存命中时也订阅成员与歌曲变化，避免仅切换源后才刷新可见性。
+        _ = songsReference
+        _ = playlistSongIDs
+        if let cached = disabledSourcePlaylistCache,
+           cached.songs == songMutationGeneration,
+           cached.membership == playlistMembershipRevision,
+           cached.sources == disabledSourceIDs {
+            return cached.hiddenIDs
+        }
+        var hiddenIDs = Set<String>()
+        for playlist in allPlaylists {
+            let members = playlistSongIDs[playlist.id] ?? []
+            let sourceID: String?
+            if let firstID = members.first, let index = songIndexByID[firstID] {
+                sourceID = songs[index].sourceID
+            } else if members.isEmpty {
+                sourceID = MirrorPlaylistSuppressionPolicy.key(forPlaylistID: playlist.id)?.sourceID
+            } else {
+                sourceID = nil
+            }
+            guard let sourceID, disabledSourceIDs.contains(sourceID) else { continue }
+            // 未解析成员不能证明同源；混合来源和待匹配歌单继续保留。
+            if members.allSatisfy({ id in
+                guard let index = songIndexByID[id] else { return false }
+                return songs[index].sourceID == sourceID
+            }) {
+                hiddenIDs.insert(playlist.id)
+            }
+        }
+        disabledSourcePlaylistCache = (
+            songMutationGeneration, playlistMembershipRevision, disabledSourceIDs, hiddenIDs
+        )
+        return hiddenIDs
     }
     /// Soft-deleted playlists, newest deletion first. Drives the "Recently
     /// Deleted" recovery panel.
@@ -3268,6 +3307,10 @@ final class MusicLibrary {
     }
     var hiddenMirrorPlaylists: [MirrorPlaylistSuppression] {
         mirrorPlaylistSuppressions.values.sorted { $0.hiddenAt > $1.hiddenAt }
+    }
+
+    func hiddenMirrorPlaylists(forSourceID sourceID: String) -> [MirrorPlaylistSuppression] {
+        hiddenMirrorPlaylists.filter { $0.key.sourceID == sourceID }
     }
     /// 智能歌单 ── 跟普通 playlist 共用 soft-delete + snapshot 持久化模型。
     /// 只存定义 (规则 / 排序 / 上限), 不缓存匹配结果 ── 每次 query 实时算,
@@ -3964,6 +4007,7 @@ final class MusicLibrary {
         guard disabledSourceIDs != ids else { return }
         disabledSourceIDs = ids
         rebuildVisibleCache()
+        playlistCollectionRevision &+= 1
         spotlightIndexRevision &+= 1
         // 重新启用一个源可能让置灰的歌有了着落。
         schedulePlaylistPendingResolution()
@@ -4012,6 +4056,7 @@ final class MusicLibrary {
             guard disabledSourceIDs != ids else { return }
             disabledSourceIDs = ids
             applyPreparedVisibleCache(prepared)
+            playlistCollectionRevision &+= 1
             spotlightIndexRevision &+= 1
             schedulePlaylistPendingResolution()
             plog("📚 disabled sources applied off-main prepareMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000)) songs=\(songsSnapshot.value.count) hidden=\(ids.count)")
@@ -7322,10 +7367,12 @@ final class MusicLibrary {
         )
         guard persistPlaylistDurabilityLedger() else {
             mirrorPlaylistSuppressions[suppressionID] = previous
+            plog("Mirror playlist source=\(LogRedactionPolicy.digest(key.sourceID)) playlist=\(LogRedactionPolicy.digest(key.remotePlaylistID)) action=hide result=persistence-failed")
             return
         }
         persistSnapshot()
         playlistCollectionRevision &+= 1
+        plog("Mirror playlist source=\(LogRedactionPolicy.digest(key.sourceID)) playlist=\(LogRedactionPolicy.digest(key.remotePlaylistID)) action=hide result=complete")
     }
 
     func restoreHiddenMirrorPlaylist(_ suppression: MirrorPlaylistSuppression) {
@@ -7337,10 +7384,12 @@ final class MusicLibrary {
         guard let removed = mirrorPlaylistSuppressions.removeValue(forKey: suppressionID) else { return }
         guard persistPlaylistDurabilityLedger() else {
             mirrorPlaylistSuppressions[suppressionID] = removed
+            plog("Mirror playlist source=\(LogRedactionPolicy.digest(suppression.key.sourceID)) playlist=\(LogRedactionPolicy.digest(suppression.key.remotePlaylistID)) action=restore result=persistence-failed")
             return
         }
         persistSnapshot()
         playlistCollectionRevision &+= 1
+        plog("Mirror playlist source=\(LogRedactionPolicy.digest(suppression.key.sourceID)) playlist=\(LogRedactionPolicy.digest(suppression.key.remotePlaylistID)) action=restore result=complete")
     }
 
     func createPlaylist(name: String) -> Playlist {

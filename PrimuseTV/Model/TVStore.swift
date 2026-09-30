@@ -4218,7 +4218,7 @@ final class TVStore {
         } catch {
             if OperationCancellationPolicy.isCancellation(error) { return }
             // 歌单镜像是扫描的附加步骤,失败不能把已经成功的扫描算作失败。
-            plog("Server playlist sync failed for '\(source.name)': \(error.localizedDescription)")
+            plog("Server playlists source=\(LogRedactionPolicy.digest(source.id)) stage=fetch result=failed \(LogRedactionPolicy.errorSummary(error))")
         }
 
         guard isCurrentScan(source: source, generation: generation),
@@ -4238,11 +4238,13 @@ final class TVStore {
             library.replaceLikedSongs(fromSourceID: source.id, with: songIDs)
         } catch {
             if OperationCancellationPolicy.isCancellation(error) { return }
-            plog("Server favorite sync failed for '\(source.name)': \(error.localizedDescription)")
+            plog("Server favorites source=\(LogRedactionPolicy.digest(source.id)) result=failed \(LogRedactionPolicy.errorSummary(error))")
         }
     }
 
     private func syncFnMusicLibrary(source: MusicSource, credential: SourceCredential?, generation: UUID) async {
+        let context = "Server playlists source=\(LogRedactionPolicy.digest(source.id)) type=fnMusic"
+        plog("\(context) stage=fetch result=started enabled=\(source.isEnabled)")
         do {
             // 读全一个显示一个，整轮读完再按快照核对删除，与 iPhone/Mac 一致。
             let applier = ServerPlaylistMirror.ProgressiveApplier(source: source, library: library)
@@ -4252,16 +4254,23 @@ final class TVStore {
                 guard let self, self.isCurrentScan(source: source, generation: generation) else { return }
                 applier.apply(Self.serverPlaylist(playlist))
             }
-            guard isCurrentScan(source: source, generation: generation) else { return }
+            guard isCurrentScan(source: source, generation: generation) else {
+                plog("\(context) stage=apply result=skipped reason=stale-scan")
+                return
+            }
             _ = ServerPlaylistMirror.apply(
                 snapshot: ServerPlaylistSnapshot(
                     playlists: snapshot.playlists.map(Self.serverPlaylist),
-                    failedPlaylistIDs: snapshot.failedPlaylistIDs
+                    failedPlaylistIDs: snapshot.failedPlaylistIDs,
+                    isIndexComplete: snapshot.isIndexComplete
                 ), source: source, library: library
             )
         } catch {
-            if OperationCancellationPolicy.isCancellation(error) { return }
-            plog("Server playlist sync failed for '\(source.name)': \(error.localizedDescription)")
+            if OperationCancellationPolicy.isCancellation(error) {
+                plog("\(context) stage=fetch result=cancelled")
+                return
+            }
+            plog("\(context) stage=fetch result=failed \(LogRedactionPolicy.errorSummary(error))")
         }
         guard isCurrentScan(source: source, generation: generation),
               let revision = serverFeedback.favoriteRefreshRevision(sourceID: source.id) else { return }
@@ -4278,7 +4287,7 @@ final class TVStore {
             library.replaceLikedSongs(fromSourceID: source.id, with: songIDs)
         } catch {
             if OperationCancellationPolicy.isCancellation(error) { return }
-            plog("Server favorite sync failed for '\(source.name)': \(error.localizedDescription)")
+            plog("Server favorites source=\(LogRedactionPolicy.digest(source.id)) result=failed \(LogRedactionPolicy.errorSummary(error))")
         }
     }
 
