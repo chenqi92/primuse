@@ -40,9 +40,20 @@ final class DesktopLyricsInteraction {
 /// frame name so users only have to drag it once per screen layout.
 @MainActor
 final class DesktopLyricsWindowController {
+    /// 「歌词上岛」：桌面歌词不再浮在桌面上，而是收进屏幕顶部正中的歌词岛。
+    static let islandModeKey = "desktopLyricsIsland"
+
     private var panel: NSPanel?
     @AppStorage("desktopLyricsVisible") private var visible: Bool = false
     @AppStorage("desktopLyricsLocked") private var locked: Bool = false
+    @AppStorage(DesktopLyricsWindowController.islandModeKey) private var islandMode: Bool = false
+
+    private lazy var island: DesktopLyricsIslandController = {
+        let island = DesktopLyricsIslandController()
+        island.onExit = { [weak self] in self?.setIslandMode(false) }
+        island.onClose = { [weak self] in self?.hide() }
+        return island
+    }()
     /// didChangeNotification observer token —— 必须持有并在 deinit 注销, 否则
     /// block-based observer 永远不会移除 (内存泄漏)。nonisolated(unsafe): 仅 init
     /// (MainActor) 写、deinit 读, 无并发竞争, 让 Swift 6 的 nonisolated deinit 可访问。
@@ -144,10 +155,60 @@ final class DesktopLyricsWindowController {
     }
 
     func toggle() {
-        if panel?.isVisible == true { hide() } else { show() }
+        if isShowing { hide() } else { show() }
+    }
+
+    private var isShowing: Bool {
+        islandMode ? island.isShowing : panel?.isVisible == true
     }
 
     func show() {
+        visible = true
+        if islandMode {
+            island.show()
+        } else {
+            showFloatingPanel()
+        }
+    }
+
+    func hide() {
+        if islandMode {
+            island.dismiss()
+        } else {
+            stopPointerTracking()
+            panel?.orderOut(nil)
+        }
+        visible = false
+    }
+
+    /// 上岛 / 回到桌面。
+    ///
+    /// - Parameter reveal: 菜单栏、App 菜单、岛上按钮这类「动作」传 true：桌面歌词
+    ///   关着也顺带打开，用户立刻能看到切过去的样子。设置里的开关只改偏好，传
+    ///   false：歌词开着才跟着换形态，关着就等下次打开再用。
+    func setIslandMode(_ enabled: Bool, reveal: Bool = true) {
+        let wasShowing = isShowing
+        guard enabled != islandMode else {
+            if reveal && !wasShowing { show() }
+            return
+        }
+        // 上岛前记下浮动歌词所在的屏幕，岛就上到这块屏幕的顶边。
+        let floatingScreen = panel?.isVisible == true ? panel?.screen : nil
+        islandMode = enabled
+        guard wasShowing || reveal else { return }
+        visible = true
+        if enabled {
+            retireFloatingPanel()
+            island.show(preferring: floatingScreen)
+        } else {
+            island.dismiss { [weak self] in
+                guard let self, !self.islandMode, self.visible else { return }
+                self.showFloatingPanel(fadingIn: true)
+            }
+        }
+    }
+
+    private func showFloatingPanel(fadingIn: Bool = false) {
         let panel: NSPanel
         if let existing = self.panel {
             panel = existing
@@ -155,16 +216,44 @@ final class DesktopLyricsWindowController {
             panel = makePanel()
             self.panel = panel
         }
+        let animates = fadingIn && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        panel.alphaValue = animates ? 0 : 1
         panel.orderFrontRegardless()
-        visible = true
+        if animates {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.22
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+            }
+        }
         startPointerTracking()
         applyLockedState()
     }
 
-    func hide() {
+    /// 上岛时浮动面板淡出，然后连同 SwiftUI 内容一起释放 —— 否则它会在屏幕外
+    /// 继续加载歌词、跟播放进度，和岛做同一份活。回到桌面时按保存的位置重建。
+    private func retireFloatingPanel() {
+        guard let panel else { return }
         stopPointerTracking()
-        panel?.orderOut(nil)
-        visible = false
+        panel.saveFrame(usingName: Self.frameAutosaveName)
+        // 让出自动保存名：回到桌面时新建的面板要用同一个名字读回位置。
+        panel.setFrameAutosaveName("")
+        self.panel = nil
+        guard panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.orderOut(nil)
+            panel.contentView = nil
+            return
+        }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.2
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(240))
+            panel.orderOut(nil)
+            panel.contentView = nil
+        }
     }
 
     /// 用户切换排版时把 panel 拉成对应朝向。围绕中心点缩放,避免
@@ -432,7 +521,8 @@ final class DesktopLyricsWindowController {
                     // 换歌、切排版都会改这块矩形。指针没动时监视器不会响,
                     // 这里顺手重算一次,免得热区跟着歌词变了状态还是旧的。
                     self?.updatePassthrough()
-                }
+                },
+                onEnterIsland: { [weak self] in self?.setIslandMode(true) }
             ).applyPrimuseEnvironments()
         )
         host.view.frame = panel.contentView?.bounds ?? .zero

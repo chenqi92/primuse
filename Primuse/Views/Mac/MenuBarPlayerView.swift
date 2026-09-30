@@ -12,6 +12,7 @@ struct MenuBarPlayerView: View {
 
     @AppStorage("desktopLyricsLocked") private var desktopLyricsLocked: Bool = false
     @AppStorage("desktopLyricsVisible") private var desktopLyricsVisible: Bool = false
+    @AppStorage(DesktopLyricsWindowController.islandModeKey) private var desktopLyricsIsland = false
     @AppStorage("miniPlayerVisible") private var miniPlayerVisible: Bool = false
     /// 与设置 › 歌词里的开关是同一个键；菜单栏控制器监听它的变化即时换上或撤下歌词。
     @AppStorage(MacMenuBarController.lyricsEnabledKey) private var menuBarLyricsEnabled = false
@@ -44,6 +45,14 @@ struct MenuBarPlayerView: View {
                         active: desktopLyricsLocked) {
                     pmWithAnimation(.control) { desktopLyricsLocked.toggle() }
                 }
+
+                menuRow(icon: "rectangle.tophalf.inset.filled",
+                        title: "desktop_lyrics_island",
+                        active: desktopLyricsIsland,
+                        showsCheckmark: desktopLyricsIsland) {
+                    PrimuseAppDelegate.shared?.toggleDesktopLyricsIsland()
+                }
+                .help(Text("desktop_lyrics_island_description"))
 
                 menuRow(icon: "menubar.rectangle",
                         title: "menu_bar_lyrics",

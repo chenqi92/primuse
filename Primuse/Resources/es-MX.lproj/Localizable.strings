@@ -4667,3 +4667,16 @@
 "tv_scrape_album_stopped" = "Detenido";
 "tv_scrape_import_keyboard_hint" = "Al seleccionar el campo, tu iPhone muestra una notificación de teclado: pega ahí el JSON del scraper o una URL de configuración HTTPS.";
 "tv_scrape_phone_only_note" = "Configura las direcciones de servidores de API de letras y las cookies en el iPhone y luego pásalas con código QR o iCloud.";
+
+"desktop_lyrics_island" = "Isla de letras";
+"desktop_lyrics_island_description" = "Guarda la letra de escritorio en la parte superior central de la pantalla; en las MacBook crece desde el notch. Pasa el puntero por arriba para ver los controles.";
+"desktop_lyrics_island_exit" = "Volver al escritorio";
+"desktop_lyrics_island_system_status" = "Mostrar audífonos, volumen y carga en la isla";
+"desktop_lyrics_island_system_status_description" = "Muestra brevemente los cambios de salida de audio, de volumen y de alimentación.";
+"desktop_lyrics_island_output" = "Salida de sonido";
+"desktop_lyrics_island_volume" = "Volumen";
+"desktop_lyrics_island_muted" = "Silenciado";
+"desktop_lyrics_island_charging" = "Cargando";
+"desktop_lyrics_island_power_connected" = "Corriente conectada";
+"desktop_lyrics_island_on_battery" = "Con batería";
+"desktop_lyrics_island_progress" = "Progreso de reproducción";

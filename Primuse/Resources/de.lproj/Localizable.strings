@@ -4761,3 +4761,16 @@
 "tv_scrape_album_stopped" = "Gestoppt";
 "tv_scrape_import_keyboard_hint" = "Wenn das Feld ausgewählt ist, zeigt dein iPhone eine Tastaturmitteilung – füge dort Scraper-JSON oder eine HTTPS-Konfigurations-URL ein.";
 "tv_scrape_phone_only_note" = "Lyrics-API-Serveradressen und Cookies legst du auf dem iPhone fest und überträgst sie per QR-Code oder iCloud.";
+
+"desktop_lyrics_island" = "Songtext-Insel";
+"desktop_lyrics_island_description" = "Legt den Desktop-Songtext oben in die Bildschirmmitte – auf MacBooks wächst er aus der Notch. Zeiger oben halten, um die Wiedergabesteuerung einzublenden.";
+"desktop_lyrics_island_exit" = "Zurück auf den Schreibtisch";
+"desktop_lyrics_island_system_status" = "Kopfhörer, Lautstärke und Laden auf der Insel anzeigen";
+"desktop_lyrics_island_system_status_description" = "Zeigt kurz an, wenn das Ausgabegerät wechselt, die Lautstärke geändert oder die Stromversorgung umgesteckt wird.";
+"desktop_lyrics_island_output" = "Tonausgabe";
+"desktop_lyrics_island_volume" = "Lautstärke";
+"desktop_lyrics_island_muted" = "Stumm";
+"desktop_lyrics_island_charging" = "Wird geladen";
+"desktop_lyrics_island_power_connected" = "Netzteil angeschlossen";
+"desktop_lyrics_island_on_battery" = "Batteriebetrieb";
+"desktop_lyrics_island_progress" = "Wiedergabefortschritt";

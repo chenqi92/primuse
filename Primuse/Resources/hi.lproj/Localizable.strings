@@ -4667,3 +4667,16 @@
 "tv_scrape_album_stopped" = "रोका गया";
 "tv_scrape_import_keyboard_hint" = "फ़ील्ड चुनने पर iPhone पर कीबोर्ड सूचना दिखेगी — वहाँ स्क्रैपर JSON या HTTPS कॉन्फ़िग URL पेस्ट करें।";
 "tv_scrape_phone_only_note" = "लिरिक्स API सर्वर पते और कुकी iPhone पर भरें, फिर QR ट्रांसफ़र या iCloud से टीवी पर लाएँ।";
+
+"desktop_lyrics_island" = "लिरिक्स आइलैंड";
+"desktop_lyrics_island_description" = "डेस्कटॉप लिरिक्स को स्क्रीन के ऊपर बीच में रखता है; नॉच वाले MacBook पर यह नॉच से निकलता है। प्लेबैक नियंत्रण देखने के लिए पॉइंटर ऊपर ले जाएँ।";
+"desktop_lyrics_island_exit" = "डेस्कटॉप पर वापस";
+"desktop_lyrics_island_system_status" = "आइलैंड पर हेडफ़ोन, वॉल्यूम और चार्जिंग दिखाएँ";
+"desktop_lyrics_island_system_status_description" = "आउटपुट डिवाइस, वॉल्यूम और पावर में बदलाव कुछ पल के लिए दिखाता है।";
+"desktop_lyrics_island_output" = "साउंड आउटपुट";
+"desktop_lyrics_island_volume" = "वॉल्यूम";
+"desktop_lyrics_island_muted" = "म्यूट";
+"desktop_lyrics_island_charging" = "चार्ज हो रहा है";
+"desktop_lyrics_island_power_connected" = "पावर जुड़ा";
+"desktop_lyrics_island_on_battery" = "बैटरी पर";
+"desktop_lyrics_island_progress" = "प्लेबैक प्रगति";

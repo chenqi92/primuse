@@ -65,6 +65,8 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.browseTimeline", titleKey: "player_lyrics_browse_timeline", iosPage: .lyrics, macPage: nil, keywords: ["lyrics ruler", "timeline", "歌词标尺", "定位线", "拖动歌词"]),
         SettingDefinition(id: "lyrics.fontSize", titleKey: "lyrics_font_size", iosPage: nil, macPage: .lyrics),
         SettingDefinition(id: "lyrics.menuBar", titleKey: "menu_bar_lyrics", iosPage: nil, macPage: .lyrics, keywords: ["menu bar lyrics", "status bar lyrics", "菜单栏歌词", "状态栏歌词", "顶部歌词"]),
+        SettingDefinition(id: "lyrics.island", titleKey: "desktop_lyrics_island", iosPage: nil, macPage: .lyrics, keywords: ["dynamic island", "notch", "lyrics island", "desktop lyrics", "灵动岛", "刘海", "上岛", "歌词岛", "桌面歌词"]),
+        SettingDefinition(id: "lyrics.islandSystemStatus", titleKey: "desktop_lyrics_island_system_status", iosPage: nil, macPage: .lyrics, keywords: ["headphones", "airpods", "volume", "battery", "charging", "耳机", "音量", "充电", "电量"]),
         SettingDefinition(id: "storage.audioCacheEnabled", titleKey: "audio_cache_enabled", iosPage: .storage, macPage: .storage, keywords: ["offline download", "缓存", "离线", "自动下载"]),
         SettingDefinition(id: "storage.audioCacheLimit", titleKey: "audio_cache_limit", iosPage: .storage, macPage: .storage, keywords: ["cache limit", "缓存上限", "存储空间", "下载限制"]),
         SettingDefinition(id: "storage.clearAudioCache", titleKey: "audio_cache", iosPage: .storage, macPage: .storage, keywords: ["clear cache", "清理缓存", "删除缓存", "释放空间", "clear_cache"], macAnchor: "storage.audioCacheLimit"),

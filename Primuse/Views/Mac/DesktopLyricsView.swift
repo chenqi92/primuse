@@ -28,6 +28,8 @@ struct DesktopLyricsView: View {
     /// 上报"歌词连同背板占了面板里的哪一块"(面板局部坐标)。controller 拿它
     /// 决定鼠标什么时候穿透过去 —— 见 DesktopLyricsInteraction。
     var onContentRectChange: ((CGRect) -> Void)? = nil
+    /// 设置里点「歌词上岛」：controller 把桌面歌词收进屏幕顶部的歌词岛。
+    var onEnterIsland: (() -> Void)? = nil
 
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourceManager.self) private var sourceManager
@@ -603,6 +605,14 @@ struct DesktopLyricsView: View {
 
     private var settingsPopover: some View {
         VStack(alignment: .leading, spacing: 4) {
+            settingsRow(icon: "rectangle.tophalf.inset.filled", title: "desktop_lyrics_island") {
+                settingsShown = false
+                onEnterIsland?()
+            }
+            .help(Text("desktop_lyrics_island_description"))
+
+            Divider().padding(.vertical, 3)
+
             settingsRow(icon: layoutIconName, title: nextLayoutHelpKey) {
                 let nextLayout = layout.next
                 layoutRaw = nextLayout.rawValue
@@ -840,7 +850,9 @@ struct DesktopLyricsView: View {
     }
 }
 
-private struct DesktopLyricsTimeObserver: View {
+/// 播放时间一变就回调。单独成一个视图，读 currentTime 的依赖只落在它身上，
+/// 歌词视图本身不会跟着每次时间跳动整页重算。歌词岛也用它。
+struct DesktopLyricsTimeObserver: View {
     @Environment(AudioPlayerService.self) private var player
     let onTimeChange: (TimeInterval) -> Void
 
@@ -867,7 +879,7 @@ enum DesktopLyricsLayout: String, CaseIterable {
 
 // MARK: - Color hex helper
 
-private extension Color {
+extension Color {
     /// 接收 #RRGGBB / #RRGGBBAA / RRGGBB 格式,失败返回 nil。
     /// 命名为 fromHexString 避开 SwiftUI 6 自带的 Color(hex:)。
     static func fromHexString(_ hex: String) -> Color? {

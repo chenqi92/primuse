@@ -3964,6 +3964,10 @@ private struct MacSTLyricsView: View {
     private var tapLyricsToSeek = PlayerAppearancePreferences.tapLyricsToSeekByDefault
     @AppStorage(MacMenuBarController.lyricsEnabledKey)
     private var menuBarLyricsEnabled = false
+    @AppStorage(DesktopLyricsWindowController.islandModeKey)
+    private var desktopLyricsIsland = false
+    @AppStorage(DesktopLyricsIslandController.systemStatusKey)
+    private var islandShowsSystemStatus = true
     @State private var showTranscriptionSettings = false
     private var localTranslation: LocalLyricsTranslationService { .shared }
 
@@ -4080,6 +4084,28 @@ private struct MacSTLyricsView: View {
                             .accessibilityHint(Text("menu_bar_lyrics_description"))
                     }
                     .settingsAnchor("lyrics.menuBar")
+                    MacSTRow(
+                        String(localized: "desktop_lyrics_island"),
+                        hint: String(localized: "desktop_lyrics_island_description")
+                    ) {
+                        // 这里只改偏好：桌面歌词开着才立刻换形态，关着不替用户打开。
+                        MacSTToggle(isOn: Binding(
+                            get: { desktopLyricsIsland },
+                            set: { PrimuseAppDelegate.shared?.setDesktopLyricsIsland($0, reveal: false) }
+                        ))
+                        .accessibilityLabel(Text("desktop_lyrics_island"))
+                        .accessibilityHint(Text("desktop_lyrics_island_description"))
+                    }
+                    .settingsAnchor("lyrics.island")
+                    MacSTRow(
+                        String(localized: "desktop_lyrics_island_system_status"),
+                        hint: String(localized: "desktop_lyrics_island_system_status_description")
+                    ) {
+                        MacSTToggle(isOn: $islandShowsSystemStatus)
+                            .accessibilityLabel(Text("desktop_lyrics_island_system_status"))
+                            .accessibilityHint(Text("desktop_lyrics_island_system_status_description"))
+                    }
+                    .settingsAnchor("lyrics.islandSystemStatus")
                 }
             }
         }

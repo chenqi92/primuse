@@ -558,6 +558,23 @@ final class PrimuseAppDelegate: NSObject, NSApplicationDelegate {
         desktopLyrics?.toggle()
     }
 
+    /// 菜单栏、App 菜单里的「歌词上岛」：在歌词岛和浮动桌面歌词之间切换，
+    /// 桌面歌词关着时顺带打开。
+    @MainActor
+    func toggleDesktopLyricsIsland() {
+        let enabled = UserDefaults.standard.bool(forKey: DesktopLyricsWindowController.islandModeKey)
+        setDesktopLyricsIsland(!enabled)
+    }
+
+    @MainActor
+    func setDesktopLyricsIsland(_ enabled: Bool, reveal: Bool = true) {
+        guard let desktopLyrics else {
+            UserDefaults.standard.set(enabled, forKey: DesktopLyricsWindowController.islandModeKey)
+            return
+        }
+        desktopLyrics.setIslandMode(enabled, reveal: reveal)
+    }
+
     @MainActor
     func toggleMiniPlayer() {
         plog("🪟 AppDelegate.toggleMiniPlayer miniPlayer=\(miniPlayer == nil ? "nil" : "ok")")
@@ -2217,6 +2234,10 @@ struct PrimuseApp: App {
                     let key = "desktopLyricsLocked"
                     let locked = UserDefaults.standard.bool(forKey: key)
                     UserDefaults.standard.set(!locked, forKey: key)
+                }
+
+                Button("desktop_lyrics_island") {
+                    PrimuseAppDelegate.shared?.toggleDesktopLyricsIsland()
                 }
 
                 Divider()

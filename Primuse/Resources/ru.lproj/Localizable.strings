@@ -4667,3 +4667,16 @@
 "tv_scrape_album_stopped" = "Остановлено";
 "tv_scrape_import_keyboard_hint" = "Когда поле выбрано, на iPhone появится уведомление клавиатуры — вставьте туда JSON скрейпера или HTTPS-адрес конфигурации.";
 "tv_scrape_phone_only_note" = "Адреса серверов API текстов и cookie задайте на iPhone, затем перенесите их по QR-коду или через iCloud.";
+
+"desktop_lyrics_island" = "Остров текста";
+"desktop_lyrics_island_description" = "Прячет текст песни на рабочем столе в верхний центр экрана — на MacBook он вырастает из выреза. Наведите указатель на верх экрана, чтобы открыть управление.";
+"desktop_lyrics_island_exit" = "Вернуть на рабочий стол";
+"desktop_lyrics_island_system_status" = "Показывать наушники, громкость и зарядку на острове";
+"desktop_lyrics_island_system_status_description" = "Ненадолго показывает смену устройства вывода, громкость и питание.";
+"desktop_lyrics_island_output" = "Вывод звука";
+"desktop_lyrics_island_volume" = "Громкость";
+"desktop_lyrics_island_muted" = "Без звука";
+"desktop_lyrics_island_charging" = "Заряжается";
+"desktop_lyrics_island_power_connected" = "Питание подключено";
+"desktop_lyrics_island_on_battery" = "От аккумулятора";
+"desktop_lyrics_island_progress" = "Ход воспроизведения";

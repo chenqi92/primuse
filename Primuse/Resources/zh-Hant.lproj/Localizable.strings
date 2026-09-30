@@ -4738,3 +4738,16 @@
 "tv_scrape_album_stopped" = "已停止";
 "tv_scrape_import_keyboard_hint" = "選取輸入框後，iPhone 會跳出鍵盤通知，可直接貼上刮削源 JSON 或 HTTPS 設定網址。";
 "tv_scrape_phone_only_note" = "歌詞 API 伺服器位址和 Cookie 請在 iPhone 上填寫，再透過掃碼或 iCloud 同步到電視。";
+
+"desktop_lyrics_island" = "歌詞上島";
+"desktop_lyrics_island_description" = "桌面歌詞收進螢幕頂部正中，有瀏海的 Mac 上從瀏海裡長出來；指標移到頂部就展開播放控制。";
+"desktop_lyrics_island_exit" = "回到桌面";
+"desktop_lyrics_island_system_status" = "在島上顯示耳機、音量和充電";
+"desktop_lyrics_island_system_status_description" = "切換輸出裝置、調整音量、插拔電源時，島上會短暫顯示一下。";
+"desktop_lyrics_island_output" = "聲音輸出";
+"desktop_lyrics_island_volume" = "音量";
+"desktop_lyrics_island_muted" = "已靜音";
+"desktop_lyrics_island_charging" = "正在充電";
+"desktop_lyrics_island_power_connected" = "已接上電源";
+"desktop_lyrics_island_on_battery" = "使用電池";
+"desktop_lyrics_island_progress" = "播放進度";

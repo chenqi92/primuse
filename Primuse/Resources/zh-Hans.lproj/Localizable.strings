@@ -4854,3 +4854,16 @@
 "tv_scrape_album_stopped" = "已停止";
 "tv_scrape_import_keyboard_hint" = "选中输入框后，iPhone 上会弹出键盘通知，可以直接粘贴刮削源 JSON 或 HTTPS 配置地址。";
 "tv_scrape_phone_only_note" = "歌词 API 服务地址和 Cookie 请在 iPhone 上填写，再通过扫码或 iCloud 同步到电视。";
+
+"desktop_lyrics_island" = "歌词上岛";
+"desktop_lyrics_island_description" = "桌面歌词收进屏幕顶部正中，有刘海的 Mac 上从刘海里长出来；指针移到顶部就展开播放控制。";
+"desktop_lyrics_island_exit" = "回到桌面";
+"desktop_lyrics_island_system_status" = "在岛上显示耳机、音量和充电";
+"desktop_lyrics_island_system_status_description" = "换输出设备、调音量、插拔电源时，岛上会短暂显示一下。";
+"desktop_lyrics_island_output" = "声音输出";
+"desktop_lyrics_island_volume" = "音量";
+"desktop_lyrics_island_muted" = "已静音";
+"desktop_lyrics_island_charging" = "正在充电";
+"desktop_lyrics_island_power_connected" = "已接通电源";
+"desktop_lyrics_island_on_battery" = "使用电池";
+"desktop_lyrics_island_progress" = "播放进度";

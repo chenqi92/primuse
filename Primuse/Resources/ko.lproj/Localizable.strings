@@ -4761,3 +4761,16 @@
 "tv_scrape_album_stopped" = "중지됨";
 "tv_scrape_import_keyboard_hint" = "입력란을 선택하면 iPhone에 키보드 알림이 나타납니다. 스크래퍼 JSON 또는 HTTPS 구성 URL을 붙여 넣으세요.";
 "tv_scrape_phone_only_note" = "가사 API 서버 주소와 쿠키는 iPhone에서 입력한 뒤 QR 전송이나 iCloud로 TV에 동기화하세요.";
+
+"desktop_lyrics_island" = "가사 아일랜드";
+"desktop_lyrics_island_description" = "데스크톱 가사를 화면 상단 중앙에 넣습니다. 노치가 있는 Mac에서는 노치에서 펼쳐집니다. 상단에 포인터를 올리면 재생 컨트롤이 나타납니다.";
+"desktop_lyrics_island_exit" = "데스크톱으로 돌아가기";
+"desktop_lyrics_island_system_status" = "아일랜드에 헤드폰, 음량, 충전 표시";
+"desktop_lyrics_island_system_status_description" = "출력 기기 변경, 음량 조절, 전원 연결 상태를 잠시 표시합니다.";
+"desktop_lyrics_island_output" = "사운드 출력";
+"desktop_lyrics_island_volume" = "음량";
+"desktop_lyrics_island_muted" = "음소거";
+"desktop_lyrics_island_charging" = "충전 중";
+"desktop_lyrics_island_power_connected" = "전원 연결됨";
+"desktop_lyrics_island_on_battery" = "배터리 사용 중";
+"desktop_lyrics_island_progress" = "재생 진행률";

@@ -4524,3 +4524,16 @@
 "tv_scrape_album_stopped" = "Stopped";
 "tv_scrape_import_keyboard_hint" = "When the field is selected, your iPhone shows a keyboard notification — paste scraper JSON or an HTTPS config URL there.";
 "tv_scrape_phone_only_note" = "Set lyrics API server addresses and cookies on iPhone, then bring them over by QR transfer or iCloud.";
+
+"desktop_lyrics_island" = "Lyrics Island";
+"desktop_lyrics_island_description" = "Tucks desktop lyrics into the top center of the screen, growing out of the notch on MacBooks. Hover over the top to show playback controls.";
+"desktop_lyrics_island_exit" = "Back to Desktop";
+"desktop_lyrics_island_system_status" = "Show Headphones, Volume and Charging on the Island";
+"desktop_lyrics_island_system_status_description" = "Briefly shows output device changes, volume adjustments and power status.";
+"desktop_lyrics_island_output" = "Sound Output";
+"desktop_lyrics_island_volume" = "Volume";
+"desktop_lyrics_island_muted" = "Muted";
+"desktop_lyrics_island_charging" = "Charging";
+"desktop_lyrics_island_power_connected" = "Power Connected";
+"desktop_lyrics_island_on_battery" = "On Battery";
+"desktop_lyrics_island_progress" = "Playback Progress";

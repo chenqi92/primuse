@@ -4667,3 +4667,16 @@
 "tv_scrape_album_stopped" = "หยุดแล้ว";
 "tv_scrape_import_keyboard_hint" = "เมื่อเลือกช่องป้อนข้อมูล iPhone จะแสดงการแจ้งเตือนแป้นพิมพ์ วาง JSON ของแหล่งดึงข้อมูลหรือ URL การตั้งค่า HTTPS ได้ที่นั่น";
 "tv_scrape_phone_only_note" = "ตั้งค่าที่อยู่เซิร์ฟเวอร์ API เนื้อเพลงและคุกกี้บน iPhone แล้วส่งมายังทีวีด้วยการสแกน QR หรือ iCloud";
+
+"desktop_lyrics_island" = "เกาะเนื้อเพลง";
+"desktop_lyrics_island_description" = "ย้ายเนื้อเพลงบนเดสก์ท็อปไปไว้กลางขอบบนของหน้าจอ บน MacBook ที่มีรอยบากจะขยายออกมาจากรอยบาก วางตัวชี้ที่ขอบบนเพื่อแสดงตัวควบคุม";
+"desktop_lyrics_island_exit" = "กลับไปที่เดสก์ท็อป";
+"desktop_lyrics_island_system_status" = "แสดงหูฟัง ระดับเสียง และการชาร์จบนเกาะ";
+"desktop_lyrics_island_system_status_description" = "แสดงการเปลี่ยนอุปกรณ์เสียง ระดับเสียง และสถานะพลังงานชั่วครู่";
+"desktop_lyrics_island_output" = "เอาต์พุตเสียง";
+"desktop_lyrics_island_volume" = "ระดับเสียง";
+"desktop_lyrics_island_muted" = "ปิดเสียง";
+"desktop_lyrics_island_charging" = "กำลังชาร์จ";
+"desktop_lyrics_island_power_connected" = "ต่อสายไฟแล้ว";
+"desktop_lyrics_island_on_battery" = "ใช้แบตเตอรี่";
+"desktop_lyrics_island_progress" = "ความคืบหน้าการเล่น";
