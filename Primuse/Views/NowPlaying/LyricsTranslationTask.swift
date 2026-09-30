@@ -48,6 +48,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
     @State private var activeGroupIndex = 0
     @State private var preparedIdentity: TranslationTaskIdentity?
     @State private var completionActivity: LyricsTranslationActivity?
+    @State private var deduplication = LyricTranslationDeduplication(groups: [])
 
     private struct TranslationTaskIdentity: Hashable {
         let songID: String?
@@ -104,6 +105,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         activeGroupIndex = 0
         preparedIdentity = nil
         completionActivity = nil
+        deduplication = LyricTranslationDeduplication(groups: [])
         translatedTextByLineID = [:]
         activity = .idle
 
@@ -121,7 +123,9 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         guard !Task.isCancelled, translationTaskIdentity == identity else { return }
         let manualTranslations = prepared.manualTranslations
             .merging(prepared.scriptConversions) { manual, _ in manual }
-        let groups = prepared.groups
+        let deduplication = LyricTranslationDeduplication(groups: prepared.groups)
+        self.deduplication = deduplication
+        let groups = deduplication.groups
         translatedTextByLineID = manualTranslations
         let explicitlyRequested = prepared.requiresPreparation
             && settings.consumeSystemTranslationPreparationRequest(
@@ -164,7 +168,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             }
         }
 
-        translatedTextByLineID = hits
+        translatedTextByLineID = deduplication.expanding(hits)
         guard !uncachedGroups.isEmpty else {
             if preferredCacheProvider == .intelligent, !hits.isEmpty {
                 activity = .intelligentCached
@@ -185,12 +189,16 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                     switch event {
                     case .reset:
                         for id in streamedTranslations.keys {
-                            translatedTextByLineID[id] = hits[id]
+                            for lineID in deduplication.lineIDs(for: id) {
+                                translatedTextByLineID[lineID] = hits[id]
+                            }
                         }
                         streamedTranslations = [:]
                     case .translation(let id, let text):
                         streamedTranslations[id] = text
-                        translatedTextByLineID[id] = text
+                        for lineID in deduplication.lineIDs(for: id) {
+                            translatedTextByLineID[lineID] = text
+                        }
                     case .completed:
                         break
                     }
@@ -208,7 +216,9 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                     targetLang: identity.targetLanguageCode,
                     provider: .intelligent
                 )
-                translatedTextByLineID.merge(execution.translations) { _, new in new }
+                translatedTextByLineID.merge(
+                    deduplication.expanding(execution.translations)
+                ) { _, new in new }
                 let translatedIDs = Set(execution.translations.keys)
                 uncachedGroups = uncachedGroups.compactMap { group in
                     let remaining = group.candidates.filter {
@@ -254,7 +264,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                     ))
                 }
             }
-            translatedTextByLineID.merge(hits) { _, new in new }
+            translatedTextByLineID.merge(deduplication.expanding(hits)) { _, new in new }
             uncachedGroups = systemPendingGroups
             guard !uncachedGroups.isEmpty else { return }
         }
@@ -281,7 +291,11 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                 targetLanguageCode: identity.targetLanguageCode,
                 systemTranslator: LyricsSystemTranslationBridge.installedPacks,
                 isCurrent: { translationTaskIdentity == identity },
-                onTranslation: { id, text in translatedTextByLineID[id] = text }
+                onTranslation: { id, text in
+                    for lineID in deduplication.lineIDs(for: id) {
+                        translatedTextByLineID[lineID] = text
+                    }
+                }
             )
             guard !Task.isCancelled, translationTaskIdentity == identity else { return }
             if activity == .localTranslating { activity = activityBeforeLocal }
@@ -331,7 +345,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             } else if !localUnsupportedGroups.isEmpty {
                 activity = LyricTranslationNoticePolicy.shouldShowUnavailable(
                     lyrics: lyrics,
-                    unsupportedGroups: localUnsupportedGroups,
+                    unsupportedGroups: deduplication.restoringDuplicates(in: localUnsupportedGroups),
                     targetLanguageCode: identity.targetLanguageCode,
                     song: identity.songContext
                 ) ? .systemUnavailable : .idle
@@ -411,7 +425,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         }
 
         guard !Task.isCancelled, translationTaskIdentity == identity else { return }
-        translatedTextByLineID.merge(hits) { _, new in new }
+        translatedTextByLineID.merge(deduplication.expanding(hits)) { _, new in new }
         var availableGroups = LyricTranslationGroupingPolicy.automaticSessionGroups(
             installed: installedGroups
         )
@@ -429,7 +443,7 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         let unavailableActivity: LyricsTranslationActivity =
             LyricTranslationNoticePolicy.shouldShowUnavailable(
                 lyrics: lyrics,
-                unsupportedGroups: unsupportedSystemGroups,
+                unsupportedGroups: deduplication.restoringDuplicates(in: unsupportedSystemGroups),
                 targetLanguageCode: identity.targetLanguageCode,
                 song: identity.songContext
             ) ? .systemUnavailable : .idle
@@ -562,7 +576,9 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                     )
                 )
                 if !id.isEmpty {
-                    translatedTextByLineID[id] = translated
+                    for lineID in deduplication.lineIDs(for: id) {
+                        translatedTextByLineID[lineID] = translated
+                    }
                     LyricsTranslationCache.shared.setTranslation(
                         translated,
                         for: response.sourceText,
@@ -628,7 +644,9 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         }
 
         if !newStateUpdates.isEmpty {
-            translatedTextByLineID.merge(newStateUpdates) { _, new in new }
+            translatedTextByLineID.merge(
+                deduplication.expanding(newStateUpdates)
+            ) { _, new in new }
         }
 
         guard !translationFailed else {

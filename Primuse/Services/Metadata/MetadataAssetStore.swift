@@ -499,7 +499,9 @@ actor MetadataAssetStore {
 
     nonisolated private static func normalizedCachedLyrics(_ lines: [LyricLine]) -> [LyricLine] {
         LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(
-            in: LyricBilingualPairingPolicy.normalizingCachedLines(lines)
+            in: LyricBilingualPairingPolicy.normalizingCachedLines(
+                lines.map { LyricTextEntityPolicy.decoded($0) }
+            )
         )
     }
 
@@ -556,7 +558,9 @@ actor MetadataAssetStore {
         for url in lyricsSearchCandidateURLs(songID: songID, lyricsFileName: lyricsFileName) {
             guard let data = try? Data(contentsOf: url),
                   let lines = try? JSONDecoder().decode([LyricLine].self, from: data) else { continue }
-            return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(in: lines)
+            return LyricVoiceTimelinePolicy.groupingOverlappingSecondaryLines(
+                in: lines.map { LyricTextEntityPolicy.decoded($0) }
+            )
         }
         return nil
     }

@@ -1254,4 +1254,39 @@ struct LyricsContentParserTests {
         #expect(legacy.manualTranslation == nil)
         #expect(legacy.alternateManualTranslations.isEmpty)
     }
+
+    @Test("Escaped entities in LRC rows are decoded once")
+    func decodesEscapedEntitiesInLRC() {
+        let lines = LyricsContentParser.parseText("""
+        [00:01.00]You gotta fold&apos;em on the table
+        [00:02.00]Rock &amp; Roll &#39;n&#x27; &quot;soul&quot;
+        [00:03.00]Literal &amp;apos; stays &unknown; &
+        """)
+
+        #expect(lines.map(\.text) == [
+            "You gotta fold'em on the table",
+            "Rock & Roll 'n' \"soul\"",
+            "Literal &apos; stays &unknown; &",
+        ])
+    }
+
+    @Test("Plain text lyrics decode escaped apostrophes")
+    func decodesEscapedEntitiesInPlainText() {
+        let lines = LyricsContentParser.parseText("There&apos;s a picture\nIn her pocket")
+        #expect(lines.map(\.text) == ["There's a picture", "In her pocket"])
+    }
+
+    @Test("Cached lines decode word and translation text")
+    func decodesEntitiesInStoredLine() {
+        let line = LyricLine(
+            timestamp: 1,
+            text: "It&apos;s",
+            syllables: [LyricSyllable(text: "It&apos;s", start: 1, end: 2)],
+            manualTranslation: LyricManualTranslation(text: "&quot;是&quot;", source: .embeddedField)
+        )
+        let decoded = LyricTextEntityPolicy.decoded(line)
+        #expect(decoded.text == "It's")
+        #expect(decoded.syllables?.first?.text == "It's")
+        #expect(decoded.manualTranslation?.text == "\"是\"")
+    }
 }

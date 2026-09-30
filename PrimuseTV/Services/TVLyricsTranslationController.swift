@@ -90,15 +90,18 @@ final class TVLyricsTranslationController {
                 return LyricTranslationGroup(id: group.id, sourceLanguageCode: group.sourceLanguageCode, candidates: pending)
             }
             guard !groups.isEmpty else { return }
+            let deduplication = LyricTranslationDeduplication(groups: groups)
             let outcome = await LocalLyricsTranslationService.shared.translate(
-                groups: groups,
+                groups: deduplication.groups,
                 targetLanguageCode: target,
                 systemTranslator: nil,
                 isCurrent: { [weak self] in
                     self?.isCurrent(generation, songID: songID, store: store) ?? false
                 },
                 onTranslation: { id, text in
-                    store.applyLyricTranslation(text, lineID: id, forSongID: songID)
+                    for lineID in deduplication.lineIDs(for: id) {
+                        store.applyLyricTranslation(text, lineID: lineID, forSongID: songID)
+                    }
                 }
             )
             guard self.isCurrent(generation, songID: songID, store: store) else { return }

@@ -31,6 +31,75 @@ public struct LyricTranslationGroup: Equatable, Sendable {
     }
 }
 
+/// Choruses repeat the same source row many times. Translating each copy
+/// separately lets a model word them differently within one song, costs
+/// requests and tokens, and the text-keyed cache later collapses them to
+/// whichever copy was written last. Only the first occurrence of a row within
+/// a language group is translated; the others take its result.
+public struct LyricTranslationDeduplication: Equatable, Sendable {
+    public let groups: [LyricTranslationGroup]
+    /// First occurrence's line ID → the IDs of later rows with the same text.
+    public let duplicateLineIDs: [String: [String]]
+
+    public init(groups: [LyricTranslationGroup]) {
+        var duplicates: [String: [String]] = [:]
+        self.groups = groups.map { group in
+            var representativeByText: [String: String] = [:]
+            var unique: [LyricTranslationCandidate] = []
+            for candidate in group.candidates {
+                if let representative = representativeByText[candidate.text] {
+                    duplicates[representative, default: []].append(candidate.id)
+                } else {
+                    representativeByText[candidate.text] = candidate.id
+                    unique.append(candidate)
+                }
+            }
+            return LyricTranslationGroup(
+                id: group.id,
+                sourceLanguageCode: group.sourceLanguageCode,
+                candidates: unique
+            )
+        }
+        duplicateLineIDs = duplicates
+    }
+
+    /// Copies each translated row onto the rows that repeat it.
+    public func expanding(_ translations: [String: String]) -> [String: String] {
+        guard !duplicateLineIDs.isEmpty else { return translations }
+        var expanded = translations
+        for (id, text) in translations {
+            for duplicate in duplicateLineIDs[id] ?? [] { expanded[duplicate] = text }
+        }
+        return expanded
+    }
+
+    /// The row itself followed by every row repeating it.
+    public func lineIDs(for id: String) -> [String] {
+        [id] + (duplicateLineIDs[id] ?? [])
+    }
+
+    /// Restores the repeated rows, for decisions that weigh how much of the
+    /// lyric body a group covers.
+    public func restoringDuplicates(in groups: [LyricTranslationGroup]) -> [LyricTranslationGroup] {
+        guard !duplicateLineIDs.isEmpty else { return groups }
+        return groups.map { group in
+            LyricTranslationGroup(
+                id: group.id,
+                sourceLanguageCode: group.sourceLanguageCode,
+                candidates: group.candidates.flatMap { candidate in
+                    [candidate] + (duplicateLineIDs[candidate.id] ?? []).map {
+                        LyricTranslationCandidate(
+                            id: $0,
+                            text: candidate.text,
+                            sourceLanguageCode: candidate.sourceLanguageCode
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+
 public enum LyricTranslationTerminalState: Equatable, Sendable {
     case notNeeded
     case ready

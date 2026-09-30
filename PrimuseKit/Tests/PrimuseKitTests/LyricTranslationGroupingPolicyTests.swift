@@ -2126,4 +2126,36 @@ struct LyricChineseScriptConversionPolicyTests {
             sourceLanguageCode: "ja", targetLanguageCode: "zh-Hans"
         ) == nil)
     }
+
+    @Test func repeatedRowsAreTranslatedOnceAndShareTheResult() {
+        let group = LyricTranslationGroup(id: "en", sourceLanguageCode: "en", candidates: [
+            .init(id: "a", text: "The closer you get", sourceLanguageCode: "en"),
+            .init(id: "b", text: "She runs", sourceLanguageCode: "en"),
+            .init(id: "c", text: "The closer you get", sourceLanguageCode: "en"),
+            .init(id: "d", text: "The closer you get", sourceLanguageCode: "en"),
+        ])
+        let deduplication = LyricTranslationDeduplication(groups: [group])
+
+        #expect(deduplication.groups.first?.candidates.map(\.id) == ["a", "b"])
+        #expect(deduplication.lineIDs(for: "a") == ["a", "c", "d"])
+        #expect(deduplication.lineIDs(for: "b") == ["b"])
+        #expect(deduplication.expanding(["a": "你越靠近", "b": "她跑"]) == [
+            "a": "你越靠近", "b": "她跑", "c": "你越靠近", "d": "你越靠近",
+        ])
+        let restored = deduplication.restoringDuplicates(in: deduplication.groups)
+        #expect(restored.first?.candidates.map(\.id) == ["a", "c", "d", "b"])
+    }
+
+    @Test func identicalRowsInDifferentLanguageGroupsStaySeparate() {
+        let deduplication = LyricTranslationDeduplication(groups: [
+            LyricTranslationGroup(id: "en", sourceLanguageCode: "en", candidates: [
+                .init(id: "a", text: "Oh", sourceLanguageCode: "en"),
+            ]),
+            LyricTranslationGroup(id: "de", sourceLanguageCode: "de", candidates: [
+                .init(id: "b", text: "Oh", sourceLanguageCode: "de"),
+            ]),
+        ])
+        #expect(deduplication.groups.map { $0.candidates.map(\.id) } == [["a"], ["b"]])
+        #expect(deduplication.duplicateLineIDs.isEmpty)
+    }
 }

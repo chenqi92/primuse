@@ -1045,6 +1045,81 @@ public enum LyricsFileConverter {
 
 }
 
+/// Some servers and lyric sites hand out LRC text that was XML-escaped once
+/// too often, so rows arrive as `There&apos;s`. Plain LRC has no entity
+/// syntax of its own, which makes decoding the common forms safe. It happens
+/// in a single pass so `&amp;apos;` becomes the literal `&apos;` it encodes.
+public enum LyricTextEntityPolicy {
+    private static let namedEntities: [Substring: Character] = [
+        "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": " ",
+    ]
+
+    public static func decoded(_ text: String) -> String {
+        guard text.contains("&") else { return text }
+        var result = ""
+        result.reserveCapacity(text.count)
+        var index = text.startIndex
+        while index < text.endIndex {
+            let character = text[index]
+            guard character == "&",
+                  let (replacement, next) = entity(in: text, at: index) else {
+                result.append(character)
+                index = text.index(after: index)
+                continue
+            }
+            result.append(replacement)
+            index = next
+        }
+        return result
+    }
+
+    public static func decoded(_ line: LyricLine) -> LyricLine {
+        var line = line
+        line.text = decoded(line.text)
+        line.syllables = line.syllables?.map { syllable in
+            var syllable = syllable
+            syllable.text = decoded(syllable.text)
+            return syllable
+        }
+        line.background = line.background?.map { decoded($0) }
+        line.romanization = line.romanization.map { decoded($0) }
+        if var translation = line.manualTranslation {
+            translation.text = decoded(translation.text)
+            line.manualTranslation = translation
+        }
+        line.alternateManualTranslations = line.alternateManualTranslations.map { translation in
+            var translation = translation
+            translation.text = decoded(translation.text)
+            return translation
+        }
+        return line
+    }
+
+    private static func entity(
+        in text: String,
+        at ampersand: String.Index
+    ) -> (Character, String.Index)? {
+        let nameStart = text.index(after: ampersand)
+        guard let semicolon = text[nameStart...].prefix(9).firstIndex(of: ";") else {
+            return nil
+        }
+        let name = text[nameStart..<semicolon]
+        let next = text.index(after: semicolon)
+        if let named = namedEntities[name] { return (named, next) }
+        guard name.first == "#" else { return nil }
+        let digits = name.dropFirst()
+        let value: UInt32?
+        if digits.first == "x" || digits.first == "X" {
+            value = UInt32(digits.dropFirst(), radix: 16)
+        } else {
+            value = UInt32(digits, radix: 10)
+        }
+        guard let value, value >= 0x20 || value == 0x09,
+              let scalar = Unicode.Scalar(value) else { return nil }
+        return (Character(scalar), next)
+    }
+}
+
 public enum LyricsContentParser {
     nonisolated(unsafe) private static let lineHeadPattern = /\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]/
     nonisolated(unsafe) private static let relativeLineHeadPattern = /^\[(\d+),(\d+)\]/
@@ -1138,6 +1213,7 @@ public enum LyricsContentParser {
             }
         }
 
+        lines = lines.map { LyricTextEntityPolicy.decoded($0) }
         if options.detectBilingualLRC {
             lines = LyricBilingualPairingPolicy.pair(lines)
         }
@@ -1240,7 +1316,7 @@ public enum LyricsContentParser {
         if !synchronized.isEmpty { return synchronized }
 
         return text.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .map { LyricTextEntityPolicy.decoded($0.trimmingCharacters(in: .whitespaces)) }
             .filter { !$0.isEmpty }
             .enumerated()
             .map { LyricLine(timestamp: 0, text: $0.element, isSynchronized: false) }
