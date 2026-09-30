@@ -9,7 +9,7 @@ extension SearchResultSection {
         case .path: .path
         case .lyrics: .lyrics
         case .fuzzy: .fuzzy
-        case .albums, .artists, .intelligent, .appleMusic: nil
+        case .albums, .artists, .intelligent, .appleMusic, .playlists, .folders, .radio, .spokenWord: nil
         }
     }
 
@@ -34,6 +34,17 @@ struct SearchResultLayout: Equatable {
     /// 要去索引里查的命中类别。关掉的类别不查, 也不占歌。
     var matchKinds: Set<LibrarySearchMatchKind> {
         Set(order.filter(shows).compactMap(\.libraryMatchKind))
+    }
+}
+
+enum SearchResultAvailabilityPolicy {
+    static func isAvailable(_ section: SearchResultSection, hiddenLibrarySectionsRawValue: String) -> Bool {
+        let hidden = LibraryDisplayConfiguration.decodeHiddenSections(hiddenLibrarySectionsRawValue)
+        switch section {
+        case .radio: return !hidden.contains(.radio)
+        case .spokenWord: return !hidden.contains(.spokenWord)
+        default: return true
+        }
     }
 }
 
@@ -63,6 +74,8 @@ struct SearchResultLayoutEditor: View {
     let showsIntelligentRow: Bool
     /// 没添加或停用了 Apple Music 源时同理。
     let showsAppleMusicRow: Bool
+    var showsRadioRow = true
+    var showsSpokenWordRow = true
 
     @AppStorage(SearchResultSectionLayout.orderKey) private var orderRawValue = ""
     @AppStorage(SearchResultSectionLayout.hiddenKey) private var hiddenRawValue = ""
@@ -85,6 +98,8 @@ struct SearchResultLayoutEditor: View {
             switch section {
             case .intelligent: showsIntelligentRow
             case .appleMusic: showsAppleMusicRow
+            case .radio: showsRadioRow
+            case .spokenWord: showsSpokenWordRow
             default: true
             }
         }
@@ -199,7 +214,8 @@ struct SearchResultLayoutEditor: View {
     }
 
     private func canToggle(_ section: SearchResultSection) -> Bool {
-        !isShown(section) || SearchResultSectionLayout.canHide(section, hidden: hidden)
+        !isShown(section) || section == .appleMusic
+            || displayed.contains { $0 != section && $0.isLocal && isShown($0) }
     }
 
     private func visibilityBinding(for section: SearchResultSection) -> Binding<Bool> {

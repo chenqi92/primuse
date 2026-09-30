@@ -1950,6 +1950,7 @@ private struct MinimalTopNavigationBar: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var searchFieldFocused: Bool
+    @State private var isSearchEditing = true
     @Namespace private var librarySelectionIndicator
 
     // 固定高度与字号跟随 Dynamic Type；默认字号下数值与原来一致。
@@ -1967,7 +1968,23 @@ private struct MinimalTopNavigationBar: View {
             HStack(spacing: 8) {
                 libraryHomeButton
 
-                searchField
+                if isSearchEditing || selection == .settings {
+                    searchField
+                } else {
+                    Button {
+                        isSearchEditing = true
+                        searchFieldFocused = true
+                        select(.search)
+                    } label: {
+                        Label(searchText.isEmpty ? searchPrompt : searchText, systemImage: "magnifyingglass")
+                            .font(.system(size: searchFontSize))
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("minimal.search.collapsed")
+                }
 
                 if categoriesCollapsed,
                    let selectedLibraryPage {
@@ -1997,7 +2014,7 @@ private struct MinimalTopNavigationBar: View {
             }
             .padding(.horizontal, 12)
 
-            if !categoriesCollapsed {
+            if !categoriesCollapsed && (isSearchEditing || selection != .search) {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 7) {
@@ -2036,12 +2053,18 @@ private struct MinimalTopNavigationBar: View {
             settingsSearchPresented = false
             if newSelection != .search {
                 searchFieldFocused = false
+                isSearchEditing = true
             }
         }
         .onChange(of: searchFieldFocused) { _, isFocused in
             // Dismissing the keyboard leaves submitted search results visible.
             if selection == .settings, isFocused {
                 settingsSearchPresented = true
+            }
+        }
+        .onChange(of: isSearchEditing) { _, isEditing in
+            if isEditing {
+                Task { @MainActor in searchFieldFocused = true }
             }
         }
         .onChange(of: settingsSearchPresented) { _, isPresented in
@@ -2074,7 +2097,11 @@ private struct MinimalTopNavigationBar: View {
                 .submitLabel(.search)
                 .focused($searchFieldFocused)
                 .onSubmit {
-                    if selection == .settings { searchFieldFocused = false }
+                    searchFieldFocused = false
+                    if selection != .settings {
+                        isSearchEditing = false
+                        categoriesCollapsed = true
+                    }
                     onSubmitSearch()
                 }
                 .accessibilityIdentifier("minimal.search")

@@ -6,6 +6,8 @@ import Foundation
 public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Sendable {
     case albums
     case artists
+    case playlists
+    case folders
     /// 标题 / 艺术家 / 专辑命中。
     case metadata
     case path
@@ -15,6 +17,8 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
     /// AI 语义搜索补充的结果。
     case intelligent
     case appleMusic
+    case radio
+    case spokenWord
 
     public var id: String { rawValue }
 
@@ -22,12 +26,16 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         switch self {
         case .albums: "tab_albums"
         case .artists: "tab_artists"
+        case .playlists: "tab_playlists"
+        case .folders: "library_browse_folder"
         case .metadata: "search_section_metadata"
         case .path: "search_section_path"
         case .lyrics: "search_section_lyrics"
         case .fuzzy: "search_section_fuzzy"
         case .intelligent: "search_ai_section"
         case .appleMusic: "search_section_apple_music"
+        case .radio: "radio_title"
+        case .spokenWord: "tab_spoken_word"
         }
     }
 
@@ -35,12 +43,16 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         switch self {
         case .albums: "square.stack"
         case .artists: "music.mic"
+        case .playlists: "music.note.list"
+        case .folders: "folder"
         case .metadata: "music.note"
         case .path: "folder"
         case .lyrics: "text.quote"
         case .fuzzy: "textformat.abc"
         case .intelligent: "sparkles"
         case .appleMusic: "applelogo"
+        case .radio: "radio.fill"
+        case .spokenWord: "books.vertical"
         }
     }
 
@@ -52,7 +64,7 @@ public enum SearchResultSection: String, CaseIterable, Codable, Identifiable, Se
         switch self {
         case .albums, .artists, .appleMusic: .shelf
         case .lyrics: .cards
-        case .metadata, .path, .fuzzy, .intelligent: .list
+        case .metadata, .path, .fuzzy, .intelligent, .playlists, .folders, .radio, .spokenWord: .list
         }
     }
 }
@@ -212,6 +224,10 @@ public enum SearchResultSectionLayout {
         .fuzzy,
         .intelligent,
         .appleMusic,
+        .playlists,
+        .folders,
+        .radio,
+        .spokenWord,
     ]
 
     /// 读回用户存的顺序。

@@ -8,6 +8,36 @@ import XCTest
 
 final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     @MainActor
+    func testSearchSelectionReusesRangeStreamingWithoutFullDownload() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let localURL = directory.appendingPathComponent("download.mp3")
+        try Data(repeating: 0, count: 4096).write(to: localURL)
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        for sourceType in [MusicSourceType.pan123, .baiduPan] {
+            let sourceID = "search-stream-\(UUID().uuidString)"
+            let source = MusicSource(id: sourceID, name: "Search streaming fixture", type: sourceType)
+            let connector = CompleteArtworkFixtureConnector(
+                sourceID: sourceID, payloads: [:], localURLs: ["file-id": localURL]
+            )
+            let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+            for format in [AudioFormat.mp3, .flac] {
+                let snapshot = Song(id: UUID().uuidString, title: "Search result", fileFormat: format,
+                                    filePath: "file-id", sourceID: sourceID, fileSize: 0)
+                var latest = snapshot
+                latest.fileSize = 9_000_000
+                library.addSongs([latest], affectedSourceIDs: [sourceID])
+                await library.waitForPendingIndex()
+                let selected = try XCTUnwrap(SearchPlaybackSelectionPolicy.currentSong(for: snapshot, in: library))
+                let url = try await manager.resolveURL(for: selected, acquirePlaybackCacheLease: false)
+                XCTAssertEqual(url.scheme, SourceManager.cloudStreamingScheme)
+                let fullDownloads = await connector.localURLRequestCount(for: "file-id")
+                XCTAssertEqual(fullDownloads, 0)
+            }
+        }
+    }
+
+    @MainActor
     func testFileRequestFailuresNeverImmediatelyParkOtherSongs() {
         let errors: [Error] = [
             URLError(.timedOut), URLError(.badServerResponse), URLError(.fileDoesNotExist),
