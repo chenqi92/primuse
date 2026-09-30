@@ -23,11 +23,17 @@ public enum SmartMixAnalysisBackendPolicy {
     public static func preferredBackend(
         operatingSystemMajorVersion: Int,
         musicUnderstandingAvailable: Bool,
+        supportsBackgroundGPUExecution: Bool,
         assetAccess: SmartMixAssetAccess
     ) -> SmartMixAnalysisBackend? {
         switch assetAccess {
         case .completeFile:
-            if operatingSystemMajorVersion >= 27, musicUnderstandingAvailable {
+            // Playback can outlive the foreground scene. Music Understanding
+            // doesn't expose a CPU-only configuration, and its Metal assertions
+            // terminate the process instead of throwing a recoverable error.
+            if operatingSystemMajorVersion >= 27,
+               musicUnderstandingAvailable,
+               supportsBackgroundGPUExecution {
                 return .musicUnderstanding
             }
             return .streamingPCM

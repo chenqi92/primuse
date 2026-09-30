@@ -70,23 +70,46 @@ struct SmartTransitionPolicyTests {
         ) == 0.5)
     }
 
-    @Test("iOS 27 prefers Music Understanding only for readable assets")
+    @Test("Music Understanding requires availability, readable assets and background GPU support")
     func selectsVersionedAnalysisBackend() {
         #expect(SmartMixAnalysisBackendPolicy.preferredBackend(
             operatingSystemMajorVersion: 26,
             musicUnderstandingAvailable: false,
+            supportsBackgroundGPUExecution: true,
             assetAccess: .completeFile
         ) == .streamingPCM)
         #expect(SmartMixAnalysisBackendPolicy.preferredBackend(
             operatingSystemMajorVersion: 27,
             musicUnderstandingAvailable: true,
+            supportsBackgroundGPUExecution: true,
             assetAccess: .completeFile
         ) == .musicUnderstanding)
         #expect(SmartMixAnalysisBackendPolicy.preferredBackend(
             operatingSystemMajorVersion: 27,
             musicUnderstandingAvailable: true,
+            supportsBackgroundGPUExecution: true,
             assetAccess: .protectedSystemStream
         ) == nil)
+    }
+
+    @Test("Background audio stays on PCM even when Music Understanding is available", arguments: [27, 28])
+    func backgroundAudioUsesPCM(operatingSystemMajorVersion: Int) {
+        for assetAccess in [SmartMixAssetAccess.completeFile, .decodedPCM] {
+            #expect(SmartMixAnalysisBackendPolicy.preferredBackend(
+                operatingSystemMajorVersion: operatingSystemMajorVersion,
+                musicUnderstandingAvailable: true,
+                supportsBackgroundGPUExecution: false,
+                assetAccess: assetAccess
+            ) == .streamingPCM)
+        }
+        for assetAccess in [SmartMixAssetAccess.protectedSystemStream, .liveStream] {
+            #expect(SmartMixAnalysisBackendPolicy.preferredBackend(
+                operatingSystemMajorVersion: operatingSystemMajorVersion,
+                musicUnderstandingAvailable: true,
+                supportsBackgroundGPUExecution: false,
+                assetAccess: assetAccess
+            ) == nil)
+        }
     }
 
     @Test("Streaming PCM fallback detects a stable 120 BPM pulse")

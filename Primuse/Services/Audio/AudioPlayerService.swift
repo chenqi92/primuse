@@ -6059,10 +6059,18 @@ final class AudioPlayerService {
         #if canImport(MusicUnderstanding)
         guard completeFileURL.isFileURL else { return }
         if #available(iOS 27.0, macOS 27.0, tvOS 27.0, *) {
+            #if os(macOS)
+            let supportsBackgroundGPUExecution = true
+            #else
+            // Checking the current scene phase would still allow GPU analysis
+            // to race with locking the screen or leaving the app.
+            let supportsBackgroundGPUExecution = false
+            #endif
             guard SmartMixAnalysisBackendPolicy.preferredBackend(
                 operatingSystemMajorVersion: ProcessInfo.processInfo
                     .operatingSystemVersion.majorVersion,
                 musicUnderstandingAvailable: true,
+                supportsBackgroundGPUExecution: supportsBackgroundGPUExecution,
                 assetAccess: .completeFile
             ) == .musicUnderstanding else { return }
 
