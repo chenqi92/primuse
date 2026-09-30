@@ -13,6 +13,8 @@ struct MenuBarPlayerView: View {
     @AppStorage("desktopLyricsLocked") private var desktopLyricsLocked: Bool = false
     @AppStorage("desktopLyricsVisible") private var desktopLyricsVisible: Bool = false
     @AppStorage("miniPlayerVisible") private var miniPlayerVisible: Bool = false
+    /// 与设置 › 歌词里的开关是同一个键；菜单栏控制器监听它的变化即时换上或撤下歌词。
+    @AppStorage(MacMenuBarController.lyricsEnabledKey) private var menuBarLyricsEnabled = false
     @AppStorage(PlayerAppearancePreferences.showsVolumeBarKey)
     private var showsPlayerVolumeBar = PlayerAppearancePreferences.showsVolumeBarByDefault
 
@@ -42,6 +44,14 @@ struct MenuBarPlayerView: View {
                         active: desktopLyricsLocked) {
                     pmWithAnimation(.control) { desktopLyricsLocked.toggle() }
                 }
+
+                menuRow(icon: "menubar.rectangle",
+                        title: "menu_bar_lyrics",
+                        active: menuBarLyricsEnabled,
+                        showsCheckmark: menuBarLyricsEnabled) {
+                    pmWithAnimation(.control) { menuBarLyricsEnabled.toggle() }
+                }
+                .help(Text("menu_bar_lyrics_description"))
             }
 
             menuRow(icon: "rectangle.inset.filled.on.rectangle",
@@ -171,7 +181,7 @@ struct MenuBarPlayerView: View {
                 }
                 .buttonStyle(.plain)
                 .pmPointingHand()
-                .help(Text(player.isLiveRadio ? "radio_previous_station" : "previous_song"))
+                .help(Text(player.isLiveRadio ? LocalizedStringKey("radio_previous_station") : "previous_song"))
             }
 
             Button { player.togglePlayPause() } label: {
@@ -199,7 +209,7 @@ struct MenuBarPlayerView: View {
             .pmPointingHand()
             .disabled(player.isLoading && !player.isLiveRadio)
             .help(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
-                ? "radio_stop"
+                ? LocalizedStringKey("radio_stop")
                 : (player.isPlaying ? "pause" : "play")))
 
             if player.currentItemIsSpokenWord, !player.isLiveRadio {
@@ -223,7 +233,7 @@ struct MenuBarPlayerView: View {
                 }
                 .buttonStyle(.plain)
                 .pmPointingHand()
-                .help(Text(player.isLiveRadio ? "radio_next_station" : "next_song"))
+                .help(Text(player.isLiveRadio ? LocalizedStringKey("radio_next_station") : "next_song"))
             }
             Spacer()
         }
