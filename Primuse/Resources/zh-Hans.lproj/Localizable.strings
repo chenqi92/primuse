@@ -4882,3 +4882,10 @@
 
 "lyrics_island_always_on_top" = "始终置顶";
 "menu_bar_icon_only_with_lyrics_island" = "歌词岛显示时仅保留菜单栏图标";
+
+// Native server listening history
+"stats_server_recorded_plays" = "已记录播放";
+"stats_server_all_time_plays" = "累计播放次数";
+"stats_server_hourly_title" = "各时段播放次数";
+"stats_server_hourly_footer" = "按服务端记录时间的小时分组；记录时间取决于播放客户端。";
+"stats_server_navidrome_history_boundary" = "图表和分时段统计来自 Navidrome 保留的逐次播放历史。更早的播放可能只保留了累计次数，升级无法补回其日期；服务端未提供实际听歌时长。";

@@ -4766,3 +4766,10 @@
 
 "lyrics_island_always_on_top" = "永遠置頂";
 "menu_bar_icon_only_with_lyrics_island" = "歌詞島顯示時只保留選單列圖示";
+
+// Native server listening history
+"stats_server_recorded_plays" = "已記錄播放";
+"stats_server_all_time_plays" = "累計播放次數";
+"stats_server_hourly_title" = "各時段播放次數";
+"stats_server_hourly_footer" = "按伺服器記錄時間的小時分組；記錄時間取決於播放用戶端。";
+"stats_server_navidrome_history_boundary" = "圖表和分時段統計來自 Navidrome 保留的逐次播放歷史。更早的播放可能只保留了累計次數，升級無法補回其日期；伺服器未提供實際聆聽時長。";

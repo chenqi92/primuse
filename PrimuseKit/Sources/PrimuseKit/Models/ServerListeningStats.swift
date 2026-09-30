@@ -14,10 +14,10 @@ public enum ServerListeningStatsCapability: String, Codable, Equatable, Sendable
 public extension MusicSourceType {
     var serverListeningStatsCapability: ServerListeningStatsCapability {
         switch self {
-        case .subsonic, .navidrome, .airsonic, .gonic,
+        case .airsonic, .gonic,
              .jellyfin, .emby:
             return .aggregate
-        case .plex:
+        case .subsonic, .navidrome, .plex:
             return .eventHistoryWithAggregateFallback
         case .synology, .qnap, .ugreen, .fnos,
              .webdav, .smb, .ftp, .sftp, .nfs, .upnp, .s3,
@@ -104,26 +104,32 @@ public struct ServerListeningStatsPayload: Codable, Equatable, Sendable {
     public let durationAvailability: ServerListeningStatsDurationAvailability
     public let tracks: [ServerListeningTrackAggregate]
     public let events: [ServerListeningEvent]
+    /// Optional cumulative counter alongside a potentially shorter event history.
+    /// This is never distributed across dates or used to synthesize missing plays.
+    public let allTimePlayCount: Int?
 
     public init(
         accountFingerprint: String,
         temporalDetail: ServerListeningStatsTemporalDetail,
         durationAvailability: ServerListeningStatsDurationAvailability = .unavailable,
         tracks: [ServerListeningTrackAggregate] = [],
-        events: [ServerListeningEvent] = []
+        events: [ServerListeningEvent] = [],
+        allTimePlayCount: Int? = nil
     ) {
         self.accountFingerprint = accountFingerprint
         self.temporalDetail = temporalDetail
         self.durationAvailability = durationAvailability
         self.tracks = tracks
         self.events = events
+        self.allTimePlayCount = allTimePlayCount
     }
 
     public var isStructurallyValid: Bool {
-        guard !accountFingerprint.isEmpty else { return false }
+        guard !accountFingerprint.isEmpty,
+              allTimePlayCount.map({ $0 >= 0 }) ?? true else { return false }
         switch temporalDetail {
         case .aggregate:
-            return events.isEmpty && durationAvailability == .unavailable
+            return events.isEmpty && durationAvailability == .unavailable && allTimePlayCount == nil
         case .events:
             guard tracks.isEmpty else { return false }
             if durationAvailability == .actual {
@@ -218,6 +224,12 @@ public struct ServerListeningStatsDailyCount: Equatable, Sendable, Identifiable 
     public let playCount: Int
 }
 
+public struct ServerListeningStatsHourlyCount: Equatable, Sendable, Identifiable {
+    public var id: Int { hour }
+    public let hour: Int
+    public let playCount: Int
+}
+
 public struct ServerListeningStatsPresentation: Equatable, Sendable {
     public let temporalDetail: ServerListeningStatsTemporalDetail
     public let appliedRange: ServerListeningStatsRange
@@ -227,6 +239,8 @@ public struct ServerListeningStatsPresentation: Equatable, Sendable {
     public let lastPlayedAt: Date?
     public let totalListenedSeconds: TimeInterval?
     public let dailyCounts: [ServerListeningStatsDailyCount]
+    public let hourlyCounts: [ServerListeningStatsHourlyCount]
+    public let allTimePlayCount: Int?
     public let topTracks: [ServerListeningStatsRankedItem]
     public let topArtists: [ServerListeningStatsRankedItem]
     public let topAlbums: [ServerListeningStatsRankedItem]
@@ -269,6 +283,8 @@ public enum ServerListeningStatsPresentationBuilder {
             lastPlayedAt: playedTracks.compactMap(\.lastPlayedAt).max(),
             totalListenedSeconds: nil,
             dailyCounts: [],
+            hourlyCounts: [],
+            allTimePlayCount: nil,
             topTracks: rankedTracks(playedTracks, limit: rankingLimit),
             topArtists: rankedAggregates(
                 playedTracks,
@@ -300,6 +316,10 @@ public enum ServerListeningStatsPresentationBuilder {
         let dailyCounts = days.map {
             ServerListeningStatsDailyCount(date: $0.key, playCount: $0.value.count)
         }.sorted { $0.date < $1.date }
+        let hours = Dictionary(grouping: events) { calendar.component(.hour, from: $0.playedAt) }
+        let hourlyCounts = (0..<24).map {
+            ServerListeningStatsHourlyCount(hour: $0, playCount: hours[$0]?.count ?? 0)
+        }
 
         return ServerListeningStatsPresentation(
             temporalDetail: .events,
@@ -312,6 +332,8 @@ public enum ServerListeningStatsPresentationBuilder {
                 ? events.compactMap(\.listenedSeconds).reduce(0, +)
                 : nil,
             dailyCounts: dailyCounts,
+            hourlyCounts: hourlyCounts,
+            allTimePlayCount: payload.allTimePlayCount,
             topTracks: rankedEvents(
                 events,
                 kind: .track,

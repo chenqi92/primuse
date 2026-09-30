@@ -4695,3 +4695,10 @@
 
 "lyrics_island_always_on_top" = "Her Zaman Üstte";
 "menu_bar_icon_only_with_lyrics_island" = "Şarkı sözü adası görünürken menü çubuğunda yalnızca simgeyi göster";
+
+// Native server listening history
+"stats_server_recorded_plays" = "Kaydedilen çalmalar";
+"stats_server_all_time_plays" = "Tüm zamanlardaki çalmalar";
+"stats_server_hourly_title" = "Günün saatine göre çalmalar";
+"stats_server_hourly_footer" = "Sunucunun kaydettiği saate göre gruplandırılır · çalmalar. Scrobble zamanı, kullanılan oynatıcıya bağlıdır.";
+"stats_server_navidrome_history_boundary" = "Grafikler ve dönem toplamları Navidrome’un sakladığı çalma geçmişini kullanır. Eski çalmalar yalnızca toplam sayaçlarda bulunabilir; yükseltme bunları yeniden oluşturamaz. Gerçekte dinlenen süre mevcut değildir.";

@@ -4695,3 +4695,10 @@
 
 "lyrics_island_always_on_top" = "हमेशा ऊपर रखें";
 "menu_bar_icon_only_with_lyrics_island" = "गीत द्वीप दिखाई देने पर मेनू बार में केवल आइकन दिखाएँ";
+
+// Native server listening history
+"stats_server_recorded_plays" = "दर्ज किए गए प्ले";
+"stats_server_all_time_plays" = "अब तक के कुल प्ले";
+"stats_server_hourly_title" = "दिन के समय के अनुसार प्ले";
+"stats_server_hourly_footer" = "सर्वर में दर्ज घंटे के अनुसार समूहित · प्ले। स्क्रॉबल का समय प्लेबैक ऐप पर निर्भर करता है।";
+"stats_server_navidrome_history_boundary" = "चार्ट और अवधि के कुल आँकड़े Navidrome के सुरक्षित प्ले इतिहास पर आधारित हैं। पुराने प्ले केवल कुल गिनती में हो सकते हैं; अपग्रेड से उनका इतिहास वापस नहीं बन सकता। वास्तव में सुनी गई अवधि उपलब्ध नहीं है।";

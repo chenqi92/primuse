@@ -4,6 +4,7 @@ import PrimuseKit
 
 /// Subsonic / OpenSubsonic 服务端曲库源。首个验证对象是 Navidrome, 但只用
 /// 通用 Subsonic API, 因此同样适用于 Airsonic / Gonic / Ampache 等。
+/// Navidrome 0.64+ 的听歌历史另用其 native API; 其他服务不请求该接口。
 ///
 /// 与 NAS / 文件源不同, 它不浏览目录树而是"全库扫描": 服务端直接给出
 /// title / artist / album / duration / cover, 绕开本地读文件头回填。
@@ -435,7 +436,31 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
 
     func fetchServerListeningStats() async throws -> ServerListeningStatsPayload {
         try await connect()
+        let history = try await fetchNavidromeListeningHistoryIfAvailable()
         let catalog = try await fetchCompleteStatsCatalog()
+        if let history {
+            let songsByID = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
+            return ServerListeningStatsPayload(
+                accountFingerprint: ServerListeningStatsFingerprint.account(
+                    service: "navidrome",
+                    endpoint: baseURL.absoluteString,
+                    accountIdentifier: history.accountID
+                ),
+                temporalDetail: .events,
+                events: history.entries.map { entry in
+                    let song = songsByID[entry.mediaFileId]
+                    return ServerListeningEvent(
+                        id: String(entry.id),
+                        remoteTrackID: entry.mediaFileId,
+                        title: song?.title ?? entry.mediaFileId,
+                        artist: song?.artist ?? song?.displayArtist,
+                        album: song?.album,
+                        playedAt: Date(timeIntervalSince1970: TimeInterval(entry.submissionTime))
+                    )
+                },
+                allTimePlayCount: catalog.reduce(0) { $0 + max(0, $1.playCount ?? 0) }
+            )
+        }
         let tracks = catalog.map { child in
             ServerListeningTrackAggregate(
                 remoteTrackID: child.id,
@@ -459,6 +484,36 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
             throw ServerListeningStatsConnectorError.invalidSnapshot
         }
         return payload
+    }
+
+    private func fetchNavidromeListeningHistoryIfAvailable() async throws -> NavidromeListeningHistory.Snapshot? {
+        guard serverType?.lowercased() == "navidrome",
+              sourceType.serverListeningStatsCapability == .eventHistoryWithAggregateFallback else {
+            return nil
+        }
+        do {
+            return try await NavidromeListeningHistory.fetch(
+                baseURL: baseURL,
+                username: username,
+                password: webPassword
+            ) { [session] request in
+                try await TrustedHTTPTransport.data(for: request, session: session)
+            }
+        } catch let failure as NavidromeListeningHistory.Failure {
+            switch failure {
+            case .unavailable:
+                return nil
+            case .accountMismatch:
+                throw ServerListeningStatsConnectorError.accountAmbiguous
+            case .invalidResponse:
+                throw ServerListeningStatsConnectorError.invalidSnapshot
+            case .historyChanged:
+                throw ServerListeningStatsConnectorError.historyChangedDuringPagination
+            case .httpStatus(let status):
+                if status == 401 || status == 403 { throw SourceError.authenticationFailed }
+                throw SourceError.connectionFailed("HTTP \(status)")
+            }
+        }
     }
 
     // MARK: - Public media sharing
