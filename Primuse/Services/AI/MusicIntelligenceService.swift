@@ -731,17 +731,41 @@ final class MusicIntelligenceService {
                     configuration: configuration
                   ) else { continue }
             do {
-                let translations = try await engine.translateLyrics(
-                    candidates,
-                    targetLanguageCode: targetLanguageCode,
-                    configuration: configuration,
-                    regionContext: regionSnapshot.context,
-                    hasExplicitRemoteConsent: consent,
-                    requestAuthorization: regionAuthorization(
-                        for: regionSnapshot,
-                        configuration: configuration
-                    )
+                let engine = engine
+                let regionContext = regionSnapshot.context
+                let requestAuthorization = regionAuthorization(
+                    for: regionSnapshot,
+                    configuration: configuration
                 )
+                let translate: @Sendable (
+                    (@Sendable (_ id: String, _ text: String) -> Void)?
+                ) async throws -> [String: String] = { onTranslation in
+                    try await engine.translateLyrics(
+                        candidates,
+                        targetLanguageCode: targetLanguageCode,
+                        configuration: configuration,
+                        regionContext: regionContext,
+                        hasExplicitRemoteConsent: consent,
+                        requestAuthorization: requestAuthorization,
+                        onTranslation: onTranslation
+                    )
+                }
+                let translations: [String: String]
+                if let onStreamEvent {
+                    translations = try await Self.forwardingProgress(
+                        { report in try await translate { id, text in report((id, text)) } },
+                        to: { [regionAvailability] line in
+                            guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                                captured: regionSnapshot,
+                                latest: regionAvailability.snapshot,
+                                configuration: configuration
+                            ) else { return }
+                            onStreamEvent(.translation(id: line.0, text: line.1))
+                        }
+                    )
+                } else {
+                    translations = try await translate(nil)
+                }
                 guard AIRegionRequestPolicy.canCommitRemoteResponse(
                     captured: regionSnapshot,
                     latest: regionAvailability.snapshot,
@@ -1034,17 +1058,42 @@ final class MusicIntelligenceService {
             }
 
             do {
-                let providerPlan = try await engine.recommendations(
-                    request,
-                    configuration: configuration,
-                    regionContext: regionSnapshot.context,
-                    hasExplicitListeningContextConsent: settingsStore
-                        .hasExplicitListeningContextConsent,
-                    requestAuthorization: regionAuthorization(
-                        for: regionSnapshot,
-                        configuration: configuration
-                    )
+                let engine = engine
+                let regionContext = regionSnapshot.context
+                let hasConsent = settingsStore.hasExplicitListeningContextConsent
+                let requestAuthorization = regionAuthorization(
+                    for: regionSnapshot,
+                    configuration: configuration
                 )
+                let recommend: @Sendable (
+                    (@Sendable (AIRecommendationSelection) -> Void)?
+                ) async throws -> AIRecommendationPlan = { onSelection in
+                    try await engine.recommendations(
+                        request,
+                        configuration: configuration,
+                        regionContext: regionContext,
+                        hasExplicitListeningContextConsent: hasConsent,
+                        requestAuthorization: requestAuthorization,
+                        onSelection: onSelection
+                    )
+                }
+                let providerPlan: AIRecommendationPlan
+                if let onStreamEvent {
+                    providerPlan = try await Self.forwardingProgress(
+                        { report in try await recommend(report) },
+                        to: { [regionAvailability] selection in
+                            guard AIRegionRequestPolicy.canCommitRemoteResponse(
+                                captured: regionSnapshot,
+                                latest: regionAvailability.snapshot,
+                                configuration: configuration
+                            ), streamedSelectionIDs.insert(selection.songID).inserted else { return }
+                            streamedSelections.append(selection)
+                            onStreamEvent(.selection(selection))
+                        }
+                    )
+                } else {
+                    providerPlan = try await recommend(nil)
+                }
                 let plan = Self.mergingStreamedRecommendations(
                     streamedSelections,
                     into: providerPlan,
@@ -1091,6 +1140,25 @@ final class MusicIntelligenceService {
             )
         }
         return .failed(lastFailureReason ?? .upstream, retryAt: lastRetryAt)
+    }
+
+    /// Runs a provider call whose progress callback fires off the main actor,
+    /// delivering that progress here in order before the result is returned.
+    private static func forwardingProgress<Progress: Sendable, Value: Sendable>(
+        _ operation: @escaping @Sendable (@escaping @Sendable (Progress) -> Void) async throws -> Value,
+        to receive: (Progress) -> Void
+    ) async throws -> Value {
+        let (stream, continuation) = AsyncStream.makeStream(of: Progress.self)
+        let producer = Task {
+            defer { continuation.finish() }
+            return try await operation { continuation.yield($0) }
+        }
+        return try await withTaskCancellationHandler {
+            for await progress in stream { receive(progress) }
+            return try await producer.value
+        } onCancel: {
+            producer.cancel()
+        }
     }
 
     nonisolated static func mergingStreamedRecommendations(
@@ -2171,7 +2239,8 @@ private actor MusicIntelligenceEngine {
         configuration: AIRemoteProviderConfiguration,
         regionContext: AIRegionContext,
         hasExplicitRemoteConsent: Bool,
-        requestAuthorization: @escaping @Sendable () async -> Bool
+        requestAuthorization: @escaping @Sendable () async -> Bool,
+        onTranslation: (@Sendable (_ id: String, _ text: String) -> Void)? = nil
     ) async throws -> [String: String] {
         let routed = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
@@ -2200,7 +2269,8 @@ private actor MusicIntelligenceEngine {
         return try await withTimeout(seconds: configuration.requestTimeout) {
             try await provider.translateLyrics(
                 candidates,
-                targetLanguageCode: targetLanguageCode
+                targetLanguageCode: targetLanguageCode,
+                onTranslation: onTranslation
             )
         }
     }
@@ -2255,7 +2325,8 @@ private actor MusicIntelligenceEngine {
         configuration: AIRemoteProviderConfiguration,
         regionContext: AIRegionContext,
         hasExplicitListeningContextConsent: Bool,
-        requestAuthorization: @escaping @Sendable () async -> Bool
+        requestAuthorization: @escaping @Sendable () async -> Bool,
+        onSelection: (@Sendable (AIRecommendationSelection) -> Void)? = nil
     ) async throws -> AIRecommendationPlan {
         let candidates = AIProviderRoutingPolicy.candidates(
             from: [configuration.descriptor],
@@ -2282,7 +2353,7 @@ private actor MusicIntelligenceEngine {
             throw MusicIntelligenceError.unavailable(reason)
         }
         return try await withTimeout(seconds: configuration.requestTimeout) {
-            try await provider.recommendations(request)
+            try await provider.recommendations(request, onSelection: onSelection)
         }
     }
 

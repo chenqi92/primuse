@@ -10,6 +10,21 @@ enum OpenAICompatibleProviderError: Error, Equatable, Sendable {
     case responseTooLarge
     case invalidResponse
     case requestFailed(statusCode: Int)
+
+    /// A streamed request that failed this way before producing anything is
+    /// worth one ordinary request: the endpoint may not support streaming or
+    /// may stream in a format that is not recognized. Credential, quota and
+    /// server failures would fail the same way again.
+    var allowsBufferedRetry: Bool {
+        switch self {
+        case .invalidResponse:
+            return true
+        case .requestFailed(let statusCode):
+            return [400, 404, 405, 406, 415, 422, 501].contains(statusCode)
+        default:
+            return false
+        }
+    }
 }
 
 private final class AIBoundedResponseLoader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
@@ -176,6 +191,21 @@ private final class AIBoundedResponseLoader: NSObject, URLSessionDataDelegate, @
     }
 }
 
+/// Streamed requests follow the same rule as buffered ones: credentials are
+/// never forwarded through a redirect.
+private final class AIRedirectRefusingDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    static let shared = AIRedirectRefusingDelegate()
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        nil
+    }
+}
+
 actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
     AIRecommendationProviding, AILyricsTranslationProviding {
     nonisolated let descriptor: AIProviderDescriptor
@@ -304,6 +334,20 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         _ candidates: [LyricTranslationCandidate],
         targetLanguageCode: String
     ) async throws -> [String: String] {
+        try await translateLyrics(
+            candidates,
+            targetLanguageCode: targetLanguageCode,
+            onTranslation: nil
+        )
+    }
+
+    /// With `onTranslation`, each line is reported as soon as the provider
+    /// has written it; the complete answer is still validated as a whole.
+    func translateLyrics(
+        _ candidates: [LyricTranslationCandidate],
+        targetLanguageCode: String,
+        onTranslation: (@Sendable (_ id: String, _ text: String) -> Void)?
+    ) async throws -> [String: String] {
         let input = candidates
             .filter { !$0.id.isEmpty && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .prefix(80)
@@ -323,15 +367,20 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
               let prompt = String(data: data, encoding: .utf8) else {
             throw OpenAICompatibleProviderError.invalidResponse
         }
-        let output = try await generateText(
+        let allowedIDs = Set(input.compactMap { $0["id"] })
+        var reportedIDs = Set<String>()
+        let output = try await generatedText(
             instructions: Self.lyricsTranslationInstructions,
             input: prompt,
-            maximumTokens: 4_000
-        )
-        return try Self.decodeLyricsTranslations(
-            from: output,
-            allowedIDs: Set(input.compactMap { $0["id"] })
-        )
+            maximumTokens: 4_000,
+            streamingArrayKeys: onTranslation == nil ? nil : ["translations"]
+        ) { item in
+            guard let onTranslation,
+                  let line = Self.lyricsTranslation(from: item, allowedIDs: allowedIDs),
+                  reportedIDs.insert(line.id).inserted else { return }
+            onTranslation(line.id, line.text)
+        }
+        return try Self.decodeLyricsTranslations(from: output, allowedIDs: allowedIDs)
     }
 
     /// Proposed tag corrections for up to one batch of songs. Returns
@@ -362,6 +411,15 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
 
     func recommendations(
         _ request: AIRecommendationRequest
+    ) async throws -> AIRecommendationPlan {
+        try await recommendations(request, onSelection: nil)
+    }
+
+    /// With `onSelection`, each pick is reported as soon as the provider has
+    /// written it; the complete answer is still validated as a whole.
+    func recommendations(
+        _ request: AIRecommendationRequest,
+        onSelection: (@Sendable (AIRecommendationSelection) -> Void)?
     ) async throws -> AIRecommendationPlan {
         var tokenToSongID: [String: String] = [:]
         let candidates = request.candidates.prefix(36).enumerated().compactMap {
@@ -417,11 +475,19 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
               let input = String(data: data, encoding: .utf8) else {
             throw OpenAICompatibleProviderError.invalidResponse
         }
-        let output = try await generateText(
+        var reportedTokens = Set<String>()
+        let output = try await generatedText(
             instructions: Self.recommendationInstructions,
             input: input,
-            maximumTokens: 1_200
-        )
+            maximumTokens: 1_200,
+            streamingArrayKeys: onSelection == nil ? nil : ["recommendations", "items"]
+        ) { item in
+            guard let onSelection,
+                  let token = item["id"] as? String,
+                  let selection = Self.recommendationSelection(from: item, tokenToSongID: tokenToSongID),
+                  reportedTokens.insert(token).inserted else { return }
+            onSelection(selection)
+        }
         let plan = try Self.decodeRecommendationPlan(
             from: output,
             tokenToSongID: tokenToSongID
@@ -659,41 +725,12 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         } catch let error as AIRemoteEndpointValidationError {
             throw OpenAICompatibleProviderError.invalidConfiguration(error)
         }
-        let body: [String: Any]
-        switch configuration.apiStyle {
-        case .responses:
-            body = [
-                "model": model,
-                "instructions": instructions,
-                "input": input,
-                "max_output_tokens": maximumTokens,
-                "store": false,
-            ]
-        case .chatCompletions:
-            body = [
-                "model": model,
-                "messages": [
-                    ["role": "system", "content": instructions],
-                    ["role": "user", "content": input],
-                ],
-                "max_tokens": maximumTokens,
-            ]
-        case .anthropicMessages:
-            body = [
-                "model": model,
-                "max_tokens": maximumTokens,
-                "system": instructions,
-                "messages": [
-                    ["role": "user", "content": input],
-                ],
-            ]
-        case .geminiGenerateContent:
-            body = Self.geminiRequestBody(
-                instructions: instructions,
-                input: input,
-                maximumTokens: maximumTokens
-            )
-        }
+        let body = generationBody(
+            model: model,
+            instructions: instructions,
+            input: input,
+            maximumTokens: maximumTokens
+        )
         let data = try await postJSON(
             applyingProviderSpecificGenerationControls(to: body),
             to: endpoint,
@@ -704,6 +741,201 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         }
         return output
     }
+
+    private func generationBody(
+        model: String,
+        instructions: String,
+        input: String,
+        maximumTokens: Int
+    ) -> [String: Any] {
+        switch configuration.apiStyle {
+        case .responses:
+            return [
+                "model": model,
+                "instructions": instructions,
+                "input": input,
+                "max_output_tokens": maximumTokens,
+                "store": false,
+            ]
+        case .chatCompletions:
+            return [
+                "model": model,
+                "messages": [
+                    ["role": "system", "content": instructions],
+                    ["role": "user", "content": input],
+                ],
+                "max_tokens": maximumTokens,
+            ]
+        case .anthropicMessages:
+            return [
+                "model": model,
+                "max_tokens": maximumTokens,
+                "system": instructions,
+                "messages": [
+                    ["role": "user", "content": input],
+                ],
+            ]
+        case .geminiGenerateContent:
+            return Self.geminiRequestBody(
+                instructions: instructions,
+                input: input,
+                maximumTokens: maximumTokens
+            )
+        }
+    }
+
+    /// Generates the answer, streaming it when `streamingArrayKeys` names the
+    /// array whose items the caller wants as they are written. A provider
+    /// that rejects streaming before producing anything is asked once more
+    /// the ordinary way.
+    private func generatedText(
+        instructions: String,
+        input: String,
+        maximumTokens: Int,
+        streamingArrayKeys: [String]?,
+        onItem: ([String: Any]) -> Void
+    ) async throws -> String {
+        guard let streamingArrayKeys else {
+            return try await generateText(
+                instructions: instructions,
+                input: input,
+                maximumTokens: maximumTokens
+            )
+        }
+        var extractor = AIStreamingJSONArrayExtractor(keys: streamingArrayKeys)
+        var reportedAnything = false
+        do {
+            return try await streamText(
+                instructions: instructions,
+                input: input,
+                maximumTokens: maximumTokens
+            ) { delta in
+                for item in extractor.append(delta) {
+                    reportedAnything = true
+                    onItem(item)
+                }
+            }
+        } catch let error as OpenAICompatibleProviderError
+                    where !reportedAnything && error.allowsBufferedRetry {
+            return try await generateText(
+                instructions: instructions,
+                input: input,
+                maximumTokens: maximumTokens
+            )
+        }
+    }
+
+    private func streamText(
+        instructions: String,
+        input: String,
+        maximumTokens: Int,
+        onDelta: (String) -> Void
+    ) async throws -> String {
+        let model = configuration.generationModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else {
+            throw OpenAICompatibleProviderError.missingGenerationModel
+        }
+        let endpoint: URL
+        do {
+            endpoint = try AIRemoteEndpointPolicy.streamingGenerationEndpoint(
+                configuration: configuration
+            )
+        } catch let error as AIRemoteEndpointValidationError {
+            throw OpenAICompatibleProviderError.invalidConfiguration(error)
+        }
+        var body = applyingProviderSpecificGenerationControls(to: generationBody(
+            model: model,
+            instructions: instructions,
+            input: input,
+            maximumTokens: maximumTokens
+        ))
+        if configuration.apiStyle != .geminiGenerateContent {
+            body["stream"] = true
+        }
+        let request = try jsonRequest(
+            body,
+            to: endpoint,
+            apiKey: try await requiredAPIKey(),
+            accept: "text/event-stream"
+        )
+        guard await requestAuthorization() else { throw CancellationError() }
+
+        let session = URLSession(configuration: sessionConfiguration)
+        defer { session.invalidateAndCancel() }
+        let style = configuration.apiStyle
+        var text = ""
+        do {
+            let (bytes, response) = try await session.bytes(
+                for: request,
+                delegate: AIRedirectRefusingDelegate.shared
+            )
+            guard let http = response as? HTTPURLResponse else {
+                throw OpenAICompatibleProviderError.invalidResponse
+            }
+            guard (200...299).contains(http.statusCode) else {
+                throw OpenAICompatibleProviderError.requestFailed(statusCode: http.statusCode)
+            }
+            let contentType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+            guard contentType.contains("text/event-stream") else {
+                // The provider ignored the streaming request and answered at once.
+                var data = Data()
+                for try await byte in bytes {
+                    guard data.count < AIResponseSizePolicy.maximumBytes else {
+                        throw OpenAICompatibleProviderError.responseTooLarge
+                    }
+                    data.append(byte)
+                }
+                guard let output = Self.extractText(from: data, style: style) else {
+                    throw OpenAICompatibleProviderError.invalidResponse
+                }
+                onDelta(output)
+                return output
+            }
+
+            var parser = AIServerSentEventParser()
+            var receivedBytes = 0
+            var finished = false
+            func handle(_ event: AIServerSentEventParser.Event) throws {
+                switch AIStreamingTextDelta.from(event, style: style) {
+                case .text(let delta):
+                    guard text.utf8.count + delta.utf8.count <= AIResponseSizePolicy.maximumBytes else {
+                        throw OpenAICompatibleProviderError.responseTooLarge
+                    }
+                    text += delta
+                    onDelta(delta)
+                case .done:
+                    finished = true
+                case .failed:
+                    throw OpenAICompatibleProviderError.invalidResponse
+                case .ignored:
+                    break
+                }
+            }
+            for try await byte in bytes {
+                receivedBytes += 1
+                // Event framing costs several times the text it carries.
+                guard receivedBytes <= Self.maximumStreamedBytes else {
+                    throw OpenAICompatibleProviderError.responseTooLarge
+                }
+                if let event = parser.consume(byte) {
+                    try handle(event)
+                    if finished { break }
+                }
+            }
+            if !finished, let event = parser.finish() { try handle(event) }
+        } catch let error as OpenAICompatibleProviderError {
+            throw error
+        } catch let error as URLError where error.code == .timedOut {
+            throw MusicIntelligenceError.timedOut
+        } catch {
+            if Task.isCancelled || error is CancellationError { throw CancellationError() }
+            throw OpenAICompatibleProviderError.transportFailure
+        }
+        guard !text.isEmpty else { throw OpenAICompatibleProviderError.invalidResponse }
+        return text
+    }
+
+    private static let maximumStreamedBytes = AIResponseSizePolicy.maximumBytes * 4
 
     private func applyingProviderSpecificGenerationControls(
         to body: [String: Any]
@@ -976,6 +1208,15 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         to endpoint: URL,
         apiKey: String
     ) async throws -> Data {
+        try await perform(jsonRequest(body, to: endpoint, apiKey: apiKey))
+    }
+
+    private func jsonRequest(
+        _ body: [String: Any],
+        to endpoint: URL,
+        apiKey: String,
+        accept: String = "application/json"
+    ) throws -> URLRequest {
         guard let requestTimeout = AIRequestTimeoutPolicy.validated(
             configuration.requestTimeout
         ) else {
@@ -985,15 +1226,14 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         request.httpMethod = "POST"
         request.timeoutInterval = requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(accept, forHTTPHeaderField: "Accept")
         applyAuthentication(to: &request, apiKey: apiKey)
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             throw OpenAICompatibleProviderError.invalidResponse
         }
-
-        return try await perform(request)
+        return request
     }
 
     private func getJSON(
@@ -1226,17 +1466,37 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         }
         var result: [String: String] = [:]
         for item in items {
-            guard let id = item["id"] as? String,
-                  allowedIDs.contains(id),
-                  let text = item["text"] as? String else { continue }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, trimmed.count <= 2_000 else { continue }
-            result[id] = trimmed
+            guard let line = lyricsTranslation(from: item, allowedIDs: allowedIDs) else { continue }
+            result[line.id] = line.text
         }
         guard !result.isEmpty, result.count == allowedIDs.count else {
             throw OpenAICompatibleProviderError.invalidResponse
         }
         return result
+    }
+
+    private static func lyricsTranslation(
+        from item: [String: Any],
+        allowedIDs: Set<String>
+    ) -> (id: String, text: String)? {
+        guard let id = item["id"] as? String,
+              allowedIDs.contains(id),
+              let text = item["text"] as? String else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 2_000 else { return nil }
+        return (id, trimmed)
+    }
+
+    private static func recommendationSelection(
+        from item: [String: Any],
+        tokenToSongID: [String: String]
+    ) -> AIRecommendationSelection? {
+        guard let token = item["id"] as? String,
+              let songID = tokenToSongID[token],
+              let rawReason = item["reason"] as? String else { return nil }
+        let reason = rawReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reason.isEmpty, reason.count <= 500 else { return nil }
+        return AIRecommendationSelection(songID: songID, reason: reason)
     }
 
     private static func decodeRecommendationPlan(
@@ -1257,11 +1517,9 @@ actor OpenAICompatibleProvider: AISemanticSearchProviding, AIEmbeddingProviding,
         for item in items.prefix(24) {
             guard let token = item["id"] as? String,
                   seenTokens.insert(token).inserted,
-                  let songID = tokenToSongID[token],
-                  let rawReason = item["reason"] as? String else { continue }
-            let reason = rawReason.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !reason.isEmpty, reason.count <= 500 else { continue }
-            selections.append(AIRecommendationSelection(songID: songID, reason: reason))
+                  let selection = recommendationSelection(from: item, tokenToSongID: tokenToSongID)
+            else { continue }
+            selections.append(selection)
         }
         guard !selections.isEmpty else {
             throw OpenAICompatibleProviderError.invalidResponse

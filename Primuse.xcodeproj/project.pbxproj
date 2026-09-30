@@ -224,6 +224,7 @@
 		212511EFE29CDB7FBFCA233B /* PhoneRelayServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 299BA8CA4513E33F5CF2BC7C /* PhoneRelayServer.swift */; };
 		21E496A1A424DA68570A7928 /* PrimuseKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B1E36F2FECF46E724081F983 /* PrimuseKit.framework */; };
 		223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33F16C8FA296E2937F01489 /* AIRemoteProviderConfiguration.swift */; };
+		1F048FB83001484350FA85F1 /* AIStreamingResponsePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08D865095E4C9545D3137EC3 /* AIStreamingResponsePolicy.swift */; };
 		2258673CDC1F146D06F403A0 /* SynologySource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E60AA3C090087F657145292 /* SynologySource.swift */; };
 		2265889CD329AF4A8AC93100 /* BrowserChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 768665CEDF081091A5DFAED7 /* BrowserChrome.swift */; };
 		2280828CE83CE3AB3042CB6E /* AppDistributionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D041D8BEB3E75D3D4A605E4 /* AppDistributionChannel.swift */; };
@@ -2967,6 +2968,7 @@
 		F266BC40DFEB0858D943B648 /* AICredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICredentialStore.swift; sourceTree = "<group>"; };
 		F305F7BCB4890BACB9A519F4 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/MetadataReading.strings; sourceTree = "<group>"; };
 		F33F16C8FA296E2937F01489 /* AIRemoteProviderConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRemoteProviderConfiguration.swift; sourceTree = "<group>"; };
+		08D865095E4C9545D3137EC3 /* AIStreamingResponsePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIStreamingResponsePolicy.swift; sourceTree = "<group>"; };
 		F3AC2F09E8F26527DA865619 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
 		F3C14C6A1A8A4E15C1A2438D /* LibraryPreviewSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPreviewSessionTests.swift; sourceTree = "<group>"; };
 		F3C8CEC911997BAD1A995D08 /* TVConfigServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVConfigServer.swift; sourceTree = "<group>"; };
@@ -4258,6 +4260,7 @@
 				34C6D54A0624AAFCF3E1D472 /* AIAvailabilityPolicy.swift */,
 				78953F6B19CEAED0F2FECBD0 /* AIIntelligenceModels.swift */,
 				F33F16C8FA296E2937F01489 /* AIRemoteProviderConfiguration.swift */,
+				08D865095E4C9545D3137EC3 /* AIStreamingResponsePolicy.swift */,
 			);
 			path = AI;
 			sourceTree = "<group>";
@@ -5448,6 +5451,7 @@
 				6F139A773725A49F443C3494 /* AIAvailabilityPolicy.swift in Sources */,
 				A7815B97AB23C3B0112CF13D /* AIIntelligenceModels.swift in Sources */,
 				223571A3D35282EEE8DC3CD8 /* AIRemoteProviderConfiguration.swift in Sources */,
+				1F048FB83001484350FA85F1 /* AIStreamingResponsePolicy.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
 				8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */,
 				5A7560150DC89DCF048C6B23 /* AirsonicTagEditingProtocol.swift in Sources */,

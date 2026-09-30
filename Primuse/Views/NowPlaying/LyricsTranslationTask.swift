@@ -293,6 +293,23 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                 }
             }
             guard !Task.isCancelled, translationTaskIdentity == identity else { return }
+            // Rows the provider streamed before it failed stay on screen (they
+            // are cached already); only the rest fall back to the system.
+            if !streamedTranslations.isEmpty {
+                uncachedGroups = uncachedGroups.compactMap { group in
+                    let remaining = group.candidates.filter { streamedTranslations[$0.id] == nil }
+                    guard !remaining.isEmpty else { return nil }
+                    return LyricTranslationGroup(
+                        id: group.id,
+                        sourceLanguageCode: group.sourceLanguageCode,
+                        candidates: remaining
+                    )
+                }
+                guard !uncachedGroups.isEmpty else {
+                    activity = .intelligentCached
+                    return
+                }
+            }
             activity = .systemFallback
 
             var systemPendingGroups: [LyricTranslationGroup] = []

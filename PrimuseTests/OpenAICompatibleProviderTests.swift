@@ -162,6 +162,173 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertTrue((object["input"] as? String)?.contains("line-1") == true)
     }
 
+    func testStreamedLyricsTranslationReportsEachLineBeforeTheAnswerCompletes() async throws {
+        let host = "intelligence-lyrics-stream.invalid"
+        let events = [
+            #"{"choices":[{"delta":{"content":"{\"translations\":[{\"id\":\"line-1\","}}]}"#,
+            #"{"choices":[{"delta":{"content":"\"text\":\"回家的路\"},"}}]}"#,
+            #"{"choices":[{"delta":{"content":"{\"id\":\"line-2\",\"text\":\"雨夜\"}]}"}}]}"#,
+            "[DONE]",
+        ]
+        let stream = events.map { "data: \($0)\n\n" }.joined()
+        // Split the body mid-event so framing is reassembled across chunks.
+        let bytes = Data(stream.utf8)
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            chunks: stride(from: 0, to: bytes.count, by: 37).map {
+                bytes.subdata(in: $0..<min(bytes.count, $0 + 37))
+            },
+            headerFields: ["Content-Type": "text/event-stream; charset=utf-8"]
+        )
+        let (provider, session) = makeProvider(host: host, apiStyle: .chatCompletions)
+        defer { session.invalidateAndCancel() }
+        let reported = StreamedValues<String>()
+
+        let translations = try await provider.translateLyrics(
+            Self.twoLyricLines,
+            targetLanguageCode: "zh-Hans",
+            onTranslation: { id, text in reported.append("\(id)=\(text)") }
+        )
+
+        XCTAssertEqual(reported.values, ["line-1=回家的路", "line-2=雨夜"])
+        XCTAssertEqual(translations, ["line-1": "回家的路", "line-2": "雨夜"])
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        XCTAssertEqual(request.url?.path, "/v1/chat/completions")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(object["stream"] as? Bool, true)
+    }
+
+    func testStreamingRejectedBeforeAnyOutputRetriesAsAnOrdinaryRequest() async throws {
+        let host = "intelligence-lyrics-no-stream.invalid"
+        IntelligenceURLProtocol.configureSequence(host: host, responses: [
+            (statusCode: 400, body: #"{"error":{"message":"stream is not supported"}}"#),
+            (
+                statusCode: 200,
+                body: #"{"output_text":"{\"translations\":[{\"id\":\"line-1\",\"text\":\"回家的路\"},{\"id\":\"line-2\",\"text\":\"雨夜\"}]}"}"#
+            ),
+        ])
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+        let reported = StreamedValues<String>()
+
+        let translations = try await provider.translateLyrics(
+            Self.twoLyricLines,
+            targetLanguageCode: "zh-Hans",
+            onTranslation: { id, _ in reported.append(id) }
+        )
+
+        XCTAssertEqual(translations, ["line-1": "回家的路", "line-2": "雨夜"])
+        XCTAssertTrue(reported.values.isEmpty)
+        let requests = IntelligenceURLProtocol.requests(host: host)
+        XCTAssertEqual(requests.count, 2)
+        let retryBody = try XCTUnwrap(requests.last?.httpBody)
+        let retry = try XCTUnwrap(JSONSerialization.jsonObject(with: retryBody) as? [String: Any])
+        XCTAssertNil(retry["stream"])
+    }
+
+    func testProviderAnsweringAtOnceStillReportsItsLines() async throws {
+        let host = "intelligence-lyrics-json-answer.invalid"
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            body: #"{"output_text":"{\"translations\":[{\"id\":\"line-1\",\"text\":\"回家的路\"},{\"id\":\"line-2\",\"text\":\"雨夜\"}]}"}"#
+        )
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+        let reported = StreamedValues<String>()
+
+        _ = try await provider.translateLyrics(
+            Self.twoLyricLines,
+            targetLanguageCode: "zh-Hans",
+            onTranslation: { id, _ in reported.append(id) }
+        )
+
+        XCTAssertEqual(reported.values, ["line-1", "line-2"])
+        XCTAssertEqual(IntelligenceURLProtocol.requests(host: host).count, 1)
+    }
+
+    func testGeminiStreamsThroughStreamGenerateContent() async throws {
+        let host = "intelligence-gemini-stream.invalid"
+        let events = [
+            #"{"candidates":[{"content":{"parts":[{"text":"{\"translations\":[{\"id\":\"line-1\",\"text\":\"回家的路\"},"}]}}]}"#,
+            #"{"candidates":[{"content":{"parts":[{"text":"{\"id\":\"line-2\",\"text\":\"雨夜\"}]}"}]},"finishReason":"STOP"}]}"#,
+        ]
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            chunks: events.map { Data("data: \($0)\r\n\r\n".utf8) },
+            headerFields: ["Content-Type": "text/event-stream"]
+        )
+        let (provider, session) = makeProvider(host: host, apiStyle: .geminiGenerateContent)
+        defer { session.invalidateAndCancel() }
+        let reported = StreamedValues<String>()
+
+        let translations = try await provider.translateLyrics(
+            Self.twoLyricLines,
+            targetLanguageCode: "zh-Hans",
+            onTranslation: { id, _ in reported.append(id) }
+        )
+
+        XCTAssertEqual(reported.values, ["line-1", "line-2"])
+        XCTAssertEqual(translations.count, 2)
+        let request = try XCTUnwrap(IntelligenceURLProtocol.requests(host: host).first)
+        XCTAssertTrue(request.url?.path.hasSuffix(":streamGenerateContent") == true)
+        XCTAssertEqual(request.url?.query, "alt=sse")
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNil(object["stream"])
+    }
+
+    func testStreamedRecommendationsReportEachPick() async throws {
+        let host = "intelligence-recommendations-stream.invalid"
+        let answer = #"{"summary":"夜晚","recommendations":[{"id":"c1","reason":"安静"},{"id":"c0","reason":"温柔"}]}"#
+        let pieces = [String(answer.prefix(60)), String(answer.dropFirst(60))]
+        let events = pieces.map { piece -> String in
+            let encoded = String(
+                data: try! JSONSerialization.data(withJSONObject: [
+                    "type": "response.output_text.delta",
+                    "delta": piece,
+                ]),
+                encoding: .utf8
+            )!
+            return "event: response.output_text.delta\ndata: \(encoded)\n\n"
+        } + ["event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n"]
+        IntelligenceURLProtocol.configure(
+            host: host,
+            statusCode: 200,
+            chunks: events.map { Data($0.utf8) },
+            headerFields: ["Content-Type": "text/event-stream"]
+        )
+        let (provider, session) = makeProvider(host: host, apiStyle: .responses)
+        defer { session.invalidateAndCancel() }
+        let reported = StreamedValues<String>()
+
+        let plan = try await provider.recommendations(
+            AIRecommendationRequest(
+                scene: .focus,
+                preferences: [],
+                candidates: [
+                    AIRecommendationCandidate(songID: "song-a", title: "A", artist: "X", durationSeconds: 200),
+                    AIRecommendationCandidate(songID: "song-b", title: "B", artist: "Y", durationSeconds: 210),
+                ],
+                maximumResults: 2,
+                minimumResults: 1
+            ),
+            onSelection: { reported.append($0.songID) }
+        )
+
+        XCTAssertEqual(reported.values, ["song-b", "song-a"])
+        XCTAssertEqual(plan.selections.map(\.songID).sorted(), ["song-a", "song-b"])
+    }
+
+    private static let twoLyricLines = [
+        LyricTranslationCandidate(id: "line-1", text: "The road home", sourceLanguageCode: "en"),
+        LyricTranslationCandidate(id: "line-2", text: "Rainy night", sourceLanguageCode: "en"),
+    ]
+
     func testRecommendationsUseOpaqueCandidateIDsAndReturnLocalSongIDs() async throws {
         let host = "intelligence-recommendations.invalid"
         IntelligenceURLProtocol.configure(
@@ -2040,6 +2207,23 @@ private actor TestAICredentialStore: AICredentialStoring {
     }
 }
 
+private final class StreamedValues<Value: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Value] = []
+
+    func append(_ value: Value) {
+        lock.lock()
+        storage.append(value)
+        lock.unlock()
+    }
+
+    var values: [Value] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+}
+
 private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
     private struct StubResponse {
         var statusCode: Int
@@ -2063,10 +2247,15 @@ private final class IntelligenceURLProtocol: URLProtocol, @unchecked Sendable {
         configure(host: host, statusCode: statusCode, chunks: [Data(body.utf8)])
     }
 
-    static func configure(host: String, statusCode: Int, chunks: [Data]) {
+    static func configure(
+        host: String,
+        statusCode: Int,
+        chunks: [Data],
+        headerFields: [String: String] = [:]
+    ) {
         lock.lock()
         states[host] = State(responses: [
-            StubResponse(statusCode: statusCode, chunks: chunks),
+            StubResponse(statusCode: statusCode, chunks: chunks, headerFields: headerFields),
         ])
         lock.unlock()
     }
