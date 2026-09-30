@@ -1008,6 +1008,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         )
         let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
         let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        await library.whenReady()
         let song = Song(
             id: "title-\(UUID().uuidString)", title: "走在冷风中 (Live) - 刘思涵",
             fileFormat: .mp3, filePath: "12345678", sourceID: sourceID, fileSize: Int64(payload.count)
@@ -1032,6 +1033,7 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         )
         defer { backfill.stop() }
         // The initial inventory row can be read before its directory index is committed.
+        backfill.refreshStatusSnapshot()
         backfill.start()
         await backfill.waitUntilIdle()
         await library.waitForPendingIndex()
