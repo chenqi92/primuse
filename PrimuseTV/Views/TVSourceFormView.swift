@@ -410,6 +410,14 @@ struct TVSourceFormView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .onAppear(perform: prefill)
+        #if DEBUG
+        // 截图用：TV_PLEX_SIGNIN=1 打开就进 Plex 登录页（真连 plex.tv 拿代码），=servers 显示演示服务器清单。
+        .task {
+            guard type == .plex, ProcessInfo.processInfo.environment["TV_PLEX_SIGNIN"] != nil else { return }
+            try? await Task.sleep(for: .seconds(1))
+            showsPlexSignIn = true
+        }
+        #endif
         // 自适应连接的表单里已经没有 SSL 开关了 —— 协议跟着地址走。这两条跟随
         // 规则只服务于老的单地址表单;留着会在写回探测结果时把刚定下来的端口
         // 当成"上一个默认值"改掉。

@@ -1875,6 +1875,14 @@ final class LibrarySnapshotSync: Sendable {
                     ))
                 }
             }
+            // Plex 账号 token 只用来让电视在服务器换地址后也能重查线路；读不到就不带，不挡这次发送。
+            if source.type == .plex, source.plexServerIdentifier != nil,
+               case let .found(accountToken) = KeychainService.passwordLookup(
+                   for: PlexAccountAPI.accountTokenKeychainAccount(sourceID: source.id)
+               ),
+               !accountToken.isEmpty {
+                entry.extra[PlexAccountAPI.accountTokenCredentialKey] = accountToken
+            }
             let tokenManager = CloudTokenManager(sourceID: source.id)
             switch await tokenManager.lookupTokens() {
             case .found(let tokens):

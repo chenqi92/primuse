@@ -4777,3 +4777,4 @@
 "tv_lyrics_font_standard" = "قياسي";
 "tv_lyrics_font_large" = "كبير";
 "tv_lyrics_font_extra_large" = "كبير جدًا";
+"metadata_writeback_plex_forbidden" = "لا يسمح خادم Plex هذا لحسابك بتعديل المكتبة. الخوادم التي يشاركها الأصدقاء تكون عادةً للتشغيل فقط.";

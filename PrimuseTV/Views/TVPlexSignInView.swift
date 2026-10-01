@@ -18,6 +18,8 @@ struct TVPlexSignInView: View {
     @State private var authorizationURL: String?
     @State private var accountToken: String?
     @State private var task: Task<Void, Never>?
+    /// plex.tv/link 的 4 位码只活 15 分钟。页面开着没人理时自动换新码，换几次就停下等用户按「换一个代码」。
+    @State private var codeRenewals = 0
 
     private enum Phase: Equatable {
         case starting
@@ -29,6 +31,7 @@ struct TVPlexSignInView: View {
 
     /// 轮询途中网络抖一下不该让整次登录失败，连续失败这么多次才放弃。
     private static let maximumConsecutivePollFailures = 5
+    private static let maximumCodeRenewals = 3
 
     var body: some View {
         ZStack {
@@ -228,6 +231,11 @@ struct TVPlexSignInView: View {
     // MARK: - 流程
 
     private func start() {
+        codeRenewals = 0
+        restart()
+    }
+
+    private func restart() {
         task?.cancel()
         phase = .starting
         linkCode = nil
@@ -239,6 +247,14 @@ struct TVPlexSignInView: View {
     }
 
     private func run() async {
+        #if DEBUG
+        // 截图用：TV_PLEX_SIGNIN=servers 直接显示演示服务器清单，不连 plex.tv。
+        if ProcessInfo.processInfo.environment["TV_PLEX_SIGNIN"] == "servers" {
+            accountToken = "debug-account-token"
+            phase = .servers(PlexResourceList.debugFixtureServers)
+            return
+        }
+        #endif
         let client = PlexAccountClient.standard()
         do {
             async let linkPin = client.createPin(strong: false)
@@ -262,6 +278,10 @@ struct TVPlexSignInView: View {
             phase = .servers(servers)
         } catch is CancellationError {
             return
+        } catch PlexAccountError.pinExpired where phase == .waiting && codeRenewals < Self.maximumCodeRenewals {
+            codeRenewals += 1
+            plog("🎞️ TV Plex sign-in code expired, renewing (\(codeRenewals))")
+            restart()
         } catch {
             guard !Task.isCancelled else { return }
             plog("⚠️ TV Plex sign-in failed: \(error)")

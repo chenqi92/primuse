@@ -4777,3 +4777,4 @@
 "tv_lyrics_font_standard" = "Стандартный";
 "tv_lyrics_font_large" = "Крупный";
 "tv_lyrics_font_extra_large" = "Очень крупный";
+"metadata_writeback_plex_forbidden" = "Этот сервер Plex не разрешает вашему аккаунту изменять медиатеку. Серверы, которыми поделились друзья, обычно доступны только для воспроизведения.";

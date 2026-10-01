@@ -46,6 +46,13 @@ final class PlexAccountSignInModel {
 
     init(client: PlexAccountClient? = nil) {
         self.client = client
+        #if DEBUG
+        // 截图用：PRIMUSE_DEBUG_PLEX=servers 直接显示演示服务器清单，不连 plex.tv。
+        if ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_PLEX"] == "servers" {
+            accountToken = "debug-account-token"
+            phase = .servers(PlexResourceList.debugFixtureServers)
+        }
+        #endif
     }
 
     private func accountClient() -> PlexAccountClient {

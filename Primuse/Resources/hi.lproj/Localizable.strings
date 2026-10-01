@@ -4777,3 +4777,4 @@
 "tv_lyrics_font_standard" = "मानक";
 "tv_lyrics_font_large" = "बड़ा";
 "tv_lyrics_font_extra_large" = "बहुत बड़ा";
+"metadata_writeback_plex_forbidden" = "यह Plex सर्वर आपके खाते को लाइब्रेरी संपादित करने की अनुमति नहीं देता। मित्रों द्वारा साझा किए गए सर्वर आमतौर पर केवल चलाने के लिए होते हैं।";

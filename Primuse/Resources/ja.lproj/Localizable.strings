@@ -4872,3 +4872,4 @@
 "tv_lyrics_font_standard" = "標準";
 "tv_lyrics_font_large" = "大";
 "tv_lyrics_font_extra_large" = "特大";
+"metadata_writeback_plex_forbidden" = "この Plex サーバでは、あなたのアカウントにライブラリを編集する権限がありません。友達が共有したサーバは通常、再生のみ可能です。";

@@ -4777,3 +4777,4 @@
 "tv_lyrics_font_standard" = "Padrão";
 "tv_lyrics_font_large" = "Grande";
 "tv_lyrics_font_extra_large" = "Muito grande";
+"metadata_writeback_plex_forbidden" = "Este servidor Plex não permite que sua conta edite a biblioteca. Servidores compartilhados por amigos geralmente são apenas para reprodução.";

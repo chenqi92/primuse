@@ -241,16 +241,43 @@ struct PlexAccountTests {
     }
 
     @Test func pinDecodesPendingAndAuthorizedStates() throws {
-        let pending = try JSONDecoder().decode(PlexPin.self, from: Data("""
-        {"id":5123,"code":"ab12cd","product":"Primuse","trusted":false,"authToken":null,"expiresIn":1800}
+        // 2026-10-01 从 plex.tv 实际拿到的响应形状（位置信息换成了占位值）：网页授权用的长码 30 分钟、
+        // plex.tv/link 的 4 位码 15 分钟。
+        let web = try JSONDecoder().decode(PlexPin.self, from: Data("""
+        {"id":1899765704,"code":"l91xft5ypr1n7588alsymxoy8","product":"Primuse","trusted":false,
+         "qr":"https://plex.tv/api/v2/pins/qr/l91xft5ypr1n7588alsymxoy8","clientIdentifier":"primuse-probe",
+         "location":{"code":"XX","european_union_member":false,"continent_code":"XX","country":"Nowhere",
+                     "city":"Nowhere","time_zone":"Etc/UTC","postal_code":"00000",
+                     "in_privacy_restricted_country":false,"in_privacy_restricted_region":false,
+                     "subdivisions":"Nowhere","coordinates":"0, 0"},
+         "expiresIn":1800,"createdAt":"2026-10-01T22:39:52Z","expiresAt":"2026-10-01T23:09:52Z",
+         "authToken":null,"newRegistration":null}
         """.utf8))
-        #expect(pending == PlexPin(id: 5123, code: "ab12cd", authToken: nil))
+        #expect(web == PlexPin(id: 1_899_765_704, code: "l91xft5ypr1n7588alsymxoy8", authToken: nil))
+
+        let link = try JSONDecoder().decode(PlexPin.self, from: Data("""
+        {"id":1438747364,"code":"9WKP","product":"Primuse","trusted":false,"qr":"https://plex.tv/api/v2/pins/qr/9WKP",
+         "clientIdentifier":"primuse-probe","expiresIn":900,"createdAt":"2026-10-01T22:39:52Z",
+         "expiresAt":"2026-10-01T22:54:52Z","authToken":null,"newRegistration":null}
+        """.utf8))
+        #expect(link.code == "9WKP")
+        #expect(link.authToken == nil)
 
         let authorized = try JSONDecoder().decode(PlexPin.self, from: Data("""
         {"id":"5123","code":"ab12cd","authToken":"account-token"}
         """.utf8))
         #expect(authorized.authToken == "account-token")
     }
+
+    #if DEBUG
+    @Test func debugFixtureCoversOwnedHomeRelayAndUnreachableServers() {
+        let servers = PlexResourceList.debugFixtureServers
+        #expect(servers.map(\.clientIdentifier) == ["debug-own", "debug-empty", "debug-home", "debug-friend"])
+        let selectable = servers.filter { PlexServerSelection(resource: $0, accountToken: "a") != nil }
+        #expect(selectable.map(\.clientIdentifier) == ["debug-own", "debug-home", "debug-friend"])
+        #expect(PlexServerConnectionPlanner.routes(for: servers[3]).reachesOnlyThroughRelay)
+    }
+    #endif
 
     @Test func authorizationPageCarriesClientCodeAndForwardURLInTheFragment() throws {
         let url = PlexAccountAPI.authorizationPageURL(

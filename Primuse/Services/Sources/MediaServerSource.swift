@@ -3169,7 +3169,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 results.append(contentsOf: trackResultFields.map {
                     TagMetadataFieldWritebackResult(
                         field: $0,
-                        disposition: .failed(error.localizedDescription)
+                        disposition: .failed(Self.plexWritebackFailureMessage(error))
                     )
                 })
             }
@@ -3208,7 +3208,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     results.append(contentsOf: albumResultFields.map {
                         TagMetadataFieldWritebackResult(
                             field: $0,
-                            disposition: .failed(error.localizedDescription)
+                            disposition: .failed(Self.plexWritebackFailureMessage(error))
                         )
                     })
                 }
@@ -3243,7 +3243,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     results.append(
                         TagMetadataFieldWritebackResult(
                             field: .artist,
-                            disposition: .failed(error.localizedDescription)
+                            disposition: .failed(Self.plexWritebackFailureMessage(error))
                         )
                     )
                 }
@@ -3271,6 +3271,15 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         }
 
         return results
+    }
+
+    /// 好友分享来的 Plex 服务器只给播放权限：连接时 token 已经验过，改资料时的 401/403 是「没有修改权限」，
+    /// 照「认证失败」报会让人以为要重新登录。
+    private static func plexWritebackFailureMessage(_ error: any Error) -> String {
+        if let sourceError = error as? SourceError, case .authenticationFailed = sourceError {
+            return String(localized: "metadata_writeback_plex_forbidden")
+        }
+        return error.localizedDescription
     }
 
     private func normalizedMetadataText(_ value: String?) -> String? {

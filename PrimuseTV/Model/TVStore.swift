@@ -6583,14 +6583,13 @@ extension TVStore {
 extension TVStore {
     private static let plexServerLinkCooldown: TimeInterval = 30 * 60
 
-    /// 用 Plex 账号绑定、在电视上加的源，服务器换了地址或专属 token 时跟上。
-    /// 规则和手机端一样（`PlexServerLinkRefreshPolicy`）；手机同步来的源跟着手机那边的刷新走。
+    /// 用 Plex 账号绑定的源，服务器换了地址或专属 token 时跟上，规则和手机端一样（`PlexServerLinkRefreshPolicy`）。
+    ///
+    /// 电视上加的源连 token 一起换。手机来的源只换线路：电视本地存的凭据优先于同步来的，
+    /// 在这里写一份就会挡住手机以后经 iCloud / 扫码直传送来的新 token。
     func refreshPlexServerLinks() async {
         let linked = sourcesStore.sources.filter {
-            $0.type == .plex
-                && $0.isEnabled
-                && $0.plexServerIdentifier?.isEmpty == false
-                && locallyScannedSourceIDs.contains($0.id)
+            $0.type == .plex && $0.isEnabled && $0.plexServerIdentifier?.isEmpty == false
         }
         for source in linked {
             await refreshPlexServerLink(source)
@@ -6604,7 +6603,11 @@ extension TVStore {
            now.timeIntervalSince(last) < Self.plexServerLinkCooldown {
             return
         }
-        guard let accountToken = TVCredentialStore.plexAccountToken(sourceID: source.id) else { return }
+        // 电视上登录存的、iCloud 钥匙串同步来的、手机经凭据包（iCloud / 扫码直传）带来的，有哪个用哪个。
+        guard let accountToken = TVCredentialStore.plexAccountToken(sourceID: source.id)
+            ?? credentialBundle?.entries[source.id]?.extra[PlexAccountAPI.accountTokenCredentialKey],
+            !accountToken.isEmpty else { return }
+        let ownsCredentials = locallyScannedSourceIDs.contains(source.id)
         plexServerLinkAttemptAt[source.id] = now
 
         let servers: [PlexResource]
@@ -6623,7 +6626,9 @@ extension TVStore {
             routes: PlexServerConnectionPlanner.routes(for: resource)
         )
         let storedToken = TVCredentialStore.credential(for: current, bundle: credentialBundle).password
-        let token = PlexServerLinkRefreshPolicy.refreshedToken(current: storedToken, resource: resource)
+        let token = ownsCredentials
+            ? PlexServerLinkRefreshPolicy.refreshedToken(current: storedToken, resource: resource)
+            : nil
         guard configuration != nil || token != nil else { return }
 
         if let token {

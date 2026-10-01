@@ -4777,3 +4777,4 @@
 "tv_lyrics_font_standard" = "Standart";
 "tv_lyrics_font_large" = "Büyük";
 "tv_lyrics_font_extra_large" = "Çok büyük";
+"metadata_writeback_plex_forbidden" = "Bu Plex sunucusu hesabının kitaplığı düzenlemesine izin vermiyor. Arkadaşların paylaştığı sunucular genellikle yalnızca oynatma içindir.";

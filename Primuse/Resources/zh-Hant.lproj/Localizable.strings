@@ -4848,3 +4848,4 @@
 "tv_lyrics_font_standard" = "標準";
 "tv_lyrics_font_large" = "大";
 "tv_lyrics_font_extra_large" = "特大";
+"metadata_writeback_plex_forbidden" = "這台 Plex 伺服器沒有給你的帳號修改資料的權限，好友分享的伺服器通常只能播放。";

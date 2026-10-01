@@ -35,6 +35,9 @@ public enum PlexAccountAPI {
         "plex-account.\(sourceID)"
     }
 
+    /// 凭据包（iCloud 加密同步、扫码直传到电视）里账号 token 的键，电视靠它也能重查服务器地址。
+    public static let accountTokenCredentialKey = "plex_account_token"
+
     /// `app.plex.tv/auth` 的授权页地址。参数写在 `#?` 后面，这是 Plex 网页应用自己的约定。
     public static func authorizationPageURL(
         clientIdentifier: String,
@@ -252,6 +255,63 @@ public struct PlexResource: Decodable, Sendable, Equatable, Identifiable {
         ))?.compactMap(\.value) ?? []
     }
 }
+
+#if DEBUG
+public extension PlexResourceList {
+    /// 截图与界面取证用的服务器清单：自己的、Plex Home 共享的、好友分享且只能走中转的、没有可用地址的各一台。
+    static var debugFixtureServers: [PlexResource] {
+        let hash = "0123456789abcdef0123456789abcdef"
+        func connection(_ ip: String, port: Int = 32400, local: Bool, relay: Bool = false) -> PlexResource.Connection {
+            let dashed = ip.replacingOccurrences(of: ".", with: "-")
+            return PlexResource.Connection(
+                scheme: "https",
+                address: ip,
+                port: port,
+                uri: "https://\(dashed).\(hash).plex.direct:\(port)",
+                isLocal: local,
+                isRelay: relay
+            )
+        }
+        return servers(from: [
+            PlexResource(
+                name: "Living Room NAS",
+                clientIdentifier: "debug-own",
+                isOwned: true,
+                accessToken: "debug-own-token",
+                connections: [connection("192.168.1.10", local: true), connection("203.0.113.7", local: false)]
+            ),
+            PlexResource(
+                name: "Family Mac mini",
+                clientIdentifier: "debug-home",
+                isOwned: false,
+                isHome: true,
+                accessToken: "debug-home-token",
+                publicAddressMatches: true,
+                connections: [connection("192.168.1.20", local: true)]
+            ),
+            PlexResource(
+                name: "Alice's Music",
+                clientIdentifier: "debug-friend",
+                isOwned: false,
+                ownerName: "alice",
+                accessToken: "debug-friend-token",
+                isOnline: false,
+                connections: [
+                    connection("192.168.0.5", local: true),
+                    connection("198.51.100.21", port: 8443, local: false, relay: true),
+                ]
+            ),
+            PlexResource(
+                name: "Old Server",
+                clientIdentifier: "debug-empty",
+                isOwned: true,
+                accessToken: "debug-empty-token",
+                connections: []
+            ),
+        ])
+    }
+}
+#endif
 
 public enum PlexResourceList {
     /// 清单里的媒体服务器：自己的在前，其次是 Plex Home 里共享的，最后是好友分享的；同组按名字排。

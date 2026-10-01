@@ -368,7 +368,10 @@ struct TVSourcesView: View {
         case "sourcePicker":
             typePicker = true
         case "sourceForm":
-            sourceForm = TVSourceForm(editing: nil, type: .smb)
+            // TV_SOURCE_TYPE=<类型原始值>（如 plex）换成别的类型的表单，默认 SMB。
+            let type = ProcessInfo.processInfo.environment["TV_SOURCE_TYPE"]
+                .flatMap(MusicSourceType.init(rawValue:)) ?? .smb
+            sourceForm = TVSourceForm(editing: nil, type: type)
         case "recycleBin":
             recycleBin = true
         case "credentials", "otp", "scan":
