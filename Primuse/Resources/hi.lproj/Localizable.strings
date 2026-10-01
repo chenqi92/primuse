@@ -616,7 +616,7 @@
 "ai_primuse_relay_failure_upstream_title" = "अपस्ट्रीम सेवा विफल रही";
 "ai_primuse_relay_fallback_local" = "कोई रिमोट फ़ॉलबैक उपलब्ध नहीं है। स्थानीय खोज, अनुशंसाएँ और प्लेबैक उपलब्ध रहते हैं।";
 "ai_primuse_relay_fallback_provider_format" = "अंतर्निहित सेवा उपलब्ध नहीं है। \"%@\" पर सत्यापित फ़ॉलबैक।";
-"ai_primuse_relay_footer" = "बिल्ट-इन AI परीक्षण उपयोग के लिए है और साझा कोटा से सीमित हो सकता है। भरोसेमंद उपयोग या गाने से बोल तैयार करने के लिए अपनी संगत सेवा सेट करें।";
+"ai_primuse_relay_footer" = "बिल्ट-इन AI, Primuse की ओर से एक मुफ़्त आज़माइश चैनल है — इसका मकसद यह दिखाना है कि स्मार्ट सुविधाएँ क्या कर सकती हैं, इस पर हमेशा निर्भर रहना नहीं। उपयोगकर्ताओं की संख्या, सर्वर बैंडविड्थ या प्रदाताओं की रेट सीमाओं के कारण यह धीमा या कुछ समय के लिए अनुपलब्ध हो सकता है; अगर आगे मुफ़्त चैनल नहीं मिला, तो इसे बंद किया जा सकता है या इसके लिए अलग से शुल्क लिया जा सकता है।\n\nहमारी सलाह है कि “आपकी AI सेवाएँ” में अपनी API कुंजी जोड़ें और फिर बिल्ट-इन AI बंद कर दें। सारी सुविधाएँ बिल्कुल वही रहती हैं, और आमतौर पर ज़्यादा तेज़ और स्थिर होती हैं।";
 "ai_primuse_relay_name" = "Primuse अंतर्निहित एआई";
 "ai_primuse_relay_ready" = "अंतर्निहित एआई अनुभव तैयार है";
 "ai_primuse_relay_section" = "अंतर्निहित एआई अनुभव";
@@ -629,6 +629,19 @@
 "ai_primuse_relay_test_success_storekit" = "अंतर्निहित सेवा उपलब्ध (डिवाइस सत्यापन ख़राब)";
 "ai_primuse_relay_test_success_storekit_detail" = "App Attest अनुपलब्ध है, इसलिए सत्यापन वापस App Store पर आ गया है।";
 "ai_primuse_relay_unsupported" = "यह डिवाइस App Attest के साथ अंतर्निहित AI तक पहुंच को सत्यापित नहीं कर सकता है।";
+"ai_provider_list_relay_hint" = "बिल्ट-इन AI चालू रहने पर पहले उसी का उपयोग होता है, और ये सेवाएँ केवल बैकअप रहती हैं। कोई सेवा चुनकर उसकी API कुंजी जोड़ें, फिर बिल्ट-इन AI बंद करें ताकि सीधे आपकी अपनी सेवा उपयोग हो।";
+"ai_provider_list_tap_hint" = "API कुंजी जोड़ने और मॉडल तय करने के लिए कोई सेवा चुनें।";
+"ai_setup_needs_service_title" = "अभी कोई AI सेवा तैयार नहीं है";
+"ai_setup_needs_service_detail" = "स्मार्ट सुविधाओं का उपयोग करने के लिए किसी AI प्रदाता की API कुंजी जोड़ें।";
+"ai_setup_configure_action" = "API कुंजी जोड़ें";
+"ai_setup_relay_first_title" = "आपकी AI सेवा तैयार है";
+"ai_setup_relay_first_detail" = "बिल्ट-इन AI चालू रहने पर पहले उसी का उपयोग होता है; आपकी सेवा तभी काम संभालती है जब वह उपलब्ध न हो।";
+"ai_setup_use_own_service" = "मेरी सेवा उपयोग करें";
+"ai_provider_state_needs_key" = "API कुंजी चाहिए";
+"ai_provider_state_needs_model" = "मॉडल चाहिए";
+"ai_provider_state_ready" = "तैयार";
+"ai_provider_state_disabled" = "बंद";
+"ai_provider_enabled" = "यह सेवा उपयोग करें";
 "ai_privacy_footer" = "API चाबियाँ किचेन में रहती हैं। अनुशंसाओं में कभी भी फ़ाइल पथ, संपूर्ण सुनने का इतिहास या ऑडियो शामिल नहीं होता; स्थानीय HTTP को अलग से अनुमोदन की आवश्यकता है।";
 "ai_privacy_section" = "गोपनीयता और नेटवर्क";
 "ai_provider_actions" = "सेवा प्रबंधन";
@@ -637,7 +650,7 @@
 "ai_provider_detail_section" = "वर्तमान सेवा";
 "ai_provider_editing" = "संपादन";
 "ai_provider_footer" = "केवल सक्षम, अधिकृत सुविधाओं के लिए आवश्यक सामग्री ही भेजी जाती है। लाइब्रेरी संरचना और फ़ाइल पथ इस डिवाइस पर रहते हैं; ऑडियो केवल स्पष्ट रूप से स्वीकृत गीत प्रतिलेखन के लिए अपलोड किया जाता है।";
-"ai_provider_list_section" = "सेवाएँ और फ़ॉलबैक";
+"ai_provider_list_section" = "आपकी AI सेवाएँ";
 "ai_provider_name" = "प्रदाता का नाम";
 "ai_provider_preset" = "प्रदाता पूर्व निर्धारित";
 "ai_provider_preset_anthropic" = "Anthropic";

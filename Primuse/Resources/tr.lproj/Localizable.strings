@@ -7,6 +7,19 @@
 "home_lyrics" = "Şarkı sözü kapsamı";
 "stats_top_albums" = "En İyi Albümler";
 "ai_primuse_relay_unsupported" = "Bu cihaz, App Attest ile yerleşik yapay zekaya erişimi doğrulayamıyor.";
+"ai_provider_list_relay_hint" = "Yerleşik yapay zekâ açıkken önce o kullanılır, buradaki hizmetler yalnızca yedektir. Bir hizmet seçip API anahtarını girin, ardından yerleşik yapay zekâyı kapatarak doğrudan kendi hizmetinizi kullanın.";
+"ai_provider_list_tap_hint" = "API anahtarını girmek ve model belirlemek için bir hizmet seçin.";
+"ai_setup_needs_service_title" = "Hazır yapay zekâ hizmeti yok";
+"ai_setup_needs_service_detail" = "Akıllı özellikleri kullanmak için bir yapay zekâ sağlayıcısının API anahtarını girin.";
+"ai_setup_configure_action" = "API anahtarı gir";
+"ai_setup_relay_first_title" = "Yapay zekâ hizmetiniz hazır";
+"ai_setup_relay_first_detail" = "Yerleşik yapay zekâ açıkken önce o kullanılır; hizmetiniz yalnızca o kullanılamadığında devreye girer.";
+"ai_setup_use_own_service" = "Kendi hizmetimi kullan";
+"ai_provider_state_needs_key" = "API anahtarı gerekli";
+"ai_provider_state_needs_model" = "Model gerekli";
+"ai_provider_state_ready" = "Hazır";
+"ai_provider_state_disabled" = "Kapalı";
+"ai_provider_enabled" = "Bu hizmeti kullan";
 "icon_appearance_gray" = "Gri";
 "tag_editor_cover_section" = "Kapak görseli";
 "Duplicate Song Cleanup" = "Yinelenen Şarkı Temizleme";
@@ -1523,7 +1536,7 @@
 "desktop_widget_sync_status_enabled" = "Etkin";
 "material_classic" = "Klasik";
 "metadata_backfill_fast_mode_warning_message" = "Geçerli veya sonraki ön plan taraması, kısma olmadan en fazla 3 eşzamanlı okuma kullanır; bu durum ısıyı, pil kullanımını, ağ trafiğini ve arayüz kekemeliğini artırabilir. Bunu yalnızca cihazınız ve müzik sunucunuz sürekli eşzamanlı istekleri işleyebiliyorsa etkinleştirin; arka planda oynatma korumalı kalır.";
-"ai_primuse_relay_footer" = "Yerleşik yapay zeka deneme amaçlıdır ve paylaşılan kotalarla sınırlandırılabilir. Güvenilir kullanım veya şarkı sözü oluşturma için kendi uyumlu hizmetinizi yapılandırın.";
+"ai_primuse_relay_footer" = "Yerleşik yapay zekâ, Primuse’un sunduğu ücretsiz bir deneme kanalıdır; akıllı özelliklerin neler yapabileceğini göstermek içindir, sürekli kullanım için değildir. Kullanıcı sayısı, sunucu bant genişliği ve sağlayıcıların hız sınırları onu yavaşlatabilir ya da geçici olarak kullanılamaz hâle getirebilir; ileride ücretsiz kaynak bulunamazsa kaldırılabilir veya ayrıca ücretlendirilebilir.\n\nKendi API anahtarınızı “Yapay Zekâ Hizmetleriniz” bölümüne ekleyip ardından yerleşik yapay zekâyı kapatmanızı öneririz. Tüm özellikler aynı çalışır ve genellikle daha hızlı ve kararlıdır.";
 "audio_output" = "Ses Çıkışı";
 "share_link_unavailable" = "Bu şarkı için çalınabilir bir bağlantı mevcut değil";
 "fullscreen_effect_cover_gallery_motion" = "Gerçek arşiv çizimi · Katmanlı paralaks";
@@ -2510,7 +2523,7 @@
 "MetricKit + crash logs" = "MetricKit + kilitlenme günlükleri";
 "playlist_import_title" = "Çalma Listesini İçe Aktar";
 "Cover Color" = "Kapak Rengi";
-"ai_provider_list_section" = "Hizmetler ve Geri Dönüş";
+"ai_provider_list_section" = "Yapay Zekâ Hizmetleriniz";
 "share_choose_primuse_relay" = "Primuse Paylaşım Hizmetini Seçin";
 "fullscreen_effect_flowing_lines_subtitle" = "Gelişen konturlar, üç şarkı sözü çizgisiyle sanat eserinin yörüngesinde dönüyor";
 "lyrics_converter_error_title" = "Şarkı Sözü Dönüştürme Başarısız";

@@ -870,8 +870,12 @@ private struct MacSTIntelligenceView: View {
     @State private var editor = AISettingsEditorModel()
     @State private var showsRemoveProviderConfirmation = false
     @State private var showsProviderDetails = false
+    @State private var providerEditorScrollRequest = 0
+
+    private static let providerEditorAnchor = "intelligence.providerEditor"
 
     var body: some View {
+        ScrollViewReader { scrollProxy in
         Group {
             if !intelligence.shouldExposeRemoteConfiguration,
                intelligence.regionAvailability.isRefreshing {
@@ -981,6 +985,7 @@ private struct MacSTIntelligenceView: View {
                     }
                 }
             }
+            .id(Self.providerEditorAnchor)
             .pmFadeTransition()
 
             MacSTSection(String(localized: "ai_models_section")) {
@@ -1101,6 +1106,15 @@ private struct MacSTIntelligenceView: View {
             }
             }
         }
+        .task(id: providerEditorScrollRequest) {
+            guard providerEditorScrollRequest > 0 else { return }
+            // 等展开的编辑区先排进布局,再滚过去。
+            try? await Task.sleep(for: .milliseconds(80))
+            pmWithAnimation(.pageSwitch) {
+                scrollProxy.scrollTo(Self.providerEditorAnchor, anchor: .top)
+            }
+        }
+        }
         .task { await editor.load(using: intelligence) }
         .confirmationDialog(
             String(localized: "ai_remove_provider_confirm"),
@@ -1120,9 +1134,10 @@ private struct MacSTIntelligenceView: View {
         ) {
             MacSTGroup {
                 MacSTRow(String(localized: "ai_primuse_relay_enabled"), divider: false) {
-                    MacSTToggle(isOn: editor.primuseRelayBinding)
+                    MacSTToggle(isOn: editor.primuseRelayBinding.pmAnimated(.list))
                 }
                 .settingsAnchor("intelligence.relay")
+                serviceGuidanceRow
                 MacSTRow(
                     String(localized: "ai_connection_section")
                 ) {
@@ -1167,6 +1182,47 @@ private struct MacSTIntelligenceView: View {
         }
     }
 
+    @ViewBuilder
+    private var serviceGuidanceRow: some View {
+        switch editor.serviceSetupGuidance {
+        case .none:
+            EmptyView()
+        case .configureOwnService(let providerID):
+            MacSTRow(
+                String(localized: "ai_setup_needs_service_title"),
+                hint: String(localized: "ai_setup_needs_service_detail")
+            ) {
+                MacSTButton(
+                    title: String(localized: "ai_setup_configure_action"),
+                    systemImage: "key.horizontal",
+                    prominent: true
+                ) {
+                    editor.selectProvider(providerID)
+                    pmWithAnimation(.pageSwitch) { showsProviderDetails = true }
+                    providerEditorScrollRequest += 1
+                }
+            }
+            .pmSlideTransition(edge: .top, motion: .list)
+        case .relayTakesPriority:
+            MacSTRow(
+                String(localized: "ai_setup_relay_first_title"),
+                hint: String(localized: "ai_setup_relay_first_detail")
+            ) {
+                MacSTButton(title: String(localized: "ai_setup_use_own_service")) {
+                    pmWithAnimation(.list) { editor.primuseRelayBinding.wrappedValue = false }
+                }
+            }
+            .pmSlideTransition(edge: .top, motion: .list)
+        }
+    }
+
+    private func providerRowHint(_ provider: AIRemoteProviderConfiguration) -> String {
+        guard let state = editor.setupState(for: provider), state != .ready else {
+            return provider.baseURL
+        }
+        return "\(state.localizedTitle) · \(provider.baseURL)"
+    }
+
     private var providerDetailToggleSection: some View {
         MacSTSection(String(localized: "ai_provider_detail_section")) {
             MacSTGroup {
@@ -1195,7 +1251,7 @@ private struct MacSTIntelligenceView: View {
     private var providerListSection: some View {
         MacSTSection(
             String(localized: "ai_provider_list_section"),
-            hint: String(localized: "ai_fallback_footer")
+            hint: editor.serviceListFooterText
         ) {
             MacSTGroup {
                 ForEach(Array(editor.draftProviderSet.providers.enumerated()), id: \.element.id) {
@@ -1204,7 +1260,7 @@ private struct MacSTIntelligenceView: View {
                         provider.displayName.isEmpty
                             ? String(localized: "ai_provider_default_name")
                             : provider.displayName,
-                        hint: provider.baseURL,
+                        hint: providerRowHint(provider),
                         divider: index < editor.draftProviderSet.providers.count - 1
                     ) {
                         HStack(spacing: 8) {

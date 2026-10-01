@@ -31,7 +31,7 @@ final class AISettingsEditorModel {
     var draftProviderSet: AIRemoteProviderSet
     var selectedProviderID: UUID
     var providerPresets: [UUID: AIProviderPreset] = [:]
-    var primuseRelayEnabled = false
+    var primuseRelayEnabled = AISettingsStore.defaultPrimuseRelayEnabled
     var semanticSearchEnabled = false
     var recommendationsEnabled = false
     var consent = false
@@ -49,7 +49,7 @@ final class AISettingsEditorModel {
 
     private var draftGeneration: UInt64 = 0
     private var savedProviderSet: AIRemoteProviderSet
-    private var savedPrimuseRelayEnabled = false
+    private var savedPrimuseRelayEnabled = AISettingsStore.defaultPrimuseRelayEnabled
     private var savedSemanticSearchEnabled = false
     private var savedRecommendationsEnabled = false
     private var savedConsent = false
@@ -137,6 +137,51 @@ final class AISettingsEditorModel {
             return fallback
         }
         return "\(fallback)\n\n\(String(localized: "ai_openai_platform_billing_footer"))"
+    }
+
+    /// 「我的 AI 服务」的说明:内置 AI 开着时先讲清它和自己的服务谁先谁后。
+    var serviceListFooterText: String {
+        let relation = String(localized: isPrimuseRelayActive
+                              ? "ai_provider_list_relay_hint"
+                              : "ai_provider_list_tap_hint")
+        return "\(relation)\n\n\(providerListFooterText)"
+    }
+
+    var isPrimuseRelayActive: Bool {
+        primuseRelayEnabled && PrimuseAIRelayClient.isSupportedOnCurrentDevice
+    }
+
+    /// 一项服务配到了哪一步。加载完之前钥匙串还没查过,不下结论。
+    func setupState(for provider: AIRemoteProviderConfiguration) -> AIProviderSetupState? {
+        guard didLoad else { return nil }
+        return AIProviderSetupState(
+            isEnabled: provider.isEnabled,
+            hasAPIKey: hasAPIKey(for: provider),
+            generationModel: provider.generationModel
+        )
+    }
+
+    /// 内置 AI 开关下方的引导:关掉内置 AI 却没有配好的服务时带去填密钥,
+    /// 自己的服务已配好而内置 AI 仍开着时说明谁优先。
+    var serviceSetupGuidance: AIServiceSetupGuidance {
+        guard didLoad else { return .none }
+        return AIServiceSetupGuidance.resolve(
+            relayEnabled: primuseRelayEnabled,
+            relaySupportedOnDevice: PrimuseAIRelayClient.isSupportedOnCurrentDevice,
+            primaryProviderID: draftProviderSet.primaryProviderID,
+            providers: draftProviderSet.providers.map {
+                AIProviderSetupSummary(id: $0.id, state: setupState(for: $0) ?? .disabled)
+            }
+        )
+    }
+
+    private func hasAPIKey(for provider: AIRemoteProviderConfiguration) -> Bool {
+        if let draft = apiKeyDrafts[provider.id],
+           !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        guard let scope = Self.credentialScope(for: provider) else { return false }
+        return storedAPIKeyScopes[provider.id] == scope
     }
 
     var hasUnsavedChanges: Bool {
@@ -874,6 +919,9 @@ struct AISettingsView: View {
     @Environment(MusicIntelligenceService.self) private var intelligence
     @State private var editor = AISettingsEditorModel()
     @State private var showsRemoveProviderConfirmation = false
+    /// 正在编辑的服务。导航挂在页面根上:引导行在密钥填好后就会消失,
+    /// 不能让它自己持有被推出去的详情页。
+    @State private var editingProviderID: UUID?
 
     var body: some View {
         Form {
@@ -900,9 +948,6 @@ struct AISettingsView: View {
                 primuseRelaySection
                 capabilitySection
                 providerListSection
-                if !usesCompactMobileLayout {
-                    providerDetailLinkSection
-                }
                 privacySection
             }
         }
@@ -910,6 +955,9 @@ struct AISettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .navigationDestination(item: $editingProviderID) { _ in
+            providerDetailPage
+        }
         .task { await editor.load(using: intelligence) }
         .confirmationDialog(
             "ai_remove_provider_confirm",
@@ -960,8 +1008,10 @@ struct AISettingsView: View {
 
     private var primuseRelaySection: some View {
         Section {
-            Toggle("ai_primuse_relay_enabled", isOn: editor.primuseRelayBinding)
+            Toggle("ai_primuse_relay_enabled", isOn: editor.primuseRelayBinding.animation())
             .settingsAnchor("intelligence.relay")
+
+            serviceGuidanceRow
 
             if !usesCompactMobileLayout || editor.primuseRelayEnabled {
                 Button {
@@ -1010,10 +1060,70 @@ struct AISettingsView: View {
                 Text("ai_primuse_relay_section")
             }
         } footer: {
-            if !usesCompactMobileLayout {
-                Text("ai_primuse_relay_footer")
+            Text("ai_primuse_relay_footer")
+        }
+    }
+
+    @ViewBuilder
+    private var serviceGuidanceRow: some View {
+        switch editor.serviceSetupGuidance {
+        case .none:
+            EmptyView()
+        case .configureOwnService(let providerID):
+            Button {
+                openProvider(providerID)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "key.horizontal.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .frame(width: 26)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("ai_setup_needs_service_title")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text("ai_setup_needs_service_detail")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    disclosureChevron
+                }
+                .contentShape(Rectangle())
+            }
+            .accessibilityHint(Text("ai_setup_configure_action"))
+        case .relayTakesPriority:
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.green)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ai_setup_relay_first_title")
+                        .font(.subheadline.weight(.semibold))
+                    Text("ai_setup_relay_first_detail")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Button("ai_setup_use_own_service") {
+                    editor.primuseRelayBinding.animation().wrappedValue = false
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
+    }
+
+    private var disclosureChevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.tertiary)
+    }
+
+    private func openProvider(_ providerID: UUID) {
+        editor.selectProvider(providerID)
+        editingProviderID = providerID
     }
 
     private var capabilitySection: some View {
@@ -1039,131 +1149,138 @@ struct AISettingsView: View {
         Section {
             ForEach(Array(editor.draftProviderSet.providers.enumerated()), id: \.element.id) {
                 index, provider in
-                HStack(spacing: 12) {
-                    Button {
-                        editor.selectProvider(provider.id)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: provider.id == editor.selectedProviderID
-                                  ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(provider.id == editor.selectedProviderID
-                                                 ? Color.accentColor : Color.secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(provider.displayName.isEmpty
-                                     ? String(localized: "ai_provider_default_name")
-                                     : provider.displayName)
-                                    .foregroundStyle(.primary)
-                                if !usesCompactMobileLayout {
-                                    Text(provider.baseURL)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-                    if provider.id == editor.draftProviderSet.primaryProviderID {
-                        Text("ai_primary_provider")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    Toggle("", isOn: editor.providerEnabledBinding(provider.id))
-                        .labelsHidden()
-                    Menu {
-                        if provider.id != editor.draftProviderSet.primaryProviderID {
-                            Button("ai_set_primary", systemImage: "star") {
-                                editor.makePrimary(provider.id)
-                            }
-                        }
-                        Button("ai_move_up", systemImage: "arrow.up") {
-                            editor.moveProvider(provider.id, offset: -1)
-                        }
-                        .disabled(index == 0)
-                        Button("ai_move_down", systemImage: "arrow.down") {
-                            editor.moveProvider(provider.id, offset: 1)
-                        }
-                        .disabled(index == editor.draftProviderSet.providers.count - 1)
-                        if editor.draftProviderSet.providers.count > 1 {
-                            Divider()
-                            Button("ai_remove_provider", systemImage: "trash", role: .destructive) {
-                                editor.selectProvider(provider.id)
-                                showsRemoveProviderConfirmation = true
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel("ai_provider_actions")
-                }
-                .aiProviderPrimaryAction(
-                    isPrimary: provider.id == editor.draftProviderSet.primaryProviderID
-                ) {
-                    editor.makePrimary(provider.id)
-                }
+                providerRow(provider, index: index)
             }
 
             Toggle("ai_fallback_enabled", isOn: editor.fallbackBinding)
             .settingsAnchor("intelligence.fallback")
 
-            HStack {
-                Button("ai_add_provider", systemImage: "plus") {
-                    editor.addProvider()
-                }
-                .settingsAnchor("intelligence.addProvider")
-                Spacer()
-                if editor.selectedProviderID != editor.draftProviderSet.primaryProviderID {
-                    Button("ai_set_primary") {
-                        editor.makePrimary(editor.selectedProviderID)
-                    }
-                }
+            Button {
+                editor.addProvider()
+                editingProviderID = editor.selectedProviderID
+            } label: {
+                Label("ai_add_provider", systemImage: "plus")
             }
-
-            if usesCompactMobileLayout {
-                providerDetailNavigationLink
-            }
+            .settingsAnchor("intelligence.addProvider")
         } header: {
             Text("ai_provider_list_section")
         } footer: {
-            Text(editor.providerListFooterText)
+            Text(verbatim: editor.serviceListFooterText)
         }
         .settingsAnchor("intelligence.providers")
     }
 
-    private var providerDetailLinkSection: some View {
-        Section {
-            providerDetailNavigationLink
+    /// 一行一项服务,点进去就是它自己的地址、密钥和模型;
+    /// 行内只报它配到哪一步,排序、设为主服务、删除放在长按菜单和左右滑动里。
+    private func providerRow(
+        _ provider: AIRemoteProviderConfiguration,
+        index: Int
+    ) -> some View {
+        let isPrimary = provider.id == editor.draftProviderSet.primaryProviderID
+        let state = editor.setupState(for: provider)
+        let canRemove = editor.draftProviderSet.providers.count > 1
+        return Button {
+            openProvider(provider.id)
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(provider.displayName.isEmpty
+                         ? String(localized: "ai_provider_default_name")
+                         : provider.displayName)
+                        .foregroundStyle(.primary)
+                    if let state {
+                        Text(verbatim: state.localizedTitle)
+                            .font(.caption)
+                            .foregroundStyle(providerStateColor(state))
+                    }
+                }
+                Spacer(minLength: 8)
+                if isPrimary {
+                    Text("ai_primary_provider")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+                disclosureChevron
+            }
+            .contentShape(Rectangle())
+        }
+        .contextMenu {
+            if !isPrimary {
+                Button("ai_set_primary", systemImage: "star") {
+                    editor.makePrimary(provider.id)
+                }
+            }
+            Button("ai_move_up", systemImage: "arrow.up") {
+                editor.moveProvider(provider.id, offset: -1)
+            }
+            .disabled(index == 0)
+            Button("ai_move_down", systemImage: "arrow.down") {
+                editor.moveProvider(provider.id, offset: 1)
+            }
+            .disabled(index == editor.draftProviderSet.providers.count - 1)
+            if canRemove {
+                Divider()
+                Button("ai_remove_provider", systemImage: "trash", role: .destructive) {
+                    confirmRemoval(of: provider.id)
+                }
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            // 删除要先确认,不用 destructive 角色:它会让行在确认前就先滑走。
+            if canRemove {
+                Button("ai_remove_provider", systemImage: "trash") {
+                    confirmRemoval(of: provider.id)
+                }
+                .tint(.red)
+            }
+        }
+        .aiProviderPrimaryAction(isPrimary: isPrimary) {
+            editor.makePrimary(provider.id)
         }
     }
 
-    private var providerDetailNavigationLink: some View {
-        NavigationLink {
-            Form {
-                providerSection
-                modelSection
-                providerPrivacySection
-                actionSection
-            }
-            .navigationTitle(usesCompactMobileLayout
-                             ? String(localized: "ai_provider_actions")
-                             : String(localized: "ai_provider_detail_section"))
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-        } label: {
-            if usesCompactMobileLayout {
-                Label("ai_provider_actions", systemImage: "slider.horizontal.3")
-            } else {
-                LabeledContent {
-                    Text(editor.draftConfiguration.displayName.isEmpty
+    /// 内置 AI 开着时自己的服务只是备用,缺密钥不算问题,不用橙色催。
+    private func providerStateColor(_ state: AIProviderSetupState) -> Color {
+        switch state {
+        case .ready:
+            return .green
+        case .needsAPIKey, .needsModel:
+            return editor.isPrimuseRelayActive ? .secondary : .orange
+        case .disabled:
+            return .secondary
+        }
+    }
+
+    private func confirmRemoval(of providerID: UUID) {
+        editor.selectProvider(providerID)
+        showsRemoveProviderConfirmation = true
+    }
+
+    private var providerDetailPage: some View {
+        Form {
+            providerSection
+            modelSection
+            actionSection
+            providerManagementSection
+            providerPrivacySection
+        }
+        .navigationTitle(editor.draftConfiguration.displayName.isEmpty
                          ? String(localized: "ai_provider_default_name")
                          : editor.draftConfiguration.displayName)
-                        .foregroundStyle(.secondary)
-                } label: {
-                    Label("ai_provider_detail_section", systemImage: "slider.horizontal.3")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private var providerManagementSection: some View {
+        Section {
+            Toggle(
+                "ai_provider_enabled",
+                isOn: editor.providerEnabledBinding(editor.selectedProviderID)
+            )
+            if editor.selectedProviderID != editor.draftProviderSet.primaryProviderID {
+                Button("ai_set_primary", systemImage: "star") {
+                    editor.makePrimary(editor.selectedProviderID)
                 }
             }
         }
@@ -1433,6 +1550,17 @@ struct AISettingsView: View {
 }
 
 #endif
+
+extension AIProviderSetupState {
+    var localizedTitle: String {
+        switch self {
+        case .disabled: String(localized: "ai_provider_state_disabled")
+        case .needsAPIKey: String(localized: "ai_provider_state_needs_key")
+        case .needsModel: String(localized: "ai_provider_state_needs_model")
+        case .ready: String(localized: "ai_provider_state_ready")
+        }
+    }
+}
 
 extension AIProviderPreset {
     var localizedTitle: String {

@@ -52,6 +52,10 @@ final class AISettingsStore {
     }
 
     nonisolated static let storageKey = "ai.settings.v1"
+    /// 从没保存过智能设置的设备默认打开内置 AI,开箱就能体验;已经保存过的
+    /// 选择(包括升级前就配好自己服务的旧版本设置)一律照旧,不替用户改回来。
+    /// 打开它不会发出任何请求:各项功能开关和数据授权仍然默认关闭。
+    nonisolated static let defaultPrimuseRelayEnabled = true
     private let defaults: UserDefaults
     private let syncsThroughICloud: Bool
     @ObservationIgnored var externalReloadHandler: (() -> Void)?
@@ -269,7 +273,16 @@ final class AISettingsStore {
                 false
             )
         }
-        return (AIRemoteProviderSet(), false, false, false, false, false, false, false)
+        return (
+            AIRemoteProviderSet(),
+            defaultPrimuseRelayEnabled,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+        )
     }
 }
 

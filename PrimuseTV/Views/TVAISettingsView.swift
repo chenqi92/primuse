@@ -97,6 +97,7 @@ struct TVAISettingsView: View {
                 title: String(localized: "ai_primuse_relay_enabled"),
                 isOn: editor.primuseRelayBinding
             )
+            serviceGuidanceRow
             TVAIDivider()
             TVAIActionRow(
                 icon: editor.isTestingPrimuseRelay ? "arrow.triangle.2.circlepath" : "network",
@@ -119,6 +120,47 @@ struct TVAISettingsView: View {
                     tint: TVColor.warn,
                     text: String(localized: "ai_primuse_relay_unsupported")
                 )
+            }
+        }
+    }
+
+    /// 开关下方的引导:关掉内置 AI 又没有配好的服务时,直接带去填密钥;
+    /// 自己的服务已配好但内置 AI 仍开着时,说明谁优先并给一键改用。
+    @ViewBuilder
+    private var serviceGuidanceRow: some View {
+        switch editor.serviceSetupGuidance {
+        case .none:
+            EmptyView()
+        case .configureOwnService(let providerID):
+            TVAIDivider()
+            TVAINoteRow(
+                icon: "key.horizontal.fill",
+                tint: TVColor.warn,
+                text: String(localized: "ai_setup_needs_service_detail")
+            )
+            TVAIActionRow(
+                icon: "key.horizontal",
+                title: String(localized: "ai_setup_needs_service_title"),
+                value: String(localized: "ai_setup_configure_action"),
+                trailing: "chevron.right"
+            ) {
+                editor.selectProvider(providerID)
+                providerTarget = TVAIProviderTarget(id: providerID)
+            }
+        case .relayTakesPriority:
+            TVAIDivider()
+            TVAINoteRow(
+                icon: "checkmark.seal.fill",
+                tint: TVColor.ok,
+                text: String(localized: "ai_setup_relay_first_detail")
+            )
+            TVAIActionRow(
+                icon: "arrow.left.arrow.right",
+                title: String(localized: "ai_setup_relay_first_title"),
+                value: String(localized: "ai_setup_use_own_service"),
+                trailing: "chevron.right"
+            ) {
+                editor.primuseRelayBinding.wrappedValue = false
             }
         }
     }
@@ -204,9 +246,16 @@ struct TVAISettingsView: View {
         }
     }
 
-    /// 服务行右侧的一句状态:主服务优先标出来,其余只说启用 / 停用。
+    /// 服务行右侧的一句状态:还缺密钥或模型时先说缺什么,其余标出主服务或启用 / 停用。
     private func providerStatusText(_ provider: AIRemoteProviderConfiguration) -> String {
-        if provider.id == editor.draftProviderSet.primaryProviderID {
+        let isPrimary = provider.id == editor.draftProviderSet.primaryProviderID
+        if let state = editor.setupState(for: provider),
+           state == .needsAPIKey || state == .needsModel {
+            return isPrimary
+                ? "\(String(localized: "ai_primary_provider")) · \(state.localizedTitle)"
+                : state.localizedTitle
+        }
+        if isPrimary {
             return String(localized: "ai_primary_provider")
         }
         return provider.isEnabled
@@ -251,7 +300,7 @@ struct TVAISettingsView: View {
             }
             TVAIDivider()
             Text("ai_primuse_relay_footer").tvFont(.meta).foregroundStyle(TVColor.textFaint)
-            Text(verbatim: editor.providerListFooterText)
+            Text(verbatim: editor.serviceListFooterText)
                 .tvFont(.meta).foregroundStyle(TVColor.textFaint)
             Text("ai_privacy_footer").tvFont(.meta).foregroundStyle(TVColor.textFaint)
         }

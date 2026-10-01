@@ -616,7 +616,7 @@
 "ai_primuse_relay_failure_upstream_title" = "Usługa nadrzędna nie powiodła się";
 "ai_primuse_relay_fallback_local" = "Nie jest dostępny zdalny powrót awaryjny. Wyszukiwanie lokalne, rekomendacje i odtwarzanie pozostają dostępne.";
 "ai_primuse_relay_fallback_provider_format" = "Wbudowana usługa jest niedostępna. Zweryfikowano powrót do „%@”.";
-"ai_primuse_relay_footer" = "Wbudowana sztuczna inteligencja jest przeznaczona do użytku próbnego i może być ograniczona współdzielonymi przydziałami. Aby zapewnić niezawodne użytkowanie lub generowanie tekstów piosenek, skonfiguruj własną kompatybilną usługę.";
+"ai_primuse_relay_footer" = "Wbudowana SI to bezpłatny dostęp próbny od Primuse — ma pokazać, co potrafią funkcje inteligentne, a nie służyć do stałego użytku. Liczba użytkowników, przepustowość serwera i limity dostawców mogą ją spowalniać lub czasowo wyłączać; jeśli w przyszłości zabraknie darmowego dostępu, może zostać wycofana lub stać się osobno płatna.\n\nZalecamy dodanie własnego klucza API w sekcji „Twoje usługi SI”, a potem wyłączenie wbudowanej SI. Wszystkie funkcje działają tak samo, zwykle szybciej i stabilniej.";
 "ai_primuse_relay_name" = "Wbudowana sztuczna inteligencja Primuse";
 "ai_primuse_relay_ready" = "Wbudowane środowisko AI jest gotowe";
 "ai_primuse_relay_section" = "Wbudowane doświadczenie AI";
@@ -629,6 +629,19 @@
 "ai_primuse_relay_test_success_storekit" = "Dostępna usługa wbudowana (pogorszona weryfikacja urządzenia)";
 "ai_primuse_relay_test_success_storekit_detail" = "Test aplikacji jest niedostępny, więc weryfikacja powróciła do App Store.";
 "ai_primuse_relay_unsupported" = "To urządzenie nie może zweryfikować dostępu do wbudowanej sztucznej inteligencji za pomocą testu aplikacji.";
+"ai_provider_list_relay_hint" = "Gdy wbudowana SI jest włączona, ma pierwszeństwo, a te usługi służą tylko jako zapas. Wybierz usługę, aby dodać jej klucz API, a następnie wyłącz wbudowaną SI, by korzystać bezpośrednio z własnej usługi.";
+"ai_provider_list_tap_hint" = "Wybierz usługę, aby dodać klucz API i ustawić model.";
+"ai_setup_needs_service_title" = "Brak gotowej usługi SI";
+"ai_setup_needs_service_detail" = "Dodaj klucz API dostawcy SI, aby korzystać z funkcji inteligentnych.";
+"ai_setup_configure_action" = "Dodaj klucz API";
+"ai_setup_relay_first_title" = "Twoja usługa SI jest gotowa";
+"ai_setup_relay_first_detail" = "Gdy wbudowana SI jest włączona, ma pierwszeństwo; Twoja usługa przejmuje zadania tylko wtedy, gdy SI jest niedostępna.";
+"ai_setup_use_own_service" = "Użyj mojej usługi";
+"ai_provider_state_needs_key" = "Brak klucza API";
+"ai_provider_state_needs_model" = "Brak modelu";
+"ai_provider_state_ready" = "Gotowa";
+"ai_provider_state_disabled" = "Wyłączona";
+"ai_provider_enabled" = "Używaj tej usługi";
 "ai_privacy_footer" = "Klucze API pozostają w Keychain. Rekomendacje nigdy nie obejmują ścieżek plików, pełnej historii słuchania ani dźwięku; lokalny HTTP wymaga osobnej zgody.";
 "ai_privacy_section" = "Prywatność i sieć";
 "ai_provider_actions" = "Zarządzanie usługami";
@@ -637,7 +650,7 @@
 "ai_provider_detail_section" = "Bieżąca usługa";
 "ai_provider_editing" = "Edycja";
 "ai_provider_footer" = "Wysyłana jest tylko treść wymagana przez włączone, autoryzowane funkcje. Struktura biblioteki i ścieżki plików pozostają na tym urządzeniu; dźwięk jest przesyłany wyłącznie w celu wyraźnie zatwierdzonej transkrypcji utworu.";
-"ai_provider_list_section" = "Usługi i pomoc awaryjna";
+"ai_provider_list_section" = "Twoje usługi SI";
 "ai_provider_name" = "Nazwa dostawcy";
 "ai_provider_preset" = "Ustawienia wstępne dostawcy";
 "ai_provider_preset_anthropic" = "Antropiczny";

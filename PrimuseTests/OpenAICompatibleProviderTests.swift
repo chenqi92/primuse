@@ -1833,7 +1833,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         editor.didLoad = true
 
         XCTAssertTrue(editor.canTestPrimuseRelayConnection)
-        XCTAssertFalse(editor.primuseRelayEnabled)
+        XCTAssertTrue(editor.primuseRelayEnabled)
         XCTAssertFalse(editor.consent)
         XCTAssertFalse(editor.listeningContextConsent)
         XCTAssertFalse(editor.hasUsableAPIKey)
@@ -1938,6 +1938,34 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertTrue(reopenedEditor.didLoad)
         XCTAssertEqual(intelligence.regionAvailability.snapshot, resolvedRegion)
         XCTAssertTrue(intelligence.shouldExposeRemoteConfiguration)
+    }
+
+    @MainActor
+    func testSettingsEditorReportsWhichStepEachServiceStillNeeds() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(
+            suiteName: "AISettingsEditorSetupStateTests.\(UUID().uuidString)"
+        ))
+        let settings = AISettingsStore(defaults: defaults, syncsThroughICloud: false)
+        let intelligence = MusicIntelligenceService(
+            settingsStore: settings,
+            credentialStore: TestAICredentialStore()
+        )
+        let editor = AISettingsEditorModel()
+        XCTAssertNil(editor.setupState(for: editor.draftConfiguration))
+
+        await editor.load(using: intelligence)
+        XCTAssertTrue(editor.primuseRelayEnabled)
+        var provider = editor.draftConfiguration
+        provider.isEnabled = true
+        XCTAssertEqual(editor.setupState(for: provider), .needsAPIKey)
+
+        editor.apiKeyDrafts[provider.id] = "sk-test"
+        provider.generationModel = ""
+        XCTAssertEqual(editor.setupState(for: provider), .needsModel)
+        provider.generationModel = "test-model"
+        XCTAssertEqual(editor.setupState(for: provider), .ready)
+        provider.isEnabled = false
+        XCTAssertEqual(editor.setupState(for: provider), .disabled)
     }
 
     @MainActor

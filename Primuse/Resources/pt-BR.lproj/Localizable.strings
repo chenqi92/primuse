@@ -616,7 +616,7 @@
 "ai_primuse_relay_failure_upstream_title" = "Falha no serviço upstream";
 "ai_primuse_relay_fallback_local" = "Nenhum fallback remoto está disponível. A pesquisa local, recomendações e reprodução permanecem disponíveis.";
 "ai_primuse_relay_fallback_provider_format" = "O serviço integrado não está disponível. Fallback verificado para “%@”.";
-"ai_primuse_relay_footer" = "A IA integrada é para uso experimental e pode ser limitada por cotas compartilhadas. Para uso confiável ou geração de música para letra, configure seu próprio serviço compatível.";
+"ai_primuse_relay_footer" = "A IA integrada é um acesso de teste gratuito oferecido pelo Primuse, para mostrar o que os recursos inteligentes podem fazer, e não algo para depender. O número de usuários, a largura de banda do servidor ou os limites de uso dos provedores podem deixá-la lenta ou temporariamente indisponível; se no futuro não houver acesso gratuito, ela pode ser desativada ou passar a ser cobrada à parte.\n\nRecomendamos adicionar sua própria chave de API em “Seus serviços de IA” e depois desativar a IA integrada. Todos os recursos funcionam igual e costumam ser mais rápidos e estáveis.";
 "ai_primuse_relay_name" = "IA integrada Primuse";
 "ai_primuse_relay_ready" = "A experiência de IA integrada está pronta";
 "ai_primuse_relay_section" = "Experiência de IA integrada";
@@ -629,6 +629,19 @@
 "ai_primuse_relay_test_success_storekit" = "Serviço integrado disponível (verificação do dispositivo degradada)";
 "ai_primuse_relay_test_success_storekit_detail" = "O App Attest não está disponível, portanto a verificação voltou para o App Store.";
 "ai_primuse_relay_unsupported" = "Este dispositivo não pode verificar o acesso à IA integrada com o App Attest.";
+"ai_provider_list_relay_hint" = "Enquanto a IA integrada estiver ativada, ela é usada primeiro e estes serviços ficam só como reserva. Escolha um serviço para adicionar a chave de API e depois desative a IA integrada para usar seu próprio serviço diretamente.";
+"ai_provider_list_tap_hint" = "Escolha um serviço para adicionar a chave de API e selecionar um modelo.";
+"ai_setup_needs_service_title" = "Nenhum serviço de IA pronto";
+"ai_setup_needs_service_detail" = "Adicione a chave de API de um provedor de IA para usar os recursos inteligentes.";
+"ai_setup_configure_action" = "Adicionar chave de API";
+"ai_setup_relay_first_title" = "Seu serviço de IA está pronto";
+"ai_setup_relay_first_detail" = "Enquanto a IA integrada estiver ativada, ela é usada primeiro; seu serviço só assume quando ela estiver indisponível.";
+"ai_setup_use_own_service" = "Usar meu serviço";
+"ai_provider_state_needs_key" = "Falta a chave de API";
+"ai_provider_state_needs_model" = "Falta o modelo";
+"ai_provider_state_ready" = "Pronto";
+"ai_provider_state_disabled" = "Desativado";
+"ai_provider_enabled" = "Usar este serviço";
 "ai_privacy_footer" = "As chaves API permanecem em Keychain. As recomendações nunca incluem caminhos de arquivos, histórico completo de audição ou áudio; o HTTP local requer aprovação separada.";
 "ai_privacy_section" = "Privacidade e rede";
 "ai_provider_actions" = "Gestão de Serviços";
@@ -637,7 +650,7 @@
 "ai_provider_detail_section" = "Serviço Atual";
 "ai_provider_editing" = "Edição";
 "ai_provider_footer" = "Somente o conteúdo exigido pelos recursos habilitados e autorizados é enviado. A estrutura da biblioteca e os caminhos dos arquivos permanecem neste dispositivo; o áudio é carregado apenas para transcrições de músicas explicitamente aprovadas.";
-"ai_provider_list_section" = "Serviços e substitutos";
+"ai_provider_list_section" = "Seus serviços de IA";
 "ai_provider_name" = "Nome do provedor";
 "ai_provider_preset" = "Predefinição de provedor";
 "ai_provider_preset_anthropic" = "Antrópico";
