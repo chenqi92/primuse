@@ -925,6 +925,7 @@ final class AppServices {
     let themeService: ThemeService
     let scanService: ScanService
     let serverCatalogAutoRefresh: ServerCatalogAutoRefreshCoordinator
+    let plexServerLinks: PlexServerLinkRefresher
     let serverMirrorRefresh: ServerMirrorRefreshCoordinator
     let alwaysDownload: AlwaysDownloadCoordinator
     #if os(iOS) || os(macOS)
@@ -1290,6 +1291,7 @@ final class AppServices {
         }
         self.scanService = scanService
         self.serverCatalogAutoRefresh = serverCatalogAutoRefresh
+        self.plexServerLinks = PlexServerLinkRefresher(sourcesStore: store, sourceManager: manager)
         self.serverMirrorRefresh = serverMirrorRefresh
         self.alwaysDownload = alwaysDownload
         #if os(iOS) || os(macOS)
@@ -1544,6 +1546,8 @@ final class AppServices {
             library: musicLibrary
         )
         alwaysDownload.start()
+        // 先让用账号绑定的 Plex 源跟上服务器的新地址，再去查服务器目录。
+        plexServerLinks.startColdLaunchRefresh()
         serverCatalogAutoRefresh.startColdLaunchRefresh()
         // 服务器上新建的歌单不该等到用户想起来去手动扫一次曲库才出现(#142)。
         serverMirrorRefresh.startColdLaunchRefresh()
@@ -1870,6 +1874,7 @@ final class AppServices {
         sourceLifecycleObserverTokens.append(
             nc.addObserver(forName: becameActive, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
+                    self?.plexServerLinks.applicationDidBecomeActive()
                     self?.serverCatalogAutoRefresh.setApplicationActive(true)
                     self?.alwaysDownload.setApplicationActive(true)
                     self?.serverRatingSync.resume()

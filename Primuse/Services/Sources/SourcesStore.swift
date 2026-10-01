@@ -16,13 +16,17 @@ private actor SourceCredentialPurgeExecutor {
             || KeychainService.deletePassword(
                 for: FnMusicAPIProtocol.fnConnectAccessCodeAccount(sourceID: source.id)
             )
+        let plexAccountTokenDeleted = source.type != .plex
+            || KeychainService.deletePassword(
+                for: PlexAccountAPI.accountTokenKeychainAccount(sourceID: source.id)
+            )
         let cloudCredentialsDeleted = !requiredStores.contains(.cloudCredentials)
             || CloudTokenManager.deleteStoredCredentials(for: source.id)
         guard SourcePermanentDeletionPolicy.canRemoveTombstone(
             requiredStores: requiredStores,
             passwordDeleted: passwordDeleted,
             cloudCredentialsDeleted: cloudCredentialsDeleted
-        ), fnConnectAccessCodeDeleted else { return false }
+        ), fnConnectAccessCodeDeleted, plexAccountTokenDeleted else { return false }
         LocalBookmarkStore.remove(sourceID: source.id)
         CloudDirectoryNameStore.deleteAll(for: source.id)
         #endif

@@ -362,6 +362,22 @@ enum TVCredentialStore {
         keychainPassword(account: sourceID) != nil
     }
 
+    // MARK: - Plex 账号 token
+
+    /// 用 Plex 账号绑定的源日后靠它重新查服务器地址。手机上登录后经 iCloud 钥匙串同步来的那份也读得到。
+    static func plexAccountToken(sourceID: String) -> String? {
+        keychainPassword(account: PlexAccountAPI.accountTokenKeychainAccount(sourceID: sourceID))
+    }
+
+    /// 电视上登录得到的账号 token 只存本机。
+    @discardableResult
+    static func savePlexAccountToken(_ token: String, sourceID: String) -> Bool {
+        upsert(
+            data: Data(token.utf8),
+            account: PlexAccountAPI.accountTokenKeychainAccount(sourceID: sourceID)
+        )
+    }
+
     // MARK: - 局域网直传凭据包(本地钥匙串,跨重启保留)
     //
     // LAN 扫码直传(`primuse://pair`)绕开 iCloud,收到的整包凭据存这里,使「不同

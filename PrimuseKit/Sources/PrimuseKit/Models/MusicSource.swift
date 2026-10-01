@@ -1499,6 +1499,10 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
     /// identity is already rooted in host+credentials. Populated by the
     /// OAuth flow when `MusicSourceType.requiresOAuth` is true.
     public var cloudAccountID: String?
+    /// Plex 源用账号登录、从服务器清单里选出来时，那台服务器在 plex.tv 上的
+    /// clientIdentifier。有它才能在服务器换了地址后用账号重新查到新线路；
+    /// 手填地址和 token 的 Plex 源一直是 nil。
+    public var plexServerIdentifier: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -1529,7 +1533,8 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         isDeleted: Bool = false,
         deletedAt: Date? = nil,
         restoredAt: Date? = nil,
-        cloudAccountID: String? = nil
+        cloudAccountID: String? = nil,
+        plexServerIdentifier: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -1561,6 +1566,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         self.deletedAt = deletedAt
         self.restoredAt = restoredAt
         self.cloudAccountID = cloudAccountID
+        self.plexServerIdentifier = plexServerIdentifier
     }
 
     public var supportsRangeStreaming: Bool {
@@ -1615,6 +1621,7 @@ public struct MusicSource: Codable, Identifiable, Hashable, Sendable {
         // cleanly with cloudAccountID = nil. The migration in stage 4
         // will populate this for existing OAuth sources.
         self.cloudAccountID = try c.decodeIfPresent(String.self, forKey: .cloudAccountID)
+        self.plexServerIdentifier = try c.decodeIfPresent(String.self, forKey: .plexServerIdentifier)
     }
 }
 

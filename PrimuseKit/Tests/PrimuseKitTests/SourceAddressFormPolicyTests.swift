@@ -602,4 +602,23 @@ struct SourceAddressFormPolicyTests {
         #expect(reading.placement.usesVendorRemoteAccess == false)
         #expect(SourceAddressFormPolicy.requiresProbe(drafts: drafts, baseline: drafts) == false)
     }
+
+    /// Plex 账号给的内网地址是 `192-168-1-10.<hash>.plex.direct`：名字长得像公网域名，得按里面写的 IP
+    /// 归进内网槽。否则编辑页回显后两条地址争同一个槽，保存一次内外网就对调了。
+    @Test func plexDirectLANHostStaysInTheLocalSlotOnReload() {
+        let hash = "0123456789abcdef0123456789abcdef"
+        let configuration = SourceConnectionConfiguration(
+            localEndpoint: SourceConnectionEndpoint(
+                host: "192-168-1-10.\(hash).plex.direct", port: 32400, useSsl: true
+            ),
+            publicEndpoint: SourceConnectionEndpoint(
+                host: "203-0-113-7.\(hash).plex.direct", port: 32400, useSsl: true
+            )
+        )
+        let drafts = SourceAddressFormPolicy.drafts(for: configuration, sourceType: .plex)
+        let reading = SourceAddressFormPolicy.read(drafts, sourceType: .plex)
+        #expect(reading.placement.slots == [.local, .publicAddress])
+        #expect(SourceAddressFormPolicy.hostClass(ofHost: "192-168-1-10.\(hash).plex.direct") == .lan)
+        #expect(SourceAddressFormPolicy.hostClass(ofHost: "203-0-113-7.\(hash).plex.direct") == .public)
+    }
 }

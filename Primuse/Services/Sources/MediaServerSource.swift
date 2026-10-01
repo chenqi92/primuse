@@ -3858,7 +3858,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         guard let http = response as? HTTPURLResponse else {
             throw SourceError.connectionFailed("Invalid server response")
         }
-        if [404, 405, 501].contains(http.statusCode) {
+        // 播放历史只对服务器管理员开放：好友分享来的服务器在连接时已经验过 token，
+        // 这里的 401/403 只是「没权限看历史」，退回按曲目播放次数统计。
+        if [401, 403, 404, 405, 501].contains(http.statusCode) {
             return nil
         }
         try validate(response)

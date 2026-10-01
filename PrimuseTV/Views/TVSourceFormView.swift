@@ -244,6 +244,11 @@ struct TVSourceFormView: View {
     /// 就按保存不该再等一轮十几秒;而重新取「第一个候选」会把刚探到的结果悄悄
     /// 换掉,所以把结果连同它对应的输入一起记下来。
     @State private var resolvedSelection: ResolvedAddressSelection?
+    /// Plex 账号登录：选中的服务器等登录页收起后再保存。
+    @State private var showsPlexSignIn = false
+    @State private var pendingPlexSelection: PlexServerSelection?
+    @State private var plexServerIdentifier: String?
+    @State private var plexAccountToken = ""
 
     private var showsSSL: Bool { type.category == .mediaServer || type.category == .nas || type == .webdav }
     private var isCloudDrive: Bool { type.isCloudDrive }
@@ -454,6 +459,11 @@ struct TVSourceFormView: View {
                 }
             )
         }
+        .fullScreenCover(isPresented: $showsPlexSignIn, onDismiss: applyPendingPlexSelection) {
+            TVPlexSignInView { selection in
+                pendingPlexSelection = selection
+            }
+        }
         .fullScreenCover(item: $otpDraft) { source in
             TVOTPEntryView(source: store.map(source), verify: { code in
                 await verifyDraft(source, code: code)
@@ -500,6 +510,9 @@ struct TVSourceFormView: View {
             .padding(.bottom, 8)
 
             TVFormField(label: PMString("ext.tv.sources.form.name"), text: $name, autofocus: true)
+            if type == .plex {
+                plexSignInRow
+            }
             if type.requiresHost {
                 if supportsAdaptiveConnections {
                     adaptiveConnectionFields
@@ -706,6 +719,76 @@ struct TVSourceFormView: View {
         .frame(maxWidth: 760, alignment: .leading)
     }
 
+    /// 「使用 Plex 账号登录」：选好服务器后线路、令牌、名字一次填好并保存。
+    private var plexSignInRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TVFocusButton(radius: 14, accent: TVColor.brand, scale: 1.04, lift: 0, action: {
+                showsPlexSignIn = true
+            }) { focused in
+                HStack(spacing: 14) {
+                    Image(systemName: "person.crop.circle.badge.checkmark")
+                        .font(.system(size: 26, weight: .semibold))
+                    Text(plexSignInTitle)
+                        .tvFont(.meta, weight: .bold)
+                }
+                .foregroundStyle(TVColor.onBrand)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 18)
+                .background(
+                    TVColor.brand.opacity(focused ? 1 : 0.88),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+            }
+            connectionHintText(plexSignInHint)
+        }
+    }
+
+    private var plexSignInTitle: String {
+        plexServerIdentifier == nil
+            ? String(localized: "plex_signin_button")
+            : String(localized: "plex_signin_again")
+    }
+
+    private var plexSignInHint: String {
+        plexServerIdentifier == nil
+            ? String(localized: "plex_signin_footer")
+            : String(localized: "plex_signin_linked_footer")
+    }
+
+    /// 登录页收起之后才保存：在全屏页还挂着的时候关掉表单，系统只会收起最上面那一层。
+    private func applyPendingPlexSelection() {
+        guard let selection = pendingPlexSelection else { return }
+        pendingPlexSelection = nil
+
+        let configuration = selection.routes.connectionConfiguration
+        host = configuration.localEndpoint?.host ?? ""
+        portText = configuration.localEndpoint.map { String($0.port) } ?? ""
+        useSsl = configuration.localEndpoint?.useSsl ?? type.defaultSSL
+        publicHost = configuration.publicEndpoint?.host ?? ""
+        publicPortText = configuration.publicEndpoint.map { String($0.port) } ?? ""
+        publicUseSsl = configuration.publicEndpoint?.useSsl ?? true
+        // 地址框回显成选中的线路并记为基线，提交时不再探测 —— 这些就是服务器自己报给 plex.tv 的地址。
+        let drafts = SourceAddressFormPolicy.drafts(for: configuration, sourceType: type)
+        addressRows = drafts.map(TVSourceAddressRow.init(draft:))
+        addressBaseline = drafts
+        resolvedSelection = nil
+
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty || trimmedName == type.displayName {
+            name = selection.resource.name
+        }
+        authType = .apiKey
+        password = selection.serverToken
+        plexAccountToken = selection.accountToken
+        plexServerIdentifier = selection.resource.clientIdentifier
+        plog(
+            "🎞️ TV Plex server picked owned=\(selection.resource.isOwned) "
+                + "local=\(selection.routes.local != nil) remote=\(selection.routes.remote != nil) "
+                + "relayOnly=\(selection.routes.reachesOnlyThroughRelay)"
+        )
+        save()
+    }
+
     private func connectionHint(_ key: String) -> some View {
         connectionHintText(PMString(key))
     }
@@ -792,6 +875,7 @@ struct TVSourceFormView: View {
             name = e.name
             username = e.username ?? ""
             authType = e.authType
+            plexServerIdentifier = e.plexServerIdentifier
             if supportsAdaptiveConnections {
                 let configuration = e.effectiveConnectionConfiguration
                     ?? SourceConnectionConfiguration()
@@ -1235,6 +1319,7 @@ struct TVSourceFormView: View {
         if verifiedDraftIdentity == draftAuthenticationIdentity(src) {
             src.deviceId = verifiedDraftDeviceID
         }
+        src.plexServerIdentifier = type == .plex ? plexServerIdentifier : nil
         src.modifiedAt = Date()
         return src
     }
@@ -1310,6 +1395,11 @@ struct TVSourceFormView: View {
         guard didSave else {
             saveFailed = true
             return
+        }
+        // 账号 token 只用来日后重查服务器地址；写不进去不拦保存。
+        if type == .plex, !plexAccountToken.isEmpty,
+           !TVCredentialStore.savePlexAccountToken(plexAccountToken, sourceID: src.id) {
+            plog("⚠️ TV Plex account token could not be stored source=\(src.id.prefix(8))…")
         }
         onSaved(store.source(id: src.id) ?? src, editing == nil)
         dismiss()

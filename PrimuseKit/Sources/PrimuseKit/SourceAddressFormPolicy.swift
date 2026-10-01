@@ -339,6 +339,10 @@ public enum SourceAddressFormPolicy {
         host: String,
         isIPLiteral: Bool
     ) -> SourceAddressInputPolicy.HostClass {
+        // Plex 账号给的内网地址是 `192-168-1-10.<hash>.plex.direct`，按它写在名字里的 IP 归位。
+        if hostClass == .public, let embedded = PlexDirectHost.embeddedIPv4Address(host) {
+            return SourceAddressInputPolicy.hostClass(of: embedded)
+        }
         guard hostClass == .public,
               isIPLiteral == false,
               host.contains(".") == false,

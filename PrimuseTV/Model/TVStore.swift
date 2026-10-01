@@ -825,6 +825,8 @@ final class TVStore {
     @ObservationIgnored private var serverCatalogRetryTask: Task<Void, Never>?
     @ObservationIgnored private var didStartServerCatalogChecks = false
     @ObservationIgnored private var serverCatalogSceneIsActive = false
+    /// 用 Plex 账号绑定的源上次去 plex.tv 重查地址的时间。见文件末尾的扩展。
+    @ObservationIgnored private var plexServerLinkAttemptAt: [String: Date] = [:]
     private struct ScanCheckpoint: Codable {
         let connectionIdentity: String
         let roots: [String]
@@ -6044,6 +6046,7 @@ final class TVStore {
         serverCatalogSceneIsActive = true
         // 启动那一轮还没开始前不抢;之后每次回到前台都问一遍,冷却按源计。
         if didStartServerCatalogChecks {
+            Task { @MainActor [weak self] in await self?.refreshPlexServerLinks() }
             scheduleServerCatalogCheck(after: .seconds(2))
         }
     }
@@ -6365,6 +6368,8 @@ extension TVStore {
         guard !didStartServerCatalogChecks else { return }
         didStartServerCatalogChecks = true
         serverCatalogSceneIsActive = true
+        // 先让用账号绑定的 Plex 源跟上服务器的新地址，目录检查要等 8 秒才开始。
+        Task { @MainActor [weak self] in await self?.refreshPlexServerLinks() }
         scheduleServerCatalogCheck(after: Self.serverCatalogLaunchDelay)
     }
 
@@ -6561,5 +6566,82 @@ extension TVStore {
         if let data = try? encoder.encode(markers) {
             defaults.set(data, forKey: Self.serverCatalogMarkersKey)
         }
+    }
+}
+
+// MARK: - Plex 账号绑定的线路刷新
+
+extension TVStore {
+    private static let plexServerLinkCooldown: TimeInterval = 30 * 60
+
+    /// 用 Plex 账号绑定、在电视上加的源，服务器换了地址或专属 token 时跟上。
+    /// 规则和手机端一样（`PlexServerLinkRefreshPolicy`）；手机同步来的源跟着手机那边的刷新走。
+    func refreshPlexServerLinks() async {
+        let linked = sourcesStore.sources.filter {
+            $0.type == .plex
+                && $0.isEnabled
+                && $0.plexServerIdentifier?.isEmpty == false
+                && locallyScannedSourceIDs.contains($0.id)
+        }
+        for source in linked {
+            await refreshPlexServerLink(source)
+        }
+    }
+
+    private func refreshPlexServerLink(_ source: MusicSource) async {
+        guard canMutateLibrary, let serverID = source.plexServerIdentifier else { return }
+        let now = Date()
+        if let last = plexServerLinkAttemptAt[source.id],
+           now.timeIntervalSince(last) < Self.plexServerLinkCooldown {
+            return
+        }
+        guard let accountToken = TVCredentialStore.plexAccountToken(sourceID: source.id) else { return }
+        plexServerLinkAttemptAt[source.id] = now
+
+        let servers: [PlexResource]
+        do {
+            servers = try await PlexAccountClient.standard().servers(accountToken: accountToken)
+        } catch {
+            plog("⚠️ TV Plex link refresh failed source=\(source.id.prefix(8))… error=\(error)")
+            return
+        }
+        guard let resource = servers.first(where: { $0.clientIdentifier == serverID }),
+              let current = sourcesStore.source(id: source.id),
+              current.plexServerIdentifier == serverID else { return }
+
+        let configuration = PlexServerLinkRefreshPolicy.refreshedConfiguration(
+            current: current.effectiveConnectionConfiguration,
+            routes: PlexServerConnectionPlanner.routes(for: resource)
+        )
+        let storedToken = TVCredentialStore.credential(for: current, bundle: credentialBundle).password
+        let token = PlexServerLinkRefreshPolicy.refreshedToken(current: storedToken, resource: resource)
+        guard configuration != nil || token != nil else { return }
+
+        if let token {
+            guard TVCredentialStore.saveLocalCredential(
+                sourceID: source.id,
+                username: current.username ?? "",
+                password: token
+            ) else { return }
+        }
+        if let configuration {
+            // 同一台服务器换了地址，不走 `updateSource`：那里把主机变化当成换了服务器，会清掉已扫的歌。
+            do {
+                guard try sourcesStore.updateDurably(source.id, mutate: { row in
+                    row.connectionConfiguration = configuration
+                    row = row.projectingPreferredConnectionForLegacy()
+                }) else { return }
+            } catch {
+                return
+            }
+        }
+        plog(
+            "🎞️ TV Plex link refreshed source=\(source.id.prefix(8))… "
+                + "routes=\(configuration != nil) token=\(token != nil)"
+        )
+        if let updated = sourcesStore.source(id: source.id) {
+            await StreamResolverRegistry.shared.invalidateSession(for: updated)
+        }
+        afterSourceMutation()
     }
 }

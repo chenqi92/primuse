@@ -64,6 +64,10 @@ struct AddSourceView: View {
     @State private var credentialValidationSource: MusicSource?
     @State private var validatedCredentialSource: MusicSource?
     @State private var mediaServerCreationTransaction = MediaServerSourceCreationTransaction()
+    /// Plex 账号登录：选中服务器后填进下面三项再走原来的保存路径。
+    @State private var plexSignIn = PlexAccountSignInModel()
+    @State private var plexServerIdentifier: String?
+    @State private var plexAccountToken = ""
     /// 用户填的那一到两行地址。上面那组 host/port/useSsl/publicHost/… 仍然是
     /// 保存路径唯一读取的字段 —— 提交时由 `applyAddressPlan` 一次性写回。
     @State private var addressRows: [SourceAddressRow] = [SourceAddressRow()]
@@ -284,6 +288,7 @@ struct AddSourceView: View {
         .onDisappear {
             addressSubmitTask?.cancel()
             addressSubmitTask = nil
+            plexSignIn.cancel()
             if requiresAuthenticatedMediaServerPreflight {
                 mediaServerCreationTransaction.cancel()
             }
@@ -456,6 +461,21 @@ struct AddSourceView: View {
 
     @ViewBuilder
     private var macFormContent: some View {
+        if sourceType == .plex {
+            macSection("plex_account_section") {
+                PlexAccountSignInPanel(
+                    model: plexSignIn,
+                    style: .card,
+                    isLinked: plexServerIdentifier != nil,
+                    onPick: applyPlexServer
+                )
+                macInfoRow(PlexAccountSignInPanel.footerKey(
+                    model: plexSignIn,
+                    isLinked: plexServerIdentifier != nil
+                ))
+            }
+        }
+
         macSection("source_info") {
             macTextRow("source_name", text: $name, focus: .name)
         }
@@ -880,6 +900,24 @@ struct AddSourceView: View {
     /// Form body extracted so iOS / macOS chrome can share it.
     @ViewBuilder
     private var formSections: some View {
+        if sourceType == .plex {
+            Section {
+                PlexAccountSignInPanel(
+                    model: plexSignIn,
+                    style: .form,
+                    isLinked: plexServerIdentifier != nil,
+                    onPick: applyPlexServer
+                )
+            } header: {
+                Text("plex_account_section")
+            } footer: {
+                Text(PlexAccountSignInPanel.footerKey(
+                    model: plexSignIn,
+                    isLinked: plexServerIdentifier != nil
+                ))
+            }
+        }
+
         Section("source_info") {
             TextField("source_name", text: $name)
                 .focused($focusedField, equals: .name)
@@ -1233,6 +1271,7 @@ struct AddSourceView: View {
             name = s.name
             username = s.username ?? ""
             basePath = s.basePath ?? ""
+            plexServerIdentifier = s.plexServerIdentifier
             if supportsAdaptiveConnections {
                 loadAdaptiveConnectionFields(from: s)
             } else {
@@ -1677,6 +1716,31 @@ struct AddSourceView: View {
         }
     }
 
+    /// 在 Plex 账号的服务器清单里点中一台:线路、令牌、名字一次填好,再走和「保存」按钮同一条路。
+    /// 地址框回显成选中的线路并记为基线,提交时不再探测 —— 这些地址就是服务器自己报给 plex.tv 的。
+    private func applyPlexServer(_ selection: PlexServerSelection) {
+        plexSignIn.cancel()
+        loadAdaptiveConnectionFields(from: MusicSource(
+            name: name,
+            type: .plex,
+            connectionConfiguration: selection.routes.connectionConfiguration
+        ))
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty || trimmedName == sourceType.displayName {
+            name = selection.resource.name
+        }
+        authType = .apiKey
+        password = selection.serverToken
+        plexAccountToken = selection.accountToken
+        plexServerIdentifier = selection.resource.clientIdentifier
+        plog(
+            "🎞️ Plex server picked owned=\(selection.resource.isOwned) "
+                + "local=\(selection.routes.local != nil) remote=\(selection.routes.remote != nil) "
+                + "relayOnly=\(selection.routes.reachesOnlyThroughRelay)"
+        )
+        submit()
+    }
+
     /// 名称留空时替用户取一个:主机名最好认,退回类型名。
     private func autoAssignNameIfNeeded(preferred: String?) {
         guard name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -1783,7 +1847,8 @@ struct AddSourceView: View {
             isDeleted: editingSource?.isDeleted ?? false,
             deletedAt: editingSource?.deletedAt,
             restoredAt: editingSource?.restoredAt,
-            cloudAccountID: editingSource?.cloudAccountID
+            cloudAccountID: editingSource?.cloudAccountID,
+            plexServerIdentifier: sourceType == .plex ? plexServerIdentifier : nil
         )
         if supportsAdaptiveConnections {
             source = source.projectingPreferredConnectionForLegacy()
@@ -2002,6 +2067,16 @@ struct AddSourceView: View {
                 showCredentialSaveError = true
                 return
             }
+        }
+
+        // 账号 token 只用来日后重新查服务器的地址，连接器不读它，所以不走凭据变更那一套；
+        // 写不进去也不拦保存，只是这个源以后跟不上服务器换地址。
+        if sourceType == .plex, !plexAccountToken.isEmpty,
+           !KeychainService.setPassword(
+               plexAccountToken,
+               for: PlexAccountAPI.accountTokenKeychainAccount(sourceID: source.id)
+           ) {
+            plog("⚠️ Plex account token could not be stored source=\(source.id.prefix(8))…")
         }
 
         #if os(macOS)
