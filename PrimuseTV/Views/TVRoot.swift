@@ -229,7 +229,7 @@ struct TVRoot: View {
         // 截图预览用:SIMCTL_CHILD_TV_SCREEN=<tab> 直接进入指定页。
         // 电台三页(radioHome / radioAdd / radioLibrary)配合 TV_DEMO_RADIO=1 注入演示电台。
         switch TVDebugLaunch.screen {
-        case "library", "albumDetail", "libraryIndex": initialTab = .library
+        case "library", "albumDetail", "libraryIndex", "albumReturn": initialTab = .library
         case "radio", "radioLibrary":
             initialTab = .home
             _debugPendingSpaceTab = State(initialValue: .radio)
@@ -441,6 +441,20 @@ struct TVRoot: View {
                 await store.loadDemoNowPlaying()
                 tab = .nowPlaying
             case "settings", "effectPicker", "themePicker": showSettings = true
+            case "albumReturn":
+                // 模拟「专辑页里点一首播放 → 播放页按 Menu」:应回到专辑页、焦点在那一首,
+                // 再按 Menu 才回海报墙。
+                await waitForDemoContent(requireAlbum: true)
+                guard let album = store.albums.first else { break }
+                let songs = store.songs(forAlbum: album.id)
+                guard let song = songs.last else { break }
+                libraryBrowseMemory.albumID = album.id
+                libraryBrowseMemory.albumDetailID = album.id
+                libraryBrowseMemory.albumDetailSongID = song.id
+                guard store.play(song, in: songs.map(\.id)) else { break }
+                tab = .nowPlaying
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                leavePlayer()
             case "libraryAnchor":
                 // 模拟「播放专辑 → 回到资料库 → 按下键」:资料库在记住第 42 张专辑之后才建出来。
                 await waitForDemoContent(requireAlbum: true)
@@ -587,6 +601,8 @@ struct TVRoot: View {
         nowPlayingFocusRequest = nil
         // 顶栏重新可用的那一刻焦点可能先落在它的某一项上,别让这一下把页面切走。
         suppressesFocusDrivenTabSelection = true
+        // 从资料库的专辑页起播的:回到资料库时先回那张专辑页(见 TVLibraryBrowseMemory)。
+        libraryBrowseMemory.restoresAlbumDetail = destination == .library
         tab = destination
         Task { @MainActor in
             await Task.yield()

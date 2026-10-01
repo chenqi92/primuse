@@ -9,6 +9,12 @@ import PrimuseKit
 final class TVLibraryBrowseMemory {
     var albumID: String?
     var artistID: String?
+    /// 从哪张专辑页开始播放、点的是哪一首。播放页按 Menu 回来时先回到这张专辑页、
+    /// 焦点落在那一首,再按一次才回海报墙;在专辑页里按 Menu 关掉就清空。
+    var albumDetailID: String?
+    var albumDetailSongID: String?
+    /// 只有从播放页按 Menu 回来的那一次才重开专辑页;经顶栏换页再回来不弹。
+    var restoresAlbumDetail = false
 }
 
 extension LibraryAlbumBrowseOrder {
@@ -97,6 +103,8 @@ struct TVLibraryView: View {
     @State private var selectedArtist: TVArtist?
     @State private var opensPlayerAfterArtistDismissal = false
     @State private var selectedAlbum: TVAlbum?
+    /// 从播放页回来重开专辑页时,焦点要落到的那一首。
+    @State private var reopenedAlbumSongID: String?
 
     #if DEBUG
     /// 截图用的 `albumDetail` 只在首次进资料库时打开一次。
@@ -217,8 +225,20 @@ struct TVLibraryView: View {
         .modifier(TVAlbumDetailPresenter(
             album: $selectedAlbum,
             openPlayer: openPlayer,
-            onPresentationChanged: onModalActivityChanged
+            onPresentationChanged: onModalActivityChanged,
+            initialFocusSongID: reopenedAlbumSongID,
+            onPlaybackStarted: { albumID, songID in
+                browseMemory.albumDetailID = albumID
+                browseMemory.albumDetailSongID = songID
+            },
+            onClosed: {
+                browseMemory.albumDetailID = nil
+                browseMemory.albumDetailSongID = nil
+                reopenedAlbumSongID = nil
+                restoreContentFocus()
+            }
         ))
+        .onAppear(perform: reopenAlbumDetailAfterPlayer)
         #if DEBUG
         .task {
             guard TVDebugLaunch.screen == "albumDetail", !Self.didOpenDebugAlbumDetail else { return }
@@ -280,6 +300,21 @@ struct TVLibraryView: View {
         default:
             return []
         }
+    }
+
+    /// 从播放页按 Menu 回来:起播的那张专辑页不带动画地重新挂上,焦点落回刚播的那首。
+    private func reopenAlbumDetailAfterPlayer() {
+        let restores = browseMemory.restoresAlbumDetail
+        browseMemory.restoresAlbumDetail = false
+        guard restores, let albumID = browseMemory.albumDetailID, let album = store.album(albumID) else {
+            browseMemory.albumDetailID = nil
+            browseMemory.albumDetailSongID = nil
+            return
+        }
+        reopenedAlbumSongID = browseMemory.albumDetailSongID
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { selectedAlbum = album }
     }
 
     private func jumpToIndexBucket(_ bucket: String) {
@@ -841,6 +876,12 @@ struct TVAlbumDetailPresenter: ViewModifier {
     var openPlayer: () -> Void
     /// 登记弹层在不在(停掉播放快捷键、压住顶栏的焦点换页),与艺人页用同一条通道。
     var onPresentationChanged: (Bool) -> Void = { _ in }
+    /// 打开时焦点落到的曲目(从播放页回来时是刚播的那首);nil 落在「全部播放」。
+    var initialFocusSongID: String? = nil
+    /// 在专辑页里开始播放:专辑 id 与点的那首(全部 / 随机播放时为 nil)。
+    var onPlaybackStarted: (String, String?) -> Void = { _, _ in }
+    /// 用户在专辑页按 Menu 关掉(不是因为开始播放而收起)。
+    var onClosed: () -> Void = {}
     @State private var opensPlayerAfterDismissal = false
 
     func body(content: Content) -> some View {
@@ -849,7 +890,11 @@ struct TVAlbumDetailPresenter: ViewModifier {
                 TVAlbumDetailView(
                     albumID: album.id,
                     fallback: album,
-                    openPlayer: { opensPlayerAfterDismissal = true }
+                    initialFocusSongID: initialFocusSongID,
+                    openPlayer: { albumID, songID in
+                        onPlaybackStarted(albumID, songID)
+                        opensPlayerAfterDismissal = true
+                    }
                 )
                 .environment(store)
             }
@@ -864,7 +909,10 @@ struct TVAlbumDetailPresenter: ViewModifier {
     }
 
     private func finishDismissal() {
-        guard opensPlayerAfterDismissal else { return }
+        guard opensPlayerAfterDismissal else {
+            onClosed()
+            return
+        }
         opensPlayerAfterDismissal = false
         openPlayer()
     }
@@ -877,15 +925,25 @@ struct TVAlbumDetailView: View {
     @Environment(\.dismiss) private var dismiss
     /// 打开时的那份;封面取色、曲库刷新后按 id 重新取。
     let fallback: TVAlbum
-    var openPlayer: () -> Void = {}
+    /// 打开时焦点落到的曲目;nil 落在「全部播放」。
+    var initialFocusSongID: String?
+    /// 开始播放:专辑 id 与点的那首(全部 / 随机 / 串烧时为 nil)。
+    var openPlayer: (String, String?) -> Void = { _, _ in }
     /// 当前显示的专辑。补全专辑信息改了专辑名时专辑会换 id,跟着它的歌走过去。
     @State private var albumID: String
     @State private var showsAlbumScrape = false
     @State private var songIDsBeforeScrape: [String] = []
+    @FocusState private var focusedTrackID: String?
     @Namespace private var detailFocus
 
-    init(albumID: String, fallback: TVAlbum, openPlayer: @escaping () -> Void = {}) {
+    init(
+        albumID: String,
+        fallback: TVAlbum,
+        initialFocusSongID: String? = nil,
+        openPlayer: @escaping (String, String?) -> Void = { _, _ in }
+    ) {
         self.fallback = fallback
+        self.initialFocusSongID = initialFocusSongID
         self.openPlayer = openPlayer
         _albumID = State(initialValue: albumID)
     }
@@ -928,7 +986,7 @@ struct TVAlbumDetailView: View {
                             style: .solid,
                             action: { play(songIDs, shuffled: false) }
                         )
-                        .prefersDefaultFocus(true, in: detailFocus)
+                        .prefersDefaultFocus(initialFocusSongID == nil, in: detailFocus)
                         TVPillButton(
                             title: String(localized: "shuffle"),
                             systemImage: "shuffle",
@@ -969,7 +1027,7 @@ struct TVAlbumDetailView: View {
                                     }
                                     trackRow(track, albumArtist: album.artist, onFocusChanged: onFocusChanged) {
                                         guard store.play(track.song, in: songIDs) else { return }
-                                        finishPlayback()
+                                        finishPlayback(songID: track.id)
                                     }
                                 }
                             }
@@ -985,6 +1043,16 @@ struct TVAlbumDetailView: View {
         }
         .focusScope(detailFocus)
         .onExitCommand { dismiss() }
+        .task {
+            // 从播放页回来:焦点放回刚播的那首。覆盖层呈现完、曲目行建出来之前设的焦点会被丢掉。
+            guard let initialFocusSongID else { return }
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            focusedTrackID = initialFocusSongID
+            #if DEBUG
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            plog("TV album detail reopened focus=\(focusedTrackID == initialFocusSongID ? "track" : "other")")
+            #endif
+        }
         .fullScreenCover(isPresented: $showsAlbumScrape, onDismiss: followAlbumAfterScrape) {
             TVAlbumScrapeView(albumID: albumID).environment(store)
         }
@@ -993,7 +1061,7 @@ struct TVAlbumDetailView: View {
 
     @ViewBuilder
     private func secondaryActions(_ songIDs: [String]) -> some View {
-        TVMedleyButton(songIDs: songIDs) { finishPlayback() }
+        TVMedleyButton(songIDs: songIDs) { finishPlayback(songID: nil) }
         TVPillButton(
             title: String(localized: "tv_scrape_album_title"),
             systemImage: "wand.and.stars",
@@ -1025,7 +1093,8 @@ struct TVAlbumDetailView: View {
             && song.artist.localizedCaseInsensitiveCompare(albumArtist) != .orderedSame
         return TVFocusButton(
             radius: 16, scale: 1.02, lift: 0, ring: false,
-            action: action, onFocusChanged: onFocusChanged
+            action: action, onFocusChanged: onFocusChanged,
+            focusBinding: $focusedTrackID, focusID: track.id
         ) { focused in
             HStack(spacing: 22) {
                 ZStack(alignment: .trailing) {
@@ -1101,11 +1170,11 @@ struct TVAlbumDetailView: View {
 
     private func play(_ songIDs: [String], shuffled: Bool) {
         guard store.playResolvedQueue(songIDs: songIDs, shuffled: shuffled) else { return }
-        finishPlayback()
+        finishPlayback(songID: nil)
     }
 
-    private func finishPlayback() {
-        openPlayer()
+    private func finishPlayback(songID: String?) {
+        openPlayer(albumID, songID)
         dismiss()
     }
 }
