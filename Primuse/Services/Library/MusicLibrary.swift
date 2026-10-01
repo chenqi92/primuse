@@ -6536,6 +6536,43 @@ final class MusicLibrary {
         persistSnapshot(after: 0.2)
     }
 
+    /// 把扫描读到、别的客户端改过的服务端评分写回本机。和用户在本机改评分不同:不经
+    /// `ratingStateMutationHandler`,不会被当成本机改动再上传回去。时钟取当下,别的设备上
+    /// 更早的改动合并时让位给它;评论不动。
+    @discardableResult
+    func applyServerObservedRating(
+        _ rating: Int?,
+        to subject: LibraryReviewSubject,
+        target: ServerSongRatingTarget,
+        observedAt: Date = Date()
+    ) -> LibraryReview? {
+        guard readiness == .ready else { return nil }
+        let rating = LibraryReviewPreferences.normalizedRating(rating)
+        let existing = storedLibraryReview(for: subject)
+        let current = existing?.isDeleted == false ? existing?.rating : nil
+        guard current != rating else { return existing }
+        let comment = existing?.isDeleted == false ? existing?.comment ?? "" : ""
+        let version = max(
+            observedAt.timeIntervalSince1970,
+            max(existing?.ratingVersion ?? -.infinity, existing?.commentVersion ?? -.infinity).nextUp
+        )
+        let shouldDelete = rating == nil && comment.isEmpty
+        var review = LibraryReview(
+            subject: subject,
+            rating: rating,
+            comment: comment,
+            updatedAt: Date(timeIntervalSince1970: version),
+            deletedAt: shouldDelete ? Date(timeIntervalSince1970: version) : nil
+        )
+        review.ratingModifiedAt = version
+        review.commentModifiedAt = existing?.commentVersion ?? 0
+        review.serverRatingTarget = target
+        libraryReviewsBySubject[subject.storageKey] = review
+        libraryReviewRevision &+= 1
+        persistSnapshot(after: 0.2)
+        return review
+    }
+
     func presentServerRatingError() {
         serverRatingErrorMessage = String(localized: "server_rating_sync_failed_message")
     }

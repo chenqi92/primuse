@@ -1226,8 +1226,13 @@ final class AppServices {
                 applyFence: applyFence
             )
         }
-        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync] source, applyFence in
+        scanService.serverFavoriteSyncHandler = { [weak favoriteSync, weak ratingSync, weak manager] source, applyFence in
             await favoriteSync?.refresh(source: source, applyFence: applyFence)
+            guard applyFence() else { return }
+            // 走查顺带读到的服务端评分:别的客户端改过的写回本机(#172)。
+            if let ratings = await manager?.takeObservedServerRatings(for: source), applyFence() {
+                ratingSync?.serverRatingsObserved(source: source, ratings: ratings)
+            }
             if applyFence() { ratingSync?.resume(sourceID: source.id) }
         }
         // 按文件 ID 寻址的网盘, 歌曲路径里没有目录; 专辑艺术家推断改用扫描同步

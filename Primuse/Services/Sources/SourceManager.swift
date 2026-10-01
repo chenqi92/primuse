@@ -1340,6 +1340,16 @@ actor SourceConnectionRouter {
         return observed
     }
 
+    /// 走查读到的服务端评分同样留在当时走的那条线路上;每条都取一遍、合在一起。
+    func takeObservedServerRatings() async -> [String: Int] {
+        var ratings: [String: Int] = [:]
+        for candidate in candidates {
+            guard let observer = candidate.connector as? any ServerRatingObservingConnector else { continue }
+            ratings.merge(await observer.takeObservedServerRatings()) { _, latest in latest }
+        }
+        return ratings
+    }
+
     func withMutation<T: Sendable>(
         _ operation: @Sendable (any MusicSourceConnector) async throws -> T
     ) async throws -> T {
@@ -1863,6 +1873,10 @@ private extension RoutedConnectorProxy {
         await routing.takeCatalogDriftObservation()
     }
 
+    func takeObservedServerRatings() async -> [String: Int] {
+        await routing.takeObservedServerRatings()
+    }
+
     func connect() async throws { try await routing.connect() }
     func disconnect() async { await routing.disconnect() }
 
@@ -2113,7 +2127,7 @@ private struct RoutedMusicSourceConnector: RoutedConnectorProxy, OpenListSTRMRes
 
 private struct RoutedSubsonicConnector: RoutedConnectorProxy, RefreshingMetadataSongConnector,
     ServerCatalogChangeDetectingConnector, ServerCatalogScanRequestingConnector,
-    ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector,
+    ResumablePagedSongCatalogConnector, CatalogDriftReportingConnector, ServerRatingObservingConnector,
     ServerScrobblingConnector, ServerLyricsConnector, ServerPlaylistConnector,
     ServerPlaylistAppendingConnector, ServerMediaSharingConnector, ServerFavoriteConnector,
     ServerRadioConnector, ServerListeningStatsConnector, ServerRatingConnector {
@@ -12780,6 +12794,12 @@ final class SourceManager {
             throw CancellationError()
         }
         return snapshot
+    }
+
+    /// 扫描提交之后取走走查顺带读到的服务端评分(见 `ServerRatingObservingConnector`)。
+    func takeObservedServerRatings(for source: MusicSource) async -> [String: Int] {
+        guard let observer = connector(for: source) as? any ServerRatingObservingConnector else { return [:] }
+        return await observer.takeObservedServerRatings()
     }
 
     func fetchServerRating(target: ServerSongRatingTarget, source: MusicSource) async throws -> Int? {

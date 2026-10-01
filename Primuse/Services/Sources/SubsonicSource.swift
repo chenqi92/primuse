@@ -47,6 +47,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     private var isOpenSubsonic = false
     /// Set by `scanSongs` when the catalogue moved while it was being paged.
     private var catalogDriftInLastWalk = false
+    /// 走查读到的每首歌的 `userRating`(Navidrome 对未评分的歌省略这一项,按 0 记)。
+    private var observedServerRatings: [String: Int] = [:]
 
     /// Airsonic Advanced 目前只接受 1.15.0，对更高版本会返回错误 30。
     /// 其他实现保持 1.16.1；OpenSubsonic 扩展能力仍由 ping 响应单独探测。
@@ -1362,6 +1364,7 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     // MARK: - Song construction
 
     private func buildSong(from child: SubsonicChild, album: AlbumSummary? = nil) -> Song {
+        observedServerRatings[child.id] = min(max(child.userRating ?? 0, 0), 5)
         let suffix = (child.suffix ?? (child.path.map { ($0 as NSString).pathExtension }) ?? "mp3").lowercased()
         let format = AudioFormat.from(fileExtension: suffix) ?? .mp3
         let relativePath = "/songs/\(child.id).\(suffix.isEmpty ? "mp3" : suffix)"
@@ -2440,5 +2443,12 @@ extension SubsonicSource: CatalogDriftReportingConnector {
     func takeCatalogDriftObservation() -> Bool {
         defer { catalogDriftInLastWalk = false }
         return catalogDriftInLastWalk
+    }
+}
+
+extension SubsonicSource: ServerRatingObservingConnector {
+    func takeObservedServerRatings() -> [String: Int] {
+        defer { observedServerRatings.removeAll(keepingCapacity: false) }
+        return observedServerRatings
     }
 }

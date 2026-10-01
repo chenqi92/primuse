@@ -71,6 +71,77 @@ final class ServerRatingSyncService {
         enqueue(review, startImmediately: true)
     }
 
+    /// 扫描读到的服务端评分(条目 id → 0…5)。是否采纳见 `ServerRatingImportPolicy`;
+    /// 采纳不是本机编辑,不进上传队列,只把基线记成服务端的值(#172)。
+    func serverRatingsObserved(source: MusicSource, ratings: [String: Int]) {
+        guard !ratings.isEmpty, ServerRatingWritebackPolicy.supports(source.type),
+              source.isEnabled, !source.isDeleted,
+              library.readiness == .ready, !library.isExternalSnapshotWriteOwned else { return }
+        // 一首一首去问 `storedLibraryReview` 是「歌数 × 评分数」;先把现有评分按绑定的
+        // 服务端条目、按歌曲各建一张表。合并规则与它相同。
+        var boundReviews: [ServerSongRatingTarget: LibraryReview] = [:]
+        var unboundReviews: [String: LibraryReview] = [:]
+        for review in library.allLibraryReviews {
+            if let target = review.serverRatingTarget {
+                boundReviews[target] = boundReviews[target].map {
+                    LibraryReviewReconciliationPolicy.winner(local: $0, remote: review)
+                } ?? review
+            } else {
+                unboundReviews[review.subject.storageKey] = review
+            }
+        }
+        let securityFingerprint = MusicSourceSecurityRevision.scopedFingerprint(for: source)
+        var adopted = 0
+        var changed = false
+        for song in library.songs where song.sourceID == source.id
+            && !song.isCueTrack && !song.isStreamDescriptor {
+            guard let target = ServerSongRatingTarget.make(song: song, source: source),
+                  let observed = ratings[target.itemID] else { continue }
+            let subject = LibraryReviewSubject.song(song.id)
+            var local = [boundReviews[target], unboundReviews[subject.storageKey]]
+                .compactMap { $0 }
+                .reduce(nil as LibraryReview?) { result, next in
+                    result.map { LibraryReviewReconciliationPolicy.winner(local: $0, remote: next) } ?? next
+                }
+            let decision = ServerRatingImportPolicy.decision(
+                observed: observed,
+                baseline: entries[target]?.baseline,
+                local: local?.isDeleted == false ? (local?.rating ?? 0) : 0,
+                hasPendingLocalEdit: entries[target]?.pending == true
+            )
+            switch decision {
+            case .keep:
+                continue
+            case .adopt:
+                local = library.applyServerObservedRating(
+                    observed == 0 ? nil : observed,
+                    to: subject,
+                    target: target
+                )
+                adopted += 1
+            case .recordBaseline:
+                break
+            }
+            if entries[target] != nil {
+                entries[target]?.baseline = observed
+                changed = true
+            } else if let local {
+                entries[target] = Entry(
+                    id: UUID(), target: target, version: local.ratingVersion, rating: local.rating,
+                    securityFingerprint: securityFingerprint,
+                    review: local,
+                    baseline: observed,
+                    pending: false
+                )
+                changed = true
+            }
+        }
+        if changed { persist() }
+        if adopted > 0 {
+            plog("⭐️ \(source.name): adopted \(adopted) rating(s) changed on the server")
+        }
+    }
+
     /// 音乐源只换了线路（加外网地址、换 QuickConnect / FN Connect ID、改反向代理前缀）
     /// 时账号没变：已绑定评分与待发送评分里的账号指纹、安全指纹都换成新线路算出的值。
     /// 不换的话评分在界面上查不到，待发送的也会被当成换了账号直接丢掉。新值与旧版

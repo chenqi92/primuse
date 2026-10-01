@@ -1818,6 +1818,12 @@ protocol CatalogDriftReportingConnector: MusicSourceConnector {
     func takeCatalogDriftObservation() async -> Bool
 }
 
+/// 整库走查顺带读到的服务端评分(条目 id → 1…5,0 = 未评分)。取走即清空;
+/// 由评分同步在扫描提交之后按基线决定要不要采纳(#172)。
+protocol ServerRatingObservingConnector: MusicSourceConnector {
+    func takeObservedServerRatings() async -> [String: Int]
+}
+
 /// Authoritative catalogue pages that can be staged without publishing a
 /// partial source snapshot. The caller persists `resumeState` only together
 /// with all songs returned through that page.

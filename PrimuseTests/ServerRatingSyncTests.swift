@@ -416,6 +416,41 @@ final class ServerRatingSyncTests: XCTestCase {
         }
     }
 
+    func testScanAdoptsRatingChangedInAnotherClient() async throws {
+        try await withRig { rig in
+            rig.edit(3)
+            await rig.settle()
+            let writes = rig.manager.writes.count
+            rig.service.serverRatingsObserved(source: rig.source, ratings: [rig.target.itemID: 5])
+            await rig.settle()
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.rating, 5)
+            XCTAssertEqual(rig.manager.writes.count, writes)
+
+            // A local edit that has not reached the server yet wins over the scan.
+            rig.manager.writeError = URLError(.timedOut)
+            rig.edit(2)
+            await rig.settle()
+            rig.service.serverRatingsObserved(source: rig.source, ratings: [rig.target.itemID: 5])
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.rating, 2)
+        }
+    }
+
+    func testScanFillsUnratedSongWithoutUploadingItBack() async throws {
+        try await withRig { rig in
+            await rig.library.whenReady()
+            rig.service.serverRatingsObserved(source: rig.source, ratings: [rig.target.itemID: 4])
+            await rig.settle()
+            XCTAssertEqual(rig.library.libraryReview(for: rig.subject)?.rating, 4)
+            XCTAssertTrue(rig.manager.writes.isEmpty)
+
+            // Once a baseline exists, clearing it on the server is followed too.
+            rig.service.serverRatingsObserved(source: rig.source, ratings: [rig.target.itemID: 0])
+            await rig.settle()
+            XCTAssertNil(rig.library.libraryReview(for: rig.subject)?.rating)
+            XCTAssertTrue(rig.manager.writes.isEmpty)
+        }
+    }
+
     private func withRig(_ body: (RatingRig) async throws -> Void) async throws {
         let rig = try RatingRig()
         let directory = rig.directory
