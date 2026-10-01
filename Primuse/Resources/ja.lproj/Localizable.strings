@@ -4859,3 +4859,9 @@
 "restore_file_tags_message" = "このアルバムで手動編集やスクレイピングで変更したタイトル・アーティスト・アルバム・年などを、音楽ファイルのタグに戻します。サーバーソースの曲は次回の同期で戻ります。";
 "search_prompt_with_apple_music" = "ライブラリと Apple Music を検索";
 "search_placeholder_library" = "ライブラリを検索";
+
+"tv_lyrics_font_size_format" = "歌詞のサイズ：%@";
+"tv_lyrics_font_small" = "小";
+"tv_lyrics_font_standard" = "標準";
+"tv_lyrics_font_large" = "大";
+"tv_lyrics_font_extra_large" = "特大";

@@ -4764,3 +4764,9 @@
 "restore_file_tags_message" = "इस एल्बम के लिए आपने जो शीर्षक, कलाकार, एल्बम, वर्ष आदि संपादित किए या खोजकर बदले, वे संगीत फ़ाइलों के टैग पर लौट आएँगे। सर्वर स्रोतों के गाने अगले सिंक पर पुनर्स्थापित होंगे।";
 "search_prompt_with_apple_music" = "अपनी लाइब्रेरी और Apple Music में खोजें";
 "search_placeholder_library" = "लाइब्रेरी में खोजें";
+
+"tv_lyrics_font_size_format" = "बोल का आकार: %@";
+"tv_lyrics_font_small" = "छोटा";
+"tv_lyrics_font_standard" = "मानक";
+"tv_lyrics_font_large" = "बड़ा";
+"tv_lyrics_font_extra_large" = "बहुत बड़ा";

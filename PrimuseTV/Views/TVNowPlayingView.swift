@@ -49,6 +49,8 @@ struct TVNowPlayingView: View {
 
     @State private var artworkDirectionalCommands = TVImmersiveDirectionalCommandState()
     @State private var showOptions = false
+    @AppStorage(TVLyricsFontLevel.storageKey)
+    private var lyricsFontLevelRawValue = TVLyricsFontLevel.standard.rawValue
     /// 按歌手名打开的艺人页(多位艺人时先选一位)。
     @State private var artistLink: TVArtistLinkPresentation?
     @State private var showShelf = tvDebugShelfLaunch.show
@@ -1069,7 +1071,9 @@ struct TVNowPlayingView: View {
         let opacity = isCur ? 1 : dist.map { max(0.42, 0.72 - Double($0) * 0.08) } ?? 0.82
         // 字号固定、靠 scaleEffect 缩放——缩放能平滑动画,直接换 font size 会硬跳。
         let scale: CGFloat = reduceMotion ? 1 : (isCur ? 1.0 : (cur == nil ? 0.90 : 0.84))
-        let size: CGFloat = 48
+        let size = TVLyricsFontLevel.resolved(lyricsFontLevelRawValue).pointSize
+        // 注音、译文跟着主歌词同比例放大缩小。
+        let companionSize = TVLyricsFontLevel.companionPointSize(for: size)
         VStack(alignment: .leading, spacing: 6) {
             if isCur, !ln.syllables.isEmpty {
                 // 逐字扫光必须按帧推进:直接读 `store.currentTime` 时一秒只有 4 个
@@ -1120,11 +1124,12 @@ struct TVNowPlayingView: View {
                 }
             }
             if !ln.romanization.isEmpty {
-                Text(ln.romanization).tvFont(.caption)
+                Text(ln.romanization).tvFont(size: companionSize, relativeTo: .caption)
                     .foregroundStyle(TVColor.textFaint)
             }
             if !ln.translation.isEmpty {
-                Text(LyricCompanionTextPolicy.displayText(ln.translation)).tvFont(.caption).italic()
+                Text(LyricCompanionTextPolicy.displayText(ln.translation))
+                    .tvFont(size: companionSize, relativeTo: .caption).italic()
                     .foregroundStyle(TVColor.textFaint)
             }
         }
@@ -1634,6 +1639,45 @@ struct TVArtistLinkView: View {
             }
             .onExitCommand { dismiss() }
         }
+    }
+}
+/// 电视歌词字号四档。「标准」就是原来写死的 48pt。电视单独存一份,不跟手机 / Mac 的
+/// 歌词缩放走:观看距离完全不同,手机上调大不该把电视也一起放大。
+enum TVLyricsFontLevel: String, CaseIterable {
+    case small, standard, large, extraLarge
+
+    static let storageKey = "primuse.tv.lyricsFontLevel.v1"
+
+    static func resolved(_ rawValue: String) -> TVLyricsFontLevel {
+        TVLyricsFontLevel(rawValue: rawValue) ?? .standard
+    }
+
+    var pointSize: CGFloat {
+        switch self {
+        case .small: 40
+        case .standard: 48
+        case .large: 56
+        case .extraLarge: 64
+        }
+    }
+
+    /// 注音、译文:标准档下是 23pt(原来的 caption 档),随主歌词同比例缩放。
+    static func companionPointSize(for lyricSize: CGFloat) -> CGFloat {
+        (23 * lyricSize / TVLyricsFontLevel.standard.pointSize).rounded()
+    }
+
+    var title: String {
+        switch self {
+        case .small: String(localized: "tv_lyrics_font_small")
+        case .standard: String(localized: "tv_lyrics_font_standard")
+        case .large: String(localized: "tv_lyrics_font_large")
+        case .extraLarge: String(localized: "tv_lyrics_font_extra_large")
+        }
+    }
+
+    var next: TVLyricsFontLevel {
+        let all = TVLyricsFontLevel.allCases
+        return all[(all.firstIndex(of: self).map { $0 + 1 } ?? 0) % all.count]
     }
 }
 #endif

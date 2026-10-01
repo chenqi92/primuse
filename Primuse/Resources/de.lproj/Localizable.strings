@@ -4858,3 +4858,9 @@
 "restore_file_tags_message" = "Titel, Künstler, Alben, Jahre und andere Tags, die du für dieses Album bearbeitet oder abgerufen hast, werden auf die Tags in den Musikdateien zurückgesetzt. Titel von Serverquellen werden bei der nächsten Synchronisierung wiederhergestellt.";
 "search_prompt_with_apple_music" = "In deiner Mediathek und Apple Music suchen";
 "search_placeholder_library" = "Mediathek durchsuchen";
+
+"tv_lyrics_font_size_format" = "Liedtextgröße: %@";
+"tv_lyrics_font_small" = "Klein";
+"tv_lyrics_font_standard" = "Standard";
+"tv_lyrics_font_large" = "Groß";
+"tv_lyrics_font_extra_large" = "Sehr groß";

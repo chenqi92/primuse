@@ -4858,3 +4858,9 @@
 "restore_file_tags_message" = "이 앨범에서 직접 편집하거나 스크래핑으로 바꾼 제목, 아티스트, 앨범, 연도 등이 음악 파일의 태그로 되돌아갑니다. 서버 소스의 곡은 다음 동기화 때 복원됩니다.";
 "search_prompt_with_apple_music" = "보관함과 Apple Music 검색";
 "search_placeholder_library" = "보관함 검색";
+
+"tv_lyrics_font_size_format" = "가사 크기: %@";
+"tv_lyrics_font_small" = "작게";
+"tv_lyrics_font_standard" = "표준";
+"tv_lyrics_font_large" = "크게";
+"tv_lyrics_font_extra_large" = "아주 크게";

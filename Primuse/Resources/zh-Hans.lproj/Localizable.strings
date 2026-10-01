@@ -4951,3 +4951,9 @@
 "restore_file_tags_message" = "这张专辑里手动编辑和刮削改过的标题、艺术家、专辑、年份等会换回音乐文件里的标签。服务器音乐源的歌在下次同步时恢复。";
 "search_prompt_with_apple_music" = "在已入库的曲库和 Apple Music 中检索";
 "search_placeholder_library" = "检索已入库曲库";
+
+"tv_lyrics_font_size_format" = "歌词字号：%@";
+"tv_lyrics_font_small" = "小";
+"tv_lyrics_font_standard" = "标准";
+"tv_lyrics_font_large" = "大";
+"tv_lyrics_font_extra_large" = "特大";

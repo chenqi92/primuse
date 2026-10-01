@@ -4764,3 +4764,9 @@
 "restore_file_tags_message" = "ชื่อเพลง ศิลปิน อัลบั้ม ปี และแท็กอื่นที่คุณแก้ไขหรือดึงข้อมูลมาสำหรับอัลบั้มนี้จะกลับไปใช้แท็กในไฟล์เพลง เพลงจากแหล่งเซิร์ฟเวอร์จะคืนค่าในการซิงค์ครั้งถัดไป";
 "search_prompt_with_apple_music" = "ค้นหาในคลังของคุณและ Apple Music";
 "search_placeholder_library" = "ค้นหาในคลัง";
+
+"tv_lyrics_font_size_format" = "ขนาดเนื้อเพลง: %@";
+"tv_lyrics_font_small" = "เล็ก";
+"tv_lyrics_font_standard" = "มาตรฐาน";
+"tv_lyrics_font_large" = "ใหญ่";
+"tv_lyrics_font_extra_large" = "ใหญ่พิเศษ";

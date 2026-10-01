@@ -63,7 +63,7 @@ enum SettingsCatalogData {
         SettingDefinition(id: "lyrics.blurInactive", titleKey: "player_blur_inactive_lyrics", iosPage: .lyrics, macPage: nil),
         SettingDefinition(id: "lyrics.tapToSeek", titleKey: "player_tap_lyrics_to_seek", iosPage: .lyrics, macPage: .lyrics),
         SettingDefinition(id: "lyrics.browseTimeline", titleKey: "player_lyrics_browse_timeline", iosPage: .lyrics, macPage: nil, keywords: ["lyrics ruler", "timeline", "歌词标尺", "定位线", "拖动歌词"]),
-        SettingDefinition(id: "lyrics.fontSize", titleKey: "lyrics_font_size", iosPage: nil, macPage: .lyrics),
+        SettingDefinition(id: "lyrics.fontSize", titleKey: "lyrics_font_size", iosPage: .lyrics, macPage: .lyrics),
         SettingDefinition(id: "lyrics.menuBar", titleKey: "menu_bar_lyrics", iosPage: nil, macPage: .lyrics, keywords: ["menu bar lyrics", "status bar lyrics", "菜单栏歌词", "状态栏歌词", "顶部歌词"]),
         SettingDefinition(id: "lyrics.island", titleKey: "desktop_lyrics_island", iosPage: nil, macPage: .lyrics, keywords: ["dynamic island", "notch", "lyrics island", "desktop lyrics", "灵动岛", "刘海", "上岛", "歌词岛", "桌面歌词"]),
         SettingDefinition(id: "lyrics.islandSystemStatus", titleKey: "desktop_lyrics_island_system_status", iosPage: nil, macPage: .lyrics, keywords: ["headphones", "airpods", "volume", "battery", "charging", "耳机", "音量", "充电", "电量"]),

@@ -14,6 +14,8 @@ struct TVOptionsView: View {
     @State private var showMedleySettings = false
     @State private var pendingMedleyIDs: [String]?
     @State private var matchTarget: TVSongMatchTarget?
+    @AppStorage(TVLyricsFontLevel.storageKey)
+    private var lyricsFontLevelRawValue = TVLyricsFontLevel.standard.rawValue
     @State private var albumScrapeTarget: TVSongMatchTarget?
 
     private struct Action: Identifiable {
@@ -52,6 +54,15 @@ struct TVOptionsView: View {
         if store.currentSongID != nil, !isSpokenWord, !store.isMedleyActive {
             song.append(.init(id: "karaoke", icon: "music.mic", label: String(localized: "karaoke_title"),
                               run: { showKaraoke = true }))
+        }
+        // 歌词字号:按一下换下一档,和睡眠定时一样就地循环。
+        if !isSpokenWord, !store.isLiveRadio {
+            let level = TVLyricsFontLevel.resolved(lyricsFontLevelRawValue)
+            song.append(.init(
+                id: "lyricsFontSize", icon: "textformat.size",
+                label: String(format: String(localized: "tv_lyrics_font_size_format"), level.title),
+                run: { lyricsFontLevelRawValue = level.next.rawValue }
+            ))
         }
 
         var playback: [Action] = []

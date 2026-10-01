@@ -4764,3 +4764,9 @@
 "restore_file_tags_message" = "Назви, виконавці, альбоми, роки та інші теги, змінені вручну або під час пошуку метаданих для цього альбому, повернуться до тегів із музичних файлів. Пісні з серверних джерел відновляться під час наступної синхронізації.";
 "search_prompt_with_apple_music" = "Пошук у медіатеці та Apple Music";
 "search_placeholder_library" = "Пошук у медіатеці";
+
+"tv_lyrics_font_size_format" = "Розмір тексту: %@";
+"tv_lyrics_font_small" = "Малий";
+"tv_lyrics_font_standard" = "Стандартний";
+"tv_lyrics_font_large" = "Великий";
+"tv_lyrics_font_extra_large" = "Дуже великий";

@@ -4621,3 +4621,9 @@
 "restore_file_tags_message" = "Titles, artists, albums, years and other tags you edited or scraped for this album go back to the tags in the music files. Songs from server sources are restored at the next sync.";
 "search_prompt_with_apple_music" = "Search your library and Apple Music";
 "search_placeholder_library" = "Search your library";
+
+"tv_lyrics_font_size_format" = "Lyrics Size: %@";
+"tv_lyrics_font_small" = "Small";
+"tv_lyrics_font_standard" = "Standard";
+"tv_lyrics_font_large" = "Large";
+"tv_lyrics_font_extra_large" = "Extra Large";

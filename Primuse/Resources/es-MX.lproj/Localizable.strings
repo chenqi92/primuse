@@ -4764,3 +4764,9 @@
 "restore_file_tags_message" = "Los títulos, artistas, álbumes, años y otras etiquetas que editaste u obtuviste para este álbum vuelven a las etiquetas de los archivos de música. Las canciones de fuentes de servidor se restauran en la próxima sincronización.";
 "search_prompt_with_apple_music" = "Buscar en tu biblioteca y Apple Music";
 "search_placeholder_library" = "Buscar en la biblioteca";
+
+"tv_lyrics_font_size_format" = "Tamaño de letra: %@";
+"tv_lyrics_font_small" = "Pequeño";
+"tv_lyrics_font_standard" = "Estándar";
+"tv_lyrics_font_large" = "Grande";
+"tv_lyrics_font_extra_large" = "Muy grande";

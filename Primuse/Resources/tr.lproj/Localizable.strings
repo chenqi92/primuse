@@ -4764,3 +4764,9 @@
 "restore_file_tags_message" = "Bu albüm için düzenlediğin veya çektiğin başlık, sanatçı, albüm, yıl ve diğer etiketler müzik dosyalarındaki etiketlere döner. Sunucu kaynaklarındaki şarkılar bir sonraki eşitlemede geri yüklenir.";
 "search_prompt_with_apple_music" = "Arşivinde ve Apple Music'te ara";
 "search_placeholder_library" = "Arşivde ara";
+
+"tv_lyrics_font_size_format" = "Söz boyutu: %@";
+"tv_lyrics_font_small" = "Küçük";
+"tv_lyrics_font_standard" = "Standart";
+"tv_lyrics_font_large" = "Büyük";
+"tv_lyrics_font_extra_large" = "Çok büyük";

@@ -4764,3 +4764,9 @@
 "restore_file_tags_message" = "ستعود العناوين والفنانون والألبومات والسنوات وغيرها من الوسوم التي عدّلتها يدويًا أو جلبتها لهذا الألبوم إلى الوسوم الموجودة في ملفات الموسيقى. تُستعاد أغاني مصادر الخادم عند المزامنة التالية.";
 "search_prompt_with_apple_music" = "ابحث في مكتبتك وApple Music";
 "search_placeholder_library" = "البحث في المكتبة";
+
+"tv_lyrics_font_size_format" = "حجم الكلمات: %@";
+"tv_lyrics_font_small" = "صغير";
+"tv_lyrics_font_standard" = "قياسي";
+"tv_lyrics_font_large" = "كبير";
+"tv_lyrics_font_extra_large" = "كبير جدًا";

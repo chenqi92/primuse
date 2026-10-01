@@ -4835,3 +4835,9 @@
 "restore_file_tags_message" = "這張專輯裡手動編輯和刮削改過的標題、藝人、專輯、年份等會換回音樂檔案裡的標籤。伺服器音樂來源的歌曲在下次同步時恢復。";
 "search_prompt_with_apple_music" = "在已入庫的曲庫和 Apple Music 中檢索";
 "search_placeholder_library" = "檢索已入庫曲庫";
+
+"tv_lyrics_font_size_format" = "歌詞字級：%@";
+"tv_lyrics_font_small" = "小";
+"tv_lyrics_font_standard" = "標準";
+"tv_lyrics_font_large" = "大";
+"tv_lyrics_font_extra_large" = "特大";

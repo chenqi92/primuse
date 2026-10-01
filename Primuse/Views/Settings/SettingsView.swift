@@ -341,6 +341,7 @@ struct LyricsAppearanceSections: View {
     private var gradientLyricsStartColorHex = PlayerAppearancePreferences.defaultGradientLyricsStartColorHex
     @AppStorage(PlayerAppearancePreferences.gradientLyricsEndColorHexKey)
     private var gradientLyricsEndColorHex = PlayerAppearancePreferences.defaultGradientLyricsEndColorHex
+    @AppStorage("lyricsFontScale") private var lyricsFontScale: Double = 1.0
     @AppStorage(PlayerAppearancePreferences.blursInactiveLyricsKey)
     private var blursInactiveLyrics = PlayerAppearancePreferences.blursInactiveLyricsByDefault
     @AppStorage(PlayerAppearancePreferences.tapLyricsToSeekKey)
@@ -464,6 +465,24 @@ struct LyricsAppearanceSections: View {
             }
             .settingsAnchor("lyrics.alignment")
             .pickerStyle(.segmented)
+
+            // 与 Mac 设置、播放页「更多」里的四档同一个键(随 iCloud 同步)。
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("lyrics_font_size")
+                    Spacer(minLength: 12)
+                    Text(verbatim: "\(Int((lyricsFontScale * 100).rounded()))%")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $lyricsFontScale, in: 0.7...1.8, step: 0.05) {
+                    Text("lyrics_font_size")
+                }
+                .onChange(of: lyricsFontScale) { _, _ in
+                    CloudKVSSync.shared.markChanged(key: CloudKVSKey.lyricsFontScale)
+                }
+            }
+            .settingsAnchor("lyrics.fontSize")
 
             Toggle("player_blur_inactive_lyrics", isOn: $blursInactiveLyrics)
             .settingsAnchor("lyrics.blurInactive")
