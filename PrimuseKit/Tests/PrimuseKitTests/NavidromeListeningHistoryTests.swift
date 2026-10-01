@@ -70,6 +70,20 @@ struct NavidromeListeningHistoryTests {
         await #expect(throws: NavidromeListeningHistory.Failure.unavailable) { try await fetch(fixture) }
     }
 
+    @Test static func htmlLoginPageCanFallBackWithoutRequestingHistory() async {
+        let fixture = Fixture { request, _ in
+            response(request, json: "<html>Sign in</html>", mime: "text/html")
+        }
+        await #expect(throws: NavidromeListeningHistory.Failure.unavailable) { try await fetch(fixture) }
+        #expect(await fixture.requests.count == 1)
+    }
+
+    @Test static func malformedJSONLoginRemainsAnInvalidResponse() async {
+        let fixture = Fixture { request, _ in response(request, json: "{}") }
+        await #expect(throws: NavidromeListeningHistory.Failure.invalidResponse) { try await fetch(fixture) }
+        #expect(await fixture.requests.count == 1)
+    }
+
     @Test static func htmlFallbackFromOldServerIsNotTreatedAsEmptyHistory() async {
         let fixture = Fixture { request, index in
             response(request, json: index == 0 ? login : "<html>Navidrome</html>", mime: index == 0 ? "application/json" : "text/html")

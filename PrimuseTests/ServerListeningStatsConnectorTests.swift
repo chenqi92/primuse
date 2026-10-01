@@ -142,6 +142,23 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         }
     }
 
+    func testNavidromeHTMLLoginPreservesAggregateStatistics() async throws {
+        for type in [MusicSourceType.navidrome, .subsonic] {
+            let host = "stats-html-login-\(type.rawValue).invalid"
+            try await assertSubsonicStatistics(
+                sourceType: type,
+                host: host,
+                serverType: "navidrome",
+                openSubsonic: true,
+                expectedCatalogPath: "/rest/search3.view",
+                nativeLoginReturnsHTML: true
+            )
+            let paths = SubsonicStatsURLProtocol.paths(host: host)
+            XCTAssertTrue(paths.contains("/auth/login"))
+            XCTAssertFalse(paths.contains("/api/scrobble"))
+        }
+    }
+
     func testAirsonicReadsAggregateStatisticsFromLegacyAlbumWalk() async throws {
         try await assertSubsonicStatistics(
             sourceType: .airsonic,
@@ -450,12 +467,14 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         host: String,
         serverType: String,
         openSubsonic: Bool,
-        expectedCatalogPath: String
+        expectedCatalogPath: String,
+        nativeLoginReturnsHTML: Bool = false
     ) async throws {
         SubsonicStatsURLProtocol.configure(
             host: host,
             serverType: serverType,
-            openSubsonic: openSubsonic
+            openSubsonic: openSubsonic,
+            nativeLoginReturnsHTML: nativeLoginReturnsHTML
         )
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SubsonicStatsURLProtocol.self]
@@ -581,18 +600,23 @@ private final class SubsonicStatsURLProtocol: URLProtocol, @unchecked Sendable {
         let serverType: String
         let openSubsonic: Bool
         let historyAvailable: Bool
+        let nativeLoginReturnsHTML: Bool
         var paths: [String]
     }
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var configurations: [String: Configuration] = [:]
 
-    static func configure(host: String, serverType: String, openSubsonic: Bool, historyAvailable: Bool = false) {
+    static func configure(
+        host: String, serverType: String, openSubsonic: Bool,
+        historyAvailable: Bool = false, nativeLoginReturnsHTML: Bool = false
+    ) {
         lock.withLock {
             configurations[host] = Configuration(
                 serverType: serverType,
                 openSubsonic: openSubsonic,
                 historyAvailable: historyAvailable,
+                nativeLoginReturnsHTML: nativeLoginReturnsHTML,
                 paths: []
             )
         }
@@ -622,7 +646,9 @@ private final class SubsonicStatsURLProtocol: URLProtocol, @unchecked Sendable {
 
         switch url.path {
         case "/auth/login":
-            if configuration.historyAvailable {
+            if configuration.nativeLoginReturnsHTML {
+                respond(json: "<html>Sign in</html>", headers: ["Content-Type": "text/html"])
+            } else if configuration.historyAvailable {
                 respond(json: #"{"id":"user-1","username":"stats-user","token":"fixture-native-token"}"#)
             } else {
                 respond(json: "{}", statusCode: 404)
@@ -662,7 +688,7 @@ private final class SubsonicStatsURLProtocol: URLProtocol, @unchecked Sendable {
                 url: url,
                 statusCode: statusCode,
                 httpVersion: "HTTP/1.1",
-                headerFields: headers.merging(["Content-Type": "application/json"]) { _, value in value }
+                headerFields: ["Content-Type": "application/json"].merging(headers) { _, value in value }
               ) else {
             fail(.badServerResponse)
             return

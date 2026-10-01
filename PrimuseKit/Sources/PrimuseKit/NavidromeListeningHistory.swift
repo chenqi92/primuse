@@ -57,8 +57,8 @@ public enum NavidromeListeningHistory {
         request.httpBody = try JSONEncoder().encode(Credentials(username: username, password: password))
         let (data, response) = try await requestDataLoader(request)
         let http = try validatedResponse(response, allowUnavailable: true)
-        guard http.mimeType != "text/html",
-              let login = try? JSONDecoder().decode(Login.self, from: data),
+        if http.mimeType == "text/html" { throw Failure.unavailable }
+        guard let login = try? JSONDecoder().decode(Login.self, from: data),
               !login.id.isEmpty, !login.token.isEmpty else {
             throw Failure.invalidResponse
         }
