@@ -2657,6 +2657,7 @@
 "check_for_updates_up_to_date" = "Son sürümdesiniz";
 "ai_remove_provider_confirm" = "Bu hizmet ve yerel anahtarı kaldırılsın mı?";
 "lang_ru" = "Rusça";
+"library_folder_rescan" = "Bu klasörü yeniden tara";
 "reread_song_tags" = "Dosya Etiketlerini Tekrar Okuyun";
 "radio_live" = "Canlı radyo";
 "playlist_import_create" = "Oluştur";

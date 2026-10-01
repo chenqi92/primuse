@@ -109,6 +109,13 @@ final class ScanServiceStartupPrewarm: Sendable {
 /// the process alive without a UIKit assertion, so a scan may continue while
 /// the app is backgrounded — but only on a deliberately reduced profile so it
 /// cannot compete with the audio render thread.
+/// 资料库「文件夹」页发起的「只重扫这个文件夹」：文件夹里一首歌当锚点，再往上几层
+/// 是要重扫的那个文件夹（见 `LibraryFolderRescanAnchor`）。
+struct SourceFolderRescanRequest: Sendable, Equatable {
+    let anchorSongID: String
+    let levelsAbove: Int
+}
+
 enum ScanExecutionProfile: Sendable, Equatable {
     /// Foreground, or a finite background window backed by a UIKit assertion.
     case standard
@@ -1019,6 +1026,35 @@ final class ScanService {
         folderTopologyRebuildTask = nil
     }
 
+    /// 资料库「文件夹」页能不能只重扫其中一个文件夹。群晖经典连接走专用的 File Station
+    /// 遍历，没有逐目录对账的索引，只能整源扫。
+    static func supportsFolderRescan(_ source: MusicSource) -> Bool {
+        source.type.supportsFolderRescan
+            && !(source.type == .synology && source.connectionConfiguration == nil)
+    }
+
+    /// 只重扫音乐源里的一个文件夹（含子文件夹）。没有可用的扫描索引、或这个源还有没扫完
+    /// 的断点时，退回平常的整源扫描（断点会照常续扫）。
+    @discardableResult
+    func rescanFolder(
+        of source: MusicSource,
+        request: SourceFolderRescanRequest,
+        sourceManager: SourceManager,
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService? = nil
+    ) -> Bool {
+        guard Self.supportsFolderRescan(source) else { return false }
+        return scanSource(
+            source,
+            sourceManager: sourceManager,
+            library: library,
+            sourceStore: sourceStore,
+            scraperService: scraperService,
+            folderRescan: request
+        )
+    }
+
     @discardableResult
     func scanSource(
         _ source: MusicSource,
@@ -1027,7 +1063,8 @@ final class ScanService {
         sourceManager: SourceManager,
         library: MusicLibrary,
         sourceStore: SourcesStore,
-        scraperService: MusicScraperService? = nil
+        scraperService: MusicScraperService? = nil,
+        folderRescan: SourceFolderRescanRequest? = nil
     ) -> Bool {
         let source = sourceStore.source(id: source.id) ?? source
         guard activeTasks[source.id] == nil else { return false }
@@ -1133,6 +1170,10 @@ final class ScanService {
             totalCount: resumeTotal,
             hasPendingWork: true
         )
+
+        if folderRescan != nil, checkpoint != nil {
+            plog("📂 \(source.name): folder rescan falls back to resuming the unfinished scan")
+        }
 
         // Make the scan intent durable before diagnose/login/connect can issue
         // network I/O. Existing progress for the same scope wins unchanged;
@@ -1308,7 +1349,9 @@ final class ScanService {
                     scraperService: scraperService,
                     mode: mode,
                     snapshotExecutionContext: snapshotExecutionContext,
-                    checkpoint: checkpoints[source.id] ?? checkpoint
+                    checkpoint: checkpoints[source.id] ?? checkpoint,
+                    // 开扫前就留着断点 = 上次没扫完，先把它续完（会覆盖这个文件夹）。
+                    folderRescan: checkpoint == nil ? folderRescan : nil
                 )
             } else {
                 // Apple Music 不走文件 scan, 走 AppleMusicLibraryService.sync()
@@ -2462,7 +2505,8 @@ final class ScanService {
         mode: SourceSyncMode,
         snapshotExecutionContext: BaiduSnapshotExecutionContext,
         checkpoint: ScanCheckpoint?,
-        trustedRetryCount: Int = 0
+        trustedRetryCount: Int = 0,
+        folderRescan: SourceFolderRescanRequest? = nil
     ) async {
         let connector = connectorProvider?(source) ?? sourceManager.connector(for: source)
         let scanner = ConnectorScanner(
@@ -2689,6 +2733,55 @@ final class ScanService {
                     message: sourceManager.scanFailureMessage(for: error, source: source)
                 )
                 return
+            }
+        }
+
+        if let folderRescan {
+            if let state = workingState,
+               state.isUsable(sourceID: source.id, scopeFingerprint: scopeFingerprint),
+               !SourceSyncFolderTopologyPolicy.requiresRebuild(
+                   sourceType: source.type,
+                   state: state
+               ) {
+                do {
+                    if try await performFolderRescan(
+                        folderRescan,
+                        source: source,
+                        generation: generation,
+                        directories: effectiveDirectories,
+                        state: state,
+                        scanner: scanner,
+                        existingSongs: existingForScan,
+                        library: library,
+                        sourceStore: sourceStore,
+                        scraperService: scraperService,
+                        sourceManager: sourceManager
+                    ) {
+                        return
+                    }
+                } catch let error where OperationCancellationPolicy.isCancellation(error) {
+                    if scanFenceIsValid() {
+                        recordScanInterruption(sourceID: source.id)
+                    }
+                    return
+                } catch {
+                    guard scanFenceIsValid() else { return }
+                    recordScanFailure(
+                        sourceID: source.id,
+                        message: sourceManager.scanFailureMessage(for: error, source: source)
+                    )
+                    return
+                }
+            } else {
+                let reason: String
+                if let state = workingState {
+                    reason = state.isUsable(sourceID: source.id, scopeFingerprint: scopeFingerprint)
+                        ? "the folder topology needs a rebuild"
+                        : "the scan index is stale (deep=\(state.requiresDeepScan), scope=\(state.scopeFingerprint == scopeFingerprint))"
+                } else {
+                    reason = "there is no scan index yet (stored=\(syncStates[source.id] != nil))"
+                }
+                plog("📂 \(source.name): folder rescan falls back to the whole source: \(reason)")
             }
         }
 
@@ -4393,6 +4486,100 @@ final class ScanService {
                 isUserInitiated: isUserInitiated
             )
         }
+    }
+
+    /// 「重新扫描此文件夹」：只把这棵子树重新列一遍，每个列出的目录对自己权威——没了的删、
+    /// 新增的收、只为大小/修改时间/版本变了的文件重建行（标签由回填再读），子树外的歌和目录
+    /// 原样带过去。一层一层往下走：每轮只列上一轮刚确认还在的目录的子目录，服务器上已经
+    /// 删掉的子目录由它父目录那一轮清掉，不会因为「路径不存在」让整次重扫失败。
+    /// 原生增量游标不动，也不算一次完整扫描（`lastFullScanAt` 不变）。
+    private func performFolderRescan(
+        _ request: SourceFolderRescanRequest,
+        source: MusicSource,
+        generation: Int,
+        directories: [String],
+        state: SourceSyncState,
+        scanner: ConnectorScanner,
+        existingSongs: [Song],
+        library: MusicLibrary,
+        sourceStore: SourcesStore,
+        scraperService: MusicScraperService?,
+        sourceManager: SourceManager
+    ) async throws -> Bool {
+        guard let root = SourceSyncSubtreePolicy.directory(
+            containingSongID: request.anchorSongID,
+            levelsAbove: request.levelsAbove,
+            in: state.index
+        ) else {
+            plog("📂 \(source.name): folder rescan could not place the folder in the scan index; walking the whole source")
+            return false
+        }
+        let rootName = state.index.values.first { $0.isDirectory && $0.path == root }?.displayName
+            ?? (root as NSString).lastPathComponent
+        scanStates[source.id]?.currentFile = rootName
+        let startedAt = Date()
+        let nextScanEpoch = state.scanEpoch + 1
+        var songs = existingSongs
+        var index = state.index
+        var listed: Set<String> = []
+        var frontier: Set<String> = [root]
+        var changedCount = 0
+        while !frontier.isEmpty {
+            try Task.checkCancellation()
+            try checkSourceStillEnabled(source.id, sourceStore: sourceStore)
+            guard isCurrentScan(source.id, generation: generation) else {
+                throw CancellationError()
+            }
+            let result = try await scanner.reconcileChangedDirectories(
+                frontier,
+                deletedStableKeys: [],
+                existingSongs: songs,
+                existingIndex: index,
+                scanEpoch: nextScanEpoch,
+                requiresCompleteListings: false
+            )
+            songs = result.songs
+            index = result.index
+            changedCount += result.changedCount
+            listed.formUnion(frontier)
+            let justListed = frontier
+            frontier = Set(index.values.lazy
+                .filter { $0.isDirectory && !listed.contains($0.path) }
+                .filter { $0.parentPath.map(justListed.contains) == true }
+                .map(\.path))
+        }
+        plog("📂 \(source.name): folder rescan listed \(listed.count) folder(s), \(changedCount) change(s) in \(Int(Date().timeIntervalSince(startedAt) * 1000))ms")
+
+        var candidateState = state
+        candidateState.index = index
+        candidateState.scanEpoch = nextScanEpoch
+        candidateState.lastSuccessfulSyncAt = Date()
+        var progressTimestamp = Date.distantPast
+        publishScanProgress(
+            sourceID: source.id,
+            scannedCount: songs.count,
+            addedCount: changedCount,
+            totalCount: songs.count,
+            currentFile: "",
+            lastPublishedAt: &progressTimestamp
+        )
+        try await completeScan(
+            sourceID: source.id,
+            generation: generation,
+            songs: songs,
+            expectedScopeFingerprint: Self.scopeFingerprint(
+                for: source,
+                directories: directories
+            ),
+            expectedScopeDirectories: directories,
+            library: library,
+            sourceStore: sourceStore,
+            scraperService: scraperService,
+            sourceManager: sourceManager,
+            syncState: candidateState,
+            source: source
+        )
+        return true
     }
 
     private func performQuickSync(

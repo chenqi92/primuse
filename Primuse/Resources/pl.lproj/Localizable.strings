@@ -2545,6 +2545,7 @@
 "repeat" = "Powtarzaj";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "Automatycznie dostosuj głośność w oparciu o znaczniki ReplayGain osadzone w plikach audio.";
+"library_folder_rescan" = "Przeskanuj ponownie ten folder";
 "reread_song_tags" = "Odczytaj tagi pliku ponownie";
 "reread_song_tags_completed" = "Tagi pliku zostały odczytane ponownie.";
 "reread_song_tags_completed_embedded" = "Odczytano standardowe tagi osadzone w pliku.";

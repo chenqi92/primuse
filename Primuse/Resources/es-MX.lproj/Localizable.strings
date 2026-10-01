@@ -2545,6 +2545,7 @@
 "repeat" = "Repetir";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "Ajusta automáticamente el volumen según las etiquetas ReplayGain incrustadas en archivos de audio.";
+"library_folder_rescan" = "Volver a escanear esta carpeta";
 "reread_song_tags" = "Volver a leer las etiquetas del archivo";
 "reread_song_tags_completed" = "Se volvieron a leer las etiquetas del archivo.";
 "reread_song_tags_completed_embedded" = "Se leyeron las etiquetas incrustadas estándar.";

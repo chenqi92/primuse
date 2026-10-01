@@ -696,6 +696,7 @@
 "song_details_parse_failed" = "Échec de l’analyse des détails";
 "song_details_parse_failed_message" = "Les données du fichier ont été lues, mais l’analyseur actuel n’a pas pu confirmer tous les détails. La lecture reste disponible.";
 "song_details_retry" = "Réessayer la lecture";
+"library_folder_rescan" = "Réanalyser ce dossier";
 "reread_song_tags" = "Relire les tags du fichier";
 "reread_song_tags_in_progress" = "Lecture des tags du fichier…";
 "reread_song_tags_completed" = "Les tags du fichier ont été relus.";

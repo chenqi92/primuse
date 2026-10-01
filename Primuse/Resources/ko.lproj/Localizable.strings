@@ -696,6 +696,7 @@
 "song_details_parse_failed" = "곡 세부 정보 구문 분석 실패";
 "song_details_parse_failed_message" = "파일 바이트를 읽었지만 현재 구문 분석기가 전체 세부 정보를 확인하지 못했습니다. 사용 가능한 재생 경로는 유지됩니다.";
 "song_details_retry" = "다시 읽기";
+"library_folder_rescan" = "이 폴더 다시 스캔";
 "reread_song_tags" = "파일 태그 다시 읽기";
 "reread_song_tags_in_progress" = "파일 태그 읽는 중…";
 "reread_song_tags_completed" = "파일 태그를 다시 읽었습니다.";

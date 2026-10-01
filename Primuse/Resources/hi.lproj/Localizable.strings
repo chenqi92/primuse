@@ -2545,6 +2545,7 @@
 "repeat" = "दोहराएँ";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "ऑडियो फ़ाइलों में एम्बेडेड ReplayGain टैग के आधार पर स्वचालित रूप से वॉल्यूम समायोजित करें।";
+"library_folder_rescan" = "इस फ़ोल्डर को फिर से स्कैन करें";
 "reread_song_tags" = "फ़ाइल टैग दोबारा पढ़ें";
 "reread_song_tags_completed" = "फ़ाइल टैग दोबारा पढ़े गए।";
 "reread_song_tags_completed_embedded" = "मानक एम्बेडेड टैग पढ़े गए।";

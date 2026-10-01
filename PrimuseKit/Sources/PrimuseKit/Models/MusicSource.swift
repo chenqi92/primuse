@@ -252,6 +252,17 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     /// 的全库 `scanSongs(from:)`。媒体服务器(Jellyfin/Emby/Plex)、Subsonic
     /// 系(Navidrome/Airsonic/Gonic)以及飞牛音乐。Apple Music Library 虽也
     /// 整库扫描, 但走 iTunesLibrary 而非 connector "/" 流程, 故不在此列。
+    /// 资料库「文件夹」页能单独重扫其中一个文件夹：按目录列文件的源（NAS、文件协议、
+    /// 网盘、本机文件夹）。曲库型服务器没有可列的目录，UPnP 的容器 id 不稳定。
+    public var supportsFolderRescan: Bool {
+        switch category {
+        case .nas, .cloudDrive: return true
+        case .protocol: return self != .upnp
+        case .local: return self == .local
+        case .mediaServer, .streaming: return false
+        }
+    }
+
     public var isServerLibrary: Bool {
         isMediaServer || isSubsonicFamily || self == .fnMusic || self == .daoliyu || self == .songloft
             || self == .synologyAudioStation

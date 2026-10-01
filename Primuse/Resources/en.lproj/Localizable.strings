@@ -475,6 +475,7 @@
 "song_details_parse_failed" = "Song details parsing failed";
 "song_details_parse_failed_message" = "File bytes were read, but the current parser could not confirm complete details. Any available playback path remains enabled.";
 "song_details_retry" = "Retry reading";
+"library_folder_rescan" = "Rescan This Folder";
 "reread_song_tags" = "Read File Tags Again";
 "reread_song_tags_in_progress" = "Reading file tags…";
 "reread_song_tags_completed" = "File tags were read again.";

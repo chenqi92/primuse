@@ -1197,3 +1197,104 @@ private func testSong(
         dateAdded: Date(timeIntervalSince1970: 0)
     )
 }
+
+@Suite("Folder rescan anchor")
+struct LibraryFolderRescanAnchorTests {
+    private let source = LibraryFolderSourceDescriptor(
+        sourceID: "dav", displayName: "Music", scanRoots: ["/Music"],
+        pathSemantics: .hierarchical, pathEncoding: .native
+    )
+
+    private func index() -> LibraryFolderIndex {
+        LibraryFolderIndexBuilder.build(sources: [source], songs: [
+            testSong(id: "root-song", path: "/Music/loose.flac", sourceID: "dav"),
+            testSong(id: "deep", path: "/Music/Artist/Album/CD1/01.flac", sourceID: "dav"),
+            testSong(id: "album", path: "/Music/Artist/Album/booklet-track.flac", sourceID: "dav"),
+        ])
+    }
+
+    @Test("A folder with its own songs anchors on one of them")
+    func directSongAnchorsAtZeroLevels() throws {
+        let index = index()
+        let album = try #require(index.nodeID(containingSongID: "album"))
+        #expect(album.kind == .folder)
+        #expect(LibraryFolderRescanAnchor.make(for: album, in: index)
+            == LibraryFolderRescanAnchor(songID: "album", levelsAbove: 0))
+    }
+
+    @Test("A folder holding only subfolders counts the levels down to a song")
+    func nestedSongAnchorsWithLevels() throws {
+        let index = index()
+        let album = try #require(index.nodeID(containingSongID: "album"))
+        let artist = try #require(index.node(withID: album)?.parentID)
+        #expect(index.directSongIDs(in: artist).isEmpty)
+        let anchor = try #require(LibraryFolderRescanAnchor.make(for: artist, in: index))
+        #expect(anchor.songID == "album" && anchor.levelsAbove == 1
+            || anchor.songID == "deep" && anchor.levelsAbove == 2)
+        let root = try #require(index.node(withID: artist)?.parentID)
+        #expect(root.kind == .scanRoot)
+        #expect(LibraryFolderRescanAnchor.make(for: root, in: index)
+            == LibraryFolderRescanAnchor(songID: "root-song", levelsAbove: 0))
+    }
+
+    @Test("Virtual nodes have nothing to rescan")
+    func virtualNodesHaveNoAnchor() throws {
+        let index = index()
+        let sourceNode = try #require(index.sourceNode(for: "dav"))
+        #expect(LibraryFolderRescanAnchor.make(for: sourceNode.id, in: index) == nil)
+        let uncategorized = LibraryFolderNodeID(sourceID: "dav", kind: .uncategorized, normalizedRelativePath: "")
+        #expect(LibraryFolderRescanAnchor.make(for: uncategorized, in: index) == nil)
+    }
+}
+
+@Suite("Source sync subtree")
+struct SourceSyncSubtreePolicyTests {
+    private func item(
+        _ path: String, parent: String?, directory: Bool, songs: [String] = []
+    ) -> (String, SourceSyncIndexedItem) {
+        ("path:\(path.lowercased())", SourceSyncIndexedItem(
+            stableKey: "path:\(path.lowercased())", path: path, parentPath: parent,
+            isDirectory: directory, songIDs: songs, size: 0, modifiedDate: nil, revision: nil
+        ))
+    }
+
+    private var index: [String: SourceSyncIndexedItem] {
+        Dictionary(uniqueKeysWithValues: [
+            item("/Music/Artist", parent: "/Music", directory: true),
+            item("/Music/Artist/Album", parent: "/Music/Artist", directory: true),
+            item("/Music/Artist/Album/CD1", parent: "/Music/Artist/Album", directory: true),
+            item("/Music/Artist/Album/CD1/01.flac", parent: "/Music/Artist/Album/CD1", directory: false, songs: ["deep"]),
+            item("/Music/Artist/Album/image.wav", parent: "/Music/Artist/Album", directory: false, songs: ["cue-1", "cue-2"]),
+            item("/Music/Other", parent: "/Music", directory: true),
+            item("/Music/Other/x.flac", parent: "/Music/Other", directory: false, songs: ["other"]),
+        ])
+    }
+
+    @Test("Walks up from a song to the requested folder, up to the scan root")
+    func resolvesRawDirectory() {
+        #expect(SourceSyncSubtreePolicy.directory(containingSongID: "deep", levelsAbove: 0, in: index) == "/Music/Artist/Album/CD1")
+        #expect(SourceSyncSubtreePolicy.directory(containingSongID: "deep", levelsAbove: 2, in: index) == "/Music/Artist")
+        #expect(SourceSyncSubtreePolicy.directory(containingSongID: "deep", levelsAbove: 3, in: index) == "/Music")
+        #expect(SourceSyncSubtreePolicy.directory(containingSongID: "deep", levelsAbove: 4, in: index) == nil)
+        #expect(SourceSyncSubtreePolicy.directory(containingSongID: "cue-2", levelsAbove: 0, in: index) == "/Music/Artist/Album")
+        #expect(SourceSyncSubtreePolicy.directory(containingSongID: "missing", levelsAbove: 0, in: index) == nil)
+    }
+
+    @Test("Lists every known folder below the root and nothing beside it")
+    func listsKnownSubtree() {
+        #expect(SourceSyncSubtreePolicy.knownDirectories(under: "/Music/Artist", in: index)
+            == ["/Music/Artist", "/Music/Artist/Album", "/Music/Artist/Album/CD1"])
+        #expect(SourceSyncSubtreePolicy.knownDirectories(under: "/Music/Other", in: index) == ["/Music/Other"])
+    }
+
+    @Test("Opaque ids follow the same parent links")
+    func opaqueIdentifiers() {
+        let opaque = Dictionary(uniqueKeysWithValues: [
+            item("folder-a", parent: "root-id", directory: true),
+            item("folder-b", parent: "folder-a", directory: true),
+            item("file-1", parent: "folder-b", directory: false, songs: ["song"]),
+        ])
+        #expect(SourceSyncSubtreePolicy.directory(containingSongID: "song", levelsAbove: 1, in: opaque) == "folder-a")
+        #expect(SourceSyncSubtreePolicy.knownDirectories(under: "folder-a", in: opaque) == ["folder-a", "folder-b"])
+    }
+}

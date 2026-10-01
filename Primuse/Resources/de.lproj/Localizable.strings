@@ -696,6 +696,7 @@
 "song_details_parse_failed" = "Titeldetails konnten nicht analysiert werden";
 "song_details_parse_failed_message" = "Dateidaten wurden gelesen, aber der aktuelle Parser konnte keine vollständigen Details bestätigen. Die Wiedergabe bleibt verfügbar.";
 "song_details_retry" = "Erneut lesen";
+"library_folder_rescan" = "Diesen Ordner erneut scannen";
 "reread_song_tags" = "Datei-Tags erneut lesen";
 "reread_song_tags_in_progress" = "Datei-Tags werden gelesen…";
 "reread_song_tags_completed" = "Die Datei-Tags wurden erneut gelesen.";

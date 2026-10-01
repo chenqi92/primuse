@@ -697,6 +697,7 @@
 "song_details_parse_failed" = "曲の詳細を解析できませんでした";
 "song_details_parse_failed_message" = "ファイルは読み込めましたが、現在の解析処理では完全な詳細を確認できませんでした。再生は引き続き可能です。";
 "song_details_retry" = "もう一度読み込む";
+"library_folder_rescan" = "このフォルダを再スキャン";
 "reread_song_tags" = "ファイルタグを再読み込み";
 "reread_song_tags_in_progress" = "ファイルタグを読み込んでいます…";
 "reread_song_tags_completed" = "ファイルタグを再読み込みしました。";

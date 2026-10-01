@@ -2657,6 +2657,7 @@
 "check_for_updates_up_to_date" = "Вы используете последнюю версию";
 "ai_remove_provider_confirm" = "Удалить эту службу и ее локальный ключ?";
 "lang_ru" = "русский";
+"library_folder_rescan" = "Пересканировать эту папку";
 "reread_song_tags" = "Снова прочитать теги файлов";
 "radio_live" = "Прямой эфир радио";
 "playlist_import_create" = "Создать";

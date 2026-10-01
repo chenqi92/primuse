@@ -288,6 +288,75 @@ final class FolderPlaylistTests: XCTestCase {
                              size: 0, modifiedDate: nil, revision: nil)
     }
 
+    func testFolderRescanReconcilesOnlyThatFolderAndItsSubfolders() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("FolderRescan-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let source = MusicSource(id: "source", name: "NAS", type: .webdav, extraConfig: "[\"/Music\"]")
+        func dir(_ path: String) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: true, size: 0, modifiedDate: nil)
+        }
+        func file(_ path: String) -> RemoteFileItem {
+            RemoteFileItem(name: (path as NSString).lastPathComponent, path: path,
+                           isDirectory: false, size: 1_000, modifiedDate: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+        let connector = FolderRescanTestConnector(listings: [
+            "/Music": [dir("/Music/A"), dir("/Music/B")],
+            "/Music/A": [file("/Music/A/a1.mp3"), dir("/Music/A/Disc")],
+            "/Music/A/Disc": [file("/Music/A/Disc/d1.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3")],
+        ])
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let scan = ScanService(
+            fileManager: FolderPlaylistTestFileManager(root: root), connectorProvider: { _ in connector },
+            diagnosticProvider: { source, _ in SourceDiagnosticReport(source: source, startedAt: Date(), checks: []) }
+        )
+        let manager = SourceManager(sourcesProvider: { [] })
+        XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+        await scan.waitForActiveScansToComplete()
+        XCTAssertEqual(Set(library.songs.map(\.filePath)),
+                       ["/Music/A/a1.mp3", "/Music/A/Disc/d1.mp3", "/Music/B/b1.mp3"])
+        let a1 = try XCTUnwrap(library.songs.first { $0.filePath == "/Music/A/a1.mp3" })
+        let b1 = try XCTUnwrap(library.songs.first { $0.filePath == "/Music/B/b1.mp3" })
+
+        // On the server: A gains a song and a new subfolder and loses Disc;
+        // B, outside the folder being rescanned, gains a song too.
+        await connector.replaceListings([
+            "/Music": [dir("/Music/A"), dir("/Music/B")],
+            "/Music/A": [file("/Music/A/a1.mp3"), file("/Music/A/a2.mp3"), dir("/Music/A/NewDisc")],
+            "/Music/A/NewDisc": [file("/Music/A/NewDisc/n1.mp3")],
+            "/Music/B": [file("/Music/B/b1.mp3"), file("/Music/B/b2.mp3")],
+        ])
+        XCTAssertTrue(scan.rescanFolder(
+            of: source,
+            request: SourceFolderRescanRequest(anchorSongID: a1.id, levelsAbove: 0),
+            sourceManager: manager, library: library, sourceStore: store
+        ))
+        await scan.waitForActiveScansToComplete()
+
+        XCTAssertNil(scan.scanStates[source.id]?.failureMessage)
+        XCTAssertEqual(Set(library.songs.map(\.filePath)),
+                       ["/Music/A/a1.mp3", "/Music/A/a2.mp3", "/Music/A/NewDisc/n1.mp3", "/Music/B/b1.mp3"])
+        XCTAssertEqual(library.songs.first { $0.filePath == "/Music/A/a1.mp3" }?.id, a1.id)
+        XCTAssertEqual(library.songs.first { $0.filePath == "/Music/B/b1.mp3" }?.id, b1.id)
+        let listed = await connector.listedPaths
+        XCTAssertEqual(listed, ["/Music/A", "/Music/A/NewDisc"])
+    }
+
+    func testFolderRescanOfARemovedFolderWalksUpFromASong() async throws {
+        let index = Dictionary(uniqueKeysWithValues: [
+            indexed("/Music/A", parent: "/Music", directory: true),
+            indexed("/Music/A/Disc", parent: "/Music/A", directory: true),
+            indexed("/Music/A/Disc/d1.mp3", parent: "/Music/A/Disc"),
+        ].map { ($0.stableKey, $0) })
+        XCTAssertEqual(
+            SourceSyncSubtreePolicy.directory(containingSongID: "/Music/A/Disc/d1.mp3", levelsAbove: 1, in: index),
+            "/Music/A"
+        )
+    }
+
     private struct DirectoryScanFixture {
         let source: MusicSource
         let connector: FolderPlaylistTestConnector
@@ -362,4 +431,31 @@ private final class FolderPlaylistTestFileManager: FileManager, @unchecked Senda
     init(root: URL) { self.root = root; super.init() }
     override func urls(for directory: FileManager.SearchPathDirectory,
                        in domainMask: FileManager.SearchPathDomainMask) -> [URL] { [root] }
+}
+
+private actor FolderRescanTestConnector: MusicSourceConnector {
+    let sourceID = "source"
+    private var listings: [String: [RemoteFileItem]]
+    private(set) var listedPaths: [String] = []
+
+    init(listings: [String: [RemoteFileItem]]) { self.listings = listings }
+
+    func replaceListings(_ listings: [String: [RemoteFileItem]]) {
+        self.listings = listings
+        listedPaths = []
+    }
+    func connect() async throws { }
+    func disconnect() async { }
+    func listFiles(at path: String) async throws -> [RemoteFileItem] {
+        listedPaths.append(path)
+        guard let items = listings[path] else { throw SourceError.pathNotFound(path) }
+        return items
+    }
+    func localURL(for path: String) async throws -> URL { throw SourceError.fileNotFound(path) }
+    func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
+        .init { $0.finish() }
+    }
+    func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
+        .init { $0.finish() }
+    }
 }

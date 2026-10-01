@@ -2545,6 +2545,7 @@
 "repeat" = "เล่นซ้ำ";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "ปรับระดับเสียงโดยอัตโนมัติตามแท็ก ReplayGain ที่ฝังอยู่ในไฟล์เสียง";
+"library_folder_rescan" = "สแกนโฟลเดอร์นี้อีกครั้ง";
 "reread_song_tags" = "อ่านแท็กไฟล์อีกครั้ง";
 "reread_song_tags_completed" = "แท็กไฟล์ถูกอ่านอีกครั้ง";
 "reread_song_tags_completed_embedded" = "อ่านแท็กฝังมาตรฐานแล้ว";

@@ -2545,6 +2545,7 @@
 "repeat" = "تكرار";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "ضبط مستوى الصوت تلقائيًا بناءً على علامات ReplayGain المضمنة في الملفات الصوتية.";
+"library_folder_rescan" = "إعادة فحص هذا المجلد";
 "reread_song_tags" = "اقرأ علامات الملف مرة أخرى";
 "reread_song_tags_completed" = "تمت قراءة علامات الملف مرة أخرى.";
 "reread_song_tags_completed_embedded" = "تمت قراءة العلامات المضمنة القياسية.";

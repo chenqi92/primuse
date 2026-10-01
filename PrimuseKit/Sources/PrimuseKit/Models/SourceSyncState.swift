@@ -1575,3 +1575,52 @@ public enum SourceStableCacheFileMigration {
             ?? attributes[.size] as? Int64
     }
 }
+
+/// 只重扫一个文件夹时，在扫描索引里找这棵子树。索引里的 `path` / `parentPath` 是连接器
+/// 列目录用的原始写法（路径型源是路径，ID 寻址网盘是条目 id），资料库「文件夹」页的节点
+/// 用的是归一化后的身份路径，两者对不上，所以从文件夹里的一首歌出发沿父目录往上走。
+public enum SourceSyncSubtreePolicy {
+    /// 这首歌所在目录再往上 `levelsAbove` 层的原始目录。走到索引里没有的目录就答 nil
+    /// （扫描根本身不在索引里，只能作为最后一层的结果出现）。
+    public static func directory(
+        containingSongID songID: String,
+        levelsAbove: Int,
+        in index: [String: SourceSyncIndexedItem]
+    ) -> String? {
+        guard levelsAbove >= 0,
+              let entry = index.values.first(where: { !$0.isDirectory && $0.songIDs.contains(songID) }),
+              var directory = entry.parentPath, !directory.isEmpty else { return nil }
+        guard levelsAbove > 0 else { return directory }
+        let directoriesByPath = Dictionary(
+            index.values.filter(\.isDirectory).map { ($0.path, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for _ in 0..<levelsAbove {
+            guard let folder = directoriesByPath[directory],
+                  let parent = folder.parentPath, !parent.isEmpty,
+                  parent != directory else { return nil }
+            directory = parent
+        }
+        return directory
+    }
+
+    /// `root` 与索引里已知的、在它下面的全部目录（按父目录链判定，不比较路径前缀）。
+    public static func knownDirectories(
+        under root: String,
+        in index: [String: SourceSyncIndexedItem]
+    ) -> Set<String> {
+        var childDirectories: [String: [String]] = [:]
+        for entry in index.values where entry.isDirectory {
+            guard let parent = entry.parentPath else { continue }
+            childDirectories[parent, default: []].append(entry.path)
+        }
+        var result: Set<String> = [root]
+        var pending = [root]
+        while let current = pending.popLast() {
+            for child in childDirectories[current] ?? [] where result.insert(child).inserted {
+                pending.append(child)
+            }
+        }
+        return result
+    }
+}

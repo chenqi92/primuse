@@ -4322,6 +4322,11 @@ private struct MacLibraryFolderInlineContent: View {
     @Environment(AudioPlayerService.self) private var player
     @Environment(MusicLibrary.self) private var library
     @Environment(ThemeService.self) private var theme
+    @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(ScanService.self) private var scanService
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(MusicScraperService.self) private var scraperService
+    @Environment(MetadataBackfillService.self) private var backfill
 
     let folderPath: [LibraryFolderNodeID]
     let folderCache: LibraryFolderBrowserCache
@@ -4330,6 +4335,7 @@ private struct MacLibraryFolderInlineContent: View {
     @Binding var sortOrder: SongListView.SongSortOrder
     let onOpenFolder: (LibraryFolderNodeID) -> Void
     let onNavigate: (LibraryFolderNodeID?) -> Void
+    @State private var maintenance = LibraryFolderMaintenanceModel()
 
     @ViewBuilder
     var body: some View {
@@ -4337,6 +4343,8 @@ private struct MacLibraryFolderInlineContent: View {
            let node = folderCache.node(withID: nodeID) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 navigationBar(node)
+
+                LibraryFolderMaintenanceStatus(sourceID: nodeID.sourceID, model: maintenance)
 
                 let children = folderCache.children(of: nodeID)
                 if !children.isEmpty {
@@ -4464,6 +4472,35 @@ private struct MacLibraryFolderInlineContent: View {
             }
             .buttonStyle(.plain)
             .disabled(actionSongIDs.isEmpty || selection.isActive)
+
+            if let actions = LibraryFolderMaintenanceActions.make(
+                nodeID: node.id,
+                index: folderCache.index,
+                songIDs: actionSongIDs,
+                model: maintenance,
+                scanService: scanService,
+                sourceManager: sourceManager,
+                sourcesStore: sourcesStore,
+                library: library,
+                scraperService: scraperService,
+                backfill: backfill
+            ) {
+                Menu {
+                    LibraryFolderMaintenanceMenuItems(actions: actions)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .background(PMColor.glassBtn, in: Circle())
+                        .contentShape(Circle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .foregroundStyle(PMColor.text)
+                .disabled(selection.isActive)
+                .accessibilityLabel(Text("a11y_more_actions"))
+            }
         }
         .padding(.horizontal, 12)
         .frame(minHeight: 48)
@@ -4868,6 +4905,10 @@ private struct LibraryFolderNodeView: View {
     // feeds is rendered by a navigation-bar item host that cannot rely on the
     // environment reaching it. See `FolderPlaylistMenuButton`.
     @Environment(SourcesStore.self) private var sourcesStore
+    @Environment(ScanService.self) private var scanService
+    @Environment(SourceManager.self) private var sourceManager
+    @Environment(MusicScraperService.self) private var scraperService
+    @Environment(MetadataBackfillService.self) private var backfill
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     #endif
@@ -4879,6 +4920,22 @@ private struct LibraryFolderNodeView: View {
     @Binding var sortOrder: SongListView.SongSortOrder
     @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
     private var followsListSort = false
+    @State private var maintenance = LibraryFolderMaintenanceModel()
+
+    private var maintenanceActions: LibraryFolderMaintenanceActions? {
+        LibraryFolderMaintenanceActions.make(
+            nodeID: nodeID,
+            index: folderCache.index,
+            songIDs: actionSongIDs,
+            model: maintenance,
+            scanService: scanService,
+            sourceManager: sourceManager,
+            sourcesStore: sourcesStore,
+            library: library,
+            scraperService: scraperService,
+            backfill: backfill
+        )
+    }
 
     var body: some View {
         content
@@ -4920,6 +4977,8 @@ private struct LibraryFolderNodeView: View {
                     #if os(macOS)
                     macFolderHeader(node)
                     #endif
+
+                    LibraryFolderMaintenanceStatus(sourceID: nodeID.sourceID, model: maintenance)
 
                     let children = folderCache.children(of: nodeID)
                     if !children.isEmpty {
@@ -5044,6 +5103,19 @@ private struct LibraryFolderNodeView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .disabled(selection.isActive)
+
+            if let maintenanceActions {
+                Menu {
+                    LibraryFolderMaintenanceMenuItems(actions: maintenanceActions)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .disabled(selection.isActive)
+                .accessibilityLabel(Text("a11y_more_actions"))
+            }
         }
         .padding(12)
     }
@@ -5103,6 +5175,7 @@ private struct LibraryFolderNodeView: View {
                     index: folderCache.index,
                     library: library,
                     source: sourcesStore.source(id: nodeID.sourceID),
+                    maintenance: maintenanceActions,
                     asOverflowItems: true
                 )
                 if selection.isActive {
@@ -5132,7 +5205,8 @@ private struct LibraryFolderNodeView: View {
                 nodeID: nodeID,
                 index: folderCache.index,
                 library: library,
-                source: sourcesStore.source(id: nodeID.sourceID)
+                source: sourcesStore.source(id: nodeID.sourceID),
+                maintenance: maintenanceActions
             )
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -5643,6 +5717,7 @@ private struct LibraryFolderNormalToolbarMenu: View {
     let index: LibraryFolderIndex?
     let library: MusicLibrary
     let source: MusicSource?
+    var maintenance: LibraryFolderMaintenanceActions?
     @AppStorage(LibraryFolderSongOrderPreference.followsListSortKey)
     private var followsListSort = false
     @AppStorage(HomeFolderPinStorage.key) private var pinsRawValue = ""
@@ -5708,6 +5783,12 @@ private struct LibraryFolderNormalToolbarMenu: View {
         }
 
         SongSortSubmenu(sortOrder: $sortOrder, followsListSort: $followsListSort)
+
+        if let maintenance {
+            Section {
+                LibraryFolderMaintenanceMenuItems(actions: maintenance)
+            }
+        }
     }
 }
 
@@ -5888,5 +5969,157 @@ private struct IOSSelectionSongRow: View {
                 return value
             }
             .joined(separator: " · ")
+    }
+}
+
+// MARK: - Folder maintenance
+
+/// 文件夹页「重新读取文件标签」的进度。iPhone 文件夹页与 Mac 内嵌文件夹浏览各持一份，
+/// 离开页面就随页面释放；读取本身在回填服务里继续跑完。
+@MainActor
+@Observable
+final class LibraryFolderMaintenanceModel {
+    private(set) var rereadProgress: MetadataTagRereadProgress?
+    private(set) var isRereading = false
+    @ObservationIgnored private var rereadTask: Task<Void, Never>?
+
+    func rereadTags(songIDs: [String], sourceID: String, backfill: MetadataBackfillService) {
+        let readable = songIDs.filter { backfill.canRereadTags(songID: $0, expectedSourceID: sourceID) }
+        guard rereadTask == nil, !readable.isEmpty else { return }
+        isRereading = true
+        rereadProgress = MetadataTagRereadProgress(total: readable.count)
+        rereadTask = Task { @MainActor [weak self] in
+            let result = await backfill.rereadTags(songIDs: readable, expectedSourceID: sourceID) { progress in
+                self?.rereadProgress = progress
+            }
+            self?.rereadProgress = result
+            self?.isRereading = false
+            self?.rereadTask = nil
+        }
+    }
+}
+
+/// 文件夹页「⋯」里的「重新扫描此文件夹」与「重新读取文件标签」。服务由页面在自己的视图
+/// 层级里取好再交进来：导航栏菜单的宿主拿不到环境（见 `FolderPlaylistMenuButton`）。
+@MainActor
+struct LibraryFolderMaintenanceActions {
+    var rescan: (() -> Void)?
+    var rereadTags: (() -> Void)?
+    var isRereading = false
+
+    static func make(
+        nodeID: LibraryFolderNodeID,
+        index: LibraryFolderIndex?,
+        songIDs: [String],
+        model: LibraryFolderMaintenanceModel,
+        scanService: ScanService,
+        sourceManager: SourceManager,
+        sourcesStore: SourcesStore,
+        library: MusicLibrary,
+        scraperService: MusicScraperService,
+        backfill: MetadataBackfillService
+    ) -> LibraryFolderMaintenanceActions? {
+        guard nodeID.kind == .folder || nodeID.kind == .scanRoot,
+              let source = sourcesStore.source(id: nodeID.sourceID),
+              source.isEnabled, !source.isDeleted else { return nil }
+        var actions = LibraryFolderMaintenanceActions(isRereading: model.isRereading)
+        if ScanService.supportsFolderRescan(source),
+           let index,
+           let anchor = LibraryFolderRescanAnchor.make(for: nodeID, in: index) {
+            actions.rescan = {
+                _ = scanService.rescanFolder(
+                    of: source,
+                    request: SourceFolderRescanRequest(
+                        anchorSongID: anchor.songID,
+                        levelsAbove: anchor.levelsAbove
+                    ),
+                    sourceManager: sourceManager,
+                    library: library,
+                    sourceStore: sourcesStore,
+                    scraperService: scraperService
+                )
+            }
+        }
+        // 只看前几首判断能不能读：整个文件夹逐首过一遍留到点下去的时候。
+        if songIDs.prefix(24).contains(where: {
+            backfill.canRereadTags(songID: $0, expectedSourceID: source.id)
+        }) {
+            actions.rereadTags = {
+                model.rereadTags(songIDs: songIDs, sourceID: source.id, backfill: backfill)
+            }
+        }
+        return actions.rescan == nil && actions.rereadTags == nil ? nil : actions
+    }
+}
+
+private struct LibraryFolderMaintenanceMenuItems: View {
+    let actions: LibraryFolderMaintenanceActions
+
+    var body: some View {
+        if let rescan = actions.rescan {
+            Button(action: rescan) {
+                Label("library_folder_rescan", systemImage: "arrow.clockwise")
+            }
+            .accessibilityIdentifier("libraryFolder.rescan")
+        }
+        if let rereadTags = actions.rereadTags {
+            Button(action: rereadTags) {
+                Label("reread_song_tags", systemImage: "tag")
+            }
+            .disabled(actions.isRereading)
+            .accessibilityIdentifier("libraryFolder.rereadTags")
+        }
+    }
+}
+
+/// 扫描进度只在这一行里读：扫描时 `scanStates` 一秒变好几次，放在页面主体上会让整页
+/// 跟着重绘（见扫描时音乐源页卡顿那次的教训）。
+private struct LibraryFolderMaintenanceStatus: View {
+    @Environment(ScanService.self) private var scanService
+
+    let sourceID: String
+    let model: LibraryFolderMaintenanceModel
+
+    var body: some View {
+        if let message {
+            HStack(spacing: 8) {
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Text(verbatim: message)
+                    .font(.footnote)
+                    .foregroundStyle(Color.secondary)
+                    .monospacedDigit()
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var isScanning: Bool {
+        scanService.scanStates[sourceID]?.isScanning == true
+    }
+
+    private var isBusy: Bool { isScanning || model.isRereading }
+
+    private var message: String? {
+        if isScanning {
+            return String(localized: "scan_in_progress")
+        }
+        guard let progress = model.rereadProgress else { return nil }
+        if model.isRereading {
+            return String(
+                format: String(localized: "metadata_status_reread_progress_format"),
+                Int64(progress.processed), Int64(progress.total)
+            )
+        }
+        return String(
+            format: String(localized: "metadata_status_reread_result_format"),
+            Int64(progress.completed), Int64(progress.failed), Int64(progress.skipped)
+        )
     }
 }
