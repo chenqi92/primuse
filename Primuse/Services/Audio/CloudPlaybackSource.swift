@@ -37,6 +37,12 @@ enum CloudPlaybackSource {
     /// 同时 cover, 性能更稳。
     static let prefetchAhead: Int = 4
 
+    /// Opens one sustained read of the file from a byte offset to its end.
+    /// Sources whose separate range requests are each slow to start (OneDrive:
+    /// every request pays the CDN's first-byte latency and a fresh ramp-up)
+    /// stream through this instead of chunk by chunk.
+    typealias SequentialFetch = @Sendable (Int64) async throws -> AsyncThrowingStream<Data, Error>
+
     /// Size of the head chunk that `SourceManager.prewarmCloudSong` fetches
     /// for the next-up song. Marker JSON 描述 partial 里哪些 ranges 已 prewarm。
     ///
@@ -110,7 +116,8 @@ enum CloudPlaybackSource {
         persistOnComplete: Bool = true,
         cacheRelativePath: String? = nil,
         prefetchAhead: Int = Self.prefetchAhead,
-        allowsTrailingFill: Bool = true
+        allowsTrailingFill: Bool = true,
+        sequentialFetch: SequentialFetch? = nil
     ) -> InputSource? {
         let path = song.filePath
         let connectorFetch: @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data = { off, len, priority in
@@ -133,7 +140,8 @@ enum CloudPlaybackSource {
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
             allowsTrailingFill: allowsTrailingFill,
-            connectorFetch: connectorFetch
+            connectorFetch: connectorFetch,
+            sequentialFetch: sequentialFetch
         )
     }
 
@@ -185,7 +193,8 @@ enum CloudPlaybackSource {
         cacheRelativePath: String?,
         prefetchAhead: Int,
         allowsTrailingFill: Bool,
-        connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
+        connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data,
+        sequentialFetch: SequentialFetch? = nil
     ) -> InputSource? {
         guard isCurrentStreamEpoch(sourceID: sourceID, epoch: streamEpoch) else {
             return nil
@@ -262,7 +271,8 @@ enum CloudPlaybackSource {
                     cacheRelativePath: cacheRelativePath,
                     prefetchAhead: prefetchAhead,
                     allowsTrailingFill: allowsTrailingFill,
-                    connectorFetch: connectorFetch
+                    connectorFetch: connectorFetch,
+                    sequentialFetch: sequentialFetch
                 )
             }
         ) else { return nil }
@@ -1030,6 +1040,17 @@ private final class State: @unchecked Sendable {
     private var cachedRanges: [Range<Int64>] = []
     /// Stored so background prefetch can run without an active SFB call.
     private let connectorFetch: @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
+    /// One sustained read from the playhead to the end of the file, used in
+    /// place of per-chunk range requests where those are each slow to start.
+    private let sequentialFetch: CloudPlaybackSource.SequentialFetch?
+    private var sequentialFillTask: Task<Void, Never>?
+    private var sequentialFillID: UUID?
+    private var sequentialFillStart: Int64 = 0
+    private var sequentialFillCursor: Int64 = 0
+    private var sequentialFillActive = false
+    private var sequentialFillFailures = 0
+    /// Decoder reads currently blocked on the sequential fill.
+    private var sequentialFillWaiters = 0
     /// Number of future chunks to fetch in the background after a served read.
     /// OneDrive keeps a single serialized TCP Range connection, so it uses 0
     /// to keep that connection reserved for foreground decoder reads.
@@ -1119,7 +1140,8 @@ private final class State: @unchecked Sendable {
         cacheRelativePath: String? = nil,
         prefetchAhead: Int = CloudPlaybackSource.prefetchAhead,
         allowsTrailingFill: Bool = true,
-        connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data
+        connectorFetch: @escaping @Sendable (Int64, Int64, RangeFetchPriority) async throws -> Data,
+        sequentialFetch: CloudPlaybackSource.SequentialFetch? = nil
     ) {
         self.label = label
         self.sourceID = sourceID
@@ -1134,6 +1156,7 @@ private final class State: @unchecked Sendable {
         self.prefetchAhead = max(0, prefetchAhead)
         self.allowsTrailingFill = allowsTrailingFill
         self.connectorFetch = connectorFetch
+        self.sequentialFetch = sequentialFetch
         // A seed whose tail starts exactly where its head ends (a file only a
         // little longer than the head) arrives as two adjacent ranges. Merge
         // them like `mergeRange` does for fetched bytes, so a read across the
@@ -1190,6 +1213,17 @@ private final class State: @unchecked Sendable {
             cacheHitBytes += cached.count
             lock.unlock()
             served = cached
+        } else if let sequential = readThroughSequentialFill(
+            offset: offset,
+            endOffset: endOffset,
+            errorOut: errorOut
+        ) {
+            switch sequential {
+            case .served(let data):
+                served = data
+            case .failed:
+                return nil
+            }
         } else {
             // Chunk-align fetch, but skip already-cached prefix within
             // [chunkAlign, offset). 之前 prewarm head 256KB + chunk size 1MB
@@ -1601,7 +1635,9 @@ private final class State: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard !closed else { return 0 }
-        return foregroundFetchTasks.count + prefetchInFlight.count
+        // A running sequential fill spans the whole song; only reads actually
+        // waiting on it count as playback demand.
+        return foregroundFetchTasks.count + prefetchInFlight.count + sequentialFillWaiters
     }
 
     private func closeAndCancelForegroundFetches() -> [Task<Void, Never>] {
@@ -1610,11 +1646,236 @@ private final class State: @unchecked Sendable {
         fetchDisabled = true
         let tasks = Array(foregroundFetchTasks.values)
             + Array(prefetchTasks.values)
+            + [sequentialFillTask].compactMap { $0 }
         foregroundFetchTasks.removeAll()
         prefetchTasks.removeAll()
         prefetchInFlight.removeAll()
+        sequentialFillTask = nil
+        sequentialFillID = nil
+        sequentialFillActive = false
         lock.unlock()
         return tasks
+    }
+
+    // MARK: Sequential fill
+
+    private enum SequentialRead {
+        case served(Data)
+        case failed
+    }
+
+    /// A fill this close ahead of a read reaches it sooner than a new request
+    /// would.
+    private static let sequentialFillReachBytes: Int64 = 4 * 1_024 * 1_024
+    /// Time a read waits for the fill to deliver before the session falls
+    /// back to range requests.
+    private static let sequentialFillStallSeconds = 20
+    private static let maximumSequentialFillFailures = 3
+
+    /// Serves a cache miss from the sequential fill, starting or moving the
+    /// fill as needed. nil means "use a range request instead": the source
+    /// has no sequential read, the fill keeps failing, or the read is a
+    /// one-off probe near the end of the file (tags) that the running fill
+    /// is not about to reach and must not drag away from the playhead.
+    private func readThroughSequentialFill(
+        offset: Int64,
+        endOffset: Int64,
+        errorOut: AutoreleasingUnsafeMutablePointer<NSError?>?
+    ) -> SequentialRead? {
+        guard sequentialFetch != nil else { return nil }
+        let isTagProbeZone = offset >= max(0, totalLength - CloudPlaybackSource.chunkSize)
+        func fillWillServe() -> Bool {
+            isTagProbeZone ? sequentialFillWillReach(offset) : ensureSequentialFill(covering: offset)
+        }
+        guard fillWillServe() else { return nil }
+        lock.lock()
+        sequentialFillWaiters += 1
+        lock.unlock()
+        defer {
+            lock.lock()
+            sequentialFillWaiters -= 1
+            lock.unlock()
+        }
+        let waitStart = Date()
+        let deadline = DispatchTime.now() + .seconds(Self.sequentialFillStallSeconds)
+        while true {
+            guard !isClosed(), CloudPlaybackSource.isCurrentStreamEpoch(
+                sourceID: sourceID, epoch: streamEpoch
+            ) else {
+                errorOut?.pointee = NSError(domain: NSPOSIXErrorDomain, code: Int(ECANCELED))
+                return .failed
+            }
+            if let cached = readFromCacheIfAvailable(offset: offset, endOffset: endOffset) {
+                let elapsed = Date().timeIntervalSince(waitStart)
+                if elapsed > 0.5 {
+                    plog(String(format: "⏳ Cloud stream '%@' waited %.0fms for sequential fill at %lld",
+                                label, elapsed * 1000, offset))
+                }
+                cacheHitCountIncrement(by: cached.count)
+                return .served(cached)
+            }
+            // The fill may have stopped short (it reached bytes already cached
+            // further on, or failed); start another one here.
+            guard fillWillServe() else { return nil }
+            if DispatchTime.now() >= deadline {
+                plog("⚠️ Cloud stream '\(label)' sequential fill stalled at \(offset); falling back to range requests")
+                noteSequentialFillFailure(cancelRunning: true)
+                return nil
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+    }
+
+    private func sequentialFillWillReach(_ offset: Int64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !closed
+            && sequentialFillActive
+            && offset >= sequentialFillStart
+            && offset <= sequentialFillCursor + Self.sequentialFillReachBytes
+    }
+
+    /// Keeps a sequential fill running that will reach `offset` soon, moving
+    /// it there when the read jumped (a seek). false: sequential reads are
+    /// unavailable for this session.
+    private func ensureSequentialFill(covering offset: Int64) -> Bool {
+        lock.lock()
+        guard !closed,
+              sequentialFetch != nil,
+              sequentialFillFailures < Self.maximumSequentialFillFailures else {
+            lock.unlock()
+            return false
+        }
+        if sequentialFillActive,
+           offset >= sequentialFillStart,
+           offset <= sequentialFillCursor + Self.sequentialFillReachBytes {
+            lock.unlock()
+            return true
+        }
+        let previous = sequentialFillTask
+        let id = UUID()
+        sequentialFillID = id
+        sequentialFillStart = offset
+        sequentialFillCursor = offset
+        sequentialFillActive = true
+        let startGate = StreamingTaskStartGate()
+        let task = Task { [weak self] in
+            startGate.wait()
+            await self?.runSequentialFill(id: id, from: offset)
+        }
+        sequentialFillTask = task
+        lock.unlock()
+        previous?.cancel()
+        startGate.open()
+        return true
+    }
+
+    private func runSequentialFill(id: UUID, from start: Int64) async {
+        guard let fetch = sequentialFetch else { return }
+        let startedAt = Date()
+        var cursor = start
+        var pending = Data()
+        var finishedCleanly = false
+        do {
+            let stream = try await fetch(start)
+            for try await chunk in stream {
+                try Task.checkCancellation()
+                guard isCurrentSequentialFill(id) else { return }
+                pending.append(chunk)
+                // Small writes keep a waiting decoder fed; larger ones once it
+                // is ahead.
+                guard pending.count >= 256 * 1_024 || sequentialFillHasWaiters() else { continue }
+                let reachedCachedBytes = flushSequentialFill(id: id, cursor: &cursor, pending: &pending)
+                if reachedCachedBytes || cursor >= totalLength {
+                    finishedCleanly = true
+                    break
+                }
+            }
+            // Cancellation (track change, seek rebuild) ends the stream
+            // quietly; this fill no longer owns the session then.
+            guard isCurrentSequentialFill(id), !Task.isCancelled else {
+                finishSequentialFill(id: id)
+                return
+            }
+            if !finishedCleanly {
+                _ = flushSequentialFill(id: id, cursor: &cursor, pending: &pending)
+                finishedCleanly = cursor >= totalLength
+            }
+        } catch {
+            guard !(error is CancellationError), !Task.isCancelled, isCurrentSequentialFill(id) else {
+                finishSequentialFill(id: id)
+                return
+            }
+            // Bytes that arrived before the failure are still good.
+            _ = flushSequentialFill(id: id, cursor: &cursor, pending: &pending)
+            plog("⚠️ Cloud stream '\(label)' sequential fill failed at \(cursor): \(error.localizedDescription)")
+            noteSequentialFillFailure(cancelRunning: false)
+            return
+        }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let written = cursor - start
+        plog(String(format: "☁️ Cloud stream '%@' sequential fill %lld..%lld %lldKB in %.1fs (%.0fKB/s)%@",
+                    label, start, cursor, written / 1024, elapsed,
+                    elapsed > 0 ? Double(written) / 1024 / elapsed : 0,
+                    finishedCleanly ? "" : " stopped"))
+        finishSequentialFill(id: id)
+    }
+
+    private func finishSequentialFill(id: UUID) {
+        lock.lock()
+        if sequentialFillID == id {
+            sequentialFillActive = false
+            sequentialFillTask = nil
+        }
+        lock.unlock()
+    }
+
+    /// Writes buffered fill bytes at `cursor`, stopping where already cached
+    /// bytes begin. Returns true when it reached such bytes (the fill is done).
+    private func flushSequentialFill(id: UUID, cursor: inout Int64, pending: inout Data) -> Bool {
+        guard !pending.isEmpty else { return false }
+        lock.lock()
+        let nextCached = cachedRanges.first { $0.lowerBound > cursor }?.lowerBound
+        let alreadyCovered = cachedRanges.contains { $0.lowerBound <= cursor && $0.upperBound > cursor }
+        lock.unlock()
+        var data = pending
+        var reachedCached = alreadyCovered
+        if let nextCached, cursor + Int64(data.count) >= nextCached {
+            data = data.prefix(Int(nextCached - cursor))
+            reachedCached = true
+        }
+        if !alreadyCovered, !data.isEmpty {
+            writeToCache(offset: cursor, data: Data(data))
+            cursor += Int64(data.count)
+            lock.lock()
+            if sequentialFillID == id { sequentialFillCursor = cursor }
+            lock.unlock()
+        }
+        pending.removeAll(keepingCapacity: true)
+        return reachedCached
+    }
+
+    private func isCurrentSequentialFill(_ id: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !closed && sequentialFillID == id
+    }
+
+    private func sequentialFillHasWaiters() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return sequentialFillWaiters > 0
+    }
+
+    private func noteSequentialFillFailure(cancelRunning: Bool) {
+        lock.lock()
+        sequentialFillFailures += 1
+        sequentialFillActive = false
+        sequentialFillID = nil
+        let running = cancelRunning ? sequentialFillTask : nil
+        sequentialFillTask = nil
+        lock.unlock()
+        running?.cancel()
     }
 
     fileprivate func disablePersistence() {
@@ -2035,5 +2296,160 @@ private final class State: @unchecked Sendable {
         rest.append(combined)
         rest.sort { $0.lowerBound < $1.lowerBound }
         cachedRanges = rest
+    }
+}
+
+/// One GET from a byte offset to the end of a file, handed over as it
+/// arrives. Sequential fills use it where separate range requests are each
+/// slow to start but a sustained transfer is fast.
+final class ProgressiveHTTPByteStream: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    struct HTTPStatusError: Error, Equatable {
+        let statusCode: Int
+    }
+
+    private let offset: Int64
+    private let lock = NSLock()
+    private var session: URLSession?
+    private var task: URLSessionDataTask?
+    private var responseContinuation: CheckedContinuation<Void, Error>?
+    private var dataContinuation: AsyncThrowingStream<Data, Error>.Continuation?
+    private var finishedError: Error?
+    private var isFinished = false
+
+    private init(offset: Int64) {
+        self.offset = offset
+    }
+
+    /// Returns once the server has answered with the requested bytes (206
+    /// from `offset`, or the whole file from 0); throws `HTTPStatusError`
+    /// for any other status so the caller can refresh an expired link.
+    static func open(url: URL, offset: Int64, userAgent: String?) async throws -> AsyncThrowingStream<Data, Error> {
+        try await ProgressiveHTTPByteStream(offset: offset).start(url: url, userAgent: userAgent)
+    }
+
+    private func start(url: URL, userAgent: String?) async throws -> AsyncThrowingStream<Data, Error> {
+        var request = URLRequest(url: url)
+        request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        if let userAgent {
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
+        let configuration = URLSessionConfiguration.default
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60 * 60
+        let stream = AsyncThrowingStream<Data, Error> { continuation in
+            continuation.onTermination = { [weak self] _ in self?.cancel() }
+            self.storeDataContinuation(continuation)
+        }
+        // The session keeps its delegate until invalidated; completion and
+        // cancellation both invalidate it.
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if storeStart(session: session, task: task, responseContinuation: continuation) {
+                    task.resume()
+                }
+            }
+        } onCancel: {
+            self.cancel()
+        }
+        return stream
+    }
+
+    private func storeDataContinuation(_ continuation: AsyncThrowingStream<Data, Error>.Continuation) {
+        lock.lock()
+        dataContinuation = continuation
+        lock.unlock()
+    }
+
+    private func storeStart(
+        session: URLSession,
+        task: URLSessionDataTask,
+        responseContinuation: CheckedContinuation<Void, Error>
+    ) -> Bool {
+        lock.lock()
+        guard !isFinished else {
+            // Cancelled before the request went out.
+            let error = finishedError ?? CancellationError()
+            lock.unlock()
+            responseContinuation.resume(throwing: error)
+            session.invalidateAndCancel()
+            return false
+        }
+        self.session = session
+        self.task = task
+        self.responseContinuation = responseContinuation
+        lock.unlock()
+        return true
+    }
+
+    func cancel() {
+        finish(with: CancellationError())
+    }
+
+    private func finish(with error: Error?) {
+        lock.lock()
+        isFinished = true
+        if finishedError == nil { finishedError = error }
+        let response = responseContinuation
+        let data = dataContinuation
+        let task = self.task
+        let session = self.session
+        responseContinuation = nil
+        dataContinuation = nil
+        self.task = nil
+        self.session = nil
+        lock.unlock()
+        if let error {
+            response?.resume(throwing: error)
+            data?.finish(throwing: error)
+        } else {
+            response?.resume(throwing: URLError(.zeroByteResource))
+            data?.finish()
+        }
+        task?.cancel()
+        session?.invalidateAndCancel()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let http = response as? HTTPURLResponse else {
+            completionHandler(.cancel)
+            finish(with: URLError(.badServerResponse))
+            return
+        }
+        let range = http.value(forHTTPHeaderField: "Content-Range")?.lowercased() ?? ""
+        let answersRequest = (http.statusCode == 206 && range.hasPrefix("bytes \(offset)-"))
+            || (http.statusCode == 200 && offset == 0)
+        guard answersRequest else {
+            completionHandler(.cancel)
+            finish(with: (200...299).contains(http.statusCode)
+                ? SpeculativeRangeReadError.rangeUnsupported
+                : HTTPStatusError(statusCode: http.statusCode))
+            return
+        }
+        lock.lock()
+        let continuation = responseContinuation
+        responseContinuation = nil
+        lock.unlock()
+        continuation?.resume()
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        lock.lock()
+        let continuation = dataContinuation
+        lock.unlock()
+        continuation?.yield(data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        finish(with: error)
     }
 }

@@ -785,8 +785,6 @@ public enum RangeStreamingPrefetchPolicy {
         case connectorSeed
         /// Seed head + tail from the plain HTTP URL playback will use.
         case directSeed
-        /// Resolve the playback link only; no audio bytes move.
-        case linkOnly
         case completeFile
     }
 
@@ -795,9 +793,9 @@ public enum RangeStreamingPrefetchPolicy {
     /// Synology too: queue seeds run one bounded request at a time (see
     /// `SpeculativeRangeRead`), which neither overloads DSM nor turns into a
     /// whole-file download behind a proxy that ignores `Range`. OneDrive
-    /// stalls on concurrent ranged reads, so it only resolves the next link.
-    /// FTP ranged reads keep their control connection open until the session
-    /// ends, so FTP stays demand-driven.
+    /// seeds use its range connection, which playback leaves free (it streams
+    /// one continuous transfer). FTP ranged reads keep their control
+    /// connection open until the session ends, so FTP stays demand-driven.
     public static func upcomingPrefetchMode(
         sourceType: MusicSourceType,
         transport: UpcomingPlaybackTransport,
@@ -812,15 +810,13 @@ public enum RangeStreamingPrefetchPolicy {
         default:
             break
         }
-        let isOneDrive = sourceType == .oneDrive
         if prefersCompleteFile, !rangeSeedOnly,
            UpcomingPlaybackPrefetchPolicy.allowsCompleteFile(rank: rank, kind: .medley) {
             return .completeFile
         }
         switch transport {
         case .connectorRange:
-            guard hasKnownFileSize else { return .disabled }
-            return isOneDrive ? .linkOnly : .connectorSeed
+            return hasKnownFileSize ? .connectorSeed : .disabled
         case .directHTTPRange:
             return hasKnownFileSize ? .directSeed : .disabled
         case .completeFile:
@@ -828,7 +824,7 @@ public enum RangeStreamingPrefetchPolicy {
                UpcomingPlaybackPrefetchPolicy.allowsCompleteFile(rank: rank, kind: .original) {
                 return .completeFile
             }
-            return isOneDrive ? .linkOnly : .disabled
+            return .disabled
         }
     }
 

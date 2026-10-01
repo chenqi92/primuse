@@ -904,6 +904,165 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: cacheURL), bytes)
     }
 
+    /// A source whose separate range requests are each slow to start
+    /// (OneDrive) plays through one continuous transfer: reading the song
+    /// opens it once and makes no range requests, and a tag probe at the end
+    /// of the file is a one-off range read that leaves the transfer alone.
+    func testSequentialFillServesPlaybackFromOneContinuousTransfer() async throws {
+        let payload = Data((0..<(5 * 1_048_576 + 4_321)).map { UInt8(truncatingIfNeeded: $0 &* 13 &+ 5) })
+        let fixture = try makeSequentialFixture(payload: payload, failure: .never)
+        defer { fixture.cleanup() }
+
+        let tail = await Self.readOffMain(fixture.input, byteCount: 128, offset: payload.count - 128)
+        XCTAssertEqual(tail.data, payload.subdata(in: (payload.count - 128)..<payload.count))
+        try await Self.readSequentially(fixture.input, payload: payload, upTo: payload.count - 128)
+
+        XCTAssertEqual(fixture.opens.offsets, [0])
+        let requests = await fixture.connector.requests()
+        XCTAssertFalse(requests.isEmpty, "the tag probe is a range read")
+        XCTAssertTrue(requests.allSatisfy { $0.offset >= Int64(payload.count) - CloudPlaybackSource.chunkSize })
+    }
+
+    /// A dropped transfer resumes from where it stopped instead of failing
+    /// the song.
+    func testSequentialFillReopensAfterADroppedTransfer() async throws {
+        let payload = Data((0..<(4 * 1_048_576)).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ 3) })
+        let fixture = try makeSequentialFixture(payload: payload, failure: .firstOpenAfter(1_048_576))
+        defer { fixture.cleanup() }
+
+        try await Self.readSequentially(fixture.input, payload: payload, upTo: payload.count - 1_048_576)
+
+        let offsets = fixture.opens.offsets
+        XCTAssertEqual(offsets.count, 2)
+        XCTAssertEqual(offsets.first, 0)
+        XCTAssertEqual(offsets.last.map { $0 >= 1_048_576 }, true)
+        let requests = await fixture.connector.requests()
+        XCTAssertTrue(requests.isEmpty)
+    }
+
+    /// A transfer that keeps failing hands playback back to range requests.
+    func testSequentialFillFallsBackToRangeRequestsWhenTheTransferKeepsFailing() async throws {
+        let payload = Data((0..<(3 * 1_048_576)).map { UInt8(truncatingIfNeeded: $0 &* 11 &+ 1) })
+        let fixture = try makeSequentialFixture(payload: payload, failure: .always)
+        defer { fixture.cleanup() }
+
+        try await Self.readSequentially(fixture.input, payload: payload, upTo: payload.count - 1_048_576)
+
+        let requests = await fixture.connector.requests()
+        XCTAssertFalse(requests.isEmpty)
+    }
+
+    private enum SequentialFixtureFailure: Sendable {
+        case never
+        case firstOpenAfter(Int)
+        case always
+    }
+
+    private struct SequentialFixture {
+        let input: CloudInputSourceObjC
+        let connector: FixtureRangeConnector
+        let opens: SequentialOpenRecorder
+        let cleanup: () -> Void
+    }
+
+    private func makeSequentialFixture(
+        payload: Data,
+        failure: SequentialFixtureFailure
+    ) throws -> SequentialFixture {
+        let sourceID = "sequential-fill-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: payload)
+        let opens = SequentialOpenRecorder()
+        let song = Song(
+            id: UUID().uuidString,
+            title: "Sequential Fixture",
+            fileFormat: .flac,
+            filePath: "/fixtures/song.flac",
+            sourceID: sourceID
+        )
+        let source = CloudPlaybackSource.makeInputSource(
+            song: song,
+            totalLength: Int64(payload.count),
+            connector: connector,
+            cacheURL: directory.appendingPathComponent("song.flac"),
+            streamEpoch: CloudPlaybackSource.streamEpochTicket(sourceID: sourceID),
+            persistOnComplete: true,
+            prefetchAhead: 0,
+            allowsTrailingFill: false,
+            sequentialFetch: { offset in
+                let openIndex = opens.record(offset)
+                let failAfter: Int?
+                switch failure {
+                case .never: failAfter = nil
+                case .firstOpenAfter(let bytes): failAfter = openIndex == 0 ? bytes : nil
+                case .always: failAfter = 0
+                }
+                return Self.sequentialStream(payload: payload, from: Int(offset), failAfter: failAfter)
+            }
+        )
+        let input = try XCTUnwrap(source as? CloudInputSourceObjC)
+        return SequentialFixture(input: input, connector: connector, opens: opens) {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    private static func sequentialStream(
+        payload: Data,
+        from start: Int,
+        failAfter: Int?
+    ) -> AsyncThrowingStream<Data, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                var position = start
+                while position < payload.count {
+                    if Task.isCancelled {
+                        continuation.finish(throwing: CancellationError())
+                        return
+                    }
+                    if let failAfter, position - start >= failAfter {
+                        continuation.finish(throwing: URLError(.networkConnectionLost))
+                        return
+                    }
+                    let end = min(position + 65_536, payload.count)
+                    continuation.yield(payload.subdata(in: position..<end))
+                    position = end
+                    try? await Task.sleep(for: .milliseconds(1))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private static func readSequentially(
+        _ input: CloudInputSourceObjC,
+        payload: Data,
+        upTo limit: Int
+    ) async throws {
+        var offset = 0
+        while offset < limit {
+            let result = await readOffMain(input, byteCount: min(200_000, limit - offset), offset: offset)
+            XCTAssertTrue(result.success, result.error ?? "read failed at \(offset)")
+            guard result.success, result.bytesRead > 0 else { return }
+            XCTAssertEqual(result.data, payload.subdata(in: offset..<(offset + result.bytesRead)))
+            offset += result.bytesRead
+        }
+    }
+
+    private static func readOffMain(
+        _ input: CloudInputSourceObjC,
+        byteCount: Int,
+        offset: Int
+    ) async -> ReadResult {
+        let box = InputSourceBox(input)
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: Self.read(box.input, byteCount: byteCount, offset: offset))
+            }
+        }
+    }
+
     private static func decodedSeconds(from input: CloudInputSourceObjC) async throws -> Double {
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
         var frames = 0
@@ -1873,6 +2032,25 @@ private final class LockedReadResult: @unchecked Sendable {
         lock.lock()
         stored = value
         lock.unlock()
+    }
+}
+
+private final class SequentialOpenRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [Int64] = []
+
+    /// Records an open and returns its index.
+    func record(_ offset: Int64) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append(offset)
+        return recorded.count - 1
+    }
+
+    var offsets: [Int64] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
     }
 }
 

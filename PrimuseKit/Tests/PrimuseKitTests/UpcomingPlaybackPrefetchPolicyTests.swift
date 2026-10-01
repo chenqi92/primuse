@@ -128,7 +128,7 @@ struct UpcomingPlaybackPrefetchPolicyTests {
         #expect(Policy.upcomingPrefetchMode(
             sourceType: .oneDrive, transport: .connectorRange, hasKnownFileSize: true,
             rank: 0, prefersCompleteFile: false, rangeSeedOnly: false
-        ) == .linkOnly)
+        ) == .connectorSeed)
         #expect(Policy.upcomingPrefetchMode(
             sourceType: .jellyfin, transport: .directHTTPRange, hasKnownFileSize: false,
             rank: 0, prefersCompleteFile: false, rangeSeedOnly: false
@@ -161,6 +161,6 @@ struct UpcomingPlaybackPrefetchPolicyTests {
         #expect(Policy.upcomingPrefetchMode(
             sourceType: .oneDrive, transport: .completeFile, hasKnownFileSize: true,
             rank: 1, prefersCompleteFile: false, rangeSeedOnly: false
-        ) == .linkOnly)
+        ) == .disabled)
     }
 }

@@ -10553,7 +10553,7 @@ final class SourceManager {
                     song: song,
                     minimumHeadBytes: upcomingSeedHeadBytes(for: song, rank: rank)
                 ) else { return }
-            case .linkOnly, .completeFile:
+            case .completeFile:
                 break
             }
 
@@ -10567,12 +10567,6 @@ final class SourceManager {
             switch mode {
             case .disabled:
                 return
-            case .linkOnly:
-                // OneDrive: 只换好下一首的预授权直链, 起播时少一次 Graph 往返。
-                if let oneDrive = conn as? OneDriveSource {
-                    _ = try? await oneDrive.publicDownloadURL(path: song.filePath)
-                    plog("⏩ Prefetch: resolved playback link for '\(song.title)'")
-                }
             case .connectorSeed:
                 let path = song.filePath
                 await seedUpcomingSong(
@@ -11745,6 +11739,28 @@ final class SourceManager {
             return nil
         }
 
+        // OneDrive answers every range request after a long first-byte wait
+        // and a fresh ramp-up (device QA 2026-09-30: 1 MB took 2.4–15 s while
+        // one sustained download of the same file ran at 0.6–2 MB/s). Play it
+        // through one continuous transfer from the playhead instead.
+        var sequentialFetch: CloudPlaybackSource.SequentialFetch?
+        if let oneDrive = conn as? OneDriveSource {
+            let path = song.filePath
+            let userAgent = Self.directDownloadUserAgent
+            sequentialFetch = { offset in
+                let url = try await oneDrive.publicDownloadURL(path: path)
+                do {
+                    return try await ProgressiveHTTPByteStream.open(url: url, offset: offset, userAgent: userAgent)
+                } catch let error as ProgressiveHTTPByteStream.HTTPStatusError
+                    where [401, 403, 410].contains(error.statusCode) {
+                    // The pre-authenticated link expired; fetch a fresh one once.
+                    await oneDrive.invalidateCachedDownloadURL(path: path)
+                    let fresh = try await oneDrive.publicDownloadURL(path: path, forceRefresh: true)
+                    return try await ProgressiveHTTPByteStream.open(url: fresh, offset: offset, userAgent: userAgent)
+                }
+            }
+        }
+
         let inputSource = CloudPlaybackSource.makeInputSource(
             song: song,
             totalLength: song.fileSize,
@@ -11754,7 +11770,8 @@ final class SourceManager {
             persistOnComplete: persistentCacheAllowed,
             cacheRelativePath: cacheRelativePath,
             prefetchAhead: prefetchAhead,
-            allowsTrailingFill: allowsTrailingFill
+            allowsTrailingFill: allowsTrailingFill,
+            sequentialFetch: sequentialFetch
         )
         if inputSource == nil {
             releaseAudioCacheLeaseForPlayback(songID: song.id)
