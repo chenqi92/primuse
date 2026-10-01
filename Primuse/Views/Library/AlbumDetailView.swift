@@ -26,6 +26,7 @@ struct AlbumDetailView: View {
 
     @State private var showNoScraperSourceAlert = false
     @State private var showArtworkEditor = false
+    @State private var showsRestoreFileTagsConfirmation = false
     @State private var serverMediaShareTarget: ServerMediaShareTarget?
     @State private var selection = SongSelectionModel()
 
@@ -36,6 +37,17 @@ struct AlbumDetailView: View {
 
     private var songs: [Song] {
         library.songs(forAlbum: album.id)
+    }
+
+    /// 这张专辑里有手动编辑或刮削改过、不再跟随文件标签的歌。
+    private var hasUserEditedSongs: Bool {
+        songs.contains { $0.userMetadataEditedAt != nil }
+    }
+
+    private func restoreFileTags() {
+        let songIDs = songs.map(\.id)
+        plog("🔁 restore file tags album=\(album.id.prefix(12)) songs=\(songIDs.count)")
+        Task { await backfill.restoreFileTags(songIDs: songIDs) }
     }
 
     #if os(iOS)
@@ -78,6 +90,16 @@ struct AlbumDetailView: View {
             resolve: { library.song(id: $0) }
         )
         .scraperSourceRequiredAlert(isPresented: $showNoScraperSourceAlert)
+        .confirmationDialog(
+            Text("restore_file_tags"),
+            isPresented: $showsRestoreFileTagsConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("restore_file_tags_confirm", role: .destructive, action: restoreFileTags)
+            Button("cancel", role: .cancel) {}
+        } message: {
+            Text("restore_file_tags_message")
+        }
         .sheet(isPresented: $showArtworkEditor) {
             LibraryArtworkEditorSheet(
                 owner: LibraryArtworkOwner(kind: .album, id: album.id),
@@ -158,6 +180,19 @@ struct AlbumDetailView: View {
                     PMToolbarItemLabel("artwork_edit", systemImage: "photo.badge.plus", titled: verticalBarEdge != nil)
                 }
                 .accessibilityLabel(Text("artwork_edit"))
+                // 只在有改过的歌时出现,平时不占工具栏的位置。
+                if hasUserEditedSongs {
+                    Button {
+                        showsRestoreFileTagsConfirmation = true
+                    } label: {
+                        PMToolbarItemLabel(
+                            "restore_file_tags",
+                            systemImage: "arrow.uturn.backward",
+                            titled: verticalBarEdge != nil
+                        )
+                    }
+                    .accessibilityLabel(Text("restore_file_tags"))
+                }
             }
         }
     }
@@ -372,6 +407,10 @@ struct AlbumDetailView: View {
             .init(icon: "photo", title: String(localized: "scrape_parts_cover_only"),
                   enabled: !songs.isEmpty && !scraperService.isScraping) {
                 scrapeAlbum(parts: .cover)
+            },
+            .init(icon: "arrow.uturn.backward", title: String(localized: "restore_file_tags"),
+                  enabled: hasUserEditedSongs) {
+                showsRestoreFileTagsConfirmation = true
             },
         ]
         if let artist = albumArtist {

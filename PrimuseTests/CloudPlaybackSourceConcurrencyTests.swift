@@ -1374,6 +1374,55 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoreFileTagsReplacesScrapedValuesWithFileTags() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceID = "restore-tags-\(UUID().uuidString)"
+        let source = MusicSource(id: sourceID, name: "Restore fixture", type: .pan123)
+        let payload = Self.duplicatedArtistTitleFixture()
+        let localURL = directory.appendingPathComponent("cached.mp3")
+        try payload.write(to: localURL)
+        let connector = CompleteArtworkFixtureConnector(
+            sourceID: sourceID, payloads: ["12345678": payload], localURLs: ["12345678": localURL]
+        )
+        let manager = SourceManager(sourcesProvider: { [source] }, connectorFactory: { _ in connector })
+        let library = MusicLibrary(storageDirectory: directory.appendingPathComponent("library"))
+        await library.whenReady()
+        let song = Song(
+            id: "restore-\(UUID().uuidString)", title: "placeholder",
+            fileFormat: .mp3, filePath: "12345678", sourceID: sourceID, fileSize: Int64(payload.count)
+        )
+        library.addSongs([song], affectedSourceIDs: [sourceID])
+        await library.waitForPendingIndex()
+        let backfill = MetadataBackfillService(
+            library: library, sourceManager: manager, backfillableSourceIDs: { [sourceID] },
+            offlineReadableSourceIDs: { [sourceID] }, sourceFileName: { _ in nil }
+        )
+        defer { backfill.stop() }
+        guard case .completed = await backfill.rereadTags(songID: song.id, expectedSourceID: sourceID) else {
+            return XCTFail("Initial tag read did not complete")
+        }
+        let fileTitle = try XCTUnwrap(library.song(id: song.id)?.title)
+
+        // A scrape changed the title and stamped it as the user's own value.
+        var scraped = try XCTUnwrap(library.song(id: song.id))
+        scraped.title = "Scraped Title"
+        scraped.year = 1999
+        library.replaceSong(SongUserMetadataPolicy.stampingUserEdit(original: song, updated: scraped))
+        guard case .completed = await backfill.rereadTags(songID: song.id, expectedSourceID: sourceID) else {
+            return XCTFail("Tag reread did not complete")
+        }
+        XCTAssertEqual(library.song(id: song.id)?.title, "Scraped Title")
+
+        let result = await backfill.restoreFileTags(songIDs: [song.id])
+        XCTAssertEqual(result.completed, 1)
+        XCTAssertEqual(library.song(id: song.id)?.title, fileTitle)
+        XCTAssertNil(library.song(id: song.id)?.userMetadataEditedAt)
+        await library.waitForPendingIndex()
+        _ = await library.persistNowAndWait()
+    }
+
+    @MainActor
     func testScrapingKeepsCorrectedTitleAcrossLocalAndRemoteReads() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

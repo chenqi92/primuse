@@ -776,6 +776,14 @@ struct SongRowView: View {
             .disabled(backfill.isRereadingTags(songID: song.id))
         }
 
+        // 手动编辑或刮削改过的歌才有可恢复的东西。
+        if song.userMetadataEditedAt != nil {
+            Button(action: restoreFileTags) {
+                Label(String(localized: "restore_file_tags"), systemImage: "arrow.uturn.backward")
+            }
+            .disabled(backfill.isRereadingTags(songID: song.id))
+        }
+
         if showsDetailsStatus, detailsState != .reading {
             Button {
                 checkSource()
@@ -816,6 +824,20 @@ struct SongRowView: View {
                     reason
                 )
             }
+        }
+    }
+
+    private func restoreFileTags() {
+        let songID = song.id
+        Task {
+            let result = await backfill.restoreFileTags(songIDs: [songID])
+            CachedArtworkView.invalidateCache(for: songID)
+            if let updated = library.song(id: songID) {
+                player.syncSongMetadata(updated)
+            }
+            // 服务端曲库源与 CUE 分轨没有能单独重读的文件:标记已清掉,下次同步跟随源里的值。
+            guard result.total > 0, result.failed > 0 else { return }
+            tagReadMessage = String(localized: "reread_song_tags_failed")
         }
     }
 

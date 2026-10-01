@@ -4615,3 +4615,7 @@
 "plex_tv_signin_waiting" = "Waiting for authorization…";
 "plex_tv_signin_choose" = "Choose a server to add.";
 "plex_tv_signin_refresh" = "Get a New Code";
+
+"restore_file_tags" = "Restore File Tags";
+"restore_file_tags_confirm" = "Restore";
+"restore_file_tags_message" = "Titles, artists, albums, years and other tags you edited or scraped for this album go back to the tags in the music files. Songs from server sources are restored at the next sync.";

@@ -4853,3 +4853,7 @@
 "plex_tv_signin_waiting" = "認証を待っています…";
 "plex_tv_signin_choose" = "追加するサーバを選んでください。";
 "plex_tv_signin_refresh" = "新しいコードを取得";
+
+"restore_file_tags" = "ファイルのタグに戻す";
+"restore_file_tags_confirm" = "戻す";
+"restore_file_tags_message" = "このアルバムで手動編集やスクレイピングで変更したタイトル・アーティスト・アルバム・年などを、音楽ファイルのタグに戻します。サーバーソースの曲は次回の同期で戻ります。";

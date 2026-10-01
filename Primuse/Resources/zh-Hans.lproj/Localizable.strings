@@ -4945,3 +4945,7 @@
 "plex_tv_signin_waiting" = "正在等待授权…";
 "plex_tv_signin_choose" = "选择要添加的服务器。";
 "plex_tv_signin_refresh" = "换一个代码";
+
+"restore_file_tags" = "恢复文件标签";
+"restore_file_tags_confirm" = "恢复";
+"restore_file_tags_message" = "这张专辑里手动编辑和刮削改过的标题、艺术家、专辑、年份等会换回音乐文件里的标签。服务器音乐源的歌在下次同步时恢复。";

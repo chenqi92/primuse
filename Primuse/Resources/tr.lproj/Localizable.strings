@@ -4758,3 +4758,7 @@
 "plex_tv_signin_waiting" = "Yetkilendirme bekleniyor…";
 "plex_tv_signin_choose" = "Eklenecek sunucuyu seç.";
 "plex_tv_signin_refresh" = "Yeni Kod Al";
+
+"restore_file_tags" = "Dosya etiketlerini geri yükle";
+"restore_file_tags_confirm" = "Geri yükle";
+"restore_file_tags_message" = "Bu albüm için düzenlediğin veya çektiğin başlık, sanatçı, albüm, yıl ve diğer etiketler müzik dosyalarındaki etiketlere döner. Sunucu kaynaklarındaki şarkılar bir sonraki eşitlemede geri yüklenir.";

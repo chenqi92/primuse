@@ -4829,3 +4829,7 @@
 "plex_tv_signin_waiting" = "正在等待授權…";
 "plex_tv_signin_choose" = "選擇要加入的伺服器。";
 "plex_tv_signin_refresh" = "換一個代碼";
+
+"restore_file_tags" = "恢復檔案標籤";
+"restore_file_tags_confirm" = "恢復";
+"restore_file_tags_message" = "這張專輯裡手動編輯和刮削改過的標題、藝人、專輯、年份等會換回音樂檔案裡的標籤。伺服器音樂來源的歌曲在下次同步時恢復。";

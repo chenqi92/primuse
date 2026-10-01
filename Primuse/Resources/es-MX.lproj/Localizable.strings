@@ -4758,3 +4758,7 @@
 "plex_tv_signin_waiting" = "Esperando autorización…";
 "plex_tv_signin_choose" = "Elige un servidor para agregar.";
 "plex_tv_signin_refresh" = "Obtener un código nuevo";
+
+"restore_file_tags" = "Restaurar etiquetas del archivo";
+"restore_file_tags_confirm" = "Restaurar";
+"restore_file_tags_message" = "Los títulos, artistas, álbumes, años y otras etiquetas que editaste u obtuviste para este álbum vuelven a las etiquetas de los archivos de música. Las canciones de fuentes de servidor se restauran en la próxima sincronización.";

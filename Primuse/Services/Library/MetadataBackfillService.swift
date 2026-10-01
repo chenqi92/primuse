@@ -3314,6 +3314,30 @@ final class MetadataBackfillService {
         }
     }
 
+    /// 恢复文件标签:清掉这些歌的「用户编辑」标记,再按文件重新读一遍 —— 手动编辑与刮削
+    /// 改过的标题、艺术家、专辑、年份等换回文件里的标签。服务端曲库源和 CUE 分轨没有能单独
+    /// 重读的文件,清掉标记后下一次同步 / 扫描跟随源里的值。返回实际重读的结果。
+    func restoreFileTags(songIDs: [String]) async -> MetadataTagRereadProgress {
+        let songs = songIDs.compactMap { library.song(id: $0) }
+        let cleared = songs.filter { $0.userMetadataEditedAt != nil }.map { song -> Song in
+            var song = song
+            song.userMetadataEditedAt = nil
+            return song
+        }
+        if !cleared.isEmpty { library.replaceSongs(cleared) }
+        let rereadable = Dictionary(grouping: songs.filter(canRereadTags(for:)), by: \.sourceID)
+        plog("🔁 restore file tags songs=\(songs.count) cleared=\(cleared.count) rereading=\(rereadable.values.reduce(0) { $0 + $1.count })")
+        var result = MetadataTagRereadProgress(total: rereadable.values.reduce(0) { $0 + $1.count })
+        for (sourceID, group) in rereadable {
+            let partial = await rereadTags(songIDs: group.map(\.id), expectedSourceID: sourceID) { _ in }
+            result.completed += partial.completed
+            result.failed += partial.failed
+            result.skipped += partial.skipped
+            if partial.isCancelled { result.isCancelled = true }
+        }
+        return result
+    }
+
     func rereadTags(
         songIDs: [String],
         expectedSourceID: String,

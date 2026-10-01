@@ -4852,3 +4852,7 @@
 "plex_tv_signin_waiting" = "인증을 기다리는 중…";
 "plex_tv_signin_choose" = "추가할 서버를 선택하세요.";
 "plex_tv_signin_refresh" = "새 코드 받기";
+
+"restore_file_tags" = "파일 태그로 되돌리기";
+"restore_file_tags_confirm" = "되돌리기";
+"restore_file_tags_message" = "이 앨범에서 직접 편집하거나 스크래핑으로 바꾼 제목, 아티스트, 앨범, 연도 등이 음악 파일의 태그로 되돌아갑니다. 서버 소스의 곡은 다음 동기화 때 복원됩니다.";
