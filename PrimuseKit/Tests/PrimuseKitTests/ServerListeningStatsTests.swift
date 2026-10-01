@@ -4,10 +4,12 @@ import Testing
 
 struct ServerListeningStatsTests {
     @Test func capabilityMatrixOnlyEnablesSourcesWithReliableReadEndpoints() {
-        for type in [MusicSourceType.subsonic, .navidrome, .airsonic, .gonic, .jellyfin, .emby] {
+        for type in [MusicSourceType.airsonic, .gonic, .jellyfin, .emby] {
             #expect(type.serverListeningStatsCapability == .aggregate)
         }
-        #expect(MusicSourceType.plex.serverListeningStatsCapability == .eventHistoryWithAggregateFallback)
+        for type in [MusicSourceType.subsonic, .navidrome, .plex] {
+            #expect(type.serverListeningStatsCapability == .eventHistoryWithAggregateFallback)
+        }
 
         for type in MusicSourceType.allCases where ![
             .subsonic, .navidrome, .airsonic, .gonic, .jellyfin, .emby, .plex,
@@ -39,8 +41,47 @@ struct ServerListeningStatsTests {
         #expect(result.activeDays == nil)
         #expect(result.totalListenedSeconds == nil)
         #expect(result.dailyCounts.isEmpty)
+        #expect(result.hourlyCounts.isEmpty)
+        #expect(result.allTimePlayCount == nil)
         #expect(result.topTracks.map(\.title) == ["One", "Two"])
         #expect(result.topArtists.first?.playCount == 5)
+    }
+
+    @Test func navidromeHistoryKeepsLifetimeCountersSeparateAndUsesLocalRecordedHours() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!
+        let now = Date(timeIntervalSince1970: 1_790_812_800) // 2026-10-01 00:00 UTC
+        let payload = ServerListeningStatsPayload(
+            accountFingerprint: "navidrome-user",
+            temporalDetail: .events,
+            events: [
+                .init(id: "1", remoteTrackID: "song", title: "Song", playedAt: now),
+                .init(id: "2", remoteTrackID: "song", title: "Song", playedAt: now),
+                .init(id: "3", remoteTrackID: "song", title: "Song", playedAt: now.addingTimeInterval(-3600)),
+                .init(id: "4", remoteTrackID: "old", title: "Old", playedAt: now.addingTimeInterval(-8 * 86400)),
+                .init(id: "5", remoteTrackID: "future", title: "Future", playedAt: now.addingTimeInterval(3600)),
+            ],
+            allTimePlayCount: 10_000
+        )
+        let result = try #require(ServerListeningStatsPresentationBuilder.build(
+            payload: payload, range: .week, now: now, calendar: calendar
+        ))
+        #expect(result.totalPlays == 3)
+        #expect(result.allTimePlayCount == 10_000)
+        #expect(result.activeDays == 1)
+        #expect(result.dailyCounts.map(\.playCount) == [3])
+        #expect(result.hourlyCounts.count == 24)
+        #expect(result.hourlyCounts[8].playCount == 2)
+        #expect(result.hourlyCounts[7].playCount == 1)
+        #expect(result.hourlyCounts.reduce(0) { $0 + $1.playCount } == 3)
+        #expect(result.totalListenedSeconds == nil)
+    }
+
+    @Test func oldCachedPayloadsStillDecodeWithoutLifetimeCounter() throws {
+        let data = Data(#"{"accountFingerprint":"old-account","temporalDetail":"aggregate","durationAvailability":"unavailable","tracks":[],"events":[]}"#.utf8)
+        let payload = try JSONDecoder().decode(ServerListeningStatsPayload.self, from: data)
+        #expect(payload.isStructurallyValid)
+        #expect(payload.allTimePlayCount == nil)
     }
 
     @Test func eventPayloadFiltersCalendarWeekAndNeverInventsPlexDuration() throws {

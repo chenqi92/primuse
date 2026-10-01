@@ -1,4 +1,5 @@
 import PrimuseKit
+import Charts
 import SwiftUI
 
 struct ServerListeningStatsView: View {
@@ -85,6 +86,13 @@ struct ServerListeningStatsView: View {
                 capabilityBoundarySection(presentation)
                 if presentation.temporalDetail == .events {
                     heatmapSection(presentation)
+                    Section {
+                        hourlyChart(presentation)
+                    } header: {
+                        Text("stats_server_hourly_title")
+                    } footer: {
+                        Text("stats_server_hourly_footer")
+                    }
                 }
                 rankingSection(presentation)
             } else if statsService.isRefreshing {
@@ -150,10 +158,18 @@ struct ServerListeningStatsView: View {
             ) {
                 summaryCell(
                     value: presentation.totalPlays.formatted(),
-                    label: String(localized: "stats_total_plays"),
+                    label: playsLabel(presentation),
                     icon: "play.fill",
                     color: .blue
                 )
+                if let allTimePlayCount = presentation.allTimePlayCount {
+                    summaryCell(
+                        value: allTimePlayCount.formatted(),
+                        label: String(localized: "stats_server_all_time_plays"),
+                        icon: "sum",
+                        color: .indigo
+                    )
+                }
                 summaryCell(
                     value: presentation.uniqueTracks.formatted(),
                     label: String(localized: "stats_unique_songs"),
@@ -217,9 +233,7 @@ struct ServerListeningStatsView: View {
     ) -> some View {
         Section {
             Label(
-                presentation.temporalDetail == .aggregate
-                    ? "stats_server_aggregate_boundary"
-                    : "stats_server_event_boundary",
+                boundaryKey(presentation),
                 systemImage: "info.circle"
             )
             .font(.subheadline)
@@ -270,6 +284,16 @@ struct ServerListeningStatsView: View {
                     macBoundaryCard(presentation)
                     if presentation.temporalDetail == .events {
                         macHeatmapCard(presentation)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("stats_server_hourly_title")
+                                .font(.headline)
+                            hourlyChart(presentation)
+                            Text("stats_server_hourly_footer")
+                                .font(.caption)
+                                .foregroundStyle(PMColor.textMuted)
+                        }
+                        .padding(18)
+                        .macStatsCard()
                     }
                     macRankingCard(presentation)
                 } else if statsService.isRefreshing {
@@ -395,9 +419,12 @@ struct ServerListeningStatsView: View {
     private func macSummaryCells(_ presentation: ServerListeningStatsPresentation) -> some View {
         macSummaryCell(
             presentation.totalPlays.formatted(),
-            label: "stats_total_plays", icon: "play.fill",
+            label: presentation.allTimePlayCount == nil ? "stats_total_plays" : "stats_server_recorded_plays", icon: "play.fill",
             detail: presentation.temporalDetail == .aggregate ? String(localized: "stats_all_time_total") : nil
         )
+        if let allTimePlayCount = presentation.allTimePlayCount {
+            macSummaryCell(allTimePlayCount.formatted(), label: "stats_server_all_time_plays", icon: "sum")
+        }
         macSummaryCell(
             presentation.uniqueTracks.formatted(),
             label: "stats_unique_songs", icon: "music.note"
@@ -450,9 +477,7 @@ struct ServerListeningStatsView: View {
         _ presentation: ServerListeningStatsPresentation
     ) -> some View {
         Label(
-            presentation.temporalDetail == .aggregate
-                ? "stats_server_aggregate_boundary"
-                : "stats_server_event_boundary",
+            boundaryKey(presentation),
             systemImage: "info.circle"
         )
         .font(.system(size: 11))
@@ -594,6 +619,43 @@ struct ServerListeningStatsView: View {
         .accessibilityElement(children: .combine)
     }
     #endif
+
+    private func playsLabel(_ presentation: ServerListeningStatsPresentation) -> String {
+        presentation.allTimePlayCount == nil
+            ? String(localized: "stats_total_plays")
+            : String(localized: "stats_server_recorded_plays")
+    }
+
+    private func boundaryKey(_ presentation: ServerListeningStatsPresentation) -> LocalizedStringKey {
+        if presentation.temporalDetail == .aggregate { return "stats_server_aggregate_boundary" }
+        return presentation.allTimePlayCount == nil
+            ? "stats_server_event_boundary"
+            : "stats_server_navidrome_history_boundary"
+    }
+
+    private func hourlyChart(_ presentation: ServerListeningStatsPresentation) -> some View {
+        Chart(presentation.hourlyCounts) { item in
+            BarMark(
+                x: .value("Hour", item.hour),
+                y: .value(String(localized: "stats_total_plays"), item.playCount)
+            )
+            .foregroundStyle(Color.accentColor.gradient)
+        }
+        .chartXScale(domain: -0.5...23.5)
+        .chartXAxis {
+            AxisMarks(values: [0, 6, 12, 18, 23]) { value in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel {
+                    if let hour = value.as(Int.self) {
+                        Text(String(format: "%02d:00", hour))
+                    }
+                }
+            }
+        }
+        .chartYAxis { AxisMarks(position: .leading) }
+        .frame(height: 190)
+    }
 
     private var rangePicker: some View {
         Picker("stats_range", selection: $range) {

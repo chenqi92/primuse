@@ -4789,3 +4789,10 @@
 
 "lyrics_island_always_on_top" = "Immer im Vordergrund";
 "menu_bar_icon_only_with_lyrics_island" = "Bei sichtbarer Liedtextinsel nur das Menüleistensymbol anzeigen";
+
+// Native server listening history
+"stats_server_recorded_plays" = "Erfasste Wiedergaben";
+"stats_server_all_time_plays" = "Wiedergaben insgesamt";
+"stats_server_hourly_title" = "Wiedergaben nach Tageszeit";
+"stats_server_hourly_footer" = "Nach der vom Server erfassten Stunde gruppiert. Der Zeitpunkt hängt vom Wiedergabeclient ab.";
+"stats_server_navidrome_history_boundary" = "Diagramme und Zeitraumstatistiken verwenden den gespeicherten Navidrome-Verlauf. Ältere Wiedergaben können nur im Gesamtzähler enthalten sein; ein Upgrade kann ihre Zeitpunkte nicht wiederherstellen. Die tatsächliche Hördauer ist nicht verfügbar.";

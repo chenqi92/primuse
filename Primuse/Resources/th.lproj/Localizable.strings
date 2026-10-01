@@ -4695,3 +4695,10 @@
 
 "lyrics_island_always_on_top" = "อยู่ด้านบนเสมอ";
 "menu_bar_icon_only_with_lyrics_island" = "แสดงเฉพาะไอคอนในแถบเมนูเมื่อเกาะเนื้อเพลงปรากฏ";
+
+// Native server listening history
+"stats_server_recorded_plays" = "การเล่นที่บันทึกไว้";
+"stats_server_all_time_plays" = "การเล่นทั้งหมด";
+"stats_server_hourly_title" = "การเล่นตามช่วงเวลาของวัน";
+"stats_server_hourly_footer" = "จัดกลุ่มตามชั่วโมงที่เซิร์ฟเวอร์บันทึก · จำนวนการเล่น เวลาที่บันทึกขึ้นอยู่กับแอปที่ใช้เล่นเพลง";
+"stats_server_navidrome_history_boundary" = "กราฟและยอดรวมตามช่วงเวลาใช้ประวัติการเล่นที่ Navidrome เก็บไว้ การเล่นเก่าอาจมีเพียงจำนวนสะสม การอัปเกรดไม่สามารถสร้างประวัติย้อนหลังได้ และไม่มีข้อมูลระยะเวลาที่ฟังจริง";

@@ -4552,3 +4552,10 @@
 
 "lyrics_island_always_on_top" = "Always on Top";
 "menu_bar_icon_only_with_lyrics_island" = "Show only the menu bar icon when the lyrics island is visible";
+
+// Native server listening history
+"stats_server_recorded_plays" = "Recorded Plays";
+"stats_server_all_time_plays" = "All-time Plays";
+"stats_server_hourly_title" = "Plays by Time of Day";
+"stats_server_hourly_footer" = "Grouped by the hour recorded by the server · plays. Scrobble times depend on the playback client.";
+"stats_server_navidrome_history_boundary" = "Charts and period totals use Navidrome’s retained play history. Older plays may exist only in all-time counters; upgrading cannot reconstruct them. Actual listened duration is unavailable.";

@@ -4789,3 +4789,10 @@
 
 "lyrics_island_always_on_top" = "Toujours au premier plan";
 "menu_bar_icon_only_with_lyrics_island" = "Afficher uniquement l’icône dans la barre des menus lorsque l’îlot des paroles est visible";
+
+// Native server listening history
+"stats_server_recorded_plays" = "Écoutes enregistrées";
+"stats_server_all_time_plays" = "Écoutes cumulées";
+"stats_server_hourly_title" = "Écoutes par heure";
+"stats_server_hourly_footer" = "Regroupées selon l’heure enregistrée par le serveur. L’horodatage dépend du lecteur utilisé.";
+"stats_server_navidrome_history_boundary" = "Les graphiques et statistiques par période utilisent l’historique conservé par Navidrome. Les anciennes écoutes peuvent figurer uniquement dans les compteurs cumulés ; une mise à jour ne peut pas en restituer les dates. La durée d’écoute réelle n’est pas disponible.";

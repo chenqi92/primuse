@@ -4695,3 +4695,10 @@
 
 "lyrics_island_always_on_top" = "دائمًا في المقدمة";
 "menu_bar_icon_only_with_lyrics_island" = "عرض أيقونة شريط القائمة فقط عندما تكون جزيرة الكلمات مرئية";
+
+// Native server listening history
+"stats_server_recorded_plays" = "مرات التشغيل المسجلة";
+"stats_server_all_time_plays" = "مرات التشغيل منذ البداية";
+"stats_server_hourly_title" = "مرات التشغيل حسب الوقت من اليوم";
+"stats_server_hourly_footer" = "مجمعة حسب الساعة التي سجلها الخادم · مرات التشغيل. تعتمد أوقات التسجيل على تطبيق التشغيل.";
+"stats_server_navidrome_history_boundary" = "تستخدم الرسوم ومجاميع الفترات سجل التشغيل المحفوظ في Navidrome. قد تكون مرات التشغيل الأقدم موجودة في العدادات الإجمالية فقط؛ ولا يمكن استعادتها بالترقية. مدة الاستماع الفعلية غير متاحة.";

@@ -4695,3 +4695,10 @@
 
 "lyrics_island_always_on_top" = "Zawsze na wierzchu";
 "menu_bar_icon_only_with_lyrics_island" = "Pokazuj tylko ikonę na pasku menu, gdy wyspa tekstu jest widoczna";
+
+// Native server listening history
+"stats_server_recorded_plays" = "Zarejestrowane odtworzenia";
+"stats_server_all_time_plays" = "Odtworzenia łącznie";
+"stats_server_hourly_title" = "Odtworzenia według pory dnia";
+"stats_server_hourly_footer" = "Pogrupowane według godziny zapisanej przez serwer · odtworzenia. Czas scrobblingu zależy od odtwarzacza.";
+"stats_server_navidrome_history_boundary" = "Wykresy i sumy dla okresów korzystają z historii zachowanej przez Navidrome. Starsze odtworzenia mogą występować tylko w licznikach zbiorczych; aktualizacja nie pozwala ich odtworzyć. Rzeczywisty czas słuchania jest niedostępny.";

@@ -4789,3 +4789,10 @@
 
 "lyrics_island_always_on_top" = "항상 위에 표시";
 "menu_bar_icon_only_with_lyrics_island" = "가사 아일랜드가 표시될 때 메뉴 막대에 아이콘만 표시";
+
+// Native server listening history
+"stats_server_recorded_plays" = "기록된 재생";
+"stats_server_all_time_plays" = "누적 재생 횟수";
+"stats_server_hourly_title" = "시간대별 재생 횟수";
+"stats_server_hourly_footer" = "서버에 기록된 시간을 기준으로 집계합니다. 기록 시간은 재생 클라이언트에 따라 다릅니다.";
+"stats_server_navidrome_history_boundary" = "차트와 기간별 통계는 Navidrome에 보관된 재생 기록을 사용합니다. 과거 재생은 누적 횟수만 남아 있을 수 있으며, 업그레이드해도 날짜를 복원할 수 없습니다. 실제 청취 시간은 제공되지 않습니다.";

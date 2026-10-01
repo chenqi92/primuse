@@ -110,6 +110,55 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         )
     }
 
+    func testNavidromeNativeHistoryEnablesEventsForExplicitAndGenericSubsonicSources() async throws {
+        for type in [MusicSourceType.navidrome, .subsonic] {
+            let host = "stats-native-\(type.rawValue).invalid"
+            SubsonicStatsURLProtocol.configure(
+                host: host, serverType: "navidrome", openSubsonic: true,
+                historyAvailable: true
+            )
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [SubsonicStatsURLProtocol.self]
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel() }
+            let source = SubsonicSource(
+                sourceID: host, sourceType: type, host: host, port: nil,
+                useSsl: true, basePath: nil, username: "stats-user",
+                password: "stats-password", session: session
+            )
+            let payload = try await source.fetchServerListeningStats()
+            XCTAssertTrue(payload.isStructurallyValid)
+            XCTAssertEqual(payload.temporalDetail, .events)
+            XCTAssertEqual(payload.events.map(\.id), ["1", "2"])
+            XCTAssertEqual(payload.events.map(\.title), ["Server Song", "Server Song"])
+            XCTAssertEqual(payload.events.map(\.artist), ["Artist", "Artist"])
+            XCTAssertEqual(payload.events.first?.playedAt, Date(timeIntervalSince1970: 1787688000))
+            XCTAssertEqual(payload.allTimePlayCount, 5)
+            XCTAssertTrue(payload.tracks.isEmpty)
+            XCTAssertTrue(payload.events.allSatisfy { $0.listenedSeconds == nil })
+            let paths = SubsonicStatsURLProtocol.paths(host: host)
+            XCTAssertTrue(paths.contains("/api/scrobble"))
+            XCTAssertFalse(paths.contains("/rest/scrobble.view"))
+        }
+    }
+
+    func testNavidromeHTMLLoginPreservesAggregateStatistics() async throws {
+        for type in [MusicSourceType.navidrome, .subsonic] {
+            let host = "stats-html-login-\(type.rawValue).invalid"
+            try await assertSubsonicStatistics(
+                sourceType: type,
+                host: host,
+                serverType: "navidrome",
+                openSubsonic: true,
+                expectedCatalogPath: "/rest/search3.view",
+                nativeLoginReturnsHTML: true
+            )
+            let paths = SubsonicStatsURLProtocol.paths(host: host)
+            XCTAssertTrue(paths.contains("/auth/login"))
+            XCTAssertFalse(paths.contains("/api/scrobble"))
+        }
+    }
+
     func testAirsonicReadsAggregateStatisticsFromLegacyAlbumWalk() async throws {
         try await assertSubsonicStatistics(
             sourceType: .airsonic,
@@ -418,12 +467,14 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         host: String,
         serverType: String,
         openSubsonic: Bool,
-        expectedCatalogPath: String
+        expectedCatalogPath: String,
+        nativeLoginReturnsHTML: Bool = false
     ) async throws {
         SubsonicStatsURLProtocol.configure(
             host: host,
             serverType: serverType,
-            openSubsonic: openSubsonic
+            openSubsonic: openSubsonic,
+            nativeLoginReturnsHTML: nativeLoginReturnsHTML
         )
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SubsonicStatsURLProtocol.self]
@@ -448,6 +499,9 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         XCTAssertEqual(payload.tracks.first?.title, "Server Song")
         XCTAssertNotNil(payload.tracks.first?.lastPlayedAt)
         XCTAssertTrue(SubsonicStatsURLProtocol.paths(host: host).contains(expectedCatalogPath))
+        if serverType != "navidrome" {
+            XCTAssertFalse(SubsonicStatsURLProtocol.paths(host: host).contains("/auth/login"))
+        }
     }
 
     private func assertJellyfinFamilyStatistics(kind: MediaServerSource.Kind) async throws {
@@ -545,17 +599,24 @@ private final class SubsonicStatsURLProtocol: URLProtocol, @unchecked Sendable {
     private struct Configuration {
         let serverType: String
         let openSubsonic: Bool
+        let historyAvailable: Bool
+        let nativeLoginReturnsHTML: Bool
         var paths: [String]
     }
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var configurations: [String: Configuration] = [:]
 
-    static func configure(host: String, serverType: String, openSubsonic: Bool) {
+    static func configure(
+        host: String, serverType: String, openSubsonic: Bool,
+        historyAvailable: Bool = false, nativeLoginReturnsHTML: Bool = false
+    ) {
         lock.withLock {
             configurations[host] = Configuration(
                 serverType: serverType,
                 openSubsonic: openSubsonic,
+                historyAvailable: historyAvailable,
+                nativeLoginReturnsHTML: nativeLoginReturnsHTML,
                 paths: []
             )
         }
@@ -584,6 +645,24 @@ private final class SubsonicStatsURLProtocol: URLProtocol, @unchecked Sendable {
         }
 
         switch url.path {
+        case "/auth/login":
+            if configuration.nativeLoginReturnsHTML {
+                respond(json: "<html>Sign in</html>", headers: ["Content-Type": "text/html"])
+            } else if configuration.historyAvailable {
+                respond(json: #"{"id":"user-1","username":"stats-user","token":"fixture-native-token"}"#)
+            } else {
+                respond(json: "{}", statusCode: 404)
+            }
+        case "/api/scrobble":
+            guard request.value(forHTTPHeaderField: "X-ND-Authorization") == "Bearer fixture-native-token" else {
+                fail(.userAuthenticationRequired)
+                return
+            }
+            let first = #"{"id":1,"mediaFileId":"song-1","submissionTime":1787688000}"#
+            let second = #"{"id":2,"mediaFileId":"song-1","submissionTime":1787688000}"#
+            let isVerification = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "_start" })?.value == "1"
+            respond(json: isVerification ? "[\(second)]" : "[\(first),\(second)]", headers: ["X-Total-Count": "2"])
         case "/rest/ping.view":
             respond(json: #"{"subsonic-response":{"status":"ok","type":"\#(configuration.serverType)","openSubsonic":\#(configuration.openSubsonic)}}"#)
         case "/rest/search3.view":
@@ -603,13 +682,13 @@ private final class SubsonicStatsURLProtocol: URLProtocol, @unchecked Sendable {
         #"{"id":"song-1","title":"Server Song","artist":"Artist","album":"Album","playCount":5,"played":"2026-08-25T12:00:00.000Z","suffix":"flac","duration":180}"#
     }
 
-    private func respond(json: String) {
+    private func respond(json: String, statusCode: Int = 200, headers: [String: String] = [:]) {
         guard let url = request.url,
               let response = HTTPURLResponse(
                 url: url,
-                statusCode: 200,
+                statusCode: statusCode,
                 httpVersion: "HTTP/1.1",
-                headerFields: ["Content-Type": "application/json"]
+                headerFields: ["Content-Type": "application/json"].merging(headers) { _, value in value }
               ) else {
             fail(.badServerResponse)
             return
