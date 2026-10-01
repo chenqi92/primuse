@@ -241,6 +241,8 @@ final class KaraokeSession {
     @ObservationIgnored private var stemTrack: KaraokeStemTrack?
     @ObservationIgnored private var retiredStems: [KaraokeStemTrack] = []
     @ObservationIgnored private var stemLoadTask: Task<Void, Never>?
+    /// Songs whose failed separation this visit already retried on its own.
+    @ObservationIgnored private var autoRetriedSeparationSongIDs: Set<String> = []
     @ObservationIgnored private var lockPolicy = KaraokeStemLockPolicy()
     @ObservationIgnored private var lockPolicyEpoch = -1
     @ObservationIgnored private var isAligning = false
@@ -541,10 +543,23 @@ final class KaraokeSession {
             if let sourceManager = player.sourceManager {
                 separation.prepare(wanted, sourceManager: sourceManager)
             }
-        case .separating, .unsupported, .failed:
-            // A failure is retried only when the user asks.
+        case .failed:
+            // Once per visit it tries again by itself: the usual causes are
+            // one-offs (the app was in the background, the file could not be
+            // fetched just then). After that the retry button is the way.
+            guard !autoRetriedSeparationSongIDs.contains(wanted.id),
+                  let sourceManager = player.sourceManager else { return }
+            autoRetriedSeparationSongIDs.insert(wanted.id)
+            plog("🎤 Karaoke: retrying failed separation once \(wanted.id.prefix(8))")
+            separation.prepare(wanted, sourceManager: sourceManager)
+        case .separating, .unsupported:
             break
         }
+    }
+
+    /// Why the playing song's separation failed, if it did.
+    var currentSeparationFailureReason: String? {
+        player.currentSong.flatMap { separation.songFailureReasons[$0.id] }
     }
 
     /// The separation state of what is playing, for the stage.

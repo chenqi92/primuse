@@ -6,6 +6,9 @@ import PrimuseKit
 import BackgroundAssets
 import System
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Where the AI vocal model comes from. It is an Apple-hosted, on-demand
 /// Background Assets pack (iOS / macOS / tvOS 26.4 and later), so the app binary
@@ -125,12 +128,27 @@ final class KaraokeSeparationService {
         case failed
     }
 
+    /// Why a song's separation is standing still for the moment.
+    enum HoldReason: Equatable {
+        /// The device is hot; the GPU at full load would heat it further.
+        case cooling
+        /// The app is in the background, where Metal refuses GPU work and
+        /// the prediction fails outright instead of running on the CPU.
+        case background
+    }
+
     private(set) var modelState: ModelState
     /// Why the last model download failed, shown under the retry button.
     private(set) var modelFailureReason: String?
+    /// Songs whose separation is paused, and why.
+    private(set) var holdReasons: [String: HoldReason] = [:]
     /// Songs whose separation waits for the device to cool down.
-    private(set) var coolingSongIDs: Set<String> = []
+    var coolingSongIDs: Set<String> {
+        Set(holdReasons.filter { $0.value == .cooling }.keys)
+    }
     private(set) var songStates: [String: SongState] = [:]
+    /// Why a song's last separation failed, shown next to its retry button.
+    private(set) var songFailureReasons: [String: String] = [:]
     @ObservationIgnored private var separator: KaraokeVocalSeparator?
     @ObservationIgnored private var jobs: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
@@ -214,12 +232,15 @@ final class KaraokeSeparationService {
             return
         }
         songStates[song.id] = .separating(0)
+        songFailureReasons[song.id] = nil
         let destination = Self.stemURL(for: song)
         let startedAt = Date()
         plog("🎤 Karaoke: separating \(song.id.prefix(8))…")
         jobs[song.id] = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
+                // Loading the model already takes the GPU.
+                try await self.holdWhileUnavailable(song.id)
                 let separator = try await self.loadSeparator()
                 try Task.checkCancellation()
                 let file = try await audioFile()
@@ -239,16 +260,8 @@ final class KaraokeSeparationService {
                             self.songStates[songID] = .separating(fraction)
                         }
                     },
-                    cooling: { isCooling in
-                        Task { @MainActor [weak self] in
-                            guard let self else { return }
-                            plog("🎤 Karaoke: separation \(isCooling ? "paused to cool down" : "resumed") \(songID.prefix(8))")
-                            if isCooling {
-                                self.coolingSongIDs.insert(songID)
-                            } else {
-                                self.coolingSongIDs.remove(songID)
-                            }
-                        }
+                    hold: { [weak self] in
+                        try await self?.holdWhileUnavailable(songID)
                     }
                 )
                 try Task.checkCancellation()
@@ -262,12 +275,39 @@ final class KaraokeSeparationService {
             } catch is CancellationError {
                 self.songStates[song.id] = nil
             } catch {
-                plog("⚠️ Karaoke: separation failed for \(song.id.prefix(8)): \(error.localizedDescription)")
+                let nsError = error as NSError
+                plog("⚠️ Karaoke: separation failed for \(song.id.prefix(8)) domain=\(nsError.domain) code=\(nsError.code): \(String(describing: error))")
+                self.songFailureReasons[song.id] = error.localizedDescription
                 self.songStates[song.id] = .failed
             }
             self.jobs[song.id] = nil
-            self.coolingSongIDs.remove(song.id)
+            self.holdReasons[song.id] = nil
         }
+    }
+
+    /// Returns once the model may run: not while the device is hot, and on
+    /// iOS not while the app is in the background. Checked before the model
+    /// is loaded and before every segment.
+    private func holdWhileUnavailable(_ songID: String) async throws {
+        while let reason = Self.holdReason() {
+            if holdReasons[songID] != reason {
+                holdReasons[songID] = reason
+                plog("🎤 Karaoke: separation paused (\(reason)) \(songID.prefix(8))")
+            }
+            try await Task.sleep(for: .seconds(reason == .cooling ? 3 : 1))
+        }
+        if holdReasons.removeValue(forKey: songID) != nil {
+            plog("🎤 Karaoke: separation resumed \(songID.prefix(8))")
+        }
+    }
+
+    private static func holdReason() -> HoldReason? {
+        let thermal = ProcessInfo.processInfo.thermalState
+        if thermal == .serious || thermal == .critical { return .cooling }
+        #if canImport(UIKit)
+        if UIApplication.shared.applicationState == .background { return .background }
+        #endif
+        return nil
     }
 
     func cancel(_ songID: String) {
@@ -278,6 +318,7 @@ final class KaraokeSeparationService {
         guard jobs[song.id] == nil else { return }
         try? FileManager.default.removeItem(at: Self.stemURL(for: song))
         songStates[song.id] = nil
+        songFailureReasons[song.id] = nil
         onsetCache[song.id] = nil
     }
 
@@ -358,6 +399,8 @@ final class KaraokeSeparationService {
         for job in jobs.values { job.cancel() }
         jobs.removeAll()
         songStates.removeAll()
+        songFailureReasons.removeAll()
+        holdReasons.removeAll()
         onsetCache.removeAll()
         try? FileManager.default.removeItem(at: Self.cacheDirectory)
     }

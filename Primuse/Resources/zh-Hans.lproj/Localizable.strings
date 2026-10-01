@@ -4835,6 +4835,9 @@
 "karaoke_ai_aligning" = "正在对齐…";
 "karaoke_ai_unsupported_song" = "这首歌无法 AI 分离，已改用普通消除。";
 "karaoke_ai_retry" = "重试";
+"karaoke_ai_model_failed" = "模型下载失败";
+"karaoke_ai_failed" = "分离失败";
+"karaoke_ai_failed_format" = "分离失败：%@";
 "karaoke_ai_download_dev_build" = "开发构建无法从 App Store 下载模型，请使用 TestFlight 或 App Store 版本。";
 "karaoke_ai_download_failed_format" = "下载失败：%@";
 "karaoke_ai_preparing" = "准备中…";

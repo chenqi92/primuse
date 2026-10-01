@@ -4648,6 +4648,9 @@
 "karaoke_ai_aligning" = "Synchronizacja…";
 "karaoke_ai_unsupported_song" = "Niedostępne dla tego utworu – używane jest zwykłe usuwanie.";
 "karaoke_ai_retry" = "Ponów";
+"karaoke_ai_model_failed" = "Nie udało się pobrać modelu";
+"karaoke_ai_failed" = "Separacja nie powiodła się";
+"karaoke_ai_failed_format" = "Separacja nie powiodła się: %@";
 "karaoke_ai_download_dev_build" = "Wersje deweloperskie nie mogą pobrać modelu z App Store. Użyj wersji z TestFlight lub App Store.";
 "karaoke_ai_download_failed_format" = "Pobieranie nie powiodło się: %@";
 "karaoke_ai_preparing" = "Przygotowywanie…";

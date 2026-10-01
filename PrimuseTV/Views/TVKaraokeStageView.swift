@@ -289,6 +289,9 @@ struct TVKaraokeStageContent: View {
                                       ? "karaoke_ai_cooling" : "karaoke_ai_separating"), fraction: fraction)
                 case .failed:
                     aiRetry
+                    if let reason = session.separation.songFailureReasons[song.id] {
+                        Text(reason).tvFont(.caption).foregroundStyle(TVColor.textMuted).lineLimit(3)
+                    }
                 case .unsupported:
                     Text(String(localized: "karaoke_ai_unsupported_song")).tvFont(.caption)
                 case .ready:

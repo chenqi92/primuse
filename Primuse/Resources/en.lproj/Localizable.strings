@@ -4505,6 +4505,9 @@
 "karaoke_ai_aligning" = "Syncing…";
 "karaoke_ai_unsupported_song" = "Not available for this song; using standard removal.";
 "karaoke_ai_retry" = "Retry";
+"karaoke_ai_model_failed" = "Model download failed";
+"karaoke_ai_failed" = "Separation failed";
+"karaoke_ai_failed_format" = "Separation failed: %@";
 "karaoke_ai_download_dev_build" = "Development builds can't download the model from the App Store. Use the TestFlight or App Store version.";
 "karaoke_ai_download_failed_format" = "Download failed: %@";
 "karaoke_ai_preparing" = "Preparing…";
