@@ -636,6 +636,12 @@ struct LibraryDetailActionButton: View {
     }
 }
 
+/// 详情页头部的「喜欢」：专辑、艺人可以单独喜欢，和里面歌曲的喜欢互不影响。
+struct LibraryDetailFavoriteToggle {
+    let isLiked: Bool
+    let toggle: () -> Void
+}
+
 /// 专辑、艺术家、流派详情页头部的「播放 / 随机播放」一行。
 ///
 /// 放得下时就是原来那两颗胶囊（`stacksAtLargeType` 时大字号下上下叠）。窄栏里整行文字放不下时
@@ -649,29 +655,54 @@ struct LibraryDetailPlayShuffleRow: View {
     let shuffleDisabled: Bool
     let play: () -> Void
     let shuffle: () -> Void
+    /// 有值时行尾多一颗心（专辑、艺人页）。
+    var favorite: LibraryDetailFavoriteToggle? = nil
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         LibraryDetailAdaptiveActionRow {
-            let layout = stacksAtLargeType && dynamicTypeSize >= .xxLarge
+            let stacked = stacksAtLargeType && dynamicTypeSize >= .xxLarge
+            let layout = stacked
                 ? AnyLayout(VStackLayout(spacing: 10))
                 : AnyLayout(HStackLayout(spacing: 10))
             layout {
                 playButton(.capsule, fills: fillsWidth)
                 shuffleButton(.capsule, fills: fillsWidth)
+                if let favorite {
+                    favoriteButton(favorite, form: stacked ? .capsule : .circle, fills: stacked)
+                }
             }
         } reduced: {
             HStack(spacing: 10) {
                 playButton(.capsule, fills: true)
                 shuffleButton(.circle, fills: false)
+                if let favorite { favoriteButton(favorite, form: .circle, fills: false) }
             }
         } minimal: {
             HStack(spacing: 10) {
                 playButton(.iconCapsule, fills: true)
                 shuffleButton(.circle, fills: false)
+                if let favorite { favoriteButton(favorite, form: .circle, fills: false) }
             }
         }
+    }
+
+    private func favoriteButton(
+        _ favorite: LibraryDetailFavoriteToggle,
+        form: LibraryDetailActionButton.Form,
+        fills: Bool
+    ) -> some View {
+        LibraryDetailActionButton(
+            title: favorite.isLiked ? "library_favorite_unlike" : "library_favorite_like",
+            systemImage: favorite.isLiked ? "heart.fill" : "heart",
+            fillsWidth: fills,
+            form: form,
+            disabled: false,
+            action: favorite.toggle
+        )
+        .accessibilityAddTraits(favorite.isLiked ? .isSelected : [])
+        .accessibilityIdentifier("libraryDetail.favorite")
     }
 
     private func playButton(_ form: LibraryDetailActionButton.Form, fills: Bool) -> some View {
@@ -1284,3 +1315,42 @@ private struct MacLibraryReviewCommentEditor: View {
     }
 }
 #endif
+
+/// 资料库「专辑」「艺人」页的「只看喜欢的」开关。
+struct LibraryLikedFilterButton: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            #if os(macOS)
+            HStack(spacing: 5) {
+                Image(systemName: isOn ? "heart.fill" : "heart")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("library_favorite_filter_short")
+                    .font(.system(size: 11.5, weight: .medium))
+            }
+            .foregroundStyle(isOn ? PMColor.brand : PMColor.text)
+            .padding(.horizontal, 9)
+            .frame(height: 26)
+            .background(PMColor.glassBtn, in: .rect(cornerRadius: PMRadius.s))
+            .overlay {
+                RoundedRectangle(cornerRadius: PMRadius.s, style: .continuous)
+                    .strokeBorder(isOn ? PMColor.brand.opacity(0.5) : PMColor.cardBorder, lineWidth: 0.5)
+            }
+            .contentShape(.rect(cornerRadius: PMRadius.s))
+            #else
+            Label("library_favorite_filter", systemImage: isOn ? "heart.fill" : "heart")
+                .labelStyle(.iconOnly)
+            #endif
+        }
+        #if os(macOS)
+        .buttonStyle(.plain)
+        .help(Text("library_favorite_filter"))
+        #endif
+        .accessibilityLabel(Text("library_favorite_filter"))
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+        .accessibilityIdentifier("library.likedFilter")
+    }
+}

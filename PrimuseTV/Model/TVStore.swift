@@ -1090,14 +1090,16 @@ final class TVStore {
 
     /// 当前修订号的专辑墙还没排好就放到后台排(拼音转写与排序不进主线程)。
     func prepareAlbumBrowseLayout(_ order: LibraryAlbumBrowseOrder) async {
-        let revision = libraryContentRevision
+        let revision = albumBrowseRevision(order)
         let cached = albumBrowseLayoutCache?.order == order ? albumBrowseLayoutCache : nil
         if let cached, cached.revision == revision { return }
-        let albums = library.visibleAlbums
+        let albums = order == .liked
+            ? LibraryFavoritesStore.shared.likedAlbums(in: library.visibleAlbums)
+            : library.visibleAlbums
         let songs = order == .recentlyAdded ? library.visibleSongs : []
         let unknownArtistName = String(localized: "unknown_artist")
-        // 「最近添加」还取决于歌曲的入库时间,不能只凭专辑指纹沿用。
-        let reusableFingerprint = order == .recentlyAdded ? nil : cached?.fingerprint
+        // 「最近添加」还取决于歌曲的入库时间,不能只凭专辑指纹沿用;「喜欢」的先后同理。
+        let reusableFingerprint = order == .recentlyAdded || order == .liked ? nil : cached?.fingerprint
         let startedAt = ProcessInfo.processInfo.systemUptime
         let result = await Task.detached(priority: .userInitiated) {
             let fingerprint = LibraryAlbumBrowseLayoutBuilder.fingerprint(albums: albums)
@@ -1108,7 +1110,7 @@ final class TVStore {
                 albums: albums, order: order, songs: songs, unknownArtistName: unknownArtistName
             ))
         }.value
-        guard !Task.isCancelled, revision == libraryContentRevision else { return }
+        guard !Task.isCancelled, revision == albumBrowseRevision(order) else { return }
         guard let layout = result.layout else {
             albumBrowseLayoutCache?.revision = revision
             return
@@ -1116,6 +1118,13 @@ final class TVStore {
         albumBrowseLayoutCache = (order, revision, result.fingerprint, layout)
         browseLayoutRevision &+= 1
         plog("TV album layout order=\(order.rawValue) albums=\(albums.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+    }
+
+    /// 专辑墙排好时的修订号。「喜欢」的内容还跟着喜欢的增减变,两边都算进去。
+    private func albumBrowseRevision(_ order: LibraryAlbumBrowseOrder) -> Int {
+        order == .liked
+            ? libraryContentRevision &* 1_000_003 &+ LibraryFavoritesStore.shared.revision
+            : libraryContentRevision
     }
 
     /// 按名字(拼音)排好、带首字母分段的艺人墙;规则同 `albumBrowseLayout`。

@@ -263,6 +263,8 @@ public enum LibraryAlbumBrowseOrder: String, CaseIterable, Sendable {
     /// 发行年份从新到旧,没有年份的排最后。
     case year
     case recentlyAdded
+    /// 只放喜欢的专辑，最近喜欢的在前（调用方按这个顺序把专辑交进来）。
+    case liked
 
     /// 电视资料库专辑墙记住的排序方式。
     public static let tvStorageKey = "primuse.tv.albumSort.v1"
@@ -290,6 +292,8 @@ public enum LibraryAlbumBrowseLayoutBuilder {
         case .recentlyAdded:
             let sorted = RecentlyAddedAlbumPolicy.sorted(albums: albums, songs: songs)
             return LibraryBrowseLayout(items: sorted, sections: [])
+        case .liked:
+            return LibraryBrowseLayout(items: albums, sections: [])
         case .artist, .title, .year:
             break
         }
@@ -347,7 +351,7 @@ public enum LibraryAlbumBrowseLayoutBuilder {
                 if artist != 0 { return artist < 0 }
                 return albums[lhs].id < albums[rhs].id
             }
-        case .year, .recentlyAdded:
+        case .year, .recentlyAdded, .liked:
             albums.indices.sorted { lhs, rhs in
                 let lhsYear = years[lhs] ?? Int.min
                 let rhsYear = years[rhs] ?? Int.min
@@ -364,7 +368,7 @@ public enum LibraryAlbumBrowseLayoutBuilder {
             sections = LibraryBrowseLayout<Album>.sections(bucketIndices: sortedIndices.map { artistKeys[$0].bucketIndex })
         case .title:
             sections = LibraryBrowseLayout<Album>.sections(bucketIndices: sortedIndices.map { titleKeys[$0].bucketIndex })
-        case .year, .recentlyAdded:
+        case .year, .recentlyAdded, .liked:
             sections = []
         }
         return LibraryBrowseLayout(items: sortedIndices.map { albums[$0] }, sections: sections)

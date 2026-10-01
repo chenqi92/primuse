@@ -1496,6 +1496,7 @@ final class AppServices {
         musicLibrary.prunePlaylists(deletedBefore: pruneThreshold)
         musicLibrary.pruneSmartPlaylists(deletedBefore: pruneThreshold)
         radioStationsStore.pruneTombstones(deletedBefore: pruneThreshold)
+        LibraryFavoritesStore.shared.pruneTombstones(before: pruneThreshold)
         let sourcePruneResults = await sourcesStore.pruneSources(deletedBefore: pruneThreshold)
         let sourcePruneFailures = sourcePruneResults.filter {
             $0.value != .deleted && $0.value != .sourceNotFound

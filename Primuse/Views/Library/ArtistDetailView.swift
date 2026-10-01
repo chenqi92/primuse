@@ -184,6 +184,14 @@ struct ArtistDetailView: View {
         #endif
     }
 
+    private var artistFavorite: LibraryDetailFavoriteToggle {
+        let favorites = LibraryFavoritesStore.shared
+        let name = artist.name
+        return LibraryDetailFavoriteToggle(isLiked: favorites.isLiked(artistNamed: name)) {
+            favorites.toggle(artistNamed: name)
+        }
+    }
+
     #if os(iOS)
     private var iosBody: some View {
         ImmersiveLibraryDetailScrollView { insets in
@@ -273,7 +281,8 @@ struct ArtistDetailView: View {
                 playDisabled: playableSongs.isEmpty,
                 shuffleDisabled: playableSongs.count < 2,
                 play: playAll,
-                shuffle: shuffleAll
+                shuffle: shuffleAll,
+                favorite: artistFavorite
             )
         }
         // 底图铺满整幅屏幕, 文字与按钮按侧留在安全区内 —— 横屏两侧安全区不一定相等。
@@ -488,7 +497,8 @@ struct ArtistDetailView: View {
             backAccessibilityIdentifier: "artistInlineBack",
             onPlay: playAll,
             onShuffle: shuffleAll,
-            moreMenu: artistMoreMenu
+            moreMenu: artistMoreMenu,
+            favorite: artistFavorite
         )
     }
 

@@ -24,6 +24,7 @@ extension LibraryAlbumBrowseOrder {
         case .title: return String(localized: "title_label")
         case .year: return String(localized: "year_label")
         case .recentlyAdded: return String(localized: "recently_added")
+        case .liked: return String(localized: "library_favorite_filter_short")
         }
     }
 
@@ -34,6 +35,7 @@ extension LibraryAlbumBrowseOrder {
         case .title: return "abc"
         case .year: return "calendar"
         case .recentlyAdded: return "clock"
+        case .liked: return "heart"
         }
     }
 }
@@ -166,7 +168,12 @@ struct TVLibraryView: View {
             }
         }
         .onChange(of: focusRequest) { restoreContentFocus() }
-        .task(id: BrowseLayoutRequest(filter: filter, albumOrder: albumOrder, revision: store.libraryBrowseRevision)) {
+        .task(id: BrowseLayoutRequest(
+            filter: filter,
+            albumOrder: albumOrder,
+            revision: store.libraryBrowseRevision,
+            favoritesRevision: albumOrder == .liked ? LibraryFavoritesStore.shared.revision : 0
+        )) {
             switch filter {
             case .albums: await store.prepareAlbumBrowseLayout(albumOrder)
             case .artists: await store.prepareArtistBrowseLayout()
@@ -287,6 +294,8 @@ struct TVLibraryView: View {
         let filter: Filter
         let albumOrder: LibraryAlbumBrowseOrder
         let revision: Int
+        /// 按「喜欢」排时，点了 / 取消喜欢也要重排。
+        let favoritesRevision: Int
     }
 
     /// 当前网格的首字母分段;没有(其他筛选、按年份 / 最近添加)时不显示字母栏。
@@ -389,7 +398,10 @@ struct TVLibraryView: View {
 
     private var albumOrderPicker: some View {
         HStack(spacing: 12) {
-            ForEach(LibraryAlbumBrowseOrder.allCases, id: \.self) { order in
+            // 「喜欢」只在有喜欢的专辑（或正选着它）时出现。
+            ForEach(LibraryAlbumBrowseOrder.allCases.filter {
+                $0 != .liked || albumOrder == .liked || LibraryFavoritesStore.shared.hasLikedAlbums
+            }, id: \.self) { order in
                 Button {
                     albumOrderRawValue = order.rawValue
                 } label: {
@@ -415,7 +427,12 @@ struct TVLibraryView: View {
 
     private var title: String {
         switch filter {
-        case .albums: return PMString("ext.tv.library.title.albums", store.albums.count)
+        case .albums:
+            // 选「喜欢」时数的是墙上那几张,不是整库。
+            let count = albumOrder == .liked
+                ? store.albumBrowseLayout(.liked)?.items.count ?? 0
+                : store.albums.count
+            return PMString("ext.tv.library.title.albums", count)
         case .recommendations: return PMString("library_recommendations_title")
         case .artists: return PMString("ext.tv.library.title.artists", store.artists.count)
         case .songs: return PMString("ext.tv.library.title.songs", TVFmt.count(store.songs.count))
@@ -822,6 +839,10 @@ struct TVArtistDetailView: View {
                             systemImage: "shuffle",
                             action: { play(shuffled: true) }
                         )
+                        TVFavoriteIconButton(
+                            isLiked: LibraryFavoritesStore.shared.isLiked(artistNamed: artist.name),
+                            action: { LibraryFavoritesStore.shared.toggle(artistNamed: artist.name) }
+                        )
                     }
                     TVMedleyButton(songIDs: artistSongIDs) { openPlayer(); dismiss() }
                     Spacer(minLength: 0)
@@ -992,6 +1013,12 @@ struct TVAlbumDetailView: View {
                             systemImage: "shuffle",
                             action: { play(songIDs, shuffled: true) }
                         )
+                        if let libraryAlbum = store.library.visibleAlbum(id: albumID) {
+                            TVFavoriteIconButton(
+                                isLiked: LibraryFavoritesStore.shared.isLiked(libraryAlbum),
+                                action: { LibraryFavoritesStore.shared.toggle(libraryAlbum) }
+                            )
+                        }
                     }
                     .disabled(songIDs.isEmpty)
                     // 串烧与补全并成第二排(所以这一栏比艺人页宽),放不下(长语言)才各占一行。

@@ -4,11 +4,21 @@ import PrimuseKit
 struct AlbumGridView: View {
     @Environment(MusicLibrary.self) private var library
     @State private var albumFilter = ""
+    /// 只看喜欢的专辑。有喜欢的专辑时才给这个开关。
+    @State private var showsLikedOnly = false
+    private let favorites = LibraryFavoritesStore.shared
+
+    private var showsLikedFilter: Bool { showsLikedOnly || favorites.hasLikedAlbums }
+
+    private var baseAlbums: [Album] {
+        showsLikedOnly ? favorites.likedAlbums(in: library.visibleAlbums) : library.visibleAlbums
+    }
 
     private var filteredAlbums: [Album] {
         let query = albumFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return library.visibleAlbums }
-        return library.visibleAlbums.filter { album in
+        let base = baseAlbums
+        guard !query.isEmpty else { return base }
+        return base.filter { album in
             album.title.localizedCaseInsensitiveContains(query)
                 || (album.artistName?.localizedCaseInsensitiveContains(query) ?? false)
                 || album.year.map(String.init)?.contains(query) == true
@@ -62,6 +72,13 @@ struct AlbumGridView: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: Text("filter_albums_placeholder")
             )
+            .toolbar {
+                if showsLikedFilter {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        LibraryLikedFilterButton(isOn: $showsLikedOnly)
+                    }
+                }
+            }
             #endif
         }
     }
@@ -103,14 +120,19 @@ struct AlbumGridView: View {
 
     private var sortedAlbums: [Album] {
         let source = library.visibleAlbums
-        if let cached = macSortCache.value(source: source, sort: albumSort, filter: albumFilter) {
+        // 只看喜欢时，喜欢的增减也要让缓存失效。
+        let likedToken = showsLikedOnly ? favorites.revision : -1
+        if let cached = macSortCache.value(source: source, sort: albumSort, filter: albumFilter, likedToken: likedToken) {
             return cached
         }
         let sorted: [Album]
         switch albumSort {
         case .title:
             // visibleAlbums 已经按标题 localizedCompare 排好, 筛选保持顺序。
-            sorted = filteredAlbums
+            // 只看喜欢时底子是按喜欢先后排的, 要重排。
+            sorted = showsLikedOnly
+                ? filteredAlbums.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
+                : filteredAlbums
         case .artist:
             sorted = filteredAlbums.sorted {
                 ($0.artistName ?? "").localizedCompare($1.artistName ?? "") == .orderedAscending
@@ -120,7 +142,7 @@ struct AlbumGridView: View {
         case .songCount:
             sorted = filteredAlbums.sorted { $0.songCount > $1.songCount }
         }
-        macSortCache.store(sorted, source: source, sort: albumSort, filter: albumFilter)
+        macSortCache.store(sorted, source: source, sort: albumSort, filter: albumFilter, likedToken: likedToken)
         return sorted
     }
 
@@ -130,18 +152,20 @@ struct AlbumGridView: View {
         private var source: [Album] = []
         private var sort: AlbumSortOrder?
         private var filter = ""
+        private var likedToken = -1
         private var value: [Album] = []
 
-        func value(source: [Album], sort: AlbumSortOrder, filter: String) -> [Album]? {
-            guard self.sort == sort, self.filter == filter,
+        func value(source: [Album], sort: AlbumSortOrder, filter: String, likedToken: Int) -> [Album]? {
+            guard self.sort == sort, self.filter == filter, self.likedToken == likedToken,
                   Self.sameStorage(self.source, source) else { return nil }
             return value
         }
 
-        func store(_ value: [Album], source: [Album], sort: AlbumSortOrder, filter: String) {
+        func store(_ value: [Album], source: [Album], sort: AlbumSortOrder, filter: String, likedToken: Int) {
             self.source = source
             self.sort = sort
             self.filter = filter
+            self.likedToken = likedToken
             self.value = value
         }
 
@@ -260,6 +284,9 @@ struct AlbumGridView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(PMColor.textFaint)
                 albumFilterField
+                if showsLikedFilter {
+                    LibraryLikedFilterButton(isOn: $showsLikedOnly)
+                }
                 albumViewSwitcher
                 albumSortMenu
             }

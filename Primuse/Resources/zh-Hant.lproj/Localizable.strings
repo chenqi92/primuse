@@ -464,6 +464,12 @@
 "song_details_parse_failed" = "歌曲詳情解析失敗";
 "song_details_parse_failed_message" = "已讀取檔案位元組，但目前的解析器無法確認完整詳情；這不會停用可用的播放路徑。";
 "song_details_retry" = "重試讀取";
+"carplay_liked_albums_title" = "喜歡的專輯";
+"carplay_liked_artists_title" = "喜歡的藝人";
+"library_favorite_like" = "喜歡";
+"library_favorite_unlike" = "取消喜歡";
+"library_favorite_filter" = "只看喜歡的";
+"library_favorite_filter_short" = "喜歡";
 "library_folder_rescan" = "重新掃描此資料夾";
 "reread_song_tags" = "重新讀取檔案標籤";
 "reread_song_tags_in_progress" = "正在讀取檔案標籤";

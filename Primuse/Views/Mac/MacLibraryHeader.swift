@@ -23,6 +23,8 @@ struct MacLibraryHeader: View {
     var moreMenu: AnyView? = nil
     var makeMoreMenu: (() -> AnyView)? = nil
     var showsMoreButton = true
+    /// 有值时「随机播放」后多一颗心（专辑、艺人页）。
+    var favorite: LibraryDetailFavoriteToggle? = nil
 
     @State private var showMoreMenu = false
 
@@ -82,6 +84,22 @@ struct MacLibraryHeader: View {
                     }
                     .buttonStyle(.pmPressable)
                     .pmHoverLift()
+
+                    if let favorite {
+                        Button(action: favorite.toggle) {
+                            Image(systemName: favorite.isLiked ? "heart.fill" : "heart")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 32, height: 32)
+                                .background(Color.white.opacity(0.16), in: .rect(cornerRadius: 8))
+                                .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.22), lineWidth: 0.5) }
+                        }
+                        .buttonStyle(.pmPressable)
+                        .help(Text(favorite.isLiked ? "library_favorite_unlike" : "library_favorite_like"))
+                        .accessibilityLabel(Text(favorite.isLiked ? "library_favorite_unlike" : "library_favorite_like"))
+                        .accessibilityAddTraits(favorite.isLiked ? .isSelected : [])
+                        .pmHoverLift()
+                    }
 
                     if showsMoreButton {
                         Button {

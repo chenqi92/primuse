@@ -141,6 +141,14 @@ struct AlbumDetailView: View {
         )
     }
 
+    private var albumFavorite: LibraryDetailFavoriteToggle {
+        let favorites = LibraryFavoritesStore.shared
+        let album = album
+        return LibraryDetailFavoriteToggle(isLiked: favorites.isLiked(album)) {
+            favorites.toggle(album)
+        }
+    }
+
     #if os(iOS)
     private var iosBody: some View {
         let discs = discSections
@@ -229,7 +237,8 @@ struct AlbumDetailView: View {
                 playDisabled: songs.filteredPlayable().isEmpty,
                 shuffleDisabled: songs.filteredPlayable().count < 2,
                 play: { playAll() },
-                shuffle: shuffleAll
+                shuffle: shuffleAll,
+                favorite: albumFavorite
             )
 
             LibraryReviewSection(subject: .album(album.id), compact: true, onArtwork: true)
@@ -347,7 +356,8 @@ struct AlbumDetailView: View {
                     backAccessibilityIdentifier: "albumInlineBack",
                     onPlay: { playAll() },
                     onShuffle: shuffleAll,
-                    moreMenu: albumMoreMenu
+                    moreMenu: albumMoreMenu,
+                    favorite: albumFavorite
                 )
 
                 VStack(alignment: .leading, spacing: PMSpace.l) {

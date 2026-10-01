@@ -807,6 +807,42 @@ extension CarPlaySceneDelegate {
         return sections
     }
 
+    /// 喜欢的专辑，最近喜欢的在前，不分字母段。
+    private func likedAlbumsSections() -> [CPListSection] {
+        let library = AppServices.shared.musicLibrary
+        let albums = Array(LibraryFavoritesStore.shared.likedAlbums(in: library.visibleAlbums).prefix(500))
+        let items = albums.enumerated().map { index, album in
+            let item = CPListItem(text: album.title, detailText: album.artistName, image: CarPlayTemplateImages.placeholder("square.stack"))
+            if CarPlayArtworkLoadPolicy.shouldLoad(index: index) {
+                self.loadArtwork(for: album, into: item)
+            }
+            item.handler = { [weak self] _, completion in
+                Task { @MainActor in
+                    self?.pushAlbumDetail(album)
+                    completion()
+                }
+            }
+            return item
+        }
+        return items.isEmpty ? [] : [CPListSection(items: items)]
+    }
+
+    private func likedArtistsSections() -> [CPListSection] {
+        let library = AppServices.shared.musicLibrary
+        let artists = Array(LibraryFavoritesStore.shared.likedArtists(in: library.visibleArtists).prefix(500))
+        let items = artists.map { artist in
+            let item = CPListItem(text: artist.name, detailText: nil)
+            item.handler = { [weak self] _, completion in
+                Task { @MainActor in
+                    self?.pushArtistDetail(artist)
+                    completion()
+                }
+            }
+            return item
+        }
+        return items.isEmpty ? [] : [CPListSection(items: items)]
+    }
+
     private func artistsSections() -> [CPListSection] {
         let library = AppServices.shared.musicLibrary
         let artists = Array(library.visibleArtists
@@ -859,7 +895,7 @@ extension CarPlaySceneDelegate {
 
 extension CarPlaySceneDelegate {
     fileprivate enum BrowseContext: Sendable {
-        case songs, albums, artists, playlists, radio, spokenWord
+        case songs, albums, artists, playlists, radio, spokenWord, likedAlbums, likedArtists
     }
 
     typealias CollectionArtwork = CarPlayContentArtwork
@@ -949,6 +985,19 @@ extension CarPlaySceneDelegate {
                 self?.pushBrowse(.spokenWord, title: String(localized: "listening_space_spoken_word"))
             },
         ]
+        // 有喜欢的专辑 / 艺人才给入口（放在音乐几项之后）。
+        let favorites = LibraryFavoritesStore.shared
+        var liked: [CollectionEntry] = []
+        if favorites.hasLikedAlbums {
+            liked.append(CollectionEntry(title: String(localized: "carplay_liked_albums_title"), symbol: "heart.square") { [weak self] in
+                self?.pushBrowse(.likedAlbums, title: String(localized: "carplay_liked_albums_title"))
+            })
+        }
+        if favorites.hasLikedArtists {
+            liked.append(CollectionEntry(title: String(localized: "carplay_liked_artists_title"), symbol: "heart.circle") { [weak self] in
+                self?.pushBrowse(.likedArtists, title: String(localized: "carplay_liked_artists_title"))
+            })
+        }
         let trailing: [CollectionEntry] = [
             CollectionEntry(title: String(localized: "radio_title"), symbol: "radio") { [weak self] in
                 guard let self else { return }
@@ -958,7 +1007,7 @@ extension CarPlaySceneDelegate {
                 self?.pushSearchTemplate()
             }
         ]
-        return collectionSections(entries + spokenWord + trailing, style: .list)
+        return collectionSections(entries + liked + spokenWord + trailing, style: .list)
     }
 
     private func pushBrowse(_ context: BrowseContext, title: String) {
@@ -976,6 +1025,8 @@ extension CarPlaySceneDelegate {
         case .playlists: playlistsSections(browseOnly: true)
         case .radio: [radioStationsSection()]
         case .spokenWord: spokenWordSections()
+        case .likedAlbums: likedAlbumsSections()
+        case .likedArtists: likedArtistsSections()
         }
     }
 
@@ -2184,6 +2235,7 @@ extension CarPlaySceneDelegate {
             _ = radioStore.stations
             _ = CarPlayFolderLibrary.shared.index
             _ = CarPlayEditorCatalog.shared.revision
+            _ = LibraryFavoritesStore.shared.revision
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.interfaceController != nil, self.connectionGeneration == generation else { return }

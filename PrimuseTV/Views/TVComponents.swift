@@ -713,6 +713,25 @@ struct TVPillButton: View {
     }
 }
 
+/// 专辑 / 艺人页的「喜欢」：只放一颗心，和旁边的药丸按钮同高同底色。
+struct TVFavoriteIconButton: View {
+    let isLiked: Bool
+    let action: () -> Void
+
+    var body: some View {
+        TVFocusButton(radius: 14, scale: 1.04, lift: 6, action: action) { _ in
+            Image(systemName: isLiked ? "heart.fill" : "heart")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(isLiked ? TVColor.brand : TVColor.text)
+                .frame(width: 36, height: 36)
+                .padding(18)
+                .background(TVColor.surfaceStrong)
+        }
+        .accessibilityLabel(Text(isLiked ? "library_favorite_unlike" : "library_favorite_like"))
+        .accessibilityAddTraits(isLiked ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
 enum TVRemoteTransportCommand: Equatable {
     case togglePlayback
     case nextTrack

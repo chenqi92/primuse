@@ -2545,6 +2545,12 @@
 "repeat" = "दोहराएँ";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "ऑडियो फ़ाइलों में एम्बेडेड ReplayGain टैग के आधार पर स्वचालित रूप से वॉल्यूम समायोजित करें।";
+"carplay_liked_albums_title" = "पसंदीदा एल्बम";
+"carplay_liked_artists_title" = "पसंदीदा कलाकार";
+"library_favorite_like" = "पसंद करें";
+"library_favorite_unlike" = "पसंद हटाएँ";
+"library_favorite_filter" = "केवल पसंदीदा दिखाएँ";
+"library_favorite_filter_short" = "पसंदीदा";
 "library_folder_rescan" = "इस फ़ोल्डर को फिर से स्कैन करें";
 "reread_song_tags" = "फ़ाइल टैग दोबारा पढ़ें";
 "reread_song_tags_completed" = "फ़ाइल टैग दोबारा पढ़े गए।";

@@ -696,6 +696,12 @@
 "song_details_parse_failed" = "Titeldetails konnten nicht analysiert werden";
 "song_details_parse_failed_message" = "Dateidaten wurden gelesen, aber der aktuelle Parser konnte keine vollständigen Details bestätigen. Die Wiedergabe bleibt verfügbar.";
 "song_details_retry" = "Erneut lesen";
+"carplay_liked_albums_title" = "Lieblingsalben";
+"carplay_liked_artists_title" = "Lieblingskünstler";
+"library_favorite_like" = "Gefällt mir";
+"library_favorite_unlike" = "Gefällt mir nicht mehr";
+"library_favorite_filter" = "Nur Favoriten anzeigen";
+"library_favorite_filter_short" = "Favoriten";
 "library_folder_rescan" = "Diesen Ordner erneut scannen";
 "reread_song_tags" = "Datei-Tags erneut lesen";
 "reread_song_tags_in_progress" = "Datei-Tags werden gelesen…";

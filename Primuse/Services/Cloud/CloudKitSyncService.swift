@@ -92,6 +92,8 @@ final class CloudKitSyncService {
         static let playbackHistory = "PlaybackHistory"
         static let listeningStats = "ListeningStats"
         static let scraperConfig = "ScraperConfig"
+        /// 专辑 / 艺人的喜欢，一条一条存（见 `LibraryFavorite`）。个人偏好，不进家庭共享。
+        static let libraryFavorite = "LibraryFavorite"
     }
 
     /// 是否家庭共享, 启用后 shareable record 写到 family zone, 否则继续走老的
@@ -154,6 +156,7 @@ final class CloudKitSyncService {
     private let radioStationsStore: RadioStationsStore
     private let scraperConfigStore: ScraperConfigStore
     private let scraperSettingsStore: ScraperSettingsStore
+    private let libraryFavoritesStore: LibraryFavoritesStore
 
     // MARK: - State
 
@@ -267,13 +270,15 @@ final class CloudKitSyncService {
         sourcesStore: SourcesStore,
         radioStationsStore: RadioStationsStore,
         scraperConfigStore: ScraperConfigStore = .shared,
-        scraperSettingsStore: ScraperSettingsStore
+        scraperSettingsStore: ScraperSettingsStore,
+        libraryFavoritesStore: LibraryFavoritesStore = .shared
     ) {
         self.library = library
         self.sourcesStore = sourcesStore
         self.radioStationsStore = radioStationsStore
         self.scraperConfigStore = scraperConfigStore
         self.scraperSettingsStore = scraperSettingsStore
+        self.libraryFavoritesStore = libraryFavoritesStore
         #if os(tvOS)
         let appSupport = FileManager.default.primuseDirectoryURL(for: .cachesDirectory)
         #else
@@ -740,6 +745,7 @@ final class CloudKitSyncService {
             playlistsChanged(ids: library.allPlaylists.map(\.id))
             artworkOverridesChanged(ids: library.allArtworkOverrides.map(\.cloudRecordID))
             smartPlaylistsChanged(ids: library.allSmartPlaylists.map(\.id))
+            libraryFavoritesChanged(ids: libraryFavoritesStore.allEntriesIncludingDeleted.map(\.id))
         case .sources:
             sourcesChanged(ids: sourceIDsForCatchUp())
             // 电台逐条同步，不全量重传；只补通道关着时本机改过的那些。
@@ -1092,6 +1098,15 @@ final class CloudKitSyncService {
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.radioStationsPurged(ids: ids) }
         })
+        observerTokens.append(nc.addObserver(forName: .primuseLibraryFavoritesDidChange, object: nil, queue: .main) { [weak self] note in
+            guard !Self.notificationCameFromRemote(note) else { return }
+            let ids = (note.userInfo?["ids"] as? [String]) ?? []
+            Task { @MainActor in self?.libraryFavoritesChanged(ids: ids) }
+        })
+        observerTokens.append(nc.addObserver(forName: .primuseLibraryFavoritesDidPurge, object: nil, queue: .main) { [weak self] note in
+            let ids = (note.userInfo?["ids"] as? [String]) ?? []
+            Task { @MainActor in self?.libraryFavoritesPurged(ids: ids) }
+        })
         observerTokens.append(nc.addObserver(forName: .primuseScraperConfigDidChange, object: nil, queue: .main) { [weak self] note in
             let ids = (note.userInfo?["ids"] as? [String]) ?? []
             Task { @MainActor in self?.scraperConfigsChanged(ids: ids) }
@@ -1308,6 +1323,17 @@ final class CloudKitSyncService {
         enqueueDeletes(recordType: RecordType.radioStation, ids: ids)
     }
 
+    func libraryFavoritesChanged(ids: [String]) {
+        guard CloudSyncChannel.isEnabled(.playlists), !ids.isEmpty else { return }
+        enqueueSaves(recordType: RecordType.libraryFavorite, ids: ids)
+    }
+
+    /// 清掉的取消记录（墓碑到期）在云端那条也删掉。
+    func libraryFavoritesPurged(ids: [String]) {
+        guard CloudSyncChannel.isEnabled(.playlists), !ids.isEmpty else { return }
+        enqueueDeletes(recordType: RecordType.libraryFavorite, ids: ids)
+    }
+
     func scraperConfigsChanged(ids: [String]) {
         guard CloudSyncChannel.isEnabled(.settings) else { return }
         enqueueSaves(recordType: RecordType.scraperConfig, ids: ids)
@@ -1455,6 +1481,7 @@ final class CloudKitSyncService {
         case RecordType.playbackHistory: return .playbackHistory
         case RecordType.listeningStats: return .listeningStats
         case RecordType.scraperConfig: return .settings
+        case RecordType.libraryFavorite: return .playlists
         default: return nil
         }
     }
@@ -1667,7 +1694,8 @@ final class CloudKitSyncService {
                 + "artworkOverrides=\(library.allArtworkOverrides.count) "
                 + "smartPlaylists=\(library.allSmartPlaylists.count) "
                 + "radioStations=\(radioStationsStore.allStations.count) "
-                + "scraperConfigs=\(scraperConfigStore.allConfigsIncludingDeleted.count)"
+                + "scraperConfigs=\(scraperConfigStore.allConfigsIncludingDeleted.count) "
+                + "libraryFavorites=\(libraryFavoritesStore.allEntriesIncludingDeleted.count)"
         )
         playlistsChanged(ids: library.allPlaylists.map(\.id))
         artworkOverridesChanged(ids: library.allArtworkOverrides.map(\.cloudRecordID))
@@ -1680,6 +1708,7 @@ final class CloudKitSyncService {
             enqueueRadioStationRecords(ids: radioStationsStore.allStations.map(\.id))
         }
         scraperConfigsChanged(ids: scraperConfigStore.allConfigsIncludingDeleted.map(\.id))
+        libraryFavoritesChanged(ids: libraryFavoritesStore.allEntriesIncludingDeleted.map(\.id))
         // Push history at startup too (bypass the 5-min throttle, but still
         // honour the channel toggle).
         if CloudSyncChannel.isEnabled(.playbackHistory) {
@@ -1961,6 +1990,8 @@ final class CloudKitSyncService {
             return populateRadioStationRecord(record, stationID: id)
         case RecordType.scraperConfig:
             return populateScraperConfigRecord(record, configID: id)
+        case RecordType.libraryFavorite:
+            return populateLibraryFavoriteRecord(record, favoriteID: id)
         case RecordType.playbackHistory:
             return populatePlaybackHistoryRecord(record)
         case RecordType.listeningStats:
@@ -2008,6 +2039,8 @@ final class CloudKitSyncService {
             applyRadioStationRecord(record)
         case RecordType.scraperConfig:
             applyScraperConfigRecord(record)
+        case RecordType.libraryFavorite:
+            applyLibraryFavoriteRecord(record)
         case RecordType.playbackHistory:
             applyPlaybackHistoryRecord(record)
         case RecordType.listeningStats:
@@ -2241,6 +2274,8 @@ final class CloudKitSyncService {
             radioStationsStore.removeFromRemote(id: id)
         case RecordType.scraperConfig:
             scraperConfigStore.deleteFromRemote(id: id)
+        case RecordType.libraryFavorite:
+            libraryFavoritesStore.removeRemote(id: id)
         case RecordType.playbackHistory:
             library.clearPlaybackHistory()
         case RecordType.listeningStats:
@@ -2273,6 +2308,8 @@ final class CloudKitSyncService {
             return scraperConfigStore.allConfigsIncludingDeleted
                 .first(where: { $0.id == id })
                 .map { $0.isDeleted != true } ?? false
+        case RecordType.libraryFavorite:
+            return libraryFavoritesStore.entry(id: id)?.isActive ?? false
         default:
             return false
         }
@@ -2670,6 +2707,27 @@ final class CloudKitSyncService {
         // 又加回来, 再经 KVS 传一圈。
         guard config.isDeleted != true else { return }
         scraperSettingsStore.ensureCustomSourcePresent(for: config)
+    }
+
+    // MARK: - Library favorite mapping
+
+    private func populateLibraryFavoriteRecord(_ record: CKRecord, favoriteID: String) -> Bool {
+        guard let entry = libraryFavoritesStore.entry(id: favoriteID) else { return false }
+        do {
+            record["payload"] = try JSONEncoder().encode(entry)
+            record["updatedAt"] = entry.modifiedAt
+            return true
+        } catch {
+            plog("CloudKitSync: encode library favorite failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func applyLibraryFavoriteRecord(_ record: CKRecord) {
+        guard let data = record["payload"] as? Data,
+              let entry = try? JSONDecoder().decode(LibraryFavorite.self, from: data),
+              parseLocalID(from: record.recordID, recordType: RecordType.libraryFavorite) == entry.id else { return }
+        libraryFavoritesStore.applyRemote(entry)
     }
 
     // MARK: - Playback history mapping

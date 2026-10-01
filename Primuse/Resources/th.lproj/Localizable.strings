@@ -2545,6 +2545,12 @@
 "repeat" = "เล่นซ้ำ";
 "replay_gain" = "ReplayGain";
 "replay_gain_desc" = "ปรับระดับเสียงโดยอัตโนมัติตามแท็ก ReplayGain ที่ฝังอยู่ในไฟล์เสียง";
+"carplay_liked_albums_title" = "อัลบั้มที่ถูกใจ";
+"carplay_liked_artists_title" = "ศิลปินที่ถูกใจ";
+"library_favorite_like" = "ถูกใจ";
+"library_favorite_unlike" = "เลิกถูกใจ";
+"library_favorite_filter" = "แสดงเฉพาะที่ถูกใจ";
+"library_favorite_filter_short" = "ที่ถูกใจ";
 "library_folder_rescan" = "สแกนโฟลเดอร์นี้อีกครั้ง";
 "reread_song_tags" = "อ่านแท็กไฟล์อีกครั้ง";
 "reread_song_tags_completed" = "แท็กไฟล์ถูกอ่านอีกครั้ง";

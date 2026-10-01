@@ -56,6 +56,18 @@ struct LibraryBrowseIndexTests {
         #expect(layout.section(forBucket: "Z")?.range.lowerBound == 4)
     }
 
+    @Test("The liked wall keeps the order it is given and has no letter index")
+    func likedOrderKeepsCallerOrder() {
+        let albums = [
+            album("b", title: "Zeta", artist: "Z", year: 2001),
+            album("a", title: "Alpha", artist: "A", year: 1999),
+        ]
+        let layout = LibraryAlbumBrowseLayoutBuilder.layout(albums: albums, order: .liked)
+        #expect(layout.items.map(\.id) == ["b", "a"])
+        #expect(layout.sections.isEmpty)
+        #expect(!LibraryAlbumBrowseOrder.liked.hasLetterIndex)
+    }
+
     @Test("Homophone artists stay in separate runs")
     func homophoneArtistsDoNotInterleave() {
         let albums = [

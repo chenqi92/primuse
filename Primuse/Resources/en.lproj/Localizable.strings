@@ -475,6 +475,12 @@
 "song_details_parse_failed" = "Song details parsing failed";
 "song_details_parse_failed_message" = "File bytes were read, but the current parser could not confirm complete details. Any available playback path remains enabled.";
 "song_details_retry" = "Retry reading";
+"carplay_liked_albums_title" = "Liked Albums";
+"carplay_liked_artists_title" = "Liked Artists";
+"library_favorite_like" = "Like";
+"library_favorite_unlike" = "Unlike";
+"library_favorite_filter" = "Show Liked Only";
+"library_favorite_filter_short" = "Liked";
 "library_folder_rescan" = "Rescan This Folder";
 "reread_song_tags" = "Read File Tags Again";
 "reread_song_tags_in_progress" = "Reading file tags…";

@@ -41,10 +41,17 @@ struct ArtistListView: View {
         ArtistLayoutMode(rawValue: layoutModeRaw) ?? .grid
     }
 
+    /// 只看喜欢的艺人。有喜欢的艺人时才给这个开关。
+    @State private var showsLikedOnly = false
+    private let favorites = LibraryFavoritesStore.shared
+
+    private var showsLikedFilter: Bool { showsLikedOnly || favorites.hasLikedArtists }
+
     private var filteredArtists: [Artist] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return artists }
-        return artists.filter { $0.name.localizedCaseInsensitiveContains(q) }
+        let base = showsLikedOnly ? favorites.likedArtists(in: artists) : artists
+        guard !q.isEmpty else { return base }
+        return base.filter { $0.name.localizedCaseInsensitiveContains(q) }
     }
 
     private func displayName(for artist: Artist) -> String {
@@ -93,6 +100,11 @@ struct ArtistListView: View {
                 prompt: Text("filter_artists_placeholder")
             )
             .toolbar {
+                if showsLikedFilter {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        LibraryLikedFilterButton(isOn: $showsLikedOnly)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     ArtistLayoutToolbarButton(titled: verticalBarEdge != nil)
                 }
@@ -226,7 +238,12 @@ struct ArtistListView: View {
                 Text("tab_artists")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(PMColor.text)
-                artistFilterField
+                HStack(spacing: 8) {
+                    artistFilterField
+                    if showsLikedFilter {
+                        LibraryLikedFilterButton(isOn: $showsLikedOnly)
+                    }
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 20)
