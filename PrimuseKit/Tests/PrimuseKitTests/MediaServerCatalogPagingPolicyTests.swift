@@ -158,3 +158,73 @@ struct MediaServerCatalogPagingPolicyTests {
         }
     }
 }
+
+struct MediaServerLibrarySelectionPolicyTests {
+    private struct Lib: Equatable {
+        let id: String
+        let type: String?
+        let locations: [String]?
+    }
+
+    private func select(_ libraries: [Lib], mixed: Bool = true) -> [String] {
+        MediaServerLibrarySelectionPolicy.select(
+            libraries,
+            collectionType: \.type,
+            locations: \.locations,
+            includesMixedLibraries: mixed
+        ).map(\.id)
+    }
+
+    @Test func musicLibrariesWinOverEverythingElse() {
+        let libraries = [
+            Lib(id: "movies", type: "movies", locations: ["/data/movies"]),
+            Lib(id: "music", type: "music", locations: ["/data/music"]),
+            Lib(id: "plex", type: "artist", locations: ["/data/plex"]),
+        ]
+        #expect(select(libraries) == ["music", "plex"])
+    }
+
+    @Test func withoutMusicLibrariesEveryLibraryIsRead() {
+        let libraries = [
+            Lib(id: "a", type: "movies", locations: nil),
+            Lib(id: "b", type: nil, locations: nil),
+        ]
+        #expect(select(libraries) == ["a", "b"])
+    }
+
+    @Test func mixedLibraryWithItsOwnFoldersIsReadInServerOrder() {
+        let libraries = [
+            Lib(id: "mixed", type: nil, locations: ["/volume1/Downloads"]),
+            Lib(id: "music", type: "music", locations: ["/volume1/Music"]),
+            Lib(id: "tagged", type: "mixed", locations: ["/volume2/Concerts"]),
+            Lib(id: "tv", type: "tvshows", locations: ["/volume1/TV"]),
+        ]
+        #expect(select(libraries) == ["mixed", "music", "tagged"])
+        #expect(select(libraries, mixed: false) == ["music"])
+    }
+
+    @Test func mixedLibraryOverlappingMusicFoldersIsSkipped() {
+        let parent = Lib(id: "everything", type: nil, locations: ["/volume1"])
+        let child = Lib(id: "flac", type: nil, locations: ["/volume1/Music/FLAC/"])
+        let windows = Lib(id: "win", type: nil, locations: ["d:\\MUSIC\\Live"])
+        let music = Lib(id: "music", type: "music", locations: ["/volume1/Music", "D:\\Music"])
+        #expect(select([parent, child, windows, music]) == ["music"])
+    }
+
+    @Test func unknownFoldersNeverPullInAMixedLibrary() {
+        let music = Lib(id: "music", type: "music", locations: ["/music"])
+        let unknownMixed = Lib(id: "mixed", type: nil, locations: nil)
+        #expect(select([music, unknownMixed]) == ["music"])
+
+        let unknownMusic = Lib(id: "music", type: "music", locations: [])
+        let mixed = Lib(id: "mixed", type: nil, locations: ["/elsewhere"])
+        #expect(select([unknownMusic, mixed]) == ["music"])
+    }
+
+    @Test func overlapIsAboutWholePathComponents() {
+        #expect(MediaServerLibrarySelectionPolicy.locationsOverlap("/music", "/music/a"))
+        #expect(MediaServerLibrarySelectionPolicy.locationsOverlap("/Music/", "/music"))
+        #expect(!MediaServerLibrarySelectionPolicy.locationsOverlap("/music", "/musicals"))
+        #expect(MediaServerLibrarySelectionPolicy.locationsOverlap("/", "/anything"))
+    }
+}

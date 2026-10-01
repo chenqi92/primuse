@@ -12,14 +12,18 @@ public struct CatalogWalkDriftTracker: Sendable {
     /// 最新一页报的总数；服务器不报时为 nil。
     public private(set) var reportedTotal: Int?
     private var seenIDs: Set<String> = []
+    /// 报告的总数已被证明偏小（末尾之后还有条目）：之后只认空页 / 短页，不再按总数停。
+    public private(set) var ignoresReportedTotal = false
 
     public init() {}
 
     public var admittedCount: Int { seenIDs.count }
 
+    public func hasAdmitted(_ id: String) -> Bool { seenIDs.contains(id) }
+
     /// 记下一页报的总数，和上一页不一样就算漂移。
     public mutating func observeTotal(_ pageTotal: Int?) {
-        guard let pageTotal else { return }
+        guard let pageTotal, !ignoresReportedTotal else { return }
         if let reportedTotal, reportedTotal != pageTotal {
             driftObserved = true
         }
@@ -54,5 +58,19 @@ public struct CatalogWalkDriftTracker: Sendable {
     /// 同一页原样又出现一次时调用：偏移没在前进，只能停下，结果按漂移处理。
     public mutating func markStalled() {
         driftObserved = true
+    }
+
+    /// 按报告的总数停下、而最后一页是满页：总数可能偏小（服务端或中间的代理把它钉在
+    /// 某个上限上），调用方应再要一页确认真的到头。正常的「整页结尾」只多花一个请求。
+    public func shouldConfirmEnd(offset: Int, rawCount: Int, pageSize: Int) -> Bool {
+        guard !ignoresReportedTotal, let reportedTotal, rawCount == pageSize else { return false }
+        return offset >= reportedTotal
+    }
+
+    /// 确认页里有没见过的条目：总数不可信，之后像不报总数的服务器一样翻到空页 / 短页
+    /// 为止。确认页全是见过的（服务端把越界的偏移夹回了末尾）就说明总数没错，不要调用。
+    public mutating func continuePastReportedTotal() {
+        ignoresReportedTotal = true
+        reportedTotal = nil
     }
 }

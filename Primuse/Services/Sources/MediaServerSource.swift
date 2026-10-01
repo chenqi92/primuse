@@ -62,6 +62,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     private var catalogLayout: CatalogLayout?
     /// Set by `scanSongs` when a library moved while it was being paged.
     private var catalogDriftInLastWalk = false
+    /// 某个库报的总数被证明不可信：总数之后还列得出条目，或者总数之内提前没了。按偏移
+    /// 切的分页目录与增量同步都建在这个总数上，所以这台服务器之后只走一路翻到底的整库
+    /// 走查（`scanSongs`）。只活在这个连接器上：重启后再撞见一次再退回去。
+    private var catalogTotalsUnreliable = false
+    /// 上次写进日志的目录修订；同一份布局一次扫描里会量好几遍，只在变了时记。
+    private var lastLoggedCatalogRevision: String?
     /// Raw `Date` header of the most recent response. The change check reads
     /// it to measure its "saved since" window on the server's clock.
     private var lastServerDateHeader: String?
@@ -851,11 +857,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                         var startIndex = 0
                         var walk = CatalogWalkDriftTracker()
                         var seenPages: Set<String> = []
+                        // 按报告的总数停在一个满页上时，再要一页确认真到头了。
+                        var confirmingEnd = false
                         defer {
                             if walk.driftObserved {
                                 catalogDriftInLastWalk = true
                                 plog("↻ \(kind) library \(libraryID): catalogue moved during the walk")
                             }
+                            plog("📚 \(kind) library \(libraryID): walked \(walk.admittedCount) row(s), server reported \(walk.reportedTotal.map(String.init) ?? "no total")\(walk.ignoresReportedTotal ? " (rows continued past it)" : "")")
                         }
 
                         switch kind {
@@ -867,11 +876,27 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     startIndex: startIndex,
                                     limit: pageSize
                                 )
+                                logCatalogPage(
+                                    libraryID: libraryID,
+                                    startIndex: startIndex,
+                                    limit: pageSize,
+                                    received: result.items.count,
+                                    total: result.totalCount,
+                                    firstID: result.items.first?.ratingKey
+                                )
 
                                 if let total = result.totalCount {
                                     guard total >= 0, total <= Self.maximumCatalogTracks else {
                                         throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
                                     }
+                                }
+                                if confirmingEnd {
+                                    confirmingEnd = false
+                                    // Empty, or the last page again from a server
+                                    // that clamps the offset: the total was right.
+                                    guard result.items.contains(where: { !walk.hasAdmitted($0.ratingKey) }) else { break }
+                                    walk.continuePastReportedTotal()
+                                    plog("↻ \(kind) library \(libraryID): rows continue past the reported total at index \(startIndex); walking to the end")
                                 }
                                 walk.observeTotal(result.totalCount)
                                 if result.items.isEmpty {
@@ -914,7 +939,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
                                 startIndex += result.items.count
                                 if walk.isFinished(offset: startIndex, rawCount: result.items.count, pageSize: pageSize) {
-                                    break
+                                    guard walk.shouldConfirmEnd(
+                                        offset: startIndex,
+                                        rawCount: result.items.count,
+                                        pageSize: pageSize
+                                    ) else { break }
+                                    confirmingEnd = true
                                 }
                             }
                         case .jellyfin, .emby:
@@ -925,11 +955,27 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                                     startIndex: startIndex,
                                     limit: pageSize
                                 )
+                                logCatalogPage(
+                                    libraryID: libraryID,
+                                    startIndex: startIndex,
+                                    limit: pageSize,
+                                    received: result.items.count,
+                                    total: result.totalRecordCount,
+                                    firstID: result.items.first?.id
+                                )
 
                                 if let total = result.totalRecordCount {
                                     guard total >= 0, total <= Self.maximumCatalogTracks else {
                                         throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
                                     }
+                                }
+                                if confirmingEnd {
+                                    confirmingEnd = false
+                                    // Empty, or the last page again from a server
+                                    // that clamps the offset: the total was right.
+                                    guard result.items.contains(where: { !walk.hasAdmitted($0.id) }) else { break }
+                                    walk.continuePastReportedTotal()
+                                    plog("↻ \(kind) library \(libraryID): rows continue past the reported total at index \(startIndex); walking to the end")
                                 }
                                 walk.observeTotal(result.totalRecordCount)
                                 if result.items.isEmpty {
@@ -978,7 +1024,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
 
                                 startIndex += result.items.count
                                 if walk.isFinished(offset: startIndex, rawCount: result.items.count, pageSize: pageSize) {
-                                    break
+                                    guard walk.shouldConfirmEnd(
+                                        offset: startIndex,
+                                        rawCount: result.items.count,
+                                        pageSize: pageSize
+                                    ) else { break }
+                                    confirmingEnd = true
                                 }
                             }
                         }
@@ -1092,14 +1143,22 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         // Sorted by id rather than by the server's presentation order: the
         // offset space has to mean the same thing after an app relaunch for a
         // staged page to still line up.
-        let libraries = preferredLibraries(from: try await fetchLibraries())
+        let available = try await fetchLibraries()
+        let libraries = preferredLibraries(from: available)
             .sorted { $0.id < $1.id }
         var segments: [CatalogSegment] = []
-        var marker = "\(serviceIdentifier):catalog:v1"
+        // v2: v1 markers could come from walks that believed an understated
+        // total without asking past it. A changed marker makes the next
+        // incremental sync list every id once, which runs the end check.
+        var marker = "\(serviceIdentifier):catalog:v2"
         for library in libraries {
             let probe = try await catalogProbe(for: library)
             segments.append(CatalogSegment(library: library, count: probe.totalCount))
             marker += "|\(library.id)=\(probe.totalCount)@\(probe.newestCreatedMarker)"
+        }
+        if marker != lastLoggedCatalogRevision {
+            lastLoggedCatalogRevision = marker
+            logCatalogLayout(available: available, segments: segments)
         }
         let catalogCount = MediaServerCatalogPagingPolicy.totalCount(
             segmentCounts: segments.map(\.count)
@@ -1108,6 +1167,78 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
         }
         return CatalogLayout(revision: marker, segments: segments, startedAt: Date())
+    }
+
+    /// 报「只扫出一部分」时要看的：服务端有哪些库、各是什么类型、读了哪些、各报多少首。
+    private func logCatalogLayout(available: [Library], segments: [CatalogSegment]) {
+        let counts = Dictionary(
+            segments.map { ($0.library.id, $0.count) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let summary = available.map { library in
+            let type = library.collectionType ?? "mixed"
+            let folders = library.locations?.count ?? 0
+            if let count = counts[library.id] {
+                return "\(library.id)[\(type), \(folders) folder(s)]=\(count)"
+            }
+            return "\(library.id)[\(type), \(folders) folder(s)] skipped"
+        }
+        plog("📚 \(kind) catalogue layout: \(summary.joined(separator: "; "))")
+    }
+
+    /// 每页一行：同一个首条 id 出现在不同起点 = 服务端没理会 StartIndex；起点之后拿不到
+    /// 条目而总数还更大 = 服务端只让翻到某个深度。两种都会表现成「只扫出前 N 首」。
+    private func logCatalogPage(
+        libraryID: String,
+        startIndex: Int,
+        limit: Int,
+        received: Int,
+        total: Int?,
+        firstID: String?
+    ) {
+        plog("📚 \(kind) page \(libraryID) start=\(startIndex) limit=\(limit) got=\(received) total=\(total.map(String.init) ?? "-") first=\(firstID ?? "-")")
+    }
+
+    private func firstCatalogItemID(in library: Library, at startIndex: Int) async throws -> String? {
+        switch kind {
+        case .jellyfin, .emby:
+            return try await fetchAudioItems(parentID: library.id, startIndex: startIndex, limit: 1)
+                .items.first?.id
+        case .plex:
+            return try await fetchPlexTracks(sectionID: library.id, startIndex: startIndex, limit: 1)
+                .items.first?.ratingKey
+        }
+    }
+
+    /// 报告的总数之后还列得出条目 = 这个库的总数偏小（服务端或中间的代理把它钉在了
+    /// 某个上限上）。服务端把越界的偏移夹回末尾时会把最后一条再给一遍，那不算。
+    private func listsRowsPastReportedEnd(_ segment: CatalogSegment) async throws -> Bool {
+        guard let pastEnd = try await firstCatalogItemID(in: segment.library, at: segment.count) else {
+            return false
+        }
+        guard segment.count > 0 else { return true }
+        return try await firstCatalogItemID(in: segment.library, at: segment.count - 1) != pastEnd
+    }
+
+    /// 末尾之后列出了条目时，先排除「走查途中刚好有歌入库」：总数跟着涨了就是普通的
+    /// 目录漂移，照旧按漂移续走；总数没变才说明它本身不可信。
+    private func throwForRowsPastEnd(of segment: CatalogSegment) async throws -> Never {
+        let current = try await catalogProbe(for: segment.library).totalCount
+        guard current == segment.count else {
+            plog("↻ \(kind) library \(segment.library.id): total \(segment.count) → \(current) at the end check")
+            throw PagedSongCatalogError.snapshotChangedDuringPagination
+        }
+        markCatalogTotalsUnreliable(
+            segment.library,
+            reportedCount: segment.count,
+            evidence: "lists rows past it"
+        )
+        throw PagedSongCatalogError.unavailable
+    }
+
+    private func markCatalogTotalsUnreliable(_ library: Library, reportedCount: Int, evidence: String) {
+        catalogTotalsUnreliable = true
+        plog("↻ \(kind) library \(library.id) reports \(reportedCount) row(s) but \(evidence); walking the whole catalogue instead of paging by its total")
     }
 
     func stableSongCatalogRevision() async throws -> String? {
@@ -1149,12 +1280,29 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 startIndex: startIndex,
                 limit: limit
             )
+            logCatalogPage(
+                libraryID: segment.library.id,
+                startIndex: startIndex,
+                limit: limit,
+                received: result.items.count,
+                total: result.totalRecordCount,
+                firstID: result.items.first?.id
+            )
             if let total = result.totalRecordCount, total != segment.count {
                 plog("↻ \(kind) library \(segment.library.id): total \(segment.count) → \(total) at index \(startIndex)")
                 throw PagedSongCatalogError.snapshotChangedDuringPagination
             }
             guard result.items.count <= limit else {
                 throw PagedSongCatalogError.snapshotChangedDuringPagination
+            }
+            if result.totalRecordCount != nil, result.items.count < limit {
+                // The same answer says the rows exist and doesn't list them.
+                markCatalogTotalsUnreliable(
+                    segment.library,
+                    reportedCount: segment.count,
+                    evidence: "lists only \(result.items.count) of \(limit) at index \(startIndex)"
+                )
+                throw PagedSongCatalogError.unavailable
             }
             for item in result.items {
                 if kind == .emby {
@@ -1182,11 +1330,28 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 startIndex: startIndex,
                 limit: limit
             )
+            logCatalogPage(
+                libraryID: segment.library.id,
+                startIndex: startIndex,
+                limit: limit,
+                received: result.items.count,
+                total: result.totalCount,
+                firstID: result.items.first?.ratingKey
+            )
             if let total = result.totalCount, total != segment.count {
+                plog("↻ \(kind) library \(segment.library.id): total \(segment.count) → \(total) at index \(startIndex)")
                 throw PagedSongCatalogError.snapshotChangedDuringPagination
             }
             guard result.items.count <= limit else {
                 throw PagedSongCatalogError.snapshotChangedDuringPagination
+            }
+            if result.totalCount != nil, result.items.count < limit {
+                markCatalogTotalsUnreliable(
+                    segment.library,
+                    reportedCount: segment.count,
+                    evidence: "lists only \(result.items.count) of \(limit) at index \(startIndex)"
+                )
+                throw PagedSongCatalogError.unavailable
             }
             for item in result.items {
                 // Keeps playback and write-back off an extra per-track request.
@@ -1216,6 +1381,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         guard offset >= 0 else {
             throw PagedSongCatalogError.snapshotChangedDuringPagination
         }
+        guard !catalogTotalsUnreliable else { throw PagedSongCatalogError.unavailable }
         try await connect()
         let layout: CatalogLayout
         if let cached = catalogLayout {
@@ -1230,11 +1396,22 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             pageSize: pageSize,
             segmentCounts: layout.segments.map(\.count)
         )
+        if requests.isEmpty, !layout.segments.isEmpty {
+            // Past the end of every library. Answering "empty" from the layout
+            // alone would let a server that caps its reported total end every
+            // walk at that cap, so ask each library for the row after its end.
+            for segment in layout.segments {
+                guard try await listsRowsPastReportedEnd(segment) else { continue }
+                try await throwForRowsPastEnd(of: segment)
+            }
+            return PagedSongCatalogPage(songs: [], itemIDs: [], nextOffset: nil)
+        }
+
         var songs: [ConnectorScannedSong] = []
         var itemIDs: [String] = []
-        // A library that answers with fewer rows than its own reported count
-        // has moved. Stop the page there: a short page can only be terminal,
-        // and the caller's terminal probe then rejects the snapshot.
+        // A short slice that came with a total is rejected in
+        // `catalogPageSlice`; this is a server that left the total out. Stop
+        // the page there: a short page can only be terminal.
         var endedEarly = false
 
         for request in requests {
@@ -1373,6 +1550,14 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 progress?(result.count, totalCount)
             }
         }
+        // A listing cut at an understated total would read every row past it
+        // as deleted.
+        for segment in layout.segments {
+            if let pastEnd = try await firstCatalogItemID(in: segment.library, at: segment.count),
+               !result.contains(pastEnd) {
+                try await throwForRowsPastEnd(of: segment)
+            }
+        }
         return result
     }
 
@@ -1386,7 +1571,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         // its filter syntax puts the comparison operator in the parameter name.
         // Its scans stay complete walks, which are now resumable and published
         // as they go.
-        guard kind != .plex else { throw PagedSongCatalogError.unavailable }
+        guard kind != .plex, !catalogTotalsUnreliable else { throw PagedSongCatalogError.unavailable }
         try await connect()
         let layout = try await rebuildCatalogLayout()
         let totalCount = MediaServerCatalogPagingPolicy.totalCount(
@@ -3348,11 +3533,13 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     }
 
     private func preferredLibraries(from libraries: [Library]) -> [Library] {
-        let musicLibraries = libraries.filter {
-            guard let kind = $0.collectionType?.lowercased() else { return false }
-            return kind == "music" || kind == "artist"
-        }
-        return musicLibraries.isEmpty ? libraries : musicLibraries
+        MediaServerLibrarySelectionPolicy.select(
+            libraries,
+            collectionType: \.collectionType,
+            locations: \.locations,
+            // Plex sections always carry a type; there is no mixed kind.
+            includesMixedLibraries: kind != .plex
+        )
     }
 
     private func libraryPath(for libraryID: String, name: String) -> String {
@@ -4477,6 +4664,14 @@ private struct PlexTrackContainer: Decodable {
     enum CodingKeys: String, CodingKey {
         case metadata = "Metadata"
         case totalSize
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // Plex leaves `Metadata` out of an empty page, which is what asking
+        // past a section's end returns.
+        metadata = try container.decodeIfPresent([PlexAudioItem].self, forKey: .metadata) ?? []
+        totalSize = try container.decodeIfPresent(Int.self, forKey: .totalSize)
     }
 }
 

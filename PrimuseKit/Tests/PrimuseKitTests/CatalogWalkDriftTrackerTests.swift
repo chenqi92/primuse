@@ -79,4 +79,52 @@ struct CatalogWalkDriftTrackerTests {
         #expect(done)
         #expect(tracker.driftObserved)
     }
+
+    @Test func fullLastPageAtTheReportedEndAsksForConfirmation() {
+        var tracker = CatalogWalkDriftTracker()
+        tracker.observeTotal(4)
+        let done = tracker.isFinished(offset: 4, rawCount: 2, pageSize: 2)
+        #expect(done)
+        #expect(tracker.shouldConfirmEnd(offset: 4, rawCount: 2, pageSize: 2))
+        // A short last page already proves the end.
+        #expect(!tracker.shouldConfirmEnd(offset: 4, rawCount: 1, pageSize: 2))
+    }
+
+    @Test func understatedTotalKeepsWalkingToTheRealEnd() {
+        var tracker = CatalogWalkDriftTracker()
+        tracker.observeTotal(4)
+        for id in ["a", "b", "c", "d"] { _ = tracker.admit(id) }
+        let stoppedByTotal = tracker.isFinished(offset: 4, rawCount: 2, pageSize: 2)
+        #expect(stoppedByTotal)
+        #expect(tracker.shouldConfirmEnd(offset: 4, rawCount: 2, pageSize: 2))
+        // The confirmation page held unseen rows: the total was capped.
+        #expect(!tracker.hasAdmitted("e"))
+        tracker.continuePastReportedTotal()
+        tracker.observeTotal(4)
+        _ = tracker.admit("e")
+        _ = tracker.admit("f")
+        let fullPage = tracker.isFinished(offset: 6, rawCount: 2, pageSize: 2)
+        #expect(!fullPage)
+        #expect(!tracker.shouldConfirmEnd(offset: 6, rawCount: 2, pageSize: 2))
+        _ = tracker.admit("g")
+        let shortPage = tracker.isFinished(offset: 7, rawCount: 1, pageSize: 2)
+        #expect(shortPage)
+        // Walking to the server's own end is complete, not drift.
+        #expect(!tracker.driftObserved)
+        #expect(tracker.admittedCount == 7)
+    }
+
+    @Test func confirmationPageRepeatingSeenRowsMeansTheTotalWasRight() {
+        var tracker = CatalogWalkDriftTracker()
+        tracker.observeTotal(2)
+        _ = tracker.admit("a")
+        _ = tracker.admit("b")
+        let done = tracker.isFinished(offset: 2, rawCount: 2, pageSize: 2)
+        #expect(done)
+        #expect(tracker.shouldConfirmEnd(offset: 2, rawCount: 2, pageSize: 2))
+        // A server that clamps an out-of-range offset answers with the last
+        // page again.
+        #expect(tracker.hasAdmitted("a") && tracker.hasAdmitted("b"))
+        #expect(!tracker.driftObserved)
+    }
 }
