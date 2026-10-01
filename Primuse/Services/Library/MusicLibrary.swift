@@ -8303,6 +8303,72 @@ final class MusicLibrary {
         return allPlaylists.first(where: { $0.id == playlist.id }) ?? playlist
     }
 
+    /// 导入时能合并进去的歌单(#174): 用户自己的歌单。镜像与文件夹歌单的内容跟着来源走,
+    /// 「我喜欢」有自己的导入去向(只收对上的歌、不留占位)。
+    var playlistImportMergeTargets: [Playlist] {
+        playlists.filter { $0.allowsManualSongMembership && $0.id != Self.likedSongsPlaylistID }
+    }
+
+    /// 合并会怎么改这个歌单, 只算不写。规则见 `PlaylistImportMergePolicy`。
+    func playlistImportMergePlan(
+        _ members: [PlaylistImportMember],
+        intoPlaylist playlistID: String
+    ) -> PlaylistImportMergePolicy.Plan? {
+        guard let playlist = allPlaylists.first(where: { $0.id == playlistID }),
+              !playlist.isDeleted,
+              playlist.allowsManualSongMembership,
+              playlistID != Self.likedSongsPlaylistID
+        else { return nil }
+        let keyCache = playlistEntryMatchKeyCache
+        let existing = (playlistSongIDs[playlistID] ?? []).map { id in
+            if let entry = playlistPendingEntries[id] {
+                return PlaylistImportMergePolicy.Member(id: id, key: ExternalTrackMatchPolicy.Key(entry.matchSubject))
+            }
+            return PlaylistImportMergePolicy.Member(id: id, key: storedSong(id: id).map { keyCache.key(for: $0) })
+        }
+        let incoming = members.compactMap { member -> PlaylistImportMergePolicy.Member? in
+            switch member {
+            case .song(let id):
+                // 预览拍的是当时的曲库; 这期间被删掉的歌不再写进去。
+                guard let song = storedSong(id: id) else { return nil }
+                return PlaylistImportMergePolicy.Member(id: id, key: keyCache.key(for: song))
+            case .pending(let entry):
+                return PlaylistImportMergePolicy.Member(id: entry.id, key: ExternalTrackMatchPolicy.Key(entry.matchSubject))
+            }
+        }
+        return PlaylistImportMergePolicy.plan(existing: existing, incoming: incoming)
+    }
+
+    /// 导入的歌单合并进已有歌单: 原有的歌与顺序不动, 已经有的不再加, 原来置灰的这次
+    /// 对上了就原位点亮, 其余接在末尾。一次发布、一次持久化, 和手动加歌一样推给别的设备。
+    func mergeImportedPlaylist(_ members: [PlaylistImportMember], intoPlaylist playlistID: String) {
+        // S2: 目标歌单与歌曲行都要等发布之后才在库里。
+        if deferringUntilReady({ [weak self] in
+            self?.mergeImportedPlaylist(members, intoPlaylist: playlistID)
+        }) { return }
+        guard let index = allPlaylists.firstIndex(where: { $0.id == playlistID }),
+              let plan = playlistImportMergePlan(members, intoPlaylist: playlistID),
+              plan.hasChanges
+        else { return }
+        if !plan.appendedPendingIDs.isEmpty {
+            var pendingByID: [String: PlaylistPendingEntry] = [:]
+            for case .pending(let entry) in members { pendingByID[entry.id] = entry }
+            for id in plan.appendedPendingIDs {
+                if let entry = pendingByID[id] { playlistPendingEntries[id] = entry }
+            }
+        }
+        playlistSongIDs[playlistID] = plan.memberIDs
+        if plan.resolvedPendingCount > 0 {
+            playlistPendingEntries = Self.referencedPendingEntries(playlistPendingEntries, memberships: playlistSongIDs)
+        }
+        allPlaylists[index] = stampedPlaylist(allPlaylists[index])
+        sortPlaylists()
+        persistPlaylistDurabilityLedger()
+        persistSnapshot()
+        notifyPlaylistsChanged([playlistID])
+        plog("🎵 Merged import into playlist: +\(plan.appendedSongCount) song(s), +\(plan.appendedPendingIDs.count) pending, \(plan.resolvedPendingCount) lit up, \(plan.alreadyPresentCount) already present")
+    }
+
     /// 用户确认「就是这首」: 占位原位换成这首歌; 歌单里已经有这首时只摘掉占位。
     func resolvePendingEntry(_ pendingID: String, inPlaylist playlistID: String, with songID: String) {
         if deferringUntilReady({ [weak self] in

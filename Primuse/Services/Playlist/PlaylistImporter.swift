@@ -64,6 +64,8 @@ enum PlaylistImporter {
     struct ImportPreview {
         let suggestedName: String
         let entries: [ImportEntry]
+        /// 每改一次匹配都会生成一份新的预览; 合并预估按它重算。
+        let revision = UUID()
 
         var matchedCount: Int { entries.filter { $0.matchedSong != nil }.count }
         var missingCount: Int { entries.filter { $0.matchedSong == nil }.count }
@@ -366,11 +368,26 @@ enum PlaylistImporter {
             // 快照并向 SwiftUI / CloudKit 发布 N 次。
             return library.createPlaylist(name: playlistName, songIDs: songIDs)
         }
-        let members = preview.entries.compactMap { entry -> MusicLibrary.PlaylistImportMember? in
+        return library.createPlaylist(name: playlistName, members: members(of: preview, keepingMissing: true))
+    }
+
+    /// 合并进已有歌单(#174)。已经有的歌不会重复, 原有的歌和顺序不动。
+    static func mergePlaylist(
+        from preview: ImportPreview,
+        into playlistID: String,
+        keepingMissing: Bool,
+        library: MusicLibrary
+    ) {
+        library.mergeImportedPlaylist(members(of: preview, keepingMissing: keepingMissing), intoPlaylist: playlistID)
+    }
+
+    /// 按导入顺序排好的成员: 对上的歌, 以及(`keepingMissing` 时)没对上的置灰占位。
+    static func members(of preview: ImportPreview, keepingMissing: Bool) -> [MusicLibrary.PlaylistImportMember] {
+        preview.entries.compactMap { entry -> MusicLibrary.PlaylistImportMember? in
             if let song = entry.matchedSong { return .song(song.id) }
+            guard keepingMissing else { return nil }
             return entry.pendingEntry.map { .pending($0) }
         }
-        return library.createPlaylist(name: playlistName, members: members)
     }
 
     /// 把 preview 里匹配到的歌曲加入「我喜欢」。已经喜欢的不会重复, 未匹配的

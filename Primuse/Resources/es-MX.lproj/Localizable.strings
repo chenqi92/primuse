@@ -2282,6 +2282,17 @@
 "playlist_import_destination_header" = "Importar en";
 "playlist_import_liked_footer_format" = "Las canciones coincidentes se agregan a “%@”. Las que ya están ahí no se agregan dos veces.";
 "playlist_import_add_matched_only_format" = "Agregar solo coincidencias (%d)";
+"playlist_import_merge" = "Combinar";
+"playlist_import_destination_existing" = "Existente";
+"playlist_import_merge_target" = "Combinar en";
+"playlist_import_merge_nothing_new" = "Todas las canciones de esta lista ya están en esa playlist (las copias en otras fuentes también cuentan). No hay nada que combinar.";
+"playlist_import_merge_summary_format" = "Solo se agregan canciones; las existentes y su orden no cambian. Se agregarán %1$d y %2$d que ya están (incluidas copias en otras fuentes) no se repetirán.";
+"playlist_import_merge_resolved_format" = "De ellas, %d estaban atenuadas y se activarán en su lugar.";
+"playlist_import_merge_pending_format" = "%d canciones sin coincidencia se agregarán al final, atenuadas.";
+"playlist_import_merge_confirm_format" = "Combinar (%d nuevas)";
+"playlist_import_merge_confirm_with_pending_format" = "Combinar (%1$d nuevas, %2$d atenuadas)";
+"playlist_import_same_name_synced_format" = "La playlist “%@” con el mismo nombre se sincroniza desde una fuente de música. Su contenido sigue a la fuente, así que no se puede combinar en ella.";
+"playlist_import_same_name_synced_from_format" = "La playlist “%1$@” con el mismo nombre se sincroniza desde %2$@. Su contenido sigue a esa fuente, así que no se puede combinar en ella.";
 "playlist_import_entries_count_format" = "Entradas %d";
 "playlist_import_entries_header" = "Entradas";
 "playlist_import_err_empty" = "La lista de reproducción no tiene pistas";

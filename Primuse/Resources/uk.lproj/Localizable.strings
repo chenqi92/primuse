@@ -221,6 +221,17 @@
 "playlist_import_destination_header" = "Імпортувати до";
 "playlist_import_liked_footer_format" = "Відповідні треки додаються до «%@». Ті, що вже там є, повторно не додаються.";
 "playlist_import_add_matched_only_format" = "Додати тільки відповідні (%d)";
+"playlist_import_merge" = "Об’єднати";
+"playlist_import_destination_existing" = "Наявний";
+"playlist_import_merge_target" = "Об’єднати з";
+"playlist_import_merge_nothing_new" = "Усі треки цього списку вже є в цьому плейлисті (копії з інших джерел теж враховуються). Об’єднувати нічого.";
+"playlist_import_merge_summary_format" = "Треки лише додаються; наявні треки та їхній порядок не змінюються. Буде додано: %1$d; вже є в плейлисті (включно з копіями з інших джерел) і не будуть додані повторно: %2$d.";
+"playlist_import_merge_resolved_format" = "З них сірих треків, які стануть активними на своїх місцях: %d.";
+"playlist_import_merge_pending_format" = "Треків без відповідності, які буде додано в кінець сірими: %d.";
+"playlist_import_merge_confirm_format" = "Об’єднати (нових: %d)";
+"playlist_import_merge_confirm_with_pending_format" = "Об’єднати (нових: %1$d, сірих: %2$d)";
+"playlist_import_same_name_synced_format" = "Плейлист «%@» з такою ж назвою синхронізується з музичного джерела. Його вміст визначає джерело, тому об’єднати з ним не можна.";
+"playlist_import_same_name_synced_from_format" = "Плейлист «%1$@» з такою ж назвою синхронізується з %2$@. Його вміст визначає це джерело, тому об’єднати з ним не можна.";
 "metadata_status_state_file_unavailable" = "Файл недоступний";
 "intent_playing_album_format" = "Відтворення альбому %@.";
 "metadata_writeback_stage_inspect" = "перевірка вихідної версії";

@@ -2282,6 +2282,17 @@
 "playlist_import_destination_header" = "นำเข้าไปยัง";
 "playlist_import_liked_footer_format" = "เพลงที่ตรงกันจะถูกเพิ่มลงใน “%@” เพลงที่มีอยู่แล้วจะไม่ถูกเพิ่มซ้ำ";
 "playlist_import_add_matched_only_format" = "เพิ่มรายการที่ตรงกันเท่านั้น (%d)";
+"playlist_import_merge" = "รวม";
+"playlist_import_destination_existing" = "เพลย์ลิสต์ที่มีอยู่";
+"playlist_import_merge_target" = "รวมเข้ากับ";
+"playlist_import_merge_nothing_new" = "เพลงทั้งหมดในรายการนี้อยู่ในเพลย์ลิสต์นั้นแล้ว (นับรวมสำเนาจากแหล่งอื่นด้วย) จึงไม่มีอะไรให้รวม";
+"playlist_import_merge_summary_format" = "จะเพิ่มเพลงเท่านั้น เพลงเดิมและลำดับจะไม่เปลี่ยน จะเพิ่ม %1$d เพลง และ %2$d เพลงที่มีอยู่แล้ว (รวมสำเนาจากแหล่งอื่น) จะไม่ถูกเพิ่มซ้ำ";
+"playlist_import_merge_resolved_format" = "ในจำนวนนี้มี %d เพลงที่เคยเป็นสีเทา จะใช้งานได้ในตำแหน่งเดิม";
+"playlist_import_merge_pending_format" = "เพลงที่จับคู่ไม่ได้ %d เพลงจะต่อท้ายเป็นสีเทา";
+"playlist_import_merge_confirm_format" = "รวม (ใหม่ %d เพลง)";
+"playlist_import_merge_confirm_with_pending_format" = "รวม (ใหม่ %1$d เพลง, สีเทา %2$d เพลง)";
+"playlist_import_same_name_synced_format" = "เพลย์ลิสต์ “%@” ที่ชื่อเดียวกันซิงค์มาจากแหล่งเพลง เนื้อหาเป็นไปตามแหล่งนั้น จึงรวมเข้าไปไม่ได้";
+"playlist_import_same_name_synced_from_format" = "เพลย์ลิสต์ “%1$@” ที่ชื่อเดียวกันซิงค์มาจาก %2$@ เนื้อหาเป็นไปตามแหล่งนั้น จึงรวมเข้าไปไม่ได้";
 "playlist_import_entries_count_format" = "%d รายการ";
 "playlist_import_entries_header" = "รายการ";
 "playlist_import_err_empty" = "เพลย์ลิสต์ไม่มีแทร็ก";

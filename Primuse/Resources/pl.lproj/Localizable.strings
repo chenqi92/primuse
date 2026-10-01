@@ -2282,6 +2282,17 @@
 "playlist_import_destination_header" = "Importuj do";
 "playlist_import_liked_footer_format" = "Dopasowane utwory trafiają do „%@”. Te, które już tam są, nie zostaną dodane ponownie.";
 "playlist_import_add_matched_only_format" = "Dodaj tylko dopasowane (%d)";
+"playlist_import_merge" = "Scal";
+"playlist_import_destination_existing" = "Istniejąca";
+"playlist_import_merge_target" = "Scal z";
+"playlist_import_merge_nothing_new" = "Wszystkie utwory z tej listy są już w tej playliście (kopie z innych źródeł też się liczą). Nie ma czego scalać.";
+"playlist_import_merge_summary_format" = "Utwory są tylko dodawane; istniejące utwory i ich kolejność się nie zmieniają. Do dodania: %1$d; już na playliście (także jako kopie z innych źródeł), bez ponownego dodawania: %2$d.";
+"playlist_import_merge_resolved_format" = "W tym wyszarzonych, które zostaną aktywowane w swoim miejscu: %d.";
+"playlist_import_merge_pending_format" = "Niedopasowanych utworów dodanych na końcu jako wyszarzone: %d.";
+"playlist_import_merge_confirm_format" = "Scal (nowe: %d)";
+"playlist_import_merge_confirm_with_pending_format" = "Scal (nowe: %1$d, wyszarzone: %2$d)";
+"playlist_import_same_name_synced_format" = "Playlista „%@” o tej samej nazwie jest synchronizowana ze źródła muzyki. Jej zawartość zależy od źródła, więc nie można do niej scalać.";
+"playlist_import_same_name_synced_from_format" = "Playlista „%1$@” o tej samej nazwie jest synchronizowana z %2$@. Jej zawartość zależy od tego źródła, więc nie można do niej scalać.";
 "playlist_import_entries_count_format" = "Wpisy %d";
 "playlist_import_entries_header" = "Wpisy";
 "playlist_import_err_empty" = "Lista odtwarzania nie zawiera utworów";

@@ -842,6 +842,17 @@
 "playlist_import_destination_header" = "Import To";
 "playlist_import_liked_footer_format" = "Matched songs are added to “%@”. Songs that are already in it are not added twice.";
 "playlist_import_add_matched_only_format" = "Add Matched Only (%d)";
+"playlist_import_merge" = "Merge";
+"playlist_import_destination_existing" = "Existing";
+"playlist_import_merge_target" = "Merge Into";
+"playlist_import_merge_nothing_new" = "Every song in this list is already in that playlist (copies on other sources count too), so there is nothing to merge.";
+"playlist_import_merge_summary_format" = "Songs are only added; existing songs and their order stay as they are. %1$d will be added, %2$d already in the playlist (including copies on other sources) will not be added again.";
+"playlist_import_merge_resolved_format" = "%d of them were grayed out and will light up where they are.";
+"playlist_import_merge_pending_format" = "%d unmatched songs will be appended in gray.";
+"playlist_import_merge_confirm_format" = "Merge (%d New)";
+"playlist_import_merge_confirm_with_pending_format" = "Merge (%1$d New, %2$d in Gray)";
+"playlist_import_same_name_synced_format" = "The playlist “%@” with the same name is synced from a music source. Its contents follow the source, so nothing can be merged into it.";
+"playlist_import_same_name_synced_from_format" = "The playlist “%1$@” with the same name is synced from %2$@. Its contents follow that source, so nothing can be merged into it.";
 "playlist_import_manual_match" = "Manual Match…";
 "playlist_import_manual_match_title" = "Manual Match";
 "playlist_import_search_library" = "Search library songs";

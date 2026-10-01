@@ -2282,6 +2282,17 @@
 "playlist_import_destination_header" = "Importar para";
 "playlist_import_liked_footer_format" = "As músicas correspondentes são adicionadas a “%@”. As que já estão lá não são adicionadas de novo.";
 "playlist_import_add_matched_only_format" = "Adicionar somente correspondência (%d)";
+"playlist_import_merge" = "Mesclar";
+"playlist_import_destination_existing" = "Existente";
+"playlist_import_merge_target" = "Mesclar em";
+"playlist_import_merge_nothing_new" = "Todas as músicas desta lista já estão nessa playlist (cópias em outras fontes também contam). Não há nada para mesclar.";
+"playlist_import_merge_summary_format" = "As músicas são apenas adicionadas; as existentes e sua ordem não mudam. %1$d serão adicionadas e %2$d que já estão lá (incluindo cópias em outras fontes) não serão repetidas.";
+"playlist_import_merge_resolved_format" = "Dessas, %d estavam esmaecidas e serão ativadas no lugar.";
+"playlist_import_merge_pending_format" = "%d músicas sem correspondência serão adicionadas ao final, esmaecidas.";
+"playlist_import_merge_confirm_format" = "Mesclar (%d novas)";
+"playlist_import_merge_confirm_with_pending_format" = "Mesclar (%1$d novas, %2$d esmaecidas)";
+"playlist_import_same_name_synced_format" = "A playlist “%@” com o mesmo nome é sincronizada de uma fonte de música. O conteúdo segue a fonte, então não é possível mesclar nela.";
+"playlist_import_same_name_synced_from_format" = "A playlist “%1$@” com o mesmo nome é sincronizada de %2$@. O conteúdo segue essa fonte, então não é possível mesclar nela.";
 "playlist_import_entries_count_format" = "Entradas %d";
 "playlist_import_entries_header" = "Entradas";
 "playlist_import_err_empty" = "Playlist não possui faixas";

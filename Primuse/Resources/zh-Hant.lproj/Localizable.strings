@@ -806,6 +806,17 @@
 "playlist_import_destination_header" = "匯入到";
 "playlist_import_liked_footer_format" = "比對到的歌曲會加入「%@」，已經在裡面的不會重複加入。";
 "playlist_import_add_matched_only_format" = "僅加入已比對 (%d)";
+"playlist_import_merge" = "合併";
+"playlist_import_destination_existing" = "現有歌單";
+"playlist_import_merge_target" = "合併到";
+"playlist_import_merge_nothing_new" = "這份歌單裡的歌都已經在這個歌單裡了（其他音樂來源裡的同一首也算），沒有可以合併的。";
+"playlist_import_merge_summary_format" = "只往裡加歌，原有的歌和順序不動：將新增 %1$d 首，%2$d 首已經在歌單裡（其他音樂來源裡的同一首也算），不會重複加入。";
+"playlist_import_merge_resolved_format" = "其中 %d 首是原本置灰的歌，會在原來的位置點亮。";
+"playlist_import_merge_pending_format" = "另有 %d 首未比對到的以灰色接在末尾。";
+"playlist_import_merge_confirm_format" = "合併（新增 %d 首）";
+"playlist_import_merge_confirm_with_pending_format" = "合併（新增 %1$d 首，%2$d 首置灰）";
+"playlist_import_same_name_synced_format" = "同名的「%@」是音樂來源同步來的歌單，內容以那邊為準，無法合併進去。";
+"playlist_import_same_name_synced_from_format" = "同名的「%1$@」跟隨 %2$@ 同步，內容以那邊為準，無法合併進去。";
 "playlist_import_manual_match" = "手動比對…";
 "playlist_import_manual_match_title" = "手動比對";
 "playlist_import_search_library" = "搜尋資料庫歌曲";

@@ -16,12 +16,18 @@ import AppKit
 /// - 已解析: 显示 preview, 让用户编辑名字 + 确认 / 取消
 struct PlaylistImportView: View {
     @Environment(MusicLibrary.self) private var library
+    // 可选: 只用来给同名的同步歌单标出来源, 独立宿主里未必注入。
+    @Environment(SourcesStore.self) private var sourcesStore: SourcesStore?
     @Environment(\.dismiss) private var dismiss
 
     @State private var preview: PlaylistImporter.ImportPreview?
     @State private var playlistName: String = ""
     /// 预选值来自文件本身(导出标记或歌单名), 用户可以改。
     @State private var destination: PlaylistImportDestination = .newPlaylist
+    /// 合并进哪个已有歌单(#174)。默认是和导入的歌单同名、最近改过的那个。
+    @State private var mergeTargetID: String?
+    /// 合并会新增/跳过多少, 给确认按钮和说明用。目标、预览或「保留未匹配」变了就重算。
+    @State private var mergePlan: PlaylistImportMergePolicy.Plan?
     @State private var importError: String?
     @State private var showFileImporter = false
     @State private var importedFromName: String = ""
@@ -35,7 +41,7 @@ struct PlaylistImportView: View {
     @State private var linkText = ""
     @State private var listText = ""
     @State private var listOrder: ExternalPlaylistTextParser.Order = .titleFirst
-    /// 没对上的歌以置灰占位保留(只对新建歌单有效; 「我喜欢」只收对上的)。
+    /// 没对上的歌以置灰占位保留(新建或合并进歌单时有效; 「我喜欢」只收对上的)。
     @State private var keepMissing = true
     @State private var loadTask: Task<Void, Never>?
     /// 对方只公开了歌单的一部分时的提示(平台名 + 读到的条数)。
@@ -93,6 +99,7 @@ struct PlaylistImportView: View {
             }
         }
         .onDisappear { loadTask?.cancel() }
+        .task(id: mergePlanTrigger) { refreshMergePlan() }
         .alert(String(localized: "playlist_import_err_title"),
                isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
             Button("ok", role: .cancel) {}
@@ -159,19 +166,148 @@ struct PlaylistImportView: View {
     /// 一首都没对上也可以建 —— 以后曲库里有了会自己亮。
     private var canConfirmImport: Bool {
         guard let preview else { return false }
-        if destination == .likedSongs { return preview.matchedCount > 0 }
-        guard !playlistName.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
-        return preview.matchedCount > 0 || (keepsMissingEntries && !preview.entries.isEmpty)
+        switch destination {
+        case .likedSongs:
+            return preview.matchedCount > 0
+        case .existingPlaylist:
+            // 全都已经在歌单里时没什么可合并的。
+            return mergeTargetID != nil && mergePlan?.hasChanges == true
+        case .newPlaylist:
+            guard !playlistName.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+            return preview.matchedCount > 0 || (keepsMissingEntries && !preview.entries.isEmpty)
+        }
     }
 
     private var keepsMissingEntries: Bool {
-        destination == .newPlaylist && keepMissing
+        destination != .likedSongs && keepMissing
     }
 
     /// 显式标成 LocalizedStringKey: 直接把三元表达式塞给 Text / Button 会被推断成
     /// String, 文案就不走本地化了。
     private var confirmTitleKey: LocalizedStringKey {
-        destination == .likedSongs ? "add" : "playlist_import_create"
+        switch destination {
+        case .likedSongs: "add"
+        case .existingPlaylist: "playlist_import_merge"
+        case .newPlaylist: "playlist_import_create"
+        }
+    }
+
+    // MARK: - Merging into an existing playlist (#174)
+
+    /// 能合并进去的歌单, 和导入的歌单同名的排最前。
+    private var orderedMergeTargets: [Playlist] {
+        let playlists = library.playlistImportMergeTargets
+        let byID = Dictionary(playlists.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return PlaylistImportMergePolicy.orderedTargets(
+            playlists.map(Self.mergeTarget),
+            importedName: preview?.suggestedName ?? ""
+        ).compactMap { byID[$0.id] }
+    }
+
+    private static func mergeTarget(_ playlist: Playlist) -> PlaylistImportMergePolicy.Target {
+        PlaylistImportMergePolicy.Target(id: playlist.id, name: playlist.name, updatedAt: playlist.updatedAt)
+    }
+
+    /// 新预览出来时选好默认的合并目标。返回有没有同名的歌单, 用来预选去向。
+    private func prepareMergeTarget(importedName: String) -> Bool {
+        let targets = library.playlistImportMergeTargets.map(Self.mergeTarget)
+        let sameName = PlaylistImportMergePolicy.sameNameTargets(targets, importedName: importedName)
+        mergeTargetID = sameName.first?.id
+            ?? PlaylistImportMergePolicy.orderedTargets(targets, importedName: importedName).first?.id
+        return !sameName.isEmpty
+    }
+
+    /// 选择器里的一行。重复导入过几次的人会有好几个同名歌单, 带上首数才分得清。
+    private func mergeTargetLabel(_ playlist: Playlist) -> String {
+        let count = library.rawSongIDs(forPlaylist: playlist.id).count
+        return "\(playlist.name) · \(count) \(String(localized: "songs_count"))"
+    }
+
+    private struct MergePlanTrigger: Hashable {
+        let previewRevision: UUID?
+        let targetID: String?
+        let keepMissing: Bool
+        let merging: Bool
+    }
+
+    private var mergePlanTrigger: MergePlanTrigger {
+        MergePlanTrigger(
+            previewRevision: preview?.revision,
+            targetID: mergeTargetID,
+            keepMissing: keepMissing,
+            merging: destination == .existingPlaylist
+        )
+    }
+
+    private func refreshMergePlan() {
+        guard destination == .existingPlaylist, let preview, let mergeTargetID else {
+            mergePlan = nil
+            return
+        }
+        mergePlan = library.playlistImportMergePlan(
+            PlaylistImporter.members(of: preview, keepingMissing: keepMissing),
+            intoPlaylist: mergeTargetID
+        )
+    }
+
+    private var mergeSummary: String? {
+        guard destination == .existingPlaylist, let mergePlan else { return nil }
+        guard mergePlan.hasChanges else { return String(localized: "playlist_import_merge_nothing_new") }
+        var parts = [String(
+            format: String(localized: "playlist_import_merge_summary_format"),
+            Self.mergedSongCount(mergePlan),
+            mergePlan.alreadyPresentCount
+        )]
+        if mergePlan.resolvedPendingCount > 0 {
+            parts.append(String(
+                format: String(localized: "playlist_import_merge_resolved_format"),
+                mergePlan.resolvedPendingCount
+            ))
+        }
+        if !mergePlan.appendedPendingIDs.isEmpty {
+            parts.append(String(
+                format: String(localized: "playlist_import_merge_pending_format"),
+                mergePlan.appendedPendingIDs.count
+            ))
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// 合并后歌单里多出来的能播的歌: 接在末尾的, 加上原位点亮的占位。置灰的另算。
+    private static func mergedSongCount(_ plan: PlaylistImportMergePolicy.Plan) -> Int {
+        plan.appendedSongCount + plan.resolvedPendingCount
+    }
+
+    /// 同名的歌单如果是音乐源同步来的(服务端歌单、Apple Music、文件夹歌单), 说清楚为什么
+    /// 不能合并进去 —— 不然看着像是没认出同名歌单。
+    private var sameNameSyncedNote: String? {
+        guard destination != .likedSongs, let preview else { return nil }
+        let synced = library.playlists.filter {
+            !$0.allowsManualSongMembership
+                && PlaylistImportMergePolicy.isSameName($0.name, preview.suggestedName)
+        }
+        guard let first = synced.first else { return nil }
+        var origins: [String] = []
+        for playlist in synced {
+            if let origin = syncedPlaylistOrigin(playlist), !origins.contains(origin) { origins.append(origin) }
+        }
+        guard !origins.isEmpty else {
+            return String(format: String(localized: "playlist_import_same_name_synced_format"), first.name)
+        }
+        return String(
+            format: String(localized: "playlist_import_same_name_synced_from_format"),
+            first.name,
+            ListFormatter.localizedString(byJoining: origins)
+        )
+    }
+
+    private func syncedPlaylistOrigin(_ playlist: Playlist) -> String? {
+        if AppleMusicLibraryIdentity.isMirrorPlaylist(playlist.id) { return "Apple Music" }
+        let sourceID = playlist.folderBinding?.sourceID
+        return sourcesStore?.sources.first { source in
+            source.id == sourceID
+                || playlist.id.hasPrefix(ServerPlaylistIdentity.playlistIDPrefix(sourceID: source.id))
+        }?.name
     }
 
     private var likedDestinationNote: String {
@@ -472,15 +608,10 @@ struct PlaylistImportView: View {
                 Text("playlist_import_destination_header")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(PMColor.textMuted)
-                Picker("playlist_import_destination_header", selection: $destination) {
-                    Text("new_playlist")
-                        .tag(PlaylistImportDestination.newPlaylist)
-                    Text("playlist_liked_name")
-                        .tag(PlaylistImportDestination.likedSongs)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                if destination == .newPlaylist {
+                destinationPicker
+                    .labelsHidden()
+                switch destination {
+                case .newPlaylist:
                     TextField("playlist_name", text: $playlistName)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13.5, weight: .medium))
@@ -491,13 +622,20 @@ struct PlaylistImportView: View {
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .strokeBorder(PMColor.cardBorder, lineWidth: 0.5)
                         }
-                    if p.missingCount > 0 {
-                        Toggle("playlist_import_keep_missing", isOn: $keepMissing)
-                            .font(.system(size: 12))
-                            .toggleStyle(.checkbox)
-                    }
-                } else {
-                    Text(verbatim: likedDestinationNote)
+                case .existingPlaylist:
+                    mergeTargetPicker
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                case .likedSongs:
+                    EmptyView()
+                }
+                if destination != .likedSongs, p.missingCount > 0 {
+                    Toggle("playlist_import_keep_missing", isOn: $keepMissing)
+                        .font(.system(size: 12))
+                        .toggleStyle(.checkbox)
+                }
+                ForEach(destinationNotes, id: \.self) { note in
+                    Text(verbatim: note)
                         .font(.system(size: 11.5))
                         .foregroundStyle(PMColor.textFaint)
                         .fixedSize(horizontal: false, vertical: true)
@@ -684,6 +822,13 @@ struct PlaylistImportView: View {
     }
 
     private func macConfirmTitle(matchedCount: Int) -> String {
+        if destination == .existingPlaylist {
+            let added = mergePlan.map(Self.mergedSongCount) ?? 0
+            let pending = mergePlan?.appendedPendingIDs.count ?? 0
+            return pending > 0
+                ? String(format: String(localized: "playlist_import_merge_confirm_with_pending_format"), added, pending)
+                : String(format: String(localized: "playlist_import_merge_confirm_format"), added)
+        }
         if keepsMissingEntries, let missing = preview?.missingCount, missing > 0 {
             return String(
                 format: String(localized: "playlist_import_create_with_pending_format"),
@@ -972,26 +1117,66 @@ struct PlaylistImportView: View {
 
     private var destinationSection: some View {
         Section {
-            Picker("playlist_import_destination_header", selection: $destination) {
-                Text("new_playlist")
-                    .tag(PlaylistImportDestination.newPlaylist)
-                Text("playlist_liked_name")
-                    .tag(PlaylistImportDestination.likedSongs)
-            }
-            .pickerStyle(.segmented)
-            if destination == .newPlaylist {
+            destinationPicker
+            switch destination {
+            case .newPlaylist:
                 TextField("playlist_name", text: $playlistName)
-                if (preview?.missingCount ?? 0) > 0 {
-                    Toggle("playlist_import_keep_missing", isOn: $keepMissing)
-                }
+            case .existingPlaylist:
+                mergeTargetPicker
+            case .likedSongs:
+                EmptyView()
+            }
+            if destination != .likedSongs, (preview?.missingCount ?? 0) > 0 {
+                Toggle("playlist_import_keep_missing", isOn: $keepMissing)
             }
         } header: {
             Text("playlist_import_destination_header")
         } footer: {
-            if destination == .likedSongs {
-                Text(verbatim: likedDestinationNote)
+            if !destinationNotes.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(destinationNotes, id: \.self) { Text(verbatim: $0) }
+                }
             }
         }
+    }
+
+    /// 「已有歌单」只在有能合并进去的歌单时出现。
+    private var destinationPicker: some View {
+        Picker("playlist_import_destination_header", selection: $destination) {
+            Text("new_playlist")
+                .tag(PlaylistImportDestination.newPlaylist)
+            if !orderedMergeTargets.isEmpty {
+                Text("playlist_import_destination_existing")
+                    .tag(PlaylistImportDestination.existingPlaylist)
+            }
+            Text("playlist_liked_name")
+                .tag(PlaylistImportDestination.likedSongs)
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var mergeTargetPicker: some View {
+        Picker("playlist_import_merge_target", selection: $mergeTargetID) {
+            ForEach(orderedMergeTargets) { playlist in
+                Text(verbatim: mergeTargetLabel(playlist))
+                    .tag(Optional(playlist.id))
+            }
+        }
+        .pickerStyle(.menu)
+    }
+
+    private var destinationNotes: [String] {
+        var notes: [String] = []
+        switch destination {
+        case .likedSongs:
+            notes.append(likedDestinationNote)
+        case .existingPlaylist:
+            if let mergeSummary { notes.append(mergeSummary) }
+        case .newPlaylist:
+            break
+        }
+        if let sameNameSyncedNote { notes.append(sameNameSyncedNote) }
+        return notes
     }
 
     private func entriesSection(_ p: PlaylistImporter.ImportPreview) -> some View {
@@ -1125,7 +1310,8 @@ struct PlaylistImportView: View {
                 destination = PlaylistImportDestinationPolicy.suggestedDestination(
                     kindMarker: raw.kindMarker,
                     playlistName: raw.suggestedName,
-                    likedPlaylistNames: PlaylistImporter.likedPlaylistNamesInEveryLanguage()
+                    likedPlaylistNames: PlaylistImporter.likedPlaylistNamesInEveryLanguage(),
+                    hasSameNamePlaylist: prepareMergeTarget(importedName: p.suggestedName)
                 )
                 importedFromName = fileName
                 partialImportNote = nil
@@ -1405,6 +1591,14 @@ struct PlaylistImportView: View {
         switch destination {
         case .likedSongs:
             PlaylistImporter.addToLikedSongs(from: preview, library: library)
+        case .existingPlaylist:
+            guard let mergeTargetID else { return }
+            PlaylistImporter.mergePlaylist(
+                from: preview,
+                into: mergeTargetID,
+                keepingMissing: keepMissing,
+                library: library
+            )
         case .newPlaylist:
             let name = playlistName.trimmingCharacters(in: .whitespaces)
             PlaylistImporter.createPlaylist(
@@ -1512,7 +1706,9 @@ struct PlaylistImportView: View {
                 )
                 preview = p
                 playlistName = p.suggestedName
-                destination = .newPlaylist
+                let hasSameName = prepareMergeTarget(importedName: p.suggestedName)
+                // 文本清单用的是统一的默认名, 同名不说明是同一份歌单。
+                destination = hasSameName && sourceMode != .text ? .existingPlaylist : .newPlaylist
                 importedFromName = playlist.platform.map(platformName) ?? p.suggestedName
                 partialImportNote = playlist.isPartial
                     ? String(

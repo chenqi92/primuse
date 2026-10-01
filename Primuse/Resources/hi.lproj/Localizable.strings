@@ -2282,6 +2282,17 @@
 "playlist_import_destination_header" = "यहाँ इंपोर्ट करें";
 "playlist_import_liked_footer_format" = "मिलान हुए गाने “%@” में जोड़ दिए जाते हैं। जो गाने पहले से उसमें हैं, वे दोबारा नहीं जोड़े जाते।";
 "playlist_import_add_matched_only_format" = "केवल मिलान जोड़ें (%d)";
+"playlist_import_merge" = "मर्ज करें";
+"playlist_import_destination_existing" = "मौजूदा";
+"playlist_import_merge_target" = "इसमें मर्ज करें";
+"playlist_import_merge_nothing_new" = "इस सूची के सभी गाने उस प्लेलिस्ट में पहले से हैं (अन्य स्रोतों की प्रतियाँ भी गिनी जाती हैं), इसलिए मर्ज करने को कुछ नहीं है।";
+"playlist_import_merge_summary_format" = "गाने केवल जोड़े जाते हैं; मौजूदा गाने और उनका क्रम नहीं बदलता। %1$d गाने जोड़े जाएँगे, और पहले से मौजूद %2$d गाने (अन्य स्रोतों की प्रतियों सहित) दोबारा नहीं जोड़े जाएँगे।";
+"playlist_import_merge_resolved_format" = "इनमें से %d गाने पहले धूसर थे और अपनी जगह पर सक्रिय हो जाएँगे।";
+"playlist_import_merge_pending_format" = "बिना मिलान वाले %d गाने धूसर रूप में अंत में जोड़े जाएँगे।";
+"playlist_import_merge_confirm_format" = "मर्ज करें (%d नए)";
+"playlist_import_merge_confirm_with_pending_format" = "मर्ज करें (%1$d नए, %2$d धूसर)";
+"playlist_import_same_name_synced_format" = "इसी नाम की “%@” प्लेलिस्ट किसी संगीत स्रोत से सिंक होती है। इसकी सामग्री स्रोत पर निर्भर है, इसलिए इसमें मर्ज नहीं किया जा सकता।";
+"playlist_import_same_name_synced_from_format" = "इसी नाम की “%1$@” प्लेलिस्ट %2$@ से सिंक होती है। इसकी सामग्री उसी स्रोत पर निर्भर है, इसलिए इसमें मर्ज नहीं किया जा सकता।";
 "playlist_import_entries_count_format" = "%d प्रविष्टियाँ";
 "playlist_import_entries_header" = "प्रविष्टियाँ";
 "playlist_import_err_empty" = "प्लेलिस्ट में कोई ट्रैक नहीं है";

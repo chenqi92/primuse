@@ -1031,6 +1031,17 @@
 "playlist_import_destination_header" = "가져올 위치";
 "playlist_import_liked_footer_format" = "일치한 곡은 ‘%@’에 추가됩니다. 이미 들어 있는 곡은 중복으로 추가되지 않습니다.";
 "playlist_import_add_matched_only_format" = "일치한 항목만 추가 (%d)";
+"playlist_import_merge" = "병합";
+"playlist_import_destination_existing" = "기존 플레이리스트";
+"playlist_import_merge_target" = "병합 대상";
+"playlist_import_merge_nothing_new" = "이 목록의 곡은 모두 해당 플레이리스트에 이미 있습니다(다른 소스의 같은 곡 포함). 병합할 곡이 없습니다.";
+"playlist_import_merge_summary_format" = "곡은 추가만 되며 기존 곡과 순서는 그대로 유지됩니다. %1$d곡이 추가되고, 이미 있는 %2$d곡(다른 소스의 같은 곡 포함)은 다시 추가되지 않습니다.";
+"playlist_import_merge_resolved_format" = "그중 %d곡은 회색으로 표시되던 곡으로, 원래 위치에서 활성화됩니다.";
+"playlist_import_merge_pending_format" = "일치하지 않은 %d곡은 회색으로 끝에 추가됩니다.";
+"playlist_import_merge_confirm_format" = "병합(새 곡 %d개)";
+"playlist_import_merge_confirm_with_pending_format" = "병합(새 곡 %1$d개, 회색 %2$d개)";
+"playlist_import_same_name_synced_format" = "같은 이름의 “%@”은(는) 음악 소스에서 동기화된 플레이리스트라 내용이 소스를 따르므로 병합할 수 없습니다.";
+"playlist_import_same_name_synced_from_format" = "같은 이름의 “%1$@”은(는) %2$@에서 동기화됩니다. 내용이 그쪽을 따르므로 병합할 수 없습니다.";
 "playlist_import_manual_match" = "수동 일치…";
 "playlist_import_manual_match_title" = "수동 일치";
 "playlist_import_search_library" = "라이브러리 곡 검색";

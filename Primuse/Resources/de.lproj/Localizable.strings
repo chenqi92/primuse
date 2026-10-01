@@ -1031,6 +1031,17 @@
 "playlist_import_destination_header" = "Importieren in";
 "playlist_import_liked_footer_format" = "Zugeordnete Titel werden zu „%@“ hinzugefügt. Bereits enthaltene Titel werden nicht doppelt hinzugefügt.";
 "playlist_import_add_matched_only_format" = "Nur zugeordnete hinzufügen (%d)";
+"playlist_import_merge" = "Zusammenführen";
+"playlist_import_destination_existing" = "Vorhandene";
+"playlist_import_merge_target" = "Zusammenführen in";
+"playlist_import_merge_nothing_new" = "Alle Titel dieser Liste sind bereits in dieser Playlist (Kopien aus anderen Quellen zählen mit). Es gibt nichts zusammenzuführen.";
+"playlist_import_merge_summary_format" = "Es werden nur Titel hinzugefügt; vorhandene Titel und ihre Reihenfolge bleiben unverändert. %1$d werden hinzugefügt, %2$d sind bereits enthalten (auch als Kopie aus einer anderen Quelle) und werden nicht erneut hinzugefügt.";
+"playlist_import_merge_resolved_format" = "Davon waren %d ausgegraut und werden an ihrer Stelle aktiviert.";
+"playlist_import_merge_pending_format" = "%d nicht gefundene Titel werden ausgegraut angehängt.";
+"playlist_import_merge_confirm_format" = "Zusammenführen (%d neu)";
+"playlist_import_merge_confirm_with_pending_format" = "Zusammenführen (%1$d neu, %2$d ausgegraut)";
+"playlist_import_same_name_synced_format" = "Die gleichnamige Playlist „%@“ wird aus einer Musikquelle synchronisiert. Ihr Inhalt folgt der Quelle, daher kann nichts hineingeführt werden.";
+"playlist_import_same_name_synced_from_format" = "Die gleichnamige Playlist „%1$@“ wird aus %2$@ synchronisiert. Ihr Inhalt folgt dieser Quelle, daher kann nichts hineingeführt werden.";
 "playlist_import_manual_match" = "Manuell zuordnen …";
 "playlist_import_manual_match_title" = "Manuell zuordnen";
 "playlist_import_search_library" = "Titel in Mediathek suchen";

@@ -2282,6 +2282,17 @@
 "playlist_import_destination_header" = "الاستيراد إلى";
 "playlist_import_liked_footer_format" = "تُضاف الأغاني المطابقة إلى «%@». الأغاني الموجودة فيها مسبقًا لا تُضاف مرة أخرى.";
 "playlist_import_add_matched_only_format" = "إضافة المطابق فقط (%d)";
+"playlist_import_merge" = "دمج";
+"playlist_import_destination_existing" = "قائمة موجودة";
+"playlist_import_merge_target" = "الدمج في";
+"playlist_import_merge_nothing_new" = "كل أغاني هذه القائمة موجودة بالفعل في تلك القائمة (تُحتسب النسخ الموجودة في مصادر أخرى أيضًا)، فلا يوجد ما يُدمج.";
+"playlist_import_merge_summary_format" = "تُضاف الأغاني فقط، وتبقى الأغاني الموجودة وترتيبها كما هي. ستُضاف %1$d أغنية، ولن تُكرر %2$d أغنية موجودة بالفعل (بما فيها النسخ في مصادر أخرى).";
+"playlist_import_merge_resolved_format" = "منها %d أغنية كانت رمادية وستُفعَّل في مكانها.";
+"playlist_import_merge_pending_format" = "ستُضاف %d أغنية غير مطابقة في النهاية باللون الرمادي.";
+"playlist_import_merge_confirm_format" = "دمج (%d جديدة)";
+"playlist_import_merge_confirm_with_pending_format" = "دمج (%1$d جديدة، %2$d رمادية)";
+"playlist_import_same_name_synced_format" = "قائمة التشغيل «%@» التي تحمل الاسم نفسه متزامنة من مصدر موسيقى، ومحتواها يتبع المصدر، لذا لا يمكن الدمج فيها.";
+"playlist_import_same_name_synced_from_format" = "قائمة التشغيل «%1$@» التي تحمل الاسم نفسه متزامنة من %2$@، ومحتواها يتبع ذلك المصدر، لذا لا يمكن الدمج فيها.";
 "playlist_import_entries_count_format" = "%d إدخالات";
 "playlist_import_entries_header" = "مداخل";
 "playlist_import_err_empty" = "قائمة التشغيل لا تحتوي على مسارات";

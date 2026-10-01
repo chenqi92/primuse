@@ -1032,6 +1032,17 @@
 "playlist_import_destination_header" = "読み込み先";
 "playlist_import_liked_footer_format" = "一致した曲は「%@」に追加されます。すでに入っている曲が重複して追加されることはありません。";
 "playlist_import_add_matched_only_format" = "一致した曲のみ追加（%d）";
+"playlist_import_merge" = "統合";
+"playlist_import_destination_existing" = "既存のプレイリスト";
+"playlist_import_merge_target" = "統合先";
+"playlist_import_merge_nothing_new" = "このリストの曲はすべてそのプレイリストに入っています（他のソースにある同じ曲も含む）。統合するものはありません。";
+"playlist_import_merge_summary_format" = "曲は追加のみで、既存の曲と順番は変わりません。%1$d 曲を追加し、すでにある %2$d 曲（他のソースにある同じ曲を含む）は重複して追加しません。";
+"playlist_import_merge_resolved_format" = "そのうち %d 曲はグレー表示だった曲で、元の位置で有効になります。";
+"playlist_import_merge_pending_format" = "一致しなかった %d 曲はグレー表示で末尾に追加します。";
+"playlist_import_merge_confirm_format" = "統合（新規 %d 曲）";
+"playlist_import_merge_confirm_with_pending_format" = "統合（新規 %1$d 曲、グレー %2$d 曲）";
+"playlist_import_same_name_synced_format" = "同じ名前の「%@」は音楽ソースから同期されたプレイリストで、内容はソースに従うため統合できません。";
+"playlist_import_same_name_synced_from_format" = "同じ名前の「%1$@」は %2$@ から同期されています。内容はそちらに従うため統合できません。";
 "playlist_import_manual_match" = "手動でマッチング…";
 "playlist_import_manual_match_title" = "手動でマッチング";
 "playlist_import_search_library" = "ライブラリの曲を検索";
