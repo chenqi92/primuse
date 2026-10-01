@@ -4808,3 +4808,7 @@
 "stats_server_hourly_title" = "時間帯別の再生回数";
 "stats_server_hourly_footer" = "サーバーに記録された時刻で集計。記録時刻は再生クライアントによって異なります。";
 "stats_server_navidrome_history_boundary" = "グラフと期間別の集計には Navidrome に保存された再生履歴を使用します。古い再生は累計回数のみ残っている場合があり、更新しても日時は復元できません。実際の聴取時間は取得できません。";
+
+"scrape_parts_all" = "タグ・アートワーク・歌詞";
+"scrape_parts_lyrics_only" = "歌詞のみ";
+"scrape_parts_cover_only" = "アートワークのみ";

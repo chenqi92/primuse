@@ -4713,3 +4713,7 @@
 "stats_server_hourly_title" = "Reproducciones por hora del día";
 "stats_server_hourly_footer" = "Agrupadas por la hora registrada por el servidor · reproducciones. Las horas del scrobbling dependen del reproductor.";
 "stats_server_navidrome_history_boundary" = "Las gráficas y los totales por periodo usan el historial conservado por Navidrome. Las reproducciones antiguas pueden existir solo en los contadores totales; una actualización no permite reconstruirlas. La duración real de escucha no está disponible.";
+
+"scrape_parts_all" = "Etiquetas, portada y letras";
+"scrape_parts_lyrics_only" = "Solo letras";
+"scrape_parts_cover_only" = "Solo portada";

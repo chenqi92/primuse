@@ -269,17 +269,26 @@ final class TVMetadataScrapeService {
         )
     }
 
-    /// 把预览里勾选的部分写进本机:封面、歌词进缓存,标签改曲库里这一行并打上用户编辑
-    /// 的时间戳(电视自己重扫时保留)。不写回音乐源。返回是否真的改了什么。
+    /// 把预览里勾选的部分写进本机:封面、歌词进缓存,勾选的标签改曲库里这一行并打上用户
+    /// 编辑的时间戳(电视自己重扫时保留)。不写回音乐源。返回是否真的改了什么。
     @discardableResult
-    func apply(_ preview: TVScrapePreview, tags: Bool, cover: Bool, lyrics: Bool) async -> Bool {
+    func apply(
+        _ preview: TVScrapePreview,
+        fields: Set<ScrapeTagField>,
+        cover: Bool,
+        lyrics: Bool
+    ) async -> Bool {
         guard let store, var song = store.library.song(id: preview.songID) else { return false }
         let editedAt = Self.editTimestamp()
         var appliedCover: Data?
         var appliedLyrics: [LyricLine]?
 
-        if tags, preview.tagsChanged {
-            song.applyScrapeFields(preview.proposed)
+        // 没勾的标签保持这一行现在的值(预览打开之后它可能已经变了)。
+        let current = song.scrapeFields
+        let chosen = current.applying(preview.proposed, fields: fields)
+        let appliedTags = !Self.sameVisibleTags(current, chosen)
+        if appliedTags {
+            song.applyScrapeFields(chosen)
         }
         if cover, let data = preview.coverData,
            await storeCover(data, forSongID: song.id) {
@@ -291,7 +300,6 @@ final class TVMetadataScrapeService {
             song.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: song.id)
             appliedLyrics = lines
         }
-        let appliedTags = tags && preview.tagsChanged
         guard appliedTags || appliedCover != nil || appliedLyrics != nil else { return false }
         if appliedTags || appliedCover != nil {
             song.userMetadataEditedAt = editedAt
@@ -315,8 +323,10 @@ final class TVMetadataScrapeService {
     /// 为一张专辑的每首歌补标签、封面和歌词。「只补全缺失字段」开着时只填空着的;关着时
     /// 用可信的在线结果覆盖(服务端曲库源的标签归服务端管,始终只补空缺,歌词也不去在线找)。
     /// 逐首串行,`progress` 在主线程上报当前是第几首。任务取消后停在当前这首。
+    /// `parts`:只补歌词或只补封面时其余部分不请求、不写。
     func scrapeMissingMetadata(
         albumID: String,
+        parts: ScrapeParts = .all,
         progress: @escaping @MainActor (TVAlbumScrapeProgress) -> Void
     ) async -> TVAlbumScrapeResult {
         guard let store else { return TVAlbumScrapeResult() }
@@ -338,7 +348,7 @@ final class TVMetadataScrapeService {
                 result.unchanged += 1
                 continue
             }
-            if await fillMissing(song, settings: settings) {
+            if await fillMissing(song, settings: settings, parts: parts) {
                 result.updated += 1
             } else {
                 result.unchanged += 1
@@ -348,7 +358,7 @@ final class TVMetadataScrapeService {
         return result
     }
 
-    private func fillMissing(_ song: Song, settings: ScraperSettings) async -> Bool {
+    private func fillMissing(_ song: Song, settings: ScraperSettings, parts: ScrapeParts) async -> Bool {
         guard let store else { return false }
         let sourceType = store.sourcesStore.source(id: song.sourceID)?.type
         let isServerLibrary = sourceType.map {
@@ -360,7 +370,7 @@ final class TVMetadataScrapeService {
             || fields.albumTitle?.isEmpty != false
             || fields.year == nil
             || fields.genre?.isEmpty != false
-        let needsMetadata = ScrapeMetadataApplicationPolicy.shouldRequestMetadata(
+        let needsMetadata = parts.contains(.metadata) && ScrapeMetadataApplicationPolicy.shouldRequestMetadata(
             fieldsAreMissing: fieldsAreMissing,
             forceRefresh: overwrite
         )
@@ -370,14 +380,15 @@ final class TVMetadataScrapeService {
         } else {
             hasCover = await MetadataAssetStore.shared.cachedCoverData(forSongID: song.id) != nil
         }
-        let needsCover = overwrite || !hasCover
+        let needsCover = parts.contains(.cover) && (overwrite || !hasCover)
         let hasLyrics: Bool
         if song.lyricsFileName?.isEmpty == false {
             hasLyrics = true
         } else {
             hasLyrics = await MetadataAssetStore.shared.cachedLyrics(forSongID: song.id)?.isEmpty == false
         }
-        let needsLyrics = !isServerLibrary
+        let needsLyrics = parts.contains(.lyrics)
+            && !isServerLibrary
             && !store.isSpokenWord(songID: song.id)
             && (overwrite || !hasLyrics)
         guard needsMetadata || needsCover || needsLyrics else { return false }
@@ -395,24 +406,17 @@ final class TVMetadataScrapeService {
         let editedAt = Self.editTimestamp()
 
         var appliedTags = false
-        if let detail = scraped.detail {
+        if needsMetadata, let detail = scraped.detail {
             let current = updated.scrapeFields
             var merged = ScrapedMetadataMergePolicy.merged(
                 current,
                 with: ScrapedMetadataMergePolicy.Candidate(detail),
                 overwrite: overwrite
             )
-            // CUE 虚拟音轨的标题 / 歌手 / 专辑来自 CUE 表,在线结果描述的是整个音频文件。
+            // CUE 虚拟音轨的标题、歌手、专辑、专辑艺术家、轨号、碟号来自 CUE 表,
+            // 在线结果描述的是整个音频文件,覆盖模式下也不能换。
             if updated.isCueTrack {
-                merged.title = ScrapeCueIdentityPolicy.resolvedTitle(
-                    original: current.title, scraped: merged.title, isCueTrack: true
-                )
-                merged.artist = ScrapeCueIdentityPolicy.resolvedOptionalText(
-                    original: current.artist, scraped: merged.artist, isCueTrack: true
-                )
-                merged.albumTitle = ScrapeCueIdentityPolicy.resolvedOptionalText(
-                    original: current.albumTitle, scraped: merged.albumTitle, isCueTrack: true
-                )
+                merged = ScrapeCueIdentityPolicy.protectingCueIdentity(merged, original: current)
             }
             if !Self.sameVisibleTags(current, merged) {
                 updated.applyScrapeFields(merged)

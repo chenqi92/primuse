@@ -37,7 +37,8 @@ struct TVSongMatchView: View {
     @State private var loadingCandidateID: String?
     @State private var preview: TVScrapePreview?
     @State private var previewImage: UIImage?
-    @State private var applyTags = false
+    /// 勾选要应用的标签字段。CUE 分轨默认一项不勾(见 `ScrapeTagField.defaultSelection`)。
+    @State private var selectedTagFields: Set<ScrapeTagField> = []
     @State private var applyCover = false
     @State private var applyLyrics = false
     @State private var isApplying = false
@@ -252,28 +253,33 @@ struct TVSongMatchView: View {
         VStack(alignment: .leading, spacing: 28) {
             HStack(alignment: .top, spacing: 44) {
                 coverView
-                VStack(alignment: .leading, spacing: 14) {
-                    comparisonRow(String(localized: "title_label"),
-                                  preview.original.title, preview.proposed.title)
-                    comparisonRow(String(localized: "artist_label"),
-                                  preview.original.artist, preview.proposed.artist)
-                    comparisonRow(String(localized: "album_label"),
-                                  preview.original.albumTitle, preview.proposed.albumTitle)
-                    comparisonRow(String(localized: "year_label"),
-                                  preview.original.year.map { String($0) }, preview.proposed.year.map { String($0) })
-                    comparisonRow(String(localized: "genre_label"),
-                                  preview.original.genre, preview.proposed.genre)
-                    comparisonRow(String(localized: "track_label"),
-                                  preview.original.trackNumber.map { String($0) },
-                                  preview.proposed.trackNumber.map { String($0) })
+                VStack(alignment: .leading, spacing: 4) {
+                    fieldRow(.title, String(localized: "title_label"), preview,
+                             preview.original.title, preview.proposed.title)
+                    fieldRow(.artist, String(localized: "artist_label"), preview,
+                             preview.original.artist, preview.proposed.artist)
+                    fieldRow(.album, String(localized: "album_label"), preview,
+                             preview.original.albumTitle, preview.proposed.albumTitle)
+                    fieldRow(.year, String(localized: "year_label"), preview,
+                             preview.original.year.map { String($0) }, preview.proposed.year.map { String($0) })
+                    fieldRow(.genre, String(localized: "genre_label"), preview,
+                             preview.original.genre, preview.proposed.genre)
+                    fieldRow(.track, String(localized: "track_label"), preview,
+                             preview.original.trackNumber.map { String($0) },
+                             preview.proposed.trackNumber.map { String($0) })
+                    fieldRow(.disc, String(localized: "disc_label"), preview,
+                             preview.original.discNumber.map { String($0) },
+                             preview.proposed.discNumber.map { String($0) })
+                    // 与上面各行对齐:行内边距 12 + 勾选图标 28 + 间距 18。
                     lyricsSummary(preview.lyrics)
+                        .padding(.leading, 58)
+                        .padding(.top, 6)
                 }
+                .focusSection()
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             HStack(spacing: 18) {
-                optionToggle("tag", String(localized: "tv_scrape_apply_tags"),
-                             isOn: $applyTags, isAvailable: preview.tagsChanged)
                 optionToggle("photo", String(localized: "cover"),
                              isOn: $applyCover, isAvailable: preview.coverData != nil)
                 optionToggle("text.quote", String(localized: "lyrics_word"),
@@ -288,7 +294,7 @@ struct TVSongMatchView: View {
                     style: .solid,
                     action: apply
                 )
-                .disabled(isApplying || !(applyTags || applyCover || applyLyrics))
+                .disabled(isApplying || !(hasSelectedTagChange(preview) || applyCover || applyLyrics))
                 TVPillButton(
                     title: String(localized: "back_to_results"),
                     systemImage: "chevron.left",
@@ -323,16 +329,55 @@ struct TVSongMatchView: View {
         .accessibilityHidden(true)
     }
 
-    private func comparisonRow(_ label: String, _ current: String?, _ proposed: String?) -> some View {
-        let currentText = displayValue(current)
-        let proposedText = displayValue(proposed)
-        let changed = currentText != proposedText
-        return HStack(alignment: .firstTextBaseline, spacing: 18) {
+    /// 一项标签:有变化时整行可以按下勾选 / 取消,没变化时只显示现值。
+    @ViewBuilder
+    private func fieldRow(
+        _ field: ScrapeTagField,
+        _ label: String,
+        _ preview: TVScrapePreview,
+        _ current: String?,
+        _ proposed: String?
+    ) -> some View {
+        let changed = field.differs(preview.original, preview.proposed)
+        let selected = changed && selectedTagFields.contains(field)
+        if changed {
+            TVFocusButton(radius: 12, scale: 1.0, lift: 0, ring: false, action: {
+                if selectedTagFields.contains(field) {
+                    selectedTagFields.remove(field)
+                } else {
+                    selectedTagFields.insert(field)
+                }
+            }) { focused in
+                fieldRowContent(label, current, proposed, changed: true, selected: selected)
+                    .background(focused ? TVColor.surfaceStrong : .clear, in: .rect(cornerRadius: 12))
+            }
+            .accessibilityLabel(Text(verbatim: label))
+            .accessibilityValue(Text(verbatim: displayValue(proposed)))
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        } else {
+            fieldRowContent(label, current, proposed, changed: false, selected: false)
+        }
+    }
+
+    private func fieldRowContent(
+        _ label: String,
+        _ current: String?,
+        _ proposed: String?,
+        changed: Bool,
+        selected: Bool
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 18) {
+            // 没变化的行也留出勾选图标的位置,各行的字段名对齐。
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(selected ? TVColor.brand : TVColor.textFaint)
+                .opacity(changed ? 1 : 0)
+                .frame(width: 28)
             Text(label)
                 .tvFont(.caption)
                 .foregroundStyle(TVColor.textFaint)
                 .frame(width: 150, alignment: .leading)
-            Text(verbatim: currentText)
+            Text(verbatim: displayValue(current))
                 .tvFont(.body)
                 .foregroundStyle(changed ? TVColor.textMuted : TVColor.text)
                 .lineLimit(1)
@@ -340,12 +385,19 @@ struct TVSongMatchView: View {
                 Image(systemName: "arrow.right")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(TVColor.textFaint)
-                Text(verbatim: proposedText)
+                Text(verbatim: displayValue(proposed))
                     .tvFont(.body, weight: .semibold)
-                    .foregroundStyle(TVColor.brand)
+                    .foregroundStyle(selected ? TVColor.brand : TVColor.textMuted)
                     .lineLimit(1)
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func hasSelectedTagChange(_ preview: TVScrapePreview) -> Bool {
+        selectedTagFields.contains { $0.differs(preview.original, preview.proposed) }
     }
 
     private func lyricsSummary(_ lyrics: [LyricLine]?) -> some View {
@@ -441,7 +493,11 @@ struct TVSongMatchView: View {
                 // 下载回来的不是能显示的图片(错误页、残缺文件)就当没有封面,也不能应用。
                 let image = result.coverData.flatMap(UIImage.init(data:))
                 previewImage = image
-                applyTags = result.tagsChanged
+                selectedTagFields = ScrapeTagField.defaultSelection(
+                    original: result.original,
+                    proposed: result.proposed,
+                    isCueTrack: song.isCueTrack
+                )
                 // CUE 分轨共用整张专辑的封面,单首换封面默认不勾。
                 applyCover = image != nil && !song.isCueTrack
                 applyLyrics = result.lyrics?.isEmpty == false
@@ -463,9 +519,9 @@ struct TVSongMatchView: View {
         isApplying = true
         notice = nil
         let scraper = store.metadataScraper
-        let (tags, cover, lyrics) = (applyTags, applyCover, applyLyrics)
+        let (fields, cover, lyrics) = (selectedTagFields, applyCover, applyLyrics)
         Task { @MainActor in
-            let changed = await scraper.apply(preview, tags: tags, cover: cover, lyrics: lyrics)
+            let changed = await scraper.apply(preview, fields: fields, cover: cover, lyrics: lyrics)
             isApplying = false
             if changed {
                 dismiss()
@@ -638,7 +694,19 @@ struct TVAlbumScrapeView: View {
                     title: String(localized: "tv_scrape_album_start"),
                     systemImage: "wand.and.stars",
                     style: .solid,
-                    action: start
+                    action: { start(parts: .all) }
+                )
+                .disabled(trackCount == 0 || !hasEnabledSource)
+                TVPillButton(
+                    title: String(localized: "scrape_parts_lyrics_only"),
+                    systemImage: "text.quote",
+                    action: { start(parts: .lyrics) }
+                )
+                .disabled(trackCount == 0 || !hasEnabledSource)
+                TVPillButton(
+                    title: String(localized: "scrape_parts_cover_only"),
+                    systemImage: "photo",
+                    action: { start(parts: .cover) }
                 )
                 .disabled(trackCount == 0 || !hasEnabledSource)
                 TVPillButton(title: String(localized: "cancel"), systemImage: "xmark", action: close)
@@ -674,13 +742,13 @@ struct TVAlbumScrapeView: View {
         }
     }
 
-    private func start() {
+    private func start(parts: ScrapeParts) {
         guard task == nil else { return }
         phase = .running(nil)
         let scraper = store.metadataScraper
         let albumID = albumID
         task = Task { @MainActor in
-            let result = await scraper.scrapeMissingMetadata(albumID: albumID) { progress in
+            let result = await scraper.scrapeMissingMetadata(albumID: albumID, parts: parts) { progress in
                 if case .running = phase { phase = .running(progress) }
             }
             task = nil

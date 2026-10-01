@@ -4570,3 +4570,7 @@
 "stats_server_hourly_title" = "Plays by Time of Day";
 "stats_server_hourly_footer" = "Grouped by the hour recorded by the server · plays. Scrobble times depend on the playback client.";
 "stats_server_navidrome_history_boundary" = "Charts and period totals use Navidrome’s retained play history. Older plays may exist only in all-time counters; upgrading cannot reconstruct them. Actual listened duration is unavailable.";
+
+"scrape_parts_all" = "Tags, Artwork & Lyrics";
+"scrape_parts_lyrics_only" = "Lyrics Only";
+"scrape_parts_cover_only" = "Artwork Only";

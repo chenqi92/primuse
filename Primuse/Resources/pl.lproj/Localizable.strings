@@ -4713,3 +4713,7 @@
 "stats_server_hourly_title" = "Odtworzenia według pory dnia";
 "stats_server_hourly_footer" = "Pogrupowane według godziny zapisanej przez serwer · odtworzenia. Czas scrobblingu zależy od odtwarzacza.";
 "stats_server_navidrome_history_boundary" = "Wykresy i sumy dla okresów korzystają z historii zachowanej przez Navidrome. Starsze odtworzenia mogą występować tylko w licznikach zbiorczych; aktualizacja nie pozwala ich odtworzyć. Rzeczywisty czas słuchania jest niedostępny.";
+
+"scrape_parts_all" = "Tagi, okładka i teksty";
+"scrape_parts_lyrics_only" = "Tylko teksty";
+"scrape_parts_cover_only" = "Tylko okładka";

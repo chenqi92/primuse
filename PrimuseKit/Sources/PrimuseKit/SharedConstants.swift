@@ -4992,6 +4992,140 @@ public enum ScrapedMetadataMergePolicy {
     }
 }
 
+/// 一次刮削要写进资料库的部分。整张专辑补全、多选刮削可以只补歌词或只补封面。
+public struct ScrapeParts: OptionSet, Codable, Hashable, Sendable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    /// 标签:标题、艺术家、专辑、轨号、碟号、年份、流派,以及时长、码率这些技术信息。
+    public static let metadata = ScrapeParts(rawValue: 1 << 0)
+    public static let cover = ScrapeParts(rawValue: 1 << 1)
+    public static let lyrics = ScrapeParts(rawValue: 1 << 2)
+    public static let all: ScrapeParts = [.metadata, .cover, .lyrics]
+}
+
+public enum ScrapeApplyPolicy {
+    /// 把刮削结果里没被选中的部分换回原来的值。从结果出发、只还原没选的字段,
+    /// 刮削顺带带回的其他字段(CUE 边界、ReplayGain)原样保留。
+    public static func restricted(_ updated: Song, to parts: ScrapeParts, original: Song) -> Song {
+        var result = updated
+        if !parts.contains(.metadata) {
+            result.title = original.title
+            result.albumID = original.albumID
+            result.artistID = original.artistID
+            result.albumTitle = original.albumTitle
+            result.artistName = original.artistName
+            result.sourceArtistNames = original.sourceArtistNames
+            result.albumArtistName = original.albumArtistName
+            result.trackNumber = original.trackNumber
+            result.discNumber = original.discNumber
+            result.genre = original.genre
+            result.year = original.year
+            result.titlePinyin = original.titlePinyin
+            result.artistPinyin = original.artistPinyin
+            result.albumPinyin = original.albumPinyin
+            result.duration = original.duration
+            result.bitRate = original.bitRate
+            result.sampleRate = original.sampleRate
+            result.bitDepth = original.bitDepth
+            result.mvPath = original.mvPath
+        }
+        if !parts.contains(.cover) {
+            result.coverArtFileName = original.coverArtFileName
+        }
+        if !parts.contains(.lyrics) {
+            result.lyricsFileName = original.lyricsFileName
+        }
+        return result
+    }
+}
+
+/// 手动匹配预览里可以逐项勾选的标签。
+public enum ScrapeTagField: String, CaseIterable, Hashable, Sendable {
+    case title, artist, album, year, genre, track, disc
+
+    /// 这一项在候选里是否和现在不同。专辑这一项也算上候选明确给出的专辑艺术家
+    /// (只是跟着曲目艺术家走的回退值归艺术家那一项)。
+    public func differs(
+        _ original: ScrapedMetadataMergePolicy.Fields,
+        _ proposed: ScrapedMetadataMergePolicy.Fields
+    ) -> Bool {
+        switch self {
+        case .title: original.title != proposed.title
+        case .artist: original.artist != proposed.artist
+        case .album:
+            original.albumTitle != proposed.albumTitle
+                || (proposed.albumArtist != proposed.artist && original.albumArtist != proposed.albumArtist)
+        case .year: original.year != proposed.year
+        case .genre: original.genre != proposed.genre
+        case .track: original.trackNumber != proposed.trackNumber
+        case .disc: original.discNumber != proposed.discNumber
+        }
+    }
+
+    /// 预览打开时默认勾哪些:有变化的都勾。CUE 分轨一项都不勾 —— 标签以 CUE 表为准,
+    /// 候选常是别的版本或合辑,打开匹配多半只是为了歌词。
+    public static func defaultSelection(
+        original: ScrapedMetadataMergePolicy.Fields,
+        proposed: ScrapedMetadataMergePolicy.Fields,
+        isCueTrack: Bool
+    ) -> Set<ScrapeTagField> {
+        guard !isCueTrack else { return [] }
+        return Set(allCases.filter { $0.differs(original, proposed) })
+    }
+}
+
+public extension ScrapedMetadataMergePolicy.Fields {
+    /// 只把勾选的标签换成候选的值。艺术家换了,原本只是跟着曲目艺术家的专辑艺术家
+    /// 跟着走;候选明确给的专辑艺术家随专辑一起应用。
+    func applying(_ proposed: Self, fields: Set<ScrapeTagField>) -> Self {
+        var result = self
+        if fields.contains(.title) { result.title = proposed.title }
+        if fields.contains(.artist) {
+            result.artist = proposed.artist
+            result.sourceArtistNames = proposed.sourceArtistNames
+            result.albumArtist = AlbumGroupingPolicy.updatedAlbumArtistName(
+                existingAlbumArtistName: albumArtist,
+                previousTrackArtistName: artist,
+                updatedTrackArtistName: proposed.artist
+            )
+        }
+        if fields.contains(.album) {
+            result.albumTitle = proposed.albumTitle
+            if proposed.albumArtist != proposed.artist { result.albumArtist = proposed.albumArtist }
+        }
+        if fields.contains(.year) { result.year = proposed.year }
+        if fields.contains(.genre) { result.genre = proposed.genre }
+        if fields.contains(.track) { result.trackNumber = proposed.trackNumber }
+        if fields.contains(.disc) { result.discNumber = proposed.discNumber }
+        return result
+    }
+}
+
+public extension ScrapeCueIdentityPolicy {
+    /// 批量 / 整张专辑补全合并完之后,CUE 分轨的身份字段以 CUE 表为准:标题、艺术家、
+    /// 专辑、专辑艺术家有值就不换,轨号、碟号只补空缺。在线结果描述的是整个音频文件,
+    /// 覆盖模式下照搬会把每一轨改成同一个名字、拆出专辑。
+    static func protectingCueIdentity(
+        _ merged: ScrapedMetadataMergePolicy.Fields,
+        original: ScrapedMetadataMergePolicy.Fields
+    ) -> ScrapedMetadataMergePolicy.Fields {
+        var result = merged
+        result.title = resolvedTitle(original: original.title, scraped: merged.title, isCueTrack: true)
+        result.artist = resolvedOptionalText(original: original.artist, scraped: merged.artist, isCueTrack: true)
+        if result.artist == original.artist { result.sourceArtistNames = original.sourceArtistNames }
+        result.albumTitle = resolvedOptionalText(
+            original: original.albumTitle, scraped: merged.albumTitle, isCueTrack: true
+        )
+        result.albumArtist = resolvedOptionalText(
+            original: original.albumArtist, scraped: merged.albumArtist, isCueTrack: true
+        )
+        result.trackNumber = original.trackNumber ?? merged.trackNumber
+        result.discNumber = original.discNumber ?? merged.discNumber
+        return result
+    }
+}
+
 /// 只存在本机、不写回音乐源的刮削改动(Apple TV 上的手动匹配与整张专辑补全),
 /// 在别处来的曲库快照整份覆盖之后怎么补回来。
 public enum LocalMetadataOverridePolicy {

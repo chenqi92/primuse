@@ -186,6 +186,8 @@ final class MusicScraperService {
         var artworkTargetIDs: [String]?
         var runID: UUID?
         var originPlaylistID: String?
+        /// 只补歌词 / 只补封面的一轮,续跑时范围不变。旧断点没有这一项 = 全部。
+        var parts: ScrapeParts?
 
         var hasPersistedSongCounts: Bool {
             updatedCount != nil && skippedCount != nil && failedCount != nil
@@ -292,17 +294,20 @@ final class MusicScraperService {
         startScraping(in: library, forceRescrape: false)
     }
 
+    /// `parts`:只补歌词或只补封面时,其余部分即使刮到了也不写。
     @discardableResult
     func scrapeMissingMetadata(
         songs: [Song],
         in library: MusicLibrary,
-        originPlaylistID: String? = nil
+        originPlaylistID: String? = nil,
+        parts: ScrapeParts = .all
     ) -> BatchScrapeStartResult {
         startScraping(
             songs: songs,
             in: library,
             forceRescrape: false,
-            originPlaylistID: originPlaylistID
+            originPlaylistID: originPlaylistID,
+            parts: parts
         )
     }
 
@@ -970,7 +975,8 @@ final class MusicScraperService {
         saveCheckpoint: Bool = true,
         allowBackgroundExecution: Bool = false,
         resumeCheckpoint: ScrapeCheckpoint? = nil,
-        originPlaylistID: String? = nil
+        originPlaylistID: String? = nil,
+        parts requestedParts: ScrapeParts = .all
     ) -> BatchScrapeStartResult {
         guard !isScraping, !isSingleScraping else {
             plog("MusicScraperService: ignored overlapping batch scrape request")
@@ -998,12 +1004,14 @@ final class MusicScraperService {
         }.ordered
         let runID = resumeCheckpoint?.runID ?? UUID()
         let runOriginPlaylistID = resumeCheckpoint?.originPlaylistID ?? originPlaylistID
+        let parts = resumeCheckpoint.map { $0.parts ?? .all } ?? requestedParts
         if saveCheckpoint {
             persistScrapeCheckpoint(
                 songIDs: songs.map(\.id),
                 forceRescrape: forceRescrape,
                 runID: runID,
-                originPlaylistID: runOriginPlaylistID
+                originPlaylistID: runOriginPlaylistID,
+                parts: parts
             )
         } else if var checkpoint = scrapeCheckpoint,
                   checkpoint.runID == nil || checkpoint.originPlaylistID != runOriginPlaylistID {
@@ -1157,19 +1165,22 @@ final class MusicScraperService {
                     guard !Task.isCancelled else { return }
 
                     processedCount += 1
-                    var updatedSong = result.song
+                    // 只补歌词 / 只补封面:其余部分刮到了也换回原值。
+                    var updatedSong = ScrapeApplyPolicy.restricted(result.song, to: parts, original: song)
 
                     // Determine which assets should be committed based on fill/overwrite mode.
                     let shouldWriteCover: Bool
                     let shouldWriteLyrics: Bool
                     if onlyFillMissing {
                         // Only write if the song was missing cover/lyrics before
-                        shouldWriteCover = song.coverArtFileName == nil && result.coverData != nil
-                        shouldWriteLyrics = song.lyricsFileName == nil && result.lyricsLines != nil
+                        shouldWriteCover = parts.contains(.cover)
+                            && song.coverArtFileName == nil && result.coverData != nil
+                        shouldWriteLyrics = parts.contains(.lyrics)
+                            && song.lyricsFileName == nil && result.lyricsLines != nil
                     } else {
                         // Overwrite mode: write if we got new data
-                        shouldWriteCover = result.coverData != nil
-                        shouldWriteLyrics = (result.lyricsLines?.isEmpty == false)
+                        shouldWriteCover = parts.contains(.cover) && result.coverData != nil
+                        shouldWriteLyrics = parts.contains(.lyrics) && (result.lyricsLines?.isEmpty == false)
                     }
 
                     // 重新刮削时占位 hash ref 与现存 ref 相同 → updatedSong == song, 但
@@ -1321,6 +1332,8 @@ final class MusicScraperService {
 
             // Phase 2: Scrape album and artist covers
             guard !Task.isCancelled else { return }
+            // 只补歌词的一轮不碰专辑 / 艺人封面。
+            guard parts.contains(.cover) else { return }
 
             let assetStore = MetadataAssetStore.shared
             let isWholeVisibleLibrary = Set(songs.map(\.id)) == Set(library.visibleSongs.map(\.id))
@@ -1404,7 +1417,8 @@ final class MusicScraperService {
         songIDs: [String],
         forceRescrape: Bool,
         runID: UUID,
-        originPlaylistID: String?
+        originPlaylistID: String?,
+        parts: ScrapeParts
     ) {
         let checkpoint = ScrapeCheckpoint(
             songIDs: songIDs,
@@ -1415,7 +1429,8 @@ final class MusicScraperService {
             failedCount: 0,
             artworkTargetIDs: nil,
             runID: runID,
-            originPlaylistID: originPlaylistID
+            originPlaylistID: originPlaylistID,
+            parts: parts == .all ? nil : parts
         )
         scrapeCheckpoint = checkpoint
         writeScrapeCheckpoint(checkpoint)

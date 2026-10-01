@@ -4713,3 +4713,7 @@
 "stats_server_hourly_title" = "Günün saatine göre çalmalar";
 "stats_server_hourly_footer" = "Sunucunun kaydettiği saate göre gruplandırılır · çalmalar. Scrobble zamanı, kullanılan oynatıcıya bağlıdır.";
 "stats_server_navidrome_history_boundary" = "Grafikler ve dönem toplamları Navidrome’un sakladığı çalma geçmişini kullanır. Eski çalmalar yalnızca toplam sayaçlarda bulunabilir; yükseltme bunları yeniden oluşturamaz. Gerçekte dinlenen süre mevcut değildir.";
+
+"scrape_parts_all" = "Etiketler, kapak ve şarkı sözleri";
+"scrape_parts_lyrics_only" = "Yalnızca şarkı sözleri";
+"scrape_parts_cover_only" = "Yalnızca kapak";

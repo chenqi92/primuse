@@ -490,8 +490,10 @@ private struct SongBatchActionsModifier: ViewModifier {
                 Label("offline_download", systemImage: "arrow.down.circle")
             }
 
-            Button {
-                startScrape()
+            Menu {
+                Button("scrape_parts_all", systemImage: "wand.and.stars") { startScrape(parts: .all) }
+                Button("scrape_parts_lyrics_only", systemImage: "text.quote") { startScrape(parts: .lyrics) }
+                Button("scrape_parts_cover_only", systemImage: "photo") { startScrape(parts: .cover) }
             } label: {
                 Label("scrape_missing_metadata", systemImage: "wand.and.stars")
             }
@@ -689,14 +691,14 @@ private struct SongBatchActionsModifier: ViewModifier {
         }
     }
 
-    private func startScrape() {
+    private func startScrape(parts: ScrapeParts) {
         let songs = selectedSongs()
         guard !songs.isEmpty else { return }
         guard scraperSettings.hasEnabledSource else {
             showNoScraperSourceAlert = true
             return
         }
-        scraperService.scrapeMissingMetadata(songs: songs, in: library)
+        scraperService.scrapeMissingMetadata(songs: songs, in: library, parts: parts)
         selection.deactivate()
     }
 

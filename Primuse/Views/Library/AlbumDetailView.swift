@@ -341,6 +341,14 @@ struct AlbumDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    private func scrapeAlbum(parts: ScrapeParts) {
+        guard scraperSettings.hasEnabledSource else {
+            showNoScraperSourceAlert = true
+            return
+        }
+        scraperService.scrapeMissingMetadata(songs: songs, in: library, parts: parts)
+    }
+
     /// header 右上角"更多"按钮的菜单内容。播放 / 队列 / 离线 / 前往艺术家。
     private var albumMoreMenu: AnyView {
         let playable = songs.filteredPlayable()
@@ -355,11 +363,15 @@ struct AlbumDetailView: View {
             .init(icon: "wand.and.stars", title: String(localized: "scrape_missing_metadata"),
                   trailing: songs.count.formatted(),
                   enabled: !songs.isEmpty && !scraperService.isScraping) {
-                guard scraperSettings.hasEnabledSource else {
-                    showNoScraperSourceAlert = true
-                    return
-                }
-                scraperService.scrapeMissingMetadata(songs: songs, in: library)
+                scrapeAlbum(parts: .all)
+            },
+            .init(icon: "text.quote", title: String(localized: "scrape_parts_lyrics_only"),
+                  enabled: !songs.isEmpty && !scraperService.isScraping) {
+                scrapeAlbum(parts: .lyrics)
+            },
+            .init(icon: "photo", title: String(localized: "scrape_parts_cover_only"),
+                  enabled: !songs.isEmpty && !scraperService.isScraping) {
+                scrapeAlbum(parts: .cover)
             },
         ]
         if let artist = albumArtist {

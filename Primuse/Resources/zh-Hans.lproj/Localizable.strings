@@ -4900,3 +4900,7 @@
 "stats_server_hourly_title" = "各时段播放次数";
 "stats_server_hourly_footer" = "按服务端记录时间的小时分组；记录时间取决于播放客户端。";
 "stats_server_navidrome_history_boundary" = "图表和分时段统计来自 Navidrome 保留的逐次播放历史。更早的播放可能只保留了累计次数，升级无法补回其日期；服务端未提供实际听歌时长。";
+
+"scrape_parts_all" = "标签、封面和歌词";
+"scrape_parts_lyrics_only" = "只补歌词";
+"scrape_parts_cover_only" = "只补封面";

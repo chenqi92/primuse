@@ -198,6 +198,8 @@ struct ScrapeOptionsView: View {
         var scrapedGenre: String?
         var hasCover: Bool
         var hasLyrics: Bool
+        /// 选项页勾了「标签」:时长、码率这些技术信息也只在这时跟着写。
+        var includesMetadata = true
         // 候选封面像素尺寸 / 字节数, 用于中栏封面对比下方的 "2400×2400 · 612 KB"。
         var coverPixelWidth: Int? = nil
         var coverPixelHeight: Int? = nil
@@ -1406,24 +1408,28 @@ struct ScrapeOptionsView: View {
     }
 
     private func applyAutomaticPreview(_ result: MusicScraperService.SingleScrapeResult) {
+        // 选项页的三个勾选对自动匹配同样算数:没勾「标签」时候选的标题、年份等不进
+        // 待选字段,没勾封面 / 歌词时刮到的也不拿来应用。
+        let includesMetadata = scrapeMetadata && !isAppleMusicSong
         let updated = result.song
-        let coverData = result.coverData
-        let lyricsLines = result.lyrics
+        let coverData = scrapeCover && !isAppleMusicSong ? result.coverData : nil
+        let lyricsLines = scrapeLyrics ? result.lyrics : nil
         let lyricsCount = lyricsLines?.count ?? 0
         let coverPx = coverData.flatMap { coverPixelSize(from: $0) }
 
         previewResult = ScrapePreview(
             updatedSong: updated, coverData: coverData, lyricsCount: lyricsCount,
             lyricsLines: lyricsLines,
-            scrapedTitle: updated.title,
-            scrapedArtist: updated.artistName,
-            scrapedAlbum: updated.albumTitle,
-            scrapedYear: updated.year,
-            scrapedTrackNumber: updated.trackNumber,
-            scrapedDiscNumber: updated.discNumber,
-            scrapedGenre: updated.genre,
+            scrapedTitle: includesMetadata ? updated.title : nil,
+            scrapedArtist: includesMetadata ? updated.artistName : nil,
+            scrapedAlbum: includesMetadata ? updated.albumTitle : nil,
+            scrapedYear: includesMetadata ? updated.year : nil,
+            scrapedTrackNumber: includesMetadata ? updated.trackNumber : nil,
+            scrapedDiscNumber: includesMetadata ? updated.discNumber : nil,
+            scrapedGenre: includesMetadata ? updated.genre : nil,
             hasCover: coverData != nil,
             hasLyrics: lyricsLines?.isEmpty == false,
+            includesMetadata: includesMetadata,
             coverPixelWidth: coverPx?.0,
             coverPixelHeight: coverPx?.1
         )
@@ -1654,6 +1660,7 @@ struct ScrapeOptionsView: View {
                 scrapedGenre: scrapeMetadata ? updated.genre : nil,
                 hasCover: hasCover,
                 hasLyrics: hasLyrics,
+                includesMetadata: scrapeMetadata && !isAppleMusicSong,
                 coverPixelWidth: coverPx?.0,
                 coverPixelHeight: coverPx?.1
             )
@@ -1702,12 +1709,15 @@ struct ScrapeOptionsView: View {
         }
         final.trackNumber = (trackChanged && applyTrack) ? u.trackNumber : song.trackNumber
         final.discNumber = (discChanged && applyDisc) ? u.discNumber : song.discNumber
-        if !song.isCueTrack, allowsMetadataAndCover, u.duration > 0 {
-            final.duration = u.duration
+        // 时长、码率归「标签」管:只勾了歌词或封面时一项也不动。
+        if preview.includesMetadata, allowsMetadataAndCover {
+            if !song.isCueTrack, u.duration > 0 {
+                final.duration = u.duration
+            }
+            final.bitRate = u.bitRate ?? song.bitRate
+            final.sampleRate = u.sampleRate ?? song.sampleRate
+            final.bitDepth = u.bitDepth ?? song.bitDepth
         }
-        final.bitRate = u.bitRate ?? song.bitRate
-        final.sampleRate = u.sampleRate ?? song.sampleRate
-        final.bitDepth = u.bitDepth ?? song.bitDepth
         final.genre = (genreChanged && applyGenre) ? u.genre : song.genre
         final.year = (yearChanged && applyYear) ? u.year : song.year
         final.coverArtFileName = coverFileName

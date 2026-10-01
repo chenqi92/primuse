@@ -4807,3 +4807,7 @@
 "stats_server_hourly_title" = "Wiedergaben nach Tageszeit";
 "stats_server_hourly_footer" = "Nach der vom Server erfassten Stunde gruppiert. Der Zeitpunkt hängt vom Wiedergabeclient ab.";
 "stats_server_navidrome_history_boundary" = "Diagramme und Zeitraumstatistiken verwenden den gespeicherten Navidrome-Verlauf. Ältere Wiedergaben können nur im Gesamtzähler enthalten sein; ein Upgrade kann ihre Zeitpunkte nicht wiederherstellen. Die tatsächliche Hördauer ist nicht verfügbar.";
+
+"scrape_parts_all" = "Tags, Cover und Liedtexte";
+"scrape_parts_lyrics_only" = "Nur Liedtexte";
+"scrape_parts_cover_only" = "Nur Cover";
