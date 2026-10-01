@@ -1744,9 +1744,11 @@ struct ScrapeOptionsView: View {
                 || appliedFinal.bitDepth != song.bitDepth
                 || appliedFinal.genre != song.genre
                 || appliedFinal.year != song.year
-            // A server library's catalogue text follows the server on every
-            // scan. Values picked here are the user's own, so stamp them like
-            // a tag edit or the next scan puts the server's back.
+            // Values picked here are the user's own, so stamp them like a tag
+            // edit. A server library's catalogue text follows the server on
+            // every scan; a file-backed source keeps scraped values only in
+            // the library (they are not written into the audio file), so the
+            // next tag read would put the file's back (#173).
             let catalogTextChanged = appliedFinal.title != song.title
                 || appliedFinal.albumTitle != song.albumTitle
                 || appliedFinal.artistName != song.artistName
@@ -1754,10 +1756,14 @@ struct ScrapeOptionsView: View {
                 || appliedFinal.discNumber != song.discNumber
                 || appliedFinal.genre != song.genre
                 || appliedFinal.year != song.year
-            if catalogTextChanged, await sm.isServerLibrarySource(for: song) {
-                appliedFinal.userMetadataEditedAt = Date()
+            if await sm.isServerLibrarySource(for: song) {
+                if catalogTextChanged { appliedFinal.userMetadataEditedAt = Date() }
+            } else {
+                appliedFinal = SongUserMetadataPolicy.stampingUserEdit(original: song, updated: appliedFinal)
             }
-            if metadataChanged {
+            // A stamp on a cover-only change is a row change too: the asset
+            // patch below would not carry it.
+            if metadataChanged || appliedFinal.userMetadataEditedAt != song.userMetadataEditedAt {
                 lib.replaceSong(appliedFinal)
             } else {
                 // 只改旁挂资源时走合批窗口。后面歌词回写的整行替换会先把窗口

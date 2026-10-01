@@ -5375,7 +5375,12 @@ final class MetadataBackfillService {
             lyricsText: bare.lyricsText,
             userMetadataEditedAt: bare.userMetadataEditedAt
         )
-        return SongUserMetadataPolicy.preservingUserEdits(from: bare, in: merged)
+        let preserved = SongUserMetadataPolicy.preservingUserEdits(from: bare, in: merged)
+        if bare.userMetadataEditedAt != nil,
+           SongUserMetadataPolicy.editableFieldsChanged(from: merged, to: preserved) {
+            plog("🔁 Backfill kept user edit for '\(preserved.title)' id=\(preserved.id.prefix(12))")
+        }
+        return preserved
     }
 
     // MARK: - Queue selection

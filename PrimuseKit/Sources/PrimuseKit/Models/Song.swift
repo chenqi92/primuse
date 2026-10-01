@@ -733,6 +733,19 @@ public enum SongUserMetadataPolicy {
         return result
     }
 
+    /// 用户发起的刮削改了资料库里看得见的字段,就记一笔「用户编辑」。
+    ///
+    /// 文件型音乐源(本机、NAS、网盘)刮到的标题、年份、封面等只存在资料库里,不写回
+    /// 音频文件;不记的话,下一次回填读文件标签、或目录变化触发的重扫,会把文件里的旧值
+    /// 换回来(#173)。服务端曲库源不走这里:它的补空缺刮削和后台补全一样,之后仍跟随
+    /// 服务端目录,只有手动换掉文字才记。
+    public static func stampingUserEdit(original: Song, updated: Song, at date: Date = Date()) -> Song {
+        guard editableFieldsChanged(from: original, to: updated) else { return updated }
+        var stamped = updated
+        stamped.userMetadataEditedAt = date
+        return stamped
+    }
+
     public static func editableFieldsChanged(from original: Song, to updated: Song) -> Bool {
         original.title != updated.title
             || original.artistName != updated.artistName

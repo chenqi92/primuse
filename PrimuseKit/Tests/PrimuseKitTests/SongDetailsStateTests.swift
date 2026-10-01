@@ -245,6 +245,40 @@ struct SongUserMetadataPolicyTests {
         #expect(merged.albumArtistName == "源专辑艺术家")
     }
 
+    @Test("A scrape that changes visible fields is stamped so file tags cannot revert it")
+    func scrapeChangesAreStampedAndSurviveTagRereads() {
+        let original = song(title: "01 track", duration: 180)
+        var scraped = original
+        scraped.title = "晴天"
+        scraped.year = 2003
+        let editedAt = Date(timeIntervalSince1970: 1_790_000_000)
+
+        let stamped = SongUserMetadataPolicy.stampingUserEdit(original: original, updated: scraped, at: editedAt)
+        #expect(stamped.userMetadataEditedAt == editedAt)
+
+        // The next tag read sees the file's own (stale) values again.
+        var reread = stamped
+        reread.title = "01 track"
+        reread.year = nil
+        reread.userMetadataEditedAt = nil
+        let merged = SongUserMetadataPolicy.preservingUserEdits(from: stamped, in: reread)
+        #expect(merged.title == "晴天")
+        #expect(merged.year == 2003)
+
+        var coverOnly = original
+        coverOnly.coverArtFileName = "cover-hash.jpg"
+        #expect(SongUserMetadataPolicy.stampingUserEdit(original: original, updated: coverOnly).userMetadataEditedAt != nil)
+    }
+
+    @Test("Lyrics-only or unchanged scrapes stay unstamped")
+    func unchangedScrapeIsNotStamped() {
+        let original = song(title: "晴天", duration: 180)
+        var lyricsOnly = original
+        lyricsOnly.lyricsFileName = "lyrics-hash.json"
+        lyricsOnly.duration = 181
+        #expect(SongUserMetadataPolicy.stampingUserEdit(original: original, updated: lyricsOnly).userMetadataEditedAt == nil)
+    }
+
     private func song(title: String, duration: TimeInterval) -> Song {
         Song(
             id: "song",

@@ -529,6 +529,10 @@ final class MusicScraperService {
                 await MetadataAssetStore.shared.cacheLyrics(lyricsLines, forSongID: updatedSong.id, force: true)
                 updatedSong.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: updatedSong.id)
             }
+            // 文件型源刮到的值只存在资料库,不记用户编辑的话下次读标签就被换回(#173)。
+            if await !sourceManager.isServerLibrarySource(for: song) {
+                updatedSong = SongUserMetadataPolicy.stampingUserEdit(original: song, updated: updatedSong)
+            }
             library.replaceSong(updatedSong)
 
             // Write sidecar files to source (cover.jpg, .lrc) and update Song refs
@@ -1191,6 +1195,13 @@ final class MusicScraperService {
                             updatedSong.lyricsFileName = MetadataAssetStore.shared.expectedLyricsFileName(for: updatedSong.id)
                         }
 
+                        // 同单曲刮削:文件型源刮到的值要记用户编辑,否则回填读标签会换回(#173)。
+                        if await !sourceManager.isServerLibrarySource(for: song) {
+                            updatedSong = SongUserMetadataPolicy.stampingUserEdit(
+                                original: song,
+                                updated: updatedSong
+                            )
+                        }
                         guard !Task.isCancelled else { return }
                         pendingSongUpdates.append(updatedSong)
                         updatedCount += 1
