@@ -4894,19 +4894,32 @@ final class SourceManager {
         acquirePlaybackCacheLease: Bool = true,
         transcodePlanOverride: SourceTranscodePlan? = nil
     ) async throws -> URL {
-        _ = await ensureAudioCacheScopeValidated(for: song.sourceID)
-        // Priority 1: Cached local file (instant playback). 必须在 connect() 之前判断:
-        // 源不可达(断网 / NAS 关机 / 登录态失效)时 connect() 会抛错。连本地
-        // sourcesProvider 都不应挡在缓存前面，让完整离线文件成为真正的零网络路径。
-        if acquirePlaybackCacheLease,
-           let cached = await cachedURLWithPlaybackLease(for: song) {
-            return cached
-        }
-        if !acquirePlaybackCacheLease, let cached = cachedURL(for: song) {
-            return cached
+        // 本机源的音频本来就是本地文件，从不进音频缓存（`backgroundAudioCacheTask`
+        // 对 .local 直接返回），所以跳过缓存范围校验与缓存租约：冷启动后第一次取
+        // 租约要先把整个缓存目录走一遍，那段等待对本机歌毫无意义（#170）。读不到源
+        // 列表时照旧先查缓存。
+        let knownSources = try? await sourcesProvider()
+        let isLocalSource = knownSources?.first(where: { $0.id == song.sourceID })?.type == .local
+        if !isLocalSource {
+            _ = await ensureAudioCacheScopeValidated(for: song.sourceID)
+            // Priority 1: Cached local file (instant playback). 必须在 connect() 之前判断:
+            // 源不可达(断网 / NAS 关机 / 登录态失效)时 connect() 会抛错。连本地
+            // sourcesProvider 都不应挡在缓存前面，让完整离线文件成为真正的零网络路径。
+            if acquirePlaybackCacheLease,
+               let cached = await cachedURLWithPlaybackLease(for: song) {
+                return cached
+            }
+            if !acquirePlaybackCacheLease, let cached = cachedURL(for: song) {
+                return cached
+            }
         }
 
-        let sources = try await sourcesProvider()
+        let sources: [MusicSource]
+        if let knownSources {
+            sources = knownSources
+        } else {
+            sources = try await sourcesProvider()
+        }
         guard let source = sources.first(where: { $0.id == song.sourceID }) else {
             throw SourceError.fileNotFound("Source not found for song: \(song.title)")
         }

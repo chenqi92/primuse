@@ -1180,6 +1180,15 @@ final class AudioPlayerService {
     var playID: UUID? {
         didSet { syncPumpLease() }
     }
+    /// 起播计时的起点（`play(song:)` 入口）。`⏱️ play` 行按它报到各阶段的累计
+    /// 耗时，用来分清「点了歌好一会儿才出声」的时间花在哪一段（#170）。
+    @ObservationIgnored private var playStartTimeline: (playID: UUID, startedAt: TimeInterval)?
+
+    private func logPlayStage(_ stage: String, playID id: UUID) {
+        guard let timeline = playStartTimeline, timeline.playID == id else { return }
+        let elapsed = Int(((ProcessInfo.processInfo.systemUptime - timeline.startedAt) * 1000).rounded())
+        plog("⏱️ play \(id.uuidString.prefix(8)) \(stage) +\(elapsed)ms")
+    }
     /// 解码泵不再跑在 MainActor 上, 所以它们无法直接读 playID / crossfade 状态。
     /// 这三个值每次变化都推到 lease 里, 泵按缓冲逐块同步查询归属, 既不用回主
     /// actor, 判定规则也仍然只有 `CrossfadePumpContinuationPolicy` 一处。
@@ -3704,6 +3713,7 @@ final class AudioPlayerService {
         }
         let id = UUID()
         playID = id
+        playStartTimeline = (id, ProcessInfo.processInfo.systemUptime)
         // 换歌就丢掉上一首的取流计划。Apple Music / 音乐视频等分支在下面直接
         // return, 不会走到 playFromURL 那次按 URL 的赋值, 所以必须在这里清。
         activeTranscodePlan = .original
@@ -3863,12 +3873,14 @@ final class AudioPlayerService {
                 trigger: "play-after-source-probe",
                 expectedTicket: transportTicket
             ) else { return }
+            logPlayStage("source-checked", playID: id)
             let musicVideoStartResult = await startMusicVideoPlaybackIfAvailable(for: song, playID: id)
             if case .started = musicVideoStartResult {
                 sourceManager?.cancelBackgroundAudioCaching(keeping: [])
                 return
             }
             if case .cancelled = musicVideoStartResult { return }
+            logPlayStage("mv-checked", playID: id)
 
             let sourceStreamEpoch = CloudPlaybackSource.streamEpochTicket(
                 sourceID: song.sourceID
@@ -3880,6 +3892,7 @@ final class AudioPlayerService {
                 trigger: "play-after-cache-wait",
                 expectedTicket: transportTicket
             ) else { return }
+            logPlayStage("cache-settled", playID: id)
             let url = try await resolvedURL(for: song)
             // Check if another play was initiated while downloading
             guard isLocalTransportStartAuthorized(
@@ -3888,6 +3901,7 @@ final class AudioPlayerService {
                 trigger: "play-after-url-resolution",
                 expectedTicket: transportTicket
             ) else { return }
+            logPlayStage("url-resolved", playID: id)
             await playFromURL(
                 song: song,
                 url: url,
@@ -4536,6 +4550,7 @@ final class AudioPlayerService {
             playID: id,
             sourceStreamEpoch: sourceStreamEpoch
            ) {
+            logPlayStage("system-player-started", playID: id)
             return
         }
 
@@ -4567,6 +4582,7 @@ final class AudioPlayerService {
             await autoAdvanceAfterFailure()
             return
         }
+        logPlayStage("decoder-checked", playID: id)
 
         do {
             activeDSDMode = try await configureOutputPipeline(
@@ -4575,6 +4591,7 @@ final class AudioPlayerService {
                 expectedPlayID: id
             )
             guard playID == id else { return }
+            logPlayStage("output-configured", playID: id)
             activeDSDPlaybackMode = activeDSDMode
             applySpatialAudioSettings()
             applyPlaybackRate()
@@ -5007,6 +5024,7 @@ final class AudioPlayerService {
             }
 
             // Schedule first buffer BEFORE play — playerNode has data ready
+            logPlayStage("first-buffer", playID: id)
             plog("▶️ Decoder firstBuffer: kind=\(activeDecoderKind) frames=\(firstBuffer.frameLength) format=sr\(firstBuffer.format.sampleRate)/ch\(firstBuffer.format.channelCount)")
             plog("▶️ Engine state: outputFormat=sr\(outputFormat.sampleRate)/ch\(outputFormat.channelCount) mainVol=\(audioEngine.volume)")
             plog("▶️ Engine diagnostics: \(audioEngine.diagnosticInfo())")
@@ -5038,6 +5056,7 @@ final class AudioPlayerService {
                 return
             }
             let didStartPlayback = audioEngine.play()
+            logPlayStage("playing", playID: id)
             plog("▶️ After play(): \(audioEngine.diagnosticInfo())")
 
             // Fetch duration asynchronously if not already known.
@@ -5620,6 +5639,7 @@ final class AudioPlayerService {
                 return
             }
             let didStartPlayback = audioEngine.play()
+            logPlayStage("playing (complete-file download)", playID: id)
             plog("🌊 Engine diagnostics after play: \(audioEngine.diagnosticInfo())")
 
             // Fetch duration asynchronously if needed。SFBAudioDecoder 只支持
@@ -6459,6 +6479,7 @@ final class AudioPlayerService {
                 return
             }
             let didStartPlayback = audioEngine.play()
+            logPlayStage("playing (fallback decoder)", playID: id)
 
             // Fetch duration asynchronously
             if duration <= 0 && !song.isCueTrack {
