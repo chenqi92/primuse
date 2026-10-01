@@ -5864,8 +5864,10 @@ struct NowPlayingView: View {
                 )
                 guard isCurrentLyricsLoad(loadRevision, songID: songID) else { return }
                 let fetchMs = Date().timeIntervalSince(fetchStart) * 1000
-                guard let lyricsContent = String(data: lyricsData, encoding: .utf8) else {
-                    plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar not utf8 (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
+                guard let lyricsContent = LyricsParser.decodeText(
+                    lyricsData, label: (lyricsPath as NSString).lastPathComponent
+                ) else {
+                    plog(String(format: "📜 loadLyrics '%@' Tier3 sidecar undecodable (connect=%.0fms fetch=%.0fms)", songTitle, connectMs, fetchMs))
                     if !isRefresh {
                         await applyAutomaticOnlineLyrics(
                             song: song, currentCache: currentCache, loadRevision: loadRevision

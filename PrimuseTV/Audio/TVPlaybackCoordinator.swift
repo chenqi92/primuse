@@ -2455,8 +2455,7 @@ final class TVPlaybackCoordinator {
                 let data = try await reader.read(offset: 0, length: size)
                 try ensureCurrent(requestID, store: store)
                 await reader.close()
-                return String(data: data, encoding: .utf8)
-                    ?? String(data: data, encoding: .isoLatin1)
+                return LyricsParser.decodeText(data, label: song.lyricsFileName ?? song.title)
             } catch {
                 await reader.close()
                 throw error
@@ -2473,7 +2472,7 @@ final class TVPlaybackCoordinator {
             redirectMode: source.type == .fnMusic ? .fnMusic : .safe
         )
         try ensureCurrent(requestID, store: store)
-        return String(data: data, encoding: .utf8)
+        return LyricsParser.decodeText(data, label: song.lyricsFileName ?? song.title)
     }
 
     /// Shows loaded lyrics and starts the offline translation for them.

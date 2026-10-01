@@ -240,6 +240,18 @@ public enum TextEncodingRepair {
         encodings: [String.Encoding],
         preservingNullSeparators: Bool
     ) -> String? {
+        bestDecodingWithEncoding(
+            of: data,
+            encodings: encodings,
+            preservingNullSeparators: preservingNullSeparators
+        )?.text
+    }
+
+    private static func bestDecodingWithEncoding(
+        of data: Data,
+        encodings: [String.Encoding],
+        preservingNullSeparators: Bool
+    ) -> (text: String, encoding: String.Encoding)? {
         guard !data.isEmpty else { return nil }
 
         var candidates: [(encoding: String.Encoding, text: String, score: Int, value: String)] = []
@@ -252,7 +264,7 @@ public enum TextEncodingRepair {
 
         if let utf8 = candidates.first(where: { $0.encoding == .utf8 }),
            !utf8.text.unicodeScalars.contains(where: { isDisallowedControl($0.value) }) {
-            return utf8.value
+            return (utf8.value, utf8.encoding)
         }
 
         // GB18030's four-byte form has a strict lead-digit-lead-digit shape.
@@ -261,7 +273,7 @@ public enum TextEncodingRepair {
         if containsGB18030FourByteSequence(data),
            let gb18030 = candidates.first(where: { $0.encoding == self.gb18030 }),
            !gb18030.text.unicodeScalars.contains(where: { isDisallowedControl($0.value) }) {
-            return gb18030.value
+            return (gb18030.value, gb18030.encoding)
         }
 
         if let latin1 = candidates.first(where: { $0.encoding == .isoLatin1 }) {
@@ -277,7 +289,7 @@ public enum TextEncodingRepair {
                 if let best,
                    best.encoding != .isoLatin1,
                    best.score >= latin1.score + ambiguousMargin {
-                    return best.value
+                    return (best.value, best.encoding)
                 }
             }
 
@@ -287,18 +299,18 @@ public enum TextEncodingRepair {
             if latin1.text.unicodeScalars.contains(where: { (0x80...0x9F).contains($0.value) }),
                let cp1252 = candidates.first(where: { $0.encoding == .windowsCP1252 }),
                !cp1252.text.unicodeScalars.contains(where: { isDisallowedControl($0.value) }) {
-                return cp1252.value
+                return (cp1252.value, cp1252.encoding)
             }
-            return latin1.value
+            return (latin1.value, latin1.encoding)
         }
 
-        var best: (value: String, score: Int)?
+        var best: (value: String, encoding: String.Encoding, score: Int)?
         for candidate in candidates {
             if best == nil || candidate.score > best!.score {
-                best = (candidate.value, candidate.score)
+                best = (candidate.value, candidate.encoding, candidate.score)
             }
         }
-        return best?.value
+        return best.map { ($0.value, $0.encoding) }
     }
 
     private static func containsGB18030FourByteSequence(_ data: Data) -> Bool {
@@ -369,6 +381,83 @@ public enum TextEncodingRepair {
             )
             return seen.insert(key).inserted ? value : nil
         }
+    }
+
+    // MARK: - 文本文件
+
+    /// 歌词这类旁挂文本文件的解码。BOM 说了算;合法 UTF-8 直接用(只读了开头一段时,
+    /// 末尾断开的半个字符不算不合法);没有 BOM 的 UTF-16 看 0 字节落在奇数位还是偶数位
+    /// —— GBK、Big5 这些编码的文本里不会出现 0 字节,不会被误判;剩下的在 GB18030 /
+    /// Big5 / Shift_JIS / EUC-KR / Latin-1 / Windows-1252 里挑最可信的。
+    /// 以前只认 UTF-8:GBK 歌词在手机上表现为「没有歌词」,在电视上按 Latin-1 解成一屏乱码。
+    public static func decodeTextFile(_ data: Data) -> DecodedTextFile? {
+        guard !data.isEmpty else { return nil }
+        if data.starts(with: [0xEF, 0xBB, 0xBF]) {
+            return decodedUTF8(Data(data.dropFirst(3)))
+        }
+        if data.starts(with: [0xFF, 0xFE]) {
+            return decodedUTF16(Data(data.dropFirst(2)), encoding: .utf16LittleEndian)
+        }
+        if data.starts(with: [0xFE, 0xFF]) {
+            return decodedUTF16(Data(data.dropFirst(2)), encoding: .utf16BigEndian)
+        }
+        if let utf8 = decodedUTF8(data) { return utf8 }
+        if let encoding = unmarkedUTF16Encoding(of: data),
+           let utf16 = decodedUTF16(data, encoding: encoding) {
+            return utf16
+        }
+        let legacy: [String.Encoding] = [gb18030, big5, .shiftJIS, eucKR, .isoLatin1, .windowsCP1252]
+        // 只读了开头一段时,末尾可能断在一个双字节字符中间。
+        for candidate in [data, Data(data.dropLast())] where !candidate.isEmpty {
+            if let decoded = bestDecodingWithEncoding(
+                of: candidate,
+                encodings: legacy,
+                preservingNullSeparators: false
+            ), !decoded.text.isEmpty {
+                return DecodedTextFile(text: decoded.text, encoding: decoded.encoding)
+            }
+        }
+        return nil
+    }
+
+    private static func decodedUTF8(_ data: Data) -> DecodedTextFile? {
+        if let text = String(data: data, encoding: .utf8) {
+            return DecodedTextFile(text: text, encoding: .utf8)
+        }
+        // 末尾是一个没读完的多字节字符:先导字节之后只跟着不足数的续字节。
+        let bytes = [UInt8](data.suffix(3))
+        for (offset, byte) in bytes.enumerated().reversed() where byte >= 0xC0 {
+            let expected = byte >= 0xF0 ? 4 : (byte >= 0xE0 ? 3 : 2)
+            let tail = bytes[offset...]
+            guard tail.count < expected,
+                  tail.dropFirst().allSatisfy({ (0x80...0xBF).contains($0) }),
+                  let text = String(data: data.dropLast(tail.count), encoding: .utf8) else { return nil }
+            return DecodedTextFile(text: text, encoding: .utf8)
+        }
+        return nil
+    }
+
+    private static func decodedUTF16(_ data: Data, encoding: String.Encoding) -> DecodedTextFile? {
+        let even = data.count.isMultiple(of: 2) ? data : Data(data.dropLast())
+        guard let text = String(data: even, encoding: encoding) else { return nil }
+        let withoutBOM = text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
+        return DecodedTextFile(text: withoutBOM, encoding: encoding)
+    }
+
+    /// 没有 BOM 的 UTF-16:ASCII 字符(时间标签、空格、换行)的高字节是 0,
+    /// 小端时落在奇数位,大端时落在偶数位。
+    private static func unmarkedUTF16Encoding(of data: Data) -> String.Encoding? {
+        let sample = [UInt8](data.prefix(1_024))
+        guard sample.count >= 8 else { return nil }
+        var oddZeros = 0
+        var evenZeros = 0
+        for (index, byte) in sample.enumerated() where byte == 0 {
+            if index.isMultiple(of: 2) { evenZeros += 1 } else { oddZeros += 1 }
+        }
+        let pairs = sample.count / 2
+        if oddZeros * 4 >= pairs, oddZeros >= evenZeros * 4 { return .utf16LittleEndian }
+        if evenZeros * 4 >= pairs, evenZeros >= oddZeros * 4 { return .utf16BigEndian }
+        return nil
     }
 
     /// 声明为单字节/未知编码时的候选集合。
@@ -518,9 +607,11 @@ public enum TextEncodingRepair {
         return fixes.sorted { $0.scoreDelta > $1.scoreDelta }
     }
 
-    private static func displayName(of encoding: String.Encoding) -> String {
+    static func displayName(of encoding: String.Encoding) -> String {
         switch encoding {
         case .utf8: return "UTF-8"
+        case .utf16LittleEndian: return "UTF-16LE"
+        case .utf16BigEndian: return "UTF-16BE"
         case .isoLatin1: return "Latin-1"
         case .windowsCP1252: return "Windows-1252"
         case gb18030: return "GBK"
@@ -756,4 +847,18 @@ public enum TextEncodingRepair {
         0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A,
         0x0153, 0x017E, 0x0178,
     ]
+}
+
+/// 一份旁挂文本文件按什么编码解出来的。
+public struct DecodedTextFile: Equatable, Sendable {
+    public let text: String
+    public let encoding: String.Encoding
+
+    public init(text: String, encoding: String.Encoding) {
+        self.text = text
+        self.encoding = encoding
+    }
+
+    /// 日志与诊断里显示的编码名(「GBK」「UTF-16LE」……)。
+    public var encodingName: String { TextEncodingRepair.displayName(of: encoding) }
 }

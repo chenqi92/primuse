@@ -1193,7 +1193,7 @@ actor SynologyScanner {
     private func downloadAndParseLrc(path: String, songID: String) async -> String? {
         do {
             let data = try await api.downloadFileHead(path: path, maxBytes: 512 * 1024) // .lrc files are small
-            guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .ascii) else {
+            guard let text = LyricsParser.decodeText(data, label: (path as NSString).lastPathComponent) else {
                 return nil
             }
 

@@ -823,7 +823,7 @@ enum TVMetadataEnricher {
                 offset: 0,
                 length: size
               ),
-              let text = decodeText(data) else { return [] }
+              let text = LyricsParser.decodeText(data, label: lyrics.name) else { return [] }
         return LyricsContentParser.parse(text)
     }
 
@@ -877,14 +877,6 @@ enum TVMetadataEnricher {
             size: 0,
             path: reference
         )
-    }
-
-    private static func decodeText(_ data: Data) -> String? {
-        String(data: data, encoding: .utf8)
-            ?? String(data: data, encoding: .utf16)
-            ?? String(data: data, encoding: .utf16LittleEndian)
-            ?? String(data: data, encoding: .utf16BigEndian)
-            ?? String(data: data, encoding: .isoLatin1)
     }
 
     private static func readMetadata(

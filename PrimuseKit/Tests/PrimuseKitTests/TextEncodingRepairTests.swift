@@ -491,3 +491,77 @@ private func byteSwappedUTF16(_ text: String) -> String {
     #expect(MediaMetadataTextRepair.preferred(embedded: "慕夏", fromFileName: nil) == "慕夏")
     #expect(MediaMetadataTextRepair.preferred(embedded: nil, fromFileName: nil) == nil)
 }
+
+// MARK: - 旁挂文本文件(歌词)的解码
+
+@Suite("Sidecar text file decoding")
+struct SidecarTextFileDecodingTests {
+    private let lyrics = """
+    [ti:晴天]
+    [00:12.30]故事的小黄花
+    [00:15.80]从出生那年就飘着
+    [00:19.20]童年的荡秋千
+    """
+
+    @Test("UTF-8 with and without BOM")
+    func utf8() throws {
+        let plain = try #require(TextEncodingRepair.decodeTextFile(Data(lyrics.utf8)))
+        #expect(plain.text == lyrics)
+        #expect(plain.encodingName == "UTF-8")
+        let bom = try #require(TextEncodingRepair.decodeTextFile(Data([0xEF, 0xBB, 0xBF]) + Data(lyrics.utf8)))
+        #expect(bom.text == lyrics)
+    }
+
+    @Test("A read cut in the middle of a multi-byte character is still UTF-8")
+    func truncatedUTF8() throws {
+        let bytes = Data(lyrics.utf8)
+        let cut = bytes.prefix(bytes.count - 2)
+        let decoded = try #require(TextEncodingRepair.decodeTextFile(cut))
+        #expect(decoded.encoding == .utf8)
+        #expect(lyrics.hasPrefix(decoded.text))
+        #expect(decoded.text.count == lyrics.count - 1)
+    }
+
+    @Test("GBK, Big5 and Shift_JIS lyrics are no longer rejected or turned into Latin-1 mojibake")
+    func legacyCJK() throws {
+        let gbk = try #require(lyrics.data(using: TextEncodingRepair.gb18030))
+        let decodedGBK = try #require(TextEncodingRepair.decodeTextFile(gbk))
+        #expect(decodedGBK.text == lyrics)
+        #expect(decodedGBK.encodingName == "GBK")
+
+        let traditional = "[00:12.30]故事的小黃花\n[00:15.80]從出生那年就飄著"
+        let big5 = try #require(traditional.data(using: TextEncodingRepair.big5))
+        #expect(TextEncodingRepair.decodeTextFile(big5)?.text == traditional)
+
+        let japanese = "[00:10.00]さくら さくら\n[00:14.00]やよいの空は"
+        let sjis = try #require(japanese.data(using: .shiftJIS))
+        #expect(TextEncodingRepair.decodeTextFile(sjis)?.text == japanese)
+    }
+
+    @Test("UTF-16 is recognised with or without a BOM")
+    func utf16() throws {
+        let little = try #require(lyrics.data(using: .utf16LittleEndian))
+        let decodedLittle = try #require(TextEncodingRepair.decodeTextFile(little))
+        #expect(decodedLittle.text == lyrics)
+        #expect(decodedLittle.encodingName == "UTF-16LE")
+
+        let big = try #require(lyrics.data(using: .utf16BigEndian))
+        #expect(TextEncodingRepair.decodeTextFile(big)?.text == lyrics)
+
+        let marked = Data([0xFF, 0xFE]) + little
+        #expect(TextEncodingRepair.decodeTextFile(marked)?.text == lyrics)
+    }
+
+    @Test("Western text in Latin-1 keeps its accents")
+    func latin1() throws {
+        let text = "[00:01.00]Mylène Farmer — Désenchantée"
+        let data = try #require(text.data(using: .isoLatin1, allowLossyConversion: true))
+        let decoded = try #require(TextEncodingRepair.decodeTextFile(data))
+        #expect(decoded.text.contains("Mylène"))
+    }
+
+    @Test("Empty input decodes to nothing")
+    func empty() {
+        #expect(TextEncodingRepair.decodeTextFile(Data()) == nil)
+    }
+}

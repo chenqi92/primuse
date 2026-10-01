@@ -192,7 +192,7 @@ enum LyricsLoader {
             )
             guard !Task.isCancelled,
                   data.count == Int(lyricsFile.size),
-                  let raw = String(data: data, encoding: .utf8),
+                  let raw = LyricsParser.decodeText(data, label: (lyricsFile.path as NSString).lastPathComponent),
                   !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .unavailable
             }
@@ -389,7 +389,7 @@ enum LyricsLoader {
             )
             guard !Task.isCancelled,
                   lyricsData.count == Int(lyricsFile.size) else { return [] }
-            guard let lyricsContent = String(data: lyricsData, encoding: .utf8) else {
+            guard let lyricsContent = LyricsParser.decodeText(lyricsData, label: (lyricsFile.path as NSString).lastPathComponent) else {
                 if isPlainSource { return await automaticOnlineFallback(for: song) }
                 return []
             }
@@ -486,7 +486,8 @@ enum LyricsLoader {
         guard usesAudioCacheSidecar(for: song),
               let cachedAudioURL = sourceManager.cachedURL(for: song),
               let lrcURL = SidecarMetadataLoader.findLyrics(for: cachedAudioURL),
-              let text = try? String(contentsOf: lrcURL, encoding: .utf8),
+              let data = try? Data(contentsOf: lrcURL),
+              let text = LyricsParser.decodeText(data, label: lrcURL.lastPathComponent),
               !text.isEmpty else {
             return nil
         }
@@ -596,7 +597,7 @@ enum LyricsLoader {
             return primary
         }
         guard data.count == Int(track.size),
-              let content = String(data: data, encoding: .utf8) else { return primary }
+              let content = LyricsParser.decodeText(data, label: track.fileName) else { return primary }
         let translation = LyricsParser.parse(content)
         guard !translation.isEmpty else { return primary }
         let languageCode = LyricsSidecarSelectionPolicy
