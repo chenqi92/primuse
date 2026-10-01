@@ -1484,7 +1484,10 @@ struct PrimuseApp: App {
     #if os(iOS)
     @ViewBuilder private var standardIOSRootContent: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "immersiveStage" {
+        if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "nowPlayingTransition" {
+            NowPlayingTransitionEvidenceHost()
+                .modifier(DebugEvidenceOrientation())
+        } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "immersiveStage" {
             ImmersiveStageEvidenceHost()
                 .modifier(DebugEvidenceOrientation())
         } else if ProcessInfo.processInfo.environment["PRIMUSE_VISUAL_EVIDENCE"] == "libraryDetail" {
@@ -2698,6 +2701,62 @@ private struct DebugListeningFeatureAutomation: ViewModifier {
         }
         plog("🧪 Debug: library never reached \(count) songs")
         return nil
+    }
+}
+#endif
+
+#if DEBUG && os(iOS)
+@MainActor
+private struct NowPlayingTransitionEvidenceHost: View {
+    @State private var fixturePlayer: AudioPlayerService?
+    @State private var fixtureLibrary: MusicLibrary?
+
+    var body: some View {
+        Group {
+            if let fixturePlayer, let fixtureLibrary {
+                NowPlayingView()
+                    .environment(fixturePlayer)
+                    .environment(fixtureLibrary)
+            } else {
+                Color.black
+            }
+        }
+        .task {
+            guard fixturePlayer == nil else { return }
+            let noArtwork = ProcessInfo.processInfo.environment["PRIMUSE_EVIDENCE_NO_ARTWORK"] == "1"
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(noArtwork ? "NowPlayingMissingArtworkEvidence" : "NowPlayingTransitionEvidence")
+            let library = MusicLibrary(storageDirectory: root)
+            let player = AudioPlayerService(library: library, activateAudioSession: { _ in })
+            let songID = noArtwork ? "now-playing-no-artwork-evidence" : "now-playing-transition-evidence"
+            var cover: String?
+            if !noArtwork {
+                let renderer = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 600))
+                let image = renderer.image { context in
+                    UIColor(red: 0.95, green: 0.1, blue: 0.2, alpha: 1).setFill()
+                    context.fill(CGRect(x: 0, y: 0, width: 600, height: 600))
+                    UIColor(red: 0.05, green: 0.85, blue: 0.9, alpha: 1).setFill()
+                    context.fill(CGRect(x: 55, y: 55, width: 490, height: 490))
+                    UIColor.black.setFill()
+                    context.fill(CGRect(x: 250, y: 55, width: 100, height: 490))
+                    context.fill(CGRect(x: 55, y: 250, width: 490, height: 100))
+                    UIColor.white.setFill()
+                    context.fill(CGRect(x: 275, y: 275, width: 50, height: 50))
+                }
+                cover = await MetadataAssetStore.shared.storeCover(image.pngData()!, for: songID)
+            }
+            let text = "[00:00.00]The cover follows a single path\n[00:04.00]Every edge remains in place\n[00:08.00]A quiet pause between the lines\n[00:12.00]Return again to the artwork"
+            let lines = LyricsParser.parse(text)
+            _ = await MetadataAssetStore.shared.cacheLyrics(lines, forSongID: songID, force: true)
+            let song = Song(id: songID, title: "Transition Evidence", albumTitle: "Geometry", artistName: "Fixture", duration: 180, fileFormat: .wav, filePath: root.appendingPathComponent("synthetic.wav").path, sourceID: "now-playing-transition-fixture", coverArtFileName: cover, lyricsText: text)
+            library.addSongs([song])
+            player.currentSong = library.songs.first ?? song
+            player.duration = 180
+            player.currentTime = 8
+            player.isPlaying = ProcessInfo.processInfo.environment["PRIMUSE_EVIDENCE_PLAYING"] == "1"
+            plog("🧪 transition evidence albums=\(library.visibleAlbums.count) song=\(player.currentSong?.id ?? "none") playing=\(player.isPlaying)")
+            fixtureLibrary = library
+            fixturePlayer = player
+        }
     }
 }
 #endif

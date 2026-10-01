@@ -568,17 +568,38 @@ private struct NowPlayingAlbumTransitionSourceModifier: ViewModifier {
 #endif
 
 /// 大封面与歌词小封面之间交接时所在的位置。
-private enum LyricsArtworkPlacement: Equatable {
+private enum LyricsArtworkPlacement: Hashable {
     case cover
     case compactLyrics
     case immersiveLyrics
 }
 
-/// 歌词顶栏的进出场：文字与按钮淡入淡出，小封面的透明度单独给。
-///
-/// 从封面页进歌词时，小封面接的是正在缩过来的大封面，两张图叠在同一个框里，
-/// 都半透明就会叠出半透明的重影（#167）。这时小封面一出现就不透明，只有大封面淡出。
-/// 退场一律随顶栏淡出：回封面页时接手的大封面一出现就不透明，进全屏歌词时没人接手。
+private struct LyricsArtworkShadow {
+    var opacity: Double = 0
+    var radius: CGFloat = 0
+    var y: CGFloat = 0
+}
+
+private struct LyricsArtworkAnchor {
+    let bounds: Anchor<CGRect>
+    let cornerRadius: CGFloat
+    let shadow: LyricsArtworkShadow
+    let showsVideoPreparation: Bool
+}
+
+private struct LyricsArtworkAnchorKey: PreferenceKey {
+    static let defaultValue: [LyricsArtworkPlacement: LyricsArtworkAnchor] = [:]
+
+    static func reduce(
+        value: inout [LyricsArtworkPlacement: LyricsArtworkAnchor],
+        nextValue: () -> [LyricsArtworkPlacement: LyricsArtworkAnchor]
+    ) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+/// 顶栏文字和按钮淡入淡出，书封面保留独立的透明度交接。
+/// 音乐封面由布局外的常驻视图绘制，不参与顶栏的淡化。
 private struct LyricsHeaderTransition: Transition {
     var receivesArtworkFromCover: Bool
 
@@ -1018,8 +1039,7 @@ struct NowPlayingView: View {
         )
     }
 
-    /// 大封面同样交给 matchedGeometryEffect 驱动, 额外的 offset / scale 只会
-    /// 和匹配几何冲突, 所以这里保持纯淡入淡出。
+    /// 布局内容的进出场；常驻音乐封面独立于这层透明度变化。
     private var playerArtworkTransition: AnyTransition {
         guard !reduceMotion else { return .opacity }
         return .opacity
@@ -1035,8 +1055,7 @@ struct NowPlayingView: View {
         LyricsHeaderTransition(receivesArtworkFromCover: settledLyricsArtworkPlacement == .cover)
     }
 
-    /// 有歌词小封面的构图里, 大封面的进出场: 从小封面那里接过来时一出现就不透明,
-    /// 淡出的只有随顶栏退场的小封面, 两张图叠在一起也始终是一张完整的封面 (#167)。
+    /// 仍使用匹配几何的书封面，由接手视图保持不透明。
     private var lyricsHandoffArtworkTransition: AnyTransition {
         guard settledLyricsArtworkPlacement == .compactLyrics else { return playerArtworkTransition }
         return .asymmetric(insertion: .identity, removal: playerArtworkTransition)
@@ -1894,8 +1913,12 @@ struct NowPlayingView: View {
                             .pmLayoutSwitchFade()
                             .transition(lyricsPanelTransition)
                     } else {
-                        artworkOrMusicVideo(size: artworkSide, cornerRadius: 16)
-                            .scaleEffect(artworkAppearsPlaying ? 1.0 : 0.92)
+                        artworkOrMusicVideo(
+                            size: artworkSide,
+                            cornerRadius: 16,
+                            playbackScale: artworkAppearsPlaying ? 1.0 : 0.92,
+                            shadow: .init(opacity: 0.3, radius: 24, y: 10)
+                        )
                             .shadow(color: .black.opacity(0.3), radius: 24, y: 10)
                             .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                             .onTapGesture { setStandardLyricsVisible(true) }
@@ -2265,6 +2288,9 @@ struct NowPlayingView: View {
                         }
                         #endif
                     }
+                    .overlayPreferenceValue(LyricsArtworkAnchorKey.self) { anchors in
+                        lyricsArtworkOverlay(anchors: anchors)
+                    }
                     .onChange(of: canSplit, initial: true) { _, split in
                         isPlayerSplit = split
                     }
@@ -2336,10 +2362,17 @@ struct NowPlayingView: View {
             case "lyrics":
                 showLyrics = true
             case "lyricsToggle":
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(4))
+                let environment = ProcessInfo.processInfo.environment
+                let configuredInterval = Double(environment["PRIMUSE_DEBUG_LYRICS_TOGGLE_INTERVAL"] ?? "") ?? 4
+                let interval = configuredInterval.isFinite ? max(0.05, configuredInterval) : 4
+                let limit = Int(environment["PRIMUSE_DEBUG_LYRICS_TOGGLE_COUNT"] ?? "") ?? Int.max
+                var count = 0
+                while !Task.isCancelled, count < limit {
+                    // 首次留出封面加载时间，短间隔用来验证尚未结束的动画反向切换。
+                    try? await Task.sleep(for: .seconds(count == 0 ? max(4, interval) : interval))
                     guard !Task.isCancelled else { return }
                     toggleStandardLyrics()
+                    count += 1
                 }
             case "immersive":
                 showLyrics = true
@@ -3166,8 +3199,12 @@ struct NowPlayingView: View {
         metrics: NowPlayingCompactLandscapeLayoutPolicy.Metrics
     ) -> some View {
         let artworkSize = CGFloat(metrics.artworkSize)
-        return artworkOrMusicVideo(size: artworkSize, cornerRadius: 18)
-            .scaleEffect(artworkAppearsPlaying ? 1 : 0.96)
+        return artworkOrMusicVideo(
+            size: artworkSize,
+            cornerRadius: 18,
+            playbackScale: artworkAppearsPlaying ? 1 : 0.96,
+            shadow: .init(opacity: 0.28, radius: 20, y: 10)
+        )
             .shadow(color: .black.opacity(0.28), radius: 20, y: 10)
             .animation(
                 .spring(response: 0.5, dampingFraction: 0.75),
@@ -3283,7 +3320,7 @@ struct NowPlayingView: View {
     }
 
     /// 歌词模式右栏的上半截：小封面 + 歌名 / 艺人，整块点一下回封面模式。
-    /// 大封面经 matchedGeometryEffect 缩到这张小封面的位置，和竖屏歌词头部是同一套。
+    /// 音乐缩略图只提供位置，常驻封面层负责缩放和位移。
     private func compactLandscapeLyricsHeader(
         metrics: NowPlayingCompactLandscapeLayoutPolicy.LyricsMetrics
     ) -> some View {
@@ -3293,24 +3330,7 @@ struct NowPlayingView: View {
                 alignment: .center,
                 spacing: CGFloat(NowPlayingCompactLandscapeLayoutPolicy.lyricsHeaderSpacing)
             ) {
-                CachedArtworkView(
-                    coverRef: player.currentSong?.coverArtFileName,
-                    songID: player.currentSong?.id ?? "",
-                    size: thumbnail,
-                    cornerRadius: 12,
-                    sourceID: player.currentSong?.sourceID,
-                    filePath: player.currentSong?.filePath,
-                    fileFormat: player.currentSong?.fileFormat,
-                    fillsProposedSize: true,
-                    revisionToken: player.coverRevision
-                )
-                .artworkCrossfade()
-                .matchedGeometryEffect(
-                    id: lyricsArtworkTransitionID,
-                    in: lyricsArtworkNamespace,
-                    isSource: isLyricsCompactArtworkVisible
-                )
-                .frame(width: thumbnail, height: thumbnail)
+                lyricsThumbnailArtwork(size: thumbnail, cornerRadius: 12, shadow: .init(opacity: 0.22, radius: 10, y: 5))
                 .shadow(color: .black.opacity(0.22), radius: 10, y: 5)
                 .lyricsHeaderReveal(isArtwork: true)
 
@@ -3748,8 +3768,12 @@ struct NowPlayingView: View {
             GeometryReader { artworkGeometry in
                 let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
                 let fittedWidth = min(artSize, max(1, artworkGeometry.size.height - 24) * ratio)
-                artworkOrMusicVideo(size: fittedWidth, cornerRadius: 16)
-                    .scaleEffect(artworkAppearsPlaying ? 1.0 : 0.92)
+                artworkOrMusicVideo(
+                    size: fittedWidth,
+                    cornerRadius: 16,
+                    playbackScale: artworkAppearsPlaying ? 1.0 : 0.92,
+                    shadow: .init(opacity: 0.35, radius: 28, y: 12)
+                )
                     .shadow(color: .black.opacity(0.35), radius: 28, y: 12)
                     .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -3899,24 +3923,7 @@ struct NowPlayingView: View {
                 HStack(spacing: 10) {
                     Button { setStandardLyricsVisible(false) } label: {
                         HStack(spacing: 10) {
-                            CachedArtworkView(
-                                coverRef: player.currentSong?.coverArtFileName,
-                                songID: player.currentSong?.id ?? "",
-                                size: 40,
-                                cornerRadius: 7,
-                                sourceID: player.currentSong?.sourceID,
-                                filePath: player.currentSong?.filePath,
-                                fileFormat: player.currentSong?.fileFormat,
-                                fillsProposedSize: true,
-                                revisionToken: player.coverRevision
-                            )
-                            .artworkCrossfade()
-                            .matchedGeometryEffect(
-                                id: lyricsArtworkTransitionID,
-                                in: lyricsArtworkNamespace,
-                                isSource: isLyricsCompactArtworkVisible
-                            )
-                            .frame(width: 40, height: 40)
+                            lyricsThumbnailArtwork(size: 40, cornerRadius: 7)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(player.currentSong?.title ?? "")
                                     .font(.subheadline.weight(.semibold))
@@ -3982,8 +3989,12 @@ struct NowPlayingView: View {
                 VStack(spacing: 18) {
                     Spacer(minLength: 0)
 
-                    artworkOrMusicVideo(size: artSize, cornerRadius: 18)
-                        .scaleEffect(artworkAppearsPlaying ? 1 : 0.96)
+                    artworkOrMusicVideo(
+                        size: artSize,
+                        cornerRadius: 18,
+                        playbackScale: artworkAppearsPlaying ? 1 : 0.96,
+                        shadow: .init(opacity: 0.34, radius: 22, y: 10)
+                    )
                         .shadow(color: .black.opacity(0.34), radius: 22, y: 10)
                         .animation(.spring(response: 0.5, dampingFraction: 0.76), value: artworkAppearsPlaying)
 
@@ -4116,23 +4127,7 @@ struct NowPlayingView: View {
                             // the artwork itself is now a discoverable way back.
                             Button { setStandardLyricsVisible(false) } label: {
                                 HStack(spacing: 10) {
-                                    CachedArtworkView(
-                                        coverRef: player.currentSong?.coverArtFileName,
-                                        songID: player.currentSong?.id ?? "",
-                                        size: 44, cornerRadius: 6,
-                                        sourceID: player.currentSong?.sourceID,
-                                        filePath: player.currentSong?.filePath,
-                                        fileFormat: player.currentSong?.fileFormat,
-                                        fillsProposedSize: true,
-                                        revisionToken: player.coverRevision
-                                    )
-                                    .artworkCrossfade()
-                                    .matchedGeometryEffect(
-                                        id: lyricsArtworkTransitionID,
-                                        in: lyricsArtworkNamespace,
-                                        isSource: isLyricsCompactArtworkVisible
-                                    )
-                                    .frame(width: 44, height: 44)
+                                    lyricsThumbnailArtwork(size: 44, cornerRadius: 6)
                                     .lyricsHeaderReveal(isArtwork: true)
 
                                     VStack(alignment: .leading, spacing: 2) {
@@ -4207,12 +4202,13 @@ struct NowPlayingView: View {
                             // Text and controls retain their height; artwork uses the remaining space.
                             let ratio: CGFloat = player.isMusicVideoPlaybackActive ? 16.0 / 9.0 : 1
                             let fittedWidth = min(mediaWidth, max(1, artworkGeometry.size.height - 24) * ratio)
-                            artworkOrMusicVideo(size: fittedWidth, cornerRadius: 12)
-                                .scaleEffect(
-                                    player.isMusicVideoPlaybackActive
-                                        ? 1.0
-                                        : (artworkAppearsPlaying ? 1.0 : 0.9)
-                                )
+                            artworkOrMusicVideo(
+                                size: fittedWidth,
+                                cornerRadius: 12,
+                                playbackScale: player.isMusicVideoPlaybackActive
+                                    ? 1.0
+                                    : (artworkAppearsPlaying ? 1.0 : 0.9)
+                            )
                                 .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
                                 .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
                                 .onTapGesture {
@@ -4572,8 +4568,113 @@ struct NowPlayingView: View {
         }
     }
 
+    private func lyricsArtworkSlot(
+        size: CGFloat,
+        cornerRadius: CGFloat,
+        placement: LyricsArtworkPlacement,
+        shadow: LyricsArtworkShadow = .init(),
+        showsVideoPreparation: Bool = false
+    ) -> some View {
+        Color.clear
+            .frame(width: size, height: size)
+            .contentShape(Rectangle())
+            .anchorPreference(key: LyricsArtworkAnchorKey.self, value: .bounds) {
+                [placement: LyricsArtworkAnchor(
+                    bounds: $0,
+                    cornerRadius: cornerRadius,
+                    shadow: shadow,
+                    showsVideoPreparation: showsVideoPreparation
+                )]
+            }
+    }
+
     @ViewBuilder
-    private func artworkOrMusicVideo(size: CGFloat, cornerRadius: CGFloat) -> some View {
+    private func lyricsThumbnailArtwork(
+        size: CGFloat,
+        cornerRadius: CGFloat,
+        shadow: LyricsArtworkShadow = .init()
+    ) -> some View {
+        if usesSpokenWordTransport || player.isMusicVideoPlaybackActive {
+            CachedArtworkView(
+                coverRef: player.currentSong?.coverArtFileName,
+                songID: player.currentSong?.id ?? "",
+                size: size, cornerRadius: cornerRadius,
+                sourceID: player.currentSong?.sourceID,
+                filePath: player.currentSong?.filePath,
+                fileFormat: player.currentSong?.fileFormat,
+                fillsProposedSize: true,
+                revisionToken: player.coverRevision
+            )
+            .artworkCrossfade()
+            .matchedGeometryEffect(
+                id: lyricsArtworkTransitionID,
+                in: lyricsArtworkNamespace,
+                isSource: isLyricsCompactArtworkVisible
+            )
+            .frame(width: size, height: size)
+        } else {
+            lyricsArtworkSlot(size: size, cornerRadius: cornerRadius, placement: lyricsArtworkPlacement, shadow: shadow)
+        }
+    }
+
+    private func lyricsArtworkOverlay(
+        anchors: [LyricsArtworkPlacement: LyricsArtworkAnchor]
+    ) -> some View {
+        GeometryReader { geometry in
+            if let anchor = anchors[lyricsArtworkPlacement] ?? anchors[.cover] {
+                let rect = geometry[anchor.bounds]
+                // 保持一个绘制尺寸，外部变换同时缩放图片和占位符，避免只缩外框、字号不变。
+                let renderSize: CGFloat = 512
+                CachedArtworkView(
+                    coverRef: player.currentSong?.coverArtFileName,
+                    songID: player.currentSong?.id ?? "",
+                    size: renderSize, cornerRadius: 0,
+                    sourceID: player.currentSong?.sourceID,
+                    filePath: player.currentSong?.filePath,
+                    fileFormat: player.currentSong?.fileFormat,
+                    presentationRole: .animatedHero,
+                    animationRequiresPlayback: true,
+                    isPlaying: player.isPlaying,
+                    isAnimationVisible: isNowPlayingSurfaceExposed,
+                    loadsHighResolution: isPresentationSettled,
+                    revisionToken: player.coverRevision
+                )
+                .artworkCrossfade()
+                .frame(width: renderSize, height: renderSize)
+                .scaleEffect(rect.width / renderSize)
+                .frame(width: rect.width, height: rect.height)
+                .clipShape(RoundedRectangle(cornerRadius: anchor.cornerRadius, style: .continuous))
+                #if os(iOS)
+                .modifier(NowPlayingAlbumTransitionSourceModifier(
+                    albumID: currentAlbum?.id,
+                    namespace: albumPresentationNamespace,
+                    cornerRadius: anchor.cornerRadius
+                ))
+                #endif
+                .overlay(alignment: .bottom) {
+                    if anchor.showsVideoPreparation {
+                        MusicVideoPreparationBadge(songID: player.currentSong?.id)
+                    }
+                }
+                .shadow(color: .black.opacity(anchor.shadow.opacity), radius: anchor.shadow.radius, y: anchor.shadow.y)
+                .position(x: rect.midX, y: rect.midY)
+                .animation(standardLyricsAnimation, value: lyricsArtworkPlacement)
+                .animation(.spring(response: 0.5, dampingFraction: 0.7), value: artworkAppearsPlaying)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func artworkOrMusicVideo(
+        size: CGFloat,
+        cornerRadius: CGFloat,
+        playbackScale: CGFloat = 1,
+        shadow: LyricsArtworkShadow = .init(opacity: 0.3, radius: 20, y: 8)
+    ) -> some View {
+        let displayedSize = size * playbackScale
+        let displayedCornerRadius = cornerRadius * playbackScale
         if player.isMusicVideoPlaybackActive, let videoPlayer = player.musicVideoPlayer {
             ZStack(alignment: .topTrailing) {
                 MusicVideoSurface(player: videoPlayer)
@@ -4606,6 +4707,7 @@ struct NowPlayingView: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
             }
+            .scaleEffect(playbackScale)
         } else if usesSpokenWordTransport {
             // 书是竖的:封面放进 3:4 的书框,方形或横向的原图整张放进去、空出来的边用它自己的模糊放大垫上,
             // 和书架、书页是同一个零件。占的仍是原来那块方形槽位,别的布局不用跟着改。
@@ -4621,45 +4723,16 @@ struct NowPlayingView: View {
                 isSource: !isLyricsCompactArtworkVisible
             )
             .frame(width: size, height: size)
+            .scaleEffect(playbackScale)
         } else {
-            CachedArtworkView(
-                coverRef: player.currentSong?.coverArtFileName,
-                songID: player.currentSong?.id ?? "",
-                size: size, cornerRadius: cornerRadius,
-                sourceID: player.currentSong?.sourceID,
-                filePath: player.currentSong?.filePath,
-                fileFormat: player.currentSong?.fileFormat,
-                presentationRole: .animatedHero,
-                animationRequiresPlayback: true,
-                isPlaying: player.isPlaying,
-                isAnimationVisible: isNowPlayingSurfaceExposed,
-                loadsHighResolution: isPresentationSettled,
-                fillsProposedSize: true,
-                revisionToken: player.coverRevision
-            )
-            .artworkCrossfade()
-            #if os(iOS)
-            // 专辑转场源的圆角裁切挂在封面本身上、随它一起移动。挂在下面那个定尺寸的框外面时,
-            // 切歌词途中缩走的封面会被裁在原来那块区域里, 只剩一截 (#167)。
-            .modifier(
-                NowPlayingAlbumTransitionSourceModifier(
-                    albumID: currentAlbum?.id,
-                    namespace: albumPresentationNamespace,
-                    cornerRadius: cornerRadius
-                )
-            )
-            #endif
-            // 尺寸约束放在 matchedGeometryEffect 之外: 内容只接受被匹配到的
-            // frame, 切歌词时才能一边位移一边连续缩小到小图位置。
-            .matchedGeometryEffect(
-                id: lyricsArtworkTransitionID,
-                in: lyricsArtworkNamespace,
-                isSource: !isLyricsCompactArtworkVisible
+            lyricsArtworkSlot(
+                size: displayedSize,
+                cornerRadius: displayedCornerRadius,
+                placement: isLyricsImmersive ? .immersiveLyrics : .cover,
+                shadow: shadow,
+                showsVideoPreparation: true
             )
             .frame(width: size, height: size)
-            .overlay(alignment: .bottom) {
-                MusicVideoPreparationBadge(songID: player.currentSong?.id)
-            }
         }
     }
 
