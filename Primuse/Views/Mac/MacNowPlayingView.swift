@@ -1225,7 +1225,11 @@ struct MacNowPlayingView: View {
         if let bitRate = song.formattedBitRate {
             parts.append(bitRate)
         }
-        if let sampleRate = song.formattedSampleRate {
+        // 输出设备被设成别的采样率(重采样)时写成「44.1 → 48 kHz」。
+        if let sampleRate = OutputSampleRateTextPolicy.text(
+            sourceSampleRate: song.sampleRate,
+            outputSampleRate: player.audioEngine.currentHardwareSampleRate
+        ) {
             parts.append(sampleRate)
         }
         if let bitDepth = song.formattedBitDepth {

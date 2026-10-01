@@ -3884,7 +3884,10 @@ struct NowPlayingView: View {
             if let song = player.currentSong {
                 HStack(spacing: 4) {
                     Text(song.fileFormat.displayName)
-                    if let sr = song.sampleRate { Text("·"); Text("\(sr / 1000)kHz") }
+                    if let rate = OutputSampleRateTextPolicy.text(
+                        sourceSampleRate: song.sampleRate,
+                        outputSampleRate: player.audioEngine.currentHardwareSampleRate
+                    ) { Text("·"); Text(verbatim: rate) }
                     if sourcesStore.sources.count > 1,
                        let source = sourcesStore.source(id: song.sourceID) {
                         Text("·")
@@ -4288,7 +4291,10 @@ struct NowPlayingView: View {
                         if let song = player.currentSong {
                             HStack(spacing: 4) {
                                 Text(song.fileFormat.displayName)
-                                if let sr = song.sampleRate { Text("·"); Text("\(sr / 1000)kHz") }
+                                if let rate = OutputSampleRateTextPolicy.text(
+                                    sourceSampleRate: song.sampleRate,
+                                    outputSampleRate: player.audioEngine.currentHardwareSampleRate
+                                ) { Text("·"); Text(verbatim: rate) }
                                 if sourcesStore.sources.count > 1,
                                    let source = sourcesStore.source(id: song.sourceID) {
                                     Text("·")

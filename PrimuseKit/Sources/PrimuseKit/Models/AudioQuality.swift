@@ -77,3 +77,25 @@ extension Song {
         return parts.isEmpty ? nil : parts.joined(separator: " / ")
     }
 }
+
+/// 播放信息里的采样率:源与实际输出不同(被重采样)时写成「44.1 → 48 kHz」,一样就只写一个值。
+public enum OutputSampleRateTextPolicy {
+    /// - Parameters:
+    ///   - sourceSampleRate: 歌曲的采样率(Hz),不知道时为 nil / 0。
+    ///   - outputSampleRate: 当前输出设备的采样率(Hz),拿不到时为 nil / 0。
+    public static func text(sourceSampleRate: Int?, outputSampleRate: Double?) -> String? {
+        guard let sourceSampleRate, sourceSampleRate > 0 else { return nil }
+        let source = Double(sourceSampleRate)
+        guard let output = outputSampleRate, output > 0, abs(output - source) >= 1 else {
+            return "\(kilohertz(source)) kHz"
+        }
+        return "\(kilohertz(source)) → \(kilohertz(output)) kHz"
+    }
+
+    /// 44100 → "44.1",48000 → "48",88200 → "88.2"。
+    static func kilohertz(_ hertz: Double) -> String {
+        let khz = hertz / 1_000
+        let rounded = (khz * 10).rounded() / 10
+        return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%.1f", rounded)
+    }
+}

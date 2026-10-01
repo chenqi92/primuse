@@ -857,10 +857,12 @@ struct TVNowPlayingView: View {
         if !np.format.isEmpty { encoding.append(np.format) }
         if np.bitrate > 0 { encoding.append("\(np.bitrate) kbps") }
         var parts = [np.album, encoding.joined(separator: " ")]
-        if np.sampleRate > 0 {
-            let khz = np.sampleRate.truncatingRemainder(dividingBy: 1) == 0
-                ? String(Int(np.sampleRate)) : String(format: "%.1f", np.sampleRate)
-            parts.append("\(khz) kHz")
+        // 输出被重采样(电视 / 功放接口跑在别的采样率)时写成「44.1 → 48 kHz」。
+        if let rate = OutputSampleRateTextPolicy.text(
+            sourceSampleRate: Int((np.sampleRate * 1_000).rounded()),
+            outputSampleRate: AVAudioSession.sharedInstance().sampleRate
+        ) {
+            parts.append(rate)
         }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
