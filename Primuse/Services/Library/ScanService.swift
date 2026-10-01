@@ -4677,6 +4677,19 @@ final class ScanService {
             detectedCatalogChanges = await Task.detached(priority: .utility) {
                 SourceCatalogSnapshotPolicy.hasChanges(existing: existingSongs, candidate: songs)
             }.value
+        } else if source?.type == .local {
+            // A referenced folder is reconciled on every launch and every
+            // return to the foreground. With nothing changed on disk, a full
+            // commit only repeats whole-library work on the main actor while
+            // the person is already changing tracks, and queues every song for
+            // background enrichment again.
+            let librarySongs = library.songs
+            detectedCatalogChanges = await Task.detached(priority: .utility) {
+                SourceCatalogSnapshotPolicy.hasChanges(
+                    existing: librarySongs.filter { $0.sourceID == sourceID },
+                    candidate: songs
+                )
+            }.value
         } else {
             detectedCatalogChanges = true
         }

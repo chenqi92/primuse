@@ -333,6 +333,56 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertNil(network.scan.nextAutomaticResumeDate(at: now, sourceStore: network.store))
     }
 
+    /// A referenced folder is reconciled on every launch. An unchanged folder
+    /// must not commit the catalogue again — that is whole-library work on the
+    /// main actor and a fresh enrichment pass over every song — while an added
+    /// or removed file still does.
+    func testUnchangedLocalFolderRescanSkipsCatalogueCommit() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("LocalRescan-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let music = root.appendingPathComponent("music", isDirectory: true)
+        try FileManager.default.createDirectory(at: music, withIntermediateDirectories: true)
+        for name in ["a.flac", "b.flac"] {
+            try Data(repeating: 1, count: 4_096).write(to: music.appendingPathComponent(name))
+        }
+        let source = MusicSource(
+            id: UUID().uuidString, name: "Folder", type: .local, basePath: music.path, authType: .none,
+            extraConfig: MusicSource.encodeScannedDirectories(["/"], into: nil, type: .local)
+        )
+        let connector = LocalFileSource(sourceID: source.id, basePath: music)
+        let library = MusicLibrary(storageDirectory: root.appendingPathComponent("library"))
+        let store = SourcesStore(storageDirectoryURL: root.appendingPathComponent("sources"))
+        store.add(source)
+        let scan = ScanService(fileManager: FnMusicScanFileManager(root: root), connectorProvider: { _ in connector },
+                               diagnosticProvider: { source, _ in
+            SourceDiagnosticReport(source: source, startedAt: Date(), checks: [])
+        })
+        let manager = SourceManager(sourcesProvider: { [source] })
+        var completions: [SourceScanLifecycleCompletion] = []
+        scan.successfulSourceScanHandler = { _, completion in completions.append(completion) }
+        func rescan() async {
+            XCTAssertTrue(scan.scanSource(source, sourceManager: manager, library: library, sourceStore: store))
+            await scan.waitForActiveScansToComplete()
+            await library.waitForPendingIndex()
+        }
+
+        await rescan()
+        XCTAssertEqual(Set(library.songs.map(\.filePath)), ["/a.flac", "/b.flac"])
+        await rescan()
+        XCTAssertEqual(completions, [.committedSnapshot, .committedNoChanges])
+
+        try Data(repeating: 2, count: 4_096).write(to: music.appendingPathComponent("c.flac"))
+        await rescan()
+        XCTAssertEqual(completions.last, .committedSnapshot)
+        XCTAssertEqual(Set(library.songs.map(\.filePath)), ["/a.flac", "/b.flac", "/c.flac"])
+
+        try FileManager.default.removeItem(at: music.appendingPathComponent("a.flac"))
+        await rescan()
+        XCTAssertEqual(completions.last, .committedSnapshot)
+        XCTAssertEqual(Set(library.songs.map(\.filePath)), ["/b.flac", "/c.flac"])
+        XCTAssertEqual(store.source(id: source.id)?.songCount, 2)
+    }
+
     func testEmptyAppleMusicLocalScanRemovesOnlyItsLegacyRows() async throws {
         let source = MusicSource(id: UUID().uuidString, name: "Local Music", type: .appleMusicLibrary)
         let fixture = try makeScanFixture(count: 0, failAfterPage: false, source: source)

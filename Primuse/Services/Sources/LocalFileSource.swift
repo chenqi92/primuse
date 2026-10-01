@@ -9,6 +9,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     private var referenceRoots: [LocalReferenceRoot] = []
     private var referenceBookmarksUnavailable = false
     private var hasResolvedReferenceRoots = false
+    private var cachedPathResolver: PathResolver?
     private let metadataService = MetadataService()
     private let ffmpegDecoder = FFmpegAudioDecoder()
     /// Native metadata readers are fast and remain the default for large
@@ -29,6 +30,68 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         let url: URL
         let isDirectory: Bool
         let usesSecurityScope: Bool
+    }
+
+    /// Maps files back to source paths with the roots canonicalised once.
+    ///
+    /// Canonicalising a path costs an existence check plus a symlink walk over
+    /// every component, and the mapping used to repeat that for the entry and
+    /// for each root it was compared with — four walks per directory entry.
+    /// Listing a folder of 1,200 songs spent nine tenths of its time there,
+    /// and every track change (sidecar lyric lookup) and launch reconciliation
+    /// lists that folder. An entry listed from a canonical directory is
+    /// already canonical unless it is itself a symlink, so only symlinks walk.
+    private struct PathResolver: Sendable {
+        struct Root: Sendable {
+            let virtualPathComponent: String?
+            let canonicalPath: String
+        }
+
+        let roots: [Root]
+        let canonicalBasePath: String
+
+        func relativePath(for url: URL) -> String {
+            relativePath(
+                canonicalPath: LocalFileSource.canonicalURL(url).path,
+                lastPathComponent: url.lastPathComponent
+            )
+        }
+
+        /// `parentIsCanonical` comes from one check per listed directory.
+        func relativePath(
+            forListedEntry url: URL,
+            parentIsCanonical: Bool,
+            isSymbolicLink: Bool?
+        ) -> String {
+            guard parentIsCanonical, isSymbolicLink == false else {
+                return relativePath(for: url)
+            }
+            return relativePath(
+                canonicalPath: url.standardizedFileURL.path,
+                lastPathComponent: url.lastPathComponent
+            )
+        }
+
+        private func relativePath(canonicalPath path: String, lastPathComponent: String) -> String {
+            for root in roots where Self.isPath(path, inside: root.canonicalPath) {
+                let suffix = path.dropFirst(root.canonicalPath.count)
+                let rootPrefix = root.virtualPathComponent.map { "/\($0)" } ?? ""
+                if suffix.isEmpty { return rootPrefix.isEmpty ? "/" : rootPrefix }
+                let childPath = suffix.hasPrefix("/") ? String(suffix) : "/" + suffix
+                return rootPrefix + childPath
+            }
+            guard Self.isPath(path, inside: canonicalBasePath) else {
+                return "/" + lastPathComponent
+            }
+            let suffix = path.dropFirst(canonicalBasePath.count)
+            return suffix.isEmpty ? "/" : (suffix.hasPrefix("/") ? String(suffix) : "/" + suffix)
+        }
+
+        private static func isPath(_ path: String, inside rootPath: String) -> Bool {
+            if path == rootPath { return true }
+            let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+            return path.hasPrefix(prefix)
+        }
     }
 
     init(sourceID: String, basePath: URL) {
@@ -116,17 +179,37 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     func listFiles(at path: String) async throws -> [RemoteFileItem] {
         if isVirtualReferenceRoot(path) {
             return try referenceRoots.map { root in
-                try remoteFileItem(for: root.url, path: virtualPath(for: root))
+                try Self.remoteFileItem(for: root.url, path: virtualPath(for: root))
             }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         }
         let directoryURL = try resolvedURL(for: path, allowRoot: true)
+        return try await Self.listDirectory(directoryURL, paths: pathResolver())
+    }
+
+    /// Runs off the actor: playback resolves every track through `connect()`
+    /// and `localURL(for:)`, and must not queue behind a directory listing.
+    @concurrent
+    private nonisolated static func listDirectory(
+        _ directoryURL: URL,
+        paths: PathResolver
+    ) async throws -> [RemoteFileItem] {
         let contents = try FileManager.default.contentsOfDirectory(
             at: directoryURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
+            includingPropertiesForKeys: [
+                .isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .isSymbolicLinkKey,
+            ]
         )
-
+        let parentIsCanonical = isCanonical(directoryURL)
         return try contents.map { url in
-            try remoteFileItem(for: url, path: relativePath(for: url))
+            let isSymbolicLink = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink
+            return try remoteFileItem(
+                for: url,
+                path: paths.relativePath(
+                    forListedEntry: url,
+                    parentIsCanonical: parentIsCanonical,
+                    isSymbolicLink: isSymbolicLink
+                )
+            )
         }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
@@ -139,18 +222,52 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     func metadataWritebackState(for path: String) async throws -> EmbeddedMetadataRemoteFileState {
+        let probe = try writebackProbe(for: path)
+        return try await Self.detachedWritebackState(probe)
+    }
+
+    /// What a writeback state check needs from the actor; the sibling listing
+    /// itself then runs without it.
+    private struct WritebackProbe: Sendable {
+        let path: String
+        let fileURL: URL
+        let isIndividuallyReferenced: Bool
+        let paths: PathResolver
+    }
+
+    private func writebackProbe(for path: String) throws -> WritebackProbe {
         let fileURL = try resolvedURL(for: path, allowRoot: false)
-        let values = try fileURL.resourceValues(forKeys: [
+        return WritebackProbe(
+            path: path,
+            fileURL: fileURL,
+            isIndividuallyReferenced: isIndividuallyReferencedFile(fileURL),
+            paths: pathResolver()
+        )
+    }
+
+    @concurrent
+    private nonisolated static func detachedWritebackState(
+        _ probe: WritebackProbe
+    ) async throws -> EmbeddedMetadataRemoteFileState {
+        try writebackState(probe)
+    }
+
+    private nonisolated static func writebackState(
+        _ probe: WritebackProbe
+    ) throws -> EmbeddedMetadataRemoteFileState {
+        let values = try probe.fileURL.resourceValues(forKeys: [
             .isRegularFileKey,
             .fileSizeKey,
             .contentModificationDateKey,
         ])
-        guard values.isRegularFile == true else { throw SourceError.fileNotFound(path) }
+        guard values.isRegularFile == true else { throw SourceError.fileNotFound(probe.path) }
         let size = Int64(values.fileSize ?? 0)
         let revision = try localCompositeRevision(
-            for: fileURL,
+            for: probe.fileURL,
             size: size,
-            modifiedDate: values.contentModificationDate
+            modifiedDate: values.contentModificationDate,
+            isIndividuallyReferenced: probe.isIndividuallyReferenced,
+            paths: probe.paths
         )
         return EmbeddedMetadataRemoteFileState(
             fileSize: size,
@@ -164,25 +281,32 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     /// checks so an unchanged audio file with sidecars is not reported as a
     /// false conflict, while a concurrently changed sidecar still blocks the
     /// transaction.
-    private func localCompositeRevision(
+    private nonisolated static func localCompositeRevision(
         for fileURL: URL,
         size: Int64,
-        modifiedDate: Date?
+        modifiedDate: Date?,
+        isIndividuallyReferenced: Bool,
+        paths: PathResolver
     ) throws -> String? {
         let keys: Set<URLResourceKey> = [
             .isRegularFileKey,
             .fileSizeKey,
             .contentModificationDateKey,
+            .isSymbolicLinkKey,
         ]
         let siblingURLs: [URL]
-        if isIndividuallyReferencedFile(fileURL) {
+        let parentIsCanonical: Bool
+        if isIndividuallyReferenced {
             siblingURLs = [fileURL]
+            parentIsCanonical = false
         } else {
+            let directoryURL = fileURL.deletingLastPathComponent()
             siblingURLs = try FileManager.default.contentsOfDirectory(
-                at: fileURL.deletingLastPathComponent(),
+                at: directoryURL,
                 includingPropertiesForKeys: Array(keys),
                 options: [.skipsHiddenFiles]
             )
+            parentIsCanonical = isCanonical(directoryURL)
         }
         let siblings: [RemoteFileItem] = siblingURLs.compactMap { url in
             guard let values = try? url.resourceValues(forKeys: keys),
@@ -190,7 +314,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             let siblingSize = Int64(values.fileSize ?? 0)
             return RemoteFileItem(
                 name: url.lastPathComponent,
-                path: relativePath(for: url),
+                path: paths.relativePath(
+                    forListedEntry: url,
+                    parentIsCanonical: parentIsCanonical,
+                    isSymbolicLink: values.isSymbolicLink
+                ),
                 isDirectory: false,
                 size: siblingSize,
                 modifiedDate: values.contentModificationDate,
@@ -200,7 +328,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 )
             )
         }
-        let targetPath = relativePath(for: fileURL)
+        let targetPath = paths.relativePath(for: fileURL)
         guard let item = siblings.first(where: { $0.path == targetPath }) else {
             throw SourceError.fileNotFound(targetPath)
         }
@@ -227,7 +355,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         expected: EmbeddedMetadataRemoteFileState
     ) async throws {
         let destination = try resolvedURL(for: path, allowRoot: false)
-        let current = try await metadataWritebackState(for: path)
+        // Checked on the actor, so no other write through this connector can
+        // land between the conflict check and the replacement.
+        let current = try Self.writebackState(writebackProbe(for: path))
         guard expected.matches(current) else {
             throw EmbeddedMetadataWritebackSourceError.conflict
         }
@@ -289,7 +419,9 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     func streamData(for path: String) async throws -> AsyncThrowingStream<Data, Error> {
         let fileURL = try await localURL(for: path)
         return AsyncThrowingStream { continuation in
-            Task {
+            // Detached: an inherited actor context would read the whole file
+            // while every other call on this connector waits.
+            Task.detached {
                 do {
                     let handle = try FileHandle(forReadingFrom: fileURL)
                     defer { handle.closeFile() }
@@ -309,7 +441,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     func scanAudioFiles(from path: String) async throws -> AsyncThrowingStream<RemoteFileItem, Error> {
-        let inventory = try buildScanInventory(from: path)
+        let inventory = try await Self.buildScanInventory(
+            startURLs: scanStartURLs(for: path),
+            paths: pathResolver()
+        )
         return AsyncThrowingStream { continuation in
             Task {
                 for item in inventory.items { continuation.yield(item) }
@@ -326,7 +461,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         from path: String,
         existingSongs: [Song]
     ) async throws -> AsyncThrowingStream<ConnectorScannedSong, Error> {
-        let inventory = try buildScanInventory(from: path)
+        let inventory = try await Self.buildScanInventory(
+            startURLs: scanStartURLs(for: path),
+            paths: pathResolver()
+        )
         let cueTracksByAudioPath = try await loadCueTracks(from: inventory.cueURLs)
         var cueImageCountByDirectory: [String: Int] = [:]
         for audioPath in cueTracksByAudioPath.keys {
@@ -476,43 +614,61 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         var cueDirectoryIndexes: [String: SidecarHintResolver.DirectoryIndex] = [:]
     }
 
+    private func scanStartURLs(for path: String) throws -> [URL] {
+        isVirtualReferenceRoot(path)
+            ? referenceRoots.map(\.url)
+            : [try resolvedURL(for: path, allowRoot: true)]
+    }
+
     /// One filesystem enumeration gathers audio, STRM, CUE, covers, lyrics and
     /// MV candidates. Directory-local sibling decoration is applied afterward,
-    /// so no second recursive walk is needed.
-    private func buildScanInventory(from path: String) throws -> LocalScanInventory {
+    /// so no second recursive walk is needed. Runs off the actor: a launch
+    /// reconciliation walks the whole tree while the person is already
+    /// changing tracks, and playback resolves each one through this actor.
+    @concurrent
+    private nonisolated static func buildScanInventory(
+        startURLs: [URL],
+        paths: PathResolver
+    ) async throws -> LocalScanInventory {
         let keys: Set<URLResourceKey> = [
             .isDirectoryKey, .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
+            .isSymbolicLinkKey,
         ]
         var filesByParent: [String: [RemoteFileItem]] = [:]
         var cueURLsByPath: [String: URL] = [:]
+        // Directories whose listed path is already canonical. The walk starts
+        // at a canonical root and reaches a directory before its contents, so
+        // a non-symlink directory inside a member is one too.
+        var canonicalDirectories: Set<String> = []
 
-        func recordFile(_ url: URL) throws {
+        func recordFile(_ url: URL, values: URLResourceValues?) throws {
             try Task.checkCancellation()
-            guard let values = try? url.resourceValues(forKeys: keys),
-                  values.isRegularFile == true else { return }
+            guard let values, values.isRegularFile == true else { return }
             let size = Int64(values.fileSize ?? 0)
+            let parentPath = url.deletingLastPathComponent().standardizedFileURL.path
             let item = RemoteFileItem(
                 name: url.lastPathComponent,
-                path: relativePath(for: url),
+                path: paths.relativePath(
+                    forListedEntry: url,
+                    parentIsCanonical: canonicalDirectories.contains(parentPath),
+                    isSymbolicLink: values.isSymbolicLink
+                ),
                 isDirectory: false,
                 size: size,
                 modifiedDate: values.contentModificationDate,
                 revision: Self.localRevision(size: size, modifiedDate: values.contentModificationDate)
             )
-            filesByParent[url.deletingLastPathComponent().standardizedFileURL.path, default: []].append(item)
+            filesByParent[parentPath, default: []].append(item)
             if PrimuseConstants.supportedCueSheetExtensions.contains(url.pathExtension.lowercased()) {
                 cueURLsByPath[item.path] = url
             }
         }
 
-        let startURLs = isVirtualReferenceRoot(path)
-            ? referenceRoots.map(\.url)
-            : [try resolvedURL(for: path, allowRoot: true)]
         for startURL in startURLs {
             try Task.checkCancellation()
             let values = try startURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
             if values.isRegularFile == true {
-                try recordFile(startURL)
+                try recordFile(startURL, values: try? startURL.resourceValues(forKeys: keys))
                 continue
             }
             guard values.isDirectory == true else {
@@ -520,9 +676,11 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                     "Local source root is not a readable file or folder: \(startURL.path)"
                 )
             }
+            let enumerationRoot = canonicalURL(startURL)
+            canonicalDirectories.insert(enumerationRoot.path)
             var enumerationError: Error?
             guard let enumerator = FileManager.default.enumerator(
-                at: startURL,
+                at: enumerationRoot,
                 includingPropertiesForKeys: Array(keys),
                 options: [.skipsHiddenFiles],
                 errorHandler: { _, error in
@@ -535,7 +693,15 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
                 )
             }
             while let url = enumerator.nextObject() as? URL {
-                try recordFile(url)
+                let entryValues = try? url.resourceValues(forKeys: keys)
+                if entryValues?.isDirectory == true,
+                   entryValues?.isSymbolicLink == false,
+                   canonicalDirectories.contains(
+                       url.deletingLastPathComponent().standardizedFileURL.path
+                   ) {
+                    canonicalDirectories.insert(url.standardizedFileURL.path)
+                }
+                try recordFile(url, values: entryValues)
             }
             if let enumerationError { throw enumerationError }
         }
@@ -909,7 +1075,7 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
         return (parentDir as NSString).appendingPathComponent(sidecarName)
     }
 
-    private func remoteFileItem(for url: URL, path: String) throws -> RemoteFileItem {
+    private nonisolated static func remoteFileItem(for url: URL, path: String) throws -> RemoteFileItem {
         let values = try url.resourceValues(forKeys: [
             .isDirectoryKey, .fileSizeKey, .contentModificationDateKey,
         ])
@@ -1006,22 +1172,32 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
     }
 
     private func relativePath(for url: URL) -> String {
-        let standardized = Self.canonicalURL(url)
-        for root in referenceRoots where Self.contains(standardized, inside: root.url) {
-            let rootPath = Self.canonicalURL(root.url).path
-            let suffix = standardized.path.dropFirst(rootPath.count)
-            let rootPrefix = root.virtualPathComponent.map { "/\($0)" } ?? ""
-            if suffix.isEmpty { return rootPrefix.isEmpty ? "/" : rootPrefix }
-            let childPath = suffix.hasPrefix("/") ? String(suffix) : "/" + suffix
-            return rootPrefix + childPath
-        }
+        pathResolver().relativePath(for: url)
+    }
 
-        let standardizedBase = Self.canonicalURL(basePath)
-        guard Self.contains(standardized, inside: standardizedBase) else {
-            return "/" + url.lastPathComponent
-        }
-        let suffix = standardized.path.dropFirst(standardizedBase.path.count)
-        return suffix.isEmpty ? "/" : (suffix.hasPrefix("/") ? String(suffix) : "/" + suffix)
+    private func pathResolver() -> PathResolver {
+        resolveReferenceRootsIfNeeded()
+        if let cachedPathResolver { return cachedPathResolver }
+        let resolver = PathResolver(
+            roots: referenceRoots.map { root in
+                PathResolver.Root(
+                    virtualPathComponent: root.virtualPathComponent,
+                    canonicalPath: Self.canonicalURL(root.url).path
+                )
+            },
+            canonicalBasePath: Self.canonicalURL(basePath).path
+        )
+        // A root that is not there yet (an unmounted volume) canonicalises
+        // differently once it appears, so only a complete answer is kept.
+        let rootsExist = resolver.roots.allSatisfy {
+            FileManager.default.fileExists(atPath: $0.canonicalPath)
+        } && FileManager.default.fileExists(atPath: resolver.canonicalBasePath)
+        if rootsExist { cachedPathResolver = resolver }
+        return resolver
+    }
+
+    private nonisolated static func isCanonical(_ url: URL) -> Bool {
+        canonicalURL(url).path == url.standardizedFileURL.path
     }
 
     private func isAccessibleReference(_ candidate: URL, relativeTo sourceURL: URL) -> Bool {

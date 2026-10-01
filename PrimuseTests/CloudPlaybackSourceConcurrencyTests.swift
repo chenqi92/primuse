@@ -1553,6 +1553,111 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: first.appendingPathComponent("song.lrc").path))
     }
 
+    /// Listing and scanning map ordinary entries straight from the canonical
+    /// root; symlinked entries keep the full walk. Paths must stay exactly
+    /// what they were for an aliased root, a nested folder, a link to a file
+    /// inside the source and a link that leaves it.
+    func testLocalListingAndScanKeepSourcePathsThroughAliasedRoot() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let root = directory.appendingPathComponent("music", isDirectory: true)
+        let album = root.appendingPathComponent("Album", isDirectory: true)
+        let outside = directory.appendingPathComponent("outside", isDirectory: true)
+        for folder in [album, outside] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let audio = Data(repeating: 1, count: 4_096)
+        try audio.write(to: root.appendingPathComponent("一 Single.flac"))
+        try audio.write(to: album.appendingPathComponent("02 Track.flac"))
+        try Data("[00:01]words".utf8).write(to: album.appendingPathComponent("02 Track.lrc"))
+        try audio.write(to: outside.appendingPathComponent("Outside.flac"))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("Linked.flac"),
+            withDestinationURL: album.appendingPathComponent("02 Track.flac")
+        )
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("Escape"), withDestinationURL: outside
+        )
+        let alias = directory.appendingPathComponent("alias", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: root)
+        let source = LocalFileSource(sourceID: UUID().uuidString, basePath: alias)
+
+        let rootListing = try await source.listFiles(at: "/")
+        XCTAssertEqual(
+            Dictionary(uniqueKeysWithValues: rootListing.map { ($0.name, $0.path) }),
+            [
+                "Album": "/Album",
+                "Escape": "/Escape",
+                "Linked.flac": "/Album/02 Track.flac",
+                "一 Single.flac": "/一 Single.flac",
+            ]
+        )
+        let albumListing = try await source.listFiles(at: "/Album")
+        XCTAssertEqual(
+            albumListing.map(\.path).sorted(),
+            ["/Album/02 Track.flac", "/Album/02 Track.lrc"]
+        )
+
+        var scanned: [Song] = []
+        for try await item in try await source.scanSongs(from: "/") {
+            scanned.append(item.song)
+        }
+        XCTAssertEqual(
+            scanned.map(\.filePath).sorted(),
+            ["/Album/02 Track.flac", "/一 Single.flac"]
+        )
+        let track = try XCTUnwrap(scanned.first { $0.filePath == "/Album/02 Track.flac" })
+        XCTAssertEqual(track.lyricsFileName, "/Album/02 Track.lrc")
+
+        // The writeback conflict fingerprint folds the same sidecars in, so an
+        // untouched file must read back exactly the scanned revision.
+        let state = try await source.metadataWritebackState(for: "/Album/02 Track.flac")
+        XCTAssertEqual(state.revision, track.revision)
+        XCTAssertEqual(state.fileSize, Int64(audio.count))
+    }
+
+    func testLocalScanMapsEveryBookmarkRootToItsVirtualFolder() async throws {
+        struct Reference: Encodable {
+            let virtualPathComponent: String
+            let bookmarkData: Data
+            let isDirectory: Bool
+        }
+        let directory = try makeTemporaryDirectory()
+        let sourceID = UUID().uuidString
+        defer {
+            LocalBookmarkStore.remove(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let first = directory.appendingPathComponent("first", isDirectory: true)
+        let second = directory.appendingPathComponent("second", isDirectory: true)
+        let nested = second.appendingPathComponent("Disc 2", isDirectory: true)
+        for folder in [first, nested] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let audio = Data(repeating: 2, count: 4_096)
+        try audio.write(to: first.appendingPathComponent("a.flac"))
+        try audio.write(to: nested.appendingPathComponent("b.flac"))
+        let references = try [first, second].map { root in
+            Reference(
+                virtualPathComponent: root.lastPathComponent,
+                bookmarkData: try root.bookmarkData(options: .minimalBookmark),
+                isDirectory: true
+            )
+        }
+        UserDefaults.standard.set(
+            try JSONEncoder().encode(references), forKey: "primuse.localBookmarks.v1." + sourceID
+        )
+        let source = LocalFileSource(sourceID: sourceID, basePath: first)
+
+        var scanned: [String] = []
+        for try await item in try await source.scanSongs(from: "/") {
+            scanned.append(item.song.filePath)
+        }
+        XCTAssertEqual(scanned.sorted(), ["/first/a.flac", "/second/Disc 2/b.flac"])
+        let listing = try await source.listFiles(at: "/second/Disc 2")
+        XCTAssertEqual(listing.map(\.path), ["/second/Disc 2/b.flac"])
+    }
+
     /// 「清缓存」的跳过判定必须挂在 session 是否还活着上, 而不是文件名后缀:
     /// 正在播放的 `.partial` 与正在下载的 `.offline` 要留下, 早就中断的
     /// `.partial` 照删; session 结束之后同一个文件立刻恢复可删。
