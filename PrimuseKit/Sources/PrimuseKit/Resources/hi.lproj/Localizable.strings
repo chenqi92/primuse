@@ -319,7 +319,7 @@
 "ext.tv.search.hint" = "कीबोर्ड खोलने के लिए खोज फ़ील्ड का चयन करें, या ध्वनि श्रुतलेख का उपयोग करें";
 "ext.tv.search.noMatch" = "कोई मेल खाता गाना नहीं";
 "ext.tv.search.path" = "पथ: %@";
-"ext.tv.search.placeholder" = "गाने, एल्बम, कलाकार खोजें";
+"ext.tv.search.placeholder" = "लाइब्रेरी के गाने, एल्बम, कलाकार खोजें";
 "ext.tv.search.songs" = "गाने";
 "ext.tv.search.suggestions" = "सुझाव";
 "ext.tv.search.topResult" = "शीर्ष परिणाम";

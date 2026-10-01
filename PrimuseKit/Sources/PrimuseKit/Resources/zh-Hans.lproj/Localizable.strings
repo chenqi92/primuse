@@ -154,7 +154,7 @@
 
 // tvOS — Search
 "ext.tv.search.eyebrow"                    = "搜索";
-"ext.tv.search.placeholder"                = "搜索歌曲、专辑、艺术家";
+"ext.tv.search.placeholder"                = "在已入库的歌曲、专辑和艺术家中检索";
 "ext.tv.search.hint"                       = "选中搜索框唤出系统键盘,可用语音听写输入";
 "ext.tv.search.suggestions"                = "建议";
 "ext.tv.search.topResult"                  = "顶部匹配";

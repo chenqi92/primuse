@@ -157,7 +157,7 @@
 
 // tvOS — Search
 "ext.tv.search.eyebrow"                    = "검색";
-"ext.tv.search.placeholder"                = "노래, 앨범, 아티스트 검색";
+"ext.tv.search.placeholder"                = "보관함의 노래, 앨범, 아티스트 검색";
 "ext.tv.search.hint"                       = "검색 필드를 선택하면 키보드가 열립니다. 음성 받아쓰기도 사용할 수 있습니다";
 "ext.tv.search.suggestions"                = "추천 검색어";
 "ext.tv.search.topResult"                  = "최상위 결과";

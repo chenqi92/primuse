@@ -47,7 +47,7 @@
 "sources_title" = "音乐源";
 "settings_title" = "设置";
 "search_title" = "搜索";
-"search_prompt" = "歌曲、艺术家、专辑、歌词";
+"search_prompt" = "在已入库的歌曲、艺术家、专辑和歌词中检索";
 
 // MARK: - 问候语
 "greeting_morning" = "早上好";
@@ -1760,7 +1760,7 @@
 // MARK: - 新版 macOS 侧栏 (1.6 重设计)
 "sidebar_playlists_empty" = "暂无歌单";
 "sidebar_sources_empty" = "暂无音乐源";
-"search_placeholder_universal" = "搜索本地库 + Apple Music";
+"search_placeholder_universal" = "检索已入库曲库与 Apple Music";
 "sidebar_toggle" = "切换侧栏";
 
 // MARK: - 1.6 macOS Home 重设计
@@ -4949,3 +4949,5 @@
 "restore_file_tags" = "恢复文件标签";
 "restore_file_tags_confirm" = "恢复";
 "restore_file_tags_message" = "这张专辑里手动编辑和刮削改过的标题、艺术家、专辑、年份等会换回音乐文件里的标签。服务器音乐源的歌在下次同步时恢复。";
+"search_prompt_with_apple_music" = "在已入库的曲库和 Apple Music 中检索";
+"search_placeholder_library" = "检索已入库曲库";

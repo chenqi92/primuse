@@ -2780,8 +2780,8 @@
 "search_match_fuzzy" = "Correspondência difusa";
 "search_match_lyrics" = "Letras correspondentes";
 "search_match_time_format" = "Partida em %@";
-"search_placeholder_universal" = "Pesquisa local + Apple Music";
-"search_prompt" = "Músicas, artistas, álbuns, letras";
+"search_placeholder_universal" = "Pesquisar biblioteca + Apple Music";
+"search_prompt" = "Músicas, artistas, álbuns e letras da sua biblioteca";
 "search_query" = "Consulta de pesquisa";
 "search_result_path_accessibility_format" = "Caminho: %@";
 "search_running" = "Procurando…";
@@ -4762,3 +4762,5 @@
 "restore_file_tags" = "Restaurar tags do arquivo";
 "restore_file_tags_confirm" = "Restaurar";
 "restore_file_tags_message" = "Títulos, artistas, álbuns, anos e outras tags que você editou ou buscou para este álbum voltam às tags dos arquivos de música. Músicas de fontes de servidor são restauradas na próxima sincronização.";
+"search_prompt_with_apple_music" = "Pesquisar na sua biblioteca e no Apple Music";
+"search_placeholder_library" = "Pesquisar na biblioteca";

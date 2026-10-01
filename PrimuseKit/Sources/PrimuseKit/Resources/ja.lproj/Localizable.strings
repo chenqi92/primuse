@@ -157,7 +157,7 @@
 
 // tvOS — Search
 "ext.tv.search.eyebrow"                    = "検索";
-"ext.tv.search.placeholder"                = "曲、アルバム、アーティストを検索";
+"ext.tv.search.placeholder"                = "ライブラリの曲・アルバム・アーティストを検索";
 "ext.tv.search.hint"                       = "検索フィールドを選ぶとキーボードが開きます。音声入力も使えます";
 "ext.tv.search.suggestions"                = "候補";
 "ext.tv.search.topResult"                  = "上位の結果";

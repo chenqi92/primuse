@@ -47,7 +47,7 @@
 "sources_title" = "Sources";
 "settings_title" = "Settings";
 "search_title" = "Search";
-"search_prompt" = "Songs, artists, albums, lyrics";
+"search_prompt" = "Songs, artists, albums & lyrics in your library";
 
 // MARK: - Greetings
 "greeting_morning" = "Good Morning";
@@ -1744,7 +1744,7 @@
 // MARK: - macOS sidebar (1.6 redesign)
 "sidebar_playlists_empty" = "No playlists yet";
 "sidebar_sources_empty" = "No sources yet";
-"search_placeholder_universal" = "Search local + Apple Music";
+"search_placeholder_universal" = "Search library + Apple Music";
 "sidebar_toggle" = "Toggle sidebar";
 
 // MARK: - 1.6 macOS Home redesign
@@ -4619,3 +4619,5 @@
 "restore_file_tags" = "Restore File Tags";
 "restore_file_tags_confirm" = "Restore";
 "restore_file_tags_message" = "Titles, artists, albums, years and other tags you edited or scraped for this album go back to the tags in the music files. Songs from server sources are restored at the next sync.";
+"search_prompt_with_apple_music" = "Search your library and Apple Music";
+"search_placeholder_library" = "Search your library";

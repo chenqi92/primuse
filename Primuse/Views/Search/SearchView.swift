@@ -1306,7 +1306,10 @@ struct SearchView: View {
     }
 
     private var searchPrompt: String {
-        guard let scope else { return String(localized: "search_prompt") }
+        guard let scope else {
+            // 只说「已入库」:开着 Apple Music 目录搜索时如实写上它。
+            return String(localized: appleMusicSearchEnabled ? "search_prompt_with_apple_music" : "search_prompt")
+        }
         return String(format: String(localized: "search_scope_prompt_format"), scope.title)
     }
 

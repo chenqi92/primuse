@@ -157,7 +157,7 @@
 
 // tvOS — Search
 "ext.tv.search.eyebrow"                    = "Rechercher";
-"ext.tv.search.placeholder"                = "Rechercher titres, albums, artistes";
+"ext.tv.search.placeholder"                = "Rechercher titres, albums et artistes de la bibliothèque";
 "ext.tv.search.hint"                       = "Sélectionnez le champ de recherche pour ouvrir le clavier, ou utilisez la dictée vocale";
 "ext.tv.search.suggestions"                = "Suggestions";
 "ext.tv.search.topResult"                  = "Meilleur résultat";

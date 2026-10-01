@@ -2780,8 +2780,8 @@
 "search_match_fuzzy" = "Rozmyte dopasowanie";
 "search_match_lyrics" = "Dopasowany tekst";
 "search_match_time_format" = "Dopasuj w %@";
-"search_placeholder_universal" = "Wyszukaj lokalnie + Apple Music";
-"search_prompt" = "Piosenki, artyści, albumy, teksty";
+"search_placeholder_universal" = "Szukaj: biblioteka + Apple Music";
+"search_prompt" = "Piosenki, artyści, albumy i teksty w bibliotece";
 "search_query" = "Zapytanie wyszukiwania";
 "search_result_path_accessibility_format" = "Ścieżka: %@";
 "search_running" = "Wyszukiwanie…";
@@ -4762,3 +4762,5 @@
 "restore_file_tags" = "Przywróć tagi z plików";
 "restore_file_tags_confirm" = "Przywróć";
 "restore_file_tags_message" = "Tytuły, wykonawcy, albumy, lata i inne tagi edytowane ręcznie lub pobrane dla tego albumu wrócą do tagów z plików muzycznych. Utwory ze źródeł serwerowych zostaną przywrócone przy następnej synchronizacji.";
+"search_prompt_with_apple_music" = "Szukaj w bibliotece i Apple Music";
+"search_placeholder_library" = "Szukaj w bibliotece";

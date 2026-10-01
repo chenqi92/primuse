@@ -224,7 +224,7 @@
 // MARK: - macOS 사이드바 (1.6)
 "sidebar_playlists_empty" = "플레이리스트 없음";
 "sidebar_sources_empty" = "소스 없음";
-"search_placeholder_universal" = "로컬 + Apple Music 검색";
+"search_placeholder_universal" = "보관함 + Apple Music 검색";
 "sidebar_toggle" = "사이드바 토글";
 
 // MARK: - 1.6 macOS Home redesign
@@ -298,7 +298,7 @@
 
 // === Auto-filled to match English coverage ===
 "sources_title" = "소스";
-"search_prompt" = "곡, 아티스트, 앨범, 가사";
+"search_prompt" = "보관함의 곡, 아티스트, 앨범, 가사";
 "library_manage_header" = "관리";
 "library_stats_header" = "이번 주";
 "library_stats_plays_suffix" = "회 재생";
@@ -4856,3 +4856,5 @@
 "restore_file_tags" = "파일 태그로 되돌리기";
 "restore_file_tags_confirm" = "되돌리기";
 "restore_file_tags_message" = "이 앨범에서 직접 편집하거나 스크래핑으로 바꾼 제목, 아티스트, 앨범, 연도 등이 음악 파일의 태그로 되돌아갑니다. 서버 소스의 곡은 다음 동기화 때 복원됩니다.";
+"search_prompt_with_apple_music" = "보관함과 Apple Music 검색";
+"search_placeholder_library" = "보관함 검색";

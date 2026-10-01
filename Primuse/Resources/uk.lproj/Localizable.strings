@@ -1542,7 +1542,7 @@
 "fullscreen_effect_cover_gallery_motion" = "Справжні бібліотечні ілюстрації · Багатошаровий паралакс";
 "Release Date" = "Дата випуску";
 "storage_export_log" = "Журнал експорту";
-"search_prompt" = "Пісні, виконавці, альбоми, слова";
+"search_prompt" = "Пісні, виконавці, альбоми й слова в медіатеці";
 "song_details_incomplete_message" = "Цю пісню можна відтворити, але повну інформацію ще не можна підтвердити з доступних необроблених полів. Відтворення може змінити його тривалість.";
 "Small 155×155 · Medium 342×155 · Large 342×342 · Matches design ST-07 sizes" = "Малий 155×155 · Середній 342×155 · Великий 342×342 · Відповідає дизайну розмірів ST-07";
 "ai_test_connection" = "Перевірте з'єднання";
@@ -2116,7 +2116,7 @@
 "iOS / macOS Shared · CloudKVS Sync" = "iOS / macOS Спільно · Синхронізація CloudKVS";
 "0.5x – 2.0x · Preserve Pitch" = "0,5x – 2,0x · Зберегти крок";
 "EQ · Spatial · ReplayGain · Crossfade" = "EQ · Просторовий · ReplayGain · Кроссфейд";
-"search_placeholder_universal" = "Локальний пошук + Apple Music";
+"search_placeholder_universal" = "Пошук: медіатека + Apple Music";
 "ai_primuse_relay_consent_required" = "Виберіть потрібні функції ШІ та надайте відповідний дозвіл на дані";
 "ai_api_style_anthropic_messages" = "Anthropic Повідомлення";
 "update_policy_macos_app_store_id" = "Оновлення macOS і iOS перевіряються окремо. Ідентифікатор Mac App Store використовується для вихідної версії Mac, тому версії iOS не викликають повідомлення про оновлення macOS.";
@@ -4762,3 +4762,5 @@
 "restore_file_tags" = "Відновити теги файлів";
 "restore_file_tags_confirm" = "Відновити";
 "restore_file_tags_message" = "Назви, виконавці, альбоми, роки та інші теги, змінені вручну або під час пошуку метаданих для цього альбому, повернуться до тегів із музичних файлів. Пісні з серверних джерел відновляться під час наступної синхронізації.";
+"search_prompt_with_apple_music" = "Пошук у медіатеці та Apple Music";
+"search_placeholder_library" = "Пошук у медіатеці";

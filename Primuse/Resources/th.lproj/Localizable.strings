@@ -2780,8 +2780,8 @@
 "search_match_fuzzy" = "แมตช์คลุมเครือ";
 "search_match_lyrics" = "เนื้อเพลงที่ตรงกัน";
 "search_match_time_format" = "แข่งขันที่ %@";
-"search_placeholder_universal" = "ค้นหาในท้องถิ่น + Apple Music";
-"search_prompt" = "เพลง ศิลปิน อัลบั้ม เนื้อเพลง";
+"search_placeholder_universal" = "ค้นหาคลัง + Apple Music";
+"search_prompt" = "เพลง ศิลปิน อัลบั้ม และเนื้อเพลงในคลังของคุณ";
 "search_query" = "คำค้นหา";
 "search_result_path_accessibility_format" = "เส้นทาง: %@";
 "search_running" = "กำลังค้นหา...";
@@ -4762,3 +4762,5 @@
 "restore_file_tags" = "คืนค่าแท็กจากไฟล์";
 "restore_file_tags_confirm" = "คืนค่า";
 "restore_file_tags_message" = "ชื่อเพลง ศิลปิน อัลบั้ม ปี และแท็กอื่นที่คุณแก้ไขหรือดึงข้อมูลมาสำหรับอัลบั้มนี้จะกลับไปใช้แท็กในไฟล์เพลง เพลงจากแหล่งเซิร์ฟเวอร์จะคืนค่าในการซิงค์ครั้งถัดไป";
+"search_prompt_with_apple_music" = "ค้นหาในคลังของคุณและ Apple Music";
+"search_placeholder_library" = "ค้นหาในคลัง";

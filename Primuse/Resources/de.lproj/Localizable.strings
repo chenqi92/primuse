@@ -224,7 +224,7 @@
 // MARK: - macOS Seitenleiste (1.6)
 "sidebar_playlists_empty" = "Keine Wiedergabelisten";
 "sidebar_sources_empty" = "Keine Quellen";
-"search_placeholder_universal" = "Lokal + Apple Music suchen";
+"search_placeholder_universal" = "Mediathek + Apple Music durchsuchen";
 "sidebar_toggle" = "Seitenleiste umschalten";
 
 // MARK: - 1.6 macOS Home redesign
@@ -298,7 +298,7 @@
 
 // === Auto-filled to match English coverage ===
 "sources_title" = "Quellen";
-"search_prompt" = "Titel, Künstler, Alben, Liedtexte";
+"search_prompt" = "Titel, Künstler, Alben & Liedtexte in deiner Mediathek";
 "library_manage_header" = "Verwalten";
 "library_stats_header" = "Diese Woche";
 "library_stats_plays_suffix" = "Wiedergaben";
@@ -4856,3 +4856,5 @@
 "restore_file_tags" = "Datei-Tags wiederherstellen";
 "restore_file_tags_confirm" = "Wiederherstellen";
 "restore_file_tags_message" = "Titel, Künstler, Alben, Jahre und andere Tags, die du für dieses Album bearbeitet oder abgerufen hast, werden auf die Tags in den Musikdateien zurückgesetzt. Titel von Serverquellen werden bei der nächsten Synchronisierung wiederhergestellt.";
+"search_prompt_with_apple_music" = "In deiner Mediathek und Apple Music suchen";
+"search_placeholder_library" = "Mediathek durchsuchen";

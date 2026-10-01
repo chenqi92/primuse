@@ -2780,8 +2780,8 @@
 "search_match_fuzzy" = "फ़ज़ी मैच";
 "search_match_lyrics" = "मेल खाते गीत के बोल";
 "search_match_time_format" = "%@ पर मैच";
-"search_placeholder_universal" = "स्थानीय खोजें + Apple Music";
-"search_prompt" = "गाने, कलाकार, एल्बम, गीत";
+"search_placeholder_universal" = "लाइब्रेरी + Apple Music खोजें";
+"search_prompt" = "आपकी लाइब्रेरी के गाने, कलाकार, एल्बम और गीत";
 "search_query" = "खोज क्वेरी";
 "search_result_path_accessibility_format" = "पथ: %@";
 "search_running" = "खोजा जा रहा है...";
@@ -4762,3 +4762,5 @@
 "restore_file_tags" = "फ़ाइल टैग पुनर्स्थापित करें";
 "restore_file_tags_confirm" = "पुनर्स्थापित करें";
 "restore_file_tags_message" = "इस एल्बम के लिए आपने जो शीर्षक, कलाकार, एल्बम, वर्ष आदि संपादित किए या खोजकर बदले, वे संगीत फ़ाइलों के टैग पर लौट आएँगे। सर्वर स्रोतों के गाने अगले सिंक पर पुनर्स्थापित होंगे।";
+"search_prompt_with_apple_music" = "अपनी लाइब्रेरी और Apple Music में खोजें";
+"search_placeholder_library" = "लाइब्रेरी में खोजें";

@@ -225,7 +225,7 @@
 // MARK: - macOS サイドバー (1.6)
 "sidebar_playlists_empty" = "プレイリストなし";
 "sidebar_sources_empty" = "ソースなし";
-"search_placeholder_universal" = "ローカル + Apple Music を検索";
+"search_placeholder_universal" = "ライブラリ + Apple Music を検索";
 "sidebar_toggle" = "サイドバーを切替";
 
 // MARK: - 1.6 macOS Home redesign
@@ -299,7 +299,7 @@
 
 // === Auto-filled to match English coverage ===
 "sources_title" = "ソース";
-"search_prompt" = "曲、アーティスト、アルバム、歌詞";
+"search_prompt" = "ライブラリ内の曲・アーティスト・アルバム・歌詞";
 "library_manage_header" = "管理";
 "library_stats_header" = "今週";
 "library_stats_plays_suffix" = "回再生";
@@ -4857,3 +4857,5 @@
 "restore_file_tags" = "ファイルのタグに戻す";
 "restore_file_tags_confirm" = "戻す";
 "restore_file_tags_message" = "このアルバムで手動編集やスクレイピングで変更したタイトル・アーティスト・アルバム・年などを、音楽ファイルのタグに戻します。サーバーソースの曲は次回の同期で戻ります。";
+"search_prompt_with_apple_music" = "ライブラリと Apple Music を検索";
+"search_placeholder_library" = "ライブラリを検索";

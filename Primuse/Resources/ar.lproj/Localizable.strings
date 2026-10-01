@@ -2780,8 +2780,8 @@
 "search_match_fuzzy" = "مباراة غامضة";
 "search_match_lyrics" = "كلمات الأغاني المتطابقة";
 "search_match_time_format" = "المباراة بسعر %@";
-"search_placeholder_universal" = "بحث محلي + Apple Music";
-"search_prompt" = "أغاني، فنانين، ألبومات، كلمات";
+"search_placeholder_universal" = "البحث في المكتبة + Apple Music";
+"search_prompt" = "الأغاني والفنانون والألبومات والكلمات في مكتبتك";
 "search_query" = "استعلام البحث";
 "search_result_path_accessibility_format" = "المسار: %@";
 "search_running" = "البحث…";
@@ -4762,3 +4762,5 @@
 "restore_file_tags" = "استعادة وسوم الملفات";
 "restore_file_tags_confirm" = "استعادة";
 "restore_file_tags_message" = "ستعود العناوين والفنانون والألبومات والسنوات وغيرها من الوسوم التي عدّلتها يدويًا أو جلبتها لهذا الألبوم إلى الوسوم الموجودة في ملفات الموسيقى. تُستعاد أغاني مصادر الخادم عند المزامنة التالية.";
+"search_prompt_with_apple_music" = "ابحث في مكتبتك وApple Music";
+"search_placeholder_library" = "البحث في المكتبة";

@@ -224,7 +224,7 @@
 // MARK: - Barre latérale macOS (1.6)
 "sidebar_playlists_empty" = "Aucune playlist";
 "sidebar_sources_empty" = "Aucune source";
-"search_placeholder_universal" = "Local + Apple Music";
+"search_placeholder_universal" = "Bibliothèque + Apple Music";
 "sidebar_toggle" = "Basculer la barre latérale";
 
 // MARK: - 1.6 macOS Home redesign
@@ -298,7 +298,7 @@
 
 // === Auto-filled to match English coverage ===
 "sources_title" = "Sources";
-"search_prompt" = "Morceaux, artistes, albums, paroles";
+"search_prompt" = "Morceaux, artistes, albums et paroles de votre bibliothèque";
 "library_manage_header" = "Gérer";
 "library_stats_header" = "Cette semaine";
 "library_stats_plays_suffix" = "écoutes";
@@ -4856,3 +4856,5 @@
 "restore_file_tags" = "Restaurer les tags du fichier";
 "restore_file_tags_confirm" = "Restaurer";
 "restore_file_tags_message" = "Les titres, artistes, albums, années et autres tags modifiés ou récupérés pour cet album reprennent les valeurs des fichiers musicaux. Les morceaux des sources serveur sont restaurés à la prochaine synchronisation.";
+"search_prompt_with_apple_music" = "Rechercher dans votre bibliothèque et Apple Music";
+"search_placeholder_library" = "Rechercher dans la bibliothèque";

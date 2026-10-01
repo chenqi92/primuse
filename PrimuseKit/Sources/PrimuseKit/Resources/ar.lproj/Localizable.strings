@@ -319,7 +319,7 @@
 "ext.tv.search.hint" = "حدد حقل البحث لفتح لوحة المفاتيح، أو استخدم الإملاء الصوتي";
 "ext.tv.search.noMatch" = "لا توجد أغاني متطابقة";
 "ext.tv.search.path" = "المسار: %@";
-"ext.tv.search.placeholder" = "البحث في الأغاني والألبومات والفنانين";
+"ext.tv.search.placeholder" = "البحث في أغاني مكتبتك وألبوماتها وفنانيها";
 "ext.tv.search.songs" = "الأغاني";
 "ext.tv.search.suggestions" = "الاقتراحات";
 "ext.tv.search.topResult" = "أعلى النتيجة";

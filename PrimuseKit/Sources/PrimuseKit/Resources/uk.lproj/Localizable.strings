@@ -705,7 +705,7 @@
 "eq.preset.rock" = "Рок";
 "ext.tv.sources.login2FA" = "Двоетапна перевірка";
 "ext.watch.queue.title" = "Далі";
-"ext.tv.search.placeholder" = "Пошук пісень, альбомів, виконавців";
+"ext.tv.search.placeholder" = "Пошук пісень, альбомів і виконавців у медіатеці";
 "ext.tv.http.allow" = "Дозволити та продовжити";
 "ext.tv.sources.hint.subsonic" = "Протокол Subsonic";
 "fullscreen_effect_collection_cover_reactive" = "На основі обкладинки";

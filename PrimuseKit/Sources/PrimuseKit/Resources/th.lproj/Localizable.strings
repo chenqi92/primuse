@@ -319,7 +319,7 @@
 "ext.tv.search.hint" = "เลือกช่องค้นหาเพื่อเปิดแป้นพิมพ์ หรือใช้การเขียนตามคำบอกด้วยเสียง";
 "ext.tv.search.noMatch" = "ไม่มีเพลงที่ตรงกัน";
 "ext.tv.search.path" = "เส้นทาง: %@";
-"ext.tv.search.placeholder" = "ค้นหาเพลง อัลบั้ม ศิลปิน";
+"ext.tv.search.placeholder" = "ค้นหาเพลง อัลบั้ม ศิลปินในคลัง";
 "ext.tv.search.songs" = "เพลง";
 "ext.tv.search.suggestions" = "คำแนะนำ";
 "ext.tv.search.topResult" = "ผลลัพธ์ยอดนิยม";

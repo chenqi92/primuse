@@ -319,7 +319,7 @@
 "ext.tv.search.hint" = "Wybierz pole wyszukiwania, aby otworzyć klawiaturę lub skorzystać z dyktowania głosowego";
 "ext.tv.search.noMatch" = "Brak pasujących utworów";
 "ext.tv.search.path" = "Ścieżka: %@";
-"ext.tv.search.placeholder" = "Szukaj utworów, albumów, wykonawców";
+"ext.tv.search.placeholder" = "Szukaj utworów, albumów i wykonawców w bibliotece";
 "ext.tv.search.songs" = "Utwory";
 "ext.tv.search.suggestions" = "Sugestie";
 "ext.tv.search.topResult" = "Najlepszy wynik";

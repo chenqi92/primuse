@@ -705,7 +705,7 @@
 "eq.preset.rock" = "Rock";
 "ext.tv.sources.login2FA" = "İki Adımlı Doğrulama";
 "ext.watch.queue.title" = "Sıradaki";
-"ext.tv.search.placeholder" = "Şarkıları, albümleri, sanatçıları arayın";
+"ext.tv.search.placeholder" = "Arşivdeki şarkıları, albümleri, sanatçıları arayın";
 "ext.tv.http.allow" = "İzin Ver ve Devam Et";
 "ext.tv.sources.hint.subsonic" = "Subsonic protokolü";
 "fullscreen_effect_collection_cover_reactive" = "Kapak odaklı";

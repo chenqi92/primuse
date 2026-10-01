@@ -1542,7 +1542,7 @@
 "fullscreen_effect_cover_gallery_motion" = "Настоящее библиотечное произведение · Многослойный параллакс";
 "Release Date" = "Дата выпуска";
 "storage_export_log" = "Журнал экспорта";
-"search_prompt" = "Песни, исполнители, альбомы, тексты песен";
+"search_prompt" = "Песни, исполнители, альбомы и тексты в медиатеке";
 "song_details_incomplete_message" = "Эту песню можно воспроизвести, но полную информацию пока невозможно подтвердить из доступных необработанных полей. Воспроизведение может изменить его продолжительность.";
 "Small 155×155 · Medium 342×155 · Large 342×342 · Matches design ST-07 sizes" = "Маленький 155×155 · Средний 342×155 · Большой 342×342 · Соответствует дизайну размеров ST-07";
 "ai_test_connection" = "Тестовое соединение";
@@ -2116,7 +2116,7 @@
 "iOS / macOS Shared · CloudKVS Sync" = "iOS / macOS Общий · CloudKVS Синхронизация";
 "0.5x – 2.0x · Preserve Pitch" = "0,5x – 2,0x · Сохранить шаг";
 "EQ · Spatial · ReplayGain · Crossfade" = "EQ · Пространственный · ReplayGain · Кроссфейд";
-"search_placeholder_universal" = "Местный поиск + Apple Music";
+"search_placeholder_universal" = "Поиск: медиатека + Apple Music";
 "ai_primuse_relay_consent_required" = "Выберите нужные функции ИИ и предоставьте соответствующее разрешение на данные.";
 "ai_api_style_anthropic_messages" = "Anthropic Сообщения";
 "update_policy_macos_app_store_id" = "Обновления macOS и iOS проверяются отдельно. Идентификатор Mac App Store используется для собственной линейки выпусков Mac, поэтому версии iOS не вызывают уведомления об обновлении macOS.";
@@ -4762,3 +4762,5 @@
 "restore_file_tags" = "Восстановить теги файлов";
 "restore_file_tags_confirm" = "Восстановить";
 "restore_file_tags_message" = "Названия, исполнители, альбомы, годы и другие теги, изменённые вручную или при поиске метаданных для этого альбома, вернутся к тегам из музыкальных файлов. Песни с серверных источников восстановятся при следующей синхронизации.";
+"search_prompt_with_apple_music" = "Поиск в медиатеке и Apple Music";
+"search_placeholder_library" = "Поиск в медиатеке";

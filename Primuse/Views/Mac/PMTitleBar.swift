@@ -13,6 +13,9 @@ struct PMTitleBar: View {
     var onAudioOutput: () -> Void = {}
 
     @Environment(\.pmAppearance) private var mode
+    @Environment(MusicLibrary.self) private var library
+    @AppStorage(AppleMusicFeatureSettings.catalogSearchEnabledKey)
+    private var appleMusicCatalogSearchEnabled = true
     @FocusState private var searchFocused: Bool
     @State private var keyboardShortcuts = MacKeyboardShortcutStore.shared
     /// titlebar 右上喇叭按钮的 popover 显示状态 — 设计稿 P-21 Output Picker。
@@ -83,13 +86,22 @@ struct PMTitleBar: View {
 
     // MARK: - Search box
 
+    /// 只搜已入库的曲库;开着 Apple Music 目录搜索时才写上它(以前写死了)。
+    private var searchPromptKey: LocalizedStringKey {
+        AppleMusicCatalogSearchAvailabilityPolicy.isEnabled(
+            catalogSearchEnabled: appleMusicCatalogSearchEnabled,
+            sourceInstalled: library.appleMusicSourceInstalled,
+            disabledSourceIDs: library.disabledSourceIDs
+        ) ? "search_placeholder_universal" : "search_placeholder_library"
+    }
+
     private var searchBox: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(PMColor.textFaint)
 
-            TextField("", text: $searchText, prompt: Text("search_placeholder_universal"))
+            TextField("", text: $searchText, prompt: Text(searchPromptKey))
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .foregroundStyle(PMColor.text)

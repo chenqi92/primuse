@@ -705,7 +705,7 @@
 "eq.preset.rock" = "Рок";
 "ext.tv.sources.login2FA" = "Двухэтапная проверка";
 "ext.watch.queue.title" = "Далее";
-"ext.tv.search.placeholder" = "Поиск песен, альбомов, исполнителей";
+"ext.tv.search.placeholder" = "Поиск песен, альбомов и исполнителей в медиатеке";
 "ext.tv.http.allow" = "Разрешить и продолжить";
 "ext.tv.sources.hint.subsonic" = "Протокол Subsonic";
 "fullscreen_effect_collection_cover_reactive" = "По цветам обложки";

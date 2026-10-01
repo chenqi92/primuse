@@ -48,7 +48,7 @@
 "sources_title" = "音樂來源";
 "settings_title" = "設定";
 "search_title" = "搜尋";
-"search_prompt" = "歌曲、演出者、專輯、歌詞";
+"search_prompt" = "在已入庫的歌曲、演出者、專輯和歌詞中檢索";
 "greeting_morning" = "早安";
 "greeting_afternoon" = "午安";
 "greeting_evening" = "晚安";
@@ -1653,7 +1653,7 @@
 "dup_cleaning_progress_format" = "正在清理 %d / %d";
 "sidebar_playlists_empty" = "尚無歌單";
 "sidebar_sources_empty" = "尚無音樂源";
-"search_placeholder_universal" = "搜尋本機資料庫 + Apple Music";
+"search_placeholder_universal" = "檢索已入庫曲庫與 Apple Music";
 "sidebar_toggle" = "切換側欄";
 "home_recently_added_subtitle" = "最新加入資料庫";
 "home_recently_played_subtitle" = "你最近的循環";
@@ -4833,3 +4833,5 @@
 "restore_file_tags" = "恢復檔案標籤";
 "restore_file_tags_confirm" = "恢復";
 "restore_file_tags_message" = "這張專輯裡手動編輯和刮削改過的標題、藝人、專輯、年份等會換回音樂檔案裡的標籤。伺服器音樂來源的歌曲在下次同步時恢復。";
+"search_prompt_with_apple_music" = "在已入庫的曲庫和 Apple Music 中檢索";
+"search_placeholder_library" = "檢索已入庫曲庫";

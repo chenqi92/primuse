@@ -1542,7 +1542,7 @@
 "fullscreen_effect_cover_gallery_motion" = "Gerçek arşiv çizimi · Katmanlı paralaks";
 "Release Date" = "Yayımlanma tarihi";
 "storage_export_log" = "Günlüğü Dışa Aktar";
-"search_prompt" = "Şarkılar, sanatçılar, albümler, şarkı sözleri";
+"search_prompt" = "Arşivindeki şarkılar, sanatçılar, albümler ve şarkı sözleri";
 "song_details_incomplete_message" = "Bu şarkı çalınabilir durumda ancak tüm ayrıntılar henüz mevcut ham alanlardan doğrulanamıyor. Oynatma süresini çözebilir.";
 "Small 155×155 · Medium 342×155 · Large 342×342 · Matches design ST-07 sizes" = "Küçük 155×155 · Orta 342×155 · Büyük 342×342 · Tasarım ST-07 boyutlarıyla eşleşir";
 "ai_test_connection" = "Bağlantıyı test edin";
@@ -2116,7 +2116,7 @@
 "iOS / macOS Shared · CloudKVS Sync" = "iOS / macOS Paylaşılan · CloudKVS Senkronizasyonu";
 "0.5x – 2.0x · Preserve Pitch" = "0,5x – 2,0x · Perdeyi Koru";
 "EQ · Spatial · ReplayGain · Crossfade" = "EQ · Uzamsal · ReplayGain · Geçişli geçiş";
-"search_placeholder_universal" = "Yerel arama + Apple Music";
+"search_placeholder_universal" = "Arşiv + Apple Music'te ara";
 "ai_primuse_relay_consent_required" = "İstediğiniz AI özelliklerini seçin ve ilgili veri iznini verin";
 "ai_api_style_anthropic_messages" = "Anthropic Mesajlar";
 "update_policy_macos_app_store_id" = "macOS ve iOS güncellemeleri ayrı ayrı kontrol edilir. Mac App Store kimliği, yerel Mac sürüm satırı için kullanılır, bu nedenle iOS sürümleri, macOS güncelleme bildirimlerini tetiklemez.";
@@ -4762,3 +4762,5 @@
 "restore_file_tags" = "Dosya etiketlerini geri yükle";
 "restore_file_tags_confirm" = "Geri yükle";
 "restore_file_tags_message" = "Bu albüm için düzenlediğin veya çektiğin başlık, sanatçı, albüm, yıl ve diğer etiketler müzik dosyalarındaki etiketlere döner. Sunucu kaynaklarındaki şarkılar bir sonraki eşitlemede geri yüklenir.";
+"search_prompt_with_apple_music" = "Arşivinde ve Apple Music'te ara";
+"search_placeholder_library" = "Arşivde ara";

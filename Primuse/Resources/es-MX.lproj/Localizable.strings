@@ -2780,8 +2780,8 @@
 "search_match_fuzzy" = "Coincidencia difusa";
 "search_match_lyrics" = "Letras coincidentes";
 "search_match_time_format" = "Coincidencia en %@";
-"search_placeholder_universal" = "Buscar local + Apple Music";
-"search_prompt" = "Canciones, artistas, álbumes, letras.";
+"search_placeholder_universal" = "Buscar en biblioteca + Apple Music";
+"search_prompt" = "Canciones, artistas, álbumes y letras de tu biblioteca";
 "search_query" = "Consulta de búsqueda";
 "search_result_path_accessibility_format" = "Ruta: %@";
 "search_running" = "Buscando…";
@@ -4762,3 +4762,5 @@
 "restore_file_tags" = "Restaurar etiquetas del archivo";
 "restore_file_tags_confirm" = "Restaurar";
 "restore_file_tags_message" = "Los títulos, artistas, álbumes, años y otras etiquetas que editaste u obtuviste para este álbum vuelven a las etiquetas de los archivos de música. Las canciones de fuentes de servidor se restauran en la próxima sincronización.";
+"search_prompt_with_apple_music" = "Buscar en tu biblioteca y Apple Music";
+"search_placeholder_library" = "Buscar en la biblioteca";

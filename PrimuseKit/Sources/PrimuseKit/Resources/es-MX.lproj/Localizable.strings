@@ -319,7 +319,7 @@
 "ext.tv.search.hint" = "Seleccione el campo de búsqueda para abrir el teclado, o use el dictado de voz";
 "ext.tv.search.noMatch" = "No hay canciones coincidentes";
 "ext.tv.search.path" = "Ruta: %@";
-"ext.tv.search.placeholder" = "Buscar canciones, álbumes, artistas";
+"ext.tv.search.placeholder" = "Buscar canciones, álbumes y artistas de tu biblioteca";
 "ext.tv.search.songs" = "Canciones";
 "ext.tv.search.suggestions" = "Sugerencias";
 "ext.tv.search.topResult" = "Resultado principal";

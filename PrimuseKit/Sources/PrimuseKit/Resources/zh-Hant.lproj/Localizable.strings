@@ -154,7 +154,7 @@
 
 // tvOS — Search
 "ext.tv.search.eyebrow"                    = "搜尋";
-"ext.tv.search.placeholder"                = "搜尋歌曲、專輯、藝人";
+"ext.tv.search.placeholder"                = "在已入庫的歌曲、專輯和藝人中檢索";
 "ext.tv.search.hint"                       = "選取搜尋框喚出系統鍵盤,可用語音聽寫輸入";
 "ext.tv.search.suggestions"                = "建議";
 "ext.tv.search.topResult"                  = "最佳結果";
