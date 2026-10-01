@@ -671,17 +671,29 @@ private enum SidebarItem: String, Hashable, Identifiable, CaseIterable {
 /// Stage 2 的启动占位。资料库发布之前渲染它, 所以这里一行库内容都不能读:
 /// 只有 App 背景 + 进度指示 + 一句本地化文案。
 private struct LibraryPreparingView: View {
+    /// 资料库多数时候一两百毫秒就装好。一出来就转圈的话，每次冷启动都会闪一下
+    /// 「准备资料库」；先只铺底色，真慢的时候再把进度亮出来。
+    @State private var showsProgress = false
+
     var body: some View {
         ZStack {
             Color(.systemBackground)
                 .ignoresSafeArea()
-            VStack(spacing: 16) {
-                ProgressView()
-                    .controlSize(.large)
-                Text("library_preparing")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            if showsProgress {
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .controlSize(.large)
+                    Text("library_preparing")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .pmFadeTransition(motion: .contentAppear)
             }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            showsProgress = true
         }
     }
 }

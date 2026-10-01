@@ -6,15 +6,27 @@ import PrimuseKit
 /// Stage 2 的启动占位。资料库发布之前渲染它, 所以这里一行库内容都不能读:
 /// 只有窗口底色 / 窗口装饰 + 进度指示 + 一句本地化文案。
 private struct LibraryPreparingView: View {
+    /// 资料库多数时候一两百毫秒就装好；先只铺底色，真慢的时候再亮出进度，
+    /// 免得每次启动都闪一下「准备资料库」。
+    @State private var showsProgress = false
+
     var body: some View {
         ZStack {
             PMColor.bg.ignoresSafeArea()
-            VStack(spacing: 16) {
-                ProgressView()
-                Text("library_preparing")
-                    .font(.subheadline)
-                    .foregroundStyle(PMColor.textMuted)
+            if showsProgress {
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text("library_preparing")
+                        .font(.subheadline)
+                        .foregroundStyle(PMColor.textMuted)
+                }
+                .pmFadeTransition(motion: .contentAppear)
             }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            showsProgress = true
         }
         .background(PMWindowChromeConfigurator())
         .ignoresSafeArea(.container, edges: .top)
