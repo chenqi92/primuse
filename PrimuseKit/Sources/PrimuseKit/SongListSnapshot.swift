@@ -760,26 +760,7 @@ public enum SongListSnapshotBuilder {
     }
 
     private static func sectionIndexLabel(for value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "#" }
-
-        guard let leadingScalar = trimmed.unicodeScalars.first else { return "#" }
-        if (65...90).contains(leadingScalar.value) || (97...122).contains(leadingScalar.value) {
-            return String(leadingScalar).uppercased()
-        }
-        guard CharacterSet.letters.contains(leadingScalar) else { return "#" }
-
-        let leadingCharacter = String(trimmed.prefix(1))
-        let latin = leadingCharacter.applyingTransform(.toLatin, reverse: false) ?? leadingCharacter
-        let folded = latin.folding(
-            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-            locale: .current
-        )
-        guard let scalar = folded.uppercased(with: .current).unicodeScalars.first,
-              (65...90).contains(scalar.value) else {
-            return "#"
-        }
-        return String(scalar)
+        LibraryCollationPolicy.indexLetter(for: value)
     }
 
     private static func sectionIndexEntries(

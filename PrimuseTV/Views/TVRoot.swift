@@ -229,7 +229,7 @@ struct TVRoot: View {
         // 截图预览用:SIMCTL_CHILD_TV_SCREEN=<tab> 直接进入指定页。
         // 电台三页(radioHome / radioAdd / radioLibrary)配合 TV_DEMO_RADIO=1 注入演示电台。
         switch TVDebugLaunch.screen {
-        case "library", "albumDetail": initialTab = .library
+        case "library", "albumDetail", "libraryIndex": initialTab = .library
         case "radio", "radioLibrary":
             initialTab = .home
             _debugPendingSpaceTab = State(initialValue: .radio)

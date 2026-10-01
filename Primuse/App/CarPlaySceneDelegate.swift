@@ -1420,33 +1420,12 @@ extension CarPlaySceneDelegate {
 // MARK: - Section indexing (A-Z + # bucket, with script-aware transliteration)
 
 extension CarPlaySceneDelegate {
-    /// Returns A–Z after transliterating the first character when needed.
-    /// This keeps Persian, Arabic, Cyrillic and CJK titles out of a single
-    /// catch-all bucket while preserving the compact Latin index required by
-    /// the CarPlay list. Characters without a Latin representation use "#".
+    /// Returns A–Z after transliterating the first character when needed
+    /// (pinyin for CJK, plus Persian/Arabic and Cyrillic readings), the same
+    /// letter the TV album wall and song-list index use. Characters without a
+    /// Latin representation use "#".
     nonisolated private static func indexLetter(forFirstCharacter first: Character) -> String {
-        if first.isASCII, first.isLetter {
-            return String(first).uppercased()
-        }
-        // `ToLatin` also yields pinyin for CJK while supporting scripts such
-        // as Persian/Arabic and Cyrillic that the previous Mandarin-only
-        // transform sent to the catch-all bucket.
-        let mutable = NSMutableString(string: String(first))
-        CFStringTransform(mutable, nil, kCFStringTransformToLatin, false)
-        CFStringTransform(mutable, nil, kCFStringTransformStripDiacritics, false)
-        for scalar in (mutable as String).unicodeScalars {
-            switch scalar.value {
-            case 0x41...0x5A, 0x61...0x7A:
-                return String(scalar).uppercased()
-            case 0x02BE, 0x02BF:
-                // Hamza/Ayin transliterate to modifier letters without an
-                // ASCII base; group their common A-like reading under A.
-                return "A"
-            default:
-                continue
-            }
-        }
-        return "#"
+        LibraryCollationPolicy.indexLetter(forFirstCharacter: first)
     }
 
     /// Memoizes the (relatively costly) transliteration keyed by

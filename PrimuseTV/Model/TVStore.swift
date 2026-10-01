@@ -290,6 +290,12 @@ typealias TVSongList = TVLibraryList<TVSongMapper>
 typealias TVAlbumList = TVLibraryList<TVAlbumMapper>
 typealias TVArtistList = TVLibraryList<TVArtistMapper>
 
+/// 排好序的专辑墙 / 艺人墙与它的首字母分段;条目同样是读到才转换。
+struct TVBrowseLayout<Mapper: TVLibraryMapper> {
+    let items: TVLibraryList<Mapper>
+    let sections: [LibraryBrowseSection]
+}
+
 /// 没有真实封面时按 id 派生的稳定配色与占位字。
 enum TVLibraryTint {
     static func colors(_ seed: String) -> (Color, Color) {
@@ -933,6 +939,15 @@ final class TVStore {
     @ObservationIgnored private var recommendationWorkerGeneration = 0
     private var libraryContentRevision = 0
     private var albumArtworkPaletteRevision = 0
+    /// 专辑墙 / 艺人墙的排序结果(后台排好、按曲库修订号作废)。每种只留一份:一万多张
+    /// 专辑的数组各占几 MB,换排序方式时重排一次只要零点几秒。
+    @ObservationIgnored private var albumBrowseLayoutCache: (
+        order: LibraryAlbumBrowseOrder, revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Album>
+    )?
+    @ObservationIgnored private var artistBrowseLayoutCache:
+        (revision: Int, fingerprint: Int, layout: LibraryBrowseLayout<Artist>)?
+    /// 后台排好一份浏览布局就加一,让读布局的视图重算。
+    private var browseLayoutRevision = 0
     private var songArtworkPaletteRevision = 0
 
     // uploadNow 单飞:串行化改源后的快照上传,避免快速连续切源时
@@ -1052,6 +1067,89 @@ final class TVStore {
     var artists: TVArtistList {
         _ = libraryContentRevision
         return TVArtistList(source: library.visibleArtists, mapper: TVArtistMapper())
+    }
+
+    // MARK: 专辑墙 / 艺人墙的排序与首字母分段
+
+    /// 曲库可见内容的修订号:浏览布局按它作废,视图拿它做 `.task(id:)`。
+    var libraryBrowseRevision: Int { libraryContentRevision }
+
+    /// 按 `order` 排好的专辑墙。曲库刚变、新布局还在后台排的那一小会儿沿用上一份
+    /// (扫描入库每隔十几秒就变一次,不能让网格每次先空一下);换了排序方式才等新布局。
+    func albumBrowseLayout(_ order: LibraryAlbumBrowseOrder) -> TVBrowseLayout<TVAlbumMapper>? {
+        _ = browseLayoutRevision
+        _ = albumArtworkPaletteRevision
+        guard let cached = albumBrowseLayoutCache, cached.order == order else { return nil }
+        return TVBrowseLayout(
+            items: TVAlbumList(source: cached.layout.items, mapper: albumMapper),
+            sections: cached.layout.sections
+        )
+    }
+
+    /// 当前修订号的专辑墙还没排好就放到后台排(拼音转写与排序不进主线程)。
+    func prepareAlbumBrowseLayout(_ order: LibraryAlbumBrowseOrder) async {
+        let revision = libraryContentRevision
+        let cached = albumBrowseLayoutCache?.order == order ? albumBrowseLayoutCache : nil
+        if let cached, cached.revision == revision { return }
+        let albums = library.visibleAlbums
+        let songs = order == .recentlyAdded ? library.visibleSongs : []
+        let unknownArtistName = String(localized: "unknown_artist")
+        // 「最近添加」还取决于歌曲的入库时间,不能只凭专辑指纹沿用。
+        let reusableFingerprint = order == .recentlyAdded ? nil : cached?.fingerprint
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let result = await Task.detached(priority: .userInitiated) {
+            let fingerprint = LibraryAlbumBrowseLayoutBuilder.fingerprint(albums: albums)
+            guard fingerprint != reusableFingerprint else {
+                return (fingerprint: fingerprint, layout: LibraryBrowseLayout<Album>?.none)
+            }
+            return (fingerprint: fingerprint, layout: LibraryAlbumBrowseLayoutBuilder.layout(
+                albums: albums, order: order, songs: songs, unknownArtistName: unknownArtistName
+            ))
+        }.value
+        guard !Task.isCancelled, revision == libraryContentRevision else { return }
+        guard let layout = result.layout else {
+            albumBrowseLayoutCache?.revision = revision
+            return
+        }
+        albumBrowseLayoutCache = (order, revision, result.fingerprint, layout)
+        browseLayoutRevision &+= 1
+        plog("TV album layout order=\(order.rawValue) albums=\(albums.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
+    }
+
+    /// 按名字(拼音)排好、带首字母分段的艺人墙;规则同 `albumBrowseLayout`。
+    var artistBrowseLayout: TVBrowseLayout<TVArtistMapper>? {
+        _ = browseLayoutRevision
+        guard let cached = artistBrowseLayoutCache else { return nil }
+        return TVBrowseLayout(
+            items: TVArtistList(source: cached.layout.items, mapper: TVArtistMapper()),
+            sections: cached.layout.sections
+        )
+    }
+
+    func prepareArtistBrowseLayout() async {
+        let revision = libraryContentRevision
+        if let cached = artistBrowseLayoutCache, cached.revision == revision { return }
+        let artists = library.visibleArtists
+        let unknownArtistName = String(localized: "unknown_artist")
+        let reusableFingerprint = artistBrowseLayoutCache?.fingerprint
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let result = await Task.detached(priority: .userInitiated) {
+            let fingerprint = LibraryArtistBrowseLayoutBuilder.fingerprint(artists: artists)
+            guard fingerprint != reusableFingerprint else {
+                return (fingerprint: fingerprint, layout: LibraryBrowseLayout<Artist>?.none)
+            }
+            return (fingerprint: fingerprint, layout: LibraryArtistBrowseLayoutBuilder.layout(
+                artists: artists, unknownArtistName: unknownArtistName
+            ))
+        }.value
+        guard !Task.isCancelled, revision == libraryContentRevision else { return }
+        guard let layout = result.layout else {
+            artistBrowseLayoutCache?.revision = revision
+            return
+        }
+        artistBrowseLayoutCache = (revision, result.fingerprint, layout)
+        browseLayoutRevision &+= 1
+        plog("TV artist layout artists=\(artists.count) sections=\(layout.sections.count) ms=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000))")
     }
     private var songMapper: TVSongMapper {
         TVSongMapper(artistNames: library.artistNameConfiguration, sourceTypes: sourceTypeByID)

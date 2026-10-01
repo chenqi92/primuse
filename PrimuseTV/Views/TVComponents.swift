@@ -945,59 +945,6 @@ struct TVPagedList<Item, ID: Hashable, Row: View>: View {
     }
 }
 
-/// 网格也限制参与布局和焦点搜索的项目数；保留已加载项目的身份，靠近末尾时续页。
-/// `items` 可以是按需转换的整库列表(`TVLibraryList`):只有渲染到的那一页会被转换。
-struct TVPagedGrid<Items: RandomAccessCollection, Cell: View>: View
-where Items.Element: Identifiable, Items.Index == Int {
-    typealias Item = Items.Element
-    private struct Entry: Identifiable {
-        var id: Item.ID { item.id }
-        let index: Int
-        let item: Item
-    }
-
-    let items: Items
-    let columns: [GridItem]
-    var spacing: CGFloat
-    private let cell: (Int, Item, @escaping (Bool) -> Void) -> Cell
-    @State private var renderedItemCount: Int
-
-    /// `revealing`:网格重建时要能直接落到的那一项(比如回到资料库时上次聚焦的专辑)。
-    /// 初次渲染就覆盖到它,否则它排在第一页之外时根本没有视图可滚动、可聚焦。
-    init(
-        items: Items,
-        columns: [GridItem],
-        spacing: CGFloat = 28,
-        revealing anchorID: Item.ID? = nil,
-        @ViewBuilder cell: @escaping (Int, Item, @escaping (Bool) -> Void) -> Cell
-    ) {
-        self.items = items
-        self.columns = columns
-        self.spacing = spacing
-        self.cell = cell
-        let pageSize = TVLongListPagingPolicy.pageSize
-        let anchorIndex = anchorID.flatMap { id in items.firstIndex { $0.id == id } }
-        _renderedItemCount = State(initialValue: anchorIndex.map {
-            TVLongListPagingPolicy.limit(after: pageSize, focusedRow: $0, totalCount: items.count)
-        } ?? pageSize)
-    }
-
-    var body: some View {
-        let shown = TVLongListPagingPolicy.clamped(limit: renderedItemCount, totalCount: items.count)
-        let entries = items.prefix(shown).enumerated().map { Entry(index: $0, item: $1) }
-        LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
-            ForEach(entries) { entry in
-                cell(entry.index, entry.item) { focused in
-                    guard focused else { return }
-                    renderedItemCount = TVLongListPagingPolicy.limit(
-                        after: shown, focusedRow: entry.index, totalCount: items.count
-                    )
-                }
-            }
-        }
-    }
-}
-
 extension TVPagedList where Item: Identifiable, ID == Item.ID {
     init(
         _ items: [Item],

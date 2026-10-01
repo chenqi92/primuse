@@ -11,6 +11,27 @@ final class TVLibraryBrowseMemory {
     var artistID: String?
 }
 
+extension LibraryAlbumBrowseOrder {
+    var title: String {
+        switch self {
+        case .artist: return String(localized: "artist_label")
+        case .title: return String(localized: "title_label")
+        case .year: return String(localized: "year_label")
+        case .recentlyAdded: return String(localized: "recently_added")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .artist: return "person"
+        // 不用 textformat:它在中文环境下被系统换成「格式」两个字。
+        case .title: return "abc"
+        case .year: return "calendar"
+        case .recentlyAdded: return "clock"
+        }
+    }
+}
+
 enum TVLibraryBackgroundWorkPolicy {
     static func refreshesRecommendations(for filter: TVLibraryView.Filter) -> Bool {
         filter == .recommendations
@@ -65,6 +86,14 @@ struct TVLibraryView: View {
     @FocusState private var focusedFilter: Filter?
     /// 网格里的专辑 / 艺人卡片,值见 `albumFocusID` / `artistFocusID`。
     @FocusState private var focusedGridItem: String?
+    @AppStorage(LibraryAlbumBrowseOrder.tvStorageKey)
+    private var albumOrderRawValue = LibraryAlbumBrowseOrder.tvDefault.rawValue
+    @FocusState private var focusedAlbumOrder: LibraryAlbumBrowseOrder?
+    /// 右侧字母栏上的焦点;有值时网格中央浮出这个字母。
+    @FocusState private var focusedIndexBucket: String?
+    /// 网格里当前聚焦的卡片属于哪个字母,字母栏据此点亮。
+    @State private var currentIndexBucket: String?
+    @State private var gridJumpRequest: TVGridJumpRequest?
     @State private var selectedArtist: TVArtist?
     @State private var opensPlayerAfterArtistDismissal = false
     @State private var selectedAlbum: TVAlbum?
@@ -80,27 +109,40 @@ struct TVLibraryView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let cell = gridMetrics.cellWidth(pageWidth: geo.size.width)
+            let indexSections = letterIndexSections
+            let indexBarSpace = indexSections.isEmpty ? 0 : TVLetterIndexBar.width + Self.indexBarGap
+            let cell = gridMetrics.cellWidth(pageWidth: geo.size.width - indexBarSpace)
             VStack(alignment: .leading, spacing: 24) {
                 filterStrip
                 ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 30) {
-                            Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id("tv.library.contentTop")
-                            grid(cell: cell, onFolderNavigation: {
-                                proxy.scrollTo("tv.library.contentTop", anchor: .top)
-                            })
+                    HStack(alignment: .top, spacing: Self.indexBarGap) {
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: 30) {
+                                titleRow
+                                    .id("tv.library.contentTop")
+                                grid(cell: cell, proxy: proxy, onFolderNavigation: {
+                                    proxy.scrollTo("tv.library.contentTop", anchor: .top)
+                                })
+                            }
+                            .padding(.horizontal, TVBrowseGridMetrics.edgeInset)
+                            .padding(.top, 8)
+                            .padding(.bottom, TVSpace.pageBottom)
                         }
-                        .padding(.horizontal, TVBrowseGridMetrics.edgeInset)
-                        .padding(.top, 8)
-                        .padding(.bottom, TVSpace.pageBottom)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .focusSection()
+                        .overlay { TVLetterIndexWatermark(bucket: focusedIndexBucket) }
+                        .onAppear { revealBrowseAnchor(with: proxy) }
+                        .id(filter)
+                        if !indexSections.isEmpty {
+                            TVLetterIndexBar(
+                                availableBuckets: Set(indexSections.map(\.bucket)),
+                                currentBucket: currentIndexBucket,
+                                focusedBucket: $focusedIndexBucket,
+                                onSelect: jumpToIndexBucket
+                            )
+                            .frame(maxHeight: .infinity, alignment: .center)
+                        }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .focusSection()
-                    .onAppear { revealBrowseAnchor(with: proxy) }
-                    .id(filter)
                 }
             }
             .padding(.horizontal, TVSpace.pageH)
@@ -109,13 +151,27 @@ struct TVLibraryView: View {
         .background(TVColor.bg)
         // 焦点停在网格深处时,第一次 Menu 先回到筛选条(网格位置不动),再按一次才回顶栏。
         .onExitCommand {
-            if focusedGridItem != nil {
+            if focusedGridItem != nil || focusedIndexBucket != nil || focusedAlbumOrder != nil {
                 focusedFilter = filter
             } else {
                 onReturnToTabs()
             }
         }
         .onChange(of: focusRequest) { restoreContentFocus() }
+        .task(id: BrowseLayoutRequest(filter: filter, albumOrder: albumOrder, revision: store.libraryBrowseRevision)) {
+            switch filter {
+            case .albums: await store.prepareAlbumBrowseLayout(albumOrder)
+            case .artists: await store.prepareArtistBrowseLayout()
+            default: break
+            }
+        }
+        .onChange(of: filter) { _, _ in resetLetterIndex() }
+        .onChange(of: albumOrderRawValue) { _, _ in
+            // 换了排序方式,上次停的那张卡片在新顺序里的位置没有意义;网格从头开始,
+            // 焦点留在排序按钮上。
+            browseMemory.albumID = nil
+            resetLetterIndex()
+        }
         .onAppear(perform: normalizeRecommendationIntentSelectionIfNeeded)
         .onChange(of: selectedRecommendationIntentID) { _, _ in
             normalizeRecommendationIntentSelectionIfNeeded()
@@ -175,7 +231,69 @@ struct TVLibraryView: View {
             selectedAlbum = store.albums.first { (4...40).contains(store.songs(forAlbum: $0.id).count) }
                 ?? store.albums.first
         }
+        .task {
+            // 截图用:TV_SCREEN=libraryIndex 等专辑墙排好后从字母栏跳到 TV_INDEX_JUMP(默认 M)。
+            // TV_LIBRARY_FILTER=artists 看艺人墙,TV_ALBUM_ORDER=title|artist|year|recentlyAdded 换排序。
+            guard TVDebugLaunch.screen == "libraryIndex", !Self.didRunDebugIndexJump else { return }
+            Self.didRunDebugIndexJump = true
+            let environment = ProcessInfo.processInfo.environment
+            if let order = environment["TV_ALBUM_ORDER"].flatMap(LibraryAlbumBrowseOrder.init(rawValue:)) {
+                albumOrderRawValue = order.rawValue
+            }
+            if environment["TV_LIBRARY_FILTER"] == "artists" { filter = .artists }
+            let bucket = environment["TV_INDEX_JUMP"] ?? "M"
+            guard bucket != "-" else { return }
+            var tries = 0
+            while letterIndexSections.isEmpty && tries < 50 {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                tries += 1
+            }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            let target = letterIndexSections.first { $0.bucket >= bucket }?.bucket ?? letterIndexSections.last?.bucket
+            if let target { jumpToIndexBucket(target) }
+        }
         #endif
+    }
+
+    #if DEBUG
+    @MainActor private static var didRunDebugIndexJump = false
+    #endif
+
+    private static let indexBarGap: CGFloat = 16
+
+    private var albumOrder: LibraryAlbumBrowseOrder { .resolved(albumOrderRawValue) }
+
+    private struct BrowseLayoutRequest: Equatable {
+        let filter: Filter
+        let albumOrder: LibraryAlbumBrowseOrder
+        let revision: Int
+    }
+
+    /// 当前网格的首字母分段;没有(其他筛选、按年份 / 最近添加)时不显示字母栏。
+    private var letterIndexSections: [LibraryBrowseSection] {
+        switch filter {
+        case .albums:
+            guard albumOrder.hasLetterIndex else { return [] }
+            return store.albumBrowseLayout(albumOrder)?.sections ?? []
+        case .artists:
+            return store.artistBrowseLayout?.sections ?? []
+        default:
+            return []
+        }
+    }
+
+    private func jumpToIndexBucket(_ bucket: String) {
+        currentIndexBucket = bucket
+        gridJumpRequest = TVGridJumpRequest(bucket: bucket, serial: (gridJumpRequest?.serial ?? 0) + 1)
+    }
+
+    private func noteFocusedSection(_ bucket: String) {
+        if currentIndexBucket != bucket { currentIndexBucket = bucket }
+    }
+
+    private func resetLetterIndex() {
+        currentIndexBucket = nil
+        gridJumpRequest = nil
     }
 
     private static func albumFocusID(_ id: String) -> String { "album:" + id }
@@ -188,7 +306,7 @@ struct TVLibraryView: View {
             guard let id = browseMemory.albumID, store.album(id) != nil else { return nil }
             return Self.albumFocusID(id)
         case .artists:
-            guard let id = browseMemory.artistID, store.artists.contains(where: { $0.id == id }) else {
+            guard let id = browseMemory.artistID, store.artists.source.contains(where: { $0.id == id }) else {
                 return nil
             }
             return Self.artistFocusID(id)
@@ -220,6 +338,44 @@ struct TVLibraryView: View {
         } else {
             focusedFilter = filter
         }
+    }
+
+    /// 页标题;专辑墙右侧是排序方式。
+    private var titleRow: some View {
+        HStack(alignment: .center, spacing: 24) {
+            Text(title).tvFont(.pageTitle).foregroundStyle(TVColor.text)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if filter == .albums {
+                albumOrderPicker
+            }
+        }
+    }
+
+    private var albumOrderPicker: some View {
+        HStack(spacing: 12) {
+            ForEach(LibraryAlbumBrowseOrder.allCases, id: \.self) { order in
+                Button {
+                    albumOrderRawValue = order.rawValue
+                } label: {
+                    TVFilterChipLabel(
+                        title: order.title,
+                        systemImage: order.systemImage,
+                        isSelected: order == albumOrder,
+                        isFocused: focusedAlbumOrder == order
+                    )
+                }
+                .buttonStyle(TVBareButtonStyle())
+                .focused($focusedAlbumOrder, equals: order)
+                .focusEffectDisabled()
+                .accessibilityIdentifier("tv.library.albumOrder." + order.rawValue)
+                .accessibilityAddTraits(order == albumOrder ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+        .padding(.vertical, 6)
+        .focusSection()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("sort_by"))
     }
 
     private var title: String {
@@ -263,26 +419,38 @@ struct TVLibraryView: View {
     }
 
     @ViewBuilder
-    private func grid(cell: CGFloat, onFolderNavigation: @escaping () -> Void) -> some View {
+    private func grid(cell: CGFloat, proxy: ScrollViewProxy, onFolderNavigation: @escaping () -> Void) -> some View {
         let columns = gridMetrics.gridItems(cell: cell)
         let gap = gridMetrics.gap
         switch filter {
         case .albums:
-            TVPagedGrid(
-                items: store.albums, columns: columns, spacing: gap,
-                revealing: browseMemory.albumID
-            ) { index, album, focusChanged in
-                TVAlbumCard(album: album, width: cell,
-                            subtitleOverride: album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist,
-                            action: openPlayer,
-                            onFocusChanged: { focused in
-                                focusChanged(focused)
-                                if focused { browseMemory.albumID = album.id }
-                            },
-                            onOpen: { selectedAlbum = album },
-                            focusBinding: $focusedGridItem,
-                            focusID: Self.albumFocusID(album.id))
-                    .accessibilityIdentifier("tv.library.album.\(index)")
+            if let layout = store.albumBrowseLayout(albumOrder) {
+                TVIndexedGrid(
+                    items: layout.items, sections: layout.sections, columns: columns, spacing: gap,
+                    revealingIndex: browseMemory.albumID.flatMap { id in
+                        layout.items.source.firstIndex { $0.id == id }
+                    },
+                    jumpRequest: gridJumpRequest,
+                    scrollProxy: proxy,
+                    focusItem: { focusedGridItem = Self.albumFocusID($0) },
+                    onSectionFocused: noteFocusedSection
+                ) { index, album, focusChanged in
+                    TVAlbumCard(album: album, width: cell,
+                                subtitleOverride: album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist,
+                                action: openPlayer,
+                                onFocusChanged: { focused in
+                                    focusChanged(focused)
+                                    if focused { browseMemory.albumID = album.id }
+                                },
+                                onOpen: { selectedAlbum = album },
+                                focusBinding: $focusedGridItem,
+                                focusID: Self.albumFocusID(album.id))
+                        .accessibilityIdentifier("tv.library.album.\(index)")
+                }
+                .id(albumOrder)
+                .onAppear { revealBrowseAnchor(with: proxy) }
+            } else {
+                browseLayoutPlaceholder
             }
         case .recommendations:
             VStack(alignment: .leading, spacing: 22) {
@@ -355,23 +523,34 @@ struct TVLibraryView: View {
                 }
             }
         case .artists:
-            TVPagedGrid(
-                items: store.artists, columns: columns, spacing: gap,
-                revealing: browseMemory.artistID
-            ) { index, artist, focusChanged in
-                TVArtistCard(
-                    artist: artist,
-                    size: cell * 0.82,
-                    action: { selectedArtist = artist },
-                    onFocusChanged: { focused in
-                        focusChanged(focused)
-                        if focused { browseMemory.artistID = artist.id }
+            if let layout = store.artistBrowseLayout {
+                TVIndexedGrid(
+                    items: layout.items, sections: layout.sections, columns: columns, spacing: gap,
+                    revealingIndex: browseMemory.artistID.flatMap { id in
+                        layout.items.source.firstIndex { $0.id == id }
                     },
-                    focusBinding: $focusedGridItem,
-                    focusID: Self.artistFocusID(artist.id)
-                )
-                    .frame(width: cell)
-                    .accessibilityIdentifier("tv.library.artist.\(index)")
+                    jumpRequest: gridJumpRequest,
+                    scrollProxy: proxy,
+                    focusItem: { focusedGridItem = Self.artistFocusID($0) },
+                    onSectionFocused: noteFocusedSection
+                ) { index, artist, focusChanged in
+                    TVArtistCard(
+                        artist: artist,
+                        size: cell * 0.82,
+                        action: { selectedArtist = artist },
+                        onFocusChanged: { focused in
+                            focusChanged(focused)
+                            if focused { browseMemory.artistID = artist.id }
+                        },
+                        focusBinding: $focusedGridItem,
+                        focusID: Self.artistFocusID(artist.id)
+                    )
+                        .frame(width: cell)
+                        .accessibilityIdentifier("tv.library.artist.\(index)")
+                }
+                .onAppear { revealBrowseAnchor(with: proxy) }
+            } else {
+                browseLayoutPlaceholder
             }
         case .songs:
             TVPagedSongIDList(songIDs: store.songIDs, alignment: .leading, action: openPlayer)
@@ -382,6 +561,12 @@ struct TVLibraryView: View {
         case .ranking:
             TVRankingBrowser(openPlayer: openPlayer, onModalActivityChanged: onModalActivityChanged)
         }
+    }
+
+    /// 第一次打开专辑 / 艺人墙、或刚换排序方式时,后台排序要零点几秒。
+    private var browseLayoutPlaceholder: some View {
+        ProgressView()
+            .frame(maxWidth: .infinity, minHeight: 320)
     }
 
     private enum RecommendationIntentKind {
