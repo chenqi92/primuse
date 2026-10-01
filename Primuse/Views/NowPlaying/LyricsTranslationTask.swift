@@ -202,7 +202,6 @@ struct LyricsTranslationTaskModifier: ViewModifier {
 
         if usesIntelligentProvider {
             activity = .intelligentLoading
-            let pendingCandidates = uncachedGroups.flatMap(\.candidates)
             var pendingSources: [String: (text: String, sourceLang: String?)] = [:]
             for group in uncachedGroups {
                 for candidate in group.candidates {
@@ -212,47 +211,55 @@ struct LyricsTranslationTaskModifier: ViewModifier {
             let startedAt = ContinuousClock.now
             var loggedFirstLine = false
             var streamedTranslations: [String: String] = [:]
-            if let execution = await intelligence.translateLyrics(
-                pendingCandidates,
-                targetLanguageCode: identity.targetLanguageCode,
-                onStreamEvent: { event in
-                    guard !Task.isCancelled,
-                          translationTaskIdentity == identity else { return }
-                    switch event {
-                    case .reset:
-                        for id in streamedTranslations.keys {
-                            for lineID in deduplication.lineIDs(for: id) {
-                                translatedTextByLineID[lineID] = hits[id]
+            // 服务商一次只收前 80 行。长歌词一轮翻完前 80 行后接着发剩下的,
+            // 不再把后半首交给系统翻译(前后两种译文的质量会突然变)。
+            var round = 0
+            translationRounds: while round < Self.maximumIntelligentTranslationRounds {
+                round += 1
+                let pendingCandidates = uncachedGroups.flatMap(\.candidates)
+                // 「重来」事件只撤销这一轮流式出来的行,前几轮已经落定的不动。
+                streamedTranslations = [:]
+                guard let execution = await intelligence.translateLyrics(
+                    pendingCandidates,
+                    targetLanguageCode: identity.targetLanguageCode,
+                    onStreamEvent: { event in
+                        guard !Task.isCancelled,
+                              translationTaskIdentity == identity else { return }
+                        switch event {
+                        case .reset:
+                            for id in streamedTranslations.keys {
+                                for lineID in deduplication.lineIDs(for: id) {
+                                    translatedTextByLineID[lineID] = hits[id]
+                                }
                             }
+                            streamedTranslations = [:]
+                        case .translation(let id, let text):
+                            if !loggedFirstLine {
+                                loggedFirstLine = true
+                                plog("🌐 Lyrics AI translation first line after "
+                                    + "\(Self.secondsText(since: startedAt)), "
+                                    + "\(pendingCandidates.count) unique lines")
+                            }
+                            // Keep every finished row, so leaving the song midway
+                            // does not throw away what was already translated.
+                            if let source = pendingSources[id] {
+                                cache.setTranslation(
+                                    text,
+                                    for: source.text,
+                                    sourceLang: source.sourceLang,
+                                    targetLang: identity.targetLanguageCode,
+                                    provider: .intelligent
+                                )
+                            }
+                            streamedTranslations[id] = text
+                            for lineID in deduplication.lineIDs(for: id) {
+                                translatedTextByLineID[lineID] = text
+                            }
+                        case .completed:
+                            break
                         }
-                        streamedTranslations = [:]
-                    case .translation(let id, let text):
-                        if !loggedFirstLine {
-                            loggedFirstLine = true
-                            plog("🌐 Lyrics AI translation first line after "
-                                + "\(Self.secondsText(since: startedAt)), "
-                                + "\(pendingCandidates.count) unique lines")
-                        }
-                        // Keep every finished row, so leaving the song midway
-                        // does not throw away what was already translated.
-                        if let source = pendingSources[id] {
-                            cache.setTranslation(
-                                text,
-                                for: source.text,
-                                sourceLang: source.sourceLang,
-                                targetLang: identity.targetLanguageCode,
-                                provider: .intelligent
-                            )
-                        }
-                        streamedTranslations[id] = text
-                        for lineID in deduplication.lineIDs(for: id) {
-                            translatedTextByLineID[lineID] = text
-                        }
-                    case .completed:
-                        break
                     }
-                }
-            ), !Task.isCancelled, translationTaskIdentity == identity {
+                ), !Task.isCancelled, translationTaskIdentity == identity else { break translationRounds }
                 var cachePairs: [(source: String, sourceLang: String?, translated: String)] = []
                 for group in uncachedGroups {
                     for candidate in group.candidates {
@@ -291,6 +298,8 @@ struct LyricsTranslationTaskModifier: ViewModifier {
                     prefetchUpcomingSong(identity: identity)
                     return
                 }
+                // 这一轮一行都没翻出来:交给下面的系统翻译,别空转。
+                guard !execution.translations.isEmpty else { break translationRounds }
             }
             guard !Task.isCancelled, translationTaskIdentity == identity else { return }
             // Rows the provider streamed before it failed stay on screen (they
@@ -568,6 +577,9 @@ struct LyricsTranslationTaskModifier: ViewModifier {
         preparedIdentity = identity
         activateGroup(at: 0, identity: identity)
     }
+
+    /// 一轮最多 80 行,十轮够八百行 —— 再长的歌词也翻得完,又不会在服务端出错时无限重试。
+    private static let maximumIntelligentTranslationRounds = 10
 
     private static func secondsText(since start: ContinuousClock.Instant) -> String {
         let elapsed = (ContinuousClock.now - start).components
