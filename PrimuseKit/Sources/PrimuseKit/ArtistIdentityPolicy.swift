@@ -24,3 +24,61 @@ public enum ArtistIdentityPolicy {
         name.lowercased()
     }
 }
+
+/// 播放页「点歌手进作品列表」:把这首歌的艺人名对到曲库里的艺人。
+///
+/// 先用曲库自己的拆分(用户设置的分隔符)得到的名字;某个名字在曲库里找不到时,再按
+/// `&`、`feat.`、`ft.`、`×`、逗号这类只出现在展示里的写法拆一次试各段。只影响链接查找,
+/// 不改扫描时的拆分口径 —— 那会改动艺人 id。
+public enum ArtistLinkResolutionPolicy {
+    private static let fallbackSeparators = [
+        " & ", " feat. ", " feat ", " ft. ", " ft ", " featuring ", " with ", " x ", " × ", "×", "，", ", ",
+    ]
+
+    public static func linkCandidates(for names: [String], resolves: (String) -> Bool) -> [String] {
+        var result: [String] = []
+        var seen = Set<String>()
+        func append(_ name: String) {
+            let key = ArtistIdentityPolicy.groupingKey(name)
+            guard !key.isEmpty, seen.insert(key).inserted else { return }
+            result.append(name)
+        }
+        for name in names {
+            if resolves(name) {
+                append(name)
+                continue
+            }
+            for piece in fallbackPieces(of: name) where resolves(piece) {
+                append(piece)
+            }
+        }
+        return result
+    }
+
+    /// 按展示用的连接写法拆开(不区分大小写),去掉空段。
+    public static func fallbackPieces(of name: String) -> [String] {
+        var pieces = [name]
+        for separator in fallbackSeparators {
+            pieces = pieces.flatMap { piece in
+                piece.components(separatedBy: separator, caseInsensitive: true)
+            }
+        }
+        return pieces
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+}
+
+private extension String {
+    func components(separatedBy separator: String, caseInsensitive: Bool) -> [String] {
+        guard caseInsensitive else { return components(separatedBy: separator) }
+        var parts: [String] = []
+        var remainder = self[...]
+        while let range = remainder.range(of: separator, options: .caseInsensitive) {
+            parts.append(String(remainder[..<range.lowerBound]))
+            remainder = remainder[range.upperBound...]
+        }
+        parts.append(String(remainder))
+        return parts
+    }
+}

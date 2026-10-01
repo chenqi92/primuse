@@ -49,6 +49,8 @@ struct TVNowPlayingView: View {
 
     @State private var artworkDirectionalCommands = TVImmersiveDirectionalCommandState()
     @State private var showOptions = false
+    /// 按歌手名打开的艺人页(多位艺人时先选一位)。
+    @State private var artistLink: TVArtistLinkPresentation?
     @State private var showShelf = tvDebugShelfLaunch.show
     @State private var shelfTab = tvDebugShelfLaunch.tab
     /// 「更多」里点了前往专辑 / 艺术家:等选项层收起后再升起货架。
@@ -71,7 +73,8 @@ struct TVNowPlayingView: View {
     private let immersiveIdleThreshold: TimeInterval = 20
 
     private var activePresentationCount: Int {
-        [showOptions, showImmersive, showSpokenWordRate, showSpokenWordSleep].filter { $0 }.count
+        [showOptions, showImmersive, showSpokenWordRate, showSpokenWordSleep, artistLink != nil]
+            .filter { $0 }.count
     }
 
     private var fullscreenPlayerEffect: FullscreenPlayerEffect {
@@ -132,6 +135,18 @@ struct TVNowPlayingView: View {
         }) {
             TVOptionsView(onGoTo: { pendingShelfTab = $0 }).environment(store)
         }
+        .fullScreenCover(item: $artistLink) { link in
+            TVArtistLinkView(artists: link.artists).environment(store)
+        }
+        #if DEBUG
+        .task {
+            // 截图用:TV_SCREEN=nowPlayingArtist 模拟在播放页按下歌手名。
+            guard TVDebugLaunch.screen == "nowPlayingArtist" else { return }
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            let artists = linkedArtists(songID: store.nowPlaying.songID)
+            if !artists.isEmpty { artistLink = TVArtistLinkPresentation(artists: artists) }
+        }
+        #endif
         .fullScreenCover(isPresented: $showSpokenWordRate) { TVSpokenWordRatePicker().environment(store) }
         .fullScreenCover(isPresented: $showSpokenWordSleep) { TVSpokenWordSleepPicker().environment(store) }
         .fullScreenCover(isPresented: $showImmersive) {
@@ -546,7 +561,7 @@ struct TVNowPlayingView: View {
             .accessibilityIdentifier("tv.nowPlaying.artworkControls")
             Text(np.title).tvFont(.pageTitle).tracking(-0.8)
                 .foregroundStyle(TVColor.text).lineLimit(2).padding(.top, 26)
-            Text(np.artist).tvFont(.rowTitle, weight: .regular).foregroundStyle(TVColor.textMuted).padding(.top, 8)
+            artistLine(np).padding(.top, 8)
             if store.isMedleyActive {
                 TVPillButton(title: String(format: String(localized: "medley_badge_format"), store.activeMedleySegmentSeconds),
                              systemImage: "shuffle") { store.continueCurrentMedleySongInFull() }
@@ -577,6 +592,47 @@ struct TVNowPlayingView: View {
             transport(immersiveDark: false)
             shelfHandle.padding(.top, 14)
         }
+    }
+
+    /// 歌手名:曲库里找得到这位(几位)艺人时可以按,进艺人页看全部作品;找不到就是普通文字。
+    @ViewBuilder
+    private func artistLine(_ np: TVNowPlaying) -> some View {
+        let artists = linkedArtists(songID: np.songID)
+        if artists.isEmpty {
+            Text(np.artist).tvFont(.rowTitle, weight: .regular).foregroundStyle(TVColor.textMuted)
+        } else {
+            TVFocusButton(radius: 12, scale: 1.0, lift: 0, ring: false, action: {
+                artistLink = TVArtistLinkPresentation(artists: artists)
+            }) { focused in
+                HStack(spacing: 8) {
+                    Text(np.artist).tvFont(.rowTitle, weight: .regular).lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 18, weight: .semibold))
+                        .opacity(focused ? 1 : 0)
+                }
+                .foregroundStyle(focused ? TVColor.text : TVColor.textMuted)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(focused ? TVColor.surfaceStrong : .clear, in: Capsule())
+            }
+            // 字与上面的歌名对齐,高亮底色往外长。
+            .padding(.leading, -12)
+            .accessibilityLabel(Text(verbatim: np.artist))
+            .accessibilityIdentifier("tv.nowPlaying.artist")
+        }
+    }
+
+    /// 只按 id 查,不整库扫:播放页随进度每拍都会重算这一列。
+    private func linkedArtists(songID: String) -> [TVArtist] {
+        guard !songID.isEmpty, let song = store.library.song(id: songID) else { return [] }
+        let library = store.library
+        func resolve(_ name: String) -> Artist? {
+            library.visibleArtist(id: MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey(name)))
+        }
+        let names = ArtistLinkResolutionPolicy.linkCandidates(for: library.artistNames(for: song)) {
+            resolve($0) != nil
+        }
+        return names.compactMap(resolve).map(TVArtistMapper().map)
     }
 
     /// 传输键下面的把手:焦点往下走到它就升起货架,和系统视频播放器下滑出面板一个手势。
@@ -1538,6 +1594,46 @@ final class TVInteractionClock {
 
     var secondsSinceLastInteraction: TimeInterval {
         ProcessInfo.processInfo.systemUptime - lastInteraction
+    }
+}
+/// 播放页按歌手名打开的那几位艺人。
+struct TVArtistLinkPresentation: Identifiable {
+    let id = UUID()
+    let artists: [TVArtist]
+}
+
+/// 一位就直接是艺人页;几位(合唱、feat.)先列出来选一位。
+struct TVArtistLinkView: View {
+    @Environment(TVStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let artists: [TVArtist]
+    @State private var chosen: TVArtist?
+
+    var body: some View {
+        if let artist = chosen ?? (artists.count == 1 ? artists.first : nil) {
+            TVArtistDetailView(artist: artist)
+        } else {
+            ZStack {
+                TVAmbientBackdrop(tint: TVColor.brand, tint2: TVColor.brandSecondary, strength: 0.4)
+                TVColor.bg.opacity(0.5).ignoresSafeArea()
+                VStack(alignment: .leading, spacing: 26) {
+                    Text(String(localized: "tab_artists"))
+                        .tvFont(.pageTitle)
+                        .foregroundStyle(TVColor.text)
+                    HStack(spacing: 36) {
+                        ForEach(artists) { artist in
+                            TVArtistCard(artist: artist, size: 200, action: { chosen = artist })
+                                .frame(width: 240)
+                        }
+                    }
+                    .focusSection()
+                }
+                .padding(.horizontal, 60).padding(.vertical, 46)
+                .tvPanel(radius: 26)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+            .onExitCommand { dismiss() }
+        }
     }
 }
 #endif

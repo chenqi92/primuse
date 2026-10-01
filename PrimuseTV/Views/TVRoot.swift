@@ -410,7 +410,7 @@ struct TVRoot: View {
         .task {
             #if DEBUG
             switch TVDebugLaunch.screen {
-            case "nowPlaying", "playerShelf":
+            case "nowPlaying", "playerShelf", "nowPlayingArtist":
                 await waitForDemoContent(requireAlbum: true)
                 if let album = store.albums.first { store.play(album: album) }
                 tab = .nowPlaying

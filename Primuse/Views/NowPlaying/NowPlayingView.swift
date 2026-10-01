@@ -973,13 +973,22 @@ struct NowPlayingView: View {
     private var currentArtists: [Artist] {
         guard let song = player.currentSong else { return [] }
         // 播放页每次更新都会读几遍, 按 id 走曲库的 O(1) 索引, 别整库建字典。
-        return library.artistNames(for: song).compactMap { name in
-            let id = MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey(name))
-            if let artist = library.visibleArtist(id: id) { return artist }
-            return library.visibleArtists.first {
+        func byID(_ name: String) -> Artist? {
+            library.visibleArtist(id: MusicLibrary.hashID(ArtistIdentityPolicy.groupingKey(name)))
+        }
+        var artists: [Artist] = []
+        for name in library.artistNames(for: song) {
+            if let artist = byID(name) ?? library.visibleArtists.first(where: {
                 $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+            }) {
+                artists.append(artist)
+            } else {
+                // 曲库没拆开的合唱署名(A & B、feat.)再按展示写法拆一次;各段只按 id 查。
+                artists += ArtistLinkResolutionPolicy.fallbackPieces(of: name).compactMap(byID)
             }
         }
+        var seen = Set<String>()
+        return artists.filter { seen.insert($0.id).inserted }
     }
 
     private var currentArtist: Artist? {
