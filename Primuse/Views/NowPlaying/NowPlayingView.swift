@@ -3538,17 +3538,20 @@ struct NowPlayingView: View {
         let diameter = CGFloat(NowPlayingCompactLandscapeLayoutPolicy.primaryTransportDiameter)
         // 实心圆用前景色填充，图标反过来用背景底色，深浅两种外观下都是高对比。
         let glyphTint = appearance.backgroundBase
-        return Button { player.togglePlayPause() } label: {
+        return Button {
+            guard !player.isLoading else { return }
+            player.togglePlayPause()
+        } label: {
             ZStack {
                 Circle()
                     .fill(appearance.primary)
 
-                if player.isLoading {
+                if player.showsLoadingIndicator {
                     ProgressView()
                         .tint(glyphTint)
                         .pmFadeTransition(motion: .control)
                 } else {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    Image(systemName: player.isPlaying || player.isLoading ? "pause.fill" : "play.fill")
                         .font(.system(size: 26, weight: .semibold))
                         .foregroundStyle(glyphTint)
                         .contentTransition(.symbolEffect(.replace))
@@ -3560,8 +3563,8 @@ struct NowPlayingView: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .disabled(player.isLoading)
-        .accessibilityLabel(player.isPlaying
+        .disabled(player.showsLoadingIndicator)
+        .accessibilityLabel(player.isPlaying || player.isLoading
             ? String(localized: "a11y_pause")
             : String(localized: "a11y_play"))
     }
@@ -3802,21 +3805,24 @@ struct NowPlayingView: View {
                 .accessibilityLabel(transportBackwardLabel)
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
                 Spacer()
-                Button { player.togglePlayPause() } label: {
+                Button {
+                    guard !player.isLoading else { return }
+                    player.togglePlayPause()
+                } label: {
                     ZStack {
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: 60)).opacity(0)
-                        if player.isLoading {
+                        if player.showsLoadingIndicator {
                             ProgressView().controlSize(.large).tint(appearance.primary)
                         } else {
-                            Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            Image(systemName: player.isPlaying || player.isLoading ? "pause.circle.fill" : "play.circle.fill")
                                 .font(.system(size: 60)).foregroundStyle(appearance.primary)
                                 .contentTransition(.symbolEffect(.replace))
                         }
                     }
                 }
-                .disabled(player.isLoading)
-                .accessibilityLabel(player.isPlaying
+                .disabled(player.showsLoadingIndicator)
+                .accessibilityLabel(player.isPlaying || player.isLoading
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play"))
                 Spacer()
@@ -4306,18 +4312,21 @@ struct NowPlayingView: View {
         .accessibilityLabel(transportBackwardLabel)
         .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
         Spacer()
-        Button { player.togglePlayPause() } label: {
+        Button {
+            guard !player.isLoading else { return }
+            player.togglePlayPause()
+        } label: {
             ZStack {
                 // Anchor sizing so the button doesn't reflow.
                 Image(systemName: "play.circle.fill")
                     .font(.system(size: 56)).opacity(0)
-                if player.isLoading {
+                if player.showsLoadingIndicator {
                     ProgressView()
                         .controlSize(.large)
                         .tint(appearance.primary)
                         .pmFadeTransition(motion: .control)
                 } else {
-                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    Image(systemName: player.isPlaying || player.isLoading ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 56)).foregroundStyle(appearance.primary)
                         .contentTransition(.symbolEffect(.replace))
                         // symbolEffect 管不到 ProgressView 这一跳, 用透明度接上。
@@ -4325,8 +4334,8 @@ struct NowPlayingView: View {
                 }
             }
         }
-        .disabled(player.isLoading)
-        .accessibilityLabel(player.isPlaying
+        .disabled(player.showsLoadingIndicator)
+        .accessibilityLabel(player.isPlaying || player.isLoading
             ? String(localized: "a11y_pause")
             : String(localized: "a11y_play"))
         Spacer()
@@ -4538,13 +4547,16 @@ struct NowPlayingView: View {
                 .accessibilityLabel(transportBackwardLabel)
                 .bookJumpMenu(isEnabled: usesSpokenWordTransport) { bookJumpItems(forward: false) }
 
-                Button { player.togglePlayPause() } label: {
-                    Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                Button {
+                    guard !player.isLoading else { return }
+                    player.togglePlayPause()
+                } label: {
+                    Image(systemName: player.isPlaying || player.isLoading ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 44))
                         .contentTransition(.symbolEffect(.replace))
                 }
-                .disabled(player.isLoading)
-                .accessibilityLabel(player.isPlaying
+                .disabled(player.showsLoadingIndicator)
+                .accessibilityLabel(player.isPlaying || player.isLoading
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play"))
 

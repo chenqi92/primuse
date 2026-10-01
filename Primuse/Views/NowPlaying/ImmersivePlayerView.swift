@@ -745,14 +745,15 @@ struct ImmersivePlayerView: View {
         let emphasis = artworkPalette.primary
         return Button {
             revealChrome()
+            guard !player.isLoading else { return }
             player.togglePlayPause()
         } label: {
             ZStack {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: player.isPlaying || player.isLoading ? "pause.fill" : "play.fill")
                     .font(.system(size: diameter * 0.38, weight: .semibold))
                     .contentTransition(.symbolEffect(.replace))
-                    .opacity(player.isLoading ? 0 : 1)
-                if player.isLoading {
+                    .opacity(player.showsLoadingIndicator ? 0 : 1)
+                if player.showsLoadingIndicator {
                     ProgressView()
                         .tint(emphasis)
                 }
@@ -767,8 +768,8 @@ struct ImmersivePlayerView: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(player.isLoading)
-        .accessibilityLabel(player.isPlaying ? Text("a11y_pause") : Text("a11y_play"))
+        .disabled(player.showsLoadingIndicator)
+        .accessibilityLabel(player.isPlaying || player.isLoading ? Text("a11y_pause") : Text("a11y_play"))
     }
 
     private func modeButton(_ symbol: String, active: Bool, action: @escaping () -> Void) -> some View {

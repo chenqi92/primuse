@@ -494,14 +494,15 @@ struct MacImmersivePlayerView: View {
 
             Button {
                 revealChrome()
+                guard !player.isLoading else { return }
                 player.togglePlayPause()
             } label: {
                 ZStack {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    Image(systemName: player.isPlaying || player.isLoading ? "pause.fill" : "play.fill")
                         .font(.system(size: metrics.s(17), weight: .medium))
                         .contentTransition(.symbolEffect(.replace))
-                        .opacity(player.isLoading ? 0 : 1)
-                    if player.isLoading {
+                        .opacity(player.showsLoadingIndicator ? 0 : 1)
+                    if player.showsLoadingIndicator {
                         ProgressView()
                             .controlSize(.small)
                             .tint(chromeInk)
@@ -515,8 +516,8 @@ struct MacImmersivePlayerView: View {
             }
             .buttonStyle(.plain)
             .pmPointingHand()
-            .disabled(player.isLoading)
-            .help(Text(player.isPlaying ? "a11y_pause" : "a11y_play"))
+            .disabled(player.showsLoadingIndicator)
+            .help(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
 
             transportButton(
                 "forward.fill",
@@ -652,14 +653,15 @@ struct MacImmersivePlayerView: View {
             }
             Button {
                 revealChrome()
+                guard !player.isLoading else { return }
                 player.togglePlayPause()
             } label: {
                 ZStack {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    Image(systemName: player.isPlaying || player.isLoading ? "pause.fill" : "play.fill")
                         .font(.system(size: 22, weight: .medium))
                         .contentTransition(.symbolEffect(.replace))
-                        .opacity(player.isLoading ? 0 : 1)
-                    if player.isLoading {
+                        .opacity(player.showsLoadingIndicator ? 0 : 1)
+                    if player.showsLoadingIndicator {
                         ProgressView()
                             .controlSize(.small)
                             .tint(chromeInk)
@@ -671,8 +673,8 @@ struct MacImmersivePlayerView: View {
             }
             .buttonStyle(.plain)
             .pmPointingHand()
-            .disabled(player.isLoading)
-            .help(Text(player.isPlaying ? "a11y_pause" : "a11y_play"))
+            .disabled(player.showsLoadingIndicator)
+            .help(Text(player.isPlaying || player.isLoading ? "a11y_pause" : "a11y_play"))
 
             transportButton("forward.fill", size: 18, diameter: 46, label: "a11y_next_track") {
                 Task { await player.next() }

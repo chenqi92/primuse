@@ -285,19 +285,20 @@ struct MiniPlayerTransportControls: View {
             }
 
             Button {
+                guard !(player.isLoading && !player.isLiveRadio) else { return }
                 player.togglePlayPause()
             } label: {
                 ZStack {
                     Image(systemName: "play.fill")
                         .font(iconFont)
                         .opacity(0)
-                    if player.isLoading && !player.isLiveRadio {
+                    if player.showsLoadingIndicator && !player.isLiveRadio {
                         ProgressView().controlSize(.small)
                             .pmFadeTransition(motion: .control)
                     } else {
                         Image(systemName: player.isLiveRadio && (player.isPlaybackActive || player.isLoading)
                             ? "stop.fill"
-                            : (player.isPlaybackActive ? "pause.fill" : "play.fill"))
+                            : (player.isPlaybackActive || player.isLoading ? "pause.fill" : "play.fill"))
                             .font(iconFont)
                             .contentTransition(.symbolEffect(.replace))
                             // ProgressView 与 Image 之间 symbolEffect 不生效, 这一跳只能走透明度。
@@ -307,10 +308,10 @@ struct MiniPlayerTransportControls: View {
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
             }
-            .disabled(player.isLoading && !player.isLiveRadio)
+            .disabled(player.showsLoadingIndicator && !player.isLiveRadio)
             .accessibilityLabel(player.isLiveRadio && (player.isPlaybackActive || player.isLoading)
                 ? String(localized: "radio_stop")
-                : (player.isPlaybackActive
+                : (player.isPlaybackActive || player.isLoading
                     ? String(localized: "a11y_pause")
                     : String(localized: "a11y_play")))
 

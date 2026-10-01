@@ -471,26 +471,29 @@ struct MacMiniPlayerView: View {
             .help(Text(player.currentItemIsSpokenWord ? "a11y_skip_backward" : "previous_song"))
 
             // 播放/暂停 —— 实心强调色圆,设计稿里最醒目的粉色圆。
-            Button { player.togglePlayPause() } label: {
+            Button {
+                guard !player.isLoading else { return }
+                player.togglePlayPause()
+            } label: {
                 ZStack {
                     Circle().fill(theme.accentColor).frame(width: 46, height: 46)
                     // 加载/缓冲时显示转圈, 跟主界面底栏播放键一致, 免得用户以为卡住了。
-                    if player.isLoading {
+                    if player.showsLoadingIndicator {
                         ProgressView()
                             .controlSize(.small)
                             .tint(theme.onAccent)
                     } else {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        Image(systemName: player.isPlaying || player.isLoading ? "pause.fill" : "play.fill")
                             .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(theme.onAccent)
                             .contentTransition(.symbolEffect(.replace))
-                            .offset(x: player.isPlaying ? 0 : 1)
+                            .offset(x: player.isPlaying || player.isLoading ? 0 : 1)
                     }
                 }
             }
             .buttonStyle(.plain)
             .pmPointingHand()
-            .disabled(player.isLoading)
+            .disabled(player.showsLoadingIndicator)
 
             Button {
                 if player.currentItemIsSpokenWord {

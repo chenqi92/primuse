@@ -370,8 +370,9 @@ struct SongRowView: View {
                     // While the player is still loading the active track,
                     // show a spinner instead of the playing-waveform so the
                     // user can tell "tap registered, audio is on the way"
-                    // from "audio is actually playing".
-                    if player.isLoading {
+                    // from "audio is actually playing" — once that wait is
+                    // long enough to notice.
+                    if player.showsLoadingIndicator {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.white)

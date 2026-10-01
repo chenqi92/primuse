@@ -600,6 +600,29 @@ final class AudioPlayerService {
     var isLoading = false {
         didSet {
             if !isLoading && isPlaying { schedulePlaybackMetadataReadIfNeeded() }
+            if isLoading != oldValue { refreshLoadingIndicator() }
+        }
+    }
+    /// Whether transport controls show a spinner (and their disabled look).
+    /// Loading has to last long enough to notice first: a local file is
+    /// audible within a fraction of a second, and a spinner or a dimmed button
+    /// blinking through that reads as a stutter rather than as progress.
+    /// Until then the controls show the playing state the request is for.
+    private(set) var showsLoadingIndicator = false
+    @ObservationIgnored private var loadingIndicatorTask: Task<Void, Never>?
+    static let loadingIndicatorDelay: Duration = .milliseconds(400)
+
+    private func refreshLoadingIndicator() {
+        loadingIndicatorTask?.cancel()
+        loadingIndicatorTask = nil
+        guard isLoading else {
+            if showsLoadingIndicator { showsLoadingIndicator = false }
+            return
+        }
+        loadingIndicatorTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.loadingIndicatorDelay)
+            guard !Task.isCancelled, let self, self.isLoading else { return }
+            self.showsLoadingIndicator = true
         }
     }
     private(set) var lastPlaybackError: String?

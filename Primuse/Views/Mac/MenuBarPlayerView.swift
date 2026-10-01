@@ -196,22 +196,25 @@ struct MenuBarPlayerView: View {
                 .help(player.isLiveRadio ? Text("radio_previous_station") : shortcutHelp(.previousTrack))
             }
 
-            Button { player.togglePlayPause() } label: {
+            Button {
+                guard !(player.isLoading && !player.isLiveRadio) else { return }
+                player.togglePlayPause()
+            } label: {
                 ZStack {
                     Circle().fill(PMColor.brand).frame(width: 42, height: 42)
                     // 两支都落在同一个 42pt 圆心上, 不改父容器布局, 所以这对分支
                     // 可以做交叉淡入(与底栏播放键同一写法)。
-                    if player.isLoading && !player.isLiveRadio {
+                    if player.showsLoadingIndicator && !player.isLiveRadio {
                         ProgressView().controlSize(.small).tint(.white)
                             .pmFadeTransition(motion: .control)
                     } else {
                         Image(systemName: player.isLiveRadio && (player.isPlaying || player.isLoading)
                             ? "stop.fill"
-                            : (player.isPlaying ? "pause.fill" : "play.fill"))
+                            : (player.isPlaying || player.isLoading ? "pause.fill" : "play.fill"))
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(.white)
                             .contentTransition(.symbolEffect(.replace))
-                            .offset(x: player.isPlaying ? 0 : 1)
+                            .offset(x: player.isPlaying || player.isLoading ? 0 : 1)
                             .pmFadeTransition(motion: .control)
                     }
                 }
@@ -219,10 +222,10 @@ struct MenuBarPlayerView: View {
             }
             .buttonStyle(.plain)
             .pmPointingHand()
-            .disabled(player.isLoading && !player.isLiveRadio)
+            .disabled(player.showsLoadingIndicator && !player.isLiveRadio)
             .help(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
                 ? LocalizedStringKey("radio_stop")
-                : (player.isPlaying ? "pause" : "play")) + shortcutSuffix(.playPause))
+                : (player.isPlaying || player.isLoading ? "pause" : "play")) + shortcutSuffix(.playPause))
 
             if player.currentItemIsSpokenWord, !player.isLiveRadio {
                 Button { player.skipSpokenWordForward() } label: {

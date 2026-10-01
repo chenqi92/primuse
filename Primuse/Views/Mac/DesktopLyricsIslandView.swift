@@ -486,10 +486,13 @@ struct DesktopLyricsIslandView: View {
                 }
             }
 
-            Button { player.togglePlayPause() } label: {
+            Button {
+                guard !(player.isLoading && !player.isLiveRadio) else { return }
+                player.togglePlayPause()
+            } label: {
                 ZStack {
                     Circle().fill(.white).frame(width: 32, height: 32)
-                    if player.isLoading && !player.isLiveRadio {
+                    if player.showsLoadingIndicator && !player.isLiveRadio {
                         ProgressView().controlSize(.small).tint(.black)
                             .pmFadeTransition(motion: .control)
                     } else {
@@ -497,7 +500,7 @@ struct DesktopLyricsIslandView: View {
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.black)
                             .contentTransition(.symbolEffect(.replace))
-                            .offset(x: player.isPlaying ? 0 : 1)
+                            .offset(x: playSymbol == "play.fill" ? 1 : 0)
                             .pmFadeTransition(motion: .control)
                     }
                 }
@@ -505,7 +508,7 @@ struct DesktopLyricsIslandView: View {
             }
             .buttonStyle(IslandControlButtonStyle(prominent: true))
             .pmPointingHand()
-            .disabled(player.isLoading && !player.isLiveRadio)
+            .disabled(player.showsLoadingIndicator && !player.isLiveRadio)
             .help(Text(playHelpKey))
             .accessibilityLabel(Text(playHelpKey))
 
@@ -524,12 +527,12 @@ struct DesktopLyricsIslandView: View {
 
     private var playSymbol: String {
         if player.isLiveRadio && (player.isPlaying || player.isLoading) { return "stop.fill" }
-        return player.isPlaying ? "pause.fill" : "play.fill"
+        return player.isPlaying || player.isLoading ? "pause.fill" : "play.fill"
     }
 
     private var playHelpKey: LocalizedStringKey {
         if player.isLiveRadio && (player.isPlaying || player.isLoading) { return "radio_stop" }
-        return player.isPlaying ? "pause" : "play"
+        return player.isPlaying || player.isLoading ? "pause" : "play"
     }
 
     private var lyricsBlock: some View {

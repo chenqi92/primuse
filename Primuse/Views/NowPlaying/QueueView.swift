@@ -192,12 +192,12 @@ struct QueueView: View {
                     Color.black.opacity(0.32)
                         .frame(width: 44, height: 44)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
-                    Image(systemName: player.isLoading ? "ellipsis" : "waveform")
+                    Image(systemName: player.showsLoadingIndicator ? "ellipsis" : "waveform")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                         .contentTransition(.symbolEffect(.replace))
                         // 换图要有事务驱动才动得起来, 只挂在当前曲这一行上。
-                        .pmAnimation(.control, value: player.isLoading)
+                        .pmAnimation(.control, value: player.showsLoadingIndicator)
                 }
             }
 

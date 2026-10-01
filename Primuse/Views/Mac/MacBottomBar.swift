@@ -203,10 +203,13 @@ struct MacBottomBar: View {
                     }
                     .pmFadeTransition()
                 }
-                Button { player.togglePlayPause() } label: {
+                Button {
+                    guard !(player.isLoading && !player.isLiveRadio) else { return }
+                    player.togglePlayPause()
+                } label: {
                     ZStack {
                         Circle().fill(PMColor.brand).frame(width: 36, height: 36)
-                        if player.isLoading && !player.isLiveRadio {
+                        if player.showsLoadingIndicator && !player.isLiveRadio {
                             ProgressView().controlSize(.small).tint(.white)
                                 .pmFadeTransition(motion: .control)
                         } else {
@@ -216,7 +219,7 @@ struct MacBottomBar: View {
                                 .contentTransition(.symbolEffect(.replace))
                                 // play.fill 的视觉重心偏左, 补 1pt。跟符号互换放进
                                 // 同一个事务, 否则符号在淡、位移在跳。
-                                .offset(x: player.isPlaying ? 0 : 1)
+                                .offset(x: playPauseSymbolName == "play.fill" ? 1 : 0)
                                 .pmAnimation(.control, value: playPauseSymbolName)
                                 .pmFadeTransition(motion: .control)
                         }
@@ -224,10 +227,10 @@ struct MacBottomBar: View {
                     .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .disabled(player.isLoading && !player.isLiveRadio)
+                .disabled(player.showsLoadingIndicator && !player.isLiveRadio)
                 .help(Text(player.isLiveRadio && (player.isPlaying || player.isLoading)
                     ? "radio_stop"
-                    : (player.isPlaying ? "pause" : "play")))
+                    : (player.isPlaying || player.isLoading ? "pause" : "play")))
 
                 if player.currentItemIsSpokenWord, !player.isLiveRadio {
                     transportBtn(player.spokenWordSkipForwardSymbol, size: 13, help: "a11y_skip_forward") {
@@ -268,7 +271,7 @@ struct MacBottomBar: View {
     /// 播放键的图标名。抽成属性是为了让符号互换和 1pt 光学补偿共用同一个触发值。
     private var playPauseSymbolName: String {
         if player.isLiveRadio && (player.isPlaying || player.isLoading) { return "stop.fill" }
-        return player.isPlaying ? "pause.fill" : "play.fill"
+        return player.isPlaying || player.isLoading ? "pause.fill" : "play.fill"
     }
 
     private var repeatIconName: String {
