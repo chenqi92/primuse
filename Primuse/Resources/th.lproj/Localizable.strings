@@ -4648,6 +4648,11 @@
 "karaoke_ai_aligning" = "กำลังซิงค์…";
 "karaoke_ai_unsupported_song" = "ใช้กับเพลงนี้ไม่ได้ จึงใช้การลบแบบปกติแทน";
 "karaoke_ai_retry" = "ลองอีกครั้ง";
+"karaoke_tuning" = "ปรับแต่ง";
+"karaoke_tuning_hint" = "แสดงหรือซ่อนคีย์ ความเร็ว การแยกเสียงด้วย AI และตัวเลือกอื่น ๆ";
+"karaoke_ai_summary_format" = "AI %@";
+"karaoke_ai_off" = "ปิด";
+"karaoke_ai_unsupported_short" = "ใช้กับเพลงนี้ไม่ได้";
 "karaoke_ai_model_failed" = "ดาวน์โหลดโมเดลไม่สำเร็จ";
 "karaoke_ai_failed" = "แยกเสียงไม่สำเร็จ";
 "karaoke_ai_failed_format" = "แยกเสียงไม่สำเร็จ: %@";

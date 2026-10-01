@@ -4742,6 +4742,11 @@
 "karaoke_ai_aligning" = "Wird synchronisiert …";
 "karaoke_ai_unsupported_song" = "Für diesen Titel nicht verfügbar – normale Entfernung aktiv.";
 "karaoke_ai_retry" = "Erneut versuchen";
+"karaoke_tuning" = "Anpassen";
+"karaoke_tuning_hint" = "Zeigt oder verbirgt Tonart, Tempo, KI-Trennung und weitere Optionen";
+"karaoke_ai_summary_format" = "KI %@";
+"karaoke_ai_off" = "aus";
+"karaoke_ai_unsupported_short" = "Nicht für diesen Titel";
 "karaoke_ai_model_failed" = "Modell-Download fehlgeschlagen";
 "karaoke_ai_failed" = "Trennung fehlgeschlagen";
 "karaoke_ai_failed_format" = "Trennung fehlgeschlagen: %@";

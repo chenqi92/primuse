@@ -4505,6 +4505,11 @@
 "karaoke_ai_aligning" = "Syncing…";
 "karaoke_ai_unsupported_song" = "Not available for this song; using standard removal.";
 "karaoke_ai_retry" = "Retry";
+"karaoke_tuning" = "Tuning";
+"karaoke_tuning_hint" = "Shows or hides the key, speed, AI separation and other options";
+"karaoke_ai_summary_format" = "AI %@";
+"karaoke_ai_off" = "Off";
+"karaoke_ai_unsupported_short" = "Not for this song";
 "karaoke_ai_model_failed" = "Model download failed";
 "karaoke_ai_failed" = "Separation failed";
 "karaoke_ai_failed_format" = "Separation failed: %@";

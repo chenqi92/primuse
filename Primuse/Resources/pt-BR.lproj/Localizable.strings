@@ -4648,6 +4648,11 @@
 "karaoke_ai_aligning" = "Sincronizando…";
 "karaoke_ai_unsupported_song" = "Indisponível para esta música; usando a remoção padrão.";
 "karaoke_ai_retry" = "Tentar de novo";
+"karaoke_tuning" = "Ajustes";
+"karaoke_tuning_hint" = "Mostra ou oculta o tom, a velocidade, a separação por IA e outras opções";
+"karaoke_ai_summary_format" = "IA %@";
+"karaoke_ai_off" = "desativada";
+"karaoke_ai_unsupported_short" = "Indisponível para esta música";
 "karaoke_ai_model_failed" = "Falha ao baixar o modelo";
 "karaoke_ai_failed" = "Falha na separação";
 "karaoke_ai_failed_format" = "Falha na separação: %@";

@@ -330,3 +330,38 @@ public enum KaraokeRecordingAlignment {
         return Int((lead * sampleRate).rounded())
     }
 }
+
+/// The stage gives the lyrics a fixed height, so a row that would wrap past
+/// two lines is shrunk a step or two instead of being clipped (or, before
+/// this, pushing the controls under it down and up again).
+public enum KaraokeLineFitPolicy {
+    /// Shrink steps, largest first.
+    public static let scales: [Double] = [1, 0.88, 0.76]
+
+    /// Rows a line is allowed before it is shrunk.
+    public static let maximumRows = 2
+
+    /// The largest size at which `text` is expected to fit `maximumRows`
+    /// rows of `availableWidth`, down to the smallest step.
+    public static func fontSize(for text: String, base: Double, availableWidth: Double) -> Double {
+        guard base > 0, availableWidth > 0 else { return base }
+        let units = widthUnits(of: text)
+        for scale in scales {
+            let size = base * scale
+            let rows = (units * size / availableWidth).rounded(.up)
+            if rows <= Double(maximumRows) { return size }
+        }
+        return base * scales[scales.count - 1]
+    }
+
+    /// Rough advance of the text in multiples of the font size: an
+    /// ideograph is about a full em, a Latin glyph a bit over half, a space
+    /// less. Good enough to tell one, two and three rows apart.
+    static func widthUnits(of text: String) -> Double {
+        text.reduce(0) { total, character in
+            if character.isWhitespace { return total + 0.3 }
+            if KaraokeSweepPolicy.isIdeographicUnit(character) { return total + 1 }
+            return total + 0.55
+        }
+    }
+}

@@ -145,4 +145,25 @@ struct KaraokeLyricsPolicyTests {
         )
         #expect(late == -500)
     }
+
+    @Test("Long rows shrink until they fit two lines; short rows keep the base size")
+    func lineFit() {
+        // 10 ideographs at 34 pt on a 350 pt stage: one row.
+        #expect(KaraokeLineFitPolicy.fontSize(for: "十个汉字刚好一行整", base: 34, availableWidth: 350) == 34)
+        // 18 ideographs: two rows at 34 pt, still allowed.
+        let eighteen = String(repeating: "歌", count: 18)
+        #expect(KaraokeLineFitPolicy.fontSize(for: eighteen, base: 34, availableWidth: 350) == 34)
+        // 24 ideographs: three rows at 34 pt and at 29.9 pt, two at 25.8 pt.
+        let twentyFour = String(repeating: "歌", count: 24)
+        #expect(KaraokeLineFitPolicy.fontSize(for: twentyFour, base: 34, availableWidth: 350) == 34 * 0.76)
+        // Latin text advances about half an em per glyph, so the same
+        // character count fits far more easily.
+        let latin = String(repeating: "a", count: 24)
+        #expect(KaraokeLineFitPolicy.fontSize(for: latin, base: 34, availableWidth: 350) == 34)
+        // Nothing to fit on: the base size stands.
+        #expect(KaraokeLineFitPolicy.fontSize(for: twentyFour, base: 34, availableWidth: 0) == 34)
+        // Even the smallest step may not fit; it is still the floor.
+        let endless = String(repeating: "歌", count: 80)
+        #expect(KaraokeLineFitPolicy.fontSize(for: endless, base: 34, availableWidth: 350) == 34 * 0.76)
+    }
 }

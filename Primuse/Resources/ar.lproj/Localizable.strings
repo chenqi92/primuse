@@ -4648,6 +4648,11 @@
 "karaoke_ai_aligning" = "جارٍ المزامنة…";
 "karaoke_ai_unsupported_song" = "غير متاح لهذه الأغنية؛ تُستخدم الإزالة العادية.";
 "karaoke_ai_retry" = "إعادة المحاولة";
+"karaoke_tuning" = "الضبط";
+"karaoke_tuning_hint" = "يعرض أو يخفي المقام والسرعة وفصل الصوت بالذكاء الاصطناعي وخيارات أخرى";
+"karaoke_ai_summary_format" = "الذكاء الاصطناعي: %@";
+"karaoke_ai_off" = "متوقف";
+"karaoke_ai_unsupported_short" = "غير متاح لهذه الأغنية";
 "karaoke_ai_model_failed" = "فشل تنزيل النموذج";
 "karaoke_ai_failed" = "فشل فصل الصوت";
 "karaoke_ai_failed_format" = "فشل فصل الصوت: %@";

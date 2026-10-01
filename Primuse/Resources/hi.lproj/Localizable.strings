@@ -4648,6 +4648,11 @@
 "karaoke_ai_aligning" = "सिंक हो रहा है…";
 "karaoke_ai_unsupported_song" = "इस गाने के लिए उपलब्ध नहीं; सामान्य हटाना इस्तेमाल हो रहा है।";
 "karaoke_ai_retry" = "फिर से कोशिश करें";
+"karaoke_tuning" = "समायोजन";
+"karaoke_tuning_hint" = "की, गति, AI सेपरेशन और अन्य विकल्प दिखाता या छिपाता है";
+"karaoke_ai_summary_format" = "AI %@";
+"karaoke_ai_off" = "बंद";
+"karaoke_ai_unsupported_short" = "इस गाने के लिए उपलब्ध नहीं";
 "karaoke_ai_model_failed" = "मॉडल डाउनलोड विफल";
 "karaoke_ai_failed" = "सेपरेशन विफल";
 "karaoke_ai_failed_format" = "सेपरेशन विफल: %@";

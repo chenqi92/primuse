@@ -4648,6 +4648,11 @@
 "karaoke_ai_aligning" = "Синхронизация…";
 "karaoke_ai_unsupported_song" = "Для этой песни недоступно — используется обычное удаление.";
 "karaoke_ai_retry" = "Повторить";
+"karaoke_tuning" = "Настройки";
+"karaoke_tuning_hint" = "Показывает или скрывает тональность, темп, ИИ-отделение и другие параметры";
+"karaoke_ai_summary_format" = "ИИ %@";
+"karaoke_ai_off" = "выкл.";
+"karaoke_ai_unsupported_short" = "Недоступно для этой песни";
 "karaoke_ai_model_failed" = "Не удалось загрузить модель";
 "karaoke_ai_failed" = "Не удалось отделить вокал";
 "karaoke_ai_failed_format" = "Не удалось отделить вокал: %@";

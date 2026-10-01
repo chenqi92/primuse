@@ -4648,6 +4648,11 @@
 "karaoke_ai_aligning" = "Синхронізація…";
 "karaoke_ai_unsupported_song" = "Для цієї пісні недоступно — використовується звичайне видалення.";
 "karaoke_ai_retry" = "Повторити";
+"karaoke_tuning" = "Налаштування";
+"karaoke_tuning_hint" = "Показує або приховує тональність, темп, ШІ-відокремлення та інші параметри";
+"karaoke_ai_summary_format" = "ШІ %@";
+"karaoke_ai_off" = "вимк.";
+"karaoke_ai_unsupported_short" = "Недоступно для цієї пісні";
 "karaoke_ai_model_failed" = "Не вдалося завантажити модель";
 "karaoke_ai_failed" = "Не вдалося відокремити вокал";
 "karaoke_ai_failed_format" = "Не вдалося відокремити вокал: %@";

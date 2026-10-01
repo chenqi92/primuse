@@ -4648,6 +4648,11 @@
 "karaoke_ai_aligning" = "Eşitleniyor…";
 "karaoke_ai_unsupported_song" = "Bu şarkı için kullanılamıyor; standart kaldırma kullanılıyor.";
 "karaoke_ai_retry" = "Yeniden dene";
+"karaoke_tuning" = "Ayarlar";
+"karaoke_tuning_hint" = "Ton, hız, yapay zekâ ile ayırma ve diğer seçenekleri gösterir veya gizler";
+"karaoke_ai_summary_format" = "Yapay zekâ %@";
+"karaoke_ai_off" = "kapalı";
+"karaoke_ai_unsupported_short" = "Bu şarkı için kullanılamaz";
 "karaoke_ai_model_failed" = "Model indirilemedi";
 "karaoke_ai_failed" = "Ayırma başarısız";
 "karaoke_ai_failed_format" = "Ayırma başarısız: %@";

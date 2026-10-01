@@ -102,6 +102,7 @@ final class KaraokeSession {
     static let vocalLevelKey = "karaokeVocalLevel"
     static let aiSeparationKey = "karaokeAISeparationEnabled"
     static let vocalAssistKey = "karaokeVocalAssistEnabled"
+    static let tuningExpandedKey = "karaokeTuningExpanded"
     static let defaultVocalLevel = 0.1
     /// Seconds of pitch history the stage draws.
     static let pitchHistoryDuration: TimeInterval = 5
@@ -196,6 +197,11 @@ final class KaraokeSession {
     }
     /// The original vocal is helping out right now.
     private(set) var isVocalAssisting = false
+    /// The stage shows the key, speed, AI and other tuning rows, not just
+    /// the one-line summary of them. Remembered across visits.
+    var isTuningExpanded: Bool {
+        didSet { defaults.set(isTuningExpanded, forKey: Self.tuningExpandedKey) }
+    }
     /// Assist gave up for this song: the microphone hears the playback.
     private(set) var isVocalAssistSuppressed = false
     /// The AI stem for this song is loaded into the playback graph.
@@ -284,6 +290,7 @@ final class KaraokeSession {
             modelState: KaraokeSeparationService.shared.modelState
         )
         vocalAssistEnabled = defaults.object(forKey: Self.vocalAssistKey) as? Bool ?? true
+        isTuningExpanded = defaults.bool(forKey: Self.tuningExpandedKey)
         let microphone = KaraokeMicrophone()
         self.microphone = microphone
         analyzer = KaraokePitchAnalyzer(

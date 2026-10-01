@@ -4743,6 +4743,11 @@
 "karaoke_ai_aligning" = "同期中…";
 "karaoke_ai_unsupported_song" = "この曲はAI分離できないため、通常の除去を使います。";
 "karaoke_ai_retry" = "再試行";
+"karaoke_tuning" = "調整";
+"karaoke_tuning_hint" = "キー、速度、AI分離などのオプションを表示または非表示にします";
+"karaoke_ai_summary_format" = "AI %@";
+"karaoke_ai_off" = "オフ";
+"karaoke_ai_unsupported_short" = "この曲では使えません";
 "karaoke_ai_model_failed" = "モデルのダウンロードに失敗";
 "karaoke_ai_failed" = "分離に失敗";
 "karaoke_ai_failed_format" = "分離に失敗：%@";

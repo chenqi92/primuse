@@ -4719,6 +4719,11 @@
 "karaoke_ai_aligning" = "正在對齊…";
 "karaoke_ai_unsupported_song" = "這首歌無法 AI 分離，已改用一般消除。";
 "karaoke_ai_retry" = "重試";
+"karaoke_tuning" = "調音";
+"karaoke_tuning_hint" = "展開或收合升降調、速度、AI 分離等選項";
+"karaoke_ai_summary_format" = "AI %@";
+"karaoke_ai_off" = "已關閉";
+"karaoke_ai_unsupported_short" = "這首歌不適用";
 "karaoke_ai_model_failed" = "模型下載失敗";
 "karaoke_ai_failed" = "分離失敗";
 "karaoke_ai_failed_format" = "分離失敗：%@";

@@ -52,8 +52,12 @@ private struct KaraokeStageContent: View {
         VStack(spacing: 0) {
             KaraokeStageHeader(session: session, onClose: onClose)
             layout {
+                // 歌词区只拿剩下的高度：没有 minHeight 时它的最小高度就是歌词本身的高度，
+                // 一句歌词折成两三行就把整棵树撑高、把底下的控制区往下顶——这就是「底部弹动」。
+                // 现在超出的部分在区内居中并裁掉，控制区纹丝不动。
                 stage
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                    .clipped()
                 KaraokeControlDeck(session: session)
                     .frame(maxWidth: isSideBySide ? 380 : 560)
             }
@@ -205,6 +209,8 @@ private struct KaraokeLyricsStage: View {
     private static let primaryColor = Color.white
     private static let secondaryColor = Color(red: 1.0, green: 0.62, blue: 0.80)
 
+    private static let maxWidth: CGFloat = 900
+
     var body: some View {
         let windows = session.windows
         let activeIndex = KaraokeLineWindowPolicy.activeWindowIndex(in: windows, at: time)
@@ -212,18 +218,23 @@ private struct KaraokeLyricsStage: View {
         let focusIndex = activeIndex ?? windows.firstIndex(where: { $0.start > time }) ?? (windows.count - 1)
         let leadIn = KaraokeLeadInPolicy.leadIn(windows: windows, at: time)
 
-        VStack(spacing: heightClass.value(18, compact: 10)) {
-            if focusIndex > 0 {
-                row(windowIndex: focusIndex - 1, role: .previous)
+        // 行宽决定一句会折成几行；太长的句子缩一两档字号，尽量不超过两行。
+        GeometryReader { proxy in
+            let rowWidth = min(proxy.size.width, Self.maxWidth)
+            VStack(spacing: heightClass.value(18, compact: 10)) {
+                if focusIndex > 0 {
+                    row(windowIndex: focusIndex - 1, role: .previous, rowWidth: rowWidth)
+                }
+                KaraokeLeadInDots(leadIn: leadIn)
+                row(windowIndex: focusIndex, role: activeIndex == nil ? .upcoming : .current, rowWidth: rowWidth)
+                if focusIndex + 1 < windows.count {
+                    row(windowIndex: focusIndex + 1, role: .next, rowWidth: rowWidth)
+                }
             }
-            KaraokeLeadInDots(leadIn: leadIn)
-            row(windowIndex: focusIndex, role: activeIndex == nil ? .upcoming : .current)
-            if focusIndex + 1 < windows.count {
-                row(windowIndex: focusIndex + 1, role: .next)
-            }
+            .frame(maxWidth: Self.maxWidth)
+            .animation(.easeInOut(duration: 0.35), value: focusIndex)
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .frame(maxWidth: 900)
-        .animation(.easeInOut(duration: 0.35), value: focusIndex)
     }
 
     private enum Role {
@@ -245,7 +256,7 @@ private struct KaraokeLyricsStage: View {
     }
 
     @ViewBuilder
-    private func row(windowIndex: Int, role: Role) -> some View {
+    private func row(windowIndex: Int, role: Role, rowWidth: CGFloat) -> some View {
         let window = session.windows[windowIndex]
         let line = session.stageLines[window.lineIndex]
         let isDuet = session.hasDuetParts
@@ -253,6 +264,16 @@ private struct KaraokeLyricsStage: View {
         let isMine = !isDuet || session.part == .all
             || (session.part == .primary) == (window.voice == .primary)
         let side = Self.side(isDuet: isDuet, voice: window.voice)
+        let baseSize: CGFloat = switch role {
+        case .current, .upcoming: heightClass.value(34, compact: 26)
+        case .next: heightClass.value(22, compact: 18)
+        case .previous: heightClass.value(18, compact: 15)
+        }
+        let fontSize = CGFloat(KaraokeLineFitPolicy.fontSize(
+            for: line.text,
+            base: Double(baseSize),
+            availableWidth: Double(rowWidth)
+        ))
 
         VStack(alignment: side.horizontal, spacing: 4) {
             if isDuet, role == .current || role == .upcoming, session.part != .all {
@@ -267,7 +288,7 @@ private struct KaraokeLyricsStage: View {
             case .current, .upcoming:
                 KaraokeLineView(
                     line: line,
-                    fontSize: heightClass.value(34, compact: 26),
+                    fontSize: fontSize,
                     weight: .bold,
                     activeStyle: AnyShapeStyle(voiceColor),
                     inactiveColor: .white.opacity(isMine ? 0.42 : 0.26),
@@ -279,10 +300,7 @@ private struct KaraokeLyricsStage: View {
                 )
             case .previous, .next:
                 Text(line.text)
-                    .font(.system(
-                        size: heightClass.value(role == .next ? 22 : 18, compact: role == .next ? 18 : 15),
-                        weight: .semibold
-                    ))
+                    .font(.system(size: fontSize, weight: .semibold))
                     .foregroundStyle(.white.opacity(role == .next ? 0.5 : 0.25))
                     .multilineTextAlignment(side.text)
                     .fixedSize(horizontal: false, vertical: true)
@@ -382,13 +400,21 @@ private struct KaraokeControlDeck: View {
                 if session.microphoneState == .on {
                     KaraokePitchLane(points: session.pitchHistory)
                         .frame(height: 64)
+                        // 带唱每隔几秒就进出一次；贴在音准线上不占布局，整块高度才稳得住。
+                        .overlay(alignment: .topLeading) {
+                            if session.isVocalAssisting {
+                                KaraokeAssistBadge()
+                                    .padding(6)
+                                    .transition(.opacity)
+                            }
+                        }
                         .transition(.opacity)
                 }
                 KaraokeMixerCard(session: session)
-                KaraokeProgressRow(player: session.player)
+                KaraokeProgressRow(session: session)
                 KaraokeTransportRow(session: session)
             }
-            // 状态胶囊出现/消失会改变整块高度，过渡一下而不是瞬间跳。
+            // 少数常驻提示出现/消失会改变整块高度，过渡一下而不是瞬间跳。
             .animation(.easeInOut(duration: 0.25), value: session.isEffectivelyMono)
             .padding(.top, 4)
         }
@@ -400,52 +426,33 @@ private struct KaraokeControlDeck: View {
     }
 }
 
-/// 循环、带唱与各类提示。都是一行居中的胶囊，和播放页的状态胶囊同一种底。
+/// 只放一首歌里基本不变的提示（单声道、麦克风权限、录音结果……）。
+/// 循环胶囊在进度条那一行、带唱胶囊在音准线上，它们来去频繁，不能牵动这里的高度。
 private struct KaraokeStatusStrip: View {
     let session: KaraokeSession
 
     var body: some View {
         let status = statusMessage
-        if session.loop != nil || session.isVocalAssisting || status != nil {
-            VStack(spacing: 8) {
-                if session.loop != nil || session.isVocalAssisting {
-                    HStack(spacing: 8) {
-                        if let loop = session.loop {
-                            KaraokeLoopChip(session: session, lineCount: loop.lineCount)
-                        }
-                        if session.isVocalAssisting {
-                            Label("karaoke_vocal_assist_active", systemImage: "person.wave.2.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .karaokeGlass(Capsule())
-                        }
+        if let status {
+            HStack(spacing: 10) {
+                Label(status, systemImage: "info.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.78))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                if let url = session.lastRecordingURL, !session.isMixingRecording {
+                    ShareLink(item: url) {
+                        Label("karaoke_share_recording", systemImage: "square.and.arrow.up")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white)
                     }
-                    .transition(.opacity)
-                }
-                if let status {
-                    HStack(spacing: 10) {
-                        Label(status, systemImage: "info.circle")
-                            .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.78))
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                        if let url = session.lastRecordingURL, !session.isMixingRecording {
-                            ShareLink(item: url) {
-                                Label("karaoke_share_recording", systemImage: "square.and.arrow.up")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.white)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .karaokeGlass(Capsule())
-                    .transition(.opacity)
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .karaokeGlass(Capsule())
             .frame(maxWidth: .infinity)
+            .transition(.opacity)
             .animation(.easeInOut(duration: 0.25), value: status)
         }
     }
@@ -481,6 +488,8 @@ private struct KaraokeStatusStrip: View {
 }
 
 /// 人声、升降调、速度、AI 分离、伴奏与对唱。一张玻璃卡片，行与行之间用细线分开。
+/// 人声滑块常驻；其余都是设一次就不动的选项，默认收成一行摘要，点开才铺开，
+/// 把高度让给歌词。
 private struct KaraokeMixerCard: View {
     @Bindable var session: KaraokeSession
 
@@ -490,6 +499,126 @@ private struct KaraokeMixerCard: View {
                 .padding(.vertical, 10)
                 .disabled(session.availability != .available || session.isPlayingInstrumental)
 
+            divider
+            summaryRow
+                .padding(.vertical, 8)
+
+            if session.isTuningExpanded {
+                tuningRows
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 2)
+        .foregroundStyle(.white)
+        .karaokeGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .animation(.easeInOut(duration: 0.25), value: session.isTuningExpanded)
+    }
+
+    /// 一行讲清现在的设定：AI 状态总在，其余只列改过的。点一下展开或收起。
+    private var summaryRow: some View {
+        Button {
+            session.isTuningExpanded.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .accessibilityHidden(true)
+                Text("karaoke_tuning")
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize()
+                Text(summary)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.62))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .rotationEffect(.degrees(session.isTuningExpanded ? 180 : 0))
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("karaoke_tuning"))
+        .accessibilityValue(Text(summary))
+        .accessibilityHint(Text("karaoke_tuning_hint"))
+    }
+
+    private var summary: String {
+        var parts: [String] = []
+        if let ai = aiSummary { parts.append(ai) }
+        if session.keyShift != 0 {
+            parts.append("\(String(localized: "karaoke_key")) \(keyLabel)")
+        }
+        if session.practiceRate < 1 {
+            parts.append("\(String(localized: "karaoke_speed")) \(speedLabel)")
+        }
+        if session.isPlayingInstrumental {
+            parts.append(String(localized: "karaoke_backing_track"))
+        }
+        if session.microphoneState == .on, session.isMonitoring {
+            parts.append(String(localized: "karaoke_monitor"))
+        }
+        if session.hasDuetParts, session.part != .all {
+            let part = session.part == .primary
+                ? String(localized: "karaoke_part_primary")
+                : String(localized: "karaoke_part_secondary")
+            parts.append("\(String(localized: "karaoke_part")) \(part)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// 收起时 AI 分离的进度、失败也要看得见，不然用户不知道该不该点开。
+    private var aiSummary: String? {
+        let modelState = session.separation.modelState
+        guard modelState != .unsupportedSystem else { return nil }
+        let state: String
+        if !session.aiSeparationEnabled {
+            state = String(localized: "karaoke_ai_off")
+        } else {
+            switch modelState {
+            case .unsupportedSystem:
+                return nil
+            case .notDownloaded:
+                state = String(localized: "karaoke_ai_preparing")
+            case .downloading(let fraction):
+                state = "\(String(localized: "karaoke_ai_downloading")) \(Self.percent(fraction))"
+            case .failed:
+                state = String(localized: "karaoke_ai_model_failed")
+            case .ready:
+                switch session.currentSeparationState {
+                case .separating(let fraction):
+                    let isCooling = session.songID.map { session.separation.coolingSongIDs.contains($0) } ?? false
+                    state = isCooling
+                        ? String(localized: "karaoke_ai_cooling")
+                        : "\(String(localized: "karaoke_ai_separating")) \(Self.percent(fraction))"
+                case .ready where session.isStemLocked:
+                    state = String(localized: "karaoke_ai_active")
+                case .ready:
+                    state = String(localized: "karaoke_ai_aligning")
+                case .unsupported:
+                    state = String(localized: "karaoke_ai_unsupported_short")
+                case .failed:
+                    state = String(localized: "karaoke_ai_failed")
+                case .idle, nil:
+                    state = String(localized: "karaoke_ai_preparing")
+                }
+            }
+        }
+        return String(format: String(localized: "karaoke_ai_summary_format"), state)
+    }
+
+    private static func percent(_ fraction: Double) -> String {
+        fraction.formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    @ViewBuilder
+    private var tuningRows: some View {
+        VStack(spacing: 0) {
             divider
             HStack(spacing: 10) {
                 KaraokeStepper(
@@ -542,10 +671,7 @@ private struct KaraokeMixerCard: View {
                 .padding(.vertical, 10)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 2)
-        .foregroundStyle(.white)
-        .karaokeGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .transition(.opacity)
     }
 
     private var divider: some View {
@@ -618,8 +744,11 @@ private struct KaraokeMixerCard: View {
 }
 
 /// 与播放页同一条进度条，可拖动。拖离循环的句子会照常退出循环。
+/// 时间那一行定高，循环中的「循环 N 句 / 加一句」胶囊就放在两端时间中间，来去不改高度。
 private struct KaraokeProgressRow: View {
-    let player: AudioPlayerService
+    let session: KaraokeSession
+
+    private var player: AudioPlayerService { session.player }
 
     var body: some View {
         VStack(spacing: 2) {
@@ -630,13 +759,19 @@ private struct KaraokeProgressRow: View {
                 fillTint: .white,
                 onSeek: { player.seek(to: $0) }
             )
-            HStack {
+            HStack(spacing: 8) {
                 Text(player.currentTime.formattedDuration)
-                Spacer()
+                Spacer(minLength: 0)
+                if let loop = session.loop {
+                    KaraokeLoopChip(session: session, lineCount: loop.lineCount)
+                        .transition(.opacity)
+                }
+                Spacer(minLength: 0)
                 Text(player.duration.formattedDuration)
             }
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.white.opacity(0.55))
+            .frame(height: 22)
             // 进度条自带 44 点高的拖动热区，时间贴回细条下方。
             .padding(.top, -12)
         }
@@ -814,6 +949,8 @@ private struct KaraokeOptionPill: View {
 }
 
 /// AI separation status: download, progress, and whether it is in effect.
+/// 标题下只有一行状态，重试键靠在开关旁边；下载或分离失败时把原因写在状态行里，
+/// 不再只给一个光秃秃的「重试」。
 private struct KaraokeAISeparationRow: View {
     @Bindable var session: KaraokeSession
 
@@ -840,10 +977,28 @@ private struct KaraokeAISeparationRow: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if let retry = retryAction {
+                    Button("karaoke_ai_retry", action: retry)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
                 Toggle("karaoke_ai_title", isOn: $session.aiSeparationEnabled)
                     .labelsHidden()
             }
             .foregroundStyle(.white)
+        }
+    }
+
+    /// 模型没下来重试下载；这首歌没分离成重试分离。
+    private var retryAction: (() -> Void)? {
+        guard session.aiSeparationEnabled else { return nil }
+        switch session.separation.modelState {
+        case .failed:
+            return { session.separation.downloadModel() }
+        case .ready where session.currentSeparationState == .failed:
+            return session.retrySeparation
+        default:
+            return nil
         }
     }
 
@@ -853,31 +1008,13 @@ private struct KaraokeAISeparationRow: View {
         case .unsupportedSystem:
             EmptyView()
         case .notDownloaded:
-            Button {
-                session.separation.downloadModel()
-            } label: {
-                Text(String(
-                    format: String(localized: "karaoke_ai_download_format"),
-                    ByteCountFormatter.string(fromByteCount: KaraokeVocalModel.approximateDownloadBytes, countStyle: .file)
-                ))
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            // 开关一打开就在下载了；这里只会闪一下。
+            Text("karaoke_ai_preparing")
         case .downloading(let fraction):
             progress(String(localized: "karaoke_ai_downloading"), fraction)
         case .failed:
-            VStack(alignment: .leading, spacing: 6) {
-                Button("karaoke_ai_retry") { session.separation.downloadModel() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                if let reason = session.separation.modelFailureReason {
-                    Text(reason)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.6))
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            reasonText(session.separation.modelFailureReason
+                ?? String(localized: "karaoke_ai_model_failed"))
         case .ready:
             songStatus
         }
@@ -896,16 +1033,21 @@ private struct KaraokeAISeparationRow: View {
         case .ready:
             Text("karaoke_ai_aligning")
         case .unsupported:
-            Text("karaoke_ai_unsupported_song")
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
+            reasonText(String(localized: "karaoke_ai_unsupported_song"))
         case .failed:
-            Button("karaoke_ai_retry", action: session.retrySeparation)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            reasonText(session.currentSeparationFailureReason.map {
+                String(format: String(localized: "karaoke_ai_failed_format"), $0)
+            } ?? String(localized: "karaoke_ai_failed"))
         case .idle, nil:
             Text("karaoke_ai_preparing")
         }
+    }
+
+    private func reasonText(_ text: String) -> some View {
+        Text(text)
+            .lineLimit(2)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var isCooling: Bool {
@@ -981,7 +1123,8 @@ private struct KaraokeStageMenu: View {
     }
 }
 
-/// The lines being looped, with a way to take in the next one.
+/// The lines being looped, with a way to take in the next one. Sized to sit
+/// in the 22-point times row under the progress bar.
 private struct KaraokeLoopChip: View {
     let session: KaraokeSession
     let lineCount: Int
@@ -992,24 +1135,38 @@ private struct KaraokeLoopChip: View {
                 String(format: String(localized: "karaoke_loop_lines_format"), lineCount),
                 systemImage: "repeat"
             )
-            .font(.caption.weight(.semibold))
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
             if session.canExtendLoop {
                 Button(action: session.extendLoop) {
                     Label("karaoke_loop_extend", systemImage: "plus")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 7)
+                        .frame(height: 18)
                         .background(.white.opacity(0.16), in: Capsule())
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .foregroundStyle(.white.opacity(0.9))
-        .padding(.leading, 10)
-        .padding(.trailing, session.canExtendLoop ? 4 : 10)
-        .padding(.vertical, 4)
+        .foregroundStyle(.white.opacity(0.92))
+        .padding(.leading, 9)
+        .padding(.trailing, session.canExtendLoop ? 2 : 9)
+        .frame(height: 22)
         .karaokeGlass(Capsule())
+    }
+}
+
+/// 「原唱带唱中」：贴在音准线一角，不占布局。
+private struct KaraokeAssistBadge: View {
+    var body: some View {
+        Label("karaoke_vocal_assist_active", systemImage: "person.wave.2.fill")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.92))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .karaokeGlass(Capsule())
     }
 }
 
