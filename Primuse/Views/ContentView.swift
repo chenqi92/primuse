@@ -1293,6 +1293,10 @@ struct ContentView: View {
                 sourcesStore: sourcesStore
             ) {
                 autoYearlyReport = report
+            } else {
+                // 上次切出去时进程被系统结束、没填完的音乐源表单: 回到
+                // 「设置 › 音乐源」接着填。和引导页、年度报告不同时弹。
+                AddSourceDraftRestoration.shared.restoreIfNeeded()
             }
         }
         .onChange(of: navigationModeRawValue) { _, _ in

@@ -466,6 +466,9 @@ struct SourcesContentView: View {
     @State private var showAddSource = false
     @State private var showTransfer = false
     @State private var editingSource: MusicSource?
+    /// 上次没填完、进程被系统结束的源表单, 分别交给添加流程和编辑页。
+    @State private var restoredNewSourceDraft: AddSourceDraftRestoration.Pending?
+    @State private var restoredEditingDraft: AddSourceDraftRestoration.Pending?
     @State private var connectingSource: MusicSource?
     /// 连接失败页点了「修改地址」之后要编辑的那个源。两个 sheet 不能同时在飞,
     /// 先记在这里, 等连接 sheet 的 onDismiss 里再呈现编辑表单。
@@ -556,9 +559,10 @@ struct SourcesContentView: View {
                 }
             }
             .sheet(isPresented: $showTransfer) { NavigationStack { WiFiTransferView() } }
-            .sheet(isPresented: $showAddSource) {
+            .sheet(isPresented: $showAddSource, onDismiss: { restoredNewSourceDraft = nil }) {
                 SourceTypeSelectionView(
                     submitIntent: .continueToConnection,
+                    restoredDraft: restoredNewSourceDraft,
                     onAdd: { source in
                         if MediaServerSourceCreationPolicy.requiresPreflight(
                             for: source.type,
@@ -611,13 +615,23 @@ struct SourcesContentView: View {
                     )
                 }
             }
-            .sheet(item: $editingSource) { source in
-                AddSourceView(sourceType: source.type, editingSource: source) { updated in
+            .sheet(item: $editingSource, onDismiss: { restoredEditingDraft = nil }) { source in
+                AddSourceView(
+                    sourceType: source.type,
+                    editingSource: source,
+                    restoredDraft: restoredEditingDraft
+                ) { updated in
                     updateSource(updated.id) { $0 = updated }
                     scanService.removeSynologyAPI(for: updated.id)
                     Task { await sourceManager.refreshConnector(for: updated.id) }
                 }
             }
+            #if os(iOS)
+            .onChange(of: AddSourceDraftRestoration.shared.pending, initial: true) { _, pending in
+                guard pending != nil else { return }
+                presentRestoredDraft()
+            }
+            #endif
             .sheet(item: $connectingSource, onDismiss: finishConnectionSheet) { source in
                 connectionSheet(
                     for: source,
@@ -2441,6 +2455,25 @@ struct SourcesContentView: View {
         pendingAddressEditSource = nil
         editingSource = currentSource(for: pending)
     }
+
+    #if os(iOS)
+    /// 启动时找到的没填完的表单: 新建的走正常的添加流程(选类型页直接打开那一种),
+    /// 编辑的直接打开那个源的编辑页。源已经不在了, 草稿也就没用了。
+    private func presentRestoredDraft() {
+        guard let restored = AddSourceDraftRestoration.shared.take() else { return }
+        if let sourceID = restored.draft.editingSourceID {
+            guard let source = sourceStore.source(id: sourceID), !source.isDeleted else {
+                AddSourceDraftStore.clear()
+                return
+            }
+            restoredEditingDraft = restored
+            editingSource = source
+        } else {
+            restoredNewSourceDraft = restored
+            showAddSource = true
+        }
+    }
+    #endif
 
     private func toggleSourceEnabled(_ source: MusicSource) {
         let current = currentSource(for: source)

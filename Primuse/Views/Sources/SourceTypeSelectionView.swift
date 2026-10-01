@@ -13,6 +13,8 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
     @Environment(AppleMusicService.self) private var appleMusic
     @Environment(SourcesStore.self) private var sourceStore
     let submitIntent: AddSourceSubmitIntent
+    /// 上次没填完的那张表。有它就一出现直接打开那一种的表单。
+    let restoredDraft: AddSourceDraftRestoration.Pending?
     let onAdd: (MusicSource) throws -> Void
     let onConnectionStart: (MusicSource) -> Void
     let onConnectionFinish: (MusicSource) -> Void
@@ -25,6 +27,7 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
 
     init(
         submitIntent: AddSourceSubmitIntent = .save,
+        restoredDraft: AddSourceDraftRestoration.Pending? = nil,
         onAdd: @escaping (MusicSource) throws -> Void,
         onConnectionStart: @escaping (MusicSource) -> Void,
         onConnectionFinish: @escaping (MusicSource) -> Void,
@@ -36,11 +39,16 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         ) -> ConnectionContent
     ) {
         self.submitIntent = submitIntent
+        self.restoredDraft = restoredDraft
         self.onAdd = onAdd
         self.onConnectionStart = onConnectionStart
         self.onConnectionFinish = onConnectionFinish
         self.onConnectionCancel = onConnectionCancel
         self.connectionContent = connectionContent
+        if let restoredDraft, let type = restoredDraft.sourceType {
+            _addTarget = State(initialValue: .type(type))
+            _activeRestoredDraft = State(initialValue: restoredDraft)
+        }
     }
 
     /// 选类型 / 选发现到的设备都只是弹同一个 AddSourceView。合并成单一 item 驱动
@@ -65,6 +73,9 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
         }
     }
     @State private var addTarget: AddSourceTarget?
+    /// 交给当前这张表单的草稿。表单一关就清掉: 取消之后再点同一种类型,
+    /// 应该是一张空表。
+    @State private var activeRestoredDraft: AddSourceDraftRestoration.Pending?
     /// Apple Music 没有表单可填 —— 点它就是请求授权, 通过之后直接建源并同步。
     @State private var isAuthorizingAppleMusic = false
     @State private var showAppleMusicAuthorizationAlert = false
@@ -86,7 +97,10 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
 
     var body: some View {
         content
-        .sheet(item: $addTarget, onDismiss: finishConnectionFlowIfNeeded) { target in
+        .sheet(item: $addTarget, onDismiss: {
+            activeRestoredDraft = nil
+            finishConnectionFlowIfNeeded()
+        }) { target in
             addFlowContent(for: target)
         }
         .alert(
@@ -207,7 +221,8 @@ struct SourceTypeSelectionView<ConnectionContent: View>: View {
                 AddSourceView(
                     sourceType: type,
                     submitIntent: submitIntent,
-                    onValidatedMediaServerSave: addValidatedMediaServerSource
+                    onValidatedMediaServerSave: addValidatedMediaServerSource,
+                    restoredDraft: activeRestoredDraft
                 ) { source in
                     addSourceAndAdvance(source)
                 }

@@ -28,6 +28,8 @@ struct AddSourceView: View {
     var prefillDevice: DiscoveredDevice?
     var submitIntent: AddSourceSubmitIntent = .save
     var onValidatedMediaServerSave: ((MusicSource) throws -> Void)? = nil
+    /// 上次没填完、进程又被系统结束的那张表，打开时原样填回。
+    var restoredDraft: AddSourceDraftRestoration.Pending? = nil
     var onSave: (MusicSource) -> Void
 
     @State private var name = ""
@@ -74,6 +76,11 @@ struct AddSourceView: View {
     /// Captures the URL chosen via NSOpenPanel so we can persist a
     /// security-scoped bookmark once the source has an ID.
     @State private var pendingLocalFolderURL: URL?
+    #endif
+    #if os(iOS)
+    @Environment(\.scenePhase) private var scenePhase
+    /// 表单刚打开时的样子。退到后台时只有和它不一样才值得存一份草稿。
+    @State private var draftBaseline: AddSourceDraftBaseline?
     #endif
 
     @FocusState private var focusedField: SourceFormField?
@@ -280,7 +287,19 @@ struct AddSourceView: View {
             if requiresAuthenticatedMediaServerPreflight {
                 mediaServerCreationTransaction.cancel()
             }
+            #if os(iOS)
+            // 表单是真的关掉了(保存、取消、下滑关闭、换成选目录那一步)。
+            // 进程被结束不会走到这里, 草稿正是留给那种情况的。
+            AddSourceDraftStore.clear()
+            #endif
         }
+        #if os(iOS)
+        // 切去别的 App 复制地址或密码时存一份: 挂起的进程随时可能被系统结束。
+        .onChange(of: scenePhase) { _, phase in
+            guard phase != .active else { return }
+            persistDraftIfNeeded()
+        }
+        #endif
     }
 
     private var addressProbeSignature: String {
@@ -1292,8 +1311,118 @@ struct AddSourceView: View {
                 authType = .none
             }
         }
+        #if os(iOS)
+        // 基线取「填回草稿之前」: 恢复出来的表就算原样没动, 再切出去也要接着保住。
+        draftBaseline = AddSourceDraftBaseline(draft: currentDraft, secrets: currentDraftSecrets)
+        if let restoredDraft,
+           restoredDraft.draft.sourceType == sourceType.rawValue,
+           restoredDraft.draft.editingSourceID == editingSource?.id {
+            applyRestoredDraft(restoredDraft)
+            plog("📝 Restored unfinished source form type=\(sourceType.rawValue) editing=\(isEditing)")
+        }
+        #endif
         isInitialized = true
     }
+
+    #if os(iOS)
+    private var currentDraft: AddSourceDraft {
+        AddSourceDraft(
+            sourceType: sourceType.rawValue,
+            editingSourceID: editingSource?.id,
+            name: name,
+            host: host,
+            port: port,
+            useSsl: useSsl,
+            publicHost: publicHost,
+            publicPort: publicPort,
+            publicUseSsl: publicUseSsl,
+            localPathPrefix: localPathPrefix,
+            publicBasePath: publicBasePath,
+            vendorIdentifier: vendorIdentifier,
+            synologyConnectionMode: synologyConnectionMode.rawValue,
+            fnMusicConnectionMode: fnMusicConnectionMode.rawValue,
+            username: username,
+            basePath: basePath,
+            shareName: shareName,
+            exportPath: exportPath,
+            authType: authType.rawValue,
+            ftpEncryption: ftpEncryption.rawValue,
+            nfsVersion: nfsVersion.rawValue,
+            autoConnect: autoConnect,
+            rememberDevice: rememberDevice,
+            addressRows: addressRows.map {
+                AddSourceDraft.AddressRow(
+                    address: $0.address,
+                    portText: $0.portText,
+                    transport: $0.transport.rawValue,
+                    showsAdvancedOptions: $0.showsAdvancedOptions,
+                    treatDotlessTokenAsHostname: $0.treatDotlessTokenAsHostname
+                )
+            }
+        )
+    }
+
+    private var currentDraftSecrets: AddSourceDraftSecrets {
+        AddSourceDraftSecrets(
+            password: password,
+            sshKey: sshKey,
+            fnConnectAccessCode: fnConnectAccessCode
+        )
+    }
+
+    private func persistDraftIfNeeded() {
+        guard isInitialized, let draftBaseline else { return }
+        let draft = currentDraft
+        let secrets = currentDraftSecrets
+        guard AddSourceDraftPolicy.shouldPersist(
+            current: draft,
+            currentSecrets: secrets,
+            pristine: draftBaseline.draft,
+            pristineSecrets: draftBaseline.secrets
+        ) else { return }
+        AddSourceDraftStore.save(draft, secrets: secrets)
+    }
+
+    private func applyRestoredDraft(_ restored: AddSourceDraftRestoration.Pending) {
+        let draft = restored.draft
+        name = draft.name
+        host = draft.host
+        port = draft.port
+        useSsl = draft.useSsl
+        publicHost = draft.publicHost
+        publicPort = draft.publicPort
+        publicUseSsl = draft.publicUseSsl
+        localPathPrefix = draft.localPathPrefix
+        publicBasePath = draft.publicBasePath
+        vendorIdentifier = draft.vendorIdentifier
+        synologyConnectionMode = SynologyConnectionMode(rawValue: draft.synologyConnectionMode)
+            ?? synologyConnectionMode
+        fnMusicConnectionMode = FnMusicConnectionMode(rawValue: draft.fnMusicConnectionMode)
+            ?? fnMusicConnectionMode
+        username = draft.username
+        basePath = draft.basePath
+        shareName = draft.shareName
+        exportPath = draft.exportPath
+        authType = SourceAuthType(rawValue: draft.authType) ?? authType
+        ftpEncryption = FTPEncryption(rawValue: draft.ftpEncryption) ?? ftpEncryption
+        nfsVersion = NFSVersion(rawValue: draft.nfsVersion) ?? nfsVersion
+        autoConnect = draft.autoConnect
+        rememberDevice = draft.rememberDevice
+        if !draft.addressRows.isEmpty {
+            addressRows = draft.addressRows.map { saved in
+                var row = SourceAddressRow(address: saved.address)
+                row.portText = saved.portText
+                row.transport = SourceAddressTransportChoice(rawValue: saved.transport) ?? .automatic
+                row.showsAdvancedOptions = saved.showsAdvancedOptions
+                row.treatDotlessTokenAsHostname = saved.treatDotlessTokenAsHostname
+                return row
+            }
+        }
+        password = restored.secrets.password
+        sshKey = restored.secrets.sshKey
+        fnConnectAccessCode = restored.secrets.fnConnectAccessCode
+    }
+    #endif
 
     private func loadAdaptiveConnectionFields(from source: MusicSource) {
         let configuration = source.effectiveConnectionConfiguration
@@ -1982,4 +2111,107 @@ struct AddSourceView: View {
         }
     }
     #endif
+}
+
+// MARK: - Unfinished form
+
+/// 表单刚打开时的内容, 用来判断退到后台时有没有改过。
+struct AddSourceDraftBaseline {
+    let draft: AddSourceDraft
+    let secrets: AddSourceDraftSecrets
+}
+
+/// 没填完的添加 / 编辑音乐源表单。普通字段进 UserDefaults; 密码、私钥、
+/// FN Connect 访问码只进不同步的本机钥匙串, 表单关掉或草稿过期就一起删掉。
+@MainActor
+enum AddSourceDraftStore {
+    private static let recordKey = "primuse.addSourceDraft.v1"
+    private static let passwordItem = "primuse.addSourceDraft.password"
+    private static let sshKeyItem = "primuse.addSourceDraft.sshKey"
+    private static let accessCodeItem = "primuse.addSourceDraft.fnAccessCode"
+
+    /// 先写记录再写密钥, 清除时反过来: 有密钥就一定有记录, 清除只看记录在不在,
+    /// 不用每次关表单都去敲三次钥匙串。
+    static func save(_ draft: AddSourceDraft, secrets: AddSourceDraftSecrets, now: Date = Date()) {
+        guard let data = AddSourceDraftPolicy.encode(draft, savedAt: now) else { return }
+        UserDefaults.standard.set(data, forKey: recordKey)
+        storeSecret(secrets.password, item: passwordItem)
+        storeSecret(secrets.sshKey, item: sshKeyItem)
+        storeSecret(secrets.fnConnectAccessCode, item: accessCodeItem)
+    }
+
+    /// 还值得接着填的那份; 过期或读不出来的当场连密钥一起删掉。
+    static func restorable(now: Date = Date()) -> AddSourceDraftRestoration.Pending? {
+        guard let data = UserDefaults.standard.data(forKey: recordKey) else { return nil }
+        guard let draft = AddSourceDraftPolicy.restorableDraft(from: data, now: now),
+              MusicSourceType(rawValue: draft.sourceType) != nil else {
+            clear()
+            return nil
+        }
+        return AddSourceDraftRestoration.Pending(
+            draft: draft,
+            secrets: AddSourceDraftSecrets(
+                password: readSecret(passwordItem),
+                sshKey: readSecret(sshKeyItem),
+                fnConnectAccessCode: readSecret(accessCodeItem)
+            )
+        )
+    }
+
+    static func clear() {
+        guard UserDefaults.standard.object(forKey: recordKey) != nil else { return }
+        for item in [passwordItem, sshKeyItem, accessCodeItem] {
+            _ = KeychainService.deletePassword(for: item)
+        }
+        UserDefaults.standard.removeObject(forKey: recordKey)
+    }
+
+    private static func storeSecret(_ value: String, item: String) {
+        if value.isEmpty {
+            _ = KeychainService.deletePassword(for: item)
+        } else {
+            KeychainService.setLocalOnlyPassword(value, for: item)
+        }
+    }
+
+    private static func readSecret(_ item: String) -> String {
+        if case .found(let value) = KeychainService.localOnlyPasswordLookup(for: item) {
+            return value
+        }
+        return ""
+    }
+}
+
+/// 启动时把上次没填完的表单交给「设置 › 音乐源」: 新建的经选类型页直接打开
+/// 那一种的表单, 编辑的直接打开那个源的编辑页。每次启动只看一次。
+@MainActor
+@Observable
+final class AddSourceDraftRestoration {
+    struct Pending: Equatable {
+        let draft: AddSourceDraft
+        let secrets: AddSourceDraftSecrets
+
+        var sourceType: MusicSourceType? { MusicSourceType(rawValue: draft.sourceType) }
+    }
+
+    static let shared = AddSourceDraftRestoration()
+    private(set) var pending: Pending?
+    @ObservationIgnored private var hasChecked = false
+
+    #if os(iOS)
+    func restoreIfNeeded() {
+        guard !hasChecked else { return }
+        hasChecked = true
+        guard let restored = AddSourceDraftStore.restorable() else { return }
+        pending = restored
+        plog("📝 Unfinished source form found type=\(restored.draft.sourceType) editing=\(restored.draft.editingSourceID != nil); reopening Sources")
+        SettingsNavigation.shared.open(SettingsPage.sources.id)
+    }
+    #endif
+
+    /// 交给某个音乐源页之后就不再留着, 免得同时在的另一个音乐源页再开一次。
+    func take() -> Pending? {
+        defer { pending = nil }
+        return pending
+    }
 }

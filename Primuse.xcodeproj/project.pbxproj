@@ -901,6 +901,7 @@
 		8B207EA5E70EC2EF2B683667 /* SynologyAudioStationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54676B57B5334C97A45A4886 /* SynologyAudioStationSource.swift */; };
 		8B77D792AE4D2D370EFF3410 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2BE904A0DE01349CEB7A473E /* NIOCore */; };
 		8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CA564A28322629895E223E4 /* AdaptiveStreamQualityPolicy.swift */; };
+		3D5CCC89D8A8A310C468B046 /* AddSourceDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 691EEA29BD9688639794BEBC /* AddSourceDraft.swift */; };
 		8BDF9CCE0677364421CC5722 /* OfflineBatchRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC98773DADD9FA25A4451251 /* OfflineBatchRetryPolicy.swift */; };
 		8BE415B91722F03217B013F0 /* PlaybackVolumeControlPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9D38B5C0E897BC8060AE53 /* PlaybackVolumeControlPolicy.swift */; };
 		8BEA6CCE8C0A082112A37999 /* AppleMusicService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029A35BDC1548EE87EBC6549 /* AppleMusicService.swift */; };
@@ -2314,6 +2315,7 @@
 		5BB00031B96FBABEE4773C15 /* CloudKitSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitSyncService.swift; sourceTree = "<group>"; };
 		5BB39C2EE3B1DD6E01169AE8 /* IncrementalSongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncrementalSongStore.swift; sourceTree = "<group>"; };
 		5CA564A28322629895E223E4 /* AdaptiveStreamQualityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveStreamQualityPolicy.swift; sourceTree = "<group>"; };
+		691EEA29BD9688639794BEBC /* AddSourceDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddSourceDraft.swift; sourceTree = "<group>"; };
 		5D229FE5BF339F4BB3310403 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist; name = "zh-Hant"; path = "zh-Hant.lproj/AppIntentVocabulary.plist"; sourceTree = "<group>"; };
 		5D2741FA5052447F5E1B27A4 /* QueueView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueView.swift; sourceTree = "<group>"; };
 		5D2BEDD6EA9A0207E8C8559A /* ServerListeningStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerListeningStatsView.swift; sourceTree = "<group>"; };
@@ -3487,6 +3489,7 @@
 				539C63BA2714A4F69419FFE1 /* Transfer */,
 				D8608BBF8D0FDFD02E528AC7 /* ActiveConnectionRouteOwnershipPolicy.swift */,
 				5CA564A28322629895E223E4 /* AdaptiveStreamQualityPolicy.swift */,
+				691EEA29BD9688639794BEBC /* AddSourceDraft.swift */,
 				DE5F9F33E3579D59A21D8A8F /* AlbumArtistInferencePolicy.swift */,
 				0D041D8BEB3E75D3D4A605E4 /* AppDistributionChannel.swift */,
 				841D9FCD00F604D560C3B8D9 /* AppleMusicCatalogHit.swift */,
@@ -5488,6 +5491,7 @@
 				6DB7A4FAB4B02D7A4E54E58A /* AIStreamingResponsePolicy.swift in Sources */,
 				4F143173989D3435C5DB1644 /* ActiveConnectionRouteOwnershipPolicy.swift in Sources */,
 				8B79263572E878595E3E44B3 /* AdaptiveStreamQualityPolicy.swift in Sources */,
+				3D5CCC89D8A8A310C468B046 /* AddSourceDraft.swift in Sources */,
 				5A7560150DC89DCF048C6B23 /* AirsonicTagEditingProtocol.swift in Sources */,
 				5D9C7448984A096646317144 /* Album.swift in Sources */,
 				0A12E737FD6DE9550881552D /* AlbumArtistInferencePolicy.swift in Sources */,
