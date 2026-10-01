@@ -48,6 +48,10 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
     private static let diagnosticBodyByteLimit = 4096
     private var metadataSuffixRangeCapabilityCache = MetadataSuffixRangeCapabilityCache()
     private var completeMetadataFallbackTasks: [String: Task<URL, Error>] = [:]
+    /// The server (or a reverse proxy in front of it) answered a byte-range
+    /// read with the whole file. Playback ranges are then cut from one local
+    /// copy instead of failing, or re-downloading the file, chunk by chunk.
+    private var rangeRequestsUnsupported = false
     private let cacheDirectory: URL
 
     /// 长生命周期 session, 让 fetchRange 复用 HTTP keep-alive 连接,
@@ -519,13 +523,48 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
         guard let rangeHeader = SafeByteRange.httpHeader(offset: offset, length: length) else {
             return Data()
         }
+        if rangeRequestsUnsupported {
+            // A queue seed may read an existing local copy but must not turn
+            // into a complete download.
+            if SpeculativeRangeRead.isActive,
+               !FileManager.default.fileExists(
+                   atPath: cacheDirectory.appendingPathComponent(Self.cacheFileName(for: path)).path
+               ) {
+                throw SpeculativeRangeReadError.rangeUnsupported
+            }
+            return try await rangeFromCompleteFile(path: path, offset: offset, length: length)
+        }
         let request = try makeRangeRequest(path: path, rangeHeader: rangeHeader)
         let maxBytes = Int(clamping: max(length, 0))
         let responseLimit = maxBytes > Int.max - 64 * 1024 ? Int.max : maxBytes + 64 * 1024
-        let (data, response) = try await dataFollowingMediaRedirects(
-            for: request,
-            maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
-        )
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await dataFollowingMediaRedirects(
+                for: request,
+                maxBytes: max(PlainHTTPClient.defaultMaxBytes, responseLimit)
+            )
+        } catch let error as URLError where error.code == .dataLengthExceedsMaximum
+            && length <= 8 * 1_024 * 1_024 {
+            // Only a whole-file answer overruns a window this far below the
+            // response limit.
+            noteRangeRequestsUnsupported(path: path)
+            if SpeculativeRangeRead.isActive { throw SpeculativeRangeReadError.rangeUnsupported }
+            return try await rangeFromCompleteFile(path: path, offset: offset, length: length)
+        }
+        if let http = response as? HTTPURLResponse, http.statusCode == 200,
+           !HTTPByteRangeResponsePolicy.acceptsWholeResourceResponse(
+               bodyLength: data.count,
+               requestedOffset: offset,
+               requestedLength: length
+           ) {
+            try rejectNonMediaResponseIfNeeded(http, data: data, path: path)
+            noteRangeRequestsUnsupported(path: path)
+            // The body in hand is the complete file: keep it rather than
+            // fetching it again for the next chunk.
+            try storeCompleteFile(data, for: path)
+            return try await rangeFromCompleteFile(path: path, offset: offset, length: length)
+        }
         return try validateStrictRangeResponse(
             response,
             data: data,
@@ -533,6 +572,51 @@ actor WebDAVSource: MusicSourceConnector, OpenListSTRMResolvingConnector,
             offset: offset,
             length: length
         )
+    }
+
+    private func noteRangeRequestsUnsupported(path: String) {
+        guard !rangeRequestsUnsupported else { return }
+        rangeRequestsUnsupported = true
+        plog("⚠️ WebDAV server ignored Range source=\(sourceID.prefix(8)) path=\(path); serving playback from complete downloads")
+    }
+
+    private func storeCompleteFile(_ data: Data, for path: String) throws {
+        let localPath = cacheDirectory.appendingPathComponent(Self.cacheFileName(for: path))
+        guard !FileManager.default.fileExists(atPath: localPath.path) else { return }
+        let tempPath = cacheDirectory.appendingPathComponent(
+            "\(Self.cacheFileName(for: path)).part-\(UUID().uuidString)"
+        )
+        try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        do {
+            try data.write(to: tempPath, options: .atomic)
+            if FileManager.default.fileExists(atPath: localPath.path) {
+                try? FileManager.default.removeItem(at: tempPath)
+            } else {
+                try FileManager.default.moveItem(at: tempPath, to: localPath)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: tempPath)
+            throw error
+        }
+    }
+
+    /// One byte window out of the complete local copy (`localURL` downloads
+    /// it once and keeps it).
+    private func rangeFromCompleteFile(path: String, offset: Int64, length: Int64) async throws -> Data {
+        let file = try await localURL(for: path)
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        let fileSize = Int64((try file.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0)
+        let start: Int64
+        if offset < 0 {
+            start = max(0, fileSize + offset)
+        } else {
+            guard SafeByteRange.exclusiveEnd(offset: offset, length: length) != nil else { return Data() }
+            start = offset
+        }
+        guard start < fileSize else { return Data() }
+        try handle.seek(toOffset: UInt64(start))
+        return try handle.read(upToCount: Int(clamping: min(length, fileSize - start))) ?? Data()
     }
 
     func fetchMetadataRange(

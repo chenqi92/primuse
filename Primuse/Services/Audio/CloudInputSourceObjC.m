@@ -66,31 +66,39 @@
     int64_t remaining = _totalLength - _offset;
     int64_t toRead = MIN((int64_t)length, remaining);
 
-    NSError *fetchError = nil;
-    NSData *data = self.fetchBlock(_offset, toRead, &fetchError);
-    if (data == nil) {
-        if (error) { *error = fetchError ?: [NSError errorWithDomain:NSPOSIXErrorDomain code:EIO userInfo:nil]; }
-        *bytesRead = 0;
-        return NO;
-    }
-
-    NSInteger copied = (NSInteger)MIN((NSUInteger)toRead, data.length);
-    // 关键: copied=0 但 _offset 还没到 _totalLength 时, 必须返回错误而不是
-    // YES+0。SFB 把 "bytesRead=0 且 return YES" 当成自然 EOF, 会把 decoder
-    // position 拉到 totalFrames, 解码循环退出, AudioPlayerService 把短数据
-    // 末尾的 buffer 当成 "歌唱完了" 调度 gapless boundary callback ——
-    // 用户体感就是歌没播完就切下一首。返回错误让上层走 retry / autoAdvance
-    // 路径而不是误判 EOF。
-    if (copied == 0) {
-        if (error) {
-            *error = [NSError errorWithDomain:NSPOSIXErrorDomain
-                                         code:EIO
-                                     userInfo:@{NSLocalizedDescriptionKey: @"Cloud source returned 0 bytes mid-stream"}];
+    // The fetch block answers one cached range or one chunk at a time, so a
+    // read crossing a range or chunk boundary comes back short. SFB's own
+    // decoders simply ask again, but Core Audio's AudioFile (AAC / ALAC in
+    // M4A) takes a short read inside packet data as a decoding failure. Keep
+    // reading until the request is satisfied, like a file would.
+    NSInteger copied = 0;
+    while (copied < toRead) {
+        NSError *fetchError = nil;
+        NSData *data = self.fetchBlock(_offset + copied, toRead - copied, &fetchError);
+        NSInteger chunk = data == nil ? 0 : (NSInteger)MIN((NSUInteger)(toRead - copied), data.length);
+        if (chunk == 0) {
+            // Bytes already copied are real data; hand them over and let the
+            // next read report the failure.
+            if (copied > 0) { break; }
+            // 关键: 一个字节都没读到但 _offset 还没到 _totalLength 时, 必须返回
+            // 错误而不是 YES+0。SFB 把 "bytesRead=0 且 return YES" 当成自然 EOF,
+            // 会把 decoder position 拉到 totalFrames, 解码循环退出,
+            // AudioPlayerService 把短数据末尾的 buffer 当成 "歌唱完了" 调度
+            // gapless boundary callback —— 用户体感就是歌没播完就切下一首。
+            // 返回错误让上层走 retry / autoAdvance 路径而不是误判 EOF。
+            if (error) {
+                *error = data == nil
+                    ? (fetchError ?: [NSError errorWithDomain:NSPOSIXErrorDomain code:EIO userInfo:nil])
+                    : [NSError errorWithDomain:NSPOSIXErrorDomain
+                                          code:EIO
+                                      userInfo:@{NSLocalizedDescriptionKey: @"Cloud source returned 0 bytes mid-stream"}];
+            }
+            *bytesRead = 0;
+            return NO;
         }
-        *bytesRead = 0;
-        return NO;
+        memcpy((uint8_t *)buffer + copied, data.bytes, (size_t)chunk);
+        copied += chunk;
     }
-    memcpy(buffer, data.bytes, (size_t)copied);
     _offset += copied;
     *bytesRead = copied;
     return YES;

@@ -1134,8 +1134,24 @@ private final class State: @unchecked Sendable {
         self.prefetchAhead = max(0, prefetchAhead)
         self.allowsTrailingFill = allowsTrailingFill
         self.connectorFetch = connectorFetch
-        // 排序 + 简单 dedupe (调用方应保证 disjoint, 这里不强行 coalesce)
-        self.cachedRanges = initialRanges.sorted { $0.lowerBound < $1.lowerBound }
+        // A seed whose tail starts exactly where its head ends (a file only a
+        // little longer than the head) arrives as two adjacent ranges. Merge
+        // them like `mergeRange` does for fetched bytes, so a read across the
+        // boundary is served in one piece and a fully covered file can be
+        // promoted to the complete cache.
+        self.cachedRanges = Self.coalescedRanges(initialRanges)
+    }
+
+    fileprivate static func coalescedRanges(_ ranges: [Range<Int64>]) -> [Range<Int64>] {
+        var merged: [Range<Int64>] = []
+        for range in ranges.sorted(by: { $0.lowerBound < $1.lowerBound }) where !range.isEmpty {
+            if let last = merged.last, range.lowerBound <= last.upperBound {
+                merged[merged.count - 1] = last.lowerBound..<Swift.max(last.upperBound, range.upperBound)
+            } else {
+                merged.append(range)
+            }
+        }
+        return merged
     }
 
     /// Synchronously serve `length` bytes starting at `offset`. Reads from
@@ -1889,6 +1905,19 @@ private final class State: @unchecked Sendable {
         lock.unlock()
         guard shouldPersist else {
             discardUnpersistedPartial()
+            return nil
+        }
+        // A prefetched seed can already hold the whole file (a short song)
+        // without a single write in this session; promote it now instead of
+        // leaving a complete `.partial` behind.
+        lock.lock()
+        let coversWholeFile = activeURL == partialURL
+            && cachedRanges.count == 1
+            && cachedRanges[0].lowerBound == 0
+            && cachedRanges[0].upperBound == totalLength
+        lock.unlock()
+        if coversWholeFile {
+            writeToCache(offset: 0, data: Data(), allowClosedPromotion: true)
             return nil
         }
         guard allowsTrailingFill else { return nil }

@@ -2970,6 +2970,11 @@ final class AudioPlayerService {
         guard let sourceManager else {
             throw SourceError.connectionFailed("Audio metadata source unavailable")
         }
+        // The queue prefetch already fetched the head and tail these probes
+        // read; asking the server again would delay the start.
+        if let seeded = await sourceManager.prewarmedBytes(for: song, offset: offset, length: length) {
+            return seeded
+        }
         return try await sourceManager.fetchMetadataRange(
             for: song,
             offset: offset,
@@ -6242,11 +6247,16 @@ final class AudioPlayerService {
     ) async -> RemoteWAVPlaybackPolicy.ProbeOutcome {
         guard let manager = sourceManager else { return .unavailable }
         do {
-            let prefix = try await manager.fetchMetadataRange(
-                for: song,
-                offset: 0,
-                length: 256 * 1024
-            )
+            let prefix: Data
+            if let seeded = await manager.prewarmedBytes(for: song, offset: 0, length: 256 * 1024) {
+                prefix = seeded
+            } else {
+                prefix = try await manager.fetchMetadataRange(
+                    for: song,
+                    offset: 0,
+                    length: 256 * 1024
+                )
+            }
             guard !prefix.isEmpty else { return .unavailable }
             return FFmpegAudioDecoder.dataContainsDTSSync(prefix) ? .dts : .pcm
         } catch {

@@ -8311,11 +8311,35 @@ final class SourceManager {
             try Task.checkCancellation()
             let length = min(chunkSize, transferSize - offset)
             let chunkOffset = offset
-            let data = try await OfflineRangeDownloadRetry.fetch(
-                offset: chunkOffset,
-                length: length
-            ) { offset, length in
-                try await connector.fetchRange(path: transferPath, offset: offset, length: length)
+            let data: Data
+            do {
+                data = try await OfflineRangeDownloadRetry.fetch(
+                    offset: chunkOffset,
+                    length: length
+                ) { offset, length in
+                    try await connector.fetchRange(path: transferPath, offset: offset, length: length)
+                }
+            } catch let error where Self.isRangeIgnoredFailure(error) {
+                // A server or reverse proxy that ignores `Range` answers every
+                // chunk with the whole file; one plain transfer of that file
+                // is the only download that can succeed.
+                plog("↩️ Offline '\(song.title)': server ignored Range; downloading the whole file in one transfer")
+                let local = try await connector.localURL(for: transferPath)
+                try Task.checkCancellation()
+                try await Task.detached(priority: .utility) {
+                    try Self.validateCompleteCacheFile(
+                        at: local,
+                        expectedSize: transferSize,
+                        maximumBytes: maximumBytes
+                    )
+                    try? FileManager.default.removeItem(at: partial)
+                    try FileManager.default.copyItem(at: local, to: partial)
+                    try OfflineCacheAtomicReplacement.replace(
+                        staging: partial,
+                        canonical: target
+                    )
+                }.value
+                return
             }
             try await Task.detached(priority: .utility) {
                 try Self.writeOfflineChunk(data, to: partial, offset: chunkOffset)
@@ -10739,7 +10763,7 @@ final class SourceManager {
             }
             await seedPrewarmCache(song: song, head: head, tail: tail, fileSize: fileSize)
         } catch {
-            if Self.isSpeculativeRangeUnsupported(error) {
+            if Self.isRangeIgnoredFailure(error) {
                 speculativeRangeUnsupportedKeys.insert(seedKey)
                 plog("⏭ Prefetch: source \(song.sourceID.prefix(8)) ignored Range for '\(song.title)'; queue seeds for it stop until relaunch")
             } else if Task.isCancelled || (error as? URLError)?.code == .cancelled {
@@ -10750,9 +10774,9 @@ final class SourceManager {
         }
     }
 
-    /// A server or proxy that answered a bounded seed with more than the
-    /// window, or said outright that it ignored `Range`.
-    private static func isSpeculativeRangeUnsupported(_ error: Error) -> Bool {
+    /// A server or proxy that ignores `Range`: it answered a bounded read with
+    /// more than the window, or a connector said so outright.
+    private static func isRangeIgnoredFailure(_ error: Error) -> Bool {
         if error is SpeculativeRangeReadError { return true }
         if (error as? URLError)?.code == .dataLengthExceedsMaximum { return true }
         let message: String
@@ -10766,6 +10790,44 @@ final class SourceManager {
             return false
         }
         return message.contains("ignored") && message.contains("Range")
+    }
+
+    /// Bytes the prefetched seed already holds for `song`, for the probes
+    /// playback runs before opening the stream (container profile, WAV
+    /// payload). Negative offsets count from the end, like a suffix range.
+    /// nil means the seed does not cover the window.
+    func prewarmedBytes(for song: Song, offset: Int64, length: Int64) async -> Data? {
+        let fileSize = song.fileSize
+        guard length > 0, fileSize > 0, !song.isStreamDescriptor,
+              audioCacheReadsAreAllowed(for: song.sourceID) else { return nil }
+        let start = offset >= 0 ? offset : max(0, fileSize + offset)
+        let end = min(fileSize, start + (offset >= 0 ? length : min(length, -offset)))
+        guard end > start else { return nil }
+        let partial = URL(fileURLWithPath: cacheURL(for: song).path + ".partial")
+        let marker = URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix)
+        return await Task.detached(priority: .userInitiated) { () -> Data? in
+            guard let parsed = CloudPlaybackSource.PrewarmMarker.read(from: marker) else { return nil }
+            // Head and tail of a short file touch; treat them as one span.
+            var coveredEnd: Int64?
+            for range in parsed.swiftRanges.sorted(by: { $0.lowerBound < $1.lowerBound }) {
+                if let current = coveredEnd, range.lowerBound <= current {
+                    coveredEnd = max(current, range.upperBound)
+                } else if range.lowerBound <= start {
+                    coveredEnd = range.upperBound
+                } else {
+                    break
+                }
+            }
+            guard let coveredEnd, coveredEnd >= end,
+                  let attributes = try? FileManager.default.attributesOfItem(atPath: partial.path),
+                  let size = attributes[.size] as? Int64, size >= end,
+                  let handle = try? FileHandle(forReadingFrom: partial) else { return nil }
+            defer { try? handle.close() }
+            guard (try? handle.seek(toOffset: UInt64(start))) != nil,
+                  let bytes = try? handle.read(upToCount: Int(end - start)),
+                  Int64(bytes.count) == end - start else { return nil }
+            return bytes
+        }.value
     }
 
     /// The seed already on disk for `song`, if any, so lengthening it only

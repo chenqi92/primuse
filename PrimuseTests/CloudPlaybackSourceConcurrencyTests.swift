@@ -210,6 +210,37 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         })
     }
 
+    /// A server or proxy that ignores `Range` answers every chunk with the
+    /// whole file. Playback chunks then come from one complete download, and
+    /// a queue seed on such a source never starts a download.
+    func testWebDAVIgnoringRangeServesChunksFromOneCompleteDownload() async throws {
+        let payload = Data((0..<(3 * 1_048_576 + 12_345)).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) })
+        let server = try WebDAVLifecycleHTTPServer(audio: payload)
+        let port = try await server.start()
+        defer { server.stop() }
+        let source = WebDAVSource(sourceID: "webdav-ignore-range-\(UUID().uuidString)", host: "127.0.0.1",
+                                  port: Int(port), useSsl: false, basePath: "/Music",
+                                  username: "reader", password: "fixture")
+        addTeardownBlock { await source.disconnect() }
+        try await source.connect()
+
+        let middle = try await source.fetchRange(path: "/song.flac", offset: 1_048_576, length: 1_048_576)
+        XCTAssertEqual(middle, payload.subdata(in: 1_048_576..<2_097_152))
+        let tail = try await source.fetchRange(path: "/song.flac", offset: Int64(payload.count) - 4_096, length: 4_096)
+        XCTAssertEqual(tail, payload.subdata(in: (payload.count - 4_096)..<payload.count))
+        XCTAssertEqual(server.requests.filter { $0.method == "GET" }.count, 1)
+
+        do {
+            _ = try await SpeculativeRangeRead.withBoundedResponses(requestedLength: 1_048_576) {
+                try await source.fetchRange(path: "/other.flac", offset: 0, length: 1_048_576)
+            }
+            XCTFail("A queue seed must not download a whole file from a source that ignores Range")
+        } catch {
+            XCTAssertEqual(error as? SpeculativeRangeReadError, .rangeUnsupported)
+        }
+        XCTAssertTrue(server.requests.allSatisfy { $0.path != "/Music/other.flac" })
+    }
+
     func testWebDAVDisconnectCancelsPendingConnectAndAllowsFreshConnection() async throws {
         let server = try WebDAVLifecycleHTTPServer(holdFirstListing: true)
         let port = try await server.start()
@@ -799,6 +830,131 @@ final class CloudPlaybackSourceConcurrencyTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: partial), before)
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
         XCTAssertEqual(Self.read(input, byteCount: 4_096, offset: 0).data, Data(repeating: 0x35, count: 4_096))
+    }
+
+    /// Core Audio's AudioFile (AAC in M4A) takes a short read inside packet
+    /// data as a decoding failure. A read that crosses a chunk boundary of
+    /// the stream must still be answered in full.
+    func testAACDecodesThroughReadsThatCrossChunkBoundaries() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bytes = try Self.makeAACFixture(in: directory, seconds: 45)
+        let boundary = Int(CloudPlaybackSource.chunkSize)
+        XCTAssertGreaterThan(bytes.count, boundary + 64 * 1_024)
+        let input = CloudInputSourceObjC(
+            url: URL(string: "primuse-cloud://fixture/song.m4a"),
+            totalLength: Int64(bytes.count)
+        ) { offset, length, _ in
+            guard offset >= 0, offset < bytes.count else { return Data() }
+            // Like the stream: one answer never extends past a chunk end.
+            let chunkEnd = (Int(offset) / boundary + 1) * boundary
+            let end = min(Int(offset + length), chunkEnd, bytes.count)
+            return bytes.subdata(in: Int(offset)..<end)
+        }
+        let seconds = try await Self.decodedSeconds(from: input)
+        XCTAssertEqual(seconds, 45, accuracy: 0.5)
+    }
+
+    /// A prefetched seed of a file only a little longer than the head arrives
+    /// as two adjacent ranges; it must play through without touching the
+    /// network and become the complete cache file afterwards.
+    func testAdjacentSeedRangesDecodeFromCacheAndPromoteTheFile() async throws {
+        let sourceID = "adjacent-seed-\(UUID().uuidString)"
+        let directory = try makeTemporaryDirectory()
+        let cacheURL = directory.appendingPathComponent("song.m4a")
+        defer {
+            CloudPlaybackSource.cancelSessions(sourceID: sourceID)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let bytes = try Self.makeAACFixture(in: directory, seconds: 45)
+        let head = CloudPlaybackSource.chunkSize
+        let total = Int64(bytes.count)
+        let partial = URL(fileURLWithPath: cacheURL.path + ".partial")
+        try bytes.write(to: partial)
+        try CloudPlaybackSource.PrewarmMarker(
+            v: CloudPlaybackSource.PrewarmMarker.currentVersion,
+            ranges: [[0, head], [head, total]]
+        ).write(to: URL(fileURLWithPath: partial.path + CloudPlaybackSource.prewarmMarkerSuffix))
+
+        let connector = FixtureRangeConnector(sourceID: sourceID, payload: bytes)
+        let song = Song(
+            id: UUID().uuidString,
+            title: "Adjacent Seed Fixture",
+            fileFormat: .m4a,
+            filePath: "/fixtures/song.m4a",
+            sourceID: sourceID
+        )
+        let source = CloudPlaybackSource.makeInputSource(
+            song: song,
+            totalLength: total,
+            connector: connector,
+            cacheURL: cacheURL,
+            streamEpoch: CloudPlaybackSource.streamEpochTicket(sourceID: sourceID),
+            persistOnComplete: true,
+            prefetchAhead: 0,
+            allowsTrailingFill: false
+        )
+        let input = try XCTUnwrap(source as? CloudInputSourceObjC)
+        let seconds = try await Self.decodedSeconds(from: input)
+        XCTAssertEqual(seconds, 45, accuracy: 0.5)
+        let requests = await connector.requests()
+        XCTAssertTrue(requests.isEmpty, "a fully seeded file must not fetch: \(requests.map(\.offset))")
+
+        _ = CloudPlaybackSource.finalizeSession(partialPath: partial.path)
+        XCTAssertEqual(try Data(contentsOf: cacheURL), bytes)
+    }
+
+    private static func decodedSeconds(from input: CloudInputSourceObjC) async throws -> Double {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        var frames = 0
+        for try await buffer in NativeAudioDecoder().decode(from: input, outputFormat: format) {
+            frames += Int(buffer.frameLength)
+        }
+        return Double(frames) / 44_100
+    }
+
+    /// AAC in M4A written by Core Audio: packet data first, `moov` at the end,
+    /// a little over one playback chunk long.
+    private static func makeAACFixture(in directory: URL, seconds: Double) throws -> Data {
+        let url = directory.appendingPathComponent("fixture-\(UUID().uuidString).m4a")
+        let sampleRate = 44_100.0
+        do {
+            let file = try AVAudioFile(
+                forWriting: url,
+                settings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: sampleRate,
+                    AVNumberOfChannelsKey: 2,
+                    AVEncoderBitRateKey: 256_000,
+                ],
+                commonFormat: .pcmFormatFloat32,
+                interleaved: false
+            )
+            let format = file.processingFormat
+            let totalFrames = Int(seconds * sampleRate)
+            var written = 0
+            var noise: UInt32 = 0x1234_5678
+            while written < totalFrames {
+                let count = min(4_096, totalFrames - written)
+                let buffer = try XCTUnwrap(AVAudioPCMBuffer(
+                    pcmFormat: format,
+                    frameCapacity: AVAudioFrameCount(count)
+                ))
+                buffer.frameLength = AVAudioFrameCount(count)
+                let channels = try XCTUnwrap(buffer.floatChannelData)
+                for frame in 0..<count {
+                    noise = noise &* 1_664_525 &+ 1_013_904_223
+                    let hiss = Float(Int32(bitPattern: noise)) / Float(Int32.max) * 0.2
+                    let tone = Float(sin(Double(written + frame) * 2 * .pi * 440 / sampleRate)) * 0.3
+                    for channel in 0..<Int(format.channelCount) {
+                        channels[channel][frame] = tone + hiss
+                    }
+                }
+                try file.write(from: buffer)
+                written += count
+            }
+        }
+        return try Data(contentsOf: url)
     }
 
     private func makeInputSource(
@@ -1915,14 +2071,17 @@ private final class WebDAVLifecycleHTTPServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "WebDAVLifecycleHTTPServer")
     private let lock = NSLock()
     private let holdFirstListing: Bool
+    /// Served whole for every GET: like a proxy that ignores `Range`.
+    private let audioPayload: Data
     private var recorded: [Request] = []
     private var connections: [NWConnection] = []
     private var didFinishStarting = false
 
     var requests: [Request] { lock.withLock { recorded } }
 
-    init(holdFirstListing: Bool = false) throws {
+    init(holdFirstListing: Bool = false, audio: Data = WebDAVLifecycleHTTPServer.audio) throws {
         self.holdFirstListing = holdFirstListing
+        self.audioPayload = audio
         listener = try NWListener(using: .tcp, on: .any)
     }
 
@@ -2010,14 +2169,14 @@ private final class WebDAVLifecycleHTTPServer: @unchecked Sendable {
               </D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>
               <D:response><D:href>/Music/song.flac</D:href><D:propstat><D:prop>
                 <D:displayname>song.flac</D:displayname><D:resourcetype/>
-                <D:getcontentlength>\(Self.audio.count)</D:getcontentlength>
+                <D:getcontentlength>\(audioPayload.count)</D:getcontentlength>
               </D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>
             </D:multistatus>
             """.utf8)
         } else if request.method == "GET", request.path == "/Music/song.flac" {
             status = "200 OK"
             contentType = "audio/flac"
-            body = Self.audio
+            body = audioPayload
         } else {
             status = "401 Unauthorized"
             contentType = "text/plain"
