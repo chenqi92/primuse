@@ -5291,6 +5291,7 @@ final class MusicLibrary {
             persistedSongIDs.insert(song.id)
         }
 
+        let derivedIDMemo = DerivedIDMemo()
         for song in newSongs where !blockedIDs.contains(song.id) {
             var newSong = song
             if mergeServerCatalogRows,
@@ -5311,7 +5312,8 @@ final class MusicLibrary {
             // 通过 `albumIDCorrections` 纠正。
             MusicLibrary.fillDerivedIDs(
                 &newSong,
-                configuration: artistNameConfiguration
+                configuration: artistNameConfiguration,
+                memo: derivedIDMemo
             )
             applyAutomaticArtistArtwork(to: &newSong)
             if let idx = existingIndexByID[newSong.id] {
@@ -7215,6 +7217,7 @@ final class MusicLibrary {
         var changedSongs: [Song] = []
         changedSongs.reserveCapacity(nextSongs.count)
         let inferred = Self.inferredAlbumArtists(for: nextSongs, folders: albumArtistFolders)
+        let derivedIDMemo = DerivedIDMemo()
         for index in nextSongs.indices {
             let previousArtistID = nextSongs[index].artistID
             let previousAlbumID = nextSongs[index].albumID
@@ -7223,7 +7226,8 @@ final class MusicLibrary {
             Self.fillDerivedIDs(
                 &nextSongs[index],
                 configuration: value,
-                inferredAlbumArtist: inferredAlbumArtist
+                inferredAlbumArtist: inferredAlbumArtist,
+                memo: derivedIDMemo
             )
             applyAutomaticArtistArtwork(to: &nextSongs[index])
             if nextSongs[index].artistID != previousArtistID
@@ -9586,6 +9590,7 @@ final class MusicLibrary {
         var derivedCollectionsChanged = false
         var songListSnapshotChanged = false
         var repairedIndexLookup = false
+        let derivedIDMemo = DerivedIDMemo()
         for updated in updatedSongs {
             var index = idToIndex[updated.id]
             if index.map({
@@ -9609,7 +9614,8 @@ final class MusicLibrary {
             MusicLibrary.fillDerivedIDs(
                 &s,
                 configuration: artistNameConfiguration,
-                inferredAlbumArtist: inferred[s.id]
+                inferredAlbumArtist: inferred[s.id],
+                memo: derivedIDMemo
             )
             applyAutomaticArtistArtwork(to: &s)
             if LibraryIndexMaintenancePolicy.derivedCollectionsChanged(
@@ -9803,6 +9809,7 @@ final class MusicLibrary {
         var derivedCollectionsChanged = false
         var songListSnapshotChanged = false
 
+        let derivedIDMemo = DerivedIDMemo()
         for updated in request.updatedSongs {
             var index = idToIndex[updated.id]
             if index.map({
@@ -9826,7 +9833,7 @@ final class MusicLibrary {
             var song = updated
             // 离主 actor 的稳定替换同样走逐首口径, 由整库重建的
             // `albumIDCorrections` 纠正。
-            fillDerivedIDs(&song, configuration: request.artistNameConfiguration)
+            fillDerivedIDs(&song, configuration: request.artistNameConfiguration, memo: derivedIDMemo)
             applyAutomaticArtistArtwork(
                 to: &song,
                 catalogsBySource: request.automaticArtworkCatalogsBySource,
@@ -11544,6 +11551,7 @@ final class MusicLibrary {
         // 装载时算一次, 逐首复用。网盘的父目录在扫描同步索引里, 装载时还
         // 拿不到; 发布后 `updateAlbumArtistFolders` 会按目录再整库重建一次。
         let inferred = inferredAlbumArtists(for: songs, folders: .empty)
+        let memo = DerivedIDMemo()
 
         for index in songs.indices {
             var song = songs[index]
@@ -11553,7 +11561,8 @@ final class MusicLibrary {
             fillDerivedIDs(
                 &songWithExpectedDerivedIDs,
                 configuration: configuration,
-                inferredAlbumArtist: inferred[song.id]
+                inferredAlbumArtist: inferred[song.id],
+                memo: memo
             )
             let needsDerivedIDs = song.artistID != songWithExpectedDerivedIDs.artistID
                 || song.albumID != songWithExpectedDerivedIDs.albumID
@@ -12971,28 +12980,59 @@ final class MusicLibrary {
         }
     }
 
+    /// 整库一遍重算 id 时记住已经算过的：同样的艺人名只解析、哈希一次，同一张专辑的
+    /// 身份只哈希一次。装载时 5 万首里艺人名与专辑各只有几千个，原来逐首重算。
+    /// 只在一趟遍历里用（艺人名配置在一趟里不变）。
+    final class DerivedIDMemo {
+        struct ArtistNames: Hashable {
+            let artistName: String?
+            let sourceArtistNames: [String]?
+        }
+
+        let unknownArtist = String(localized: "unknown_artist")
+        var artistIDs: [ArtistNames: String] = [:]
+        var albumIDs: [AlbumGroupingIdentity: String] = [:]
+    }
+
     nonisolated static func fillDerivedIDs(
         _ song: inout Song,
         configuration: ArtistNameConfiguration = .defaultValue,
-        inferredAlbumArtist: String? = nil
+        inferredAlbumArtist: String? = nil,
+        memo: DerivedIDMemo? = nil
     ) {
         let previousAlbumArtist = song.albumArtistName
         MediaMetadataTextRepair.repairFileBackedMetadata(in: &song)
         let correctedInference = inferredAlbumArtist == previousAlbumArtist
             ? song.albumArtistName : inferredAlbumArtist
-        let unknownArtist = String(localized: "unknown_artist")
-        let artist = resolvedArtistNames(
-            for: song,
-            configuration: configuration
-        ).first ?? unknownArtist
-        song.artistID = hashID(ArtistIdentityPolicy.groupingKey(artist))
+        let unknownArtist = memo?.unknownArtist ?? String(localized: "unknown_artist")
+        let artistNames = DerivedIDMemo.ArtistNames(
+            artistName: song.artistName,
+            sourceArtistNames: song.sourceArtistNames
+        )
+        if let cached = memo?.artistIDs[artistNames] {
+            song.artistID = cached
+        } else {
+            let artist = resolvedArtistNames(
+                for: song,
+                configuration: configuration
+            ).first ?? unknownArtist
+            let artistID = hashID(ArtistIdentityPolicy.groupingKey(artist))
+            song.artistID = artistID
+            memo?.artistIDs[artistNames] = artistID
+        }
         if let identity = AlbumGroupingPolicy.identity(
             albumTitle: song.albumTitle,
             albumArtistName: correctedInference ?? song.albumArtistName,
             trackArtistName: song.artistName,
             unknownArtistName: unknownArtist
         ) {
-            song.albumID = hashID("\(identity.artistName):\(identity.albumTitle)")
+            if let cached = memo?.albumIDs[identity] {
+                song.albumID = cached
+            } else {
+                let albumID = hashID("\(identity.artistName):\(identity.albumTitle)")
+                song.albumID = albumID
+                memo?.albumIDs[identity] = albumID
+            }
         } else {
             song.albumID = nil
         }
