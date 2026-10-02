@@ -396,6 +396,8 @@ struct LibraryView: View {
     #if os(iOS)
     @Environment(\.appNavigationMode) private var appNavigationMode
     @Environment(\.pmHeightClass) private var heightClass
+    /// 极简导航没有首页:「开始听」那一行卡片放在「歌曲」页顶上,可在界面编辑里关。
+    @AppStorage(ListeningIntentService.minimalSongsVisibilityKey) private var showsMinimalStartListening = true
     #endif
     @Binding private var deepLink: LibraryDeepLink?
     private let rootSection: LibrarySection?
@@ -1499,6 +1501,9 @@ struct LibraryView: View {
             AIRecommendationLibraryView()
         case .songs:
             SongListView(locationRequest: $songLocationRequest)
+                #if os(iOS)
+                .environment(\.songListShowsListeningIntents, usesMinimalSectionControls && showsMinimalStartListening)
+                #endif
         case .spokenWord:
             SpokenWordLibraryView()
         case .albums:

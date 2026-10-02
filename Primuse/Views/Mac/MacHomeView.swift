@@ -58,6 +58,12 @@ struct MacHomeView: View {
     @AppStorage("primuse.home.showRadio") private var showRadio = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAdded = true
     @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPick = true
+    // 与 iPhone、iPad 首页同一份区块开关(HomeSectionKind);Mac 首页只接显隐,顺序仍固定。
+    @AppStorage("primuse.home.showContinueSpaces") private var showContinueSpaces = true
+    @AppStorage(ListeningIntentService.homeVisibilityKey) private var showStartListening = true
+    @AppStorage("primuse.home.showForYou") private var showForYou = true
+    @AppStorage("primuse.home.showContinueListening") private var showContinueListening = true
+    @AppStorage("primuse.home.showTopArtists") private var showTopArtists = true
     @State private var pendingInsecureStation: RadioStation?
 
     // 派生聚合缓存 —— mosaicSongs(全库 sort)、heroStats(全库 reduce)、三个 ratio
@@ -218,11 +224,22 @@ struct MacHomeView: View {
         // 每个区块自己淡入: 骨架换内容、推荐/电台这些异步算完才出现的区块都只动透明度。
         // 成对分支不做交叉淡入 —— 过渡期间新旧两块会同时占着这个 VStack 的位置。
         // 「接着听」: 每个收听空间最多一张卡, 最新的在前, 正在播的那个不出现。
-        MacHomeResumeRow(
-            onResumeMusic: { song in playSong(song) },
-            onTuneIn: { station in tuneIn(station) }
-        )
+        if showContinueSpaces {
+            MacHomeResumeRow(
+                onResumeMusic: { song in playSong(song) },
+                onTuneIn: { station in tuneIn(station) }
+            )
+        }
         heroOrAlbumPick
+        if hasContent, showStartListening {
+            // 「开始听」:主卡下面一行意图卡片,点了直接起播。
+            StartListeningShelf(
+                horizontalInset: 0,
+                onOpenAll: { openSection(.allIntents) },
+                onOpenSongs: { openSection(.intentSongs($0, fromAllIntents: false)) }
+            )
+            .pmAppearFade(.contentAppear)
+        }
         if showRadio,
            player.isLiveRadio,
            let currentStation = player.currentRadioStation {
@@ -233,7 +250,7 @@ struct MacHomeView: View {
         if hasContent {
             statsRow
                 .pmAppearFade(.contentAppear)
-            if !model.snapshot.recommendationResults.isEmpty {
+            if showForYou, !model.snapshot.recommendationResults.isEmpty {
                 recommendationSection
                     .pmAppearFade(.contentAppear)
             }
@@ -243,14 +260,16 @@ struct MacHomeView: View {
                 recentlyAddedSection
                     .pmAppearFade(.contentAppear)
             }
-            recentlyPlayedSection
-                .pmAppearFade(.contentAppear)
+            if showContinueListening {
+                recentlyPlayedSection
+                    .pmAppearFade(.contentAppear)
+            }
             if showRadio, !radioStationsStore.stations.isEmpty {
                 radioSpotlightSection
                     .pmAppearFade(.contentAppear)
             }
             MacHomeBooksStrip()
-            if !model.snapshot.artists.isEmpty {
+            if showTopArtists, !model.snapshot.artists.isEmpty {
                 artistsSection
                     .pmAppearFade(.contentAppear)
             }
@@ -1347,6 +1366,16 @@ struct MacHomeView: View {
         case recentlyAdded
         case recentlyPlayed
         case artists
+        /// 「开始听」的「全部意图」整页。
+        case allIntents
+        /// 某个意图的「查看歌曲」;从「全部意图」进来的返回到那一页。
+        case intentSongs(ListeningIntent, fromAllIntents: Bool)
+    }
+
+    private func openSection(_ destination: HomeSectionDestination) {
+        pmWithAnimation(.list) {
+            activeSection = destination
+        }
     }
 
     private func sectionHeader(title: LocalizedStringKey, subtitle: LocalizedStringKey?, destination: HomeSectionDestination? = nil) -> some View {
@@ -1391,6 +1420,20 @@ struct MacHomeView: View {
             recentlyPlayedAllView(onBack: closeSection)
         case .artists:
             artistsAllView(onBack: closeSection)
+        case .allIntents:
+            ListeningIntentsPage(
+                onBack: closeSection,
+                onOpenSongs: { openSection(.intentSongs($0, fromAllIntents: true)) }
+            )
+            .background(PMColor.bg.ignoresSafeArea())
+        case .intentSongs(let intent, let fromAllIntents):
+            ListeningIntentSongsView(
+                intent: intent,
+                onBack: {
+                    if fromAllIntents { openSection(.allIntents) } else { closeSection() }
+                }
+            )
+            .background(PMColor.bg.ignoresSafeArea())
         }
     }
 

@@ -46,4 +46,14 @@ public extension ListeningIntentEngine {
     ) -> [String] {
         queueSongIDs(for: intent, songs: songs, history: history, seed: seed, isCancelled: isCancelled)
     }
+
+    static func matchingSongIDs(
+        for intent: ListeningIntent,
+        librarySongs songs: [Song],
+        history: ListeningHistoryIndex,
+        limit: Int,
+        isCancelled: () -> Bool = { false }
+    ) -> (ids: [String], total: Int)? {
+        matchingSongIDs(for: intent, songs: songs, history: history, limit: limit, isCancelled: isCancelled)
+    }
 }

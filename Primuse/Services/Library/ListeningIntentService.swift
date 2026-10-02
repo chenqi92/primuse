@@ -1,0 +1,454 @@
+import Foundation
+import SwiftUI
+import PrimuseKit
+
+/// 「开始听」:按听歌意图(流行、九十年代、安静一点、很久没听的……)直接起播。
+///
+/// 点亮(每个意图在曲库里有多少首)是一次整库遍历,只在后台算:曲库变了且距上次至少五分钟
+/// 才重算(与情景推荐专辑、专辑艺人判定同一节奏),换了一天也重算(「新加的」按天数算)。
+/// 钉选、隐藏与把智能歌单钉成意图只存在本机。点卡片按规则抽 50 首随机起播,
+/// 放完由播放器按 #166 的规则接着续相似歌曲。
+@MainActor
+@Observable
+final class ListeningIntentService {
+    static let shared = ListeningIntentService()
+
+    /// 经典首页「开始听」区块的开关(首页界面编辑、Mac 外观设置)。
+    nonisolated static let homeVisibilityKey = "primuse.home.showStartListening"
+    /// 极简导航里「歌曲」页顶上同一行卡片的开关(界面编辑 › 资料库)。
+    nonisolated static let minimalSongsVisibilityKey = "primuse.minimal.showStartListening"
+    /// 「查看歌曲」最多列出多少首;整库那么大的意图看全部用歌曲页。
+    nonisolated static let songListLimit = 1_000
+
+    private(set) var availability: ListeningIntentAvailability?
+    private(set) var configuration: ListeningIntentShelfConfiguration
+    /// 钉成意图、而且还在的智能歌单:意图 ID → 现在匹配到的曲数。
+    private(set) var smartPlaylistCounts: [String: Int] = [:]
+    /// 钉成意图的智能歌单的名字,卡片标题用。
+    private(set) var smartPlaylistNames: [String: String] = [:]
+
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshPending = false
+    @ObservationIgnored private var deferredRefresh: Task<Void, Never>?
+    @ObservationIgnored private var smartPlaylistCountsKey: String?
+    @ObservationIgnored private weak var library: MusicLibrary?
+    @ObservationIgnored private let musicSongsWatcher = LibraryMusicSongsWatcher()
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        configuration = ListeningIntentShelfConfiguration.decode(
+            defaults.string(forKey: ListeningIntentShelfConfiguration.storageKey) ?? ""
+        )
+    }
+
+    /// 一次遍历要数的意图。
+    var countedIntents: [ListeningIntent] {
+        ListeningIntentShelfPolicy.builtInCatalog
+    }
+
+    // MARK: Lighting
+
+    /// 每次出现、曲库每次变化都可以调:合并并发、按节奏节流,不该算时什么都不做。
+    func refresh(library: MusicLibrary, now: Date = Date()) {
+        self.library = library
+        musicSongsWatcher.watch(library) { [weak self] in
+            guard let self, let library = self.library else { return }
+            self.refresh(library: library)
+        }
+        guard library.isReady else { return }
+        refreshSmartPlaylists(library: library)
+        let generation = library.musicSongsRevision
+        if let last = availability, !needsRefresh(last, generation: generation, now: now) {
+            if last.libraryGeneration != generation {
+                // 曲库还在变但离上次不到五分钟:到点再补一次,免得扫描停下后一直停在旧数。
+                scheduleDeferredRefresh(after: ListeningIntentEngine.refreshInterval - now.timeIntervalSince(last.computedAt))
+            }
+            return
+        }
+        if refreshTask != nil {
+            refreshPending = true
+            return
+        }
+        deferredRefresh?.cancel()
+        deferredRefresh = nil
+
+        // 在主线程上取好快照,遍历交给后台。
+        let songs = library.musicSongs
+        let entries = PlayHistoryStore.shared.musicEntries
+        let intents = countedIntents
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        refreshTask = Task { @MainActor [weak self] in
+            let worker = Task.detached(priority: .utility) { () -> ListeningIntentAvailability? in
+                let history = Self.history(entries, now: now)
+                return ListeningIntentEngine.availability(
+                    librarySongs: songs,
+                    intents: intents,
+                    history: history,
+                    libraryGeneration: generation,
+                    isCancelled: { Task.isCancelled }
+                )
+            }
+            let result = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard let self else { return }
+            self.refreshTask = nil
+            if let result, result != self.availability {
+                self.availability = result
+                if let library = self.library { self.refreshSmartPlaylists(library: library) }
+                plog(String(
+                    format: "🎯 listening intents lit=%d songs=%d %.0fms",
+                    result.litIntents(intents).count,
+                    songs.count,
+                    (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
+                ))
+            }
+            if self.refreshPending, let library = self.library {
+                self.refreshPending = false
+                self.refresh(library: library)
+            }
+        }
+    }
+
+    /// 播放历史 → 规则读的「上次听」「听过几次」。在后台调用,只读条目的存储字段。
+    nonisolated private static func history(_ entries: [PlayHistoryStore.Entry], now: Date) -> ListeningHistoryIndex {
+        ListeningHistoryIndex(
+            events: entries.map {
+                HomeListeningEvent(songID: $0.songID, playedAt: $0.playedAt, listenedSeconds: $0.listenedSec)
+            },
+            now: now
+        )
+    }
+
+    private func needsRefresh(_ last: ListeningIntentAvailability, generation: UInt64, now: Date) -> Bool {
+        // 「新加的」「很久没听的」按天数算:跨了一天就重算,哪怕曲库没变。
+        if !Calendar.current.isDate(last.computedAt, inSameDayAs: now) { return true }
+        return ListeningIntentEngine.shouldRefresh(last: last, libraryGeneration: generation, now: now)
+    }
+
+    private func scheduleDeferredRefresh(after delay: TimeInterval) {
+        guard deferredRefresh == nil else { return }
+        let seconds = max(1, delay + 1)
+        deferredRefresh = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, let self else { return }
+            self.deferredRefresh = nil
+            if let library = self.library { self.refresh(library: library) }
+        }
+    }
+
+    /// 钉成意图的智能歌单:名字与曲数。规则匹配只能在主线程跑,所以只数钉了的那几个,
+    /// 跟着点亮的节奏(点亮重算过或钉选变了)才重数,扫描时不会每批都数;删掉的歌单顺手从钉选里拿掉。
+    private func refreshSmartPlaylists(library: MusicLibrary) {
+        let pinned = configuration.pinnedSmartPlaylistIDs
+        guard !pinned.isEmpty else {
+            if !smartPlaylistCounts.isEmpty { smartPlaylistCounts = [:] }
+            if !smartPlaylistNames.isEmpty { smartPlaylistNames = [:] }
+            smartPlaylistCountsKey = nil
+            return
+        }
+        let key = "\(availability?.libraryGeneration ?? 0)|" + pinned.joined(separator: ",")
+        guard key != smartPlaylistCountsKey else { return }
+        let playlists = Dictionary(
+            library.smartPlaylists.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // 一个智能歌单都还没有(刚装、还没同步过来)时不清钉选,只是这次不数。
+        var updated = configuration
+        if !playlists.isEmpty, updated.pruneSmartPlaylists(keeping: Set(playlists.keys)) {
+            configuration = updated
+            persistConfiguration()
+        }
+        var counts: [String: Int] = [:]
+        var names: [String: String] = [:]
+        for playlistID in configuration.pinnedSmartPlaylistIDs {
+            guard let smart = playlists[playlistID] else { continue }
+            let intentID = ListeningIntent.smartPlaylistIntentID(playlistID)
+            counts[intentID] = SmartPlaylistEngine.match(smart, in: library, history: .shared).count
+            names[intentID] = smart.name
+        }
+        smartPlaylistCountsKey = key
+        if counts != smartPlaylistCounts { smartPlaylistCounts = counts }
+        if names != smartPlaylistNames { smartPlaylistNames = names }
+    }
+
+    // MARK: Shelf
+
+    /// 「全部意图」整页。
+    var pageSections: [ListeningIntentShelfSection] {
+        ListeningIntentShelfPolicy.page(
+            availability: availability,
+            configuration: configuration,
+            smartPlaylists: smartPlaylistCounts
+        )
+    }
+
+    func title(for intent: ListeningIntent) -> String {
+        if let titleKey = intent.titleKey {
+            return String(localized: String.LocalizationValue(titleKey))
+        }
+        if case .smartPlaylist = intent.source, let name = smartPlaylistNames[intent.id], !name.isEmpty {
+            return name
+        }
+        return String(localized: "listening_intent_smart_playlist")
+    }
+
+    // MARK: Editing
+
+    func setPinned(_ pinned: Bool, intentID: String) {
+        var updated = configuration
+        updated.setPinned(pinned, intentID: intentID)
+        apply(updated)
+    }
+
+    func setHidden(_ hidden: Bool, intentID: String) {
+        var updated = configuration
+        updated.setHidden(hidden, intentID: intentID)
+        apply(updated)
+    }
+
+    func movePinned(_ intentID: String, by offset: Int) {
+        var updated = configuration
+        updated.movePinned(intentID, by: offset)
+        apply(updated)
+    }
+
+    func movePinned(_ moved: String, onto target: String) {
+        var updated = configuration
+        updated.movePinned(moved, onto: target)
+        apply(updated)
+    }
+
+    func isSmartPlaylistPinned(_ playlistID: String) -> Bool {
+        configuration.isPinned(ListeningIntent.smartPlaylistIntentID(playlistID))
+    }
+
+    /// 智能歌单「钉为意图」/「取消钉选」。
+    func setSmartPlaylistPinned(_ pinned: Bool, playlistID: String) {
+        setPinned(pinned, intentID: ListeningIntent.smartPlaylistIntentID(playlistID))
+    }
+
+    private func apply(_ updated: ListeningIntentShelfConfiguration) {
+        guard updated != configuration else { return }
+        configuration = updated
+        persistConfiguration()
+        if let library { refreshSmartPlaylists(library: library) }
+    }
+
+    private func persistConfiguration() {
+        defaults.set(configuration.encoded(), forKey: ListeningIntentShelfConfiguration.storageKey)
+    }
+
+    // MARK: Songs
+
+    /// 「查看歌曲」按艺人、专辑、碟号、轨号排,看起来像一张张专辑,而不是入库的先后。
+    nonisolated private static func sortedForBrowsing(_ ids: [String], in songs: [Song]) -> [String] {
+        guard ids.count > 1 else { return ids }
+        let wanted = Set(ids)
+        let matched = songs.filter { wanted.contains($0.id) }
+        func artist(_ song: Song) -> String { song.albumArtistName ?? song.artistName ?? "" }
+        return matched.sorted { lhs, rhs in
+            let artistOrder = artist(lhs).localizedStandardCompare(artist(rhs))
+            if artistOrder != .orderedSame { return artistOrder == .orderedAscending }
+            let albumOrder = (lhs.albumTitle ?? "").localizedStandardCompare(rhs.albumTitle ?? "")
+            if albumOrder != .orderedSame { return albumOrder == .orderedAscending }
+            if (lhs.discNumber ?? 0) != (rhs.discNumber ?? 0) { return (lhs.discNumber ?? 0) < (rhs.discNumber ?? 0) }
+            if (lhs.trackNumber ?? 0) != (rhs.trackNumber ?? 0) { return (lhs.trackNumber ?? 0) < (rhs.trackNumber ?? 0) }
+            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+        }
+        .map(\.id)
+    }
+
+    /// 起播用的队列:规则意图在后台抽样(每次点都换一批),智能歌单在匹配结果里随机抽。
+    func queueSongIDs(for intent: ListeningIntent, library: MusicLibrary) async -> [String] {
+        let seed = UInt64.random(in: .min ... .max)
+        switch intent.source {
+        case .smartPlaylist(let playlistID):
+            guard let smart = library.smartPlaylists.first(where: { $0.id == playlistID }) else { return [] }
+            let ids = SmartPlaylistEngine.match(smart, in: library, history: .shared).map(\.id)
+            return ListeningIntentShelfPolicy.sample(ids, limit: intent.playback.songLimit, seed: seed)
+        case .builtIn, .scene:
+            guard intent.rule != nil else { return [] }
+            let songs = library.musicSongs
+            let entries = PlayHistoryStore.shared.musicEntries
+            let now = Date()
+            return await Task.detached(priority: .userInitiated) {
+                let history = Self.history(entries, now: now)
+                return ListeningIntentEngine.queueSongIDs(
+                    for: intent,
+                    librarySongs: songs,
+                    history: history,
+                    seed: seed
+                )
+            }.value
+        }
+    }
+
+    /// 「查看歌曲」:按曲库顺序列出匹配的歌(最多 `songListLimit` 首)和总数。
+    func matchingSongIDs(for intent: ListeningIntent, library: MusicLibrary) async -> (ids: [String], total: Int) {
+        switch intent.source {
+        case .smartPlaylist(let playlistID):
+            guard let smart = library.smartPlaylists.first(where: { $0.id == playlistID }) else { return ([], 0) }
+            let ids = SmartPlaylistEngine.match(smart, in: library, history: .shared).map(\.id)
+            return (Array(ids.prefix(Self.songListLimit)), ids.count)
+        case .builtIn, .scene:
+            let songs = library.musicSongs
+            let entries = PlayHistoryStore.shared.musicEntries
+            let now = Date()
+            let limit = Self.songListLimit
+            return await Task.detached(priority: .userInitiated) {
+                let history = Self.history(entries, now: now)
+                guard let matched = ListeningIntentEngine.matchingSongIDs(
+                    for: intent,
+                    librarySongs: songs,
+                    history: history,
+                    limit: limit,
+                    isCancelled: { Task.isCancelled }
+                ) else { return ([], 0) }
+                return (Self.sortedForBrowsing(matched.ids, in: songs), matched.total)
+            }.value
+        }
+    }
+}
+
+#if !os(tvOS)
+// 电视用 TVStore 播放,不走这里:电视的场景卡自己起播。
+extension ListeningIntentService {
+    /// 首页这一行:第一张「接着上次」或「随便听听」,然后是钉选的,再按点亮强度,最多十张。
+    func row(player: AudioPlayerService) -> [ListeningIntentShelfItem] {
+        ListeningIntentShelfPolicy.row(
+            availability: availability,
+            configuration: configuration,
+            resumeSongCount: resumeSongCount(player: player),
+            smartPlaylists: smartPlaylistCounts
+        )
+    }
+
+    /// 能「接着上次」的曲数:离开音乐去听书、听电台时记下的音乐队列,或者停在那儿的音乐队列。
+    /// 正在放音乐时没有「接着」可言。
+    func resumeSongCount(player: AudioPlayerService) -> Int? {
+        if let memory = MusicSessionMemoryStore.shared.memory {
+            return max(1, memory.snapshot.queueSongIDs.count)
+        }
+        guard !player.isPlaying, !player.isLoading,
+              player.currentListeningSpace == .music,
+              !player.queueEntries.isEmpty else { return nil }
+        return player.queueEntries.count
+    }
+
+    // MARK: Playing
+
+    /// 点卡片:直接起播。规则抽出来的队列本身就是随机顺序,随机开关先关掉,
+    /// 这样放完是按相似歌曲续播,而不是整库随机。
+    @discardableResult
+    func play(_ intent: ListeningIntent, player: AudioPlayerService, library: MusicLibrary) async -> Bool {
+        if intent.habit == .resume {
+            if MusicSessionMemoryStore.shared.memory != nil {
+                return await player.resumeMusicSession()
+            }
+            guard player.currentSong != nil, !player.isPlaying else { return false }
+            player.resume()
+            return true
+        }
+        let ids = await queueSongIDs(for: intent, library: library)
+        guard !ids.isEmpty else { return false }
+        player.shuffleEnabled = false
+        await player.play(queueIDs: ids)
+        plog("🎯 listening intent \(intent.id) queued \(ids.count)")
+        return true
+    }
+
+    /// 长按「下一首播放」/「加入队列」:同样抽一批,插到当前之后或排到队尾。
+    func enqueue(_ intent: ListeningIntent, next: Bool, player: AudioPlayerService, library: MusicLibrary) async {
+        let ids = await queueSongIDs(for: intent, library: library)
+        let songs = ids.compactMap { library.unobservedVisibleSong(id: $0) }
+        guard !songs.isEmpty else { return }
+        if next {
+            player.insertNextInQueue(songs)
+        } else {
+            player.appendToQueue(songs)
+        }
+    }
+}
+#endif
+
+// MARK: - Look
+
+extension ListeningIntent {
+    /// 卡片底色。风格各有一个色相,年代偏暖,状态偏冷,习惯跟主题色。
+    var tint: Color {
+        switch source {
+        case .smartPlaylist:
+            return Color(red: 0.56, green: 0.35, blue: 0.85)
+        case .scene(let sceneID):
+            return Self.tint(seed: sceneID)
+        case .builtIn(let builtIn):
+            switch builtIn {
+            case .pop: return Color(red: 0.93, green: 0.33, blue: 0.53)
+            case .rock: return Color(red: 0.80, green: 0.25, blue: 0.22)
+            case .electronic: return Color(red: 0.12, green: 0.62, blue: 0.80)
+            case .classical: return Color(red: 0.66, green: 0.50, blue: 0.27)
+            case .jazz: return Color(red: 0.32, green: 0.33, blue: 0.75)
+            case .soundtrack: return Color(red: 0.55, green: 0.30, blue: 0.70)
+            case .folk: return Color(red: 0.36, green: 0.60, blue: 0.33)
+            case .hipHop: return Color(red: 0.93, green: 0.52, blue: 0.17)
+            case .easyListening: return Color(red: 0.20, green: 0.62, blue: 0.58)
+            case .eighties: return Color(red: 0.88, green: 0.36, blue: 0.62)
+            case .nineties: return Color(red: 0.85, green: 0.50, blue: 0.20)
+            case .twoThousands: return Color(red: 0.72, green: 0.58, blue: 0.16)
+            case .twentyTens: return Color(red: 0.25, green: 0.55, blue: 0.82)
+            case .calm: return Color(red: 0.35, green: 0.50, blue: 0.78)
+            case .focus: return Color(red: 0.18, green: 0.55, blue: 0.50)
+            case .workout: return Color(red: 0.90, green: 0.30, blue: 0.20)
+            case .bedtime: return Color(red: 0.27, green: 0.28, blue: 0.55)
+            case .resume, .anything: return .accentColor
+            case .longUnplayed: return Color(red: 0.55, green: 0.42, blue: 0.32)
+            case .newlyAdded: return Color(red: 0.86, green: 0.62, blue: 0.10)
+            }
+        }
+    }
+
+    private static func tint(seed: String) -> Color {
+        let hue = ListeningSeededGenerator.unitNoise(seed)
+        return Color(hue: hue, saturation: 0.55, brightness: 0.72)
+    }
+}
+
+// MARK: - Library watcher
+
+/// 曲库「音乐」那份数组每换一次就回调一次:扫描入库、回填读到标签、有声与音乐重新分类之后。
+///
+/// 只盯 `searchRevision` 不够:回填写回的那一刻搜索版本先变,整理好的可见集合稍后才换上,
+/// 之后不会再有搜索版本的变化,按整库算的派生结果(意图点亮、情景推荐专辑)就停在旧标签上。
+@MainActor
+final class LibraryMusicSongsWatcher {
+    private weak var library: MusicLibrary?
+    private var onChange: (@MainActor () -> Void)?
+
+    init() {}
+
+    /// 换了曲库才重新挂;同一个曲库重复调用什么都不做。
+    func watch(_ library: MusicLibrary, onChange: @escaping @MainActor () -> Void) {
+        guard self.library !== library else { return }
+        self.library = library
+        self.onChange = onChange
+        arm()
+    }
+
+    private func arm() {
+        guard let library else { return }
+        withObservationTracking {
+            _ = library.musicSongs
+        } onChange: { [weak self] in
+            // 在值换上之前回调:下一拍再读,拿到的才是新数组。
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.arm()
+                self.onChange?()
+            }
+        }
+    }
+}

@@ -7,6 +7,8 @@ import Foundation
 public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendable {
     /// 「接着听」:音乐、电台、有声各一张接续卡。
     case continueSpaces
+    /// 「开始听」:按听歌意图(流行、九十年代、安静一点……)一点就播的卡片行。
+    case startListening
     /// 「情景推荐专辑」:按此刻的情景挑一整张专辑,标题随情景变(通勤路上、睡前…)。
     case albumPick
     case continueListening
@@ -40,6 +42,7 @@ public enum HomeSectionKind: String, CaseIterable, Codable, Identifiable, Sendab
     public var icon: String {
         switch self {
         case .continueSpaces: "arrow.uturn.forward.circle"
+        case .startListening: "play.square.stack"
         case .albumPick: "opticaldisc"
         case .continueListening: "play.circle"
         case .radio: "radio.fill"
@@ -102,7 +105,7 @@ public enum HomeSectionLayoutPolicy {
         case .quickAccess: [.grid, .carousel]
         case .folders: [.list, .grid, .carousel]
         case .listeningRanking: [.list, .carousel]
-        case .continueSpaces, .albumPick, .radio, .booksInProgress, .audiobooks, .stats: []
+        case .continueSpaces, .startListening, .albumPick, .radio, .booksInProgress, .audiobooks, .stats: []
         }
     }
 
@@ -161,7 +164,7 @@ public enum HomeSectionLayoutPolicy {
         case .radio: 4...30
         case .booksInProgress: 2...20
         case .audiobooks: 3...30
-        case .quickAccess, .folders, .stats, .continueSpaces, .albumPick: nil
+        case .quickAccess, .folders, .stats, .continueSpaces, .startListening, .albumPick: nil
         }
     }
 
@@ -181,7 +184,7 @@ public enum HomeSectionLayoutPolicy {
         case .radio: 12
         case .booksInProgress: 12
         case .audiobooks: 10
-        case .quickAccess, .folders, .stats, .continueSpaces, .albumPick: 0
+        case .quickAccess, .folders, .stats, .continueSpaces, .startListening, .albumPick: 0
         }
     }
 

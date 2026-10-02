@@ -126,6 +126,9 @@ struct PlaylistListView: View {
                                 NavigationLink(value: smart) {
                                     smartPlaylistRow(smart)
                                 }
+                                .contextMenu {
+                                    SmartPlaylistIntentPinButton(playlistID: smart.id)
+                                }
                             }
                             .onDelete { offsets in
                                 deleteSmartPlaylists(at: offsets, in: aiSmartPlaylists)
@@ -140,6 +143,9 @@ struct PlaylistListView: View {
                             ForEach(ruleSmartPlaylists) { smart in
                                 NavigationLink(value: smart) {
                                     smartPlaylistRow(smart)
+                                }
+                                .contextMenu {
+                                    SmartPlaylistIntentPinButton(playlistID: smart.id)
                                 }
                             }
                             .onDelete { offsets in

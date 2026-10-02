@@ -55,6 +55,8 @@ final class AlbumRecommendationService {
     @ObservationIgnored private var forcePicksOnNextRefresh = false
     @ObservationIgnored private var momentTimer: Task<Void, Never>?
     @ObservationIgnored private weak var library: MusicLibrary?
+    /// 回填读到标签后可见集合是稍后才换上的,只靠首页的 `searchRevision` 会漏掉这一次。
+    @ObservationIgnored private let musicSongsWatcher = LibraryMusicSongsWatcher()
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -74,6 +76,10 @@ final class AlbumRecommendationService {
     /// reuses the index for five minutes, and only re-picks when needed.
     func refresh(library: MusicLibrary, now currentDate: Date = Date()) {
         self.library = library
+        musicSongsWatcher.watch(library) { [weak self] in
+            guard let self, let library = self.library else { return }
+            self.refresh(library: library)
+        }
         #if DEBUG
         // Screenshot hook: pick for another moment, e.g. PRIMUSE_DEBUG_ALBUM_PICK_AT=2026-10-05T08:10:00+08:00.
         let pinned = ProcessInfo.processInfo.environment["PRIMUSE_DEBUG_ALBUM_PICK_AT"]

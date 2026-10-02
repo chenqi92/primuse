@@ -702,6 +702,8 @@ private struct LibraryDisplaySettingsView: View {
     @State private var customIntentTitle = ""
     @State private var customIntentPrompt = ""
     @State private var inspectedRecommendationIntent: AIRecommendationIntentDetails?
+    @AppStorage(ListeningIntentService.minimalSongsVisibilityKey)
+    private var showsMinimalStartListening = true
 
     private var quickAccessLimit: Int {
         LibraryDisplayConfiguration.normalizedQuickAccessLimit(configuredQuickAccessLimit)
@@ -914,6 +916,15 @@ private struct LibraryDisplaySettingsView: View {
                 .settingsAnchor("library.flatBrowse")
                     .accessibilityHint(Text("library_default_flat_view_description"))
             }
+
+            #if os(iOS)
+            Section {
+                Toggle("listening_intent_minimal_songs_toggle", isOn: $showsMinimalStartListening)
+                    .settingsAnchor("library.minimalStartListening")
+            } footer: {
+                Text("listening_intent_minimal_songs_footer")
+            }
+            #endif
         }
         #if os(iOS)
         .environment(\.editMode, .constant(.active))

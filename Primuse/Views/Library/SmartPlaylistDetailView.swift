@@ -109,6 +109,20 @@ struct SmartPlaylistDetailView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
+                        // 钉为「开始听」里的一个意图。
+                        let pinned = ListeningIntentService.shared.isSmartPlaylistPinned(smart.id)
+                        Button {
+                            ListeningIntentService.shared.setSmartPlaylistPinned(!pinned, playlistID: smart.id)
+                        } label: {
+                            PMToolbarItemLabel(
+                                pinned ? "listening_intent_unpin_smart_playlist" : "listening_intent_pin_smart_playlist",
+                                systemImage: pinned ? "pin.fill" : "pin",
+                                titled: verticalBarEdge != nil
+                            )
+                        }
+                        .accessibilityIdentifier("smartPlaylist.pinIntent")
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             showEditor = true
                         } label: {

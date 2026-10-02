@@ -631,6 +631,8 @@ struct MacSidebar: View {
         }
         .disabled(matched.isEmpty || scraperService.isScraping)
 
+        SmartPlaylistIntentPinButton(playlistID: smart.id)
+
         Divider()
         Button(role: .destructive) {
             deleteSmart(smart)

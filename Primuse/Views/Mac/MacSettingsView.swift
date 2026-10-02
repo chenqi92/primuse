@@ -5712,6 +5712,11 @@ private struct MacSTThemeView: View {
     @AppStorage("primuse.home.showRadio") private var showRadioOnHome = true
     @AppStorage("primuse.home.showRecentlyAdded") private var showRecentlyAddedOnHome = true
     @AppStorage(AlbumRecommendationService.homeVisibilityKey) private var showAlbumPickOnHome = true
+    @AppStorage("primuse.home.showContinueSpaces") private var showContinueSpacesOnHome = true
+    @AppStorage(ListeningIntentService.homeVisibilityKey) private var showStartListeningOnHome = true
+    @AppStorage("primuse.home.showForYou") private var showForYouOnHome = true
+    @AppStorage("primuse.home.showContinueListening") private var showContinueListeningOnHome = true
+    @AppStorage("primuse.home.showTopArtists") private var showTopArtistsOnHome = true
     @AppStorage(LibrarySongBrowseModePreference.storageKey)
     private var libraryBrowseModeRawValue = LibrarySongBrowseMode.flat.rawValue
     @AppStorage(LibraryDisplayConfiguration.quickAccessLimitKey)
@@ -6066,6 +6071,10 @@ private struct MacSTThemeView: View {
                         .accessibilityHint(Text("radio_home_visibility_description"))
                 }
                 .settingsAnchor("home.radio")
+                MacSTRow(String(localized: "home_continue_spaces_title")) {
+                    MacSTToggle(isOn: $showContinueSpacesOnHome)
+                }
+                .settingsAnchor("home.continueSpaces")
                 MacSTRow(
                     String(localized: "home_section_album_pick"),
                     hint: String(localized: "home_section_album_pick_hint")
@@ -6073,10 +6082,29 @@ private struct MacSTThemeView: View {
                     MacSTToggle(isOn: $showAlbumPickOnHome)
                 }
                 .settingsAnchor("home.albumPick")
+                MacSTRow(
+                    String(localized: "home_section_start_listening"),
+                    hint: String(localized: "home_section_start_listening_hint")
+                ) {
+                    MacSTToggle(isOn: $showStartListeningOnHome)
+                }
+                .settingsAnchor("home.startListening")
+                MacSTRow(String(localized: "home_section_for_you")) {
+                    MacSTToggle(isOn: $showForYouOnHome)
+                }
+                .settingsAnchor("home.forYou")
                 MacSTRow(HomeDiscoveryText.string("recent_albums")) {
                     MacSTToggle(isOn: $showRecentlyAddedOnHome)
                 }
                 .settingsAnchor("home.recentlyAdded")
+                MacSTRow(String(localized: "recently_played")) {
+                    MacSTToggle(isOn: $showContinueListeningOnHome)
+                }
+                .settingsAnchor("home.continueListening")
+                MacSTRow(String(localized: "home_section_top_artists")) {
+                    MacSTToggle(isOn: $showTopArtistsOnHome)
+                }
+                .settingsAnchor("home.topArtists")
             }
         }
 

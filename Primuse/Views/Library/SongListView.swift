@@ -817,6 +817,8 @@ struct SongListView: View {
     @State private var selection = SongSelectionModel()
     @State private var browseMode: LibrarySongBrowseMode
     #if os(iOS)
+    /// 极简导航的「歌曲」页顶上放「开始听」那一行卡片(没有首页时的入口)。
+    @Environment(\.songListShowsListeningIntents) private var showsListeningIntentsSetting
     @State private var presentedBrowseMode: LibrarySongBrowseMode
     @State private var browseModeTransitionTask: Task<Void, Never>?
     @State private var isBrowseModeTransitioning = false
@@ -1481,7 +1483,8 @@ struct SongListView: View {
                         listCache: listCache,
                         rootSourceID: folderRootSourceID,
                         selection: selection,
-                        sortOrder: sortOrderBinding
+                        sortOrder: sortOrderBinding,
+                        showsListeningIntents: showsListeningIntentShelf
                     )
                 } else if songFilter == .downloaded,
                           isDownloadedFilterLoading,
@@ -1517,6 +1520,7 @@ struct SongListView: View {
                             sectionIndexEntries: listCache.sectionIndexEntries,
                             locatedSongID: locatedSongID,
                             selection: selection,
+                            showsListeningIntents: showsListeningIntentShelf,
                             onPlay: playSong
                         )
                         .equatable()
@@ -1537,6 +1541,14 @@ struct SongListView: View {
         .toolbar {
             iosToolbar
         }
+    }
+
+    /// 只在整个歌曲页、没在筛选、没在多选时出现。
+    private var showsListeningIntentShelf: Bool {
+        showsListeningIntentsSetting
+            && songFilter == .all
+            && searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !selection.isActive
     }
 
     private var presentedShowsFolderBrowser: Bool {
@@ -3738,6 +3750,7 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
     let sectionIndexEntries: [SongListSectionIndexEntry]
     let locatedSongID: String?
     let selection: SongSelectionModel
+    let showsListeningIntents: Bool
     let onPlay: (Song) -> Void
 
     @State private var indexScrollRequest: IOSSongIndexScrollRequest?
@@ -3757,11 +3770,18 @@ private struct IOSSongListContainer: View, @MainActor Equatable {
             && lhs.sectionIndexEntries == rhs.sectionIndexEntries
             && lhs.locatedSongID == rhs.locatedSongID
             && lhs.selection === rhs.selection
+            && lhs.showsListeningIntents == rhs.showsListeningIntents
     }
 
     var body: some View {
         ZStack(alignment: .trailing) {
             ScrollView {
+                if showsListeningIntents {
+                    // 不放进下面的懒加载栈:它带导航目标,而且只有这一份。
+                    StartListeningShelf(horizontalInset: 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
+                }
                 LazyVStack(spacing: 0) {
                     ForEach(0..<cache.positionCount, id: \.self) { position in
                         IOSSongListPositionSlot(
@@ -4243,9 +4263,15 @@ private struct LibraryFolderRootView: View {
     let rootSourceID: String?
     let selection: SongSelectionModel
     @Binding var sortOrder: SongListView.SongSortOrder
+    var showsListeningIntents = false
 
     var body: some View {
         ScrollView {
+            if showsListeningIntents {
+                StartListeningShelf(horizontalInset: 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+            }
             LibraryFolderRootContent(
                 folderCache: folderCache,
                 listCache: listCache,
