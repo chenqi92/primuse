@@ -660,9 +660,6 @@
 "fullscreen_effect_collection_scene_motion" = "Motion Scenes";
 "fullscreen_effect_collection_audio_reactive" = "Audio Reactive";
 "fullscreen_effect_native_motion" = "Native transition · Default";
-"fullscreen_effect_cover_flow" = "Cover Flow";
-"fullscreen_effect_cover_flow_subtitle" = "Extracts the current artwork colors into a breathing light field";
-"fullscreen_effect_cover_flow_motion" = "Real artwork colors · Slow light drift";
 "fullscreen_effect_cover_gallery" = "Cover Gallery";
 "fullscreen_effect_cover_gallery_subtitle" = "Current artwork in front with library covers moving behind it";
 "fullscreen_effect_cover_gallery_motion" = "Real library artwork · Layered parallax";
@@ -672,9 +669,6 @@
 "fullscreen_effect_flowing_lines" = "Flowing Lines";
 "fullscreen_effect_flowing_lines_subtitle" = "Evolving contours orbit the artwork with three lyric lines";
 "fullscreen_effect_flowing_lines_motion" = "Continuously evolving contours · Three lyrics";
-"fullscreen_effect_kinetic_title" = "Title Wall";
-"fullscreen_effect_kinetic_title_subtitle" = "The song title and current lyric stay singular while other lyrics form a layered field across the screen";
-"fullscreen_effect_kinetic_title_motion" = "Slow background lyric drift · playback-synced current-line highlight";
 "immersive_current_lyric_accessibility" = "Current lyric: %@";
 "fullscreen_effect_radial_pulse" = "Radial Pulse";
 "fullscreen_effect_radial_pulse_subtitle" = "A rotating record ring responds to the actual audio";
@@ -682,9 +676,6 @@
 "fullscreen_effect_vinyl_deck" = "Vinyl Deck";
 "fullscreen_effect_vinyl_deck_subtitle" = "The artwork becomes the label of a spinning record while the tonearm rests in the groove";
 "fullscreen_effect_vinyl_deck_motion" = "Record spins with playback · Tonearm lifts on pause";
-"fullscreen_effect_mirror_stage" = "Mirror Stage";
-"fullscreen_effect_mirror_stage_subtitle" = "The artwork stands on a glossy floor with a live reflection under a drifting spotlight";
-"fullscreen_effect_mirror_stage_motion" = "Floor reflection · Slow spotlight drift";
 "fullscreen_effect_aurora_veil" = "Aurora Veil";
 "fullscreen_effect_aurora_veil_subtitle" = "Artwork-colored aurora curtains ripple over a starry sky behind the current lyric";
 "fullscreen_effect_aurora_veil_motion" = "Waving aurora curtains · Artwork color";

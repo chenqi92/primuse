@@ -79,7 +79,6 @@
 "ext.tv.test.relayUnavailable" = "iPhone rölesine ihtiyaç duyar — Primuse'yi telefonunuzda, TV ile aynı Wi-Fi üzerinde açık tutun";
 "synology_address" = "Etki Alanı veya IP Adresi";
 "ext.tv.settings.appearance.light" = "Açık";
-"fullscreen_effect_cover_flow_motion" = "Gerçek sanat eserleri renkleri · Yavaş ışık kayması";
 "ext.tv.settings.appearance.system" = "Takip Et";
 "ext.tv.songsCount" = "%d şarkı";
 "serverShare.error.invalidTarget" = "Seçilen ortamın desteklenen bir sunucuya ait sabit kimlikleri yok.";
@@ -109,7 +108,6 @@
 "ext.widget.nowPlaying.empty.inline" = "Primuse — Oynatılan bir şey yok";
 "ext.tv.immersive.lyricsHint" = "Şarkı sözleri için yukarı kaydırın";
 "ext.watch.demo.track" = "Parça Adı";
-"fullscreen_effect_kinetic_title_motion" = "Yavaş arka plan şarkı sözü kayması · oynatmayla senkronize edilmiş geçerli satır vurgusu";
 "source_connection_remote_optional" = "Uzaktan Erişim (Opsiyonel)";
 "ext.tv.nav.search" = "Ara";
 "ext.tv.sources.cred.intro" = "Bu kaynakta doğrudan Apple TV üzerinden oturum açın. Kimlik bilgileri yalnızca bu cihazda saklanır (hiçbir zaman yüklenmez veya senkronize edilmez) ve telefonunuzdan senkronize edilenlere göre önceliklidir; oturumlar cihazlar arasında taşınmadığında kullanışlıdır.";
@@ -190,7 +188,6 @@
 "ext.tv.sources.cred.password" = "Şifre";
 "src.subtitle.pan115" = "115 Açık Platform · Çok yakında";
 "ext.tv.playlists.smart" = "Akıllı";
-"fullscreen_effect_cover_flow_subtitle" = "Mevcut resim renklerini nefes alan bir ışık alanına çıkarır";
 "ext.widget.sources.displayName" = "Müzik kaynakları";
 "fullscreen_effect_cover_gallery" = "Kapak Galerisi";
 "error.daoliyu.authenticationFailed" = "Daoliyu oturum açma işlemi başarısız oldu. Hesabı ve şifreyi kontrol edin.";
@@ -294,9 +291,6 @@
 "fullscreen_effect_vinyl_deck" = "Pikap";
 "fullscreen_effect_vinyl_deck_subtitle" = "Kapak, dönen plağın etiketi olur; kol ise oluğa yerleşir";
 "fullscreen_effect_vinyl_deck_motion" = "Plak çalarken döner · Duraklatınca kol kalkar";
-"fullscreen_effect_mirror_stage" = "Ayna Sahnesi";
-"fullscreen_effect_mirror_stage_subtitle" = "Kapak, parlak bir zeminde yansımasıyla durur; spot ışığı yavaşça kayar";
-"fullscreen_effect_mirror_stage_motion" = "Zemin yansıması · Yavaş kayan spot";
 "fullscreen_effect_aurora_veil" = "Kutup Işığı Perdesi";
 "fullscreen_effect_aurora_veil_subtitle" = "Kapak renklerindeki kutup ışığı perdeleri yıldızlı gökte dalgalanır, önde mevcut söz durur";
 "fullscreen_effect_aurora_veil_motion" = "Dalgalanan ışık perdeleri · Kapak rengi";
@@ -405,7 +399,6 @@
 "ext.tv.certificate.message" = "%1$@ için HTTPS sertifikası doğrulanamadı. Yalnızca bu sizin sunucunuzsa devam edin. Sertifikanın değişmesi durumunda size tekrar sorulacaktır.";
 "ext.tv.sources.eyebrow" = "Müzik kaynakları";
 "ext.tv.settings.tip.tv.body" = "Apple TV Ana Sayfaya Dönüş";
-"fullscreen_effect_cover_flow" = "Kapak Akışı";
 "ext.tv.sources.enterCredentials" = "Kimlik Bilgilerini Girin";
 "ext.tv.test.failedPrefix" = "Bağlantı başarısız oldu · ";
 "ext.widget.stats.displayName" = "Dinleme İstatistikleri";
@@ -482,7 +475,6 @@
 "ext.tv.settings.sources" = "Kaynaklar";
 "error.fnConnect.serverNotFound" = "Bu FN Kimliği bulunamadı. NAS'de FN Connect'in etkinleştirildiğinden emin olun.";
 "ext.tv.search.suggestions" = "Öneriler";
-"fullscreen_effect_kinetic_title_subtitle" = "Şarkı adı ve mevcut şarkı sözü tekil kalırken diğer şarkı sözleri ekran boyunca katmanlı bir alan oluşturur";
 "ext.tv.sources.ok" = "Tamam";
 "fullscreen_effect_radial_pulse_subtitle" = "Dönen bir kayıt halkası gerçek sese yanıt verir";
 "ext.widget.lyricsPreview.empty2" = "Şarkı sözleriyle birlikte bir parça çalın";
@@ -657,7 +649,6 @@
 "error.catalog.invalidFnMusicJSON" = "Yanıt geçerli değil Feiniu Music JSON.";
 "ext.synology.quickconnect.error.serviceUnavailable" = "DSM QuickConnect bu NAS'de etkin değil.";
 "ai_recommendation_intent_genreExploration_detail" = "Daha geniş tür çeşitliliği için tanıdık tarzların ötesine geçer";
-"fullscreen_effect_kinetic_title" = "Başlık Duvarı";
 "fullscreen_effect_collection_native" = "Orijinal";
 "src.subtitle.sftp" = "SSH · Anahtar kimlik doğrulaması";
 "ext.widget.appName" = "Primuse";

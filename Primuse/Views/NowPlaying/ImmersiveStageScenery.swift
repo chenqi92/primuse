@@ -1,20 +1,13 @@
 import CoreGraphics
-import CoreText
 import Foundation
 import PrimuseKit
 import SwiftUI
-
-#if canImport(UIKit)
-import UIKit
-#elseif canImport(AppKit)
-import AppKit
-#endif
 
 // 各类沉浸场景共用的色彩、封面、控制与声音响应组件。
 //
 // iOS / macOS / tvOS 共用 Nocturne 色彩、颗粒、封面与基础控件；布局和控件
 // 组合由每种效果单独决定。
-// 本文件只依赖 SwiftUI / CoreText,不碰任何 app 模型,因此可以同时编进
+// 本文件只依赖 SwiftUI,不碰任何 app 模型,因此可以同时编进
 // Primuse(iOS)、PrimuseMac 和 PrimuseTV 三个 target(见 project.yml)。
 
 // MARK: - 调色板
@@ -481,10 +474,6 @@ enum ImmersiveDemoStage {
                     .frame(width: side, height: side)
                 )
             },
-            typographyFieldLines: ImmersiveTypographyFieldPolicy.textPool(
-                from: ImmersiveDemoContent.lyrics,
-                title: track.title
-            ),
             reduceMotion: !animates,
             lyricsMotionEnabled: animates,
             lyricInterlude: false,
@@ -1166,52 +1155,6 @@ struct ImmersiveGlassActionButton: View {
     }
 }
 
-/// Typography 的背景不再完全静止: 极慢的色相旋转和扫描线为长时间播放
-/// 提供持续但不抢歌词注意力的运动。Reduce Motion 时 TimelineView 会暂停。
-struct ImmersiveTypographyMotion: View {
-    var isAnimating: Bool
-    var palette: ImmersiveArtworkPalette = .fallback
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 8, paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-            GeometryReader { geometry in
-                ZStack {
-                    AngularGradient(
-                        colors: [
-                            palette.secondary.opacity(0.30),
-                            palette.primary.opacity(0.10),
-                            .clear,
-                            palette.primary.opacity(0.18),
-                            palette.secondary.opacity(0.30),
-                        ],
-                        center: .center
-                    )
-                    .rotationEffect(.degrees(time / 90 * 360))
-                    .scaleEffect(1.18)
-
-                    ForEach(0..<3, id: \.self) { index in
-                        Rectangle()
-                            .fill(ImmersiveStagePalette.text.opacity(0.055))
-                            .frame(height: 1)
-                            .offset(y: scanOffset(time: time, index: index, height: geometry.size.height))
-                    }
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .clipped()
-            }
-        }
-        .blendMode(.screen)
-        .allowsHitTesting(false)
-    }
-
-    private func scanOffset(time: TimeInterval, index: Int, height: CGFloat) -> CGFloat {
-        guard height > 0 else { return 0 }
-        let phase = time / 26 + Double(index) / 3
-        return CGFloat((phase.truncatingRemainder(dividingBy: 1) * 2 - 0.5)) * height
-    }
-}
-
 // MARK: - 跳动的均衡器小条
 
 /// 规格串前面那一小簇跳动竖条。对应设计稿 CSS 的 `omEq` 关键帧
@@ -1495,110 +1438,6 @@ struct ImmersiveSpectrumRing: View {
         let fraction = CGFloat(position - floor(position))
         let value = source[lower] + (source[upper] - source[lower]) * fraction
         return min(max(value, 0), 1)
-    }
-}
-
-// MARK: - 描边文字字形
-
-/// 一行字形轮廓与排版尺寸。文字场按稳定字号缓存它，动画帧只改变变换。
-struct ImmersiveGlyphLine: Equatable {
-    let path: Path
-    let size: CGSize
-
-    static func == (lhs: ImmersiveGlyphLine, rhs: ImmersiveGlyphLine) -> Bool {
-        lhs.size == rhs.size
-    }
-
-    /// 用 CoreText 把字符串转成 SwiftUI 坐标系(y 向下、原点在行框左上)的轮廓。
-    @MainActor
-    static func make(text: String, fontSize: CGFloat) -> ImmersiveGlyphLine? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, fontSize > 1 else { return nil }
-
-        #if canImport(UIKit)
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
-        #elseif canImport(AppKit)
-        let font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
-        #else
-        return nil
-        #endif
-
-        let attributed = NSAttributedString(string: trimmed, attributes: [.font: font])
-        let ctLine = CTLineCreateWithAttributedString(attributed)
-
-        var ascent: CGFloat = 0
-        var descent: CGFloat = 0
-        var leading: CGFloat = 0
-        let width = CGFloat(CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading))
-        guard width > 1, let runs = CTLineGetGlyphRuns(ctLine) as? [CTRun] else { return nil }
-
-        let combined = CGMutablePath()
-        for run in runs {
-            let attributes = CTRunGetAttributes(run) as NSDictionary
-            // CoreText 会给缺字的段落换字体(中文 / emoji),所以每个 run 要用它自己的字体。
-            guard let value = attributes[kCTFontAttributeName as String],
-                  CFGetTypeID(value as CFTypeRef) == CTFontGetTypeID() else { continue }
-            let runFont = value as! CTFont
-
-            let count = CTRunGetGlyphCount(run)
-            guard count > 0 else { continue }
-            var glyphs = [CGGlyph](repeating: 0, count: count)
-            var positions = [CGPoint](repeating: .zero, count: count)
-            CTRunGetGlyphs(run, CFRangeMake(0, count), &glyphs)
-            CTRunGetPositions(run, CFRangeMake(0, count), &positions)
-
-            for index in 0..<count {
-                guard let glyphPath = CTFontCreatePathForGlyph(runFont, glyphs[index], nil) else { continue }
-                let transform = CGAffineTransform(translationX: positions[index].x, y: positions[index].y)
-                combined.addPath(glyphPath, transform: transform)
-            }
-        }
-
-        guard !combined.isEmpty else { return nil }
-
-        // CoreText 的 y 轴向上、原点在基线;翻成 SwiftUI 的 y 向下、原点在行框顶部。
-        var flip = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: 0, y: -ascent)
-        let flipped = combined.copy(using: &flip) ?? combined
-
-        return ImmersiveGlyphLine(
-            path: Path(flipped),
-            size: CGSize(width: width, height: ascent + descent)
-        )
-    }
-}
-
-// MARK: - 封面氛围底
-
-/// 把封面放大虚化铺满整屏并缓慢漂移——歌词台用它当底。
-/// 封面视图由调用方注入,三端的封面组件不同(CachedArtworkView / TVArtworkView)。
-struct ImmersiveArtworkAtmosphere<Artwork: View>: View {
-    var isAnimating: Bool
-    var blur: CGFloat
-    var opacity: Double
-    var saturation: Double = 1.35
-    @ViewBuilder var artwork: (CGFloat) -> Artwork
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 12, paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-
-            GeometryReader { geometry in
-                let side = max(geometry.size.width, geometry.size.height)
-                artwork(side)
-                    .frame(width: side, height: side)
-                    .scaleEffect(1.42 + CGFloat(sin(time / 30 * 2 * .pi)) * 0.05)
-                    .offset(
-                        x: CGFloat(sin(time / 26 * 2 * .pi)) * side * 0.04,
-                        y: CGFloat(cos(time / 34 * 2 * .pi)) * side * 0.03
-                    )
-                    .blur(radius: blur)
-                    .saturation(saturation)
-                    .opacity(opacity)
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .clipped()
-            }
-        }
-        .allowsHitTesting(false)
     }
 }
 

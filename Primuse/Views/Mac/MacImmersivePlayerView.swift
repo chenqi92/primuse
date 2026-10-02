@@ -44,7 +44,6 @@ struct MacImmersivePlayerView: View {
     @State private var chromeTask: Task<Void, Never>?
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [Song] = []
-    @State private var typographyFieldLines: [String] = []
     @State private var showsEffectPicker = false
     @State private var scrubPreview: TimeInterval?
     @State private var activeLyricIndex: Int?
@@ -69,7 +68,7 @@ struct MacImmersivePlayerView: View {
             hasSynchronizedLyrics: hasSynchronizedLyrics,
             hasArtwork: hasResolvedArtwork
         )
-        return FullscreenPlayerEffect(rawValue: raw) ?? .coverFlow
+        return FullscreenPlayerEffect(rawValue: raw) ?? .coverGallery
     }
 
     private var visualActivityPolicy: NowPlayingVisualActivityPolicy {
@@ -180,7 +179,6 @@ struct MacImmersivePlayerView: View {
             scheduleChromeHide()
         }
         .task(id: lyricObservationIdentity) {
-            refreshTypographyFieldLines()
             await observeLyricPlayback()
         }
         .onChange(of: presentationEffect) { _, value in
@@ -255,7 +253,6 @@ struct MacImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
-            typographyFieldLines: typographyFieldLines,
             isRenderingActive: isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
@@ -534,8 +531,8 @@ struct MacImmersivePlayerView: View {
         switch presentationEffect {
         case .radialPulse, .vinylDeck, .particleBloom:
             .leading
-        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .kineticTitle,
-             .mirrorStage, .auroraVeil, .spectrumHorizon:
+        case .coverGallery, .starryNight, .flowingLines,
+             .auroraVeil, .spectrumHorizon:
             .trailing
         case .native:
             .center
@@ -789,7 +786,6 @@ struct MacImmersivePlayerView: View {
         #if DEBUG
         if usesDemoEvidenceContent {
             gallerySongs = []
-            refreshTypographyFieldLines()
             return
         }
         #endif
@@ -797,14 +793,6 @@ struct MacImmersivePlayerView: View {
             coverTintProvider.prepare([song])
         }
         refreshGallerySongs()
-        refreshTypographyFieldLines()
-    }
-
-    private func refreshTypographyFieldLines() {
-        typographyFieldLines = ImmersiveTypographyFieldPolicy.textPool(
-            from: lyrics.map(\.text),
-            title: songTitle
-        )
     }
 
     private func refreshGallerySongs() {
@@ -1084,7 +1072,7 @@ struct MacImmersivePlayerView: View {
 
         let characters = press.characters.lowercased()
         if characters == "l" {
-            selectEffect(.kineticTitle)
+            selectEffect(.flowingLines)
             return .handled
         }
         if characters == "0" {

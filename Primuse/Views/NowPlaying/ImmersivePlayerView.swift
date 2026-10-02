@@ -45,7 +45,6 @@ struct ImmersivePlayerView: View {
     @State private var hasResolvedArtwork = true
     @State private var hasEntered = false
     @State private var gallerySongs: [Song] = []
-    @State private var typographyFieldLines: [String] = []
     @State private var showsEffectPicker = false
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
@@ -64,7 +63,7 @@ struct ImmersivePlayerView: View {
             hasSynchronizedLyrics: hasSynchronizedLyrics,
             hasArtwork: hasResolvedArtwork
         )
-        return FullscreenPlayerEffect(rawValue: raw) ?? .coverFlow
+        return FullscreenPlayerEffect(rawValue: raw) ?? .coverGallery
     }
 
     private var visualActivityPolicy: NowPlayingVisualActivityPolicy {
@@ -181,7 +180,6 @@ struct ImmersivePlayerView: View {
             }
         }
         .task(id: lyricObservationIdentity) {
-            if isSceneActive { refreshTypographyFieldLines() }
             await observeLyricPlayback()
         }
         .onChange(of: effect) { _, _ in
@@ -289,7 +287,6 @@ struct ImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
-            typographyFieldLines: typographyFieldLines,
             isRenderingActive: isSceneActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
@@ -560,58 +557,12 @@ struct ImmersivePlayerView: View {
         switch effect {
         case .vinylDeck, .particleBloom:
             return .leading
-        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .kineticTitle,
-             .radialPulse, .mirrorStage, .auroraVeil, .spectrumHorizon:
+        case .coverGallery, .starryNight, .flowingLines,
+             .radialPulse, .auroraVeil, .spectrumHorizon:
             return .trailing
         case .native:
             return .center
         }
-    }
-
-    private func deepFieldControls(metrics: ImmersiveStageMetrics) -> some View {
-        let portrait = metrics.layout == .phonePortrait
-        return VStack(spacing: 0) {
-            seekBar
-            HStack(spacing: metrics.s(20)) {
-                modeButton("shuffle", active: player.shuffleEnabled) {
-                    player.shuffleEnabled.toggle()
-                }
-                transportButton("backward.fill", size: 18, diameter: 42, label: "a11y_previous_track") {
-                    Task { await player.previous() }
-                }
-                playPauseButton(diameter: 56, outlined: true)
-                transportButton("forward.fill", size: 18, diameter: 42, label: "a11y_next_track") {
-                    Task { await player.next() }
-                }
-                modeButton(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) {
-                    advanceRepeatMode()
-                }
-            }
-            .padding(.top, metrics.s(portrait ? 29 : 12))
-
-            HStack(spacing: metrics.s(14)) {
-                Text(audioMetadata.uppercased())
-                    .font(.system(size: metrics.s(8), weight: .medium, design: .monospaced))
-                    .tracking(metrics.f(0.8))
-                    .foregroundStyle(theme.onAccent.opacity(0.92))
-                    .padding(.horizontal, metrics.s(10))
-                    .padding(.vertical, metrics.s(6))
-                    .background(
-                        artworkPalette.primary.opacity(0.58),
-                        in: RoundedRectangle(cornerRadius: metrics.f(4), style: .continuous)
-                    )
-                Spacer()
-                effectShortcutButton("textformat.size", target: .kineticTitle)
-                effectShortcutButton("chart.bar.xaxis", target: .spectrumHorizon)
-                AirPlayButton()
-                    .frame(width: 34, height: 34)
-                    .accessibilityLabel(Text("cast_to_device"))
-                queueButton(diameter: 34)
-            }
-            .padding(.top, metrics.s(portrait ? 65 : 12))
-        }
-        .padding(.bottom, portrait ? metrics.s(14) : 0)
-        .frame(maxWidth: metrics.layout == .phoneLandscape ? 500 : 560)
     }
 
     private func deckControls(metrics: ImmersiveStageMetrics, showsTitle: Bool) -> some View {
@@ -785,23 +736,6 @@ struct ImmersivePlayerView: View {
         .buttonStyle(.plain)
     }
 
-    private func effectShortcutButton(
-        _ symbol: String,
-        target: FullscreenPlayerEffect
-    ) -> some View {
-        Button {
-            effect = target
-            revealChrome()
-        } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(pillInk.opacity(0.58))
-                .frame(width: 34, height: 34)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(verbatim: target.localizedTitle))
-    }
-
     private func queueButton(diameter: CGFloat) -> some View {
         transportButton("list.bullet", size: 15, diameter: diameter, label: "queue") {
             onShowQueue()
@@ -860,14 +794,6 @@ struct ImmersivePlayerView: View {
             coverTintProvider.prepare([song])
         }
         refreshGallerySongs()
-        refreshTypographyFieldLines()
-    }
-
-    private func refreshTypographyFieldLines() {
-        typographyFieldLines = ImmersiveTypographyFieldPolicy.textPool(
-            from: lyrics.map(\.text),
-            title: songTitle
-        )
     }
 
     /// 每次切歌只取一次稳定样本，避免实时频谱刷新时反复扫描整个资料库。

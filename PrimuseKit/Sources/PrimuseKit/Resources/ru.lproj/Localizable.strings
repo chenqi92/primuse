@@ -79,7 +79,6 @@
 "ext.tv.test.relayUnavailable" = "Требуется реле iPhone — держите Primuse открытым на телефоне, на том же Wi-Fi, что и телевизор.";
 "synology_address" = "Домен или адрес IP";
 "ext.tv.settings.appearance.light" = "Светлая";
-"fullscreen_effect_cover_flow_motion" = "Реальные цвета произведений искусства · Медленный дрейф света";
 "ext.tv.settings.appearance.system" = "Подписаться";
 "ext.tv.songsCount" = "Песни %d";
 "serverShare.error.invalidTarget" = "Выбранный носитель не имеет стабильных идентификаторов ни от одного поддерживаемого сервера.";
@@ -109,7 +108,6 @@
 "ext.widget.nowPlaying.empty.inline" = "Primuse — Ничего не воспроизводится.";
 "ext.tv.immersive.lyricsHint" = "Проведите пальцем вверх, чтобы увидеть текст песни.";
 "ext.watch.demo.track" = "Название трека";
-"fullscreen_effect_kinetic_title_motion" = "Медленное смещение текста текста · выделение текущей строки с синхронизацией воспроизведения";
 "source_connection_remote_optional" = "Удаленный доступ (необязательно)";
 "ext.tv.nav.search" = "Поиск";
 "ext.tv.sources.cred.intro" = "Войдите в этот источник прямо на Apple TV. Учетные данные хранятся только на этом устройстве (никогда не загружаются и не синхронизируются) и имеют приоритет над данными, синхронизированными с вашего телефона, что удобно, когда сеансы не передаются между устройствами.";
@@ -190,7 +188,6 @@
 "ext.tv.sources.cred.password" = "Пароль";
 "src.subtitle.pan115" = "115 Открытая платформа · Скоро";
 "ext.tv.playlists.smart" = "Умный";
-"fullscreen_effect_cover_flow_subtitle" = "Извлекает текущие цвета изображения в дышащее световое поле.";
 "ext.widget.sources.displayName" = "Источники музыки";
 "fullscreen_effect_cover_gallery" = "Галерея обложек";
 "error.daoliyu.authenticationFailed" = "Не удалось войти в систему Daoliyu. Проверьте учетную запись и пароль.";
@@ -294,9 +291,6 @@
 "fullscreen_effect_vinyl_deck" = "Виниловая дека";
 "fullscreen_effect_vinyl_deck_subtitle" = "Обложка становится этикеткой вращающейся пластинки, тонарм лежит в дорожке";
 "fullscreen_effect_vinyl_deck_motion" = "Пластинка вращается при воспроизведении · Тонарм поднимается на паузе";
-"fullscreen_effect_mirror_stage" = "Зеркальная сцена";
-"fullscreen_effect_mirror_stage_subtitle" = "Обложка стоит на глянцевом полу с отражением под медленно плывущим прожектором";
-"fullscreen_effect_mirror_stage_motion" = "Отражение в полу · Медленный дрейф прожектора";
 "fullscreen_effect_aurora_veil" = "Вуаль сияния";
 "fullscreen_effect_aurora_veil_subtitle" = "Занавесы северного сияния в цветах обложки колышутся над звёздным небом позади текущей строки";
 "fullscreen_effect_aurora_veil_motion" = "Колышущиеся занавесы сияния · Цвет обложки";
@@ -405,7 +399,6 @@
 "ext.tv.certificate.message" = "Сертификат HTTPS для %1$@ не удалось проверить. Продолжайте, только если это ваш сервер. Вас снова спросят, изменится ли сертификат.";
 "ext.tv.sources.eyebrow" = "Источники музыки";
 "ext.tv.settings.tip.tv.body" = "Вернуться на главную страницу Apple TV";
-"fullscreen_effect_cover_flow" = "Обложка потока";
 "ext.tv.sources.enterCredentials" = "Введите учетные данные";
 "ext.tv.test.failedPrefix" = "Не удалось подключиться · ";
 "ext.widget.stats.displayName" = "Статистика прослушивания";
@@ -482,7 +475,6 @@
 "ext.tv.settings.sources" = "Источники";
 "error.fnConnect.serverNotFound" = "Этот идентификатор FN не найден. Убедитесь, что FN Connect включен на NAS.";
 "ext.tv.search.suggestions" = "Предложения";
-"fullscreen_effect_kinetic_title_subtitle" = "Название песни и текущий текст остаются в единственном числе, в то время как остальные тексты образуют многослойное поле по всему экрану.";
 "ext.tv.sources.ok" = "ОК";
 "fullscreen_effect_radial_pulse_subtitle" = "Вращающееся кольцо записи реагирует на текущий звук.";
 "ext.widget.lyricsPreview.empty2" = "Воспроизвести трек с текстом песни.";
@@ -657,7 +649,6 @@
 "error.catalog.invalidFnMusicJSON" = "Неверный ответ Feiniu Music JSON.";
 "ext.synology.quickconnect.error.serviceUnavailable" = "DSM QuickConnect не включен на этом NAS.";
 "ai_recommendation_intent_genreExploration_detail" = "Выходит за рамки привычных стилей и расширяет жанровое разнообразие.";
-"fullscreen_effect_kinetic_title" = "Титульная стена";
 "fullscreen_effect_collection_native" = "Оригинал";
 "src.subtitle.sftp" = "SSH · Аутентификация по ключу";
 "ext.widget.appName" = "Primuse";

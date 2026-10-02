@@ -659,9 +659,6 @@
 "fullscreen_effect_collection_scene_motion" = "动态场景";
 "fullscreen_effect_collection_audio_reactive" = "声音响应";
 "fullscreen_effect_native_motion" = "系统原生转场 · 默认";
-"fullscreen_effect_cover_flow" = "封面流光";
-"fullscreen_effect_cover_flow_subtitle" = "从当前封面提取颜色，生成会呼吸的整屏光场";
-"fullscreen_effect_cover_flow_motion" = "真实封面取色 · 光场缓慢漂移";
 "fullscreen_effect_cover_gallery" = "流动封面墙";
 "fullscreen_effect_cover_gallery_subtitle" = "当前封面居前，资料库封面在背景缓慢流动";
 "fullscreen_effect_cover_gallery_motion" = "资料库真实封面 · 分层错速移动";
@@ -671,9 +668,6 @@
 "fullscreen_effect_flowing_lines" = "流动声纹";
 "fullscreen_effect_flowing_lines_subtitle" = "动态线条围绕封面变化，右上展示前后歌词";
 "fullscreen_effect_flowing_lines_motion" = "线条轨迹持续演化 · 三句歌词";
-"fullscreen_effect_kinetic_title" = "曲名展墙";
-"fullscreen_effect_kinetic_title_subtitle" = "曲名和当前歌词各自只出现一次，其他歌词以远近层次铺满画面";
-"fullscreen_effect_kinetic_title_motion" = "背景歌词缓慢漂移 · 当前歌词随播放进度高亮";
 "immersive_current_lyric_accessibility" = "当前歌词：%@";
 "fullscreen_effect_radial_pulse" = "环形声谱";
 "fullscreen_effect_radial_pulse_subtitle" = "旋转唱片外圈跟随实际声音起伏";
@@ -681,9 +675,6 @@
 "fullscreen_effect_vinyl_deck" = "黑胶唱机";
 "fullscreen_effect_vinyl_deck_subtitle" = "封面化作旋转唱片的圆标，唱臂随播放落入音槽";
 "fullscreen_effect_vinyl_deck_motion" = "唱片随播放旋转 · 暂停时唱臂抬起";
-"fullscreen_effect_mirror_stage" = "镜面展台";
-"fullscreen_effect_mirror_stage_subtitle" = "封面立于镜面地板之上，倒影与聚光缓慢流转";
-"fullscreen_effect_mirror_stage_motion" = "地板倒影 · 聚光缓慢漂移";
 "fullscreen_effect_aurora_veil" = "极光帷幕";
 "fullscreen_effect_aurora_veil_subtitle" = "封面色极光在星空上起伏流动，当前歌词置于其前";
 "fullscreen_effect_aurora_veil_motion" = "极光帷幕持续摆动 · 封面色渲染";

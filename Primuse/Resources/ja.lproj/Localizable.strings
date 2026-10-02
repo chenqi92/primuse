@@ -1742,9 +1742,6 @@
 "fullscreen_effect_collection_scene_motion" = "モーションシーン";
 "fullscreen_effect_collection_audio_reactive" = "オーディオ連動";
 "fullscreen_effect_native_motion" = "システム標準の遷移 · デフォルト";
-"fullscreen_effect_cover_flow" = "カバーフロー";
-"fullscreen_effect_cover_flow_subtitle" = "現在のアートワークの色から呼吸する光を生成します";
-"fullscreen_effect_cover_flow_motion" = "実際のアートワーク色 · ゆっくり流れる光";
 "fullscreen_effect_cover_gallery" = "カバーギャラリー";
 "fullscreen_effect_cover_gallery_subtitle" = "現在のカバーの後ろをライブラリのカバーが流れます";
 "fullscreen_effect_cover_gallery_motion" = "実際のライブラリ画像 · レイヤー視差";
@@ -1754,9 +1751,6 @@
 "fullscreen_effect_flowing_lines" = "流れるライン";
 "fullscreen_effect_flowing_lines_subtitle" = "変化する輪郭がカバーを囲み、歌詞を三行表示します";
 "fullscreen_effect_flowing_lines_motion" = "変化し続ける軌跡 · 歌詞三行";
-"fullscreen_effect_kinetic_title" = "曲名ウォール";
-"fullscreen_effect_kinetic_title_subtitle" = "曲名と現在の歌詞は一度だけ表示され、ほかの歌詞が奥行きのある文字フィールドを作ります";
-"fullscreen_effect_kinetic_title_motion" = "背景歌詞の緩やかな移動 · 再生位置に同期した現在行のハイライト";
 "immersive_current_lyric_accessibility" = "現在の歌詞：%@";
 "fullscreen_effect_radial_pulse" = "ラジアルパルス";
 "fullscreen_effect_radial_pulse_subtitle" = "回転するレコードの外周が実際の音声に反応します";
@@ -1764,9 +1758,6 @@
 "fullscreen_effect_vinyl_deck" = "レコードデッキ";
 "fullscreen_effect_vinyl_deck_subtitle" = "アートワークが回転するレコードのラベルになり、トーンアームが溝に降りる";
 "fullscreen_effect_vinyl_deck_motion" = "再生に合わせて回転 · 一時停止でアームが上がる";
-"fullscreen_effect_mirror_stage" = "ミラーステージ";
-"fullscreen_effect_mirror_stage_subtitle" = "光沢のある床にアートワークが立ち、揺れるスポットライトの下で反射する";
-"fullscreen_effect_mirror_stage_motion" = "床の反射 · ゆっくり漂うスポットライト";
 "fullscreen_effect_aurora_veil" = "オーロラヴェール";
 "fullscreen_effect_aurora_veil_subtitle" = "アートワーク色のオーロラが星空に揺らめき、その手前に現在の歌詞を表示";
 "fullscreen_effect_aurora_veil_motion" = "揺れるオーロラのカーテン · アートワーク色";

@@ -659,9 +659,6 @@
 "fullscreen_effect_collection_scene_motion" = "動態場景";
 "fullscreen_effect_collection_audio_reactive" = "聲音回應";
 "fullscreen_effect_native_motion" = "系統原生轉場 · 預設";
-"fullscreen_effect_cover_flow" = "封面流光";
-"fullscreen_effect_cover_flow_subtitle" = "從目前封面擷取顏色，生成會呼吸的全螢幕光場";
-"fullscreen_effect_cover_flow_motion" = "真實封面取色 · 光場緩慢漂移";
 "fullscreen_effect_cover_gallery" = "流動封面牆";
 "fullscreen_effect_cover_gallery_subtitle" = "目前封面置前，資料庫封面在背景緩慢流動";
 "fullscreen_effect_cover_gallery_motion" = "資料庫真實封面 · 分層錯速移動";
@@ -671,9 +668,6 @@
 "fullscreen_effect_flowing_lines" = "流動聲紋";
 "fullscreen_effect_flowing_lines_subtitle" = "動態線條圍繞封面變化，右上顯示前後歌詞";
 "fullscreen_effect_flowing_lines_motion" = "線條軌跡持續演化 · 三句歌詞";
-"fullscreen_effect_kinetic_title" = "曲名展牆";
-"fullscreen_effect_kinetic_title_subtitle" = "曲名和目前歌詞各自只出現一次，其他歌詞以遠近層次鋪滿畫面";
-"fullscreen_effect_kinetic_title_motion" = "背景歌詞緩慢漂移 · 目前歌詞隨播放進度高亮";
 "immersive_current_lyric_accessibility" = "目前歌詞：%@";
 "fullscreen_effect_radial_pulse" = "環形聲譜";
 "fullscreen_effect_radial_pulse_subtitle" = "旋轉唱片外圈跟隨實際聲音起伏";
@@ -681,9 +675,6 @@
 "fullscreen_effect_vinyl_deck" = "黑膠唱機";
 "fullscreen_effect_vinyl_deck_subtitle" = "封面化作旋轉唱片的圓標，唱臂隨播放落入音軌";
 "fullscreen_effect_vinyl_deck_motion" = "唱片隨播放旋轉 · 暫停時唱臂抬起";
-"fullscreen_effect_mirror_stage" = "鏡面展台";
-"fullscreen_effect_mirror_stage_subtitle" = "封面立於鏡面地板之上，倒影與聚光緩慢流轉";
-"fullscreen_effect_mirror_stage_motion" = "地板倒影 · 聚光緩慢漂移";
 "fullscreen_effect_aurora_veil" = "極光帷幕";
 "fullscreen_effect_aurora_veil_subtitle" = "封面色極光在星空上起伏流動，目前歌詞置於其前";
 "fullscreen_effect_aurora_veil_motion" = "極光帷幕持續擺動 · 封面色渲染";

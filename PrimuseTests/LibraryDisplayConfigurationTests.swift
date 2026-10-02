@@ -675,6 +675,32 @@ final class PlayerAppearancePreferencesTests: XCTestCase {
         XCTAssertTrue(FullscreenPlayerEffect.immersiveCases.allSatisfy(\.displaysLyrics))
     }
 
+    func testRetiredFullscreenEffectsMigrateToTheClosestSurvivingOne() {
+        let expectations: [String: FullscreenPlayerEffect] = [
+            "coverFlow": .coverGallery,
+            "cover": .coverGallery,
+            "coverDriven": .coverGallery,
+            "mirrorStage": .spectrumHorizon,
+            "kineticTitle": .flowingLines,
+            "lyrics": .flowingLines,
+        ]
+        for (stored, expected) in expectations {
+            XCTAssertEqual(FullscreenPlayerEffect(rawValue: stored), expected, stored)
+            XCTAssertEqual(
+                ImmersivePresentationFallbackPolicy.effectiveEffectRawValue(
+                    selectedRawValue: stored,
+                    hasSynchronizedLyrics: true,
+                    hasArtwork: true
+                ),
+                expected.rawValue,
+                stored
+            )
+        }
+        for effect in FullscreenPlayerEffect.allCases {
+            XCTAssertEqual(FullscreenPlayerEffect(rawValue: effect.rawValue), effect)
+        }
+    }
+
     func testLyricsInteractionPreferencesUseSafeDefaultsAndHonorOverrides() {
         let suiteName = "PlayerAppearancePreferencesTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

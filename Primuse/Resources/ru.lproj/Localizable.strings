@@ -1375,9 +1375,6 @@
 "fullscreen_effect_vinyl_deck" = "Виниловая дека";
 "fullscreen_effect_vinyl_deck_subtitle" = "Обложка становится этикеткой вращающейся пластинки, тонарм лежит в дорожке";
 "fullscreen_effect_vinyl_deck_motion" = "Пластинка вращается при воспроизведении · Тонарм поднимается на паузе";
-"fullscreen_effect_mirror_stage" = "Зеркальная сцена";
-"fullscreen_effect_mirror_stage_subtitle" = "Обложка стоит на глянцевом полу с отражением под медленно плывущим прожектором";
-"fullscreen_effect_mirror_stage_motion" = "Отражение в полу · Медленный дрейф прожектора";
 "fullscreen_effect_aurora_veil" = "Вуаль сияния";
 "fullscreen_effect_aurora_veil_subtitle" = "Занавесы северного сияния в цветах обложки колышутся над звёздным небом позади текущей строки";
 "fullscreen_effect_aurora_veil_motion" = "Колышущиеся занавесы сияния · Цвет обложки";
@@ -2635,7 +2632,6 @@
 "tag_editor_lyrics_edit" = "Редактировать текст песни";
 "scrobble_mac_browser_oauth" = "Вход в браузер OAuth";
 "lyrics_word_level_badge" = "По словам";
-"fullscreen_effect_kinetic_title_motion" = "Медленное смещение текста текста · выделение текущей строки с синхронизацией воспроизведения";
 "recently_deleted_scraper_configs" = "Конфигурации поиска метаданных";
 "crossfade" = "Кроссфейд";
 "create" = "Создать";
@@ -2995,7 +2991,6 @@
 "s3_secret_key" = "Секретный ключ";
 "Domain" = "Домен";
 "metadata_status_filter_pending" = "Ожидается";
-"fullscreen_effect_cover_flow_subtitle" = "Извлекает текущие цвета изображения в дышащее световое поле.";
 "yearly_meta_exploration_title" = "Исследование";
 "radio_batch_duplicate_of %@" = "Уже сохранено как «%@»";
 "scan_needs_connect" = "Сначала подключитесь (требуется OTP)";
@@ -3120,7 +3115,6 @@
 "open_main_window" = "Открыть главное окно.";
 "source_connection_public_hint" = "Публичный адрес и обратный прокси-сервер — это один и тот же прямой метод, со своим собственным портом и дополнительным префиксом пути.";
 "Manual Only" = "Только вручную";
-"fullscreen_effect_kinetic_title_subtitle" = "Название песни и текущий текст остаются в единственном числе, в то время как остальные тексты образуют многослойное поле по всему экрану.";
 "home_source_pipeline" = "Обработка источников";
 "ai_provider_preset_gemini" = "Google Gemini";
 "local_import_section_footer" = "По умолчанию файлы и папки остаются в исходном расположении. Выберите «Копировать в Primuse», чтобы создать автономную копию, управляемую приложением.";
@@ -3258,7 +3252,6 @@
 "ai_recommendation_custom_remove" = "Удалить фокус";
 "share_server_permission_denied" = "Эта учетная запись не может делиться с сервера";
 "rg_mode_album" = "Альбом";
-"fullscreen_effect_cover_flow" = "Обложка потока";
 "update_policy_macos_bundle_id" = "Обновления macOS и iOS проверяются отдельно. Идентификатор Mac App Store не настроен, поэтому принимаются только собственные записи Mac с kind=mac-software из поиска Bundle ID; строка выпуска iOS 1.x игнорируется.";
 "Throwback Mix" = "Возвратный микс";
 "server_share_system_share" = "Поделиться ссылкой…";
@@ -3320,7 +3313,6 @@
 "lyrics_editor_mark_line" = "Отметить эту строку";
 "apple_music_unavailable" = "Потоковая передача Apple Music недоступна для этой учетной записи или региона.";
 "scrobble_mac_validating" = "Проверка";
-"fullscreen_effect_kinetic_title" = "Титульная стена";
 "stats_seconds_format" = "%d с";
 "ai_provider_preset_mistral" = "Mistral AI";
 "all_songs_section" = "Все песни";
@@ -3830,7 +3822,6 @@
 "artist_name_settings_separator_placeholder" = "Например, ;";
 "local_import_copy_files" = "Копировать файлы";
 "server_share_permission_message" = "Сервер поддерживает общий доступ, но этой учетной записи не разрешено создавать общедоступные ссылки.";
-"fullscreen_effect_cover_flow_motion" = "Реальные цвета произведений искусства · Медленный дрейф света";
 "JSON Configuration" = "Конфигурация JSON";
 "Open App Store" = "Открыть App Store";
 "browse_lossless" = "Без потерь";

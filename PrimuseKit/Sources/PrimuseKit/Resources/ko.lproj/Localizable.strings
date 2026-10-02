@@ -662,9 +662,6 @@
 "fullscreen_effect_collection_scene_motion" = "동적 장면";
 "fullscreen_effect_collection_audio_reactive" = "오디오 반응";
 "fullscreen_effect_native_motion" = "시스템 기본 전환 · 기본값";
-"fullscreen_effect_cover_flow" = "커버 플로우";
-"fullscreen_effect_cover_flow_subtitle" = "현재 앨범 아트의 색으로 숨 쉬는 빛을 만듭니다";
-"fullscreen_effect_cover_flow_motion" = "실제 앨범 아트 색상 · 느린 빛 이동";
 "fullscreen_effect_cover_gallery" = "커버 갤러리";
 "fullscreen_effect_cover_gallery_subtitle" = "현재 커버 앞에서 보관함 커버가 배경으로 흐릅니다";
 "fullscreen_effect_cover_gallery_motion" = "실제 보관함 커버 · 레이어 패럴랙스";
@@ -674,9 +671,6 @@
 "fullscreen_effect_flowing_lines" = "흐르는 선";
 "fullscreen_effect_flowing_lines_subtitle" = "변하는 선이 커버를 감싸며 가사 세 줄을 보여 줍니다";
 "fullscreen_effect_flowing_lines_motion" = "계속 변하는 궤적 · 가사 세 줄";
-"fullscreen_effect_kinetic_title" = "곡명 전시 벽";
-"fullscreen_effect_kinetic_title_subtitle" = "곡명과 현재 가사는 한 번만 표시되고 다른 가사는 깊이감 있는 문자 필드를 만듭니다";
-"fullscreen_effect_kinetic_title_motion" = "배경 가사의 느린 이동 · 재생 위치에 맞춘 현재 줄 강조";
 "immersive_current_lyric_accessibility" = "현재 가사: %@";
 "fullscreen_effect_radial_pulse" = "원형 펄스";
 "fullscreen_effect_radial_pulse_subtitle" = "회전하는 레코드 둘레가 실제 오디오에 반응합니다";
@@ -684,9 +678,6 @@
 "fullscreen_effect_vinyl_deck" = "바이닐 덱";
 "fullscreen_effect_vinyl_deck_subtitle" = "아트워크가 회전하는 레코드의 라벨이 되고 톤암이 홈 위에 내려앉습니다";
 "fullscreen_effect_vinyl_deck_motion" = "재생에 맞춰 회전 · 일시정지 시 톤암 상승";
-"fullscreen_effect_mirror_stage" = "미러 스테이지";
-"fullscreen_effect_mirror_stage_subtitle" = "아트워크가 광택 바닥 위에 서고, 흐르는 스포트라이트 아래에서 반사됩니다";
-"fullscreen_effect_mirror_stage_motion" = "바닥 반사 · 느리게 흐르는 스포트라이트";
 "fullscreen_effect_aurora_veil" = "오로라 베일";
 "fullscreen_effect_aurora_veil_subtitle" = "아트워크 색 오로라가 별하늘 위에서 일렁이고 그 앞에 현재 가사가 놓입니다";
 "fullscreen_effect_aurora_veil_motion" = "일렁이는 오로라 커튼 · 아트워크 색";

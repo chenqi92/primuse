@@ -7519,18 +7519,17 @@ public enum ImmersivePresentationFallbackPolicy {
         _ = hasSynchronizedLyrics
         _ = hasArtwork
         let supported = [
-            "native", "coverFlow", "coverGallery", "starryNight", "flowingLines",
-            "kineticTitle", "radialPulse",
-            "vinylDeck", "mirrorStage", "auroraVeil", "spectrumHorizon", "particleBloom",
+            "native", "coverGallery", "starryNight", "flowingLines", "radialPulse",
+            "vinylDeck", "auroraVeil", "spectrumHorizon", "particleBloom",
         ]
         if supported.contains(selectedRawValue) {
             return selectedRawValue
         }
 
         switch selectedRawValue {
-        case "cover", "deepField", "ambientBloom", "amberDust", "jadeMoss", "sectionIndigo",
+        case "coverFlow", "cover", "deepField", "ambientBloom", "amberDust", "jadeMoss", "sectionIndigo",
              "duotone", "daylight", "ambientRefined", "editorial", "coverDriven":
-            return "coverFlow"
+            return "coverGallery"
         case "coverWall":
             return "coverGallery"
         case "starField":
@@ -7541,16 +7540,16 @@ public enum ImmersivePresentationFallbackPolicy {
             return "auroraVeil"
         case "auroraDrift":
             return "auroraVeil"
-        case "typography", "typeWall", "lyricStage", "lyrics":
-            return "kineticTitle"
+        case "kineticTitle", "typography", "typeWall", "lyricStage", "lyrics":
+            return "flowingLines"
         case "radialSpectrum":
             return "radialPulse"
         case "vinyl":
             return "vinylDeck"
-        case "liveWaveform", "spectrum", "visualizer":
+        case "liveWaveform", "spectrum", "visualizer", "mirrorStage":
             return "spectrumHorizon"
         default:
-            return "coverFlow"
+            return "coverGallery"
         }
     }
 }

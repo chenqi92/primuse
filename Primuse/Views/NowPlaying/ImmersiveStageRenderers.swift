@@ -1,8 +1,8 @@
 import Foundation
 import SwiftUI
 
-// 沉浸舞台的动态渲染层：新增的黑胶、镜面、极光、天际线、粒子场，以及既有
-// 场景升级后使用的深空星野、有机声纹、光束、呼吸光环与悬浮封面。
+// 沉浸舞台的动态渲染层：新增的黑胶、极光、天际线、粒子场，以及既有
+// 场景升级后使用的深空星野、有机声纹、光束与呼吸光环。
 //
 // 与 ImmersiveStageScenery.swift 一样只依赖 SwiftUI，同时编进 Primuse(iOS)、
 // PrimuseMac 与 PrimuseTV 三个 target(见 project.yml)。所有层都用
@@ -471,55 +471,6 @@ struct ImmersiveBreathingHalo: View {
     }
 }
 
-// MARK: - 悬浮封面
-
-/// 封面流光的主视觉：封面缓慢升降、轻微透视倾斜，间歇有一道斜向高光扫过。
-struct ImmersiveLevitatingPlate<Content: View>: View {
-    var isAnimating: Bool
-    var side: CGFloat
-    var cornerRadius: CGFloat
-    var glow: Color
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-            let amplitude = side * 0.028
-            let lift: CGFloat = CGFloat(sin(time / 5.6 * 2 * .pi)) * amplitude
-            let tilt: Double = sin(time / 7.3 * 2 * .pi) * 1.8
-            let sweep: Double = ImmersiveSeed.wrapped(time / 7.5)
-            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-
-            content()
-                .overlay {
-                    // 高光只在周期前 30% 扫过，其余时间停在画面外。
-                    let travel = sweep < 0.30 ? CGFloat(sweep / 0.30) : -1
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.clear, .white.opacity(0.26), .clear],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: side * 0.38, height: side * 1.8)
-                        .rotationEffect(.degrees(28))
-                        .offset(x: travel < 0 ? side * 2 : -side * 0.9 + travel * side * 1.8)
-                        .blendMode(.screen)
-                        .clipShape(shape)
-                        .allowsHitTesting(false)
-                }
-                .rotation3DEffect(.degrees(tilt), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
-                .offset(y: lift)
-                .shadow(
-                    color: glow.opacity(0.55),
-                    radius: side * 0.14 + lift * 0.4,
-                    y: side * 0.08 - lift * 0.6
-                )
-        }
-    }
-}
-
 // MARK: - 黑胶唱机
 
 /// 静态唱片本体：径向渐变胶面、几十圈音槽、固定光源的两道反光与外缘描边。
@@ -745,120 +696,6 @@ struct ImmersiveVinylTonearm: View {
         }
         .frame(width: size.width, height: size.height)
         .accessibilityHidden(true)
-    }
-}
-
-// MARK: - 镜面地板
-
-/// 镜面展台的舞台：天幕、发光地平线、镜面地板、封面正下方的聚光斑与
-/// 缓慢向观众推进的地板光带。倒影本身由场景用封面视图翻转生成。
-struct ImmersiveMirrorFloor: View {
-    var palette: ImmersiveArtworkPalette
-    var isAnimating: Bool
-    /// 地平线在画布内的绝对纵坐标。
-    var horizonY: CGFloat
-    /// 聚光斑与天幕光晕的横坐标(封面中心)。
-    var spotlightX: CGFloat
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 15, paused: !isAnimating)) { context in
-            let time = isAnimating ? context.date.timeIntervalSinceReferenceDate : 0
-            Canvas(rendersAsynchronously: true) { canvas, size in
-                let horizon = min(max(horizonY, 1), size.height - 1)
-                let bounds = Path(CGRect(origin: .zero, size: size))
-                let skyRect = CGRect(x: 0, y: 0, width: size.width, height: horizon)
-                let floorRect = CGRect(x: 0, y: horizon, width: size.width, height: size.height - horizon)
-
-                canvas.fill(Path(skyRect), with: .linearGradient(
-                    Gradient(colors: [palette.secondary.opacity(0.92), ImmersiveStagePalette.obsidian]),
-                    startPoint: .zero,
-                    endPoint: CGPoint(x: 0, y: horizon)
-                ))
-                canvas.fill(bounds, with: .radialGradient(
-                    Gradient(colors: [palette.primary.opacity(0.30), .clear]),
-                    center: CGPoint(x: spotlightX, y: horizon * 0.55),
-                    startRadius: 0,
-                    endRadius: horizon * 0.95
-                ))
-
-                canvas.fill(Path(floorRect), with: .linearGradient(
-                    Gradient(colors: [
-                        palette.primary.opacity(0.26),
-                        palette.secondary.opacity(0.55),
-                        ImmersiveStagePalette.obsidian,
-                    ]),
-                    startPoint: CGPoint(x: 0, y: horizon),
-                    endPoint: CGPoint(x: 0, y: size.height)
-                ))
-
-                var spot = canvas
-                spot.clip(to: Path(floorRect))
-                spot.translateBy(x: spotlightX, y: horizon + floorRect.height * 0.16)
-                spot.scaleBy(x: 1, y: 0.32)
-                let spotRadius = size.width * 0.36
-                spot.fill(
-                    Path(ellipseIn: CGRect(
-                        x: -spotRadius,
-                        y: -spotRadius,
-                        width: spotRadius * 2,
-                        height: spotRadius * 2
-                    )),
-                    with: .radialGradient(
-                        Gradient(colors: [palette.primary.opacity(0.46), .clear]),
-                        center: .zero,
-                        startRadius: 0,
-                        endRadius: spotRadius
-                    )
-                )
-
-                var floorLight = canvas
-                floorLight.clip(to: Path(floorRect))
-                floorLight.blendMode = .plusLighter
-                for index in 0..<3 {
-                    let phase = isAnimating
-                        ? ImmersiveSeed.wrapped(time / (9 + Double(index) * 3) + Double(index) * 0.33)
-                        : Double(index) * 0.33
-                    let y = horizon + CGFloat(phase) * floorRect.height
-                    let thickness = 1 + CGFloat(phase) * 6
-                    let alpha = 0.06 * (1 - phase) + 0.02
-                    floorLight.fill(
-                        Path(CGRect(x: 0, y: y - thickness / 2, width: size.width, height: thickness)),
-                        with: .linearGradient(
-                            Gradient(colors: [
-                                .clear,
-                                ImmersiveStagePalette.ink.opacity(alpha),
-                                .clear,
-                            ]),
-                            startPoint: CGPoint(x: 0, y: y),
-                            endPoint: CGPoint(x: size.width, y: y)
-                        )
-                    )
-                }
-
-                canvas.drawLayer { glow in
-                    glow.addFilter(.blur(radius: 8))
-                    glow.fill(
-                        Path(CGRect(x: 0, y: horizon - 3, width: size.width, height: 6)),
-                        with: .color(palette.primary.opacity(0.6))
-                    )
-                }
-                canvas.fill(
-                    Path(CGRect(x: 0, y: horizon - 0.75, width: size.width, height: 1.5)),
-                    with: .linearGradient(
-                        Gradient(colors: [
-                            .clear,
-                            palette.primary.opacity(0.95),
-                            ImmersiveStagePalette.ink.opacity(0.9),
-                            palette.primary.opacity(0.95),
-                            .clear,
-                        ]),
-                        startPoint: CGPoint(x: 0, y: horizon),
-                        endPoint: CGPoint(x: size.width, y: horizon)
-                    )
-                )
-            }
-        }
-        .allowsHitTesting(false)
     }
 }
 

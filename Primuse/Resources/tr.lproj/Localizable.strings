@@ -1375,9 +1375,6 @@
 "fullscreen_effect_vinyl_deck" = "Pikap";
 "fullscreen_effect_vinyl_deck_subtitle" = "Kapak, dönen plağın etiketi olur; kol ise oluğa yerleşir";
 "fullscreen_effect_vinyl_deck_motion" = "Plak çalarken döner · Duraklatınca kol kalkar";
-"fullscreen_effect_mirror_stage" = "Ayna Sahnesi";
-"fullscreen_effect_mirror_stage_subtitle" = "Kapak, parlak bir zeminde yansımasıyla durur; spot ışığı yavaşça kayar";
-"fullscreen_effect_mirror_stage_motion" = "Zemin yansıması · Yavaş kayan spot";
 "fullscreen_effect_aurora_veil" = "Kutup Işığı Perdesi";
 "fullscreen_effect_aurora_veil_subtitle" = "Kapak renklerindeki kutup ışığı perdeleri yıldızlı gökte dalgalanır, önde mevcut söz durur";
 "fullscreen_effect_aurora_veil_motion" = "Dalgalanan ışık perdeleri · Kapak rengi";
@@ -2635,7 +2632,6 @@
 "tag_editor_lyrics_edit" = "Şarkı sözlerini düzenle";
 "scrobble_mac_browser_oauth" = "Tarayıcı OAuth oturum açma";
 "lyrics_word_level_badge" = "Sözcük";
-"fullscreen_effect_kinetic_title_motion" = "Yavaş arka plan şarkı sözü kayması · oynatmayla senkronize edilmiş geçerli satır vurgusu";
 "recently_deleted_scraper_configs" = "Üst veri alma yapılandırmaları";
 "crossfade" = "Çapraz solma";
 "create" = "Oluştur";
@@ -2995,7 +2991,6 @@
 "s3_secret_key" = "Gizli Anahtar";
 "Domain" = "Alan Adı";
 "metadata_status_filter_pending" = "Beklemede";
-"fullscreen_effect_cover_flow_subtitle" = "Mevcut resim renklerini nefes alan bir ışık alanına çıkarır";
 "yearly_meta_exploration_title" = "Keşif";
 "radio_batch_duplicate_of %@" = "Zaten “%@” olarak kaydedildi";
 "scan_needs_connect" = "Lütfen önce bağlanın (OTP gerekli)";
@@ -3120,7 +3115,6 @@
 "open_main_window" = "Ana pencereyi aç";
 "source_connection_public_hint" = "Genel adres ve ters proxy, kendi bağlantı noktaları ve isteğe bağlı yol önekleriyle aynı doğrudan yöntemdir.";
 "Manual Only" = "Yalnızca Manuel";
-"fullscreen_effect_kinetic_title_subtitle" = "Şarkı adı ve mevcut şarkı sözü tekil kalırken diğer şarkı sözleri ekran boyunca katmanlı bir alan oluşturur";
 "home_source_pipeline" = "Kaynak işleme";
 "ai_provider_preset_gemini" = "Google Gemini";
 "local_import_section_footer" = "Dosyalar ve klasörler varsayılan olarak orijinal konumlarında kalır. Uygulama tarafından yönetilen bir çevrimdışı kopya için Primuse'ye Kopyala'yı seçin.";
@@ -3258,7 +3252,6 @@
 "ai_recommendation_custom_remove" = "Odağı Kaldır";
 "share_server_permission_denied" = "Bu hesap sunucudan paylaşım yapamaz";
 "rg_mode_album" = "Albüm";
-"fullscreen_effect_cover_flow" = "Kapak Akışı";
 "update_policy_macos_bundle_id" = "macOS ve iOS güncellemeleri ayrı ayrı kontrol edilir. Hiçbir Mac App Store Kimliği yapılandırılmadığından, Paket Kimliği aramasında yalnızca tür=mac-software içeren yerel Mac kayıtları kabul edilir; iOS 1.x sürüm satırı dikkate alınmaz.";
 "Throwback Mix" = "Gerileme Karışımı";
 "server_share_system_share" = "Bağlantıyı Paylaş…";
@@ -3320,7 +3313,6 @@
 "lyrics_editor_mark_line" = "Bu satırı işaretle";
 "apple_music_unavailable" = "Apple Music akışı bu hesap veya bölge için mevcut değil.";
 "scrobble_mac_validating" = "Doğrulanıyor";
-"fullscreen_effect_kinetic_title" = "Başlık Duvarı";
 "stats_seconds_format" = "%d sn";
 "ai_provider_preset_mistral" = "Mistral AI";
 "all_songs_section" = "Tüm Şarkılar";
@@ -3830,7 +3822,6 @@
 "artist_name_settings_separator_placeholder" = "Örneğin;";
 "local_import_copy_files" = "Dosyaları Kopyala";
 "server_share_permission_message" = "Sunucu paylaşımı destekliyor ancak bu hesabın genel bağlantılar oluşturmasına izin verilmiyor.";
-"fullscreen_effect_cover_flow_motion" = "Gerçek sanat eserleri renkleri · Yavaş ışık kayması";
 "JSON Configuration" = "JSON Yapılandırması";
 "Open App Store" = "App Store'yi açın";
 "browse_lossless" = "Kayıpsız";

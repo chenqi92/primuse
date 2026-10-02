@@ -1078,9 +1078,9 @@ final class TVImmersivePresentationActivityTests: XCTestCase {
         XCTAssertFalse(activity.isRenderingActive)
     }
 
-    func testTypographyAndSpectrumEffectsShareTheSameRenderingGate() {
+    func testLyricAndSpectrumEffectsShareTheSameRenderingGate() {
         for effect in [
-            FullscreenPlayerEffect.kineticTitle,
+            FullscreenPlayerEffect.flowingLines,
             .radialPulse,
             .spectrumHorizon,
             .particleBloom,
@@ -1411,7 +1411,7 @@ final class TVRemoteSeekFocusTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let defaultsName = "TVRemoteSeekFocusTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
-        defaults.set(FullscreenPlayerEffect.coverFlow.rawValue, forKey: FullscreenPlayerEffect.storageKey)
+        defaults.set(FullscreenPlayerEffect.coverGallery.rawValue, forKey: FullscreenPlayerEffect.storageKey)
         let store = TVStore(
             sourcesStore: SourcesStore(storageDirectoryURL: directory),
             library: MusicLibrary(storageDirectory: directory), defaults: defaults,

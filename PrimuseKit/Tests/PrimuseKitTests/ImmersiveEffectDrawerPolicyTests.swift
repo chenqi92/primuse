@@ -191,9 +191,9 @@ struct ImmersiveEffectDrawerPolicyTests {
 
     @Test("打开时停在当前效果上，当前效果不在列表里就停在第一项")
     func initialCenterFallsBackToTheFirstCard() {
-        let ids = ["coverFlow", "coverGallery", "starryNight"]
-        #expect(ImmersiveEffectDrawerPolicy.initialCenterID(effectIDs: ids, currentID: "coverGallery") == "coverGallery")
-        #expect(ImmersiveEffectDrawerPolicy.initialCenterID(effectIDs: ids, currentID: "native") == "coverFlow")
+        let ids = ["coverGallery", "flowingLines", "auroraVeil"]
+        #expect(ImmersiveEffectDrawerPolicy.initialCenterID(effectIDs: ids, currentID: "flowingLines") == "flowingLines")
+        #expect(ImmersiveEffectDrawerPolicy.initialCenterID(effectIDs: ids, currentID: "native") == "coverGallery")
         #expect(ImmersiveEffectDrawerPolicy.initialCenterID(effectIDs: [], currentID: "native") == nil)
     }
 
@@ -202,8 +202,8 @@ struct ImmersiveEffectDrawerPolicyTests {
     @Test("滚停够久才应用，路过不算")
     func settlingAppliesOnlyAfterTheDelay() {
         let tooSoon = ImmersiveEffectDrawerPolicy.shouldApply(
-            currentEffectID: "coverFlow",
-            candidateID: "starryNight",
+            currentEffectID: "coverGallery",
+            candidateID: "flowingLines",
             trigger: .settled,
             appliesOnSettle: true,
             secondsSinceCenterChange: 0.1
@@ -211,8 +211,8 @@ struct ImmersiveEffectDrawerPolicyTests {
         #expect(!tooSoon)
 
         let settled = ImmersiveEffectDrawerPolicy.shouldApply(
-            currentEffectID: "coverFlow",
-            candidateID: "starryNight",
+            currentEffectID: "coverGallery",
+            candidateID: "flowingLines",
             trigger: .settled,
             appliesOnSettle: true,
             secondsSinceCenterChange: 0.25
@@ -223,8 +223,8 @@ struct ImmersiveEffectDrawerPolicyTests {
     @Test("居中项就是当前效果时不重复应用")
     func centeringTheCurrentEffectChangesNothing() {
         let sameOnSettle = ImmersiveEffectDrawerPolicy.shouldApply(
-            currentEffectID: "coverFlow",
-            candidateID: "coverFlow",
+            currentEffectID: "coverGallery",
+            candidateID: "coverGallery",
             trigger: .settled,
             appliesOnSettle: true,
             secondsSinceCenterChange: 3
@@ -232,8 +232,8 @@ struct ImmersiveEffectDrawerPolicyTests {
         #expect(!sameOnSettle)
 
         let sameOnTap = ImmersiveEffectDrawerPolicy.shouldApply(
-            currentEffectID: "coverFlow",
-            candidateID: "coverFlow",
+            currentEffectID: "coverGallery",
+            candidateID: "coverGallery",
             trigger: .tapped,
             appliesOnSettle: true,
             secondsSinceCenterChange: 0
@@ -245,7 +245,7 @@ struct ImmersiveEffectDrawerPolicyTests {
     func browsingModeAppliesOnTapOnly() {
         let settled = ImmersiveEffectDrawerPolicy.shouldApply(
             currentEffectID: "native",
-            candidateID: "starryNight",
+            candidateID: "flowingLines",
             trigger: .settled,
             appliesOnSettle: false,
             secondsSinceCenterChange: 5
@@ -254,7 +254,7 @@ struct ImmersiveEffectDrawerPolicyTests {
 
         let tapped = ImmersiveEffectDrawerPolicy.shouldApply(
             currentEffectID: "native",
-            candidateID: "starryNight",
+            candidateID: "flowingLines",
             trigger: .tapped,
             appliesOnSettle: false,
             secondsSinceCenterChange: 0
@@ -265,7 +265,7 @@ struct ImmersiveEffectDrawerPolicyTests {
     @Test("还没有居中项时什么都不做")
     func missingCandidateIsIgnored() {
         let missing = ImmersiveEffectDrawerPolicy.shouldApply(
-            currentEffectID: "coverFlow",
+            currentEffectID: "coverGallery",
             candidateID: nil,
             trigger: .tapped,
             appliesOnSettle: true,
@@ -274,7 +274,7 @@ struct ImmersiveEffectDrawerPolicyTests {
         #expect(!missing)
 
         let blank = ImmersiveEffectDrawerPolicy.shouldApply(
-            currentEffectID: "coverFlow",
+            currentEffectID: "coverGallery",
             candidateID: "",
             trigger: .settled,
             appliesOnSettle: true,

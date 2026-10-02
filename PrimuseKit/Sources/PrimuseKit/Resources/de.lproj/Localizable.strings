@@ -662,9 +662,6 @@
 "fullscreen_effect_collection_scene_motion" = "Bewegte Szenen";
 "fullscreen_effect_collection_audio_reactive" = "Audioreaktiv";
 "fullscreen_effect_native_motion" = "Systemübergang · Standard";
-"fullscreen_effect_cover_flow" = "Cover Flow";
-"fullscreen_effect_cover_flow_subtitle" = "Erzeugt aus den Coverfarben ein atmendes Lichtfeld";
-"fullscreen_effect_cover_flow_motion" = "Echte Coverfarben · Langsames Lichtdriften";
 "fullscreen_effect_cover_gallery" = "Cover-Galerie";
 "fullscreen_effect_cover_gallery_subtitle" = "Aktuelles Cover vorn, Bibliothekscover bewegen sich dahinter";
 "fullscreen_effect_cover_gallery_motion" = "Echte Bibliothekscover · Parallaxe in Ebenen";
@@ -674,9 +671,6 @@
 "fullscreen_effect_flowing_lines" = "Fließende Linien";
 "fullscreen_effect_flowing_lines_subtitle" = "Wandelnde Konturen umkreisen das Cover mit drei Textzeilen";
 "fullscreen_effect_flowing_lines_motion" = "Stetig wandelnde Konturen · Drei Textzeilen";
-"fullscreen_effect_kinetic_title" = "Titelwand";
-"fullscreen_effect_kinetic_title_subtitle" = "Titel und aktuelle Liedzeile bleiben einmalig, während weitere Liedzeilen ein räumliches Textfeld bilden";
-"fullscreen_effect_kinetic_title_motion" = "Langsame Bewegung der Hintergrundzeilen · Wiedergabe-Hervorhebung der aktuellen Zeile";
 "immersive_current_lyric_accessibility" = "Aktuelle Liedzeile: %@";
 "fullscreen_effect_radial_pulse" = "Radialer Puls";
 "fullscreen_effect_radial_pulse_subtitle" = "Der Ring der rotierenden Platte reagiert auf das echte Audio";
@@ -684,9 +678,6 @@
 "fullscreen_effect_vinyl_deck" = "Vinyl-Deck";
 "fullscreen_effect_vinyl_deck_subtitle" = "Das Cover wird zum Label einer rotierenden Platte, der Tonarm liegt in der Rille";
 "fullscreen_effect_vinyl_deck_motion" = "Platte dreht sich bei Wiedergabe · Tonarm hebt bei Pause";
-"fullscreen_effect_mirror_stage" = "Spiegelbühne";
-"fullscreen_effect_mirror_stage_subtitle" = "Das Cover steht auf einem glänzenden Boden mit Spiegelung unter einem wandernden Spot";
-"fullscreen_effect_mirror_stage_motion" = "Bodenspiegelung · Langsam wandernder Spot";
 "fullscreen_effect_aurora_veil" = "Polarlichtschleier";
 "fullscreen_effect_aurora_veil_subtitle" = "Polarlicht in Coverfarben wogt über einem Sternenhimmel hinter der aktuellen Zeile";
 "fullscreen_effect_aurora_veil_motion" = "Wogende Lichtvorhänge · Coverfarbe";

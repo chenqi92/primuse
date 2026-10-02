@@ -1363,9 +1363,6 @@
 "fullscreen_effect_collection_native" = "मूल";
 "fullscreen_effect_collection_scene_motion" = "मोशन दृश्य";
 "fullscreen_effect_cover" = "कलाकृति";
-"fullscreen_effect_cover_flow" = "कवर फ्लो";
-"fullscreen_effect_cover_flow_motion" = "वास्तविक कलाकृति के रंग · धीमी रोशनी का बहाव";
-"fullscreen_effect_cover_flow_subtitle" = "वर्तमान कलाकृति के रंगों को एक सांस लेने वाले प्रकाश क्षेत्र में निकालता है";
 "fullscreen_effect_cover_gallery" = "कवर गैलरी";
 "fullscreen_effect_cover_gallery_motion" = "वास्तविक लाइब्रेरी कलाकृति · स्तरित लंबन";
 "fullscreen_effect_cover_gallery_subtitle" = "सामने वर्तमान कलाकृति और उसके पीछे लाइब्रेरी कवर चल रहा है";
@@ -1376,17 +1373,11 @@
 "fullscreen_effect_flowing_lines" = "बहती हुई रेखाएँ";
 "fullscreen_effect_flowing_lines_motion" = "लगातार विकसित हो रही रूपरेखा · तीन गीत के बोल";
 "fullscreen_effect_flowing_lines_subtitle" = "विकसित होती आकृतियाँ तीन गीत के बोल पंक्तियों के साथ कलाकृति की परिक्रमा करती हैं";
-"fullscreen_effect_kinetic_title" = "शीर्षक दीवार";
-"fullscreen_effect_kinetic_title_motion" = "धीमी पृष्ठभूमि गीत के बोल बहाव · प्लेबैक-सिंक की गई वर्तमान-लाइन हाइलाइट";
-"fullscreen_effect_kinetic_title_subtitle" = "गीत का शीर्षक और वर्तमान गीत एकवचन रहते हैं जबकि अन्य गीत स्क्रीन पर एक स्तरित क्षेत्र बनाते हैं";
 "fullscreen_effect_light_field" = "प्रकाश क्षेत्र";
 "fullscreen_effect_light_field_subtitle" = "धीमी गति से बुनी गई रोशनी और प्रिज्म गति";
 "fullscreen_effect_vinyl_deck" = "विनाइल डेक";
 "fullscreen_effect_vinyl_deck_subtitle" = "कवर घूमते रिकॉर्ड का लेबल बन जाता है और टोनआर्म खांचे में टिका रहता है";
 "fullscreen_effect_vinyl_deck_motion" = "प्लेबैक के साथ रिकॉर्ड घूमता है · रोकने पर टोनआर्म उठ जाता है";
-"fullscreen_effect_mirror_stage" = "मिरर स्टेज";
-"fullscreen_effect_mirror_stage_subtitle" = "कवर चमकदार फ़र्श पर खड़ा रहता है और बहती स्पॉटलाइट के नीचे उसका प्रतिबिंब दिखता है";
-"fullscreen_effect_mirror_stage_motion" = "फ़र्श पर प्रतिबिंब · धीमी बहती स्पॉटलाइट";
 "fullscreen_effect_aurora_veil" = "ऑरोरा वील";
 "fullscreen_effect_aurora_veil_subtitle" = "कवर के रंगों वाले ऑरोरा पर्दे तारों भरे आकाश पर लहराते हैं और सामने मौजूदा पंक्ति रहती है";
 "fullscreen_effect_aurora_veil_motion" = "लहराते ऑरोरा पर्दे · कवर का रंग";

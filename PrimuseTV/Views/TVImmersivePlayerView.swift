@@ -178,7 +178,6 @@ struct TVImmersivePlayerView: View {
     @State private var showsQueue = false
     @State private var hasResolvedArtwork = true
     @State private var gallerySongs: [TVSong] = []
-    @State private var typographyFieldLines: [String] = []
     @State private var activeLyricIndex: Int?
     @State private var lyricInterlude = false
     @Namespace private var chromeFocus
@@ -196,7 +195,7 @@ struct TVImmersivePlayerView: View {
                !requested.isNative {
                 return requested
             }
-            return .coverFlow
+            return .coverGallery
         }
         #endif
         return FullscreenPlayerEffect(rawValue: effectRawValue) ?? .defaultValue
@@ -208,7 +207,7 @@ struct TVImmersivePlayerView: View {
             hasSynchronizedLyrics: hasSynchronizedLyrics,
             hasArtwork: hasResolvedArtwork
         )
-        return FullscreenPlayerEffect(rawValue: raw) ?? .coverFlow
+        return FullscreenPlayerEffect(rawValue: raw) ?? .coverGallery
     }
 
     private var artworkPalette: ImmersiveArtworkPalette {
@@ -323,7 +322,6 @@ struct TVImmersivePlayerView: View {
                 showsModePicker = true
                 if !initialPresentation.startsPresentationWork {
                     refreshGallerySongs()
-                    refreshTypographyFieldLines()
                 }
             }
         }
@@ -350,7 +348,6 @@ struct TVImmersivePlayerView: View {
         }
         .onChange(of: lyricObservationIdentity) { _, _ in
             guard presentationActivity.isRenderingActive else { return }
-            refreshTypographyFieldLines()
             restartLyricObservation()
         }
         .onChange(of: voiceOverEnabled) { _, _ in
@@ -408,7 +405,6 @@ struct TVImmersivePlayerView: View {
                     .frame(width: side, height: side)
                 )
             },
-            typographyFieldLines: typographyFieldLines,
             isRenderingActive: presentationActivity.isRenderingActive,
             reduceMotion: reduceMotion,
             lyricsMotionEnabled: lyricsMotionEnabled,
@@ -509,8 +505,8 @@ struct TVImmersivePlayerView: View {
         switch presentationEffect {
         case .radialPulse, .vinylDeck, .particleBloom:
             .leading
-        case .coverFlow, .coverGallery, .starryNight, .flowingLines, .kineticTitle,
-             .mirrorStage, .auroraVeil, .spectrumHorizon:
+        case .coverGallery, .starryNight, .flowingLines,
+             .auroraVeil, .spectrumHorizon:
             .trailing
         case .native:
             .center
@@ -724,13 +720,6 @@ struct TVImmersivePlayerView: View {
         gallerySongs = selected
     }
 
-    private func refreshTypographyFieldLines() {
-        typographyFieldLines = ImmersiveTypographyFieldPolicy.textPool(
-            from: store.lyrics.map(\.text),
-            title: meaningful(store.nowPlaying.title, fallback: ImmersiveDemoContent.title)
-        )
-    }
-
     private func meaningful(_ value: String, fallback: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = trimmed.lowercased()
@@ -914,7 +903,6 @@ struct TVImmersivePlayerView: View {
 
     private func resumePresentationWork() {
         refreshGallerySongs()
-        refreshTypographyFieldLines()
         restartLyricObservation()
         updateSpectrumAnalysis(for: presentationEffect)
         if assistiveNavigationEnabled {

@@ -1525,7 +1525,7 @@ struct PrimuseApp: App {
                 onExitFullScreen: {},
                 onToggleQueue: {},
                 usesDemoEvidenceContent: true,
-                debugEffectOverride: .kineticTitle
+                debugEffectOverride: .flowingLines
             )
         } else {
             MacContentView()

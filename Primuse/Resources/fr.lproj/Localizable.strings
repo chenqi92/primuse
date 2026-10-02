@@ -1741,9 +1741,6 @@
 "fullscreen_effect_collection_scene_motion" = "Scènes animées";
 "fullscreen_effect_collection_audio_reactive" = "Réactif au son";
 "fullscreen_effect_native_motion" = "Transition système · Par défaut";
-"fullscreen_effect_cover_flow" = "Lueur de pochette";
-"fullscreen_effect_cover_flow_subtitle" = "Transforme les couleurs de la pochette en champ lumineux respirant";
-"fullscreen_effect_cover_flow_motion" = "Couleurs réelles · Dérive lumineuse lente";
 "fullscreen_effect_cover_gallery" = "Galerie de pochettes";
 "fullscreen_effect_cover_gallery_subtitle" = "Pochette actuelle au premier plan, bibliothèque en mouvement derrière";
 "fullscreen_effect_cover_gallery_motion" = "Pochettes réelles · Parallaxe en couches";
@@ -1753,9 +1750,6 @@
 "fullscreen_effect_flowing_lines" = "Lignes fluides";
 "fullscreen_effect_flowing_lines_subtitle" = "Des contours évolutifs entourent la pochette avec trois paroles";
 "fullscreen_effect_flowing_lines_motion" = "Contours en évolution continue · Trois paroles";
-"fullscreen_effect_kinetic_title" = "Mur de titres";
-"fullscreen_effect_kinetic_title_subtitle" = "Le titre et les paroles actuelles restent uniques tandis que les autres lignes composent un champ en profondeur";
-"fullscreen_effect_kinetic_title_motion" = "Dérive lente des paroles en arrière-plan · surbrillance de la ligne actuelle synchronisée";
 "immersive_current_lyric_accessibility" = "Paroles actuelles : %@";
 "fullscreen_effect_radial_pulse" = "Pulsation radiale";
 "fullscreen_effect_radial_pulse_subtitle" = "L’anneau du disque tourne et réagit au son réel";
@@ -1763,9 +1757,6 @@
 "fullscreen_effect_vinyl_deck" = "Platine vinyle";
 "fullscreen_effect_vinyl_deck_subtitle" = "La pochette devient l'étiquette d'un disque en rotation, le bras posé dans le sillon";
 "fullscreen_effect_vinyl_deck_motion" = "Le disque tourne à la lecture · Le bras se lève en pause";
-"fullscreen_effect_mirror_stage" = "Scène miroir";
-"fullscreen_effect_mirror_stage_subtitle" = "La pochette repose sur un sol brillant avec son reflet sous un projecteur qui dérive";
-"fullscreen_effect_mirror_stage_motion" = "Reflet au sol · Projecteur en dérive lente";
 "fullscreen_effect_aurora_veil" = "Voile d'aurore";
 "fullscreen_effect_aurora_veil_subtitle" = "Des rideaux d'aurore aux couleurs de la pochette ondulent sur un ciel étoilé derrière la parole en cours";
 "fullscreen_effect_aurora_veil_motion" = "Rideaux d'aurore ondulants · Couleur de la pochette";

@@ -275,16 +275,13 @@ enum AmbientLightOverlayPolicy {
     }
 }
 
-/// 用户可选择的十一类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
+/// 用户可选择的八类沉浸画面。名称描述效果机制，不再暴露设计稿编号。
 enum ImmersiveEffectScene: Sendable {
-    case coverFlow
     case coverGallery
     case vinylDeck
-    case mirrorStage
     case starryNight
     case flowingLines
     case auroraVeil
-    case kineticTitle
     case radialPulse
     case spectrumHorizon
     case particleBloom
@@ -331,18 +328,15 @@ enum FullscreenEffectCollection: Int, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// 三端共享的全屏效果目录。原生播放器保持默认，其余十一项对应十一种实际渲染机制。
+/// 三端共享的全屏效果目录。原生播放器保持默认，其余八项对应八种实际渲染机制。
 /// 新增效果追加在末尾，保证 macOS 数字快捷键与既有顺序一致。
 enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     case native
-    case coverFlow
     case coverGallery
     case starryNight
     case flowingLines
-    case kineticTitle
     case radialPulse
     case vinylDeck
-    case mirrorStage
     case auroraVeil
     case spectrumHorizon
     case particleBloom
@@ -357,14 +351,11 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var rawValue: String {
         switch self {
         case .native: "native"
-        case .coverFlow: "coverFlow"
         case .coverGallery: "coverGallery"
         case .starryNight: "starryNight"
         case .flowingLines: "flowingLines"
-        case .kineticTitle: "kineticTitle"
         case .radialPulse: "radialPulse"
         case .vinylDeck: "vinylDeck"
-        case .mirrorStage: "mirrorStage"
         case .auroraVeil: "auroraVeil"
         case .spectrumHorizon: "spectrumHorizon"
         case .particleBloom: "particleBloom"
@@ -376,27 +367,23 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
         switch rawValue {
         case "native":
             self = .native
-        case "coverFlow", "cover", "deepField", "ambientBloom", "amberDust", "jadeMoss",
+        case "coverGallery", "coverWall",
+             "coverFlow", "cover", "deepField", "ambientBloom", "amberDust", "jadeMoss",
              "sectionIndigo", "duotone", "daylight", "ambientRefined", "editorial", "coverDriven":
-            self = .coverFlow
-        case "coverGallery", "coverWall":
             self = .coverGallery
         case "starryNight", "starField":
             self = .starryNight
-        case "flowingLines", "contour":
+        case "flowingLines", "contour",
+             "kineticTitle", "typography", "typeWall", "lyricStage", "lyrics":
             self = .flowingLines
         case "lightRhythm", "lightField", "liquidChrome":
             self = .auroraVeil
-        case "kineticTitle", "typography", "typeWall", "lyricStage", "lyrics":
-            self = .kineticTitle
         case "radialPulse", "radialSpectrum":
             self = .radialPulse
-        case "liveWaveform", "spectrum", "visualizer":
+        case "liveWaveform", "spectrum", "visualizer", "mirrorStage":
             self = .spectrumHorizon
         case "vinylDeck", "vinyl":
             self = .vinylDeck
-        case "mirrorStage":
-            self = .mirrorStage
         case "auroraVeil", "auroraDrift":
             self = .auroraVeil
         case "spectrumHorizon":
@@ -411,22 +398,19 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var collection: FullscreenEffectCollection {
         switch self {
         case .native: .native
-        case .coverFlow, .coverGallery, .vinylDeck, .mirrorStage: .coverReactive
-        case .starryNight, .flowingLines, .auroraVeil, .kineticTitle: .sceneMotion
+        case .coverGallery, .vinylDeck: .coverReactive
+        case .starryNight, .flowingLines, .auroraVeil: .sceneMotion
         case .radialPulse, .spectrumHorizon, .particleBloom: .audioReactive
         }
     }
 
     var scene: ImmersiveEffectScene {
         switch self {
-        case .native, .coverFlow: .coverFlow
-        case .coverGallery: .coverGallery
+        case .native, .coverGallery: .coverGallery
         case .starryNight: .starryNight
         case .flowingLines: .flowingLines
-        case .kineticTitle: .kineticTitle
         case .radialPulse: .radialPulse
         case .vinylDeck: .vinylDeck
-        case .mirrorStage: .mirrorStage
         case .auroraVeil: .auroraVeil
         case .spectrumHorizon: .spectrumHorizon
         case .particleBloom: .particleBloom
@@ -457,14 +441,11 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     private var localizationStem: String {
         switch self {
         case .native: "native"
-        case .coverFlow: "cover_flow"
         case .coverGallery: "cover_gallery"
         case .starryNight: "starry_night"
         case .flowingLines: "flowing_lines"
-        case .kineticTitle: "kinetic_title"
         case .radialPulse: "radial_pulse"
         case .vinylDeck: "vinyl_deck"
-        case .mirrorStage: "mirror_stage"
         case .auroraVeil: "aurora_veil"
         case .spectrumHorizon: "spectrum_horizon"
         case .particleBloom: "particle_bloom"
@@ -490,14 +471,11 @@ enum FullscreenPlayerEffect: CaseIterable, Identifiable, Sendable {
     var symbolName: String {
         switch self {
         case .native: "rectangle.inset.filled"
-        case .coverFlow: "paintpalette.fill"
         case .coverGallery: "square.grid.3x3.fill"
         case .starryNight: "sparkles"
         case .flowingLines: "scribble.variable"
-        case .kineticTitle: "textformat.size"
         case .radialPulse: "waveform.circle.fill"
         case .vinylDeck: "opticaldisc.fill"
-        case .mirrorStage: "rectangle.portrait.bottomhalf.inset.filled"
         case .auroraVeil: "moon.haze.fill"
         case .spectrumHorizon: "chart.bar.xaxis"
         case .particleBloom: "aqi.medium"

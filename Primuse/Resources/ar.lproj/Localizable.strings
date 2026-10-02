@@ -1363,9 +1363,6 @@
 "fullscreen_effect_collection_native" = "الأصل";
 "fullscreen_effect_collection_scene_motion" = "مشاهد الحركة";
 "fullscreen_effect_cover" = "عمل فني";
-"fullscreen_effect_cover_flow" = "غطاء التدفق";
-"fullscreen_effect_cover_flow_motion" = "ألوان العمل الفني الحقيقي · انحراف الضوء البطيء";
-"fullscreen_effect_cover_flow_subtitle" = "يستخرج ألوان العمل الفني الحالية إلى مجال ضوء متنفس";
 "fullscreen_effect_cover_gallery" = "معرض الغلاف";
 "fullscreen_effect_cover_gallery_motion" = "عمل فني حقيقي للمكتبة · اختلاف المنظر الطبقي";
 "fullscreen_effect_cover_gallery_subtitle" = "العمل الفني الحالي في المقدمة وأغلفة المكتبة تتحرك خلفه";
@@ -1376,17 +1373,11 @@
 "fullscreen_effect_flowing_lines" = "الخطوط الانسيابية";
 "fullscreen_effect_flowing_lines_motion" = "معالم تتطور باستمرار · ثلاث كلمات";
 "fullscreen_effect_flowing_lines_subtitle" = "تدور الملامح المتطورة حول العمل الفني بثلاثة أسطر غنائية";
-"fullscreen_effect_kinetic_title" = "جدار العنوان";
-"fullscreen_effect_kinetic_title_motion" = "الانجراف الغنائي البطيء للخلفية · تسليط الضوء على الخط الحالي المتزامن مع التشغيل";
-"fullscreen_effect_kinetic_title_subtitle" = "يظل عنوان الأغنية والكلمات الغنائية الحالية مفردتين بينما تشكل الكلمات الأخرى حقلاً متعدد الطبقات عبر الشاشة";
 "fullscreen_effect_light_field" = "المجال الضوئي";
 "fullscreen_effect_light_field_subtitle" = "حركة الضوء والمنشور البطيئة";
 "fullscreen_effect_vinyl_deck" = "منصة الفينيل";
 "fullscreen_effect_vinyl_deck_subtitle" = "يتحوّل الغلاف إلى ملصق أسطوانة دوّارة بينما تستقر الذراع في الأخدود";
 "fullscreen_effect_vinyl_deck_motion" = "تدور الأسطوانة أثناء التشغيل · ترتفع الذراع عند الإيقاف المؤقت";
-"fullscreen_effect_mirror_stage" = "منصة المرآة";
-"fullscreen_effect_mirror_stage_subtitle" = "يقف الغلاف على أرضية لامعة مع انعكاس حي تحت ضوء كشّاف ينساب ببطء";
-"fullscreen_effect_mirror_stage_motion" = "انعكاس على الأرضية · انسياب بطيء للكشّاف";
 "fullscreen_effect_aurora_veil" = "حجاب الشفق";
 "fullscreen_effect_aurora_veil_subtitle" = "ستائر شفق بألوان الغلاف تتموّج فوق سماء مرصّعة بالنجوم خلف السطر الحالي";
 "fullscreen_effect_aurora_veil_motion" = "ستائر شفق متموّجة · لون الغلاف";
