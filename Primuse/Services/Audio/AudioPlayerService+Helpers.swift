@@ -768,6 +768,50 @@ extension AudioPlayerService {
         return sourceManager?.cachedURL(for: song)
     }
 
+    /// 本机文件夹里这首歌在 iCloud 云盘、还没下到本机:先下载,期间界面显示
+    /// 「正在从 iCloud 下载」,下完由调用方接着起播。换了别的歌就以取消结束。
+    func downloadFromICloudBeforePlayback(url: URL, song: Song, playID id: UUID) async throws {
+        plog("☁️ '\(song.title)' is not downloaded from iCloud yet; downloading before playback")
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        iCloudDownloadingSongID = song.id
+        iCloudDownloadPlayID = id
+        defer {
+            if iCloudDownloadPlayID == id {
+                iCloudDownloadingSongID = nil
+                iCloudDownloadPlayID = nil
+            }
+        }
+        do {
+            try await UbiquitousPlaybackFile.download(
+                url,
+                isOffline: { @MainActor in
+                    NetworkMonitor.shared.hasDeterminedPath && !NetworkMonitor.shared.isReachable
+                },
+                isCurrent: { @MainActor [weak self] in self?.playID == id }
+            )
+        } catch let error as UbiquitousPlaybackFile.DownloadError {
+            plog("☁️ iCloud download failed for '\(song.title)': \(error.failure) \(error.underlyingDescription ?? "")")
+            throw error
+        }
+        let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt).rounded())
+        plog("☁️ '\(song.title)' downloaded from iCloud in \(elapsed)s")
+    }
+
+    /// 队列里接下来那首若是还在 iCloud 上的本机文件,先让系统开始下载,轮到它时不用再等。
+    func requestICloudDownloadForUpcomingLocalSong(_ song: Song) async {
+        guard let sourceManager,
+              playbackMetadataSourceType?(song.sourceID) == .local,
+              let url = try? await sourceManager.resolveURL(for: song, acquirePlaybackCacheLease: false),
+              url.isFileURL,
+              await UbiquitousPlaybackFile.needsDownload(url) else { return }
+        do {
+            try FileManager.default.startDownloadingUbiquitousItem(at: url)
+            plog("☁️ requested iCloud download for upcoming '\(song.title)'")
+        } catch {
+            plog("☁️ iCloud download request failed for upcoming '\(song.title)': \(error.localizedDescription)")
+        }
+    }
+
     /// - Parameter transcodePlanOverride: 同一首歌重新解析地址时(seek / 断流
     ///   恢复)必须复用开播时那份取流计划, 否则中途切网会让解码器种类与时间轴
     ///   漂移。新歌开播传 nil, 由 SourceManager 现场计算。

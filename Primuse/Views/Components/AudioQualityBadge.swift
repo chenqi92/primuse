@@ -153,3 +153,24 @@ struct NowPlayingAudioInfoCapsule: View {
         }
     }
 }
+
+/// 起播前正在从 iCloud 云盘下载这首歌时,占歌名下那一行的位置。
+struct NowPlayingICloudDownloadNotice: View {
+    let textColor: Color
+    let fillColor: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "icloud.and.arrow.down")
+                .symbolEffect(.pulse, options: .repeating)
+            Text("playback_icloud_downloading")
+        }
+        .font(.caption)
+        .foregroundStyle(textColor)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(fillColor, in: Capsule())
+        .accessibilityElement(children: .combine)
+    }
+}

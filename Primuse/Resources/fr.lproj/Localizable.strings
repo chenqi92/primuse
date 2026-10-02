@@ -909,6 +909,9 @@
 "add" = "Ajouter";
 "security" = "Sécurité";
 "playback_error_connection" = "Connexion à la source impossible";
+"playback_icloud_downloading" = "Téléchargement depuis iCloud…";
+"playback_icloud_error_offline" = "Ce morceau est encore dans iCloud et ne peut pas être téléchargé sans connexion réseau.";
+"playback_icloud_error_download" = "Impossible de télécharger ce morceau depuis iCloud. Réessayez plus tard ou téléchargez-le d’abord depuis iCloud Drive.";
 "playback_error_source_disabled" = "Cette source musicale est désactivée";
 "playback_error_source_unreachable_format" = "Impossible de joindre « %@ » sur ce réseau";
 "playback_error_source_unreachable_skipped_format" = "Impossible de joindre « %@ » sur ce réseau. Ses morceaux ont été ignorés.";

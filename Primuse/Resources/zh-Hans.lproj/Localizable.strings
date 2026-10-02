@@ -720,6 +720,9 @@
 
 // MARK: - Playback Errors
 "playback_error_connection" = "无法连接到来源";
+"playback_icloud_downloading" = "正在从 iCloud 下载…";
+"playback_icloud_error_offline" = "这首歌还在 iCloud 上，当前没有网络，无法下载。";
+"playback_icloud_error_download" = "无法从 iCloud 下载这首歌，请稍后再试，或先在 iCloud 云盘里把它下载到本机。";
 "playback_error_source_disabled" = "该音乐源已停用";
 "playback_error_source_unreachable_format" = "当前网络无法连接「%@」";
 "playback_error_source_unreachable_skipped_format" = "当前网络无法连接「%@」，已跳过它的歌曲";

@@ -684,6 +684,9 @@
 "add" = "加入";
 "security" = "安全性";
 "playback_error_connection" = "無法連線到來源";
+"playback_icloud_downloading" = "正在從 iCloud 下載…";
+"playback_icloud_error_offline" = "這首歌還在 iCloud 上，目前沒有網路，無法下載。";
+"playback_icloud_error_download" = "無法從 iCloud 下載這首歌，請稍後再試，或先在 iCloud 雲碟裡把它下載到本機。";
 "playback_error_source_disabled" = "該音樂來源已停用";
 "playback_error_source_unreachable_format" = "目前的網路無法連線「%@」";
 "playback_error_source_unreachable_skipped_format" = "目前的網路無法連線「%@」，已略過它的歌曲";

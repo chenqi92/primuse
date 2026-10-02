@@ -910,6 +910,9 @@
 "add" = "追加";
 "security" = "セキュリティ";
 "playback_error_connection" = "ソースに接続できません";
+"playback_icloud_downloading" = "iCloud からダウンロード中…";
+"playback_icloud_error_offline" = "この曲はまだ iCloud 上にあり、ネットワークに接続していないためダウンロードできません。";
+"playback_icloud_error_download" = "この曲を iCloud からダウンロードできませんでした。しばらくしてからもう一度試すか、先に iCloud Drive でダウンロードしてください。";
 "playback_error_source_disabled" = "この音楽ソースは無効です";
 "playback_error_source_unreachable_format" = "このネットワークでは「%@」に接続できません";
 "playback_error_source_unreachable_skipped_format" = "このネットワークでは「%@」に接続できないため、その曲をスキップしました";

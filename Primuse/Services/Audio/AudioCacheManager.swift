@@ -386,6 +386,16 @@ actor AudioCacheManager {
         migrateExistingFiles()
     }
 
+    /// 启动后在后台先读访问记录、清点缓存目录。远端歌第一次起播要拿缓存租约,
+    /// 不预热的话那一下要等整个目录走完(#170)。
+    func warmUp() {
+        guard !initialized else { return }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        ensureInitialized()
+        let elapsed = Int(((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000).rounded())
+        plog("🗄️ audio cache warmed up files=\(trackedFileSizes.count) elapsed=\(elapsed)ms")
+    }
+
     // MARK: - Public API
 
     /// Record that a cached file was accessed (played or just created).

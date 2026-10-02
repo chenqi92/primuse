@@ -215,7 +215,10 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
 
     func localURL(for path: String) async throws -> URL {
         let fileURL = try resolvedURL(for: path, allowRoot: true)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        // 被系统腾出空间的 iCloud 云盘文件在原路径上可能不存在(只剩 `.名字.icloud`
+        // 占位),照样交出原路径,由播放层先把它下载回来。
+        guard FileManager.default.fileExists(atPath: fileURL.path)
+                || UbiquitousPlaybackFile.isEvictedPlaceholder(fileURL) else {
             throw SourceError.fileNotFound(path)
         }
         return fileURL
@@ -1302,5 +1305,115 @@ actor LocalFileSource: ExistingSongAwareScanningConnector, EmbeddedMetadataWrite
             String(format: "%02x", $0)
         }.joined()
         return "primuse.localMetadataTitleRepair.\(metadataTitleRepairVersion).\(sourceID).\(digest)"
+    }
+}
+
+/// 本机文件夹引用里那些放在 iCloud 云盘、还没下到这台设备的歌:起播前读状态、请求下载、
+/// 等到能读(#170)。判定规则见 `UbiquitousPlaybackDownloadPolicy`。
+enum UbiquitousPlaybackFile {
+    struct DownloadError: LocalizedError, Sendable {
+        let failure: UbiquitousPlaybackDownloadPolicy.Failure
+        let underlyingDescription: String?
+
+        var errorDescription: String? {
+            switch failure {
+            case .offline:
+                String(localized: "playback_icloud_error_offline")
+            case .downloadError, .neverStarted, .timedOut:
+                String(localized: "playback_icloud_error_download")
+            }
+        }
+    }
+
+    private struct Snapshot: Sendable {
+        var status: UbiquitousPlaybackDownloadPolicy.Status
+        var isDownloading: Bool
+        var downloadErrorText: String?
+    }
+
+    /// 旧式 iCloud 占位:原文件不在,同目录下有 `.名字.icloud`。
+    nonisolated static func isEvictedPlaceholder(_ url: URL) -> Bool {
+        guard url.isFileURL else { return false }
+        let placeholder = url.deletingLastPathComponent()
+            .appendingPathComponent(".\(url.lastPathComponent).icloud")
+        return FileManager.default.fileExists(atPath: placeholder.path)
+    }
+
+    /// 这个文件要不要先从 iCloud 下载。普通本地文件、读不到状态时都是 false。
+    @concurrent
+    nonisolated static func needsDownload(_ url: URL) async -> Bool {
+        guard url.isFileURL else { return false }
+        return UbiquitousPlaybackDownloadPolicy.needsDownload(snapshot(of: url).status)
+    }
+
+    /// 请求下载并等到文件可读。`isCurrent` 为 false(已经换了别的歌)时以取消结束。
+    @concurrent
+    nonisolated static func download(
+        _ url: URL,
+        isOffline: @escaping @Sendable () async -> Bool,
+        isCurrent: @escaping @Sendable () async -> Bool
+    ) async throws {
+        do {
+            try FileManager.default.startDownloadingUbiquitousItem(at: url)
+        } catch {
+            // 请求本身失败也接着看状态:文件可能已经在下了。
+            plog("☁️ iCloud download request failed for '\(url.lastPathComponent)': \(error.localizedDescription)")
+        }
+        var monitor = UbiquitousPlaybackDownloadPolicy.Monitor(
+            startedAt: ProcessInfo.processInfo.systemUptime
+        )
+        while true {
+            try Task.checkCancellation()
+            guard await isCurrent() else { throw CancellationError() }
+            let current = snapshot(of: url)
+            let verdict = monitor.observe(
+                status: current.status,
+                isDownloading: current.isDownloading,
+                hasDownloadError: current.downloadErrorText != nil,
+                isOffline: await isOffline(),
+                at: ProcessInfo.processInfo.systemUptime
+            )
+            switch verdict {
+            case .ready:
+                return
+            case .waiting:
+                try await Task.sleep(for: UbiquitousPlaybackDownloadPolicy.pollInterval)
+            case .failed(let failure):
+                throw DownloadError(failure: failure, underlyingDescription: current.downloadErrorText)
+            }
+        }
+    }
+
+    /// 只在后台用:读的是文件提供方的状态,每次新建 URL,不吃上一次缓存的属性值。
+    private nonisolated static func snapshot(of url: URL) -> Snapshot {
+        let fresh = URL(fileURLWithPath: url.path)
+        let keys: Set<URLResourceKey> = [
+            .isUbiquitousItemKey,
+            .ubiquitousItemDownloadingStatusKey,
+            .ubiquitousItemIsDownloadingKey,
+            .ubiquitousItemDownloadingErrorKey,
+        ]
+        guard let values = try? fresh.resourceValues(forKeys: keys) else {
+            return Snapshot(
+                status: isEvictedPlaceholder(url) ? .notDownloaded : .notUbiquitous,
+                isDownloading: false,
+                downloadErrorText: nil
+            )
+        }
+        guard values.isUbiquitousItem == true else {
+            return Snapshot(status: .notUbiquitous, isDownloading: false, downloadErrorText: nil)
+        }
+        let status: UbiquitousPlaybackDownloadPolicy.Status
+        switch values.ubiquitousItemDownloadingStatus {
+        case .some(.current): status = .current
+        case .some(.downloaded): status = .downloaded
+        case .some(.notDownloaded): status = .notDownloaded
+        default: status = .notUbiquitous
+        }
+        return Snapshot(
+            status: status,
+            isDownloading: values.ubiquitousItemIsDownloading == true,
+            downloadErrorText: values.ubiquitousItemDownloadingError?.localizedDescription
+        )
     }
 }

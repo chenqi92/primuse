@@ -1224,6 +1224,10 @@ struct MacNowPlayingView: View {
     private var nowPlayingInfoLine: String {
         guard let song = player.currentSong else { return "" }
         var parts = [String(localized: "now_playing")]
+        if player.iCloudDownloadingSongID == song.id {
+            parts.append(String(localized: "playback_icloud_downloading"))
+            return parts.joined(separator: " · ")
+        }
         // 规格跟 iPhone 用同一个「播放页显示音频信息」档位。
         guard PlayerAppearancePreferences.audioInfoMode(rawValue: audioInfoModeRawValue)
             .showsSummary(for: song.audioQuality) else {

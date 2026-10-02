@@ -159,6 +159,9 @@ struct MacBottomBar: View {
     }
 
     private var metaLine: String {
+        if let song = player.currentSong, player.iCloudDownloadingSongID == song.id {
+            return String(localized: "playback_icloud_downloading")
+        }
         // 有声内容第二行是正在听的章与演播者。
         if isSpokenWord {
             return [SpokenWordPlayerText.partTitle(player), SpokenWordPlayerText.author(player)]

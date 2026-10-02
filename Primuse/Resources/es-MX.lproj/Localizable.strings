@@ -2225,6 +2225,9 @@
 "playback" = "Reproducción";
 "playback_error_apple_music_generic" = "Apple Music no puede iniciar la reproducción en este momento. Inténtalo de nuevo en unos instantes. Si el problema persiste, comprueba que la canción se reproduzca en la app Música.";
 "playback_error_connection" = "No se puede conectar a la fuente";
+"playback_icloud_downloading" = "Descargando de iCloud…";
+"playback_icloud_error_offline" = "Esta canción todavía está en iCloud y no se puede descargar sin conexión a la red.";
+"playback_icloud_error_download" = "No se pudo descargar esta canción de iCloud. Inténtalo más tarde o descárgala primero desde iCloud Drive.";
 "playback_error_decode" = "No se puede reproducir esta pista";
 "playback_error_format" = "Formato de audio no compatible";
 "playback_error_source_disabled" = "Esta fuente de música está deshabilitada";

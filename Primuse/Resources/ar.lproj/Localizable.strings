@@ -2225,6 +2225,9 @@
 "playback" = "التشغيل";
 "playback_error_apple_music_generic" = "لا يستطيع Apple Music بدء التشغيل الآن. حاول مجددًا بعد قليل. إذا استمرت المشكلة، فتأكد من إمكانية تشغيل الأغنية في تطبيق الموسيقى.";
 "playback_error_connection" = "لا يمكن الاتصال بالمصدر";
+"playback_icloud_downloading" = "جارٍ التنزيل من iCloud…";
+"playback_icloud_error_offline" = "هذه الأغنية ما زالت في iCloud ولا يمكن تنزيلها دون اتصال بالشبكة.";
+"playback_icloud_error_download" = "تعذّر تنزيل هذه الأغنية من iCloud. حاول مرة أخرى لاحقًا أو نزّلها أولًا من iCloud Drive.";
 "playback_error_decode" = "لا يمكن تشغيل هذا المسار";
 "playback_error_format" = "تنسيق الصوت غير مدعوم";
 "playback_error_source_disabled" = "تم تعطيل مصدر الموسيقى هذا";

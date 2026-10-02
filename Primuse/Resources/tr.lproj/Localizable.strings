@@ -2418,6 +2418,9 @@
 "immersive_demo_lyric_05" = "Dinlemenin tam bir performansa dönüşmesine izin verin";
 "dup_mac_delete_footer_format" = "%d dosya silinecek · %@ alan açılacak";
 "playback_error_connection" = "Kaynağa bağlanılamıyor";
+"playback_icloud_downloading" = "iCloud’dan indiriliyor…";
+"playback_icloud_error_offline" = "Bu şarkı hâlâ iCloud’da ve ağ bağlantısı olmadan indirilemiyor.";
+"playback_icloud_error_download" = "Bu şarkı iCloud’dan indirilemedi. Daha sonra tekrar deneyin veya önce iCloud Drive’dan indirin.";
 "lyrics_font_medium" = "Orta";
 "No Trusted Domains" = "Güvenilir Alan Adı Yok";
 "playlist_import_unmatched_skip_hint" = "Eşleşmeyen girişler yeni çalma listesine eklenmeyecek";

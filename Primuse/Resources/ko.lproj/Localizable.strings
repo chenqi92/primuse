@@ -909,6 +909,9 @@
 "add" = "추가";
 "security" = "보안";
 "playback_error_connection" = "소스에 연결할 수 없습니다";
+"playback_icloud_downloading" = "iCloud에서 다운로드 중…";
+"playback_icloud_error_offline" = "이 곡은 아직 iCloud에 있으며 네트워크에 연결되어 있지 않아 다운로드할 수 없습니다.";
+"playback_icloud_error_download" = "iCloud에서 이 곡을 다운로드할 수 없습니다. 나중에 다시 시도하거나 먼저 iCloud Drive에서 다운로드하세요.";
 "playback_error_source_disabled" = "이 음악 소스는 비활성화되어 있습니다";
 "playback_error_source_unreachable_format" = "현재 네트워크에서 ‘%@’에 연결할 수 없습니다";
 "playback_error_source_unreachable_skipped_format" = "현재 네트워크에서 ‘%@’에 연결할 수 없어 해당 소스의 곡을 건너뛰었습니다";

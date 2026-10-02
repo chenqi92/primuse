@@ -2418,6 +2418,9 @@
 "immersive_demo_lyric_05" = "Нехай прослуховування стане повноцінним виступом";
 "dup_mac_delete_footer_format" = "Буде видалено файлів: %d · Звільниться %@";
 "playback_error_connection" = "Не вдається підключитися до джерела";
+"playback_icloud_downloading" = "Завантаження з iCloud…";
+"playback_icloud_error_offline" = "Ця пісня ще в iCloud, і без підключення до мережі її не завантажити.";
+"playback_icloud_error_download" = "Не вдалося завантажити цю пісню з iCloud. Спробуйте пізніше або спершу завантажте її в iCloud Drive.";
 "lyrics_font_medium" = "Середній";
 "No Trusted Domains" = "Немає довірених доменів";
 "playlist_import_unmatched_skip_hint" = "Невідповідні записи не додаватимуться до нового списку відтворення";

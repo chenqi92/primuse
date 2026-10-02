@@ -705,6 +705,9 @@
 
 // MARK: - Playback Errors
 "playback_error_connection" = "Cannot connect to source";
+"playback_icloud_downloading" = "Downloading from iCloud…";
+"playback_icloud_error_offline" = "This song is still in iCloud and can’t be downloaded without a network connection.";
+"playback_icloud_error_download" = "Couldn’t download this song from iCloud. Try again later, or download it from iCloud Drive first.";
 "playback_error_source_disabled" = "This music source is disabled";
 "playback_error_source_unreachable_format" = "Can’t reach “%@” on this network";
 "playback_error_source_unreachable_skipped_format" = "Can’t reach “%@” on this network. Its songs were skipped.";

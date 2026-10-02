@@ -909,6 +909,9 @@
 "add" = "Hinzufügen";
 "security" = "Sicherheit";
 "playback_error_connection" = "Keine Verbindung zur Quelle möglich";
+"playback_icloud_downloading" = "Wird aus iCloud geladen …";
+"playback_icloud_error_offline" = "Dieser Titel liegt noch in iCloud und kann ohne Netzwerkverbindung nicht geladen werden.";
+"playback_icloud_error_download" = "Dieser Titel konnte nicht aus iCloud geladen werden. Versuche es später erneut oder lade ihn zuerst in iCloud Drive herunter.";
 "playback_error_source_disabled" = "Diese Musikquelle ist deaktiviert";
 "playback_error_source_unreachable_format" = "„%@“ ist in diesem Netzwerk nicht erreichbar";
 "playback_error_source_unreachable_skipped_format" = "„%@“ ist in diesem Netzwerk nicht erreichbar. Die Titel dieser Quelle wurden übersprungen.";

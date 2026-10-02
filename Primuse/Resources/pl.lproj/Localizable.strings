@@ -2225,6 +2225,9 @@
 "playback" = "Odtwarzanie";
 "playback_error_apple_music_generic" = "Apple Music nie może teraz rozpocząć odtwarzania. Spróbuj ponownie za chwilę. Jeśli problem będzie się powtarzał, sprawdź, czy utwór można odtworzyć w aplikacji Muzyka.";
 "playback_error_connection" = "Nie można połączyć się ze źródłem";
+"playback_icloud_downloading" = "Pobieranie z iCloud…";
+"playback_icloud_error_offline" = "Ten utwór jest jeszcze w iCloud i nie można go pobrać bez połączenia z siecią.";
+"playback_icloud_error_download" = "Nie udało się pobrać tego utworu z iCloud. Spróbuj ponownie później lub najpierw pobierz go z iCloud Drive.";
 "playback_error_decode" = "Nie można odtworzyć tego utworu";
 "playback_error_format" = "Nieobsługiwany format audio";
 "playback_error_source_disabled" = "To źródło muzyki jest wyłączone";

@@ -1483,6 +1483,10 @@ final class AppServices {
         }
         #endif
         serverRatingSync.resume()
+        // 音频缓存的清单与目录清点放到后台先做,远端歌第一次起播不用再等它(#170)。
+        Task.detached(priority: .utility) {
+            await AudioCacheManager.shared.warmUp()
+        }
         let startedAt = ProcessInfo.processInfo.systemUptime
 
         #if os(iOS)

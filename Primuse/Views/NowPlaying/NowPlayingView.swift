@@ -3389,7 +3389,12 @@ struct NowPlayingView: View {
             nowPlayingMetadataLinks(font: .title3, lineLimit: 1)
 
             // 横屏右栏放不下整行规格,只标音质等级;关掉音频信息时不标。
-            if let song = player.currentSong, audioInfoMode != .off, song.audioQuality != .standard {
+            if let song = player.currentSong, player.iCloudDownloadingSongID == song.id {
+                Image(systemName: "icloud.and.arrow.down")
+                    .foregroundStyle(appearance.secondary)
+                    .symbolEffect(.pulse, options: .repeating)
+                    .accessibilityLabel(Text("playback_icloud_downloading"))
+            } else if let song = player.currentSong, audioInfoMode != .off, song.audioQuality != .standard {
                 AudioQualityBadge(quality: song.audioQuality)
                     .fixedSize()
             }
@@ -5357,7 +5362,15 @@ struct NowPlayingView: View {
 
     @ViewBuilder
     private var nowPlayingAudioInfoRow: some View {
-        if let song = player.currentSong, showsAudioInfoCapsule(for: song) {
+        if let song = player.currentSong, player.iCloudDownloadingSongID == song.id {
+            NowPlayingICloudDownloadNotice(
+                textColor: appearance.secondary,
+                fillColor: appearance.primary.opacity(appearance.isLight ? 0.07 : 0.10)
+            )
+            .padding(.top, 2)
+            // 两支在 VStack 里互换:各自出现时淡入,不做交叉过渡(过渡期间两支会同时占位)。
+            .pmAppearFade(.control)
+        } else if let song = player.currentSong, showsAudioInfoCapsule(for: song) {
             NowPlayingAudioInfoCapsule(
                 song: song,
                 outputSampleRate: player.audioEngine.observedOutputSampleRate,
@@ -5366,7 +5379,7 @@ struct NowPlayingView: View {
                 fillColor: appearance.primary.opacity(appearance.isLight ? 0.07 : 0.10)
             )
             .padding(.top, 2)
-            .pmFadeTransition(motion: .trackChange)
+            .pmAppearFade(.trackChange)
         }
     }
 

@@ -626,6 +626,11 @@ final class AudioPlayerService {
         }
     }
     private(set) var lastPlaybackError: String?
+    /// 起播前正在把这首歌从 iCloud 云盘下到本机(值是歌曲 id)。界面据此把通用的
+    /// 转圈换成「正在从 iCloud 下载」。
+    var iCloudDownloadingSongID: String?
+    /// 设下上面那个值的那一次起播;只有它自己能清掉,换歌后的旧请求不会误清新状态。
+    @ObservationIgnored var iCloudDownloadPlayID: UUID?
     /// `currentSong` is published before remote resolution finishes, so it
     /// cannot tell resume whether a local decoder has scheduled any audio.
     @ObservationIgnored var hasPreparedLocalPlayback = false
@@ -1774,6 +1779,8 @@ final class AudioPlayerService {
         let graphMode = outputMode(for: song)
         let isLocalDSD = url.isFileURL && nativeDecoder.isDSD(url)
         try activateAudioSession(reacquiringLocalRouteFocus)
+        // 把会话激活与后面的采样率协商分开计时:每首都重设会话值不值得省,看这一段(#170)。
+        logPlayStage("session-activated", playID: expectedPlayID)
         // 打开 DSD 解码器要同步读文件头, 在 NAS / Files provider 上是真实
         // I/O。放到主线程外做, 回来后必须重新校验代次, 否则被顶掉的请求会
         // 继续去配置引擎。
@@ -3906,6 +3913,16 @@ final class AudioPlayerService {
                 expectedTicket: transportTicket
             ) else { return }
             logPlayStage("url-resolved", playID: id)
+            if url.isFileURL, await UbiquitousPlaybackFile.needsDownload(url) {
+                try await downloadFromICloudBeforePlayback(url: url, song: song, playID: id)
+                guard isLocalTransportStartAuthorized(
+                    playID: id,
+                    itemID: song.id,
+                    trigger: "play-after-icloud-download",
+                    expectedTicket: transportTicket
+                ) else { return }
+                logPlayStage("icloud-downloaded", playID: id)
+            }
             await playFromURL(
                 song: song,
                 url: url,
@@ -3953,7 +3970,10 @@ final class AudioPlayerService {
                 )
                 return
             }
-            showPlaybackError(String(localized: "playback_error_connection"))
+            showPlaybackError(
+                (error as? UbiquitousPlaybackFile.DownloadError)?.errorDescription
+                    ?? String(localized: "playback_error_connection")
+            )
             isLoading = false
             let sourceUnavailable = await isSourceWideResolutionFailure(error, sourceID: song.sourceID)
             guard playID == id else { return }
@@ -6358,6 +6378,7 @@ final class AudioPlayerService {
             for (rank, song) in nextSongs.enumerated() {
                 if Task.isCancelled { return }
                 if song.id == currentSong?.id { continue }
+                if rank == 0 { await requestICloudDownloadForUpcomingLocalSong(song) }
                 if sourceManager?.cachedURL(for: song) != nil { continue }
                 plog("⏩ Prefetching queued song #\(rank + 1): \(song.title)")
                 await sourceManager?.cacheForUpcomingPlayback(

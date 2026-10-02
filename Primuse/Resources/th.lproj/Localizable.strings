@@ -2225,6 +2225,9 @@
 "playback" = "การเล่น";
 "playback_error_apple_music_generic" = "Apple Music ไม่สามารถเริ่มเล่นได้ในขณะนี้ โปรดลองอีกครั้งในอีกสักครู่ หากยังพบปัญหา โปรดตรวจสอบว่าเพลงนี้เล่นได้ในแอปเพลง";
 "playback_error_connection" = "ไม่สามารถเชื่อมต่อกับแหล่งสัญญาณได้";
+"playback_icloud_downloading" = "กำลังดาวน์โหลดจาก iCloud…";
+"playback_icloud_error_offline" = "เพลงนี้ยังอยู่ใน iCloud และดาวน์โหลดไม่ได้เมื่อไม่มีการเชื่อมต่อเครือข่าย";
+"playback_icloud_error_download" = "ดาวน์โหลดเพลงนี้จาก iCloud ไม่ได้ ลองอีกครั้งภายหลัง หรือดาวน์โหลดจาก iCloud Drive ก่อน";
 "playback_error_decode" = "ไม่สามารถเล่นแทร็กนี้ได้";
 "playback_error_format" = "รูปแบบเสียงที่ไม่รองรับ";
 "playback_error_source_disabled" = "แหล่งเพลงนี้ถูกปิดใช้งาน";

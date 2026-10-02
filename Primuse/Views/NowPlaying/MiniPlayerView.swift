@@ -94,6 +94,12 @@ struct MiniPlayerSwipeContent: View {
                             .lineLimit(1)
                             .foregroundStyle(.orange)
                             .contentTransition(.opacity)
+                    } else if showsSubtitle, isDownloadingFromICloud {
+                        Label("playback_icloud_downloading", systemImage: "icloud.and.arrow.down")
+                            .font(.caption2)
+                            .lineLimit(1)
+                            .foregroundStyle(.secondary)
+                            .contentTransition(.opacity)
                     } else if isSpokenWord {
                         // 有声内容总带这一行:第几章、本章还剩多久。书名已经在上面了。
                         MiniPlayerSpokenWordSubtitle()
@@ -156,6 +162,10 @@ struct MiniPlayerSwipeContent: View {
         if showsSubtitle, let error = player.lastPlaybackError {
             return (parts + [error]).filter { !$0.isEmpty }.joined(separator: ": ")
         }
+        if showsSubtitle, isDownloadingFromICloud {
+            parts.append(String(localized: "playback_icloud_downloading"))
+            return parts.filter { !$0.isEmpty }.joined(separator: ": ")
+        }
         if showsSubtitle,
            let song = player.currentSong,
            let artist = library.artistDisplayName(for: song),
@@ -171,6 +181,10 @@ struct MiniPlayerSwipeContent: View {
 
     private var isSpokenWord: Bool {
         player.currentItemIsSpokenWord && !player.isLiveRadio
+    }
+
+    private var isDownloadingFromICloud: Bool {
+        player.currentSong.map { player.iCloudDownloadingSongID == $0.id } ?? false
     }
 
     private func swipeGesture(containerWidth: CGFloat) -> some Gesture {
