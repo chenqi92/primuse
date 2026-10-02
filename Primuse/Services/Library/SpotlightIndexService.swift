@@ -37,6 +37,8 @@ final class SpotlightIndexService {
 
     private struct LibrarySnapshot: Sendable {
         let songs: [Song]
+        /// Recently played and liked songs, which a capped index keeps first.
+        var prioritySongIDs: [String] = []
         let albums: [Album]
         let artists: [Artist]
         let playlists: [PlaylistSummary]
@@ -65,6 +67,12 @@ final class SpotlightIndexService {
     private nonisolated static let followUpDebounceDuration: Duration = .seconds(1)
     private nonisolated static let interBatchDelay: Duration = .milliseconds(180)
     private nonisolated static let maxItemsPerBatch = 100
+    /// A very large library is not indexed song by song. Hundreds of thousands
+    /// of items keep the system's indexing daemon busy for hours and the phone
+    /// warm, for search hits nobody scrolls to; past this many songs the index
+    /// holds the recently played and liked ones and then the newest additions.
+    /// Albums, artists and playlists are always indexed in full.
+    nonisolated static let maxIndexedSongs = 20_000
     private nonisolated static let maxDeletesPerBatch = 250
     private nonisolated static let maxThumbnailCacheMissesPerBatch = 8
     private nonisolated static let synchronizationPendingKey =
@@ -229,8 +237,14 @@ final class SpotlightIndexService {
                 songCount: library.songCount(forPlaylist: playlist.id)
             )
         }
+        var prioritySongIDs: [String] = []
+        if library.visibleSongs.count > Self.maxIndexedSongs {
+            prioritySongIDs = library.recentPlaybackSongIDsForSync
+                + library.songIDs(forPlaylist: MusicLibrary.likedSongsPlaylistID)
+        }
         return LibrarySnapshot(
             songs: library.visibleSongs,
+            prioritySongIDs: prioritySongIDs,
             albums: library.visibleAlbums,
             artists: library.visibleArtists,
             playlists: playlistSummaries,
@@ -467,10 +481,40 @@ final class SpotlightIndexService {
         }
     }
 
+    /// The songs that go into the index: all of them up to `maxIndexedSongs`,
+    /// otherwise the priority songs and then the newest additions (picked by
+    /// a bounded selection, not by sorting the library).
+    private nonisolated static func indexedSongs(of snapshot: LibrarySnapshot) -> [Song] {
+        let songs = snapshot.songs
+        guard songs.count > maxIndexedSongs else { return songs }
+        var chosen: [Song] = []
+        chosen.reserveCapacity(maxIndexedSongs)
+        var chosenIDs: Set<String> = []
+        let wanted = Set(snapshot.prioritySongIDs)
+        if !wanted.isEmpty {
+            for song in songs where wanted.contains(song.id) && chosenIDs.insert(song.id).inserted {
+                chosen.append(song)
+                if chosen.count == maxIndexedSongs { return chosen }
+            }
+        }
+        // 选的是下标: 比较只读日期与 ID, 不为每次比较复制整首歌。
+        let newest = CarPlayListSelection.firstSorted(
+            songs.indices.lazy.filter { !chosenIDs.contains(songs[$0].id) },
+            limit: maxIndexedSongs - chosen.count
+        ) { lhs, rhs in
+            songs[lhs].dateAdded != songs[rhs].dateAdded
+                ? songs[lhs].dateAdded > songs[rhs].dateAdded
+                : songs[lhs].id < songs[rhs].id
+        }
+        chosen.append(contentsOf: newest.map { songs[$0] })
+        return chosen
+    }
+
     private nonisolated static func prepareSnapshot(
         _ snapshot: LibrarySnapshot
     ) -> PreparedSnapshot? {
-        let totalCount = snapshot.songs.count
+        let songs = indexedSongs(of: snapshot)
+        let totalCount = songs.count
             + snapshot.albums.count
             + snapshot.artists.count
             + snapshot.playlists.count
@@ -481,7 +525,7 @@ final class SpotlightIndexService {
         var coverIdentityCache: [String: String] = [:]
         var missingCoverIdentities: Set<String> = []
 
-        for (offset, song) in snapshot.songs.enumerated() {
+        for (offset, song) in songs.enumerated() {
             if offset.isMultiple(of: 256), Task.isCancelled { return nil }
             let identifier = "song:\(song.id)"
             let coverContentIdentifier: String?

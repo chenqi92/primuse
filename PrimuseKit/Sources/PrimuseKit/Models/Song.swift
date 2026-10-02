@@ -3,6 +3,13 @@ import Foundation
 import GRDB
 
 public struct Song: Codable, Identifiable, Hashable, Sendable {
+    // Libraries run to several hundred thousand songs, and every copy of the
+    // library holds each `Song` inline. Fields set on most songs are stored
+    // directly; small integers are packed as `Int32`, optional doubles and
+    // dates as bit patterns, and the fields that are rarely set live in one
+    // shared box (`SongRareFields.empty` for almost every song). Public
+    // properties, `Codable` keys and `==` keep their meaning.
+
     public var id: String // SHA256 of sourceID + relativePath
     public var title: String
     public var albumID: String?
@@ -19,25 +26,13 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     /// to the track artist, so a nil value also identifies legacy rows that
     /// have not yet inspected this field.
     public var albumArtistName: String?
-    public var trackNumber: Int?
-    public var discNumber: Int?
     public var duration: TimeInterval
     public var fileFormat: AudioFormat
     public var filePath: String // relative within source
     public var sourceID: String
     public var fileSize: Int64
-    /// Bit rate in kbps. Source adapters must normalize APIs that report bps.
-    public var bitRate: Int?
-    public var sampleRate: Int?
-    public var bitDepth: Int?
     public var genre: String?
-    public var year: Int?
-    public var lastModified: Date?
     public var dateAdded: Date
-    /// Play count reported by the authenticated media-server account during
-    /// the latest catalogue refresh. This is intentionally separate from the
-    /// on-device history maintained by Primuse's `PlayHistoryStore`.
-    public var serverPlayCount: Int?
     public var coverArtFileName: String?
     /// Source-owned artist artwork reference captured from a server catalogue.
     /// Unlike `artistID`, which is replaced with Primuse's name-derived ID,
@@ -45,19 +40,6 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     /// the originating source for its dedicated image.
     public var artistArtworkFileName: String?
     public var lyricsFileName: String?
-    public var mvPath: String?
-    public var replayGainTrackGain: Double?
-    public var replayGainTrackPeak: Double?
-    public var replayGainAlbumGain: Double?
-    public var replayGainAlbumPeak: Double?
-    /// Source-relative path of the CUE sheet that defines this virtual track.
-    /// Nil for ordinary one-file-per-track songs.
-    public var cueSheetPath: String?
-    /// Track boundaries inside `filePath`, expressed on the decoded PCM
-    /// timeline. INDEX 01 is used for the start; the next INDEX 01 in the same
-    /// FILE block is used for the end.
-    public var cueStartTime: TimeInterval?
-    public var cueEndTime: TimeInterval?
     /// Provider-supplied content identifier — etag, md5, content_hash,
     /// `fs_id` + `local_mtime`, etc. Used by re-scan to detect remote
     /// replacement on cloud drives that don't report a usable
@@ -65,28 +47,118 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
     /// both sides and different, the file is treated as replaced even
     /// when path and size are identical.
     public var revision: String?
-
     /// FTS5 拼音搜索用的预生成 latin transliteration. nil 表示标题没有
     /// 中文 / 全 ASCII (不需要拼音索引)。由 PinyinTransformer 在 scan /
     /// migration 时计算填入。
     public var titlePinyin: String?
     public var artistPinyin: String?
     public var albumPinyin: String?
+
+    private var numbers = SongNumberFields()
+    private var lastModifiedBits = SongOptionalDouble.absent
+    private var replayGainTrackGainBits = SongOptionalDouble.absent
+    private var replayGainTrackPeakBits = SongOptionalDouble.absent
+    private var replayGainAlbumGainBits = SongOptionalDouble.absent
+    private var replayGainAlbumPeakBits = SongOptionalDouble.absent
+    private var rare = SongRareFields.empty
+
+    public var trackNumber: Int? {
+        get { unpackNumber(numbers.trackNumber, .trackNumber) }
+        set { numbers.trackNumber = packNumber(newValue, replacing: numbers.trackNumber, .trackNumber) }
+    }
+    public var discNumber: Int? {
+        get { unpackNumber(numbers.discNumber, .discNumber) }
+        set { numbers.discNumber = packNumber(newValue, replacing: numbers.discNumber, .discNumber) }
+    }
+    /// Bit rate in kbps. Source adapters must normalize APIs that report bps.
+    public var bitRate: Int? {
+        get { unpackNumber(numbers.bitRate, .bitRate) }
+        set { numbers.bitRate = packNumber(newValue, replacing: numbers.bitRate, .bitRate) }
+    }
+    public var sampleRate: Int? {
+        get { unpackNumber(numbers.sampleRate, .sampleRate) }
+        set { numbers.sampleRate = packNumber(newValue, replacing: numbers.sampleRate, .sampleRate) }
+    }
+    public var bitDepth: Int? {
+        get { unpackNumber(numbers.bitDepth, .bitDepth) }
+        set { numbers.bitDepth = packNumber(newValue, replacing: numbers.bitDepth, .bitDepth) }
+    }
+    public var year: Int? {
+        get { unpackNumber(numbers.year, .year) }
+        set { numbers.year = packNumber(newValue, replacing: numbers.year, .year) }
+    }
+    /// Play count reported by the authenticated media-server account during
+    /// the latest catalogue refresh. This is intentionally separate from the
+    /// on-device history maintained by Primuse's `PlayHistoryStore`.
+    public var serverPlayCount: Int? {
+        get { unpackNumber(numbers.serverPlayCount, .serverPlayCount) }
+        set { numbers.serverPlayCount = packNumber(newValue, replacing: numbers.serverPlayCount, .serverPlayCount) }
+    }
+    public var lastModified: Date? {
+        get { SongOptionalDouble.value(lastModifiedBits).map(Date.init(timeIntervalSinceReferenceDate:)) }
+        set { lastModifiedBits = SongOptionalDouble.bits(newValue?.timeIntervalSinceReferenceDate) }
+    }
+    public var replayGainTrackGain: Double? {
+        get { SongOptionalDouble.value(replayGainTrackGainBits) }
+        set { replayGainTrackGainBits = SongOptionalDouble.bits(newValue) }
+    }
+    public var replayGainTrackPeak: Double? {
+        get { SongOptionalDouble.value(replayGainTrackPeakBits) }
+        set { replayGainTrackPeakBits = SongOptionalDouble.bits(newValue) }
+    }
+    public var replayGainAlbumGain: Double? {
+        get { SongOptionalDouble.value(replayGainAlbumGainBits) }
+        set { replayGainAlbumGainBits = SongOptionalDouble.bits(newValue) }
+    }
+    public var replayGainAlbumPeak: Double? {
+        get { SongOptionalDouble.value(replayGainAlbumPeakBits) }
+        set { replayGainAlbumPeakBits = SongOptionalDouble.bits(newValue) }
+    }
+    public var mvPath: String? {
+        get { rare.values.mvPath }
+        set { updateRare { $0.mvPath = newValue } }
+    }
+    /// Source-relative path of the CUE sheet that defines this virtual track.
+    /// Nil for ordinary one-file-per-track songs.
+    public var cueSheetPath: String? {
+        get { rare.values.cueSheetPath }
+        set { updateRare { $0.cueSheetPath = newValue } }
+    }
+    /// Track boundaries inside `filePath`, expressed on the decoded PCM
+    /// timeline. INDEX 01 is used for the start; the next INDEX 01 in the same
+    /// FILE block is used for the end.
+    public var cueStartTime: TimeInterval? {
+        get { rare.values.cueStartTime }
+        set { updateRare { $0.cueStartTime = newValue } }
+    }
+    public var cueEndTime: TimeInterval? {
+        get { rare.values.cueEndTime }
+        set { updateRare { $0.cueEndTime = newValue } }
+    }
     /// 整曲歌词的纯文本 dump (去时间戳), 给 FTS5 全文搜索用。nil 表示
     /// 这首歌没有歌词或还没 backfill 完。LibraryDatabase migration 留空,
     /// MetadataBackfillService 异步读 .lrc 文件填回。
-    public var lyricsText: String?
+    public var lyricsText: String? {
+        get { rare.values.lyricsText }
+        set { updateRare { $0.lyricsText = newValue } }
+    }
     /// Set only after the user explicitly saves editable metadata. Background
     /// scans and metadata backfill may still refresh technical fields, but must
     /// preserve the user-controlled identity fields while this marker exists.
-    public var userMetadataEditedAt: Date?
+    public var userMetadataEditedAt: Date? {
+        get { rare.values.userMetadataEditedAt }
+        set { updateRare { $0.userMetadataEditedAt = newValue } }
+    }
     /// Apple Music 目录曲目提供的音质版本（无损 / 高解析度无损 / 杜比全景声…）。
     /// nil = 不是 Apple Music 曲目，或者还没查到。标的是「提供哪些版本」而不是
     /// 「正在播什么」，详见 [AudioVariant]。
-    public var audioVariants: [AudioVariant]?
+    public var audioVariants: [AudioVariant]? {
+        get { rare.values.audioVariants }
+        set { updateRare { $0.audioVariants = newValue } }
+    }
     /// 服务端资料库的 id（Jellyfin/Emby 的库、Plex 的分区、Audiobookshelf 的 library）。
     /// 只有按库组织的服务器源才填；按库声明「音乐 / 有声」的规则靠它认出一首歌属于哪个库，
-    /// 条目路径里没有这一层。
+    /// 条目路径里没有这一层。按库组织的源每首都有，所以直接存在行内而不放进罕见字段盒。
     public var serverLibraryID: String?
 
     public init(
@@ -141,40 +213,253 @@ public struct Song: Codable, Identifiable, Hashable, Sendable {
         self.artistName = artistName
         self.sourceArtistNames = sourceArtistNames
         self.albumArtistName = albumArtistName
-        self.trackNumber = trackNumber
-        self.discNumber = discNumber
         self.duration = duration
         self.fileFormat = fileFormat
         self.filePath = filePath
         self.sourceID = sourceID
         self.fileSize = fileSize
-        self.bitRate = bitRate
-        self.sampleRate = sampleRate
-        self.bitDepth = bitDepth
         self.genre = genre
-        self.year = year
-        self.lastModified = lastModified
         self.dateAdded = dateAdded
-        self.serverPlayCount = serverPlayCount
         self.coverArtFileName = coverArtFileName
         self.artistArtworkFileName = artistArtworkFileName
         self.lyricsFileName = lyricsFileName
-        self.mvPath = mvPath
-        self.replayGainTrackGain = replayGainTrackGain
-        self.replayGainTrackPeak = replayGainTrackPeak
-        self.replayGainAlbumGain = replayGainAlbumGain
-        self.replayGainAlbumPeak = replayGainAlbumPeak
-        self.cueSheetPath = cueSheetPath
-        self.cueStartTime = cueStartTime
-        self.cueEndTime = cueEndTime
         self.revision = revision
         self.titlePinyin = titlePinyin
         self.artistPinyin = artistPinyin
         self.albumPinyin = albumPinyin
-        self.lyricsText = lyricsText
-        self.userMetadataEditedAt = userMetadataEditedAt
-        self.audioVariants = audioVariants
         self.serverLibraryID = serverLibraryID
+        self.trackNumber = trackNumber
+        self.discNumber = discNumber
+        self.bitRate = bitRate
+        self.sampleRate = sampleRate
+        self.bitDepth = bitDepth
+        self.year = year
+        self.serverPlayCount = serverPlayCount
+        self.lastModified = lastModified
+        self.replayGainTrackGain = replayGainTrackGain
+        self.replayGainTrackPeak = replayGainTrackPeak
+        self.replayGainAlbumGain = replayGainAlbumGain
+        self.replayGainAlbumPeak = replayGainAlbumPeak
+        if mvPath != nil || cueSheetPath != nil || cueStartTime != nil || cueEndTime != nil
+            || lyricsText != nil || userMetadataEditedAt != nil || audioVariants != nil {
+            var values = SongRareFields.Values()
+            values.mvPath = mvPath
+            values.cueSheetPath = cueSheetPath
+            values.cueStartTime = cueStartTime
+            values.cueEndTime = cueEndTime
+            values.lyricsText = lyricsText
+            values.userMetadataEditedAt = userMetadataEditedAt
+            values.audioVariants = audioVariants
+            values.overflowNumbers = rare.values.overflowNumbers
+            rare = SongRareFields.make(values)
+        }
+    }
+
+    // MARK: - Codable (same keys and shape as the former synthesized form)
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, albumID, artistID, albumTitle, artistName, sourceArtistNames, albumArtistName
+        case trackNumber, discNumber, duration, fileFormat, filePath, sourceID, fileSize
+        case bitRate, sampleRate, bitDepth, genre, year, lastModified, dateAdded, serverPlayCount
+        case coverArtFileName, artistArtworkFileName, lyricsFileName, mvPath
+        case replayGainTrackGain, replayGainTrackPeak, replayGainAlbumGain, replayGainAlbumPeak
+        case cueSheetPath, cueStartTime, cueEndTime, revision, titlePinyin, artistPinyin, albumPinyin
+        case lyricsText, userMetadataEditedAt, audioVariants, serverLibraryID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            title: try container.decode(String.self, forKey: .title),
+            albumID: try container.decodeIfPresent(String.self, forKey: .albumID),
+            artistID: try container.decodeIfPresent(String.self, forKey: .artistID),
+            albumTitle: try container.decodeIfPresent(String.self, forKey: .albumTitle),
+            artistName: try container.decodeIfPresent(String.self, forKey: .artistName),
+            sourceArtistNames: try container.decodeIfPresent([String].self, forKey: .sourceArtistNames),
+            albumArtistName: try container.decodeIfPresent(String.self, forKey: .albumArtistName),
+            trackNumber: try container.decodeIfPresent(Int.self, forKey: .trackNumber),
+            discNumber: try container.decodeIfPresent(Int.self, forKey: .discNumber),
+            duration: try container.decode(TimeInterval.self, forKey: .duration),
+            fileFormat: try container.decode(AudioFormat.self, forKey: .fileFormat),
+            filePath: try container.decode(String.self, forKey: .filePath),
+            sourceID: try container.decode(String.self, forKey: .sourceID),
+            fileSize: try container.decode(Int64.self, forKey: .fileSize),
+            bitRate: try container.decodeIfPresent(Int.self, forKey: .bitRate),
+            sampleRate: try container.decodeIfPresent(Int.self, forKey: .sampleRate),
+            bitDepth: try container.decodeIfPresent(Int.self, forKey: .bitDepth),
+            genre: try container.decodeIfPresent(String.self, forKey: .genre),
+            year: try container.decodeIfPresent(Int.self, forKey: .year),
+            lastModified: try container.decodeIfPresent(Date.self, forKey: .lastModified),
+            dateAdded: try container.decode(Date.self, forKey: .dateAdded),
+            serverPlayCount: try container.decodeIfPresent(Int.self, forKey: .serverPlayCount),
+            coverArtFileName: try container.decodeIfPresent(String.self, forKey: .coverArtFileName),
+            artistArtworkFileName: try container.decodeIfPresent(String.self, forKey: .artistArtworkFileName),
+            lyricsFileName: try container.decodeIfPresent(String.self, forKey: .lyricsFileName),
+            mvPath: try container.decodeIfPresent(String.self, forKey: .mvPath),
+            replayGainTrackGain: try container.decodeIfPresent(Double.self, forKey: .replayGainTrackGain),
+            replayGainTrackPeak: try container.decodeIfPresent(Double.self, forKey: .replayGainTrackPeak),
+            replayGainAlbumGain: try container.decodeIfPresent(Double.self, forKey: .replayGainAlbumGain),
+            replayGainAlbumPeak: try container.decodeIfPresent(Double.self, forKey: .replayGainAlbumPeak),
+            cueSheetPath: try container.decodeIfPresent(String.self, forKey: .cueSheetPath),
+            cueStartTime: try container.decodeIfPresent(TimeInterval.self, forKey: .cueStartTime),
+            cueEndTime: try container.decodeIfPresent(TimeInterval.self, forKey: .cueEndTime),
+            revision: try container.decodeIfPresent(String.self, forKey: .revision),
+            titlePinyin: try container.decodeIfPresent(String.self, forKey: .titlePinyin),
+            artistPinyin: try container.decodeIfPresent(String.self, forKey: .artistPinyin),
+            albumPinyin: try container.decodeIfPresent(String.self, forKey: .albumPinyin),
+            lyricsText: try container.decodeIfPresent(String.self, forKey: .lyricsText),
+            userMetadataEditedAt: try container.decodeIfPresent(Date.self, forKey: .userMetadataEditedAt),
+            audioVariants: try container.decodeIfPresent([AudioVariant].self, forKey: .audioVariants),
+            serverLibraryID: try container.decodeIfPresent(String.self, forKey: .serverLibraryID)
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(albumID, forKey: .albumID)
+        try container.encodeIfPresent(artistID, forKey: .artistID)
+        try container.encodeIfPresent(albumTitle, forKey: .albumTitle)
+        try container.encodeIfPresent(artistName, forKey: .artistName)
+        try container.encodeIfPresent(sourceArtistNames, forKey: .sourceArtistNames)
+        try container.encodeIfPresent(albumArtistName, forKey: .albumArtistName)
+        try container.encodeIfPresent(trackNumber, forKey: .trackNumber)
+        try container.encodeIfPresent(discNumber, forKey: .discNumber)
+        try container.encode(duration, forKey: .duration)
+        try container.encode(fileFormat, forKey: .fileFormat)
+        try container.encode(filePath, forKey: .filePath)
+        try container.encode(sourceID, forKey: .sourceID)
+        try container.encode(fileSize, forKey: .fileSize)
+        try container.encodeIfPresent(bitRate, forKey: .bitRate)
+        try container.encodeIfPresent(sampleRate, forKey: .sampleRate)
+        try container.encodeIfPresent(bitDepth, forKey: .bitDepth)
+        try container.encodeIfPresent(genre, forKey: .genre)
+        try container.encodeIfPresent(year, forKey: .year)
+        try container.encodeIfPresent(lastModified, forKey: .lastModified)
+        try container.encode(dateAdded, forKey: .dateAdded)
+        try container.encodeIfPresent(serverPlayCount, forKey: .serverPlayCount)
+        try container.encodeIfPresent(coverArtFileName, forKey: .coverArtFileName)
+        try container.encodeIfPresent(artistArtworkFileName, forKey: .artistArtworkFileName)
+        try container.encodeIfPresent(lyricsFileName, forKey: .lyricsFileName)
+        try container.encodeIfPresent(mvPath, forKey: .mvPath)
+        try container.encodeIfPresent(replayGainTrackGain, forKey: .replayGainTrackGain)
+        try container.encodeIfPresent(replayGainTrackPeak, forKey: .replayGainTrackPeak)
+        try container.encodeIfPresent(replayGainAlbumGain, forKey: .replayGainAlbumGain)
+        try container.encodeIfPresent(replayGainAlbumPeak, forKey: .replayGainAlbumPeak)
+        try container.encodeIfPresent(cueSheetPath, forKey: .cueSheetPath)
+        try container.encodeIfPresent(cueStartTime, forKey: .cueStartTime)
+        try container.encodeIfPresent(cueEndTime, forKey: .cueEndTime)
+        try container.encodeIfPresent(revision, forKey: .revision)
+        try container.encodeIfPresent(titlePinyin, forKey: .titlePinyin)
+        try container.encodeIfPresent(artistPinyin, forKey: .artistPinyin)
+        try container.encodeIfPresent(albumPinyin, forKey: .albumPinyin)
+        try container.encodeIfPresent(lyricsText, forKey: .lyricsText)
+        try container.encodeIfPresent(userMetadataEditedAt, forKey: .userMetadataEditedAt)
+        try container.encodeIfPresent(audioVariants, forKey: .audioVariants)
+        try container.encodeIfPresent(serverLibraryID, forKey: .serverLibraryID)
+    }
+
+    // MARK: - Packed storage
+
+    @inline(__always)
+    private func unpackNumber(_ raw: Int32, _ slot: SongNumberFields.Slot) -> Int? {
+        switch raw {
+        case SongNumberFields.absent: return nil
+        case SongNumberFields.overflow: return rare.values.overflowNumbers[slot.rawValue]
+        default: return Int(raw)
+        }
+    }
+
+    private mutating func packNumber(_ value: Int?, replacing previous: Int32, _ slot: SongNumberFields.Slot) -> Int32 {
+        if let value, let packed = Int32(exactly: value),
+           packed != SongNumberFields.absent, packed != SongNumberFields.overflow {
+            if previous == SongNumberFields.overflow { updateRare { $0.overflowNumbers[slot.rawValue] = nil } }
+            return packed
+        }
+        guard let value else {
+            if previous == SongNumberFields.overflow { updateRare { $0.overflowNumbers[slot.rawValue] = nil } }
+            return SongNumberFields.absent
+        }
+        updateRare { $0.overflowNumbers[slot.rawValue] = value }
+        return SongNumberFields.overflow
+    }
+
+    private mutating func updateRare(_ change: (inout SongRareFields.Values) -> Void) {
+        var values = rare.values
+        change(&values)
+        guard values != rare.values else { return }
+        rare = SongRareFields.make(values)
+    }
+}
+
+/// `Int?` fields of `Song` as `Int32`. Values that don't fit are kept in
+/// `SongRareFields.overflowNumbers`.
+private struct SongNumberFields: Hashable, Sendable {
+    static let absent = Int32.min
+    static let overflow = Int32.min + 1
+
+    enum Slot: UInt8 {
+        case trackNumber, discNumber, bitRate, sampleRate, bitDepth, year, serverPlayCount
+    }
+
+    var trackNumber = absent
+    var discNumber = absent
+    var bitRate = absent
+    var sampleRate = absent
+    var bitDepth = absent
+    var year = absent
+    var serverPlayCount = absent
+}
+
+/// `Double?` as its bit pattern, so a missing value costs 8 bytes instead of
+/// 9 padded to 16, and equality stays exact (nil equals nil).
+private enum SongOptionalDouble {
+    /// A NaN payload no decoder or arithmetic produces.
+    static let absent: UInt64 = 0x7FF8_0000_5052_494D
+
+    static func bits(_ value: Double?) -> UInt64 {
+        value.map(\.bitPattern) ?? absent
+    }
+
+    static func value(_ bits: UInt64) -> Double? {
+        bits == absent ? nil : Double(bitPattern: bits)
+    }
+}
+
+/// Fields almost every song leaves empty, boxed so they cost one pointer.
+/// Immutable: a change makes a new box, and all-empty values share `empty`.
+private final class SongRareFields: Hashable, Sendable {
+    struct Values: Hashable, Sendable {
+        var mvPath: String?
+        var cueSheetPath: String?
+        var cueStartTime: TimeInterval?
+        var cueEndTime: TimeInterval?
+        var lyricsText: String?
+        var userMetadataEditedAt: Date?
+        var audioVariants: [AudioVariant]?
+        var overflowNumbers: [UInt8: Int] = [:]
+    }
+
+    static let empty = SongRareFields(Values())
+
+    let values: Values
+
+    private init(_ values: Values) {
+        self.values = values
+    }
+
+    static func make(_ values: Values) -> SongRareFields {
+        values == empty.values ? empty : SongRareFields(values)
+    }
+
+    static func == (lhs: SongRareFields, rhs: SongRareFields) -> Bool {
+        lhs === rhs || lhs.values == rhs.values
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(values)
     }
 }
 

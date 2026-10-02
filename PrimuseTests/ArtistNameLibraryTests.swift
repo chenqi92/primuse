@@ -1021,3 +1021,62 @@ final class LibraryScopedSearchTests: XCTestCase {
         Song(id: id, title: "Track", duration: 180, fileFormat: .flac, filePath: path, sourceID: sourceID)
     }
 }
+
+/// The index-based album/artist derivation must reproduce the former
+/// copy-into-groups implementation exactly (up to the order of equal titles).
+final class AlbumArtistDerivationEquivalenceTests: XCTestCase {
+    private func randomLibrary(count: Int, seed: UInt64) -> [Song] {
+        var state = seed
+        func next(_ bound: Int) -> Int {
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return Int((state >> 33) % UInt64(bound))
+        }
+        let artists = ["周杰伦", "林俊杰", "Jay Chou", "jay chou ", "陈奕迅", "王菲", "Various Artists", "A、B", "C/D", "E feat. F", ""]
+        let albums = ["范特西", "叶惠美", "Greatest Hits", " Greatest Hits", "OST", "", "Live"]
+        return (0..<count).map { index in
+            let artist = artists[next(artists.count)]
+            let albumArtist = next(3) == 0 ? nil : artists[next(artists.count)]
+            let album = albums[next(albums.count)]
+            let folder = "/music/\(next(6))/\(album)"
+            return Song(
+                id: "song-\(index)",
+                title: "Track \(index)",
+                albumID: next(4) == 0 ? "stale-\(index)" : nil,
+                albumTitle: album.isEmpty && next(2) == 0 ? nil : album,
+                artistName: artist.isEmpty ? nil : artist,
+                sourceArtistNames: next(5) == 0 ? [artist, artists[next(artists.count)]] : nil,
+                albumArtistName: albumArtist,
+                trackNumber: next(20),
+                duration: Double(next(400)),
+                fileFormat: .flac,
+                filePath: "\(folder)/\(index).flac",
+                sourceID: "source-\(next(3))",
+                genre: next(2) == 0 ? "Pop" : nil,
+                year: 1990 + next(30),
+                artistArtworkFileName: next(4) == 0 ? "art-\(next(9))" : nil
+            )
+        }
+    }
+
+    func testIndexBasedDerivationMatchesTheFormerGrouping() {
+        for seed in [1, 7, 42, 2026] as [UInt64] {
+            let songs = randomLibrary(count: 3_000, seed: seed)
+            let configuration = ArtistNameConfiguration.defaultValue
+            let current = MusicLibrary.computeAlbumsAndArtists(songs: songs, configuration: configuration)
+            let reference = MusicLibrary.computeAlbumsAndArtistsReference(songs: songs, configuration: configuration)
+            XCTAssertEqual(
+                Dictionary(uniqueKeysWithValues: current.albums.map { ($0.id, $0) }),
+                Dictionary(uniqueKeysWithValues: reference.albums.map { ($0.id, $0) }),
+                "albums differ for seed \(seed)"
+            )
+            XCTAssertEqual(current.albums.map(\.title), reference.albums.map(\.title))
+            XCTAssertEqual(
+                Dictionary(uniqueKeysWithValues: current.artists.map { ($0.id, $0) }),
+                Dictionary(uniqueKeysWithValues: reference.artists.map { ($0.id, $0) }),
+                "artists differ for seed \(seed)"
+            )
+            XCTAssertEqual(current.artists.map(\.name), reference.artists.map(\.name))
+            XCTAssertEqual(current.albumIDCorrections, reference.albumIDCorrections)
+        }
+    }
+}

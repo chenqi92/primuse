@@ -2106,8 +2106,13 @@ struct HomeView: View {
         refreshCoordinator.libraryHighlightsTask = Task { @MainActor in
             let worker = Task.detached(priority: .utility) {
                 let startedAt = Date()
+                // 两处都只要最近加入的头几十首: 有界选择一次, 不为它把整库复制、
+                // 排序两遍(百万首各要几百 MB)。与 `sorted(by:).prefix` 结果相同。
+                let latestAdded = CarPlayListSelection.firstSorted(songs.indices, limit: 60) {
+                    songs[$0].dateAdded > songs[$1].dateAdded
+                }.map { songs[$0] }
                 let heroCoverSongs = Self.makeHeroCoverSongs(
-                    songs: songs,
+                    latestAdded: latestAdded,
                     recentSongs: recentSongs,
                     dayStamp: signature.dayStamp
                 )
@@ -2117,7 +2122,7 @@ struct HomeView: View {
                     limit: Self.recentlyAddedAlbumPoolLimit
                 )
                 let resolvedRecentSongs = recentSongs.isEmpty
-                    ? Array(songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(30))
+                    ? Array(latestAdded.prefix(30))
                     : recentSongs
                 return (
                     heroCoverSongs,
@@ -2689,14 +2694,14 @@ struct HomeView: View {
         return CGSize(width: base.width * spread, height: base.height * spread)
     }
 
+    /// `latestAdded`: 按加入时间从新到旧的前 60 首。
     nonisolated private static func makeHeroCoverSongs(
-        songs: [Song],
+        latestAdded added: [Song],
         recentSongs: [Song],
         dayStamp: Int
     ) -> [Song] {
         // 优先最近播放, 不够再补最近添加, 都过滤出有 cover 的歌, 再按日期稳定地
         // 挑 4 首。不能随机：冷启动时快照会连着重算好几次，每次换一组就是满屏闪。
-        let added = songs.sorted { $0.dateAdded > $1.dateAdded }.prefix(60)
         // 用 seen-set 按 id 去重: recentSongs 自身可能含重复 id (脏快照/跨源未彻底
         // 去重), 否则下方 ForEach(id: \.element.id) 会因重复 id 触发 SwiftUI 告警/崩溃。
         var pool: [Song] = []
@@ -3360,11 +3365,26 @@ struct HomeView: View {
             plog("🏠 song not in recent, prepended")
         }
 
-        // Supplement with library songs if queue is too small
+        // Supplement with library songs if queue is too small. As IDs: the
+        // rest of the library is resolved off the main actor, one window at
+        // a time, instead of being copied here song by song.
         if queueSongs.count < 20, !isSpokenWord {
             let existingIDs = Set(queueSongs.map(\.id))
-            let extra = library.musicSongs.filter { !existingIDs.contains($0.id) }
-            queueSongs.append(contentsOf: extra)
+            let leading = queueSongs.filteredPlayable().map(\.id)
+            guard let startIndex = leading.firstIndex(of: song.id) else {
+                plog("🏠 tapped song dropped by playable filter — skipping")
+                return
+            }
+            var ids = leading
+            ids.reserveCapacity(leading.count + library.musicSongs.count)
+            for candidate in library.musicSongs where !existingIDs.contains(candidate.id) {
+                ids.append(candidate.id)
+            }
+            plog("🏠 setQueue: \(ids.count) songs, startIndex=\(startIndex)")
+            player.shuffleEnabled = false
+            SiriMediaInteractionDonor.donate(song: song)
+            Task { await player.play(queueIDs: ids, startingAt: startIndex) }
+            return
         }
 
         // Drop non-playable entries so auto-advance can't land on a Phase A

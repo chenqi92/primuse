@@ -99,4 +99,26 @@ struct AlbumTrackOrderTests {
              discNumber: disc, fileFormat: format, filePath: path ?? "\(id).\(format.rawValue)",
              sourceID: "source")
     }
+
+    @Test("Ordering a folder by offsets gives the same IDs as ordering its songs")
+    func sortedIDsMatchSortedSongs() {
+        let titles = ["b", "A", "a", "c", "10 x", "2 x"]
+        let library = (0..<120).map { index in
+            Song(
+                id: String(format: "id-%03d", 119 - index),
+                title: titles[index % titles.count],
+                trackNumber: index % 5 == 0 ? nil : (index % 7) - 1,
+                discNumber: index % 9 == 0 ? 2 : (index % 4 == 0 ? nil : 1),
+                fileFormat: .flac,
+                filePath: index % 3 == 0 ? "/m/\(index % 11) Song.flac" : "/m/Song \(index).flac",
+                sourceID: "s"
+            )
+        }
+        for offsets in [Array(0..<120), Array((0..<120).reversed()), stride(from: 3, to: 120, by: 7).map { $0 }, [5], []] {
+            #expect(
+                AlbumTrackOrder.sortedIDs(at: offsets, in: library)
+                    == AlbumTrackOrder.sorted(offsets.map { library[$0] }).map(\.id)
+            )
+        }
+    }
 }

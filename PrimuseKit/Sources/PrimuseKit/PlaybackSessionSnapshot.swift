@@ -629,6 +629,15 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
         leadingOffset = 0
     }
 
+    /// Restores a stored continuation; offsets are clamped to the IDs.
+    init(token: String, requestedIDs: [String], nextOffset: Int, leadingEnd: Int, leadingOffset: Int) {
+        self.token = token
+        self.requestedIDs = requestedIDs
+        self.nextOffset = max(0, min(nextOffset, requestedIDs.count))
+        self.leadingEnd = max(0, min(leadingEnd, requestedIDs.count))
+        self.leadingOffset = max(0, min(leadingOffset, self.leadingEnd))
+    }
+
     /// Nothing more can ever be handed out, whatever the repeat mode.
     public var isExhausted: Bool {
         nextOffset >= requestedIDs.count && leadingOffset >= leadingEnd
@@ -678,6 +687,11 @@ public struct QueueContinuation: Codable, Equatable, Sendable {
 
 /// Stored next to the session file. Written only when a continuation starts
 /// or advances (every few hundred songs), never on each playback update.
+///
+/// A whole-library request owes up to a million IDs. They go into their own
+/// plain-text file, rewritten only when the list itself changes; advancing
+/// rewrites just a small state file. Files from the former single-JSON format
+/// still load.
 public struct QueueContinuationStore: Sendable {
     public let url: URL
 
@@ -690,21 +704,143 @@ public struct QueueContinuationStore: Sendable {
         self.url = url
     }
 
+    var idsURL: URL {
+        url.deletingPathExtension().appendingPathExtension("ids")
+    }
+
+    private struct State: Codable {
+        let token: String
+        let nextOffset: Int
+        let leadingEnd: Int
+        let leadingOffset: Int
+        let idsCount: Int
+        let idsFingerprint: UInt64
+    }
+
+    private static let idsHeaderPrefix = "primuse-queue-ids v1 "
+
     public func load() -> QueueContinuation? {
         guard let data = try? Data(contentsOf: url) else { return nil }
+        if let state = try? JSONDecoder().decode(State.self, from: data) {
+            guard let ids = loadIDs(count: state.idsCount, fingerprint: state.idsFingerprint) else { return nil }
+            return QueueContinuation(
+                token: state.token,
+                requestedIDs: ids,
+                nextOffset: state.nextOffset,
+                leadingEnd: state.leadingEnd,
+                leadingOffset: state.leadingOffset
+            )
+        }
         return try? JSONDecoder().decode(QueueContinuation.self, from: data)
     }
 
     public func save(_ continuation: QueueContinuation?) {
         guard let continuation else {
             try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: idsURL)
             return
         }
-        guard let data = try? JSONEncoder().encode(continuation) else { return }
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        let ids = continuation.requestedIDs
+        // A newline inside an ID cannot go into the line format; keep the
+        // former single-document format for such a list.
+        guard !ids.contains(where: { $0.utf8.contains(10) }) else {
+            guard let data = try? JSONEncoder().encode(continuation) else { return }
+            try? data.write(to: url, options: .atomic)
+            try? FileManager.default.removeItem(at: idsURL)
+            return
+        }
+        let fingerprint = Self.fingerprint(ids)
+        if storedIDsHeader() != Self.header(count: ids.count, fingerprint: fingerprint) {
+            guard writeIDs(ids, fingerprint: fingerprint) else { return }
+        }
+        let state = State(
+            token: continuation.token,
+            nextOffset: continuation.nextOffset,
+            leadingEnd: continuation.leadingEnd,
+            leadingOffset: continuation.leadingOffset,
+            idsCount: ids.count,
+            idsFingerprint: fingerprint
+        )
+        guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: url, options: .atomic)
+    }
+
+    // MARK: - ID list file
+
+    private static func header(count: Int, fingerprint: UInt64) -> String {
+        idsHeaderPrefix + "\(count) \(String(fingerprint, radix: 16))"
+    }
+
+    /// FNV-1a over every ID and a separator: stable across launches.
+    static func fingerprint(_ ids: [String]) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for id in ids {
+            for byte in id.utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* 0x0000_0100_0000_01B3
+            }
+            hash ^= 10
+            hash = hash &* 0x0000_0100_0000_01B3
+        }
+        return hash
+    }
+
+    private func storedIDsHeader() -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: idsURL) else { return nil }
+        defer { try? handle.close() }
+        guard let prefix = try? handle.read(upToCount: 256),
+              let newline = prefix.firstIndex(of: 10) else { return nil }
+        return String(decoding: prefix[prefix.startIndex..<newline], as: UTF8.self)
+    }
+
+    private func writeIDs(_ ids: [String], fingerprint: UInt64) -> Bool {
+        let temporary = idsURL.appendingPathExtension("tmp")
+        FileManager.default.createFile(atPath: temporary.path, contents: nil)
+        guard let handle = try? FileHandle(forWritingTo: temporary) else { return false }
+        var buffer = Data()
+        buffer.reserveCapacity(1 << 16)
+        buffer.append(contentsOf: Self.header(count: ids.count, fingerprint: fingerprint).utf8)
+        buffer.append(10)
+        do {
+            for id in ids {
+                buffer.append(contentsOf: id.utf8)
+                buffer.append(10)
+                if buffer.count >= 1 << 16 {
+                    try handle.write(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            }
+            try handle.write(contentsOf: buffer)
+            try handle.close()
+            // The state file names the list by fingerprint, so a crash between
+            // these two steps only costs the continuation, never a wrong one.
+            try? FileManager.default.removeItem(at: idsURL)
+            try FileManager.default.moveItem(at: temporary, to: idsURL)
+            return true
+        } catch {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: temporary)
+            return false
+        }
+    }
+
+    private func loadIDs(count: Int, fingerprint: UInt64) -> [String]? {
+        guard let data = try? Data(contentsOf: idsURL),
+              let headerEnd = data.firstIndex(of: 10),
+              String(decoding: data[data.startIndex..<headerEnd], as: UTF8.self)
+                == Self.header(count: count, fingerprint: fingerprint) else { return nil }
+        var ids: [String] = []
+        ids.reserveCapacity(count)
+        var lineStart = data.index(after: headerEnd)
+        while lineStart < data.endIndex, let lineEnd = data[lineStart...].firstIndex(of: 10) {
+            ids.append(String(decoding: data[lineStart..<lineEnd], as: UTF8.self))
+            lineStart = data.index(after: lineEnd)
+        }
+        guard ids.count == count else { return nil }
+        return ids
     }
 }

@@ -301,6 +301,12 @@ final class LibrarySnapshotSync: Sendable {
                 plog("LibrarySnapshotSync: local library snapshot failed validation")
                 return .failure(.snapshotPreparationFailed)
             }
+            // A library this large keeps its songs in the incremental store
+            // only; its snapshot would reach the other device without songs.
+            guard !MusicLibrary.snapshotKeepsSongsSeparately(data) else {
+                plog("LibrarySnapshotSync: library too large for the snapshot transfer (songs kept in the incremental store)")
+                return .failure(.snapshotPreparationFailed)
+            }
             return .success(data)
         } catch {
             plog("LibrarySnapshotSync: cannot read local library snapshot — \(error)")

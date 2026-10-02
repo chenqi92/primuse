@@ -1243,9 +1243,10 @@ public enum LibraryFolderIndexBuilder {
                 if isBuildCancelled {
                     return emptyPartition(source: source, sourceNodeID: sourceNodeID)
                 }
-                accumulator.directSongIDs = AlbumTrackOrder.sorted(
-                    accumulator.directSongOffsets.map { songs[$0] }
-                ).map(\.id)
+                accumulator.directSongIDs = AlbumTrackOrder.sortedIDs(
+                    at: accumulator.directSongOffsets,
+                    in: songs
+                )
             }
         } else {
             var sourceSongIDs: [String] = []

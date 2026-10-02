@@ -212,6 +212,58 @@ struct QueueContinuationTests {
         #expect(!small.reshapedLegacyQueue && small.continuation == nil)
     }
 
+    @Test("Advancing rewrites only the small state file; a changed list rewrites the IDs")
+    func storeKeepsTheIDListBetweenAdvances() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("qc-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = QueueContinuationStore(url: directory.appendingPathComponent("c.json"))
+        var continuation = QueueContinuation(requestedIDs: (0..<50_000).map { "song-\($0)" }, window: 0..<1_000)
+        store.save(continuation)
+        let idsURL = store.idsURL
+        let firstWrite = try FileManager.default.attributesOfItem(atPath: idsURL.path)[.modificationDate] as? Date
+        let stateSize = try FileManager.default.attributesOfItem(atPath: store.url.path)[.size] as? Int ?? 0
+        #expect(stateSize < 1_000)
+        Thread.sleep(forTimeInterval: 1.1)
+        _ = continuation.takeNext(maxCount: 500, repeatsAll: false)
+        store.save(continuation)
+        let secondWrite = try FileManager.default.attributesOfItem(atPath: idsURL.path)[.modificationDate] as? Date
+        #expect(firstWrite == secondWrite)
+        #expect(store.load() == continuation)
+
+        continuation.remapIDs(["song-7": "canonical-7"])
+        store.save(continuation)
+        #expect(store.load() == continuation)
+        #expect(store.load()?.requestedIDs[7] == "canonical-7")
+    }
+
+    @Test("A continuation saved in the former single-document format still loads")
+    func formerStoreFormatLoads() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("qc-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var continuation = QueueContinuation(requestedIDs: (0..<2_000).map { "id-\($0)" }, window: 0..<1_000)
+        _ = continuation.takeNext(maxCount: 300, repeatsAll: false)
+        let url = directory.appendingPathComponent("c.json")
+        try JSONEncoder().encode(continuation).write(to: url)
+        #expect(QueueContinuationStore(url: url).load() == continuation)
+
+        // IDs that cannot go into the line format keep using it.
+        let odd = QueueContinuation(requestedIDs: ["a\nb", "c"], window: 0..<1)
+        let store = QueueContinuationStore(url: url)
+        store.save(odd)
+        #expect(store.load() == odd)
+    }
+
+    @Test("A state file whose ID list went missing loads as nothing, not as a wrong list")
+    func missingIDListIsNotGuessed() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("qc-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = QueueContinuationStore(url: directory.appendingPathComponent("c.json"))
+        store.save(QueueContinuation(requestedIDs: (0..<3_000).map { "x-\($0)" }, window: 0..<1_000))
+        try FileManager.default.removeItem(at: store.idsURL)
+        #expect(store.load() == nil)
+    }
+
     // MARK: - Large queue requests
 
     @Test("A whole-library request installs one window and owes the rest in order")

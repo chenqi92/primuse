@@ -61,6 +61,18 @@ public enum AlbumTrackOrder {
         }.map { songs[$0] }
     }
 
+    /// `sorted(_:)` of `songs[offsets]`, as song IDs, without copying the
+    /// songs out first: a folder index orders every directory of the library.
+    public static func sortedIDs(at offsets: [Int], in songs: [Song]) -> [String] {
+        guard offsets.count > 1 else { return offsets.map { songs[$0].id } }
+        let keys = offsets.map { (disc: discNumber(for: songs[$0]), track: trackNumber(for: songs[$0]) ?? Int.max) }
+        return offsets.indices.sorted { lhs, rhs in
+            if keys[lhs].disc != keys[rhs].disc { return keys[lhs].disc < keys[rhs].disc }
+            if keys[lhs].track != keys[rhs].track { return keys[lhs].track < keys[rhs].track }
+            return isOrderedByTitle(songs[offsets[lhs]], songs[offsets[rhs]])
+        }.map { songs[offsets[$0]].id }
+    }
+
     /// Disc, then track, then title. Any list that groups songs by album
     /// (e.g. sorting a folder by album) must order within the group this way.
     public static func isOrderedBefore(_ lhs: Song, _ rhs: Song) -> Bool {

@@ -1532,11 +1532,7 @@ struct ContentView: View {
         // 受方 library 现在可能比 publisher 少 (CloudKit 同步未到位 / 不同 source
         // 启用状态),compactMap 后丢失的歌不影响其它歌正常播。
         let queueIDs = (info["queueIDs"] as? [String]) ?? [songID]
-        let songsByID = Dictionary(
-            library.visibleSongs.map { ($0.id, $0) },
-            uniquingKeysWith: { lhs, _ in lhs }
-        )
-        let resolvedQueue = queueIDs.compactMap { songsByID[$0] }
+        let resolvedQueue = queueIDs.compactMap { library.visibleSong(id: $0) }
         guard !resolvedQueue.isEmpty,
               let songIndex = resolvedQueue.firstIndex(where: { $0.id == songID }) else {
             // 当前歌在受方库里不存在 → 退回纯 song-id 路径,让 spotlight 同
@@ -1593,12 +1589,14 @@ struct ContentView: View {
     private func handleSpotlightItem(_ item: SpotlightItem) {
         switch item {
         case .song(let id):
-            guard let song = library.visibleSong(id: id) else { return }
-            // 命中歌 + 整库剩下的拼起来当队列,跟 Siri / Shortcuts 同款行为
-            let rest = library.visibleSongs.filter { $0.id != id }
-            let queue = [song] + rest
+            guard library.visibleSong(id: id) != nil else { return }
+            // 命中歌 + 整库剩下的拼起来当队列,跟 Siri / Shortcuts 同款行为;
+            // 只交 ID, 整库在主线程之外按窗口取。
+            var ids = [id]
+            ids.reserveCapacity(library.visibleSongs.count)
+            for song in library.visibleSongs where song.id != id { ids.append(song.id) }
             Task {
-                await player.play(queue: queue, startingAt: 0, caller: "Spotlight")
+                await player.play(queueIDs: ids, startingAt: 0, caller: "Spotlight")
             }
         case .album(let id):
             guard let album = library.visibleAlbums.first(where: { $0.id == id }) else { return }

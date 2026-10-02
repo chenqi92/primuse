@@ -58,4 +58,26 @@ struct CarPlayListRefreshPolicyTests {
         #expect(CarPlayListSelection.firstSorted([3, 1, 2], limit: 0, by: <).isEmpty)
     }
 
+    @Test func firstSortedKeepsTiesInInputOrderWhateverTheInputOrder() {
+        // Few distinct keys, so most comparisons are ties.
+        let ascending = (0..<3_000).map { (key: $0 / 7, offset: $0) }
+        for input in [ascending, Array(ascending.reversed()), ascending.shuffled()] {
+            for limit in [1, 2, 13, 500, 2_999, 3_000, 4_000] {
+                let newestFirst = CarPlayListSelection.firstSorted(input, limit: limit) { $0.key > $1.key }
+                let expected = Array(input.enumerated().sorted { lhs, rhs in
+                    lhs.element.key != rhs.element.key ? lhs.element.key > rhs.element.key : lhs.offset < rhs.offset
+                }.prefix(limit).map(\.element))
+                #expect(newestFirst.map(\.offset) == expected.map(\.offset))
+            }
+        }
+    }
+
+    /// A library is stored oldest-first, so "newest N" sees every song as a
+    /// newcomer that beats everything kept so far.
+    @Test func firstSortedStaysCheapWhenEveryElementIsANewcomer() {
+        let count = 100_000
+        let selected = CarPlayListSelection.firstSorted(0..<count, limit: 5_000, by: >)
+        #expect(selected == Array((count - 5_000..<count).reversed()))
+    }
+
 }

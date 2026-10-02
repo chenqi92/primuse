@@ -316,4 +316,303 @@ final class LibraryStartupHarnessTests: XCTestCase {
             XCTAssertEqual(library.songs.count, songCount)
         }
     }
+
+    // MARK: - 规模实测: 几十万到上百万首的常驻内存
+
+    /// 两步分在两次 `xcodebuild test` 里跑, 测量进程里没有建夹具留下的垃圾:
+    /// ```
+    /// TEST_RUNNER_PRIMUSE_SCALE_DIR=/path/scale-400000 TEST_RUNNER_PRIMUSE_SCALE_SONGS=400000 \
+    ///   xcodebuild test … -only-testing:PrimuseTests/LibraryStartupHarnessTests/testBuildScaleFixture
+    /// TEST_RUNNER_PRIMUSE_SCALE_DIR=/path/scale-400000 \
+    ///   xcodebuild test … -only-testing:PrimuseTests/LibraryStartupHarnessTests/testScaleFixtureFootprint
+    /// ```
+    /// 曲库按真实大库的形状造: 中文歌名、多级目录路径、拼音、封面与艺人图文件名,
+    /// 单一服务器源为主再加一个小的本机源, 每张专辑 12 首、每位歌手约 3 张专辑。
+    private static var scaleDirectory: URL? {
+        ProcessInfo.processInfo.environment["PRIMUSE_SCALE_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    private static func residentFootprint() -> (current: UInt64, peak: UInt64) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return (0, 0) }
+        return (info.phys_footprint, info.ledger_phys_footprint_peak > 0 ? UInt64(info.ledger_phys_footprint_peak) : info.phys_footprint)
+    }
+
+    private static func megabytes(_ bytes: UInt64) -> Double { Double(bytes) / 1_048_576 }
+
+    func testBuildScaleFixture() async throws {
+        guard let directory = Self.scaleDirectory,
+              let raw = ProcessInfo.processInfo.environment["PRIMUSE_SCALE_SONGS"],
+              let songCount = Int(raw), songCount > 0 else {
+            throw XCTSkip("Set PRIMUSE_SCALE_DIR and PRIMUSE_SCALE_SONGS to build the scale fixture")
+        }
+        try? FileManager.default.removeItem(at: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let footprintBeforeScan = Self.residentFootprint()
+        let library = MusicLibrary(storageDirectory: directory)
+        let serverSource = "scale-server-source"
+        // 两个都是服务器源: 本机源记录带设备归属, 拷进别的安装里会被当成
+        // 别的设备的源清掉, 连带删掉它的歌。
+        let secondSource = "scale-second-source"
+        let surnames = ["周", "林", "陈", "王", "张", "李", "刘", "杨", "黄", "吴", "赵", "孙"]
+        let given = ["杰伦", "俊杰", "奕迅", "菲", "学友", "宇春", "绮贞", "楚生", "鹏", "若昀", "子棋", "雨生"]
+        let words = ["夜曲", "晴天", "稻香", "告白气球", "七里香", "青花瓷", "以父之名", "简单爱", "安静", "彩虹", "说好的幸福呢", "听妈妈的话"]
+        let genres = ["流行", "Rock", "Jazz", "古典", "民谣", "Electronic", "R&B", "说唱", "Soundtrack", "Metal"]
+        let albumCount = max(1, songCount / 12)
+        let artistCount = max(1, albumCount / 3)
+        func artist(_ index: Int) -> String {
+            index % 4 == 0
+                ? "Artist Name \(index)"
+                : surnames[index % surnames.count] + given[(index / surnames.count) % given.count] + "\(index)"
+        }
+        var allIDs: [String] = []
+        allIDs.reserveCapacity(songCount)
+        var batch: [Song] = []
+        batch.reserveCapacity(20_000)
+        var batchSource = serverSource
+        func flush() {
+            guard !batch.isEmpty else { return }
+            // 和扫描的中间提交一样不剪枝, 也把整库维护延后到最后。
+            library.addSongs(
+                batch,
+                affectedSourceIDs: [batchSource],
+                notifyRemovals: false,
+                pruneMissingSongs: false,
+                indexMaintenance: .deferredIncremental
+            )
+            batch.removeAll(keepingCapacity: true)
+        }
+        for index in 0..<songCount {
+            let albumIndex = index / 12
+            let artistIndex = albumIndex % artistCount
+            let sourceID = index < songCount - songCount / 20 ? serverSource : secondSource
+            if sourceID != batchSource { flush(); batchSource = sourceID }
+            let artistName = artist(artistIndex)
+            let albumTitle = words[albumIndex % words.count] + " 专辑 \(albumIndex)"
+            let title = words[(index * 7) % words.count] + "（第\(index)首）" + (index % 3 == 0 ? " Live Version" : "")
+            let track = index % 12 + 1
+            let duration = 180 + Double(index % 240)
+            let bitRate = index % 5 == 0 ? 320 : 1_000
+            var song = Song(
+                id: String(format: "%016llx%016llx%016llx%016llx", UInt64(index) &* 0x9E3779B97F4A7C15, UInt64(index) ^ 0xA5A5_5A5A_DEAD_BEEF, UInt64(index) &* 31, UInt64(index)),
+                title: title,
+                albumTitle: albumTitle,
+                artistName: index % 10 == 0 ? artistName + "、" + artist((artistIndex + 5) % artistCount) : artistName,
+                albumArtistName: artistName,
+                trackNumber: track,
+                discNumber: 1,
+                duration: duration,
+                fileFormat: index % 5 == 0 ? .mp3 : .flac,
+                filePath: "/music/\(artistName)/\(albumTitle)/\(String(format: "%02d", track)) \(title).\(index % 5 == 0 ? "mp3" : "flac")",
+                sourceID: sourceID,
+                // 与时长、码率对得上, 否则回填的「截断时长」迁移会把它们当坏数据重置。
+                fileSize: Int64(duration * Double(bitRate) * 125) + Int64(index % 4_096),
+                bitRate: bitRate,
+                sampleRate: 44_100,
+                bitDepth: index % 5 == 0 ? nil : 16,
+                genre: genres[albumIndex % genres.count],
+                year: 1980 + albumIndex % 45,
+                lastModified: Date(timeIntervalSince1970: 1_600_000_000 + Double(index)),
+                dateAdded: Date(timeIntervalSince1970: 1_700_000_000 + Double(index)),
+                coverArtFileName: "al-\(albumIndex)_\(String(format: "%08x", albumIndex &* 2_654_435_761))",
+                artistArtworkFileName: "ar-\(artistIndex)_\(String(format: "%08x", artistIndex &* 40_503))"
+            )
+            if index % 7 == 0 { song.lyricsFileName = "\(String(format: "%02d", track)) \(title).lrc" }
+            if index % 4 == 0 {
+                song.replayGainTrackGain = -6.5
+                song.replayGainTrackPeak = 0.98
+            }
+            allIDs.append(song.id)
+            batch.append(song)
+            if batch.count == 20_000 { flush() }
+        }
+        flush()
+        await library.waitForPendingIndex()
+        // 首轮扫描刚入库完的常驻: 和下次启动从增量库装载时应当相当。
+        let footprintAfterScan = Self.residentFootprint()
+        for playlistIndex in 0..<30 {
+            let start = (playlistIndex * 7_919) % max(1, songCount)
+            let ids = Array(allIDs[start..<min(allIDs.count, start + 500)])
+            _ = library.createPlaylist(name: "Scale \(playlistIndex)", songIDs: ids)
+        }
+        guard case .success = await library.persistNowAndWait() else {
+            XCTFail("The scale fixture did not persist")
+            return
+        }
+        await Self.drainLaunchCacheWrites(library)
+        // 夹具目录可以整份拷进模拟器里 App 的 Application Support/Primuse 当真实曲库用:
+        // 源记录也写进去, 否则启动对账会把找不到来源的歌清掉。服务器指向一个
+        // 连不上的地址, 界面照常浏览, 只是不能真的播放。
+        let sources = SourcesStore(storageDirectoryURL: directory)
+        try sources.addDurably(MusicSource(
+            id: serverSource, name: "Scale Navidrome", type: .navidrome,
+            host: "127.0.0.1", port: 9, useSsl: false, username: "scale"
+        ))
+        try sources.addDurably(MusicSource(
+            id: secondSource, name: "Scale Navidrome 2", type: .navidrome,
+            host: "127.0.0.1", port: 10, useSsl: false, username: "scale"
+        ))
+        // 再走一遍真机的启动路径, 把启动缓存与派生索引缓存补齐成稳态。
+        let settle = MusicLibrary.makePreparing(storageDirectory: directory)
+        settle.publish(await MusicLibrary.prepareStartup(storageDirectory: directory))
+        await settle.waitForPendingIndex()
+        _ = await settle.persistNowAndWait()
+        await Self.drainLaunchCacheWrites(settle)
+        let summary = String(
+            format: "📏 scale fixture songs=%d built in %.0fs scanResident=%.0fMB scanPeak=%.0fMB dir=%@",
+            library.songs.count, ProcessInfo.processInfo.systemUptime - startedAt,
+            Self.megabytes(footprintAfterScan.current) - Self.megabytes(footprintBeforeScan.current),
+            Self.megabytes(footprintAfterScan.peak), directory.path
+        )
+        plog(summary)
+        print(summary)
+        XCTAssertEqual(settle.songs.count, songCount)
+    }
+
+    /// 测量前在夹具副本上先走一遍启动: 副本的文件号变了, 启动缓存与派生缓存
+    /// 都要按新的快照指纹重写一次, 之后量到的才是日常的二次启动。
+    func testSettleScaleFixture() async throws {
+        guard let directory = Self.scaleDirectory,
+              FileManager.default.fileExists(atPath: directory.appendingPathComponent("library-songs.sqlite").path) else {
+            throw XCTSkip("Build the scale fixture first (PRIMUSE_SCALE_DIR)")
+        }
+        let settle = MusicLibrary.makePreparing(storageDirectory: directory)
+        settle.publish(await MusicLibrary.prepareStartup(storageDirectory: directory))
+        await settle.waitForPendingIndex()
+        _ = await settle.persistNowAndWait()
+        await Self.drainLaunchCacheWrites(settle)
+    }
+
+    func testScaleFixtureFootprint() async throws {
+        guard let directory = Self.scaleDirectory,
+              FileManager.default.fileExists(atPath: directory.appendingPathComponent("library-songs.sqlite").path) else {
+            throw XCTSkip("Build the scale fixture first (PRIMUSE_SCALE_DIR)")
+        }
+        let before = Self.residentFootprint()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let preparedAt: TimeInterval
+        let library: MusicLibrary
+        // 装载结果与下面的查找表都收在各自的作用域里: 它们握着整库数组,
+        // 活到函数结束会让后面的补丁量到一次 App 里不会发生的整库复制。
+        do {
+            let prepared = await MusicLibrary.prepareStartup(storageDirectory: directory)
+            preparedAt = ProcessInfo.processInfo.systemUptime
+            library = MusicLibrary.makePreparing(storageDirectory: directory)
+            library.publish(prepared)
+        }
+        let publishedAt = ProcessInfo.processInfo.systemUptime
+        await library.waitForPendingIndex()
+        let indexedAt = ProcessInfo.processInfo.systemUptime
+        try await Task.sleep(for: .seconds(2))
+        let after = Self.residentFootprint()
+        let songCount = library.songs.count
+
+        var inPlace = ["load=\(library.patchWouldWriteInPlaceForTesting())"]
+        let idsStartedAt = ProcessInfo.processInfo.systemUptime
+        let musicIDs = library.musicSongs.map(\.id)
+        let idsAt = ProcessInfo.processInfo.systemUptime
+        let plannedCount: Int?
+        do {
+            let lookup = library.visibleSongLookup()
+            plannedCount = LargeQueueRequestPlanner.plan(
+                ids: musicIDs, startIndex: 0, order: .shuffled,
+                includes: { lookup.contains(id: $0, playableOnly: true) },
+                resolve: { lookup.song(id: $0) }
+            )?.items.count
+        }
+        let plannedAt = ProcessInfo.processInfo.systemUptime
+        XCTAssertEqual(plannedCount, min(songCount, QueueWindowPolicy.windowLimit))
+        inPlace.append("plan=\(library.patchWouldWriteInPlaceForTesting())")
+
+        let resident = Self.megabytes(after.current - min(after.current, before.current))
+        let summary = (String(
+            format: "📏 scale footprint songs=%d before=%.0fMB after=%.0fMB resident=%.0fMB perSong=%.0fB peak=%.0fMB prepare=%.0fms publish=%.0fms index=%.0fms musicIDs=%.0fms plan=%.0fms",
+            songCount,
+            Self.megabytes(before.current),
+            Self.megabytes(after.current),
+            resident,
+            resident * 1_048_576 / Double(max(1, songCount)),
+            Self.megabytes(after.peak),
+            (preparedAt - startedAt) * 1_000,
+            (publishedAt - preparedAt) * 1_000,
+            (indexedAt - publishedAt) * 1_000,
+            (idsAt - idsStartedAt) * 1_000,
+            (plannedAt - idsAt) * 1_000
+        ))
+        plog(summary)
+        print(summary)
+
+        // 回填期间最常见的两种补丁: 封面/歌词引用、歌词全文。每批量一次耗时与常驻增量。
+        let patchIDs = Array(library.songs.prefix(200).map(\.id))
+        let patchBefore = Self.residentFootprint()
+        let patchStartedAt = ProcessInfo.processInfo.systemUptime
+        for id in patchIDs { library.updateAssetReferences(songID: id, coverRef: "patched-cover-\(id).jpg") }
+        library.flushPendingAssetReferencePatches()
+        let assetPatchAt = ProcessInfo.processInfo.systemUptime
+        library.updateLyricsText(Dictionary(uniqueKeysWithValues: patchIDs.map { ($0, "歌词 \($0)") }))
+        let lyricsPatchAt = ProcessInfo.processInfo.systemUptime
+        try await Task.sleep(for: .seconds(2))
+        inPlace.append("patched=\(library.patchWouldWriteInPlaceForTesting())")
+        let beforeReplace = Self.residentFootprint()
+        print("📏 scale sharing before replace: \(library.storageSharingSummaryForTesting)")
+        // 开播时的时长校正: 一首歌的整行替换。
+        var corrected = try XCTUnwrap(library.song(id: patchIDs[5]))
+        corrected.duration += 7
+        let replaceStartedAt = ProcessInfo.processInfo.systemUptime
+        library.replaceSong(corrected)
+        let replaceAt = ProcessInfo.processInfo.systemUptime
+        try await Task.sleep(for: .seconds(2))
+        let afterReplace = Self.residentFootprint()
+        print(String(
+            format: "📏 scale replaceSong songs=%d main=%.0fms residentGrowth=%.0fMB sharing after: %@",
+            songCount, (replaceAt - replaceStartedAt) * 1_000,
+            Self.megabytes(afterReplace.current) - Self.megabytes(beforeReplace.current),
+            library.storageSharingSummaryForTesting
+        ))
+        try await Task.sleep(for: .seconds(2))
+        inPlace.append("replaced=\(library.patchWouldWriteInPlaceForTesting())")
+        print("📏 scale inPlace " + inPlace.joined(separator: " "))
+        let patchAfter = Self.residentFootprint()
+        let stages = await library.measureIndexRebuildStagesForTesting()
+        let patchSummary = String(
+            format: "📏 scale patches songs=%d assetPatch=%.0fms lyricsPatch=%.0fms residentGrowth=%.0fMB rebuild: %@",
+            songCount,
+            (assetPatchAt - patchStartedAt) * 1_000,
+            (lyricsPatchAt - assetPatchAt) * 1_000,
+            Self.megabytes(patchAfter.current) - Self.megabytes(patchBefore.current),
+            stages
+        )
+        plog(patchSummary)
+        print(patchSummary)
+
+        // 点一次「喜欢」或改一次歌单就会武装一次整库快照写: 量它的耗时与常驻增量。
+        let snapshotBefore = Self.residentFootprint()
+        let snapshotStartedAt = ProcessInfo.processInfo.systemUptime
+        let snapshotResult = await library.persistNowAndWait()
+        let snapshotAt = ProcessInfo.processInfo.systemUptime
+        let snapshotAfter = Self.residentFootprint()
+        let snapshotSize = (try? FileManager.default.attributesOfItem(
+            atPath: directory.appendingPathComponent("library-cache.json").path
+        )[.size] as? Int) ?? 0
+        let snapshotSummary = String(
+            format: "📏 scale snapshot songs=%d write=%.0fms bytes=%.0fMB residentGrowth=%.0fMB peak=%.0fMB ok=%@",
+            songCount,
+            (snapshotAt - snapshotStartedAt) * 1_000,
+            Double(snapshotSize) / 1_048_576,
+            Self.megabytes(snapshotAfter.current) - Self.megabytes(snapshotBefore.current),
+            Self.megabytes(snapshotAfter.peak),
+            { if case .success = snapshotResult { return "yes" } else { return "no" } }()
+        )
+        plog(snapshotSummary)
+        print(snapshotSummary)
+        XCTAssertGreaterThan(songCount, 0)
+    }
+
 }

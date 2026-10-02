@@ -74,32 +74,75 @@ public enum CarPlayListSelection {
     /// The first `limit` elements in `areInIncreasingOrder` order, the same
     /// as `Array(elements.sorted(by:).prefix(limit))` for a strict weak
     /// ordering. Ties keep their original relative order.
+    @inlinable
     public static func firstSorted<Element>(
         _ elements: some Sequence<Element>,
         limit: Int,
         by areInIncreasingOrder: (Element, Element) -> Bool
     ) -> [Element] {
         guard limit > 0 else { return [] }
-        var best: [Element] = []
-        best.reserveCapacity(limit + 1)
+        // Kept elements sit in fixed slots; a heap of slot numbers keeps the one
+        // that would come last on top. A later element costs one comparison,
+        // and an admitted one overwrites that slot and moves O(log limit) slot
+        // numbers. Shifting a sorted array instead moved every kept element for
+        // each newcomer, which for a library listed oldest-first and a
+        // 20 000-song limit was terabytes of copying.
+        var kept: [Element] = []
+        var arrival: [Int] = []
+        var heap: [Int] = []
+        var position = 0
         for element in elements {
-            if best.count == limit, let last = best.last, !areInIncreasingOrder(element, last) {
-                continue
-            }
-            // Insert after any equal elements so ties stay in input order.
-            var low = 0
-            var high = best.count
-            while low < high {
-                let middle = (low + high) / 2
-                if areInIncreasingOrder(element, best[middle]) {
-                    high = middle
-                } else {
-                    low = middle + 1
+            defer { position += 1 }
+            if heap.count < limit {
+                kept.append(element)
+                arrival.append(position)
+                heap.append(kept.count - 1)
+                var child = heap.count - 1
+                while child > 0 {
+                    let parent = (child - 1) / 2
+                    guard slot(heap[parent], precedes: heap[child], kept, arrival, areInIncreasingOrder) else { break }
+                    heap.swapAt(parent, child)
+                    child = parent
+                }
+            } else if areInIncreasingOrder(element, kept[heap[0]]) {
+                // Strictly ahead of the last kept one; an equal newcomer comes
+                // after it in input order and stays out.
+                kept[heap[0]] = element
+                arrival[heap[0]] = position
+                var parent = 0
+                while true {
+                    let left = 2 * parent + 1
+                    let right = left + 1
+                    var last = parent
+                    if left < heap.count, slot(heap[last], precedes: heap[left], kept, arrival, areInIncreasingOrder) {
+                        last = left
+                    }
+                    if right < heap.count, slot(heap[last], precedes: heap[right], kept, arrival, areInIncreasingOrder) {
+                        last = right
+                    }
+                    guard last != parent else { break }
+                    heap.swapAt(parent, last)
+                    parent = last
                 }
             }
-            best.insert(element, at: low)
-            if best.count > limit { best.removeLast() }
         }
-        return best
+        return heap
+            .sorted { slot($0, precedes: $1, kept, arrival, areInIncreasingOrder) }
+            .map { kept[$0] }
+    }
+
+    /// Slot `a` comes before slot `b` in the result: by the ordering, then by
+    /// input position, which is what keeps ties in their original order.
+    @inlinable
+    static func slot<Element>(
+        _ a: Int,
+        precedes b: Int,
+        _ kept: [Element],
+        _ arrival: [Int],
+        _ areInIncreasingOrder: (Element, Element) -> Bool
+    ) -> Bool {
+        if areInIncreasingOrder(kept[a], kept[b]) { return true }
+        if areInIncreasingOrder(kept[b], kept[a]) { return false }
+        return arrival[a] < arrival[b]
     }
 }

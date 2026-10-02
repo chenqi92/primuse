@@ -127,19 +127,27 @@ struct PlaylistPendingMatchSheet: View {
         _query = State(initialValue: entry.title)
     }
 
-    private var results: [Song] {
+    /// Matches for the typed text, worked out off the main actor: a query
+    /// that matches nothing walks the whole library, which at a few hundred
+    /// thousand songs is seconds of folding and comparing per keystroke.
+    @State private var results: [Song] = []
+
+    nonisolated private static func matches(for query: String, in songs: [Song]) -> [Song] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
         let needle = trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
-        return Array(
-            library.visibleSongs.lazy.filter { song in
-                [song.title, song.artistName ?? "", song.albumTitle ?? ""]
-                    .joined(separator: " ")
-                    .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
-                    .contains(needle)
+        var found: [Song] = []
+        for song in songs {
+            if Task.isCancelled { return [] }
+            let haystack = [song.title, song.artistName ?? "", song.albumTitle ?? ""]
+                .joined(separator: " ")
+                .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+            if haystack.contains(needle) {
+                found.append(song)
+                if found.count == 60 { break }
             }
-            .prefix(60)
-        )
+        }
+        return found
     }
 
     var body: some View {
@@ -181,6 +189,23 @@ struct PlaylistPendingMatchSheet: View {
                 }
             }
             .searchable(text: $query)
+            .task(id: "\(library.visibleSongCollectionRevision)\u{0}\(query)") {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
+                let query = self.query
+                let songs = library.visibleSongs
+                let search = Task.detached(priority: .userInitiated) {
+                    Self.matches(for: query, in: songs)
+                }
+                // 下一次按键会取消这次 task, 让还在走整库的那次搜索也停下。
+                let found = await withTaskCancellationHandler {
+                    await search.value
+                } onCancel: {
+                    search.cancel()
+                }
+                guard !Task.isCancelled else { return }
+                results = found
+            }
             .navigationTitle("playlist_pending_match_title")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

@@ -24,6 +24,16 @@ public final class IncrementalSongStore: @unchecked Sendable {
         encoder.dateEncodingStrategy = .iso8601
 
         try migrate()
+        // 装载按 orderKey 顺序读整库, 增量写入要取 MAX(orderKey)。没有这条索引时
+        // 前者每次启动都把所有行连同负载写进临时文件排序(几十万首要写几百 MB,
+        // 磁盘紧张时直接读失败), 后者每批写入都扫全表。建不出来(比如磁盘满)
+        // 也照常可用, 只是照旧慢, 下次打开再建。
+        try? database.write { db in
+            try db.execute(sql: """
+                CREATE INDEX IF NOT EXISTS librarySongRecords_on_orderKey_id
+                ON librarySongRecords(orderKey, id)
+                """)
+        }
     }
 
     private func migrate() throws {
@@ -85,10 +95,7 @@ public final class IncrementalSongStore: @unchecked Sendable {
             var songs: [Song] = []
             let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM librarySongRecords") ?? 0
             songs.reserveCapacity(count)
-            let payloads = try Data.fetchCursor(
-                db,
-                sql: "SELECT payload FROM librarySongRecords ORDER BY orderKey ASC, id ASC"
-            )
+            let payloads = try Data.fetchCursor(db, sql: Self.loadSongsSQL)
             var batch: [Data] = []
             batch.reserveCapacity(Self.decodeBatchSize)
             // 每批解码完就把重复的字段并成一份, 峰值不会先涨到整库各存一份。
@@ -109,6 +116,15 @@ public final class IncrementalSongStore: @unchecked Sendable {
                 appendDecoded(try Self.decodeSongs(batch))
             }
             return songs
+        }
+    }
+
+    static let loadSongsSQL = "SELECT payload FROM librarySongRecords ORDER BY orderKey ASC, id ASC"
+
+    /// The plan SQLite picks for `loadSongs()` (tests).
+    func loadSongsQueryPlan() throws -> [String] {
+        try database.read { db in
+            try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + Self.loadSongsSQL).map { $0["detail"] as String }
         }
     }
 
@@ -356,6 +372,7 @@ public struct SongStringInterner {
         share(&song.artistPinyin)
         share(&song.albumPinyin)
         share(&song.cueSheetPath)
+        share(&song.serverLibraryID)
         if let names = song.sourceArtistNames {
             if let shared = stringLists[names] {
                 song.sourceArtistNames = shared

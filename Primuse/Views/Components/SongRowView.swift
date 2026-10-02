@@ -899,9 +899,13 @@ struct SongRowView: View {
     private var tagEditorQueue: [Song] {
         let directory = (song.filePath as NSString).deletingLastPathComponent
         guard !directory.isEmpty else { return [] }
-        let siblings = library.visibleSongs.filter {
-            $0.sourceID == song.sourceID
-                && ($0.filePath as NSString).deletingLastPathComponent == directory
+        // A prefix test per song; parsing every path in a large library
+        // took about a second on the main thread.
+        let prefix = directory.hasSuffix("/") ? directory : directory + "/"
+        let siblings = library.visibleSongs.filter { candidate in
+            guard candidate.sourceID == song.sourceID,
+                  candidate.filePath.hasPrefix(prefix) else { return false }
+            return !candidate.filePath.dropFirst(prefix.count).contains("/")
         }
         guard siblings.count > 1 else { return [] }
         return siblings.sorted {

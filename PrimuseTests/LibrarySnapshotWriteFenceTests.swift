@@ -1,5 +1,6 @@
 import Foundation
 import PrimuseKit
+import SQLite3
 import XCTest
 @testable import Primuse
 
@@ -201,4 +202,89 @@ final class LibrarySnapshotWriteFenceTests: XCTestCase {
         XCTAssertNotNil(library.song(id: "a"))
         XCTAssertNotNil(library.song(id: "b"))
     }
+
+    /// 远超传输上限的曲库: 快照不再带歌, 歌由增量库保存; 重开照样读回全部歌曲,
+    /// 而传给其它设备的入口拒绝这种快照。
+    func testVeryLargeLibrariesKeepSongsOutOfThePortableSnapshot() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.separateSongStoreMinimumSongsOverride = 10
+        let songs = (0..<40).map { Self.makeSong(id: "song-\($0)") }
+        library.addSongs(songs, affectedSourceIDs: [Self.sourceID])
+        _ = library.createPlaylist(name: "Kept", songIDs: ["song-3", "song-7"])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("snapshot did not persist")
+        }
+        let data = try Data(contentsOf: snapshotURL(in: directory))
+        XCTAssertTrue(MusicLibrary.snapshotKeepsSongsSeparately(data))
+        XCTAssertTrue(MusicLibrary.isValidSnapshotData(data))
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual((object["songs"] as? [Any])?.count, 0)
+
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertEqual(Set(reopened.songs.map(\.id)), Set(songs.map(\.id)))
+        let kept = try XCTUnwrap(reopened.playlists.first { $0.name == "Kept" })
+        XCTAssertEqual(reopened.songIDs(forPlaylist: kept.id), ["song-3", "song-7"])
+
+        // Below the threshold the snapshot carries its songs as before.
+        reopened.separateSongStoreMinimumSongsOverride = 1_000
+        _ = reopened.createPlaylist(name: "Full", songIDs: ["song-1"])
+        guard case .success = await reopened.persistNowAndWait() else {
+            return XCTFail("snapshot did not persist")
+        }
+        let full = try Data(contentsOf: snapshotURL(in: directory))
+        XCTAssertFalse(MusicLibrary.snapshotKeepsSongsSeparately(full))
+    }
+
+    /// 快照不带歌时增量库是唯一一份。它这次读不出来(一行解不开就整体失败),
+    /// 库不能拿快照里的空歌单发布: 否则会整库替换把增量库写空, 歌单也会按
+    /// 空曲库清理后落盘。
+    func testSlimSnapshotWithUnreadableSongStoreKeepsBothFiles() async throws {
+        let directory = try Self.makeStorageDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory)
+        library.separateSongStoreMinimumSongsOverride = 10
+        library.addSongs((0..<40).map { Self.makeSong(id: "song-\($0)") }, affectedSourceIDs: [Self.sourceID])
+        _ = library.createPlaylist(name: "Kept", songIDs: ["song-3", "song-7"])
+        guard case .success = await library.persistNowAndWait() else {
+            return XCTFail("snapshot did not persist")
+        }
+        let snapshot = try Data(contentsOf: snapshotURL(in: directory))
+        XCTAssertTrue(MusicLibrary.snapshotKeepsSongsSeparately(snapshot))
+
+        let storePath = directory.appendingPathComponent("library-songs.sqlite").path
+        XCTAssertEqual(try Self.sqlite(storePath, "UPDATE librarySongRecords SET payload = X'7B7D' WHERE rowid = (SELECT min(rowid) FROM librarySongRecords)"), 0)
+
+        let reopened = MusicLibrary(storageDirectory: directory)
+        await reopened.whenReady()
+        XCTAssertTrue(reopened.songs.isEmpty)
+        guard case .failure = await reopened.persistNowAndWait() else {
+            return XCTFail("a library that did not load must not persist")
+        }
+        XCTAssertEqual(try Data(contentsOf: snapshotURL(in: directory)), snapshot)
+        XCTAssertEqual(try Self.sqlite(storePath, "SELECT COUNT(*) FROM librarySongRecords"), 40)
+    }
+
+    /// Runs one statement; returns the first column of the first row, or 0.
+    private static func sqlite(_ path: String, _ sql: String) throws -> Int {
+        var database: OpaquePointer?
+        guard sqlite3_open(path, &database) == SQLITE_OK else {
+            sqlite3_close(database)
+            throw CocoaError(.fileReadUnknown)
+        }
+        defer { sqlite3_close(database) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        defer { sqlite3_finalize(statement) }
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW: return Int(sqlite3_column_int64(statement, 0))
+        case SQLITE_DONE: return 0
+        default: throw CocoaError(.fileWriteUnknown)
+        }
+    }
+
 }

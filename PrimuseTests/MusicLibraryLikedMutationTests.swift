@@ -1182,3 +1182,68 @@ private final class OneShotSignal: Sendable {
         }
     }
 }
+
+@MainActor
+final class LibraryRowPatchDisabledSourceTests: XCTestCase {
+    private func makeSong(_ id: String, sourceID: String) -> Song {
+        Song(
+            id: id,
+            title: id,
+            albumTitle: "Album \(sourceID)",
+            artistName: "Artist",
+            duration: 180,
+            fileFormat: .mp3,
+            filePath: "/\(sourceID)/\(id).mp3",
+            sourceID: sourceID
+        )
+    }
+
+    /// 补丁就地写整库数组; 有禁用源时可见数组是另一份, 资源补丁、歌词全文、
+    /// 单行替换要把两份都改到, 被禁用源的歌只改整库那份且仍不可见。
+    func testRowPatchesUpdateBothArraysWhenASourceIsDisabled() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PrimuseRowPatchDisabled-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let library = MusicLibrary(storageDirectory: directory, deferredMaintenanceAllowed: { true })
+        let shown = (0..<6).map { makeSong("shown-\($0)", sourceID: "source-1") }
+        let hidden = (0..<4).map { makeSong("hidden-\($0)", sourceID: "source-2") }
+        library.addSongs(shown + hidden, affectedSourceIDs: ["source-1", "source-2"])
+        await library.waitForPendingIndex()
+        library.updateDisabledSourceIDs(["source-2"])
+        XCTAssertEqual(library.visibleSongs.map(\.id), shown.map(\.id))
+
+        library.updateAssetReferences(songID: "shown-2", coverRef: "shown-2.jpg")
+        library.updateAssetReferences(songID: "hidden-1", coverRef: "hidden-1.jpg")
+        library.flushPendingAssetReferencePatches()
+        library.updateLyricsText(["shown-3": "shown lyrics", "hidden-2": "hidden lyrics"])
+        var corrected = try XCTUnwrap(library.song(id: "shown-4"))
+        corrected.duration = 200
+        library.replaceSong(corrected)
+        var hiddenCorrected = try XCTUnwrap(library.song(id: "hidden-3"))
+        hiddenCorrected.duration = 201
+        library.replaceSong(hiddenCorrected)
+
+        XCTAssertEqual(library.song(id: "shown-2")?.coverArtFileName, "shown-2.jpg")
+        XCTAssertEqual(library.unobservedVisibleSong(id: "shown-2")?.coverArtFileName, "shown-2.jpg")
+        XCTAssertEqual(library.song(id: "hidden-1")?.coverArtFileName, "hidden-1.jpg")
+        XCTAssertNil(library.unobservedVisibleSong(id: "hidden-1"))
+        XCTAssertEqual(library.unobservedVisibleSong(id: "shown-3")?.lyricsText, "shown lyrics")
+        XCTAssertEqual(library.song(id: "hidden-2")?.lyricsText, "hidden lyrics")
+        XCTAssertEqual(library.unobservedVisibleSong(id: "shown-4")?.duration, 200)
+        XCTAssertEqual(library.song(id: "hidden-3")?.duration, 201)
+        XCTAssertNil(library.unobservedVisibleSong(id: "hidden-3"))
+        XCTAssertEqual(library.visibleSongs.map(\.id), shown.map(\.id))
+
+        library.updateDisabledSourceIDs([])
+        XCTAssertEqual(library.unobservedVisibleSong(id: "hidden-1")?.coverArtFileName, "hidden-1.jpg")
+        XCTAssertEqual(library.unobservedVisibleSong(id: "hidden-3")?.duration, 201)
+        // 不再有禁用源: 可见数组又和整库是同一份, 补丁照样两边都看得到。
+        library.updateAssetReferences(songID: "hidden-0", coverRef: "hidden-0.jpg")
+        library.flushPendingAssetReferencePatches()
+        library.updateLyricsText(["shown-5": "shared lyrics"])
+        XCTAssertEqual(library.song(id: "hidden-0")?.coverArtFileName, "hidden-0.jpg")
+        XCTAssertEqual(library.unobservedVisibleSong(id: "hidden-0")?.coverArtFileName, "hidden-0.jpg")
+        XCTAssertEqual(library.unobservedVisibleSong(id: "shown-5")?.lyricsText, "shared lyrics")
+        XCTAssertEqual(library.visibleSongs.count, 10)
+    }
+}

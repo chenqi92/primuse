@@ -809,33 +809,39 @@ struct MacImmersivePlayerView: View {
 
     private func refreshGallerySongs() {
         let currentID = player.currentSong?.id
-        let eligible = library.songs.filter { song in
-            song.id != currentID
-                && !(song.coverArtFileName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        }
-        guard !eligible.isEmpty else {
+        // Stride through the library and test each stop, instead of filtering
+        // the whole library first: that copied and trimmed every song on the
+        // main thread at each song change.
+        let songs = library.songs
+        guard !songs.isEmpty else {
             gallerySongs = []
             return
         }
-
-        let limit = min(14, eligible.count)
+        let limit = min(14, songs.count)
         let seedText = currentID ?? "primuse"
         let seed = seedText.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0x7fffffff }
-        let start = seed % eligible.count
-        let rawStride = max(1, eligible.count / max(limit, 1))
+        let rawStride = max(1, songs.count / max(limit, 1))
         let step = rawStride.isMultiple(of: 2) ? rawStride + 1 : rawStride
         var selected: [Song] = []
         var seen: Set<String> = []
-        var cursor = start
+        var cursor = seed % songs.count
         var attempts = 0
-        while selected.count < limit && attempts < eligible.count * 2 {
-            let song = eligible[cursor % eligible.count]
-            if seen.insert(song.id).inserted { selected.append(song) }
-            cursor += step
+        while selected.count < limit && attempts < min(songs.count * 2, limit * 400) {
+            let song = songs[cursor % songs.count]
+            if song.id != currentID,
+               !(song.coverArtFileName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+               seen.insert(song.id).inserted {
+                selected.append(song)
+            }
+            cursor += step + attempts % 7
             attempts += 1
         }
         if selected.count < limit {
-            for song in eligible where seen.insert(song.id).inserted {
+            // Few songs carry artwork: take the first ones in order, which is
+            // what a short library got before.
+            for song in songs.prefix(20_000) where song.id != currentID
+                && !(song.coverArtFileName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                && seen.insert(song.id).inserted {
                 selected.append(song)
                 if selected.count == limit { break }
             }

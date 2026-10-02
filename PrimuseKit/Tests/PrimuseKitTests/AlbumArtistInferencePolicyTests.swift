@@ -371,9 +371,22 @@ struct AlbumArtistInferencePolicyTests {
     @Test func directoryOfPathMatchesFoundationPathSemantics() {
         #expect(AlbumArtistInferencePolicy.directory(ofPath: "/a/b/c.flac") == "/a/b")
         #expect(AlbumArtistInferencePolicy.directory(ofPath: "c.flac") == "")
+        // Linux Foundation traps on a one-character path; Darwin returns "".
+        #expect(AlbumArtistInferencePolicy.directory(ofPath: "c") == "")
         #expect(
             AlbumArtistInferencePolicy.directory(ofPath: "/x/y/")
                 == ("/x/y/" as NSString).deletingLastPathComponent
         )
+        for path in [
+            "", "/", "//", "/c.flac", "a/b", "/a/b/c/", "//a/b.mp3", "a//b/c.mp3",
+            "/音乐/周杰伦/晴天 (Live).flac", "./x.mp3", "../a/b.mp3", "~/a.mp3", "/a/./b.mp3",
+            "/a/b/c.mp3/", "a/b/ ", " /a/b.mp3",
+        ] {
+            #expect(
+                AlbumArtistInferencePolicy.directory(ofPath: path)
+                    == (path as NSString).deletingLastPathComponent,
+                "\(path)"
+            )
+        }
     }
 }

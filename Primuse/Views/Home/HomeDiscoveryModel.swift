@@ -490,10 +490,11 @@ struct HomeDiscoveryObserver: View {
                 if Task.isCancelled { break }
                 var id = index.nodeID(containingSongID: song.id)
                 while let current = id {
-                    if (covers[current]?.count ?? 0) < 4 {
-                        covers[current, default: []].append(song.id)
-                        if coverSongsByID[song.id] == nil { coverSongsByID[song.id] = song }
-                    }
+                    // 一个文件夹收满 4 张时, 那 4 首也都往上递给过它的每一层祖先,
+                    // 祖先必然也满了: 不必再往上走 (百万首时这是每首几次字典查找)。
+                    guard (covers[current]?.count ?? 0) < 4 else { break }
+                    covers[current, default: []].append(song.id)
+                    if coverSongsByID[song.id] == nil { coverSongsByID[song.id] = song }
                     id = index.node(withID: current)?.parentID
                 }
             }

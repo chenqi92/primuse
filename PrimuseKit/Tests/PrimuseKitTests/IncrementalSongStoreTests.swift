@@ -180,6 +180,17 @@ struct IncrementalSongStoreTests {
         #expect(try IncrementalSongStore.decodeSongs(payloads).count == 1_000)
     }
 
+    @Test("Loading reads rows in stored order through an index, without a temporary sort")
+    func loadingUsesTheOrderIndex() throws {
+        try withStore { store in
+            try store.apply(upserts: (0..<20).map { makeSong(id: "song-\($0)", path: "/\($0).mp3", title: "\($0)") })
+            let plan = try store.loadSongsQueryPlan().joined(separator: " | ")
+            #expect(plan.contains("librarySongRecords_on_orderKey_id"), "\(plan)")
+            #expect(!plan.contains("TEMP B-TREE"), "\(plan)")
+            #expect(try store.loadSongs().map(\.id) == (0..<20).map { "song-\($0)" })
+        }
+    }
+
     private func withStore(_ body: (IncrementalSongStore) throws -> Void) throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("primuse-song-store-\(UUID().uuidString).sqlite")

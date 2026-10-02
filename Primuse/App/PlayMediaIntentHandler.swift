@@ -79,6 +79,26 @@ final class PlayMediaIntentHandler: NSObject,
                     )
                     return
                 }
+                // A whole-library request ("play my music") starting now goes
+                // in as IDs, shuffled off the main actor; shuffling the songs
+                // here copied the whole library inside Siri's time budget.
+                let startsLargeQueue = queue.count > QueueWindowPolicy.windowLimit
+                    && (player.currentSong == nil
+                        || intent.playbackQueueLocation == .now
+                        || intent.playbackQueueLocation == .unknown)
+                if startsLargeQueue {
+                    player.shuffleEnabled = shouldShuffle
+                    let ids = queue.map(\.id)
+                    Task { @MainActor in
+                        await player.play(
+                            queueIDs: ids,
+                            order: shouldShuffle ? .shuffled : .asGiven,
+                            caller: "SiriKit"
+                        )
+                    }
+                    Self.respond(.success, completion: completion, startedAt: startedAt, detail: "queue")
+                    return
+                }
                 if shouldShuffle { queue.shuffle() }
 
                 switch intent.playbackQueueLocation {

@@ -1581,8 +1581,20 @@ struct MacHomeView: View {
             .filter { !spokenWordSongIDs.contains($0.id) }
         if !queue.contains(where: { $0.id == song.id }) { queue.insert(song, at: 0) }
         if queue.count < 20 {
+            // The rest of the library goes in as IDs and is resolved off the
+            // main actor a window at a time.
             let existingIDs = Set(queue.map(\.id))
-            queue.append(contentsOf: library.musicSongs.filter { !existingIDs.contains($0.id) })
+            let leading = queue.filteredPlayable().map(\.id)
+            guard let startIndex = leading.firstIndex(of: song.id) else { return }
+            var ids = leading
+            ids.reserveCapacity(leading.count + library.musicSongs.count)
+            for candidate in library.musicSongs where !existingIDs.contains(candidate.id) {
+                ids.append(candidate.id)
+            }
+            player.shuffleEnabled = false
+            SiriMediaInteractionDonor.donate(song: song)
+            Task { await player.play(queueIDs: ids, startingAt: startIndex) }
+            return
         }
         queue = queue.filteredPlayable()
         guard let startIndex = queue.firstIndex(where: { $0.id == song.id }) else { return }
@@ -1592,12 +1604,10 @@ struct MacHomeView: View {
     }
 
     private func playLibrary(shuffled: Bool) {
-        let candidates = library.musicSongs.filteredPlayable()
-        guard !candidates.isEmpty else { return }
-        let queue = shuffled ? candidates.shuffled() : candidates
-        guard !queue.isEmpty else { return }
+        let ids = library.musicSongs.map(\.id)
+        guard !ids.isEmpty else { return }
         player.shuffleEnabled = false
-        Task { await player.play(queue: queue, startingAt: 0) }
+        Task { await player.play(queueIDs: ids, order: shuffled ? .shuffled : .asGiven) }
     }
 }
 

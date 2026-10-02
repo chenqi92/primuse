@@ -148,7 +148,7 @@ struct AIRecommendationLibraryView: View {
 
     var body: some View {
         Group {
-            if library.visibleSongs.filteredPlayable().isEmpty {
+            if !library.visibleSongs.contains(where: \.isPlayable) {
                 ContentUnavailableView {
                     Label("library_recommendations_empty_title", systemImage: "sparkles")
                 } description: {
