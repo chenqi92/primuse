@@ -235,8 +235,8 @@ struct DiagnosticReportsView: View {
 
 private struct DiagnosticFeedbackView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var includesReports = false
-    @State private var includesLogs = false
+    @State private var includesReports = true
+    @State private var includesLogs = true
     @State private var message = ""
     @State private var isPreparing = false
     @State private var showMailUnavailable = false

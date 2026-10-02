@@ -65,7 +65,7 @@ enum KaraokeVocalModel {
         #if canImport(BackgroundAssets)
         if #available(iOS 26.4, macOS 26.4, tvOS 26.4, *), BackgroundAssetsPrerequisites.isSatisfied {
             let manager = AssetPackManager.shared
-            let pack = try await manager.assetPack(withID: assetPackID)
+            let pack = try await AppleHostedAssetPackResolver.assetPack(withID: assetPackID, manager: manager)
             let watcher = Task {
                 for await update in manager.statusUpdates(forAssetPackWithID: assetPackID) {
                     if case .downloading(_, let fraction) = update {
