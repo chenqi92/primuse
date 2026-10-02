@@ -202,6 +202,7 @@
 		1B71B9FA955ABB52D727C409 /* WiFiTransferServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3303C01ACAD990E330C14A /* WiFiTransferServer.swift */; };
 		1B7A7E074FABC7B3C0FCCA49 /* PrimuseTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92AF0B0AD1CB169C0066D11 /* PrimuseTheme.swift */; };
 		1B9B1554521D744F3E328FBB /* AtomicBackupFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419A014F39EB6184F1D448D8 /* AtomicBackupFileWriter.swift */; };
+		37EDE21D819CA44F49B98869 /* OrderedFileWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5097112FB4BC71D04592E8BB /* OrderedFileWriter.swift */; };
 		1BEDBE25CD693A9F19690397 /* AudioCachePrewarmSeedRetention.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF05E72BAE806E5D952FD853 /* AudioCachePrewarmSeedRetention.swift */; };
 		1C2D309EC377843D8562F09F /* LyricsAPIServersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62F72568716D3795F0E02942 /* LyricsAPIServersView.swift */; };
 		1C470949A6E4EA566DEE460F /* ListeningIntentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD176D14A5397C935DF5EE6C /* ListeningIntentService.swift */; };
@@ -2354,6 +2355,7 @@
 		4120734148F240FC2DB5162A /* HomeSectionLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSectionLayout.swift; sourceTree = "<group>"; };
 		418DF069725BBCFDBEABA12A /* SynologyAudioStationStreamResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynologyAudioStationStreamResolver.swift; sourceTree = "<group>"; };
 		419A014F39EB6184F1D448D8 /* AtomicBackupFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtomicBackupFileWriter.swift; sourceTree = "<group>"; };
+		5097112FB4BC71D04592E8BB /* OrderedFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderedFileWriter.swift; sourceTree = "<group>"; };
 		41D4FBA997466FF8D6BDE666 /* LibrarySnapshotUploadPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySnapshotUploadPolicy.swift; sourceTree = "<group>"; };
 		41E1E159BB8773813997C2CE /* WiFiTransferFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiTransferFiles.swift; sourceTree = "<group>"; };
 		42193A6C0C18AFAAAE77B2B7 /* TVComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVComponents.swift; sourceTree = "<group>"; };
@@ -4303,6 +4305,7 @@
 			isa = PBXGroup;
 			children = (
 				419A014F39EB6184F1D448D8 /* AtomicBackupFileWriter.swift */,
+				5097112FB4BC71D04592E8BB /* OrderedFileWriter.swift */,
 				5BB39C2EE3B1DD6E01169AE8 /* IncrementalSongStore.swift */,
 				84411D12AE84C2609A04FB6B /* ScanCheckpointStore.swift */,
 			);
@@ -5808,6 +5811,7 @@
 				EC687A4F2368042B6F39DB9C /* ArtworkAnimationDiskCache.swift in Sources */,
 				B4D3CDE92E1DB45400781F6D /* ArtworkImageNormalizationPolicy.swift in Sources */,
 				1B9B1554521D744F3E328FBB /* AtomicBackupFileWriter.swift in Sources */,
+				37EDE21D819CA44F49B98869 /* OrderedFileWriter.swift in Sources */,
 				8555E09C98B0CBABEC2E578A /* AudioCacheEvictionPlanPolicy.swift in Sources */,
 				A484DA90CAF9FCFB38DDE3ED /* AudioCachePathResolver.swift in Sources */,
 				1BEDBE25CD693A9F19690397 /* AudioCachePrewarmSeedRetention.swift in Sources */,

@@ -181,6 +181,11 @@ final class CloudKitSyncService {
     private var systemFieldsCacheNeedsPersist = false
     private var systemFieldsPersistTask: Task<Void, Never>?
     private static let systemFieldsPersistDelay: Duration = .seconds(2)
+    /// system fields 缓存与两份引擎游标的写盘队列。整份编码不在主线程上做 —— 全量重拉时
+    /// 每批都要写一次几千条的缓存, 放在主线程上界面每批都卡一下; 串行队列保证游标
+    /// 永远排在它之前那批 system fields 之后落盘。同步读、判断存在、删除这三份文件
+    /// 之前都要经过它(`drain()` 或 `removeItem`), 免得被还在排队的旧写盖回来。
+    private let stateWriter = OrderedFileWriter(label: "com.welape.yuanyin.cloudkit-state")
     /// 每次整份清空 system-fields 缓存都会 +1(退出登录/切换账号、云端 zone 被
     /// 删除后的重新播种)。缓存存的是「服务器已经接受的那份 etag」,清空之后
     /// 再被一台早已摘掉的 engine 用旧账号的 etag 填回去,下次登录就会拿别人的
@@ -733,7 +738,7 @@ final class CloudKitSyncService {
         }
         stop(updateStatus: false)
         for url in [stateURL, sharedStateURL] {
-            try? FileManager.default.removeItem(at: url)
+            stateWriter.removeItem(at: url)
         }
         plog("CloudKitSync: catch-up dropped the fetch cursor, refetching everything")
         await start()
@@ -1728,6 +1733,8 @@ final class CloudKitSyncService {
     /// Re-seeding local entities preserves any pending offline edits lost with
     /// the old engine state; fetch-before-send still applies normal LWW rules.
     private func preparePersistedStateForSupportedSourceTypes() {
+        // 下面要判断游标文件在不在、再同步删掉, 先等排队的写落完。
+        stateWriter.drain()
         let defaults = UserDefaults.standard
         let currentFingerprint = CloudSourceTypeCompatibilityPolicy.currentFingerprint
         var storedFingerprint = defaults.string(forKey: Self.sourceTypeFingerprintKey)
@@ -1777,13 +1784,15 @@ final class CloudKitSyncService {
     }
 
     private func loadStateSerialization() -> CKSyncEngine.State.Serialization? {
+        stateWriter.drain()
         guard let data = try? Data(contentsOf: stateURL) else { return nil }
         return try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
     }
 
+    /// 游标很小, 在这里编码; 写盘排进 `stateWriter`, 落在同一批 system fields 之后。
     fileprivate func saveStateSerialization(_ state: CKSyncEngine.State.Serialization) {
         guard let data = try? JSONEncoder().encode(state) else { return }
-        try? data.write(to: stateURL, options: .atomic)
+        stateWriter.write(to: stateURL) { data }
     }
 
     /// Shared engine 的 state 文件单独存, 跟 private engine 的 fetch cursor 不冲突。
@@ -1792,13 +1801,14 @@ final class CloudKitSyncService {
     }
 
     private func loadSharedStateSerialization() -> CKSyncEngine.State.Serialization? {
+        stateWriter.drain()
         guard let data = try? Data(contentsOf: sharedStateURL) else { return nil }
         return try? JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
     }
 
     fileprivate func saveSharedStateSerialization(_ state: CKSyncEngine.State.Serialization) {
         guard let data = try? JSONEncoder().encode(state) else { return }
-        try? data.write(to: sharedStateURL, options: .atomic)
+        stateWriter.write(to: sharedStateURL) { data }
     }
 
     // MARK: - Record system fields cache
@@ -1813,6 +1823,7 @@ final class CloudKitSyncService {
     private func loadSystemFieldsCacheIfNeeded() {
         guard !systemFieldsCacheLoaded else { return }
         systemFieldsCacheLoaded = true
+        stateWriter.drain()
         guard let data = try? Data(contentsOf: systemFieldsURL),
               let dict = try? PropertyListDecoder().decode([String: Data].self, from: data) else {
             return
@@ -1820,10 +1831,15 @@ final class CloudKitSyncService {
         systemFieldsCache = dict
     }
 
+    /// 交出去的是此刻的字典快照(值类型), 编码和写盘在 `stateWriter` 的队列上。
     private func persistSystemFieldsCache() {
-        guard let data = try? PropertyListEncoder().encode(systemFieldsCache) else { return }
-        try? data.write(to: systemFieldsURL, options: .atomic)
-        plog("💾 CloudKit system fields cache written entries=\(systemFieldsCache.count) bytes=\(data.count)")
+        let snapshot = systemFieldsCache
+        let entries = snapshot.count
+        stateWriter.write(to: systemFieldsURL, encode: {
+            try PropertyListEncoder().encode(snapshot)
+        }, written: { bytes in
+            plog("💾 CloudKit system fields cache written entries=\(entries) bytes=\(bytes)")
+        })
     }
 
     /// 记下缓存有改动, 并安排一次合并写。CKSyncEngine 送来的整批记录由
@@ -1940,7 +1956,7 @@ final class CloudKitSyncService {
         systemFieldsCache.removeAll()
         systemFieldsCacheLoaded = true
         systemFieldsCacheGeneration &+= 1
-        try? FileManager.default.removeItem(at: systemFieldsURL)
+        stateWriter.removeItem(at: systemFieldsURL)
     }
 
     private func cachedRecord(for recordID: CKRecord.ID) -> CKRecord? {
@@ -2974,7 +2990,7 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
                 Self.participantSharedZoneID = nil
                 Self.familySharingEnabled = false
                 self.sharedEngine = nil
-                try? FileManager.default.removeItem(at: self.sharedStateURL)
+                self.stateWriter.removeItem(at: self.sharedStateURL)
             }
             for deletion in event.deletions where deletion.zoneID == Self.zoneID {
                 plog("CloudKitSync: PrimuseSync zone was deleted remotely — recreating + re-seeding")
@@ -3465,8 +3481,8 @@ extension CloudKitSyncService: CKSyncEngineDelegate {
             // data into the new account on next launch. The user can re-enable
             // sync from Settings when they're ready, and the next start() will
             // re-seed CloudKit because we've cleared `didCompleteInitialUpload`.
-            try? FileManager.default.removeItem(at: stateURL)
-            try? FileManager.default.removeItem(at: sharedStateURL)
+            stateWriter.removeItem(at: stateURL)
+            stateWriter.removeItem(at: sharedStateURL)
             clearSystemFieldsCache()
             didCompleteInitialUpload = false
             isParticipantOfShare = false
