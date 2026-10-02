@@ -59,6 +59,40 @@ final class ServerListeningStatsConnectorTests: XCTestCase {
         }
     }
 
+    /// 一条缺名字、Id 写成数字或读不出的记录, 不再让整个账户的歌单同步失败。
+    func testIrregularPlaylistEntriesStillSyncAndCannotProveDeletion() async throws {
+        for kind in [MediaServerSource.Kind.emby, .jellyfin] {
+            let source = makeMediaSource(kind: kind) { request in
+                let url = try XCTUnwrap(request.url)
+                switch url.path {
+                case "/Users/Me":
+                    return try Self.response(request, json: #"{"Id":"user-1"}"#)
+                case "/Users/user-1/Items":
+                    return try Self.response(request, json: #"""
+                    {"Items":[{"Id":"playlist-1"},{"Id":42,"Name":"Numbered"},{"Name":"No id"}],"TotalRecordCount":3}
+                    """#)
+                case "/Playlists/playlist-1/Items":
+                    return try Self.response(request, json: #"""
+                    {"Items":[{"Id":"track-1"},{"Name":"No id"},{"Id":"track-2","DateCreated":"not a date"}],"TotalRecordCount":3}
+                    """#)
+                case "/Playlists/42/Items":
+                    return try Self.response(request, json: #"{"Items":[{"Id":"track-3"}],"TotalRecordCount":1}"#)
+                default:
+                    throw FixtureError.invalidRequest
+                }
+            }
+
+            let snapshot = try await source.fetchServerPlaylists()
+            XCTAssertFalse(snapshot.isIndexComplete)
+            XCTAssertTrue(snapshot.failedPlaylistIDs.isEmpty)
+            XCTAssertEqual(snapshot.playlists.map(\.id), ["playlist-1", "42"])
+            XCTAssertEqual(snapshot.playlists.map(\.name), ["playlist-1", "Numbered"])
+            XCTAssertEqual(snapshot.playlists.first?.trackIDs, ["track-1", "track-2"])
+            XCTAssertEqual(snapshot.playlists.first?.reportedTrackCount, 3)
+            await source.disconnect()
+        }
+    }
+
     func testCredentialFailureIsNotMisreportedAsUnsupportedCapability() async {
         let connector = CredentialUnavailableSourceConnector(
             sourceID: "stats-credential-failure",

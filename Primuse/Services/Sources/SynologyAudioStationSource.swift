@@ -489,7 +489,7 @@ actor SynologyAudioStationSource: RefreshingMetadataSongConnector, ServerLyricsC
     ) async throws -> ServerPlaylistSnapshot {
         try await connect()
         let snapshot = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
-            playlists: { try await self.perform { try await $0.playlists() } },
+            index: { try await self.perform { try await $0.playlistIndex() } },
             trackIDs: { id in try await self.perform { try await $0.playlistTrackIDs(id: id) } },
             onPlaylist: { await progress(ServerPlaylist($0)) }
         )

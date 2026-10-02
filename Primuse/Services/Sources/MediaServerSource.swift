@@ -2488,7 +2488,9 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
     ) async throws -> ServerPlaylistSnapshot {
         guard let userID else { throw SourceError.authenticationFailed }
 
-        let summaryResponse = try await fetchAllJellyfinOrEmbyItems(
+        // 歌单列表与明细只读镜像要用的几个字段, 每条只要求有 Id: 一条缺名字、
+        // 字段写法不同的记录不能让整个账户的歌单都同步不过来。
+        let summaryResponse = try await fetchAllJellyfinOrEmbyPages(
             path: "/Users/\(userID)/Items",
             baseQueryItems: [
                 URLQueryItem(name: "IncludeItemTypes", value: "Playlist"),
@@ -2496,30 +2498,39 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 URLQueryItem(name: "Fields", value: "ImageTags")
             ],
             maximumCount: Self.maximumPlaylistCount,
-            deduplicatesItems: true
+            deduplicatesItems: true,
+            as: MediaServerPlaylistEntry.self
         )
         guard summaryResponse.items.isEmpty == false else {
             return ServerPlaylistSnapshot(playlists: [])
         }
+        let summaries = summaryResponse.items.compactMap { entry in entry.id.map { (id: $0, entry: entry) } }
+        let unreadableSummaryCount = summaryResponse.items.count - summaries.count
 
         var result: [ServerPlaylist] = []
         var failedPlaylistIDs = Set<String>()
-        result.reserveCapacity(summaryResponse.items.count)
+        result.reserveCapacity(summaries.count)
 
-        for summary in summaryResponse.items {
+        for summary in summaries {
             try Task.checkCancellation()
+            let name = summary.entry.displayName ?? summary.id
             do {
-                let itemsResponse = try await fetchAllJellyfinOrEmbyItems(
+                let itemsResponse = try await fetchAllJellyfinOrEmbyPages(
                     path: "/Playlists/\(summary.id)/Items",
                     baseQueryItems: [URLQueryItem(name: "UserId", value: userID)],
                     maximumCount: Self.maximumCatalogTracks,
-                    deduplicatesItems: false
+                    deduplicatesItems: false,
+                    as: MediaServerPlaylistEntry.self
                 )
+                let trackIDs = itemsResponse.items.compactMap(\.id)
+                if trackIDs.count < itemsResponse.items.count {
+                    plog("⚠️ \(kind == .jellyfin ? "Jellyfin" : "Emby") playlist '\(name)' skipped \(itemsResponse.items.count - trackIDs.count) unreadable item(s)")
+                }
                 let playlist = ServerPlaylist(
                     id: summary.id,
-                    name: summary.name.isEmpty ? summary.id : summary.name,
-                    coverArtReference: playlistCoverArtReference(for: summary),
-                    trackIDs: itemsResponse.items.map(\.id),
+                    name: name,
+                    coverArtReference: playlistCoverArtReference(for: summary.entry, id: summary.id),
+                    trackIDs: trackIDs,
                     reportedTrackCount: itemsResponse.totalCount
                 )
                 result.append(playlist)
@@ -2528,13 +2539,17 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 throw CancellationError()
             } catch {
                 try Task.checkCancellation()
-                plog("⚠️ \(kind == .jellyfin ? "Jellyfin" : "Emby") playlist '\(summary.name)' items fetch failed: \(error.localizedDescription)")
+                plog("⚠️ \(kind == .jellyfin ? "Jellyfin" : "Emby") playlist '\(name)' items fetch failed: \(error.localizedDescription)")
                 failedPlaylistIDs.insert(summary.id)
             }
         }
+        if unreadableSummaryCount > 0 {
+            plog("⚠️ \(kind == .jellyfin ? "Jellyfin" : "Emby") playlist list has \(unreadableSummaryCount) unreadable entr(ies); keeping mirrors not seen this round")
+        }
         return ServerPlaylistSnapshot(
             playlists: result,
-            failedPlaylistIDs: failedPlaylistIDs
+            failedPlaylistIDs: failedPlaylistIDs,
+            isIndexComplete: unreadableSummaryCount == 0
         )
     }
 
@@ -2646,27 +2661,37 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         progress: ServerPlaylistProgress
     ) async throws -> ServerPlaylistSnapshot {
         let summaries = try await fetchAllPlexPlaylistSummaries()
-        let audioPlaylists = summaries.filter { $0.playlistType == "audio" }
+        // 读不出 ratingKey 或类型的那条不知道是不是音乐歌单, 不能据此删任何镜像。
+        let unreadableSummaryCount = summaries.filter { $0.ratingKey == nil || $0.playlistType == nil }.count
+        let audioPlaylists = summaries.compactMap { summary -> (id: String, summary: PlexPlaylistSummary)? in
+            guard summary.playlistType == "audio", let id = summary.ratingKey else { return nil }
+            return (id, summary)
+        }
         guard audioPlaylists.isEmpty == false else {
-            return ServerPlaylistSnapshot(playlists: [])
+            return ServerPlaylistSnapshot(playlists: [], isIndexComplete: unreadableSummaryCount == 0)
         }
 
         var result: [ServerPlaylist] = []
         var failedPlaylistIDs = Set<String>()
         result.reserveCapacity(audioPlaylists.count)
 
-        for summary in audioPlaylists {
+        for (id, summary) in audioPlaylists {
             try Task.checkCancellation()
+            let name = summary.displayTitle ?? id
             do {
-                let itemsResponse = try await fetchAllPlexPlaylistItems(
-                    playlistID: summary.ratingKey
-                )
+                let itemsResponse = try await fetchAllPlexPlaylistItems(playlistID: id)
+                let trackIDs = itemsResponse.items.compactMap(\.ratingKey)
+                if trackIDs.count < itemsResponse.items.count {
+                    plog("⚠️ Plex playlist '\(name)' skipped \(itemsResponse.items.count - trackIDs.count) unreadable item(s)")
+                }
+                // 自报数量只认翻页时核对过的 totalSize; 列表里的 leafCount 会把这个
+                // 用户看不到的条目也算进去, 不代表明细该有多少条。
                 let playlist = ServerPlaylist(
-                    id: summary.ratingKey,
-                    name: summary.title.isEmpty ? summary.ratingKey : summary.title,
+                    id: id,
+                    name: name,
                     coverArtReference: playlistCoverArtReference(for: summary),
-                    trackIDs: itemsResponse.items.map(\.ratingKey),
-                    reportedTrackCount: itemsResponse.totalCount ?? summary.leafCount
+                    trackIDs: trackIDs,
+                    reportedTrackCount: itemsResponse.totalCount
                 )
                 result.append(playlist)
                 await progress(playlist)
@@ -2674,13 +2699,17 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                 throw CancellationError()
             } catch {
                 try Task.checkCancellation()
-                plog("⚠️ Plex playlist '\(summary.title)' items fetch failed: \(error.localizedDescription)")
-                failedPlaylistIDs.insert(summary.ratingKey)
+                plog("⚠️ Plex playlist '\(name)' items fetch failed: \(error.localizedDescription)")
+                failedPlaylistIDs.insert(id)
             }
+        }
+        if unreadableSummaryCount > 0 {
+            plog("⚠️ Plex playlist list has \(unreadableSummaryCount) unreadable entr(ies); keeping mirrors not seen this round")
         }
         return ServerPlaylistSnapshot(
             playlists: result,
-            failedPlaylistIDs: failedPlaylistIDs
+            failedPlaylistIDs: failedPlaylistIDs,
+            isIndexComplete: unreadableSummaryCount == 0
         )
     }
 
@@ -2692,11 +2721,27 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         maximumCount: Int,
         deduplicatesItems: Bool
     ) async throws -> (items: [AudioItem], totalCount: Int?) {
+        try await fetchAllJellyfinOrEmbyPages(
+            path: path,
+            baseQueryItems: baseQueryItems,
+            maximumCount: maximumCount,
+            deduplicatesItems: deduplicatesItems,
+            as: AudioItem.self
+        )
+    }
+
+    private func fetchAllJellyfinOrEmbyPages<Item: MediaServerPagedItem>(
+        path: String,
+        baseQueryItems: [URLQueryItem],
+        maximumCount: Int,
+        deduplicatesItems: Bool,
+        as itemType: Item.Type
+    ) async throws -> (items: [Item], totalCount: Int?) {
         var startIndex = 0
         var expectedTotal: Int?
         var seenPages = Set<String>()
         var seenItemIDs = Set<String>()
-        var result: [AudioItem] = []
+        var result: [Item] = []
 
         while true {
             try Task.checkCancellation()
@@ -2707,7 +2752,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
                     URLQueryItem(name: "Limit", value: String(Self.playlistPageSize))
                 ]
             )
-            let page = try decoder.decode(ItemResponse.self, from: data)
+            let page = try decoder.decode(MediaServerItemPage<Item>.self, from: data)
             if let total = page.totalRecordCount {
                 guard total >= 0, total <= maximumCount else {
                     throw SourceError.connectionFailed(PMString("error.catalog.invalidTotal"))
@@ -2726,12 +2771,12 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             guard page.items.count <= Self.playlistPageSize else {
                 throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
             }
-            let pageIDs = page.items.map(\.id)
+            let pageIDs = page.items.map(\.pagingID)
             guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
                 throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
             }
             if deduplicatesItems {
-                for item in page.items where seenItemIDs.insert(item.id).inserted {
+                for item in page.items where seenItemIDs.insert(item.pagingID).inserted {
                     guard seenItemIDs.count <= maximumCount else {
                         throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
                     }
@@ -2793,11 +2838,11 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             guard page.playlists.count <= Self.playlistPageSize else {
                 throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
             }
-            let pageIDs = page.playlists.map(\.ratingKey)
+            let pageIDs = page.playlists.map { $0.ratingKey ?? "" }
             guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
                 throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
             }
-            for item in page.playlists where seenItemIDs.insert(item.ratingKey).inserted {
+            for item in page.playlists where seenItemIDs.insert(item.ratingKey ?? "").inserted {
                 guard seenItemIDs.count <= Self.maximumPlaylistCount else {
                     throw SourceError.connectionFailed(PMString("error.catalog.pageOverflow"))
                 }
@@ -2853,7 +2898,7 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
             guard page.tracks.count <= Self.playlistPageSize else {
                 throw SourceError.connectionFailed(PMString("error.catalog.invalidPageCount"))
             }
-            let pageIDs = page.tracks.map(\.ratingKey)
+            let pageIDs = page.tracks.map { $0.ratingKey ?? "" }
             guard seenPages.insert(Self.catalogPageSignature(pageIDs)).inserted else {
                 throw SourceError.connectionFailed(PMString("error.catalog.duplicateItem"))
             }
@@ -4027,6 +4072,18 @@ actor MediaServerSource: RefreshingMetadataSongConnector, MediaServerWritebackCo
         ).absoluteString
     }
 
+    private func playlistCoverArtReference(for entry: MediaServerPlaylistEntry, id: String) -> String? {
+        guard let tag = entry.imageTags?["Primary"], !tag.isEmpty else { return nil }
+        return buildURL(
+            path: "/Items/\(id)/Images/Primary",
+            queryItems: [
+                URLQueryItem(name: "maxWidth", value: "480"),
+                URLQueryItem(name: "format", value: "png"),
+                URLQueryItem(name: "tag", value: tag),
+            ]
+        ).absoluteString
+    }
+
     private func playlistCoverArtReference(for item: PlexPlaylistSummary) -> String? {
         guard let thumb = item.thumb, !thumb.isEmpty else { return nil }
         return buildURL(path: thumb).absoluteString
@@ -4435,6 +4492,62 @@ private struct ItemResponse: Decodable {
         case totalRecordCount = "TotalRecordCount"
     }
 
+}
+
+/// 翻页时用来判重的条目 id。读不出 id 的宽松条目给空字符串。
+private protocol MediaServerPagedItem: Decodable {
+    var pagingID: String { get }
+}
+
+extension AudioItem: MediaServerPagedItem {
+    var pagingID: String { id }
+}
+
+private struct MediaServerItemPage<Item: Decodable>: Decodable {
+    let items: [Item]
+    let totalRecordCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case items = "Items"
+        case totalRecordCount = "TotalRecordCount"
+    }
+}
+
+/// 歌单列表或歌单明细里的一条, 只读镜像要用的字段, 解码从不失败: 读不出 Id 的
+/// 那条记为 `id == nil` 由调用方计数, 不让一条记录作废整页。Id 写成数字也认。
+private struct MediaServerPlaylistEntry: MediaServerPagedItem {
+    let id: String?
+    let name: String?
+    let imageTags: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case name = "Name"
+        case imageTags = "ImageTags"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        id = container.flatMap(Self.flexibleID)
+        name = (try? container?.decodeIfPresent(String.self, forKey: .name)) ?? nil
+        imageTags = (try? container?.decodeIfPresent([String: String].self, forKey: .imageTags)) ?? nil
+    }
+
+    var pagingID: String { id ?? "" }
+
+    var displayName: String? {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func flexibleID(_ container: KeyedDecodingContainer<CodingKeys>) -> String? {
+        if let text = try? container.decode(String.self, forKey: .id) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = try? container.decode(Int64.self, forKey: .id) { return String(number) }
+        return nil
+    }
 }
 
 private struct AudioItem: Decodable {
@@ -5088,19 +5201,43 @@ private struct PlexPlaylistContainer: Decodable {
     }
 }
 
+/// 歌单列表里的一条。解码从不失败: 缺 ratingKey、缺标题或类型的那条照样占一个
+/// 位置(翻页按它数), 由调用方决定怎么办; ratingKey 写成数字也认。
 private struct PlexPlaylistSummary: Decodable {
-    let ratingKey: String
-    let title: String
-    let playlistType: String
-    let leafCount: Int?
+    let ratingKey: String?
+    let title: String?
+    let playlistType: String?
     let thumb: String?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
         case title
         case playlistType
-        case leafCount
         case thumb
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        ratingKey = container.flatMap { PlexFlexibleKey.decode($0, .ratingKey) }
+        title = (try? container?.decodeIfPresent(String.self, forKey: .title)) ?? nil
+        playlistType = (try? container?.decodeIfPresent(String.self, forKey: .playlistType)) ?? nil
+        thumb = (try? container?.decodeIfPresent(String.self, forKey: .thumb)) ?? nil
+    }
+
+    var displayTitle: String? {
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private enum PlexFlexibleKey {
+    static func decode<Key: CodingKey>(_ container: KeyedDecodingContainer<Key>, _ key: Key) -> String? {
+        if let text = try? container.decode(String.self, forKey: key) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = try? container.decode(Int64.self, forKey: key) { return String(number) }
+        return nil
     }
 }
 
@@ -5140,11 +5277,17 @@ private struct PlexPlaylistItemsContainer: Decodable {
     }
 }
 
+/// 歌单明细里的一条, 只要 ratingKey; 读不出的那条记为 nil, 不作废整页。
 private struct PlexPlaylistTrack: Decodable {
-    let ratingKey: String
+    let ratingKey: String?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
+    }
+
+    init(from decoder: Decoder) throws {
+        ratingKey = (try? decoder.container(keyedBy: CodingKeys.self))
+            .flatMap { PlexFlexibleKey.decode($0, .ratingKey) }
     }
 }
 

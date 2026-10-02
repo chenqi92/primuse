@@ -623,9 +623,57 @@ struct SynologyAudioStationTests {
             == "as-fdc9211b4b5575782687f7ca644bcb1a")
     }
 
+    /// 一条读不出的歌单不拖垮整页:其余照常镜像,翻页仍按服务端给的条数数。
+    @Test func unreadablePlaylistEntriesAreSkippedButCounted() throws {
+        let body = #"{"data":{"offset":0,"playlists":[{"id":"playlist_personal_normal/好","name":"好"},{"id":"bad"},{"id":"playlist_personal_normal/"},null,{"id":12,"name":"数字"}],"total":5},"success":true}"#
+        guard case .success(let page) = try SynologyAudioStationAPI.decode(
+            SynologyAudioStationPlaylistPage.self, from: Data(body.utf8)
+        ) else {
+            Issue.record("expected success")
+            return
+        }
+        #expect(page.playlists.map(\.name) == ["好"])
+        #expect(page.listedCount == 5)
+        #expect(page.total == 5)
+    }
+
+    /// 读不出的曲目占住它的位置,不让整份歌单作废;镜像只收曲库里的曲目。
+    @Test func unreadablePlaylistSongsKeepTheirPositions() throws {
+        let body = #"{"data":{"playlists":[{"additional":{"songs":[{"id":"music_1"},{"title":"没有 id"},{"id":"music_2"}],"songs_offset":0,"songs_total":3},"id":"playlist_personal_normal/好","name":"好"}]},"success":true}"#
+        guard case .success(let page) = try SynologyAudioStationAPI.decode(
+            SynologyAudioStationPlaylistSongsPage.self, from: Data(body.utf8)
+        ) else {
+            Issue.record("expected success")
+            return
+        }
+        #expect(page.songIDs == ["music_1", "", "music_2"])
+        #expect(page.songs.map(\.id) == ["music_1", "music_2"])
+        var pagination = SynologyAudioStationPlaylistPagination()
+        #expect(try pagination.accept(page, requestedLimit: 3))
+        #expect(pagination.offset == 3)
+    }
+
+    @Test func mirrorSnapshotWithUnreadableEntriesCannotProveDeletion() async throws {
+        let listed = try JSONDecoder().decode([SynologyAudioStationPlaylist].self, from: Data("""
+            [{"id":"playlist_personal_normal/好","name":"好"}]
+            """.utf8))
+        let partial = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+            index: { SynologyAudioStationPlaylistIndex(playlists: listed, unreadableCount: 1) },
+            trackIDs: { _ in ["music_1", ""] }
+        )
+        #expect(!partial.isIndexComplete)
+        #expect(partial.playlists.first?.trackIDs == ["music_1"])
+        let complete = try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
+            playlists: { listed },
+            trackIDs: { _ in ["music_1"] }
+        )
+        #expect(complete.isIndexComplete)
+    }
+
     @Test func playlistMirrorSnapshotDropsUnindexedEntries() async throws {
         let snapshot = try await AudioStationFixture().client().playlistMirrorSnapshot()
         #expect(snapshot.failedPlaylistIDs.isEmpty)
+        #expect(snapshot.isIndexComplete)
         #expect(snapshot.playlists.map(\.name) == ["开车", "放松", "欢快周杰伦", "粤语", "热门", "ぐされ"])
         let drive = try #require(snapshot.playlists.first)
         #expect(drive.id == "as-d4b060dbc3d0aa6ecdd0f9194ff41a3d")

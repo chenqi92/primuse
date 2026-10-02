@@ -281,12 +281,22 @@ struct SongloftServiceTests {
         #expect(try JSONDecoder().decode([String: [Int64]].self, from: mutations[0].httpBody!) == ["song_ids": [1]])
     }
 
-    @Test func playlistsKeepServerOrderAndRejectCountMismatch() async throws {
+    @Test func playlistsKeepServerOrder() async throws {
         let client = SongloftFixture().client()
         let playlists = try await client.playlists()
         #expect(playlists.map(\.id) == [3])
-        #expect(try await client.playlistSongIDs(id: 3, expectedCount: 2) == [7, 1])
-        await #expect(throws: SongloftServiceError.invalidResponse) { try await client.playlistSongIDs(id: 3, expectedCount: 3) }
+        #expect(try await client.playlistSongIDs(id: 3) == [7, 1])
+    }
+
+    /// 不规整的歌单记录、重复的歌、过期的自报总数都不再让整份歌单或整个列表作废。
+    @Test func irregularPlaylistsStillSyncAndReportWhatCouldNotBeRead() async throws {
+        let client = SongloftFixture(mode: .irregularPlaylists).client()
+        let index = try await client.playlistIndex()
+        #expect(index.playlists.map(\.id) == [3, 4])
+        #expect(index.playlists.last?.name == "")
+        #expect(index.playlists.last?.songCount == 9)
+        #expect(index.unreadableCount == 1)
+        #expect(try await client.playlistSongIDs(id: 4) == [7, 7, 1])
     }
 
     @Test func playbackEventsAcceptNoContentResponse() async throws {
@@ -308,7 +318,7 @@ struct SongloftServiceTests {
 }
 
 private actor SongloftFixture {
-    enum Mode { case normal, empty, changedIDs, refresh, forbidden, wrongRange, htmlAudio, absentLyrics, failedLyrics }
+    enum Mode { case normal, empty, changedIDs, refresh, forbidden, wrongRange, htmlAudio, absentLyrics, failedLyrics, irregularPlaylists }
     let mode: Mode
     var requests: [URLRequest] = []
     var favorite = false
@@ -377,8 +387,12 @@ private actor SongloftFixture {
         case "/playlists/1/songs": favorite = true; return response(url, json: "{}")
         case "/playlists/1/songs/1": favorite = false; return response(url, json: "{}")
         case "/playlists":
+            if mode == .irregularPlaylists {
+                return response(url, json: #"{"playlists":[{"id":3,"name":"Ordered","type":"normal","song_count":2},{"id":"4","song_count":"9"},{"name":"broken"}],"total":3,"offset":0,"limit":500}"#)
+            }
             return response(url, json: #"{"playlists":[{"id":3,"name":"Ordered","type":"normal","song_count":2}],"total":1,"offset":0,"limit":500}"#)
         case "/playlists/3/song-ids": return response(url, json: #"{"ids":[7,1],"total":2}"#)
+        case "/playlists/4/song-ids": return response(url, json: #"{"ids":[7,7,1,0],"total":9}"#)
         case "/songs/1/played": return response(url, status: 204, json: "")
         case "/songs/1": return response(url, json: #"{"id":1,"type":"local","format":"flac"}"#)
         case "/songs/2": return response(url, json: #"{"id":2,"type":"radio","title":"Radio","url":"/api/v1/songs/2/play.m3u8","is_live":true}"#)

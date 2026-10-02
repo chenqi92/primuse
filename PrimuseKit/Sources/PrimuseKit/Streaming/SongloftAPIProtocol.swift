@@ -227,3 +227,36 @@ public struct SongloftPlaylist: Decodable, Sendable, Equatable {
             ? SongloftAPIProtocol.coverReference(id: id, playlist: true, revision: "\(coverUrl ?? "")|\(updatedAt ?? "")") : nil
     }
 }
+
+extension SongloftPlaylist {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, type, labels, songCount, coverUrl, updatedAt
+    }
+
+    /// 只有 id 是必须的。缺名字、缺类型、数字写成字符串的歌单照样能镜像,
+    /// 不让一条不规整的记录把整个账户的歌单都挡在外面。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let value = try? container.decode(Int64.self, forKey: .id) {
+            id = value
+        } else if let text = try? container.decode(String.self, forKey: .id),
+                  let value = Int64(text.trimmingCharacters(in: .whitespaces)) {
+            id = value
+        } else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: container, debugDescription: "Missing playlist id")
+        }
+        name = (try? container.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        // 列表本来就只请求 `type=normal`, 没写类型的按普通歌单算。
+        type = (try? container.decodeIfPresent(String.self, forKey: .type)) ?? "normal"
+        labels = try? container.decodeIfPresent([String].self, forKey: .labels)
+        if let count = try? container.decodeIfPresent(Int.self, forKey: .songCount) {
+            songCount = max(0, count)
+        } else if let text = try? container.decodeIfPresent(String.self, forKey: .songCount) {
+            songCount = max(0, Int(text) ?? 0)
+        } else {
+            songCount = 0
+        }
+        coverUrl = try? container.decodeIfPresent(String.self, forKey: .coverUrl)
+        updatedAt = try? container.decodeIfPresent(String.self, forKey: .updatedAt)
+    }
+}

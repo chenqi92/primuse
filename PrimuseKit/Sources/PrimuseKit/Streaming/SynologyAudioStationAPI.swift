@@ -1187,7 +1187,10 @@ public struct SynologyAudioStationPlaylist: Decodable, Equatable, Sendable {
 }
 
 public struct SynologyAudioStationPlaylistPage: Decodable, Sendable {
+    /// 读得出的歌单。读不出的那条(id 不合法之类)不拖垮整页,只是没有它。
     public let playlists: [SynologyAudioStationPlaylist]
+    /// 这一页服务端实际给了几条,含读不出的;翻页按它数。
+    public let listedCount: Int
     public let total: Int
     public let offset: Int?
 
@@ -1200,14 +1203,25 @@ public struct SynologyAudioStationPlaylistPage: Decodable, Sendable {
         }
         self.total = total
         offset = container.audioStationInt(.offset)
-        playlists = try container.decodeIfPresent([SynologyAudioStationPlaylist].self, forKey: .playlists) ?? []
+        let entries = try container.decodeIfPresent([LossyPlaylist].self, forKey: .playlists) ?? []
+        playlists = entries.compactMap(\.playlist)
+        listedCount = entries.count
+    }
+
+    private struct LossyPlaylist: Decodable {
+        let playlist: SynologyAudioStationPlaylist?
+        init(from decoder: Decoder) throws { playlist = try? SynologyAudioStationPlaylist(from: decoder) }
     }
 }
 
 /// `Playlist getinfo` 的一页:`data.playlists[0].additional.songs`。
 public struct SynologyAudioStationPlaylistSongsPage: Decodable, Sendable {
     public let playlist: SynologyAudioStationPlaylist
+    /// 读得出的曲目。
     public let songs: [SynologyAudioStationSong]
+    /// 与服务端条目一一对应的曲目 id;读不出的那条记为空字符串占住位置,
+    /// 歌单按下标剪接时位置仍与服务端一致。
+    public let songIDs: [String]
     public let songsTotal: Int
     public let songsOffset: Int?
 
@@ -1229,12 +1243,19 @@ public struct SynologyAudioStationPlaylistSongsPage: Decodable, Sendable {
         playlist = try SynologyAudioStationPlaylist(from: entryDecoder)
         let entry = try entryDecoder.container(keyedBy: EntryKeys.self)
         let additional = try entry.nestedContainer(keyedBy: AdditionalKeys.self, forKey: .additional)
-        songs = try additional.decodeIfPresent([SynologyAudioStationSong].self, forKey: .songs) ?? []
+        let songEntries = try additional.decodeIfPresent([LossySong].self, forKey: .songs) ?? []
+        songs = songEntries.compactMap(\.song)
+        songIDs = songEntries.map { $0.song?.id ?? "" }
         guard let songsTotal = additional.audioStationInt(.songsTotal) else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Missing songs_total"))
         }
         self.songsTotal = songsTotal
         songsOffset = additional.audioStationInt(.songsOffset)
+    }
+
+    private struct LossySong: Decodable {
+        let song: SynologyAudioStationSong?
+        init(from decoder: Decoder) throws { song = try? SynologyAudioStationSong(from: decoder) }
     }
 }
 
@@ -1250,11 +1271,11 @@ public struct SynologyAudioStationPlaylistPagination: Sendable {
         guard requestedLimit > 0, page.songsTotal >= 0,
               page.songsOffset == nil || page.songsOffset == offset,
               total == nil || total == page.songsTotal,
-              page.songs.count <= page.songsTotal - offset else { throw SynologyAudioStationError.invalidResponse }
+              page.songIDs.count <= page.songsTotal - offset else { throw SynologyAudioStationError.invalidResponse }
         total = page.songsTotal
-        offset += page.songs.count
+        offset += page.songIDs.count
         if offset == page.songsTotal { return true }
-        guard page.songs.count == requestedLimit else { throw SynologyAudioStationError.invalidResponse }
+        guard page.songIDs.count == requestedLimit else { throw SynologyAudioStationError.invalidResponse }
         return false
     }
 }

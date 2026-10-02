@@ -1116,7 +1116,16 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
     ) async throws -> ServerPlaylistSnapshot {
         try await connect()
         let container: PlaylistsContainer = try await requestJSON("getPlaylists")
-        let summaries = container.playlists?.playlist ?? []
+        // 一条读不出 id 的歌单不作废整份列表, 只是这一轮不能据此删任何镜像。
+        let listed = container.playlists?.playlist?.elements ?? []
+        let summaries = listed.compactMap { summary -> (id: String, summary: PlaylistSummary)? in
+            guard let summary, let id = summary.id else { return nil }
+            return (id, summary)
+        }
+        let unreadableSummaryCount = listed.count - summaries.count
+        if unreadableSummaryCount > 0 {
+            plog("⚠️ Subsonic getPlaylists has \(unreadableSummaryCount) unreadable entr(ies); keeping mirrors not seen this round")
+        }
 
         var result: [ServerPlaylist] = []
         var failedPlaylistIDs = Set<String>()
@@ -1124,17 +1133,17 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         // 别人的公开歌单也会列出来; 只有管理员能往里加歌。只在真的碰到别人的歌单时
         // 才问一次自己是不是管理员。
         var isAdmin: Bool?
-        for summary in summaries {
+        for (id, summary) in summaries {
             try Task.checkCancellation()
             let playlist: ServerPlaylist
             do {
-                playlist = try await serverPlaylistDetail(id: summary.id.value, summary: summary)
+                playlist = try await serverPlaylistDetail(id: id, summary: summary)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 try Task.checkCancellation()
-                plog("⚠️ Subsonic getPlaylist '\(summary.name ?? summary.id.value)' failed: \(error.localizedDescription)")
-                failedPlaylistIDs.insert(summary.id.value)
+                plog("⚠️ Subsonic getPlaylist '\(summary.name ?? id)' failed: \(error.localizedDescription)")
+                failedPlaylistIDs.insert(id)
                 continue
             }
             var mirrored = playlist
@@ -1174,7 +1183,8 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         }
         return ServerPlaylistSnapshot(
             playlists: result,
-            failedPlaylistIDs: failedPlaylistIDs
+            failedPlaylistIDs: failedPlaylistIDs,
+            isIndexComplete: unreadableSummaryCount == 0
         )
     }
 
@@ -1226,7 +1236,11 @@ actor SubsonicSource: RefreshingMetadataSongConnector, ServerScrobblingConnector
         guard let playlist = detail.playlist else {
             throw SourceError.connectionFailed("Subsonic getPlaylist returned no playlist detail")
         }
-        let trackIDs = (playlist.entry ?? []).map(\.id)
+        let entries = playlist.entry?.elements ?? []
+        let trackIDs = entries.compactMap { $0?.id }
+        if trackIDs.count < entries.count {
+            plog("⚠️ Subsonic getPlaylist '\(playlist.name ?? id)' skipped \(entries.count - trackIDs.count) unreadable entr(ies)")
+        }
         // 名字缺失时退回服务端 ID, 保证镜像歌单不会出现空标题。
         let name = Self.cleaned(playlist.name ?? summary?.name, unknown: "") ?? id
         // OpenSubsonic 的 `readonly` 标的是 Navidrome 智能歌单; 属主不是自己的
@@ -2235,16 +2249,85 @@ private struct PlaylistsContainer: SubsonicResponseContainer {
 }
 
 private struct PlaylistList: Decodable {
-    let playlist: [PlaylistSummary]?
+    let playlist: SubsonicLenientList<PlaylistSummary>?
 }
 
+/// 歌单列表里的一条。只读镜像要用的几个字段, 每个都可以缺或写法不同;
+/// id 字符串、整数都收, 读不出就是 nil 由调用方计数。
 private struct PlaylistSummary: Decodable {
-    let id: FlexibleID
+    let id: String?
     let name: String?
     let songCount: Int?
     let coverArt: String?
     let owner: String?
     let readonly: Bool?
+
+    enum CodingKeys: String, CodingKey { case id, name, songCount, coverArt, owner, readonly }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = SubsonicLenientValue.string(container, .id)
+        name = SubsonicLenientValue.string(container, .name)
+        songCount = SubsonicLenientValue.int(container, .songCount)
+        coverArt = SubsonicLenientValue.string(container, .coverArt)
+        owner = SubsonicLenientValue.string(container, .owner)
+        readonly = SubsonicLenientValue.bool(container, .readonly)
+    }
+}
+
+/// 歌单明细里的一首, 镜像只要它的 id; 别的字段写得怪也不影响整份歌单。
+private struct PlaylistEntryRef: Decodable {
+    let id: String?
+
+    enum CodingKeys: String, CodingKey { case id }
+
+    init(from decoder: Decoder) throws {
+        id = (try? decoder.container(keyedBy: CodingKeys.self)).flatMap { SubsonicLenientValue.string($0, .id) }
+    }
+}
+
+/// 有的实现把只有一项的数组写成单个对象。两种写法都收, 逐项读,
+/// 读不出的那一项记为 nil, 不让整份响应解码失败。
+private struct SubsonicLenientList<Element: Decodable>: Decodable {
+    let elements: [Element?]
+
+    private struct Lossy: Decodable {
+        let value: Element?
+        init(from decoder: Decoder) throws { value = try? Element(from: decoder) }
+    }
+
+    init(from decoder: Decoder) throws {
+        if let array = try? decoder.singleValueContainer().decode([Lossy].self) {
+            elements = array.map(\.value)
+        } else {
+            elements = [try? Element(from: decoder)]
+        }
+    }
+}
+
+private enum SubsonicLenientValue {
+    static func string<Key: CodingKey>(_ container: KeyedDecodingContainer<Key>, _ key: Key) -> String? {
+        if let text = try? container.decode(String.self, forKey: key) {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = try? container.decode(Int64.self, forKey: key) { return String(number) }
+        return nil
+    }
+
+    static func int<Key: CodingKey>(_ container: KeyedDecodingContainer<Key>, _ key: Key) -> Int? {
+        if let number = try? container.decode(Int.self, forKey: key) { return number }
+        return (try? container.decode(String.self, forKey: key)).flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+    }
+
+    static func bool<Key: CodingKey>(_ container: KeyedDecodingContainer<Key>, _ key: Key) -> Bool? {
+        if let flag = try? container.decode(Bool.self, forKey: key) { return flag }
+        switch (try? container.decode(String.self, forKey: key))?.lowercased() {
+        case "true", "1": return true
+        case "false", "0": return false
+        default: return nil
+        }
+    }
 }
 
 private struct PlaylistContainer: SubsonicResponseContainer {
@@ -2266,13 +2349,26 @@ private struct Starred2: Decodable {
 }
 
 /// `playlistWithSongs`: 曲目字段是单数 `entry`, 装的是 Child 数组。
+/// 镜像只读得到的几个字段, 写法不规整也照收。
 private struct PlaylistWithEntries: Decodable {
     let name: String?
     let songCount: Int?
     let coverArt: String?
     let owner: String?
     let readonly: Bool?
-    let entry: [SubsonicChild]?
+    let entry: SubsonicLenientList<PlaylistEntryRef>?
+
+    enum CodingKeys: String, CodingKey { case name, songCount, coverArt, owner, readonly, entry }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = SubsonicLenientValue.string(container, .name)
+        songCount = SubsonicLenientValue.int(container, .songCount)
+        coverArt = SubsonicLenientValue.string(container, .coverArt)
+        owner = SubsonicLenientValue.string(container, .owner)
+        readonly = SubsonicLenientValue.bool(container, .readonly)
+        entry = try? container.decodeIfPresent(SubsonicLenientList<PlaylistEntryRef>.self, forKey: .entry)
+    }
 }
 
 private struct InternetRadioStationsContainer: SubsonicResponseContainer {

@@ -188,16 +188,17 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
     func fetchServerPlaylists(
         progress: @escaping ServerPlaylistProgress
     ) async throws -> ServerPlaylistSnapshot {
-        let listed = try await client.playlists()
+        let listed = try await client.playlistIndex()
         var playlists: [ServerPlaylist] = []
         var failed: Set<String> = []
-        for playlist in listed {
+        for playlist in listed.playlists {
             try Task.checkCancellation()
             // Favorites have their own write-through UI and must not also appear as an editable mirror.
             guard !playlist.isFavorite else { continue }
             do {
-                let ids = try await client.playlistSongIDs(id: playlist.id, expectedCount: playlist.songCount)
-                let mirrored = ServerPlaylist(id: String(playlist.id), name: playlist.name,
+                let ids = try await client.playlistSongIDs(id: playlist.id)
+                let mirrored = ServerPlaylist(id: String(playlist.id),
+                    name: playlist.name.isEmpty ? String(playlist.id) : playlist.name,
                     coverArtReference: playlist.coverReference, trackIDs: ids.map(String.init),
                     reportedTrackCount: playlist.songCount)
                 playlists.append(mirrored)
@@ -205,7 +206,11 @@ actor SongloftSource: RefreshingMetadataSongConnector, ServerLyricsConnector,
             } catch is CancellationError { throw CancellationError() }
             catch { failed.insert(String(playlist.id)) }
         }
-        return ServerPlaylistSnapshot(playlists: playlists, failedPlaylistIDs: failed)
+        return ServerPlaylistSnapshot(
+            playlists: playlists,
+            failedPlaylistIDs: failed,
+            isIndexComplete: listed.unreadableCount == 0
+        )
     }
 
     func fetchServerFavorites() async throws -> ServerFavoriteSnapshot {

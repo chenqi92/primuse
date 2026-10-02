@@ -44,25 +44,15 @@ enum ServerPlaylistMirror {
                 readOnlyPlaylistIDs.remove(localID)
             }
 
-            // 自报数量大于实际明细数量，说明响应仍被服务器截断或分页中途缺页。
-            // 这份明细不是权威快照，不能用它覆盖现有镜像的后半段。
-            if let reportedTrackCount = serverPlaylist.reportedTrackCount,
-               reportedTrackCount > serverPlaylist.trackIDs.count {
-                result.unresolvedPlaylistCount += 1
-                if library.playlist(id: localID) != nil {
-                    library.updateMirrorPlaylistArtwork(
-                        playlistID: localID,
-                        coverArtPath: serverPlaylist.coverArtReference
-                    )
-                }
-                plog("\(playlistContext) stage=match result=skipped reason=incomplete-detail retained_existing=\(previousIDs.contains(localID))")
-                continue
-            }
+            // 自报数量比实际给出的多(服务器把读不出、已失效的条目也算进去)时,
+            // 照样用读到的这些: 翻页缺页由各来源自己翻页时判出并整份算作失败,
+            // 能走到这里的明细就是服务器这次给得出的全部。以前整张跳过, 一张
+            // 歌单里有一首坏掉的歌就再也同步不过来。
 
             // 服务端说有曲目, 但本地一首都没匹配上 —— 这是"取不到 / 对不上",
             // 不是"歌单空了"。保留已有镜像原样(存在的话), 也不新建空歌单。
             // 直接 replace 成空会在一次不完整的扫描后把整个歌单清光。
-            let serverHasTracks = (serverPlaylist.reportedTrackCount ?? serverPlaylist.trackIDs.count) > 0
+            let serverHasTracks = Self.serverHasTracks(serverPlaylist)
             if songIDs.isEmpty, serverHasTracks {
                 result.unresolvedPlaylistCount += 1
                 if library.playlist(id: localID) != nil {
@@ -131,11 +121,8 @@ enum ServerPlaylistMirror {
         }
 
         func apply(_ serverPlaylist: ServerPlaylist) {
-            if let reported = serverPlaylist.reportedTrackCount,
-               reported > serverPlaylist.trackIDs.count { return }
             let songIDs = ServerPlaylistMirror.uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
-            let serverHasTracks = (serverPlaylist.reportedTrackCount ?? serverPlaylist.trackIDs.count) > 0
-            if songIDs.isEmpty, serverHasTracks { return }
+            if songIDs.isEmpty, ServerPlaylistMirror.serverHasTracks(serverPlaylist) { return }
             let localID = ServerPlaylistIdentity.playlistID(
                 sourceID: source.id,
                 serverPlaylistID: serverPlaylist.id
@@ -168,12 +155,18 @@ enum ServerPlaylistMirror {
         let index = serverItemIndex(sourceID: source.id, library: library)
         let songIDs = uniqued(serverPlaylist.trackIDs.compactMap { index[$0] })
         guard !songIDs.isEmpty else { return }
-        library.ensurePlaylist(id: localID, name: serverPlaylist.name)
+        library.ensurePlaylist(id: localID, name: resolvedName(serverPlaylist.name, localID: localID, library: library))
         library.replaceMirrorPlaylistSongs(
             playlistID: localID,
             songIDs: songIDs,
             coverArtPath: serverPlaylist.coverArtReference
         )
+    }
+
+    /// 自报数量与实际给出的条目, 任一说有就算有: 自报数量缺省、写成 0 或比实际少时,
+    /// 不能因此把"一首都没对上"当成"歌单空了"去清空现有镜像。
+    fileprivate static func serverHasTracks(_ serverPlaylist: ServerPlaylist) -> Bool {
+        max(serverPlaylist.reportedTrackCount ?? 0, serverPlaylist.trackIDs.count) > 0
     }
 
     private static func resolvedName(_ name: String, localID: String, library: MusicLibrary) -> String {

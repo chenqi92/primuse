@@ -2183,7 +2183,8 @@ struct ServerPlaylistSnapshot: Sendable {
     init(_ audioStation: SynologyAudioStationPlaylistMirrorSnapshot) {
         self.init(
             playlists: audioStation.playlists.map(ServerPlaylist.init),
-            failedPlaylistIDs: audioStation.failedPlaylistIDs
+            failedPlaylistIDs: audioStation.failedPlaylistIDs,
+            isIndexComplete: audioStation.isIndexComplete
         )
     }
 }

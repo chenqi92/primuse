@@ -380,18 +380,24 @@ public actor SynologyAudioStationClient {
 
     /// 全部歌单(个人 + 共享),已去掉系统内部歌单。智能歌单保留但标为只读。
     public func playlists() async throws -> [SynologyAudioStationPlaylist] {
+        try await playlistIndex().playlists
+    }
+
+    /// 同 `playlists()`,另外报出有几条读不出:那几条不能当成服务端已删。
+    public func playlistIndex() async throws -> SynologyAudioStationPlaylistIndex {
         var values: [SynologyAudioStationPlaylist] = []
+        var listed = 0
         var expectedTotal: Int?
         var seen: Set<String> = []
         while true {
             try Task.checkCancellation()
             let page: SynologyAudioStationPlaylistPage = try await perform(
-                SynologyAudioStationAPI.playlistListCall(offset: values.count, limit: SynologyAudioStationAPI.pageSize)
+                SynologyAudioStationAPI.playlistListCall(offset: listed, limit: SynologyAudioStationAPI.pageSize)
             )
-            guard page.total >= 0, page.offset == nil || page.offset == values.count,
+            guard page.total >= 0, page.offset == nil || page.offset == listed,
                   expectedTotal == nil || expectedTotal == page.total,
-                  page.playlists.count <= SynologyAudioStationAPI.pageSize,
-                  page.playlists.count <= page.total - values.count else {
+                  page.listedCount <= SynologyAudioStationAPI.pageSize,
+                  page.listedCount <= page.total - listed else {
                 throw SynologyAudioStationError.invalidResponse
             }
             expectedTotal = page.total
@@ -399,8 +405,14 @@ public actor SynologyAudioStationClient {
                 guard seen.insert(playlist.id).inserted else { throw SynologyAudioStationError.invalidResponse }
             }
             values.append(contentsOf: page.playlists)
-            if values.count == page.total { return values.filter { !$0.isSystem } }
-            guard page.playlists.count == SynologyAudioStationAPI.pageSize else {
+            listed += page.listedCount
+            if listed == page.total {
+                return SynologyAudioStationPlaylistIndex(
+                    playlists: values.filter { !$0.isSystem },
+                    unreadableCount: listed - values.count
+                )
+            }
+            guard page.listedCount == SynologyAudioStationAPI.pageSize else {
                 throw SynologyAudioStationError.invalidResponse
             }
         }
@@ -419,7 +431,7 @@ public actor SynologyAudioStationClient {
             )
             guard page.playlist.id == id else { throw SynologyAudioStationError.invalidResponse }
             let finished = try pagination.accept(page, requestedLimit: pageSize)
-            ids.append(contentsOf: page.songs.map(\.id))
+            ids.append(contentsOf: page.songIDs)
             if finished { return ids }
         }
     }
@@ -821,6 +833,18 @@ public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
     /// 出现在歌单列表里、但这次没能取全曲目的歌单(镜像 id)。调用方要保留它们
     /// 已有的镜像,不能当成服务端已删除。
     public let failedPlaylistIDs: Set<String>
+    /// 歌单列表里有读不出的条目时为 false:不在快照里的镜像也可能只是没读出来。
+    public let isIndexComplete: Bool
+
+    public init(
+        playlists: [SynologyAudioStationPlaylistMirror],
+        failedPlaylistIDs: Set<String>,
+        isIndexComplete: Bool = true
+    ) {
+        self.playlists = playlists
+        self.failedPlaylistIDs = failedPlaylistIDs
+        self.isIndexComplete = isIndexComplete
+    }
 
     /// Audio Station 的歌单 id 里带着名字与斜杠(`playlist_personal_normal/开车`)。
     /// 镜像身份只用它的摘要,本地歌单 id 里不出现任意文字。
@@ -837,9 +861,22 @@ public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
         trackIDs: @Sendable (String) async throws -> [String],
         onPlaylist: (@Sendable (SynologyAudioStationPlaylistMirror) async -> Void)? = nil
     ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
+        try await collect(
+            index: { SynologyAudioStationPlaylistIndex(playlists: try await playlists(), unreadableCount: 0) },
+            trackIDs: trackIDs,
+            onPlaylist: onPlaylist
+        )
+    }
+
+    public static func collect(
+        index: @Sendable () async throws -> SynologyAudioStationPlaylistIndex,
+        trackIDs: @Sendable (String) async throws -> [String],
+        onPlaylist: (@Sendable (SynologyAudioStationPlaylistMirror) async -> Void)? = nil
+    ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
         var mirrors: [SynologyAudioStationPlaylistMirror] = []
         var failed: Set<String> = []
-        for playlist in try await playlists() {
+        let listed = try await index()
+        for playlist in listed.playlists {
             try Task.checkCancellation()
             let mirrorID = mirrorID(for: playlist.id)
             let mirror: SynologyAudioStationPlaylistMirror
@@ -855,7 +892,22 @@ public struct SynologyAudioStationPlaylistMirrorSnapshot: Equatable, Sendable {
             mirrors.append(mirror)
             await onPlaylist?(mirror)
         }
-        return SynologyAudioStationPlaylistMirrorSnapshot(playlists: mirrors, failedPlaylistIDs: failed)
+        return SynologyAudioStationPlaylistMirrorSnapshot(
+            playlists: mirrors,
+            failedPlaylistIDs: failed,
+            isIndexComplete: listed.unreadableCount == 0
+        )
+    }
+}
+
+/// 一次读全的歌单列表;`unreadableCount` 是服务端列出、但读不出来的条数。
+public struct SynologyAudioStationPlaylistIndex: Equatable, Sendable {
+    public let playlists: [SynologyAudioStationPlaylist]
+    public let unreadableCount: Int
+
+    public init(playlists: [SynologyAudioStationPlaylist], unreadableCount: Int) {
+        self.playlists = playlists
+        self.unreadableCount = unreadableCount
     }
 }
 
@@ -865,7 +917,7 @@ extension SynologyAudioStationClient {
         onPlaylist: (@Sendable (SynologyAudioStationPlaylistMirror) async -> Void)? = nil
     ) async throws -> SynologyAudioStationPlaylistMirrorSnapshot {
         try await SynologyAudioStationPlaylistMirrorSnapshot.collect(
-            playlists: { try await self.playlists() },
+            index: { try await self.playlistIndex() },
             trackIDs: { try await self.playlistTrackIDs(id: $0) },
             onPlaylist: onPlaylist
         )

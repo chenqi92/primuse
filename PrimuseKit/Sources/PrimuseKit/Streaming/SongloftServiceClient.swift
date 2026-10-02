@@ -46,12 +46,22 @@ public actor SongloftServiceClient {
                   values.allSatisfy({ $0 > 0 }) else { throw SongloftServiceError.invalidResponse }
             return values
         }
+        /// 歌单曲目照单全收: 同一首歌可以出现多次, 自报总数对不上(刚删的歌还算着)
+        /// 也不作废整份歌单, 只丢掉不可能是曲目的 id。
+        var playlistValues: [Int64] { (ids ?? []).filter { $0 > 0 } }
     }
     private struct PlaylistPage: Decodable, Sendable {
-        let playlists: [SongloftPlaylist]?
+        let playlists: [LossyPlaylist]?
         let total: Int
         let offset: Int
         let limit: Int
+    }
+    private struct LossyPlaylist: Decodable, Sendable {
+        let playlist: SongloftPlaylist?
+        init(from decoder: Decoder) throws {
+            let playlist = try? SongloftPlaylist(from: decoder)
+            self.playlist = playlist.flatMap { $0.id > 0 ? $0 : nil }
+        }
     }
     private struct Lyrics: Decodable, Sendable {
         let lyric: String?
@@ -188,54 +198,62 @@ public actor SongloftServiceClient {
     }
 
     public func playlists() async throws -> [SongloftPlaylist] {
+        try await playlistIndex().playlists
+    }
+
+    /// 歌单列表读两遍, 两遍的歌单 id 一致才算没在翻页中途变过; 歌单名、曲目数、
+    /// 更新时间这期间变了不要紧。读不出的条目不作废整份列表, 只报出条数:
+    /// 不在列表里的镜像也可能只是没读出来, 调用方不能据此删除。
+    public func playlistIndex() async throws -> (playlists: [SongloftPlaylist], unreadableCount: Int) {
         let first = try await playlistSnapshot()
-        guard try await playlistSnapshot() == first else { throw SongloftServiceError.invalidResponse }
+        let second = try await playlistSnapshot()
+        guard second.playlists.map(\.id) == first.playlists.map(\.id),
+              second.unreadableCount == first.unreadableCount else { throw SongloftServiceError.invalidResponse }
         return first
     }
 
-    private func playlistSnapshot() async throws -> [SongloftPlaylist] {
+    private func playlistSnapshot() async throws -> (playlists: [SongloftPlaylist], unreadableCount: Int) {
         var values: [SongloftPlaylist] = []
+        var listed = 0
         var expectedTotal: Int?
         var seen: Set<Int64> = []
         while true {
             try Task.checkCancellation()
             let page: PlaylistPage = try await json(path: "/playlists", query: [
-                URLQueryItem(name: "offset", value: String(values.count)),
+                URLQueryItem(name: "offset", value: String(listed)),
                 URLQueryItem(name: "limit", value: String(SongloftAPIProtocol.pageSize)),
                 URLQueryItem(name: "type", value: "normal"),
             ])
             let items = page.playlists ?? []
-            guard page.total >= 0, page.offset == values.count, page.limit == SongloftAPIProtocol.pageSize,
+            guard page.total >= 0, page.offset == listed, page.limit == SongloftAPIProtocol.pageSize,
                   expectedTotal == nil || expectedTotal == page.total,
-                  items.count <= SongloftAPIProtocol.pageSize, items.count <= page.total - values.count else {
+                  items.count <= SongloftAPIProtocol.pageSize, items.count <= page.total - listed else {
                 throw SongloftServiceError.invalidResponse
             }
             expectedTotal = page.total
-            for item in items {
-                guard item.id > 0, item.songCount >= 0, seen.insert(item.id).inserted else {
-                    throw SongloftServiceError.invalidResponse
-                }
+            for item in items.compactMap(\.playlist) {
+                // 同一个歌单出现两次说明翻页错位了, 这一轮作废重来。
+                guard seen.insert(item.id).inserted else { throw SongloftServiceError.invalidResponse }
+                values.append(item)
             }
-            values.append(contentsOf: items)
-            if values.count == page.total { return values }
+            listed += items.count
+            if listed == page.total { return (values, listed - values.count) }
             guard items.count == SongloftAPIProtocol.pageSize else { throw SongloftServiceError.invalidResponse }
         }
     }
 
-    public func playlistSongIDs(id: Int64, expectedCount: Int? = nil) async throws -> [Int64] {
+    public func playlistSongIDs(id: Int64) async throws -> [Int64] {
         guard id > 0 else { throw SongloftServiceError.invalidResponse }
         let result: IDList = try await json(path: "/playlists/\(id)/song-ids", query: [
             URLQueryItem(name: "sort", value: "position"), URLQueryItem(name: "order", value: "asc"),
         ])
-        let ids = try result.validated()
-        guard expectedCount == nil || expectedCount == ids.count else { throw SongloftServiceError.invalidResponse }
-        return ids
+        return result.playlistValues
     }
 
     public func favorites() async throws -> [Int64] {
         let playlist: SongloftPlaylist = try await json(path: "/playlists/1")
         guard playlist.isFavorite else { throw SongloftServiceError.invalidResponse }
-        return try await playlistSongIDs(id: playlist.id, expectedCount: playlist.songCount)
+        return try await playlistSongIDs(id: playlist.id)
     }
 
     public func setFavorite(id: Int64, isFavorite: Bool) async throws -> [Int64] {

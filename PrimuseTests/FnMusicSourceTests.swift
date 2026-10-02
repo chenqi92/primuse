@@ -712,9 +712,11 @@ final class FnMusicSourceTests: XCTestCase {
         let result = ServerPlaylistMirror.apply(snapshot: ServerPlaylistSnapshot(playlists: [
             ServerPlaylist(id: "new", name: "New", trackIDs: ["two", "one", "two"], reportedTrackCount: 3),
             ServerPlaylist(id: "empty", name: "Empty", trackIDs: [], reportedTrackCount: 0),
+            ServerPlaylist(id: "partial", name: "Partial", trackIDs: ["one"], reportedTrackCount: 4),
         ], failedPlaylistIDs: ["failed"]), source: source, library: library)
-        XCTAssertEqual(result.syncedPlaylistCount, 2)
+        XCTAssertEqual(result.syncedPlaylistCount, 3)
         XCTAssertEqual(library.songs(forPlaylist: id("new")).map(\.id), ["two", "one"])
+        XCTAssertEqual(library.songs(forPlaylist: id("partial")).map(\.id), ["one"])
         XCTAssertEqual(library.songs(forPlaylist: id("failed")).map(\.id), ["one"])
         XCTAssertNotNil(library.playlist(id: id("empty")))
         XCTAssertNil(library.playlist(id: id("deleted")))
@@ -887,7 +889,8 @@ final class FnMusicSourceTests: XCTestCase {
         XCTAssertEqual(library.songs(forPlaylist: id("first")).map(\.id), ["two", "one"])
         XCTAssertNotNil(library.playlist(id: id("empty")))
         XCTAssertNil(library.playlist(id: id("unknown")))
-        XCTAssertNil(library.playlist(id: id("truncated")))
+        // 自报 5 首、实际给出 1 首: 照样用读到的, 不再整张跳过。
+        XCTAssertEqual(library.songs(forPlaylist: id("truncated")).map(\.id), ["one"])
         XCTAssertEqual(library.songs(forPlaylist: id("stale")).map(\.id), ["one"])
     }
 
