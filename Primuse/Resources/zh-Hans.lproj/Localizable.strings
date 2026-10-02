@@ -4596,6 +4596,9 @@
 "tag_tidy_ai_settings_action" = "整理曲名、艺人和专辑";
 "tag_tidy_ai_settings_footer" = "批量修正乱码和不规范的写法。先列出建议，勾选的才写入，写入后可撤销。";
 "tag_tidy_ai_settings_button" = "开始";
+"tag_tidy_ai_consent_needed" = "要让 AI 一起看，需要先允许向智能服务发送内容（就是「智能功能」里的同一个开关）。";
+"tag_tidy_ai_allow_consent" = "允许并让 AI 一起看看";
+"tag_tidy_ai_consent_failed" = "没能保存这项设置，请到「智能功能」里打开发送内容的开关。";
 "tag_editor_suggestions_title" = "建议修改";
 "tag_editor_suggestions_apply_all" = "全部采用";
 "tag_editor_suggestion_apply" = "采用";

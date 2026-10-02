@@ -4503,6 +4503,9 @@
 "tag_tidy_ai_settings_action" = "Titel, Interpreten und Alben aufräumen";
 "tag_tidy_ai_settings_footer" = "Behebt Zeichensalat und uneinheitliche Schreibweisen in der ganzen Mediathek. Die Vorschläge werden zuerst aufgelistet; nur Angehaktes wird geschrieben und lässt sich rückgängig machen.";
 "tag_tidy_ai_settings_button" = "Starten";
+"tag_tidy_ai_consent_needed" = "Damit die KI mitschauen kann, erlaube zuerst das Senden von Inhalten an KI-Dienste (derselbe Schalter wie unter „Intelligente Funktionen“).";
+"tag_tidy_ai_allow_consent" = "Erlauben und KI fragen";
+"tag_tidy_ai_consent_failed" = "Konnte nicht gespeichert werden. Erlaube das Senden unter „Intelligente Funktionen“.";
 "tag_editor_suggestions_title" = "Vorgeschlagene Korrekturen";
 "tag_editor_suggestions_apply_all" = "Alle übernehmen";
 "tag_editor_suggestion_apply" = "Übernehmen";

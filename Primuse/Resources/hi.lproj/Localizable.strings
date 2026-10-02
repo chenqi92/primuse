@@ -4409,6 +4409,9 @@
 "tag_tidy_ai_settings_action" = "गीत, कलाकार और एल्बम के नाम व्यवस्थित करें";
 "tag_tidy_ai_settings_footer" = "पूरी लाइब्रेरी में बिगड़ा टेक्स्ट और असंगत वर्तनी बैच में ठीक करता है। पहले सुझाव दिखाए जाते हैं; केवल चुने गए बदलाव लिखे जाते हैं और उन्हें पूर्ववत किया जा सकता है।";
 "tag_tidy_ai_settings_button" = "शुरू करें";
+"tag_tidy_ai_consent_needed" = "AI से भी जाँच करवाने के लिए पहले AI सेवाओं को सामग्री भेजने की अनुमति दें (इंटेलिजेंस सेटिंग वाला वही स्विच)।";
+"tag_tidy_ai_allow_consent" = "अनुमति दें और AI से पूछें";
+"tag_tidy_ai_consent_failed" = "सहेजा नहीं जा सका। इंटेलिजेंस सेटिंग में भेजने की अनुमति दें।";
 "tag_editor_suggestions_title" = "सुझाए गए सुधार";
 "tag_editor_suggestions_apply_all" = "सभी लागू करें";
 "tag_editor_suggestion_apply" = "लागू करें";

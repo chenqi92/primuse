@@ -354,6 +354,15 @@ final class AISettingsEditorModel {
         didLoad = true
     }
 
+    /// Picks up the consent switch when it changed outside this page (the
+    /// tag tidy-up prompt, another device), so the next autosave here does not
+    /// write the old value back. A change the listener is making here wins.
+    func adoptStoredConsent(from intelligence: MusicIntelligenceService) {
+        guard didLoad, consent == savedConsent else { return }
+        consent = intelligence.settingsStore.hasExplicitRemoteConsent
+        savedConsent = consent
+    }
+
     func configurationBinding<Value>(
         _ keyPath: WritableKeyPath<AIRemoteProviderConfiguration, Value>,
         clearModels: Bool = false,
@@ -963,6 +972,9 @@ struct AISettingsView: View {
         }
         .sheet(item: $libraryTidySongs) { batch in
             TagTidyView(songs: batch.songs, isLibraryWide: true)
+        }
+        .onChange(of: intelligence.settingsStore.revision) {
+            editor.adoptStoredConsent(from: intelligence)
         }
         .task { await editor.load(using: intelligence) }
         .confirmationDialog(

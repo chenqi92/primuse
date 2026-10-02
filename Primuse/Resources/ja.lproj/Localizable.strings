@@ -4504,6 +4504,9 @@
 "tag_tidy_ai_settings_action" = "曲名・アーティスト・アルバムを整理";
 "tag_tidy_ai_settings_footer" = "ライブラリ全体の文字化けや表記の乱れをまとめて修正します。提案を一覧で確認し、チェックした項目だけが書き込まれ、取り消しもできます。";
 "tag_tidy_ai_settings_button" = "開始";
+"tag_tidy_ai_consent_needed" = "AI に見てもらうには、まずスマートサービスへの送信を許可してください（インテリジェンス設定と同じスイッチです）。";
+"tag_tidy_ai_allow_consent" = "許可して AI に見てもらう";
+"tag_tidy_ai_consent_failed" = "保存できませんでした。インテリジェンス設定で送信を許可してください。";
 "tag_editor_suggestions_title" = "修正の提案";
 "tag_editor_suggestions_apply_all" = "すべて適用";
 "tag_editor_suggestion_apply" = "適用";

@@ -4409,6 +4409,9 @@
 "tag_tidy_ai_settings_action" = "Ordenar títulos, artistas y álbumes";
 "tag_tidy_ai_settings_footer" = "Corrige por lotes el texto ilegible y las escrituras irregulares de toda la biblioteca. Primero ves las sugerencias; solo se escribe lo que marques y se puede deshacer.";
 "tag_tidy_ai_settings_button" = "Empezar";
+"tag_tidy_ai_consent_needed" = "Para que la IA lo revise, primero permite enviar contenido a servicios de IA (el mismo interruptor que en Inteligencia).";
+"tag_tidy_ai_allow_consent" = "Permitir y pedir a la IA";
+"tag_tidy_ai_consent_failed" = "No se pudo guardar. Permite el envío en Inteligencia.";
 "tag_editor_suggestions_title" = "Correcciones sugeridas";
 "tag_editor_suggestions_apply_all" = "Aplicar todo";
 "tag_editor_suggestion_apply" = "Aplicar";

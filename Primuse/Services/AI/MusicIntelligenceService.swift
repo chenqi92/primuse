@@ -806,6 +806,30 @@ final class MusicIntelligenceService {
         return canUseCustomTagCleanupProviders(regionContext: regionAvailability.snapshot.context)
     }
 
+    /// Tag cleanup has a service to ask and only the permission to send
+    /// content is missing: the tidy-up page offers to turn it on in place.
+    var tagCleanupNeedsRemoteConsent: Bool {
+        !settingsStore.hasExplicitRemoteConsent
+            && (isPrimuseRelayAvailable
+                || canUseCustomTagCleanupProviders(regionContext: regionAvailability.snapshot.context))
+    }
+
+    /// Turns on sending content to AI services from a feature's own prompt,
+    /// keeping every other stored setting as it is.
+    func grantRemoteConsent() throws {
+        guard !settingsStore.hasExplicitRemoteConsent else { return }
+        try settingsStore.save(
+            providerSet: settingsStore.providerSet,
+            primuseRelayEnabled: settingsStore.primuseRelayEnabled,
+            semanticSearchEnabled: settingsStore.semanticSearchEnabled,
+            recommendationsEnabled: settingsStore.recommendationsEnabled,
+            audioTranscriptionEnabled: settingsStore.audioTranscriptionEnabled,
+            hasExplicitRemoteConsent: true,
+            hasExplicitListeningContextConsent: settingsStore.hasExplicitListeningContextConsent,
+            hasExplicitAudioUploadConsent: settingsStore.hasExplicitAudioUploadConsent
+        )
+    }
+
     private func canUseCustomTagCleanupProviders(regionContext: AIRegionContext) -> Bool {
         guard AIAvailabilityPolicy.decision(
             for: .userConfiguredRemote,

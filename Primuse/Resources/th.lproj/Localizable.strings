@@ -4409,6 +4409,9 @@
 "tag_tidy_ai_settings_action" = "จัดระเบียบชื่อเพลง ศิลปิน และอัลบั้ม";
 "tag_tidy_ai_settings_footer" = "แก้อักขระเพี้ยนและการเขียนที่ไม่เป็นมาตรฐานทั่วทั้งคลังเพลงเป็นชุด แสดงคำแนะนำก่อน เฉพาะรายการที่เลือกจะถูกเขียน และเลิกทำได้";
 "tag_tidy_ai_settings_button" = "เริ่ม";
+"tag_tidy_ai_consent_needed" = "หากต้องการให้ AI ช่วยดูด้วย ให้อนุญาตการส่งเนื้อหาไปยังบริการ AI ก่อน (สวิตช์เดียวกับในการตั้งค่าความฉลาด)";
+"tag_tidy_ai_allow_consent" = "อนุญาตและให้ AI ช่วยดู";
+"tag_tidy_ai_consent_failed" = "บันทึกไม่สำเร็จ โปรดอนุญาตการส่งในการตั้งค่าความฉลาด";
 "tag_editor_suggestions_title" = "การแก้ไขที่แนะนำ";
 "tag_editor_suggestions_apply_all" = "ใช้ทั้งหมด";
 "tag_editor_suggestion_apply" = "ใช้";

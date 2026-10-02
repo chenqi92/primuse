@@ -4409,6 +4409,9 @@
 "tag_tidy_ai_settings_action" = "ترتيب أسماء الأغاني والفنانين والألبومات";
 "tag_tidy_ai_settings_footer" = "يصلح النص المشوّه والكتابة غير الموحّدة في المكتبة كلها على دفعات. تُعرض الاقتراحات أولًا؛ لا يُكتب إلا ما تحدده، ويمكن التراجع عنه.";
 "tag_tidy_ai_settings_button" = "ابدأ";
+"tag_tidy_ai_consent_needed" = "ليتمكن الذكاء الاصطناعي من المساعدة، اسمح أولًا بإرسال المحتوى إلى خدمات الذكاء الاصطناعي (المفتاح نفسه في «الميزات الذكية»).";
+"tag_tidy_ai_allow_consent" = "السماح وسؤال الذكاء الاصطناعي";
+"tag_tidy_ai_consent_failed" = "تعذّر الحفظ. اسمح بالإرسال من «الميزات الذكية».";
 "tag_editor_suggestions_title" = "إصلاحات مقترحة";
 "tag_editor_suggestions_apply_all" = "تطبيق الكل";
 "tag_editor_suggestion_apply" = "تطبيق";

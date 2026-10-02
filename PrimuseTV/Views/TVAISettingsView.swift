@@ -53,6 +53,9 @@ struct TVAISettingsView: View {
         }
         .foregroundStyle(TVColor.text)
         .task { await editor.load(using: intelligence) }
+        .onChange(of: intelligence.settingsStore.revision) {
+            editor.adoptStoredConsent(from: intelligence)
+        }
         .onExitCommand { dismiss() }
         .fullScreenCover(item: $providerTarget) { target in
             TVAIProviderDetailView(editor: editor, providerID: target.id)

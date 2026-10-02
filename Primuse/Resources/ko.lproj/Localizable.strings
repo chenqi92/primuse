@@ -4503,6 +4503,9 @@
 "tag_tidy_ai_settings_action" = "곡명·아티스트·앨범 정리";
 "tag_tidy_ai_settings_footer" = "보관함 전체의 깨진 글자와 들쭉날쭉한 표기를 한꺼번에 고칩니다. 먼저 제안을 보여 주고, 선택한 항목만 기록되며 되돌릴 수 있습니다.";
 "tag_tidy_ai_settings_button" = "시작";
+"tag_tidy_ai_consent_needed" = "AI에게 맡기려면 먼저 지능형 서비스로 내용 전송을 허용해야 합니다(지능형 기능 설정과 같은 스위치).";
+"tag_tidy_ai_allow_consent" = "허용하고 AI에게 맡기기";
+"tag_tidy_ai_consent_failed" = "저장하지 못했습니다. 지능형 기능 설정에서 내용 전송을 허용해 주세요.";
 "tag_editor_suggestions_title" = "수정 제안";
 "tag_editor_suggestions_apply_all" = "모두 적용";
 "tag_editor_suggestion_apply" = "적용";

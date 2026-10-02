@@ -1117,7 +1117,7 @@ final class PrimuseAIRelayClientTests: XCTestCase {
     }
 
     @MainActor
-    func testFreshSettingsEnableRelayButKeepRemoteFeaturesDisabled() throws {
+    func testFreshSettingsEnableRelayAndSendingButKeepFeaturesDisabled() throws {
         let defaults = try XCTUnwrap(UserDefaults(
             suiteName: "PrimuseAIRelayClientTests.\(UUID().uuidString)"
         ))
@@ -1127,7 +1127,7 @@ final class PrimuseAIRelayClientTests: XCTestCase {
         XCTAssertTrue(settings.primuseRelayEnabled)
         XCTAssertFalse(settings.semanticSearchEnabled)
         XCTAssertFalse(settings.recommendationsEnabled)
-        XCTAssertFalse(settings.hasExplicitRemoteConsent)
+        XCTAssertTrue(settings.hasExplicitRemoteConsent)
         XCTAssertFalse(settings.hasExplicitListeningContextConsent)
     }
 

@@ -4266,6 +4266,9 @@
 "tag_tidy_ai_settings_action" = "Tidy Song, Artist and Album Names";
 "tag_tidy_ai_settings_footer" = "Fixes garbled text and non-standard spellings across the library in batches. Suggestions are listed first; only what you tick is written, and it can be undone.";
 "tag_tidy_ai_settings_button" = "Start";
+"tag_tidy_ai_consent_needed" = "To let AI take a look, allow sending content to AI services first (the same switch as in Intelligence settings).";
+"tag_tidy_ai_allow_consent" = "Allow and Ask AI";
+"tag_tidy_ai_consent_failed" = "Couldn't save that. Turn on sending content in Intelligence settings instead.";
 "tag_editor_suggestions_title" = "Suggested Fixes";
 "tag_editor_suggestions_apply_all" = "Apply All";
 "tag_editor_suggestion_apply" = "Apply";

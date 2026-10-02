@@ -4409,6 +4409,9 @@
 "tag_tidy_ai_settings_action" = "Uporządkuj tytuły, wykonawców i albumy";
 "tag_tidy_ai_settings_footer" = "Poprawia hurtem zniekształcony tekst i niejednolity zapis w całej bibliotece. Najpierw widzisz sugestie; zapisywane jest tylko to, co zaznaczysz, i można to cofnąć.";
 "tag_tidy_ai_settings_button" = "Rozpocznij";
+"tag_tidy_ai_consent_needed" = "Aby AI mogła się temu przyjrzeć, najpierw zezwól na wysyłanie treści do usług AI (ten sam przełącznik co w ustawieniach Inteligencji).";
+"tag_tidy_ai_allow_consent" = "Zezwól i zapytaj AI";
+"tag_tidy_ai_consent_failed" = "Nie udało się zapisać. Zezwól na wysyłanie w ustawieniach Inteligencji.";
 "tag_editor_suggestions_title" = "Sugerowane poprawki";
 "tag_editor_suggestions_apply_all" = "Zastosuj wszystkie";
 "tag_editor_suggestion_apply" = "Zastosuj";

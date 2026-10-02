@@ -4409,6 +4409,9 @@
 "tag_tidy_ai_settings_action" = "Şarkı, sanatçı ve albüm adlarını düzenle";
 "tag_tidy_ai_settings_footer" = "Tüm arşivdeki bozuk metni ve düzensiz yazımları toplu olarak düzeltir. Öneriler önce listelenir; yalnızca işaretledikleriniz yazılır ve geri alınabilir.";
 "tag_tidy_ai_settings_button" = "Başlat";
+"tag_tidy_ai_consent_needed" = "Yapay zekânın da bakması için önce yapay zekâ hizmetlerine içerik gönderilmesine izin ver (Zeka ayarlarındaki aynı anahtar).";
+"tag_tidy_ai_allow_consent" = "İzin ver ve yapay zekâya sor";
+"tag_tidy_ai_consent_failed" = "Kaydedilemedi. Göndermeye Zeka ayarlarından izin ver.";
 "tag_editor_suggestions_title" = "Önerilen düzeltmeler";
 "tag_editor_suggestions_apply_all" = "Tümünü uygula";
 "tag_editor_suggestion_apply" = "Uygula";

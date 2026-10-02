@@ -4503,6 +4503,9 @@
 "tag_tidy_ai_settings_action" = "Nettoyer titres, artistes et albums";
 "tag_tidy_ai_settings_footer" = "Corrige par lots le texte illisible et les graphies irrégulières de toute la bibliothèque. Les suggestions sont d’abord listées ; seul ce que vous cochez est écrit, et c’est annulable.";
 "tag_tidy_ai_settings_button" = "Commencer";
+"tag_tidy_ai_consent_needed" = "Pour que l’IA y jette un œil, autorisez d’abord l’envoi de contenu aux services d’IA (le même réglage que dans Fonctions intelligentes).";
+"tag_tidy_ai_allow_consent" = "Autoriser et demander à l’IA";
+"tag_tidy_ai_consent_failed" = "Impossible d’enregistrer. Autorisez l’envoi dans Fonctions intelligentes.";
 "tag_editor_suggestions_title" = "Corrections suggérées";
 "tag_editor_suggestions_apply_all" = "Tout appliquer";
 "tag_editor_suggestion_apply" = "Appliquer";

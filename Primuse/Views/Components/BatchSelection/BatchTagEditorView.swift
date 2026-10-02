@@ -356,6 +356,23 @@ struct TagTidyView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                    } else if intelligence.tagCleanupNeedsRemoteConsent {
+                        // A service is ready; only the permission to send is
+                        // off. Say so here and turn it on in one tap.
+                        Text("tag_tidy_ai_consent_needed")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Button {
+                            allowRemoteConsentAndStartAI()
+                        } label: {
+                            Label(String(localized: "tag_tidy_ai_allow_consent"), systemImage: "checkmark.shield")
+                        }
+                        .disabled(isCheckingLocally || aiCandidates.isEmpty)
+                        if let aiStatus {
+                            Text(aiStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
                         Text("tag_tidy_ai_unavailable")
                             .font(.footnote)
@@ -364,7 +381,8 @@ struct TagTidyView: View {
                 } header: {
                     Text("tag_tidy_ai_section")
                 } footer: {
-                    if intelligence.isTagCleanupAvailable, !isCheckingLocally {
+                    if intelligence.isTagCleanupAvailable || intelligence.tagCleanupNeedsRemoteConsent,
+                       !isCheckingLocally {
                         Text(String(
                             format: String(localized: "tag_tidy_ai_footer_format"),
                             min(aiCandidates.count, TagCleanupAIExchange.maximumSongs)
@@ -435,6 +453,17 @@ struct TagTidyView: View {
         #if os(macOS)
         .frame(minWidth: 460, minHeight: 420)
         #endif
+    }
+
+    private func allowRemoteConsentAndStartAI() {
+        do {
+            try intelligence.grantRemoteConsent()
+        } catch {
+            aiStatus = String(localized: "tag_tidy_ai_consent_failed")
+            return
+        }
+        guard intelligence.isTagCleanupAvailable else { return }
+        startAI()
     }
 
     private func startAI() {

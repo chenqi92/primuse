@@ -1142,6 +1142,9 @@ private struct MacSTIntelligenceView: View {
         .sheet(item: $libraryTidySongs) { batch in
             TagTidyView(songs: batch.songs, isLibraryWide: true)
         }
+        .onChange(of: intelligence.settingsStore.revision) {
+            editor.adoptStoredConsent(from: intelligence)
+        }
     }
 
     private var primuseRelaySection: some View {

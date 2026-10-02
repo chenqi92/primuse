@@ -4480,6 +4480,9 @@
 "tag_tidy_ai_settings_action" = "整理曲名、藝人和專輯";
 "tag_tidy_ai_settings_footer" = "批次修正亂碼和不規範的寫法。先列出建議，勾選的才寫入，寫入後可復原。";
 "tag_tidy_ai_settings_button" = "開始";
+"tag_tidy_ai_consent_needed" = "要讓 AI 一起看，需要先允許向智能服務傳送內容（就是「智慧功能」裡的同一個開關）。";
+"tag_tidy_ai_allow_consent" = "允許並讓 AI 一起看看";
+"tag_tidy_ai_consent_failed" = "沒能儲存這項設定，請到「智慧功能」裡開啟傳送內容的開關。";
 "tag_editor_suggestions_title" = "建議修改";
 "tag_editor_suggestions_apply_all" = "全部套用";
 "tag_editor_suggestion_apply" = "套用";
