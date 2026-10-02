@@ -310,6 +310,12 @@ public enum MacTitleBarSearchPolicy {
         !isOnSearch && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Already on Search, but a detail page or the player may be covering the
+    /// results; typing again should bring the results back.
+    public static func shouldRevealSearchResults(for query: String, isOnSearch: Bool) -> Bool {
+        isOnSearch && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     public static func shouldReleaseFocus(isOnSearch: Bool) -> Bool {
         !isOnSearch
     }

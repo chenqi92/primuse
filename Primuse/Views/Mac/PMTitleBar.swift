@@ -107,22 +107,12 @@ struct PMTitleBar: View {
                 .foregroundStyle(PMColor.text)
                 .focused($searchFocused)
                 .onSubmit {
-                    if MacTitleBarSearchPolicy.shouldActivateSearch(
-                        for: searchText,
-                        isOnSearch: isOnSearch
-                    ) {
-                        selectSearchRoute()
-                    }
+                    showSearchResults(for: searchText)
                     releaseSearchFocus()
                 }
                 .onExitCommand(perform: releaseSearchFocus)
                 .onChange(of: searchText) { _, value in
-                    if MacTitleBarSearchPolicy.shouldActivateSearch(
-                        for: value,
-                        isOnSearch: isOnSearch
-                    ) {
-                        selectSearchRoute()
-                    }
+                    showSearchResults(for: value)
                 }
 
             if !searchText.isEmpty {
@@ -160,7 +150,11 @@ struct PMTitleBar: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseFocusSearch)) { _ in
             searchFocused = true
-            selectSearchRoute()
+            if isOnSearch {
+                revealSearchResults()
+            } else {
+                selectSearchRoute()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDismissSearchFocus)) { _ in
             releaseSearchFocus()
@@ -195,6 +189,20 @@ struct PMTitleBar: View {
         } else {
             Rectangle().fill(PMColor.bg)
         }
+    }
+
+    private func showSearchResults(for query: String) {
+        if MacTitleBarSearchPolicy.shouldActivateSearch(for: query, isOnSearch: isOnSearch) {
+            selectSearchRoute()
+        } else if MacTitleBarSearchPolicy.shouldRevealSearchResults(for: query, isOnSearch: isOnSearch) {
+            revealSearchResults()
+        }
+    }
+
+    /// 已经在搜索栏, 但结果可能被点进去的专辑 / 艺人 / 歌单或播放页盖着。
+    /// 只把它们收掉, 不重建搜索页 —— 筛选和滚动位置都还在。
+    private func revealSearchResults() {
+        NotificationCenter.default.post(name: .primuseRevealSearchResults, object: nil)
     }
 
     private func selectSearchRoute() {
@@ -256,6 +264,7 @@ extension Notification.Name {
     static let primuseDetailGoForward = Notification.Name("primuse.detail.goForward")
     static let primuseFocusSearch     = Notification.Name("primuse.titlebar.focusSearch")
     static let primuseDismissSearchFocus = Notification.Name("primuse.titlebar.dismissSearchFocus")
+    static let primuseRevealSearchResults = Notification.Name("primuse.titlebar.revealSearchResults")
 }
 
 #endif

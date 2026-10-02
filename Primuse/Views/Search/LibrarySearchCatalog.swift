@@ -243,6 +243,7 @@ struct SearchFolderProviderInput: Sendable {
 
 struct SearchCollectionDetailView: View {
     let result: SearchCollectionResult
+    var onMacInlineBack: (() -> Void)? = nil
     @Environment(MusicLibrary.self) private var library
     @Environment(AudioPlayerService.self) private var player
     @Environment(SourcesStore.self) private var sourcesStore
@@ -257,6 +258,9 @@ struct SearchCollectionDetailView: View {
         let ids = songIDs
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                #if os(macOS)
+                macHeader(songCount: ids.count)
+                #endif
                 Button {
                     Task { await player.play(queueIDs: ids) }
                 } label: {
@@ -301,4 +305,39 @@ struct SearchCollectionDetailView: View {
         }
         #endif
     }
+
+    #if os(macOS)
+    /// Mac 的窗口工具栏是隐藏的, 导航标题和系统返回键都看不到, 页内自己摆。
+    private func macHeader(songCount: Int) -> some View {
+        HStack(alignment: .bottom, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(result.section.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .textCase(.uppercase)
+                    .foregroundStyle(PMColor.textMuted)
+                Text(verbatim: result.title)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(PMColor.text)
+                    .lineLimit(2)
+                // id 还没载入时不写「0 首」, 免得进页先闪一下。
+                Text(verbatim: [result.detail, songCount > 0 ? "\(songCount) \(String(localized: "songs_count"))" : ""]
+                    .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMColor.textFaint)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 16)
+            if let onMacInlineBack {
+                MacNavigationBackButton(
+                    accessibilityIdentifier: "searchCollectionInlineBack",
+                    action: onMacInlineBack
+                )
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 8)
+    }
+    #endif
 }

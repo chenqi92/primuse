@@ -42,6 +42,11 @@ struct MacDetailContainer: View {
                         .navigationBarBackButtonHidden(true)
                         .pmAppearFade()
                 }
+                .navigationDestination(for: MacSearchCollectionDestination.self) { destination in
+                    SearchCollectionDetailView(result: destination.result, onMacInlineBack: popDetail)
+                        .navigationBarBackButtonHidden(true)
+                        .pmAppearFade()
+                }
                 .navigationDestination(for: MacSpokenWordBookDestination.self) { destination in
                     SpokenWordBookDetailView(bookID: destination.bookID)
                         .pmAppearFade()
@@ -66,6 +71,11 @@ struct MacDetailContainer: View {
         .onChange(of: spokenWordBookRequest) { _, _ in consumeSpokenWordBookRequest() }
         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailGoBack)) { _ in
             if !path.isEmpty { path.removeLast() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .primuseRevealSearchResults)) { _ in
+            // 标题栏里接着搜: 从结果点进去的专辑 / 艺人 / 歌单还压着时退回结果页。
+            guard case .search = route else { return }
+            clearDetailPath()
         }
         .onReceive(NotificationCenter.default.publisher(for: .primuseSelectPlaylists)) { _ in
             // 删除当前歌单后跳「歌单」总览。若这张歌单是 push 进来的 (从总览点入),
@@ -211,5 +221,19 @@ struct MacDetailContainer: View {
 /// 详情栈里的一本有声书。单独一个类型, 免得和别处以 String 压栈的目的地撞上。
 struct MacSpokenWordBookDestination: Hashable {
     let bookID: String
+}
+
+/// 搜索结果里点进去的歌单 / 文件夹。压进 path 才能被返回键和「接着搜」退掉;
+/// 按目标比较, 免得比对路径时把整个文件夹的歌曲 id 过一遍。
+struct MacSearchCollectionDestination: Hashable {
+    let result: SearchCollectionResult
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.result.id == rhs.result.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(result.id)
+    }
 }
 #endif

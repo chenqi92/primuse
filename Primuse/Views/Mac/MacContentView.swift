@@ -201,6 +201,9 @@ struct MacContentView: View {
                         .onReceive(NotificationCenter.default.publisher(for: .primuseDetailOpenSpokenWordBook)) { note in
                             openSpokenWordBook(note.object as? String)
                         }
+                        .onReceive(NotificationCenter.default.publisher(for: .primuseRevealSearchResults)) { _ in
+                            closeNowPlayingForSearch()
+                        }
 
                     if nowPlayingPresented {
                         MacNowPlayingView(onClose: {
@@ -612,6 +615,16 @@ struct MacContentView: View {
             selection = route
             // 直接目标 NavigationLink 的展示状态不在 path 内，侧栏导航需重建整栈。
             detailNavigationID = UUID()
+        }
+    }
+
+    /// 在搜索栏里接着搜时, 盖在结果上的播放页先收起来, 和从别的栏开始搜一样。
+    private func closeNowPlayingForSearch() {
+        guard nowPlayingPresented else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            nowPlayingPresented = false
         }
     }
 

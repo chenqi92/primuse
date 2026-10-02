@@ -4311,29 +4311,41 @@ struct SearchView: View {
     private func collectionResultRow(_ result: SearchCollectionResult) -> some View {
         let songs = result.songs(in: library)
         return HStack(spacing: 12) {
+            #if os(macOS)
+            // 压进详情栈的 path: 返回键和标题栏里接着搜都能把它退掉。
+            NavigationLink(value: MacSearchCollectionDestination(result: result)) {
+                collectionResultLabel(result, songCount: songs.count)
+            }
+            .buttonStyle(.plain)
+            #else
             NavigationLink {
                 SearchCollectionDetailView(result: result)
             } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: result.icon)
-                        .font(.title3)
-                        .foregroundStyle(.tint)
-                        .frame(width: 44, height: 44)
-                        .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(verbatim: result.title).font(.subheadline).lineLimit(1)
-                        Text(verbatim: [result.detail, "\(songs.count) \(String(localized: "songs_count"))"]
-                            .filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        if intelligentCollectionIDs.contains(result.id) {
-                            SearchRecommendationBadge()
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
+                collectionResultLabel(result, songCount: songs.count)
             }
             .buttonStyle(.plain)
+            #endif
             resultActions(.collection(result))
+        }
+    }
+
+    private func collectionResultLabel(_ result: SearchCollectionResult, songCount: Int) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: result.icon)
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 44, height: 44)
+                .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: result.title).font(.subheadline).lineLimit(1)
+                Text(verbatim: [result.detail, "\(songCount) \(String(localized: "songs_count"))"]
+                    .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if intelligentCollectionIDs.contains(result.id) {
+                    SearchRecommendationBadge()
+                }
+            }
+            Spacer(minLength: 0)
         }
     }
 
