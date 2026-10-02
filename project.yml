@@ -16,8 +16,8 @@ settings:
     SWIFT_VERSION: "6.0"
     # 全平台唯一版本号来源:iOS / macOS / tvOS / watchOS 及各扩展统一继承这里,
     # 各 target 不再单独覆盖,发版只改这一处,避免漏改导致版本不一致。
-    MARKETING_VERSION: "1.10.2"
-    CURRENT_PROJECT_VERSION: "88"
+    MARKETING_VERSION: "1.11.1"
+    CURRENT_PROJECT_VERSION: "92"
     DEVELOPMENT_TEAM: "2U97K3U27A"
     CODE_SIGN_STYLE: Automatic
     CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION: YES
@@ -669,6 +669,7 @@ targets:
       - path: Primuse/Services/Library/MusicLibrary.swift
       - path: Primuse/Services/Library/ServerPlaylistMirror.swift
       - path: Primuse/Services/Library/LibraryDatabase.swift
+      - path: Primuse/Services/Library/LibraryFavoritesStore.swift
       - path: Primuse/Services/Library/PlayHistoryStore.swift
       # 情景推荐专辑:电视首页主视觉与手机、Mac 首页同一份推荐。
       - path: Primuse/Services/Library/AlbumRecommendationService.swift
