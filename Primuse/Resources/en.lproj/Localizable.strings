@@ -4858,22 +4858,22 @@
 "audiobookshelf_credentials_hint" = "Sign in with a server account, or create an API key under Settings › API Keys on the server and choose API Key above.";
 
 /* Google Drive switching to the "only the files you choose" permission */
-"gdrive_scope_change_title_upcoming" = "Google Drive access changes on %@";
-"gdrive_scope_change_title_in_effect" = "Google Drive access changed on %@";
-"gdrive_scope_change_summary_upcoming" = "Everything works as usual until then. After that, you choose songs in Google’s file picker instead of Primuse scanning whole folders, and sources you’ve already added need their files chosen once more.";
-"gdrive_scope_change_summary_in_effect" = "You now choose songs in Google’s file picker instead of Primuse scanning whole folders, and sources you’ve already added need their files chosen once more.";
+"gdrive_scope_change_title_upcoming" = "Google Drive access may change after %@";
+"gdrive_scope_change_title_in_effect" = "Google Drive access may change from %@";
+"gdrive_scope_change_summary_upcoming" = "Everything works as usual until then. After that, you may need to choose songs in Google’s file picker instead of Primuse scanning whole folders, and sources you’ve already added may need their files chosen again.";
+"gdrive_scope_change_summary_in_effect" = "Google Drive sources may switch to choosing songs in Google’s file picker instead of Primuse scanning whole folders, and sources you’ve already added may need their files chosen again.";
 "gdrive_scope_change_learn_more" = "Learn More";
 "gdrive_scope_change_sheet_title" = "Google Drive Access Changes";
-"gdrive_scope_change_changes_header" = "Changes from %@";
-"gdrive_scope_change_item_pick" = "Primuse can no longer scan a whole music folder you choose. Instead, select the songs to add in Google’s file picker — you can select many at once.";
-"gdrive_scope_change_item_new_uploads" = "Songs you upload to Google Drive later won’t show up automatically. Choose them again to add them.";
-"gdrive_scope_change_item_sidecars" = "Cover images and LRC lyric files stored next to your songs must be selected too. Artwork and lyrics embedded in the songs aren’t affected.";
-"gdrive_scope_change_item_writeback" = "Editing tags, writing back artwork and lyrics, and moving files to the trash only work on files you’ve selected.";
-"gdrive_scope_change_item_existing" = "Google Drive sources you’ve already added need you to sign in again and choose the files once more. Your playlists, favorites and play history are kept.";
-"gdrive_scope_change_item_tv" = "Google’s file picker isn’t available on Apple TV. To add songs, choose them on iPhone, iPad or Mac.";
-"gdrive_scope_change_reason_header" = "Why This Is Changing";
+"gdrive_scope_change_changes_header" = "Possible Changes After %@";
+"gdrive_scope_change_item_pick" = "Primuse may no longer be able to scan a whole music folder you choose. Instead, you’d select the songs to add in Google’s file picker — you can select many at once.";
+"gdrive_scope_change_item_new_uploads" = "Songs you upload to Google Drive later may not show up automatically, and you’d need to choose them again.";
+"gdrive_scope_change_item_sidecars" = "Cover images and LRC lyric files stored next to your songs may need to be selected too. Artwork and lyrics embedded in the songs aren’t affected.";
+"gdrive_scope_change_item_writeback" = "Editing tags, writing back artwork and lyrics, and moving files to the trash may only work on files you’ve selected.";
+"gdrive_scope_change_item_existing" = "Google Drive sources you’ve already added may need you to sign in again and choose the files once more. Your playlists, favorites and play history are kept.";
+"gdrive_scope_change_item_tv" = "Google’s file picker isn’t available on Apple TV, so you’d choose songs on iPhone, iPad or Mac.";
+"gdrive_scope_change_reason_header" = "Why This May Change";
 "gdrive_scope_change_reason_policy" = "Google requires every app that can read a user’s entire Google Drive to pass a security assessment (CASA) by a Google-approved third-party lab every year, paid for by the developer. The songs Primuse plays travel directly between your device and Google, never through Primuse servers, yet Google has confirmed that apps like this aren’t exempt and that it no longer accepts developer self-assessments or waives the fee.";
-"gdrive_scope_change_reason_decision" = "For an independently developed app like Primuse, a fee that recurs every year isn’t sustainable, so Primuse is switching to Google’s “only the files you choose” permission, which needs no assessment. This limit comes from Google’s platform rules — it isn’t something Primuse can adapt its way around.";
+"gdrive_scope_change_reason_decision" = "For an independently developed app like Primuse, a fee that recurs every year isn’t sustainable, so Primuse plans to switch to Google’s “only the files you choose” permission, which needs no assessment. The details will depend on a future update. This limit comes from Google’s platform rules — it isn’t something Primuse can adapt its way around.";
 "gdrive_scope_change_alternatives_header" = "Large Library, or Want Whole-Folder Scanning?";
 "gdrive_scope_change_alt_mac" = "Mac: install Google’s official Google Drive for desktop, make your music folder “Available offline”, then add it in Primuse as a local folder. Primuse scans the whole library and finds new songs automatically.";
 "gdrive_scope_change_alt_webdav" = "Any device, including Apple TV: if you have a NAS or an always-on computer, use a tool such as rclone or OpenList to serve Google Drive over WebDAV, then add a WebDAV source in Primuse. The authorization belongs to your own tool and isn’t affected by this change.";

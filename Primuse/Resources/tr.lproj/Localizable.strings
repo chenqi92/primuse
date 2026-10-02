@@ -5001,22 +5001,22 @@
 "audiobookshelf_credentials_hint" = "Bir sunucu hesabıyla oturum açın ya da sunucuda Ayarlar › API Keys altında bir API anahtarı oluşturup yukarıda API Anahtarı’nı seçin.";
 
 /* Google Drive'ın “Yalnızca seçtiğiniz dosyalar” iznine geçişi hakkında bildirim */
-"gdrive_scope_change_title_upcoming" = "Google Drive Erişimi %@ Tarihinde Değişiyor";
-"gdrive_scope_change_title_in_effect" = "Google Drive Erişimi %@ Tarihinde Değişti";
-"gdrive_scope_change_summary_upcoming" = "O tarihe kadar her şey her zamanki gibi çalışır. Sonrasında Primuse klasörlerin tamamını taramak yerine şarkıları Google'ın dosya seçicisinde siz seçersiniz; daha önce eklediğiniz kaynaklarda dosyaları bir kez daha seçmeniz gerekir.";
-"gdrive_scope_change_summary_in_effect" = "Artık Primuse klasörlerin tamamını taramak yerine şarkıları Google'ın dosya seçicisinde siz seçiyorsunuz; daha önce eklediğiniz kaynaklarda dosyaları bir kez daha seçmeniz gerekir.";
+"gdrive_scope_change_title_upcoming" = "Google Drive Erişimi %@ Tarihinden Sonra Değişebilir";
+"gdrive_scope_change_title_in_effect" = "Google Drive Erişimi %@ Tarihinden İtibaren Değişebilir";
+"gdrive_scope_change_summary_upcoming" = "O tarihe kadar her şey her zamanki gibi çalışır. Sonrasında Primuse klasörlerin tamamını taramak yerine şarkıları Google'ın dosya seçicisinde sizin seçmeniz gerekebilir; daha önce eklediğiniz kaynaklarda da dosyaları bir kez daha seçmeniz gerekebilir.";
+"gdrive_scope_change_summary_in_effect" = "Google Drive kaynaklarında Primuse klasörlerin tamamını taramak yerine şarkıları Google'ın dosya seçicisinde sizin seçmeniz gerekebilir; daha önce eklediğiniz kaynaklarda da dosyaları bir kez daha seçmeniz gerekebilir.";
 "gdrive_scope_change_learn_more" = "Daha fazla bilgi";
 "gdrive_scope_change_sheet_title" = "Google Drive Erişim Değişikliği";
-"gdrive_scope_change_changes_header" = "%@ İtibarıyla Değişenler";
-"gdrive_scope_change_item_pick" = "Primuse artık seçtiğiniz bir müzik klasörünün tamamını tarayamaz. Bunun yerine eklemek istediğiniz şarkıları Google'ın dosya seçicisinde seçin; tek seferde çok sayıda şarkı seçebilirsiniz.";
-"gdrive_scope_change_item_new_uploads" = "Daha sonra Google Drive'a yüklediğiniz şarkılar otomatik olarak görünmez. Eklemek için bunları yeniden seçin.";
-"gdrive_scope_change_item_sidecars" = "Şarkılarınızın yanında duran kapak görselleri ve LRC şarkı sözü dosyaları da seçilmelidir. Şarkılara gömülü kapaklar ve şarkı sözleri bundan etkilenmez.";
-"gdrive_scope_change_item_writeback" = "Etiketleri düzenleme, kapakları ve şarkı sözlerini dosyalara geri yazma ve dosyaları çöp kutusuna taşıma yalnızca seçtiğiniz dosyalarda çalışır.";
-"gdrive_scope_change_item_existing" = "Daha önce eklediğiniz Google Drive kaynakları için yeniden oturum açmanız ve dosyaları bir kez daha seçmeniz gerekir. Çalma listeleriniz, favorileriniz ve dinleme geçmişiniz korunur.";
-"gdrive_scope_change_item_tv" = "Google'ın dosya seçicisi Apple TV'de kullanılamaz. Şarkı eklemek için şarkıları iPhone, iPad veya Mac'te seçin.";
-"gdrive_scope_change_reason_header" = "Bu Değişiklik Neden Yapılıyor?";
+"gdrive_scope_change_changes_header" = "%@ Tarihinden Sonra Olası Değişiklikler";
+"gdrive_scope_change_item_pick" = "Primuse seçtiğiniz bir müzik klasörünün tamamını artık tarayamayabilir. Bu durumda eklemek istediğiniz şarkıları Google'ın dosya seçicisinde seçersiniz; tek seferde çok sayıda şarkı seçebilirsiniz.";
+"gdrive_scope_change_item_new_uploads" = "Daha sonra Google Drive'a yüklediğiniz şarkılar otomatik olarak görünmeyebilir ve bunları yeniden seçmeniz gerekebilir.";
+"gdrive_scope_change_item_sidecars" = "Şarkılarınızın yanında duran kapak görsellerinin ve LRC şarkı sözü dosyalarının da seçilmesi gerekebilir. Şarkılara gömülü kapaklar ve şarkı sözleri bundan etkilenmez.";
+"gdrive_scope_change_item_writeback" = "Etiketleri düzenleme, kapakları ve şarkı sözlerini dosyalara geri yazma ve dosyaları çöp kutusuna taşıma yalnızca seçtiğiniz dosyalarda çalışabilir.";
+"gdrive_scope_change_item_existing" = "Daha önce eklediğiniz Google Drive kaynakları için yeniden oturum açmanız ve dosyaları bir kez daha seçmeniz gerekebilir. Çalma listeleriniz, favorileriniz ve dinleme geçmişiniz korunur.";
+"gdrive_scope_change_item_tv" = "Google'ın dosya seçicisi Apple TV'de kullanılamadığından, bu durumda şarkıları iPhone, iPad veya Mac'te seçmeniz gerekir.";
+"gdrive_scope_change_reason_header" = "Bu Neden Değişebilir?";
 "gdrive_scope_change_reason_policy" = "Google, bir kullanıcının Google Drive'ının tamamını okuyabilen her uygulamanın Google tarafından onaylanmış üçüncü taraf bir laboratuvarın yaptığı güvenlik değerlendirmesini (CASA) her yıl geçmesini ve ücretin geliştirici tarafından ödenmesini şart koşuyor. Primuse'nin çaldığı şarkılar cihazınız ile Google arasında doğrudan aktarılır ve hiçbir zaman Primuse sunucularından geçmez; buna rağmen Google, bu tür uygulamaların muaf olmadığını, geliştiricilerin öz değerlendirmelerini artık kabul etmediğini ve ücretten muafiyet tanımadığını açıkça bildirdi.";
-"gdrive_scope_change_reason_decision" = "Primuse gibi bağımsız geliştirilen bir uygulama için her yıl tekrarlanan bu ücreti karşılamak sürdürülebilir değil. Bu nedenle Primuse, değerlendirme gerektirmeyen “Yalnızca seçtiğiniz dosyalar” Google iznine geçiyor. Bu sınırlama Google'ın platform kurallarından kaynaklanıyor; Primuse'nin uyarlamalarla aşabileceği bir sorun değil.";
+"gdrive_scope_change_reason_decision" = "Primuse gibi bağımsız geliştirilen bir uygulama için her yıl tekrarlanan bu ücreti karşılamak sürdürülebilir değil. Bu nedenle Primuse, değerlendirme gerektirmeyen “Yalnızca seçtiğiniz dosyalar” Google iznine geçmeyi planlıyor. Ayrıntılar ileride yayımlanacak bir güncellemeyle netleşecek. Bu sınırlama Google'ın platform kurallarından kaynaklanıyor; Primuse'nin uyarlamalarla aşabileceği bir sorun değil.";
 "gdrive_scope_change_alternatives_header" = "Arşiviniz Büyük mü, Klasörlerin Tamamını Taramak mı İstiyorsunuz?";
 "gdrive_scope_change_alt_mac" = "Mac: Google'ın resmi uygulaması Masaüstü için Google Drive'ı yükleyin, müzik klasörünüzü “Çevrimdışı kullanılabilir” olarak ayarlayın, ardından Primuse'de yerel klasör olarak ekleyin. Primuse tüm arşivi tarar ve yeni şarkıları otomatik olarak bulur.";
 "gdrive_scope_change_alt_webdav" = "Apple TV dahil tüm cihazlar: NAS'ınız veya sürekli açık bir bilgisayarınız varsa rclone ya da OpenList gibi bir araçla Google Drive'ı WebDAV üzerinden sunun, ardından Primuse'de bir WebDAV kaynağı ekleyin. Yetkilendirme kendi aracınızda kalır ve bu değişiklikten etkilenmez.";

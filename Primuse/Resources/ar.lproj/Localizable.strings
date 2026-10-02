@@ -5001,22 +5001,22 @@
 "audiobookshelf_credentials_hint" = "سجّل الدخول بحساب الخادم، أو أنشئ مفتاح API من «الإعدادات › API Keys» على الخادم واختر «مفتاح API» أعلاه.";
 
 /* انتقال Google Drive إلى إذن «الملفات التي تختارها فقط» */
-"gdrive_scope_change_title_upcoming" = "تتغيّر طريقة الوصول إلى Google Drive في %@";
-"gdrive_scope_change_title_in_effect" = "تغيّرت طريقة الوصول إلى Google Drive في %@";
-"gdrive_scope_change_summary_upcoming" = "حتى ذلك الحين يعمل كل شيء كالمعتاد. بعد ذلك ستختار الأغاني من منتقي الملفات في Google بدلًا من أن يفحص Primuse مجلدات كاملة، وستحتاج إلى اختيار ملفات المصادر التي أضفتها من قبل مرة أخرى.";
-"gdrive_scope_change_summary_in_effect" = "أصبحت الآن تختار الأغاني من منتقي الملفات في Google بدلًا من أن يفحص Primuse مجلدات كاملة، وتحتاج إلى اختيار ملفات المصادر التي أضفتها من قبل مرة أخرى.";
+"gdrive_scope_change_title_upcoming" = "قد تتغيّر طريقة الوصول إلى Google Drive بعد %@";
+"gdrive_scope_change_title_in_effect" = "قد تتغيّر طريقة الوصول إلى Google Drive بدءًا من %@";
+"gdrive_scope_change_summary_upcoming" = "حتى ذلك الحين يعمل كل شيء كالمعتاد. بعد ذلك قد تحتاج إلى اختيار الأغاني من منتقي الملفات في Google بدلًا من أن يفحص Primuse مجلدات كاملة، وقد تحتاج إلى اختيار ملفات المصادر التي أضفتها من قبل مرة أخرى.";
+"gdrive_scope_change_summary_in_effect" = "قد تنتقل مصادر Google Drive إلى اختيار الأغاني من منتقي الملفات في Google بدلًا من أن يفحص Primuse مجلدات كاملة، وقد تحتاج إلى اختيار ملفات المصادر التي أضفتها من قبل مرة أخرى.";
 "gdrive_scope_change_learn_more" = "معرفة المزيد";
 "gdrive_scope_change_sheet_title" = "تغيير طريقة الوصول إلى Google Drive";
-"gdrive_scope_change_changes_header" = "ما الذي يتغيّر بدءًا من %@";
-"gdrive_scope_change_item_pick" = "لم يعد بإمكان Primuse فحص مجلد موسيقى كامل تختاره. بدلًا من ذلك، حدّد الأغاني التي تريد إضافتها في منتقي الملفات في Google، ويمكنك تحديد الكثير منها دفعة واحدة.";
-"gdrive_scope_change_item_new_uploads" = "الأغاني التي ترفعها إلى Google Drive لاحقًا لن تظهر تلقائيًا. اخترها مرة أخرى لإضافتها.";
-"gdrive_scope_change_item_sidecars" = "يجب أيضًا تحديد صور الغلاف وملفات كلمات LRC الموجودة بجانب أغانيك. لا يتأثر الغلاف وكلمات الأغاني المضمّنة داخل الأغاني.";
-"gdrive_scope_change_item_writeback" = "لا يعمل تعديل الوسوم وكتابة الأغلفة وكلمات الأغاني في الملفات ونقل الملفات إلى سلة المهملات إلا على الملفات التي حدّدتها.";
-"gdrive_scope_change_item_existing" = "تحتاج مصادر Google Drive التي أضفتها من قبل إلى تسجيل الدخول مرة أخرى واختيار الملفات من جديد. تبقى قوائم التشغيل والمفضلة وسجل الاستماع كما هي.";
-"gdrive_scope_change_item_tv" = "منتقي الملفات في Google غير متاح على Apple TV. لإضافة أغانٍ، اخترها على iPhone أو iPad أو Mac.";
-"gdrive_scope_change_reason_header" = "لماذا هذا التغيير";
+"gdrive_scope_change_changes_header" = "تغييرات محتملة بعد %@";
+"gdrive_scope_change_item_pick" = "قد لا يعود بإمكان Primuse فحص مجلد موسيقى كامل تختاره. وعندها ستحدّد الأغاني التي تريد إضافتها في منتقي الملفات في Google، ويمكنك تحديد الكثير منها دفعة واحدة.";
+"gdrive_scope_change_item_new_uploads" = "قد لا تظهر الأغاني التي ترفعها إلى Google Drive لاحقًا تلقائيًا، وستحتاج إلى اختيارها مرة أخرى.";
+"gdrive_scope_change_item_sidecars" = "قد يلزم أيضًا تحديد صور الغلاف وملفات كلمات LRC الموجودة بجانب أغانيك. لا يتأثر الغلاف وكلمات الأغاني المضمّنة داخل الأغاني.";
+"gdrive_scope_change_item_writeback" = "قد لا يعمل تعديل الوسوم وكتابة الأغلفة وكلمات الأغاني في الملفات ونقل الملفات إلى سلة المهملات إلا على الملفات التي حدّدتها.";
+"gdrive_scope_change_item_existing" = "قد تحتاج مصادر Google Drive التي أضفتها من قبل إلى تسجيل الدخول مرة أخرى واختيار الملفات من جديد. تبقى قوائم التشغيل والمفضلة وسجل الاستماع كما هي.";
+"gdrive_scope_change_item_tv" = "منتقي الملفات في Google غير متاح على Apple TV، لذا ستختار الأغاني عندها على iPhone أو iPad أو Mac.";
+"gdrive_scope_change_reason_header" = "لماذا قد يحدث هذا التغيير";
 "gdrive_scope_change_reason_policy" = "تشترط Google على كل تطبيق يستطيع قراءة Google Drive الخاص بالمستخدم بالكامل أن يجتاز كل عام تقييمًا أمنيًا (CASA) يجريه مختبر خارجي معتمد من Google، على نفقة المطوّر. تنتقل الأغاني التي يشغّلها Primuse مباشرةً بين جهازك وGoogle ولا تمر أبدًا عبر خوادم Primuse، ومع ذلك أكّدت Google أن مثل هذه التطبيقات غير مستثناة، وأنها لم تعد تقبل التقييم الذاتي من المطوّرين ولا تعفي من الرسوم.";
-"gdrive_scope_change_reason_decision" = "بالنسبة إلى تطبيق مستقل مثل Primuse، لا يمكن تحمّل رسوم تتكرر كل عام، لذا ينتقل Primuse إلى إذن Google «الملفات التي تختارها فقط» الذي لا يحتاج إلى تقييم. هذا القيد نابع من قواعد منصة Google، وليس شيئًا يستطيع Primuse الالتفاف عليه بالتعديل.";
+"gdrive_scope_change_reason_decision" = "بالنسبة إلى تطبيق مستقل مثل Primuse، لا يمكن تحمّل رسوم تتكرر كل عام، لذا يخطط Primuse للانتقال إلى إذن Google «الملفات التي تختارها فقط» الذي لا يحتاج إلى تقييم. وستتحدد التفاصيل في تحديث لاحق. هذا القيد نابع من قواعد منصة Google، وليس شيئًا يستطيع Primuse الالتفاف عليه بالتعديل.";
 "gdrive_scope_change_alternatives_header" = "مكتبة كبيرة، أو تريد فحص مجلدات كاملة؟";
 "gdrive_scope_change_alt_mac" = "Mac: ثبّت تطبيق Google الرسمي Google Drive للكمبيوتر المكتبي، واضبط مجلد الموسيقى على «متاح بلا اتصال بالإنترنت»، ثم أضِفه في Primuse كمجلد محلي. سيفحص Primuse المكتبة كلها ويعثر على الأغاني الجديدة تلقائيًا.";
 "gdrive_scope_change_alt_webdav" = "جميع الأجهزة، بما فيها Apple TV: إذا كان لديك NAS أو كمبيوتر يعمل دائمًا، فاستخدم أداة مثل rclone أو OpenList لتقديم Google Drive عبر WebDAV، ثم أضِف مصدر WebDAV في Primuse. يبقى التفويض لدى أداتك الخاصة ولا يتأثر بهذا التغيير.";

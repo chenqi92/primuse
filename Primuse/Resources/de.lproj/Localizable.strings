@@ -5095,22 +5095,22 @@
 "audiobookshelf_credentials_hint" = "Melde dich mit einem Serverkonto an oder lege auf dem Server unter „Einstellungen › API Keys“ einen API-Schlüssel an und wähle oben „API-Schlüssel“.";
 
 /* Hinweis: Google Drive wechselt zur Berechtigung „Nur die von dir ausgewählten Dateien“ */
-"gdrive_scope_change_title_upcoming" = "Der Zugriff auf Google Drive ändert sich am %@";
-"gdrive_scope_change_title_in_effect" = "Der Zugriff auf Google Drive hat sich am %@ geändert";
-"gdrive_scope_change_summary_upcoming" = "Bis dahin funktioniert alles wie gewohnt. Danach wählst du Titel in der Dateiauswahl von Google aus, statt dass Primuse ganze Ordner durchsucht. Bei bereits hinzugefügten Quellen musst du die Dateien noch einmal auswählen.";
-"gdrive_scope_change_summary_in_effect" = "Du wählst Titel jetzt in der Dateiauswahl von Google aus, statt dass Primuse ganze Ordner durchsucht. Bei bereits hinzugefügten Quellen musst du die Dateien noch einmal auswählen.";
+"gdrive_scope_change_title_upcoming" = "Der Zugriff auf Google Drive könnte sich nach dem %@ ändern";
+"gdrive_scope_change_title_in_effect" = "Der Zugriff auf Google Drive könnte sich ab dem %@ ändern";
+"gdrive_scope_change_summary_upcoming" = "Bis dahin funktioniert alles wie gewohnt. Danach wählst du Titel möglicherweise in der Dateiauswahl von Google aus, statt dass Primuse ganze Ordner durchsucht. Bei bereits hinzugefügten Quellen musst du die Dateien eventuell noch einmal auswählen.";
+"gdrive_scope_change_summary_in_effect" = "Bei Quellen von Google Drive wählst du Titel möglicherweise künftig in der Dateiauswahl von Google aus, statt dass Primuse ganze Ordner durchsucht. Bei bereits hinzugefügten Quellen musst du die Dateien eventuell noch einmal auswählen.";
 "gdrive_scope_change_learn_more" = "Mehr erfahren";
 "gdrive_scope_change_sheet_title" = "Änderungen beim Zugriff auf Google Drive";
-"gdrive_scope_change_changes_header" = "Was sich ab %@ ändert";
-"gdrive_scope_change_item_pick" = "Primuse kann keinen ganzen Musikordner mehr durchsuchen, den du auswählst. Wähle stattdessen in der Dateiauswahl von Google die Titel aus, die du hinzufügen möchtest – du kannst viele auf einmal auswählen.";
-"gdrive_scope_change_item_new_uploads" = "Titel, die du später zu Google Drive hochlädst, erscheinen nicht automatisch. Wähle sie erneut aus, um sie hinzuzufügen.";
-"gdrive_scope_change_item_sidecars" = "Coverbilder und LRC-Liedtextdateien, die neben deinen Titeln liegen, musst du ebenfalls auswählen. In die Titel eingebettete Cover und Liedtexte sind nicht betroffen.";
-"gdrive_scope_change_item_writeback" = "Tags bearbeiten, Cover und Liedtexte zurückschreiben und Dateien in den Papierkorb verschieben funktioniert nur bei Dateien, die du ausgewählt hast.";
-"gdrive_scope_change_item_existing" = "Bei bereits hinzugefügten Quellen von Google Drive musst du dich erneut anmelden und die Dateien noch einmal auswählen. Deine Wiedergabelisten, Favoriten und dein Wiedergabeverlauf bleiben erhalten.";
-"gdrive_scope_change_item_tv" = "Die Dateiauswahl von Google ist auf Apple TV nicht verfügbar. Wähle Titel zum Hinzufügen auf iPhone, iPad oder Mac aus.";
-"gdrive_scope_change_reason_header" = "Warum sich das ändert";
+"gdrive_scope_change_changes_header" = "Mögliche Änderungen nach dem %@";
+"gdrive_scope_change_item_pick" = "Primuse kann möglicherweise keinen ganzen Musikordner mehr durchsuchen, den du auswählst. Stattdessen würdest du in der Dateiauswahl von Google die Titel auswählen, die du hinzufügen möchtest – du kannst viele auf einmal auswählen.";
+"gdrive_scope_change_item_new_uploads" = "Titel, die du später zu Google Drive hochlädst, erscheinen möglicherweise nicht automatisch, und du müsstest sie erneut auswählen.";
+"gdrive_scope_change_item_sidecars" = "Coverbilder und LRC-Liedtextdateien, die neben deinen Titeln liegen, musst du möglicherweise ebenfalls auswählen. In die Titel eingebettete Cover und Liedtexte sind nicht betroffen.";
+"gdrive_scope_change_item_writeback" = "Tags bearbeiten, Cover und Liedtexte zurückschreiben und Dateien in den Papierkorb verschieben funktioniert möglicherweise nur bei Dateien, die du ausgewählt hast.";
+"gdrive_scope_change_item_existing" = "Bei bereits hinzugefügten Quellen von Google Drive musst du dich möglicherweise erneut anmelden und die Dateien noch einmal auswählen. Deine Wiedergabelisten, Favoriten und dein Wiedergabeverlauf bleiben erhalten.";
+"gdrive_scope_change_item_tv" = "Die Dateiauswahl von Google ist auf Apple TV nicht verfügbar. Titel würdest du dann auf iPhone, iPad oder Mac auswählen.";
+"gdrive_scope_change_reason_header" = "Warum sich das ändern könnte";
 "gdrive_scope_change_reason_policy" = "Google verlangt von jeder App, die das gesamte Google Drive eines Nutzers lesen kann, jedes Jahr eine Sicherheitsprüfung (CASA) durch ein von Google anerkanntes externes Labor zu bestehen – auf Kosten des Entwicklers. Die Titel, die Primuse abspielt, werden direkt zwischen deinem Gerät und Google übertragen und laufen nie über Server von Primuse. Trotzdem hat Google bestätigt, dass solche Apps nicht ausgenommen sind und dass weder Selbstbewertungen durch Entwickler noch ein Erlass der Gebühr mehr akzeptiert werden.";
-"gdrive_scope_change_reason_decision" = "Für eine unabhängig entwickelte App wie Primuse ist eine Gebühr, die jedes Jahr wieder anfällt, nicht tragbar. Deshalb wechselt Primuse zur Google-Berechtigung „Nur die von dir ausgewählten Dateien“, für die keine Prüfung nötig ist. Diese Einschränkung ergibt sich aus den Plattformregeln von Google – Primuse kann sie nicht durch eigene Anpassungen umgehen.";
+"gdrive_scope_change_reason_decision" = "Für eine unabhängig entwickelte App wie Primuse ist eine Gebühr, die jedes Jahr wieder anfällt, nicht tragbar. Deshalb plant Primuse, zur Google-Berechtigung „Nur die von dir ausgewählten Dateien“ zu wechseln, für die keine Prüfung nötig ist. Die Einzelheiten hängen von einem künftigen Update ab. Diese Einschränkung ergibt sich aus den Plattformregeln von Google – Primuse kann sie nicht durch eigene Anpassungen umgehen.";
 "gdrive_scope_change_alternatives_header" = "Große Mediathek oder ganze Ordner durchsuchen?";
 "gdrive_scope_change_alt_mac" = "Mac: Installiere das offizielle Google Drive für den Desktop, setze deinen Musikordner auf „Offline verfügbar“ und füge ihn dann in Primuse als lokalen Ordner hinzu. Primuse durchsucht die ganze Mediathek und findet neue Titel automatisch.";
 "gdrive_scope_change_alt_webdav" = "Alle Geräte, auch Apple TV: Wenn du ein NAS oder einen dauerhaft laufenden Computer hast, kannst du Google Drive mit einem Tool wie rclone oder OpenList per WebDAV bereitstellen und dann in Primuse eine WebDAV-Quelle hinzufügen. Die Autorisierung liegt bei deinem eigenen Tool und ist von dieser Änderung nicht betroffen.";
